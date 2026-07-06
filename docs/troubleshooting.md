@@ -18,17 +18,39 @@ than manifest expects. Either (a) update that clone's origin, or (b) use
 
 ## conda env create fails on spear_ext
 
-`spear_ext` is a compiled C++ extension. It is NOT on PyPI. After creating
-`spear-env`:
+`spear_ext` is a compiled C++ extension. It is NOT on PyPI. Nor can you
+`pip install -e python_ext` directly — it requires **Unreal Engine's
+bundled clang + libc++**, not system gcc.
+
+After creating `spear-env`, run:
 
 ```bash
-conda activate spear-env
+# Install pure-python spear (RPC client wrapper)
+/data/jzy/miniconda3/envs/spear-env/bin/pip install -e external/SPEAR/python
+
+# Install the C++ extension using UE's toolchain. SPEAR ships a script that
+# figures out the right paths:
 cd external/SPEAR
-pip install -e python       # spear-sim (Python RPC client)
-pip install -e python_ext   # spear-ext (needs SPEAR's cpp/ pre-built)
+/data/jzy/miniconda3/envs/spear-env/bin/python tools/install_python_extension.py \
+    --unreal-engine-dir /data/UE_5.5 \
+    --conda-env spear-env
 ```
 
-See SPEAR docs for building `cpp/` (Unreal Engine 5 build tools required).
+**⚠ Gotcha**: `tools/install_python_extension.py` uses `conda activate <env>`
+under the hood. If your shell profile prefixes PATH with another conda env
+(check `env | grep PATH | head -1`), the wrapper may install to that env
+instead. **Workaround**: call `pip install -e python_ext` directly using
+spear-env's pip binary, passing the UE clang path explicitly:
+
+```bash
+UE=/data/UE_5.5
+CLANG=$UE/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v23_clang-18.1.0-rockylinux8/x86_64-unknown-linux-gnu/bin/clang++
+LIBCXX=$UE/Engine/Source/ThirdParty/Unix/LibCxx
+CXX_FLAGS="-std=c++20 -O3 -D_LIBCPP_ENABLE_EXPERIMENTAL -nostdinc++ -I$LIBCXX/include/c++/v1 -Wno-reserved-macro-identifier -stdlib=libc++ -L$LIBCXX/lib/Unix/x86_64-unknown-linux-gnu -lc++"
+/data/jzy/miniconda3/envs/spear-env/bin/pip install -e external/SPEAR/python_ext \
+    -C cmake.define.CMAKE_CXX_COMPILER="$CLANG" \
+    -C cmake.define.CMAKE_CXX_FLAGS="$CXX_FLAGS"
+```
 
 ## conda env create fails on gpuRIR
 

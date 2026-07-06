@@ -10,22 +10,23 @@ dependencies:
     commit: bc8ce3236cc8c9f06b84d3764d5211cad747fd8c
     path: external/SPEAR
     upstream: https://github.com/spear-sim/spear.git
-    local_hint: /data/jzy/code/SPEAR                   # AUTHOR'S LOCAL PATH.
-                                                       # setup.sh checks: if this
-                                                       # absolute path exists AND its
-                                                       # git origin matches `url` or
-                                                       # `upstream`, symlink instead
-                                                       # of cloning. On any other
-                                                       # machine (path won't exist) →
-                                                       # clone. Collaborators leave
-                                                       # this field untouched.
+    local_hint: null                                    # Was /data/jzy/code/SPEAR
+                                                       # before mv. Now SPEAR lives
+                                                       # directly under external/,
+                                                       # so setup.sh needs no hint.
+                                                       # Set to a path on collaborator
+                                                       # machines only if they have
+                                                       # a pre-existing SPEAR clone
+                                                       # they want to symlink instead
+                                                       # of re-cloning.
 
   Hunyuan3D-2.1:
     url: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git
     commit: 82920d643c0dc2f7bfd7255f45f62d386edfe60c
     path: external/Hunyuan3D-2.1
     upstream: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git
-    local_hint: /data/jzy/code/Hunyuan3D-2.1
+    local_hint: null                                    # Was /data/jzy/code/Hunyuan3D-2.1
+                                                       # before mv. Now under external/.
 
 external_data:
   # These are NOT downloaded by setup.sh. Collaborators must obtain and
