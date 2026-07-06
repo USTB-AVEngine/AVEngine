@@ -7,7 +7,7 @@ version: 1
 dependencies:
   SPEAR:
     url: git@github.com:Eastforward/spear.git
-    commit: bc8ce3236cc8c9f06b84d3764d5211cad747fd8c
+    commit: a5168b8c357afa494f6200dedb03b93c3a59be57
     path: external/SPEAR
     upstream: https://github.com/spear-sim/spear.git
     local_hint: null                                    # Was /data/jzy/code/SPEAR
