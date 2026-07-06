@@ -1,0 +1,69 @@
+# AVEngine dependency manifest — single source of truth.
+# scripts/setup.sh reads this. If you add a new external repo here,
+# rerun `bash scripts/setup.sh` and it will pick it up.
+
+version: 1
+
+dependencies:
+  SPEAR:
+    url: git@github.com:Eastforward/spear.git
+    commit: bc8ce3236cc8c9f06b84d3764d5211cad747fd8c
+    path: external/SPEAR
+    upstream: https://github.com/spear-sim/spear.git
+    local_hint: /data/jzy/code/SPEAR                   # AUTHOR'S LOCAL PATH.
+                                                       # setup.sh checks: if this
+                                                       # absolute path exists AND its
+                                                       # git origin matches `url` or
+                                                       # `upstream`, symlink instead
+                                                       # of cloning. On any other
+                                                       # machine (path won't exist) →
+                                                       # clone. Collaborators leave
+                                                       # this field untouched.
+
+  Hunyuan3D-2.1:
+    url: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git
+    commit: 82920d643c0dc2f7bfd7255f45f62d386edfe60c
+    path: external/Hunyuan3D-2.1
+    upstream: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git
+    local_hint: /data/jzy/code/Hunyuan3D-2.1
+
+external_data:
+  # These are NOT downloaded by setup.sh. Collaborators must obtain and
+  # place them at the paths below (or symlink to their own copies) BEFORE
+  # running pipeline. Loader code in SPEAR reads from these paths.
+
+  omniaudio_wavs:
+    expected_path: /data/datasets/omniaudio/train-data-az-360-large
+    description: "~58k AudioSet .wav clips indexed by keyword"
+    source: "Contact <author> or reproduce from AudioSet dumps"
+    size_estimate: "~40 GB"
+    used_by: SPEAR/tools/gpurir_scenes/audio_registry.py
+
+  stable_audio_open:
+    expected_path: /data/datasets/omniaudio/stable-audio-open
+    description: "Stable Audio Open 1.0 model weights"
+    source: https://huggingface.co/stabilityai/stable-audio-open-1.0
+    size_estimate: "~5 GB"
+    used_by: SPEAR/tools/gpurir_scenes/gen_sao_clip.py
+
+  hunyuan3d_weights:
+    expected_path: /data/jzy/code/Hunyuan3D-2.1/pretrained_models
+    description: "Hunyuan3D-2.1 shape + paint weights"
+    source: https://huggingface.co/Tencent-Hunyuan/Hunyuan3D-2.1
+    size_estimate: "~20 GB"
+    used_by: SPEAR/tools/hy3d_bake_diffuse.py
+
+python_environments:
+  # setup.sh does NOT create these. README instructs manual creation.
+  spear-env:
+    yml: envs/spear-env.yml
+    python: "3.11"
+    critical_packages: [spear_ext]
+  sao-env:
+    yml: envs/sao-env.yml
+    python: "3.10"
+    critical_packages: [torch>=2.7, stable-audio-tools, gpuRIR==1.2.0, numpy<2]
+  hunyuan3d-env:
+    yml: envs/hunyuan3d-env.yml
+    python: "3.10"
+    critical_packages: [diffusers, hy3dgen]
