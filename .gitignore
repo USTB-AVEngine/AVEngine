@@ -1,0 +1,20 @@
+# external repos are populated by scripts/setup.sh, not tracked here
+external/*
+!external/.gitkeep
+
+# setup state (per-machine)
+.setup_state.json
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# editor/OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# any tmp/ inside AVEngine (mirrors SPEAR convention)
+tmp/
