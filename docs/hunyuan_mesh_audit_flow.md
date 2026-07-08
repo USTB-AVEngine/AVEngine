@@ -6,6 +6,53 @@
 
 ---
 
+## 核心规则(2026-07-08 定稿)
+
+**"目录本身就是审核状态的唯一 source of truth。"**
+
+- 资产在 `approved/` 目录 = 已通过人工视觉审核 = **可以直接用**
+- 资产在 `pending/` 目录 = 尚未审核 = 下游 review_gate 会拒绝加载
+- 资产在 `rejected/` 目录 = 已否决 = 别用
+
+**同样的约定推广到房间(未来):**
+- `data/rooms/approved/` 里的 room spec = 已通过视觉审 (dog 走 +X 头朝 +X)
+- `data/rooms/pending/` 里的 = 待审
+- 目前只有 `shoebox_v2` 和 `apartment_v1` 两个 room,都已隐式审过(在
+  `tests/tools/evidence_2026_07_08_rig_forward_fix/` 有视觉证据),尚未
+  分目录管理,视 Plan 3 需求再切目录。
+
+**没有额外的 md 文档、pytest、参考图 diff。目录位置 = 全部规则。**
+
+### 加新 rig(比如 beagle、Mixamo horse)的流程
+
+1. Hunyuan3D 生成 → mesh 落在 `tmp/hy3d_batch/pending/{tag}/mesh.glb`
+2. `python tools/spike_rlr/auto_orient_ingest.py --pending-dir tmp/hy3d_batch/pending`
+3. 起 web UI: `python tools/spike_rlr/review_ui_server.py`
+4. 浏览器打开,视觉审 + 用旋转按钮把头调到 +X → 点 Approve
+5. 系统自动把 tag 移到 `approved/`,烘焙旋转到 `mesh_oriented.glb`,写
+   `human_approved: true` 到 direction.json
+6. 下次 dataset_runner 加载这个 tag 时,review_gate 自动放行
+
+**如果 rig 属于新家族(不是 Quaternius Dog/Cat)**:
+- 在 `tools/species_rig_map.py` 里加一个新的 `*_FORWARD_YAW_OFFSET_DEG` 常量
+- 在 `ANIMATED_RIG_MAP[new_tag]` 里引用它
+- 先猜个值(0 或 180),渲一个 shoebox 或 apartment,看头方向
+- 头对 → offset 定下来
+- 头反 → 试 180 或 -90,重渲直到对
+- 视觉证据存到 `tests/tools/evidence_*/`,commit
+
+### 加新房间的流程
+
+1. 房间 spec 建好(比如 kujiale 某间房)
+2. 加坐标转换:`tools/gpurir_scenes/run_render_pass.py::_yaw_world_to_ue`
+   里加新 case
+3. 用已知好的 rig(dog_golden)在新房间里渲一个测试 clip
+4. 视觉审头方向
+5. 头对 → 房间进 `approved/`,视觉证据 commit
+6. 头反 → 改 `_yaw_world_to_ue` 公式,重渲直到对
+
+---
+
 ## 为什么需要审核
 
 Hunyuan3D-Shape 出来的 mesh **不保证头部指向任何固定方向** —— 有的头朝 +X,有的朝 -Z,有的甚至侧躺(dorsal 面不朝 +Y)。SPEAR 的动物 rig 假设的 canonical 坐标是 **头 → +X,背 → +Y 上,身长沿 X 轴**。如果 mesh 方向不对而不审核就走渲染,得到的会是"狗背对镜头走"、"猫躺着漂浮"这类难 debug 的错误。
