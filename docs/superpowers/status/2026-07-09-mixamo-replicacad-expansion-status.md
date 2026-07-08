@@ -11,10 +11,18 @@ Date: 2026-07-09
   - remote: `origin`
   - branch: `main`
   - commit: `4c4b0dc docs: plan Mixamo and ReplicaCAD expansion`
+- Pushed AVEngine status/path updates to GitHub:
+  - remote: `origin`
+  - branch: `main`
+  - commit: `bffe6c5 docs: record ReplicaCAD download and expansion status`
 - Pushed the previous SPEAR review/audio/asset fixes:
   - remote: `eastforward`
   - branch: `feature/plan2-flag-generator-m1`
   - commit: `55b12cd0 fix(review): align actor markers, audio yaw, and painted assets`
+- Pushed the new SPEAR external data probes and direction gate:
+  - remote: `eastforward`
+  - branch: `feature/plan2-flag-generator-m1`
+  - commit: `93908582 feat(spike): add external data probes and direction gate`
 - Added tested external data path helpers:
   - `tools/spike_rlr/external_data_paths.py`
   - ReplicaCAD default root: `/data/datasets/replica_cad`
