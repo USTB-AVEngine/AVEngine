@@ -13,6 +13,10 @@ pipeline trap while working, update this file in the same change.
   `/data/jzy/code/AVEngine/external/SPEAR/tmp/hy3d_batch`
 - Approved review assets:
   `/data/jzy/code/AVEngine/external/SPEAR/tmp/hy3d_batch/approved/{tag}`
+- External ReplicaCAD dataset root: `/data/datasets/replica_cad`
+  (`AVENGINE_REPLICACAD_ROOT` overrides it).
+- External Mixamo dataset root: `/data/datasets/mixamo`
+  (`AVENGINE_MIXAMO_ROOT` overrides it).
 
 Prefer repo-relative paths when editing code, but use absolute paths when
 calling scripts that `chdir` internally.
@@ -22,12 +26,36 @@ calling scripts that `chdir` internally.
 - `spear-env`: SPEAR/UE rendering, review-video builder, most lightweight
   SPEAR-side tests.
 - `ss2`: Habitat/RLR audio, `trimesh`, auto-orient ingest, review UI mesh
-  processing.
+  processing, ReplicaCAD Habitat smoke checks.
 - `hunyuan3d`: Hunyuan3D shape and paint generation only.
 
 Do not assume a test failure is real before checking that it was run under the
 right environment. For example, `test_auto_orient_ingest.py` needs `ss2`
 because it imports `trimesh`.
+
+## ReplicaCAD / Mixamo Data Traps
+
+- Official ReplicaCAD download command in `ss2`:
+  `/data/jzy/miniconda3/envs/ss2/bin/python -m habitat_sim.utils.datasets_download --uids replica_cad_dataset --data-path /data/datasets --no-replace`
+- The Habitat downloader writes versioned data under
+  `/data/datasets/versioned_data/replica_cad_dataset_1.5` and creates the
+  active symlink `/data/datasets/replica_cad`. Use that symlink as the default
+  root, not `/data/datasets/replicacad`.
+- ReplicaCAD scene loading in Habitat needs
+  `SimulatorConfiguration.scene_dataset_config_file =
+  /data/datasets/replica_cad/replicaCAD.scene_dataset_config.json` and
+  `scene_id = "apt_0"` style scene IDs.
+- In `ss2`, `apt_0` loads, but `sim.pathfinder` is not loaded automatically.
+  Explicitly call `sim.pathfinder.load_nav_mesh(
+  "/data/datasets/replica_cad/navmeshes/apt_0.navmesh")` before sampling
+  walkable points.
+- Habitat may print articulated-object creation failures for ReplicaCAD URDFs
+  during a minimal non-physics smoke. Treat the smoke as valid if the simulator
+  is created and the explicit navmesh load succeeds; solve articulated object
+  physics separately when implementing interactive objects.
+- Mixamo FBX files normally require user account/browser download. Do not try
+  to scrape Mixamo; place user-downloaded FBX files under `/data/datasets/mixamo`
+  or set `AVENGINE_MIXAMO_ROOT`.
 
 ## Hunyuan3D Path Traps
 

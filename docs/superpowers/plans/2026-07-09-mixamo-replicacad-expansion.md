@@ -188,7 +188,7 @@ from tools.spike_rlr.external_data_paths import (
 
 
 def test_dataset_root_defaults():
-    assert dataset_root("replicacad") == Path("/data/datasets/replicacad")
+    assert dataset_root("replicacad") == Path("/data/datasets/replica_cad")
     assert dataset_root("mixamo") == Path("/data/datasets/mixamo")
 
 
@@ -252,11 +252,12 @@ DATASETS: dict[str, DatasetSpec] = {
     "replicacad": DatasetSpec(
         name="replicacad",
         label="ReplicaCAD",
-        default_path=Path("/data/datasets/replicacad"),
+        default_path=Path("/data/datasets/replica_cad"),
         env_var="AVENGINE_REPLICACAD_ROOT",
         acquisition_hint=(
-            "Install/download the official Habitat ReplicaCAD assets and set "
-            "AVENGINE_REPLICACAD_ROOT when using a non-default location."
+            "ReplicaCAD: run python -m habitat_sim.utils.datasets_download --uids "
+            "replica_cad_dataset --data-path /data/datasets --no-replace. "
+            "Set AVENGINE_REPLICACAD_ROOT when using a non-default location."
         ),
     ),
     "mixamo": DatasetSpec(
@@ -314,7 +315,7 @@ Add the external dataset paths and environment override names under Workspace
 Layout:
 
 ```markdown
-- External ReplicaCAD dataset root: `/data/datasets/replicacad`
+- External ReplicaCAD dataset root: `/data/datasets/replica_cad`
   (`AVENGINE_REPLICACAD_ROOT` overrides it).
 - External Mixamo dataset root: `/data/datasets/mixamo`
   (`AVENGINE_MIXAMO_ROOT` overrides it).
@@ -494,7 +495,7 @@ instructions.
 Run:
 
 ```bash
-ls -la /data/datasets/replicacad /data/datasets/mixamo 2>&1 || true
+ls -la /data/datasets/replica_cad /data/datasets/mixamo 2>&1 || true
 ```
 
 Expected: either directories exist or the error is recorded.
@@ -512,7 +513,7 @@ Expected: locate an existing script or confirm the repo has no downloader.
 
 - [ ] **Step 3: If a non-interactive official download command exists, run it**
 
-Run the command into `/data/datasets/replicacad` and keep the terminal session
+Run the command into `/data/datasets` and keep the terminal session
 open until it finishes. If it is gated or requires login/license acceptance,
 write that exact reason in the status file and continue with code/tests.
 

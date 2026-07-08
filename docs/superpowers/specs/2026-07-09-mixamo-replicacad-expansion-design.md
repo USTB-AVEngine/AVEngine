@@ -38,16 +38,18 @@ The first deliverable is one reviewable clip, not a large dataset batch.
 
 Use `/data/datasets` for large external assets:
 
-- ReplicaCAD root: `/data/datasets/replicacad`
+- ReplicaCAD root: `/data/datasets/replica_cad`
 - Mixamo root: `/data/datasets/mixamo`
 
 The repo should only store scripts, manifests, tiny metadata, and docs. If a
 dataset is not present, the downloader/prober must say exactly which path is
 missing and which command or manual action is required.
 
-ReplicaCAD is expected to need official Habitat/ReplicaCAD assets. If the
-download is gated or license-protected, the script must stop with a clear
-status file instead of spinning without progress.
+ReplicaCAD is expected to need official Habitat/ReplicaCAD assets. Habitat's
+download utility writes versioned data under `/data/datasets/versioned_data`
+and creates the active `/data/datasets/replica_cad` symlink. If the download is
+gated or license-protected, the script must stop with a clear status file
+instead of spinning without progress.
 
 Mixamo is expected to need user-downloaded FBX files from the Mixamo website.
 The pipeline should accept an existing directory of FBX files and import a
