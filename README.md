@@ -123,6 +123,7 @@ generate GPURIR 4-channel audio and mux `view*_with_audio.mp4` files.
 | Rigged 3D animal meshes | `assets/mesh_library/` |
 | Chinese pipeline doc | `docs/pipeline_zh.md` |
 | English pipeline doc | `docs/pipeline_en.md` |
+| Hunyuan mesh 方向审核流程 | [`docs/hunyuan_mesh_audit_flow.md`](docs/hunyuan_mesh_audit_flow.md) |
 | Design specs | `docs/superpowers/specs/` |
 | Implementation plans | `docs/superpowers/plans/` |
 
