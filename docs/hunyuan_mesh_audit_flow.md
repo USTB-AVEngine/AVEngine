@@ -143,65 +143,78 @@ ssh -N -L 8080:localhost:8080 <your-server-host>
 
 ## 第 3 步 —— 审核操作
 
-打开页面看到:
+### 页面布局
+
+单卡片居中,一次只显示一个 pending tag。preview 是一张 **top-down (从世界 +Y 俯视下来)** 的 2D 投影 —— 你看到的是 world-XZ 平面。图两侧固定画着两个大参考箭头:
+
+- 右侧 **绿色 "HEAD →"** —— 头应该指的方向 (world +X)
+- 左侧 **红色 "← TAIL"** —— 尾巴应该指的方向 (world -X)
+
+围绕 preview,**旋转按钮按方向布局**(不用去猜哪个键做什么,直接按对应方位):
 
 ```
-┌─────────────────────────────────────┐
-│  Pending: 4  Approved: 0  Rejected: 0 │
-├─────────────────────────────────────┤
-│               dog_beagle              │
-│  Auto-detected head: [+0.99, +0.08, +0.00] │
-│  Confidence: 100%                     │
-│                                       │
-│  ┌─────────┬─────────┐               │
-│  │ Isometric│ Side    │               │
-│  │  🐕 →     │  🐕 →   │  ← 4 视图    │
-│  │ (GREEN arrow → HEAD)│              │
-│  ├─────────┼─────────┤               │
-│  │ Top-down│ Front   │               │
-│  └─────────┴─────────┘               │
-│                                       │
-│  [Roll ±90°]  [Yaw ±90°]  [Pitch ±90°]│
-│  [Flip head↔tail]  [Reset]           │
-│                                       │
-│  [✅ Approve] [❌ Reject] [⏭ Skip]   │
-└─────────────────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│                    dog_beagle                           │
+│  Auto-detected head: [+0.99, +0.08, +0.00]              │
+│  Confidence: 100%                                       │
+│  Applied: y+90 + x-90                                   │
+│  📁 /data/jzy/…/pending/dog_beagle/mesh.glb            │
+│                                                         │
+│  ↺ yaw−90    ↑ roll+90       ↻ yaw+90                   │
+│                                                         │
+│  ← pitch−  [    PREVIEW IMAGE   ]   pitch+ →            │
+│              ← TAIL         HEAD →                      │
+│                                                         │
+│  ⇄ flip180   ↓ roll−90       ⟲ reset                    │
+│                                                         │
+│  [✅ Approve]  [❌ Reject]  [⏭ Skip]                    │
+└───────────────────────────────────────────────────────┘
 ```
 
-### 审核任务
+### 按钮 → 语义 对照
 
-对每个 tag,你的任务是**让 mesh 对齐两个大参考箭头**:
+| 位置 | 按钮 | 什么时候用 |
+|---|---|---|
+| 左上角 ↺ | **yaw −90°** | mesh 头指向下方 → 逆时针转 90° 让头指右 |
+| 右上角 ↻ | **yaw +90°** | mesh 头指向上方 → 顺时针转 90° 让头指右 |
+| 左下角 ⇄ | **flip 180°** | mesh 头指左边 → 一键翻头尾 |
+| 上边 ↑ | **roll +90° (about X)** | mesh 侧躺,肚子朝 +Z → 立起来 |
+| 下边 ↓ | **roll −90° (about X)** | mesh 侧躺,肚子朝 −Z → 立起来 |
+| 左边 ← | **pitch −90° (about Z)** | mesh 立在错误的轴上 → 换 Z-pitch |
+| 右边 → | **pitch +90° (about Z)** | 同上,反方向 |
+| 右下角 ⟲ | **reset** | 转错了从头来 |
 
-- **绿色 "HEAD →" 箭头**指向 world +X → **动物的头应该指这个方向**
-- **蓝色 "UP ↑" 箭头**指向 world +Y → **动物应该站立**(dorsal 面朝上)
+**核心 heuristic**:观察 preview 里的动物身体长轴指向哪里,选**同方向的按钮**把它转到 world +X(→ HEAD)。
 
-如果 Hunyuan 出来的 mesh 已经这样了 —— 直接点 **Approve**。
+### 每次操作后
 
-如果不对 —— 用旋转按钮调:
+- **旋转按钮** → 服务器累积旋转,重新渲染 preview PNG,页面刷新显示新方向。`Applied:` 行显示历史(比如 `y+90 + x-90`)。
+- **Approve** → 累积旋转**烘焙**进 `mesh_oriented.glb` 的顶点坐标;`direction.json` 加 `human_approved: true` + username + `human_applied_rotation_history: ["y+90", "x-90"]`;mesh 目录移到 `approved/`;浏览器**自动跳下一个** pending tag。
+- **Reject** → mesh 移到 `rejected/`,`human_approved: false` + `human_notes` 记原因;跳下一个。
+- **Skip** → 保留在 `pending/`,跳下一个,以后再审。
+- 全部审完 → 页面变成 "🎉 All pending meshes reviewed"。
 
-| 情况 | 用哪个按钮 |
-|---|---|
-| 头指向反方向 (mesh 头指 -X) | **Flip head↔tail** (180° yaw) |
-| 头指向 +Y (还需转 90° 到 +X) | **Yaw −90°** |
-| 头指向 +Z | **Pitch ±90°** |
-| 侧躺 (dorsal 朝 +X 而不是 +Y) | **Roll ±90°** |
-| 头朝下 (dorsal 朝 -Y) | **Roll ±90° × 2** 或 **Pitch ±90°** |
-| 完全无法辨认 / mesh 坏了 | **Reject** |
-| 暂时看不清,先跳过下次再看 | **Skip** |
-| 转错了想重来 | **Reset** |
+### 服务器端 console
 
-每按一次旋转按钮,页面立即重新渲染 preview,累积的旋转会显示在 confidence 行:
+服务器端每一步都打印到 stdout,方便你远程 tail 日志或 debug:
 
 ```
-Confidence: 100% | Applied rotation: y+90 + x+90
+========================================================================
+Review UI serving  http://127.0.0.1:8080/
+  pending  dir:  /data/jzy/…/hy3d_batch/pending
+  approved dir:  /data/jzy/…/hy3d_batch/approved
+  rejected dir:  /data/jzy/…/hy3d_batch/rejected
+  3 tag(s) awaiting review:
+     - dog_beagle    /data/jzy/…/pending/dog_beagle/mesh.glb
+     - dog_golden    /data/jzy/…/pending/dog_golden/mesh.glb
+     - dog_husky     /data/jzy/…/pending/dog_husky/mesh.glb
+========================================================================
+[review_ui] GET /tag/dog_beagle  mesh=/data/jzy/…/pending/dog_beagle/mesh.glb
+[review_ui] ROTATE dog_beagle  axis=y deg=+90  history=y+90
+[review_ui] ROTATE dog_beagle  axis=x deg=-90  history=y+90 + x-90
+[review_ui] MOVED dog_beagle  ->  /data/jzy/…/approved/dog_beagle
+[review_ui]   direction.json.human_approved = True
 ```
-
-### 决策后
-
-- **Approve** → mesh 移到 `approved/{tag}/`,`direction.json` 加 `human_approved: true` + 你的累积旋转历史 + 你的 username;浏览器**自动跳下一个** pending tag
-- **Reject** → mesh 移到 `rejected/{tag}/`,`human_approved: false`;跳下一个
-- **Skip** → 保留在 `pending/`,跳下一个
-- 所有 tag 都审完 → 页面变成 "🎉 All pending meshes reviewed"
 
 ---
 
