@@ -191,6 +191,21 @@ code. Per-clip events record trajectory, visibility, and sound timing; do not
 duplicate generation prompts, measured colors, or texture paths in event
 metadata.
 
+Hunyuan/Flux generation should write
+`tmp/hy3d_batch/pending/{tag}/source_asset_candidate.json` as soon as a
+candidate mesh is dropped into pending. Review UI approval carries this file
+into `approved/{tag}` and updates its direction review status, but this still
+does not make the asset production-ready. Only after texture, runtime mesh,
+rig/animation, and audio mapping gates pass should the asset be copied into
+`data/source_assets_v1`.
+
+To check current animated-source classification status, run:
+`/data/jzy/miniconda3/envs/spear-env/bin/python tools/spike_rlr/source_asset_audit.py --approved-dir tmp/hy3d_batch/approved --registry-root data/source_assets_v1`.
+As of 2026-07-09, `dog_golden`, `dog_beagle_v2`, and
+`cat_british_shorthair_v2` are classified and registered; older
+`dog_beagle`, `dog_husky`, and `cat_british_shorthair` approved dirs are
+direction-approved only and are missing texture/runtime proxy files.
+
 Approved animated assets must not be gray/untextured. For every animated tag in
 `tmp/hy3d_batch/approved/{tag}`, expect:
 
