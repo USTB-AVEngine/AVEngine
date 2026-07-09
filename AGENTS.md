@@ -20,6 +20,11 @@ pipeline trap while working, update this file in the same change.
 - External Mixamo dataset root: `/data/datasets/mixamo`
   (`AVENGINE_MIXAMO_ROOT` overrides it).
 - External Quaternius raw archive root: `/data/datasets/quaternius/raw`.
+- External speech corpus roots include `/data/datasets/LibriTTS`,
+  `/data/datasets/wsj`, `/data/datasets/wsj0_2mix`,
+  `/data/datasets/VCTK-Corpus-0.92`, and the Common Voice mirrors under
+  `/data/datasets/cv-corpus-24.0-2025-12-05` and
+  `/data/datasets/common_english`.
 
 Prefer repo-relative paths when editing code, but use absolute paths when
 calling scripts that `chdir` internally.
@@ -87,6 +92,35 @@ because it imports `trimesh`.
   assets. For the acoustic source class, map those instances to speech,
   talking, conversation, or voice audio as appropriate; speech is an audio
   category, not the animation asset.
+- Do not judge local human-speech availability from OmniAudio filename matches
+  alone. The machine has large speech corpora under `/data/datasets`; prefer
+  these for visible human speech before using generic AudioSet/OmniAudio clips.
+- Good single-speaker speech roots scanned on 2026-07-09:
+  - `/data/datasets/LibriTTS` (`99G`, about `377789` wav files). This is the
+    main LibriTTS root with splits such as `train-clean-*`, `train-other-500`,
+    `dev-*`, and `test-*`.
+  - `/data/datasets/LibriTTS/LibriSpeech` is only a smaller LibriSpeech-style
+    `dev-clean` subtree (`2703` flac files); do not mistake it for the main
+    LibriTTS root.
+  - `/data/datasets/VCTK-Corpus-0.92` (`12G`, about `88328` flac files), with
+    speaker folders under `wav48_silence_trimmed`.
+  - `/data/datasets/wsj` (`25G`, about `171794` audio files) includes both
+    converted WSJ wav data and a `wsj0_2mix` subtree. Prefer converted
+    single-speaker wav roots when attaching one visible human to one voice.
+  - `/data/datasets/common_english` and
+    `/data/datasets/cv-corpus-24.0-2025-12-05` are large Common Voice mirrors
+    with mp3 clips; useful after transcript/quality filtering, less direct than
+    LibriTTS/VCTK/converted WSJ wav.
+- Mixed or derived speech datasets are useful for future multi-speaker/noisy
+  audio tasks but should not be the first source for one visible speaking
+  human: `/data/datasets/wsj0_2mix` (`54G`, about `336000` wav files),
+  `/data/datasets/Libri-mixture-noisy`, `TextrolMix`, and
+  `TextrolMix_LibriFormat`.
+- `/data/datasets/wsj0_ori` and `/data/datasets/wsj0_extracted` contain WSJ0
+  `.wv1/.wv2` files. Prefer already converted wav data unless the adapter
+  explicitly handles WSJ sphere/compressed formats.
+- `/data/datasets/JAEGER/librispeech` currently appears to contain annotations
+  such as `train-clean-100_ann_librispeech.json`, not local audio files.
 - The local Objaverse maps under `/data/datasets/jzy/assets/objaverse` may
   contain stale `/home/jzy/.objaverse/...` paths. Verify the referenced GLB
   exists before using a map entry; otherwise re-download by uid or prefer the

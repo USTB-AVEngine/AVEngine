@@ -98,11 +98,29 @@ Date: 2026-07-09
   - `quaternius_ultimate_animated_character_pack_2021_opengameart.zip`
     (`48,430,012` bytes; many human characters; FBX/Blend/OBJ)
   - verification: `unzip -t` reported no compressed-data errors for all three.
-- Checked local speech-like audio availability:
-  - `speech` filename matches in the current OmniAudio corpus: `0`
-  - `talking` filename matches: `6`
-  - `conversation` filename matches: `10`
-  - `voice` filename matches: `22`
+- Corrected the local speech-audio survey:
+  - The earlier OmniAudio filename-only scan was too narrow. It found
+    `speech=0`, `talking=6`, `conversation=10`, and `voice=22` filename
+    matches, but that is not the right proxy for local human-speech coverage.
+  - Large local speech corpora exist under `/data/datasets` and should be the
+    first candidates for visible human speech sources:
+    - `/data/datasets/LibriTTS` (`99G`, about `377789` wav files)
+    - `/data/datasets/VCTK-Corpus-0.92` (`12G`, about `88328` flac files)
+    - `/data/datasets/wsj` (`25G`, about `171794` audio files; includes
+      converted WSJ wav data and a `wsj0_2mix` subtree)
+    - `/data/datasets/cv-corpus-24.0-2025-12-05` (`12G`, about `319188` mp3
+      clips)
+    - `/data/datasets/common_english` (`98G`, about `2569108` mp3 clips)
+  - `/data/datasets/wsj0_2mix` (`54G`, about `336000` wav files),
+    `/data/datasets/Libri-mixture-noisy`, and Textrol mix roots are mixed or
+    derived speech sets. Keep them for multi-speaker/noisy speech work, not as
+    the default one-human/one-voice dry source.
+  - `/data/datasets/wsj0_ori` and `/data/datasets/wsj0_extracted` hold WSJ0
+    `.wv1/.wv2` files; prefer converted wav data unless an adapter explicitly
+    supports those formats.
+  - `/data/datasets/JAEGER/librispeech` currently looks annotation-only from
+    this scan, with `train-clean-100_ann_librispeech.json` and no local audio
+    files counted.
   - Human visual sources should map to speech/talking/conversation/voice audio
     categories separately from the visual animation asset.
 
@@ -149,6 +167,8 @@ Date: 2026-07-09
 - `AGENTS.md` now records the visual/acoustic split for human sources:
   human meshes/animations visually, speech/talking/conversation/voice audio
   acoustically.
+- `AGENTS.md` now records the local speech corpus roots under `/data/datasets`;
+  do not use OmniAudio filename matches as the only speech availability check.
 - `AGENTS.md` now records that Hunyuan AudioSet assets are the preferred local
   static-animal source and that Objaverse map paths may be stale.
 - Habitat smoke with ReplicaCAD needs `ss2`.
