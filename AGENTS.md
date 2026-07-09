@@ -112,6 +112,17 @@ out of commits and remove them if they appear.
   assets. For the acoustic source class, map those instances to speech,
   talking, conversation, or voice audio as appropriate; speech is an audio
   category, not the animation asset.
+- Current formal human source candidates should use Flux reference images
+  through `external/SPEAR/tools/flux_generate_reference.py --template human`
+  so image provenance matches the Hunyuan/Flux animal flow. Do not register
+  built-in imagegen output as a production human source; it is acceptable only
+  for brainstorming or rejected/temporary references.
+- Do not run the animal auto-orient heuristic as if it were valid for human
+  meshes. `external/SPEAR/tools/spike_rlr/auto_orient_ingest.py` now checks
+  `source_asset_candidate.json` and, for `category: human`, writes a manual
+  orientation review payload instead of generating a speculative
+  `mesh_oriented.glb`. The review UI must bake the final human rotation on
+  approval.
 - Do not judge local human-speech availability from OmniAudio filename matches
   alone. The machine has large speech corpora under `/data/datasets`; prefer
   these for visible human speech before using generic AudioSet/OmniAudio clips.
