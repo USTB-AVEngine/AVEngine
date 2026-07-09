@@ -110,9 +110,14 @@ out of commits and remove them if they appear.
   `human_male_blue_hoodie_v1` looked tiny in `trimesh`, but UE Interchange
   renders it at normal human size with `actor_scale: 1.0`; `actor_scale: 75.0`
   made a giant mesh that filled the apartment camera. Its current runtime
-  calibration is `actor_scale: 1.0`, `actor_z_lift_cm: 0.0`, and
+  calibration is `actor_scale: 1.0`, `actor_z_lift_cm: 14.0`, and
   `walking_forward_yaw_offset_deg: 90.0`. Re-check in UE review if a new
   humanoid uses a different import path.
+- `actor_z_lift_cm` is a visual actor/root-height calibration, not an audio
+  source height. Apartment actor spawning uses the measured floor surface
+  `APARTMENT_FLOOR_Z_CM` plus this lift; visual floor thickness/collision mesh
+  details should be solved per asset with this field instead of changing the
+  global floor constant.
 - For Mixamo humanoids, event-level `facing_yaw_deg` is the desired semantic
   world-facing direction. The renderer/composer must still add the asset's
   `walking_forward_yaw_offset_deg` from registry/runtime hints so the visual
