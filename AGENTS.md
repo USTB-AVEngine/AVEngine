@@ -97,6 +97,15 @@ out of commits and remove them if they appear.
   existed, and the exported GLB had no skin. Use the nearest-surface weight
   transfer path in `external/SPEAR/tools/blender_robust_swap_mesh_keep_rig.py
   --weight-mode nearest` for human smoke/prototyping.
+- For approved Flux/Hunyuan human assets, copy verified nearest-skin Mixamo
+  runtime GLBs into the approved tag directory with
+  `external/SPEAR/tools/spike_rlr/human_mixamo_runtime.py` helpers before
+  promotion. Expected files are `mesh_runtime_walking.glb`,
+  `mesh_runtime_standing_idle.glb`, a compatibility `mesh_runtime.glb`
+  aliasing Walking, and `mesh_runtime.json` with schema
+  `human_mixamo_runtime_v1`. `promote_source_asset.py` records these under
+  `rig.animation_assets`; do not register a human asset that only has
+  `mesh_oriented.glb`.
 - Quaternius animated animal packs are the cleanest external animation source:
   CC0, browser-downloadable, and available in FBX/glTF/OBJ/Blend depending on
   pack. Mixamo is primarily useful for humanoid animation smoke tests, not
@@ -219,6 +228,15 @@ into `approved/{tag}` and updates its direction review status, but this still
 does not make the asset production-ready. Only after texture, runtime mesh,
 rig/animation, and audio mapping gates pass should the asset be copied into
 `data/source_assets_v1`.
+
+Review UI approval must sync `source_asset_candidate.json` after moving the
+tag directory from `pending/{tag}` to `approved/{tag}`, not before. The sync
+step should rewrite visual asset paths to repo-relative approved paths and
+must handle both `mesh.obj` and `mesh.glb` as source meshes. If an approved
+manifest still contains `tmp/hy3d_batch/pending/...` or absolute local paths in
+`visual_assets`, resync it with
+`tools/spike_rlr/source_asset_manifest.py::sync_candidate_manifest_review`
+before promotion.
 
 To check current animated-source classification status, run:
 `/data/jzy/miniconda3/envs/spear-env/bin/python tools/spike_rlr/source_asset_audit.py --approved-dir tmp/hy3d_batch/approved --registry-root data/source_assets_v1`.
