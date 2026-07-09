@@ -41,6 +41,12 @@ Do not assume a test failure is real before checking that it was run under the
 right environment. For example, `test_auto_orient_ingest.py` needs `ss2`
 because it imports `trimesh`.
 
+In `external/SPEAR`, do not add untracked package markers such as
+`tests/tools/__init__.py`. Pytest can put `tests/` before the repo root on
+`sys.path`, and then `tests/tools` shadows the real `tools` package, causing
+imports like `tools.robust_skin_transfer` to fail. Keep those stray empty files
+out of commits and remove them if they appear.
+
 ## ReplicaCAD / Mixamo Data Traps
 
 - Official ReplicaCAD download command in `ss2`:
