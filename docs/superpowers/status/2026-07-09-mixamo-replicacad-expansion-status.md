@@ -52,13 +52,42 @@ Date: 2026-07-09
 - Added and ran Mixamo probe:
   - script: `tools/spike_rlr/mixamo_probe.py`
   - status JSON: `external/SPEAR/tmp/mixamo_probe/status.json`
-  - result: `missing_data`
+  - result before manual upload: `missing_data`
+- Re-ran Mixamo probe after manual FBX upload:
+  - root: `/data/datasets/mixamo`
+  - files:
+    - `raw/Walking.fbx`
+    - `raw/Standing_Idle.fbx`
+  - result: `ready`
+- Downloaded ReplicaCAD baked lighting with Habitat's official downloader:
+  - command: `/data/jzy/miniconda3/envs/ss2/bin/python -m habitat_sim.utils.datasets_download --uids replica_cad_baked_lighting --data-path /data/datasets --no-replace`
+  - versioned data:
+    `/data/datasets/versioned_data/replica_cad_baked_lighting_1.5`
+  - active symlink: `/data/datasets/replica_cad_baked_lighting`
+  - source package:
+    `https://dl.fbaipublicfiles.com/habitat/ReplicaCAD/ReplicaCAD_baked_lighting_v1.5.zip`
 - Added a conservative automatic direction gate:
   - script: `tools/spike_rlr/direction_gate.py`
   - reports: `external/SPEAR/tmp/direction_gate_reports/*.json`
   - pass: `cat_british_shorthair`, `dog_golden`
   - block: `cat_british_shorthair_v2`, `dog_beagle`, `dog_beagle_v2`,
     `dog_husky`
+- Confirmed direction policy after review:
+  - human direction review remains the final approval gate.
+  - automatic direction checks are only a prefilter/alarm, not a replacement.
+- Surveyed AudioSet animal expansion candidates:
+  - official AudioSet animal branch covers domestic pets, livestock/farm
+    animals, and wild animals.
+  - current animated approved/render pool is effectively dog/cat focused.
+  - existing SPEAR static animal map already has assets for `goat`, `sheep`,
+    `pig`, `horse`, `cattle_bovinae`, `yak`, and `donkey_ass`.
+  - Hunyuan AudioSet-style textured assets already exist for additional static
+    candidates including `bird_animal`, `chicken_rooster`, `duck`,
+    `frog_animal`, `goose`, `owl_animal`, `pig`, `pigeon_dove`, `sheep`,
+    `snake_animal`, `turkey`, and `yak`.
+  - local Objaverse maps under `/data/datasets/jzy/assets/objaverse` contain
+    many useful category names, but several paths point to the stale
+    `/home/jzy/.objaverse/...` cache and do not exist on this machine.
 
 ## Tests
 
@@ -71,22 +100,32 @@ Date: 2026-07-09
 
 ## Not Completed
 
-- Mixamo actual UE import did not run because `/data/datasets/mixamo` does not
-  exist and no FBX files are available. Mixamo normally requires a user account
-  and browser/manual FBX download; I did not scrape it.
+- Mixamo actual UE import still did not run. The two FBX files are now present,
+  but they are a humanoid smoke-test source, not the main path for quadruped
+  animal coverage.
 - ReplicaCAD UE import/render adapter is not implemented yet. The data is now
-  downloaded and Habitat-readable, but there is not yet a SPEAR/UE visual import
-  path, RLR acoustic mesh/material sidecar, or review `side_by_side` clip for a
-  ReplicaCAD room.
+  downloaded and Habitat-readable, including baked-lighting assets, but there is
+  not yet a SPEAR/UE visual import path, RLR acoustic mesh/material sidecar, or
+  review `side_by_side` clip for a ReplicaCAD room.
 - The automatic direction gate is intentionally conservative. It blocks several
   approved animals because bbox geometry alone is near-symmetric. This confirms
   that a "100% no-human semantic direction guarantee" is not available from
-  geometry-only evidence. The next upgrade should add rendered multi-view and
-  motion-based evidence before expanding automatic approval.
+  geometry-only evidence. Human review remains required for final direction
+  approval.
+- New AudioSet animal classes have not yet been added to the Plan 2 review
+  source pool. The next safe expansion should first add static candidates whose
+  visual assets and audio are already local, then separately handle animated
+  quadrupeds via Quaternius packs/rig-family work.
 
 ## Important Traps Recorded
 
 - `AGENTS.md` now records the real ReplicaCAD root `/data/datasets/replica_cad`.
+- `AGENTS.md` now records the baked-lighting root
+  `/data/datasets/replica_cad_baked_lighting`.
+- `AGENTS.md` now records Mixamo local smoke assets under
+  `/data/datasets/mixamo/raw`.
+- `AGENTS.md` now records that Hunyuan AudioSet assets are the preferred local
+  static-animal source and that Objaverse map paths may be stale.
 - Habitat smoke with ReplicaCAD needs `ss2`.
 - `sim.pathfinder` is not loaded automatically for `apt_0`; explicitly load
   `/data/datasets/replica_cad/navmeshes/apt_0.navmesh`.

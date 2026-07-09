@@ -15,6 +15,8 @@ pipeline trap while working, update this file in the same change.
   `/data/jzy/code/AVEngine/external/SPEAR/tmp/hy3d_batch/approved/{tag}`
 - External ReplicaCAD dataset root: `/data/datasets/replica_cad`
   (`AVENGINE_REPLICACAD_ROOT` overrides it).
+- External ReplicaCAD baked-lighting root:
+  `/data/datasets/replica_cad_baked_lighting`.
 - External Mixamo dataset root: `/data/datasets/mixamo`
   (`AVENGINE_MIXAMO_ROOT` overrides it).
 
@@ -41,6 +43,10 @@ because it imports `trimesh`.
   `/data/datasets/versioned_data/replica_cad_dataset_1.5` and creates the
   active symlink `/data/datasets/replica_cad`. Use that symlink as the default
   root, not `/data/datasets/replicacad`.
+- ReplicaCAD baked lighting uses a separate downloader uid:
+  `replica_cad_baked_lighting`. It writes versioned data under
+  `/data/datasets/versioned_data/replica_cad_baked_lighting_1.5` and creates
+  the active symlink `/data/datasets/replica_cad_baked_lighting`.
 - ReplicaCAD scene loading in Habitat needs
   `SimulatorConfiguration.scene_dataset_config_file =
   /data/datasets/replica_cad/replicaCAD.scene_dataset_config.json` and
@@ -56,6 +62,25 @@ because it imports `trimesh`.
 - Mixamo FBX files normally require user account/browser download. Do not try
   to scrape Mixamo; place user-downloaded FBX files under `/data/datasets/mixamo`
   or set `AVENGINE_MIXAMO_ROOT`.
+- Current Mixamo smoke assets are expected under `/data/datasets/mixamo/raw`.
+  As of 2026-07-09 that directory contains `Walking.fbx` and
+  `Standing_Idle.fbx`; do not assume a `Running.fbx` exists.
+- Quaternius animated animal packs are the cleanest external animation source:
+  CC0, browser-downloadable, and available in FBX/glTF/OBJ/Blend depending on
+  pack. Mixamo is primarily useful for humanoid animation smoke tests, not
+  quadruped animal coverage.
+- The local Objaverse maps under `/data/datasets/jzy/assets/objaverse` may
+  contain stale `/home/jzy/.objaverse/...` paths. Verify the referenced GLB
+  exists before using a map entry; otherwise re-download by uid or prefer the
+  already materialized Hunyuan assets below.
+- Hunyuan AudioSet-style textured assets are already materialized under
+  `/data/jzy/code/AVEngine/external/Hunyuan3D-2.1/outputs/audioset_assets`.
+  That directory currently includes many animal candidates with
+  `*_textured.glb`, `*_textured.jpg`, and turntables, e.g.
+  `bird_animal`, `chicken_rooster`, `duck`, `frog_animal`, `goose`,
+  `owl_animal`, `pig`, `sheep`, `snake_animal`, `turkey`, and `yak`.
+  Prefer this path for static AudioSet source expansion before fetching random
+  Objaverse assets.
 
 ## Hunyuan3D Path Traps
 
