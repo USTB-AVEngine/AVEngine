@@ -24,6 +24,17 @@ Date: 2026-07-09
     (`Standing_Idle.fbx`, `Walking.fbx`).
   - ReplicaCAD: `ready`, 91 scene instances and 197 mesh files under
     `/data/datasets/replica_cad`.
+- Added a Mixamo humanoid import-plan adapter:
+  - script: `external/SPEAR/tools/spike_rlr/mixamo_humanoid_adapter.py`
+  - current local plan state: `ready`
+  - mapped `Standing_Idle.fbx` to `idle`, `Walking.fbx` to `walk`
+  - visual class: `human`
+  - default acoustic lookup: `speech`
+- Added a ReplicaCAD room import-plan adapter:
+  - script: `external/SPEAR/tools/spike_rlr/replicacad_room_adapter.py`
+  - current `apt_0` plan state: `ready`
+  - validates scene dataset config, scene instance, stage GLB, and explicit
+    navmesh path before later UE/RLR import work.
 
 ## Completed
 
@@ -155,16 +166,24 @@ Date: 2026-07-09
 - SPEAR/ss2:
   - command: `/data/jzy/miniconda3/envs/ss2/bin/python -m pytest -q tests/tools/spike_rlr/test_auto_orient_ingest.py tests/tools/spike_rlr/test_direction_gate.py`
   - result: `10 passed`
+- SPEAR/spear-env adapter/probe follow-up:
+  - command: `/data/jzy/miniconda3/envs/spear-env/bin/python -m pytest -q tests/tools/spike_rlr/test_external_data_paths.py tests/tools/spike_rlr/test_mixamo_probe.py tests/tools/spike_rlr/test_replicacad_probe.py tests/tools/spike_rlr/test_mixamo_humanoid_adapter.py tests/tools/spike_rlr/test_replicacad_room_adapter.py`
+  - result: `19 passed, 1 skipped`
+- SPEAR/ss2 ReplicaCAD Habitat adapter follow-up:
+  - command: `/data/jzy/miniconda3/envs/ss2/bin/python -m pytest -q tests/tools/spike_rlr/test_replicacad_room_adapter.py`
+  - result: `5 passed`
 
 ## Not Completed
 
 - Mixamo actual UE import still did not run. The two FBX files are now present,
-  but they are a humanoid smoke-test source, not the main path for quadruped
+  and the humanoid import-plan adapter can resolve idle/walk roles, but they
+  are still a humanoid smoke-test source, not the main path for quadruped
   animal coverage.
 - ReplicaCAD UE import/render adapter is not implemented yet. The data is now
-  downloaded and Habitat-readable, including baked-lighting assets, but there is
-  not yet a SPEAR/UE visual import path, RLR acoustic mesh/material sidecar, or
-  review `side_by_side` clip for a ReplicaCAD room.
+  downloaded, Habitat-readable, and covered by an import-plan adapter for
+  `apt_0`, including baked-lighting assets, but there is not yet a SPEAR/UE
+  visual import path, RLR acoustic mesh/material sidecar, or review
+  `side_by_side` clip for a ReplicaCAD room.
 - The automatic direction gate is intentionally conservative. It blocks several
   approved animals because bbox geometry alone is near-symmetric. This confirms
   that a "100% no-human semantic direction guarantee" is not available from
@@ -200,6 +219,9 @@ Date: 2026-07-09
 - Minimal non-physics ReplicaCAD load can print articulated-object creation
   failures for URDFs. Treat the smoke as valid when simulator creation and
   explicit navmesh loading succeed.
+- `/data/datasets/replica_cad` is a symlink to the versioned Habitat download.
+  Use `find -L` or `readlink -f` when manually discovering files from shell
+  tools.
 
 ## Running Processes
 

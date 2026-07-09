@@ -55,6 +55,10 @@ out of commits and remove them if they appear.
   `/data/datasets/versioned_data/replica_cad_dataset_1.5` and creates the
   active symlink `/data/datasets/replica_cad`. Use that symlink as the default
   root, not `/data/datasets/replicacad`.
+- `/data/datasets/replica_cad` is a symlink. When doing shell discovery with
+  `find`, use `find -L /data/datasets/replica_cad ...` or inspect
+  `readlink -f /data/datasets/replica_cad`; otherwise the dataset can look
+  empty even though Habitat can load it.
 - ReplicaCAD baked lighting uses a separate downloader uid:
   `replica_cad_baked_lighting`. It writes versioned data under
   `/data/datasets/versioned_data/replica_cad_baked_lighting_1.5` and creates
