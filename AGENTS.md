@@ -91,6 +91,12 @@ out of commits and remove them if they appear.
   full clip duration. Import/playback adapters should explicitly enable looping
   or tile the animation; do not rely on a one-shot FBX action that freezes after
   its source frame range.
+- For Flux/Hunyuan human meshes retargeted to Mixamo, do not rely on Blender
+  bone-heat automatic weights. On 2026-07-09 it produced zero weighted
+  vertices for `human_male_blue_hoodie_v1` even though the armature modifier
+  existed, and the exported GLB had no skin. Use the nearest-surface weight
+  transfer path in `external/SPEAR/tools/blender_robust_swap_mesh_keep_rig.py
+  --weight-mode nearest` for human smoke/prototyping.
 - Quaternius animated animal packs are the cleanest external animation source:
   CC0, browser-downloadable, and available in FBX/glTF/OBJ/Blend depending on
   pack. Mixamo is primarily useful for humanoid animation smoke tests, not
