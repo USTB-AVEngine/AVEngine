@@ -169,6 +169,21 @@ out of commits and remove them if they appear.
   make Hunyuan fuse sleeves/hands into the body, and nearest-surface Mixamo
   skin transfer then produces broken arm motion. Reject such assets and
   regenerate the reference before runtime work.
+- A strict T-pose reference is necessary but not sufficient for production
+  human assets. On 2026-07-09, `human_male_blue_hoodie_v2` and
+  `human_female_red_jacket_v2` passed coarse orientation/runtime checks but
+  failed hand quality in moving review: the hands rendered as broken/empty
+  white pieces after Flux/Hunyuan full-body mesh generation plus nearest
+  Mixamo skin transfer. The Mixamo armature itself had hand/finger bones and
+  the runtime GLBs had nonzero hand weights, but diagnostics showed the
+  transferred hand region was dominated by a few thumb/finger groups instead
+  of normal hand/finger distribution. Treat this as a source-topology plus
+  skin-weight-transfer mismatch, not as missing bones or a UE floor/scale
+  issue. Human promotion must include a close hand/arm review on the animated
+  runtime GLB and a UE moving clip; reject if hands are not visually connected
+  and solid. Prefer a reliable rigged human base mesh with generated
+  appearance/texture over Hunyuan-generated full-body topology for production
+  humans.
 - Do not run the animal auto-orient heuristic as if it were valid for human
   meshes. `external/SPEAR/tools/spike_rlr/auto_orient_ingest.py` now checks
   `source_asset_candidate.json` and, for `category: human`, writes a manual
