@@ -205,14 +205,38 @@ rig/animation, and audio mapping gates pass should the asset be copied into
 
 To check current animated-source classification status, run:
 `/data/jzy/miniconda3/envs/spear-env/bin/python tools/spike_rlr/source_asset_audit.py --approved-dir tmp/hy3d_batch/approved --registry-root data/source_assets_v1`.
-As of 2026-07-09, `dog_golden`, `dog_beagle_v2`, and
-`cat_british_shorthair_v2` are classified and registered. The older
+As of 2026-07-09, `dog_golden`, `dog_beagle_v2`,
+`cat_british_shorthair_v2`, `dog_pug_v1`, and `cat_siamese_v1` are
+classified and registered. The older
 direction-only dirs `dog_beagle`, `dog_husky`, and
 `cat_british_shorthair` were removed on 2026-07-09 because they were missing
 texture/runtime proxy files and were not production assets. Do not reintroduce
 those unsuffixed legacy tags into current source pools; production source
 pools should use registry `asset_id` values such as `dog_beagle_0002`, with
 the registry resolving the legacy-compatible runtime tag when needed.
+
+After a tag is direction-approved in the review UI, run its runtime/UE gate
+before registry promotion:
+
+```bash
+bash tools/gate_check_animal.sh {tag}
+```
+
+If the gate produces `GATE_CHECK_DONE /tmp/gate_check_v4/{tag}_side.mp4`,
+promote it into the reusable asset registry with:
+
+```bash
+/data/jzy/miniconda3/envs/spear-env/bin/python \
+  tools/spike_rlr/promote_source_asset.py --tag {tag}
+```
+
+`promote_source_asset.py` validates `mesh_runtime.glb`,
+`mesh_runtime.json`, `mesh_oriented.glb`, `hy3d_diffuse.jpg`, and
+human-approved `direction.json`; measures dominant colors from the diffuse
+texture; writes `data/source_assets_v1/{category}/{family}/{asset_id}/asset.json`;
+updates `data/source_assets_v1/registry.json`; and syncs the approved
+`source_asset_candidate.json`. Do not edit the registry by hand for normal
+Hunyuan dog/cat promotion unless the script itself is broken.
 
 Approved animated assets must not be gray/untextured. For every animated tag in
 `tmp/hy3d_batch/approved/{tag}`, expect:
