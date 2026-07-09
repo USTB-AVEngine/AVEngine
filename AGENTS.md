@@ -106,6 +106,23 @@ out of commits and remove them if they appear.
   `human_mixamo_runtime_v1`. `promote_source_asset.py` records these under
   `rig.animation_assets`; do not register a human asset that only has
   `mesh_oriented.glb`.
+- Do not infer UE human actor scale only from the exported Mixamo GLB bbox.
+  `human_male_blue_hoodie_v1` looked tiny in `trimesh`, but UE Interchange
+  renders it at normal human size with `actor_scale: 1.0`; `actor_scale: 75.0`
+  made a giant mesh that filled the apartment camera. Its current runtime
+  calibration is `actor_scale: 1.0`, `actor_z_lift_cm: 0.0`, and
+  `walking_forward_yaw_offset_deg: 90.0`. Re-check in UE review if a new
+  humanoid uses a different import path.
+- For Mixamo humanoids, event-level `facing_yaw_deg` is the desired semantic
+  world-facing direction. The renderer/composer must still add the asset's
+  `walking_forward_yaw_offset_deg` from registry/runtime hints so the visual
+  face points at the listener. The approved human speech demo that proves this
+  is:
+  `external/SPEAR/tmp/spike_output_human_speech_demo/clips/clip_0000/videos/side_by_side_review_annotated.mp4`.
+- UE `GetActorBounds` can return implausible skeletal bounds for imported
+  Mixamo humans. Review marker metadata should sanity-check actor bounds
+  against the planned source trajectory and fall back to the trajectory point
+  when the bounds center is meters away or outside apartment height.
 - Quaternius animated animal packs are the cleanest external animation source:
   CC0, browser-downloadable, and available in FBX/glTF/OBJ/Blend depending on
   pack. Mixamo is primarily useful for humanoid animation smoke tests, not
