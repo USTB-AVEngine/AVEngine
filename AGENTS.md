@@ -106,6 +106,15 @@ out of commits and remove them if they appear.
   `human_mixamo_runtime_v1`. `promote_source_asset.py` records these under
   `rig.animation_assets`; do not register a human asset that only has
   `mesh_oriented.glb`.
+- For Flux/Hunyuan humans retargeted to Mixamo, the approved review mesh is in
+  AVEngine-facing coordinates, but Mixamo weight transfer expects the target
+  mesh to be yaw-aligned with the Mixamo source. Use
+  `external/SPEAR/tools/blender_robust_swap_mesh_keep_rig.py
+  --target-rotate-z-deg -90` for the current v2 human assets. That option must
+  rotate mesh vertex data with `Matrix.Rotation`; do not rely on
+  `rotation_euler`, because imported GLB objects can ignore that path and leave
+  the bbox unchanged. If the runtime contact sheet shows arms staying in
+  T-pose or skirt-like leg sheets, suspect this alignment first.
 - Do not infer UE human actor scale only from the exported Mixamo GLB bbox.
   `human_male_blue_hoodie_v1` looked tiny in `trimesh`, but UE Interchange
   renders it at normal human size with `actor_scale: 1.0`; `actor_scale: 75.0`
@@ -438,6 +447,11 @@ RLR/Habitat audio frame:
   right]`; do not apply the old L/R swap compensation.
 - Do not use world-axis assumptions such as "world +X is always right ear" for
   random-yaw clips. Audio left/right must be listener-local.
+- Do not judge RLR binaural azimuth from broadband left/right RMS alone.
+  Apartment reflections and low-frequency speech can make a true left-to-right
+  path look mostly left-biased in full-band RMS. Check metadata azimuth and
+  band-limited ILD, especially `1500-5000 Hz` and `5000-7500 Hz`, before
+  declaring the spatial direction wrong.
 
 ## Useful Verification Commands
 
