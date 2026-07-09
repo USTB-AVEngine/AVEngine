@@ -19,6 +19,7 @@ pipeline trap while working, update this file in the same change.
   `/data/datasets/replica_cad_baked_lighting`.
 - External Mixamo dataset root: `/data/datasets/mixamo`
   (`AVENGINE_MIXAMO_ROOT` overrides it).
+- External Quaternius raw archive root: `/data/datasets/quaternius/raw`.
 
 Prefer repo-relative paths when editing code, but use absolute paths when
 calling scripts that `chdir` internally.
@@ -69,6 +70,23 @@ because it imports `trimesh`.
   CC0, browser-downloadable, and available in FBX/glTF/OBJ/Blend depending on
   pack. Mixamo is primarily useful for humanoid animation smoke tests, not
   quadruped animal coverage.
+- AVEngine already ships a curated Quaternius GLB subset under
+  `assets/mesh_library/{quaternius_animalpack,quaternius_farm}`. The active
+  dog/cat animation rigs use those GLBs. Do not describe Quaternius as missing;
+  the raw archives below are for source inspection, extra animal rig work, and
+  future import experiments.
+- Downloaded Quaternius raw archives live in `/data/datasets/quaternius/raw`:
+  - `quaternius_animal_pack_vol2_2017_opengameart.zip`
+    (Cat, Dog, Eagle, Piranha, Wolf; FBX/Blend/OBJ)
+  - `quaternius_farm_animals_2018_opengameart.zip`
+    (Cow, Horse, Llama, Pig, Pug, Sheep, Zebra; FBX/Blend/OBJ)
+  - `quaternius_ultimate_animated_character_pack_2021_opengameart.zip`
+    (many human characters, including BaseCharacter/Casual/Doctor/Worker;
+    FBX/Blend/OBJ)
+- For human visual sources, use human/character meshes plus human animation
+  assets. For the acoustic source class, map those instances to speech,
+  talking, conversation, or voice audio as appropriate; speech is an audio
+  category, not the animation asset.
 - The local Objaverse maps under `/data/datasets/jzy/assets/objaverse` may
   contain stale `/home/jzy/.objaverse/...` paths. Verify the referenced GLB
   exists before using a map entry; otherwise re-download by uid or prefer the

@@ -88,6 +88,23 @@ Date: 2026-07-09
   - local Objaverse maps under `/data/datasets/jzy/assets/objaverse` contain
     many useful category names, but several paths point to the stale
     `/home/jzy/.objaverse/...` cache and do not exist on this machine.
+- Downloaded and verified Quaternius raw archives:
+  - root: `/data/datasets/quaternius/raw`
+  - `quaternius_animal_pack_vol2_2017_opengameart.zip`
+    (`2,069,972` bytes; Cat, Dog, Eagle, Piranha, Wolf; FBX/Blend/OBJ)
+  - `quaternius_farm_animals_2018_opengameart.zip`
+    (`6,965,696` bytes; Cow, Horse, Llama, Pig, Pug, Sheep, Zebra;
+    FBX/Blend/OBJ)
+  - `quaternius_ultimate_animated_character_pack_2021_opengameart.zip`
+    (`48,430,012` bytes; many human characters; FBX/Blend/OBJ)
+  - verification: `unzip -t` reported no compressed-data errors for all three.
+- Checked local speech-like audio availability:
+  - `speech` filename matches in the current OmniAudio corpus: `0`
+  - `talking` filename matches: `6`
+  - `conversation` filename matches: `10`
+  - `voice` filename matches: `22`
+  - Human visual sources should map to speech/talking/conversation/voice audio
+    categories separately from the visual animation asset.
 
 ## Tests
 
@@ -116,6 +133,9 @@ Date: 2026-07-09
   source pool. The next safe expansion should first add static candidates whose
   visual assets and audio are already local, then separately handle animated
   quadrupeds via Quaternius packs/rig-family work.
+- Quaternius raw archives are downloaded but not imported into SPEAR/UE yet.
+  Human animation import and human speech/talking audio mapping still need a
+  dedicated adapter/gate before entering dataset generation.
 
 ## Important Traps Recorded
 
@@ -124,6 +144,11 @@ Date: 2026-07-09
   `/data/datasets/replica_cad_baked_lighting`.
 - `AGENTS.md` now records Mixamo local smoke assets under
   `/data/datasets/mixamo/raw`.
+- `AGENTS.md` now records Quaternius raw archives under
+  `/data/datasets/quaternius/raw`.
+- `AGENTS.md` now records the visual/acoustic split for human sources:
+  human meshes/animations visually, speech/talking/conversation/voice audio
+  acoustically.
 - `AGENTS.md` now records that Hunyuan AudioSet assets are the preferred local
   static-animal source and that Objaverse map paths may be stale.
 - Habitat smoke with ReplicaCAD needs `ss2`.
