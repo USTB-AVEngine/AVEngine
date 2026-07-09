@@ -30,6 +30,10 @@ pipeline trap while working, update this file in the same change.
 
 Prefer repo-relative paths when editing code, but use absolute paths when
 calling scripts that `chdir` internally.
+Do not use the historical checkout path `/data/jzy/code/SPEAR` in new tests or
+tools; this workspace's active SPEAR checkout is under
+`/data/jzy/code/AVEngine/external/SPEAR`. Derive the repo root from
+`Path(__file__)` when possible.
 
 ## Python Environments
 
@@ -202,9 +206,13 @@ rig/animation, and audio mapping gates pass should the asset be copied into
 To check current animated-source classification status, run:
 `/data/jzy/miniconda3/envs/spear-env/bin/python tools/spike_rlr/source_asset_audit.py --approved-dir tmp/hy3d_batch/approved --registry-root data/source_assets_v1`.
 As of 2026-07-09, `dog_golden`, `dog_beagle_v2`, and
-`cat_british_shorthair_v2` are classified and registered; older
-`dog_beagle`, `dog_husky`, and `cat_british_shorthair` approved dirs are
-direction-approved only and are missing texture/runtime proxy files.
+`cat_british_shorthair_v2` are classified and registered. The older
+direction-only dirs `dog_beagle`, `dog_husky`, and
+`cat_british_shorthair` were removed on 2026-07-09 because they were missing
+texture/runtime proxy files and were not production assets. Do not reintroduce
+those unsuffixed legacy tags into current source pools; production source
+pools should use registry `asset_id` values such as `dog_beagle_0002`, with
+the registry resolving the legacy-compatible runtime tag when needed.
 
 Approved animated assets must not be gray/untextured. For every animated tag in
 `tmp/hy3d_batch/approved/{tag}`, expect:
