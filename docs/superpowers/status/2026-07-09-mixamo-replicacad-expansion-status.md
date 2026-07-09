@@ -2,6 +2,29 @@
 
 Date: 2026-07-09
 
+## Codex Current Follow-Up
+
+- Current approved plan is tracked separately in
+  `docs/superpowers/plans/2026-07-09-codex-current-1-3.md`; use it for the
+  present work instead of older Claude-authored remnants.
+- Added per-source effective sound-frame statistics to the review/metadata
+  path:
+  - metadata field: `source_effective_audio_per_frame`
+  - metadata field: `effective_audio_frame_count`
+  - review overlay text: `sound N/T`
+  - source of truth: per-source rendered binaural/wet audio gain, thresholded
+    by `effective_audio_gain_threshold`.
+- Regenerated the current left-rear-to-right-front review clip after adding
+  `sound` overlay:
+  - `/data/jzy/code/AVEngine/external/SPEAR/tmp/spike_output_apartment_v2_left_rear_to_right_front_walkspeed_review/clips/clip_0000/videos/side_by_side_review_annotated.mp4`
+  - overlay now reports `GOLDEN ... sound 0/75` and
+    `BEAGLE ... sound 31/75`.
+- Re-ran current dataset probes:
+  - Mixamo: `ready`, 2 FBX files under `/data/datasets/mixamo/raw`
+    (`Standing_Idle.fbx`, `Walking.fbx`).
+  - ReplicaCAD: `ready`, 91 scene instances and 197 mesh files under
+    `/data/datasets/replica_cad`.
+
 ## Completed
 
 - Wrote and pushed the expansion design and execution plan in AVEngine:

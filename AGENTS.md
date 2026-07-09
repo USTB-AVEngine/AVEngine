@@ -190,6 +190,18 @@ UE 5.5 Interchange GLB animation import may print a handled ensure at
 gate failed from that line alone; use the actual process exit code and sentinel
 lines such as `GATE_CHECK_DONE`, `BUILD SUCCESSFUL`, or `Success - 0 error(s)`.
 
+Rigged review actors should explicitly play their requested animation asset in
+`tools/gpurir_scenes/run_render_pass.py`; do not rely on a Blueprint default
+Walking state. If an animal appears to slide or stand still while moving, first
+check `wanted_anim`, the presence of `gate_{tag}/{wanted_anim}.uasset`, and
+that `_play_anim_on_actor()` called `PlayAnimation`.
+
+For deterministic walking demos, also check trajectory speed before blaming the
+animation asset. A 5 s clip that moves a dog 10+ meters can look like sliding
+even when Walking is playing. Keep `motion_style="walking"` demo paths near
+human-reviewable walking speeds, and add/keep tests that bound average path
+speed when a builder is meant to show walking rather than running.
+
 ## Review Video Marker Rules
 
 The marker in `side_by_side_review_annotated.mp4` should indicate the visible
@@ -200,6 +212,60 @@ actor, not just the acoustic source point. Prefer UE-authored
 The acoustic point can be near the feet/floor or center trajectory and may not
 overlap the rendered mesh body. That is expected; the review marker should use
 the visual center when available.
+
+`source_visible_from_camera_per_frame` is a center-point ray/FOV metric, not a
+whole-mesh visibility metric. In apartment kitchen views, low animal centers
+can be ray-occluded by the hand-authored counter bboxes while the head/body is
+still visibly rendered. For review demos, report both center-FOV and
+center-visible counts, and do not use center-visible alone to decide whether an
+animal is visually reviewable.
+Review overlays should label this as `centerVis`, not generic `vis`, so it is
+not mistaken for whole-animal visibility.
+
+Review overlays also report `sound N/T` per source. This is derived from the
+per-source rendered binaural/wet signal in
+`source_effective_audio_per_frame`, using the metadata threshold, and is meant
+to answer "how many frames does this source effectively make audible sound?"
+Muted or `audio_lookup: "silent"` sources should report `sound 0/T`.
+
+Animal dry audio for RLR review scenes should resolve through
+`external/SPEAR/tools/spike_rlr/animal_audio.py`. Do not hardcode a dog/cat tag
+to a synthetic debug tone unless the spec explicitly asks for a sentinel such
+as `__piano_scale__`. Current real review lookups include `dog_bark`,
+`dog_growl`, `dog_sharp_bark`, `cat_meow`, and `cat_purring`.
+
+For visual-only review actors, set both `mute_audio: true` and
+`audio_lookup: "silent"`. The RLR pass should skip their RIR/audio render, the
+metadata gain should stay at zero, and no per-source solo wav should be written.
+Do not leave a front review animal on a real dog/cat lookup when the demo is
+meant to test only a rear source.
+
+For spatial motion demos that need listeners to hear the same event moving
+through space, use the dry-source clip controls (`audio_clip_start_s`,
+`audio_clip_duration_s`, `audio_repeat_interval_s`) to repeat a short real
+animal vocalization. A long field recording can contain different barks/meows
+over time and makes left/right motion sound like changing sources.
+
+Deterministic event/demo construction should use
+`external/SPEAR/tools/spike_rlr/event_constraints.py` and
+`external/SPEAR/tools/spike_rlr/demo_scenarios.py`. For example,
+`compose_front_idle_rear_left_to_right_demo()` builds the "front idle dog +
+rear invisible listener-left-to-right dog" case by writing explicit
+trajectories and then verifying constraints. Do not satisfy those flags by
+random seed search.
+
+For review/demo source placement, distinguish asset-body clearance from
+source-center validity. `source_collision_policy: "walls_only_center"` means a
+source center must stay inside the valid room regions and must not enter shell
+wall bboxes, but furniture/body-radius clipping is tolerated. Use this for
+point-source event demos where narrow passages should remain available; do not
+use it to allow wall or outdoor crossings.
+
+`flags.json` is the backward-compatible clip-level aggregate flag dict used by
+dataset coverage. Deterministic demos should also write `flag_details.json`
+with `aggregate`, `per_source`, and `pairwise` sections so review overlays can
+show that, for example, one source is stationary while another is walking. Do
+not infer per-source semantics from aggregate flags alone.
 
 ## Coordinate Conventions
 
@@ -222,12 +288,19 @@ Apartment UE render frame:
 
 RLR/Habitat audio frame:
 
-- `_habitat_from_scene(x, y, z)` maps to `(x, z, y)`.
+- Habitat's GLB loader imports our Z-up acoustic meshes as `(x, z, -y)`.
+  `_habitat_from_scene(x, y, z)` must therefore map to `(x, z, -y)`, not
+  `(x, z, y)`. If this sign is wrong, valid apartment sources can be mirrored
+  into the wrong RLR/navmesh component and render nearly silent IRs.
+- `AudioSensorSpec.position` defaults to `[0, 1.5, 0]`; set it explicitly to
+  `[0, 0, 0]` because `spec["mic"]["pos_m"]` is already the listener position.
 - The listener orientation must track `spec["mic"]["yaw_deg"]` or
   `camera_configs[0]["yaw_deg"]`; do not hardcode the listener to face
   `+Y_scene`.
 - Current helper convention: Habitat agent yaw is
-  `(270 - scene_yaw_deg) % 360`.
+  `(scene_yaw_deg - 90) % 360`.
+- With the `(x, z, -y)` transform, RLR native binaural is already `[left,
+  right]`; do not apply the old L/R swap compensation.
 - Do not use world-axis assumptions such as "world +X is always right ear" for
   random-yaw clips. Audio left/right must be listener-local.
 
