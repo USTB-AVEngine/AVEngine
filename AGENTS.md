@@ -13,6 +13,8 @@ pipeline trap while working, update this file in the same change.
   `/data/jzy/code/AVEngine/external/SPEAR/tmp/hy3d_batch`
 - Approved review assets:
   `/data/jzy/code/AVEngine/external/SPEAR/tmp/hy3d_batch/approved/{tag}`
+- Source asset registry:
+  `/data/jzy/code/AVEngine/external/SPEAR/data/source_assets_v1`
 - External ReplicaCAD dataset root: `/data/datasets/replica_cad`
   (`AVENGINE_REPLICACAD_ROOT` overrides it).
 - External ReplicaCAD baked-lighting root:
@@ -81,6 +83,10 @@ out of commits and remove them if they appear.
 - Current Mixamo smoke assets are expected under `/data/datasets/mixamo/raw`.
   As of 2026-07-09 that directory contains `Walking.fbx` and
   `Standing_Idle.fbx`; do not assume a `Running.fbx` exists.
+- Mixamo/humanoid animations used in demos or dataset clips must loop for the
+  full clip duration. Import/playback adapters should explicitly enable looping
+  or tile the animation; do not rely on a one-shot FBX action that freezes after
+  its source frame range.
 - Quaternius animated animal packs are the cleanest external animation source:
   CC0, browser-downloadable, and available in FBX/glTF/OBJ/Blend depending on
   pack. Mixamo is primarily useful for humanoid animation smoke tests, not
@@ -175,6 +181,15 @@ out of commits and remove them if they appear.
   - `hy3d_roughness.jpg` when available
 
 ## Approved Animal Asset Requirements
+
+Reusable source assets should be registered only after the visual asset,
+direction, texture, rig, animation, and audio mapping review status is
+approved. Registry manifests live under `external/SPEAR/data/source_assets_v1`.
+Dataset specs should refer to `asset_id`, and the registry resolver should emit
+legacy-compatible `tag` and `audio_lookup` fields for existing render/audio
+code. Per-clip events record trajectory, visibility, and sound timing; do not
+duplicate generation prompts, measured colors, or texture paths in event
+metadata.
 
 Approved animated assets must not be gray/untextured. For every animated tag in
 `tmp/hy3d_batch/approved/{tag}`, expect:
