@@ -44,3 +44,28 @@ changes to GitHub.
 Commit and push only focused source/test/docs changes. Do not commit generated
 MP4/WAV/PNG outputs, `external/SPEAR/tmp`, `/data/datasets`, or unrelated dirty
 workspace files.
+
+## Completion Record
+
+Completed on 2026-07-09 by Codex.
+
+- AVEngine docs commit pushed to `origin/main`:
+  `e0b3f7a docs: record Codex follow-up plan`
+- SPEAR implementation commit pushed to
+  `eastforward/feature/plan2-flag-generator-m1`:
+  `8504b2cb feat(spike): add deterministic demos and sound metadata`
+
+Verified before the SPEAR commit:
+
+- `spear-env`: 114 focused tests passed.
+- `ss2`: 10 direction/Habitat-oriented tests passed.
+- `git diff --cached --check`: passed.
+
+What was intentionally not completed in this slice:
+
+- Generated review MP4/WAV/PNG outputs and `external/SPEAR/tmp` artifacts were
+  not committed.
+- The next adapter slice for importing/using new Mixamo animations and
+  ReplicaCAD rooms was not implemented yet; this slice only keeps the data
+  roots/probe status ready for that follow-up.
+- Existing unrelated dirty SPEAR workspace files were left untouched.
