@@ -154,6 +154,12 @@ out of commits and remove them if they appear.
   so image provenance matches the Hunyuan/Flux animal flow. Do not register
   built-in imagegen output as a production human source; it is acceptable only
   for brainstorming or rejected/temporary references.
+- Flux/Hunyuan human references intended for Mixamo retargeting should use a
+  strict T-pose or clear A-pose, with visible empty background gaps between
+  each arm and the torso. Neutral "hands near pockets" reference photos can
+  make Hunyuan fuse sleeves/hands into the body, and nearest-surface Mixamo
+  skin transfer then produces broken arm motion. Reject such assets and
+  regenerate the reference before runtime work.
 - Do not run the animal auto-orient heuristic as if it were valid for human
   meshes. `external/SPEAR/tools/spike_rlr/auto_orient_ingest.py` now checks
   `source_asset_candidate.json` and, for `category: human`, writes a manual
