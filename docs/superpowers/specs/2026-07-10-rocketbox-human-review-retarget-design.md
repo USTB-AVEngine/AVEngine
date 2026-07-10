@@ -141,7 +141,8 @@ and animation data.
 ### 3.3 Stage C: Source Motion Review
 
 Review `m_walk_neutral.max.fbx` and `f_walk_neutral.max.fbx` independently of
-the target mesh. Produce a source-skeleton video with:
+the target mesh. This is an internal engineering diagnostic, not a user-facing
+approval gate. Produce a source-skeleton video with:
 
 - front, side, and top views;
 - a visible root trajectory;
@@ -152,6 +153,11 @@ the target mesh. Produce a source-skeleton video with:
 The report records source and target bone counts, mapped core bones, per-bone
 rest angular differences, source forward axis, root displacement, and the dot
 product between facing and travel direction.
+
+The pipeline may stop here when the source report is malformed or contradicts
+the already approved `FRONT -Y` target convention. A reviewer is never asked to
+approve an FBX, a JSON file, or an unbound skeleton. Source-skeleton media may be
+shown beside the final avatar only as optional diagnostic context.
 
 ### 3.4 Stage D: Rest-Corrected Retarget
 
@@ -198,8 +204,21 @@ Human review remains authoritative for unnatural joint bending, visible foot
 sliding, shoulder collapse, wrist separation, facial deformation, and overall
 motion style.
 
-Only a second human-approved review record allows the other 68 actions to be
-queued.
+Review is performed in a dedicated browser UI that serves the rendered media,
+not the FBX. It presents the approved Rocketbox male and female avatars as two
+independent review items. Each item provides looped videos for the target front,
+side, top/root-trajectory, joint close-up, and foot-contact views; synchronized
+source-skeleton context is optional and never replaces the skinned target view.
+
+The reviewer selects `approve` or `reject` and may enter a note. The service
+writes `motion_review.json` atomically without moving, rewriting, or deleting
+the source FBX, target FBX, exported GLB, or rendered evidence. The UI displays
+the recorded decision and supports replacing a previous decision so a rerender
+can be reviewed without manual JSON editing.
+
+Male and female decisions are independent, but the batch gate requires both
+records to be approved and to match the hashes of the currently served retarget
+manifest and review videos. Only then may the remaining 68 actions be queued.
 
 ## 4. Prompt-Controlled Appearance
 
@@ -244,7 +263,8 @@ Use a multi-view render-and-bake path:
 
 1. Render front, back, and side views with RGB, normal, depth, UV-position, and
    semantic garment masks.
-2. Run Qwen-Image-Edit or another approved editor only inside the garment mask.
+2. Run the approved editor only inside the garment mask; the current local
+   scope permits FLUX.2 Klein and no other image model.
 3. Project edited pixels back to the unchanged UV layout using the UV-position
    pass.
 4. Blend overlapping views, optimize seams, and inpaint only unseen texels.
@@ -352,13 +372,14 @@ projects.
 
 After migration and verification:
 
-1. run FLUX.2 Klein immediately because its required snapshot files are
-   already complete;
-2. run Qwen-Image-2512 soft T-pose generation when its download completes;
-3. run Qwen-Image-Edit-2511 low-drift clothing recolor using an approved
-   Rocketbox render as the reference;
-4. run LongCat and FireRed edit probes only after their downloads are complete;
-5. keep TRELLIS.2 as a separate 3D spike rather than an image-edit candidate.
+1. use only the verified FLUX.2 Klein snapshot for the next image-generation
+   or low-drift image-edit probe;
+2. keep Qwen, LongCat, FireRed, HiDream, and other image-model downloads and
+   watchers stopped unless the user explicitly reopens their evaluation;
+3. defer every image-model probe until the Rocketbox male and female neutral
+   walks have passed the browser motion-review gate;
+4. keep every 3D generator as a separate technical spike rather than treating
+   it as a production human source.
 
 An unrelated stale `.incomplete` file must not block a snapshot when every
 selected target file resolves to a complete cached blob. The checker should
@@ -396,6 +417,9 @@ Required automated tests:
 - source/target rest-delta calculation on synthetic skeleton fixtures;
 - root translation frame conversion and forward/travel dot-product checks;
 - review-gate rejection when required approvals or textures are missing;
+- motion-review media allowlisting, safe path handling, atomic decisions, and
+  rejection of stale media or retarget-manifest hashes;
+- the batch gate requiring current approvals for both male and female items;
 - preservation of target mesh, UV, material-slot, and vertex-group counts;
 - model-root resolution preferring `/data/models/hub`;
 - stale unrelated `.incomplete` files not blocking complete selected files;
@@ -412,9 +436,8 @@ Required Blender smokes:
 Required human decisions:
 
 1. approve or reject each untouched source avatar;
-2. approve or reject the source motion direction;
-3. approve or reject each retargeted neutral walk;
-4. separately approve any later appearance or Hunyuan variant.
+2. approve or reject each bound, retargeted neutral walk in the browser;
+3. separately approve any later appearance or Hunyuan variant.
 
 ## 9. Completion Criteria
 
