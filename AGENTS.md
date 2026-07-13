@@ -2258,3 +2258,41 @@ No AVEngine Unreal, FLUX.2, Pixal3D, SkinTokens, or TokenRig process was running
 Do not manufacture GPU load for JSON/hash compilation, and do not touch GPU 3;
 schedule the next independent GPU-heavy generation batches across free GPUs
 0--2.
+
+2026-07-13 controlled-animal visible-direction override (supersedes only the
+direction/animation approval implied by the earlier 62/62 file-completion
+status): the user visually rejected all current controlled-animal Walking
+outputs after observing cats running diagonally and dogs running backward and
+diagonally.  A bone-vector or trajectory-vector check is no longer sufficient
+evidence.  The old GLBs, registries, decisions, and videos remain immutable,
+but their Walking direction status is now
+`rejected_by_user_visual_review`; Idle media is diagnostic-only until the bind
+orientation is revalidated.  Do not promote any of these 31 animals from the
+old media.
+
+The non-overwriting revalidation manifest is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_direction_revalidation_v1_20260713/review_manifest.json`
+(31 assets: 8 cats and 23 dogs; internal `manifest_sha256`
+`60a98750bda0ed4d2badd9799bfb5b8f7e47873a38faae64f525e778e82cfb62`;
+file SHA-256
+`b53a0d76023e16ec5087ee970c7b4a071611d6d6222ad3f5a021b5c6fced4c0d`).
+It reauthenticates the source PBR/static/LOD/bound/animation/Apartment evidence
+and records the user override without rewriting any historical result.
+`external/SPEAR/tools/spike_rlr/controlled_animal_direction_review_server.py`
+serves the Hunyuan-style correction gate at `http://127.0.0.1:8102/`.  It first
+replays the existing mirror-X transform, then lets the reviewer adjust only a
+per-asset yaw while comparing side/top silhouettes, the original PBR contact
+sheet, and old dynamic videos.  Decisions are immutable transform overlays
+under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_direction_review_state_v1_20260713`;
+source GLBs are never edited.  A static geometry approval still does not
+approve Walking: apply the recorded
+`target_rotate_z_deg_after_flip_x`, regenerate the binding, and require a new
+straight-line plus curved UE dynamic canary before updating animation status.
+
+The human browser review entry is `docs/rocketbox_human_video_review.html`.
+It contains the latest six camera-pass/table-loop representatives followed by
+all 115 Rocketbox avatars with complete Walking and Standing Idle pairs: 236
+review items and 708 existing MP4 view links, each with an absolute server path.
+`docs/controlled_animal_video_review.html` now labels the existing animal
+videos as rejected diagnostic evidence and links back to the direction gate.
