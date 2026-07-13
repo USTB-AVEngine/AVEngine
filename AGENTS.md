@@ -2430,3 +2430,46 @@ can be exaggerated or cross-legged.  Goat, chipmunk, exact realistic beagle,
 and any other missing species remain explicit gaps until a same-species native
 template passes the full route.  Never relabel a similar template to fill a
 coverage count.
+
+2026-07-14 stable Husky UE/Apartment canary: the complete native-template
+chain now passes for both Walking and Idle without relying on the deferred
+manual review.  The authenticated final batch status is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/batch_status_final.json`;
+the combined immutable research registry is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/registry/stable_dog_husky_quaternius_ultimate_husky_v1.json`.
+It must continue to say `usage_scope=research_candidate`,
+`human_visual_review=pending`, and `formal_registry_promotion=false` until the
+user explicitly approves it.  The user again deferred manual review before
+sleeping; continue the automatic batch route, but never infer approval from
+silence.
+
+The first render attempt is retained as failure evidence: runtime direction QA
+did not recognize the Ultimate Pack's named skeleton.  Do not disable that
+gate.  The validated semantic basis is rear `Back`, front `Torso3` (with
+`Neck1`/`Torso2` fallbacks), body `Back`, and the two named rear-foot end
+bones.  It publishes
+`quaternius_native_named_longitudinal_v1`.  The second finalization attempt is
+also retained as failure evidence: media existed but no stable-animal registry
+was published.  The finalizer now authenticates template registry,
+deformation audit, UE import/readback, source hash, cardinal direction, both
+actions, visual metadata, videos, audio, and event schedule before publishing
+the pending-human registry.
+
+Both final clips contain 270 frames over 18 seconds.  Walking passes four
+dynamic direction windows with body/path yaw errors 0.78/0.78/1.65/0.79
+degrees; Idle body yaw error is about 0.0004 degrees.  Both have numerical-zero
+floor penetration (about `7.1e-15 cm`), zero root roll/pitch, synchronized
+main/top-down/annotated videos, and stereo 16 kHz audio.  The short dog bark is
+scheduled as seven events with at least 0.85 seconds of silence rather than
+seamlessly looped.  Agent frame inspection found no Pixal-style belly hole,
+leg stringing, sideways motion, or backward motion, but remains distinct from
+human approval.
+
+The shared full cook took 385.71 seconds and 7,524,084 KB peak RSS; editor
+import/readback took 79.97 seconds, Walking/Idle UE renders took 71.02/68.66
+seconds, and the two CPU finalizers took 118.09 seconds together.  Treat import
+and cook as batch costs: import all compatible templates/material instances,
+cook once, then fan out UE renders and CPU finalizers.  Never recook once per
+action, color, or size instance.  Full evidence and absolute media paths are
+in `docs/stable_animal_template_route_20260714.md` and
+`docs/controlled_animal_video_catalog.md`.

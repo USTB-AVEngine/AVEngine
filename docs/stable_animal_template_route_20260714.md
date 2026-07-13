@@ -2,7 +2,8 @@
 
 > 当前分类：`research_candidate`。本页记录自动审计与代理视觉检查结果；用户已
 > 暂缓本轮人工审核，因此没有任何条目被标记为 `human_approved` 或
-> `formal_dataset_asset`。新模板的 UE Apartment、轨迹、音频和碰撞证据仍待完成。
+> `formal_dataset_asset`。Husky 首个 UE Apartment Walk/Idle canary 已完成；
+> 其余模板仍待批量 UE 覆盖。
 
 ## 结论
 
@@ -66,6 +67,37 @@ CC0-1.0。FBX 中旧 Principled BSDF `alpha=0` 会令 GLB 材质透明；提取�
 自动拒绝。12 个模板的 Walk 和 Idle 均通过；Pixal 比格 v7/v8 的 Walk 在同一
 门禁中被拒绝，而 Idle 通过，说明该门禁能区分“静态看起来完整”和“动画时
 拉丝”。
+
+## Husky UE Apartment Walk/Idle canary
+
+首个稳定原生模板已跑通“GLB → UE import/readback → 共享 cook → Apartment
+Walk/Idle → 轨迹图 → 16 kHz 双耳音频 → registry”的完整链路。用户已暂缓本轮
+人工审核，因此状态是 `agent_checked_pending_human_review`；机器 registry 强制
+保存 `human_visual_review=pending`、`formal_registry_promotion=false`。
+
+| 动作 | 带标注审核 | 主视图 | Top-down | 音频事件 |
+|---|---|---|---|---|
+| Walking | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [主视图](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_walking/videos/apartment_v1_view0.mp4) | [Top-down](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_walking/videos/topdown_review.mp4) | [schedule](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_walking/binaural_source_schedule.json) |
+| Idle | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) | [主视图](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_idle/videos/apartment_v1_view0.mp4) | [Top-down](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_idle/videos/topdown_review.mp4) | [schedule](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/camera_pass_table_loop_idle/binaural_source_schedule.json) |
+
+认证 registry：
+[stable_dog_husky_quaternius_ultimate_husky_v1.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/clips/stable_dog_husky_quaternius_ultimate_husky_v1/registry/stable_dog_husky_quaternius_ultimate_husky_v1.json)。
+
+自动 QA 与代理抽帧检查结果：
+
+- Walking/Idle 均为 18 秒、270 帧；主视图 960×720，审核视频 1280×480，
+  Top-down 750×700；审核与 Top-down 都携带 16 kHz 双声道音频。
+- Walking 四个路径窗口的身体朝向误差依次为 0.78°、0.78°、1.65°、0.79°；
+  `Back → Torso3` 是身体纵轴，未使用头朝向或 fine-yaw 推断。
+- 两段全程 floor contact 通过；最大穿透约 `7.1e-15 cm`（浮点数值零），根部
+  roll/pitch 均为 0°。UE 动态 bounds 高度为 Walking 46.25–47.51 cm、Idle
+  49.20–49.71 cm，属于可接受的中小型 Husky 尺度。
+- Walking 按要求从相机右后方经过左前方并绕桌一圈；离开 FOV 和家具遮挡是
+  该轨迹的预期 QA 属性，Top-down 同步记录完整路径。
+- 狗叫被能量阈值切为短事件并在18秒内排成7次，最小静音间隔0.85秒；没有把
+  单次叫声无缝循环成持续噪声。
+- 代理抽查原始帧与审核合成未见 Pixal 比格式腹部空洞、脚部拉丝、横向跑或
+  倒退；这仍不等价于用户人工批准。
 
 ## 猫、通用狗与稳定比格补充模板
 

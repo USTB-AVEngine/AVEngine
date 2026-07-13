@@ -97,3 +97,28 @@ GPU 0、2、3。第一次约 13.5 秒的启动记录发生在 PAK 尚未包含�
 共享 cook 的完整记录位于
 [ue_cook_timing.txt](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/four_limb_rest_side_shared_ue_cook_v6_20260713_r1/ue_cook_timing.txt)。这再次说明 cook 是批次成本，不能为每个颜色、尺寸或动作重复
 执行；Walk/Idle 可并行渲染，Top-down、RLR 和 FFmpeg 继续使用独立 CPU 池。
+
+## 2026-07-14 稳定原生 Husky 端到端实测
+
+这是首个不依赖单图重建拓扑的稳定原生模板 UE canary。导入和 cook 是一个
+模板/批次成本；Walk、Idle、颜色与尺寸实例不应分别重复它们。
+
+| 阶段 | wall time | 峰值 RSS | 结果/解释 |
+|---|---:|---:|---|
+| Husky UE editor import/readback | 79.97 s | 2,322,364 KB | 10 个资产：mesh、skeleton、physics、5 materials、Walk、Idle、Blueprint |
+| 全量共享 cook/package/archive | 385.71 s | 7,524,084 KB | 4.53 GB 原始条目压至 4.47 GB Pak；0 errors；后续 clips 共享 |
+| Idle UE render（270帧） | 68.66 s | 单 UE worker | 动作/方向/落地门通过 |
+| Walking UE render（270帧） | 71.02 s | 单 UE worker | 四个路径方向窗口通过 |
+| 两段并行 CPU finalize | 118.09 s | 595,636 KB | metadata、Top-down、FFmpeg、registry；没有启动 UE/GPU |
+
+完整 cook 计时：
+[ue_cook_timing.txt](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_shared_ue_cook_husky_v1_20260714/ue_cook_timing.txt)。
+最终批处理状态：
+[batch_status_final.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_husky_v1_20260714/batch_status_final.json)。
+
+本次全量 cook 比前一次增量猫/狗 cook 慢约2.4倍，原因是命令没有启用
+incremental，遍历了约4,548个 packages；它不是每个动物的固有成本。批量生产应
+先集中导入一批模板/材质变体，再执行一次增量或共享 cook。单个18秒 UE clip
+仍稳定在约69–71秒；两段并行 finalize 平均占约59秒 wall/clip，但会与下一批
+GPU render 重叠。因此扩规模时的顺序应是：资产批量导入 → 一次 cook → 多 GPU
+渲染队列 → 独立 CPU finalize 池。
