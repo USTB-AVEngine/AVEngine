@@ -41,6 +41,22 @@ tools; this workspace's active SPEAR checkout is under
 `/data/jzy/code/AVEngine/external/SPEAR`. Derive the repo root from
 `Path(__file__)` when possible.
 
+## Git Milestone Discipline
+
+- AVEngine and `external/SPEAR` are independent Git repositories. Commit in
+  the repository that owns the changed file; do not expect the AVEngine root
+  to track SPEAR because `external/*` is ignored there.
+- After each independently verified pipeline milestone, commit only the files
+  owned by that milestone and push immediately. AVEngine uses `origin`; the
+  active SPEAR feature branch uses `eastforward`.
+- Both worktrees may contain older user or parallel-task changes. Never use
+  broad `git add -A`, reset, checkout, clean, or rollback to make a commit look
+  tidy. Stage explicit paths, run the relevant tests and `git diff --cached
+  --check`, then inspect the staged stat before committing.
+- Generated model/media data and authenticated manifests under `tmp/` remain
+  outside Git. Commit their schemas, runners, compact human decisions, and
+  documentation; keep large immutable evidence referenced by path and hash.
+
 ## Python Environments
 
 - `spear-env`: SPEAR/UE rendering, review-video builder, most lightweight
