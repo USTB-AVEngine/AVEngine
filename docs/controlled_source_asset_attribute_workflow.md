@@ -988,3 +988,82 @@ manifest；后续执行器只消费已批准 decision。
 旧文档或旧 contract 与本文冲突时，本文关于绝对属性、每项最多三个值、人类
 眼睛/附件锁定、Rocketbox 固定几何、FLUX/Pixal 分工和物理测量生命周期的决定
 优先。
+
+## 13. 2026-07-13 动态、Apartment 与 QA 闭环结果
+
+本节覆盖第 12 节里“42 个动物都尚未完成动态阶段”的历史状态。静态候选没有被
+整批直接放行；只有继续通过 LOD、绑定、动作、UE、Apartment、音频和测量的
+31 个实例进入最终动态候选注册表，其余实例保留原 decision/rejected 证据。
+
+| 最终集合 | 实例 | Walk/Idle clips | 完整动作对 | 状态 |
+|---|---:|---:|---:|---|
+| Rocketbox 原生人类 | 115 | 230 / 230 | 115 / 115 | 原几何/骨架稳定基线完成 |
+| Pixal 猫 | 8 | 16 / 16 | 8 / 8 | `research_candidate` |
+| Pixal 狗 | 23 | 46 / 46 | 23 / 23 | `research_candidate` |
+| 动物合计 | 31 | 62 / 62 | 31 / 31 | 技术 QA 全通过，rights 待清理 |
+
+稳定可点击入口是：
+
+- 人类：`docs/rocketbox_batch_apartment_video_index.md`；
+- 动物：`docs/controlled_animal_video_catalog.md`；
+- 最终动物解析 manifest：
+  `external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_apartment_specs_dogs_resolved_v1_20260713/spec_manifest.json`；
+- 最终动物 `source_asset_v2` 注册表：
+  `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_source_assets_apartment_31_final_v1_20260713/registry_manifest.json`。
+
+### 13.1 物理属性不是 prompt 自证
+
+`measure_controlled_animal_physical_attributes.py` 使用绑定后的网格比例、骨骼加权
+前肢/肩部表面和 UE 每帧 bounds/actor scale 计算肩高、整体高度与鼻尾长度。
+第一次统一测量发现 Pug 的相对 small/medium/large 顺序虽然正确，但实际肩高为
+约 55--81 cm，明显不适合作为普通 Pug。该异常没有因“自动检查顺序通过”而被
+放行。
+
+`recalibrate_controlled_animal_apartment_specs.py` 采用：
+
+```text
+new_actor_scale = observed_actor_scale
+                  * target_shoulder_height_cm
+                  / observed_shoulder_height_cm
+```
+
+它只挑选超过相对误差阈值的资产，并发布全新的审核目录，不覆盖旧视频。
+`resolve_controlled_animal_apartment_manifests.py` 再把新记录显式替换进解析后的最终
+manifest。Pug 第二次 UE 回读结果如下：
+
+| size | 实测肩高中位数 cm | 目标 cm | 结果 |
+|---|---:|---:|---|
+| small | 27.074 | 27 | passed |
+| medium | 30.000 | 30 | passed |
+| large | 32.997 | 33 | passed |
+
+这套反馈是纯代码步骤。新实例若尺寸误差不超过阈值就沿用第一次结果；明显异常才
+自动产生新 revision，不需要人工逐资产调 scale。
+
+### 13.2 最终数据集与问题答案
+
+最终候选数据集位于
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_apartment_candidate_dataset_31_final_v1_20260713`：
+
+| 项目 | 数量/状态 |
+|---|---:|
+| `source_asset_v2` | 31 |
+| realized instance pairs | 92 |
+| realized questions | 226 |
+| size questions | 68 |
+| size answer/实测顺序冲突 | 0 |
+| size answer 最小肩高差 | 0.544 cm |
+| technical `blocking_qa` 非空 | 0 / 31 |
+| `rights_ready=true` | 0 / 31 |
+| formal Apartment eligible | 0 / 31 |
+
+数据集 manifest 内部 SHA-256 为
+`ceb30767c813b99ce7bd526b71aa1f58d4f15b7b850b5f35584a0cd45ec2cc92`；
+注册表内部 SHA-256 为
+`caebb9301843f4dfec2c8f7d18bb278a3d97974ad11c98f1d1c94bf7ef1b85d9`。
+所有技术 QA 已通过，但许可证与来源风险没有被技术成功自动清除，因此这些媒体
+可用于研究候选审核和 QA 合同验证，不能改标为 `formal_dataset_asset`。
+
+当前 31 个资产只有五个动物 lineage，按 lineage 分组后本次小批次全部落在
+train 是哈希划分的自然结果。不能为了让 validation/test 非空而把同一模板的
+近重复实例拆开；正式数据应增加许可证明确的独立基础 lineage。

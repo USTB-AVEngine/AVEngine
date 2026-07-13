@@ -2171,3 +2171,47 @@ partitioning also left early-finishing GPUs idle at the tail; before the next
 large Pixal batch, use a tested shared claim queue so a free persistent worker
 can claim the next unstarted job.  Do not interrupt or repartition an active
 atomic staging batch merely to improve an instantaneous utilization reading.
+
+2026-07-13 controlled Apartment completion update (supersedes the historical
+"42 animals are still static-only" status above, without deleting that
+provenance): the stable Rocketbox route now has complete Apartment evidence for
+all 115 authored avatars. Walking and Standing Idle are complete for 230/230
+clips and 115/115 action pairs. The clickable SSOT is
+`docs/rocketbox_batch_apartment_video_index.md`. Every clip has an annotated
+review, UE main view, and synchronized top-down review; the approved frozen
+neutral-walk baseline remains unchanged.
+
+The controlled animal route advanced 31 qualified Pixal assets through LOD,
+species-family binding, Walking/Idle, UE import/readback, Apartment rendering,
+species-matched repeated-call audio, and observed physical measurement: 8 cats
+and 23 dogs, or 62/62 clips and 31/31 action pairs. The final clickable SSOT is
+`docs/controlled_animal_video_catalog.md`. Six initially oversized Pugs
+measured 55--81 cm at the shoulder. They were not silently accepted: the new
+`recalibrate_controlled_animal_apartment_specs.py` derives a per-instance scale
+from UE-observed shoulder height, publishes a new non-overwriting batch, and
+`resolve_controlled_animal_apartment_manifests.py` explicitly supersedes only
+those six records. Closed-loop remeasurement is 27.07/30.00/33.00 cm for the
+small/medium/large Pug medians, with all six inside tolerance.
+
+The final post-Apartment registry is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_source_assets_apartment_31_final_v1_20260713/registry_manifest.json`.
+It contains 31 validated `source_asset_v2` records; registry SHA-256 is
+`caebb9301843f4dfec2c8f7d18bb278a3d97974ad11c98f1d1c94bf7ef1b85d9`.
+The realized candidate dataset is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_apartment_candidate_dataset_31_final_v1_20260713`:
+31 assets, 92 pairs, and 226 questions. All 68 size questions agree with the
+observed shoulder-height ordering (minimum answer margin 0.544 cm). Scene QA
+has no remaining technical blockers, but all 31 records intentionally remain
+`research_candidate`: `rights_ready=false` preserves the Pixal/reference and
+training-provenance review requirements, so formal scene eligibility is 0/31.
+
+GPU utilization for Apartment review is bursty by design. One packaged UE
+worker normally uses about 5.5 GB per assigned GPU, but fixed-step simulation,
+RPC/PNG readback, RLR, Matplotlib top-down generation, and libx264 leave gaps
+between GPU bursts. A 30-second four-worker sample averaged about
+15%/28%/30%/26%, with later bursts above 60% and up to about 91%. Do not equate
+that with an idle queue: inspect worker processes and render/review counts.
+During the final Pug run, another server user independently occupied GPU 3;
+the one RPC-start failure was resumed on GPU 0 without touching that process.
+At the end of this update GPU 0--2 are idle because rendering is complete, not
+because pending GPU work was left unscheduled.
