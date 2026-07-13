@@ -1,5 +1,11 @@
 # 动物 4 通道音视频数据集构造全流程（图文版）
 
+> **历史路线提示（2026-07-13）：** 本文记录 2026-07-06 的
+> FLUX + Hunyuan3D 技术路线，只保留为历史/技术证据。Hunyuan3D 及其输出
+> 不能进入当前正式训练或评测资产。当前受控属性 JSON、FLUX.2 + Pixal3D
+> 动物路线、Rocketbox 人类路线、物理测量和声音映射规范见
+> [AVEngine 受控声源资产属性 JSON 与生成工作流](controlled_source_asset_attribute_workflow.md)。
+
 > 快照日期：2026-07-06
 >
 > 本文档从 **Flux 提示词** 开始，一路串到 **最终带音频的 4 通道 MP4**，
