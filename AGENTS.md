@@ -2215,3 +2215,46 @@ During the final Pug run, another server user independently occupied GPU 3;
 the one RPC-start failure was resumed on GPU 0 without touching that process.
 At the end of this update GPU 0--2 are idle because rendering is complete, not
 because pending GPU work was left unscheduled.
+
+2026-07-13 normalized final-dataset input update: new dataset builds must freeze
+profile snapshots, deterministic `instance_requests.json` batches, and realized
+`source_asset_v2` files with
+`external/SPEAR/tools/build_controlled_source_dataset_input_manifest.py`, then
+invoke `build_controlled_source_dataset.py --input-manifest ...`. The compiler
+rebuilds each request batch from its exact profile revision and requires every
+realized asset to match exactly one request across profile/hash, absolute
+attributes, target physical profile, rig/acoustic contract, and model revisions.
+Raw `--profile/--asset` mode is legacy-only and reports
+`request_lineage=legacy_unverified`.
+
+The final frozen input is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_human_animal_dataset_input_34_final_v1_20260713/dataset_input_manifest.json`.
+Its byte-identical, Git-auditable control-plane copy is
+`external/SPEAR/data/controlled_source_attributes_v1/dataset_inputs/controlled_human_animal_34_final_v1_20260713.json`;
+large realized artifacts remain outside Git in the immutable evidence tree.
+It authenticates 8 profiles, 2 request batches, 72 requests, and 34 realized
+assets. All 34 assets have unique, passed request bindings; 38 unrealized
+requests remain explicit and are not registered. Input manifest SHA-256 is
+`c1b315c590030f4f952f4b876ab976bae665621f41c46b947efe27f9eb5a1c8c`.
+The manifest-only rebuild is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_human_animal_normalized_candidate_dataset_34_final_v1_20260713`:
+34 assets, 95 realized pairs, 232 questions. Its dataset/QA/source-pool/artifact
+hashes are respectively
+`a7b09ddec1d2d6e72690d686deaa42f9f62ea04db52a26bc31e5838c8a27e3fa`,
+`52a15ee29d285aa9ef19c3ca43edc59284e9e3d33437fae7f40f0ac5d8401e34`,
+`66feb737c35b23285a9d3d4e20c622da72645003ea593267c83781aa8fa12738`,
+and `2c28d454a06b98da509ace7bd5ab211852f60111144eb342a5ac99ae4800df45`.
+The build receipt SHA-256 is
+`bd8e68e529ebd342561386d8e9c492f85f4beae1f774a7d6cd527703a9c989fa`.
+All six hashes were independently recomputed, and the four core dataset files
+are byte-identical to the earlier approved 34-asset candidate build. Regression
+coverage passed 30/30. Scene eligibility intentionally remains 0/34: animal
+rights blockers remain, while the three controlled Rocketbox material revisions
+still need their own UE/Apartment/audio evidence.
+
+The GPU status check made during this CPU/hash phase showed GPU 0--2 at 0% and
+GPU 3 at about 30% with 8.9 GiB used by user `ryl`'s independent audio training.
+No AVEngine Unreal, FLUX.2, Pixal3D, SkinTokens, or TokenRig process was running.
+Do not manufacture GPU load for JSON/hash compilation, and do not touch GPU 3;
+schedule the next independent GPU-heavy generation batches across free GPUs
+0--2.

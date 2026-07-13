@@ -51,6 +51,8 @@
 | 31 动物最终物理测量 | 31 assets | 4 Blender CPU workers | 24.30 s | passed |
 | 31 动物 post-Apartment 注册 | 31 assets | CPU/hash/readback | 6.80 s | passed |
 | 31 动物 QA/scene-pool 编译 | 31 assets | CPU/hash/readback | 7.22 s | 92 pairs / 226 questions |
+| 统一规范输入冻结 | 8 profiles / 72 requests / 34 assets | CPU/hash/readback | 0.60 s | 34 / 34 request bindings passed |
+| 统一 manifest-only 数据集编译 | 34 assets | CPU/hash/readback | 8.10 s | 95 pairs / 232 questions |
 
 Rocketbox 的两个 2-GPU 分区各达到约 197 clips/h 的批次吞吐；这已经包含 UE
 固定步进、主视图回读和 CPU 审核合成，不能用单帧实时渲染 FPS 外推。猫批次中

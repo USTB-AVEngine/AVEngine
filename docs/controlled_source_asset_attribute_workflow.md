@@ -836,28 +836,45 @@ QA 有两个严格区分的阶段：
 - Pixal3D 当前依赖和 SkinTokens 训练来源风险必须保留在 provenance/rights
   blocker 中；视觉通过不能自动清除许可证风险。
 
-生成完成后的数据集编译入口是：
+生成完成后的权威数据集编译入口是两步式。第一步先把 profile snapshot、原始
+`instance_requests.json` 和 realized `source_asset_v2` 冻结为一个不可变输入
+manifest：
 
 ```bash
-cd /data/jzy/code/AVEngine
+cd /data/jzy/code/AVEngine/external/SPEAR
 /data/jzy/miniconda3/envs/spear-env/bin/python \
-  external/SPEAR/tools/build_controlled_source_dataset.py \
-  --profile external/SPEAR/data/controlled_source_attributes_v1/profiles \
+  tools/build_controlled_source_dataset_input_manifest.py \
+  --profile /path/to/profile_snapshot.json \
+  --request-batch /path/to/instance_requests.json \
   --asset /path/to/realized/source_asset_v2/manifests \
   --dataset-id controlled_source_dataset_v1 \
   --split-salt avengine-controlled-source-v1 \
+  --output /new/nonexistent/input/dataset_input_manifest.json
+
+/data/jzy/miniconda3/envs/spear-env/bin/python \
+  tools/build_controlled_source_dataset.py \
+  --input-manifest /new/nonexistent/input/dataset_input_manifest.json \
   --output-dir /new/nonexistent/output/directory
 ```
 
-它默认只接受 `formal_dataset_asset`。研究阶段如确需检查候选资产，必须显式传
-`--allow-state research_candidate`，输出仍会标注“pending formal acceptance”，
-不能伪装为正式数据。工具会再次认证 profile、所有资产工件和许可证快照，并
-输出：
+第一步默认只接受 `formal_dataset_asset`。研究阶段如确需检查候选资产，必须在
+输入冻结命令显式传 `--allow-state research_candidate`；输出仍会标注“pending
+formal acceptance”，不能伪装为正式数据。冻结器会确定性重建 request batch，
+并要求每个 realized asset 与且只与一个 request 在 profile、属性、目标物理配置、
+rig、声音配置和模型 revision 上完全一致。第二步重新认证输入文件、profile
+依赖、所有资产工件和许可证快照，并输出：
 
 - `dataset_manifest.json`：按 lineage 哈希分组的资产与 QA 对；
 - `qa_dataset.json`：realized QA 证据；
 - `scene_source_pool.json`：全部已注册资产及其场景就绪状态；
 - `artifact_audit.json`：输入 profile、资产和许可证的 SHA-256 认证记录。
+- `dataset_input_manifest.json`：实际消费的 profile/request/asset 文件及 1:1
+  request 绑定；
+- `build_receipt.json`：把输入 manifest、数据集、QA、source pool 和 artifact
+  audit 的哈希绑定在同一回执中。
+
+直接传 `--profile/--asset` 的旧入口只为历史候选构建兼容，输出会明确标记
+`request_lineage=legacy_unverified`；新数据集不得再使用该模式。
 
 split 的原子单位是 `lineage_group_id`，不是 instance。一个 Rocketbox 角色的
 所有配色永远在同一 split；同一动物参考模板产生的所有个体也在同一 split。
@@ -933,6 +950,8 @@ SHA-256 为
   `external/SPEAR/tools/build_controlled_source_asset_inputs.py`；
 - 已生成资产的数据集编译 CLI：
   `external/SPEAR/tools/build_controlled_source_dataset.py`；
+- 数据集规范化输入冻结与 request 逐资产绑定 CLI：
+  `external/SPEAR/tools/build_controlled_source_dataset_input_manifest.py`；
 - 回归测试：
   `external/SPEAR/tests/tools/test_controlled_source_asset_schema.py`。
 
@@ -950,7 +969,8 @@ SHA-256 为
 | 动物 Pixal3D 多 GPU 执行 | `external/SPEAR/tools/run_controlled_animal_pixal_jobs.py` |
 | 动物静态多视图/决策 | `external/SPEAR/tools/run_controlled_animal_static_reviews.py`、`external/SPEAR/tools/review_controlled_animal_pixal_static_candidates.py` |
 | 动物静态候选注册 | `external/SPEAR/tools/register_controlled_animal_source_assets.py` |
-| realized QA / split / scene pool | `external/SPEAR/tools/build_controlled_source_dataset.py` |
+| profile/request/asset 输入冻结 | `external/SPEAR/tools/build_controlled_source_dataset_input_manifest.py` |
+| realized QA / split / scene pool | `external/SPEAR/tools/build_controlled_source_dataset.py --input-manifest ...` |
 
 每个工具都重新认证上游哈希、在不存在的新目录中 staging、回读后原子发布，并
 拒绝覆盖旧产物。人工判断不是直接修改生成 JSON，而是形成带哈希的新 decision
@@ -1067,3 +1087,51 @@ manifest。Pug 第二次 UE 回读结果如下：
 当前 31 个资产只有五个动物 lineage，按 lineage 分组后本次小批次全部落在
 train 是哈希划分的自然结果。不能为了让 validation/test 非空而把同一模板的
 近重复实例拆开；正式数据应增加许可证明确的独立基础 lineage。
+
+### 13.3 人类与动物统一的规范化输入构建
+
+最终统一候选不再从一组松散的 profile 和资产目录直接编译。冻结输入位于：
+
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_human_animal_dataset_input_34_final_v1_20260713/dataset_input_manifest.json`
+
+其逐字节一致、可由 Git 审计的控制面副本是
+`external/SPEAR/data/controlled_source_attributes_v1/dataset_inputs/controlled_human_animal_34_final_v1_20260713.json`；大体积资产和媒体仍只保存在不可覆盖的
+证据目录中。
+
+它认证了 8 个 profile、2 个 deterministic request batch、72 条 request 和 34 个
+realized asset。34 个资产各自匹配唯一 request，34 个 asset ID 和 request SHA-256
+均无重复，全部通过逐字段验证；另外 38 条未实现 request 被明确记录为 unused，
+不会被误报成数据集资产。输入 manifest SHA-256 为
+`c1b315c590030f4f952f4b876ab976bae665621f41c46b947efe27f9eb5a1c8c`。
+
+只消费上述 manifest 得到的权威统一候选位于：
+
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_human_animal_normalized_candidate_dataset_34_final_v1_20260713`
+
+| 项目 | 数量/状态 |
+|---|---:|
+| 动物 `source_asset_v2` | 31 |
+| Rocketbox 材质 `source_asset_v2` | 3 |
+| realized instance pairs | 95 |
+| realized questions | 232 |
+| request-lineage bindings | 34 / 34 passed |
+| duplicate asset/request IDs | 0 |
+| lineage leakage / cross-split QA | 0 / 0 |
+| scene-ready | 0 / 34 |
+
+数据集、QA、source pool 和 artifact audit SHA-256 分别为：
+
+- `a7b09ddec1d2d6e72690d686deaa42f9f62ea04db52a26bc31e5838c8a27e3fa`；
+- `52a15ee29d285aa9ef19c3ca43edc59284e9e3d33437fae7f40f0ac5d8401e34`；
+- `66feb737c35b23285a9d3d4e20c622da72645003ea593267c83781aa8fa12738`；
+- `2c28d454a06b98da509ace7bd5ab211852f60111144eb342a5ac99ae4800df45`。
+
+构建回执 SHA-256 为
+`bd8e68e529ebd342561386d8e9c492f85f4beae1f774a7d6cd527703a9c989fa`。
+新编译的四个核心数据文件与此前直接构建的 34-asset 版本逐字节一致，说明加入
+request-lineage 认证没有改变已批准的 QA 内容，只补齐了可复现输入边界。
+
+`scene-ready=0` 有两类原因，必须分别保留：31 个动物技术 QA 已通过但 rights
+尚未清理；3 个 Rocketbox 配色候选 rights 已清理，但仍缺该三条受控实例自己的
+UE import readback、Apartment Walk/Idle 媒体和音频证据。不能借用 115 个原生角色
+批次的成功记录自动提升这三个材质 revision。
