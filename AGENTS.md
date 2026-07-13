@@ -2356,3 +2356,77 @@ tests plus 6/6 server tests.  These two successful canaries remain
 `research_candidate` pending the human cardinal decision and rights/provenance
 clearance; `formal_dataset_asset` remains false, and the old 31 assets remain
 rejected diagnostic evidence.
+
+2026-07-14 stable-animal runtime override: do not continue treating arbitrary
+single-view Pixal meshes as the default batch animation topology.  The beagle
+diagnostics show that high face count does not prevent near/far-limb bridges,
+nonmanifold edges, belly holes, or skinned stringing; decimation and binding
+can expose or amplify defects that already exist in the raw reconstruction.
+Preserve all Pixal failures as research evidence, but prefer audited native
+species templates for stable dataset production while the novel-geometry path
+remains `research_candidate`.
+
+The current stable CC0 evidence is documented at
+`docs/stable_animal_template_route_20260714.md`.  Its machine registry is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_stable_template_registry_v1_20260714/registry_manifest.json`
+(SHA-256
+`e49361673d481c575dc78cff0f6065eddb90cffe2fd70bb283da1c409d66182a`).
+It contains 12 Quaternius Ultimate templates with native Walking and Idle,
+GLB readback, repaired visible materials, and passed per-frame deformation
+audits.  The source FBX files are under
+`/data/jzy/code/Spatial/v77_4ch_S2L/assets/mesh_library/quaternius`; source and
+license evidence are recorded per entry.  Legacy FBX Principled materials can
+have alpha 0 even though diffuse alpha is 1.  Repair only that alpha to 1
+during GLB extraction; do not replace geometry, rig, weights, colors, or
+actions.  V1 transparent exports remain immutable failure/control evidence;
+the visible-material outputs are the V2 root.
+
+All 12 source rigs author forward as `-Y`; runtime evidence uses only a
+`+90` degree cardinal yaw to world `+X`.  Never infer a fine yaw from a turned
+head.  Current direction state is `agent_selected_pending_human_review`, not
+human approved.  The user explicitly deferred the 2026-07-14 review; do not
+block automatic tests and UE preparation, and do not silently promote any
+template to `formal_dataset_asset`.
+
+The animation deformation gate is
+`external/SPEAR/tools/blender_audit_skinned_deformation.py`.  It compares
+sampled skinned edge lengths with the authored rest mesh: relative extension
+above 0.07 requires review and above 0.08 rejects.  Authored Cat/Dog/Wolf,
+Cow/Horse/Zebra, Eagle/Piranha, the stable beagle material template, and all 12
+Ultimate Walk/Idle pairs pass; Pixal beagle v7/v8 Walking rejects while their
+Idle passes.  Run this gate before rendering animation media.  The controlled
+animation review runner must not render an automatically rejected action.
+
+Stable appearance variation must use an explicit per-template semantic
+material allowlist through
+`external/SPEAR/tools/blender_recolor_semantic_materials.py`.  It records the
+absolute instance attribute, exact sRGB-to-linear parameters, input/output
+hashes, and preservation of topology, skeleton, weights, and actions.  Three
+Husky absolute coat-color candidates exist under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_husky_color_variants_v1_20260714`;
+they are independent light/medium/dark instances, not relative edits.  FLUX.2
+may supply a masked texture/reference candidate but must not alter stable
+runtime topology or silently create a different species geometry.
+
+`external/SPEAR/tools/audit_quadruped_i23d_geometry.py` now emits schema
+`avengine_quadruped_i23d_geometry_audit_v2`.  Do not reintroduce the old bug
+that called global yaw "torso twist": `global_axis_yaw_degrees` is rigid
+orientation evidence only and never rejects.  The shape gate uses
+`centerline_bend_p95_degrees` after removing the unsigned PCA axis, plus the
+position-indexed nonmanifold-edge ratio.  The calibration manifest is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/quadruped_geometry_audit_v2_calibration_20260714/i23d_geometry_audit.json`
+(SHA-256
+`d9c11695c78c6ba98a9120aaa117321e1526c4978e62250ce205b6c47c7cac4b`).
+Low-poly authored templates may not have enough torso samples for this I23D
+surface audit; use their inventory/readback and skinned-deformation gates
+instead of weakening the I23D sampler.
+
+Species coverage must remain truthful.  Stable native evidence currently
+covers Cat/Dog plus Alpaca, Bull, Cow, Deer, Donkey, Fox, Horse, Horse White,
+Husky, Shiba Inu, Stag, and Wolf; Eagle Flying/Idle and Piranha Swimming/Bite
+also pass species-specific deformation checks.  Llama/Pig/Pug/Sheep compatible
+skeleton action transfers are fallback research only because the visual gait
+can be exaggerated or cross-legged.  Goat, chipmunk, exact realistic beagle,
+and any other missing species remain explicit gaps until a same-species native
+template passes the full route.  Never relabel a similar template to fill a
+coverage count.

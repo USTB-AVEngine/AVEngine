@@ -1,7 +1,7 @@
 # AVEngine 受控声源资产属性 JSON 与生成工作流
 
 > 状态：当前属性设计的单一事实来源（SSOT）
-> 更新日期：2026-07-13
+> 更新日期：2026-07-14
 > 适用范围：Rocketbox 人类路线、FLUX.2 + Pixal3D 动物路线，以及后续
 > Apartment 音视频数据集注册
 
@@ -27,9 +27,12 @@
 - 纯色由“属性 JSON -> 语义 mask -> 确定性材质变换”实现。FLUX.2 只用于
   mask 内的织物、牛仔、皮革等受控纹理细节，不负责改变几何，也不负责最终
   精确颜色。
-- 动物使用 FLUX.2 生成受控参考图，Pixal3D 是默认 image-to-3D 后端。
-  Hunyuan3D 及其衍生物继续保持 `technical_spike_only` 或 `rejected`，不能
-  进入正式训练/评测资产。
+- 动物生产运行时优先选择同物种、拓扑/骨架/权重/原生动作均已审计的稳定
+  模板；属性 JSON 控制模板选择、确定性语义材质和实际 actor scale。FLUX.2 +
+  Pixal3D 保留为新几何研究分支，只有逐实例通过几何和变形门后才能成为候选，
+  不再默认让任意单图重建进入批量绑定。人类 Route-2 的默认 image-to-3D 仍是
+  Pixal3D。Hunyuan3D 及其衍生物继续保持 `technical_spike_only` 或 `rejected`，
+  不能进入正式训练/评测资产。
 - `size=large` 是语义属性，不是实际厘米。目标尺寸来自版本化品种配置，
   最终尺寸必须由网格/骨架/UE 代码测量后写入 `physical_measurements`。
 
@@ -44,7 +47,8 @@
   → 平衡采样器（一次采出完整绝对属性）
   → instance_request（本实例准备是什么）
   → route compiler
-      ├─ animal: 完整 prompt → 一次 FLUX.2 → 2D gate → Pixal3D
+      ├─ animal stable: species/template_id → 语义材质/scale 计划
+      ├─ animal novel research: 完整 prompt → 一次 FLUX.2 → 2D gate → Pixal3D
       └─ human: base_avatar_id → MaterialEditPlan → mask 内确定性改色
   → 静态/绑定/Walking/Idle/UE/音频 QA
   → physical_measurements（生成后的实际测量）
@@ -69,6 +73,26 @@
 
 因此，属性 JSON 是生成意图和可审计标签的来源；`source_asset_v2` 和媒体 QA 才是
 实现证据。两者不能合并成一个会被各阶段反复改写的文件。
+
+### 1.2 2026-07-14 动物稳定性覆盖决定
+
+单张严格侧视图仍无法可靠确定近/远腿深度。现有 Pixal 比格在原始高面数阶段就
+出现肢体桥接、非流形边和动画拉丝；减面并不是根因，也不能修复该歧义。因此
+动物属性系统仍保留完整 FLUX.2/Pixal3D provenance，但批量运行时优先走：
+
+```text
+绝对属性 JSON
+  → 同物种 audited template_id
+  → 显式 material allowlist / 三档 actor scale
+  → 原生 Walking + Idle
+  → GLB 回读 + 逐帧变形门 + cardinal direction
+  → UE / audio / Apartment
+```
+
+12 个 CC0 原生模板、Cat/Dog 补充模板和三档 Husky 毛色证据已完成，详见
+[稳定动物模板路线](/data/jzy/code/AVEngine/docs/stable_animal_template_route_20260714.md)。
+这些结果当前仍是 `research_candidate`：人工方向审核已暂缓，UE Apartment 尚未
+完成。未覆盖物种保持显式 gap，不能用相似动物换标签。
 
 ## 2. “声源资产”包含什么
 
@@ -442,24 +466,22 @@ snapshot SHA-256 是
 材质的不同 ordinal/seed 冒充新个体。动物 profile 有三个属性，当前 9 个请求
 是九个不同组合。
 
-## 5. 动物分支：属性 JSON 控制 FLUX.2 和 Pixal3D
+## 5. 动物分支：属性 JSON 控制稳定模板与研究性 FLUX.2/Pixal3D
 
 ```text
 品种 attribute_profile
         ↓
 平衡采样完整绝对属性
         ↓
-instance_request + 自动完整 prompt
+instance_request
         ↓
-一次 FLUX.2 Klein 图生图
+route compiler
+  ├─ stable: audited template_id → deterministic material/actor scale
+  └─ novel research: 自动完整 prompt → 一次 FLUX.2 → 2D gate → Pixal3D
         ↓
-2D 属性/姿态/肢体分离 QA
+静态/拓扑 QA → 对应物种骨架/权重或原生 rig
         ↓
-Pixal3D PBR GLB
-        ↓
-静态 QA → LOD → 对应物种骨架/权重
-        ↓
-Walking + Idle → GLB 回读 → UE 导入回读
+原生或同物种认证 Walking + Idle → 逐帧变形门 → GLB 回读 → UE 导入回读
         ↓
 实际尺寸/地面/方向测量
         ↓
@@ -468,26 +490,33 @@ Walking + Idle → GLB 回读 → UE 导入回读
 source_asset_v2 注册
 ```
 
-FLUX.2 接收的是完整视觉描述，但不接收真实厘米作为可靠控制信号。
+稳定模板分支不调用 image-to-3D：`template_id` 决定几何/骨架/权重/原生动作，
+属性 JSON 只能修改明确 allowlist 中的语义材质和 actor scale。FLUX.2 接收的是
+完整视觉描述，但不接收真实厘米作为可靠控制信号。
 `small/medium/large` 控制视觉体型；Pixal3D 后处理和 UE scale 控制真实世界
 尺寸。2D 结果只要有一个 sampled 属性未实现，或固定姿态/四肢分离被破坏，
 该 attempt 就进入 `rejected`，不进入昂贵的 3D 和动画阶段。
 
-每个动物品种映射到经过验证的骨架/动作族。不能为了批量通过，把马、狗、猫
-都套同一套动作；尚无可靠动作族的品种保持候选或拒绝，不伪装成已支持。
+每个动物品种映射到经过验证的模板或骨架/动作族。不能为了批量通过，把马、
+狗、猫都套同一套动作；尚无可靠模板/动作族的品种保持 gap、候选或拒绝，不
+伪装成已支持。跨模板动作转移即使数值门通过，也必须经过物种步态视觉检查。
 
-### 5.1 `execution_job` 怎样变成一次 FLUX.2 调用
+### 5.1 `execution_job` 怎样选择稳定模板或变成一次 FLUX.2 调用
 
-动物执行器只消费
-`execution_jobs.json.routes.flux2_pixal3d_animal_v1[]`。每个 job 已包含：
+稳定分支的目标 route ID 是 `stable_animal_template_v1`；当前模板提取、材质
+变体、原生动作、注册表和变形门已有独立工具与证据，但尚未并入主
+`execution_jobs.json` 编译器，因此不能声称该 route 已完成批量 schema 集成。
+现有新几何研究执行器继续消费
+`execution_jobs.json.routes.flux2_pixal3d_animal_v1[]`。两类 job 都必须包含：
 
 - `instance_id` 和被哈希认证的 `request_sha256`；
 - reference image 的 `root_id/path/sha256/size_bytes`；
-- 唯一的完整 `prompt`、`negative_prompt` 和 `generation_seed`；
+- 稳定分支的认证 `template_id`、材质 allowlist 和绝对颜色/scale 参数，或研究
+  分支唯一的完整 `prompt`、`negative_prompt` 和 `generation_seed`；
 - 固定的 FLUX.2、Pixal3D、DINO revision；
 - 目标物理配置、骨架动作族和声音能力。
 
-执行器必须按以下顺序工作：
+研究分支必须按以下顺序工作：
 
 1. 回查 `instance_requests.json`，验证 job 的 request SHA-256 和 profile SHA-256；
 2. 解析 named artifact root，再次认证 reference image，禁止按文件名猜输入；
@@ -1298,3 +1327,43 @@ uniform-clay 源图避免灰色遮罩泄漏，再由 Pixal3D 生成最终 PBR。
 风险仍在。因此它不能恢复旧 31 个资产，也不能自动提升为
 `formal_dataset_asset`；下一批必须从同一姿势合同逐品种扩展，并保留每次人工
 整 90° 方向结论。
+
+## 15. 2026-07-14 稳定原生模板覆盖
+
+本节覆盖“继续批量生成 Pixal 动物再绑定”的操作优先级，但不删除第 14 节的
+Pixal 失败证据。当前先稳定运行时拓扑，再扩展外观：
+
+1. 从 CC0 Quaternius 源 FBX/GLB 提取原生骨架、权重、Walking 和 Idle；
+2. 修复旧 FBX 材质中 `Principled alpha=0` 的透明导出问题，不修改几何；
+3. GLB 回读并对 Walk/Idle 运行逐帧边扩张变形门；
+4. 只使用 authored axis 和整 90° cardinal yaw，禁止自动 fine-yaw；
+5. 实例颜色通过显式语义材质 allowlist 确定性变换，尺寸通过 actor scale 和
+   生成后厘米回读；
+6. 最后才进入 UE Apartment、物种音频、轨迹和碰撞 QA。
+
+当前已经得到：12 个 Ultimate 原生 Walk/Idle 模板、Cat/Dog 两个补充原生模板、
+一个稳定比格技术材质模板，以及 Husky 三档绝对毛色实例。所有已运行 Walk/Idle
+均通过自动变形门；用户本轮暂缓人工审核，所以它们仍是
+`agent_selected_pending_human_review` / `research_candidate`，正式注册数量为 0。
+
+机器注册表位于：
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_stable_template_registry_v1_20260714/registry_manifest.json`。
+可点击视频、哈希、许可证、物种覆盖和明确缺口统一见
+[稳定动物模板路线](/data/jzy/code/AVEngine/docs/stable_animal_template_route_20260714.md)。
+
+当前代码权威为：
+
+| 职责 | 工具 |
+|---|---|
+| 原生 FBX Walk/Idle 提取和 alpha 修复 | `external/SPEAR/tools/blender_extract_quaternius_walk_idle_glb.py` |
+| 模板拓扑/骨架/动作/许可证清单 | `external/SPEAR/tools/blender_inventory_animal_template.py` |
+| 逐帧 skinned deformation 门 | `external/SPEAR/tools/blender_audit_skinned_deformation.py` |
+| 显式语义材质改色 | `external/SPEAR/tools/blender_recolor_semantic_materials.py` |
+| 稳定模板注册表 | `external/SPEAR/tools/build_quaternius_stable_template_registry.py` |
+| 仅作为 fallback 的同骨名动作转移 | `external/SPEAR/tools/blender_transfer_compatible_animal_actions.py` |
+| I23D prebind 几何门 v2 | `external/SPEAR/tools/audit_quadruped_i23d_geometry.py` |
+
+几何门 v2 已把刚体朝向与真实躯干弯曲分开：绝对
+`global_axis_yaw_degrees` 只记录，不参与拒绝；去掉该刚体轴后的
+`centerline_bend_p95_degrees` 才参与形状门。这样不会再把笔直但整体偏转 17° 的
+动物叫作“躯干扭曲”，同时仍能拒绝弯曲中心线和高非流形比例的 Pixal 输出。

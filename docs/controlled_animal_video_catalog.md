@@ -2,6 +2,28 @@
 
 该文档由 `external/SPEAR/tools/build_controlled_animal_apartment_video_index.py` 从认证 spec/registry 自动生成。稳定入口包括带标注审核、UE 主视图、同步 Top-down、双耳音频和叫声事件 schedule。
 
+## 2026-07-14 稳定原生模板路线（优先查看）
+
+旧 31 个 Pixal 动物的 Walking 仍保持用户视觉拒绝状态。新的稳定路线改用
+CC0 原生拓扑、骨架、权重和 Walk/Idle；12 个 Ultimate 模板以及 Cat/Dog
+补充模板均通过 GLB 回读和逐帧变形门禁，没有使用自动细角度 yaw。用户暂缓
+本轮人工审核，因此这些结果仍是 `research_candidate`，UE Apartment 尚未完成。
+
+- 完整结论、物种覆盖与绝对视频路径：
+  [stable_animal_template_route_20260714.md](/data/jzy/code/AVEngine/docs/stable_animal_template_route_20260714.md)
+- 12 模板机器注册表：
+  [registry_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_stable_template_registry_v1_20260714/registry_manifest.json)
+- 12 模板 Walk 总览：
+  [walking_overview_12_materials.png](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/walking_overview_12_materials.png)
+- 猫 Walk：
+  [Cat_walking_yaw0.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_curated_native_walk_idle_media_v1_20260714/videos/Cat_walking_yaw0.mp4)
+- 狗 Walk：
+  [Dog_walking_yaw0.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_curated_native_walk_idle_media_v1_20260714/videos/Dog_walking_yaw0.mp4)
+- 三档 Husky 毛色 Walk/Idle：
+  [light Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_husky_color_variants_v1_20260714/videos/light_warm_brown_walking_side.mp4) ·
+  [medium Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_husky_color_variants_v1_20260714/videos/warm_brown_walking_side.mp4) ·
+  [dark Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_husky_color_variants_v1_20260714/videos/dark_warm_brown_walking_side.mp4)
+
 ## 2026-07-13 重新生成的正侧姿势 canary
 
 下列媒体是旧 31 个方向失败资产之外的新 revision，不覆盖旧 GLB、决策或视频。
