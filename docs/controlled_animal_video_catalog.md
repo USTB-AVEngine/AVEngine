@@ -7,8 +7,15 @@
 旧 31 个 Pixal 动物的 Walking 仍保持用户视觉拒绝状态。新的稳定路线改用
 CC0 原生拓扑、骨架、权重和 Walk/Idle；12 个 Ultimate 模板以及 Cat/Dog
 补充模板均通过 GLB 回读和逐帧变形门禁，没有使用自动细角度 yaw。用户暂缓
-本轮人工审核，因此这些结果仍是 `research_candidate`。Husky 首个 UE Apartment
-Walk/Idle canary 已完成；其他模板仍待批量 UE 覆盖。
+本轮人工审核，因此这些结果仍是 `research_candidate`。12/12 个 Ultimate 模板
+均已完成 UE Apartment Walk/Idle、同步 Top-down、音频和 registry 自动验证。
+
+统一懒加载网页：
+[stable_animal_video_review_20260714.html](/data/jzy/code/AVEngine/docs/stable_animal_video_review_20260714.html)。
+服务器已从 AVEngine 根目录运行在 `127.0.0.1:8097`，SSH 转发后访问
+`http://127.0.0.1:8097/docs/stable_animal_video_review_20260714.html`。网页包含
+12 个模板的 24 段视频、Walk/Idle 筛选、主视图、Top-down 和绝对文件路径；
+它没有批准按钮，不会因播放视频而改变审核状态。
 
 ### Husky 稳定路线 UE canary（优先审核）
 
@@ -21,6 +28,30 @@ Walk/Idle canary 已完成；其他模板仍待批量 UE 覆盖。
 身体朝向与媒体回读。Walking 四个方向窗口最大身体朝向误差1.65°；狗叫被排成
 7个短事件，最小静音间隔0.85秒。当前只标记
 `agent_checked_pending_human_review`，没有人工或正式资产批准。
+
+### 其余 11 个模板的 UE Apartment 成片
+
+下表均为带标注审核成片；统一网页还提供 UE 主视图和同步 Top-down。批次
+22/22 段自动完成，人工审核仍为 `pending`。
+
+| 模板 | Walking | Idle |
+|---|---|---|
+| Alpaca | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_alpaca_alpaca_quaternius_ultimate_alpaca_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_alpaca_alpaca_quaternius_ultimate_alpaca_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Bull | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_cattle_bovinae_bull_quaternius_ultimate_bull_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_cattle_bovinae_bull_quaternius_ultimate_bull_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Cow | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_cattle_bovinae_cow_quaternius_ultimate_cow_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_cattle_bovinae_cow_quaternius_ultimate_cow_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Deer | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_deer_deer_quaternius_ultimate_deer_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_deer_deer_quaternius_ultimate_deer_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Donkey | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_donkey_ass_donkey_quaternius_ultimate_donkey_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_donkey_ass_donkey_quaternius_ultimate_donkey_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Fox | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_fox_red_fox_quaternius_ultimate_fox_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_fox_red_fox_quaternius_ultimate_fox_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Horse | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_horse_bay_horse_quaternius_ultimate_horse_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_horse_bay_horse_quaternius_ultimate_horse_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Horse White | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_horse_white_horse_quaternius_ultimate_horse_white_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_horse_white_horse_quaternius_ultimate_horse_white_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Shiba Inu | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_dog_shiba_inu_quaternius_ultimate_shibainu_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_dog_shiba_inu_quaternius_ultimate_shibainu_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Stag | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_deer_stag_quaternius_ultimate_stag_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_deer_stag_quaternius_ultimate_stag_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| Wolf | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_wolf_gray_wolf_quaternius_ultimate_wolf_v1/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) | [审核成片](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/clips/stable_wolf_gray_wolf_quaternius_ultimate_wolf_v1/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+
+机器汇总：
+[batch_qa_summary.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_qa_summary.json)。
+当前通过的是动作方向、动态落地、变形、媒体和音频门；按各模板运行时包围盒
+计算的家具碰撞仍待正式发布，因此不能把 22/22 自动完成解释为正式碰撞批准。
 
 - 完整结论、物种覆盖与绝对视频路径：
   [stable_animal_template_route_20260714.md](/data/jzy/code/AVEngine/docs/stable_animal_template_route_20260714.md)

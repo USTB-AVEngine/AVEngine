@@ -2473,3 +2473,46 @@ cook once, then fan out UE renders and CPU finalizers.  Never recook once per
 action, color, or size instance.  Full evidence and absolute media paths are
 in `docs/stable_animal_template_route_20260714.md` and
 `docs/controlled_animal_video_catalog.md`.
+
+2026-07-14 remaining native-animal UE batch: the same Husky implementation has
+now completed the other 11 Ultimate templates (Alpaca, Bull, Cow, Deer,
+Donkey, Fox, Horse, Horse White, Shiba Inu, Stag, and Wolf).  The authenticated
+batch status is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_status.json`;
+it reports 22/22 Walk/Idle clips passed, with zero failures or incomplete jobs.
+The consolidated QA record is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_qa_summary.json`
+(SHA-256
+`26549176c706d90d5c69c1a15c2405a37fde98f2a22296a1d9bc29be65aac106`).
+Together with Husky, all 12 Ultimate templates now have complete UE Apartment
+Walk/Idle evidence.
+
+The batch imported/read back 11/11 templates in 32.08 seconds (2,502,076 KB
+peak RSS), performed one shared cook in 168.88 seconds (7,960,340 KB peak
+RSS), then rendered/finalized 22 clips on GPU 0/2 plus six CPU finalizers in
+986.18 seconds.  GPU 1 was not used and GPU 3 was left untouched for its other
+user.  All 66 MP4 streams passed ffprobe, all clips are 18 seconds/270 frames,
+and all 205 authenticated registry descriptors rehashed successfully.  The
+maximum Walking body/path yaw error is 1.974 degrees, maximum floor
+penetration is numerical zero (`3.55e-14 cm`), and all root roll/pitch values
+are zero.  Never reinterpret these automatic results as human approval: every
+combined registry remains `usage_scope=research_candidate`,
+`human_visual_review=pending`, and `formal_registry_promotion=false`.
+
+Animal audio must remain species-authenticated.  Cattle, Deer/Stag, Horse,
+Shiba, Wolf, and Fox use explicit same-species sources and energy-aware event
+schedules.  Fox has one ten-second long call and is not duplicated as a short
+event.  No authenticated Alpaca or Donkey source was found, so those profiles
+are explicitly silent; never substitute another species merely to fill a
+sound track.
+
+The 22/22 result covers native-topology deformation, UE dynamic direction and
+grounding, media, and audio.  It does not yet constitute a formal runtime
+mesh-vs-furniture collision approval: the inherited table-loop trajectory has
+center-line and occlusion evidence, but no published per-template runtime OBB
+collision gate.  Keep furniture occlusion advisory and keep formal promotion
+false until that gate and human review are complete.  The lazy-loading review
+page is `docs/stable_animal_video_review_20260714.html`; with the existing
+AVEngine HTTP server it is reachable through SSH forwarding at
+`http://127.0.0.1:8097/docs/stable_animal_video_review_20260714.html` and has
+no approval controls.

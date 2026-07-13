@@ -122,3 +122,28 @@ incremental，遍历了约4,548个 packages；它不是每个动物的固有成�
 仍稳定在约69–71秒；两段并行 finalize 平均占约59秒 wall/clip，但会与下一批
 GPU render 重叠。因此扩规模时的顺序应是：资产批量导入 → 一次 cook → 多 GPU
 渲染队列 → 独立 CPU finalize 池。
+
+## 2026-07-14 剩余 11 个原生模板批量实测
+
+该批次沿用 Husky 已验证的同一实现，一次导入 11 个模板、一次共享 cook，再将
+22 个 Walk/Idle clip 分发到 GPU 0/2，并由 6 个 CPU worker 并行完成轨迹图、
+双耳音频、FFmpeg 和 registry。GPU 1 未使用，GPU 3 保留给其他用户。
+
+| 阶段 | wall time | 峰值 RSS | 产出 |
+|---|---:|---:|---|
+| 11 模板 UE editor import/readback | 32.08 s | 2,502,076 KB | 11/11；每个都有 mesh、skeleton、materials、Walking、Idle、Blueprint |
+| 共享 cook/package/archive | 168.88 s | 7,960,340 KB | 仅执行一次；11 个资产标签全部进入 Pak |
+| 22 段 UE render + CPU finalize | 986.18 s | runner 584,852 KB | 22/22 passed，0 failed，0 incomplete；2 GPU render workers + 6 finalize workers |
+| 端到端批次合计 | 1,187.14 s | 见上 | 约 19 分 47 秒；共享成本摊销后约 53.96 s/clip 的批次 wall time |
+
+这里的 `53.96 s/clip` 是并发批次吞吐，不是单段 UE 渲染延迟：两个 UE 进程
+通常各占一张卡约 25–40%，而 Top-down、音频和编码主要使用 CPU。提高 GPU
+进程数会同时增加显存、CPU 解码/编码与磁盘争用，当前 2 GPU + 6 finalize 是
+不碰 GPU 1/3 时的稳定配置。更大规模应复用已经 cook 的 Pak，避免把 32.08 秒
+导入和 168.88 秒 cook 重复计入每个实例。
+
+完整证据：
+[ue_import_result.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_ue_import_remaining11_v1_20260714/ue_import_result.json)、
+[ue_cook_timing.txt](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_shared_ue_cook_remaining11_v1_20260714/ue_cook_timing.txt)、
+[batch_status.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_status.json) 和
+[batch_qa_summary.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_qa_summary.json)。

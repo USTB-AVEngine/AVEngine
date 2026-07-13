@@ -2,8 +2,8 @@
 
 > 当前分类：`research_candidate`。本页记录自动审计与代理视觉检查结果；用户已
 > 暂缓本轮人工审核，因此没有任何条目被标记为 `human_approved` 或
-> `formal_dataset_asset`。Husky 首个 UE Apartment Walk/Idle canary 已完成；
-> 其余模板仍待批量 UE 覆盖。
+> `formal_dataset_asset`。12 个模板的 UE Apartment Walk/Idle 自动验证均已完成；
+> 正式 mesh-vs-furniture 碰撞门和用户人工审核仍待完成。
 
 ## 结论
 
@@ -50,7 +50,7 @@ CC0-1.0。FBX 中旧 Principled BSDF `alpha=0` 会令 GLB 材质透明；提取�
 
 | 模板 | 三角面级别 | Walk | Idle | 当前自动状态 |
 |---|---:|---|---|---|
-| `Alpaca` | 2,060 | [Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Alpaca_walking_side.mp4) | [Idle](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Alpaca_idle_side.mp4) | GLB/材质/变形通过，人工与 UE 待完成 |
+| `Alpaca` | 2,060 | [Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Alpaca_walking_side.mp4) | [Idle](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Alpaca_idle_side.mp4) | GLB/材质/变形/UE Walk+Idle通过，人工待审 |
 | `Bull` | 2,418 | [Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Bull_walking_side.mp4) | [Idle](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Bull_idle_side.mp4) | 同上 |
 | `Cow` | 2,450 | [Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Cow_walking_side.mp4) | [Idle](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Cow_idle_side.mp4) | 同上 |
 | `Deer` | 2,098 | [Walk](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Deer_walking_side.mp4) | [Idle](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/quaternius_ultimate_native_walk_idle_v2_media_20260714/videos/Deer_idle_side.mp4) | 同上 |
@@ -98,6 +98,48 @@ Walk/Idle → 轨迹图 → 16 kHz 双耳音频 → registry”的完整链路�
   单次叫声无缝循环成持续噪声。
 - 代理抽查原始帧与审核合成未见 Pixal 比格式腹部空洞、脚部拉丝、横向跑或
   倒退；这仍不等价于用户人工批准。
+
+## 其余 11 个原生模板 UE 批量验证
+
+剩余 Alpaca、Bull、Cow、Deer、Donkey、Fox、Horse、Horse White、Shiba Inu、
+Stag、Wolf 已按完全相同的代码路径批量跑完。统一懒加载审核页：
+[stable_animal_video_review_20260714.html](/data/jzy/code/AVEngine/docs/stable_animal_video_review_20260714.html)。
+页面展示绝对文件路径，Walk/Idle 可分别筛选；它只播放证据，不写审批状态。
+
+机器汇总：
+[batch_qa_summary.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_qa_summary.json)
+（SHA-256 `26549176c706d90d5c69c1a15c2405a37fde98f2a22296a1d9bc29be65aac106`）。
+最终批状态：
+[batch_status.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_status.json)。
+
+- UE Editor 一次导入并回读 11/11 个模板、每个均含 Walking 和 Idle；耗时
+  32.08 秒。共享 cook/package 只执行一次，耗时 168.88 秒。
+- GPU 0/2 两路渲染和 6 路 CPU finalize 共完成 22/22 段，wall time 986.18 秒；
+  失败和未完成均为 0。每段仍为 18 秒/270帧及主视图、同步 Top-down、带标注
+  审核三路媒体。
+- 205 个 registry 描述符全部重新计算哈希通过；66 个 MP4 均通过 H.264、时长
+  和音轨契约回读。所有 registry 保持 `research_candidate`、
+  `human_visual_review=pending`、`formal_registry_promotion=false`。
+- Walking 最大身体朝向误差为 1.974°；全部动作最大地面穿透为
+  `3.55e-14 cm`（浮点数值零），根部 roll/pitch 均为 0°。所有模板使用
+  `Back → Torso3` 身体纵轴，没有以转头角度补偿方向。
+- UE 动态高度覆盖约 42 cm 的 Fox/Shiba、76–84 cm 的 Wolf、111–119 cm 的
+  Donkey、132–137 cm 的 Deer、145–167 cm 的 Cow/Bull/Alpaca/Horse，以及
+  含鹿角约 202–205 cm 的 Stag；与实例配置的类别尺度一致。
+- Cattle、Deer/Stag、Horse、Shiba、Wolf 分别使用物种匹配的真实录音并经过
+  阈值事件排程；Fox 的 10 秒长录音被判断为单个长事件，不被错误复制。当前
+  没有具备来源证据的 Alpaca/Donkey 叫声，因此二者明确静音，绝不以其他动物
+  冒充。
+- 四阶段 Walking 抽帧：
+  [walking_four_phase_contact_sheet.png](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/agent_visual_qa/walking_four_phase_contact_sheet.png)；
+  Idle 中帧：
+  [idle_mid_contact_sheet.png](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/agent_visual_qa/idle_mid_contact_sheet.png)。
+  代理抽查未见单图重建式缺面、脚部拉丝、横向/倒退或丢材质。
+
+当前通过的是“原生拓扑动画稳定性 + UE 动态方向/落地 + 媒体/音频”门。继承的
+桌边轨迹只记录中心线和家具遮挡；尚未发布按每种动物运行时 OBB 计算的正式
+mesh-vs-furniture 碰撞门。因此家具遮挡仍是 advisory，不能把 22/22 自动完成
+解释成正式场景碰撞批准；这也是维持 `formal_dataset_asset=false` 的原因之一。
 
 ## 猫、通用狗与稳定比格补充模板
 
