@@ -513,9 +513,13 @@ FLUX.2 接收的是完整视觉描述，但不接收真实厘米作为可靠控�
 
 ### 5.2 当前动物执行边界
 
-规范化执行适配器已经落地，并从 45 个已认证动物 request 中选择了 5 个计划
-QA pair、共 10 个实例完成端到端静态 canary。45 个 request 仍只是完整计划，
-不能把未执行的其余 35 个写成生成资产。当前实际证据如下：
+规范化执行适配器已经落地。45 个已认证动物 request 已全部实际执行：先用
+5 个计划 QA pair、共 10 个实例完成端到端静态 canary，再对未执行的 35 个
+request 继续运行同一条不可覆盖的证据链。最终有 42 个静态合格候选、2 个在
+2D 阶段拒绝、1 个在 Pixal 静态阶段拒绝；失败实例保留原 request 和失败原因，
+没有用新 seed 或其他外观偷偷替换。
+
+最初 10 个静态 canary 的权威证据如下：
 
 | 阶段 | 权威 manifest / 媒体 | 当前结果 |
 |---|---|---|
@@ -527,6 +531,25 @@ QA pair、共 10 个实例完成端到端静态 canary。45 个 request 仍只�
 | 静态决定 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_pixal_static_decisions_v1_20260713/static_decision_batch_manifest.json` | 10/10 `approved_for_lod_and_binding`；size 全部延后到 metric 3D；decision `aa9bc95bbced6f9e055fefb3e692366405901856550c43b39e32f011f386f1e3` |
 | 候选资产注册 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_source_assets_v2_20260713_v1/registry_manifest.json` | 10 个 `research_candidate`；registry `20e72c8b0c4dcd0ba39d4f05aa553abce093d47c4e60f7a961d62df4eb9b1b07` |
 
+其余 35 个 request 的实际执行结果如下：
+
+| 阶段 | 权威 manifest / 媒体 | 实际结果 |
+|---|---|---|
+| FLUX.2 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_flux2_remaining35_v1_20260713/flux2_batch_manifest.json` | 4 GPU 常驻 worker；35/35 候选生成；batch `be5ebf9c9307aebe20ccc571a5a8e69ae9ddedc816539de392b98747724eafbd` |
+| 2D 属性审核 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_flux2_remaining35_reviews_v1_20260713/review_batch_manifest.json` | 33 approved、2 rejected；两个虎斑候选分别出现分叉尾尖和完整双尾；review `201371d67b0557c9cfa6d3aa6e72237337e80aef0ec118101d437f9929bb5dbe` |
+| ISNet/Pixal 输入 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_pixal_inputs_remaining33_v1_20260713/pixal_inputs_manifest.json` | 33/33 认证为 1024 RGBA；manifest `2e4fb4bf701f903d49c99c1f2f264dc98e8f3cd331c8a15230bf7290af6d5579` |
+| Pixal3D PBR GLB | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_pixal_remaining33_v1_20260713/pixal_batch_manifest.json` | 4 GPU 常驻 worker；33/33 GLB2/PBR 回读通过；batch `e99ea28258a384644c48702ac5ddf7ed851f718a28ac26aa7a958808ac646009` |
+| 静态多视图 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_pixal_static_reviews_remaining33_v1_20260713/static_review_batch_manifest.json` | 33/33 Front/Back/Side/Top/Quarter/contact sheet；batch `48a08de55f87e135c4b66bb715be671b1a8299fab494d864ae74e01b504be758` |
+| 静态决定 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_pixal_static_decisions_remaining33_v1_20260713/static_decision_batch_manifest.json` | 32 approved、1 rejected；拒绝的比格犬同时有短尾主体和一整段悬浮白尾；decision `402203c2273a256d8779735c2580cc5069e5d3725e8ad1959fc4a1d28ed99a18` |
+| 候选资产注册 | `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_source_assets_remaining33_v2_20260713/registry_manifest.json` | 只注册 32 个 approved `research_candidate`；registry `46617330f3846a938e7ee6adc9f9833467b01efdc338a33a31c41d0e85e378bc` |
+
+按 profile 分组的 33 个静态总览位于
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_pixal_static_reviews_remaining33_overview_v1_20260713/`。
+所有审核决定绑定到对应 `review_sha256`，并由
+`external/SPEAR/data/controlled_source_attributes_v1/reviews/animal_pixal_static_remaining33_20260713_v1.json`
+保存。注册器要求决策完整覆盖全部 Pixal attempt，但只注册 approved 子集；
+单个静态失败不会再拖垮整批注册。
+
 总览图是
 `external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_pixal_static_reviews_v3_20260713_overview/all_static_contact_sheets.png`。
 静态门禁确认 10 个都是完整、可识别、四肢分开的猫/狗候选；已保留的注意项是
@@ -536,7 +559,8 @@ QA pair、共 10 个实例完成端到端静态 canary。45 个 request 仍只�
 non-metallic/roughness 预览，并将该预览参数写入审核记录。
 
 这些记录证明的是“属性 JSON → FLUX.2 → 2D gate → ISNet → Pixal3D → 静态
-source_asset_v2”已走通，不证明动画和场景已经通过。10 个候选的
+source_asset_v2”已对完整 45-request canary 走通，不证明动画和场景已经通过。
+42 个候选的
 `physical_measurements`、LOD、物种骨架绑定、Walking、Idle、UE、Apartment、
 音频和正式 rights clearance 仍是后续门禁，所以它们不会进入场景白名单。
 
@@ -549,10 +573,17 @@ source_asset_v2”已走通，不证明动画和场景已经通过。10 个候�
 | Pixal3D 模型加载 | GPU 1--3，各加载一次 | 约 118.6--120.8 秒 |
 | Pixal3D 单候选推理+GLB 导出 | 3 GPU 常驻 worker | 97.5--372.6 秒，平均 186.17 秒 |
 | Pixal3D 10 个候选批次 wall time | 3 GPU | 914.93 秒（约 15.25 分钟，含加载） |
+| Pixal3D 剩余 33 个候选模型加载 | 4 GPU，各加载一次 | 126.26--131.87 秒 |
+| Pixal3D 剩余 33 个单候选推理+GLB 导出 | 4 GPU 常驻 worker | 95.60--362.62 秒，平均 183.82 秒 |
+| Pixal3D 剩余 33 个批次 wall time | 4 GPU | 1818.58 秒（约 30 分 19 秒，含加载和最终回读） |
 
 这说明当前静态管线的主要计算瓶颈是 Pixal3D，而不是 JSON 编译、注册或 QA
-数据集构建。批量生产必须继续使用 persistent worker，不能每个实例重新加载
-模型；更完整的人类/动物/UE 耗时权威表继续见
+数据集构建。Pixal 的扩散采样阶段 GPU 利用率高，而参数化、UV 和 GLB
+finalize 阶段主要占 CPU，所以瞬时 GPU 利用率低不代表任务停止。本批使用的
+静态 round-robin 分片还出现尾部不均衡：GPU 2 先结束时其他 GPU 仍有任务。
+批量生产必须继续使用 persistent worker，不能每个实例重新加载模型，并应改为
+共享可抢占任务队列，让先完成的 worker 自动领取下一个 job。更完整的
+人类/动物/UE 耗时权威表继续见
 `docs/pipeline_timing_and_scaling_audit.md`。
 
 ## 6. 人类稳定分支：属性 JSON 控制 Rocketbox
@@ -859,6 +890,7 @@ lineage。
 | `animal_static_candidate_dataset_v1_20260713` | 10 动物 | 2 / 3 | 0 / 10 |
 | `rocketbox_candidate_dataset_v3_20260713` | 3 人类 | 3 / 6 | 0 / 3 |
 | `combined_controlled_candidate_dataset_v1_20260713` | 10 动物 + 3 人类 | 5 / 9 | 0 / 13 |
+| `combined_controlled_candidate_dataset_full_v1_20260713` | 42 动物 + 3 人类 | 42 / 86 | 0 / 45 |
 
 合并数据集的权威 manifest 是
 `external/SPEAR/tmp/controlled_source_asset_execution_v1/combined_controlled_candidate_dataset_v1_20260713/dataset_manifest.json`，
@@ -866,11 +898,23 @@ SHA-256 为
 `a433ad26d5c63d5cdb211610998ed4033c53e44ded07d699e249c49aaa4d6e86`；
 13 个资产及其 profile、source artifact 和许可证共计全部重新认证通过。
 
-动物 canary 原本计划了 5 个 pair，但静态阶段只有哈巴狗
+完整 45-request 静态批次完成后的权威合并 manifest 是
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/combined_controlled_candidate_dataset_full_v1_20260713/dataset_manifest.json`，
+内部 `manifest_sha256` 为
+`241e331f5607d23b97c02e3800fb0d60f6734212cec78b1b5fa738356061d54f`。
+它包含 42 个动物和 3 个 Rocketbox 人类候选，生成 42 个 realized pair、
+86 个问题：`body_build=32`、`coat_color=29`、`coat_tone=5`、
+`point_color=14`、`top_color=6`。45 个资产、6 个 profile 及所有引用工件和
+许可证再次认证通过；由于动画、UE、Apartment、audio 和 rights 门禁尚未齐全，
+`scene_source_pool.json` 正确保持 0/45 eligible。
+
+最初的动物 canary 原本计划了 5 个 pair，但静态阶段只有哈巴狗
 `coat_color=apricot/fawn` 和虎斑猫 `body_build=standard/slim` 具备足够证据，
 所以只产生 2 个 realized pair。暹罗猫、比格犬和金毛的三个 size pair 都被
 自动拦截，因为 `physical_measurements.status=pending`。这正是期望行为：需要
 先完成真实厘米和 UE scale 闭环，之后重新注册新 revision，size QA 才会出现。
+完整批次的 86 个问题同样不包含任何 `size` 问题；新增问题只来自已经通过 2D
+和静态 3D 证据的绝对外观属性。
 
 ## 12. 当前实现状态、代码权威与剩余边界
 
@@ -918,10 +962,11 @@ manifest；后续执行器只消费已批准 decision。
   已验证；当前男性 profile 的 blue/green/burgundy 三种上衣材质、runtime 和
   候选数据集也已经执行。其余 114 个模板尚无完整颜色 mask/profile 审计，不能
   仅因原角色能进 UE 就声称它们可随机改色。
-- 新受控动物批次已经真实执行 10/45 个 request，并产生 10 个静态候选
-  `source_asset_v2` 和 2 个有视觉证据的 realized QA pair；其余 35 个 request
-  仍是计划，不能计作资产。
-- 这 10 个动物尚未完成 LOD、品种动作族绑定、Walking/Idle、metric size、UE、
+- 新受控动物批次已经真实执行 45/45 个 request。2 个多尾虎斑在 2D 阶段拒绝，
+  1 个悬浮尾段比格犬在静态 3D 阶段拒绝；42 个通过项已成为静态候选
+  `source_asset_v2`。与 3 个 Rocketbox 材质候选合并后，数据合同实际产生
+  42 个 realized QA pair 和 86 个问题。
+- 这 42 个动物尚未完成 LOD、品种动作族绑定、Walking/Idle、metric size、UE、
   Apartment 和音频 QA。静态批准只授权进入 LOD/绑定，不授权批量场景生产。
 - 目标动物尺寸目前是 provisional pipeline target；正式注册前必须补许可证
   快照和可核验品种尺寸来源，再用实际网格/骨架/UE 读回值闭环。
@@ -931,12 +976,13 @@ manifest；后续执行器只消费已批准 decision。
 
 建议的剩余实现顺序是：
 
-1. 对当前 10 个动物做安全 LOD，并按猫/狗动作族进行绑定；
-2. 完成 Walking/Idle、方向、落地、GLB 回读和真实尺寸测量；
-3. 完成 UE、Apartment、物种音频和可观看媒体 QA，发布新的候选 revision；
-4. 清除许可证/参考来源 blocker 后，才把通过项提升为
+1. 将 Pixal 执行器从静态 round-robin 改成共享抢占队列并做回归测试，消除多
+   GPU 尾部空闲；
+2. 对当前 42 个动物做安全 LOD，并按猫/狗动作族进行绑定；
+3. 完成 Walking/Idle、方向、落地、GLB 回读和真实尺寸测量；
+4. 完成 UE、Apartment、物种音频和可观看媒体 QA，发布新的候选 revision；
+5. 清除许可证/参考来源 blocker 后，才把通过项提升为
    `formal_dataset_asset`；
-5. 继续执行其余 35 个动物 request，失败 attempt 保留而不替换标签；
 6. 扩展女性/儿童/职业 Rocketbox 的独立 mask profile 和更多合规动物 lineage。
 
 旧文档或旧 contract 与本文冲突时，本文关于绝对属性、每项最多三个值、人类

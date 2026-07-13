@@ -2139,3 +2139,35 @@ manifest SHA-256
 Continue with animal LOD/binding/Walking/Idle/metric/UE/audio gates and the
 remaining 35 planned requests; do not rerun or overwrite the completed static
 canary.  The approved Rocketbox baseline remains immutable.
+
+2026-07-13 full controlled-animal static update (supersedes the remaining-35
+sentence immediately above): all 45 authenticated animal requests have now
+been executed without replacing the first 10 canaries.  The remaining FLUX.2
+batch generated 35 candidates; 2 Tabby images were rejected before 3D for a
+forked tail and two complete tails.  Pixal3D then produced and GLB-read back
+33/33 candidates on four persistent workers (batch SHA-256
+`e99ea28258a384644c48702ac5ddf7ed851f718a28ac26aa7a958808ac646009`).
+Static multiview review approved 32 and rejected
+`dog_beagle_fcea77a333db` because a large white tail section floats beside a
+separate attached tail.  The compact decision input is committed at
+`external/SPEAR/data/controlled_source_attributes_v1/reviews/animal_pixal_static_remaining33_20260713_v1.json`;
+the 32 approved source assets are registered under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_source_assets_remaining33_v2_20260713`
+(registry SHA-256
+`46617330f3846a938e7ee6adc9f9833467b01efdc338a33a31c41d0e85e378bc`).
+Together with the first 10 animals and 3 Rocketbox variants, the authenticated
+candidate dataset at
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/combined_controlled_candidate_dataset_full_v1_20260713`
+contains 45 assets, 42 realized pairs, 86 questions, and 0 scene-ready sources;
+its internal manifest SHA-256 is
+`241e331f5607d23b97c02e3800fb0d60f6734212cec78b1b5fa738356061d54f`.
+No `size` question is realized until metric rig/UE measurement exists.
+
+The 33-item Pixal batch took 1818.58 seconds wall time.  Individual inference
+plus GLB export took 95.60--362.62 seconds (mean 183.82), while each model load
+took 126.26--131.87 seconds.  Low instantaneous GPU use during Pixal is often
+expected in CPU-heavy parameterization/UV/finalize phases.  Static round-robin
+partitioning also left early-finishing GPUs idle at the tail; before the next
+large Pixal batch, use a tested shared claim queue so a free persistent worker
+can claim the next unstarted job.  Do not interrupt or repartition an active
+atomic staging batch merely to improve an instantaneous utilization reading.
