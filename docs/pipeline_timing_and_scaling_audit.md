@@ -78,3 +78,22 @@ CPU/存储阶段。
 3. 只在 GPU 空闲且无其他用户任务时提高 UE worker 数，不能为利用率抢占共享卡；
 4. 对每个新动物先做一次 UE 实测，只有物理误差明显超阈值才走尺度闭环和重渲染；
 5. Pixal3D 继续使用常驻 worker/共享 claim queue，避免模型重复加载和尾部空卡。
+
+## 2026-07-13 正侧姿势 canary 的 UE 实测
+
+猫 v5 和比格犬 clay v6 共用一次增量 cook/package，随后四个 18 秒 clip 分配到
+GPU 0、2、3。第一次约 13.5 秒的启动记录发生在 PAK 尚未包含新资产时，已保留
+为失败证据，不计入正常吞吐；下表仅列 cook 后成功并回读的结果。
+
+| 阶段/clip | wall time | 结果 |
+|---|---:|---|
+| 猫 + 狗共享 UE cook/package | 160.75 s | passed；最大 RSS 7,904,028 KB，批次只执行一次 |
+| Tabby Walking UE render | 70.0879 s | passed |
+| Tabby Idle UE render | 75.6404 s | passed |
+| Beagle Walking UE render | 68.6774 s | passed |
+| Beagle Idle UE render | 73.6466 s | passed |
+| 四段 UE render 平均 | 72.0131 s | 与既有约 74 秒/clip 基线一致 |
+
+共享 cook 的完整记录位于
+[ue_cook_timing.txt](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/four_limb_rest_side_shared_ue_cook_v6_20260713_r1/ue_cook_timing.txt)。这再次说明 cook 是批次成本，不能为每个颜色、尺寸或动作重复
+执行；Walk/Idle 可并行渲染，Top-down、RLR 和 FFmpeg 继续使用独立 CPU 池。

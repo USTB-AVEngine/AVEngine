@@ -2296,3 +2296,63 @@ all 115 Rocketbox avatars with complete Walking and Standing Idle pairs: 236
 review items and 708 existing MP4 view links, each with an absolute server path.
 `docs/controlled_animal_video_review.html` now labels the existing animal
 videos as rejected diagnostic evidence and links back to the direction gate.
+
+2026-07-13 corrected animal pose/direction canary update (supersedes the
+mirror-X/fine-yaw operating description immediately above; it does not alter
+or restore the rejected historical 31): visible head yaw was not a valid proxy
+for the torso/rest-pose direction.  The replacement contract starts from the
+raw 100k mesh with an identity pretransform, disables automatic orientation,
+forbids hidden reflection/mirror and fine-yaw compensation, and permits only
+manual 0/±90/180-degree yaw.  A turned head, twisted/diagonal torso,
+inconsistent fore/hind leg planes, or paws on different ground planes rejects
+the source pose and returns it to the strict-side 2D/Pixal stage.
+
+The exact-side cat v5 canary
+`cat_tabby_four_limb_rest_side_3a1ecde08179` passed isolated Walking/Idle,
+UE import/readback, and two Apartment clips.  In the uniform-clay dog v6
+batch, `dog_beagle_four_limb_rest_side_clay_1550ff78df40` remains rejected
+because Walking showed foot stretching/fragments, while
+`dog_beagle_four_limb_rest_side_clay_1b1e63af05c3` passed isolated
+Walking/Idle, UE import/readback, and two Apartment clips.  Do not generate
+Apartment media for the rejected dog and do not reinterpret its static pass as
+an animation pass.
+
+The cat UE import result is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/four_limb_rest_side_ue_import_v5_20260713_r1/ue_import_result.json`
+(file SHA-256
+`1016c12509020590fe2808b16b8d97486f58d0c6d6e1fe19a693abbeb094bd2c`).
+The dog result is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_four_limb_rest_side_clay_ue_import_v6_20260713_r1/ue_import_result.json`
+(file SHA-256
+`7c29cc535ff8ffc7b675b4fa6c357d76b2ff8a21cccf9296064d24a165f10786`).
+UE 5.5 Interchange can emit a handled NodeUid ensure during editor shutdown
+after the import script has already written and authenticated a passed result;
+classify the run from the import result/readback and success marker, not the
+process exit code alone, while retaining the ensure log as engineering debt.
+
+Both new assets were packaged in one shared cook rather than one cook per
+asset.  Evidence is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/four_limb_rest_side_shared_ue_cook_v6_20260713_r1/ue_cook_timing.txt`:
+160.75 seconds wall, 7,904,028 KB maximum RSS, exit 0.  The successful UE
+render times are 70.0879/75.6404 seconds for cat Walk/Idle and
+68.6774/73.6466 seconds for dog Walk/Idle.  All four clips are 18 seconds with
+270 frames, grounded dynamic bounds, zero root roll/pitch, main view,
+synchronized top-down, annotated side-by-side review, stereo 16 kHz audio,
+and an authenticated source-event schedule.  The cat schedule has nine short
+call events and the dog schedule seven, both repeated with silence gaps.
+
+The live manual gate remains `http://127.0.0.1:8102/` but now consumes
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_pose_direction_new_canary_review_v4_20260713/review_manifest.json`.
+Its file SHA-256 is
+`977b74fb08cad3ce2a547b0eb87eafba54ac5bc25e61c03dcabf1fb6109b47bd`;
+its internal manifest SHA-256 is
+`0e3efd51ac9ca7bc73f5158c2b037e837764d55b909a6cc8c8be51ebece56ef9`.
+The page authenticates six Apartment Walk/Idle media views for the passed cat
+and dog, exposes none for the rejected dog, and still rejects ±5-degree API
+rotations.  Browser decisions are immutable overlays under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_direction_new_canary_review_state_v4_20260713`;
+they never modify source GLBs.  Regression evidence is 32/32 builder/schema
+tests plus 6/6 server tests.  These two successful canaries remain
+`research_candidate` pending the human cardinal decision and rights/provenance
+clearance; `formal_dataset_asset` remains false, and the old 31 assets remain
+rejected diagnostic evidence.

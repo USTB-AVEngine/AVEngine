@@ -824,6 +824,121 @@ QA 有两个严格区分的阶段：
 肩高/髋高等测量字段。因此“图上提示词写了 large”绝不会提前产生“哪只更大”
 的 realized 答案。
 
+### 10.1 强制音视频联合的 reasoning QA
+
+instance-pair QA 回答资产之间的属性差异；Apartment 的核心场景 QA 则必须是
+真正的跨模态推理：只听音频不能回答，只看视频也不能回答。典型程序先用音频
+确定说话人、声源或时间锚点，再在视频轨迹中查询外观、动作、位置或遮挡；也可
+先从视频得到候选对象，再用空间音频确定实际发声者。建议记录格式为：
+
+```json
+{
+  "schema": "avengine_av_reasoning_qa_set_v1",
+  "scene_id": "apartment_mixed_example_0007",
+  "example_only": true,
+  "qa_pairs": [
+    {
+      "qa_id": "avqa_speaker_visual_0001",
+      "task": "audio_to_visual_attribute",
+      "question": "说出“请把门关上”的人穿什么颜色的上衣？",
+      "answer": {
+        "text": "蓝色。",
+        "canonical": {
+          "speaker_asset_id": "rocketbox_female_nurse_01_blue",
+          "upper_garment_color": "blue"
+        }
+      },
+      "modality_requirement": {
+        "required_modalities": ["audio", "video"],
+        "audio_only_answerable": false,
+        "video_only_answerable": false,
+        "cross_modal_join_required": true
+      },
+      "evidence": {
+        "audio": {
+          "event_id": "speech_0004",
+          "transcript": "请把门关上",
+          "interval_seconds": [7.5, 10.1],
+          "source_asset_id": "rocketbox_female_nurse_01_blue"
+        },
+        "video": {
+          "track_asset_id": "rocketbox_female_nurse_01_blue",
+          "visible_interval_seconds": [7.5, 10.1],
+          "observed_upper_garment_color": "blue"
+        },
+        "join": {
+          "key": "source_asset_id",
+          "operation": "audio_speaker_to_video_track"
+        }
+      },
+      "reasoning_program": [
+        "find_speech_event_by_transcript",
+        "resolve_audio_source_asset",
+        "join_source_to_video_track",
+        "read_visible_upper_garment_color"
+      ]
+    },
+    {
+      "qa_id": "avqa_event_motion_0001",
+      "task": "audio_anchored_visual_temporal_reasoning",
+      "question": "狗连续叫了两声以后，哪只动物最先绕到圆桌左侧？",
+      "answer": {
+        "text": "较大的浅色金毛。",
+        "canonical": {
+          "asset_id": "dog_golden_retriever_large_light_0003"
+        }
+      },
+      "modality_requirement": {
+        "required_modalities": ["audio", "video"],
+        "audio_only_answerable": false,
+        "video_only_answerable": false,
+        "cross_modal_join_required": true
+      },
+      "evidence": {
+        "audio": {
+          "event_ids": ["dog_bark_0002a", "dog_bark_0002b"],
+          "event_pattern": "two_consecutive_barks",
+          "anchor_end_seconds": 4.8
+        },
+        "video": {
+          "candidate_asset_ids": [
+            "dog_beagle_medium_dark_0001",
+            "dog_golden_retriever_large_light_0003",
+            "cat_tabby_small_0002"
+          ],
+          "first_round_table_left_entry": {
+            "asset_id": "dog_golden_retriever_large_light_0003",
+            "seconds": 6.2
+          }
+        },
+        "join": {
+          "operation": "select_first_visual_event_after_audio_anchor"
+        }
+      },
+      "reasoning_program": [
+        "detect_two_consecutive_barks",
+        "take_second_bark_end_as_time_anchor",
+        "find_all_post_anchor_table_left_entries",
+        "select_earliest_entry",
+        "describe_selected_asset"
+      ]
+    }
+  ]
+}
+```
+
+同一合同还能生成“护士说话期间深色比格犬在走还是站”“第一声从左侧传来的
+狗叫由深色还是浅色狗发出”“猫叫发生时猫是否被圆桌遮挡”等问题。自动出题器
+必须执行以下门禁：
+
+- 删除音频证据后仍能唯一回答，或删除视频证据后仍能唯一回答时，降级为普通
+  单模态 QA，不得进入 AV reasoning 集合；
+- 音频事件与视频帧必须共享经过验证的时钟和 `source_asset_id`，不能靠文本猜配；
+- 说话人/叫声事件不唯一、目标不可见、同步误差越界或遮挡证据不完整时不出题；
+- 外观属性必须由视觉 QA 支持，尺寸比较必须由实测物理属性支持；
+- 答案同时保存自然语言 `text`、规范化 `canonical`、双模态 `evidence` 和可执行
+  的 `reasoning_program`，使中英文或不同问法共享同一事实。
+
 ## 11. 数据划分与注册状态
 
 - Rocketbox 所有材质变体继承 `base_avatar_id` 的 train/validation/test split，
@@ -1135,3 +1250,51 @@ request-lineage 认证没有改变已批准的 QA 内容，只补齐了可复现
 尚未清理；3 个 Rocketbox 配色候选 rights 已清理，但仍缺该三条受控实例自己的
 UE import readback、Apartment Walk/Idle 媒体和音频证据。不能借用 115 个原生角色
 批次的成功记录自动提升这三个材质 revision。
+
+## 14. 2026-07-13 动物正侧姿势修正 canary
+
+第 13 节的 31 个旧动物虽然文件门完整，但其 Walking 已被用户视觉审核推翻：猫
+斜跑、狗后退或斜跑。因此旧 31 个结果继续作为 `rejected_by_user_visual_review`
+诊断证据，不能因为自动骨向量或轨迹检查通过而恢复注册。
+
+根因不只是一个可用 yaw 修复的坐标问题。旧 2D/Pixal 输入普遍存在头颈偏转、
+躯干纵轴斜扭、前后腿不在一致平面或四脚不共地。人工把页面调成 -15°、-45°、
+-170° 只是在追随歪头轮廓，并不能把错误 rest pose 变成合格绑定输入。新模板把
+生成约束前移到 2D：严格正侧视、头颈沿躯干、脊柱笔直、四条腿彼此可见且处于
+一致前后平面、四脚同一地面、neutral authored quadruped rest pose。狗 v6 还用
+uniform-clay 源图避免灰色遮罩泄漏，再由 Pixal3D 生成最终 PBR。
+
+新的方向门采用以下不可放宽的合同：
+
+- 原始 100k mesh 以 identity 变换显示；
+- 禁止自动方向推断、隐藏 mirror 和细角度 yaw；
+- 人工只能选择 0°、±90°、180°；
+- 若头颈、躯干、腿平面或落地不合格，直接拒绝源姿势并重生，不能靠旋转补偿；
+- 静态方向、隔离动作、UE Apartment 和正式注册是相互独立的门。
+
+当前不覆盖 canary 结果如下：
+
+| 资产 | 隔离 Walking/Idle | UE import/readback | Apartment Walk/Idle | 状态 |
+|---|---|---|---|---|
+| `cat_tabby_four_limb_rest_side_3a1ecde08179` | passed | passed | 2 / 2 passed | `research_candidate`，待人工方向保存 |
+| `dog_beagle_four_limb_rest_side_clay_1550ff78df40` | Walking 脚部拉伸/碎片 | 未运行 | 未运行 | `rejected` |
+| `dog_beagle_four_limb_rest_side_clay_1b1e63af05c3` | passed | passed | 2 / 2 passed | `research_candidate`，待人工方向保存 |
+
+猫和通过的狗在 Apartment 中均使用“相机右后方 → 左前方 → 绕桌一圈”轨迹，
+动态贴地、root roll/pitch、270 帧 GLB/UE 回读均通过。四段 18 秒双耳音频也已
+生成：猫 9 个短叫事件，狗 7 个短叫事件，均采用有静音间隔的自适应重复，不是
+无缝机械循环。
+
+当前审核入口是 `http://127.0.0.1:8102/`，认证清单是
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/controlled_animal_pose_direction_new_canary_review_v4_20260713/review_manifest.json`。
+清单同时认证隔离 Walk/Idle、UE Walk/Idle 主视图、同步 Top-down 和组合审核片；
+动画 rejected 的狗没有 Apartment 链接。文件 SHA-256 为
+`977b74fb08cad3ce2a547b0eb87eafba54ac5bc25e61c03dcabf1fb6109b47bd`，
+内部 `manifest_sha256` 为
+`0e3efd51ac9ca7bc73f5158c2b037e837764d55b909a6cc8c8be51ebece56ef9`。
+
+该 canary 证明“严格生成姿势 → Pixal3D → 物种绑定 → Walk/Idle → UE Apartment”
+可以走通，但只覆盖一个猫实例和一个狗实例，且 Pixal/reference/training provenance
+风险仍在。因此它不能恢复旧 31 个资产，也不能自动提升为
+`formal_dataset_asset`；下一批必须从同一姿势合同逐品种扩展，并保留每次人工
+整 90° 方向结论。
