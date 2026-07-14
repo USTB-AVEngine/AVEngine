@@ -2563,3 +2563,74 @@ Before calling this route batch-stable, add foot-contact/amplitude constraints,
 pass cat plus a substantially different quadruped morphology, and define
 separate motion-family adapters for birds, fish, snakes, and other non-dog
 body plans.
+
+2026-07-15 generated-quadruped deformation update: preserve the user's exact
+review authority.  The user approved cardinal `yaw=0` for the Pixal tabby cat,
+TRELLIS beagle, and Pixal pug, and later said their current Walk/Idle skeleton
+motion looked good enough while asking to fix only moving-mesh stringing and
+holes.  The user did **not** perform a separate frame-by-frame inspection.  The
+user then watched the new 200k repair videos and said they were "much better".
+Record that as
+`research_candidate_user_reviewed_improved_pending_final_approval`: it is
+positive visual feedback, not an explicit final approval or formal-asset
+authorization.
+
+The visible beagle belly "hole" was mainly a far-side limb surface stretched
+into narrow ribbons, not simply too few faces.  The source reconstructions
+also contain real boundary/nonmanifold defects, but topology-safe decimation
+did not introduce extra boundary cracks.  Render-only dual-quaternion
+`preserve_volume`, Blender automatic bone heat, hard component parent locking,
+and parent locking with graph falloff were tested and retained only as rejected
+evidence: they either failed on the nonmanifold mesh or made the worst
+extension and visible ribbons worse.  Do not silently reactivate those
+branches.
+
+The current successful candidate recipe is: create an approximately 200k-face
+PBR runtime mesh with position-seam welding and no new boundary cracks; do not
+delete ground/limb-bridge faces; align only with the user-approved cardinal
+transform; transfer the already accepted fitted skeleton/actions; then run
+`external/SPEAR/tools/blender_repair_animated_quadruped_weight_stretch.py` in
+`edge-average` mode.  That repair preserves runtime geometry/topology, PBR,
+rest matrices, and the exact Walk/Idle animation fingerprints and changes only
+vertex weights.  A 41-frame export readback reduced maximum positive edge
+extension relative to the rest bounding-box diagonal from 0.07714 to 0.02828
+for the TRELLIS beagle, 0.11336 to 0.02355 for the Pixal tabby, and 0.13751 to
+0.02829 for the Pixal pug.  Agent inspection of the metric worst frames no
+longer found the prior long cross-belly strings, but this remains distinct from
+user approval and the strict 0.008 internal convergence target was not reached.
+
+The immutable cross-species record is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cross_species_canary_manifest.json`.
+The review page is `docs/pixal_trellis_native_walk_review_20260714.html`, served
+from the AVEngine root on port 8097.  It deliberately shows new Walk, new Idle,
+and old v12 Walk side by side and labels the new outputs pending review.  The
+manifest and `docs/controlled_animal_video_catalog.md` contain absolute paths,
+GLB/video hashes, and the explicit `formal_dataset_registration_authorized=false`
+state.
+
+The old category-agnostic nearest-surface transfer scanned every source face
+for every target vertex and caused the multi-minute silent wait.  The default
+in `external/SPEAR/tools/blender_robust_swap_mesh_keep_rig.py` is now Blender's
+C-level exact triangle BVH plus barycentric weight interpolation, with the old
+brute-force backend retained only for small regression fixtures.  On the real
+200k tabby runtime mesh this reduced transfer wall time from about 290 seconds
+to 18.32 seconds (15.83x), while reproducing the same pre-repair 0.1133629362
+deformation measurement; the complete accelerated repair reproduced 0.023757
+versus the reference 0.023554.  Keep BVH as the production default and retain
+progress logging so long CPU phases never appear stalled.
+
+The reproducible batch entry point is
+`external/SPEAR/tools/run_generated_quadruped_deformation_stabilization.py`.
+It authenticates pinned raw PBR/animated-rig hashes and the immutable human
+motion-basis decision, rejects fine yaw and automatic orientation inference,
+refuses an existing output root, preserves failed roots as evidence, runs the
+200k/BVH/weight-repair/41-frame/video chain, and always publishes
+`formal_dataset_registration_authorized=false`.  The three real input jobs are
+in
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_stabilization_jobs_v1_20260715/cross_species_jobs.json`.
+Its first non-dry-run cat canary completed in 290.45 seconds under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_stabilization_batch_canary_v1_20260715`:
+runtime mesh 32.00 s, BVH binding 14.44 s, weight repair 175.31 s, and two
+41-frame diagnostics 34.36/33.95 s.  The repair is now the dominant CPU stage;
+parallelize independent assets, but do not silently reduce the reviewed output
+quality merely to improve throughput.

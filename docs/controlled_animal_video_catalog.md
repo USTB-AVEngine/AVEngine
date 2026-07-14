@@ -2,6 +2,34 @@
 
 该文档由 `external/SPEAR/tools/build_controlled_animal_apartment_video_index.py` 从认证 spec/registry 自动生成。稳定入口包括带标注审核、UE 主视图、同步 Top-down、双耳音频和叫声事件 schedule。
 
+## 2026-07-14 Pixal3D / TRELLIS 原生网格自动 Walk/Idle canary
+
+绑定前方向由用户逐项批准：猫、TRELLIS 比格、巴哥均为 `yaw=0`。用户随后
+表示现有 Walk/Idle 骨架动作看起来可接受，并要求只解决运动时拉丝/空洞；这不
+等于用户已做逐帧或新修复视频验收。新候选使用约 200k 三角形的 PBR 运行网格，
+不再删除肚腹/腿间桥面，再仅修改顶点权重做 41 帧运动感知稳定化。原始生成
+GLB、已批准方向、骨架 rest matrices 和 Walk/Idle 动作曲线均未覆盖或改写。
+用户已观看新视频并反馈“确实好很多了”；这记录为正向视觉反馈，不等于最终
+`approved`。三项结果仍是
+`research_candidate_user_reviewed_improved_pending_final_approval`，不得登记为正式资产。
+
+- 网页审核入口：
+  [pixal_trellis_native_walk_review_20260714.html](/data/jzy/code/AVEngine/docs/pixal_trellis_native_walk_review_20260714.html)
+- SSH 转发后访问：
+  `http://127.0.0.1:8097/docs/pixal_trellis_native_walk_review_20260714.html`
+- 输出根目录：
+  `/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715`
+- 交叉物种 manifest：
+  [cross_species_canary_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cross_species_canary_manifest.json)
+- 可复现批处理说明：
+  [generated_quadruped_deformation_stabilization.md](/data/jzy/code/AVEngine/docs/generated_quadruped_deformation_stabilization.md)
+
+| 原生生成资产 | 新 Walk Side | 新 Idle Side | 旧 v12 Walk 对照 | 修复 / 41 帧回读 |
+|---|---|---|---|---|
+| TRELLIS 比格（2.83%） | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/review/walking_side_pbr.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/review/idle_side_pbr.mp4) | [旧视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_basis_approved_retarget_foot_ik_v12_post_attachment_20260714/dog_beagle_three_quarter_seed6102_trellis2/review_v1/walking_side_v12.mp4) | [manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/weight_repair_manifest.json) · [回读](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/walking_stretch_readback.json) |
+| Pixal 猫（2.36%） | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/review/walking_side_pbr.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/review/idle_side_pbr.mp4) | [旧视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_basis_approved_retarget_foot_ik_v12_post_attachment_20260714/cat_tabby_four_limb_rest_side_3a1ecde08179/review_v1/walking_side_v12.mp4) | [manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/weight_repair_manifest.json) · [回读](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/walking_stretch_readback.json) |
+| Pixal 巴哥（2.83%） | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/review/walking_side_pbr.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/review/idle_side_pbr.mp4) | [旧视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_basis_approved_retarget_foot_ik_v12_post_attachment_20260714/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/review_v1/walking_side_v12.mp4) | [manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/weight_repair_manifest.json) · [回读](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/walking_stretch_readback.json) |
+
 ## 2026-07-14 稳定原生模板路线（优先查看）
 
 旧 31 个 Pixal 动物的 Walking 仍保持用户视觉拒绝状态。新的稳定路线改用

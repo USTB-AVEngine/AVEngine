@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pixal3D / TRELLIS 原生网格 Walk / Idle 审核</title>
+  <style>
+    :root { color-scheme: dark; --bg:#080d14; --panel:#111927; --line:#2d3b50; --text:#e8eef8; --muted:#9aa9bf; --ok:#39d98a; --blue:#54a7ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,"Noto Sans SC",sans-serif; }
+    header { position:sticky; top:0; z-index:2; padding:18px 24px; border-bottom:1px solid var(--line); background:#0c131e; }
+    h1 { margin:0 0 4px; font-size:22px; }
+    header p { margin:0; color:var(--muted); }
+    main { max-width:1540px; margin:auto; padding:22px; }
+    article { margin-bottom:22px; padding:18px; border:1px solid var(--line); border-radius:14px; background:var(--panel); }
+    h2 { margin:0; font-size:19px; overflow-wrap:anywhere; }
+    .summary { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 14px; }
+    .pill { padding:4px 9px; border:1px solid #275f4b; border-radius:999px; color:var(--ok); background:#102a22; }
+    .videos { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    figure { margin:0; }
+    figcaption { margin-bottom:6px; font-weight:700; }
+    video { display:block; width:100%; aspect-ratio:4/3; background:#05080d; border:1px solid var(--line); border-radius:10px; }
+    .links { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
+    a { color:var(--blue); }
+    code { display:block; margin-top:10px; color:var(--muted); overflow-wrap:anywhere; white-space:normal; }
+    @media (max-width:900px) { .videos { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Pixal3D / TRELLIS 原生网格 → 自动骨骼 → Walk / Idle</h1>
+  <p>三项绑定前方向均由用户批准为 yaw=0；Walk / Idle 骨架运动暂时可接受。用户已观看下列 200k 拓扑 + 运动感知权重修复视频并确认“确实好很多了”，但尚未给出最终 approved。</p>
+</header>
+<main>
+  <article>
+    <h2>dog_beagle_three_quarter_seed6102_trellis2</h2>
+    <div class="summary"><span class="pill">方向人工批准 0°</span><span class="pill">200k PBR 拓扑</span><span class="pill">用户确认明显改善 · 未最终批准</span><span class="pill">Walk 最大边延伸 2.83%</span></div>
+    <div class="videos">
+      <figure><figcaption>新候选 · Walk · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/review/walking_side_pbr.mp4"></video></figure>
+      <figure><figcaption>新候选 · Idle · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/review/idle_side_pbr.mp4"></video></figure>
+      <figure><figcaption>旧 v12 对照 · Walk · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_basis_approved_retarget_foot_ik_v12_post_attachment_20260714/dog_beagle_three_quarter_seed6102_trellis2/review_v1/walking_side_v12.mp4"></video></figure>
+    </div>
+    <div class="links"><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/animated_walk_idle_repaired.glb">候选 GLB</a><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/weight_repair_manifest.json">修复 manifest</a><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/walking_stretch_readback.json">41 帧回读</a></div>
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_beagle_three_quarter_seed6102_trellis2/review/</code>
+  </article>
+
+  <article>
+    <h2>cat_tabby_four_limb_rest_side_3a1ecde08179</h2>
+    <div class="summary"><span class="pill">方向人工批准 0°</span><span class="pill">200k PBR 拓扑</span><span class="pill">用户确认明显改善 · 未最终批准</span><span class="pill">Walk 最大边延伸 2.36%</span></div>
+    <div class="videos">
+      <figure><figcaption>新候选 · Walk · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/review/walking_side_pbr.mp4"></video></figure>
+      <figure><figcaption>新候选 · Idle · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/review/idle_side_pbr.mp4"></video></figure>
+      <figure><figcaption>旧 v12 对照 · Walk · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_basis_approved_retarget_foot_ik_v12_post_attachment_20260714/cat_tabby_four_limb_rest_side_3a1ecde08179/review_v1/walking_side_v12.mp4"></video></figure>
+    </div>
+    <div class="links"><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/animated_walk_idle_repaired.glb">候选 GLB</a><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/weight_repair_manifest.json">修复 manifest</a><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/walking_stretch_readback.json">41 帧回读</a></div>
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/cat_tabby_four_limb_rest_side_3a1ecde08179/review/</code>
+  </article>
+
+  <article>
+    <h2>dog_pug_four_limb_rest_side_clay_1616bd4f9e1e</h2>
+    <div class="summary"><span class="pill">方向人工批准 0°</span><span class="pill">200k PBR 拓扑</span><span class="pill">用户确认明显改善 · 未最终批准</span><span class="pill">Walk 最大边延伸 2.83%</span></div>
+    <div class="videos">
+      <figure><figcaption>新候选 · Walk · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/review/walking_side_pbr.mp4"></video></figure>
+      <figure><figcaption>新候选 · Idle · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/review/idle_side_pbr.mp4"></video></figure>
+      <figure><figcaption>旧 v12 对照 · Walk · Side</figcaption><video controls preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_basis_approved_retarget_foot_ik_v12_post_attachment_20260714/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/review_v1/walking_side_v12.mp4"></video></figure>
+    </div>
+    <div class="links"><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/animated_walk_idle_repaired.glb">候选 GLB</a><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/weight_repair_manifest.json">修复 manifest</a><a href="/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/walking_stretch_readback.json">41 帧回读</a></div>
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/generated_animal_motion_aware_weight_repair_200k_v1_20260715/dog_pug_four_limb_rest_side_clay_1616bd4f9e1e/review/</code>
+  </article>
+</main>
+</body>
+</html>
