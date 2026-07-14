@@ -2516,3 +2516,50 @@ page is `docs/stable_animal_video_review_20260714.html`; with the existing
 AVEngine HTTP server it is reachable through SSH forwarding at
 `http://127.0.0.1:8097/docs/stable_animal_video_review_20260714.html` and has
 no approval controls.
+
+2026-07-14 generated-topology TokenRig diagnosis: do not describe the native
+FLUX -> Pixal3D/TRELLIS route as fundamentally blocked, but do not claim it is
+batch-stable yet.  FLUX provides the controlled complete-attribute reference;
+Pixal3D and TRELLIS both produce identity-preserving PBR meshes; TokenRig now
+predicts a new skeleton and dense weights for the generated topology.  The
+old Hunyuan result was not a proof that direct generated topology was stable:
+today's deformation re-audit rejected the old beagle and Siamese Walking GLBs
+(maximum visible-scale edge extension 0.1178 and 0.2023 of the rest diagonal)
+and placed the old golden retriever in manual review (0.0783).  That route also
+used Quaternius regional weight transfer and sometimes deleted bridge faces.
+Never reproduce those operations as the generalized solution.
+
+The first real Pixal native-mesh TokenRig canary is under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_tokenrig_native_mesh_canary_v1_20260714_r1/pixal_beagle_1550ff78df40/`.
+`tokenrig_native_postprocess.glb` preserves the Pixal PBR mesh and has one skin,
+29 generated joints, four low foot endpoints, all 98,386 vertices normalized
+to at most four influences, and no input animation.  The name-independent
+semantic retarget produces `animated_walk_idle.glb` with exactly Walking and
+Idle and canonical visible forward +X.  Static rig/readback and the current
+visible-scale automatic deformation gate pass, while rendered review still
+shows avoidable paw compression/elongation.  Keep it a research candidate and
+do not register it formally.
+
+The same FLUX beagle reference has also completed a TRELLIS comparison under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/animal_tokenrig_native_mesh_canary_v1_20260714_r1/trellis_beagle_same_flux/`.
+Its raw reviewed forward axis is cardinal `negative-y`; no fine-yaw inference
+is allowed.  `tokenrig_native_postprocess.glb` has 31 generated joints, four
+low foot endpoints, complete normalized weights, PBR, and passes the static
+rig audit.  `animated_walk_idle.glb` contains Walking/Idle and is exported at
+canonical +X.  Idle passes deformation QA.  Walking is still automatically
+rejected because its worst edge extension is 0.081585 of the rest diagonal,
+just beyond the 0.08 rejection threshold, although the side/front/quarter
+review is visibly cleaner than the corresponding Pixal canary.  Preserve this
+as backend-comparison evidence; do not weaken the gate merely to relabel it as
+passed.
+
+The target-bone-name-independent four-cardinal-axis semantic decomposition,
+static rig audit, and world-rest-offset chain retarget are committed and pushed
+in SPEAR commit `6b527ff4`.  Quaternius supplies motion only; target geometry,
+materials, skeleton, and weights remain authoritative.  TokenRig cannot repair
+holes, non-manifold edges, fused limbs, or missing belly geometry created by
+the image-to-3D backend, so geometry topology remains an independent gate.
+Before calling this route batch-stable, add foot-contact/amplitude constraints,
+pass cat plus a substantially different quadruped morphology, and define
+separate motion-family adapters for birds, fish, snakes, and other non-dog
+body plans.
