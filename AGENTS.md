@@ -2751,11 +2751,81 @@ the 0.08 per-channel median bound with a measured maximum error of 0.07451.
 Keep r5/r6/r7 and all other r* roots as rejected diagnostic evidence; do not
 overwrite them or treat them as alternate approved assets.
 
-The active pre-animation direction manifest is
+The pre-animation direction manifest is
 `external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_direction_manifest_v4_r8_20260715/review_manifest.json`.
 Its asset id is `horse_compact_tail_pixal_v4_watertight_r8_37277bdac362` and
 the page supports only 0/plus-or-minus-90/180 cardinal decisions against the
 torso/spine axis.  Automatic orientation inference, fine yaw and hidden mirror
-remain forbidden.  Never bind or animate this Horse until the user saves that
-manual direction decision for r8; it remains a static `research_candidate`,
-not a formal dataset asset.
+remain forbidden.  The user saved **180 degrees** in
+`horse_compact_tail_direction_review_state_v4_r8_20260715/decisions/horse_compact_tail_pixal_v4_watertight_r8_37277bdac362.json`;
+do not misreport the derived Blender/destination-basis rotation as the user's
+decision.
+
+The current accepted animated runtime is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/horse_walk_idle_limb_projected.glb`
+(SHA-256 `0e2b0af5a2f3c62df319988e18c80267d3c83c07cf41a69bf5249de45426c530`).
+TokenRig seed changes repeatedly lost the same right-hind chain and are not a
+production strategy.  The deterministic repair instead finds the four largest
+disconnected low-height rest-mesh components, assigns them one-to-one to the
+four semantic horse limb chains, and removes forbidden cross-limb weights
+without changing geometry, PBR, skeleton rest matrices, or Walk/Idle actions.
+All four authoritative components remain present and their final forbidden
+cross-limb entry count is zero.
+
+The user explicitly accepted
+`deterministic_limb_component_repair_v2/review_v1/walking_anatomical_side.mp4`.
+The paired Idle video is in the same directory.  Independent exported-GLB
+deformation readbacks pass for 41 Walking frames and 21 Idle frames.  A stricter
+local edge diagnostic still measures `0.039684` at a localized upper-hind
+attachment, above its earlier experimental `0.006` target, but the review media
+does not show a material hole, merged legs, inversion, detached geometry, or
+floating.  Record this as a non-blocking numeric warning; do not reject or keep
+repairing an otherwise accepted asset merely to chase that internal threshold.
+Hard animation rejection is reserved for a visible, materially relevant fault
+such as direction mismatch, merged/inverted limbs, long ribbons, open holes,
+floating feet, collapsed torso, or failed GLB/action readback.
+
+The immutable animation decision is
+`deterministic_limb_component_repair_v2/review_v1/animation_decision.json` and
+authorizes the UE Apartment gate.  The current state is
+`research_candidate_walk_idle_user_approved_for_ue_apartment`, not a formal
+dataset asset.  UE metric scale, table-loop trajectory, collision/occlusion,
+species audio, media readback, and final human review remain required before
+formal registration.
+
+2026-07-15 Horse r8 UE Apartment closure: the non-destructive UE tag is
+`pixal_horse_compact_tail_v4_r8_yaw180`.  Editor import read back one skeletal
+mesh, skeleton, PBR material/textures, `Walking`, `Idle`, and a unique
+Blueprint.  The subsequent project-wide cook succeeded and the 4.6 GB packaged
+PAK inventory contains every one of those entries.  The reusable authenticated
+spec builder is
+`external/SPEAR/tools/build_user_approved_generated_animal_apartment_specs.py`;
+its Horse configuration is
+`external/SPEAR/data/controlled_source_attributes_v1/candidate_profiles/animal/horse_compact_tail_pixal_v4_r8_apartment_config.json`.
+It validates the user animation decision, rigged-GLB hash, UE import readback,
+cardinal-only runtime offset, scale, audio, and no-replace output before it can
+emit a `controlled_animal_walk_idle_apartment_specs_v1` manifest.
+
+The completed Walk/Idle output root is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715`.
+Both jobs passed packaged UE render, GLB/action runtime gate, 270-frame visual
+metadata, synchronized top-down, binaural audio, and media readback.  The four
+Walking direction windows have maximum body-forward error `0.985405` degrees;
+body-up alignment is at least `0.998796`; visible height is 156.01--168.52 cm;
+Idle height is 165.06--166.99 cm; floor penetration is numerical zero.  The
+10-second authenticated horse recording is event-segmented into nine calls in
+each 18-second clip with at least 0.85 seconds of silence between calls.
+
+The immutable result record is
+`horse_compact_tail_apartment_specs_v4_r8_20260715/ue_apartment_review_manifest.json`
+(canonical manifest SHA-256
+`80460854c832038aa19c0ae35b563e4041439ad19385b43017478953d0101538`).
+Agent contact-sheet inspection found no visible direction mismatch, material
+hole/long ribbon, merged or inverted limbs, floating, or materially wrong
+scale.  Normal furniture occlusion and leaving the fixed camera FOV are scene
+attributes, not asset failures.  The isolated Walk has user approval; the UE
+Apartment stage is automatic plus agent-visual passed and is available at
+`docs/horse_compact_tail_apartment_review_20260715.html`.  Keep the asset a
+`research_candidate` pending optional user Apartment review and final license
+and registration audit; do not downgrade it for the non-blocking 0.039684
+local diagnostic alone.

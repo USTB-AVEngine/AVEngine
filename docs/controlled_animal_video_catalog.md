@@ -1,22 +1,42 @@
 # 受控动物 UE Apartment 视频索引
 
-## 2026-07-15 新版马 v4（绑定前方向审核）
+## 2026-07-15 新版马 v4（Walk/Idle 已通过人工视觉审核）
 
-当前马是重新执行严格流程的 `FLUX.2 -> Pixal3D -> 闭合 PBR 运行网格`
-候选，不是旧的侧着走视频中的马。已选定 r8 静态网格：163,116 三角形，
-boundary/nonmanifold/degenerate 均为 0，四肢、腹部和尾巴分离保留，同机位颜色
-保真门禁通过。它还没有绑定或生成动画；必须先保存 r8 的人工整 90°
-方向决策。
+这是当前严格流程的 `FLUX.2 -> Pixal3D -> 闭合 PBR 运行网格 -> 人工整 90°
+方向 -> 固定骨架与确定性四肢权重修复` 候选，不是旧的侧着走视频中的马。
+用户为 r8 保存的方向是 **180°**。静态网格为 163,116 三角形，
+boundary/nonmanifold/degenerate 均为 0；动画运行 GLB 保留 PBR、四肢、闭合腹部
+和尾巴间隙。用户已明确判断下面的修复版 Walk 可以接受，Idle 与独立 GLB
+回读也通过，因此它已获准进入 UE/Apartment 下游门禁。
 
-- 方向审核页：`http://127.0.0.1:8102/`
-- [r8 方向 manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_direction_manifest_v4_r8_20260715/review_manifest.json)
-- [r8 静态接触图](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_static_review_v4_r220_bake_r8_20260715/contact_sheet.png)
-- [r8 闭合 PBR GLB](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_v4_r220_bake_r8_20260715/mesh_runtime_watertight.glb)
-- [几何审计](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_geometry_audit_v4_r8_20260715.json)
-- [颜色保真审计](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_color_fidelity_v4_r8_20260715.json)
+| 证据 | 绝对路径 |
+|---|---|
+| UE Walk/Idle 网页 | [horse_compact_tail_apartment_review_20260715.html](/data/jzy/code/AVEngine/docs/horse_compact_tail_apartment_review_20260715.html) |
+| UE Walking 审核成片 | [side_by_side_review_annotated.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715/clips/pixal_horse_compact_tail_v4_r8_yaw180/camera_pass_table_loop_walking/videos/side_by_side_review_annotated.mp4) |
+| UE Idle 审核成片 | [side_by_side_review_annotated.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715/clips/pixal_horse_compact_tail_v4_r8_yaw180/camera_pass_table_loop_idle/videos/side_by_side_review_annotated.mp4) |
+| UE Apartment 认证记录 | [ue_apartment_review_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_apartment_specs_v4_r8_20260715/ue_apartment_review_manifest.json) |
+| 修复版 Walk（用户通过） | [walking_anatomical_side.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/review_v1/walking_anatomical_side.mp4) |
+| 修复版 Idle | [idle_anatomical_side.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/review_v1/idle_anatomical_side.mp4) |
+| 动画运行 GLB | [horse_walk_idle_limb_projected.glb](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/horse_walk_idle_limb_projected.glb) |
+| 人工动画决策 | [animation_decision.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/review_v1/animation_decision.json) |
+| 动画审核 manifest | [animation_review_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/review_v1/animation_review_manifest.json) |
+| Walk 41 帧 GLB 回读 | [deformation_walking_41.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/deformation_walking_41.json) |
+| Idle 21 帧 GLB 回读 | [deformation_idle_21.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_animation_v4_r8_manual_yaw180_20260715/deterministic_limb_component_repair_v2/deformation_idle_21.json) |
+| r8 人工 180° 方向决策 | [direction decision](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_direction_review_state_v4_r8_20260715/decisions/horse_compact_tail_pixal_v4_watertight_r8_37277bdac362.json) |
+| r8 静态接触图 | [contact_sheet.png](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_static_review_v4_r220_bake_r8_20260715/contact_sheet.png) |
+| r8 闭合 PBR GLB | [mesh_runtime_watertight.glb](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_v4_r220_bake_r8_20260715/mesh_runtime_watertight.glb) |
 
-状态是 `research_candidate_pending_manual_cardinal_direction`，不是
-`formal_dataset_asset`。
+严格局部诊断仍报告上后腿连接处最大边伸长比 `0.039684`，高于早期内部
+修复目标 `0.006`；但 41/21 帧独立回读通过，审核视频中没有可见并腿、破洞、
+反折、脱离或悬空。按当前验收政策，这只是非阻塞数值告警，不能推翻人工视觉
+通过。UE packaged PAK 已回读新 Blueprint、骨架、PBR 与两个动作；Walk/Idle
+2/2 成片、同步 Top-down 和双耳音频均已完成。Walking 的四个方向窗口最大身体
+朝向误差 `0.9854°`，身高约 `1.56–1.69 m`，地面穿透为数值零；18 秒音频含
+9 个带至少 `0.85 s` 静音间隔的马叫事件。agent 对九帧总览做了宽松视觉抽查，
+未看到方向错、明显并腿/破洞、悬空或不合理尺寸。状态为
+`research_candidate_ue_apartment_automatic_agent_visual_passed`；网页地址是
+`http://127.0.0.1:8102/docs/horse_compact_tail_apartment_review_20260715.html`。
+许可证与最终注册审计尚未完成，所以仍不是 `formal_dataset_asset`。
 
 ## 2026-07-15 比格四属性稳定模板 OFAT
 
