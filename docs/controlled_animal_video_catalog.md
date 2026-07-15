@@ -1,5 +1,26 @@
 # 受控动物 UE Apartment 视频索引
 
+## 2026-07-16 比格 mesh-first PBR Walk/Idle canary（待视觉确认）
+
+这是按“先生成并封闭静态 3D/PBR，再绑定固定骨架和动作”重跑的结果，不是
+通用 Dog 模板换皮。静态权威为 38,090 面、2048 PBR；动画输出保留生成网格
+和 Base Color，动物材质固定为 `metallic=0 / roughness=0.82`。用户已接受静态
+效果进入动画试跑，以下新动画仍待视觉确认，因此状态为 `research_candidate`。
+
+| 证据 | 绝对路径 |
+|---|---|
+| 统一网页 | [beagle_mesh_first_pbr_animation_review_20260715.html](/data/jzy/code/AVEngine/docs/beagle_mesh_first_pbr_animation_review_20260715.html) |
+| Walking Side | [walking_side.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_side.mp4) |
+| Walking Quarter | [walking_quarter.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_quarter.mp4) |
+| Idle Side | [idle_side.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/idle_side.mp4) |
+| 动画 GLB | [animated_walk_idle.glb](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/animated_walk_idle.glb) |
+| 完整 provenance | [pipeline_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/pipeline_manifest.json) |
+| 严格形变审计 | [skinned_deformation_audit.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/skinned_deformation_audit.json) |
+
+Idle 通过严格自动形变门；Walking 的最大单边延展为 rest diagonal 的
+`0.088571`，略超保守阈值 `0.08`，因此保留严格拒绝记录，同时按用户要求将
+视觉判断作为独立宽松 gate，不能把本 canary 自动注册为正式资产。
+
 ## 2026-07-15 新版马 v4（Walk/Idle 已通过人工视觉审核）
 
 这是当前严格流程的 `FLUX.2 -> Pixal3D -> 闭合 PBR 运行网格 -> 人工整 90°

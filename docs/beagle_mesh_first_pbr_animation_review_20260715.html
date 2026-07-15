@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>比格 Mesh-first PBR Walk / Idle 审核</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #0b1018; color: #e8eef8; }
+    main { max-width: 1500px; margin: auto; padding: 28px; }
+    h1 { margin: 0 0 10px; }
+    .note { color: #b8c4d8; line-height: 1.6; margin-bottom: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
+    article { background: #121a27; border: 1px solid #2b3950; border-radius: 14px; padding: 16px; }
+    h2 { margin: 0 0 12px; font-size: 19px; }
+    video { width: 100%; background: #05070b; border-radius: 9px; }
+    code { display: block; margin-top: 10px; color: #8ed0ff; overflow-wrap: anywhere; font-size: 12px; }
+    .state { display: inline-block; padding: 4px 9px; border-radius: 999px; background: #604610; color: #ffe3a0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>比格：Mesh-first PBR → 固定骨架 → Walk / Idle</h1>
+  <p class="note">
+    <span class="state">research_candidate</span>
+    本页使用 v16 封闭重拓扑网格（38,090 几何顶点、2048 PBR），随后转移同一只比格已验证的固定犬科骨架、权重与动作；动物材质固定为 non-metallic、roughness 0.82。
+    原始几何、UV 和 PBR 均先于动画生成；本页不是通用狗模板换皮结果。
+  </p>
+  <section class="grid">
+    <article>
+      <h2>Walking · Side</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_side.mp4"></video>
+      <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_side.mp4</code>
+    </article>
+    <article>
+      <h2>Walking · Quarter</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_quarter.mp4"></video>
+      <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_quarter.mp4</code>
+    </article>
+    <article>
+      <h2>Idle · Side</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/idle_side.mp4"></video>
+      <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/idle_side.mp4</code>
+    </article>
+  </section>
+</main>
+</body>
+</html>

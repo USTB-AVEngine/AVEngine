@@ -2829,3 +2829,90 @@ Apartment stage is automatic plus agent-visual passed and is available at
 `research_candidate` pending optional user Apartment review and final license
 and registration audit; do not downgrade it for the non-blocking 0.039684
 local diagnostic alone.
+
+2026-07-15 single-view far-limb closure: both the pinned local Pixal3D and
+TRELLIS.2 image-to-3D entry points accept one image, so a visible four-paw
+FLUX.2 reference does not by itself constrain the hidden depth and hip
+attachment of the far hind leg.  The selected Beagle v10 image passed the 2D
+four-limb/ground/tail/belly gate and both raw I23D static meshes retained four
+limbs, but ambiguous far-hind surface attachment still produced cross-limb
+faces or weights during animation.  More negative-prompt text and seed sweeps
+are not a production fix.  FLUX.2 must use an authoritative transparent
+silhouette/alpha guide and reject candidates unless the complete far upper leg
+through paw, inter-leg gaps, common ground, closed belly, and tail clearance
+are all directly readable.  A probe that tried to derive an offset far-limb
+guide from the native Dog Walking action could not satisfy the grounded source
+pose gate even at 0.10--0.25 offsets; keep those roots as rejected evidence and
+do not use that method.
+
+The deterministic geometry fix is the opt-in `--geometry-fit-mode axial-only`
+policy in `external/SPEAR/tools/blender_fit_i23d_to_animal_template.py`.
+Generated Pixal/TRELLIS geometry may guide bounded torso/head/tail fitting and
+provide appearance, while every semantic front-left/front-right/hind-left/
+hind-right template vertex, the native skeleton, and the native weights remain
+locked.  The Beagle proof is under
+`dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_stable_template_vertex_color_v7_axial_limb_locked`:
+2,449 limb vertices (including 614 foot-locked vertices) stayed on the stable
+template, the previously twisted hind leg disappeared, and the exported Walk
+and Idle skinned-deformation audit passed.  Diagnostic videos are
+`review_v1/walking_side.mp4`, `review_v1/walking_quarter.mp4`, and
+`review_v1/idle_side.mp4`.  This is geometry/animation evidence only: its dark
+gray vertex-color projection does not yet preserve adequate Beagle PBR
+markings, so it remains a `research_candidate` and must not be registered until
+the generated PBR is baked onto the locked topology and the resulting media
+passes visual review.
+
+2026-07-15 Beagle mesh-first PBR animation correction: the production order is
+now frozen as generated static PBR mesh -> topology closure/runtime remesh ->
+PBR bake onto that generated geometry -> fixed-skeleton weight transfer ->
+Walk/Idle.  Do not reverse that order and do not describe a generic Dog mesh
+with projected colours as the generated Beagle.  The earlier
+`seed6102_stable_template_pbr_v8_axial_limb_locked` selected-to-active result
+cross-projected markings between unrelated surfaces and is rejected; the v9
+semantic-region atlas remained visibly blurred and is also not a dataset
+candidate.  Preserve both roots as failed appearance-transfer evidence.
+
+The current static authority is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_watertight_pbr_v16_r200_torsofix6_20260715/mesh_runtime_watertight.glb`
+(SHA-256
+`b0fd220464699972c1369e8788ba102bfecf6d90d87e675fcc809f49c78e8f13`).
+It uses the 938,835-face TRELLIS raw mesh as geometry authority and the
+same-candidate 100k PBR copy only as the bake authority.  Resolution-200 voxel
+closure produced 38,098 geometry vertices and 38,090 faces, with zero boundary,
+wire, over-two-face, or non-contiguous manifold edges before glTF UV seam
+splitting.  The Base Color and roughness atlas is 2048 px; no generic animal
+geometry is present.  `seed6102_mesh_first_watertight_pbr_v15_r200_torsofix6_20260715`
+is a preserved failed run caused only by removal of an already-consumed
+temporary Blender vertex group; the guarded cleanup fix has 11/11 static tests
+passing.  Clay QA proved the residual abdominal mark is a closed source-surface
+indentation rather than an open topology hole.  The user accepted the current
+static visual tolerance, so this indentation is non-blocking for the animation
+canary but remains recorded.
+
+The first complete matte animation canary is
+`seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/animated_walk_idle.glb`
+(SHA-256
+`1af28de3299cde11cc4bbb61730459fd9044e1f4838348bec6d26ad8cdd72426`).
+It rotates the reviewed negative-Y static target by the authored cardinal +90
+degrees into positive-X, uniformly aligns it to the same-candidate fixed
+skeleton carrier, welds 10,506 position duplicates before skinning, and
+transfers all 20 bone groups by nearest-triangle barycentric interpolation.
+All 38,098 geometry vertices received normalized top-four weights; the output
+GLB reads back one 20-bone root hierarchy plus canonical Walking and Idle
+actions.  The imported Base Color stays authoritative, while animal material
+policy fixes metallic to zero and roughness to 0.82.  The reusable command is
+implemented by `external/SPEAR/tools/blender_robust_swap_mesh_keep_rig.py` with
+`--weight-mode nearest --nearest-backend bvh --target-rotate-z-deg 90
+--animal-nonmetallic-roughness 0.82`; its static suite passes 11/11.
+
+Review media are
+`review_v1/walking_side.mp4`, `review_v1/walking_quarter.mp4`, and
+`review_v1/idle_side.mp4`; the browser entry is
+`docs/beagle_mesh_first_pbr_animation_review_20260715.html`.  Idle passes the
+strict deformation audit.  Walking is visually usable under the user's stated
+lenient canary tolerance, but the conservative automatic audit records one
+worst edge extension of 0.088571 of the rest diagonal (above its 0.08 reject
+threshold), so the asset remains `research_candidate` and is not a
+`formal_dataset_asset` until the new animation videos receive visual approval
+or the outlier weights are repaired.  Do not hide or relax the stored strict
+audit; use visual acceptance as a separate, explicit gate.
