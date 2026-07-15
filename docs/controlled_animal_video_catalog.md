@@ -1,5 +1,36 @@
 # 受控动物 UE Apartment 视频索引
 
+## 2026-07-15 新版马 v4（绑定前方向审核）
+
+当前马是重新执行严格流程的 `FLUX.2 -> Pixal3D -> 闭合 PBR 运行网格`
+候选，不是旧的侧着走视频中的马。已选定 r8 静态网格：163,116 三角形，
+boundary/nonmanifold/degenerate 均为 0，四肢、腹部和尾巴分离保留，同机位颜色
+保真门禁通过。它还没有绑定或生成动画；必须先保存 r8 的人工整 90°
+方向决策。
+
+- 方向审核页：`http://127.0.0.1:8102/`
+- [r8 方向 manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_direction_manifest_v4_r8_20260715/review_manifest.json)
+- [r8 静态接触图](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_static_review_v4_r220_bake_r8_20260715/contact_sheet.png)
+- [r8 闭合 PBR GLB](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_v4_r220_bake_r8_20260715/mesh_runtime_watertight.glb)
+- [几何审计](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_geometry_audit_v4_r8_20260715.json)
+- [颜色保真审计](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_color_fidelity_v4_r8_20260715.json)
+
+状态是 `research_candidate_pending_manual_cardinal_direction`，不是
+`formal_dataset_asset`。
+
+## 2026-07-15 比格四属性稳定模板 OFAT
+
+最新比格批次覆盖 `size / body_build / coat_tone / life_stage` 的全部三个离散值：
+9 个 OFAT 实例、18 个 UE Walk/Idle 音视频均通过自动 QA。浏览器页可在同一个
+8102 服务直接打开，并可切换组合审核、UE 主视图和同步 Top-down：
+
+- [浏览器审核页](/data/jzy/code/AVEngine/docs/beagle_stable_apartment_review_20260715.html)
+- [认证 manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_apartment_review_v3_20260715/review_manifest.json)
+- [18/18 状态](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_apartment_specs_v3_20260715/batch_render_status.json)
+
+状态仍为 `research_candidate_automatic_ue_walk_idle_audio_passed_pending_human_visual_review`；
+自动通过不等于人工批准或正式注册。
+
 该文档由 `external/SPEAR/tools/build_controlled_animal_apartment_video_index.py` 从认证 spec/registry 自动生成。稳定入口包括带标注审核、UE 主视图、同步 Top-down、双耳音频和叫声事件 schedule。
 
 ## 2026-07-14 Pixal3D / TRELLIS 原生网格自动 Walk/Idle canary

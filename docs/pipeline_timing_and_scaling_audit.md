@@ -147,3 +147,35 @@ GPU render 重叠。因此扩规模时的顺序应是：资产批量导入 → �
 [ue_cook_timing.txt](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_shared_ue_cook_remaining11_v1_20260714/ue_cook_timing.txt)、
 [batch_status.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_status.json) 和
 [batch_qa_summary.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/stable_animal_apartment_specs_remaining11_v1_20260714/batch_qa_summary.json)。
+
+## 2026-07-15 比格四属性 OFAT 批次实测
+
+本批验证了一个稳定原生比格模板上的四个 instance 属性域：`size`、
+`body_build`、品种专用 `coat_tone`、`life_stage`，每个属性三个绝对值。代码先
+冻结完整的 81 组合空间，再真实构建 baseline 加 8 个单变量实例，共 9 个 GLB；
+每个实例均保留同一骨架、Walking、Idle 和拓扑，只改变该请求声明的属性。
+
+| 阶段 | 工作量 | wall time | 结果/摊销规则 |
+|---|---:|---:|---|
+| UE editor import/readback | 9 个实例 | 约 51.48 s（引擎日志首末时间）；其中 commandlet 22.71 s | 9/9 passed；属于批次导入成本 |
+| 共享 cook/package/archive | 9 个实例，共用一次 | 378.91 s | passed；约 4.6 GB Pak；不得按实例重复 |
+| Apartment render + audio + finalize | 17 个待运行 clip，外加 1 个已通过 canary 复用 | 790.85 s | 最终 18/18 passed；2 UE GPU workers + 12 CPU finalizers |
+| 最终认证聚合 | 9 实例 / 18 clips | CPU/hash/readback，未单独计时 | 全部媒体、音频日程和 registry 重新哈希通过 |
+
+这 17 个新 clip 的批次吞吐约为 77.39 clips/h；若按最终 18 段产出摊销，约为
+43.94 s/clip。两者都不是单段延迟，因为一个既有 canary 被安全复用，而且 UE
+渲染、Top-down、音频和 FFmpeg 在流水线上重叠。自动门的最终最差值为：躯干
+forward 误差 `0.91146°`、body-up `0.86249`、地面穿透约
+`7.1e-15 cm`（浮点零）；每段 18 秒音频包含 7 个有静音间隔的狗叫事件。
+
+本轮没有为 81 个组合全部重复 image-to-3D。稳定模板路线把尺寸映射为 actor
+scale，把体型、毛色亮度和年龄迹象映射为保拓扑的确定性参数；FLUX.2 prompt
+仍完整记录四个属性，但只用于语义纹理细节候选。因此，大规模生成时主要成本仍是
+UE clips，而不是 instance JSON 或材质参数化。只有新增几何类别/物种时才需要重新
+承担 FLUX/Pixal/绑定与人工方向门成本。
+
+完整证据：
+[UE import](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_ue_import_v2_r3_20260715/ue_import_result.json)、
+[共享 cook](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_shared_ue_cook_v2_20260715/ue_cook.log)、
+[批处理状态](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_apartment_specs_v3_20260715/batch_render_status.json) 和
+[认证 manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_apartment_review_v3_20260715/review_manifest.json)。

@@ -1367,3 +1367,18 @@ Pixal 失败证据。当前先稳定运行时拓扑，再扩展外观：
 `global_axis_yaw_degrees` 只记录，不参与拒绝；去掉该刚体轴后的
 `centerline_bend_p95_degrees` 才参与形状门。这样不会再把笔直但整体偏转 17° 的
 动物叫作“躯干扭曲”，同时仍能拒绝弯曲中心线和高非流形比例的 Pixal 输出。
+
+## 16. 2026-07-15 比格四属性 OFAT 与 UE 完整验证
+
+比格 profile v2 已把 `size`、`body_build`、品种专用 `coat_tone` 和 `life_stage`
+各限制为三个绝对值。代码生成了完整的 81 组合请求，并真实构建 9 个 OFAT
+实例覆盖每个值一次。9/9 GLB、Walking/Idle 变形和 UE import 通过；18/18
+Apartment Walk/Idle、Top-down、双耳狗叫声和 registry 通过。最终认证 manifest
+内部 SHA-256 为
+`2dd9a3b1c9fe0d894790456a3ffe3f8d5be0ade5bc9e18d11a78076df3e59638`。
+
+本次稳定模板路线仍为每个请求生成完整 FLUX.2 prompt，但尺寸、体型、三色毛亮度
+和年龄迹象由保拓扑的确定性操作实现，不重复 image-to-3D。这样可验证 instance
+语义控制，又不会重新引入生成网格的融合四肢、腹部缺面和绑定不稳定。完整文件、
+参数、ID、失败证据、视频入口和迁移规则见
+[比格受控 instance 管线](/data/jzy/code/AVEngine/docs/beagle_controlled_instance_pipeline_20260715.md)。

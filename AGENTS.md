@@ -2634,3 +2634,128 @@ runtime mesh 32.00 s, BVH binding 14.44 s, weight repair 175.31 s, and two
 41-frame diagnostics 34.36/33.95 s.  The repair is now the dominant CPU stage;
 parallelize independent assets, but do not silently reduce the reviewed output
 quality merely to improve throughput.
+
+2026-07-15 strict current-flow and AudioSet indoor expansion: the sideways
+horse video under `pixal_animal_backend_substitution_v1` is old Pixal/FOV/axis
+evidence and is rejected as proof of the current route.  Its render was stopped
+and must not be promoted.  The current machine contract is
+`external/SPEAR/data/controlled_source_attributes_v1/contracts/strict_native_i2i_i23d_animal_v1.json`
+and the readable description is
+`external/SPEAR/docs/strict_animal_native_i23d_pipeline_v1.md`.  It fixes the
+ordered gates to controlled attribute JSON, license-authenticated uniform-clay
+pose guide, FLUX.2, Pixal3D by default plus TRELLIS comparison, static PBR and
+topology QA, pre-animation cardinal direction review, mesh-matched native rig,
+motion-family actions, contact/loop/deformation readback, then GLB/media/scene
+QA.  Hunyuan3D 2.x and its outputs remain `technical_spike_only`.
+
+Direction is now explicit and body-axis based.  Never infer fine yaw from a
+turned head.  Normalize only by an explicitly reviewed multiple of 90 degrees
+to world `UP=+Z` and `FORWARD=+X`; the pre-animation page must show both arrows.
+Quaternius Cat/Dog are already +X.  Quaternius Ultimate Horse is authored
+forward `-Y`, so the current guide uses whole-asset cardinal yaw +90 degrees.
+The renderer's far-limb pose guide is now bone-name independent: it selects the
+largest weighted deformation component, retains direct unweighted hoof/paw end
+markers, discards detached IK/Pole roots, infers four anatomical limb chains,
+and offsets only the far-side fore/hind roots along world X.  It does not change
+camera yaw, torso pose, lateral depth, or ground height.
+
+The current horse pose guide is
+`external/SPEAR/data/controlled_source_attributes_v1/references/animal/quaternius_horse_authored_rest_pose_side_four_limb_clay_v1/frame_0000.png`
+(SHA-256 `9e97d0ce62d881dc817e6c1f01d84ca204cdd95be93c157fa0af4b51539ea010`).
+It uses the CC0 Quaternius Horse rest rig, explicit +90-degree cardinal yaw and
+an equid-specific far-limb ratio of 0.18.  The four limbs have separate
+silhouettes and grounded hooves; the horse FLUX/Pixal/TRELLIS canary is still in
+progress and therefore remains a research candidate.
+
+The official AudioSet ontology snapshot is pinned locally at revision
+`d417d32bf59c711abb5910fd2f76a0eb44697991`, SHA-256
+`9c685f4403eecc3ca9be37fd7285cf212feaaea6ff7229d3e7ca89e0d1f2d15d`,
+with its CC-BY-SA-4.0 README and official-page snapshots.  The fail-closed
+compiler `external/SPEAR/tools/build_audioset_indoor_animal_registry.py`
+accounts for every node below AudioSet Animal and publishes
+`external/SPEAR/data/controlled_source_attributes_v1/audioset_indoor_animal_source_registry_v1.json`
+plus `external/SPEAR/docs/audioset_indoor_animal_source_coverage.md`.  Current
+coverage is 73 ontology nodes resolved into 32 visible source types, 37
+acoustic-event nodes, and four pure containers.  Bark/meow/neigh/buzz and other
+sound events attach to visible source assets; they never create duplicate
+meshes.  Ordinary Apartment sampling may use only `apartment_common` unless a
+scene explicitly authorizes `apartment_conditional`.  Barn/stable, clinic,
+aviary, zoo, insectarium, terrarium, and aquarium sources are
+`specialized_indoor_only` and must not be placed in a normal apartment.
+
+Do not apply quadruped Walking to every AudioSet animal.  The registry assigns
+quadruped canid/felid/equid/bovid/suid/rodent families, terrestrial and
+perching/flight bird families, amphibian hop, serpent slither, insect
+crawl/flight, and aquatic cetacean swimming.  Each family must implement its
+own strict pose template, skeleton, actions, direction/contact semantics, and
+review media before any member can be promoted.  Every randomized source
+attribute remains limited to at most three values, sampled by code into a
+complete prompt and JSON with no relative edit history.
+
+2026-07-15 controlled Beagle instance closure: the authority profile is
+`external/SPEAR/data/controlled_source_attributes_v1/candidate_profiles/animal/dog_beagle_rocketbox_stable_v2.json`.
+It defines exactly three absolute values for each requested property: size
+`small/medium/large`, build `slim/standard/stocky`, Beagle-specific coat tone
+`light_tricolor/standard_tricolor/dark_tricolor`, and life stage
+`young/adult/senior`.  The full deterministic Cartesian request space contains
+81 JSON requests under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_inputs_v2_20260715/`.
+Nine real OFAT instances (baseline plus two alternate values for each of four
+attributes) are under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_realizations_v2_20260715/`.
+Each request records all attributes and a complete FLUX.2 prompt, but this
+stable-topology route implements size by actor scale and build/coat/age by
+deterministic topology-preserving operations.  FLUX.2 is optional for
+mask-constrained semantic texture detail; never repeat image-to-3D merely to
+realize these four attributes.
+
+All 9/9 GLB instances, 18/18 isolated Walk/Idle deformation checks, 9/9 UE
+imports, and 18/18 UE Apartment Walk/Idle clips passed.  The final authenticated
+manifest is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_apartment_review_v3_20260715/review_manifest.json`,
+whose internal manifest SHA-256 is
+`2dd9a3b1c9fe0d894790456a3ffe3f8d5be0ade5bc9e18d11a78076df3e59638`.
+Worst automatic values were 0.91146 degrees body-forward error, 0.86249
+body-up, and floating-zero floor penetration.  Every 18-second clip uses seven
+semantically separated dog-bark events.  The review page is
+`docs/beagle_stable_apartment_review_20260715.html`; the machine state remains
+`research_candidate_automatic_ue_walk_idle_audio_passed_pending_human_visual_review`,
+not a formal registration.  The generic runtime semantic mapper now recognizes
+a namespaced Pelvis/Spine2/L-Foot/R-Foot/Tail quadruped scheme; do not replace
+it with a Beagle-only name special case.
+
+2026-07-15 current Horse v4 canary: use only the compact-tail FLUX.2 reference
+at
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_flux2_canary_v4_20260715/candidates/animal_37277bdac362/candidate.png`
+and its raw Pixal PBR GLB at
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_pixal_raw_v4_20260715/horse_bay_native_action_composite_side_clay_37277bdac362/pixal_raw_1024.glb`
+(SHA-256 `bf271dbc7e1e3c320137d0ec5027134c6b7f503cd5cf15bff85afee5f99c9bb3`).
+The raw 983,362-triangle surface preserves separated legs, tail clearance and
+PBR, but has 800 over-two-face nonmanifold edges.  The simple 200k decimation
+under `horse_compact_tail_runtime_v4_20260715` and the r160/r220 BVH UV-transfer
+diagnostics are rejected for binding; the former retains nonmanifold topology
+and the latter produces texture mosaicing.  The old Blender Data Transfer
+attempts were also aborted after 10--93 minutes and remain failure evidence.
+
+The selected static candidate is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_watertight_v4_r220_bake_r8_20260715/mesh_runtime_watertight.glb`
+(SHA-256 `c09cf24fb200e23e3df8088f7cad8eb7d4a0d6d7fd27b709a0cba901fb3f2b91`).
+It is a voxel-remeshed, raw-surface-shrinkwrapped, newly UV-unwrapped and
+selected-to-active PBR-baked proxy with 81,444 position-unique vertices and
+163,116 triangles.  Readback reports zero boundary edges, zero over-two-face
+edges and zero degenerate faces.  The static views preserve four distinct
+limbs, closed belly, hooves and lower-tail clearance; centerline bend P95 is
+2.665 degrees.  Same-camera/source lighting color comparison is recorded in
+`horse_compact_tail_watertight_color_fidelity_v4_r8_20260715.json` and passes
+the 0.08 per-channel median bound with a measured maximum error of 0.07451.
+Keep r5/r6/r7 and all other r* roots as rejected diagnostic evidence; do not
+overwrite them or treat them as alternate approved assets.
+
+The active pre-animation direction manifest is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/horse_compact_tail_direction_manifest_v4_r8_20260715/review_manifest.json`.
+Its asset id is `horse_compact_tail_pixal_v4_watertight_r8_37277bdac362` and
+the page supports only 0/plus-or-minus-90/180 cardinal decisions against the
+torso/spine axis.  Automatic orientation inference, fine yaw and hidden mirror
+remain forbidden.  Never bind or animate this Horse until the user saves that
+manual direction decision for r8; it remains a static `research_candidate`,
+not a formal dataset asset.
