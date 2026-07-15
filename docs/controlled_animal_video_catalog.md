@@ -117,6 +117,33 @@ CC0 原生拓扑、骨架、权重和 Walk/Idle；12 个 Ultimate 模板以及 C
 12 个模板的 24 段视频、Walk/Idle 筛选、主视图、Top-down 和绝对文件路径；
 它没有批准按钮，不会因播放视频而改变审核状态。
 
+## 2026-07-16 生成 Beagle 的实例级 PBR + Walk/Idle
+
+这组结果不再使用旧 Rocketbox Beagle 几何。基线是已跑通的 TRELLIS/Pixal
+mesh-first Beagle PBR GLB，然后在保持同一拓扑、UV、20 骨骼、权重和动作曲线的
+前提下，确定性实现 `size`、`body_build`、比格专属 `coat_tone`、`life_stage`
+各三档。81 个绝对组合已冻结，9 个 OFAT 独立 GLB 与 18 段 Walk/Idle 已全部
+回读。严格 Walking 形变告警仍保留；当前按用户要求采用单独的宽松视觉门，状态
+仍是 `research_candidate`。
+
+- 统一审核网页：[beagle_mesh_first_instance_ofat_review_20260716.html](/data/jzy/code/AVEngine/docs/beagle_mesh_first_instance_ofat_review_20260716.html)
+- 浏览器地址：`http://127.0.0.1:8102/docs/beagle_mesh_first_instance_ofat_review_20260716.html`
+- 9 格固定相机图：[contact_sheet.png](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_static_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/contact_sheet.png)
+- 9 个 GLB 状态：[batch_status.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_realizations_v1_20260716/batch_status.json)
+- 18 段视频 manifest：[review_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/review_manifest.json)
+
+| 实例 | Walking | Idle |
+|---|---|---|
+| baseline | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/baseline/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/baseline/idle/idle_side.mp4) |
+| size small | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/size_small/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/size_small/idle/idle_side.mp4) |
+| size large | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/size_large/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/size_large/idle/idle_side.mp4) |
+| build slim | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/build_slim/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/build_slim/idle/idle_side.mp4) |
+| build stocky | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/build_stocky/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/build_stocky/idle/idle_side.mp4) |
+| coat light tricolor | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/coat_light_tricolor/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/coat_light_tricolor/idle/idle_side.mp4) |
+| coat dark tricolor | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/coat_dark_tricolor/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/coat_dark_tricolor/idle/idle_side.mp4) |
+| age young | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/age_young/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/age_young/idle/idle_side.mp4) |
+| age senior | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/age_senior/walking/walking_side.mp4) | [视频](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/profiles/dog_beagle_mesh_first_pbr_stable_v1/instances/age_senior/idle/idle_side.mp4) |
+
 ### Husky 稳定路线 UE canary（优先审核）
 
 | 动作 | 审核成片 | 主视图 | Top-down | 音频 | Registry |

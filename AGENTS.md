@@ -2916,3 +2916,51 @@ threshold), so the asset remains `research_candidate` and is not a
 `formal_dataset_asset` until the new animation videos receive visual approval
 or the outlier weights are repaired.  Do not hide or relax the stored strict
 audit; use visual acceptance as a separate, explicit gate.
+
+2026-07-16 generated-Beagle instance closure: the accepted mesh-first PBR +
+Walk/Idle canary above is now the immutable base of a deterministic instance
+route, rather than the old Rocketbox Beagle template.  The authenticated
+profile is
+`external/SPEAR/data/controlled_source_attributes_v1/candidate_profiles/animal/dog_beagle_mesh_first_pbr_stable_v1.json`
+(canonical profile SHA-256
+`e74a5040fc52045d74239f256565d120c38c2121662dc7bfd395fb2ac4fd3b37`).
+Its base artifact is the exact 5,906,848-byte v22 GLB with SHA-256
+`1af28de3299cde11cc4bbb61730459fd9044e1f4838348bec6d26ad8cdd72426`;
+no Rocketbox or generic-dog geometry is substituted.  The profile has exactly
+three absolute values for each controllable field: size
+small/medium/large, body build slim/standard/stocky, Beagle-specific coat tone
+light/standard/dark tricolor, and life stage young/adult/senior.  The compiled
+space contains 81 absolute combinations.  Every request stores all four values,
+an automatically composed complete prompt, generation seed, physical target,
+request hash, rig profile, and acoustic profile; it never stores relative
+`from/to` edit semantics.
+
+The nine-instance OFAT realization is under
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_realizations_v1_20260716`.
+It contains one medium/standard/standard-tricolor/adult baseline plus both
+non-baseline values for each attribute.  All 9/9 independent GLBs passed
+authenticated input, output readback, 20-bone skin, and canonical Walking/Idle
+presence.  Size is a frozen actor scale (0.82/1.00/1.18); body build uses the
+explicit generated-rig torso groups `bone_0,bone_1`; age uses head groups
+`bone_2,bone_3`; coat and muzzle changes operate on the baked 2048-pixel Base
+Color while preserving the tricolor pattern and white coat.  Topology, UVs,
+skin weights, skeleton, and action keyframes are hashed before and after and
+remain unchanged.  The measured orders all pass: skinned diagonal
+7.1285/8.6933/10.2580, torso lateral RMS 0.5405/0.5949/0.6503, non-white coat
+luminance 0.0863/0.1198/0.1534, and head radius senior/adult/young
+0.7435/0.7632/0.8423.
+
+The strict deformation audit is still `rejected` for Walking in every derived
+instance because it inherits the known v22 weight outliers.  The batch uses an
+explicit `record_only` deformation policy: every strict JSON is retained and
+reported as failed, while the user's requested lenient visual gate permits the
+research canary to continue.  Never rewrite these strict results as passed.
+The fixed-camera nine-up image is in
+`beagle_mesh_first_ofat_static_review_v1_20260716`; all 18 side-view PBR videos
+(Walking and Idle for all nine instances) are in
+`beagle_mesh_first_ofat_animation_review_v1_20260716`.  The review entry is
+`docs/beagle_mesh_first_instance_ofat_review_20260716.html`, served at
+`http://127.0.0.1:8102/docs/beagle_mesh_first_instance_ofat_review_20260716.html`.
+This closes stable instance generation and animation at
+`research_candidate`; license/provenance and UE Apartment gates remain required
+before `formal_dataset_asset` registration.

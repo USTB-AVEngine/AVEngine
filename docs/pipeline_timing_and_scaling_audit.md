@@ -179,3 +179,27 @@ UE clips，而不是 instance JSON 或材质参数化。只有新增几何类别
 [共享 cook](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_shared_ue_cook_v2_20260715/ue_cook.log)、
 [批处理状态](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_apartment_specs_v3_20260715/batch_render_status.json) 和
 [认证 manifest](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_stable_ofat_apartment_review_v3_20260715/review_manifest.json)。
+
+## 2026-07-16 生成 Beagle 基线的实例级实测
+
+本批与上一节的旧稳定模板不同：输入是 mesh-first 生成并已贴 PBR、绑定
+Walk/Idle 的 Beagle v22。81 组合的绝对 JSON 和 prompt 由代码编译，9 个 OFAT
+实例在同一生成网格 lineage 上确定性实现，不再执行 FLUX 或 image-to-3D。
+
+| 阶段 | 工作量 | wall time | 结果 |
+|---|---:|---:|---|
+| profile + 81 请求 + preflight | 81 组合 | 约 1.8 s | 完整属性、prompt、seed、hash、物理/声音配置冻结 |
+| GLB 实现 + inventory + 严格形变审计 | 9 实例，8 CPU workers | 53.96 s | 9/9 GLB；Walking/Idle 均回读；严格失败保留为 record-only |
+| 固定相机静态图 | 9 实例，8 Blender workers | 19.50 s | 9/9，四类属性数值顺序全部通过 |
+| PBR Walking + Idle 审核视频 | 18 clips，8 Blender/FFmpeg workers | 31.43 s | 18/18 H.264，640×480，固定物理相机尺度 |
+
+在生成基线已经存在时，本轮从 instance JSON 到 18 段本地审核视频总 wall time
+约 106.7 秒；不含一次性的 FLUX/TRELLIS/Pixal/骨架基线成本，也不包含 UE
+Apartment。9 个实例实现阶段的并发 wall time 约 6.0 秒/实例，视频阶段约 1.75
+秒/clip。由此可见，同一已批准几何资产的规模化 instance 扩增不应重复 3D 生成
+和绑定；后续真正的主要成本仍会是 UE Apartment 渲染、Top-down、空间音频和
+finalization。
+
+证据：[GLB batch](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_realizations_v1_20260716/batch_status.json)、
+[静态 review](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_static_review_v1_20260716/review_manifest.json)、
+[动画 review](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v1_20260716/review_manifest.json)。

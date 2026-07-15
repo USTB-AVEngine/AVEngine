@@ -1382,3 +1382,33 @@ Apartment Walk/Idle、Top-down、双耳狗叫声和 registry 通过。最终认�
 语义控制，又不会重新引入生成网格的融合四肢、腹部缺面和绑定不稳定。完整文件、
 参数、ID、失败证据、视频入口和迁移规则见
 [比格受控 instance 管线](/data/jzy/code/AVEngine/docs/beagle_controlled_instance_pipeline_20260715.md)。
+
+## 17. 2026-07-16 生成网格基线上的实例闭环
+
+旧 OFAT 使用稳定 Rocketbox Beagle，只能证明属性合同和 UE 批处理。新的
+`dog_beagle_mesh_first_pbr_stable_v1` 将已通过静态/PBR/Walk/Idle canary 的
+生成 Beagle GLB 固定为 lineage 基线，再生成实例。这样同时满足两点：实例不再
+依赖每次重新抽 image-to-3D seed，几何也没有偷偷换回旧模板。
+
+完整顺序为：
+
+```text
+FLUX 完整绝对属性参考
+  → TRELLIS/Pixal 生成静态 mesh/PBR
+  → 水密运行时网格 + PBR bake
+  → 一次固定骨架/权重 + Walking/Idle
+  → 冻结 generated base hash
+  → 代码采样绝对 instance JSON
+  → size / body_build / breed coat / life_stage 的确定性实现
+  → GLB 回读 + 严格审计记录 + 宽松视觉门
+  → 固定相机 9 格 + 每实例 Walk/Idle
+```
+
+每种新几何类别或新品种仍必须走到“冻结 generated base hash”；同一已冻结资产的
+常规实例扩增则从 JSON 采样开始，不重复绑定，也不需要逐实例人工校方向。当前
+比格的 81 个绝对组合、9 个 OFAT、9 个独立 GLB 和 18 段视频均已生成。Profile、
+请求、preflight、GLB、严格形变 JSON、静态图和视频各自保存 SHA-256。严格审计
+没有因宽松视觉门而改写为 passed，正式注册仍需许可证与 UE Apartment 闭环。
+
+审核入口：
+[beagle_mesh_first_instance_ofat_review_20260716.html](/data/jzy/code/AVEngine/docs/beagle_mesh_first_instance_ofat_review_20260716.html)。
