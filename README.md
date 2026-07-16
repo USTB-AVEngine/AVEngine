@@ -1,154 +1,84 @@
-# AVEngine — Audio-Visual Engine
+# AVEngine — Habitat-native Audiovisual Dataset Engine
 
-> **Habitat-native restructuring notice:** This branch is the clean foundation
-> for the two-repository AVEngine architecture. Read
-> [`docs/planning/README.md`](docs/planning/README.md) before making broad
-> changes. The UE/SPEAR + gpuRIR material below documents the legacy baseline
-> and remains migration evidence; it is no longer the intended primary runtime.
+AVEngine is a private research project for deterministic,
+identity-preserving audiovisual episode generation. Habitat-Sim is the primary
+visual/scene/sensor/physics runtime; RLR Audio Propagation is the geometric
+acoustic foundation. AVEngine is not a simulator built from scratch.
 
-Research infrastructure for **Attribute-Conditioned Spatial Audio-Visual
-Reasoning (ASAR)**. Combines Unreal Engine 5 (via SPEAR RPC) for
-photorealistic multi-view rendering with gpuRIR for 4-channel
-first-order-ambisonic room-impulse-response simulation, yielding audio-video
-scenes where the **spatial ground truth is exact** (mic position, source
-positions, camera intrinsics all deterministic).
+This branch is currently at **M0: repository and baseline**. It contains the
+architecture, version locks, immutable timeline schema, migration policy,
+roadmap, and attribution records. It does **not** yet claim a functioning
+Habitat-native animal episode or dataset release.
 
-Currently supports 5 animated animal tags (dogs, cats, chipmunk) + 7 static
-ungulate tags in two rooms (apartment_0000 real Kujiale scan; procedural
-shoebox). Outputs 640×480 15 fps 5s MP4 with muxed stereo audio.
+## Repository boundary
 
-⚠ **Private research project (not open source yet).** Contact author before
-redistribution.
+| Repository | Owns |
+| --- | --- |
+| `Eastforward/AVEngine` (this repository) | asset/room/episode packages, integer timeline, CLI, registries, QA, provenance, dataset admission, benchmark and paper artifacts |
+| `Eastforward/habitat-sim-AVEngine` | isolated Habitat runtime extensions: articulated playback, explicit acoustic ingestion, modern RLR adapter, runtime tests |
 
-## Directory layout
+Legacy UE/SPEAR + gpuRIR material remains migration evidence and an optional
+comparison route. It is no longer the primary architecture or setup path.
 
-```
-AVEngine/
-├── README.md                # this file
-├── manifest.yaml            # single source of truth for deps + data
-├── scripts/setup.sh         # `bash scripts/setup.sh` populates external/
-├── envs/*.yml               # 3 conda env recipes (create manually)
-├── assets/mesh_library/     # Quaternius rigged animal GLBs (CC0)
-├── docs/                    # pipeline docs, specs, plans, image assets
-└── external/                # git-ignored; populated by setup.sh
-    ├── SPEAR/               # pipeline main; fork of spear-sim/spear
-    └── Hunyuan3D-2.1/       # 3D asset generator (Tencent, upstream)
-```
+## Start here
 
-## Setup (Linux, GPU)
+Read these records in order:
 
-**Prereqs**: bash 4+, python3 + pyyaml, git, conda (miniconda/anaconda),
-NVIDIA GPU with driver 550+, UE 5.5 build tools if you'll re-cook the
-SpearSim project.
+1. [`docs/planning/README.md`](docs/planning/README.md) — planning authority and
+   immutable imported inputs.
+2. [`docs/architecture/SYSTEM_OVERVIEW.md`](docs/architecture/SYSTEM_OVERVIEW.md)
+   — target data and execution flow.
+3. [`docs/architecture/REPOSITORY_BOUNDARIES.md`](docs/architecture/REPOSITORY_BOUNDARIES.md)
+   — code ownership and API boundary.
+4. [`docs/roadmap/MILESTONES.md`](docs/roadmap/MILESTONES.md) and
+   [`docs/roadmap/BASELINE_STATUS.md`](docs/roadmap/BASELINE_STATUS.md) — gates
+   and actual verification state.
+5. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+   — what is reusable, optional, experimental, or retired.
 
-### Step 1 — Clone + populate deps
+The authoritative timeline schema is
+[`schemas/avengine_timeline_v2.schema.json`](schemas/avengine_timeline_v2.schema.json).
+It fixes a five-second episode at 48 kHz ticks, 15 fps/75 frames, and 16 kHz/
+80,000 audio samples. A semantic validator will be implemented in M5; schema
+presence alone is not proof that a generated episode is synchronized.
 
-```bash
-git clone <AVEngine repo url> /data/jzy/code/AVEngine
-cd /data/jzy/code/AVEngine
-bash scripts/setup.sh
-```
+## Milestones
 
-`setup.sh` is idempotent. On the author's machine (with pre-existing
-`/data/jzy/code/SPEAR` etc.) it creates symlinks; on your machine it clones
-into `external/`.
+| Gate | Outcome |
+| --- | --- |
+| M0 | repositories, locks, architecture, migration, licenses, baseline |
+| M1 | Habitat visual and three-room canary |
+| M2 | deterministic articulated Dog runtime |
+| M3 | explicit acoustic scene and verified materials |
+| M4 | modern named multi-source/listener RLR |
+| M5 | exact timeline and visual-invariant counterfactual pair |
+| M6 | registry/QA/CLI and admitted dataset canary |
+| M7 | benchmark, ablations, paper and release audit |
 
-### Step 2 — Create 3 conda envs
+The immediate next implementation step after M0 is M1: load one minimal room
+in the pinned Habitat runtime and capture same-state RGB/depth/semantic sensor
+evidence before introducing animal animation or production acoustics.
 
-```bash
-for env in spear-env sao-env hunyuan3d-env; do
-    conda env create -f envs/$env.yml
-done
-```
+## Status vocabulary
 
-**Post-install steps not in the yml files**:
+Verification uses only `pass`, `fail`, `blocked`, and `not_run`. Static source
+checks do not count as Blender, Habitat, GPU, RLR, or end-to-end execution.
+Research candidates and legacy `approved` records cannot be promoted to
+`approved_for_dataset` without fresh evidence.
 
-- `spear-env` needs `spear_ext` (SPEAR's compiled C++ RPC extension) and
-  `spear-sim` (Python client). Neither is on PyPI. After env creation:
-  ```bash
-  conda activate spear-env
-  cd external/SPEAR
-  pip install -e python       # spear-sim
-  pip install -e python_ext   # spear-ext (requires cpp/ built; see SPEAR docs)
-  ```
-- `sao-env` needs `gpuRIR` (not on PyPI):
-  ```bash
-  git clone https://github.com/DavidDiazGuerra/gpuRIR /tmp/gpuRIR
-  conda activate sao-env
-  pip install /tmp/gpuRIR   # requires CUDA toolkit + gcc
-  ```
-- Env creation can take 30-60 min due to CUDA torch downloads.
+## Citation, rights, and release constraints
 
-### Step 3 — Provide external data
+See [`CITATION.cff`](CITATION.cff), [`CITATIONS.bib`](CITATIONS.bib), and
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Habitat retains its MIT
+license and upstream attribution. RLR is CC BY-NC 4.0 and limits the current
+audio runtime route to non-commercial use. Models, rooms, audio, and derived
+assets have separate terms and are admitted item by item.
 
-`setup.sh` does NOT download data. Place these at the paths listed in
-`manifest.yaml` `external_data`:
-
-| Path | Size | Source |
-|------|------|--------|
-| `/data/datasets/omniaudio/train-data-az-360-large` | ~40 GB | AudioSet wavs (contact author) |
-| `/data/datasets/omniaudio/stable-audio-open` | ~5 GB | https://huggingface.co/stabilityai/stable-audio-open-1.0 |
-| `/data/jzy/code/Hunyuan3D-2.1/pretrained_models` | ~20 GB | https://huggingface.co/Tencent-Hunyuan/Hunyuan3D-2.1 |
-
-### Step 4 — Symlink mesh_library to SPEAR's expected path ⚠
-
-Until Spec 2 (SPEAR path parameterization) lands, SPEAR hardcodes
-`/data/jzy/code/Spatial/v77_4ch_S2L/assets/mesh_library/quaternius_*`.
-On collaborator machines, run (needs sudo):
-
-```bash
-sudo mkdir -p /data/jzy/code/Spatial/v77_4ch_S2L/assets/mesh_library
-sudo ln -s $(pwd)/assets/mesh_library/quaternius_animalpack /data/jzy/code/Spatial/v77_4ch_S2L/assets/mesh_library/quaternius_animalpack
-sudo ln -s $(pwd)/assets/mesh_library/quaternius_farm       /data/jzy/code/Spatial/v77_4ch_S2L/assets/mesh_library/quaternius_farm
-```
-
-## First demo — two dogs in a room
-
-```bash
-conda activate spear-env
-export DISPLAY=:99
-export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
-python external/SPEAR/tools/gpurir_scenes/scene_two_dogs.py --skip-audio
-```
-
-Expected outputs (after ~5-10 min UE render):
-
-- `external/SPEAR/tmp/gpurir_scenes_v1/two_dogs/shoebox/view0.mp4`
-- `external/SPEAR/tmp/gpurir_scenes_v1/two_dogs/apartment/view0.mp4`
-
-Each MP4 is 640×480, 5s, 75 frames, no audio. Omit `--skip-audio` to also
-generate GPURIR 4-channel audio and mux `view*_with_audio.mp4` files.
-
-## Directory cheat sheet — where does X live?
-
-| Feature | Path |
-|---------|------|
-| Pipeline main entrypoints | `external/SPEAR/tools/gpurir_scenes/` |
-| Species → rig map | `external/SPEAR/tools/species_rig_map.py` |
-| Furniture collision map | `external/SPEAR/data/apartment_furniture_map.json` |
-| Rigged 3D animal meshes | `assets/mesh_library/` |
-| Chinese pipeline doc | `docs/pipeline_zh.md` |
-| English pipeline doc | `docs/pipeline_en.md` |
-| Hunyuan mesh 方向审核流程 | [`docs/hunyuan_mesh_audit_flow.md`](docs/hunyuan_mesh_audit_flow.md) |
-| Design specs | `docs/superpowers/specs/` |
-| Implementation plans | `docs/superpowers/plans/` |
-
-## Troubleshooting
-
-See [`docs/troubleshooting.md`](docs/troubleshooting.md). Common gotchas:
-
-- **`conda activate` must be `spear-env`** — do NOT use `thu` or other env;
-  RPC silently fails on wrong Python
-- **`DISPLAY=:99` required** — UE needs an X server (headless X counts)
-- **`furniture_map.json missing`** — SPEAR must be at commit ≥ `bc8ce323`
+The AVEngine repository itself is currently private and all-rights-reserved;
+see [`LICENSE`](LICENSE). No open-source or dataset redistribution decision is
+implied by this M0 restructure.
 
 ## Contact
 
-Ziyang Ji — [`Eastforward`](https://github.com/Eastforward) on GitHub.
-Research collaboration welcome; please ping before redistributing.
-
-## License
-
-See [`LICENSE`](LICENSE). Currently proprietary; open-source release pending.
-Third-party components (Quaternius rigs, SPEAR upstream, Hunyuan3D-2.1)
-retain their own licenses; see `manifest.yaml` `upstream` fields.
+Ziyang Ji ([Eastforward](https://github.com/Eastforward)) — research
+collaboration welcome; request permission before reuse or redistribution.

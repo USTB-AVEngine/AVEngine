@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: >-
+  AVEngine does not yet have a released paper or DOI. Cite the pinned software
+  version and the upstream Habitat and SoundSpaces works listed in CITATIONS.bib.
+type: software
+title: "AVEngine: Habitat-native audiovisual dataset engine"
+abstract: >-
+  Private research software for deterministic, identity-preserving audiovisual
+  episode generation on a pinned Habitat-Sim and RLR foundation. Runtime and
+  dataset capabilities beyond the M0 planning baseline remain roadmap work.
+authors:
+  - family-names: Ji
+    given-names: Ziyang
+version: 0.1.0-alpha+unreleased
+repository-code: "https://github.com/Eastforward/AVEngine"

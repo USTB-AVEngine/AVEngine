@@ -16,6 +16,23 @@ version, an ADR, and a migration path. Older plans under `docs/superpowers/`
 describe the legacy UE/SPEAR route and remain historical migration evidence;
 they are not the authority for the Habitat-native architecture.
 
+## M0 derived records
+
+The imported files above state intent. The following repository-local records
+turn that intent into reviewable decisions and must remain consistent with the
+actual Git/build state:
+
+- `../architecture/` — target packages, ownership and execution contracts;
+- `../adr/ADR-0001*` through `ADR-0008*` — accepted foundational decisions;
+- `../migration/` — frozen legacy inventory, matrix and deprecation gates;
+- `../roadmap/` — M0-M7 milestones, issue backlog and verification status;
+- `../paper/` — reused/extended/original wording and claims discipline;
+- root `runtime.lock.yaml`, `THIRD_PARTY_NOTICES.md`, `CITATION.cff` and
+  `CITATIONS.bib` — exact runtime foundation and attribution.
+
+If prose and executed evidence disagree, the evidence table must report the
+real `pass`, `fail`, `blocked`, or `not_run` state and the prose must be fixed.
+
 ## Import verification
 
 | File | SHA-256 |
