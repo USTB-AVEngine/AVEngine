@@ -16,11 +16,14 @@ animation binding:
 2. Render their untouched bind poses from multiple views and obtain human
    approval for identity, appearance, up axis, and forward axis.
 3. Review the source walk skeleton and root-motion direction independently.
-4. Retarget one neutral walk with rest-pose correction rather than assigning
-   the source Blender `Action` directly to a different bind skeleton.
+4. Retarget one neutral walk by reconstructing the source's absolute
+   armature-space body pose while retaining target rest translations; the
+   animation FBX encodes its first walk frame as `Bone.matrix_local`, so a
+   conventional source-rest delta is invalid for this export.
 5. Render a multi-view walking review and obtain a second human approval.
-6. Only after both approvals, consider batching the remaining 68 Rocketbox
-   walk/run clips.
+6. After both approvals, freeze the neutral walks as an immutable baseline.
+   The active dataset motion scope is only `walk_neutral` for moving and
+   `idle_neutral_01` for stationary; the other 66 locomotion clips are excluded.
 
 The first accepted baseline is Rocketbox-only. Hunyuan human binding is a
 separate technical spike that starts only after the Rocketbox result passes
@@ -159,18 +162,27 @@ the already approved `FRONT -Y` target convention. A reviewer is never asked to
 approve an FBX, a JSON file, or an unbound skeleton. Source-skeleton media may be
 shown beside the final avatar only as optional diagnostic context.
 
-### 3.4 Stage D: Rest-Corrected Retarget
+### 3.4 Stage D: Source-Absolute, Target-Proportioned Retarget
 
-Retarget only one neutral walk first. The retargeter must:
+Rocketbox `*_walk_neutral.max.fbx` stores its first animated walk pose in the
+source bones' `matrix_local`; that first frame is not a canonical T/A-pose
+rest reference. A conventional
+`inverse(source_rest_local) @ source_pose_local` delta therefore turns frame 1
+into identity and loses the lifted-leg pose. Retarget only one neutral walk
+first, using this export-specific contract:
 
 1. Map the shared body bones explicitly and ignore source-only nub bones.
-2. Compute animation deltas in each source bone's parent-local rest basis.
-3. Apply those deltas in the corresponding target parent-local rest basis.
-4. Preserve the target avatar's bind mesh, UVs, material slots, skin weights,
+2. Cache every driven source body's absolute armature-space pose rotation for
+   each frame; do not subtract the animation FBX's encoded frame-1 basis.
+3. Reconstruct the target hierarchy parent-first with those absolute rotations
+   while retaining each target bone's rest translation and proportions. Call
+   `view_layer.update()` after setting each parent before evaluating its child.
+4. Keep facial, finger, and other undriven bones at target-local rest.
+5. Preserve the target avatar's bind mesh, UVs, material slots, skin weights,
    and facial bones.
-5. Rotate and scale root translation from the reviewed source frame into the
+6. Rotate and scale root translation from the reviewed source frame into the
    reviewed target frame exactly once.
-6. Bake the result into a new target action without modifying the source FBX.
+7. Bake the result into a new target action without modifying the source FBX.
 
 Finger animation is optional for the first baseline. The hand may follow the
 hand bone as one rigid palm if that is needed for a stable first smoke, but
@@ -218,7 +230,8 @@ can be reviewed without manual JSON editing.
 
 Male and female decisions are independent, but the batch gate requires both
 records to be approved and to match the hashes of the currently served retarget
-manifest and review videos. Only then may the remaining 68 actions be queued.
+manifest and review videos. Only then may the remaining 66 actions be queued;
+the manifest's male and female neutral walks are the two reviewed actions.
 
 ## 4. Prompt-Controlled Appearance
 
@@ -284,6 +297,31 @@ This spike begins only after one Rocketbox neutral walk passes both reviews.
 It is technical evidence, not a formal dataset asset, because Hunyuan license
 constraints still require separate resolution for training and evaluation use.
 
+### 5.0 FLUX.2 Reference-Image Gate
+
+Before Hunyuan3D runs, edit the approved male and female Rocketbox front
+bind-pose renders with the verified local FLUX.2 Klein 4B snapshot. Each edit:
+
+1. uses the approved bind-pose image as the only reference;
+2. preserves the front-facing soft T/A-pose, face identity, body proportions,
+   camera framing, separated arms, separated legs, and visible hands and feet;
+3. changes only prompt-requested instance appearance, initially a short-sleeve
+   top, garment colors, trousers, shoes, and restrained hair/identity detail;
+4. removes source labels and uses a plain light studio background;
+5. records the exact natural-language prompt, input/output SHA-256, model
+   revision, seed, dimensions, step count, and guidance scale;
+6. is shown beside its source image in a browser review UI.
+
+Male and female reference decisions are independent. Hunyuan3D is blocked
+until both `reference_review.json` records are approved and match the current
+candidate manifests and image hashes. Regeneration invalidates the old review.
+
+The approved Rocketbox motion baseline is sealed under
+`/data/datasets/rocketbox/approved_baselines/rocketbox_neutral_walk_v1`.
+Sealing copies the two approved retarget artifacts and review evidence, writes
+all SHA-256 values to one manifest, and refuses to overwrite a non-identical
+existing version.
+
 ### 5.1 Attempt One: Part-Aware Skin Transfer
 
 Use one strict soft T-pose Hunyuan human whose arms, forearms, wrists, palms,
@@ -298,7 +336,9 @@ legs, and background gaps are visibly separated. Before binding:
 6. smooth and normalize weights within each joint neighborhood;
 7. collapse finger weights into the palm for the first smoke;
 8. attach the result to the already validated Rocketbox target skeleton and
-   neutral-walk action.
+   approved neutral-walk action;
+9. add `idle_neutral_01` only as the stationary state after it passes the same
+   target-only export and browser review checks.
 
 This avoids the previous global nearest-surface failure where sleeve, torso,
 thumb, and finger regions contaminated one another.
@@ -393,7 +433,7 @@ The first implementation plan covers only:
 - official texture completion for the two sampled Rocketbox avatars;
 - source inspection and pre-bind review artifacts;
 - source motion review artifacts;
-- one rest-corrected neutral-walk retarget;
+- one source-absolute, target-proportioned neutral-walk retarget;
 - post-retarget review artifacts and gates;
 - safe model-cache path configuration and migration of repositories that are
   complete or intentionally stopped.
@@ -401,7 +441,7 @@ The first implementation plan covers only:
 The following need separate implementation plans after the Rocketbox result is
 approved:
 
-- batching all 68 actions;
+- any of the other 66 actions from the 68-action locomotion manifest;
 - semantic UV mask authoring and prompt-controlled appearance generation;
 - the Hunyuan part-aware skin-transfer spike;
 - the stable-template projection fallback;
@@ -414,7 +454,7 @@ Implementation follows test-first development for reusable code.
 Required automated tests:
 
 - shared bone-map coverage and source-only nub handling;
-- source/target rest-delta calculation on synthetic skeleton fixtures;
+- absolute source-pose reconstruction and parent-first dependency updates;
 - root translation frame conversion and forward/travel dot-product checks;
 - review-gate rejection when required approvals or textures are missing;
 - motion-review media allowlisting, safe path handling, atomic decisions, and
@@ -424,6 +464,9 @@ Required automated tests:
 - model-root resolution preferring `/data/models/hub`;
 - stale unrelated `.incomplete` files not blocking complete selected files;
 - incomplete referenced blobs still blocking load and probes.
+- immutable baseline sealing and non-identical overwrite rejection;
+- FLUX.2 candidate manifest hashing, stale-review rejection, safe media paths,
+  and the paired reference-image approval gate.
 
 Required Blender smokes:
 
@@ -437,7 +480,8 @@ Required human decisions:
 
 1. approve or reject each untouched source avatar;
 2. approve or reject each bound, retargeted neutral walk in the browser;
-3. separately approve any later appearance or Hunyuan variant.
+3. approve or reject each FLUX.2 male/female reference image in the browser;
+4. separately approve any later Hunyuan variant.
 
 ## 9. Completion Criteria
 
@@ -447,9 +491,84 @@ This first phase is complete only when:
 - pre-bind review artifacts exist and have explicit human decisions;
 - source neutral-walk direction reports exist;
 - direct action assignment is no longer used as the accepted retarget path;
-- one male and one female rest-corrected neutral walk can be exported,
+- one male and one female source-absolute neutral walk can be exported,
   re-imported, and reviewed;
 - post-retarget review records carry explicit human decisions;
 - model weights used by completed probes reside under `/data/models/hub` and
   load locally from that root;
 - no Hunyuan result is promoted into the formal source registry by this phase.
+
+## 10. Execution Status (2026-07-11)
+
+The approved male and female FLUX.2 references were passed through Hunyuan3D,
+but the accepted runtime result does not animate arbitrary generated topology.
+The pipeline took the fallback defined in Section 5: it retained each reviewed
+Rocketbox avatar's stable topology, 80-bone skeleton, skin weights, UV layout,
+and three material slots, then fitted/projected the cleaned Hunyuan geometry and
+appearance onto that template. This removed the upside-down body, detached
+parts, blank material, floor-card, and unstable weight-transfer failures seen
+in the rejected direct-topology route.
+
+For each gender, the stable output directory now contains:
+
+- `bound.blend`, `bound_walk.glb`, and `bound_idle.glb`;
+- front, side, and feet Walk/Idle videos plus automatic pixel QA;
+- `ue_runtime.glb` with exactly `Walking` and `Standing_Idle`;
+- a UE import manifest proving 80 bones, three non-null material slots, both
+  animations, and a passed reload in a second commandlet process.
+
+The assets were imported, cooked into SpearSim, spawned through the SPEAR API in
+`apartment_0000`, and rendered at 960x720, 15 FPS, and 75 frames. The final
+runtime clips are:
+
+```text
+external/SPEAR/tmp/hy3d_rocketbox_template_fit_v1/ue_apartment_smoke/
+  male_walk_final/videos/apartment_v1_view0.mp4
+  male_idle_final/videos/apartment_v1_view0.mp4
+  female_walk_final/videos/apartment_v1_view0.mp4
+  female_idle_final/videos/apartment_v1_view0.mp4
+```
+
+The static review entry point is `ue_apartment_smoke/review.html`, and the
+synchronized four-panel video is `ue_apartment_smoke/human_apartment_final_review.mp4`.
+All four clips use 120 world/streaming warmup frames and 40 camera warmup frames.
+The shorter 20/10 canary setting was rejected for final evidence because it
+allowed low-resolution apartment floor mips and transient shadow history into
+the first captured frames.
+
+This establishes technical feasibility in Blender and packaged UE/SPEAR. It
+does not change the licensing conclusion: all Hunyuan-derived results remain
+`technical_spike_only` and outside the formal source registry.
+
+### 10.1 Multi-Human Direction Correction History
+
+The first multi-human apartment batch under `human_apartment_examples_v2` is
+now rejected diagnostic evidence. Its direction probe compared forced pelvis
+translation with the same configured trajectory and therefore did not prove
+that the visible body faced travel. A body basis derived from pelvis, spine,
+and both clavicles exposed an approximately 81-degree body-vs-path mismatch.
+
+The first attempted body-basis correction under `human_apartment_examples_v3`
+was also rejected. It used `up_vector x right_vector`, which points through the
+back in UE's `+X forward, +Y right, +Z up` frame. Its `-90.0` degree offset made
+that incorrect back vector agree with the configured trajectory, so the
+automatic check passed while the user correctly observed forward gait animated
+over backward translation.
+
+The corrected v4 contract uses `right_vector x up_vector`, a Rocketbox
+Interchange yaw offset of `+90.0` degrees, and a read-back-verified
+`GlobalAnimRateScale` of `0.65` for Walking. Its quadratic-Bezier review paths
+change tangent by 46-52 degrees while remaining inside the existing FOV,
+furniture, wall, and source-separation constraints. Three complete five-second
+clips pass separate root-motion and corrected body-forward checks for every
+moving actor and a corrected body-forward check for every stationary actor.
+All actors remain upright, maximum floor penetration is zero, and minimum pair
+separation is 0.9 m. The current browser review entry point is:
+
+```text
+external/SPEAR/tmp/hy3d_rocketbox_template_fit_v1/
+  human_apartment_examples_v4/review.html
+```
+
+This is the current visual-review candidate. It does not inherit approval from
+v1; neither v2 nor v3 may be presented as valid direction evidence.

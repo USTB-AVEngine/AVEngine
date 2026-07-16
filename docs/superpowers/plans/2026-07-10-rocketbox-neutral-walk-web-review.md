@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rest-correct the official male and female Rocketbox neutral walks onto the already approved textured avatars, render browser-playable review evidence, and expose independent approve/reject controls whose paired gate protects the remaining 68-action batch.
+**Goal:** Transfer the official male and female Rocketbox neutral walks onto the already approved textured avatars, render browser-playable review evidence, and expose independent approve/reject controls whose paired gate protects the remaining 66 unreviewed actions in the 68-action locomotion manifest.
 
 **Architecture:** A pure-Python contract module owns hashes, review decisions, and the two-avatar gate. A small NumPy module owns rest-basis and root-frame math, while Blender adapters import the FBXs, bake a new target action, export/re-import GLB, and render the evidence. A dedicated Flask application serves only allowlisted review media and writes atomic decisions; it never mutates or moves source assets.
 
@@ -16,7 +16,7 @@
 - Finger animation is optional, but shoulders, elbows, wrists, hips, knees, ankles, palms, and feet must remain connected and visually stable.
 - Male and female decisions are independent; batching remains locked until both current manifests and all current media hashes are approved.
 - Source and target FBXs, exported GLBs, and rendered evidence are immutable to the review server.
-- The first scope is `m_walk_neutral.max.fbx` and `f_walk_neutral.max.fbx` only; do not batch the other 68 actions.
+- The first scope is `m_walk_neutral.max.fbx` and `f_walk_neutral.max.fbx` only; do not batch the other 66 actions.
 - Do not start FLUX, Qwen, Hunyuan, LongCat, FireRed, or any other model probe in this implementation.
 - Keep unrelated dirty and untracked files untouched.
 
