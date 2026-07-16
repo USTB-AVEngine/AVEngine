@@ -1,0 +1,26 @@
+{
+  "blender_version": "4.2.1 LTS",
+  "coordinate_mapping": "Habitat (X,Y,Z) -> Blender (X,-Z,Y); glTF export restores +Y up",
+  "geometry_representation": "real_surface_mesh",
+  "openings": [
+    "door_main",
+    "window_north"
+  ],
+  "outputs": {
+    "objects/source_marker_0.glb": {
+      "byte_size": 9400,
+      "sha256": "a5cea9d5cd067afc1ccbd28bc0740256786cd53425e26a4ff707d2da76b8336c"
+    },
+    "objects/source_marker_1.glb": {
+      "byte_size": 9392,
+      "sha256": "93d74624050d905594315defefaec4465b0794650beb5f842f1b6c9b0e7b38e7"
+    },
+    "stages/m1_custom_room.glb": {
+      "byte_size": 18392,
+      "sha256": "7a4cf2709f8d66922f9bf42a7925d7b4d073882ae8725be804f0e842370ae55e"
+    }
+  },
+  "schema": "avengine_blender_room_build_report_v1",
+  "stage_object_count": 12,
+  "stage_triangle_count": 144
+}

@@ -1,0 +1,332 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+import subprocess
+from typing import Any, Sequence
+
+from avengine.contracts.json_io import load_json, sha256_file, write_json
+from avengine.m1.contracts import (
+    ContractError,
+    EVIDENCE_SCHEMA,
+    ValidatedM1Inputs,
+    aggregate_status,
+    load_and_validate_inputs,
+    validate_capture_request,
+    validate_room_manifest,
+)
+from avengine.m1.evidence import (
+    finalize_evidence,
+    make_check,
+    verify_evidence_artifacts,
+)
+from avengine.m1.habitat_capture import build_navmesh, capture_m1
+
+
+EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
+
+
+def _print(value: Any) -> None:
+    print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+def _require_ignored_or_external_output(path: str | Path) -> Path:
+    resolved = Path(path).resolve()
+    repository_root = Path(__file__).resolve().parents[2]
+    try:
+        relative = resolved.relative_to(repository_root)
+    except ValueError:
+        return resolved
+    result = subprocess.run(
+        ["git", "-C", str(repository_root), "check-ignore", "--quiet", str(relative)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise ValueError(
+            "Aggregate output inside the repository must be Git-ignored so "
+            "writing it cannot invalidate clean evidence"
+        )
+    return resolved
+
+
+def _validate_room(args: argparse.Namespace) -> int:
+    room = load_json(args.room)
+    errors = validate_room_manifest(room)
+    result = {
+        "status": "pass" if not errors else "fail",
+        "room": str(Path(args.room).resolve()),
+        "errors": errors,
+    }
+    _print(result)
+    return 0 if not errors else 2
+
+
+def _validate_request(args: argparse.Namespace) -> int:
+    request = load_json(args.request)
+    room_id = None
+    if args.room is not None:
+        room_id = load_json(args.room).get("room_id")
+    errors = validate_capture_request(request, room_id=room_id)
+    result = {
+        "status": "pass" if not errors else "fail",
+        "request": str(Path(args.request).resolve()),
+        "errors": errors,
+    }
+    _print(result)
+    return 0 if not errors else 2
+
+
+def _blocked_evidence(
+    output: Path,
+    inputs: ValidatedM1Inputs,
+    error: Exception,
+) -> dict[str, Any]:
+    message = str(error) or repr(error)
+    evidence: dict[str, Any] = {
+        "schema": EVIDENCE_SCHEMA,
+        "evidence_kind": "blocked_attempt",
+        "room_id": inputs.room["room_id"],
+        "room_kind": inputs.room["room_kind"],
+        "request_id": inputs.request["request_id"],
+        "room_manifest": {
+            "path": str(inputs.room_path),
+            "sha256": sha256_file(inputs.room_path),
+        },
+        "capture_request": {
+            "path": str(inputs.request_path),
+            "sha256": sha256_file(inputs.request_path),
+        },
+        "output_directory": str(output),
+        "exception": {
+            "type": type(error).__name__,
+            "message": message,
+        },
+        "checks": [
+            make_check(
+                "capture_execution",
+                "blocked",
+                measured={
+                    "exception_type": type(error).__name__,
+                    "message": message,
+                },
+                threshold={"capture_completed": True},
+                failure_reason=message,
+            )
+        ],
+    }
+    finalize_evidence(evidence)
+    write_json(output / "evidence.json", evidence)
+    return evidence
+
+
+def _capture(args: argparse.Namespace) -> int:
+    output = Path(args.output).resolve()
+    try:
+        inputs = load_and_validate_inputs(args.room, args.request)
+    except ContractError as error:
+        _print({"status": "fail", "errors": error.errors})
+        return 2
+    try:
+        evidence = capture_m1(
+            inputs,
+            output,
+            runtime_root=args.runtime_root,
+            repeat_count=args.repeat,
+            reference_evidence=args.reference_evidence,
+        )
+    except Exception as error:
+        evidence = _blocked_evidence(output, inputs, error)
+    summary = {
+        "status": evidence["overall_status"],
+        "evidence": str(output / "evidence.json"),
+        "failed_or_blocked_checks": [
+            check
+            for check in evidence["checks"]
+            if check["status"] != "pass" and check.get("required", True)
+        ],
+    }
+    _print(summary)
+    return EXIT_BY_STATUS[evidence["overall_status"]]
+
+
+def _build_navmesh(args: argparse.Namespace) -> int:
+    try:
+        inputs = load_and_validate_inputs(args.room, args.request)
+        result = build_navmesh(
+            inputs,
+            runtime_root=args.runtime_root,
+            output_path=args.output,
+        )
+    except ContractError as error:
+        _print({"status": "fail", "errors": error.errors})
+        return 2
+    except Exception as error:
+        _print(
+            {
+                "status": "blocked",
+                "exception_type": type(error).__name__,
+                "message": str(error),
+            }
+        )
+        return 3
+    _print(result)
+    return 0
+
+
+def _verify(args: argparse.Namespace) -> int:
+    status, checks = verify_evidence_artifacts(args.evidence)
+    _print({"status": status, "checks": checks})
+    return EXIT_BY_STATUS[status]
+
+
+def _aggregate(args: argparse.Namespace) -> int:
+    entries: list[dict[str, Any]] = []
+    checks: list[dict[str, Any]] = []
+    for path_value in args.evidence:
+        path = Path(path_value).resolve()
+        evidence = load_json(path)
+        verification_status, verification_checks = verify_evidence_artifacts(path)
+        entry = {
+            "path": str(path),
+            "room_id": evidence.get("room_id"),
+            "room_kind": evidence.get("room_kind"),
+            "request_id": evidence.get("request_id"),
+            "declared_status": evidence.get("overall_status", "fail"),
+            "verification_status": verification_status,
+            "evidence_content_sha256": evidence.get("evidence_content_sha256"),
+        }
+        entries.append(entry)
+        checks.append(
+            make_check(
+                f"room_{entry['room_id'] or path.stem}",
+                verification_status,
+                measured={
+                    **entry,
+                    "verification_checks": verification_checks,
+                },
+                threshold={"verification_status": "pass"},
+                failure_reason=None
+                if verification_status == "pass"
+                else "Room evidence did not pass full semantic/artifact verification",
+            )
+        )
+    kinds = [entry["room_kind"] for entry in entries]
+    required_kinds = {
+        "habitat_native",
+        "blender_custom",
+        "legacy_ue_real_surface_export",
+    }
+    room_ids = [entry["room_id"] for entry in entries]
+    request_ids = [entry["request_id"] for entry in entries]
+    kinds_are_strings = all(isinstance(value, str) and value for value in kinds)
+    profile_passed = (
+        len(entries) == 3
+        and kinds_are_strings
+        and set(kinds) == required_kinds
+        and len(kinds) == len(set(kinds))
+        and all(isinstance(value, str) and value for value in room_ids)
+        and len(room_ids) == len(set(room_ids))
+        and all(isinstance(value, str) and value for value in request_ids)
+        and len(request_ids) == len(set(request_ids))
+    )
+    checks.append(
+        make_check(
+            "three_room_profile",
+            "pass" if profile_passed else "fail",
+            measured={
+                "count": len(entries),
+                "room_kinds": sorted(str(kind) for kind in kinds),
+                "room_ids": room_ids,
+                "request_ids": request_ids,
+            },
+            threshold={
+                "count": 3,
+                "room_kinds": sorted(required_kinds),
+                "unique_room_and_request_ids": True,
+            },
+            failure_reason=None
+            if profile_passed
+            else "M1 requires exactly one verified evidence file for each room kind",
+        )
+    )
+    status = aggregate_status(checks)
+    result = {"status": status, "rooms": entries, "checks": checks}
+    if args.output:
+        write_json(_require_ignored_or_external_output(args.output), result)
+    _print(result)
+    return EXIT_BY_STATUS[status]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="avengine")
+    commands = parser.add_subparsers(dest="command", required=True)
+    m1 = commands.add_parser("m1", help="M1 visual/room canary commands")
+    m1_commands = m1.add_subparsers(dest="m1_command", required=True)
+
+    validate_room = m1_commands.add_parser("validate-room")
+    validate_room.add_argument("room")
+    validate_room.set_defaults(handler=_validate_room)
+
+    validate_request = m1_commands.add_parser("validate-request")
+    validate_request.add_argument("request")
+    validate_request.add_argument("--room")
+    validate_request.set_defaults(handler=_validate_request)
+
+    capture = m1_commands.add_parser("capture")
+    capture.add_argument("--room", required=True)
+    capture.add_argument("--request", required=True)
+    capture.add_argument("--output", required=True)
+    capture.add_argument("--runtime-root")
+    capture.add_argument("--repeat", type=int, default=3)
+    capture.add_argument(
+        "--reference-evidence",
+        help="First-run evidence from a separate process for deterministic rerun proof",
+    )
+    capture.set_defaults(handler=_capture)
+
+    navmesh = m1_commands.add_parser("build-navmesh")
+    navmesh.add_argument("--room", required=True)
+    navmesh.add_argument("--request", required=True)
+    navmesh.add_argument("--runtime-root")
+    navmesh.add_argument("--output")
+    navmesh.set_defaults(handler=_build_navmesh)
+
+    verify = m1_commands.add_parser("verify")
+    verify.add_argument("evidence")
+    verify.set_defaults(handler=_verify)
+
+    aggregate = m1_commands.add_parser("aggregate")
+    aggregate.add_argument("evidence", nargs="+")
+    aggregate.add_argument("--output")
+    aggregate.set_defaults(handler=_aggregate)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return int(args.handler(args))
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        AttributeError,
+        json.JSONDecodeError,
+    ) as error:
+        _print(
+            {
+                "status": "fail",
+                "exception_type": type(error).__name__,
+                "message": str(error),
+            }
+        )
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

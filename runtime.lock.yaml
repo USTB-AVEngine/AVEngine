@@ -1,5 +1,5 @@
 schema_version: 1
-status: m0_baseline
+status: m1_visual_room_canary
 
 avengine:
   repository: git@github.com:Eastforward/AVEngine.git
@@ -27,6 +27,7 @@ runtime_test_environment:
   conda_environment: avengine-habitat-runtime
   python: "3.12.13"
   git_lfs: "3.7.1"
+  jsonschema: "4.26.0"
 
 runtime_test_assets:
   habitat_test_scenes:
@@ -67,7 +68,12 @@ verification:
   habitat_greedy_follower_binding_cases: fail
   habitat_greedy_follower_binding_summary: "21 failed, 1 warning in 76.63s; PyCapsule iterator returned NULL without setting an exception"
   audio_sensor_canary: not_run
-  visual_canary: not_run
+  visual_canary: pass
+  visual_canary_summary: "three-room, one-view RGB/depth/semantic canary passed with a co-located listener pose anchor and at least two named source transforms; RLR audio was not run"
+  visual_canary_room_kinds:
+    habitat_native: pass
+    blender_custom: pass
+    legacy_ue_real_surface_export: pass
   articulated_animal_canary: not_run
   acoustic_material_canary: not_run
   multi_source_canary: not_run

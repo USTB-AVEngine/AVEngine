@@ -21,13 +21,20 @@ Exit criteria:
 
 ## M1: Habitat Visual and Room Canary
 
+Status: `pass`; see [M1_STATUS.md](M1_STATUS.md) and
+[M1_EXECUTION.md](M1_EXECUTION.md).
+
 Deliverables: one Habitat-native room, one Blender custom room and one
-legacy-apartment real-surface export; RGB/depth/semantic multi-sensor capture;
-coordinate/unit manifests and visual evidence.
+legacy-apartment real-surface export; one logical view with co-located
+RGB/depth/semantic sensors; coordinate/unit manifests and visual evidence.
 
 Exit criteria: all three room types load reproducibly; custom openings and
-connectivity are preserved; camera/listener/source transforms agree; visual
-quality is sufficient for the task or a bounded optional-backend gap is recorded.
+connectivity are preserved; the formal capture has exactly
+`view_ids == ["view0"]`; the camera rig and single listener transforms agree;
+independently named source
+transforms round-trip; top-down QA views are excluded from dataset
+observations; visual quality is sufficient for the task or a bounded
+optional-backend gap is recorded.
 
 ## M2: Articulated Dog Runtime
 
@@ -35,8 +42,9 @@ Deliverables: one `canary_qualified` canonical dog package, baked Walk/Idle pose
 trajectory, semantic anchors, contacts and canonical pose hashes.
 
 Exit criteria: exactly 75 poses execute without a free-running action clock;
-all views share the same per-frame pose hash; deformation/contact QA passes;
-visual mouth articulation is absent. This does not grant
+the formal single `view0` RGB/depth/semantic capture shares one per-frame state
+and pose hash; deformation/contact QA passes; visual mouth articulation is
+absent. This does not grant
 `approved_for_dataset`; central dataset admission remains M6 work.
 
 ## M3: Acoustic Scene and Materials
@@ -50,10 +58,13 @@ RIR/EDT/DRR difference; production uses no AABB room proxy.
 
 ## M4: Multi-Source RLR
 
-Deliverables: modern RLR C API adapter, named sources/listeners, per-pair IRs,
-independent stems, reset/temporal policy and performance report.
+Deliverables: modern RLR C API adapter, named sources/listeners with exactly
+one listener in the MVP profile, per-pair IRs, independent stems,
+reset/temporal policy and performance report.
 
-Exit criteria: at least two sources maintain actor/event/anchor identity;
+Exit criteria: at least two sources and the single MVP listener maintain
+actor/event/anchor identity; the listener remains co-located with the formal
+camera rig;
 source registration order does not create a systematic output change; each
 pair result is independently readable.
 
@@ -63,8 +74,9 @@ Deliverables: timeline builder/semantic validator, deterministic fixed-state
 capture, exact frame/sample assembly and vocalizing-actor swap pair.
 
 Exit criteria: 75 frames, 80,000 samples and 240,000 ticks read back exactly;
-the counterfactual pair has identical visual hashes; only declared audio/source
-variables change; no mouth motion is present.
+`video.view_ids` is exactly `["view0"]`; the counterfactual pair has identical
+RGB/depth/semantic hashes from that view; only declared audio/source variables
+change; no mouth motion is present.
 
 ## M6: Dataset MVP
 
@@ -73,8 +85,9 @@ provenance manifests, structured rejection and deterministic rerun.
 
 Exit criteria: two actor instances of one canonical Dog asset + custom room +
 at least two named sources are admitted end to end; the same request/seed
-reproduces compatible timeline/manifests; `not_run` cannot be promoted to
-`pass`.
+reproduces compatible timeline/manifests with exactly the formal `view0` and
+one co-located listener; QA-only cameras are excluded; `not_run` cannot be
+promoted to `pass`.
 
 ## M7: Benchmark and Paper Release
 

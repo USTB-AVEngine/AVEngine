@@ -35,6 +35,36 @@ room_package/
 Optional visual/semantic/navmesh files remain optional only when the manifest
 states why they are absent.
 
+## M1 observation and transform contract
+
+The room manifest records the coordinate frame, unit scale, scene assets,
+openings and navigation QA declarations. The separate M1 capture request
+records one logical `camera_rig_0`, its co-located RGB/depth/semantic
+calibration, the co-located `listener0`, and independently named source
+transforms. `world_from_rig` is the formal camera/listener viewpoint itself;
+the MVP `rig_from_sensor` and `rig_from_listener` mounts are identity. The
+formal room canary emits exactly `view0`; a top-down navigation map is a
+labeled QA artifact and is excluded from dataset observations, timelines and
+benchmark inputs. M1 requires at least two uniquely named sources whose world
+transforms are pairwise distinct. Its listener is a pose anchor only: M1 does
+not instantiate an AudioSensor or run RLR, and multi-source propagation remains
+the M4 gate. See
+[ADR-0009](../adr/ADR-0009-single-view-multimodal-sensor-rig.md).
+
+## M1 visual loading and navigation closure
+
+A room is not admitted merely because every declared file exists. M1 closes
+the dataset search paths and selected scene instance or path, then records and
+checks the stage and render/collision/semantic assets that Habitat actually
+loaded. For handle-based scenes it also checks live source-marker objects and
+lighting. Every selected handle must resolve to exactly one declared file.
+
+The official Habitat, Blender custom and legacy UE canaries all use
+`navmesh_policy: load_declared`. Capture explicitly loads the declared navmesh
+into the active Pathfinder and into an independent Pathfinder. Their full
+fingerprints—every navmesh setting and canonical vertex/index hashes—must
+match, and the embedded agent settings must agree with the room manifest.
+
 ## Acoustic Scene Package contract
 
 The runtime-facing package records:
@@ -48,6 +78,7 @@ The runtime-facing package records:
 
 The runtime adapter uploads this package through the modern RLR object/mesh
 API and can export the resulting debug scene mesh for parity inspection.
+This is an M3/M4 architecture contract, not an M1 execution claim.
 
 ## Geometry policy
 

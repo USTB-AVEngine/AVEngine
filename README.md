@@ -5,10 +5,10 @@ identity-preserving audiovisual episode generation. Habitat-Sim is the primary
 visual/scene/sensor/physics runtime; RLR Audio Propagation is the geometric
 acoustic foundation. AVEngine is not a simulator built from scratch.
 
-This branch is currently at **M0: repository and baseline**. It contains the
-architecture, version locks, immutable timeline schema, migration policy,
-roadmap, and attribution records. It does **not** yet claim a functioning
-Habitat-native animal episode or dataset release.
+This branch has completed **M1: Habitat visual and three-room canary** on top of
+the M0 repository/runtime baseline. It proves the one-view multimodal room and
+pose contracts; it does **not** yet claim articulated animal playback, acoustic
+propagation, a complete audiovisual episode, or a dataset release.
 
 ## Repository boundary
 
@@ -30,10 +30,14 @@ Read these records in order:
    — target data and execution flow.
 3. [`docs/architecture/REPOSITORY_BOUNDARIES.md`](docs/architecture/REPOSITORY_BOUNDARIES.md)
    — code ownership and API boundary.
-4. [`docs/roadmap/MILESTONES.md`](docs/roadmap/MILESTONES.md) and
-   [`docs/roadmap/BASELINE_STATUS.md`](docs/roadmap/BASELINE_STATUS.md) — gates
-   and actual verification state.
-5. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+4. [`docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md`](docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md)
+   — the single-view RGB/depth/semantic and listener contract.
+5. [`docs/roadmap/MILESTONES.md`](docs/roadmap/MILESTONES.md),
+   [`docs/roadmap/BASELINE_STATUS.md`](docs/roadmap/BASELINE_STATUS.md), and
+   [`docs/roadmap/M1_STATUS.md`](docs/roadmap/M1_STATUS.md) — gates and actual
+   verification state. Use [`docs/roadmap/M1_EXECUTION.md`](docs/roadmap/M1_EXECUTION.md)
+   to reproduce the executable evidence.
+6. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
    — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
@@ -55,9 +59,29 @@ presence alone is not proof that a generated episode is synchronized.
 | M6 | registry/QA/CLI and admitted dataset canary |
 | M7 | benchmark, ablations, paper and release audit |
 
-The immediate next implementation step after M0 is M1: load one minimal room
-in the pinned Habitat runtime and capture same-state RGB/depth/semantic sensor
-evidence before introducing animal animation or production acoustics.
+M1 loads an official Habitat room, a Blender custom room and an audited legacy
+UE apartment in the pinned runtime, then captures same-state
+RGB/depth/semantic evidence. These three sensors are co-located and co-oriented
+on one logical `camera_rig_0` and produce exactly one formal `view_id`
+(`view0`), not three viewpoints. The MVP `world_from_rig` is the
+camera/listener viewpoint (not an agent foot point), and the listener shares
+that rig transform. Every M1 request has at least two uniquely named sources
+whose world transforms are pairwise distinct. A top-down navigation QA map is
+a diagnostic artifact, not another camera or dataset view.
+
+M1 closes both the declared scene-asset graph and the graph Habitat actually
+loads: dataset and scene selection, stage render/collision/semantic assets,
+and, for handle-based scenes, source-marker object templates, live poses and
+lighting selection must all resolve to the declared files without ambiguity.
+Every canary explicitly loads its `load_declared` navmesh. The active
+Pathfinder fingerprint must equal an independent Pathfinder load of that same
+file, including all navmesh settings and the vertex/index buffer hashes.
+
+The immediate next implementation gate is M2: deterministic baked dog-pose
+playback on this fixed M1 room/sensor foundation.
+
+Timeline v2 keeps its plural `view_ids` field for future extensibility, but the
+M1, M2 and M5 canaries and the initial M6 MVP require exactly `["view0"]`.
 
 ## Status vocabulary
 
@@ -76,7 +100,7 @@ assets have separate terms and are admitted item by item.
 
 The AVEngine repository itself is currently private and all-rights-reserved;
 see [`LICENSE`](LICENSE). No open-source or dataset redistribution decision is
-implied by this M0 restructure.
+implied by the M0/M1 foundation work.
 
 ## Contact
 

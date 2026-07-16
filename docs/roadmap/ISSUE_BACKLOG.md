@@ -38,23 +38,36 @@ state only when the issue records the missing environment or prerequisite.
 
 ## M1-01: Three-room visual loading canary
 
+- Status: `pass`; see `M1_STATUS.md` and `M1_EXECUTION.md`.
+
 - Problem: Habitat visual/room suitability is not yet demonstrated.
 - Scope: Habitat room, Blender custom room and real-surface legacy apartment export.
 - Non-goals: production acoustic propagation.
 - Dependencies: M0-03.
-- Deliverables: scene packages, load scripts, RGB/depth/semantic evidence.
-- Acceptance: repeatable loads, correct openings/connectivity and recorded hashes.
+- Deliverables: scene packages, load scripts and one-view RGB/depth/semantic evidence.
+- Acceptance: repeatable loads, correct openings/connectivity, exactly one
+  formal `view0` and recorded modality/scene hashes; top-down QA images do not
+  count as dataset observations.
 - Not-run condition: unavailable third-party scene is replaced only by an allowed sample.
 - Documentation: room manifest examples and quality comparison.
 
-## M1-02: Coordinate and one-state multi-sensor contract
+## M1-02: Coordinate and one-state single-view multimodal contract
 
-- Problem: camera/listener/source transforms need one convention and state.
-- Scope: units, axes, calibration and capture without timeline advancement.
+- Status: `pass`; see ADR-0009 and `M1_STATUS.md`.
+
+- Problem: the single camera rig, listener and independent source transforms
+  need one convention and state, without confusing sensor modalities for views.
+- Scope: units, axes, one `camera_rig_0`, co-located RGB/depth/semantic
+  calibration, one co-located `listener0`, independently named sources and
+  capture without timeline advancement.
 - Non-goals: dog skeletal playback.
 - Dependencies: M1-01.
-- Deliverables: transform contract, capture API spike and parity report.
-- Acceptance: sensors observe the same world state and transforms round-trip.
+- Deliverables: transform contract, single-view multimodal capture API spike
+  and parity report.
+- Acceptance: `view_ids == ["view0"]`; all three sensors observe the same
+  world state with matching extrinsics; listener and rig transforms match;
+  named source transforms round-trip independently; diagnostic cameras remain
+  outside formal manifests.
 - Not-run condition: headless rendering unavailable is reported explicitly.
 - Documentation: architecture and canary instructions.
 
@@ -77,10 +90,11 @@ state only when the issue records the missing environment or prerequisite.
 - Scope: load M2-01 asset, apply 75 root/joint states, expose anchors/contacts/hash.
 - Non-goals: online retarget or facial animation.
 - Dependencies: M1-02, M2-01.
-- Deliverables: runtime adapter, tests and four-view canary.
-- Acceptance: same-frame canonical pose and view-state pose hashes match across
-  cameras (rendered image hashes are expected to differ by viewpoint), and
-  complete Walk/Idle QA passes.
+- Deliverables: runtime adapter, tests and single-view RGB/depth/semantic canary.
+- Acceptance: the same-frame canonical pose and formal `view0` pose hash match
+  across the co-located modality sensors without timeline advancement
+  (rendered payload hashes are expected to differ by modality), and complete
+  Walk/Idle QA passes.
 - Not-run condition: unsupported skinned import is a recorded blocker with evidence.
 - Documentation: runtime articulated-animal guide.
 
@@ -113,7 +127,9 @@ state only when the issue records the missing environment or prerequisite.
 - Non-goals: a new propagation algorithm.
 - Dependencies: M3-01.
 - Deliverables: isolated fork adapter and C++/Python API tests.
-- Acceptance: two sources/listeners are enumerated and pair outputs have valid shapes.
+- Acceptance: at least two named sources and exactly the one formal MVP
+  listener are enumerated, listener/camera-rig transforms agree, and every
+  source-listener pair output has a valid shape.
 - Not-run condition: ABI/build failure is recorded with exact versions.
 - Documentation: audio extension and attribution boundaries.
 
@@ -131,18 +147,22 @@ state only when the issue records the missing environment or prerequisite.
 ## M5-01: Timeline builder, validator and fixed-state capture
 
 - Problem: JSON Schema alone does not enforce cross-field synchronization.
-- Scope: exact PTS/sample boundaries, references, pose/view hashes and events.
+- Scope: exact PTS/sample boundaries, references, single formal-view pose
+  hashes and events.
 - Non-goals: new timeline v3.
 - Dependencies: M2-02, M4-02.
 - Deliverables: builder, semantic validator and exact output verifier.
-- Acceptance: 75/80,000/240,000 counts and all cross-field invariants pass.
+- Acceptance: 75/80,000/240,000 counts, exactly `view_ids == ["view0"]` with
+  one matching `view_pose_hashes` entry per frame, and all cross-field
+  invariants pass.
 - Not-run condition: mux/codec checks absent are separately marked.
 - Documentation: timeline examples and validation errors.
 
 ## M5-02: Anti-shortcut counterfactual pair
 
 - Problem: source attribution needs controlled visual invariance.
-- Scope: swap vocalizing actor while freezing visual state.
+- Scope: swap vocalizing actor while freezing the single formal view and its
+  RGB/depth/semantic visual state.
 - Non-goals: mouth animation.
 - Dependencies: M5-01.
 - Deliverables: paired episodes, visual hash proof and audio lineage.
@@ -166,7 +186,8 @@ state only when the issue records the missing environment or prerequisite.
 
 - Problem: component canaries do not prove a reproducible sample.
 - Scope: two actor instances of one canonical Dog asset in a custom room, with
-  at least two named sources and one counterfactual group, end to end.
+  exactly one formal `view0`, one co-located listener, at least two named
+  sources and one counterfactual group, end to end.
 - Non-goals: scale or throughput optimization.
 - Dependencies: M6-01, M5-02.
 - Deliverables: admitted sample, full manifests and deterministic rerun report.

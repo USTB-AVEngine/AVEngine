@@ -8,10 +8,14 @@ Allowed responsibilities:
 
 - Minimal Habitat C++/Python runtime changes.
 - Modern RLR C API adapter.
-- Named sources/listeners and per-pair IR access.
+- Named sources/listeners and per-pair IR access, with exactly one listener in
+  the current MVP profile.
 - Explicit acoustic mesh/material package ingestion.
 - Deterministic baked non-human joint-pose evaluation.
-- One canonical state evaluated once and observed by multiple sensors.
+- One canonical state evaluated once and observed by co-located
+  RGB/depth/semantic sensors on one logical camera rig.
+- Runtime equality checks for the single camera-rig/listener transform and
+  independent named source transforms.
 - Runtime build/version/state manifests and runtime-specific tests.
 
 Do not place Blender fitting, model inference, dataset registries, benchmark
@@ -28,6 +32,8 @@ Allowed responsibilities:
 - Animal template bank and offline asset compiler.
 - Room and acoustic-scene compilers.
 - High-level runtime adapter without vendoring Habitat source.
+- The MVP single-view capture profile, sensor/listener/source manifests and
+  exclusion of QA-only camera artifacts from admitted observations.
 - Timeline, episode and counterfactual builders.
 - Dry audio, RIR/stem assembly, mixing and sample mapping.
 - QA, provenance, registry and dataset admission.
@@ -50,6 +56,15 @@ Put a change in the runtime fork only if all are true:
 
 Otherwise, put it in AVEngine. Cross-repository work must land as separate
 commits and be connected by an updated lock file and acceptance test.
+
+## MVP view rule
+
+Both repositories implement
+[ADR-0009](../adr/ADR-0009-single-view-multimodal-sensor-rig.md): one logical
+`camera_rig_0`, exactly the formal `view0`, co-located RGB/depth/semantic
+sensors and one co-located `listener0`. Sources remain independently named and
+positioned. The timeline schema may express future views, but M1, M2, M5 and
+the initial M6 MVP do not. Top-down cameras belong only to QA tooling.
 
 ## Legacy route
 

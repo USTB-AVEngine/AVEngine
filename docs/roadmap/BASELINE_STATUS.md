@@ -1,5 +1,9 @@
 # M0 Baseline Status
 
+This is the immutable-at-closure M0 snapshot; its M1 `not_run` row records the
+state at that earlier gate. For the current post-M1 result, see
+[M1_STATUS.md](M1_STATUS.md).
+
 Recorded: 2026-07-16. Status values are only `pass`, `fail`, `blocked`, or
 `not_run`. A successful build does not imply that a runtime or scientific
 canary passed.
