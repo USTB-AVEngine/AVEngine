@@ -172,3 +172,36 @@ re-export 会改变 topology、UV、skin 或 buffer 排列，即使视觉上暂�
 对应实现为
 `external/SPEAR/tools/transplant_compatible_glb_animations.py`，单元测试为
 `external/SPEAR/tests/tools/test_transplant_compatible_glb_animations.py`。
+
+## 8. 绑定批处理中的自动锁脚闭环
+
+`external/SPEAR/tools/run_controlled_animal_lod_binding.py` 现在可以通过
+`--locked-paw-motion-profile quadruped_dog_locked_paws_v2` 在同一个原子批次内完成：
+
+```text
+人工批准的精确 100k LOD 方向决定
+  -> Quaternius Dog 固定骨架/权重绑定
+  -> 保留绑定器原动作版本作为 pre-lock 证据
+  -> 二进制 animation transplant，仅替换 Idle/Walking
+  -> 验证目标 GLB 原始 BIN 前缀逐字节不变
+  -> 41 帧四脚 lateral excursion 与 terminal yaw 审计
+  -> 最终 GLB readback
+```
+
+当前 profile 固定 motion carrier SHA-256 为
+`083cafc7d99ae1e9e752b512adedef71bf3a124f1d648493874fddc8abc62117`。
+硬门为四脚最大
+`paw_relative_to_hip_lateral_excursion_ratio_of_mesh_diagonal <= 0.005`，以及
+`paw_yaw_excursion_degrees <= 0.1`。任一脚超阈值都会让该资产失败，不会悄悄回退
+到旧动作。
+
+执行预检在不修改 v24 批准产物的全新目录中通过：最大横向比例
+`0.0010399684`，最大末端 yaw excursion `0.000289899°`，原目标 BIN 前缀保持
+不变，最终 GLB 回读一个 skin、两个动作。绑定 runner、animation transplant 和
+review 相关测试共 32/32 通过。
+
+新版浅色比格的原始 Pixal GLB 还独立重建了审核用 100k LOD。重建结果与方向页
+显示的 LOD 逐字节一致，SHA-256 都是
+`150923ea84d361558daed5ea4b622b6ecad2a105fb8fb4156d7231570d98814a`；
+99,993 面，`boundary_cracks_introduced=0`。因此绑定时不会重新抽取或替换 mesh。
+当前仍必须等待方向页生成不可变人工决定，不能把临时的 180° 选择当作批准。

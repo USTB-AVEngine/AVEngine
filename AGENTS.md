@@ -3124,3 +3124,25 @@ The saved state is cardinal 180 degrees with no torso-axis adjustment and no
 immutable approval decision yet. Do not bind or animate this lighter Beagle
 until the exact 100k LOD receives that human decision; do not infer it from the
 head or from another Beagle.
+
+The locked-paw stage is now integrated directly into
+`external/SPEAR/tools/run_controlled_animal_lod_binding.py` under the explicit
+profile `quadruped_dog_locked_paws_v2` (SPEAR commit `6dd6654a`). It preserves
+the ordinary binding output as pre-lock evidence, transplants only Idle and
+Walking from motion carrier SHA-256
+`083cafc7d99ae1e9e752b512adedef71bf3a124f1d648493874fddc8abc62117`,
+authenticates the unchanged target BIN prefix, and runs the 41-frame four-paw
+lateral/yaw audit before publishing the final runtime. The pinned hard limits
+are lateral excursion ratio <= 0.005 and terminal yaw excursion <= 0.1 degree.
+An execution preflight on the existing v22 target passed at
+0.0010399684/0.000289899 degrees and one-skin/two-action GLB readback; 32/32
+related tests pass.
+
+The lighter-Beagle 100k LOD was also regenerated independently from raw Pixal
+SHA-256 `5c623a4f...ba0b`. It is byte-identical (`cmp=0`) to the exact LOD shown
+by the direction page, with SHA-256
+`150923ea84d361558daed5ea4b622b6ecad2a105fb8fb4156d7231570d98814a`,
+99,993 faces, and zero newly introduced boundary cracks. This proves the
+post-approval binding runner will consume the reviewed mesh rather than a new
+candidate. The missing immutable direction decision remains the only current
+pre-binding condition.
