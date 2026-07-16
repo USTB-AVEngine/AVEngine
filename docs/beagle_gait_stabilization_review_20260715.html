@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>比格基础步态修复审核</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090e16; --panel:#111a28; --line:#2a3a51; --text:#edf3fb; --muted:#9dafc3; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:24px; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,sans-serif; }
+    main { max-width:1500px; margin:auto; }
+    h1 { margin:0 0 6px; }
+    .muted { color:var(--muted); }
+    .card { margin:18px 0; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+    video { width:100%; max-height:72vh; background:#000; border-radius:8px; }
+    code { display:block; margin-top:10px; padding:9px; overflow:auto; white-space:nowrap; border-radius:7px; background:#080d14; color:#b9cce2; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>比格基础步态修复审核</h1>
+  <div class="muted">同一 Rocketbox 比格、同一 Quaternius Walk；只改变确定性的腿部横向摆动保留量。</div>
+
+  <section class="card">
+    <h2>正面三路对照</h2>
+    <p>左：原始动作；中：保留 25% 横向摆动；右：完全锁回原始腿平面。当前推荐中间版本，避免旧版后腿内外摆，同时不让步态过度机械。</p>
+    <video controls loop muted playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_gait_stabilization_review_v1_20260715/walking_front_three_way_labeled.mp4"></video>
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_gait_stabilization_review_v1_20260715/walking_front_three_way_labeled.mp4</code>
+  </section>
+
+  <section class="card">
+    <h2>推荐候选：Walk Front / Side / Quarter</h2>
+    <video controls loop muted playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_gait_stabilization_review_v1_20260715/selected_damp25/walking_front_side_quarter.mp4"></video>
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_gait_stabilization_review_v1_20260715/selected_damp25/walking_front_side_quarter.mp4</code>
+  </section>
+
+  <section class="card">
+    <h2>推荐候选：Idle Front / Side</h2>
+    <video controls loop muted playsinline preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_gait_stabilization_review_v1_20260715/selected_damp25/idle_front_side.mp4"></video>
+    <code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_gait_stabilization_review_v1_20260715/selected_damp25/idle_front_side.mp4</code>
+  </section>
+</main>
+</body>
+</html>
