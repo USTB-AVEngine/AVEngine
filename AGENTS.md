@@ -1,5 +1,24 @@
 # AGENTS.md
 
+## Habitat-Native Worktree Override
+
+When this file is read from `/data/jzy/code/AVEngine-habitat-native`, that
+directory is the active AVEngine main-repository worktree. Read
+`docs/planning/README.md` first. The separate runtime fork is
+`/data/jzy/code/habitat-sim-AVEngine`; the legacy implementation remains at
+`/data/jzy/code/AVEngine/external/SPEAR` and is a migration source, not the new
+primary runtime.
+
+Do not populate `external/` in the Habitat-native worktree. Do not copy
+Habitat-Sim source into AVEngine. Put only runtime-required C++/Python changes
+in the runtime fork, and put asset/scene compilation, timeline, episodes,
+audio assembly, QA, provenance, registry, schemas, and CLI code in this main
+repository.
+
+The remaining sections describe the legacy worktree. Apply them only while
+auditing or migrating that route; they do not override the Habitat-native
+planning authority.
+
 Read this file before doing any work in `/data/jzy/code/AVEngine`.
 If you discover an important path convention, environment requirement, or
 pipeline trap while working, update this file in the same change.

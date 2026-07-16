@@ -1,5 +1,11 @@
 # AVEngine — Audio-Visual Engine
 
+> **Habitat-native restructuring notice:** This branch is the clean foundation
+> for the two-repository AVEngine architecture. Read
+> [`docs/planning/README.md`](docs/planning/README.md) before making broad
+> changes. The UE/SPEAR + gpuRIR material below documents the legacy baseline
+> and remains migration evidence; it is no longer the intended primary runtime.
+
 Research infrastructure for **Attribute-Conditioned Spatial Audio-Visual
 Reasoning (ASAR)**. Combines Unreal Engine 5 (via SPEAR RPC) for
 photorealistic multi-view rendering with gpuRIR for 4-channel

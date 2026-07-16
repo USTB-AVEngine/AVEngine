@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/avengine_timeline_v2.schema.json",
+  "title": "AVEngine Authoritative Audio-Visual Timeline v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "time_base_hz",
+    "duration_ticks",
+    "video",
+    "audio",
+    "actors",
+    "frames",
+    "audio_events"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_authoritative_timeline_v2"},
+    "time_base_hz": {"const": 48000},
+    "duration_ticks": {"const": 240000},
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fps_num", "fps_den", "frame_count", "ticks_per_frame", "view_ids"],
+      "properties": {
+        "fps_num": {"const": 15},
+        "fps_den": {"const": 1},
+        "frame_count": {"const": 75},
+        "ticks_per_frame": {"const": 3200},
+        "view_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_rate_hz", "sample_count", "ticks_per_sample", "channel_count"],
+      "properties": {
+        "sample_rate_hz": {"const": 16000},
+        "sample_count": {"const": 80000},
+        "ticks_per_sample": {"const": 3},
+        "channel_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "actors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actor_id", "asset_id", "template_id", "body_plan_id"],
+        "properties": {
+          "actor_id": {"type": "string", "minLength": 1},
+          "asset_id": {"type": "string", "minLength": 1},
+          "template_id": {"type": "string", "minLength": 1},
+          "body_plan_id": {"type": "string", "minLength": 1},
+          "skeleton_revision": {"type": "string"},
+          "mesh_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 75,
+      "maxItems": 75,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "frame_index",
+          "pts_ticks",
+          "sample_start",
+          "sample_end",
+          "actor_states",
+          "view_pose_hashes"
+        ],
+        "properties": {
+          "frame_index": {"type": "integer", "minimum": 0, "maximum": 74},
+          "pts_ticks": {"type": "integer", "minimum": 0, "multipleOf": 3200},
+          "sample_start": {"type": "integer", "minimum": 0, "maximum": 80000},
+          "sample_end": {"type": "integer", "minimum": 0, "maximum": 80000},
+          "actor_states": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "actor_id",
+                "root_transform",
+                "action_id",
+                "action_time_ticks",
+                "action_phase",
+                "pose_hash",
+                "contacts",
+                "mouth_state"
+              ],
+              "properties": {
+                "actor_id": {"type": "string", "minLength": 1},
+                "root_transform": {"$ref": "#/$defs/transform"},
+                "action_id": {"type": "string", "minLength": 1},
+                "action_time_ticks": {"type": "integer", "minimum": 0},
+                "action_phase": {"type": "number", "minimum": 0.0, "exclusiveMaximum": 1.0},
+                "pose_hash": {"$ref": "#/$defs/sha256"},
+                "contacts": {
+                  "type": "object",
+                  "additionalProperties": {"type": "boolean"}
+                },
+                "mouth_state": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["open_ratio", "vocalizing"],
+                  "properties": {
+                    "open_ratio": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "vocalizing": {"type": "boolean"}
+                  }
+                }
+              }
+            }
+          },
+          "view_pose_hashes": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/sha256"},
+            "minProperties": 1
+          }
+        }
+      }
+    },
+    "audio_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "actor_id",
+          "event_type",
+          "start_sample",
+          "end_sample",
+          "emitter_bone",
+          "emitter_path_sha256",
+          "audio_asset_sha256"
+        ],
+        "properties": {
+          "event_id": {"type": "string", "minLength": 1},
+          "actor_id": {"type": "string", "minLength": 1},
+          "event_type": {"enum": ["vocalization", "footstep", "body", "other"]},
+          "start_sample": {"type": "integer", "minimum": 0, "maximum": 79999},
+          "end_sample": {"type": "integer", "minimum": 1, "maximum": 80000},
+          "emitter_bone": {"type": "string", "minLength": 1},
+          "emitter_path_sha256": {"$ref": "#/$defs/sha256"},
+          "audio_asset_sha256": {"$ref": "#/$defs/sha256"},
+          "semantic_sync_required": {"type": "boolean", "default": true}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "vec3": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}],
+      "items": false
+    },
+    "quat": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["translation_m", "rotation_xyzw", "scale"],
+      "properties": {
+        "translation_m": {"$ref": "#/$defs/vec3"},
+        "rotation_xyzw": {"$ref": "#/$defs/quat"},
+        "scale": {"$ref": "#/$defs/vec3"}
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+schema_version: 1
+status: planning_baseline
+
+avengine:
+  repository: git@github.com:Eastforward/AVEngine.git
+  branch: feature/habitat-native-foundation
+  base_commit: 92775d4d2050a3a9b277357eb83c9243468f4cd3
+  version: 0.1.0-alpha
+
+habitat_runtime:
+  repository: git@github.com:Eastforward/habitat-sim-AVEngine.git
+  branch: feature/habitat-native-runtime-foundation
+  commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+  upstream_repository: https://github.com/facebookresearch/habitat-sim.git
+  upstream_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+  merge_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+  ahead_of_upstream: 0
+  behind_upstream: 0
+
+rlr:
+  repository: https://github.com/facebookresearch/rlr-audio-propagation
+  commit: 4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
+  license: CC-BY-NC-4.0
+
+verification:
+  repository_audit: pass
+  runtime_submodules_initialized: pass
+  habitat_clean_build: not_run
+  habitat_unit_tests: not_run
+  visual_canary: not_run
+  articulated_animal_canary: not_run
+  acoustic_material_canary: not_run
+  multi_source_canary: not_run
+  timeline_canary: not_run
+  end_to_end_dataset_canary: not_run
