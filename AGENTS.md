@@ -3069,3 +3069,58 @@ pose/camera-preservation, and target-attribute-only gates.  A failed gate and
 an `approved_for_pixal3d` decision are contract-incompatible.  The regression
 suite is
 `tests/tools/test_review_controlled_animal_flux2_hard_gates.py`.
+
+## 2026-07-16 Animal No-Seed-Lottery Execution Policy
+
+Do not generate several FLUX/Pixal candidates and select a winner, do not
+change only the seed after seeing a failure, and do not omit failed requests
+from profile metrics. The machine policy is
+`external/SPEAR/data/controlled_source_attributes_v1/contracts/animal_one_shot_no_seed_lottery_v1.json`
+(SHA-256
+`66f2cba8c213c39cf57483fc7768d4e1c737ad03059dd9dedfee55fdf26eafcc`),
+with the two-phase route recorded in
+`external/SPEAR/data/controlled_source_attributes_v1/contracts/strict_native_i2i_i23d_animal_v2.json`.
+
+The enforced production split is now:
+
+1. `flux2_pixal3d_animal_v1` acquires one new taxon/geometry base only. Its
+   sampled domains must all be singleton, the authenticated request and seed
+   are frozen before inference, FLUX is invoked once and must return exactly
+   one image, and Pixal is invoked once with the same seed and
+   `attempt_ordinal=0`.
+2. After that base passes static, direction, rig, Walk/Idle and deformation
+   review, ordinary size/coat/body-build/life-stage instances must use
+   `stable_animal_template_v1`. Geometry, UV, skin, skeleton, FRONT and
+   actions stay frozen; instances use deterministic material/texture, scale,
+   and bounded prevalidated semantic deformation. Do not rerun FLUX/Pixal
+   for every colour or size instance.
+3. Any base-acquisition failure is preserved and rejected. Fix the pose
+   guide, prompt contract, deterministic geometry stage, or binding algorithm
+   in a new declared profile revision; a seed-only revision is forbidden.
+   Profile validation requests are frozen before inference, all requests
+   count, and the required pass fraction is 1.0.
+
+The executors and workers now hash-authenticate this policy before model load.
+Relevant regression coverage is 41/41 passing across the policy, profile
+schema, FLUX review, Pixal scheduling, and batch-audit suites. The detailed
+workflow is
+`external/SPEAR/docs/controlled_animal_no_seed_lottery_workflow.md`.
+
+The already-approved lighter Beagle v2 artifacts predate this policy and were
+not modified. Their sealed manifests prove exactly one recorded FLUX
+invocation/candidate and one recorded Pixal invocation with the same exact
+seed `9204617385068552981`. The combined audit is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_one_shot_audit_v2_flux_pixal_20260716/one_shot_batch_audit.json`
+(internal audit SHA-256
+`24e4f9c3eb30358681d70e085173b3e94a8c8370b3a710d5a474762f5721d148`).
+It deliberately reports
+`passed_legacy_batch_only_profile_qualification_blocked`: this proves the
+recorded batch was one-shot, but cannot retroactively prove that a predeclared
+cross-batch validation matrix existed. Do not upgrade that status. The v3
+Beagle acquisition profile carries the new singleton/base-acquisition policy.
+
+The current v3 two-stage direction page remains at `http://127.0.0.1:8103/`.
+The saved state is cardinal 180 degrees with no torso-axis adjustment and no
+immutable approval decision yet. Do not bind or animate this lighter Beagle
+until the exact 100k LOD receives that human decision; do not infer it from the
+head or from another Beagle.

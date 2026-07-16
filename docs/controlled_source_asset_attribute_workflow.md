@@ -1,7 +1,7 @@
 # AVEngine 受控声源资产属性 JSON 与生成工作流
 
 > 状态：当前属性设计的单一事实来源（SSOT）
-> 更新日期：2026-07-14
+> 更新日期：2026-07-16
 > 适用范围：Rocketbox 人类路线、FLUX.2 + Pixal3D 动物路线，以及后续
 > Apartment 音视频数据集注册
 
@@ -1412,3 +1412,18 @@ FLUX 完整绝对属性参考
 
 审核入口：
 [beagle_mesh_first_instance_ofat_review_20260716.html](/data/jzy/code/AVEngine/docs/beagle_mesh_first_instance_ofat_review_20260716.html)。
+
+## 18. 2026-07-16 禁止 seed 抽奖的执行合同
+
+从本节起，`flux2_pixal3d_animal_v1` 只负责获取一个新物种/新品种的单值基础
+资产，不再负责批量生产颜色、大小、体型或年龄实例。每个冻结请求只允许一次
+FLUX.2、一张图、一次 Pixal3D 和一个 GLB；失败保留并计入 profile，禁止更换
+seed、best-of-N 或只汇报成功候选。
+
+基础资产通过后，所有实例必须转入 `stable_animal_template_v1`：冻结 geometry、
+skin、skeleton 和 Walk/Idle，使用确定性材质、scale 与预审计语义形变实现属性。
+这样 prompt/pose guide 只承担一次基础外观获取，常规批量扩增不会重复引入并腿、
+缺面、方向漂移和重新绑定风险。
+
+机器合同和完整迁移规则见
+[动物无 seed 抽奖工作流](/data/jzy/code/AVEngine/external/SPEAR/docs/controlled_animal_no_seed_lottery_workflow.md)。
