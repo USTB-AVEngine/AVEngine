@@ -698,6 +698,58 @@ def test_compiler_emits_complete_candidate_without_implicit_promotion(
     assert collision.sha256 != _sha256(fixture.visual.read_bytes())
 
 
+def test_compiler_accepts_untriggered_hind_metric_without_legacy_claim(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    animation = _load_json(fixture.animation_qa)
+    summary = animation["semantic_terminal_motion"]["walking_summary"]
+    summary.update(
+        {
+            "legacy_hind_gait_metric_triggered": False,
+            "mean_front_paw_forward_range_m": 0.2,
+            "mean_hind_paw_forward_range_m": 0.1,
+            "mean_hind_paw_lateral_range_m": 0.05,
+        }
+    )
+    animation["known_limitations"] = []
+    _write_json(fixture.animation_qa, animation)
+
+    manifest_path = compile_research_candidate_animal_package(
+        **fixture.arguments(tmp_path / "package")
+    )
+
+    emitted = _load_json(manifest_path.parent / "qa/animation.json")
+    emitted_summary = emitted["semantic_terminal_motion"]["walking_summary"]
+    assert emitted_summary["legacy_hind_gait_metric_triggered"] is False
+    assert emitted["known_limitations"] == []
+
+
+def test_compiler_rejects_legacy_claim_when_hind_metric_is_not_triggered(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    animation = _load_json(fixture.animation_qa)
+    summary = animation["semantic_terminal_motion"]["walking_summary"]
+    summary.update(
+        {
+            "legacy_hind_gait_metric_triggered": False,
+            "mean_front_paw_forward_range_m": 0.2,
+            "mean_hind_paw_forward_range_m": 0.1,
+            "mean_hind_paw_lateral_range_m": 0.05,
+        }
+    )
+    _write_json(fixture.animation_qa, animation)
+
+    with pytest.raises(
+        PackageCompileError,
+        match="must not claim a legacy hind-gait limitation",
+    ):
+        compile_research_candidate_animal_package(
+            **fixture.arguments(tmp_path / "package")
+        )
+
+
 def test_compiler_is_byte_deterministic_across_output_directories(
     tmp_path: Path,
 ) -> None:

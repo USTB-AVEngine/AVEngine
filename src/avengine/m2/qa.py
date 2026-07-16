@@ -44,6 +44,15 @@ _LANDMARK_MARGIN_M = 0.02
 _MOUTH_ANGLE_TOLERANCE_DEGREES = 1.0e-6
 _SOURCE_QUATERNION_NORM_TOLERANCE = 1.0e-5
 _SOURCE_CLIP_TIME_TOLERANCE_SECONDS = 1.0e-12
+_LEGACY_HIND_GAIT_LIMITATIONS = (
+    "Known legacy gait limitation carried forward for review: the hind legs show "
+    "limited whole-leg articulation and motion can be concentrated at the "
+    "toe/terminal joints. Temporary research-canary use does not claim that this "
+    "gait defect is fixed or that the asset is qualified.",
+    "The current terminal-joint metrics also detect much less hind-paw forward "
+    "excursion than front-paw excursion, with hind motion dominated by the "
+    "lateral/toe axis.",
+)
 
 
 class M2QaError(ValueError):
@@ -78,6 +87,10 @@ class _SourceLoopEndpoints:
     maximum_joint_rotation_error: float
     maximum_joint_translation_error_m: float
     maximum_joint_scale_error: float
+
+
+def _legacy_hind_gait_limitations(metric_triggered: bool) -> list[str]:
+    return list(_LEGACY_HIND_GAIT_LIMITATIONS) if metric_triggered else []
 
 
 def _canonical_float(value: float) -> float:
@@ -664,18 +677,7 @@ def _semantic_motion_metrics(
     measured_hind_limitation = bool(
         hind_forward < 0.25 * front_forward and hind_lateral > hind_forward
     )
-    limitations = [
-        "Known legacy gait limitation carried forward for review: the hind legs "
-        "show limited whole-leg articulation and motion can be concentrated at the "
-        "toe/terminal joints. Temporary research-canary use does not claim that this "
-        "gait defect is fixed or that the asset is qualified."
-    ]
-    if measured_hind_limitation:
-        limitations.append(
-            "The current terminal-joint metrics also detect much less hind-paw "
-            "forward excursion than front-paw excursion, with hind motion dominated "
-            "by the lateral/toe axis."
-        )
+    limitations = _legacy_hind_gait_limitations(measured_hind_limitation)
     return (
         {
             "source_facing_axis_in_actor_frame": "+X",
@@ -979,6 +981,14 @@ def audit_m2_candidate(
     motion_metrics, limitations = _semantic_motion_metrics(
         mapping, actions, semantic_joint_map
     )
+    animation_notes = [
+        "Automatic pass covers deterministic playback and numerical safety only."
+    ]
+    if limitations:
+        animation_notes.append(
+            "Known gait limitations remain visible and require the hash-bound human "
+            "review before canary qualification."
+        )
     animation = {
         "schema": "avengine_m2_animation_qa_v1",
         "status": "pass",
@@ -1010,10 +1020,7 @@ def audit_m2_candidate(
         "semantic_terminal_motion": motion_metrics,
         "known_limitations": limitations,
         "human_visual_review_required": True,
-        "notes": [
-            "Automatic pass covers deterministic playback and numerical safety only.",
-            "Known gait limitations remain visible and require the hash-bound human review before canary qualification.",
-        ],
+        "notes": animation_notes,
     }
     return M2AutomaticQa(
         static_geometry=static_geometry,

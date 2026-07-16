@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/motion_retarget_profile_v1.schema.json",
+  "title": "AVEngine Motion Retarget Profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "adapter_id",
+    "body_plan_id",
+    "motion_family_id",
+    "source_skeleton_id",
+    "target_template_id",
+    "solver",
+    "semantic_chains",
+    "joint_mappings",
+    "actions",
+    "qa_contract",
+    "attribute_domain"
+  ],
+  "$defs": {
+    "chainMotionThresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "minimum_forward_excursion_m": {"type": "number", "minimum": 0},
+        "maximum_forward_excursion_m": {"type": "number", "minimum": 0},
+        "minimum_vertical_excursion_m": {"type": "number", "minimum": 0},
+        "maximum_vertical_excursion_m": {"type": "number", "minimum": 0},
+        "maximum_lateral_excursion_m": {"type": "number", "minimum": 0},
+        "minimum_forward_excursion_normalized": {"type": "number", "minimum": 0},
+        "maximum_forward_excursion_normalized": {"type": "number", "minimum": 0},
+        "minimum_vertical_excursion_normalized": {"type": "number", "minimum": 0},
+        "maximum_vertical_excursion_normalized": {"type": "number", "minimum": 0},
+        "maximum_lateral_excursion_normalized": {"type": "number", "minimum": 0},
+        "maximum_lateral_to_forward_ratio": {"type": "number", "minimum": 0}
+      }
+    },
+    "jointMotionThresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "minimum_angular_excursion_degrees": {"type": "number", "minimum": 0},
+        "maximum_angular_excursion_degrees": {"type": "number", "minimum": 0},
+        "maximum_angular_speed_degrees_per_second": {"type": "number", "minimum": 0}
+      }
+    }
+  },
+  "properties": {
+    "schema": {"const": "avengine_motion_retarget_profile_v1"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "adapter_id": {
+      "enum": [
+        "quadruped_mammal_locomotion_v1",
+        "avian_biped_locomotion_v1",
+        "avian_flight_v1",
+        "fish_swim_v1"
+      ]
+    },
+    "body_plan_id": {"type": "string", "minLength": 1},
+    "motion_family_id": {"type": "string", "minLength": 1},
+    "source_skeleton_id": {"type": "string", "minLength": 1},
+    "target_template_id": {"type": "string", "minLength": 1},
+    "solver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "solver_id",
+        "motion_basis_xyzw",
+        "motion_amplitude",
+        "output_sample_rate_hz",
+        "time_mapping",
+        "root_joint_semantic_id",
+        "root_rotation_policy",
+        "root_translation_policy",
+        "unmapped_target_joint_policy"
+      ],
+      "properties": {
+        "solver_id": {"const": "world_left_delta_v2"},
+        "motion_basis_xyzw": {
+          "type": "array",
+          "prefixItems": [
+            {"type": "number"},
+            {"type": "number"},
+            {"type": "number"},
+            {"type": "number"}
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "motion_amplitude": {"type": "number", "minimum": 0, "maximum": 1},
+        "output_sample_rate_hz": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 48000
+        },
+        "time_mapping": {"const": "preserve_source_seconds"},
+        "root_joint_semantic_id": {"type": "string", "minLength": 1},
+        "root_rotation_policy": {
+          "enum": ["target_rest", "retarget_world_delta"]
+        },
+        "root_translation_policy": {"const": "target_rest"},
+        "unmapped_target_joint_policy": {"const": "target_rest_local"}
+      }
+    },
+    "semantic_chains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "chain_id",
+          "chain_kind",
+          "side",
+          "semantic_joint_ids",
+          "end_effector_role",
+          "target_end_effector_joint_id"
+        ],
+        "properties": {
+          "chain_id": {"type": "string", "minLength": 1},
+          "chain_kind": {"type": "string", "minLength": 1},
+          "side": {"enum": ["center", "left", "right"]},
+          "semantic_joint_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "end_effector_role": {"type": "string", "minLength": 1},
+          "target_end_effector_joint_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "joint_mappings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["semantic_joint_id", "source_joint_id", "target_joint_id"],
+        "properties": {
+          "semantic_joint_id": {"type": "string", "minLength": 1},
+          "source_joint_id": {"type": "string", "minLength": 1},
+          "target_joint_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "semantic_action_id",
+          "source_action_hint",
+          "output_action_name"
+        ],
+        "properties": {
+          "semantic_action_id": {"type": "string", "minLength": 1},
+          "source_action_hint": {"type": "string", "minLength": 1},
+          "output_action_name": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "qa_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semantic_action_id",
+        "coordinate_frame",
+        "sample_rate_hz",
+        "minimum_sample_count",
+        "cyclic",
+        "required_chain_ids",
+        "chain_thresholds",
+        "joint_thresholds_by_chain",
+        "chain_groups",
+        "group_ratio_thresholds",
+        "symmetry_thresholds"
+      ],
+      "properties": {
+        "semantic_action_id": {"type": "string", "minLength": 1},
+        "coordinate_frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["forward_axis", "lateral_axis", "vertical_axis"],
+          "properties": {
+            "forward_axis": {"enum": ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]},
+            "lateral_axis": {"enum": ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]},
+            "vertical_axis": {"enum": ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]}
+          }
+        },
+        "sample_rate_hz": {"type": "integer", "minimum": 1, "maximum": 48000},
+        "minimum_sample_count": {"type": "integer", "minimum": 3},
+        "cyclic": {"const": true},
+        "required_chain_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "chain_thresholds": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/chainMotionThresholds"}
+        },
+        "joint_thresholds_by_chain": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {"$ref": "#/$defs/jointMotionThresholds"}
+          }
+        },
+        "chain_groups": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["group_id", "chain_ids"],
+            "properties": {
+              "group_id": {"type": "string", "minLength": 1},
+              "chain_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        },
+        "group_ratio_thresholds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ratio_id",
+              "numerator_group_id",
+              "numerator_axis",
+              "denominator_group_id",
+              "denominator_axis",
+              "metric_space",
+              "minimum_ratio",
+              "maximum_ratio"
+            ],
+            "properties": {
+              "ratio_id": {"type": "string", "minLength": 1},
+              "numerator_group_id": {"type": "string", "minLength": 1},
+              "numerator_axis": {"enum": ["forward", "lateral", "vertical"]},
+              "denominator_group_id": {"type": "string", "minLength": 1},
+              "denominator_axis": {"enum": ["forward", "lateral", "vertical"]},
+              "metric_space": {"enum": ["meters", "rest_length_normalized"]},
+              "minimum_ratio": {"type": ["number", "null"], "minimum": 0},
+              "maximum_ratio": {"type": ["number", "null"], "minimum": 0}
+            }
+          }
+        },
+        "symmetry_thresholds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "symmetry_id",
+              "first_chain_id",
+              "second_chain_id",
+              "maximum_relative_difference",
+              "axes",
+              "metric_space"
+            ],
+            "properties": {
+              "symmetry_id": {"type": "string", "minLength": 1},
+              "first_chain_id": {"type": "string", "minLength": 1},
+              "second_chain_id": {"type": "string", "minLength": 1},
+              "maximum_relative_difference": {"type": "number", "minimum": 0},
+              "axes": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"enum": ["forward", "lateral", "vertical"]}
+              },
+              "metric_space": {"enum": ["meters", "rest_length_normalized"]}
+            }
+          }
+        }
+      }
+    },
+    "attribute_domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size",
+        "body_build",
+        "coat_profile_id",
+        "coat_values",
+        "life_stage"
+      ],
+      "properties": {
+        "size": {"const": ["small", "medium", "large"]},
+        "body_build": {"const": ["slim", "standard", "stocky"]},
+        "coat_profile_id": {"type": "string", "minLength": 1},
+        "coat_values": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "life_stage": {"const": ["young", "adult", "senior"]}
+      }
+    }
+  }
+}

@@ -32,20 +32,23 @@ Read these records in order:
    immutable imported inputs.
 2. [`docs/architecture/SYSTEM_OVERVIEW.md`](docs/architecture/SYSTEM_OVERVIEW.md)
    — target data and execution flow.
-3. [`docs/architecture/REPOSITORY_BOUNDARIES.md`](docs/architecture/REPOSITORY_BOUNDARIES.md)
+3. [`docs/architecture/MOTION_RETARGETING.md`](docs/architecture/MOTION_RETARGETING.md)
+   — offline rest-aware motion math, body-plan adapters and independent QA
+   gates.
+4. [`docs/architecture/REPOSITORY_BOUNDARIES.md`](docs/architecture/REPOSITORY_BOUNDARIES.md)
    — code ownership and API boundary.
-4. [`docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md`](docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md)
+5. [`docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md`](docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md)
    — the single-view RGB/depth/semantic and listener contract.
-5. [`docs/roadmap/MILESTONES.md`](docs/roadmap/MILESTONES.md),
+6. [`docs/roadmap/MILESTONES.md`](docs/roadmap/MILESTONES.md),
    [`docs/roadmap/BASELINE_STATUS.md`](docs/roadmap/BASELINE_STATUS.md), and
    [`docs/roadmap/M1_STATUS.md`](docs/roadmap/M1_STATUS.md) — gates and actual
    verification state. Use [`docs/roadmap/M1_EXECUTION.md`](docs/roadmap/M1_EXECUTION.md)
    to reproduce the executable evidence.
-6. [`docs/roadmap/M2_STATUS.md`](docs/roadmap/M2_STATUS.md) and
+7. [`docs/roadmap/M2_STATUS.md`](docs/roadmap/M2_STATUS.md) and
    [`docs/roadmap/M2_EXECUTION.md`](docs/roadmap/M2_EXECUTION.md) — the bounded
-   M2 candidate evidence, known gait limitation, review media and next formal
-   admission gate.
-7. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+   M2 replacement-candidate evidence, retained contact/root-speed limitations,
+   review media and next formal admission gate.
+8. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
    — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
@@ -85,21 +88,23 @@ Every canary explicitly loads its `load_declared` navmesh. The active
 Pathfinder fingerprint must equal an independent Pathfinder load of that same
 file, including all navmesh settings and the vertex/index buffer hashes.
 
-The M2 review-only run applies 15 Idle, 45 Walk and 15 Idle states at the exact
-75 video ticks, without a free-running action clock or physics step. RGB,
-depth and semantic remain co-located modalities of the same `view0`; they are
-not additional viewpoints. Automatic numerical QA and Habitat state readback
-passed for this bounded execution, but the inherited Walk has a known visual
-limitation: its hind legs show little whole-leg forward articulation and much
-of their measured motion is lateral/toe-terminal motion. Contact inference
-also retains explicit sliding and Idle-motion warnings.
+The current M2 replacement research candidate uses a profile-bound world-left
+retargeted Idle/Walk action. Generic motion QA, package automatic QA and the
+75-state Habitat review-only execution passed. The run applies 15 Idle, 45
+Walk and 15 Idle states at the exact video ticks, without a free-running action
+clock or physics step; RGB, depth and semantic remain co-located modalities of
+the same `view0`, not additional viewpoints. The previous legacy hind-leg
+under-articulation metric no longer triggers for this action. Contact
+derivation still records actor-space Idle-motion and four-paw Walk sliding
+warnings, and no hash-bound root-speed/trajectory acceptance exists yet. See
+[`MOTION_RETARGETING.md`](docs/architecture/MOTION_RETARGETING.md).
 
-The immediate M2 gate is user review of the exact hash-bound media, including
-that known hind-leg behavior. Only an accepted review artifact bound to the
-candidate and media hashes, plus the remaining provenance/use decision, may
-promote a package to `canary_qualified` and permit a clean formal capture.
-Until that happens, formal M2 remains `not_run`; the review-only video is not a
-formal canary.
+The immediate M2 gates are human review of the exact r3 hash-bound media,
+resolution of contact/root-speed evidence and the remaining provenance/use
+decision. Only an accepted review artifact bound to the candidate and media
+hashes may promote a package to `canary_qualified` and permit a clean formal
+capture. Until then, formal M2 remains `not_run`; automatic passes and the
+review-only video are not a formal canary.
 
 Timeline v2 keeps its plural `view_ids` field for future extensibility, but the
 M1, M2 and M5 canaries and the initial M6 MVP require exactly `["view0"]`.

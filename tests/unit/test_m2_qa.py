@@ -339,10 +339,20 @@ def test_real_source_endpoints_are_measured_and_candidate_stays_unqualified(
     assert "actions_content_sha256" not in result.deformation
     assert result.deformation["qualification_claim"] is False
     assert result.animation["human_visual_review_required"] is True
-    assert any(
-        "hind legs" in limitation and "does not claim" in limitation
-        for limitation in result.animation["known_limitations"]
+    summary = result.animation["semantic_terminal_motion"]["walking_summary"]
+    assert summary["legacy_hind_gait_metric_triggered"] is False
+    assert result.animation["known_limitations"] == []
+    assert not any(
+        "Known gait limitations remain visible" in note
+        for note in result.animation["notes"]
     )
+
+
+def test_measured_legacy_hind_gait_keeps_the_existing_limitations() -> None:
+    limitations = qa_module._legacy_hind_gait_limitations(True)
+    assert len(limitations) == 2
+    assert "Known legacy gait limitation carried forward" in limitations[0]
+    assert "much less hind-paw forward excursion" in limitations[1]
 
 
 @pytest.mark.parametrize(

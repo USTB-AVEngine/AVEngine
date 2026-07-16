@@ -53,7 +53,8 @@ reference/attributes
 -> audited template selection or OOD rejection
 -> constrained template fitting
 -> PBR transfer to fixed template UV
--> baked template-native actions and contact phases
+-> template-native actions or offline profile-bound retarget compilation
+-> independent motion, contact and root-speed QA
 -> deformation/contact review
 -> package hashing and registry admission
 ```
@@ -67,6 +68,11 @@ which is unavailable before central M6 admission.
 It does not perform online arbitrary-mesh rigging or general retargeting. A
 runtime loader must expose semantic bone anchors, contacts and a canonical pose
 hash without advancing the official episode clock during sensor capture.
+
+Offline retargeting is a separate compiler boundary. It must bind the exact
+source motion, target-authoritative rest skeleton, profile and output evidence,
+then repeat package and per-instance QA. See
+[MOTION_RETARGETING.md](MOTION_RETARGETING.md).
 
 ## Hard rejection examples
 

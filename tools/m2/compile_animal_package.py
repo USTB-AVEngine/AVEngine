@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Compile the pinned Rocketbox Beagle M2 v4 research-candidate package.
+"""Compile a pinned Rocketbox Beagle M2 research-candidate package.
 
 This is intentionally a bounded, reproducible canary tool.  It derives the
 contact evidence from explicit terminal-joint anchors, snapshots the pinned
 upstream files and MIT notice, and invokes the strict package compiler.  It
 never emits a human-review pass or promotes the asset to ``canary_qualified``.
+Defaults preserve the historical v4 inputs; explicit paths and revisions are
+required for replacement-motion candidates.
 """
 
 from __future__ import annotations
@@ -83,6 +85,12 @@ def _json_object(path: Path, *, owner: str) -> dict[str, Any]:
     return value
 
 
+def _mapping(value: Any, *, owner: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{owner} must be a JSON object")
+    return value
+
+
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(
         json.dumps(
@@ -123,6 +131,72 @@ def _prepare_empty_directory(path: Path, *, owner: str) -> Path:
             raise ValueError(f"{owner} parent does not exist: {absolute.parent}")
         absolute.mkdir()
     return absolute
+
+
+def _repo_path(repo_root: Path, value: Path) -> Path:
+    return value.absolute() if value.is_absolute() else repo_root / value
+
+
+def _validate_motion_evidence(
+    *,
+    visual_sha256: str,
+    actions_sha256: str,
+    rebase_report: dict[str, Any],
+    motion_profile: Path,
+    retarget_report: Path,
+    motion_qa_report: Path,
+) -> None:
+    profile_sha256 = _sha256(
+        _read_regular(motion_profile, owner="motion retarget profile")
+    )
+    retarget = _json_object(retarget_report, owner="motion retarget report")
+    motion_qa = _json_object(motion_qa_report, owner="motion QA report")
+    if retarget.get("schema") != "avengine_motion_retarget_evidence_v1":
+        raise ValueError("motion retarget report schema differs")
+    if motion_qa.get("schema") != "avengine_motion_retarget_audit_v1":
+        raise ValueError("motion QA report schema differs")
+    for owner, value in (
+        ("motion retarget report", retarget),
+        ("motion QA report", motion_qa),
+    ):
+        if value.get("status") != "pass":
+            raise ValueError(f"{owner} must pass")
+        if value.get("qualification_state") != "research_candidate":
+            raise ValueError(f"{owner} must remain a research candidate")
+        if value.get("qualification_claim") is not False:
+            raise ValueError(f"{owner} must not claim formal qualification")
+        if value.get("formal_dataset_registration_authorized") is not False:
+            raise ValueError(f"{owner} must not authorize dataset registration")
+    motion_qa_payload = _mapping(motion_qa.get("qa"), owner="motion QA payload")
+    if motion_qa_payload.get("status") != "pass":
+        raise ValueError("motion QA report must pass")
+
+    retarget_profile = _mapping(
+        retarget.get("profile"), owner="motion retarget profile binding"
+    )
+    retarget_output = _mapping(
+        retarget.get("output"), owner="motion retarget output binding"
+    )
+    bindings = _mapping(motion_qa.get("bindings"), owner="motion QA bindings")
+    if retarget_profile.get("sha256") != profile_sha256:
+        raise ValueError("motion profile hash differs from retarget evidence")
+    if bindings.get("motion_profile_sha256") != profile_sha256:
+        raise ValueError("motion profile hash differs from motion QA evidence")
+    for field in (
+        "profile_id",
+        "adapter_id",
+        "body_plan_id",
+        "motion_family_id",
+    ):
+        if bindings.get(field) != retarget_profile.get(field):
+            raise ValueError(f"motion evidence differs for {field}")
+    rebase_source = _mapping(rebase_report.get("source"), owner="rebase source binding")
+    if retarget_output.get("sha256") != rebase_source.get("sha256"):
+        raise ValueError("retarget output hash differs from rebase input")
+    if bindings.get("visual_glb_sha256") != visual_sha256:
+        raise ValueError("motion QA visual hash differs from package visual")
+    if bindings.get("baked_actions_sha256") != actions_sha256:
+        raise ValueError("motion QA action hash differs from package actions")
 
 
 def _anchors() -> tuple[AnchorDefinition, ...]:
@@ -169,6 +243,88 @@ def main() -> int:
         type=Path,
         default=Path("tmp/m2/rocketbox_beagle_m2_candidate_v4"),
     )
+    parser.add_argument(
+        "--visual-glb",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_rebased_v3/visual.glb"),
+    )
+    parser.add_argument(
+        "--rebase-report",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_rebased_v3/rebase.json"),
+    )
+    parser.add_argument(
+        "--rebase-deformation-report",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_rebased_v3/deformation_verification.json"),
+    )
+    parser.add_argument(
+        "--actions-npz",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_actions_v1/actions.npz"),
+    )
+    parser.add_argument(
+        "--action-report",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_actions_v1/action_bake_report.json"),
+    )
+    parser.add_argument(
+        "--habitat-static-probe",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_rebased_v3_probe_optin/probe.json"),
+    )
+    parser.add_argument(
+        "--habitat-animation-review",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_habitat_review_v4/review_report.json"),
+    )
+    parser.add_argument(
+        "--static-qa",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_auto_qa_v1/static_geometry.json"),
+    )
+    parser.add_argument(
+        "--deformation-qa",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_auto_qa_v1/deformation.json"),
+    )
+    parser.add_argument(
+        "--animation-qa",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_auto_qa_v1/animation.json"),
+    )
+    parser.add_argument(
+        "--normalization-report",
+        type=Path,
+        default=Path("tmp/m2/rocketbox_normalized_v2/normalization.json"),
+    )
+    parser.add_argument(
+        "--retarget-report",
+        type=Path,
+        help="Optional hash-bound motion-retarget evidence added to source lineage",
+    )
+    parser.add_argument(
+        "--motion-profile",
+        type=Path,
+        help="Profile bound to both retarget and motion-QA evidence",
+    )
+    parser.add_argument(
+        "--motion-qa-report",
+        type=Path,
+        help="Hash-bound body-plan-neutral motion-QA evidence",
+    )
+    parser.add_argument(
+        "--asset-id",
+        default="rocketbox_dog_beagle_01_m2_v4_candidate",
+    )
+    parser.add_argument("--body-plan-id", default="quadruped_dog")
+    parser.add_argument(
+        "--skeleton-revision", default="rocketbox-beagle-skeleton-m2-v3"
+    )
+    parser.add_argument("--weights-revision", default="rocketbox-beagle-weights-m2-v3")
+    parser.add_argument(
+        "--action-revision", default="rocketbox-beagle-idle-walk-baked-v1"
+    )
     args = parser.parse_args()
     repo_root = args.repo_root.absolute()
     rocketbox_root = args.rocketbox_root.absolute()
@@ -182,27 +338,55 @@ def main() -> int:
         evidence_directory, owner="evidence_directory"
     )
 
-    visual = repo_root / "tmp/m2/rocketbox_rebased_v3/visual.glb"
-    rebase = repo_root / "tmp/m2/rocketbox_rebased_v3/rebase.json"
-    rebase_deformation = (
-        repo_root / "tmp/m2/rocketbox_rebased_v3/deformation_verification.json"
+    visual = _repo_path(repo_root, args.visual_glb)
+    rebase = _repo_path(repo_root, args.rebase_report)
+    rebase_deformation = _repo_path(repo_root, args.rebase_deformation_report)
+    actions_path = _repo_path(repo_root, args.actions_npz)
+    action_report = _repo_path(repo_root, args.action_report)
+    habitat_static_probe = _repo_path(repo_root, args.habitat_static_probe)
+    habitat_animation_review = _repo_path(repo_root, args.habitat_animation_review)
+    static_qa = _repo_path(repo_root, args.static_qa)
+    deformation_qa = _repo_path(repo_root, args.deformation_qa)
+    animation_qa = _repo_path(repo_root, args.animation_qa)
+    normalization = _repo_path(repo_root, args.normalization_report)
+    retarget_report = (
+        _repo_path(repo_root, args.retarget_report)
+        if args.retarget_report is not None
+        else None
     )
-    actions_path = repo_root / "tmp/m2/rocketbox_actions_v1/actions.npz"
-    action_report = repo_root / "tmp/m2/rocketbox_actions_v1/action_bake_report.json"
-    habitat_static_probe = (
-        repo_root / "tmp/m2/rocketbox_rebased_v3_probe_optin/probe.json"
+    motion_profile = (
+        _repo_path(repo_root, args.motion_profile)
+        if args.motion_profile is not None
+        else None
     )
-    habitat_animation_review = (
-        repo_root / "tmp/m2/rocketbox_habitat_review_v4/review_report.json"
+    motion_qa_report = (
+        _repo_path(repo_root, args.motion_qa_report)
+        if args.motion_qa_report is not None
+        else None
     )
-    static_qa = repo_root / "tmp/m2/rocketbox_auto_qa_v1/static_geometry.json"
-    deformation_qa = repo_root / "tmp/m2/rocketbox_auto_qa_v1/deformation.json"
-    animation_qa = repo_root / "tmp/m2/rocketbox_auto_qa_v1/animation.json"
-    normalization = repo_root / "tmp/m2/rocketbox_normalized_v2/normalization.json"
+    motion_evidence = (motion_profile, retarget_report, motion_qa_report)
+    if any(path is not None for path in motion_evidence) and not all(
+        path is not None for path in motion_evidence
+    ):
+        raise ValueError(
+            "motion-profile, retarget-report and motion-qa-report must be supplied "
+            "together"
+        )
 
     document = load_glb(visual)
     actions = read_baked_actions_npz(actions_path)
     rebase_value = _json_object(rebase, owner="rebase report")
+    if motion_profile is not None:
+        assert retarget_report is not None
+        assert motion_qa_report is not None
+        _validate_motion_evidence(
+            visual_sha256=document.sha256,
+            actions_sha256=_sha256(_read_regular(actions_path, owner="baked actions")),
+            rebase_report=rebase_value,
+            motion_profile=motion_profile,
+            retarget_report=retarget_report,
+            motion_qa_report=motion_qa_report,
+        )
     mapping = build_habitat_asset_mapping_from_rebase_report(document, rebase_value)
     all_anchors = _anchors()
     contact_anchors = tuple(
@@ -224,6 +408,10 @@ def main() -> int:
         habitat_static_probe,
         habitat_animation_review,
     ]
+    if motion_profile is not None:
+        assert retarget_report is not None
+        assert motion_qa_report is not None
+        lineage_paths.extend((motion_profile, retarget_report, motion_qa_report))
     source_manifest = {
         "schema": "avengine_m2_rocketbox_beagle_source_snapshot_v1",
         "qualification_state": "research_candidate",
@@ -270,14 +458,14 @@ def main() -> int:
     _write_json(license_snapshot_path, license_snapshot)
 
     identity = AnimalPackageIdentity(
-        asset_id="rocketbox_dog_beagle_01_m2_v4_candidate",
+        asset_id=args.asset_id,
         template_id="rocketbox_dog_beagle_01",
-        body_plan_id="quadruped_dog",
+        body_plan_id=args.body_plan_id,
         morphotype_id="beagle",
-        skeleton_revision="rocketbox-beagle-skeleton-m2-v3",
-        weights_revision="rocketbox-beagle-weights-m2-v3",
+        skeleton_revision=args.skeleton_revision,
+        weights_revision=args.weights_revision,
         collision_revision="m2-kinematic-rest-bbox-proxy-v1",
-        action_revision="rocketbox-beagle-idle-walk-baked-v1",
+        action_revision=args.action_revision,
         source="Microsoft Rocketbox Dog_Beagle_01",
         source_revision=_PINNED_ROCKETBOX_REVISION,
         license="MIT",

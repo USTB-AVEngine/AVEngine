@@ -395,6 +395,18 @@ def test_contact_inference_uses_all_twenty_frames_and_keeps_idle_planted() -> No
     }
 
 
+def test_contact_inference_follows_the_baked_action_sample_count() -> None:
+    report = derive_contact_phases(
+        _contact_mapping(),
+        _actions(sample_count=25),
+        _contact_anchors(),
+    )
+
+    assert len(report.action("idle").frames) == 25
+    assert len(report.action("walk").frames) == 25
+    assert report.action("walk").frames[-1].sample_index == 24
+
+
 def test_contact_report_has_stable_canonical_json_and_quantitative_metrics() -> None:
     actions = _actions()
     report = derive_contact_phases(
@@ -416,6 +428,11 @@ def test_contact_report_has_stable_canonical_json_and_quantitative_metrics() -> 
     assert decoded["qualification_state"] == "research_candidate"
     assert decoded["qualification_claim"] is False
     assert decoded["contact_order"] == list(CONTACT_ORDER)
+    assert decoded["notes"] == [
+        "Contact phases are inferred from declared actor-space paw-anchor trajectories.",
+        "Actor-space contact warnings are diagnostic; world-space foot-lock "
+        "certification also requires a hash-bound root trajectory.",
+    ]
     assert (
         decoded["actions"][1]["metrics"][0]["maximum_height_m"]
         > decoded["actions"][1]["metrics"][0]["minimum_height_m"]
@@ -452,9 +469,9 @@ def test_contact_inference_rejects_front_leg_without_supported_swing() -> None:
     [
         (
             _contact_mapping(),
-            _actions(sample_count=19),
+            _actions(sample_count=2),
             _contact_anchors(),
-            "exactly 20",
+            "at least three",
         ),
         (
             replace(_contact_mapping(), source_glb_sha256="34" * 32),

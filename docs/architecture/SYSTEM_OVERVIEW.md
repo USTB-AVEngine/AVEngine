@@ -1,8 +1,11 @@
 # AVEngine System Overview
 
 Status: M1 visual/room executable baseline. The three-room single-view canary
-has passed; articulated playback, acoustic propagation and end-to-end dataset
-claims remain later gates.
+has passed. M2 has a profile-bound replacement-motion research candidate whose
+automatic QA and bounded articulated Habitat review-only run passed, but
+contact/root-speed acceptance and human review remain open. Formal M2 is
+`not_run`; acoustic propagation and end-to-end dataset claims remain later
+gates.
 
 ## Purpose
 
@@ -24,6 +27,8 @@ Dataset request
 
 Offline Blender tools may compile assets, but the official episode clock and
 runtime observations are owned by the Habitat-native path.
+Profile-bound motion retargeting is one such offline compiler and is never a
+runtime fallback; see [MOTION_RETARGETING.md](MOTION_RETARGETING.md).
 
 ## Capability ownership
 

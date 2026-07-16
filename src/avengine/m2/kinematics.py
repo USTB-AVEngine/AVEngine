@@ -40,7 +40,7 @@ CONTACT_ORDER: tuple[str, str, str, str] = (
     "paw_hind_right",
 )
 
-_CONTACT_SAMPLE_COUNT = 20
+_MINIMUM_CONTACT_SAMPLE_COUNT = 3
 _QUATERNION_TOLERANCE = 1.0e-9
 _RIGID_TOLERANCE = 1.0e-7
 _HEMISPHERE_ZERO_TOLERANCE = 1.0e-15
@@ -844,7 +844,8 @@ class ContactPhaseReport:
             "warnings": [warning.to_json_data() for warning in self.warnings],
             "notes": [
                 "Contact phases are inferred from declared actor-space paw-anchor trajectories.",
-                "Low-excursion hind paws remain in contact with an explicit warning; no gait repair is claimed.",
+                "Actor-space contact warnings are diagnostic; world-space foot-lock "
+                "certification also requires a hash-bound root trajectory.",
             ],
         }
 
@@ -925,10 +926,11 @@ def _anchor_trajectories(
                 ]
             )
         trajectory = np.asarray(frames, dtype=np.float64)
-        if trajectory.shape != (_CONTACT_SAMPLE_COUNT, len(CONTACT_ORDER), 3):
+        expected_shape = (action.sample_count, len(CONTACT_ORDER), 3)
+        if trajectory.shape != expected_shape:
             raise KinematicsError(
                 f"{action.semantic_action_id} anchor trajectory has invalid shape "
-                f"{trajectory.shape}"
+                f"{trajectory.shape}; expected {expected_shape}"
             )
         if not np.all(np.isfinite(trajectory)):
             raise KinematicsError("anchor trajectory contains non-finite coordinates")
@@ -955,9 +957,12 @@ def derive_contact_phases(
         raise KinematicsError(
             "actions runtime_joint_order must match the Habitat asset mapping"
         )
-    if any(action.sample_count != _CONTACT_SAMPLE_COUNT for action in actions.actions):
+    if any(
+        action.sample_count < _MINIMUM_CONTACT_SAMPLE_COUNT
+        for action in actions.actions
+    ):
         raise KinematicsError(
-            "Idle and Walk contact inference requires exactly 20 samples each"
+            "Idle and Walk contact inference requires at least three samples each"
         )
     definitions = _validate_anchors(mapping.joint_order, contact_anchors)
     if tuple(anchor.anchor_id for anchor in definitions) != CONTACT_ORDER:
@@ -981,7 +986,7 @@ def derive_contact_phases(
     idle_metrics: list[ContactTrajectoryMetric] = []
     for contact_index, contact_id in enumerate(CONTACT_ORDER):
         positions = idle_positions[:, contact_index]
-        states = (True,) * _CONTACT_SAMPLE_COUNT
+        states = (True,) * len(positions)
         preliminary = _trajectory_metric(
             contact_id=contact_id,
             positions=positions,
@@ -1040,7 +1045,7 @@ def derive_contact_phases(
                     f"front paw {contact_id!r} vertical excursion "
                     f"{vertical_range:.9g} m is below the required dynamic threshold"
                 )
-            states = (True,) * _CONTACT_SAMPLE_COUNT
+            states = (True,) * len(positions)
             inference_mode = "low_excursion_kept_contact"
             confidence = "low"
             warnings.append(
@@ -1132,7 +1137,7 @@ def derive_contact_phases(
                     for contact_index in range(len(CONTACT_ORDER))
                 ),  # type: ignore[arg-type]
             )
-            for index in range(_CONTACT_SAMPLE_COUNT)
+            for index in range(action.sample_count)
         )
         return ContactActionPhases(
             semantic_action_id=semantic_action_id,

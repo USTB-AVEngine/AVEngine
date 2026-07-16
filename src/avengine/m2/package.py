@@ -874,12 +874,11 @@ def _validate_animation_qa(
         value.get("known_limitations"), owner="animation_qa.known_limitations"
     )
     if (
-        not limitations
-        or any(not isinstance(item, str) or not item.strip() for item in limitations)
+        any(not isinstance(item, str) or not item.strip() for item in limitations)
         or value.get("human_visual_review_required") is not True
     ):
         raise PackageCompileError(
-            "animation_qa must retain known limitations and require human review"
+            "animation_qa must use valid known limitations and require human review"
         )
     terminal_motion = _mapping(
         value.get("semantic_terminal_motion"),
@@ -889,9 +888,12 @@ def _validate_animation_qa(
         terminal_motion.get("walking_summary"),
         owner="animation_qa.semantic_terminal_motion.walking_summary",
     )
-    if walking_summary.get("legacy_hind_gait_metric_triggered") is not True:
+    legacy_hind_gait_metric_triggered = walking_summary.get(
+        "legacy_hind_gait_metric_triggered"
+    )
+    if not isinstance(legacy_hind_gait_metric_triggered, bool):
         raise PackageCompileError(
-            "animation_qa must retain the measured legacy hind-gait limitation"
+            "animation_qa legacy_hind_gait_metric_triggered must be boolean"
         )
     front_forward = _nonnegative_number(
         walking_summary.get("mean_front_paw_forward_range_m"),
@@ -914,9 +916,22 @@ def _validate_animation_qa(
             "mean_hind_paw_lateral_range_m"
         ),
     )
-    if not (0.0 < hind_forward < front_forward and hind_lateral > hind_forward):
+    measured_hind_limitation = bool(
+        hind_forward < 0.25 * front_forward and hind_lateral > hind_forward
+    )
+    if legacy_hind_gait_metric_triggered != measured_hind_limitation:
         raise PackageCompileError(
-            "animation_qa hind-gait metrics do not retain the measured limitation"
+            "animation_qa legacy_hind_gait_metric_triggered does not match its "
+            "hind-gait metrics"
+        )
+    if legacy_hind_gait_metric_triggered and not limitations:
+        raise PackageCompileError(
+            "animation_qa must retain the measured legacy hind-gait limitation"
+        )
+    if not legacy_hind_gait_metric_triggered and limitations:
+        raise PackageCompileError(
+            "animation_qa must not claim a legacy hind-gait limitation when the "
+            "metric is not triggered"
         )
 
 
