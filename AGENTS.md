@@ -2966,6 +2966,10 @@ This closes stable instance generation and animation at
 before `formal_dataset_asset` registration.
 ## 2026-07-16 Generated Quadruped Terminal-Paw Rotation Trap
 
+The canonical detailed workflow is
+`docs/generated_quadruped_locked_terminal_motion_workflow.md`; keep future
+motion-family implementations and limits synchronized with that document.
+
 The Beagle v22 mesh-first PBR runtime exposed a motion-basis bug that is
 independent of PBR, topology, instance attributes, or random seed: copying the
 source terminal-foot world rotations through
@@ -3001,3 +3005,67 @@ authentication and readback.  Its 18/18 Walking/Idle review videos are in
 `beagle_mesh_first_ofat_animation_review_v2_locked_paws_20260716`.  Do not use
 the earlier v22-based instance roots for new reviews; retain them only as the
 pre-fix failure evidence.
+
+## 2026-07-16 Lighter Beagle FLUX.2 Review Correction
+
+Do not use the first lighter-Beagle candidate at
+`dog_beagle_open_tricolor_flux2_v1_20260716`.  Its image SHA-256 is
+`995e2e3d9c75166eb7a22bf9cb5263acaab2dcbebd6ff6a2a8bccb63906b1a48`.
+Although its colour coverage looked lighter, human review correctly identified
+an illustration/animation rendering style and a second tail-like appendage.
+The initial Codex 2D approval is preserved as erroneous r1 evidence and is
+superseded by
+`animal_flux2_dog_beagle_open_tricolor_20260716_r2.json`.  The TRELLIS process
+started from that invalid input was interrupted during model loading and
+created no GLB or manifest.
+
+The Pixal3D GLB produced before the human correction is also rejected for this
+candidate, but do not classify that as a Pixal3D backend failure.  Its input
+was already invalid and Pixal inherited the ambiguous extra appendage.  The
+causal correction is frozen by
+`animal_pixal_static_dog_beagle_open_tricolor_20260716_r2.json` and
+`dog_beagle_open_tricolor_pixal_static_decision_v2_upstream_rejected_20260716`:
+the first failing stage is `upstream_flux2_reference_invalid`.
+
+The replacement v2 route uses the previously anatomy-approved, photorealistic,
+single-tail FLUX.2 Beagle image with SHA-256
+`d2855c20cb1b0c6d5947381fe5823ec11b40e4a3d2a74f9a8b07fbfe396c732d`
+as the pixel-level identity, pose, camera, anatomy, and style authority.  FLUX.2
+is allowed to edit only coat-colour distribution.  The deterministic v2
+candidate is
+`dog_beagle_open_tricolor_flux2_v2_20260716/candidates/animal_169a0af3c6107bb7/candidate.png`
+(SHA-256
+`acc3725f33c7d2be8bab99612cf42cccd2b814ed274327b18fec15598828d5a4`).
+It uses FLUX.2 Klein 4B revision
+`e7b7dc27f91deacad38e78976d1f2b499d76a294`, one invocation, 1024 px,
+28 steps, guidance 1.0, and seed `9204617385068552981` (store and read the
+integer with a JSON parser; tools such as jq may display rounded 64-bit
+values).  The user approved that exact 2D candidate in chat.  The v2 hard-gate
+decision is
+`animal_flux2_dog_beagle_open_tricolor_photorealistic_20260716_r1.json`, and
+the immutable review batch is
+`dog_beagle_open_tricolor_2d_review_v3_human_approved_20260716`.
+
+The deterministic Pixal3D output is
+`dog_beagle_open_tricolor_pixal_outputs_v2_20260716/dog_beagle_open_tricolor_photorealistic_recolor_canary_169a0af3c610/pixal_raw_1024.glb`
+(SHA-256
+`5c623a4f5ef01f5073f39f62bd5b9fbfcfcec0a87e0675afc0f045c58233ba0b`).
+Its authenticated Front/Back/Side/Top/Quarter sheet preserves the single tail,
+four usable limbs and paws, closed silhouette, and lighter compact-saddle coat;
+the approved static decision batch is
+`dog_beagle_open_tricolor_pixal_static_decision_v3_approved_20260716`.
+The 100k direction-preview LOD has 99,993 faces and introduced zero new
+boundary cracks; it preserves the source's 107 boundary and 328 over-two-face
+nonmanifold edges as explicit research-candidate caveats.  Binding is still
+blocked on the exact-mesh manual cardinal decision at
+`http://127.0.0.1:8103/`; do not infer or silently reuse a direction decision
+from another Beagle hash.
+
+The 2D review publisher now accepts the backward-compatible
+`avengine_controlled_animal_2d_review_decisions_v2` schema.  An approval must
+explicitly pass the single-subject, photorealistic/PBR style, species-correct
+tail, anatomically connected limbs, complete extremities, closed-body,
+pose/camera-preservation, and target-attribute-only gates.  A failed gate and
+an `approved_for_pixal3d` decision are contract-incompatible.  The regression
+suite is
+`tests/tools/test_review_controlled_animal_flux2_hard_gates.py`.

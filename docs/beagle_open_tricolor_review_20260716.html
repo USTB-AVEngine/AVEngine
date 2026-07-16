@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>浅色比格替换 canary 审核</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #0b1017; color: #e7edf6; }
+    main { max-width: 1500px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 8px; }
+    .status { padding: 12px 16px; border: 1px solid #40506a; border-radius: 10px; background: #121a26; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; margin-top: 18px; }
+    article { border: 1px solid #2c3a50; border-radius: 12px; background: #101722; padding: 14px; }
+    li { margin: 7px 0; }
+    img { display: block; width: 100%; height: auto; background: #222; border-radius: 8px; }
+    code { overflow-wrap: anywhere; color: #9cd4ff; }
+    .pass { color: #78e69c; }
+    .reject { color: #ff8b8b; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>浅色 open-tricolor 比格替换 canary</h1>
+  <p class="status"><span class="pass">v2 真实感 coat-only FLUX.2 已获人工批准，Pixal3D 静态多视图已通过</span>；v1 插画风双尾候选及其下游结果均已拒绝。动画前的基数方向审核位于 <a href="http://127.0.0.1:8103/">http://127.0.0.1:8103/</a>。</p>
+  <section class="grid">
+    <article>
+      <h2>1. v2 新候选：真实感、单尾、浅色</h2>
+      <p>以此前通过四腿/四脚/单尾门的真实感比格为像素级基底，只编辑毛色分布。白色与暖棕色为主体，黑色仅保留为中央小鞍斑。</p>
+      <img src="../external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_flux2_v2_20260716/candidates/animal_169a0af3c6107bb7/candidate.png" alt="v2 真实感浅色单尾比格 FLUX.2 候选">
+      <h3>进入 3D 前的 v2 硬门提示</h3>
+      <ul>
+        <li>仍是写实短毛/PBR 质感，不是插画、动画帧、黏土或玩具风。</li>
+        <li>画面中恰好一只比格、恰好一条解剖连接的尾巴。</li>
+        <li>恰好四条相连的腿和四只完整落地脚，远近侧轮廓可辨。</li>
+        <li>腹部连续闭合；没有额外附肢、缺口或断脚。</li>
+        <li>姿势、相机、背景和身份与输入基线保持一致，只改变毛色分布。</li>
+      </ul>
+      <p><code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_flux2_v2_20260716/candidates/animal_169a0af3c6107bb7/candidate.png</code></p>
+    </article>
+    <article>
+      <h2>2. v2 Pixal3D 静态多视图</h2>
+      <p>左上是获批 FLUX.2 输入，其余是 Pixal3D Front/Back/Side/Top/Quarter。单尾、四腿、四脚和浅色小鞍斑均保留。</p>
+      <img src="../external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_static_review_v2_20260716/dog_beagle_open_tricolor_photorealistic_recolor_canary_169a0af3c610/contact_sheet.png" alt="v2 浅色比格 Pixal3D 静态多视图">
+      <p><code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_static_review_v2_20260716/dog_beagle_open_tricolor_photorealistic_recolor_canary_169a0af3c610/contact_sheet.png</code></p>
+    </article>
+    <article>
+      <h2>3. v1 失败链证据（已拒绝）</h2>
+      <p>左上是插画风双尾 FLUX.2 错误输入，其余是继承该歧义的 Pixal3D 多视图。这不是 Pixal3D 后端失败结论。</p>
+      <img src="../external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_static_review_v1_20260716/dog_beagle_open_tricolor_three_quarter_30deg_canary_62a2514cc90d/contact_sheet.png" alt="Pixal3D 静态六宫格失败证据">
+      <p><code>/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_static_review_v1_20260716/dog_beagle_open_tricolor_three_quarter_30deg_canary_62a2514cc90d/contact_sheet.png</code></p>
+    </article>
+  </section>
+</main>
+</body>
+</html>

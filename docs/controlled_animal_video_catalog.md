@@ -1,5 +1,9 @@
 # 受控动物 UE Apartment 视频索引
 
+四足动物脚掌方向锁定、兼容性门禁、二进制动作移植与跨物种泛化边界的完整
+技术方案见
+[generated_quadruped_locked_terminal_motion_workflow.md](/data/jzy/code/AVEngine/docs/generated_quadruped_locked_terminal_motion_workflow.md)。
+
 ## 2026-07-16 比格四脚内外翻修复（v24，待视觉确认）
 
 旧 v22 动作错误地继承了脚掌末端的世界旋转，造成四只脚在 Walking 周期中
