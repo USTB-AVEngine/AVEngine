@@ -20,6 +20,7 @@ from avengine.contracts.transforms import validate_transform
 
 ANIMAL_SCHEMA = "avengine_animal_asset_package_v1"
 CAPTURE_SCHEMA = "avengine_m2_articulated_capture_request_v1"
+HUMAN_REVIEW_SCHEMA = "avengine_m2_human_visual_review_v1"
 POSE_HASH_ALGORITHM = "avengine_m2_pose_hash_v1"
 APPLIED_STATE_HASH_ALGORITHM = "avengine_m2_applied_state_hash_v1"
 
@@ -68,6 +69,7 @@ ALLOWED_FILE_ROLES = REQUIRED_FILE_ROLES | OPTIONAL_FILE_ROLES
 _SCHEMA_FILES = {
     ANIMAL_SCHEMA: "animal_asset_package_v1.schema.json",
     CAPTURE_SCHEMA: "m2_articulated_capture_request_v1.schema.json",
+    HUMAN_REVIEW_SCHEMA: "m2_human_visual_review_v1.schema.json",
 }
 
 
@@ -338,6 +340,212 @@ def _validate_file_closure(
     return errors
 
 
+def _human_review_artifacts(review: dict[str, Any]) -> list[tuple[str, Any]]:
+    artifacts: list[tuple[str, Any]] = []
+    candidate = review.get("candidate")
+    if isinstance(candidate, dict):
+        artifacts.append(("candidate.asset_manifest", candidate.get("asset_manifest")))
+    capture = review.get("capture")
+    if isinstance(capture, dict):
+        artifacts.extend(
+            (
+                ("capture.request", capture.get("request")),
+                ("capture.evidence", capture.get("evidence")),
+            )
+        )
+    artifacts.append(("world_contact_audit", review.get("world_contact_audit")))
+    media = review.get("review_media")
+    if isinstance(media, dict):
+        artifacts.extend(
+            (f"review_media.{modality}", media.get(modality))
+            for modality in FORMAL_MODALITIES
+        )
+    diagnostics = review.get("diagnostic_media")
+    if isinstance(diagnostics, list):
+        for index, diagnostic in enumerate(diagnostics):
+            artifact = (
+                diagnostic.get("artifact") if isinstance(diagnostic, dict) else None
+            )
+            artifacts.append((f"diagnostic_media[{index}].artifact", artifact))
+    source_license = review.get("source_license")
+    if isinstance(source_license, dict):
+        artifacts.extend(
+            (
+                ("source_license.license_file", source_license.get("license_file")),
+                ("source_license.readme_file", source_license.get("readme_file")),
+            )
+        )
+    return artifacts
+
+
+def validate_human_visual_review(
+    review: dict[str, Any],
+    *,
+    review_path: str | Path | None = None,
+    expected_asset_id: str | None = None,
+) -> list[str]:
+    """Validate a self-contained, non-circular human canary decision."""
+
+    errors = _json_schema_errors(review, HUMAN_REVIEW_SCHEMA)
+    if review.get("schema") != HUMAN_REVIEW_SCHEMA:
+        errors.append(f"schema must be {HUMAN_REVIEW_SCHEMA!r}")
+    if review_path is None:
+        errors.append("review_path is required for human-review path/hash closure")
+        return errors
+
+    resolved_review = Path(review_path).resolve()
+    review_root = resolved_review.parent
+    resolved_paths: dict[str, Path] = {}
+    for label, artifact in _human_review_artifacts(review):
+        if not isinstance(artifact, dict):
+            errors.append(f"{label} must be an artifact object")
+            continue
+        raw_path = artifact.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            errors.append(f"{label}.path must be a non-empty relative path")
+            continue
+        parts = Path(raw_path).parts
+        if (
+            Path(raw_path).is_absolute()
+            or raw_path.startswith("~")
+            or "$" in raw_path
+            or any(part in {".", ".."} for part in parts)
+        ):
+            errors.append(f"{label}.path must be relative to the human review")
+            continue
+        cursor = review_root
+        has_symlink = False
+        for part in parts:
+            cursor /= part
+            if cursor.is_symlink():
+                has_symlink = True
+                break
+        if has_symlink:
+            errors.append(f"{label}.path must not be a symbolic link")
+            continue
+        try:
+            resolved = resolve_declared_path(raw_path, manifest_dir=review_root)
+        except (OSError, TypeError, ValueError) as error:
+            errors.append(f"{label}.path cannot be resolved: {error}")
+            continue
+        if resolved == resolved_review:
+            errors.append(f"{label}.path cannot refer to the human review itself")
+        if resolved in resolved_paths.values():
+            errors.append(f"human-review artifacts duplicate path: {raw_path}")
+        resolved_paths[label] = resolved
+        if not resolved.is_file():
+            errors.append(f"{label}.path is not a regular file: {raw_path}")
+            continue
+        expected_size = artifact.get("byte_size")
+        if (
+            not isinstance(expected_size, int)
+            or isinstance(expected_size, bool)
+            or expected_size < 0
+            or resolved.stat().st_size != expected_size
+        ):
+            errors.append(f"{label}.byte_size does not match {raw_path}")
+        expected_hash = artifact.get("sha256")
+        if (
+            not _is_lower_sha256(expected_hash)
+            or sha256_file(resolved) != expected_hash
+        ):
+            errors.append(f"{label}.sha256 does not match {raw_path}")
+
+    candidate = review.get("candidate")
+    capture = review.get("capture")
+    if isinstance(candidate, dict):
+        candidate_asset_id = candidate.get("asset_id")
+        if expected_asset_id is not None and candidate_asset_id != expected_asset_id:
+            errors.append("human review candidate asset_id differs from package")
+        candidate_artifact = candidate.get("asset_manifest")
+        if isinstance(candidate_artifact, dict) and isinstance(capture, dict):
+            if capture.get("asset_manifest_sha256") != candidate_artifact.get("sha256"):
+                errors.append(
+                    "capture asset_manifest_sha256 differs from reviewed candidate"
+                )
+        candidate_path = resolved_paths.get("candidate.asset_manifest")
+        if candidate_path is not None and candidate_path.is_file():
+            try:
+                candidate_value = load_json(candidate_path)
+            except (OSError, ValueError) as error:
+                errors.append(f"candidate asset manifest cannot be loaded: {error}")
+            else:
+                if candidate_value.get("admission_state") != "research_candidate":
+                    errors.append(
+                        "human review must bind a research_candidate manifest, "
+                        "not its final canary manifest"
+                    )
+                if candidate_value.get("asset_id") != candidate_asset_id:
+                    errors.append("reviewed candidate manifest asset_id differs")
+
+    request_path = resolved_paths.get("capture.request")
+    evidence_path = resolved_paths.get("capture.evidence")
+    if (
+        request_path is not None
+        and request_path.is_file()
+        and isinstance(capture, dict)
+    ):
+        try:
+            request = load_json(request_path)
+        except (OSError, ValueError) as error:
+            errors.append(f"review request cannot be loaded: {error}")
+        else:
+            if request.get("schema") != CAPTURE_SCHEMA:
+                errors.append("human review request has an unsupported schema")
+            if request.get("request_id") != capture.get("request_id"):
+                errors.append("human review request_id differs from request artifact")
+            if request.get("asset_manifest_sha256") != capture.get(
+                "asset_manifest_sha256"
+            ):
+                errors.append("human review request candidate hash differs")
+            states = request.get("states")
+            if not isinstance(states, list) or len(states) != 75:
+                errors.append("human review request must contain exactly 75 states")
+
+    if (
+        evidence_path is not None
+        and evidence_path.is_file()
+        and isinstance(capture, dict)
+    ):
+        try:
+            evidence = load_json(evidence_path)
+        except (OSError, ValueError) as error:
+            errors.append(f"capture evidence cannot be loaded: {error}")
+        else:
+            if evidence.get("schema") != "avengine_m2_habitat_capture_evidence_v1":
+                errors.append("human review evidence has an unsupported schema")
+            if (
+                evidence.get("status") != "review_only"
+                or evidence.get("review_only") is not True
+                or evidence.get("qualification_claim") is not False
+            ):
+                errors.append("human review evidence must remain review_only")
+            if evidence.get("request_id") != capture.get("request_id"):
+                errors.append("human review evidence request_id differs")
+            frames = evidence.get("frames")
+            if not isinstance(frames, list) or len(frames) != 75:
+                errors.append("human review evidence must contain exactly 75 frames")
+
+    world_contact_path = resolved_paths.get("world_contact_audit")
+    if world_contact_path is not None and world_contact_path.is_file():
+        try:
+            world_contact = load_json(world_contact_path)
+        except (OSError, ValueError) as error:
+            errors.append(f"world-contact audit cannot be loaded: {error}")
+        else:
+            gate = world_contact.get("gate")
+            if (
+                world_contact.get("schema") != "avengine_m2_world_contact_audit_v1"
+                or world_contact.get("status") != "pass"
+                or world_contact.get("qualification_claim") is not False
+                or not isinstance(gate, dict)
+                or gate.get("passed") is not True
+            ):
+                errors.append("world-contact audit must be a non-claiming pass")
+
+    return errors
+
+
 def validate_animal_asset_package(
     asset: dict[str, Any], *, manifest_path: str | Path | None = None
 ) -> list[str]:
@@ -501,6 +709,38 @@ def validate_animal_asset_package(
         errors.append("research_candidate cannot conceal a failed qualification gate")
 
     errors.extend(_validate_file_closure(asset, manifest_path))
+    if state == "canary_qualified" and manifest_path is not None:
+        review_record = records_by_role.get("human_visual_review")
+        raw_review_path = (
+            review_record.get("path") if isinstance(review_record, dict) else None
+        )
+        if isinstance(raw_review_path, str) and raw_review_path:
+            try:
+                resolved_review_path = resolve_declared_path(
+                    raw_review_path,
+                    manifest_dir=Path(manifest_path).resolve().parent,
+                )
+            except (OSError, TypeError, ValueError) as error:
+                errors.append(f"human_visual_review path cannot be resolved: {error}")
+            else:
+                if resolved_review_path.is_file():
+                    try:
+                        human_review = load_json(resolved_review_path)
+                    except (OSError, ValueError) as error:
+                        errors.append(f"human_visual_review cannot be loaded: {error}")
+                    else:
+                        errors.extend(
+                            f"human_visual_review: {error}"
+                            for error in validate_human_visual_review(
+                                human_review,
+                                review_path=resolved_review_path,
+                                expected_asset_id=(
+                                    asset.get("asset_id")
+                                    if isinstance(asset.get("asset_id"), str)
+                                    else None
+                                ),
+                            )
+                        )
     return errors
 
 

@@ -18,7 +18,7 @@ from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m2.actions import read_baked_actions_npz
 from avengine.m2.contracts import validate_animal_asset_package
 from avengine.m2.habitat_capture import load_research_review_inputs
-from avengine.m2.timeline import build_m2_research_review_request
+from avengine.m2.timeline import M2CanaryTrajectory, build_m2_research_review_request
 
 
 def _records_by_role(asset: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -97,12 +97,48 @@ def _contact_phases(
     return result
 
 
+def _trajectory_from_audit(
+    audit_path: Path,
+    *,
+    records: Mapping[str, Mapping[str, Any]],
+) -> M2CanaryTrajectory:
+    audit = load_json(audit_path)
+    trajectory = audit.get("trajectory") if isinstance(audit, Mapping) else None
+    gate = audit.get("gate") if isinstance(audit, Mapping) else None
+    if (
+        audit.get("schema") != "avengine_m2_world_contact_audit_v1"
+        or audit.get("status") != "pass"
+        or audit.get("qualification_claim") is not False
+        or not isinstance(trajectory, Mapping)
+        or not isinstance(gate, Mapping)
+        or gate.get("passed") is not True
+        or trajectory.get("walk_frame_count") != 45
+        or trajectory.get("sample_rate_hz") != 15
+        or audit.get("source_glb_sha256") != records["visual"].get("sha256")
+        or audit.get("baked_actions_sha256") != records["walk_poses"].get("sha256")
+        or audit.get("contact_phases_sha256") != records["contact_phases"].get("sha256")
+    ):
+        raise ValueError(
+            "trajectory audit must pass and bind package visual/actions/contacts"
+        )
+    return M2CanaryTrajectory(
+        start_translation_m=tuple(trajectory["start_translation_m"]),
+        end_translation_m=tuple(trajectory["end_translation_m"]),
+        rotation_xyzw=tuple(trajectory["rotation_xyzw"]),
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asset-manifest", type=Path, required=True)
     parser.add_argument("--room-manifest", type=Path, required=True)
     parser.add_argument("--room-request", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--world-contact-audit",
+        type=Path,
+        help="Passing cadence/root audit used to construct the exact trajectory",
+    )
     parser.add_argument(
         "--request-id",
         default="rocketbox_beagle_m2_research_review_v3",
@@ -134,6 +170,11 @@ def main() -> int:
         request_id=args.request_id,
         room_id=room_inputs.room["room_id"],
         seed=room_inputs.request["seed"],
+        trajectory=(
+            _trajectory_from_audit(args.world_contact_audit.resolve(), records=records)
+            if args.world_contact_audit is not None
+            else None
+        ),
     )
     write_json(output, request)
     load_research_review_inputs(asset_path, output)

@@ -314,6 +314,20 @@ def main() -> int:
         help="Hash-bound body-plan-neutral motion-QA evidence",
     )
     parser.add_argument(
+        "--contact-report",
+        type=Path,
+        help=(
+            "Optional precomputed cadence-locked contact report. It must be "
+            "paired with --world-contact-audit; otherwise actor-space contact "
+            "inference remains the default."
+        ),
+    )
+    parser.add_argument(
+        "--world-contact-audit",
+        type=Path,
+        help="Passing audit that hash-binds --contact-report and its root cadence",
+    )
+    parser.add_argument(
         "--asset-id",
         default="rocketbox_dog_beagle_01_m2_v4_candidate",
     )
@@ -364,6 +378,20 @@ def main() -> int:
         if args.motion_qa_report is not None
         else None
     )
+    contact_report = (
+        _repo_path(repo_root, args.contact_report)
+        if args.contact_report is not None
+        else None
+    )
+    world_contact_audit = (
+        _repo_path(repo_root, args.world_contact_audit)
+        if args.world_contact_audit is not None
+        else None
+    )
+    if (contact_report is None) != (world_contact_audit is None):
+        raise ValueError(
+            "contact-report and world-contact-audit must be supplied together"
+        )
     motion_evidence = (motion_profile, retarget_report, motion_qa_report)
     if any(path is not None for path in motion_evidence) and not all(
         path is not None for path in motion_evidence
@@ -392,9 +420,28 @@ def main() -> int:
     contact_anchors = tuple(
         anchor for anchor in all_anchors if anchor.anchor_id in CONTACT_ORDER
     )
-    contacts = derive_contact_phases(mapping, actions, contact_anchors)
-    contacts_path = evidence_directory / "contact_phases.json"
-    contacts_path.write_text(contacts.to_canonical_json(), encoding="utf-8")
+    if contact_report is None:
+        contacts = derive_contact_phases(mapping, actions, contact_anchors)
+        contacts_path = evidence_directory / "contact_phases.json"
+        contacts_path.write_text(contacts.to_canonical_json(), encoding="utf-8")
+    else:
+        assert world_contact_audit is not None
+        contacts_path = contact_report
+        audit_value = _json_object(world_contact_audit, owner="world contact audit")
+        if (
+            audit_value.get("schema") != "avengine_m2_world_contact_audit_v1"
+            or audit_value.get("status") != "pass"
+            or audit_value.get("qualification_claim") is not False
+            or audit_value.get("source_glb_sha256") != document.sha256
+            or audit_value.get("baked_actions_sha256")
+            != _sha256(_read_regular(actions_path, owner="baked actions"))
+            or audit_value.get("contact_phases_sha256")
+            != _sha256(_read_regular(contacts_path, owner="contact report"))
+        ):
+            raise ValueError(
+                "world-contact audit does not pass and bind the exact visual, "
+                "actions and contact report"
+            )
 
     source_records = _assert_pinned_source(rocketbox_root)
     lineage_paths = [
@@ -412,6 +459,8 @@ def main() -> int:
         assert retarget_report is not None
         assert motion_qa_report is not None
         lineage_paths.extend((motion_profile, retarget_report, motion_qa_report))
+    if world_contact_audit is not None:
+        lineage_paths.append(world_contact_audit)
     source_manifest = {
         "schema": "avengine_m2_rocketbox_beagle_source_snapshot_v1",
         "qualification_state": "research_candidate",

@@ -68,11 +68,137 @@ def _file_record(package_root: Path, role: str) -> dict:
     }
 
 
+def _review_artifact(path: Path, *, review_root: Path) -> dict:
+    payload = path.read_bytes()
+    return {
+        "path": path.relative_to(review_root).as_posix(),
+        "byte_size": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def _human_review_record(package_root: Path, *, asset_id: str) -> dict:
+    review_root = package_root / "payload"
+    inputs_root = review_root / "human_review"
+    inputs_root.mkdir(parents=True)
+    candidate_path = inputs_root / "candidate_asset_manifest.json"
+    _write_json(
+        candidate_path,
+        {"asset_id": asset_id, "admission_state": "research_candidate"},
+    )
+    candidate_hash = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
+    request_path = inputs_root / "capture_request.json"
+    _write_json(
+        request_path,
+        {
+            "schema": CAPTURE_SCHEMA,
+            "request_id": "fixture_review_request",
+            "asset_manifest_sha256": candidate_hash,
+            "states": [{} for _ in range(75)],
+        },
+    )
+    evidence_path = inputs_root / "evidence.json"
+    _write_json(
+        evidence_path,
+        {
+            "schema": "avengine_m2_habitat_capture_evidence_v1",
+            "status": "review_only",
+            "review_only": True,
+            "qualification_claim": False,
+            "request_id": "fixture_review_request",
+            "frames": [{} for _ in range(75)],
+        },
+    )
+    media_paths: dict[str, Path] = {}
+    for modality in ("rgb", "depth", "semantic"):
+        path = inputs_root / f"view0_{modality}.mp4"
+        path.write_bytes(f"fixture {modality} video\n".encode())
+        media_paths[modality] = path
+    diagnostic_path = inputs_root / "walk_side.mp4"
+    diagnostic_path.write_bytes(b"fixture diagnostic video\n")
+    world_contact_path = inputs_root / "world_contact_audit.json"
+    _write_json(
+        world_contact_path,
+        {
+            "schema": "avengine_m2_world_contact_audit_v1",
+            "status": "pass",
+            "qualification_claim": False,
+            "gate": {"passed": True},
+        },
+    )
+    license_path = inputs_root / "LICENSE.md"
+    license_path.write_text("MIT License\n", encoding="utf-8")
+    readme_path = inputs_root / "README.md"
+    readme_path.write_text("Microsoft Rocketbox\n", encoding="utf-8")
+    review = {
+        "schema": "avengine_m2_human_visual_review_v1",
+        "status": "pass",
+        "scope": "m2_canary_admission",
+        "qualification_claim": False,
+        "formal_dataset_registration_authorized": False,
+        "candidate": {
+            "asset_id": asset_id,
+            "admission_state": "research_candidate",
+            "asset_manifest": _review_artifact(candidate_path, review_root=review_root),
+        },
+        "capture": {
+            "request_id": "fixture_review_request",
+            "state_count": 75,
+            "review_only": True,
+            "asset_manifest_sha256": candidate_hash,
+            "request": _review_artifact(request_path, review_root=review_root),
+            "evidence": _review_artifact(evidence_path, review_root=review_root),
+        },
+        "world_contact_audit": _review_artifact(
+            world_contact_path, review_root=review_root
+        ),
+        "review_media": {
+            modality: _review_artifact(path, review_root=review_root)
+            for modality, path in media_paths.items()
+        },
+        "diagnostic_media": [
+            {
+                "label": "walk_side.mp4",
+                "artifact": _review_artifact(diagnostic_path, review_root=review_root),
+            }
+        ],
+        "source_license": {
+            "source_repository": (
+                "https://github.com/microsoft/Microsoft-Rocketbox.git"
+            ),
+            "source_revision": "fixture-revision",
+            "license": "MIT",
+            "allowed_use": "research_canary",
+            "redistribution": "allowed",
+            "license_file": _review_artifact(license_path, review_root=review_root),
+            "readme_file": _review_artifact(readme_path, review_root=review_root),
+        },
+        "reviewer_decision": {
+            "reviewer_id": "fixture-reviewer",
+            "decision_date": "2026-07-17",
+            "statement": "Fixture canary review passed.",
+            "overall_canary_visual_acceptance": "pass",
+            "rear_leg_motion_naturalness": "pass",
+        },
+        "decision_reason": "Fixture human review passed.",
+    }
+    review_path = review_root / "human_visual_review.json"
+    _write_json(review_path, review)
+    payload = review_path.read_bytes()
+    return {
+        "role": "human_visual_review",
+        "path": review_path.relative_to(package_root).as_posix(),
+        "byte_size": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
 def _asset_fixture(tmp_path: Path) -> tuple[Path, dict]:
     package_root = tmp_path / "animal_package"
     package_root.mkdir()
-    roles = sorted(REQUIRED_FILE_ROLES | {"human_visual_review"})
+    roles = sorted(REQUIRED_FILE_ROLES)
     files = [_file_record(package_root, role) for role in roles]
+    files.append(_human_review_record(package_root, asset_id="dog_canary_v1"))
     review_record = next(
         record for record in files if record["role"] == "human_visual_review"
     )
@@ -261,6 +387,7 @@ def test_m2_json_schemas_are_valid_draft_2020_12() -> None:
     for filename in (
         "animal_asset_package_v1.schema.json",
         "m2_articulated_capture_request_v1.schema.json",
+        "m2_human_visual_review_v1.schema.json",
     ):
         schema = json.loads((REPOSITORY_ROOT / "schemas" / filename).read_text())
         Draft202012Validator.check_schema(schema)
