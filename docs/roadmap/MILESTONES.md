@@ -38,10 +38,11 @@ optional-backend gap is recorded.
 
 ## M2: Articulated Dog Runtime
 
-Status: formal gate `not_run`; a bounded 75-state research-candidate
-review-only execution completed successfully. See [M2_STATUS.md](M2_STATUS.md)
-and [M2_EXECUTION.md](M2_EXECUTION.md). Review-only evidence is not formal M2
-evidence and cannot promote the candidate.
+Status: bounded research-canary gate `pass`. The exact candidate passed
+automatic QA, hash-bound human review, four-paw world-contact/root-cadence QA,
+`canary_qualified` admission and a clean 75-state formal Habitat capture. See
+[M2_STATUS.md](M2_STATUS.md) and [M2_EXECUTION.md](M2_EXECUTION.md). This does
+not grant `approved_for_dataset`; central dataset admission remains M6 work.
 
 Deliverables: one `canary_qualified` canonical dog package, baked Walk/Idle poses, root
 trajectory, semantic anchors, contacts and canonical pose hashes.
@@ -49,8 +50,7 @@ trajectory, semantic anchors, contacts and canonical pose hashes.
 Exit criteria: exactly 75 poses execute without a free-running action clock;
 the formal single `view0` RGB/depth/semantic capture shares one per-frame state
 and pose hash; deformation/contact QA passes; visual mouth articulation is
-absent. This does not grant
-`approved_for_dataset`; central dataset admission remains M6 work.
+absent. These criteria passed for the fixed M2 Beagle hashes only.
 
 ## M3: Acoustic Scene and Materials
 

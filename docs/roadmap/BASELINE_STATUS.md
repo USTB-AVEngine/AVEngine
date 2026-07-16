@@ -1,8 +1,8 @@
 # M0 Baseline Status
 
-This is the immutable-at-closure M0 snapshot; its M1 `not_run` row records the
-state at that earlier gate. For the current post-M1 result, see
-[M1_STATUS.md](M1_STATUS.md).
+This is the immutable-at-closure M0 snapshot; its M1 and M2 `not_run` rows
+record the state at that earlier gate. For current results, see
+[M1_STATUS.md](M1_STATUS.md) and [M2_STATUS.md](M2_STATUS.md).
 
 Recorded: 2026-07-16. Status values are only `pass`, `fail`, `blocked`, or
 `not_run`. A successful build does not imply that a runtime or scientific
@@ -118,5 +118,6 @@ the root cause.
   counterfactual integrity, or dataset admission.
 - RLR remains CC BY-NC 4.0; the current audio route is non-commercial.
 
-M0 therefore establishes a reproducible and honest engineering baseline. The
-next feature gate is M1; no M1-M7 capability is claimed complete here.
+M0 therefore establishes a reproducible and honest engineering baseline. At
+this snapshot's closure the next feature gate was M1; no M1-M7 capability is
+claimed complete by this historical record.

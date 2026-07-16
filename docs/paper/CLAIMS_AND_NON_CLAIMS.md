@@ -1,6 +1,6 @@
 # Claims and Non-Claims
 
-## Claims supported through M1
+## Claims supported through M2
 
 - The project has selected Habitat-Sim as its visual, scene, sensor, physics,
   and articulation foundation and RLR as its geometric acoustic foundation.
@@ -15,14 +15,20 @@
   room. This is a pose/identity result, not a multi-source RLR result.
 - M1 artifacts, raw arrays, runtime identity, geometry provenance and a second
   process rerun are checked by an executable evidence verifier.
+- One exact Rocketbox Beagle package passed automatic motion/deformation QA,
+  hash-bound user visual review, MIT source-use review and a four-paw
+  world-contact/root-cadence gate.
+- That package is `canary_qualified` for bounded research-canary use and
+  completed 75 explicit Idle/Walk states in a clean Habitat run on the same
+  single-view co-located RGB/depth/semantic contract without advancing world
+  time.
 
-These are repository/design and bounded M1 canary claims. They are not animal,
-audio-propagation, dataset-performance or benchmark results.
+These are repository/design and bounded M1/M2 canary claims. M2 is one fixed
+dog asset, not arbitrary animal generation or formal dataset admission. No
+audio-propagation, dataset-performance or benchmark result is claimed.
 
 ## Planned claims requiring later evidence
 
-- deterministic 75-pose articulated playback using M1's same-state,
-  single-view co-located RGB/depth/semantic contract;
 - real-surface acoustic packages with verified per-triangle materials;
 - one-context named multi-source RLR with one camera-co-located MVP listener
   and per-source/listener-pair IRs/stems;
@@ -31,8 +37,8 @@ audio-propagation, dataset-performance or benchmark results.
 - repeatable end-to-end QA, provenance, rejection, and admission;
 - benchmark quality, generalization, and ablation outcomes.
 
-Each remains `not_run` until its named later canary executes. A code path
-existing is not equivalent to its scientific claim passing.
+Each remaining item stays `not_run` until its named later canary executes. A
+code path existing is not equivalent to its scientific claim passing.
 
 ## Non-claims
 
@@ -48,7 +54,7 @@ AVEngine does not claim that it:
 - proves visual materials are acoustic ground truth;
 - supports complete dynamic-body acoustics, visible mouth articulation, or
   stable animation for arbitrary generated meshes;
-- has completed articulated, acoustic, timeline, dataset or benchmark gates
-  M2-M7, or released a dataset;
+- has completed acoustic, timeline, dataset or benchmark gates M3-M7, or
+  released a dataset;
 - makes every dependency, model, asset, or output MIT or commercially cleared;
 - is endorsed by Meta, Tencent, Epic, or any other upstream provider.

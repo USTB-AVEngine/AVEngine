@@ -5,14 +5,14 @@ identity-preserving audiovisual episode generation. Habitat-Sim is the primary
 visual/scene/sensor/physics runtime; RLR Audio Propagation is the geometric
 acoustic foundation. AVEngine is not a simulator built from scratch.
 
-This branch has completed **M1: Habitat visual and three-room canary** on top of
-the M0 repository/runtime baseline. M2 implementation has reached a bounded
-**research-candidate review-only** checkpoint: one candidate dog executed all
-75 explicit states in Habitat and produced one-view RGB/depth/semantic review
-media. Formal M2 status remains `not_run` because the candidate has not passed
-a hash-bound human visual review or become `canary_qualified`. This repository
-does **not** yet claim a qualified articulated animal, acoustic propagation, a
-complete audiovisual episode, or a dataset release.
+This branch has completed **M1: Habitat visual and three-room canary** and the
+bounded **M2 articulated-dog research canary** on top of the M0
+repository/runtime baseline. The final M2 package is `canary_qualified`: its
+automatic QA, hash-bound human visual review, world-contact/root-cadence gate
+and clean 75-state Habitat capture all passed. The qualification is scoped to
+research-canary use; it does **not** authorize formal dataset registration or
+claim acoustic propagation, a complete audiovisual episode, or a dataset
+release.
 
 ## Repository boundary
 
@@ -45,9 +45,9 @@ Read these records in order:
    verification state. Use [`docs/roadmap/M1_EXECUTION.md`](docs/roadmap/M1_EXECUTION.md)
    to reproduce the executable evidence.
 7. [`docs/roadmap/M2_STATUS.md`](docs/roadmap/M2_STATUS.md) and
-   [`docs/roadmap/M2_EXECUTION.md`](docs/roadmap/M2_EXECUTION.md) — the bounded
-   M2 replacement-candidate evidence, retained contact/root-speed limitations,
-   review media and next formal admission gate.
+   [`docs/roadmap/M2_EXECUTION.md`](docs/roadmap/M2_EXECUTION.md) — the exact M2
+   candidate, admission, contact/cadence and formal Habitat evidence, plus the
+   exact local replay path from retained hash-bound intermediates.
 8. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
    — what is reusable, optional, experimental, or retired.
 
@@ -88,23 +88,21 @@ Every canary explicitly loads its `load_declared` navmesh. The active
 Pathfinder fingerprint must equal an independent Pathfinder load of that same
 file, including all navmesh settings and the vertex/index buffer hashes.
 
-The current M2 replacement research candidate uses a profile-bound world-left
-retargeted Idle/Walk action. Generic motion QA, package automatic QA and the
-75-state Habitat review-only execution passed. The run applies 15 Idle, 45
-Walk and 15 Idle states at the exact video ticks, without a free-running action
-clock or physics step; RGB, depth and semantic remain co-located modalities of
-the same `view0`, not additional viewpoints. The previous legacy hind-leg
-under-articulation metric no longer triggers for this action. Contact
-derivation still records actor-space Idle-motion and four-paw Walk sliding
-warnings, and no hash-bound root-speed/trajectory acceptance exists yet. See
+The M2 canary uses a profile-bound world-left retargeted Idle/Walk action. The
+formal run applies 15 Idle, 45 Walk and 15 Idle states at exact video ticks,
+without a free-running action clock or physics step; RGB, depth and semantic
+remain co-located modalities of the same `view0`, not additional viewpoints.
+The legacy hind-leg under-articulation metric no longer triggers. A
+body-plan-neutral cadence solver binds the exact four-paw contact phases to a
+`0.297 m/s` root trajectory; the maximum world-space contact step is
+`0.013894547981602673 m`, below the `0.015 m` gate. The user accepted the
+unchanged visual/action hashes, and the final formal capture passed from clean,
+locked AVEngine and Habitat worktrees. See
 [`MOTION_RETARGETING.md`](docs/architecture/MOTION_RETARGETING.md).
 
-The immediate M2 gates are human review of the exact r3 hash-bound media,
-resolution of contact/root-speed evidence and the remaining provenance/use
-decision. Only an accepted review artifact bound to the candidate and media
-hashes may promote a package to `canary_qualified` and permit a clean formal
-capture. Until then, formal M2 remains `not_run`; automatic passes and the
-review-only video are not a formal canary.
+The resulting package is qualified only for this bounded M2 research canary.
+Every new species, motion family, appearance realization or dataset admission
+still starts fail-closed and requires its own exact evidence.
 
 Timeline v2 keeps its plural `view_ids` field for future extensibility, but the
 M1, M2 and M5 canaries and the initial M6 MVP require exactly `["view0"]`.

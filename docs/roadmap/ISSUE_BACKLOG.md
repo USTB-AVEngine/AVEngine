@@ -73,7 +73,10 @@ state only when the issue records the missing environment or prerequisite.
 
 ## M2-01: Canonical dog package compiler
 
-- Problem: the reviewed Beagle remains a research candidate, not a qualified runtime package.
+- Status: `pass` for the bounded v7/r5 research canary; see `M2_STATUS.md`.
+
+- Problem: the reviewed Beagle needed a fail-closed path from research
+  candidate to a hash-bound qualified runtime package.
 - Scope: one audited template package with Walk/Idle, anchors, contacts and QA.
 - Non-goals: arbitrary generated topology or five morphotypes.
 - Dependencies: M0-02.
@@ -85,6 +88,9 @@ state only when the issue records the missing environment or prerequisite.
 - Documentation: asset-package guide and provenance record.
 
 ## M2-02: Deterministic baked dog pose playback
+
+- Status: `pass` for the clean 75-state single-view formal canary; see
+  `M2_STATUS.md` and `M2_EXECUTION.md`.
 
 - Problem: Habitat must execute exact animal poses without free-running animation.
 - Scope: load M2-01 asset, apply 75 root/joint states, expose anchors/contacts/hash.

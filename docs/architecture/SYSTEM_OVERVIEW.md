@@ -1,11 +1,11 @@
 # AVEngine System Overview
 
-Status: M1 visual/room executable baseline. The three-room single-view canary
-has passed. M2 has a profile-bound replacement-motion research candidate whose
-automatic QA and bounded articulated Habitat review-only run passed, but
-contact/root-speed acceptance and human review remain open. Formal M2 is
-`not_run`; acoustic propagation and end-to-end dataset claims remain later
-gates.
+Status: M1 visual/room executable baseline and the bounded M2 articulated-dog
+research canary have passed. Automatic QA, user visual acceptance and
+world-contact/root-cadence acceptance form one `canary_qualified` package;
+that exact package subsequently completed a clean 75-state Habitat capture.
+Formal dataset registration, acoustic propagation and end-to-end dataset
+claims remain later gates.
 
 ## Purpose
 

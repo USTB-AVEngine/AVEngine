@@ -1,9 +1,10 @@
 # Offline Motion Retargeting
 
 Status: bounded offline research infrastructure with one executed Beagle
-replacement `research_candidate`. Its automatic motion/package QA and Habitat
-review-only run passed; this is not a formal M2 result and does not authorize
-dataset registration.
+replacement promoted to `canary_qualified`. Its automatic motion/package QA,
+world-contact/root-cadence gate, hash-bound visual review and clean formal
+Habitat capture passed. This closes the M2 research canary but does not
+authorize dataset registration or another asset instance.
 
 AVEngine retargets motion while compiling an animal asset. Habitat never
 chooses a source action, guesses a skeleton correspondence or runs an online
@@ -16,9 +17,10 @@ The current implementation establishes three reusable pieces:
 - versioned body-plan and motion-family profiles; and
 - body-plan-neutral motion measurements driven by profile-owned thresholds.
 
-These pieces are necessary but not sufficient for M2 admission. Contact,
-scene root speed, deformation, Habitat playback and hash-bound human review
-remain independent gates.
+These pieces are necessary but not sufficient for admission of a new asset.
+Contact, scene root speed, deformation, Habitat playback and hash-bound human
+review remain independent gates; the final M2 Beagle passed all of them for
+its exact hashes.
 
 ## Compilation boundary
 
@@ -35,6 +37,7 @@ audited source motion + source skeleton
   -> research-candidate package
   -> hash-bound human review
   -> possible canary_qualified admission
+  -> clean formal Habitat canary capture
 ```
 
 Successful retargeting never skips a later arrow. In particular, a generated
@@ -132,7 +135,7 @@ Current fail-closed support is:
 
 | Body plan or mode | Required boundary | Current availability |
 | --- | --- | --- |
-| Dog ground locomotion | Exact canine profile, audited source skeleton and target template | A bounded Dog-to-Beagle profile exists; it does not by itself qualify M2 |
+| Dog ground locomotion | Exact canine profile, audited source skeleton and target template | A bounded Dog-to-Beagle profile and one qualified Beagle canary exist; neither automatically qualifies another instance |
 | Cat ground locomotion | A separate feline motion-family profile and feline canary | Not available; a dog profile must not be reused |
 | Other quadrupeds | Species/family-specific profile, such as an ungulate gait | Not available unless separately registered and audited |
 | Bird ground locomotion | `avian_biped_locomotion_v1`, two-foot contact and walking/hopping QA | Reserved and rejected by the loader |
@@ -233,34 +236,27 @@ The broader immutable instance/request evidence model is documented in
 
 ## Current M2 status and non-claims
 
-The world-left route has now produced a new Rocketbox Beagle replacement
-`research_candidate`. Two independent retarget output roots produced the same
-GLB bytes, SHA-256
-`051d3c653187df87296f6b85bfde4f4d2a276146910f3e414cd63196db3d1a4b`.
-Generic motion QA passed: fore-left/right forward excursion is
-`0.214509/0.219877 m`, hind-left/right forward excursion is
-`0.283474/0.292728 m`, hind lateral excursion is `0.007053/0.014780 m`, the
-rest-length-normalized hind/fore forward ratio is `0.930712`, and maximum
-left/right symmetry difference is `0.032122`.
+The world-left route produced the Rocketbox Beagle replacement action and
+identical repeat-build GLB bytes. Generic motion QA passed: fore-left/right
+forward excursion is `0.214509/0.219877 m`, hind-left/right forward excursion
+is `0.283474/0.292728 m`, hind lateral excursion is
+`0.007053/0.014780 m`, the rest-length-normalized hind/fore forward ratio is
+`0.930712`, and maximum left/right symmetry difference is `0.032122`.
 
-The new r3 package and its 75-state Habitat review-only evidence are hash-bound
-and passed automatic/runtime checks. This supersedes the legacy gait as the
-current candidate; it does not make the candidate formal. Actor-space contact
-derivation still reports Idle-anchor motion and four Walk sliding warnings,
-root-speed remains unbound to an accepted world trajectory, and the exact
-media's human visual review is `not_run`. Until the package is
-`canary_qualified` and a clean formal capture passes, formal M2 remains
-`not_run`.
+The actor-space contact warnings were retained as diagnostics, then resolved
+by a separate world-space audit that binds the exact action to a constant
+`0.297 m/s` root trajectory. It measured a maximum four-paw contact step of
+`0.013894547981602673 m` under the `0.015 m` gate. The unchanged visual/action
+hashes passed user review, the package was promoted to `canary_qualified`, and
+the clean 75-state formal Habitat capture passed on exactly `view0`.
 
-The r3 asset-manifest SHA-256 is
-`706631ee90ec9102bb76939dd7f75ca410757efd3c7c11580fa31e4d52183feb`;
-the contact report SHA-256 is
-`82f128010e9ccf9e828e8693a26a6aca6b8e14569c97129b2f449118328a3d04`;
-and the Habitat evidence canonical content SHA-256 is
-`95ccffbb252eed0e40f37d2a44fb4c428147b0077c2177a63369420f9331b290`.
+This result is limited to the exact M2 Beagle research canary. It does not
+approve a new appearance realization, another canine, a feline/ungulate/avian
+profile, or formal dataset registration. Each must repeat the applicable
+per-instance gates above.
 
-See [M2_STATUS.md](../roadmap/M2_STATUS.md) for the exact current evidence and
-[M2_EXECUTION.md](../roadmap/M2_EXECUTION.md) for the review-only runbook.
+See [M2_STATUS.md](../roadmap/M2_STATUS.md) for exact final identities and
+[M2_EXECUTION.md](../roadmap/M2_EXECUTION.md) for the admission/formal runbook.
 
 ## Implementation references
 

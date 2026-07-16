@@ -1,5 +1,5 @@
 schema_version: 1
-status: m2_research_candidate_review
+status: m2_formal_canary_pass
 
 avengine:
   repository: git@github.com:Eastforward/AVEngine.git
@@ -86,9 +86,17 @@ verification:
   habitat_upstream_skinned_articulated_object_regression: pass
   habitat_upstream_skinned_articulated_object_regression_summary: "SimTest testArticulatedObjectSkinned cases 37/38 passed with 0 errors out of 62 checks; independent initial and posed golden-image comparisons were pixel-exact"
   articulated_animal_review_only_capture: pass
-  articulated_animal_review_only_capture_summary: "research candidate executed 75 explicit states on one view0 with co-located RGB/depth/semantic; world time stayed 0.0; qualification_claim remained false"
-  articulated_animal_canary: not_run
-  articulated_animal_canary_reason: "formal capture requires a hash-bound human-reviewed canary_qualified package; current dog remains a research candidate with known hind-leg gait and contact warnings"
+  articulated_animal_review_only_capture_summary: "the final v7/r5 research candidate executed 75 explicit states on review view0 with co-located RGB/depth/semantic; world time stayed 0.0 and the exact media were bound into admission evidence"
+  articulated_animal_world_contact_gate: pass
+  articulated_animal_world_contact_summary: "cadence-locked root speed 0.297 m/s over 0.8712 m; maximum four-paw world-space contact step 0.013894547981602673 m <= 0.015 m"
+  articulated_animal_human_visual_review: pass
+  articulated_animal_human_visual_review_summary: "the 2026-07-17 user decision accepted the rear-leg motion for the unchanged visual/action hashes; the admission artifact also binds the final review request, media, contact audit and source-license snapshot"
+  articulated_animal_canary: pass
+  articulated_animal_canary_summary: "canary_qualified v7/r5 package completed a clean 75-state formal Habitat capture on exactly view0 with co-located RGB/depth/semantic; zero physics steps and world time 0.0 -> 0.0; formal dataset registration remains unauthorized"
+  articulated_animal_formal_dataset_registration_authorized: false
+  articulated_animal_formal_capture_runtime_lock_sha256: 54001146c99c805ca979c0a4912861d579c1be76bccb5372164c835e600a4f49
+  articulated_animal_canary_evidence_content_sha256: a8bd355f70713feb029d5af9575ba48583277ce3d2d34d122117556268b2d9fb
+  articulated_animal_canary_evidence_file_sha256: 7644c985f93228a515f7f338dbd2791952c7bbb2295af5714fe9cbb73a8baaf3
   acoustic_material_canary: not_run
   multi_source_canary: not_run
   timeline_canary: not_run
