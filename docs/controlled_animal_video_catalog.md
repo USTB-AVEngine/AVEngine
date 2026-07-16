@@ -1,5 +1,30 @@
 # 受控动物 UE Apartment 视频索引
 
+## 2026-07-16 比格四脚内外翻修复（v24，待视觉确认）
+
+旧 v22 动作错误地继承了脚掌末端的世界旋转，造成四只脚在 Walking 周期中
+反复内翻和外翻。v24 锁定目标 rest pose 的四个脚掌方向，并通过二进制动作
+移植保持 v22 的 mesh、节点、skin、材质、纹理及原始 BIN 前缀逐字节不变；
+donor 的几何、权重与材质均未进入输出。前脚横向摆动由腿长的
+`7.20%–7.44%` 降至 `0.035%–0.053%`，后脚由 `13.87%–15.16%` 降至
+`0.087%–0.104%`，四脚 yaw 周期摆动均低于 `0.001°`。当前仍为
+`research_candidate`。该动作已传播到九个受控实例：9/9 GLB 与 18/18
+Walk/Idle 视频回读完成，等待视觉确认后再进入 Apartment 成片。
+
+| 证据 | 绝对路径 |
+|---|---|
+| A/B 审核网页 | [beagle_locked_paw_animation_review_20260716.html](/data/jzy/code/AVEngine/docs/beagle_locked_paw_animation_review_20260716.html) |
+| 九实例 Walk/Idle 网页 | [beagle_mesh_first_instance_ofat_locked_paws_review_20260716.html](/data/jzy/code/AVEngine/docs/beagle_mesh_first_instance_ofat_locked_paws_review_20260716.html) |
+| 修复版 Walking Quarter | [walking_quarter.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_quarter.mp4) |
+| 修复版 Walking Front | [walking_front.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_front.mp4) |
+| 修复版 Walking Side | [walking_side.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_side.mp4) |
+| 修复版 Idle Quarter | [idle_quarter.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/idle_quarter.mp4) |
+| 动画 GLB | [animated_walk_idle.glb](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/animated_walk_idle.glb) |
+| 二进制移植认证 | [animation_transplant_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/animation_transplant_manifest.json) |
+| 四脚横摆审计 | [lateral_gait_audit.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/lateral_gait_audit.json) |
+| 九实例批次认证 | [batch_status.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_realizations_v2_locked_paws_20260716/batch_status.json) |
+| 18 视频认证 | [review_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/beagle_mesh_first_ofat_animation_review_v2_locked_paws_20260716/review_manifest.json) |
+
 ## 2026-07-16 比格 mesh-first PBR Walk/Idle canary（待视觉确认）
 
 这是按“先生成并封闭静态 3D/PBR，再绑定固定骨架和动作”重跑的结果，不是

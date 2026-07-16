@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beagle 四脚内外翻修复 A/B 审核</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, "Noto Sans SC", sans-serif; }
+    body { margin: 0; background: #0b0f15; color: #eaf0f7; }
+    main { max-width: 1520px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 8px; font-size: 29px; }
+    h2 { margin: 0 0 10px; font-size: 20px; }
+    .lead { max-width: 1180px; color: #b7c4d4; line-height: 1.65; }
+    .status { display: inline-block; padding: 6px 11px; border: 1px solid #2a6a45;
+      border-radius: 999px; color: #8ce3ad; background: #10251a; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 10px; margin: 18px 0 22px; }
+    .metric { padding: 12px 14px; border: 1px solid #2b394c; border-radius: 10px;
+      background: #111925; }
+    .metric strong { display: block; color: #8cbcff; margin-bottom: 4px; }
+    .ab, .views { display: grid; gap: 16px; }
+    .ab { grid-template-columns: 1fr 1fr; }
+    .views { grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)); margin-top: 18px; }
+    article { min-width: 0; padding: 14px; border: 1px solid #293445; border-radius: 12px;
+      background: #111722; }
+    article.old { border-color: #6e3a3a; }
+    article.new { border-color: #2a6a45; }
+    video { width: 100%; border-radius: 8px; background: #000; }
+    code.path { display: block; margin-top: 10px; color: #8c9aae; overflow-wrap: anywhere;
+      font-size: 11px; line-height: 1.45; user-select: all; }
+    .note { padding: 12px 14px; margin: 18px 0; border-radius: 10px;
+      border: 1px solid #66551b; color: #ead58b; background: #28220f; }
+    @media (max-width: 800px) { main { padding: 14px; } .ab { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Beagle 四脚内外翻：动作基准修复 A/B</h1>
+  <p class="lead"><span class="status">四只脚末端方向已锁定；mesh / PBR / skin 保持原样</span></p>
+  <p class="lead">旧动作把脚掌末端的世界旋转一并重定向，造成四脚在一个步态周期内反复内翻、外翻。新版以目标 rest pose 的脚掌方向为权威，只替换 Walking/Idle 动画二进制；原 v22 GLB 的 mesh、节点、skin、材质、纹理和原始 BIN 前缀均逐字节不变。</p>
+
+  <section class="metrics">
+    <div class="metric"><strong>前脚横摆 / 腿长</strong>旧版 7.20%–7.44% → 新版 0.035%–0.053%</div>
+    <div class="metric"><strong>后脚横摆 / 腿长</strong>旧版 13.87%–15.16% → 新版 0.087%–0.104%</div>
+    <div class="metric"><strong>脚掌 yaw 周期摆动</strong>旧版最高 347.4° → 新版全部低于 0.001°</div>
+    <div class="metric"><strong>外观数据</strong>38,090 面与 2048 PBR 保持，不使用 donor 几何或材质</div>
+  </section>
+
+  <h2>同一视角直接对比</h2>
+  <section class="ab">
+    <article class="old">
+      <h2>旧版 v22：可见四脚内外翻</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_quarter.mp4"></video>
+      <code class="path">/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v22_matte_fixed_weight_transfer_20260715/review_v1/walking_quarter.mp4</code>
+    </article>
+    <article class="new">
+      <h2>修复版 v24：脚掌方向锁定</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_quarter.mp4"></video>
+      <code class="path">/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_quarter.mp4</code>
+    </article>
+  </section>
+
+  <div class="note">请重点看脚尖相对身体纵轴是否持续朝前，而不是要求脚掌在世界坐标中完全静止。正常 Walking 仍应保留抬腿、落脚和腿部前后摆动。</div>
+
+  <h2>修复版多视角与 Idle</h2>
+  <section class="views">
+    <article class="new">
+      <h2>Walking Front</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_front.mp4"></video>
+      <code class="path">/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_front.mp4</code>
+    </article>
+    <article class="new">
+      <h2>Walking Side</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_side.mp4"></video>
+      <code class="path">/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/walking_side.mp4</code>
+    </article>
+    <article class="new">
+      <h2>Idle Quarter</h2>
+      <video controls loop preload="metadata" src="/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/idle_quarter.mp4"></video>
+      <code class="path">/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716/review_v1/idle_quarter.mp4</code>
+    </article>
+  </section>
+</main>
+</body>
+</html>

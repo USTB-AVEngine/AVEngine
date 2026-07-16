@@ -2964,3 +2964,40 @@ The fixed-camera nine-up image is in
 This closes stable instance generation and animation at
 `research_candidate`; license/provenance and UE Apartment gates remain required
 before `formal_dataset_asset` registration.
+## 2026-07-16 Generated Quadruped Terminal-Paw Rotation Trap
+
+The Beagle v22 mesh-first PBR runtime exposed a motion-basis bug that is
+independent of PBR, topology, instance attributes, or random seed: copying the
+source terminal-foot world rotations through
+`world_space_rest_offset_chain_arc_length_slerp_v1` made all four paws yaw
+inward/outward during Walking.  The old front-paw lateral excursion was
+`7.20%–7.44%` of leg length and the hind-paw excursion was
+`13.87%–15.16%`; one terminal yaw excursion reached about `347.4 deg`.
+
+The verified fix uses the v12 `world-rotation-foot-ik-v3` actions with
+`foot_orientation_policy=lock_target_rest_world_v1`.  For a generated target
+whose node names, parent names, and local rest TRS match that motion carrier,
+use `tools/transplant_compatible_glb_animations.py` to append and replace only
+the animation accessors.  Do not pass the target through Blender merely to
+copy actions: Blender re-export changes topology/UV/skin buffer ordering even
+when the visible result looks similar.  The transplant tool authenticates the
+target document excluding animations/buffer-length fields and the complete
+original BIN prefix before and after the operation.
+
+The resulting Beagle v24 artifact is under
+`tmp/controlled_source_asset_execution_v1/dog_beagle_three_quarter_30deg_i23d_bakeoff_v10_20260714_r1_candidate657/trellis2/seed6102_mesh_first_pbr_animation_v24_binary_action_transplant_locked_paws_20260716`.
+Its four lateral-excursion ratios are `0.000532`, `0.000346`, `0.000874`, and
+`0.001040`, and all four terminal yaw excursions are below `0.001 deg`.
+This fixes paw orientation only; deformation/stretch auditing remains a
+separate gate and must not be inferred from the paw-orientation result.
+
+The authenticated controlled profile now points to that exact v24 artifact
+(SHA-256 `90cd41a9d6e19e2ff9c950d8dc2c35672b86d60ec971ae48985336af655125bf`,
+5,950,028 bytes) and has canonical profile SHA-256
+`f6742ca5d0a3acb41edb91e526b1b42896237ed0317515efe90558877f4dcc89`.
+The fresh nine-instance batch is
+`beagle_mesh_first_ofat_realizations_v2_locked_paws_20260716`; 9/9 GLBs passed
+authentication and readback.  Its 18/18 Walking/Idle review videos are in
+`beagle_mesh_first_ofat_animation_review_v2_locked_paws_20260716`.  Do not use
+the earlier v22-based instance roots for new reviews; retain them only as the
+pre-fix failure evidence.
