@@ -260,7 +260,7 @@ def complete_evidence(
     habitat_module.parent.mkdir(parents=True, exist_ok=True)
     habitat_module.write_text("# test habitat module\n", encoding="utf-8")
     native_binding.write_bytes(b"test native binding")
-    runtime_commit = "425fe084eb680844b2b01d86904b9a72c4896d7a"
+    runtime_commit = "bcca512aa58e8b2819454716b710ef3da72f7f47"
     avengine_commit = "a" * 40
 
     def fake_git_run(arguments: list[str], **_: object) -> SimpleNamespace:

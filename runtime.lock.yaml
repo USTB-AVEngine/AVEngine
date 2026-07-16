@@ -1,22 +1,28 @@
 schema_version: 1
-status: m1_visual_room_canary
+status: m2_research_candidate_review
 
 avengine:
   repository: git@github.com:Eastforward/AVEngine.git
-  branch: feature/habitat-native-foundation
+  branch: feature/m2-articulated-dog-runtime
   legacy_migration_base_commit: 92775d4d2050a3a9b277357eb83c9243468f4cd3
   version: 0.1.0-alpha+unreleased
 
 habitat_runtime:
   repository: git@github.com:Eastforward/habitat-sim-AVEngine.git
-  branch: feature/habitat-native-runtime-foundation
-  fork_governance_commit: 425fe084eb680844b2b01d86904b9a72c4896d7a
+  branch: feature/m2-articulated-dog-runtime
+  fork_governance_commit: bcca512aa58e8b2819454716b710ef3da72f7f47
   source_baseline_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
   upstream_repository: https://github.com/facebookresearch/habitat-sim.git
   upstream_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
   merge_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
-  ahead_of_upstream: 3
+  ahead_of_upstream: 4
   behind_upstream: 0
+  avengine_runtime_modifications:
+    - id: M2-SKIN-FRAME-01
+      path: src/esp/physics/bullet/BulletPhysicsManager.cpp
+      opt_in_config_key: user_defined.avengine_native_gltf_skin_frame
+      default_behavior: upstream
+      public_api_change: false
 
 rlr:
   repository: https://github.com/facebookresearch/rlr-audio-propagation
@@ -28,6 +34,7 @@ runtime_test_environment:
   python: "3.12.13"
   git_lfs: "3.7.1"
   jsonschema: "4.26.0"
+  required_m2_native_binding_sha256: 06079ce3a06053088e921a1852a98fba10a5409009f8502c44ed03f75dbd1211
 
 runtime_test_assets:
   habitat_test_scenes:
@@ -74,7 +81,14 @@ verification:
     habitat_native: pass
     blender_custom: pass
     legacy_ue_real_surface_export: pass
+  habitat_m2_opt_in_skin_frame_build: pass
+  habitat_m2_opt_in_skin_frame_probe: pass
+  habitat_upstream_skinned_articulated_object_regression: pass
+  habitat_upstream_skinned_articulated_object_regression_summary: "SimTest testArticulatedObjectSkinned cases 37/38 passed with 0 errors out of 62 checks; independent initial and posed golden-image comparisons were pixel-exact"
+  articulated_animal_review_only_capture: pass
+  articulated_animal_review_only_capture_summary: "research candidate executed 75 explicit states on one view0 with co-located RGB/depth/semantic; world time stayed 0.0; qualification_claim remained false"
   articulated_animal_canary: not_run
+  articulated_animal_canary_reason: "formal capture requires a hash-bound human-reviewed canary_qualified package; current dog remains a research candidate with known hind-leg gait and contact warnings"
   acoustic_material_canary: not_run
   multi_source_canary: not_run
   timeline_canary: not_run

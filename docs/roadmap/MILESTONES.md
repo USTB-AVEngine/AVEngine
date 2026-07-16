@@ -38,6 +38,11 @@ optional-backend gap is recorded.
 
 ## M2: Articulated Dog Runtime
 
+Status: formal gate `not_run`; a bounded 75-state research-candidate
+review-only execution completed successfully. See [M2_STATUS.md](M2_STATUS.md)
+and [M2_EXECUTION.md](M2_EXECUTION.md). Review-only evidence is not formal M2
+evidence and cannot promote the candidate.
+
 Deliverables: one `canary_qualified` canonical dog package, baked Walk/Idle poses, root
 trajectory, semantic anchors, contacts and canonical pose hashes.
 

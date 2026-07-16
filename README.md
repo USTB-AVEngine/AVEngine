@@ -6,9 +6,13 @@ visual/scene/sensor/physics runtime; RLR Audio Propagation is the geometric
 acoustic foundation. AVEngine is not a simulator built from scratch.
 
 This branch has completed **M1: Habitat visual and three-room canary** on top of
-the M0 repository/runtime baseline. It proves the one-view multimodal room and
-pose contracts; it does **not** yet claim articulated animal playback, acoustic
-propagation, a complete audiovisual episode, or a dataset release.
+the M0 repository/runtime baseline. M2 implementation has reached a bounded
+**research-candidate review-only** checkpoint: one candidate dog executed all
+75 explicit states in Habitat and produced one-view RGB/depth/semantic review
+media. Formal M2 status remains `not_run` because the candidate has not passed
+a hash-bound human visual review or become `canary_qualified`. This repository
+does **not** yet claim a qualified articulated animal, acoustic propagation, a
+complete audiovisual episode, or a dataset release.
 
 ## Repository boundary
 
@@ -37,7 +41,11 @@ Read these records in order:
    [`docs/roadmap/M1_STATUS.md`](docs/roadmap/M1_STATUS.md) — gates and actual
    verification state. Use [`docs/roadmap/M1_EXECUTION.md`](docs/roadmap/M1_EXECUTION.md)
    to reproduce the executable evidence.
-6. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+6. [`docs/roadmap/M2_STATUS.md`](docs/roadmap/M2_STATUS.md) and
+   [`docs/roadmap/M2_EXECUTION.md`](docs/roadmap/M2_EXECUTION.md) — the bounded
+   M2 candidate evidence, known gait limitation, review media and next formal
+   admission gate.
+7. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
    — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
@@ -77,8 +85,21 @@ Every canary explicitly loads its `load_declared` navmesh. The active
 Pathfinder fingerprint must equal an independent Pathfinder load of that same
 file, including all navmesh settings and the vertex/index buffer hashes.
 
-The immediate next implementation gate is M2: deterministic baked dog-pose
-playback on this fixed M1 room/sensor foundation.
+The M2 review-only run applies 15 Idle, 45 Walk and 15 Idle states at the exact
+75 video ticks, without a free-running action clock or physics step. RGB,
+depth and semantic remain co-located modalities of the same `view0`; they are
+not additional viewpoints. Automatic numerical QA and Habitat state readback
+passed for this bounded execution, but the inherited Walk has a known visual
+limitation: its hind legs show little whole-leg forward articulation and much
+of their measured motion is lateral/toe-terminal motion. Contact inference
+also retains explicit sliding and Idle-motion warnings.
+
+The immediate M2 gate is user review of the exact hash-bound media, including
+that known hind-leg behavior. Only an accepted review artifact bound to the
+candidate and media hashes, plus the remaining provenance/use decision, may
+promote a package to `canary_qualified` and permit a clean formal capture.
+Until that happens, formal M2 remains `not_run`; the review-only video is not a
+formal canary.
 
 Timeline v2 keeps its plural `view_ids` field for future extensibility, but the
 M1, M2 and M5 canaries and the initial M6 MVP require exactly `["view0"]`.

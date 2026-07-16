@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/animal_asset_package_v1.schema.json",
+  "title": "AVEngine Canonical Animal Asset Package v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "asset_id",
+    "template_id",
+    "body_plan_id",
+    "morphotype_id",
+    "admission_state",
+    "coordinate_system",
+    "revisions",
+    "skeleton",
+    "contacts",
+    "anchors",
+    "actions",
+    "files",
+    "qualification",
+    "provenance"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_animal_asset_package_v1"},
+    "asset_id": {"type": "string", "minLength": 1},
+    "template_id": {"type": "string", "minLength": 1},
+    "body_plan_id": {"type": "string", "minLength": 1},
+    "morphotype_id": {"type": "string", "minLength": 1},
+    "admission_state": {
+      "enum": [
+        "research_candidate",
+        "canary_qualified",
+        "rejected",
+        "admission_blocked"
+      ]
+    },
+    "coordinate_system": {"$ref": "#/$defs/coordinate_system"},
+    "revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topology_sha256",
+        "uv_sha256",
+        "skeleton_revision",
+        "weights_revision",
+        "collision_revision",
+        "action_revision"
+      ],
+      "properties": {
+        "topology_sha256": {"$ref": "#/$defs/sha256"},
+        "uv_sha256": {"$ref": "#/$defs/sha256"},
+        "skeleton_revision": {"type": "string", "minLength": 1},
+        "weights_revision": {"type": "string", "minLength": 1},
+        "collision_revision": {"type": "string", "minLength": 1},
+        "action_revision": {"type": "string", "minLength": 1}
+      }
+    },
+    "skeleton": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_joint_id",
+        "joint_order",
+        "runtime_joint_order",
+        "joint_pose_encoding"
+      ],
+      "properties": {
+        "root_joint_id": {"type": "string", "minLength": 1},
+        "joint_order": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "runtime_joint_order": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "joint_pose_encoding": {
+          "const": "ordered_local_rotation_xyzw_float64"
+        }
+      }
+    },
+    "contacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contact_order"],
+      "properties": {
+        "contact_order": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "anchors": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["anchor_id", "joint_id", "joint_from_anchor"],
+        "properties": {
+          "anchor_id": {"type": "string", "minLength": 1},
+          "joint_id": {"type": "string", "minLength": 1},
+          "joint_from_anchor": {"$ref": "#/$defs/transform"}
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action_id",
+          "poses_file_role",
+          "source_action_revision",
+          "sample_count"
+        ],
+        "properties": {
+          "action_id": {"enum": ["idle", "walk"]},
+          "poses_file_role": {"enum": ["idle_poses", "walk_poses"]},
+          "source_action_revision": {"type": "string", "minLength": 1},
+          "sample_count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/file_record"}
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "automatic_qa_status",
+        "human_visual_review_status",
+        "decision_reason"
+      ],
+      "properties": {
+        "automatic_qa_status": {"$ref": "#/$defs/check_status"},
+        "human_visual_review_status": {"$ref": "#/$defs/check_status"},
+        "human_review_binding_sha256": {
+          "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        },
+        "decision_reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "source_revision",
+        "source_sha256",
+        "license",
+        "allowed_use",
+        "redistribution"
+      ],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "source_revision": {"type": "string", "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "license": {"type": "string", "minLength": 1},
+        "allowed_use": {
+          "enum": ["research_canary", "research_only", "review_required"]
+        },
+        "redistribution": {
+          "enum": ["allowed", "prohibited", "review_required"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "check_status": {
+      "enum": ["pass", "fail", "blocked", "not_run"]
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "quat": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["translation_m", "rotation_xyzw"],
+      "properties": {
+        "translation_m": {"$ref": "#/$defs/vec3"},
+        "rotation_xyzw": {"$ref": "#/$defs/quat"}
+      }
+    },
+    "coordinate_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handedness",
+        "up_axis",
+        "forward_axis",
+        "linear_unit",
+        "quaternion_order"
+      ],
+      "properties": {
+        "handedness": {"const": "right"},
+        "up_axis": {"const": "+Y"},
+        "forward_axis": {"const": "-Z"},
+        "linear_unit": {"const": "meter"},
+        "quaternion_order": {"const": "xyzw"}
+      }
+    },
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "byte_size", "sha256"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
