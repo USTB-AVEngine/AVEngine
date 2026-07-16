@@ -3146,3 +3146,43 @@ by the direction page, with SHA-256
 post-approval binding runner will consume the reviewed mesh rather than a new
 candidate. The missing immutable direction decision remains the only current
 pre-binding condition.
+
+## 2026-07-16 Declared-View Canonicalization and Accepted Light Beagle
+
+The preceding lighter-Beagle direction status is superseded. The user approved
+the existing exact-mesh direction decision with rigid torso-axis yaw `30 deg`,
+human head/tail yaw `180 deg`, and normalized binding total `-150 deg`. Preserve
+the old decision and never overwrite it.
+
+Future generated quadrupeds using a declared three-quarter pose must use
+`deterministic_declared_camera_view_canonicalization_v1` rather than routine
+manual fine-yaw correction. The pose guide and prompt declare the camera
+azimuth before inference (30 degrees for the current Beagle). Code applies that
+fixed value; the mesh torso-axis measurement is only a residual acceptance
+gate and must never become the applied transform. The current limit is 3
+degrees across all three central-percentile fits. A failure rejects the single
+attempt and requires a pose-guide/prompt/profile revision, not a new seed.
+After the fixed transform, the browser must expose only human 0/180-degree
+head/tail selection. Axis edits and +/-90-degree choices are contract errors.
+
+The real declared-view canary is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_direction_canary_v3_declared_axis_20260716/review_manifest.json`
+(internal canonical `manifest_sha256`
+`da8146c9171b5fabd5b9df04a8c7ffb33c00e6fcec978bbe9aa8fef1a7cc8081`,
+JSON file SHA-256
+`5d9b9a9f284ea9c39084ed7895a84724fbea926d5ebd78b121d72f22bd02cb56`).
+Raw torso measurements were 31.25755/32.09411/31.20601 degrees; fixed 30
+degree canonicalization leaves 1.25755/2.09411/1.20601 degree residuals and
+passes. The implementation and frozen workflow are documented in
+`external/SPEAR/docs/controlled_animal_declared_view_canonicalization_v1.md`.
+
+The matching 20-bone locked-paw diagnostic runtime is
+`external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/animated_100000_double_sided.glb`
+(SHA-256
+`6bfaaae754c2435dbdb7cfd8c6c86c1594932777d1b4ac560134428201773e85`).
+All four lateral-paw ratios are <=0.001051 and terminal yaw excursions are
+below 0.00037 degrees. The user accepted its Walking/Idle media. Keep it a
+`research_candidate`: its strict deformation audit retains isolated stretch
+outlier warnings, and direct binding against the high-resolution motion
+carrier took 5:52 and 16,858,436 KiB peak RSS. Do not claim this diagnostic
+binding run is throughput-optimized or a formal registered asset.

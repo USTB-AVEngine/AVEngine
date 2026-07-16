@@ -4,6 +4,28 @@
 技术方案见
 [generated_quadruped_locked_terminal_motion_workflow.md](/data/jzy/code/AVEngine/docs/generated_quadruped_locked_terminal_motion_workflow.md)。
 
+## 2026-07-16 浅色比格最终接受版
+
+用户已确认当前 20 骨骼锁足结果“还算 OK”，本轮在此版本停止。方向采用固定
+源视角规范化 `30°`，人工头尾翻转 `180°`，绑定总 yaw 为 `-150°`。四只脚的
+横向摆动比例均不超过 `0.001051`，脚掌 yaw 周期摆动均低于 `0.00037°`。
+该结果保留为 `research_candidate`：严格变形审计仍记录少数局部最大拉伸异常，
+不得据视觉接受直接升级为正式注册资产。
+
+| 证据 | 绝对路径 |
+|---|---|
+| 三视频统一页面 | [index.html](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/review_v1/index.html) |
+| Walking 侧面 | [walking_side.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/review_v1/walking_side.mp4) |
+| Walking 正面 | [walking_front.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/review_v1/walking_front.mp4) |
+| Idle 侧面 | [idle_side.mp4](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/review_v1/idle_side.mp4) |
+| 动画 GLB | [animated_100000_double_sided.glb](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/animated_100000_double_sided.glb) |
+| 四脚横摆审计 | [lateral_gait_audit.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/lateral_gait_audit.json) |
+| 严格变形审计 | [deformation_audit.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_locked_paw_skeleton_binding_spike_v1_20260716/review_v1/deformation_audit.json) |
+| 固定视角审核 manifest | [review_manifest.json](/data/jzy/code/AVEngine/external/SPEAR/tmp/controlled_source_asset_execution_v1/dog_beagle_open_tricolor_direction_canary_v3_declared_axis_20260716/review_manifest.json) |
+
+固定视角自动调平、几何残差门禁和人工仅 0°/180° 头尾选择的可重复代码方案见
+[controlled_animal_declared_view_canonicalization_v1.md](/data/jzy/code/AVEngine/external/SPEAR/docs/controlled_animal_declared_view_canonicalization_v1.md)。
+
 ## 2026-07-16 比格四脚内外翻修复（v24，待视觉确认）
 
 旧 v22 动作错误地继承了脚掌末端的世界旋转，造成四只脚在 Walking 周期中
