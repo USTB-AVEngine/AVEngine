@@ -198,6 +198,8 @@ counterfactuals and binaural video mux/readback are M5-01/M5-02 work.
 
 ## M5-01: Timeline builder, validator and fixed-state capture
 
+- Status: bounded `pass`; see `M5_STATUS.md` and `M5_EXECUTION.md`.
+
 - Problem: JSON Schema alone does not enforce cross-field synchronization.
 - Scope: exact PTS/sample boundaries, references, single formal-view pose
   hashes and events.
@@ -212,16 +214,74 @@ counterfactuals and binaural video mux/readback are M5-01/M5-02 work.
 
 ## M5-02: Anti-shortcut counterfactual pair
 
+- Status: bounded `pass`; see `M5_STATUS.md` and `M5_EXECUTION.md`.
+
 - Problem: source attribution needs controlled visual invariance.
-- Scope: swap vocalizing actor while freezing the single formal view and its
-  RGB/depth/semantic visual state.
+- Scope: swap the two declared dry-audio assets between stable named source
+  routes while freezing the single formal view and its RGB/depth/semantic
+  visual state.
 - Non-goals: mouth animation.
 - Dependencies: M5-01.
 - Deliverables: paired episodes, visual hash proof and audio lineage.
 - Acceptance: visuals match exactly and only declared variables differ.
-- Not-run condition: either episode failing an M5 hard gate or failing to reach
-  `canary_qualified` blocks the pair; formal dataset admission remains M6 work.
+- Not-run condition: either episode failing an M5 hard gate blocks the pair;
+  formal dataset admission remains M6 work and is not implied by this pass.
 - Documentation: frozen/changed variable manifest.
+
+## M5.1-01: Legacy Apartment route and point-collision contract
+
+- Status: `pass` for route migration and its zero-radius center-point AABB
+  gate; mixed visual execution remains M5.1-03 work.
+- Problem: an engine comparison is meaningless if camera/path geometry differs
+  or a source center silently enters a wall/furniture obstacle.
+- Scope: hash-bind the old 18-second/270-frame route, transform SSOT positions
+  into Habitat coordinates, preserve camera/FOV, derive a separate safe dog
+  route, and evaluate every human/dog center against migrated obstacle AABBs.
+- Non-goals: claiming full body-volume collision or using the 0.2 m agent
+  navmesh as a substitute for the user-requested center-point gate.
+- Dependencies: M5-01.
+- Deliverables: versioned route manifest, importer, validator and tests.
+- Acceptance: 270 points per actor; exact old human-path hash; zero human/dog
+  center collisions; at least 0.3 m inter-source center separation; deterministic
+  import/readback.
+- Not-run condition: optional navmesh diagnostics remain explicitly non-gating.
+- Documentation: M5.1 status/execution and engine-comparison record.
+
+## M5.1-02: Detailed source, event and flag contract
+
+- Problem: a flat source label or boolean-only flag file cannot explain what
+  sounded, when it sounded, which actor emitted it, or whether a check ran.
+- Scope: human/animal taxonomies, emitter anchors, visual/audio provenance,
+  exact half-open event windows, frame-current event state, and the legacy
+  12-flag domain at per-source, pair and clip scope.
+- Non-goals: dataset taxonomy admission or treating `not_evaluated` as false.
+- Dependencies: M5-01.
+- Deliverables: JSON Schema, semantic/hash validator and human+Beagle example.
+- Acceptance: every event resolves to one source/taxonomy/dry asset; frame
+  states reconstruct exactly; simultaneous windows are explicit; assessments
+  retain scope/status/value/reason/evidence; clip aggregation preserves
+  unknown state.
+- Not-run condition: unavailable geometric/visibility evidence is recorded as
+  `not_evaluated` with its missing dependency.
+- Documentation: source-manifest field guide and example.
+
+## M5.1-03: Mixed human/dog real-room comparison videos
+
+- Problem: the two-Beagle controlled-room canary does not demonstrate mixed
+  source classes, a scanned room, or visual comparison with the old engine.
+- Scope: actual articulated Rocketbox human + Beagle capture in the legacy
+  real-surface Apartment and MP3D; semantic/anchor readback; synchronized
+  right-side Topdown; detailed annotations; two-channel listening video.
+- Non-goals: M6 admission or claiming renderer/lighting/acoustic parity.
+- Dependencies: M5.1-01, M5.1-02.
+- Deliverables: reproducible runner, retained evidence and comparable videos.
+- Acceptance: no static/sliding human substitute; centers pass their declared
+  obstacle gate; the legacy clip uses the frozen 270-frame route/camera; MP3D
+  runs on the real scan; source/event metadata matches the overlay and audio;
+  output frame/audio properties read back.
+- Not-run condition: an unavailable third-party room or native acoustic asset
+  is an explicit research blocker and cannot be replaced silently.
+- Documentation: M5.1 status, exact paths and comparison limitations.
 
 ## M6-01: Registry, QA aggregator and CLI
 

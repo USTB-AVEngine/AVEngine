@@ -58,9 +58,18 @@ stems plus their canary mixtures, freezes raw RLR FOA as ACN/N3D
 and tests caller-order invariance, native endpoint receipts, reset/temporal
 behavior and source-count performance. Its formal bounded gate result is
 `pass` with 10/10 declared and 14/14 independently recomputed checks; see
-[`M4_STATUS.md`](docs/roadmap/M4_STATUS.md). M4 emits
-WAV evidence only. Exact episode timing, counterfactual assembly and binaural
-video mux/readback remain M5 work.
+[`M4_STATUS.md`](docs/roadmap/M4_STATUS.md). M4 emits WAV evidence only.
+
+The bounded **M5 exact-timeline/counterfactual canary** is also `pass`. It
+executes dynamic articulated muzzle anchors through the same named FOA and
+binaural trajectories, assembles exact 75-frame/80,000-sample episodes, keeps
+both sources active in six simultaneous windows, and proves that A/B visual
+packet payloads are byte-identical while only the declared dry-audio routing
+is swapped. Both formal and right-side Topdown listening videos pass mux and
+readback checks. The retained result passed 9/9 declared checks and 12/12
+independent verification groups; see
+[`M5_STATUS.md`](docs/roadmap/M5_STATUS.md). This is a bounded research canary,
+not dataset admission; `qualification_claim` remains false.
 
 ## Repository boundary
 
@@ -108,14 +117,18 @@ Read these records in order:
 11. [`docs/roadmap/M4_STATUS.md`](docs/roadmap/M4_STATUS.md) and
     [`docs/roadmap/M4_EXECUTION.md`](docs/roadmap/M4_EXECUTION.md) — M4's named
     endpoint, FOA/binaural, HRTF, lifecycle and evidence boundary.
-12. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+12. [`docs/roadmap/M5_STATUS.md`](docs/roadmap/M5_STATUS.md) and
+    [`docs/roadmap/M5_EXECUTION.md`](docs/roadmap/M5_EXECUTION.md) — exact
+    timeline, dynamic audio, counterfactual invariance and video readback.
+13. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
    — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
 [`schemas/avengine_timeline_v2.schema.json`](schemas/avengine_timeline_v2.schema.json).
 It fixes a five-second episode at 48 kHz ticks, 15 fps/75 frames, and 16 kHz/
-80,000 audio samples. A semantic validator will be implemented in M5; schema
-presence alone is not proof that a generated episode is synchronized.
+80,000 audio samples. M5 now supplies the semantic validator, exact builder
+and independent readback; schema presence alone is still not proof that an
+arbitrary generated episode is synchronized.
 
 ## Milestones
 
@@ -128,7 +141,8 @@ presence alone is not proof that a generated episode is synchronized.
 | M3 | explicit acoustic scene and synthetic material-activation canary (`pass`) |
 | M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
-| M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback |
+| M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
+| M5.1 | mixed human/dog real-room and legacy 18-second comparison, detailed source/event/flag metadata (research extension in progress) |
 | M6 | registry/QA/CLI and admitted dataset canary |
 | M7 | benchmark, ablations, paper and release audit |
 
@@ -334,15 +348,28 @@ inside the exact RLR binary pinned by the M4 runtime lock. AVEngine performs no
 implicit resampling.
 
 These are full-tail canary WAVs, not final five-second episode audio. M4 does
-not put FOA into MP4 and does not mux a review video. M5 owns exact 80,000-sample
-timeline assembly, counterfactual pairing, tail/crop policy and two-channel
-binaural video mux/readback. Reproduce M4 with
+not put FOA into MP4 and does not mux a review video. M5 now owns and has
+executed exact 80,000-sample timeline assembly, counterfactual pairing,
+tail/crop policy and two-channel binaural video mux/readback. Reproduce M4 with
 [`M4_EXECUTION.md`](docs/roadmap/M4_EXECUTION.md).
 
 The checked-in M4 identity fixture binds each source to a formal M1 source pose.
 Its event-time M2 dynamic-anchor evidence remains explicitly `not_run`.
 Consequently, even a formal M4 pass is only a bounded software/source-pose
 canary: it does not admit an animal asset, acoustic room, episode or dataset.
+
+M5 retains every source's exact four-channel FOA and two-channel binaural WAV
+stem plus the canonical mixtures. The ordinary MP4 contains only the
+two-channel binaural listening copy; FOA remains an independent WAV because
+generic MP4 players do not reliably preserve its order and normalization
+metadata. The M5 request is authoritative for actor/source identity, semantic
+IDs, emitter links, dry clip, fade, gain and simultaneous event windows.
+Episode A/B share the same 75 visual packets and differ only by the declared
+dry-audio route swap. Independent verification reconstructs the dry buses,
+dynamic convolution stems and mixtures from retained inputs/RIR arrays and
+also verifies video packet identity. See
+[`M5_STATUS.md`](docs/roadmap/M5_STATUS.md) and reproduce it with
+[`M5_EXECUTION.md`](docs/roadmap/M5_EXECUTION.md).
 
 Timeline v2 keeps its plural `view_ids` field for future extensibility, but the
 M1, M2 and M5 canaries and the initial M6 MVP require exactly `["view0"]`.

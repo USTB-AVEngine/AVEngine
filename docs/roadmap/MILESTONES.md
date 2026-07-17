@@ -215,13 +215,42 @@ and two-channel binaural video mux/readback.
 
 ## M5: Timeline and Counterfactual Episode
 
+Status: bounded research-canary gate `pass`. The retained clean-worktree run
+passed 9/9 declared checks and 12/12 independent readback/reconstruction
+groups. See [M5_STATUS.md](M5_STATUS.md) and
+[M5_EXECUTION.md](M5_EXECUTION.md). `qualification_claim` is false and dataset
+admission remains M6 work.
+
 Deliverables: timeline builder/semantic validator, deterministic fixed-state
-capture, exact frame/sample assembly and vocalizing-actor swap pair.
+capture, dynamic named-source FOA/binaural rendering, exact frame/sample
+assembly, declared dry-audio route-swap pair, and formal/Topdown listening
+videos.
 
 Exit criteria: 75 frames, 80,000 samples and 240,000 ticks read back exactly;
 `video.view_ids` is exactly `["view0"]`; the counterfactual pair has identical
 RGB/depth/semantic hashes from that view; only declared audio/source variables
-change; no mouth motion is present.
+change; no mouth motion is present. These criteria passed for the fixed
+two-Beagle controlled-room M5 canary. They do not admit its assets, room,
+audio, HRTF, episode, or dataset sample.
+
+### M5.1: Mixed Real-Room and Legacy Comparison
+
+Status: implementation in progress. This is a post-M5 research comparison,
+not a change to immutable Timeline v2 and not a new admission gate.
+
+Deliverables: one animated human and one animated dog; migrated 18-second,
+270-frame legacy Apartment route/camera; a zero-radius center-point obstacle
+gate; a real scanned-room review; synchronized main-view + right-side Topdown
+media; and detailed per-source taxonomy, provenance, event windows,
+per-source/pair/clip flags, and frame-current event state.
+
+Exit criteria: the old route and coordinate transform are hash-bound; both
+actor centers avoid every declared gate obstacle on every frame; human/dog
+semantic identities and mouth/muzzle anchors read back; the legacy comparison
+video uses the same camera/path duration as the old AVEngine reference; the
+real-room canary executes without center-point penetration; source/event/flag
+JSON validates and reconstructs every per-frame active event; and all review
+media is explicitly QA/research-only.
 
 ## M6: Dataset MVP
 
