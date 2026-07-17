@@ -53,6 +53,8 @@ from avengine.m4.contracts import (
     validate_audio_bundle,
 )
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
+from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
+from avengine.m5.timeline import validate_episode_request
 
 
 EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
@@ -631,6 +633,75 @@ def _m4_verify_bundle(args: argparse.Namespace) -> int:
     return 0 if not errors else 1
 
 
+def _m5_validate_request(args: argparse.Namespace) -> int:
+    try:
+        request = load_json(args.request)
+        errors = validate_episode_request(request)
+    except (OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "pass" if not errors else "fail",
+            "request": str(Path(args.request).resolve()),
+            "request_id": request.get("request_id"),
+            "simultaneous_source_count": len(request.get("sources", [])),
+            "formal_view_ids": request.get("timeline_profile", {})
+            .get("video", {})
+            .get("view_ids"),
+            "errors": errors,
+        }
+    )
+    return 0 if not errors else 2
+
+
+def _m5_run_canary(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        evidence = run_m5_canary(
+            request_path=args.request,
+            animal_manifest_path=args.animal_manifest,
+            m2_request_path=args.m2_request,
+            room_manifest_path=args.room_manifest,
+            m1_request_path=args.m1_request,
+            acoustic_package_manifest_path=args.acoustic_package_manifest,
+            m4_request_path=args.m4_request,
+            output_directory=output,
+            runtime_root=args.runtime_root,
+            hrtf_path=args.hrtf,
+            hrtf_license_path=args.hrtf_license,
+            beagle_dry_path=args.beagle_dry,
+            golden_dry_path=args.golden_dry,
+        )
+        status, checks = verify_m5_canary_evidence(evidence)
+    except RuntimeUnavailableError as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (M5CanaryError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": status,
+            "canary_evidence": str(evidence),
+            "failed_checks": [
+                check for check in checks if check.get("status") != "pass"
+            ],
+        }
+    )
+    return 0 if status == "pass" else 1
+
+
+def _m5_verify_canary(args: argparse.Namespace) -> int:
+    try:
+        status, checks = verify_m5_canary_evidence(args.evidence)
+    except (OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": status, "checks": checks})
+    return 0 if status == "pass" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -774,6 +845,39 @@ def build_parser() -> argparse.ArgumentParser:
     m4_bundle = m4_commands.add_parser("verify-bundle")
     m4_bundle.add_argument("bundle")
     m4_bundle.set_defaults(handler=_m4_verify_bundle)
+
+    m5 = commands.add_parser(
+        "m5", help="M5 exact-timeline dynamic counterfactual commands"
+    )
+    m5_commands = m5.add_subparsers(dest="m5_command", required=True)
+
+    m5_validate = m5_commands.add_parser("validate-request")
+    m5_validate.add_argument("request")
+    m5_validate.set_defaults(handler=_m5_validate_request)
+
+    m5_run = m5_commands.add_parser("run-canary")
+    m5_run.add_argument("--request", required=True)
+    m5_run.add_argument("--animal-manifest", required=True)
+    m5_run.add_argument("--m2-request", required=True)
+    m5_run.add_argument("--room-manifest", required=True)
+    m5_run.add_argument("--m1-request", required=True)
+    m5_run.add_argument("--acoustic-package-manifest", required=True)
+    m5_run.add_argument("--m4-request", required=True)
+    m5_run.add_argument("--runtime-root")
+    m5_run.add_argument(
+        "--hrtf", default="/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
+    )
+    m5_run.add_argument(
+        "--hrtf-license", default="/usr/share/doc/libmysofa1/copyright"
+    )
+    m5_run.add_argument("--beagle-dry", required=True)
+    m5_run.add_argument("--golden-dry", required=True)
+    m5_run.add_argument("--output", required=True)
+    m5_run.set_defaults(handler=_m5_run_canary)
+
+    m5_verify = m5_commands.add_parser("verify-canary")
+    m5_verify.add_argument("evidence")
+    m5_verify.set_defaults(handler=_m5_verify_canary)
 
     appearance = commands.add_parser(
         "appearance", help="Animal appearance contract/design commands"

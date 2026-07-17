@@ -1,0 +1,132 @@
+{
+  "schema": "avengine_m5_episode_request_v1",
+  "request_id": "m5_blender_custom_two_dog_simultaneous_v1",
+  "counterfactual_pair_id": "m5_blender_custom_two_dog_dry_route_swap_v1",
+  "qualification_claim": false,
+  "seed": 17,
+  "timeline_profile": {
+    "time_base_hz": 48000,
+    "duration_ticks": 240000,
+    "video": {
+      "fps_num": 15,
+      "fps_den": 1,
+      "frame_count": 75,
+      "ticks_per_frame": 3200,
+      "view_ids": ["view0"]
+    },
+    "audio": {
+      "sample_rate_hz": 16000,
+      "sample_count": 80000,
+      "ticks_per_sample": 3,
+      "authority": {
+        "format_id": "rlr_foa_acn_n3d_world_v1",
+        "ambisonic_order": 1,
+        "channel_count": 4,
+        "raw_channel_order": ["W", "Y", "Z", "X"],
+        "acn_indices": [0, 1, 2, 3],
+        "normalization": "N3D",
+        "coordinate_frame": "avengine_world",
+        "handedness": "right",
+        "axes": {
+          "right": "+X",
+          "up": "+Y",
+          "back": "+Z",
+          "forward": "-Z"
+        },
+        "raw_array_layout": "channel_major_[channels,samples]",
+        "dtype": "float32_le"
+      }
+    }
+  },
+  "visual_vocal_articulation": {
+    "mode": "disabled_for_shortcut_control",
+    "mouth_motion_present": false
+  },
+  "listener": {
+    "listener_id": "listener0",
+    "camera_rig_id": "camera_rig_0",
+    "view_id": "view0"
+  },
+  "actors": [
+    {
+      "actor_id": "actor0",
+      "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "template_id": "rocketbox_dog_beagle_01",
+      "body_plan_id": "quadruped_mammal_canid_v1",
+      "mesh_sha256": "788a667537f7660bac5e128c38c2182453d1d4a9a4f8380343e7a9fa1947538c"
+    },
+    {
+      "actor_id": "actor1",
+      "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "template_id": "rocketbox_dog_beagle_01",
+      "body_plan_id": "quadruped_mammal_canid_v1",
+      "mesh_sha256": "788a667537f7660bac5e128c38c2182453d1d4a9a4f8380343e7a9fa1947538c"
+    }
+  ],
+  "sources": [
+    {
+      "source_id": "source0",
+      "actor_id": "actor0",
+      "semantic_anchor_id": "muzzle",
+      "emitter_bone": "beagle Xtra Mouth",
+      "emitter_path_sha256": "9d95699b1976fef9250c62635fc45fb801ae27a84ab80685dd189d3acf2c47d6"
+    },
+    {
+      "source_id": "source1",
+      "actor_id": "actor1",
+      "semantic_anchor_id": "muzzle",
+      "emitter_bone": "beagle Xtra Mouth",
+      "emitter_path_sha256": "f5ca94cdaf009d3f137f25166f9295ef0c7f940d7d9c377260d0351bec40daee"
+    }
+  ],
+  "events": [
+    {
+      "event_id": "vocal_program_actor0",
+      "actor_id": "actor0",
+      "source_id": "source0",
+      "event_type": "vocalization",
+      "start_sample": 6400,
+      "end_sample": 75200,
+      "emitter_bone": "beagle Xtra Mouth",
+      "emitter_path_sha256": "9d95699b1976fef9250c62635fc45fb801ae27a84ab80685dd189d3acf2c47d6",
+      "dry_audio_asset_sha256": "12d9b3a2c9cd81852ddeb76d1abeef41ef623868b6731ff91ed511d474d2c634",
+      "semantic_sync_required": true
+    },
+    {
+      "event_id": "vocal_program_actor1",
+      "actor_id": "actor1",
+      "source_id": "source1",
+      "event_type": "vocalization",
+      "start_sample": 6400,
+      "end_sample": 75200,
+      "emitter_bone": "beagle Xtra Mouth",
+      "emitter_path_sha256": "f5ca94cdaf009d3f137f25166f9295ef0c7f940d7d9c377260d0351bec40daee",
+      "dry_audio_asset_sha256": "055d024dcf4089ea96654d2c2532cc320c91554130a4ced9dca868d524d8d23c",
+      "semantic_sync_required": true
+    }
+  ],
+  "counterfactual": {
+    "operation": "swap_dry_audio_source_routing",
+    "variants": ["A", "B"],
+    "frozen_fields": [
+      "timeline.video",
+      "timeline.actors",
+      "timeline.frames",
+      "timeline.audio_events_except_audio_asset_sha256",
+      "visual_vocal_articulation",
+      "listener",
+      "actor_source_event_ids"
+    ],
+    "allowed_changed_fields": [
+      "request.events[*].dry_audio_asset_sha256",
+      "timeline.audio_events[*].audio_asset_sha256",
+      "dynamic_audio_render_manifest.source_routes[*].dry_audio_asset_sha256"
+    ],
+    "derived_changed_fields": [
+      "request.request_content_sha256",
+      "dynamic_audio_render_manifest.timeline_content_sha256",
+      "dynamic_audio_render_manifest.manifest_content_sha256"
+    ]
+  },
+  "request_content_sha256": "a3f07bec54dba5400adfc7d5ae41abcef929cbbb9bcc65bfdf7ab6a30121ff7e"
+}
