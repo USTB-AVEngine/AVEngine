@@ -1,0 +1,74 @@
+{
+  "schema": "avengine_m3_acoustic_material_database_v1",
+  "database_id": "m3_controlled_high_absorption_v1",
+  "version": "1",
+  "bands_hz": [125.0, 500.0, 2000.0, 8000.0],
+  "coefficient_units": {
+    "absorption": "fraction_of_incident_sound_pressure",
+    "scattering": "fraction_of_incident_sound_pressure",
+    "transmission": "fraction_of_incident_sound_pressure",
+    "damping": "decibels_per_meter",
+    "density": "kilograms_per_cubic_meter",
+    "speed": "meters_per_second"
+  },
+  "provenance": {
+    "source": "AVEngine M3 controlled 0.02/0.60 absorption activation pair; synthetic values selected to retain a genuine 0 to -10 dB Schroeder EDT interval, not a physical-material claim",
+    "confidence": 1.0,
+    "material_semantics": "controlled_canary",
+    "intended_use": "controlled_material_activation_canary"
+  },
+  "materials": [
+    {
+      "material_key": "floor_extreme_c91f",
+      "name": "AVEngine controlled canary floor c91f",
+      "labels": ["avm3_floor_warmgray_c91f"],
+      "absorption": [0.6, 0.6, 0.6, 0.6],
+      "scattering": [0.01, 0.01, 0.01, 0.01],
+      "transmission": [0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Controlled synthetic 0.02/0.60 absorption activation pair; condition is encoded by database_id and coefficients",
+      "confidence": 1.0
+    },
+    {
+      "material_key": "wall_extreme_d42a",
+      "name": "AVEngine controlled canary wall d42a",
+      "labels": ["avm3_wall_softblue_d42a"],
+      "absorption": [0.6, 0.6, 0.6, 0.6],
+      "scattering": [0.01, 0.01, 0.01, 0.01],
+      "transmission": [0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Controlled synthetic 0.02/0.60 absorption activation pair; condition is encoded by database_id and coefficients",
+      "confidence": 1.0
+    },
+    {
+      "material_key": "ceiling_extreme_e73b",
+      "name": "AVEngine controlled canary ceiling e73b",
+      "labels": ["avm3_ceiling_offwhite_e73b"],
+      "absorption": [0.6, 0.6, 0.6, 0.6],
+      "scattering": [0.01, 0.01, 0.01, 0.01],
+      "transmission": [0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Controlled synthetic 0.02/0.60 absorption activation pair; condition is encoded by database_id and coefficients",
+      "confidence": 1.0
+    },
+    {
+      "material_key": "doorframe_extreme_f84c",
+      "name": "AVEngine controlled canary door frame f84c",
+      "labels": ["avm3_doorframe_accent_f84c"],
+      "absorption": [0.6, 0.6, 0.6, 0.6],
+      "scattering": [0.01, 0.01, 0.01, 0.01],
+      "transmission": [0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Controlled synthetic 0.02/0.60 absorption activation pair; condition is encoded by database_id and coefficients",
+      "confidence": 1.0
+    }
+  ]
+}

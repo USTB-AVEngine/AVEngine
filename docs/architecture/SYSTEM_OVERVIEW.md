@@ -1,11 +1,11 @@
 # AVEngine System Overview
 
 Status: M1 visual/room executable baseline and the bounded M2 articulated-dog
-research canary have passed. Automatic QA, user visual acceptance and
-world-contact/root-cadence acceptance form one `canary_qualified` package;
-that exact package subsequently completed a clean 75-state Habitat capture.
-Formal dataset registration, acoustic propagation and end-to-end dataset
-claims remain later gates.
+research canary have passed. The M3 explicit acoustic-scene/material
+implementation is present on its feature branch, but its overall gate remains
+`not_run` pending the final clean, lock-bound native canary and independent
+verification. Formal multi-source propagation semantics, dataset registration
+and end-to-end dataset claims remain later gates.
 
 ## Purpose
 
@@ -35,9 +35,9 @@ runtime fallback; see [MOTION_RETARGETING.md](MOTION_RETARGETING.md).
 | Capability | Owner | AVEngine claim |
 |---|---|---|
 | Scene graph, GLB loading, PBR rendering, sensors, physics, navigation and articulated-object foundations | Habitat-Sim | Reused |
-| Geometric acoustic propagation and modern multi-source/listener C API | RLR / SoundSpaces 2.0 | Reused |
-| Deterministic non-human pose playback and explicit acoustic package ingestion | Habitat runtime fork | Runtime extension |
-| Single-view same-state multimodal capture profiles, audited animal/room compilation, source identity, authoritative timeline, counterfactuals, QA, provenance and registry | AVEngine main repository | System contribution over stable Habitat APIs |
+| Geometric acoustic propagation and modern multi-source/listener C API | RLR / SoundSpaces 2.0 | Reused algorithm/API |
+| Deterministic non-human pose playback, strict RLR context lifecycle and explicit acoustic package ingestion/readback | Habitat runtime fork | Runtime extension; not a new propagation solver |
+| Single-view same-state multimodal capture profiles, audited animal/room/acoustic compilation, source identity, authoritative timeline, counterfactuals, QA, provenance and registry | AVEngine main repository | System contribution over stable Habitat/RLR APIs |
 
 ## Initial scientific scope
 
@@ -74,8 +74,34 @@ objects and lighting. All three room canaries explicitly load their
 of that file by full settings and vertex/index fingerprints.
 
 The co-located M1 listener is only a pose anchor. M1 does not instantiate an
-AudioSensor or execute RLR; pair-specific named multi-source/listener acoustic
-propagation begins at M4.
+AudioSensor or execute RLR. M3 later uses one controlled source/listener pair
+only to prove explicit scene ingestion and synthetic material activation;
+pair-specific named multi-source/listener semantics remain the M4 gate.
+
+## M3 acoustic boundary
+
+M3 compiles a source room, reviewed canonical transform, exact visual-slot to
+acoustic-category mapping and versioned material database into canonical
+surface arrays and an RLR database. Source replay must independently reproduce
+the emitted geometry, object partitions, per-triangle material IDs and
+resolved materials. Production geometry cannot be an AABB proxy and every
+triangle must be assigned without fallback.
+
+RLR supplies ray tracing and impulse-response synthesis. The Habitat fork
+provides a strict modern context/ingestion adapter and native readback;
+AVEngine provides the explicit compiler, adapter inputs and evidence verifier.
+See [ACOUSTIC_SCENE_AND_MATERIALS.md](ACOUSTIC_SCENE_AND_MATERIALS.md).
+
+The controlled custom-room low/high databases are synthetic absorption
+extremes. They test whether material selection changes RLR output repeatably;
+they do not claim reviewed physical room coefficients. MP3D and UE visual-slot
+proposals remain unqualified `research_candidate` diagnostics.
+
+Native ingestion evidence combines exact API receipts, resolved material
+blocks and post-ingestion OBJ geometry readback. The OBJ cannot expose a
+recoverable per-face material-ID array, so it never replaces source-to-package
+material replay. Named multi-source all-pair IRs, stems, order invariance,
+reset/temporal policy and performance remain M4 work.
 
 ## Versioned contracts
 

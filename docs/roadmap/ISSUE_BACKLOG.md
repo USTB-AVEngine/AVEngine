@@ -106,28 +106,52 @@ state only when the issue records the missing environment or prerequisite.
 
 ## M3-01: Acoustic Scene Package compiler and ingestion
 
+- Status: implementation present; final lock-bound native evidence remains
+  `not_run`. See `M3_STATUS.md` and `M3_EXECUTION.md`.
 - Problem: legacy AABB/implicit material paths cannot prove acoustic parity.
-- Scope: explicit geometry/material package and modern RLR upload path.
+- Scope: explicit geometry/material package, strict source replay, modern RLR
+  upload path, exact API receipts and post-ingestion geometry readback.
 - Non-goals: dynamic body acoustics.
 - Dependencies: M1-01.
-- Deliverables: schema, compiler, loader and debug mesh export.
-- Acceptance: triangle/material hashes and coverage match after ingestion.
+- Deliverables: schemas, compiler, loader, provenance snapshots, debug mesh,
+  modern runtime adapter and independent verifier.
+- Acceptance: source GLB/mapping/database replay reproduces arrays, object
+  partitions and resolved materials; every triangle is assigned without
+  fallback; API receipts match object IDs/counts and per-material triangle
+  counts; native geometry readback matches the canonical package.
 - Not-run condition: RLR build unavailable is separated from compiler tests.
-- Documentation: package format and mapping confidence policy.
+- Documentation: package format, material semantics, mapping confidence and
+  ingestion evidence policy.
+
+The post-ingestion OBJ has no recoverable per-face material-ID array. It closes
+geometry and resolved material blocks only; per-triangle identity is closed by
+the hash-bound source replay and exact upload receipts. RLR remains the reused
+propagation algorithm, while AVEngine owns explicit compilation and evidence.
 
 ## M3-02: Geometry leakage and material activation canary
 
+- Status: implementation present; final clean native replay and independent
+  verifier remain `not_run`.
 - Problem: successful upload does not prove geometry or material effects.
 - Scope: ray leakage, openings and high/low absorption comparison.
 - Non-goals: perceptual room-quality benchmark.
 - Dependencies: M3-01.
 - Deliverables: metrics, artifacts and repeatability report.
-- Acceptance: no unintended default material and effect exceeds run variance.
+- Acceptance: no unintended default material; CPU/native opening and control
+  rays agree; direct arrival passes; synthetic high/low EDT, DRR and
+  late-energy effects have the declared direction and exceed run variance.
 - Not-run condition: acoustic runtime unavailable is `blocked`, not `pass`.
 - Documentation: thresholds and canary commands.
 
+The controlled custom-room coefficients are deliberate synthetic extremes for
+activation testing, not physical material truth. MP3D and UE visual-slot
+proposals remain `research_candidate` diagnostics and cannot satisfy this
+formal controlled gate or room admission.
+
 ## M4-01: Modern RLR multi-source adapter
 
+- Status: `not_run`; M3 may provide context-lifecycle and single-pair
+  groundwork, but named multi-source completion remains this issue.
 - Problem: current Habitat AudioSensor uses the deprecated single-source wrapper.
 - Scope: context lifecycle, named source/listener updates and per-pair IR access.
 - Non-goals: a new propagation algorithm.

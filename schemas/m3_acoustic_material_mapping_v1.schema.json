@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m3_acoustic_material_mapping_v1.schema.json",
+  "title": "AVEngine M3 Acoustic Material Mapping v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mapping_id",
+    "room_id",
+    "mapping_source_kind",
+    "source_to_canonical",
+    "entries"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m3_acoustic_material_mapping_v1"},
+    "mapping_id": {"type": "string", "minLength": 1},
+    "room_id": {"type": "string", "minLength": 1},
+    "mapping_source_kind": {
+      "enum": [
+        "explicit_author_slot",
+        "visual_material_slot_proposal",
+        "semantic_proposal",
+        "ue_material_mapping"
+      ]
+    },
+    "source_to_canonical": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["matrix_row_major", "source", "reviewed"],
+      "properties": {
+        "matrix_row_major": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {"type": "number"}
+        },
+        "source": {"type": "string", "minLength": 1},
+        "reviewed": {"type": "boolean"}
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_material_name",
+          "material_id",
+          "category_name",
+          "material_key",
+          "mapping_source",
+          "mapping_confidence",
+          "human_override",
+          "randomized",
+          "fallback"
+        ],
+        "properties": {
+          "source_material_name": {"type": "string", "minLength": 1},
+          "material_id": {"type": "integer", "minimum": 0},
+          "category_name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{7,63}$"
+          },
+          "material_key": {"type": "string", "minLength": 1},
+          "mapping_source": {"type": "string", "minLength": 1},
+          "mapping_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "human_override": {"type": "boolean"},
+          "randomized": {"type": "boolean"},
+          "fallback": {"const": false}
+        }
+      }
+    }
+  }
+}

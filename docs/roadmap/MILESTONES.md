@@ -116,14 +116,40 @@ replaces the terrestrial four-paw/muzzle assumptions.
 
 ## M3: Acoustic Scene and Materials
 
-Deliverables: Acoustic Scene Package schema/compiler, explicit adapter
-ingestion, material coverage, exported debug mesh and extreme-material canary.
+Status: implementation present on the M3 feature branch; final clean,
+lock-bound native canary and independent verification remain `not_run`. See
+[M3_STATUS.md](M3_STATUS.md), [M3_EXECUTION.md](M3_EXECUTION.md) and
+[ACOUSTIC_SCENE_AND_MATERIALS.md](../architecture/ACOUSTIC_SCENE_AND_MATERIALS.md).
+
+Deliverables: Acoustic Scene Package schema/compiler, exact source-slot to
+per-triangle material mapping, modern explicit RLR adapter ingestion, material
+coverage, source replay, exact API receipts, post-ingestion debug geometry and
+a controlled extreme-material canary.
+
+RLR supplies the geometric propagation algorithm. AVEngine does not claim a
+new solver; it supplies explicit, hash-bound compilation/adapter inputs and
+independently verified evidence around the reused algorithm.
+
+The controlled custom-room high/low pair is a synthetic material-activation
+test. `package_mode: production` invokes the strict compiler path, but
+`material_semantics: controlled_canary` and
+`qualification_claim: synthetic_activation_test_only` prohibit treating its
+coefficients as physical room-material truth. MP3D and UE visual-slot mappings
+remain `research_candidate` proposals without physical qualification or
+admission.
 
 Exit criteria: every production triangle is assigned; no unintended fallback
-is used; openings/geometry survive; absorption extremes create a repeatable
-RIR/EDT/DRR difference; production uses no AABB room proxy.
+is used; openings/geometry survive; production uses no AABB room proxy; exact
+source replay and native ingestion receipts match; and absorption extremes
+create a repeatable RIR/EDT/DRR/late-energy difference beyond run variance.
+The post-ingestion OBJ closes geometry and resolved material blocks but cannot
+by itself prove per-face material IDs, so the gate also requires exact API
+receipts and source-to-package material replay.
 
 ## M4: Multi-Source RLR
+
+Status: `not_run`. M3's single-pair material canary and any named-context API
+groundwork do not complete this gate.
 
 Deliverables: modern RLR C API adapter, named sources/listeners with exactly
 one listener in the MVP profile, per-pair IRs, independent stems,

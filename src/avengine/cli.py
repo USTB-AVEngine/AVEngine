@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 import subprocess
@@ -28,6 +29,19 @@ from avengine.m1.evidence import (
     verify_evidence_artifacts,
 )
 from avengine.m1.habitat_capture import build_navmesh, capture_m1
+from avengine.m3.canary import (
+    load_and_verify_canary_evidence,
+    run_material_activation_canary,
+)
+from avengine.m3.compiler import (
+    AcousticSceneCompileError,
+    compile_canary_request,
+    compile_custom_acoustic_scene,
+    compile_explicit_glb_research_scene,
+    propose_visual_slot_research_materials,
+)
+from avengine.m3.contracts import validate_package
+from avengine.m3.evidence import verify_compile_evidence
 
 
 EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
@@ -287,6 +301,161 @@ def _build_appearance_l9(args: argparse.Namespace) -> int:
     return 0
 
 
+def _m3_validate_package(args: argparse.Namespace) -> int:
+    errors = validate_package(args.manifest)
+    result = {
+        "status": "pass" if not errors else "fail",
+        "manifest": str(Path(args.manifest).resolve()),
+        "errors": errors,
+    }
+    _print(result)
+    return 0 if not errors else 2
+
+
+def _m3_compile_custom(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        manifest = compile_custom_acoustic_scene(
+            room_manifest=args.room,
+            material_mapping=args.mapping,
+            material_database=args.materials,
+            output=output,
+            package_id=args.package_id,
+        )
+    except (AcousticSceneCompileError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": "pass", "manifest": str(manifest)})
+    return 0
+
+
+def _m3_compile_canary(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        evidence = compile_canary_request(args.request, output)
+    except (AcousticSceneCompileError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": "pass", "compile_evidence": str(evidence)})
+    return 0
+
+
+def _m3_verify_compile(args: argparse.Namespace) -> int:
+    try:
+        status, checks = verify_compile_evidence(args.evidence)
+    except (OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": status, "checks": checks})
+    return 0 if status == "pass" else 1
+
+
+def _m3_run_canary(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        evidence_path = run_material_activation_canary(
+            args.request,
+            args.compile_evidence,
+            output,
+        )
+        result = load_and_verify_canary_evidence(evidence_path)
+        if result.errors:
+            _print(
+                {
+                    "status": "fail",
+                    "canary_evidence": str(evidence_path),
+                    "errors": list(result.errors),
+                }
+            )
+            return 2
+        status = result.evidence["overall_status"]
+    except (OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": status, "canary_evidence": str(evidence_path)})
+    return EXIT_BY_STATUS[status]
+
+
+def _m3_verify_canary(args: argparse.Namespace) -> int:
+    try:
+        result = load_and_verify_canary_evidence(args.evidence)
+    except (OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    errors = list(result.errors)
+    declared_status = result.evidence.get("overall_status", "fail")
+    verification_status = "pass" if not errors else "fail"
+    _print(
+        {
+            "status": declared_status if not errors else "fail",
+            "verification_status": verification_status,
+            "declared_status": declared_status,
+            "errors": errors,
+        }
+    )
+    if errors:
+        return 2
+    return EXIT_BY_STATUS.get(str(declared_status), 2)
+
+
+def _m3_environment(runtime_root: str | None) -> dict[str, str]:
+    environment = dict(os.environ)
+    if runtime_root is not None:
+        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(
+            Path(runtime_root).resolve()
+        )
+    return environment
+
+
+def _m3_propose_visual_slots(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        mapping, materials, report = propose_visual_slot_research_materials(
+            room_manifest=args.room,
+            output=output,
+            transform_profile=args.transform_profile,
+            transform_reviewed=args.confirm_reviewed_transform,
+            environment=_m3_environment(args.runtime_root),
+        )
+    except (AcousticSceneCompileError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "research_candidate",
+            "mapping": str(mapping),
+            "materials": str(materials),
+            "proposal_report": str(report),
+            "qualification_claim": False,
+        }
+    )
+    return 0
+
+
+def _m3_compile_research(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        manifest = compile_explicit_glb_research_scene(
+            room_manifest=args.room,
+            material_mapping=args.mapping,
+            material_database=args.materials,
+            output=output,
+            package_id=args.package_id,
+            environment=_m3_environment(args.runtime_root),
+        )
+    except (AcousticSceneCompileError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "research_candidate",
+            "manifest": str(manifest),
+            "qualification_claim": False,
+        }
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -329,6 +498,65 @@ def build_parser() -> argparse.ArgumentParser:
     aggregate.add_argument("evidence", nargs="+")
     aggregate.add_argument("--output")
     aggregate.set_defaults(handler=_aggregate)
+
+    m3 = commands.add_parser("m3", help="M3 explicit acoustic-scene commands")
+    m3_commands = m3.add_subparsers(dest="m3_command", required=True)
+
+    m3_validate = m3_commands.add_parser("validate-package")
+    m3_validate.add_argument("manifest")
+    m3_validate.set_defaults(handler=_m3_validate_package)
+
+    m3_compile = m3_commands.add_parser("compile-custom")
+    m3_compile.add_argument("--room", required=True)
+    m3_compile.add_argument("--mapping", required=True)
+    m3_compile.add_argument("--materials", required=True)
+    m3_compile.add_argument("--output", required=True)
+    m3_compile.add_argument("--package-id")
+    m3_compile.set_defaults(handler=_m3_compile_custom)
+
+    m3_canary = m3_commands.add_parser("compile-canary")
+    m3_canary.add_argument("--request", required=True)
+    m3_canary.add_argument("--output", required=True)
+    m3_canary.set_defaults(handler=_m3_compile_canary)
+
+    m3_verify = m3_commands.add_parser("verify-compile")
+    m3_verify.add_argument("evidence")
+    m3_verify.set_defaults(handler=_m3_verify_compile)
+
+    m3_run_canary = m3_commands.add_parser("run-canary")
+    m3_run_canary.add_argument("--request", required=True)
+    m3_run_canary.add_argument("--compile-evidence", required=True)
+    m3_run_canary.add_argument("--output", required=True)
+    m3_run_canary.set_defaults(handler=_m3_run_canary)
+
+    m3_verify_canary = m3_commands.add_parser("verify-canary")
+    m3_verify_canary.add_argument("evidence")
+    m3_verify_canary.set_defaults(handler=_m3_verify_canary)
+
+    m3_propose = m3_commands.add_parser("propose-visual-slots")
+    m3_propose.add_argument("--room", required=True)
+    m3_propose.add_argument(
+        "--transform-profile",
+        required=True,
+        choices=["identity_y_up", "mp3d_z_up_y_front_to_habitat"],
+    )
+    m3_propose.add_argument("--runtime-root")
+    m3_propose.add_argument(
+        "--confirm-reviewed-transform",
+        action="store_true",
+        help="Record that the selected source-to-canonical transform was reviewed for this exact room",
+    )
+    m3_propose.add_argument("--output", required=True)
+    m3_propose.set_defaults(handler=_m3_propose_visual_slots)
+
+    m3_research = m3_commands.add_parser("compile-explicit-research")
+    m3_research.add_argument("--room", required=True)
+    m3_research.add_argument("--mapping", required=True)
+    m3_research.add_argument("--materials", required=True)
+    m3_research.add_argument("--runtime-root")
+    m3_research.add_argument("--output", required=True)
+    m3_research.add_argument("--package-id")
+    m3_research.set_defaults(handler=_m3_compile_research)
 
     appearance = commands.add_parser(
         "appearance", help="Animal appearance contract/design commands"

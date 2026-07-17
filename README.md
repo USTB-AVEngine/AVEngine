@@ -31,6 +31,17 @@ one-factor-at-a-time evidence, and the required separate OFAT study remains
 `not_run`. Cat, horse and Golden Retriever probes do not grant new-species
 admission.
 
+**M3 explicit acoustic-scene/material work is implemented on its feature
+branch, but its overall gate remains `not_run` until the final clean,
+lock-bound native canary and independent verifier are retained.** M3 replaces
+implicit/AABB acoustics with hash-bound surface geometry, exact per-triangle
+material assignment and a modern RLR ingestion adapter. Its controlled custom
+room uses a deliberately synthetic `0.02` / `0.60` low/high absorption
+contrast to prove material activation; it does not claim physical
+floor/wall/ceiling truth.
+MP3D and UE visual-slot material proposals remain unqualified
+`research_candidate` diagnostics.
+
 ## Repository boundary
 
 | Repository | Owns |
@@ -54,21 +65,27 @@ Read these records in order:
    gates.
 4. [`docs/architecture/REPOSITORY_BOUNDARIES.md`](docs/architecture/REPOSITORY_BOUNDARIES.md)
    — code ownership and API boundary.
-5. [`docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md`](docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md)
+5. [`docs/architecture/ACOUSTIC_SCENE_AND_MATERIALS.md`](docs/architecture/ACOUSTIC_SCENE_AND_MATERIALS.md)
+   — explicit geometry/material compilation, RLR ownership, ingestion evidence
+   and the M3/M4 boundary.
+6. [`docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md`](docs/adr/ADR-0009-single-view-multimodal-sensor-rig.md)
    — the single-view RGB/depth/semantic and listener contract.
-6. [`docs/roadmap/MILESTONES.md`](docs/roadmap/MILESTONES.md),
+7. [`docs/roadmap/MILESTONES.md`](docs/roadmap/MILESTONES.md),
    [`docs/roadmap/BASELINE_STATUS.md`](docs/roadmap/BASELINE_STATUS.md), and
    [`docs/roadmap/M1_STATUS.md`](docs/roadmap/M1_STATUS.md) — gates and actual
    verification state. Use [`docs/roadmap/M1_EXECUTION.md`](docs/roadmap/M1_EXECUTION.md)
    to reproduce the executable evidence.
-7. [`docs/roadmap/M2_STATUS.md`](docs/roadmap/M2_STATUS.md) and
+8. [`docs/roadmap/M2_STATUS.md`](docs/roadmap/M2_STATUS.md) and
    [`docs/roadmap/M2_EXECUTION.md`](docs/roadmap/M2_EXECUTION.md) — the exact M2
    candidate, admission, contact/cadence and formal Habitat evidence, plus the
    exact local replay path from retained hash-bound intermediates.
-8. [`docs/roadmap/M2_1_STATUS.md`](docs/roadmap/M2_1_STATUS.md) — the exact
+9. [`docs/roadmap/M2_1_STATUS.md`](docs/roadmap/M2_1_STATUS.md) — the exact
    appearance L9 contract, current two-room research evidence, body-plan
    boundary and cross-species blockers.
-9. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+10. [`docs/roadmap/M3_STATUS.md`](docs/roadmap/M3_STATUS.md) and
+    [`docs/roadmap/M3_EXECUTION.md`](docs/roadmap/M3_EXECUTION.md) — M3's exact
+    claim boundary, pending final record and compiler/native replay procedure.
+11. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
    — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
@@ -85,7 +102,7 @@ presence alone is not proof that a generated episode is synchronized.
 | M1 | Habitat visual and three-room canary (`pass`) |
 | M2 | deterministic articulated Dog runtime — fixed Beagle canary (`pass`) |
 | M2.1 | appearance L9 and cross-species two-room diagnostics — research-only evidence (`pass`) |
-| M3 | explicit acoustic scene and verified materials |
+| M3 | explicit acoustic scene and synthetic material-activation canary (final native evidence pending; `not_run`) |
 | M4 | modern named multi-source/listener RLR |
 | M5 | exact timeline and visual-invariant counterfactual pair |
 | M6 | registry/QA/CLI and admitted dataset canary |
@@ -188,6 +205,28 @@ The three cross-species assets remain review-only because no species-specific
 formal promotion has occurred, and `qualification_claim` is false. See
 [`M2_1_STATUS.md`](docs/roadmap/M2_1_STATUS.md) for why these technical passes
 still do not promote an appearance or species.
+
+M3 keeps visual and acoustic material semantics separate. The compiler expands
+the source GLB to canonical surface triangles, requires exact source-slot
+mappings with complete per-triangle coverage, emits a versioned RLR database
+and independently replays the hash-bound source inputs. The Habitat fork owns
+only the strict modern RLR context/ingestion bridge; RLR remains the propagation
+algorithm. AVEngine owns the explicit package, adapter inputs and evidence.
+
+The controlled custom-room low/high pair is a synthetic activation experiment:
+all geometry, object partitions, material IDs and non-absorption fields are
+frozen, while every high absorption coefficient is greater than its low
+counterpart. Even a future `pass` proves that those coefficients affect RLR
+repeatably, not that they are physical measurements for the modeled surfaces.
+MP3D and UE visual-material-slot mappings remain research proposals without
+physical qualification or admission.
+
+Post-ingestion OBJ readback closes native geometry counts and coordinate
+multisets, but the OBJ format does not expose recoverable per-face material
+IDs. Per-triangle assignment is instead closed by source replay, exact API
+receipts and resolved material blocks. M4 remains separate: named
+multi-source/listener all-pair IRs, stems, source-order invariance, reset/
+temporal policy and performance evidence have not been completed by M3.
 
 Timeline v2 keeps its plural `view_ids` field for future extensibility, but the
 M1, M2 and M5 canaries and the initial M6 MVP require exactly `["view0"]`.

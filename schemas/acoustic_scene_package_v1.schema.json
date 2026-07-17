@@ -1,0 +1,366 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/acoustic_scene_package_v1.schema.json",
+  "title": "AVEngine Acoustic Scene Package v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "package_id",
+    "package_mode",
+    "room_kind",
+    "source_room",
+    "coordinate_system",
+    "unit_scale_to_m",
+    "geometry",
+    "arrays",
+    "objects",
+    "materials",
+    "qa",
+    "debug_mesh",
+    "compiler",
+    "package_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_acoustic_scene_package_v1"},
+    "package_id": {"$ref": "#/$defs/non_empty_string"},
+    "package_mode": {"enum": ["production", "research_candidate", "debug"]},
+    "room_kind": {
+      "enum": [
+        "habitat_native",
+        "blender_custom",
+        "legacy_ue_real_surface_export"
+      ]
+    },
+    "source_room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_id",
+        "manifest_sha256",
+        "source_revision",
+        "geometry_asset_sha256"
+      ],
+      "properties": {
+        "room_id": {"$ref": "#/$defs/non_empty_string"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "source_revision": {"$ref": "#/$defs/non_empty_string"},
+        "geometry_asset_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "coordinate_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handedness",
+        "up_axis",
+        "forward_axis",
+        "linear_unit",
+        "quaternion_order"
+      ],
+      "properties": {
+        "handedness": {"const": "right"},
+        "up_axis": {"const": "+Y"},
+        "forward_axis": {"const": "-Z"},
+        "linear_unit": {"const": "meter"},
+        "quaternion_order": {"const": "xyzw"}
+      }
+    },
+    "unit_scale_to_m": {"const": 1.0},
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "transform_policy",
+        "index_space",
+        "source_to_canonical",
+        "vertex_count",
+        "triangle_count",
+        "source_primitive_count",
+        "source_node_instance_count"
+      ],
+      "properties": {
+        "representation": {
+          "enum": [
+            "real_surface_mesh",
+            "controlled_surface_mesh",
+            "debug_aabb_proxy"
+          ]
+        },
+        "transform_policy": {"const": "baked_to_canonical_world"},
+        "index_space": {"const": "global_vertex_array"},
+        "source_to_canonical": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matrix_row_major", "source", "reviewed"],
+          "properties": {
+            "matrix_row_major": {"$ref": "#/$defs/matrix4"},
+            "source": {"$ref": "#/$defs/non_empty_string"},
+            "reviewed": {"type": "boolean"}
+          }
+        },
+        "vertex_count": {"type": "integer", "minimum": 3},
+        "triangle_count": {"type": "integer", "minimum": 1},
+        "source_primitive_count": {"type": "integer", "minimum": 1},
+        "source_node_instance_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "arrays": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vertices", "triangles", "triangle_material_ids"],
+      "properties": {
+        "vertices": {"$ref": "#/$defs/vertices_array"},
+        "triangles": {"$ref": "#/$defs/triangles_array"},
+        "triangle_material_ids": {"$ref": "#/$defs/material_ids_array"}
+      }
+    },
+    "objects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/acoustic_object"}
+    },
+    "materials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mapping_id",
+        "mapping_sha256",
+        "mapping_source_kind",
+        "database_id",
+        "database_source_sha256",
+        "material_semantics",
+        "qualification_claim",
+        "category_count",
+        "source_mapping",
+        "source_database",
+        "categories",
+        "rlr_database"
+      ],
+      "properties": {
+        "mapping_id": {"$ref": "#/$defs/non_empty_string"},
+        "mapping_sha256": {"$ref": "#/$defs/sha256"},
+        "mapping_source_kind": {
+          "enum": [
+            "explicit_author_slot",
+            "visual_material_slot_proposal",
+            "semantic_proposal",
+            "ue_material_mapping"
+          ]
+        },
+        "database_id": {"$ref": "#/$defs/non_empty_string"},
+        "database_source_sha256": {"$ref": "#/$defs/sha256"},
+        "material_semantics": {
+          "enum": [
+            "controlled_canary",
+            "reviewed_physical",
+            "research_placeholder"
+          ]
+        },
+        "qualification_claim": {
+          "enum": [
+            "synthetic_activation_test_only",
+            "reviewed_physical_material_profile",
+            "unqualified_research_placeholder"
+          ]
+        },
+        "category_count": {"type": "integer", "minimum": 1},
+        "source_mapping": {"$ref": "#/$defs/json_file"},
+        "source_database": {"$ref": "#/$defs/json_file"},
+        "categories": {"$ref": "#/$defs/json_file"},
+        "rlr_database": {"$ref": "#/$defs/json_file"}
+      }
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "geometry_report",
+        "material_coverage",
+        "ray_leakage",
+        "compiler_source_to_package_parity"
+      ],
+      "properties": {
+        "geometry_report": {"$ref": "#/$defs/json_file"},
+        "material_coverage": {"$ref": "#/$defs/json_file"},
+        "ray_leakage": {"$ref": "#/$defs/json_file"},
+        "compiler_source_to_package_parity": {"$ref": "#/$defs/json_file"}
+      }
+    },
+    "debug_mesh": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/file"},
+        {
+          "type": "object",
+          "required": ["format"],
+          "properties": {"format": {"const": "obj"}}
+        }
+      ]
+    },
+    "compiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "implementation_sha256", "components"],
+      "properties": {
+        "name": {"const": "avengine.m3.compiler"},
+        "version": {"const": "1"},
+        "implementation_sha256": {"$ref": "#/$defs/sha256"},
+        "components": {
+          "type": "object",
+          "minProperties": 5,
+          "additionalProperties": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "package_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"package_mode": {"const": "production"}},
+        "required": ["package_mode"]
+      },
+      "then": {
+        "properties": {
+          "geometry": {
+            "properties": {
+              "representation": {
+                "enum": ["real_surface_mesh", "controlled_surface_mesh"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "non_empty_string": {"type": "string", "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "shape_2d": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "integer", "minimum": 1},
+        {"const": 3}
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "shape_1d": {
+      "type": "array",
+      "prefixItems": [{"type": "integer", "minimum": 1}],
+      "items": false,
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "file": {
+      "type": "object",
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "format": {"type": "string", "minLength": 1}
+      }
+    },
+    "json_file": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/file"},
+        {
+          "type": "object",
+          "required": ["format"],
+          "properties": {"format": {"const": "json"}}
+        }
+      ]
+    },
+    "vertices_array": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/file"},
+        {
+          "type": "object",
+          "required": ["format", "dtype", "shape", "memory_order"],
+          "properties": {
+            "format": {"const": "npy"},
+            "dtype": {"const": "<f4"},
+            "shape": {"$ref": "#/$defs/shape_2d"},
+            "memory_order": {"const": "C"}
+          }
+        }
+      ]
+    },
+    "triangles_array": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/file"},
+        {
+          "type": "object",
+          "required": ["format", "dtype", "shape", "memory_order"],
+          "properties": {
+            "format": {"const": "npy"},
+            "dtype": {"const": "<u4"},
+            "shape": {"$ref": "#/$defs/shape_2d"},
+            "memory_order": {"const": "C"}
+          }
+        }
+      ]
+    },
+    "material_ids_array": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/file"},
+        {
+          "type": "object",
+          "required": ["format", "dtype", "shape", "memory_order"],
+          "properties": {
+            "format": {"const": "npy"},
+            "dtype": {"const": "<u4"},
+            "shape": {"$ref": "#/$defs/shape_1d"},
+            "memory_order": {"const": "C"}
+          }
+        }
+      ]
+    },
+    "matrix4": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": {"type": "number"}
+    },
+    "acoustic_object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_id",
+        "source_node_index",
+        "source_mesh_index",
+        "source_primitive_index",
+        "source_material_name",
+        "vertex_offset",
+        "vertex_count",
+        "triangle_offset",
+        "triangle_count",
+        "world_from_object",
+        "source_world_matrix",
+        "transform_baked"
+      ],
+      "properties": {
+        "object_id": {"$ref": "#/$defs/non_empty_string"},
+        "source_node_index": {"type": "integer", "minimum": 0},
+        "source_mesh_index": {"type": "integer", "minimum": 0},
+        "source_primitive_index": {"type": "integer", "minimum": 0},
+        "source_material_name": {"$ref": "#/$defs/non_empty_string"},
+        "vertex_offset": {"type": "integer", "minimum": 0},
+        "vertex_count": {"type": "integer", "minimum": 3},
+        "triangle_offset": {"type": "integer", "minimum": 0},
+        "triangle_count": {"type": "integer", "minimum": 1},
+        "world_from_object": {"$ref": "#/$defs/matrix4"},
+        "source_world_matrix": {"$ref": "#/$defs/matrix4"},
+        "transform_baked": {"const": true}
+      }
+    }
+  }
+}
