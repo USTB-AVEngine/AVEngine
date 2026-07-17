@@ -179,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
             "research_only": True,
             "qualification_claim": False,
             "claim_boundary": (
-                "Legacy-Apartment research-review binaural RIR sequence; no "
+                "M5.1 dynamic research-review binaural RIR sequence for "
+                f"room {scene.manifest.get('source_room', {}).get('room_id')}; no "
                 "room, material, asset, episode, or dataset admission claim"
             ),
             "capture_evidence": _absolute_file_record(capture / "evidence.json"),
