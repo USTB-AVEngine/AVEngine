@@ -658,6 +658,19 @@ def render_research_review_binaural_rir_sequence(
         },
         "runtime": runtime_report,
         "upload_report": upload,
+        "scene_claim_boundary": {
+            "package_mode": scene.manifest.get("package_mode"),
+            "material_semantics": scene.manifest.get("materials", {}).get(
+                "material_semantics"
+            ),
+            "material_qualification_claim": scene.manifest.get(
+                "materials", {}
+            ).get("qualification_claim"),
+            "qa_status_by_report": {
+                name: report.get("status")
+                for name, report in sorted(scene.qa_reports.items())
+            },
+        },
         "endpoint_receipts": receipts,
         "ir_sha256_by_keyframe_source": ir_hashes,
         "indirect_ray_efficiency": efficiencies,
