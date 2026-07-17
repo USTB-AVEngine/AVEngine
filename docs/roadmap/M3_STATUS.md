@@ -155,6 +155,34 @@ It explicitly targets broadband EDT. End-to-end native target-decay
 calibration has not yet produced formal evidence and remains `not_run`; no
 RT60, frequency-band or physical-material calibration claim is made.
 
+### M3.1 verification record
+
+The exact implementation bytes tested below were committed as
+`95507ead8f85c90b50add4e67104c23219de7b4d` on `2026-07-17`.
+
+```bash
+"$HABPY" -m pytest -q \
+  tests/unit/test_m3_calibration.py \
+  tests/unit/test_m3_materials.py \
+  tests/unit/test_m3_cli.py \
+  tests/unit/test_m3_contracts.py
+# 61 passed in 1.16s
+
+"$HABPY" -m pytest -q
+# 916 passed in 98.50s (0:01:38)
+```
+
+The exact nine-file M3 command in [M3_EXECUTION.md](M3_EXECUTION.md) passed
+`119` tests in `14.73s`.
+
+The tracked example profile also passed the executable
+`resolve-materials -> compile-custom -> validate-package` sequence. The
+retained M3 compile evidence and native material-activation canary were
+independently re-verified as `pass` from the final implementation worktree.
+Those checks are regression verification of the existing M3 record; they are
+not new target-decay evidence. No target-decay RIR was generated or admitted,
+so native target-decay calibration remains `not_run`.
+
 ## M3 non-claims and M4 boundary
 
 M3 does not prove perceptual room quality, measured real-room acoustics,
