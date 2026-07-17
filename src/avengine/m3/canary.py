@@ -121,16 +121,6 @@ def _array_sha256(array: np.ndarray) -> str:
     return digest.hexdigest()
 
 
-def _external_file(path: Path) -> dict[str, Any]:
-    resolved = path.resolve()
-    payload = _read_file_once(resolved)
-    return {
-        "path": str(resolved),
-        "byte_size": len(payload),
-        "sha256": hashlib.sha256(payload).hexdigest(),
-    }
-
-
 def _read_file_once(path: Path) -> bytes:
     resolved = path.resolve()
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(
@@ -149,6 +139,31 @@ def _read_file_once(path: Path) -> bytes:
     finally:
         os.close(descriptor)
     return payload
+
+
+def _external_file_snapshot(path: Path) -> ImmutableFileSnapshot:
+    """Read one external file once for both its record and lock-pin values."""
+
+    resolved = path.resolve()
+    payload = _read_file_once(resolved)
+    return ImmutableFileSnapshot(
+        path=resolved,
+        payload=payload,
+        byte_size=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+
+def _snapshot_record(snapshot: ImmutableFileSnapshot) -> dict[str, Any]:
+    return {
+        "path": str(snapshot.path),
+        "byte_size": snapshot.byte_size,
+        "sha256": snapshot.sha256,
+    }
+
+
+def _runtime_lock_path() -> Path:
+    return Path(__file__).resolve().parents[3] / "runtime.lock.yaml"
 
 
 def _load_json_snapshot(
@@ -988,7 +1003,7 @@ def run_material_activation_canary(
 
     request_file = Path(request_path).resolve()
     compile_file = Path(compile_evidence_path).resolve()
-    runtime_lock = Path(__file__).resolve().parents[3] / "runtime.lock.yaml"
+    runtime_lock = _runtime_lock_path()
     request, room, paths, scenes, compile_checks, snapshots = _load_inputs(
         request_file, compile_file, environment=environment
     )
@@ -1015,7 +1030,12 @@ def run_material_activation_canary(
     checks = _input_invariant_checks(
         request, room, scenes, compile_checks, snapshots
     )
-    runtime_lock_record = _external_file(runtime_lock)
+    runtime_lock_snapshot = _external_file_snapshot(runtime_lock)
+    runtime_lock_record = _snapshot_record(runtime_lock_snapshot)
+    try:
+        required_binary_pins = _required_m3_binary_pins(runtime_lock_snapshot)
+    except ValueError:
+        required_binary_pins = None
     planned_order: list[str] = []
     for repeat_index in range(request["repeat_count"]):
         pair = _CONDITIONS if repeat_index % 2 == 0 else tuple(reversed(_CONDITIONS))
@@ -1294,9 +1314,15 @@ def run_material_activation_canary(
         binary_records = [
             run.get("runtime", {}).get("native_binaries") for run in completed_runs
         ]
-        binary_identity = bool(binary_records) and all(
-            record == binary_records[0] and isinstance(record, dict)
-            for record in binary_records
+        binary_identity = (
+            bool(binary_records)
+            and all(
+                record == binary_records[0] and isinstance(record, dict)
+                for record in binary_records
+            )
+            and _native_binary_record_matches_pins(
+                binary_records[0], required_binary_pins
+            )
         )
         checks.append(
             _check(
@@ -1395,6 +1421,76 @@ def _all_finite(value: Any) -> bool:
     if isinstance(value, Mapping):
         return all(_all_finite(item) for item in value.values())
     return False
+
+
+_M3_BINARY_PIN_FIELDS = {
+    "habitat_sim_bindings": "required_m3_native_binding_sha256",
+    "rlr_audio_propagation": "required_m3_rlr_library_sha256",
+}
+
+
+def _required_m3_binary_pins(
+    runtime_lock: ImmutableFileSnapshot,
+) -> dict[str, str]:
+    """Read the two direct M3 binary pins from the snapshotted lock bytes."""
+
+    try:
+        lines = runtime_lock.payload.decode("utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"runtime lock is not UTF-8: {exc}") from exc
+
+    section_count = 0
+    in_runtime_environment = False
+    values: dict[str, str] = {}
+    field_to_binary = {
+        field: binary_name
+        for binary_name, field in _M3_BINARY_PIN_FIELDS.items()
+    }
+    for line in lines:
+        if line == "runtime_test_environment:":
+            section_count += 1
+            in_runtime_environment = True
+            continue
+        if in_runtime_environment and line and not line[0].isspace():
+            in_runtime_environment = False
+        if not in_runtime_environment:
+            continue
+        for field, binary_name in field_to_binary.items():
+            prefix = f"  {field}: "
+            if not line.startswith(prefix):
+                continue
+            if binary_name in values:
+                raise ValueError(f"runtime lock contains duplicate {field}")
+            value = line[len(prefix) :]
+            if len(value) != 64 or any(
+                character not in "0123456789abcdef" for character in value
+            ):
+                raise ValueError(
+                    f"runtime lock {field} must be a full lowercase SHA-256"
+                )
+            values[binary_name] = value
+
+    if section_count != 1:
+        raise ValueError(
+            "runtime lock must contain one runtime_test_environment mapping"
+        )
+    missing = set(_M3_BINARY_PIN_FIELDS) - values.keys()
+    if missing:
+        fields = [_M3_BINARY_PIN_FIELDS[name] for name in sorted(missing)]
+        raise ValueError(f"runtime lock is missing M3 binary pins: {fields}")
+    return values
+
+
+def _native_binary_record_matches_pins(
+    record: Any, pins: Mapping[str, str] | None
+) -> bool:
+    if not isinstance(record, Mapping) or pins is None:
+        return False
+    return all(
+        isinstance(record.get(binary_name), Mapping)
+        and record[binary_name].get("sha256") == expected_sha256
+        for binary_name, expected_sha256 in pins.items()
+    )
 
 
 def _confined_artifact(base: Path, record: Any, owner: str) -> tuple[Path | None, str | None]:
@@ -1609,6 +1705,7 @@ def _verify_canary_evidence_document(
     scenes: dict[str, CompiledAcousticScene] = {}
     room: dict[str, Any] = {}
     verified_runtime_lock_sha256: str | None = None
+    required_binary_pins: dict[str, str] | None = None
     artifact_snapshot_cache: dict[Path, bytes] = {}
     try:
         request_source = Path(request_value["source"]["path"])
@@ -1625,6 +1722,8 @@ def _verify_canary_evidence_document(
             errors.append("request source bytes do not decode to the evidence snapshot")
         if request_value.get("source") != snapshots["request"]["record"]:
             errors.append("request source record differs from its immutable snapshot")
+        runtime_lock_snapshot = _external_file_snapshot(_runtime_lock_path())
+        runtime_lock_record = _snapshot_record(runtime_lock_snapshot)
         expected_inputs = {
             "room_manifest": snapshots["room_manifest"]["record"],
             "material_mapping": snapshots["material_mapping"]["record"],
@@ -1635,9 +1734,7 @@ def _verify_canary_evidence_document(
                 "record"
             ],
             "compile_evidence": snapshots["compile_evidence"]["record"],
-            "runtime_lock": _external_file(
-                Path(__file__).resolve().parents[3] / "runtime.lock.yaml"
-            ),
+            "runtime_lock": runtime_lock_record,
             "low_absorption_package": _package_input(
                 scenes["low_absorption"],
                 snapshots["low_absorption_package"]["record"],
@@ -1648,6 +1745,10 @@ def _verify_canary_evidence_document(
             ),
         }
         verified_runtime_lock_sha256 = expected_inputs["runtime_lock"]["sha256"]
+        try:
+            required_binary_pins = _required_m3_binary_pins(runtime_lock_snapshot)
+        except ValueError:
+            required_binary_pins = None
         if inputs != expected_inputs:
             errors.append("input/package records differ from compiler-bound sources")
         expected_input_checks = _input_invariant_checks(
@@ -1957,9 +2058,15 @@ def _verify_canary_evidence_document(
         for run in all_runs
         if isinstance(run.get("runtime"), Mapping)
     ]
-    binary_identity = bool(binary_records) and all(
-        isinstance(record, Mapping) and record == binary_records[0]
-        for record in binary_records
+    binary_identity = (
+        bool(binary_records)
+        and all(
+            isinstance(record, Mapping) and record == binary_records[0]
+            for record in binary_records
+        )
+        and _native_binary_record_matches_pins(
+            binary_records[0], required_binary_pins
+        )
     )
     expected_binary_check = _check(
         "runtime_native_binary_identity",

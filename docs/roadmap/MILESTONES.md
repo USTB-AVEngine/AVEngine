@@ -116,8 +116,9 @@ replaces the terrestrial four-paw/muzzle assumptions.
 
 ## M3: Acoustic Scene and Materials
 
-Status: implementation present on the M3 feature branch; final clean,
-lock-bound native canary and independent verification remain `not_run`. See
+Status: bounded controlled material-activation gate `pass`. The retained
+formal run independently verified the compiler replay and all 39 required
+native evidence checks across three fresh-context repeats per condition. See
 [M3_STATUS.md](M3_STATUS.md), [M3_EXECUTION.md](M3_EXECUTION.md) and
 [ACOUSTIC_SCENE_AND_MATERIALS.md](../architecture/ACOUSTIC_SCENE_AND_MATERIALS.md).
 
@@ -142,9 +143,11 @@ Exit criteria: every production triangle is assigned; no unintended fallback
 is used; openings/geometry survive; production uses no AABB room proxy; exact
 source replay and native ingestion receipts match; and absorption extremes
 create a repeatable RIR/EDT/DRR/late-energy difference beyond run variance.
-The post-ingestion OBJ closes geometry and resolved material blocks but cannot
+The post-ingestion OBJ verifies geometry and resolved material blocks but cannot
 by itself prove per-face material IDs, so the gate also requires exact API
-receipts and source-to-package material replay.
+receipts and source-to-package material replay. These criteria passed for the
+fixed Blender custom-room `0.02` / `0.60` synthetic fixture only. They do not
+qualify physical coefficients, MP3D/UE research proposals, or a dataset room.
 
 ## M4: Multi-Source RLR
 

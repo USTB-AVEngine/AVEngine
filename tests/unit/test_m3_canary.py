@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import math
 from pathlib import Path
@@ -44,6 +45,10 @@ from avengine.m3.runtime import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 REQUEST = REPOSITORY / "examples/m3/blender_custom/canary_request.json"
+_FAKE_BINDING_BYTES = b"binding-fixture-v1"
+_FAKE_RLR_BYTES = b"rlr-fixture-v1"
+_FAKE_BINDING_SHA256 = hashlib.sha256(_FAKE_BINDING_BYTES).hexdigest()
+_FAKE_RLR_SHA256 = hashlib.sha256(_FAKE_RLR_BYTES).hexdigest()
 
 _RUN_TOOL_SPEC = importlib.util.spec_from_file_location(
     "avengine_test_run_material_canary",
@@ -52,6 +57,29 @@ _RUN_TOOL_SPEC = importlib.util.spec_from_file_location(
 assert _RUN_TOOL_SPEC is not None and _RUN_TOOL_SPEC.loader is not None
 run_tool = importlib.util.module_from_spec(_RUN_TOOL_SPEC)
 _RUN_TOOL_SPEC.loader.exec_module(run_tool)
+
+
+@pytest.fixture(autouse=True)
+def _matching_fake_runtime_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    runtime_lock = tmp_path / "fake_runtime.lock.yaml"
+    runtime_lock.write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "status: test_runtime_lock",
+                "",
+                "runtime_test_environment:",
+                f"  required_m3_native_binding_sha256: {_FAKE_BINDING_SHA256}",
+                f"  required_m3_rlr_library_sha256: {_FAKE_RLR_SHA256}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(canary_module, "_runtime_lock_path", lambda: runtime_lock)
+    return runtime_lock
 
 
 def _write_expected_rlr_obj(path: Path, scene: CompiledAcousticScene) -> None:
@@ -108,8 +136,8 @@ class _DeterministicRunner:
         root.mkdir(parents=True, exist_ok=True)
         binding = root / "fake_habitat_sim_bindings.so"
         rlr = root / "fake_libRLRAudioPropagation.so"
-        binding.write_bytes(b"binding-fixture-v1")
-        rlr.write_bytes(b"rlr-fixture-v1")
+        binding.write_bytes(_FAKE_BINDING_BYTES)
+        rlr.write_bytes(_FAKE_RLR_BYTES)
         self.native_binaries = {
             "habitat_sim_bindings": {
                 "path": str(binding.resolve()),
@@ -480,6 +508,107 @@ def test_cli_verify_uses_verified_evidence_snapshot_for_declared_status(
         cli_module, "load_and_verify_canary_evidence", load_then_replace
     )
     assert cli_main(["m3", "verify-canary", str(evidence_path)]) == 0
+
+
+def _binary_identity_check(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    return next(
+        check
+        for check in evidence["checks"]
+        if check["check_id"] == "runtime_native_binary_identity"
+    )
+
+
+def test_native_binary_pins_reject_rehashed_evidence_and_lock(
+    tmp_path: Path,
+    _matching_fake_runtime_lock: Path,
+) -> None:
+    compile_evidence = compile_canary_request(REQUEST, tmp_path / "compile")
+    evidence_path = run_material_activation_canary(
+        REQUEST,
+        compile_evidence,
+        tmp_path / "runtime_binary_tamper",
+        runner=_DeterministicRunner(tmp_path / "native_binary_tamper"),
+    )
+    evidence = load_json(evidence_path)
+    runs = [
+        run
+        for condition in ("low_absorption", "high_absorption")
+        for run in evidence["conditions"][condition]["runs"]
+    ]
+    binding_record = runs[0]["runtime"]["native_binaries"][
+        "habitat_sim_bindings"
+    ]
+    binding_path = Path(binding_record["path"])
+    binding_path.write_bytes(b"different-but-consistent-binding")
+    changed_binding_record = {
+        "path": str(binding_path.resolve()),
+        "byte_size": binding_path.stat().st_size,
+        "sha256": sha256_file(binding_path),
+    }
+    for run in runs:
+        run["runtime"]["native_binaries"]["habitat_sim_bindings"] = copy.deepcopy(
+            changed_binding_record
+        )
+    _binary_identity_check(evidence)["measured"]["native_binaries"][
+        "habitat_sim_bindings"
+    ] = copy.deepcopy(changed_binding_record)
+    _rehash_evidence(evidence_path, evidence)
+    assert any(
+        "runtime_native_binary_identity check differs" in error
+        for error in verify_canary_evidence(evidence_path)
+    )
+
+    lock_evidence_path = run_material_activation_canary(
+        REQUEST,
+        compile_evidence,
+        tmp_path / "runtime_lock_tamper",
+        runner=_DeterministicRunner(tmp_path / "native_lock_tamper"),
+    )
+    lock_evidence = load_json(lock_evidence_path)
+    lock_text = _matching_fake_runtime_lock.read_text(encoding="utf-8")
+    _matching_fake_runtime_lock.write_text(
+        lock_text.replace(_FAKE_BINDING_SHA256, "0" * 64),
+        encoding="utf-8",
+    )
+    changed_lock_record = {
+        "path": str(_matching_fake_runtime_lock.resolve()),
+        "byte_size": _matching_fake_runtime_lock.stat().st_size,
+        "sha256": sha256_file(_matching_fake_runtime_lock),
+    }
+    lock_evidence["inputs"]["runtime_lock"] = changed_lock_record
+    _binary_identity_check(lock_evidence)["threshold"][
+        "runtime_lock_sha256"
+    ] = changed_lock_record["sha256"]
+    _rehash_evidence(lock_evidence_path, lock_evidence)
+    assert any(
+        "runtime_native_binary_identity check differs" in error
+        for error in verify_canary_evidence(lock_evidence_path)
+    )
+
+
+def test_invalid_runtime_lock_pin_fails_binary_identity_check(
+    tmp_path: Path,
+    _matching_fake_runtime_lock: Path,
+) -> None:
+    lock_text = _matching_fake_runtime_lock.read_text(encoding="utf-8")
+    _matching_fake_runtime_lock.write_text(
+        lock_text.replace(_FAKE_RLR_SHA256, "not-a-sha256"),
+        encoding="utf-8",
+    )
+    compile_evidence = compile_canary_request(REQUEST, tmp_path / "compile")
+    evidence_path = run_material_activation_canary(
+        REQUEST,
+        compile_evidence,
+        tmp_path / "runtime",
+        runner=_DeterministicRunner(tmp_path / "native"),
+    )
+    evidence = load_json(evidence_path)
+    binary_check = _binary_identity_check(evidence)
+
+    assert evidence["overall_status"] == "fail"
+    assert binary_check["status"] == "fail"
+    assert binary_check["measured"]["native_binaries"] is None
+    assert verify_canary_evidence(evidence_path) == []
 
 
 @pytest.mark.parametrize(

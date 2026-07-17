@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+import re
 import shutil
 from types import SimpleNamespace
 
@@ -260,7 +261,15 @@ def complete_evidence(
     habitat_module.parent.mkdir(parents=True, exist_ok=True)
     habitat_module.write_text("# test habitat module\n", encoding="utf-8")
     native_binding.write_bytes(b"test native binding")
-    runtime_commit = "bcca512aa58e8b2819454716b710ef3da72f7f47"
+    runtime_lock_path = Path(__file__).resolve().parents[2] / "runtime.lock.yaml"
+    runtime_lock_text = runtime_lock_path.read_text(encoding="utf-8")
+    runtime_commit_match = re.search(
+        r"^habitat_runtime:\s*$.*?^\s+fork_governance_commit:\s+([0-9a-f]{40})\s*$",
+        runtime_lock_text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert runtime_commit_match is not None
+    runtime_commit = runtime_commit_match.group(1)
     avengine_commit = "a" * 40
 
     def fake_git_run(arguments: list[str], **_: object) -> SimpleNamespace:
@@ -276,9 +285,7 @@ def complete_evidence(
     monkeypatch.setattr("avengine.m1.evidence.subprocess.run", fake_git_run)
 
     native_binding_hash = sha256_file(native_binding)
-    runtime_lock_hash = sha256_file(
-        Path(__file__).resolve().parents[2] / "runtime.lock.yaml"
-    )
+    runtime_lock_hash = sha256_file(runtime_lock_path)
     runtime = {
         "avengine_commit": avengine_commit,
         "avengine_worktree_dirty": False,

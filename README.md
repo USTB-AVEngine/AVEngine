@@ -31,14 +31,14 @@ one-factor-at-a-time evidence, and the required separate OFAT study remains
 `not_run`. Cat, horse and Golden Retriever probes do not grant new-species
 admission.
 
-**M3 explicit acoustic-scene/material work is implemented on its feature
-branch, but its overall gate remains `not_run` until the final clean,
-lock-bound native canary and independent verifier are retained.** M3 replaces
-implicit/AABB acoustics with hash-bound surface geometry, exact per-triangle
-material assignment and a modern RLR ingestion adapter. Its controlled custom
-room uses a deliberately synthetic `0.02` / `0.60` low/high absorption
-contrast to prove material activation; it does not claim physical
-floor/wall/ceiling truth.
+**M3 explicit acoustic-scene/material activation is `pass` for its fixed,
+controlled canary.** It replaces implicit/AABB acoustics with hash-bound
+surface geometry, exact per-triangle material assignment and a modern RLR
+ingestion adapter. Its synthetic `0.02` / `0.60` contrast tests material-path
+activation and repeatability, not physical room-material truth. The detailed
+authoritative record is in
+[`M3_STATUS.md`](docs/roadmap/M3_STATUS.md) and
+[`MILESTONES.md`](docs/roadmap/MILESTONES.md).
 MP3D and UE visual-slot material proposals remain unqualified
 `research_candidate` diagnostics.
 
@@ -84,7 +84,7 @@ Read these records in order:
    boundary and cross-species blockers.
 10. [`docs/roadmap/M3_STATUS.md`](docs/roadmap/M3_STATUS.md) and
     [`docs/roadmap/M3_EXECUTION.md`](docs/roadmap/M3_EXECUTION.md) — M3's exact
-    claim boundary, pending final record and compiler/native replay procedure.
+    formal record, claim boundary and compiler/native replay procedure.
 11. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
    — what is reusable, optional, experimental, or retired.
 
@@ -102,7 +102,7 @@ presence alone is not proof that a generated episode is synchronized.
 | M1 | Habitat visual and three-room canary (`pass`) |
 | M2 | deterministic articulated Dog runtime — fixed Beagle canary (`pass`) |
 | M2.1 | appearance L9 and cross-species two-room diagnostics — research-only evidence (`pass`) |
-| M3 | explicit acoustic scene and synthetic material-activation canary (final native evidence pending; `not_run`) |
+| M3 | explicit acoustic scene and synthetic material-activation canary (`pass`) |
 | M4 | modern named multi-source/listener RLR |
 | M5 | exact timeline and visual-invariant counterfactual pair |
 | M6 | registry/QA/CLI and admitted dataset canary |
@@ -216,14 +216,17 @@ algorithm. AVEngine owns the explicit package, adapter inputs and evidence.
 The controlled custom-room low/high pair is a synthetic activation experiment:
 all geometry, object partitions, material IDs and non-absorption fields are
 frozen, while every high absorption coefficient is greater than its low
-counterpart. Even a future `pass` proves that those coefficients affect RLR
+counterpart. A passing formal run proves that those coefficients affect RLR
 repeatably, not that they are physical measurements for the modeled surfaces.
 MP3D and UE visual-material-slot mappings remain research proposals without
 physical qualification or admission.
 
-Post-ingestion OBJ readback closes native geometry counts and coordinate
+Detailed formal measurements, evidence hashes and the exact runtime-lock input
+hash are recorded in [`M3_STATUS.md`](docs/roadmap/M3_STATUS.md).
+
+Post-ingestion OBJ readback verifies native geometry counts and coordinate
 multisets, but the OBJ format does not expose recoverable per-face material
-IDs. Per-triangle assignment is instead closed by source replay, exact API
+IDs. Per-triangle assignment is instead verified by source replay, exact API
 receipts and resolved material blocks. M4 remains separate: named
 multi-source/listener all-pair IRs, stems, source-order invariance, reset/
 temporal policy and performance evidence have not been completed by M3.

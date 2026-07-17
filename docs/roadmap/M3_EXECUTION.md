@@ -3,7 +3,8 @@
 M3 has two separate evidence stages: deterministic Acoustic Scene Package
 compilation and native RLR material activation. Compiler success never stands
 in for native propagation. The commands below are the implemented compile,
-native-run and independent-verification interfaces used for closure.
+native-run and independent-verification interfaces used for the successful
+`formal_20260717_01` run and for future replays.
 
 ## Fixed contract
 
@@ -54,8 +55,9 @@ Before a formal run:
 
 1. build and install the exact audio-enabled Habitat fork;
 2. run its focused native and Python acoustic-context tests;
-3. make the final runtime commit and update `runtime.lock.yaml` to that commit
-   and the final native binary hashes;
+3. finalize `runtime.lock.yaml` with the selected runtime commit and native
+   binary hashes, then treat those exact bytes as immutable experiment input
+   for the full run;
 4. start the M3 compiler/native evidence from a new, nonexistent ignored
    output directory;
 5. retain both repositories' clean status in the final evidence record.
@@ -132,7 +134,8 @@ self-hashes.
 ## 3. Execute and verify the native canary
 
 Run the canary against the independently verified compiler evidence and the
-runtime pinned by the repository's final `runtime.lock.yaml`:
+runtime/version manifest pinned by the exact `runtime.lock.yaml` experiment
+input:
 
 ```bash
 "$HABPY" -m avengine.cli m3 run-canary \
@@ -163,7 +166,8 @@ Required native behavior is already fixed:
 The final native output and verification result must be written under the same
 unique ignored `$M3_FORMAL` root and recorded in
 [M3_STATUS.md](M3_STATUS.md). A blocked runtime import/build is `blocked`; it
-is not compiler `pass` and cannot complete M3.
+is not compiler `pass` and cannot complete M3. The completed M3 record used
+`$REPO/tmp/m3/formal_20260717_01`.
 
 ## 4. Inspect ingestion evidence correctly
 
@@ -215,8 +219,12 @@ Then record, from the retained evidence rather than memory:
 - low/high medians, spreads, oriented effects and verifier result;
 - clean worktree and final test totals.
 
-Until those values replace the pending fields in [M3_STATUS.md](M3_STATUS.md),
-the overall gate remains `not_run`.
+After verification, record the formal outcome, measurements and evidence
+hashes in [M3_STATUS.md](M3_STATUS.md). Do not write run outcomes or evidence
+hashes back into `runtime.lock.yaml`: it remains the immutable experiment input
+and runtime/version manifest. The retained formal evidence binds its exact
+bytes at SHA-256
+`b39f2ffe6e8427852ac802622957186fab972e26f58b4ee4df9ada76bc9023ac`.
 
 ## Optional research-only room probes
 

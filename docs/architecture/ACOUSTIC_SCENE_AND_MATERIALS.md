@@ -140,6 +140,9 @@ Passing this canary proves material-path activation under the controlled
 configuration. It does not calibrate room materials, establish perceptual
 quality, or validate real-room acoustic coefficients.
 
+The authoritative formal result, measurements and evidence hashes are recorded
+in [M3_STATUS.md](../roadmap/M3_STATUS.md).
+
 ## Runtime ingestion evidence
 
 M3 uses a fresh RLR context for every canary repeat, records strict
@@ -167,8 +170,8 @@ Hit agreement and first-hit distance tolerances remain unchanged.
 The post-ingestion OBJ is useful geometry and resolved-material-block evidence,
 but its format does **not** expose a recoverable per-face material-ID array.
 It must not be described as proving `triangle_material_ids` by itself. Exact
-per-face assignment is instead closed by the source replay plus exact upload
-receipts and resolved material blocks, while the OBJ independently closes
+per-face assignment is instead verified by the source replay plus exact upload
+receipts and resolved material blocks, while the OBJ independently verifies
 post-ingestion geometry.
 
 The final evidence verifier rereads raw IR arrays and recomputes direct arrival,

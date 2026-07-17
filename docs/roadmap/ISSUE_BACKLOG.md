@@ -106,8 +106,8 @@ state only when the issue records the missing environment or prerequisite.
 
 ## M3-01: Acoustic Scene Package compiler and ingestion
 
-- Status: implementation present; final lock-bound native evidence remains
-  `not_run`. See `M3_STATUS.md` and `M3_EXECUTION.md`.
+- Status: implementation complete. Authoritative gate outcome:
+  `M3_STATUS.md`; replay procedure: `M3_EXECUTION.md`.
 - Problem: legacy AABB/implicit material paths cannot prove acoustic parity.
 - Scope: explicit geometry/material package, strict source replay, modern RLR
   upload path, exact API receipts and post-ingestion geometry readback.
@@ -123,15 +123,15 @@ state only when the issue records the missing environment or prerequisite.
 - Documentation: package format, material semantics, mapping confidence and
   ingestion evidence policy.
 
-The post-ingestion OBJ has no recoverable per-face material-ID array. It closes
-geometry and resolved material blocks only; per-triangle identity is closed by
+The post-ingestion OBJ has no recoverable per-face material-ID array. It verifies
+geometry and resolved material blocks only; per-triangle identity is verified by
 the hash-bound source replay and exact upload receipts. RLR remains the reused
 propagation algorithm, while AVEngine owns explicit compilation and evidence.
 
 ## M3-02: Geometry leakage and material activation canary
 
-- Status: implementation present; final clean native replay and independent
-  verifier remain `not_run`.
+- Status: implementation complete. Authoritative gate outcome:
+  `M3_STATUS.md`; replay procedure: `M3_EXECUTION.md`.
 - Problem: successful upload does not prove geometry or material effects.
 - Scope: ray leakage, openings and high/low absorption comparison.
 - Non-goals: perceptual room-quality benchmark.

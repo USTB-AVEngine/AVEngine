@@ -1,10 +1,10 @@
 # AVEngine System Overview
 
-Status: M1 visual/room executable baseline and the bounded M2 articulated-dog
-research canary have passed. The M3 explicit acoustic-scene/material
-implementation is present on its feature branch, but its overall gate remains
-`not_run` pending the final clean, lock-bound native canary and independent
-verification. Formal multi-source propagation semantics, dataset registration
+Status: the system includes the M1 visual/room baseline, bounded M2 articulated
+animal runtime, and M3 explicit acoustic-scene/material-activation path.
+Authoritative milestone outcomes are recorded in
+[MILESTONES.md](../roadmap/MILESTONES.md). Physical room-material
+qualification, formal multi-source propagation semantics, dataset registration
 and end-to-end dataset claims remain later gates.
 
 ## Purpose
@@ -74,8 +74,8 @@ objects and lighting. All three room canaries explicitly load their
 of that file by full settings and vertex/index fingerprints.
 
 The co-located M1 listener is only a pose anchor. M1 does not instantiate an
-AudioSensor or execute RLR. M3 later uses one controlled source/listener pair
-only to prove explicit scene ingestion and synthetic material activation;
+AudioSensor or execute RLR. M3 uses one controlled source/listener pair only
+to prove explicit scene ingestion and synthetic material activation;
 pair-specific named multi-source/listener semantics remain the M4 gate.
 
 ## M3 acoustic boundary
@@ -95,7 +95,9 @@ See [ACOUSTIC_SCENE_AND_MATERIALS.md](ACOUSTIC_SCENE_AND_MATERIALS.md).
 The controlled custom-room low/high databases are synthetic absorption
 extremes. They test whether material selection changes RLR output repeatably;
 they do not claim reviewed physical room coefficients. MP3D and UE visual-slot
-proposals remain unqualified `research_candidate` diagnostics.
+proposals remain unqualified `research_candidate` diagnostics. Formal M3
+measurements and hashes are recorded in
+[M3_STATUS.md](../roadmap/M3_STATUS.md).
 
 Native ingestion evidence combines exact API receipts, resolved material
 blocks and post-ingestion OBJ geometry readback. The OBJ cannot expose a
