@@ -181,6 +181,7 @@ def compose_annotated_frames(
     listener_position_m: Sequence[float],
     listener_yaw_deg: float,
     aggregate_true_flags: Sequence[str] = (),
+    audio_diagnostic_by_frame: Sequence[str] | None = None,
     center_gate_pass: bool,
     fps: int = DEFAULT_FPS,
 ) -> np.ndarray:
@@ -207,6 +208,18 @@ def compose_annotated_frames(
         not isinstance(flag, str) or not flag for flag in flags
     ):
         raise M51ReviewError("aggregate_true_flags must be unique nonempty strings")
+    diagnostics = (
+        None
+        if audio_diagnostic_by_frame is None
+        else tuple(audio_diagnostic_by_frame)
+    )
+    if diagnostics is not None and (
+        len(diagnostics) != main.shape[0]
+        or any(not isinstance(value, str) or not value for value in diagnostics)
+    ):
+        raise M51ReviewError(
+            "audio_diagnostic_by_frame must contain one nonempty string per frame"
+        )
 
     font = _font(15)
     small = _font(13)
@@ -246,7 +259,9 @@ def compose_annotated_frames(
                 )
 
         line_height = 19
-        box_height = line_height * (3 + len(checked)) + 8
+        box_height = line_height * (
+            3 + len(checked) + int(diagnostics is not None)
+        ) + 8
         _alpha_box(canvas, (0, 0, REVIEW_WIDTH - 1, box_height))
         draw = ImageDraw.Draw(canvas)
         gate = "PASS" if center_gate_pass else "FAIL"
@@ -292,6 +307,13 @@ def compose_annotated_frames(
             font=small,
             fill=(235, 235, 235),
         )
+        if diagnostics is not None:
+            draw.text(
+                (8, 4 + line_height * (len(checked) + 2)),
+                f"binaural mix: {diagnostics[frame_index]}"[:190],
+                font=small,
+                fill=(255, 225, 120),
+            )
         draw.text(
             (PANEL_WIDTH + 8, REVIEW_HEIGHT - 20),
             "Habitat Topdown / complete paths / current source centers",

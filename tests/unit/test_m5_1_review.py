@@ -40,6 +40,10 @@ def test_compose_annotated_frames_is_deterministic_and_exact_shape() -> None:
         listener_position_m=(0.0, 1.2, 0.0),
         listener_yaw_deg=55.0,
         aggregate_true_flags=("steady_walk", "sources_pass_each_other"),
+        audio_diagnostic_by_frame=(
+            "ILD=+1.00dB ITD_xcorr=-62.5us",
+            "silent",
+        ),
         center_gate_pass=True,
     )
     first = compose_annotated_frames(**kwargs)
@@ -67,6 +71,21 @@ def test_compose_rejects_event_length_mismatch() -> None:
             room_id="room",
             listener_position_m=(0.0, 1.0, 0.0),
             listener_yaw_deg=0.0,
+            center_gate_pass=True,
+        )
+
+
+def test_compose_rejects_audio_diagnostic_length_mismatch() -> None:
+    with pytest.raises(M51ReviewError, match="audio_diagnostic_by_frame"):
+        compose_annotated_frames(
+            main_rgb=np.zeros((2, 24, 32, 3), dtype=np.uint8),
+            topdown_rgb=np.zeros((2, 24, 32, 3), dtype=np.uint8),
+            tracks=(_track("human0", (42, 210, 220)),),
+            clip_id="clip",
+            room_id="room",
+            listener_position_m=(0.0, 1.0, 0.0),
+            listener_yaw_deg=0.0,
+            audio_diagnostic_by_frame=("only-one",),
             center_gate_pass=True,
         )
 
