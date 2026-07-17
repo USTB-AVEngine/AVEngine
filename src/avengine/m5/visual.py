@@ -13,8 +13,15 @@ from PIL import Image, ImageDraw
 from avengine.contracts.json_io import canonical_json_bytes, canonical_json_sha256
 from avengine.contracts.transforms import normalized_quaternion_xyzw
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
-from avengine.m1.habitat_capture import _make_configuration, _resolved_assets, discover_runtime_root
-from avengine.m2.contracts import FORMAL_MODALITIES, load_and_validate_inputs as load_m2_inputs
+from avengine.m1.habitat_capture import (
+    _make_configuration,
+    _resolved_assets,
+    discover_runtime_root,
+)
+from avengine.m2.contracts import (
+    FORMAL_MODALITIES,
+    load_and_validate_inputs as load_m2_inputs,
+)
 from avengine.m2.habitat_capture import (
     HabitatCaptureError,
     _apply_root_with_habitat,
@@ -58,7 +65,9 @@ def _sequence_hash(value: np.ndarray, *, role: str) -> str:
     return digest.hexdigest()
 
 
-def _set_scene_node_semantic_readback(articulated_object: Any, semantic_id: int) -> None:
+def _set_scene_node_semantic_readback(
+    articulated_object: Any, semantic_id: int
+) -> None:
     """Mirror and verify the template semantic ID on exposed link nodes.
 
     The actual skinned drawable ID is fixed by the AO template at creation.
@@ -101,7 +110,9 @@ def _instantiate_actor_with_semantic_template(
         handle
     )
     if articulated_object is None:
-        raise HabitatCaptureError("Habitat failed to instantiate an M5 articulated actor")
+        raise HabitatCaptureError(
+            "Habitat failed to instantiate an M5 articulated actor"
+        )
     articulated_object.motion_type = habitat_sim.physics.MotionType.KINEMATIC
     link_ids = list(articulated_object.get_link_ids())
     expected_names = set(bundle.joint_mapping["joint_order"])
@@ -129,7 +140,9 @@ def _instantiate_actor_with_semantic_template(
     )
     creation = articulated_object.creation_attributes
     if int(creation.semantic_id) != semantic_id:
-        raise HabitatCaptureError("M5 AO creation semantic ID differs from its template")
+        raise HabitatCaptureError(
+            "M5 AO creation semantic ID differs from its template"
+        )
     _set_scene_node_semantic_readback(articulated_object, semantic_id)
     return articulated_object, binding
 
@@ -151,7 +164,9 @@ def _node_world_position(articulated_object: Any, link_id: int) -> np.ndarray:
         dtype=np.float64,
     )
     if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
-        raise HabitatCaptureError("muzzle SceneNode transform is not a finite 4x4 matrix")
+        raise HabitatCaptureError(
+            "muzzle SceneNode transform is not a finite 4x4 matrix"
+        )
     return matrix[:3, 3].copy()
 
 
@@ -189,7 +204,9 @@ def _topdown_panels(
     listener_position: Sequence[float],
     panel_size: int = 240,
 ) -> np.ndarray:
-    focus_low, focus_high = _panel_bounds(navmesh_bounds, actor_positions, listener_position)
+    focus_low, focus_high = _panel_bounds(
+        navmesh_bounds, actor_positions, listener_position
+    )
 
     def project(position: Sequence[float]) -> tuple[float, float]:
         p = np.asarray(position, dtype=np.float64)
@@ -234,13 +251,23 @@ def _topdown_panels(
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, panel_size - 1, panel_size - 1), outline=(230, 230, 230))
         draw.ellipse(
-            (listener_xy[0] - 5, listener_xy[1] - 5, listener_xy[0] + 5, listener_xy[1] + 5),
+            (
+                listener_xy[0] - 5,
+                listener_xy[1] - 5,
+                listener_xy[0] + 5,
+                listener_xy[1] + 5,
+            ),
             fill=(255, 230, 80),
             outline=(10, 10, 10),
         )
-        draw.text((listener_xy[0] + 7, listener_xy[1] - 8), "Listener", fill=(255, 245, 180))
+        draw.text(
+            (listener_xy[0] + 7, listener_xy[1] - 8), "Listener", fill=(255, 245, 180)
+        )
         for actor_index, color in enumerate(colors):
-            trail = [project(value) for value in source_positions[: frame_index + 1, actor_index]]
+            trail = [
+                project(value)
+                for value in source_positions[: frame_index + 1, actor_index]
+            ]
             if len(trail) > 1:
                 draw.line(trail, fill=color, width=2)
             actor_xy = project(actor_positions[frame_index, actor_index])
@@ -250,13 +277,24 @@ def _topdown_panels(
                 fill=color,
                 outline=(0, 0, 0),
             )
-            draw.line((actor_xy[0], actor_xy[1], source_xy[0], source_xy[1]), fill=(255, 255, 255), width=1)
+            draw.line(
+                (actor_xy[0], actor_xy[1], source_xy[0], source_xy[1]),
+                fill=(255, 255, 255),
+                width=1,
+            )
             draw.ellipse(
-                (source_xy[0] - 3, source_xy[1] - 3, source_xy[0] + 3, source_xy[1] + 3),
+                (
+                    source_xy[0] - 3,
+                    source_xy[1] - 3,
+                    source_xy[0] + 3,
+                    source_xy[1] + 3,
+                ),
                 fill=(255, 255, 255),
                 outline=color,
             )
-            draw.text((actor_xy[0] + 8, actor_xy[1] - 8), f"Dog {actor_index}", fill=color)
+            draw.text(
+                (actor_xy[0] + 8, actor_xy[1] - 8), f"Dog {actor_index}", fill=color
+            )
         draw.rectangle((4, 4, 136, 22), fill=(0, 0, 0))
         draw.text((8, 7), f"TOPDOWN  {frame_index:02d}/74", fill=(255, 255, 255))
         result.append(np.asarray(image, dtype=np.uint8))
@@ -274,11 +312,25 @@ def capture_two_actor_fixed_states(
     actor_ids: tuple[str, str] = ("actor0", "actor1"),
     source_ids: tuple[str, str] = ("source0", "source1"),
     semantic_ids: tuple[int, int] = (210, 211),
+    emitter_link_names: tuple[str, str] = (
+        "beagle Xtra Mouth",
+        "beagle Xtra Mouth",
+    ),
 ) -> TwoActorVisualResult:
     """Capture two articulated actors with one co-located RGB/depth/semantic call."""
 
-    if len(set(actor_ids)) != 2 or len(set(source_ids)) != 2 or len(set(semantic_ids)) != 2:
-        raise HabitatCaptureError("M5 two-actor identities and semantic IDs must be unique")
+    if (
+        len(set(actor_ids)) != 2
+        or len(set(source_ids)) != 2
+        or len(set(semantic_ids)) != 2
+    ):
+        raise HabitatCaptureError(
+            "M5 two-actor identities and semantic IDs must be unique"
+        )
+    if len(emitter_link_names) != 2 or any(
+        not isinstance(value, str) or not value for value in emitter_link_names
+    ):
+        raise HabitatCaptureError("M5 emitter_link_names must contain two link names")
     offsets = np.asarray(actor_offsets_m, dtype=np.float64)
     if offsets.shape != (2, 3) or not np.all(np.isfinite(offsets)):
         raise HabitatCaptureError("actor_offsets_m must be finite [2,3]")
@@ -287,7 +339,11 @@ def capture_two_actor_fixed_states(
     bundle = load_runtime_asset_bundle(m2_inputs)
     frames = compile_frame_applications(m2_inputs, bundle)
     runtime = discover_runtime_root(runtime_root)
-    missing = [record for record in _resolved_assets(room_inputs, runtime) if not record["exists"]]
+    missing = [
+        record
+        for record in _resolved_assets(room_inputs, runtime)
+        if not record["exists"]
+    ]
     if missing:
         raise HabitatCaptureError("validated M1 room has missing runtime assets")
 
@@ -296,8 +352,8 @@ def capture_two_actor_fixed_states(
     import habitat_sim
     import magnum as mn
 
-    configuration, modality_to_uuid, _listener_uuid, resolved_scene = _make_configuration(
-        room_inputs, runtime, Path("/tmp/avengine-m5-visual")
+    configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
+        _make_configuration(room_inputs, runtime, Path("/tmp/avengine-m5-visual"))
     )
     rgb_frames: list[np.ndarray] = []
     depth_frames: list[np.ndarray] = []
@@ -354,24 +410,33 @@ def capture_two_actor_fixed_states(
             )
             actors.append(articulated_object)
             bindings.append(binding)
-            muzzle_link_ids.append(_link_id_by_name(articulated_object, "beagle Xtra Mouth"))
+            muzzle_link_ids.append(
+                _link_id_by_name(articulated_object, emitter_link_names[actor_index])
+            )
         sensors = [
-            simulator.sensors[modality_to_uuid[modality]] for modality in FORMAL_MODALITIES
+            simulator.sensors[modality_to_uuid[modality]]
+            for modality in FORMAL_MODALITIES
         ]
         initial_time = float(simulator.get_world_time())
         for frame in frames:
             frame_actor_matrices: list[np.ndarray] = []
             before: list[Mapping[str, Any]] = []
             expected_joints: list[np.ndarray] = []
-            for actor_index, (actor, binding) in enumerate(zip(actors, bindings, strict=True)):
+            for actor_index, (actor, binding) in enumerate(
+                zip(actors, bindings, strict=True)
+            ):
                 matrix = np.asarray(frame.world_from_skin_root, dtype=np.float64).copy()
                 matrix[:3, 3] += offsets[actor_index]
-                joints = np.asarray(binding.map_pose(frame.joint_rotations_xyzw), dtype=np.float64)
+                joints = np.asarray(
+                    binding.map_pose(frame.joint_rotations_xyzw), dtype=np.float64
+                )
                 _apply_root_with_habitat(actor, matrix, qt=qt, mn=mn)
                 actor.joint_positions = joints.copy()
                 snapshot = _runtime_snapshot(simulator, actor)
                 root_error = float(
-                    np.max(np.abs(np.asarray(snapshot["world_from_skin_root"]) - matrix))
+                    np.max(
+                        np.abs(np.asarray(snapshot["world_from_skin_root"]) - matrix)
+                    )
                 )
                 joint_error = _quaternion_block_error(
                     np.asarray(snapshot["joint_positions_xyzw"]), joints
@@ -382,7 +447,9 @@ def capture_two_actor_fixed_states(
                     )
                 before.append(snapshot)
                 expected_joints.append(joints)
-                actor_world = np.asarray(frame.world_from_actor, dtype=np.float64).copy()
+                actor_world = np.asarray(
+                    frame.world_from_actor, dtype=np.float64
+                ).copy()
                 actor_world[:3, 3] += offsets[actor_index]
                 frame_actor_matrices.append(actor_world)
 
@@ -404,12 +471,21 @@ def capture_two_actor_fixed_states(
                 axis=0,
             )
             after = [_runtime_snapshot(simulator, actor) for actor in actors]
-            if any(left["sha256"] != right["sha256"] for left, right in zip(before, after, strict=True)):
-                raise HabitatCaptureError("M5 visual render changed a fixed actor state")
+            if any(
+                left["sha256"] != right["sha256"]
+                for left, right in zip(before, after, strict=True)
+            ):
+                raise HabitatCaptureError(
+                    "M5 visual render changed a fixed actor state"
+                )
             if float(simulator.get_world_time()) != initial_time:
-                raise HabitatCaptureError("M5 fixed-state capture advanced Habitat time")
+                raise HabitatCaptureError(
+                    "M5 fixed-state capture advanced Habitat time"
+                )
 
-            rgb_frames.append(np.asarray(arrays["rgb"])[..., :3].astype(np.uint8, copy=True))
+            rgb_frames.append(
+                np.asarray(arrays["rgb"])[..., :3].astype(np.uint8, copy=True)
+            )
             depth_frames.append(np.asarray(arrays["depth"]).copy())
             semantic_frames.append(np.asarray(arrays["semantic"]).copy())
             actor_matrices.append(np.stack(frame_actor_matrices, axis=0))
@@ -428,7 +504,9 @@ def capture_two_actor_fixed_states(
                         {
                             "base_applied_state_hash": frame.declared_applied_state_hash,
                             "actor_offsets_m": offsets.tolist(),
-                            "actor_world_matrices": np.stack(frame_actor_matrices).tolist(),
+                            "actor_world_matrices": np.stack(
+                                frame_actor_matrices
+                            ).tolist(),
                             "mouth_open_ratio": [0.0, 0.0],
                         }
                     ),
@@ -460,6 +538,10 @@ def capture_two_actor_fixed_states(
         "physics_steps": 0,
         "mouth_articulation": "disabled_for_shortcut_control",
         "actor_offsets_m": offsets.tolist(),
+        "actor_ids": list(actor_ids),
+        "source_ids": list(source_ids),
+        "semantic_ids": list(semantic_ids),
+        "emitter_link_names": list(emitter_link_names),
         "hashes": {
             "rgb": _sequence_hash(rgb, role="rgb"),
             "depth": _sequence_hash(depth, role="depth"),

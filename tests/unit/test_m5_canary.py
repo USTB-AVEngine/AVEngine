@@ -19,11 +19,17 @@ from avengine.m5.audio import (
 import avengine.m5.canary as canary
 
 
+_TEST_CLIP_START = 0
+_TEST_CLIP_END = 256
+_TEST_FADE_SAMPLES = 80
+_TEST_LINEAR_GAIN = 0.18
+_TEST_WINDOWS = ((256, 512), (768, 1_024), (1_280, 1_536))
+
+
 def _write_pcm16(path: Path, frequency_hz: float) -> None:
-    indices = np.arange(canary.M5_DRY_CLIP_END, dtype=np.float64)
+    indices = np.arange(_TEST_CLIP_END, dtype=np.float64)
     samples = np.asarray(
-        np.sin(2.0 * np.pi * frequency_hz * indices / M5_AUDIO_SAMPLE_RATE_HZ)
-        * 12_000,
+        np.sin(2.0 * np.pi * frequency_hz * indices / M5_AUDIO_SAMPLE_RATE_HZ) * 12_000,
         dtype="<i2",
     )
     with wave.open(str(path), "wb") as handle:
@@ -70,35 +76,59 @@ def _reconstruction_fixture(
             asset_id,
             extract_faded_clip(
                 samples,
-                start_sample=canary.M5_DRY_CLIP_START,
-                end_sample=canary.M5_DRY_CLIP_END,
-                fade_samples=80,
+                start_sample=_TEST_CLIP_START,
+                end_sample=_TEST_CLIP_END,
+                fade_samples=_TEST_FADE_SAMPLES,
             ),
         )
     beagle_hash = sha256_file(beagle)
     golden_hash = sha256_file(golden)
+    audio_program = {
+        "program_id": "test_program",
+        "clip_source_interval": {
+            "start_sample": _TEST_CLIP_START,
+            "end_sample": _TEST_CLIP_END,
+        },
+        "fade_samples": _TEST_FADE_SAMPLES,
+        "linear_gain": _TEST_LINEAR_GAIN,
+        "simultaneous_windows": [
+            {
+                "window_id": f"window{index}",
+                "start_sample": start,
+                "end_sample": end,
+            }
+            for index, (start, end) in enumerate(_TEST_WINDOWS)
+        ],
+    }
     requests = {
         "A": {
+            "audio_program": audio_program,
             "events": [
                 {"source_id": "source0", "dry_audio_asset_sha256": beagle_hash},
                 {"source_id": "source1", "dry_audio_asset_sha256": golden_hash},
-            ]
+            ],
         },
         "B": {
+            "audio_program": audio_program,
             "events": [
                 {"source_id": "source0", "dry_audio_asset_sha256": golden_hash},
                 {"source_id": "source1", "dry_audio_asset_sha256": beagle_hash},
-            ]
+            ],
         },
     }
     write_json(
         root / "episodes" / "counterfactual_pair.json",
-        {"episodes": {variant: {"request": request} for variant, request in requests.items()}},
+        {
+            "episodes": {
+                variant: {"request": request} for variant, request in requests.items()
+            }
+        },
     )
 
     keyframe_samples = (0, canary.M5_AUDIO_SAMPLE_COUNT // 2)
     trajectory: dict[str, object] = {
-        "keyframes": [{"sample_index": value} for value in keyframe_samples]
+        "source_ids": ["source0", "source1"],
+        "keyframes": [{"sample_index": value} for value in keyframe_samples],
     }
     rir: dict[str, tuple[np.ndarray, np.ndarray, dict[str, object]]] = {}
     for layout, channels in (("foa", 4), ("binaural", 2)):
@@ -117,9 +147,9 @@ def _reconstruction_fixture(
         buses, _ = place_simultaneous_events(
             {asset_id: clip for asset_id, clip in raw_assets.values()},
             route,
-            start_samples=canary.M5_EVENT_STARTS,
+            start_samples=tuple(start for start, _end in _TEST_WINDOWS),
             output_sample_count=canary.M5_AUDIO_SAMPLE_COUNT,
-            linear_gain=canary.M5_DRY_LINEAR_GAIN,
+            linear_gain=_TEST_LINEAR_GAIN,
         )
         records: dict[str, object] = {"dry_buses": {}, "foa": {}, "binaural": {}}
         for source_id in ("source0", "source1"):
@@ -170,12 +200,11 @@ def _reconstruction_fixture(
 def test_rehashed_stem_tamper_fails_independent_reconstruction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(canary, "M5_DRY_CLIP_START", 0)
-    monkeypatch.setattr(canary, "M5_DRY_CLIP_END", 256)
-    monkeypatch.setattr(canary, "M5_EVENT_STARTS", (256, 768, 1_280))
     monkeypatch.setattr(canary, "M5_AUDIO_SAMPLE_COUNT", 2_048)
     evidence, rir, trajectory = _reconstruction_fixture(tmp_path)
-    assert canary._audio_reconstruction_errors(tmp_path, evidence, rir, trajectory) == []
+    assert (
+        canary._audio_reconstruction_errors(tmp_path, evidence, rir, trajectory) == []
+    )
 
     record = evidence["audio"]["A"]["binaural"]["source0"]  # type: ignore[index]
     audio_path = tmp_path / record["audio_path"]  # type: ignore[index]

@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -66,15 +66,31 @@ from avengine.m5.visual import TwoActorVisualResult, capture_two_actor_fixed_sta
 
 
 M5_EVIDENCE_SCHEMA = "avengine_m5_canary_evidence_v1"
-M5_DRY_CLIP_START = 3_200
-M5_DRY_CLIP_END = 8_000
-M5_EVENT_STARTS = (6_400, 19_200, 32_000, 44_800, 57_600, 70_400)
-M5_DRY_LINEAR_GAIN = 0.18
 _GIT_COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
 
 
 class M5CanaryError(RuntimeError):
     """The M5 canary could not prove its declared audiovisual contract."""
+
+
+def _audio_program_execution(
+    request: Mapping[str, Any],
+) -> tuple[int, int, int, float, tuple[tuple[int, int], ...]]:
+    """Return the already-validated request-owned dry/schedule controls."""
+
+    program = request["audio_program"]
+    clip = program["clip_source_interval"]
+    windows = tuple(
+        (int(window["start_sample"]), int(window["end_sample"]))
+        for window in program["simultaneous_windows"]
+    )
+    return (
+        int(clip["start_sample"]),
+        int(clip["end_sample"]),
+        int(program["fade_samples"]),
+        float(program["linear_gain"]),
+        windows,
+    )
 
 
 def _save_npy(path: Path, value: Any) -> dict[str, Any]:
@@ -92,9 +108,7 @@ def _save_npy(path: Path, value: Any) -> dict[str, Any]:
     }
 
 
-def _named_emitter_path_sha256(
-    source_id: str, positions_m: np.ndarray
-) -> str:
+def _named_emitter_path_sha256(source_id: str, positions_m: np.ndarray) -> str:
     return canonical_json_sha256(
         {
             "schema": "avengine_m5_named_emitter_path_v1",
@@ -240,10 +254,17 @@ def _spatial_metrics(
     binaural: DynamicRIRSequence,
     stems: Mapping[str, Any],
     mixture: np.ndarray,
+    *,
+    active_windows: Sequence[tuple[int, int]],
 ) -> dict[str, Any]:
+    if not active_windows:
+        raise M5CanaryError("spatial metrics require declared active windows")
+    active_start = int(active_windows[0][0])
+    active_end = int(active_windows[-1][1])
     per_source: dict[str, Any] = {}
     median_ild: dict[str, float] = {}
     median_itd: dict[str, float] = {}
+    median_azimuth: dict[str, float] = {}
     lateral_frames: list[Mapping[str, Any]] = []
     lateral_azimuths: list[float] = []
     for source_index, source_id in enumerate(binaural.source_ids):
@@ -265,14 +286,15 @@ def _spatial_metrics(
         wet_report = measure_binaural_wet_stem_cues(
             stems[source_id].episode,
             binaural.sample_rate_hz,
-            M5_EVENT_STARTS[0],
-            M5_EVENT_STARTS[-1] + (M5_DRY_CLIP_END - M5_DRY_CLIP_START),
+            active_start,
+            active_end,
             source_id=source_id,
         )
         ilds = [float(frame["ild_db"]) for frame in rir_report["frames"]]
         itds = [float(frame["itd"]["itd_seconds"]) for frame in rir_report["frames"]]
         median_ild[source_id] = float(np.median(ilds))
         median_itd[source_id] = float(np.median(itds))
+        median_azimuth[source_id] = float(np.median(azimuths))
         per_source[source_id] = {
             "azimuth_range_deg": [float(min(azimuths)), float(max(azimuths))],
             "rir_direct_window": rir_report,
@@ -281,8 +303,8 @@ def _spatial_metrics(
     mixture_report = measure_binaural_mixture_diagnostic(
         mixture,
         binaural.sample_rate_hz,
-        M5_EVENT_STARTS[0],
-        M5_EVENT_STARTS[-1] + (M5_DRY_CLIP_END - M5_DRY_CLIP_START),
+        active_start,
+        active_end,
     )
     maximum_itd = max(
         abs(float(frame["itd"]["itd_seconds"]))
@@ -293,12 +315,15 @@ def _spatial_metrics(
         lateral_frames,
         listener_local_azimuths_deg=lateral_azimuths,
     )
+    right_source = max(median_azimuth, key=median_azimuth.__getitem__)
+    left_source = min(median_azimuth, key=median_azimuth.__getitem__)
     checks = {
         "all_source_itd_within_1ms": maximum_itd <= 0.0010000001,
         "lateral_cue_consistency": lateral_consistency["status"] == "pass"
         and lateral_consistency["formal_acceptance_allowed"] is True,
         "right_source_has_more_negative_ild_than_left_source": (
-            median_ild["source0"] < median_ild["source1"]
+            right_source != left_source
+            and median_ild[right_source] < median_ild[left_source]
         ),
         "mixture_is_diagnostic_only": mixture_report.get("diagnostic_only") is True,
     }
@@ -317,6 +342,9 @@ def _spatial_metrics(
         "summary": {
             "median_ild_db_by_source": median_ild,
             "median_itd_seconds_by_source": median_itd,
+            "median_azimuth_deg_by_source": median_azimuth,
+            "right_source_id": right_source,
+            "left_source_id": left_source,
             "maximum_absolute_itd_seconds": maximum_itd,
             "gcc_boundary_rejected_frame_count": lateral_consistency["counts"][
                 "gcc_boundary_rejected_frames"
@@ -327,21 +355,31 @@ def _spatial_metrics(
     }
 
 
-def _qa_text_by_frame(metrics: Mapping[str, Any]) -> list[str]:
-    source0 = metrics["per_source"]["source0"]["rir_direct_window"]["frames"]
-    source1 = metrics["per_source"]["source1"]["rir_direct_window"]["frames"]
+def _qa_text_by_frame(
+    metrics: Mapping[str, Any],
+    *,
+    active_windows: Sequence[tuple[int, int]],
+) -> list[str]:
+    source_ids = tuple(metrics["per_source"])
+    if len(source_ids) != 2:
+        raise M5CanaryError("QA overlay requires exactly two retained sources")
+    source0 = metrics["per_source"][source_ids[0]]["rir_direct_window"]["frames"]
+    source1 = metrics["per_source"][source_ids[1]]["rir_direct_window"]["frames"]
     result: list[str] = []
     for index, (left, right) in enumerate(zip(source0, source1, strict=True)):
         rows = []
-        for source_id, frame in (("Dog0", left), ("Dog1", right)):
+        for source_id, frame in zip(source_ids, (left, right), strict=True):
             ipd = frame["ipd_radians_by_frequency_hz"].get("500")
             rows.append(
                 f"{source_id} az={frame['listener_local_azimuth_deg']:+.1f}deg "
                 f"ILD={frame['ild_db']:+.1f}dB IPD500={float(ipd):+.2f}rad "
                 f"ITD={frame['itd']['itd_seconds'] * 1e6:+.0f}us"
             )
-        active = any(start <= (3_200 * index + 1) // 3 < start + 4_800 for start in M5_EVENT_STARTS)
-        result.append(("SIMULTANEOUS BARKS\n" if active else "RIR POSITION\n") + "\n".join(rows))
+        sample = (3_200 * index + 1) // 3
+        active = any(start <= sample < end for start, end in active_windows)
+        result.append(
+            ("SIMULTANEOUS BARKS\n" if active else "RIR POSITION\n") + "\n".join(rows)
+        )
     return result
 
 
@@ -359,9 +397,7 @@ def _portable_output_paths(value: Any, root: Path) -> Any:
     """Replace staging-root absolute paths with bundle-relative paths."""
 
     if isinstance(value, Mapping):
-        return {
-            key: _portable_output_paths(item, root) for key, item in value.items()
-        }
+        return {key: _portable_output_paths(item, root) for key, item in value.items()}
     if isinstance(value, list):
         return [_portable_output_paths(item, root) for item in value]
     if isinstance(value, tuple):
@@ -413,7 +449,9 @@ def _confined_bundle_path(root: Path, value: Any, *, owner: str) -> Path:
     if not isinstance(value, str) or not value or "\\" in value:
         raise M5CanaryError(f"{owner} is not a portable bundle-relative path")
     portable = PurePosixPath(value)
-    if portable.is_absolute() or any(part in {"", ".", ".."} for part in portable.parts):
+    if portable.is_absolute() or any(
+        part in {"", ".", ".."} for part in portable.parts
+    ):
         raise M5CanaryError(f"{owner} is not a confined bundle-relative path")
     candidate = (root / Path(*portable.parts)).resolve()
     try:
@@ -427,7 +465,11 @@ def _confined_bundle_path(root: Path, value: Any, *, owner: str) -> Path:
 
 def _rir_authority(
     root: Path, evidence: Mapping[str, Any]
-) -> tuple[dict[str, tuple[np.ndarray, np.ndarray, Mapping[str, Any]]], dict[str, Any], list[str]]:
+) -> tuple[
+    dict[str, tuple[np.ndarray, np.ndarray, Mapping[str, Any]]],
+    dict[str, Any],
+    list[str],
+]:
     """Read and independently validate retained RIR arrays and trajectory."""
 
     errors: list[str] = []
@@ -456,10 +498,16 @@ def _rir_authority(
     if not isinstance(records, Mapping):
         return result, trajectory, errors + ["RIR evidence mapping is absent"]
     trajectory_hash = canonical_json_sha256(
-        {key: value for key, value in trajectory.items() if key != "trajectory_content_sha256"}
+        {
+            key: value
+            for key, value in trajectory.items()
+            if key != "trajectory_content_sha256"
+        }
     )
     input_records = evidence.get("inputs")
-    hrtf_record = input_records.get("hrtf") if isinstance(input_records, Mapping) else None
+    hrtf_record = (
+        input_records.get("hrtf") if isinstance(input_records, Mapping) else None
+    )
     hrtf_hash: str | None = None
     if isinstance(hrtf_record, Mapping):
         try:
@@ -485,13 +533,19 @@ def _rir_authority(
             continue
         try:
             samples_path = _confined_bundle_path(
-                root, record.get("samples_path"), owner=f"rir_sequences.{name}.samples_path"
+                root,
+                record.get("samples_path"),
+                owner=f"rir_sequences.{name}.samples_path",
             )
             lengths_path = _confined_bundle_path(
-                root, record.get("lengths_path"), owner=f"rir_sequences.{name}.lengths_path"
+                root,
+                record.get("lengths_path"),
+                owner=f"rir_sequences.{name}.lengths_path",
             )
             metadata_path = _confined_bundle_path(
-                root, record.get("metadata_path"), owner=f"rir_sequences.{name}.metadata_path"
+                root,
+                record.get("metadata_path"),
+                owner=f"rir_sequences.{name}.metadata_path",
             )
             samples = np.load(samples_path, allow_pickle=False)
             lengths = np.load(lengths_path, allow_pickle=False)
@@ -524,9 +578,13 @@ def _rir_authority(
                     )
                     observed = hashlib.sha256(unpadded.tobytes(order="C")).hexdigest()
                     if hashes[frame_index].get(source_id) != observed:
-                        errors.append(f"{name} RIR hash differs at {frame_index}/{source_id}")
+                        errors.append(
+                            f"{name} RIR hash differs at {frame_index}/{source_id}"
+                        )
                     if np.any(samples[frame_index, source_index, :, length:] != 0.0):
-                        errors.append(f"{name} RIR padding is nonzero at {frame_index}/{source_id}")
+                        errors.append(
+                            f"{name} RIR padding is nonzero at {frame_index}/{source_id}"
+                        )
             expected_metadata = {
                 "trajectory_sha256": trajectory_hash,
                 "source_ids": ["source0", "source1"],
@@ -544,16 +602,27 @@ def _rir_authority(
                 errors.append("FOA RIR metadata unexpectedly names an HRTF")
             if name == "binaural":
                 retained_hrtf = metadata.get("hrtf")
-                if not isinstance(retained_hrtf, Mapping) or retained_hrtf.get(
-                    "input_role"
-                ) != "hrtf" or retained_hrtf.get("sha256") != hrtf_hash:
-                    errors.append("binaural RIR HRTF role/hash differs from retained input")
+                if (
+                    not isinstance(retained_hrtf, Mapping)
+                    or retained_hrtf.get("input_role") != "hrtf"
+                    or retained_hrtf.get("sha256") != hrtf_hash
+                ):
+                    errors.append(
+                        "binaural RIR HRTF role/hash differs from retained input"
+                    )
                 for receipt in metadata.get("endpoint_receipts", []):
-                    listener = receipt.get("listener") if isinstance(receipt, Mapping) else None
-                    if not isinstance(listener, Mapping) or listener.get(
-                        "hrtf_file_path"
-                    ) != "input-role:hrtf":
-                        errors.append("binaural RIR receipt retains an invalid HRTF path")
+                    listener = (
+                        receipt.get("listener")
+                        if isinstance(receipt, Mapping)
+                        else None
+                    )
+                    if (
+                        not isinstance(listener, Mapping)
+                        or listener.get("hrtf_file_path") != "input-role:hrtf"
+                    ):
+                        errors.append(
+                            "binaural RIR receipt retains an invalid HRTF path"
+                        )
                         break
             result[name] = (samples, lengths, metadata)
         except Exception as exc:
@@ -582,8 +651,23 @@ def _audio_reconstruction_errors(
         return ["audio or input evidence mapping is absent"]
     try:
         pair = load_json(root / "episodes" / "counterfactual_pair.json")
+        base_request = pair["episodes"]["A"]["request"]
+        (
+            dry_clip_start,
+            dry_clip_end,
+            dry_fade_samples,
+            dry_linear_gain,
+            active_windows,
+        ) = _audio_program_execution(base_request)
+        event_starts = tuple(start for start, _end in active_windows)
+        source_ids = tuple(trajectory.get("source_ids", ()))
+        if len(source_ids) != 2:
+            raise M5CanaryError("trajectory must retain exactly two source IDs")
         raw_assets: dict[str, tuple[str, np.ndarray]] = {}
-        for asset_id, role in (("beagle_call", "beagle_dry"), ("golden_call", "golden_dry")):
+        for asset_id, role in (
+            ("beagle_call", "beagle_dry"),
+            ("golden_call", "golden_dry"),
+        ):
             record = inputs.get(role)
             if not isinstance(record, Mapping):
                 raise M5CanaryError(f"input role {role} is absent")
@@ -597,9 +681,9 @@ def _audio_reconstruction_errors(
                 asset_id,
                 extract_faded_clip(
                     samples,
-                    start_sample=M5_DRY_CLIP_START,
-                    end_sample=M5_DRY_CLIP_END,
-                    fade_samples=80,
+                    start_sample=dry_clip_start,
+                    end_sample=dry_clip_end,
+                    fade_samples=dry_fade_samples,
                 ),
             )
         keyframes = trajectory.get("keyframes")
@@ -613,21 +697,25 @@ def _audio_reconstruction_errors(
             buses, _ = place_simultaneous_events(
                 {asset_id: clip for asset_id, clip in raw_assets.values()},
                 route,
-                start_samples=M5_EVENT_STARTS,
+                start_samples=event_starts,
                 output_sample_count=M5_AUDIO_SAMPLE_COUNT,
-                linear_gain=M5_DRY_LINEAR_GAIN,
+                linear_gain=dry_linear_gain,
             )
             variant_records = audio.get(variant)
             if not isinstance(variant_records, Mapping):
                 errors.append(f"audio record for episode {variant} is absent")
                 continue
-            for source_id in ("source0", "source1"):
+            for source_id in source_ids:
                 record = variant_records.get("dry_buses", {}).get(source_id)
                 path = _confined_bundle_path(
-                    root, record.get("audio_path"), owner=f"audio.{variant}.dry.{source_id}"
+                    root,
+                    record.get("audio_path"),
+                    owner=f"audio.{variant}.dry.{source_id}",
                 )
                 decoded = read_float32_wav(path, verify_sidecar=True)
-                if not np.array_equal(decoded.samples[0], buses[source_id].astype("<f4")):
+                if not np.array_equal(
+                    decoded.samples[0], buses[source_id].astype("<f4")
+                ):
                     errors.append(f"{variant}/{source_id} dry bus cannot be rebuilt")
             for layout, channels in (("foa", 4), ("binaural", 2)):
                 rir_samples, rir_lengths, _ = rir[layout]
@@ -635,7 +723,7 @@ def _audio_reconstruction_errors(
                     buses,
                     rir_samples,
                     rir_lengths,
-                    source_ids=("source0", "source1"),
+                    source_ids=source_ids,
                     keyframe_samples=keyframe_samples,
                     output_sample_count=M5_AUDIO_SAMPLE_COUNT,
                 )
@@ -652,10 +740,13 @@ def _audio_reconstruction_errors(
                     )
                     decoded = read_float32_wav(path, verify_sidecar=True)
                     expected = stems[source_id].episode.astype("<f4")
-                    if decoded.samples.shape != (channels, M5_AUDIO_SAMPLE_COUNT) or not np.array_equal(
-                        decoded.samples, expected
-                    ):
-                        errors.append(f"{variant}/{layout}/{source_id} stem cannot be rebuilt")
+                    if decoded.samples.shape != (
+                        channels,
+                        M5_AUDIO_SAMPLE_COUNT,
+                    ) or not np.array_equal(decoded.samples, expected):
+                        errors.append(
+                            f"{variant}/{layout}/{source_id} stem cannot be rebuilt"
+                        )
                 record = layout_records.get("mixture")
                 path = _confined_bundle_path(
                     root,
@@ -663,9 +754,10 @@ def _audio_reconstruction_errors(
                     owner=f"audio.{variant}.{layout}.mixture",
                 )
                 decoded = read_float32_wav(path, verify_sidecar=True)
-                if decoded.samples.shape != (channels, M5_AUDIO_SAMPLE_COUNT) or not np.array_equal(
-                    decoded.samples, mixture.astype("<f4")
-                ):
+                if decoded.samples.shape != (
+                    channels,
+                    M5_AUDIO_SAMPLE_COUNT,
+                ) or not np.array_equal(decoded.samples, mixture.astype("<f4")):
                     errors.append(f"{variant}/{layout}/mixture cannot be rebuilt")
     except Exception as exc:
         errors.append(f"audio reconstruction failed: {exc}")
@@ -680,14 +772,18 @@ def _spatial_metric_errors(root: Path, evidence: Mapping[str, Any]) -> list[str]
     for variant in ("A", "B"):
         try:
             metrics = load_json(root / "episodes" / variant / "spatial_metrics.json")
-            retained = summaries.get(variant) if isinstance(summaries, Mapping) else None
+            retained = (
+                summaries.get(variant) if isinstance(summaries, Mapping) else None
+            )
             if metrics.get("status") != "pass" or not isinstance(retained, Mapping):
                 errors.append(f"{variant} spatial metrics are not retained as pass")
                 continue
-            if retained.get("status") != "pass" or retained.get("summary") != metrics.get(
+            if retained.get("status") != "pass" or retained.get(
                 "summary"
-            ):
-                errors.append(f"{variant} spatial summary/status differs from retained report")
+            ) != metrics.get("summary"):
+                errors.append(
+                    f"{variant} spatial summary/status differs from retained report"
+                )
             mixture = metrics.get("mixture_diagnostic")
             if (
                 retained.get("mixture_diagnostic_only") is not True
@@ -695,10 +791,14 @@ def _spatial_metric_errors(root: Path, evidence: Mapping[str, Any]) -> list[str]
                 or mixture.get("diagnostic_only") is not True
                 or mixture.get("source_specific_acceptance_allowed") is not False
             ):
-                errors.append(f"{variant} mixture was promoted beyond diagnostic-only scope")
+                errors.append(
+                    f"{variant} mixture was promoted beyond diagnostic-only scope"
+                )
             checks = metrics.get("checks")
-            if not isinstance(checks, Mapping) or not checks or not all(
-                value is True for value in checks.values()
+            if (
+                not isinstance(checks, Mapping)
+                or not checks
+                or not all(value is True for value in checks.values())
             ):
                 errors.append(f"{variant} spatial checks are not all true")
             lateral_frames: list[Mapping[str, Any]] = []
@@ -715,7 +815,9 @@ def _spatial_metric_errors(root: Path, evidence: Mapping[str, Any]) -> list[str]
                 listener_local_azimuths_deg=lateral_azimuths,
             )
             if recomputed != metrics.get("lateral_cue_consistency"):
-                errors.append(f"{variant} lateral cue summary cannot be independently rebuilt")
+                errors.append(
+                    f"{variant} lateral cue summary cannot be independently rebuilt"
+                )
             if (
                 recomputed.get("status") != "pass"
                 or recomputed.get("formal_acceptance_allowed") is not True
@@ -761,6 +863,19 @@ def run_m5_canary(
     request_errors = validate_episode_request(request)
     if request_errors:
         raise M5CanaryError("; ".join(request_errors))
+    (
+        dry_clip_start,
+        dry_clip_end,
+        dry_fade_samples,
+        dry_linear_gain,
+        active_windows,
+    ) = _audio_program_execution(request)
+    event_starts = tuple(start for start, _end in active_windows)
+    event_duration = dry_clip_end - dry_clip_start
+    if any(end - start != event_duration for start, end in active_windows):
+        raise M5CanaryError("declared event windows differ from the dry clip length")
+    actors = request["actors"]
+    sources = request["sources"]
     code_provenance = _code_provenance()
     if code_provenance["worktree_clean"] is not True:
         raise M5CanaryError("formal M5 evidence requires a clean Git worktree")
@@ -778,6 +893,14 @@ def run_m5_canary(
             room_manifest_path=room_manifest_path,
             m1_request_path=m1_request_path,
             runtime_root=runtime_root,
+            actor_offsets_m=tuple(
+                tuple(float(value) for value in actor["instance_offset_m"])
+                for actor in actors
+            ),
+            actor_ids=tuple(actor["actor_id"] for actor in actors),
+            source_ids=tuple(source["source_id"] for source in sources),
+            semantic_ids=tuple(int(actor["semantic_id"]) for actor in actors),
+            emitter_link_names=tuple(source["emitter_link"] for source in sources),
         )
         declared_paths = {
             item["source_id"]: item["emitter_path_sha256"]
@@ -790,9 +913,7 @@ def run_m5_canary(
             for source_index, source_id in enumerate(visual.source_ids)
         }
         if declared_paths != observed_paths:
-            raise M5CanaryError(
-                "captured muzzle path hash differs from the M5 request"
-            )
+            raise M5CanaryError("captured muzzle path hash differs from the M5 request")
 
         arrays_dir = staging / "visual" / "arrays"
         visual_arrays = {
@@ -810,7 +931,9 @@ def run_m5_canary(
             ),
         }
         write_json(staging / "visual" / "capture_metadata.json", dict(visual.metadata))
-        write_json(staging / "visual" / "frame_records.json", {"frames": list(visual.records)})
+        write_json(
+            staging / "visual" / "frame_records.json", {"frames": list(visual.records)}
+        )
 
         m2_request = load_json(m2_request_path)
         m1_request = load_json(m1_request_path)
@@ -888,16 +1011,19 @@ def run_m5_canary(
             copied_inputs[role] = file_record(target, relative_to=staging)
 
         raw_assets: dict[str, tuple[str, np.ndarray]] = {}
-        for asset_id, role in (("beagle_call", "beagle_dry"), ("golden_call", "golden_dry")):
+        for asset_id, role in (
+            ("beagle_call", "beagle_dry"),
+            ("golden_call", "golden_dry"),
+        ):
             path = input_sources[role]
             samples, rate = read_pcm16_mono_wav(path)
             if rate != M5_AUDIO_SAMPLE_RATE_HZ:
                 raise M5CanaryError("dry input rate changed")
             clip = extract_faded_clip(
                 samples,
-                start_sample=M5_DRY_CLIP_START,
-                end_sample=M5_DRY_CLIP_END,
-                fade_samples=80,
+                start_sample=dry_clip_start,
+                end_sample=dry_clip_end,
+                fade_samples=dry_fade_samples,
             )
             raw_assets[sha256_file(path)] = (asset_id, clip)
         declared_dry_hashes = {
@@ -918,10 +1044,18 @@ def run_m5_canary(
             dry_buses, scheduled_events = place_simultaneous_events(
                 clips,
                 route,
-                start_samples=M5_EVENT_STARTS,
+                start_samples=event_starts,
                 output_sample_count=M5_AUDIO_SAMPLE_COUNT,
-                linear_gain=M5_DRY_LINEAR_GAIN,
+                linear_gain=dry_linear_gain,
             )
+            observed_windows = {
+                (int(event["start_sample"]), int(event["end_sample"]))
+                for event in scheduled_events
+            }
+            if observed_windows != set(active_windows):
+                raise M5CanaryError(
+                    "rendered schedule differs from request audio_program"
+                )
             variant_dir = episode_root / variant
             audio_records: dict[str, Any] = {"dry_buses": {}, "foa": {}, "binaural": {}}
             for source_id in visual.source_ids:
@@ -957,7 +1091,9 @@ def run_m5_canary(
                             "layout_id": sequence.layout_id,
                             "trajectory_sha256": sequence.trajectory_sha256,
                             "partition_algorithm": stems[source_id].algorithm,
-                            "full_tail_sample_count": int(stems[source_id].full_tail.shape[1]),
+                            "full_tail_sample_count": int(
+                                stems[source_id].full_tail.shape[1]
+                            ),
                             "episode_crop": [0, M5_AUDIO_SAMPLE_COUNT],
                         },
                     )
@@ -974,10 +1110,18 @@ def run_m5_canary(
                     },
                 )
                 if audio_records[layout_name]["mixture"]["peak_absolute"] >= 1.0:
-                    raise M5CanaryError("authoritative M5 mixture clips float32 full scale")
+                    raise M5CanaryError(
+                        "authoritative M5 mixture clips float32 full scale"
+                    )
 
             binaural_stems, binaural_mix = rendered_by_layout["binaural"]
-            metrics = _spatial_metrics(visual, binaural, binaural_stems, binaural_mix)
+            metrics = _spatial_metrics(
+                visual,
+                binaural,
+                binaural_stems,
+                binaural_mix,
+                active_windows=active_windows,
+            )
             if metrics["status"] != "pass":
                 raise M5CanaryError(f"M5 spatial metrics failed for episode {variant}")
             write_json(variant_dir / "spatial_metrics.json", metrics)
@@ -992,7 +1136,9 @@ def run_m5_canary(
         qa_frames = compose_main_topdown_frames(
             visual.rgb,
             visual.topdown_rgb,
-            text_by_frame=_qa_text_by_frame(episode_metrics["A"]),
+            text_by_frame=_qa_text_by_frame(
+                episode_metrics["A"], active_windows=active_windows
+            ),
         )
         qa_base = videos_dir / "view0_topdown_base_video_only.mp4"
         qa_base_report = encode_h264_qa_base_video(qa_frames, qa_base)
@@ -1006,7 +1152,9 @@ def run_m5_canary(
                 episode_audio[variant]["binaural"]["mixture"]["audio_path"]
             )
             formal_video = videos_dir / f"episode_{variant}_view0_binaural.mp4"
-            qa_video = videos_dir / f"episode_{variant}_view0_topdown_binaural_review.mp4"
+            qa_video = (
+                videos_dir / f"episode_{variant}_view0_topdown_binaural_review.mp4"
+            )
             formal_report = mux_binaural_wav(formal_base, binaural_wav, formal_video)
             qa_report = mux_qa_binaural_wav(qa_base, binaural_wav, qa_video)
             aac_report = aac_decode_diagnostics(formal_video, binaural_wav)
@@ -1021,12 +1169,8 @@ def run_m5_canary(
                 "qa_topdown": qa_report,
                 "aac_decode": aac_report,
             }
-        hash_a = video_packet_sha256(
-            videos_dir / "episode_A_view0_binaural.mp4"
-        )
-        hash_b = video_packet_sha256(
-            videos_dir / "episode_B_view0_binaural.mp4"
-        )
+        hash_a = video_packet_sha256(videos_dir / "episode_A_view0_binaural.mp4")
+        hash_b = video_packet_sha256(videos_dir / "episode_B_view0_binaural.mp4")
         video_invariant = (
             hash_a["payload_sha256"] == hash_b["payload_sha256"]
             and hash_a["timeline_sha256"] == hash_b["timeline_sha256"]
@@ -1050,14 +1194,20 @@ def run_m5_canary(
                 "status": "pass",
                 "measured": {
                     str(semantic_id): int(
-                        np.min(np.count_nonzero(visual.semantic == semantic_id, axis=(1, 2)))
+                        np.min(
+                            np.count_nonzero(
+                                visual.semantic == semantic_id, axis=(1, 2)
+                            )
+                        )
                     )
                     for semantic_id in visual.semantic_ids
                 },
             },
             {
                 "check_id": "same_trajectory_foa_binaural",
-                "status": "pass" if foa.trajectory_sha256 == binaural.trajectory_sha256 else "fail",
+                "status": "pass"
+                if foa.trajectory_sha256 == binaural.trajectory_sha256
+                else "fail",
                 "measured": {"trajectory_sha256": foa.trajectory_sha256},
             },
             {
@@ -1065,17 +1215,23 @@ def run_m5_canary(
                 "status": "pass",
                 "measured": {
                     "source_count": 2,
-                    "event_start_samples": list(M5_EVENT_STARTS),
-                    "event_duration_samples": M5_DRY_CLIP_END - M5_DRY_CLIP_START,
+                    "audio_program_id": request["audio_program"]["program_id"],
+                    "event_windows": [list(window) for window in active_windows],
+                    "dry_clip_source_interval": [dry_clip_start, dry_clip_end],
+                    "fade_samples": dry_fade_samples,
+                    "linear_gain": dry_linear_gain,
                 },
             },
             {
                 "check_id": "per_source_ild_ipd_itd",
-                "status": "pass" if all(
+                "status": "pass"
+                if all(
                     metrics["status"] == "pass" for metrics in episode_metrics.values()
-                ) else "fail",
+                )
+                else "fail",
                 "measured": {
-                    variant: metrics["summary"] for variant, metrics in episode_metrics.items()
+                    variant: metrics["summary"]
+                    for variant, metrics in episode_metrics.items()
                 },
             },
             {
@@ -1252,7 +1408,9 @@ def verify_m5_canary_evidence(
     array_errors: list[str] = []
     for name, expected_shape in array_expectations.items():
         try:
-            array = np.load(root / "visual" / "arrays" / name, mmap_mode="r", allow_pickle=False)
+            array = np.load(
+                root / "visual" / "arrays" / name, mmap_mode="r", allow_pickle=False
+            )
             if array.shape != expected_shape:
                 array_errors.append(f"{name} shape {array.shape}")
         except (OSError, ValueError) as exc:
