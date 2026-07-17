@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/avengine_m3_acoustic_material_profile_v1.schema.json",
+  "title": "AVEngine M3 Acoustic Material Profile v1",
+  "description": "Explicit room-scoped global and per-material acoustic coefficient overrides.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "room_id"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m3_acoustic_material_profile_v1"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "room_id": {"type": "string", "minLength": 1},
+    "global_override": {"$ref": "#/$defs/coefficient_override"},
+    "material_overrides": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/material_override"}
+    }
+  },
+  "anyOf": [
+    {"required": ["global_override"]},
+    {
+      "required": ["material_overrides"],
+      "properties": {
+        "material_overrides": {"minItems": 1}
+      }
+    }
+  ],
+  "$defs": {
+    "fraction_curve": {
+      "oneOf": [
+        {"type": "number", "minimum": 0, "maximum": 1},
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      ]
+    },
+    "non_negative_curve": {
+      "oneOf": [
+        {"type": "number", "minimum": 0},
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "number", "minimum": 0}
+        }
+      ]
+    },
+    "coefficient_override": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "absorption": {"$ref": "#/$defs/fraction_curve"},
+        "scattering": {"$ref": "#/$defs/fraction_curve"},
+        "transmission": {"$ref": "#/$defs/fraction_curve"},
+        "damping": {"$ref": "#/$defs/non_negative_curve"},
+        "density": {"type": "number", "exclusiveMinimum": 0},
+        "speed": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "selector": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["material_key"],
+          "properties": {
+            "material_key": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_material_name"],
+          "properties": {
+            "source_material_name": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "material_override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector"],
+      "properties": {
+        "selector": {"$ref": "#/$defs/selector"},
+        "absorption": {"$ref": "#/$defs/fraction_curve"},
+        "scattering": {"$ref": "#/$defs/fraction_curve"},
+        "transmission": {"$ref": "#/$defs/fraction_curve"},
+        "damping": {"$ref": "#/$defs/non_negative_curve"},
+        "density": {"type": "number", "exclusiveMinimum": 0},
+        "speed": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "anyOf": [
+        {"required": ["absorption"]},
+        {"required": ["scattering"]},
+        {"required": ["transmission"]},
+        {"required": ["damping"]},
+        {"required": ["density"]},
+        {"required": ["speed"]}
+      ]
+    }
+  }
+}

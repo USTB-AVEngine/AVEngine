@@ -10,6 +10,7 @@ from avengine.m3.contracts import (
     validate_canary_request,
     validate_package,
 )
+from avengine.m3.materials import MATERIAL_PROFILE_SCHEMA
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +51,14 @@ def test_checked_in_canary_request_declares_runtime_and_metric_thresholds() -> N
         "drr_db",
         "late_energy_ratio",
     }
+
+
+def test_checked_in_material_profile_passes_registered_schema() -> None:
+    profile = load_json(EXAMPLES / "material_profile_example.json")
+
+    assert json_schema_errors(profile, MATERIAL_PROFILE_SCHEMA) == []
+    profile["unexpected"] = True
+    assert json_schema_errors(profile, MATERIAL_PROFILE_SCHEMA)
 
 
 def test_canary_request_rejects_hidden_temporal_state_and_coincident_anchors() -> None:

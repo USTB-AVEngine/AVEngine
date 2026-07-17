@@ -90,6 +90,7 @@ Run the M3 unit suite before materializing formal evidence:
   tests/unit/test_m3_materials.py \
   tests/unit/test_m3_contracts.py \
   tests/unit/test_m3_compiler.py \
+  tests/unit/test_m3_calibration.py \
   tests/unit/test_m3_metrics.py \
   tests/unit/test_m3_runtime.py \
   tests/unit/test_m3_canary.py \
@@ -225,6 +226,40 @@ hashes back into `runtime.lock.yaml`: it remains the immutable experiment input
 and runtime/version manifest. The retained formal evidence binds its exact
 bytes at SHA-256
 `b39f2ffe6e8427852ac802622957186fab972e26f58b4ee4df9ada76bc9023ac`.
+
+## Resolve an M3.1 user material profile
+
+This post-gate command does not alter or replace the formal M3 low/high record.
+It materializes convenience controls into the same explicit mapping/database
+contract used by the compiler:
+
+```bash
+"$HABPY" -m avengine.cli m3 resolve-materials \
+  --mapping "$REPO/examples/m3/blender_custom/mapping.json" \
+  --base-materials "$REPO/examples/m3/blender_custom/materials_low.json" \
+  --profile "$REPO/examples/m3/blender_custom/material_profile_example.json" \
+  --output "$REPO/tmp/m3/user_profile_<RUN_ID>"
+
+"$HABPY" -m avengine.cli m3 compile-custom \
+  --room "$REPO/examples/m1/rooms/blender_custom/room_manifest.json" \
+  --mapping "$REPO/tmp/m3/user_profile_<RUN_ID>/mapping.json" \
+  --materials "$REPO/tmp/m3/user_profile_<RUN_ID>/materials.json" \
+  --output "$REPO/tmp/m3/user_profile_package_<RUN_ID>"
+
+"$HABPY" -m avengine.cli m3 validate-package \
+  "$REPO/tmp/m3/user_profile_package_<RUN_ID>/manifest.json"
+```
+
+Inspect `resolution_report.json` for the exact selector resolutions,
+field-level precedence and input/output hashes. Scalar curve values are
+broadcast to every base-database band; explicit arrays must match the band
+count. These values are user controls, not physical measurements.
+
+The bounded target helper currently exposes a Python callback API for
+caller-reported broadband EDT values. Its result must never be labeled RT60.
+Native target-decay orchestration and evidence are `not_run`; any future RT60
+estimator would separately require retained RIRs, declared anchors and solver
+configuration, sufficient decay span/fit quality and a tolerance-bound result.
 
 ## Optional research-only room probes
 

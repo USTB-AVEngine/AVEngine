@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 import math
+from pathlib import Path
+import sys
 from typing import Any, Iterable, Mapping
+
+from jsonschema import Draft202012Validator
 
 from avengine.contracts.json_io import canonical_json_sha256
 
 
 MAPPING_SCHEMA = "avengine_m3_acoustic_material_mapping_v1"
 MATERIAL_DATABASE_SCHEMA = "avengine_m3_acoustic_material_database_v1"
+MATERIAL_PROFILE_SCHEMA = "avengine_m3_acoustic_material_profile_v1"
+_MATERIAL_PROFILE_SCHEMA_FILE = (
+    "avengine_m3_acoustic_material_profile_v1.schema.json"
+)
+_CURVE_FIELDS = ("absorption", "scattering", "transmission", "damping")
+_PHYSICAL_FIELDS = ("density", "speed")
+_OVERRIDE_FIELDS = (*_CURVE_FIELDS, *_PHYSICAL_FIELDS)
 
 MATERIAL_SEMANTIC_INTENDED_USE = {
     "controlled_canary": "controlled_material_activation_canary",
@@ -36,17 +48,116 @@ class CompiledMaterials:
     rlr_database: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ResolvedMaterialProfile:
+    """Immutable-by-convention products of one explicit profile resolution."""
+
+    effective_mapping: dict[str, Any]
+    effective_database: dict[str, Any]
+    report: dict[str, Any]
+
+
 def _is_finite_number(value: Any) -> bool:
-    return (
-        not isinstance(value, bool)
-        and isinstance(value, (int, float))
-        and math.isfinite(float(value))
-    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        return False
 
 
 def _unique(values: Iterable[Any]) -> bool:
     items = list(values)
     return len(items) == len(set(items))
+
+
+def _material_profile_schema_path() -> Path:
+    source = (
+        Path(__file__).resolve().parents[3]
+        / "schemas"
+        / _MATERIAL_PROFILE_SCHEMA_FILE
+    )
+    installed = (
+        Path(sys.prefix)
+        / "share"
+        / "avengine"
+        / "schemas"
+        / _MATERIAL_PROFILE_SCHEMA_FILE
+    )
+    path = source if source.is_file() else installed
+    if not path.is_file():
+        raise FileNotFoundError(
+            "AVEngine acoustic material profile schema is unavailable: "
+            f"{_MATERIAL_PROFILE_SCHEMA_FILE}"
+        )
+    return path
+
+
+def _profile_schema_document() -> dict[str, Any]:
+    import json
+
+    with _material_profile_schema_path().open("r", encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise ValueError("acoustic material profile schema must be an object")
+    return value
+
+
+def validate_material_profile(
+    profile: Mapping[str, Any],
+    *,
+    room_id: str | None = None,
+    band_count: int | None = None,
+) -> list[str]:
+    """Validate a room-scoped coefficient override profile.
+
+    Array lengths depend on the selected base database, so callers that know
+    the database must pass ``band_count``.  Selector existence and overlap are
+    intentionally checked by :func:`resolve_material_profile`, where the
+    mapping is available.
+    """
+
+    errors: list[str] = []
+    validator = Draft202012Validator(_profile_schema_document())
+    for error in sorted(
+        validator.iter_errors(profile), key=lambda item: list(item.absolute_path)
+    ):
+        location = ".".join(str(part) for part in error.absolute_path) or "$"
+        errors.append(f"profile JSON Schema {location}: {error.message}")
+    if room_id is not None and profile.get("room_id") != room_id:
+        errors.append("profile.room_id must match the source room")
+
+    override_owners: list[tuple[str, Any]] = [
+        ("profile.global_override", profile.get("global_override"))
+    ]
+    raw_material_overrides = profile.get("material_overrides")
+    if isinstance(raw_material_overrides, list):
+        override_owners.extend(
+            (f"profile.material_overrides[{index}]", override)
+            for index, override in enumerate(raw_material_overrides)
+        )
+    for owner, override in override_owners:
+        if not isinstance(override, Mapping):
+            continue
+        for field in _OVERRIDE_FIELDS:
+            if field not in override:
+                continue
+            value = override[field]
+            values = value if isinstance(value, list) else [value]
+            for value_index, item in enumerate(values):
+                if not _is_finite_number(item):
+                    suffix = f"[{value_index}]" if isinstance(value, list) else ""
+                    errors.append(f"{owner}.{field}{suffix} must be finite")
+            if (
+                field in _CURVE_FIELDS
+                and isinstance(value, list)
+                and band_count is not None
+                and len(value) != band_count
+            ):
+                errors.append(
+                    f"{owner}.{field} must contain exactly {band_count} band values"
+                )
+    return errors
 
 
 def _validate_coefficients(
@@ -489,6 +600,267 @@ def controlled_counterfactual_proof(
         "materials": material_records,
         "errors": errors,
     }
+
+
+def _normalized_profile_value(
+    field: str, value: Any, *, band_count: int
+) -> float | list[float]:
+    if field in _CURVE_FIELDS:
+        values = value if isinstance(value, list) else [value] * band_count
+        return [float(item) for item in values]
+    return float(value)
+
+
+def resolve_material_profile(
+    mapping: Mapping[str, Any],
+    database: Mapping[str, Any],
+    profile: Mapping[str, Any],
+    *,
+    room_id: str,
+) -> ResolvedMaterialProfile:
+    """Resolve explicit global/per-material controls without mutating inputs.
+
+    Precedence is strictly ``base database < global override < material
+    override``.  Material overrides must resolve to disjoint database material
+    keys.  A source-name override is rejected when its mapping entry shares a
+    material key because one RLR database record cannot encode two different
+    coefficient sets for that shared key.
+    """
+
+    if not isinstance(profile, Mapping):
+        raise MaterialContractError(["profile must be an object"])
+
+    # This validates both input documents and their exact mapping/database
+    # relationship before any derived document is created.
+    compile_materials(mapping, database, room_id=room_id)
+    band_count = len(database["bands_hz"])
+    errors = validate_material_profile(
+        profile, room_id=room_id, band_count=band_count
+    )
+    if errors:
+        raise MaterialContractError(errors)
+
+    ordered_entries = sorted(
+        mapping["entries"], key=lambda item: item["material_id"]
+    )
+    entry_by_source_name = {
+        entry["source_material_name"]: entry for entry in ordered_entries
+    }
+    source_names_by_key: dict[str, list[str]] = {}
+    for entry in ordered_entries:
+        source_names_by_key.setdefault(entry["material_key"], []).append(
+            entry["source_material_name"]
+        )
+
+    seen_selectors: dict[tuple[str, str], int] = {}
+    claimed_material_keys: dict[str, int] = {}
+    resolved_overrides: list[tuple[int, str, Mapping[str, Any]]] = []
+    selector_resolutions: list[dict[str, Any]] = []
+    for index, override in enumerate(profile.get("material_overrides", [])):
+        selector = override["selector"]
+        if "material_key" in selector:
+            selector_kind = "material_key"
+            selector_value = selector["material_key"]
+            material_key = selector_value
+            if material_key not in source_names_by_key:
+                errors.append(
+                    f"profile.material_overrides[{index}].selector references "
+                    f"unknown material_key {material_key!r}"
+                )
+                continue
+        else:
+            selector_kind = "source_material_name"
+            selector_value = selector["source_material_name"]
+            entry = entry_by_source_name.get(selector_value)
+            if entry is None:
+                errors.append(
+                    f"profile.material_overrides[{index}].selector references "
+                    f"unknown source_material_name {selector_value!r}"
+                )
+                continue
+            material_key = entry["material_key"]
+            shared_names = source_names_by_key[material_key]
+            if len(shared_names) != 1:
+                errors.append(
+                    f"profile.material_overrides[{index}] cannot target "
+                    f"source_material_name {selector_value!r}: material_key "
+                    f"{material_key!r} is shared by source materials "
+                    f"{shared_names}; select the material_key to override all "
+                    "of them or split the base database material"
+                )
+                continue
+
+        selector_identity = (selector_kind, selector_value)
+        duplicate_index = seen_selectors.get(selector_identity)
+        if duplicate_index is not None:
+            errors.append(
+                f"profile.material_overrides[{index}].selector duplicates "
+                f"material_overrides[{duplicate_index}]"
+            )
+            continue
+        seen_selectors[selector_identity] = index
+
+        conflict_index = claimed_material_keys.get(material_key)
+        if conflict_index is not None:
+            errors.append(
+                f"profile.material_overrides[{index}].selector conflicts with "
+                f"material_overrides[{conflict_index}]: both resolve to "
+                f"material_key {material_key!r}"
+            )
+            continue
+        claimed_material_keys[material_key] = index
+        resolved_overrides.append((index, material_key, override))
+        selector_resolutions.append(
+            {
+                "override_index": index,
+                "selector": copy.deepcopy(selector),
+                "material_key": material_key,
+                "source_material_names": list(source_names_by_key[material_key]),
+            }
+        )
+    if errors:
+        raise MaterialContractError(errors)
+
+    profile_hash = canonical_json_sha256(profile)
+    base_mapping_hash = canonical_json_sha256(mapping)
+    base_database_hash = canonical_json_sha256(database)
+    resolution_hash = canonical_json_sha256(
+        {
+            "mapping_sha256": base_mapping_hash,
+            "database_sha256": base_database_hash,
+            "profile_sha256": profile_hash,
+        }
+    )
+    profile_id = profile["profile_id"]
+    effective_mapping = copy.deepcopy(dict(mapping))
+    effective_database = copy.deepcopy(dict(database))
+    effective_database["database_id"] = (
+        f"{database['database_id']}__profile__{profile_id}__{resolution_hash[:12]}"
+    )
+    provenance = effective_database["provenance"]
+    base_material_semantics = str(provenance["material_semantics"])
+    if base_material_semantics == "reviewed_physical":
+        # Changing even one reviewed coefficient creates a new, unreviewed
+        # database.  A convenience profile must never inherit a physical-truth
+        # claim from bytes that it has changed.
+        provenance["confidence"] = 0.0
+        provenance["material_semantics"] = "research_placeholder"
+        provenance["intended_use"] = "research_compiler_diagnostics"
+        for material in effective_database["materials"]:
+            material["confidence"] = 0.0
+    provenance["source"] = (
+        f"{database['provenance']['source']}; explicit acoustic controls "
+        f"resolved from profile {profile_id!r} (sha256:{profile_hash})"
+    )
+
+    global_override = profile.get("global_override")
+    global_fields = (
+        [field for field in _OVERRIDE_FIELDS if field in global_override]
+        if isinstance(global_override, Mapping)
+        else []
+    )
+    override_by_key = {
+        material_key: (index, override)
+        for index, material_key, override in resolved_overrides
+    }
+    material_lineage: list[dict[str, Any]] = []
+    for material in effective_database["materials"]:
+        material_key = material["material_key"]
+        field_lineage = {
+            field: f"base_database:{database['database_id']}"
+            for field in _OVERRIDE_FIELDS
+        }
+        applied_layers = ["base_database"]
+        modified_fields: list[str] = []
+        if isinstance(global_override, Mapping):
+            for field in global_fields:
+                material[field] = _normalized_profile_value(
+                    field, global_override[field], band_count=band_count
+                )
+                field_lineage[field] = "profile.global_override"
+                modified_fields.append(field)
+            applied_layers.append("global_override")
+
+        resolved_override = override_by_key.get(material_key)
+        if resolved_override is not None:
+            override_index, override = resolved_override
+            per_material_fields = [
+                field for field in _OVERRIDE_FIELDS if field in override
+            ]
+            for field in per_material_fields:
+                material[field] = _normalized_profile_value(
+                    field, override[field], band_count=band_count
+                )
+                field_lineage[field] = (
+                    f"profile.material_overrides[{override_index}]"
+                )
+                if field not in modified_fields:
+                    modified_fields.append(field)
+            applied_layers.append(f"material_override[{override_index}]")
+
+        if modified_fields:
+            material["source"] = (
+                f"{material['source']}; fields {sorted(modified_fields)} "
+                f"overridden by profile {profile_id!r}"
+            )
+        material_lineage.append(
+            {
+                "material_key": material_key,
+                "source_material_names": list(
+                    source_names_by_key.get(material_key, [])
+                ),
+                "applied_layers": applied_layers,
+                "field_lineage": field_lineage,
+                "effective_values": {
+                    field: copy.deepcopy(material[field])
+                    for field in _OVERRIDE_FIELDS
+                },
+            }
+        )
+
+    # Revalidate the derived database and its RLR selection contract.  This is
+    # deliberately fail-closed even though all mutations above are constrained.
+    derived_errors = validate_material_database(effective_database)
+    if derived_errors:
+        raise MaterialContractError(derived_errors)
+    compile_materials(effective_mapping, effective_database, room_id=room_id)
+
+    report = {
+        "schema": "avengine_m3_acoustic_material_resolution_report_v1",
+        "status": "pass",
+        "profile_id": profile_id,
+        "room_id": room_id,
+        "bands_hz": [float(value) for value in database["bands_hz"]],
+        "precedence": [
+            "base_database",
+            "global_override",
+            "material_override",
+        ],
+        "input_hashes": {
+            "profile_sha256": profile_hash,
+            "mapping_sha256": base_mapping_hash,
+            "database_sha256": base_database_hash,
+            "resolution_sha256": resolution_hash,
+        },
+        "output_hashes": {
+            "mapping_sha256": canonical_json_sha256(effective_mapping),
+            "database_sha256": canonical_json_sha256(effective_database),
+        },
+        "base_database_id": database["database_id"],
+        "effective_database_id": effective_database["database_id"],
+        "material_semantics": {
+            "base": base_material_semantics,
+            "effective": effective_database["provenance"]["material_semantics"],
+            "profile_grants_physical_review": False,
+        },
+        "selector_resolutions": selector_resolutions,
+        "materials": material_lineage,
+    }
+    return ResolvedMaterialProfile(
+        effective_mapping=effective_mapping,
+        effective_database=effective_database,
+        report=report,
+    )
 
 
 def rlr_match_scores(

@@ -17,6 +17,7 @@ from avengine.contracts.json_io import (
     load_json,
 )
 from avengine.m3.materials import (
+    MATERIAL_PROFILE_SCHEMA,
     MATERIAL_QUALIFICATION_CLAIM,
     MaterialContractError,
     compile_materials,
@@ -38,6 +39,7 @@ _SCHEMA_FILES = {
     "avengine_m3_acoustic_material_database_v1": (
         "m3_acoustic_material_database_v1.schema.json"
     ),
+    MATERIAL_PROFILE_SCHEMA: "avengine_m3_acoustic_material_profile_v1.schema.json",
     CANARY_REQUEST_SCHEMA: "m3_acoustic_canary_request_v1.schema.json",
     COMPILE_EVIDENCE_SCHEMA: "m3_compile_evidence_v1.schema.json",
 }

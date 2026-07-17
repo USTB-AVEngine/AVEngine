@@ -42,6 +42,14 @@ authoritative record is in
 MP3D and UE visual-slot material proposals remain unqualified
 `research_candidate` diagnostics.
 
+The post-gate **M3.1 user-control extension** adds a versioned acoustic
+material profile resolver. It applies deterministic global and exact
+per-material coefficient overrides without changing the mesh or Habitat/RLR,
+then emits a complete effective mapping/database and lineage report. A bounded
+broadband EDT calibration core is implemented for caller-supplied evaluations;
+native target-decay calibration evidence remains `not_run`, and no RT60 or
+physical-material truth is inferred.
+
 ## Repository boundary
 
 | Repository | Owns |
@@ -103,6 +111,7 @@ presence alone is not proof that a generated episode is synchronized.
 | M2 | deterministic articulated Dog runtime — fixed Beagle canary (`pass`) |
 | M2.1 | appearance L9 and cross-species two-room diagnostics — research-only evidence (`pass`) |
 | M3 | explicit acoustic scene and synthetic material-activation canary (`pass`) |
+| M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
 | M4 | modern named multi-source/listener RLR |
 | M5 | exact timeline and visual-invariant counterfactual pair |
 | M6 | registry/QA/CLI and admitted dataset canary |
@@ -223,6 +232,73 @@ physical qualification or admission.
 
 Detailed formal measurements, evidence hashes and the exact runtime-lock input
 hash are recorded in [`M3_STATUS.md`](docs/roadmap/M3_STATUS.md).
+
+M3.1 does not guess physical acoustic materials from visual appearance. It
+starts from an explicit base database and resolves controls in this order:
+base database, then global override, then an exact per-material override.
+Curve scalars (`absorption`, `scattering`, `transmission`, `damping`) are
+broadcast to every frequency in `bands_hz`; arrays must match the base database
+band count exactly. `density` and `speed` remain scalars. Unknown, duplicate,
+ambiguous or conflicting selectors fail instead of falling back. A
+source-material selector is also rejected when several source slots share its
+`material_key`; select that key to change all shared surfaces, or split the
+material explicitly. Modifying a
+`reviewed_physical` base automatically downgrades the effective database to a
+research placeholder until the complete resolved database is reviewed again.
+
+The tracked example is
+[`material_profile_example.json`](examples/m3/blender_custom/material_profile_example.json):
+
+```json
+{
+  "schema": "avengine_m3_acoustic_material_profile_v1",
+  "profile_id": "blender_custom_user_control_example_v1",
+  "room_id": "blender_custom_two_zone_v1",
+  "global_override": {"absorption": 0.2, "scattering": 0.05},
+  "material_overrides": [
+    {
+      "selector": {"source_material_name": "FloorWarmGray"},
+      "absorption": [0.08, 0.24, 0.57, 0.69]
+    },
+    {
+      "selector": {"material_key": "doorframe_extreme_f84c"},
+      "absorption": 0.1
+    }
+  ]
+}
+```
+
+The profile JSON is the normal user-editable surface; routine tuning does not
+modify `runtime.lock.yaml`, the mesh, mapping or base database. A global-only
+profile may omit `material_overrides`. Resolve a profile before using the
+existing strict compiler path. The output directories must not already exist:
+
+```bash
+export HABPY=/path/to/the/python/environment/with/avengine
+export RUN_ID=20260717_01
+"$HABPY" -m pip install -e .
+
+"$HABPY" -m avengine.cli m3 resolve-materials \
+  --mapping examples/m3/blender_custom/mapping.json \
+  --base-materials examples/m3/blender_custom/materials_low.json \
+  --profile examples/m3/blender_custom/material_profile_example.json \
+  --output "tmp/m3/user_profile_${RUN_ID}"
+
+"$HABPY" -m avengine.cli m3 compile-custom \
+  --room examples/m1/rooms/blender_custom/room_manifest.json \
+  --mapping "tmp/m3/user_profile_${RUN_ID}/mapping.json" \
+  --materials "tmp/m3/user_profile_${RUN_ID}/materials.json" \
+  --output "tmp/m3/user_profile_package_${RUN_ID}"
+```
+
+The example coefficients are user controls, not measurements. RT60/T60 is a
+decay result measured from an RIR for declared geometry, solver settings and
+source/listener positions; it is not a per-material field or direct RLR
+setting. The independently implemented M3 metric is broadband EDT. Likewise,
+`global_volume` is an output/IR amplitude scale and `max_ir_seconds` is only an
+IR duration limit, not a reverberation-time control. See
+[`ACOUSTIC_SCENE_AND_MATERIALS.md`](docs/architecture/ACOUSTIC_SCENE_AND_MATERIALS.md)
+for the full contract.
 
 Post-ingestion OBJ readback verifies native geometry counts and coordinate
 multisets, but the OBJ format does not expose recoverable per-face material

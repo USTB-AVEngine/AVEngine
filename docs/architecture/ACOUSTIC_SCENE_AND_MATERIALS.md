@@ -109,6 +109,54 @@ Visual-slot proposals are always research inputs. They use
 `mapping_source_kind: visual_material_slot_proposal`, have no physical
 qualification claim, and cannot be promoted merely by compiling successfully.
 
+### M3.1 user-controlled material profiles
+
+[`avengine_m3_acoustic_material_profile_v1.schema.json`](../../schemas/avengine_m3_acoustic_material_profile_v1.schema.json)
+is a convenience layer over the existing explicit mapping and database. It
+does not alter the source mesh, runtime package or RLR API. Resolution is
+deterministic and field-wise:
+
+```text
+base material database < global override < exact material override
+```
+
+Curve scalars are expanded to every base-database frequency band. Explicit
+arrays must have exactly the same length as `bands_hz`; unspecified fields
+retain the value from the preceding layer. The resolver rejects unknown,
+duplicate and conflicting selectors. A `source_material_name` selector must
+resolve to a material key used by exactly one source slot; when several slots
+share a key, the caller must select that key to change all of them or author
+separate slots. The resolved mapping, complete effective database, field-level
+lineage, input/output hashes and selector resolutions are emitted before the
+same strict compiler path runs. A global override is therefore expanded into
+explicit records, not retained as a hidden runtime fallback.
+
+Profile values remain subject to the base database's declared material
+semantics. User-selected coefficients do not become physical measurements or
+dataset admission merely because resolution and compilation pass. If a
+profile changes a `reviewed_physical` base, the effective database is
+automatically downgraded to `research_placeholder`; recovering a physical
+claim requires a separate review of the complete resolved database.
+
+### Decay target boundary
+
+RT60/T60 and EDT are room-response metrics derived from an RIR under declared
+geometry, material coefficients, solver settings and source/listener anchors.
+They are not properties that can be assigned independently to a floor or wall,
+and the pinned RLR API has no direct RT60 setter. `global_volume` scales output
+amplitude; `max_ir_seconds` bounds IR duration and can truncate the decay tail.
+Neither controls reverberation time.
+
+AVEngine exposes a bounded `calibrate_broadband_edt_seconds` search core. It
+adjusts one uniform absorption scalar by repeatedly calling a caller-owned EDT
+evaluator, requires higher absorption to produce no longer EDT, and checks
+repeat spread, reachability, monotonicity and convergence. A successful result
+records the full target/achieved/error trace. This is specifically broadband
+EDT, not frequency-band RT60 or recovered physical material truth. Native
+multi-anchor target-decay orchestration and evidence remain `not_run` until
+they bind the mesh, anchors, simulation configuration, retained RIRs and
+achieved tolerance.
+
 ## Controlled high/low counterfactual
 
 The tracked Blender custom-room fixture assigns four explicit author slots.

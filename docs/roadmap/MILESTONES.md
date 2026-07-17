@@ -149,6 +149,34 @@ receipts and source-to-package material replay. These criteria passed for the
 fixed Blender custom-room `0.02` / `0.60` synthetic fixture only. They do not
 qualify physical coefficients, MP3D/UE research proposals, or a dataset room.
 
+## M3.1: User-Controlled Acoustic Profiles
+
+Status: the deterministic coefficient-profile path is `pass`; native
+target-decay calibration evidence is `not_run`. This post-gate extension does
+not rewrite the fixed M3 formal result or its runtime-lock input hash.
+
+Deliverables: versioned profile schema, scalar-to-band expansion,
+base/global/exact-material precedence, fail-closed selector validation,
+complete effective mapping/database output, field-level lineage report, CLI,
+example and tests. A separate bounded calibration API targets caller-reported
+broadband EDT through a caller-owned evaluator.
+
+Exit criteria for the completed coefficient path: identical input bytes
+resolve byte-identically regardless of their filesystem location; global
+values reach every mapped material; an exact material
+override wins only for its resolved key; unknown, shared, duplicate,
+conflicting selectors and wrong-band arrays fail; and the effective database
+passes the existing strict M3 compiler path and package verifier.
+
+Native target-decay exit criteria remain open: fixed calibration anchors and
+simulation settings, retained RIRs, acceptable measurement quality and repeat
+spread, a reachable monotonic bracket, achieved tolerance and independently
+verified evidence. RT60 is not a material field or direct RLR setting; current
+AVEngine-owned measurement support is broadband EDT.
+
+Non-goals: visual-to-physical material inference, measured real-room
+coefficients, a universal room RT60, or any M4 multi-source claim.
+
 ## M4: Multi-Source RLR
 
 Status: `not_run`. M3's single-pair material canary and any named-context API

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 import subprocess
+import tempfile
 from typing import Any, Sequence
 
 from avengine.appearance import (
@@ -13,7 +15,7 @@ from avengine.appearance import (
     generate_l9_batch,
     write_l9_batch_exclusive,
 )
-from avengine.contracts.json_io import load_json, sha256_file, write_json
+from avengine.contracts.json_io import file_record, load_json, sha256_file, write_json
 from avengine.m1.contracts import (
     ContractError,
     EVIDENCE_SCHEMA,
@@ -40,8 +42,9 @@ from avengine.m3.compiler import (
     compile_explicit_glb_research_scene,
     propose_visual_slot_research_materials,
 )
-from avengine.m3.contracts import validate_package
+from avengine.m3.contracts import read_immutable_file_snapshot, validate_package
 from avengine.m3.evidence import verify_compile_evidence
+from avengine.m3.materials import MaterialContractError, resolve_material_profile
 
 
 EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
@@ -456,6 +459,83 @@ def _m3_compile_research(args: argparse.Namespace) -> int:
     return 0
 
 
+def _m3_resolve_materials(args: argparse.Namespace) -> int:
+    """Materialize one deterministic global/per-material profile bundle."""
+
+    destination: Path | None = None
+    staging: Path | None = None
+    try:
+        destination = _require_ignored_or_external_output(args.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            raise ValueError(f"refusing to replace existing output: {destination}")
+
+        snapshots = {
+            name: read_immutable_file_snapshot(path)
+            for name, path in (
+                ("mapping", args.mapping),
+                ("base_materials", args.base_materials),
+                ("profile", args.profile),
+            )
+        }
+        documents: dict[str, dict[str, Any]] = {}
+        for name, snapshot in snapshots.items():
+            value = json.loads(snapshot.payload)
+            if not isinstance(value, dict):
+                raise ValueError(f"{name} input must be a JSON object")
+            documents[name] = value
+
+        mapping = documents["mapping"]
+        resolved = resolve_material_profile(
+            mapping,
+            documents["base_materials"],
+            documents["profile"],
+            room_id=str(mapping.get("room_id", "")),
+        )
+        staging = Path(
+            tempfile.mkdtemp(
+                prefix=f".{destination.name}.staging-", dir=destination.parent
+            )
+        ).resolve()
+        mapping_path = staging / "mapping.json"
+        materials_path = staging / "materials.json"
+        report_path = staging / "resolution_report.json"
+        write_json(mapping_path, resolved.effective_mapping)
+        write_json(materials_path, resolved.effective_database)
+        report = {
+            **resolved.report,
+            "input_files": {
+                name: {
+                    "byte_size": snapshot.byte_size,
+                    "sha256": snapshot.sha256,
+                }
+                for name, snapshot in snapshots.items()
+            },
+            "outputs": {
+                "mapping": file_record(mapping_path, relative_to=staging),
+                "materials": file_record(materials_path, relative_to=staging),
+            },
+        }
+        write_json(report_path, report)
+        os.rename(staging, destination)
+        staging = None
+    except (MaterialContractError, OSError, ValueError) as error:
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+        _print({"status": "fail", "error": str(error)})
+        return 2
+
+    _print(
+        {
+            "status": "pass",
+            "mapping": str(destination / "mapping.json"),
+            "materials": str(destination / "materials.json"),
+            "resolution_report": str(destination / "resolution_report.json"),
+        }
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -557,6 +637,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_research.add_argument("--output", required=True)
     m3_research.add_argument("--package-id")
     m3_research.set_defaults(handler=_m3_compile_research)
+
+    m3_resolve = m3_commands.add_parser(
+        "resolve-materials",
+        help="Resolve global and exact per-material coefficient overrides",
+    )
+    m3_resolve.add_argument("--mapping", required=True)
+    m3_resolve.add_argument("--base-materials", required=True)
+    m3_resolve.add_argument("--profile", required=True)
+    m3_resolve.add_argument("--output", required=True)
+    m3_resolve.set_defaults(handler=_m3_resolve_materials)
 
     appearance = commands.add_parser(
         "appearance", help="Animal appearance contract/design commands"

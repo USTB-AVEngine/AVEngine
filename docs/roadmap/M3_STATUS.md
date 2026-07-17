@@ -85,7 +85,7 @@ artifact.
 | Native evidence file SHA-256 | `512039e604be98877b9a09cbe2b8e7cc2c8602a29baa16c194733e0ddb67afce` |
 | Native evidence content SHA-256 | `0e05110949fdd01032ac6b07631b7cf1f4fc484deedc23b8a8df5fd2bee10c5d` |
 | Independent verifier | `pass`; 39/39 required native checks, including 11/11 nested compile-replay checks |
-| Final repository regression suite | `870 passed in 104.36s (0:01:44)` |
+| M3 formal-run regression suite at commit `7a952ba6794e249db732855eaa32a7d720dfa60a` | `870 passed in 104.36s (0:01:44)` |
 
 `runtime.lock.yaml` is the immutable experiment input and runtime/version
 manifest for this formal run. The evidence binds its exact bytes at the
@@ -136,6 +136,24 @@ and unqualified placeholder coefficients are useful compiler probes, but no
 visual material name is acoustic ground truth. Neither room has a reviewed
 physical material profile or acoustic-scene/dataset admission, and successful
 package generation does not grant either one.
+
+## Post-gate M3.1 extension
+
+M3.1 adds an explicit user-control layer without changing the retained M3
+canary inputs, evidence, measurements or formal hashes. The implemented
+`resolve-materials` CLI starts from an existing mapping and base database,
+applies global then exact per-material overrides, broadcasts scalar curves to
+the declared frequency bands, and writes a complete effective mapping,
+database and resolution report. Unknown selectors, shared-key source
+selectors, duplicate or conflicting resolutions, and wrong-band arrays fail
+closed; no hidden fallback is emitted into the resolved database or package.
+
+The separate `calibrate_broadband_edt_seconds` core performs a bounded search
+over uniform absorption using caller-reported EDT values. A successful result
+records target, achieved value, error, repeat spread and every evaluated point.
+It explicitly targets broadband EDT. End-to-end native target-decay
+calibration has not yet produced formal evidence and remains `not_run`; no
+RT60, frequency-band or physical-material calibration claim is made.
 
 ## M3 non-claims and M4 boundary
 
