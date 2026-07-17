@@ -7,7 +7,9 @@ import hashlib
 import os
 from pathlib import Path
 from pathlib import PurePosixPath
+import re
 import shutil
+import subprocess
 import tempfile
 from typing import Any, Mapping
 
@@ -68,6 +70,7 @@ M5_DRY_CLIP_START = 3_200
 M5_DRY_CLIP_END = 8_000
 M5_EVENT_STARTS = (6_400, 19_200, 32_000, 44_800, 57_600, 70_400)
 M5_DRY_LINEAR_GAIN = 0.18
+_GIT_COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
 
 
 class M5CanaryError(RuntimeError):
@@ -371,6 +374,37 @@ def _portable_output_paths(value: Any, root: Path) -> Any:
         except (OSError, ValueError):
             pass
     return value
+
+
+def _code_provenance() -> dict[str, Any]:
+    """Bind a formal run to one clean AVEngine source revision."""
+
+    repository = Path(__file__).resolve().parents[3]
+
+    def git(*arguments: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", *arguments],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise M5CanaryError(f"cannot bind M5 evidence to Git: {exc}") from exc
+        return result.stdout.strip()
+
+    commit = git("rev-parse", "HEAD")
+    if not _GIT_COMMIT_RE.fullmatch(commit):
+        raise M5CanaryError("Git returned a non-canonical commit identity")
+    status = git("status", "--porcelain=v1", "--untracked-files=normal")
+    return {
+        "repository_role": "avengine_habitat_native",
+        "commit": commit,
+        "worktree_clean": status == "",
+        "capture_phase": "before_staging_directory_creation",
+    }
 
 
 def _confined_bundle_path(root: Path, value: Any, *, owner: str) -> Path:
@@ -727,6 +761,9 @@ def run_m5_canary(
     request_errors = validate_episode_request(request)
     if request_errors:
         raise M5CanaryError("; ".join(request_errors))
+    code_provenance = _code_provenance()
+    if code_provenance["worktree_clean"] is not True:
+        raise M5CanaryError("formal M5 evidence requires a clean Git worktree")
     destination = Path(output_directory).resolve()
     if destination.exists():
         raise M5CanaryError(f"refusing to replace existing output: {destination}")
@@ -1067,6 +1104,17 @@ def run_m5_canary(
             "schema": M5_EVIDENCE_SCHEMA,
             "overall_status": "pass",
             "qualification_claim": False,
+            "code_provenance": code_provenance,
+            "bundle_scope": {
+                "kind": "retained_evidence_closure",
+                "retained_artifact_bytes_complete": True,
+                "complete_upstream_reexecution_package": False,
+                "statement": (
+                    "This bundle closes the bytes needed to audit the retained M5 result; "
+                    "it is not a complete runnable package of all upstream Habitat runtime, "
+                    "room, animal, or toolchain assets."
+                ),
+            },
             "claim_boundary": (
                 "M5 deterministic research canary; local animal call assets are retained "
                 "for research listening evidence and are not admitted release dataset assets"
@@ -1133,6 +1181,28 @@ def verify_m5_canary_evidence(
         declared_hash == canonical_json_sha256(core),
         {"declared": declared_hash, "recomputed": canonical_json_sha256(core)},
     )
+    provenance = evidence.get("code_provenance")
+    provenance_pass = (
+        isinstance(provenance, Mapping)
+        and provenance.get("repository_role") == "avengine_habitat_native"
+        and isinstance(provenance.get("commit"), str)
+        and _GIT_COMMIT_RE.fullmatch(provenance["commit"]) is not None
+        and provenance.get("worktree_clean") is True
+        and provenance.get("capture_phase") == "before_staging_directory_creation"
+    )
+    add("clean_code_provenance", provenance_pass, provenance)
+
+    scope = evidence.get("bundle_scope")
+    scope_pass = (
+        isinstance(scope, Mapping)
+        and scope.get("kind") == "retained_evidence_closure"
+        and scope.get("retained_artifact_bytes_complete") is True
+        and scope.get("complete_upstream_reexecution_package") is False
+        and isinstance(scope.get("statement"), str)
+        and "not a complete runnable package" in scope["statement"]
+    )
+    add("honest_bundle_scope", scope_pass, scope)
+
     artifacts = evidence.get("artifacts")
     artifact_errors: list[str] = []
     if isinstance(artifacts, Mapping):
