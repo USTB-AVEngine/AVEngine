@@ -45,6 +45,14 @@ from avengine.m3.compiler import (
 from avengine.m3.contracts import read_immutable_file_snapshot, validate_package
 from avengine.m3.evidence import verify_compile_evidence
 from avengine.m3.materials import MaterialContractError, resolve_material_profile
+from avengine.m3.runtime import RuntimeUnavailableError
+from avengine.m4.canary import M4CanaryError, run_m4_canary
+from avengine.m4.contracts import (
+    M4ContractError,
+    load_and_validate_multi_source_canary_request,
+    validate_audio_bundle,
+)
+from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 
 
 EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
@@ -536,6 +544,93 @@ def _m3_resolve_materials(args: argparse.Namespace) -> int:
     return 0
 
 
+def _m4_validate_request(args: argparse.Namespace) -> int:
+    try:
+        validated = load_and_validate_multi_source_canary_request(args.request)
+    except M4ContractError as error:
+        _print({"status": "fail", "errors": list(error.errors)})
+        return 2
+    _print(
+        {
+            "status": "pass",
+            "request": str(validated.request_path),
+            "request_id": validated.request["request_id"],
+            "listener_id": validated.listener["listener_id"],
+            "canonical_source_ids": list(validated.canonical_source_ids),
+            "all_m2_anchor_evidence_available": (
+                validated.all_m2_anchor_evidence_available
+            ),
+            "identity_position_authority": "formal_m1_source_pose",
+        }
+    )
+    return 0
+
+
+def _m4_run_canary(args: argparse.Namespace) -> int:
+    missing_dependencies = [
+        str(Path(path).resolve())
+        for path in (args.hrtf, args.hrtf_license)
+        if not Path(path).resolve().is_file()
+    ]
+    if missing_dependencies:
+        _print(
+            {
+                "status": "blocked",
+                "reason": "explicit HRTF or its license evidence is unavailable",
+                "missing": missing_dependencies,
+            }
+        )
+        return 3
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        evidence = run_m4_canary(
+            args.request,
+            args.package_manifest,
+            args.runtime_lock,
+            output,
+            hrtf_path=args.hrtf,
+            hrtf_license_path=args.hrtf_license,
+        )
+    except RuntimeUnavailableError as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (M4CanaryError, M4EvidenceError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    status, checks = verify_m4_canary_evidence(evidence)
+    _print(
+        {
+            "status": status,
+            "canary_evidence": str(evidence),
+            "failed_checks": [
+                check for check in checks if check.get("status") != "pass"
+            ],
+        }
+    )
+    return EXIT_BY_STATUS.get(status, 2)
+
+
+def _m4_verify_canary(args: argparse.Namespace) -> int:
+    try:
+        status, checks = verify_m4_canary_evidence(args.evidence)
+    except (OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": status, "checks": checks})
+    return 0 if status == "pass" else 1
+
+
+def _m4_verify_bundle(args: argparse.Namespace) -> int:
+    try:
+        bundle = load_json(args.bundle)
+        errors = validate_audio_bundle(bundle, bundle_path=args.bundle)
+    except (OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": "pass" if not errors else "fail", "errors": errors})
+    return 0 if not errors else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -647,6 +742,38 @@ def build_parser() -> argparse.ArgumentParser:
     m3_resolve.add_argument("--profile", required=True)
     m3_resolve.add_argument("--output", required=True)
     m3_resolve.set_defaults(handler=_m3_resolve_materials)
+
+    m4 = commands.add_parser("m4", help="M4 named multi-source spatial-audio commands")
+    m4_commands = m4.add_subparsers(dest="m4_command", required=True)
+
+    m4_validate = m4_commands.add_parser("validate-request")
+    m4_validate.add_argument("request")
+    m4_validate.set_defaults(handler=_m4_validate_request)
+
+    repository_root = Path(__file__).resolve().parents[2]
+    m4_run = m4_commands.add_parser("run-canary")
+    m4_run.add_argument("--request", required=True)
+    m4_run.add_argument("--package-manifest", required=True)
+    m4_run.add_argument(
+        "--runtime-lock",
+        default=str(repository_root / "locks" / "m4_runtime_v1.json"),
+    )
+    m4_run.add_argument(
+        "--hrtf", default="/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
+    )
+    m4_run.add_argument(
+        "--hrtf-license", default="/usr/share/doc/libmysofa1/copyright"
+    )
+    m4_run.add_argument("--output", required=True)
+    m4_run.set_defaults(handler=_m4_run_canary)
+
+    m4_verify = m4_commands.add_parser("verify-canary")
+    m4_verify.add_argument("evidence")
+    m4_verify.set_defaults(handler=_m4_verify_canary)
+
+    m4_bundle = m4_commands.add_parser("verify-bundle")
+    m4_bundle.add_argument("bundle")
+    m4_bundle.set_defaults(handler=_m4_verify_bundle)
 
     appearance = commands.add_parser(
         "appearance", help="Animal appearance contract/design commands"

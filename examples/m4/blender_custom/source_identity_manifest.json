@@ -1,0 +1,60 @@
+{
+  "schema": "avengine_m4_source_identity_manifest_v1",
+  "manifest_id": "m4_blender_custom_two_source_identity_v1",
+  "qualification_claim": false,
+  "m1_capture_request": {
+    "path": "examples/m1/requests/blender_custom.json",
+    "byte_size": 1593,
+    "sha256": "04b1aa681fb93da7c079660aca569cd2124a13d8b72694e861513d999105686a"
+  },
+  "canonical_source_order": ["source0", "source1"],
+  "sources": [
+    {
+      "source_id": "source0",
+      "actor_id": "actor0",
+      "event_id": "event0",
+      "anchor_id": "actor0.muzzle",
+      "semantic_anchor_id": "muzzle",
+      "m1_source_id": "source0",
+      "position_m": [-1.2, 0.3, -1.0],
+      "position_authority": "m1_capture_request_source_pose",
+      "dry_audio_id": "dry0",
+      "deterministic_signal": {
+        "kind": "sine",
+        "frequency_hz": 440.0,
+        "duration_samples": 256,
+        "amplitude": 0.25,
+        "phase": 0.0
+      },
+      "m2_anchor_evidence": {
+        "status": "not_run",
+        "qualification_claim": false,
+        "reason": "No canary-qualified M2 asset, pose, and resolved-anchor evidence is tracked; this contract example binds only the formal M1 source pose."
+      }
+    },
+    {
+      "source_id": "source1",
+      "actor_id": "actor1",
+      "event_id": "event1",
+      "anchor_id": "actor1.muzzle",
+      "semantic_anchor_id": "muzzle",
+      "m1_source_id": "source1",
+      "position_m": [2.0, 0.3, 0.0],
+      "position_authority": "m1_capture_request_source_pose",
+      "dry_audio_id": "dry1",
+      "deterministic_signal": {
+        "kind": "sine",
+        "frequency_hz": 660.0,
+        "duration_samples": 256,
+        "amplitude": 0.25,
+        "phase": 1.5707963267948966
+      },
+      "m2_anchor_evidence": {
+        "status": "not_run",
+        "qualification_claim": false,
+        "reason": "No canary-qualified M2 asset, pose, and resolved-anchor evidence is tracked; this contract example binds only the formal M1 source pose."
+      }
+    }
+  ],
+  "manifest_content_sha256": "470686541f962e4c5ea2bee439f4ecfbe6126885f73e8539c89bf387670347ae"
+}

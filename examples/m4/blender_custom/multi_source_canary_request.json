@@ -1,0 +1,116 @@
+{
+  "schema": "avengine_m4_multi_source_canary_request_v1",
+  "request_id": "m4_blender_custom_two_source_foa_v1",
+  "qualification_claim": false,
+  "inputs": {
+    "m1_capture_request": {
+      "path": "examples/m1/requests/blender_custom.json",
+      "byte_size": 1593,
+      "sha256": "04b1aa681fb93da7c079660aca569cd2124a13d8b72694e861513d999105686a"
+    },
+    "m3_acoustic_canary_request": {
+      "path": "examples/m3/blender_custom/canary_request.json",
+      "byte_size": 2389,
+      "sha256": "c883bdc61cbf06af8ed4e260660c8d65c434d2fac77303ccab9315ec6a90edb8"
+    },
+    "source_identity_manifest": {
+      "path": "examples/m4/blender_custom/source_identity_manifest.json",
+      "byte_size": 2075,
+      "sha256": "26aa2b21caf5a49b3a3be5e607f6fa6f535ef8c5108dc695256e204961f1d288"
+    }
+  },
+  "listeners": [
+    {
+      "listener_id": "listener0",
+      "camera_rig_id": "camera_rig_0",
+      "view_id": "view0",
+      "position_m": [-2.5, 1.55, 0.0],
+      "orientation_wxyz": [
+        0.7071067811865476,
+        0.0,
+        -0.7071067811865475,
+        0.0
+      ],
+      "radius_m": 0.0
+    }
+  ],
+  "sources": [
+    {
+      "source_id": "source0",
+      "position_m": [-1.2, 0.3, -1.0],
+      "radius_m": 0.0
+    },
+    {
+      "source_id": "source1",
+      "position_m": [2.0, 0.3, 0.0],
+      "radius_m": 0.0
+    }
+  ],
+  "canonical_source_order": ["source0", "source1"],
+  "registration_orders": [
+    {
+      "order_id": "canonical",
+      "source_ids": ["source0", "source1"]
+    },
+    {
+      "order_id": "reversed",
+      "source_ids": ["source1", "source0"]
+    }
+  ],
+  "spatial_audio": {
+    "format_id": "rlr_foa_acn_n3d_world_v1",
+    "ambisonic_order": 1,
+    "channel_count": 4,
+    "raw_channel_order": ["W", "Y", "Z", "X"],
+    "acn_indices": [0, 1, 2, 3],
+    "normalization": "N3D",
+    "coordinate_frame": "avengine_world",
+    "handedness": "right",
+    "axes": {
+      "right": "+X",
+      "up": "+Y",
+      "back": "+Z",
+      "forward": "-Z"
+    },
+    "raw_array_layout": "channel_major_[channels,samples]",
+    "dtype": "float32_le"
+  },
+  "simulation": {
+    "sample_rate_hz": 16000,
+    "max_ir_seconds": 4.0,
+    "frequency_bands": 4,
+    "direct_sh_order": 1,
+    "indirect_sh_order": 1,
+    "direct_ray_count": 500,
+    "indirect_ray_count": 5000,
+    "indirect_ray_depth": 100,
+    "source_ray_count": 500,
+    "source_ray_depth": 20,
+    "max_diffraction_order": 10,
+    "thread_count": 1,
+    "unit_scale": 1.0,
+    "global_volume": 1.0,
+    "speed_of_sound_m_s": 343.0,
+    "direct": true,
+    "indirect": true,
+    "diffraction": true,
+    "transmission": false,
+    "mesh_simplification": false,
+    "temporal_coherence": false,
+    "channel_layout": {
+      "type": "ambisonics",
+      "channel_count": 4
+    }
+  },
+  "thresholds": {
+    "maximum_anchor_transform_error": 1e-9,
+    "maximum_direct_arrival_error_samples": 2.0,
+    "canonical_registration_required": true,
+    "exact_order_hash_required": true,
+    "maximum_order_metric_relative_difference": 0.05,
+    "cardinal_probe_distance_m": 0.25,
+    "minimum_binaural_ild_db": 6.0,
+    "performance_repeat_count": 3
+  },
+  "request_content_sha256": "2e2fa34a7b9d16e6a0bc8a53b9a3ebbfd5caf509834ce48aca7e151390b81867"
+}
