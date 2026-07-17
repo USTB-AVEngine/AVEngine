@@ -79,9 +79,7 @@ DERIVED_COUNTERFACTUAL_FIELDS = (
 _SCHEMA_FILES = {
     TIMELINE_SCHEMA: "avengine_timeline_v2.schema.json",
     EPISODE_REQUEST_SCHEMA: "m5_episode_request_v1.schema.json",
-    DYNAMIC_AUDIO_MANIFEST_SCHEMA: (
-        "m5_dynamic_audio_render_manifest_v1.schema.json"
-    ),
+    DYNAMIC_AUDIO_MANIFEST_SCHEMA: ("m5_dynamic_audio_render_manifest_v1.schema.json"),
 }
 _STABLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -173,7 +171,9 @@ def _dedupe(errors: Iterable[str]) -> list[str]:
 
 
 def _mapping_list(value: Any) -> list[Mapping[str, Any]]:
-    if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
+    if not isinstance(value, list) or not all(
+        isinstance(item, Mapping) for item in value
+    ):
         return []
     return list(value)
 
@@ -191,6 +191,98 @@ def _stable_ids(
     if len(result) != len(set(result)):
         errors.append(f"{owner} {field} values must be unique")
     return result
+
+
+def _audio_program_errors(value: Any, *, owner: str) -> list[str]:
+    """Validate the exact six-window dry-clip scheduling program."""
+
+    if not isinstance(value, Mapping):
+        return [f"{owner} must be a mapping"]
+    errors: list[str] = []
+    program_id = value.get("program_id")
+    if not isinstance(program_id, str) or not _STABLE_ID.fullmatch(program_id):
+        errors.append(f"{owner}.program_id must be a stable ID")
+
+    clip = value.get("clip_source_interval")
+    clip_length: int | None = None
+    if isinstance(clip, Mapping):
+        start = clip.get("start_sample")
+        end = clip.get("end_sample")
+        if (
+            isinstance(start, int)
+            and not isinstance(start, bool)
+            and isinstance(end, int)
+            and not isinstance(end, bool)
+            and 0 <= start < end
+        ):
+            clip_length = end - start
+        else:
+            errors.append(
+                f"{owner}.clip_source_interval must satisfy 0 <= start_sample < end_sample"
+            )
+    else:
+        errors.append(f"{owner}.clip_source_interval must be a mapping")
+
+    fade = value.get("fade_samples")
+    if not isinstance(fade, int) or isinstance(fade, bool) or fade < 0:
+        errors.append(f"{owner}.fade_samples must be a non-negative integer")
+    elif clip_length is not None and 2 * fade > clip_length:
+        errors.append(f"{owner}.fade_samples must fit twice inside the source clip")
+
+    gain = value.get("linear_gain")
+    if (
+        isinstance(gain, bool)
+        or not isinstance(gain, (int, float))
+        or not math.isfinite(float(gain))
+        or not 0.0 < float(gain) <= 1.0
+    ):
+        errors.append(f"{owner}.linear_gain must be finite in (0, 1]")
+
+    windows = _mapping_list(value.get("simultaneous_windows"))
+    window_ids = _stable_ids(
+        windows, "window_id", f"{owner}.simultaneous_windows", errors
+    )
+    if len(windows) != 6:
+        errors.append(f"{owner} must contain exactly six simultaneous windows")
+    previous_end: int | None = None
+    for index, window in enumerate(windows):
+        start = window.get("start_sample")
+        end = window.get("end_sample")
+        if not (
+            isinstance(start, int)
+            and not isinstance(start, bool)
+            and isinstance(end, int)
+            and not isinstance(end, bool)
+            and 0 <= start < end <= AUDIO_SAMPLE_COUNT
+        ):
+            errors.append(
+                f"{owner}.simultaneous_windows[{index}] must satisfy "
+                "0 <= start_sample < end_sample <= 80000"
+            )
+            continue
+        if clip_length is not None and end - start != clip_length:
+            errors.append(
+                f"{owner}.simultaneous_windows[{index}] duration must equal "
+                "the source clip duration"
+            )
+        if previous_end is not None and start < previous_end:
+            errors.append(
+                f"{owner}.simultaneous_windows must be ordered and non-overlapping"
+            )
+        previous_end = end
+        if not any(
+            start <= sample_boundary(frame) < end for frame in range(FRAME_COUNT)
+        ):
+            errors.append(
+                f"{owner}.simultaneous_windows[{index}] is not active at a video PTS"
+            )
+    if window_ids and window_ids != sorted(
+        window_ids, key=lambda item: item.encode("ascii")
+    ):
+        errors.append(
+            f"{owner}.simultaneous_windows must use canonical stable-ID order"
+        )
+    return _dedupe(errors)
 
 
 def validate_episode_request(request: Mapping[str, Any]) -> list[str]:
@@ -216,10 +308,27 @@ def validate_episode_request(request: Mapping[str, Any]) -> list[str]:
         errors.append("M5 canary requires exactly two sources")
     if len(events) != 2:
         errors.append("M5 canary requires exactly two audio events")
-    if actor_ids and actor_ids != sorted(actor_ids, key=lambda item: item.encode("ascii")):
+    if actor_ids and actor_ids != sorted(
+        actor_ids, key=lambda item: item.encode("ascii")
+    ):
         errors.append("actors must use canonical stable-ID order")
-    if source_ids and source_ids != sorted(source_ids, key=lambda item: item.encode("ascii")):
+    if source_ids and source_ids != sorted(
+        source_ids, key=lambda item: item.encode("ascii")
+    ):
         errors.append("sources must use canonical stable-ID order")
+    semantic_ids = [actor.get("semantic_id") for actor in actors]
+    if (
+        len(semantic_ids) == 2
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in semantic_ids
+        )
+        and len(set(semantic_ids)) != 2
+    ):
+        errors.append("actors must use distinct semantic IDs")
+    offsets = [actor.get("instance_offset_m") for actor in actors]
+    if len(offsets) == 2 and offsets[0] == offsets[1]:
+        errors.append("actors must use distinct instance offsets")
 
     source_actor_ids = [source.get("actor_id") for source in sources]
     if len(actor_ids) == 2 and source_actor_ids != actor_ids:
@@ -238,45 +347,38 @@ def validate_episode_request(request: Mapping[str, Any]) -> list[str]:
         errors.append("events must bind one-to-one to sources in canonical order")
     for index, event in enumerate(events):
         raw_source_id = event.get("source_id")
-        source = source_by_id.get(raw_source_id) if isinstance(raw_source_id, str) else None
+        source = (
+            source_by_id.get(raw_source_id) if isinstance(raw_source_id, str) else None
+        )
         if source is None:
             errors.append(f"events[{index}].source_id does not resolve")
             continue
-        for field in ("actor_id", "emitter_bone", "emitter_path_sha256"):
+        for field in ("actor_id", "emitter_link", "emitter_path_sha256"):
             if event.get(field) != source.get(field):
                 errors.append(f"events[{index}].{field} differs from its source")
-
-    intervals = [
-        (event.get("start_sample"), event.get("end_sample")) for event in events
-    ]
-    if len(intervals) == 2 and intervals[0] != intervals[1]:
-        errors.append("the two source events must have exactly the same interval")
-    for index, (start, end) in enumerate(intervals):
-        if not (
-            isinstance(start, int)
-            and not isinstance(start, bool)
-            and isinstance(end, int)
-            and not isinstance(end, bool)
-            and 0 <= start < end <= AUDIO_SAMPLE_COUNT
-        ):
-            errors.append(f"events[{index}] must satisfy 0 <= start_sample < end_sample <= 80000")
-    if intervals and isinstance(intervals[0][0], int) and isinstance(intervals[0][1], int):
-        start, end = intervals[0]
-        if not any(start <= sample_boundary(frame) < end for frame in range(FRAME_COUNT)):
-            errors.append("the simultaneous event interval must be active at a video PTS")
+    program = request.get("audio_program")
+    errors.extend(_audio_program_errors(program, owner="audio_program"))
+    program_id = program.get("program_id") if isinstance(program, Mapping) else None
+    for index, event in enumerate(events):
+        if event.get("audio_program_id") != program_id:
+            errors.append(
+                f"events[{index}].audio_program_id differs from audio_program"
+            )
 
     dry_hashes = [event.get("dry_audio_asset_sha256") for event in events]
     if len(dry_hashes) == 2 and dry_hashes[0] == dry_hashes[1]:
-        errors.append("counterfactual dry audio assets must have distinct SHA-256 values")
-    if event_ids and len(event_ids) == 2 and event_ids != sorted(
-        event_ids, key=lambda item: item.encode("ascii")
+        errors.append(
+            "counterfactual dry audio assets must have distinct SHA-256 values"
+        )
+    if (
+        event_ids
+        and len(event_ids) == 2
+        and event_ids != sorted(event_ids, key=lambda item: item.encode("ascii"))
     ):
         errors.append("events must use canonical stable-ID order")
 
     if request.get("visual_vocal_articulation") != VISUAL_VOCAL_ARTICULATION:
-        errors.append(
-            "visual vocal articulation must be disabled_for_shortcut_control"
-        )
+        errors.append("visual vocal articulation must be disabled_for_shortcut_control")
     profile = request.get("timeline_profile")
     audio = profile.get("audio") if isinstance(profile, Mapping) else None
     if not isinstance(audio, Mapping) or audio.get("authority") != FOA_AUTHORITY:
@@ -284,17 +386,45 @@ def validate_episode_request(request: Mapping[str, Any]) -> list[str]:
     return _dedupe(errors)
 
 
-def _timeline_event(event: Mapping[str, Any]) -> dict[str, Any]:
+def _timeline_event(
+    event: Mapping[str, Any], window: Mapping[str, Any]
+) -> dict[str, Any]:
     return {
-        "event_id": event["event_id"],
+        "event_id": _derived_stable_id(event["event_id"], window["window_id"]),
         "actor_id": event["actor_id"],
         "event_type": event["event_type"],
-        "start_sample": event["start_sample"],
-        "end_sample": event["end_sample"],
-        "emitter_bone": event["emitter_bone"],
+        "start_sample": window["start_sample"],
+        "end_sample": window["end_sample"],
+        "emitter_bone": event["emitter_link"],
         "emitter_path_sha256": event["emitter_path_sha256"],
         "audio_asset_sha256": event["dry_audio_asset_sha256"],
         "semantic_sync_required": event["semantic_sync_required"],
+    }
+
+
+def _timeline_events_from_request(request: Mapping[str, Any]) -> list[dict[str, Any]]:
+    windows = request["audio_program"]["simultaneous_windows"]
+    return [
+        _timeline_event(event, window)
+        for event in request["events"]
+        for window in windows
+    ]
+
+
+def _timeline_actor(actor: Mapping[str, Any]) -> dict[str, Any]:
+    """Project M5 execution-only placement fields into generic timeline v2."""
+
+    return {
+        key: deepcopy(actor[key])
+        for key in (
+            "actor_id",
+            "asset_id",
+            "template_id",
+            "body_plan_id",
+            "skeleton_revision",
+            "mesh_sha256",
+        )
+        if key in actor
     }
 
 
@@ -308,9 +438,7 @@ def _request_with_events(
     return result
 
 
-def _copy_actor_state(
-    value: Mapping[str, Any], *, vocalizing: bool
-) -> dict[str, Any]:
+def _copy_actor_state(value: Mapping[str, Any], *, vocalizing: bool) -> dict[str, Any]:
     return {
         "actor_id": value["actor_id"],
         "root_transform": deepcopy(value["root_transform"]),
@@ -349,10 +477,12 @@ def build_timeline(
     if isinstance(visual_frames, (str, bytes)) or len(visual_frames) != FRAME_COUNT:
         raise M5TimelineError(["visual_frames must contain exactly 75 frames"])
 
-    actor_declarations = deepcopy(variant_request["actors"])
+    actor_declarations = [_timeline_actor(actor) for actor in variant_request["actors"]]
     actor_ids = [actor["actor_id"] for actor in actor_declarations]
-    timeline_events = [_timeline_event(event) for event in variant_request["events"]]
-    events_by_actor: dict[str, list[dict[str, Any]]] = {actor_id: [] for actor_id in actor_ids}
+    timeline_events = _timeline_events_from_request(variant_request)
+    events_by_actor: dict[str, list[dict[str, Any]]] = {
+        actor_id: [] for actor_id in actor_ids
+    }
     for event in timeline_events:
         events_by_actor[event["actor_id"]].append(event)
 
@@ -381,7 +511,10 @@ def build_timeline(
             continue
         for actor_index, state in enumerate(raw_states):
             supplied_mouth = state.get("mouth_state")
-            if isinstance(supplied_mouth, Mapping) and supplied_mouth.get("open_ratio") != 0.0:
+            if (
+                isinstance(supplied_mouth, Mapping)
+                and supplied_mouth.get("open_ratio") != 0.0
+            ):
                 build_errors.append(
                     f"visual_frames[{frame_index}].actor_states[{actor_index}] has mouth motion"
                 )
@@ -473,23 +606,24 @@ def validate_timeline_semantics(
     actor_ids = _stable_ids(actors, "actor_id", "timeline.actors", errors)
     if len(actors) != 2:
         errors.append("timeline must declare exactly two actors")
-    if actor_ids and actor_ids != sorted(actor_ids, key=lambda item: item.encode("ascii")):
+    if actor_ids and actor_ids != sorted(
+        actor_ids, key=lambda item: item.encode("ascii")
+    ):
         errors.append("timeline actors must use canonical stable-ID order")
 
     events = _mapping_list(timeline.get("audio_events"))
-    event_ids = _stable_ids(events, "event_id", "timeline.audio_events", errors)
-    if len(events) != 2:
-        errors.append("timeline must contain exactly two audio events")
-    event_actor_ids = [event.get("actor_id") for event in events]
-    if len(actor_ids) == 2 and event_actor_ids != actor_ids:
-        errors.append("timeline events must bind one-to-one to canonical actors")
-    intervals = [(event.get("start_sample"), event.get("end_sample")) for event in events]
-    if len(intervals) == 2 and intervals[0] != intervals[1]:
-        errors.append("timeline source events must start and end together")
-    if event_ids and len(event_ids) == 2 and event_ids != sorted(
-        event_ids, key=lambda item: item.encode("ascii")
-    ):
-        errors.append("timeline events must use canonical stable-ID order")
+    _stable_ids(events, "event_id", "timeline.audio_events", errors)
+    if len(events) != 12:
+        errors.append(
+            "timeline must contain exactly twelve events for six simultaneous windows"
+        )
+    actor_event_counts = {
+        actor_id: sum(event.get("actor_id") == actor_id for event in events)
+        for actor_id in actor_ids
+    }
+    if len(actor_ids) == 2 and any(count != 6 for count in actor_event_counts.values()):
+        errors.append("each timeline actor must own exactly six audio events")
+    interval_actors: dict[tuple[int, int], list[Any]] = {}
     for index, event in enumerate(events):
         start = event.get("start_sample")
         end = event.get("end_sample")
@@ -503,8 +637,26 @@ def validate_timeline_semantics(
             errors.append(
                 f"timeline.audio_events[{index}] must satisfy start_sample < end_sample"
             )
+        else:
+            interval_actors.setdefault((start, end), []).append(event.get("actor_id"))
         if event.get("actor_id") not in actor_ids:
             errors.append(f"timeline.audio_events[{index}].actor_id does not resolve")
+    ordered_intervals = sorted(interval_actors)
+    if len(ordered_intervals) != 6:
+        errors.append("timeline must retain exactly six distinct audio windows")
+    for interval, owners in interval_actors.items():
+        if owners != actor_ids:
+            errors.append(
+                f"timeline audio window {interval} must contain both canonical actors"
+            )
+    if any(
+        right[0] < left[1]
+        for left, right in zip(ordered_intervals, ordered_intervals[1:])
+    ):
+        errors.append("timeline audio windows must be non-overlapping")
+    durations = {end - start for start, end in ordered_intervals}
+    if len(durations) > 1:
+        errors.append("timeline audio windows must have one exact clip duration")
 
     frames = _mapping_list(timeline.get("frames"))
     if len(frames) != FRAME_COUNT:
@@ -523,16 +675,24 @@ def validate_timeline_semantics(
             continue
         expected_start, expected_end = frame_sample_interval(frame_index)
         if frame.get("frame_index") != frame_index:
-            errors.append(f"frames[{frame_index}].frame_index must equal its array index")
+            errors.append(
+                f"frames[{frame_index}].frame_index must equal its array index"
+            )
         if frame.get("pts_ticks") != frame_index * TICKS_PER_FRAME:
             errors.append(f"frames[{frame_index}].pts_ticks is not exact")
         if frame.get("sample_start") != expected_start:
-            errors.append(f"frames[{frame_index}].sample_start must equal B({frame_index})")
+            errors.append(
+                f"frames[{frame_index}].sample_start must equal B({frame_index})"
+            )
         if frame.get("sample_end") != expected_end:
-            errors.append(f"frames[{frame_index}].sample_end must equal B({frame_index + 1})")
+            errors.append(
+                f"frames[{frame_index}].sample_end must equal B({frame_index + 1})"
+            )
         view_hashes = frame.get("view_pose_hashes")
         if not isinstance(view_hashes, Mapping) or set(view_hashes) != {"view0"}:
-            errors.append(f"frames[{frame_index}].view_pose_hashes must contain only view0")
+            errors.append(
+                f"frames[{frame_index}].view_pose_hashes must contain only view0"
+            )
         states = _mapping_list(frame.get("actor_states"))
         state_ids = [state.get("actor_id") for state in states]
         if state_ids != actor_ids:
@@ -563,7 +723,7 @@ def validate_timeline_semantics(
             vocal_flags.append(mouth.get("vocalizing") is True)
         if len(vocal_flags) == 2 and all(vocal_flags):
             simultaneous_vocal_frame = True
-    if len(events) == 2 and not simultaneous_vocal_frame:
+    if len(events) == 12 and not simultaneous_vocal_frame:
         errors.append("the two actors must vocalize simultaneously at a video PTS")
     if frames and frames[0].get("sample_start") != 0:
         errors.append("the first frame audio interval must start at sample 0")
@@ -574,13 +734,21 @@ def validate_timeline_semantics(
         request_errors = validate_episode_request(episode_request)
         errors.extend(f"episode request: {error}" for error in request_errors)
         if not request_errors:
-            if actors != episode_request["actors"]:
+            requested_actors = [
+                _timeline_actor(actor) for actor in episode_request["actors"]
+            ]
+            if actors != requested_actors:
                 errors.append("timeline actors differ from the episode request")
-            requested_events = [_timeline_event(event) for event in episode_request["events"]]
+            requested_events = _timeline_events_from_request(episode_request)
             if events != requested_events:
                 errors.append("timeline audio events differ from the episode request")
-            if episode_request["visual_vocal_articulation"] != VISUAL_VOCAL_ARTICULATION:
-                errors.append("episode request does not declare disabled mouth articulation")
+            if (
+                episode_request["visual_vocal_articulation"]
+                != VISUAL_VOCAL_ARTICULATION
+            ):
+                errors.append(
+                    "episode request does not declare disabled mouth articulation"
+                )
     return _dedupe(errors)
 
 
@@ -622,10 +790,11 @@ def _build_dynamic_audio_manifest(
                 "actor_id": event["actor_id"],
                 "source_id": event["source_id"],
                 "event_id": event["event_id"],
+                "audio_program_id": event["audio_program_id"],
+                "semantic_anchor_id": source["semantic_anchor_id"],
+                "emitter_link": source["emitter_link"],
                 "emitter_path_sha256": source["emitter_path_sha256"],
                 "dry_audio_asset_sha256": event["dry_audio_asset_sha256"],
-                "start_sample": event["start_sample"],
-                "end_sample": event["end_sample"],
             }
         )
     manifest = {
@@ -649,7 +818,18 @@ def _build_dynamic_audio_manifest(
         },
         "authority": deepcopy(FOA_AUTHORITY),
         "listener_id": request["listener"]["listener_id"],
-        "canonical_source_order": [source["source_id"] for source in request["sources"]],
+        "actor_instances": [
+            {
+                "actor_id": actor["actor_id"],
+                "instance_offset_m": deepcopy(actor["instance_offset_m"]),
+                "semantic_id": actor["semantic_id"],
+            }
+            for actor in request["actors"]
+        ],
+        "canonical_source_order": [
+            source["source_id"] for source in request["sources"]
+        ],
+        "audio_program": deepcopy(request["audio_program"]),
         "source_routes": routes,
         "render_policy": {
             "source_pose_evaluation": "timeline_frame_fixed_state",
@@ -686,11 +866,33 @@ def validate_dynamic_audio_render_manifest(
         errors.append("dynamic audio manifest must contain exactly two source routes")
     if source_ids and source_ids != manifest.get("canonical_source_order"):
         errors.append("source routes do not match canonical_source_order")
-    intervals = [(route.get("start_sample"), route.get("end_sample")) for route in routes]
-    if len(intervals) == 2 and intervals[0] != intervals[1]:
-        errors.append("dynamic source routes must be active over the same interval")
     if len(route_ids) == 2 and len(event_ids) != 2:
         errors.append("every source route must retain one stable event ID")
+    program = manifest.get("audio_program")
+    errors.extend(_audio_program_errors(program, owner="audio_program"))
+    program_id = program.get("program_id") if isinstance(program, Mapping) else None
+    if any(route.get("audio_program_id") != program_id for route in routes):
+        errors.append("every source route must bind the manifest audio_program")
+    actor_instances = _mapping_list(manifest.get("actor_instances"))
+    actor_instance_ids = _stable_ids(
+        actor_instances, "actor_id", "actor_instances", errors
+    )
+    if len(actor_instances) != 2:
+        errors.append("dynamic audio manifest must contain exactly two actor instances")
+    if actor_instance_ids and actor_instance_ids != sorted(
+        actor_instance_ids, key=lambda item: item.encode("ascii")
+    ):
+        errors.append("actor_instances must use canonical stable-ID order")
+    semantic_ids = [item.get("semantic_id") for item in actor_instances]
+    if (
+        len(semantic_ids) == 2
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in semantic_ids
+        )
+        and len(set(semantic_ids)) != 2
+    ):
+        errors.append("actor_instances must retain distinct semantic IDs")
     if manifest.get("authority") != FOA_AUTHORITY:
         errors.append("dynamic render authority must be four-channel ACN/N3D FOA")
     if timeline is not None:
@@ -699,21 +901,60 @@ def validate_dynamic_audio_render_manifest(
         visual_hash = canonical_json_sha256(_visual_timeline_projection(timeline))
         if manifest.get("visual_timeline_sha256") != visual_hash:
             errors.append("visual_timeline_sha256 does not bind the visual timeline")
+        timeline_errors = validate_timeline_semantics(timeline)
+        errors.extend(f"timeline: {error}" for error in timeline_errors)
+        if isinstance(program, Mapping):
+            expected_intervals = [
+                (window.get("start_sample"), window.get("end_sample"))
+                for window in _mapping_list(program.get("simultaneous_windows"))
+                for _ in range(2)
+            ]
+            raw_observed_intervals = [
+                (event.get("start_sample"), event.get("end_sample"))
+                for event in _mapping_list(timeline.get("audio_events"))
+            ]
+            comparable = all(
+                isinstance(start, int)
+                and not isinstance(start, bool)
+                and isinstance(end, int)
+                and not isinstance(end, bool)
+                for start, end in raw_observed_intervals
+            )
+            if not comparable or sorted(raw_observed_intervals) != sorted(
+                expected_intervals
+            ):
+                errors.append(
+                    "timeline does not retain the manifest's six audio windows"
+                )
     if request is not None:
         request_errors = validate_episode_request(request)
         errors.extend(f"episode request: {error}" for error in request_errors)
         if not request_errors:
             if manifest.get("request_id") != request["request_id"]:
                 errors.append("dynamic manifest request_id differs from request")
+            expected_instances = [
+                {
+                    "actor_id": actor["actor_id"],
+                    "instance_offset_m": actor["instance_offset_m"],
+                    "semantic_id": actor["semantic_id"],
+                }
+                for actor in request["actors"]
+            ]
+            if actor_instances != expected_instances:
+                errors.append("dynamic actor instances differ from the episode request")
+            if manifest.get("audio_program") != request["audio_program"]:
+                errors.append("dynamic audio_program differs from the episode request")
+            sources = {source["source_id"]: source for source in request["sources"]}
             expected = [
                 (
                     event["actor_id"],
                     event["source_id"],
                     event["event_id"],
+                    event["audio_program_id"],
+                    sources[event["source_id"]]["semantic_anchor_id"],
+                    event["emitter_link"],
                     event["emitter_path_sha256"],
                     event["dry_audio_asset_sha256"],
-                    event["start_sample"],
-                    event["end_sample"],
                 )
                 for event in request["events"]
             ]
@@ -722,10 +963,11 @@ def validate_dynamic_audio_render_manifest(
                     route.get("actor_id"),
                     route.get("source_id"),
                     route.get("event_id"),
+                    route.get("audio_program_id"),
+                    route.get("semantic_anchor_id"),
+                    route.get("emitter_link"),
                     route.get("emitter_path_sha256"),
                     route.get("dry_audio_asset_sha256"),
-                    route.get("start_sample"),
-                    route.get("end_sample"),
                 )
                 for route in routes
             ]
@@ -760,9 +1002,7 @@ def _difference_paths(left: Any, right: Any, prefix: str = "") -> list[str]:
         if len(left) != len(right):
             paths.append(f"{prefix}.length")
         for index, (left_item, right_item) in enumerate(zip(left, right)):
-            paths.extend(
-                _difference_paths(left_item, right_item, f"{prefix}[{index}]")
-            )
+            paths.extend(_difference_paths(left_item, right_item, f"{prefix}[{index}]"))
         return paths
     return [] if left == right else [prefix]
 
@@ -794,19 +1034,35 @@ def _variant_lineage_errors(episode: Mapping[str, Any], label: str) -> list[str]
     request_events = _mapping_list(request.get("events"))
     timeline_events = _mapping_list(timeline.get("audio_events"))
     routes = _mapping_list(manifest.get("source_routes"))
-    if not (len(request_events) == len(timeline_events) == len(routes) == 2):
-        return [f"episode {label} lineage does not contain exactly two routes"]
+    if not (len(request_events) == len(routes) == 2 and len(timeline_events) == 12):
+        return [
+            f"episode {label} lineage does not contain two routes and twelve window events"
+        ]
     errors: list[str] = []
-    for index, (event, timeline_event, route) in enumerate(
-        zip(request_events, timeline_events, routes)
-    ):
+    program = request.get("audio_program")
+    windows = (
+        _mapping_list(program.get("simultaneous_windows"))
+        if isinstance(program, Mapping)
+        else []
+    )
+    for index, (event, route) in enumerate(zip(request_events, routes, strict=True)):
         dry = event.get("dry_audio_asset_sha256")
-        if timeline_event.get("audio_asset_sha256") != dry:
-            errors.append(f"episode {label} route {index} timeline dry SHA differs")
+        expected_timeline_events = [
+            _timeline_event(event, window) for window in windows
+        ]
+        actual_timeline_events = [
+            timeline_event
+            for timeline_event in timeline_events
+            if timeline_event.get("actor_id") == event.get("actor_id")
+        ]
+        if actual_timeline_events != expected_timeline_events:
+            errors.append(
+                f"episode {label} route {index} timeline window lineage differs"
+            )
         if route.get("dry_audio_asset_sha256") != dry:
             errors.append(f"episode {label} route {index} manifest dry SHA differs")
-        for field in ("actor_id", "event_id"):
-            if event.get(field) != timeline_event.get(field) or event.get(field) != route.get(field):
+        for field in ("actor_id", "event_id", "audio_program_id"):
+            if event.get(field) != route.get(field):
                 errors.append(f"episode {label} route {index} {field} lineage differs")
         if event.get("source_id") != route.get("source_id"):
             errors.append(f"episode {label} route {index} source_id lineage differs")
@@ -869,9 +1125,7 @@ def compare_counterfactual_pair(
             continue
         errors.extend(
             f"episode {label}: {error}"
-            for error in validate_timeline_semantics(
-                timeline, episode_request=request
-            )
+            for error in validate_timeline_semantics(timeline, episode_request=request)
         )
         errors.extend(
             f"episode {label}: {error}"

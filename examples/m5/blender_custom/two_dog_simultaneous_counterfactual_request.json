@@ -53,6 +53,8 @@
       "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
       "template_id": "rocketbox_dog_beagle_01",
       "body_plan_id": "quadruped_mammal_canid_v1",
+      "instance_offset_m": [0.0, 0.0, 0.7],
+      "semantic_id": 210,
       "mesh_sha256": "788a667537f7660bac5e128c38c2182453d1d4a9a4f8380343e7a9fa1947538c"
     },
     {
@@ -60,6 +62,8 @@
       "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
       "template_id": "rocketbox_dog_beagle_01",
       "body_plan_id": "quadruped_mammal_canid_v1",
+      "instance_offset_m": [0.25, 0.0, -0.7],
+      "semantic_id": 211,
       "mesh_sha256": "788a667537f7660bac5e128c38c2182453d1d4a9a4f8380343e7a9fa1947538c"
     }
   ],
@@ -68,26 +72,42 @@
       "source_id": "source0",
       "actor_id": "actor0",
       "semantic_anchor_id": "muzzle",
-      "emitter_bone": "beagle Xtra Mouth",
+      "emitter_link": "beagle Xtra Mouth",
       "emitter_path_sha256": "9d95699b1976fef9250c62635fc45fb801ae27a84ab80685dd189d3acf2c47d6"
     },
     {
       "source_id": "source1",
       "actor_id": "actor1",
       "semantic_anchor_id": "muzzle",
-      "emitter_bone": "beagle Xtra Mouth",
+      "emitter_link": "beagle Xtra Mouth",
       "emitter_path_sha256": "f5ca94cdaf009d3f137f25166f9295ef0c7f940d7d9c377260d0351bec40daee"
     }
   ],
+  "audio_program": {
+    "program_id": "six_simultaneous_calls_v1",
+    "clip_source_interval": {
+      "start_sample": 3200,
+      "end_sample": 8000
+    },
+    "fade_samples": 80,
+    "linear_gain": 0.18,
+    "simultaneous_windows": [
+      {"window_id": "simultaneous0", "start_sample": 6400, "end_sample": 11200},
+      {"window_id": "simultaneous1", "start_sample": 19200, "end_sample": 24000},
+      {"window_id": "simultaneous2", "start_sample": 32000, "end_sample": 36800},
+      {"window_id": "simultaneous3", "start_sample": 44800, "end_sample": 49600},
+      {"window_id": "simultaneous4", "start_sample": 57600, "end_sample": 62400},
+      {"window_id": "simultaneous5", "start_sample": 70400, "end_sample": 75200}
+    ]
+  },
   "events": [
     {
       "event_id": "vocal_program_actor0",
       "actor_id": "actor0",
       "source_id": "source0",
       "event_type": "vocalization",
-      "start_sample": 6400,
-      "end_sample": 75200,
-      "emitter_bone": "beagle Xtra Mouth",
+      "audio_program_id": "six_simultaneous_calls_v1",
+      "emitter_link": "beagle Xtra Mouth",
       "emitter_path_sha256": "9d95699b1976fef9250c62635fc45fb801ae27a84ab80685dd189d3acf2c47d6",
       "dry_audio_asset_sha256": "12d9b3a2c9cd81852ddeb76d1abeef41ef623868b6731ff91ed511d474d2c634",
       "semantic_sync_required": true
@@ -97,9 +117,8 @@
       "actor_id": "actor1",
       "source_id": "source1",
       "event_type": "vocalization",
-      "start_sample": 6400,
-      "end_sample": 75200,
-      "emitter_bone": "beagle Xtra Mouth",
+      "audio_program_id": "six_simultaneous_calls_v1",
+      "emitter_link": "beagle Xtra Mouth",
       "emitter_path_sha256": "f5ca94cdaf009d3f137f25166f9295ef0c7f940d7d9c377260d0351bec40daee",
       "dry_audio_asset_sha256": "055d024dcf4089ea96654d2c2532cc320c91554130a4ced9dca868d524d8d23c",
       "semantic_sync_required": true
@@ -128,5 +147,5 @@
       "dynamic_audio_render_manifest.manifest_content_sha256"
     ]
   },
-  "request_content_sha256": "a3f07bec54dba5400adfc7d5ae41abcef929cbbb9bcc65bfdf7ab6a30121ff7e"
+  "request_content_sha256": "5b394b76dcc29f33244a9a256da697718f9caccfb965019b0d3470c8cf7d3d57"
 }

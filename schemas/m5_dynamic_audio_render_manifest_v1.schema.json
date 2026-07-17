@@ -18,7 +18,9 @@
     "frame_sample_boundary",
     "authority",
     "listener_id",
+    "actor_instances",
     "canonical_source_order",
+    "audio_program",
     "source_routes",
     "render_policy",
     "manifest_content_sha256"
@@ -45,6 +47,12 @@
     },
     "authority": {"$ref": "#/$defs/foa_contract"},
     "listener_id": {"$ref": "#/$defs/stable_id"},
+    "actor_instances": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/actor_instance"}
+    },
     "canonical_source_order": {
       "type": "array",
       "minItems": 2,
@@ -52,6 +60,7 @@
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/stable_id"}
     },
+    "audio_program": {"$ref": "#/$defs/audio_program"},
     "source_routes": {
       "type": "array",
       "minItems": 2,
@@ -97,18 +106,64 @@
         "actor_id",
         "source_id",
         "event_id",
+        "audio_program_id",
+        "semantic_anchor_id",
+        "emitter_link",
         "emitter_path_sha256",
-        "dry_audio_asset_sha256",
-        "start_sample",
-        "end_sample"
+        "dry_audio_asset_sha256"
       ],
       "properties": {
         "route_id": {"$ref": "#/$defs/stable_id"},
         "actor_id": {"$ref": "#/$defs/stable_id"},
         "source_id": {"$ref": "#/$defs/stable_id"},
         "event_id": {"$ref": "#/$defs/stable_id"},
+        "audio_program_id": {"$ref": "#/$defs/stable_id"},
+        "semantic_anchor_id": {"const": "muzzle"},
+        "emitter_link": {"type": "string", "minLength": 1},
         "emitter_path_sha256": {"$ref": "#/$defs/sha256"},
-        "dry_audio_asset_sha256": {"$ref": "#/$defs/sha256"},
+        "dry_audio_asset_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "actor_instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "instance_offset_m", "semantic_id"],
+      "properties": {
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "instance_offset_m": {"$ref": "#/$defs/vec3"},
+        "semantic_id": {"type": "integer", "minimum": 1}
+      }
+    },
+    "sample_interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_sample", "end_sample"],
+      "properties": {
+        "start_sample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_sample": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "simultaneous_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_id", "start_sample", "end_sample"],
+      "properties": {
+        "window_id": {"$ref": "#/$defs/stable_id"},
         "start_sample": {
           "type": "integer",
           "minimum": 0,
@@ -118,6 +173,34 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 80000
+        }
+      }
+    },
+    "audio_program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "program_id",
+        "clip_source_interval",
+        "fade_samples",
+        "linear_gain",
+        "simultaneous_windows"
+      ],
+      "properties": {
+        "program_id": {"$ref": "#/$defs/stable_id"},
+        "clip_source_interval": {"$ref": "#/$defs/sample_interval"},
+        "fade_samples": {"type": "integer", "minimum": 0},
+        "linear_gain": {
+          "type": "number",
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0
+        },
+        "simultaneous_windows": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/simultaneous_window"}
         }
       }
     },

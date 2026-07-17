@@ -15,6 +15,7 @@
     "listener",
     "actors",
     "sources",
+    "audio_program",
     "events",
     "counterfactual",
     "request_content_sha256"
@@ -104,6 +105,7 @@
       "maxItems": 2,
       "items": {"$ref": "#/$defs/source"}
     },
+    "audio_program": {"$ref": "#/$defs/audio_program"},
     "events": {
       "type": "array",
       "minItems": 2,
@@ -164,12 +166,21 @@
     "actor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["actor_id", "asset_id", "template_id", "body_plan_id"],
+      "required": [
+        "actor_id",
+        "asset_id",
+        "template_id",
+        "body_plan_id",
+        "instance_offset_m",
+        "semantic_id"
+      ],
       "properties": {
         "actor_id": {"$ref": "#/$defs/stable_id"},
         "asset_id": {"$ref": "#/$defs/stable_id"},
         "template_id": {"$ref": "#/$defs/stable_id"},
         "body_plan_id": {"$ref": "#/$defs/stable_id"},
+        "instance_offset_m": {"$ref": "#/$defs/vec3"},
+        "semantic_id": {"type": "integer", "minimum": 1},
         "skeleton_revision": {"type": "string", "minLength": 1},
         "mesh_sha256": {"$ref": "#/$defs/sha256"}
       }
@@ -181,14 +192,14 @@
         "source_id",
         "actor_id",
         "semantic_anchor_id",
-        "emitter_bone",
+        "emitter_link",
         "emitter_path_sha256"
       ],
       "properties": {
         "source_id": {"$ref": "#/$defs/stable_id"},
         "actor_id": {"$ref": "#/$defs/stable_id"},
         "semantic_anchor_id": {"const": "muzzle"},
-        "emitter_bone": {"type": "string", "minLength": 1},
+        "emitter_link": {"type": "string", "minLength": 1},
         "emitter_path_sha256": {"$ref": "#/$defs/sha256"}
       }
     },
@@ -200,9 +211,8 @@
         "actor_id",
         "source_id",
         "event_type",
-        "start_sample",
-        "end_sample",
-        "emitter_bone",
+        "audio_program_id",
+        "emitter_link",
         "emitter_path_sha256",
         "dry_audio_asset_sha256",
         "semantic_sync_required"
@@ -212,6 +222,37 @@
         "actor_id": {"$ref": "#/$defs/stable_id"},
         "source_id": {"$ref": "#/$defs/stable_id"},
         "event_type": {"const": "vocalization"},
+        "audio_program_id": {"$ref": "#/$defs/stable_id"},
+        "emitter_link": {"type": "string", "minLength": 1},
+        "emitter_path_sha256": {"$ref": "#/$defs/sha256"},
+        "dry_audio_asset_sha256": {"$ref": "#/$defs/sha256"},
+        "semantic_sync_required": {"const": true}
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "sample_interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_sample", "end_sample"],
+      "properties": {
+        "start_sample": {"type": "integer", "minimum": 0},
+        "end_sample": {"type": "integer", "minimum": 1}
+      }
+    },
+    "simultaneous_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_id", "start_sample", "end_sample"],
+      "properties": {
+        "window_id": {"$ref": "#/$defs/stable_id"},
         "start_sample": {
           "type": "integer",
           "minimum": 0,
@@ -221,11 +262,35 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 80000
+        }
+      }
+    },
+    "audio_program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "program_id",
+        "clip_source_interval",
+        "fade_samples",
+        "linear_gain",
+        "simultaneous_windows"
+      ],
+      "properties": {
+        "program_id": {"$ref": "#/$defs/stable_id"},
+        "clip_source_interval": {"$ref": "#/$defs/sample_interval"},
+        "fade_samples": {"type": "integer", "minimum": 0},
+        "linear_gain": {
+          "type": "number",
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0
         },
-        "emitter_bone": {"type": "string", "minLength": 1},
-        "emitter_path_sha256": {"$ref": "#/$defs/sha256"},
-        "dry_audio_asset_sha256": {"$ref": "#/$defs/sha256"},
-        "semantic_sync_required": {"const": true}
+        "simultaneous_windows": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/simultaneous_window"}
+        }
       }
     },
     "foa_contract": {
