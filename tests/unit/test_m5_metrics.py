@@ -13,6 +13,7 @@ from avengine.m5.metrics import (
     measure_binaural_rir_frame_cues,
     measure_binaural_rir_sequence_cues,
     measure_binaural_wet_stem_cues,
+    summarize_lateral_cue_consistency,
 )
 
 
@@ -80,9 +81,7 @@ def test_listener_local_azimuth_uses_negative_z_forward_and_positive_right() -> 
         [-2.0, 0.0, 0.0], listener, identity_wxyz
     ) == pytest.approx(-90.0)
     assert abs(
-        listener_local_azimuth_deg(
-            [0.0, 0.0, 2.0], listener, identity_wxyz
-        )
+        listener_local_azimuth_deg([0.0, 0.0, 2.0], listener, identity_wxyz)
     ) == pytest.approx(180.0)
 
     # +90 degree world_from_listener yaw turns local -Z toward world -X.
@@ -202,9 +201,9 @@ def test_wet_stem_stft_reports_source_specific_fractional_delay_cues() -> None:
             20.0 * math.log10(2.0), abs=0.35
         )
         expected = -2.0 * math.pi * frequency * delay_samples / SAMPLE_RATE_HZ
-        assert _phase_error(
-            frequency_report["ipd_circular_mean_radians"], expected
-        ) < 0.2
+        assert (
+            _phase_error(frequency_report["ipd_circular_mean_radians"], expected) < 0.2
+        )
 
 
 def test_mixture_metrics_are_permanently_diagnostic_only() -> None:
@@ -247,3 +246,111 @@ def test_wet_metrics_reject_implicit_or_too_short_active_windows() -> None:
             source_id="source0",
             n_fft=256,
         )
+
+
+def _semantic_frame(
+    frame_index: int,
+    azimuth_deg: float,
+    ild_db: float,
+    itd_seconds: float,
+    *,
+    at_search_boundary: bool = False,
+) -> dict[str, object]:
+    return {
+        "frame_index": frame_index,
+        "listener_local_azimuth_deg": azimuth_deg,
+        "ild_db": ild_db,
+        "ipd_radians_by_frequency_hz": {"500": math.pi},
+        "itd": {
+            "itd_seconds": itd_seconds,
+            "at_search_boundary": at_search_boundary,
+        },
+    }
+
+
+def test_lateral_cue_summary_excludes_gcc_search_boundary_from_itd_gate() -> None:
+    right = _fractional_impulse(0.0)
+    left = _fractional_impulse(16.0, amplitude=0.5)
+    cue = measure_binaural_rir_frame_cues(
+        np.stack((left, right), axis=0),
+        SAMPLE_RATE_HZ,
+        direct_arrival_sample=200,
+        pre_direct_ms=2.0,
+        direct_window_ms=8.0,
+        gcc_interpolation_factor=64,
+    )
+    assert cue["itd"]["at_search_boundary"] is True
+    assert cue["itd"]["formal_acceptance_allowed"] is False
+
+    cue["frame_index"] = 0
+    cue["listener_local_azimuth_deg"] = 30.0
+    summary = summarize_lateral_cue_consistency(
+        [
+            cue,
+            _semantic_frame(1, 30.0, -4.0, 0.0002),
+            _semantic_frame(2, -30.0, 4.0, -0.0002),
+        ]
+    )
+    assert summary["status"] == "pass"
+    assert summary["formal_acceptance_allowed"] is True
+    assert summary["counts"]["gcc_boundary_rejected_frames"] == 1
+    assert summary["frames"][0]["classification"] == "gcc_boundary_rejected"
+    assert summary["frames"][0]["itd_vote"] == "rejected_search_boundary"
+    assert summary["frames"][0]["accepted_cue_count"] == 1
+    assert (
+        summary["aggregate_by_side"]["right"]["gcc_boundary_rejected_frame_count"] == 1
+    )
+    assert summary["aggregate_by_side"]["right"]["rates"][
+        "cue_coverage_rate"
+    ] == pytest.approx(0.75)
+
+
+def test_lateral_cue_summary_detects_left_right_reversal() -> None:
+    consistent = [
+        _semantic_frame(0, 30.0, -4.0, 0.0002),
+        _semantic_frame(1, -30.0, 4.0, -0.0002),
+    ]
+    passed = summarize_lateral_cue_consistency(consistent)
+    assert passed["status"] == "pass"
+    assert passed["rates"]["ild_sign_consistency_rate"] == 1.0
+    assert passed["rates"]["itd_sign_consistency_rate"] == 1.0
+    assert passed["lateral_separation"]["ild_left_minus_right_db"] == 8.0
+    assert passed["lateral_separation"]["itd_right_minus_left_seconds"] == (
+        pytest.approx(0.0004)
+    )
+    assert "sign_gate" in passed["ipd_role"]
+
+    reversed_cues = [
+        _semantic_frame(0, 30.0, 4.0, -0.0002),
+        _semantic_frame(1, -30.0, -4.0, 0.0002),
+    ]
+    failed = summarize_lateral_cue_consistency(reversed_cues)
+    assert failed["status"] == "fail"
+    assert failed["rates"]["ild_sign_consistency_rate"] == 0.0
+    assert failed["rates"]["itd_sign_consistency_rate"] == 0.0
+    assert all(frame["classification"] == "inconsistent" for frame in failed["frames"])
+
+
+def test_lateral_cue_summary_exempts_near_median_but_not_all_zero() -> None:
+    report = summarize_lateral_cue_consistency(
+        [
+            _semantic_frame(0, 0.5, 0.0, 0.0),
+            _semantic_frame(1, 25.0, -3.0, 0.00015),
+            _semantic_frame(2, -25.0, 3.0, -0.00015),
+        ]
+    )
+    assert report["status"] == "pass"
+    assert report["counts"]["median_plane_exempt_frames"] == 1
+    assert report["frames"][0]["classification"] == "median_plane_exempt"
+
+    all_zero = summarize_lateral_cue_consistency(
+        [
+            _semantic_frame(0, 25.0, 0.0, 0.0),
+            _semantic_frame(1, -25.0, 0.0, 0.0),
+        ]
+    )
+    assert all_zero["status"] == "fail"
+    assert all_zero["rates"]["combined_sign_consistency_rate"] is None
+    assert "right_has_no_non_ambiguous_ild_vote" in all_zero["rejection_reasons"]
+    assert "left_has_no_non_ambiguous_itd_vote" in all_zero["rejection_reasons"]
+    assert "right_median_ild_not_negative_nonzero" in all_zero["rejection_reasons"]

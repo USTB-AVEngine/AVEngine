@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 from numbers import Real
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -36,6 +36,12 @@ DEFAULT_IPD_FREQUENCIES_HZ: tuple[float, ...] = (
 DEFAULT_MAX_ITD_SECONDS = 0.001
 _ENERGY_EPSILON = np.finfo(np.float64).tiny
 _PHAT_RELATIVE_FLOOR = 1.0e-12
+
+DEFAULT_MINIMUM_LATERAL_ANGLE_DEG = 3.0
+DEFAULT_MINIMUM_ABSOLUTE_ILD_DB = 0.5
+DEFAULT_MINIMUM_ABSOLUTE_ITD_SECONDS = 5.0e-6
+DEFAULT_MINIMUM_CUE_CONSISTENCY_RATE = 0.51
+DEFAULT_MINIMUM_CUE_COVERAGE_RATE = 0.5
 
 
 class M5MetricsError(ValueError):
@@ -181,9 +187,7 @@ def _ipd_frequencies(
     for index, value in enumerate(values):
         frequency = _finite_positive(value, owner=f"ipd_frequencies_hz[{index}]")
         if frequency >= sample_rate_hz / 2.0:
-            raise M5MetricsError(
-                "every IPD frequency must be strictly below Nyquist"
-            )
+            raise M5MetricsError("every IPD frequency must be strictly below Nyquist")
         frequencies.append(frequency)
     if not frequencies or len(set(frequencies)) != len(frequencies):
         raise M5MetricsError("IPD frequencies must be non-empty and unique")
@@ -227,9 +231,7 @@ def estimate_itd_gcc_phat(
     """
 
     rate = _positive_sample_rate(sample_rate_hz)
-    maximum_seconds = _finite_positive(
-        max_itd_seconds, owner="max_itd_seconds"
-    )
+    maximum_seconds = _finite_positive(max_itd_seconds, owner="max_itd_seconds")
     interpolation = _positive_integer(
         interpolation_factor, owner="interpolation_factor"
     )
@@ -311,12 +313,9 @@ def estimate_itd_gcc_phat(
     comparison = np.abs(candidate_values).copy()
     comparison[max(0, peak_index - 1) : min(candidate_count, peak_index + 2)] = 0.0
     second_magnitude = float(np.max(comparison)) if comparison.size > 3 else 0.0
-    peak_ratio = (
-        peak_magnitude / second_magnitude
-        if second_magnitude > 0.0
-        else None
-    )
+    peak_ratio = peak_magnitude / second_magnitude if second_magnitude > 0.0 else None
     boundary_tolerance = 1.0 / interpolation
+    at_search_boundary = bool(abs(lag_samples) >= maximum_lag - boundary_tolerance)
     return {
         "method": "gcc_phat_dense_subsample_v1",
         "sign_convention": "t_left_minus_t_right",
@@ -328,9 +327,388 @@ def estimate_itd_gcc_phat(
         "interpolation_factor": interpolation,
         "absolute_peak": peak_magnitude,
         "peak_to_second_ratio": peak_ratio,
-        "at_search_boundary": bool(
-            abs(lag_samples) >= maximum_lag - boundary_tolerance
+        "at_search_boundary": at_search_boundary,
+        "formal_acceptance_allowed": not at_search_boundary,
+    }
+
+
+def _finite_nonnegative(value: Any, *, owner: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, Real)
+        or not math.isfinite(float(value))
+        or float(value) < 0.0
+    ):
+        raise M5MetricsError(f"{owner} must be finite and non-negative")
+    return float(value)
+
+
+def _unit_interval(value: Any, *, owner: str) -> float:
+    result = _finite_nonnegative(value, owner=owner)
+    if result > 1.0:
+        raise M5MetricsError(f"{owner} must not exceed one")
+    return result
+
+
+def _signed_cue_vote(
+    value: float,
+    *,
+    expected_sign: int,
+    ambiguity_threshold: float,
+) -> str:
+    if abs(value) < ambiguity_threshold:
+        return "ambiguous_exempt"
+    actual_sign = 1 if value > 0.0 else -1
+    return "consistent" if actual_sign == expected_sign else "inconsistent"
+
+
+def _consistency_rate(consistent: int, inconsistent: int) -> float | None:
+    measured = consistent + inconsistent
+    return float(consistent / measured) if measured else None
+
+
+def summarize_lateral_cue_consistency(
+    frame_reports: Sequence[Mapping[str, Any]],
+    *,
+    listener_local_azimuths_deg: Sequence[float] | None = None,
+    minimum_lateral_angle_deg: float = DEFAULT_MINIMUM_LATERAL_ANGLE_DEG,
+    minimum_absolute_ild_db: float = DEFAULT_MINIMUM_ABSOLUTE_ILD_DB,
+    minimum_absolute_itd_seconds: float = DEFAULT_MINIMUM_ABSOLUTE_ITD_SECONDS,
+    minimum_consistency_rate: float = DEFAULT_MINIMUM_CUE_CONSISTENCY_RATE,
+    minimum_cue_coverage_rate: float = DEFAULT_MINIMUM_CUE_COVERAGE_RATE,
+) -> dict[str, Any]:
+    """Summarize whether a two-sided ILD/ITD bundle agrees with azimuth.
+
+    Listener-local azimuth is positive to the right.  A right-side source
+    therefore expects negative ILD and positive ITD; a left-side source
+    expects the inverse signs.  Formal acceptance requires both sides, signed
+    non-zero side medians, left/right median separation, per-side cue coverage,
+    and per-side sign agreement above chance.  Per-frame rates remain visible
+    so a barely-above-chance side cannot be mistaken for strong evidence.
+
+    Frames close to the front/back median plane and cue magnitudes below the
+    explicit ambiguity thresholds do not cast sign votes.  GCC-PHAT estimates
+    at the bounded search edge are likewise excluded from accepted ITD cues;
+    their lost coverage remains visible and can fail the coverage threshold.
+    IPD is deliberately excluded from the sign gate because it is circular and
+    frequency-dependent; retained IPD values are diagnostic only.
+    """
+
+    if not isinstance(frame_reports, Sequence) or isinstance(
+        frame_reports, (str, bytes)
+    ):
+        raise M5MetricsError("frame_reports must be a non-empty sequence")
+    if not frame_reports:
+        raise M5MetricsError("frame_reports must be a non-empty sequence")
+    if listener_local_azimuths_deg is not None:
+        if isinstance(listener_local_azimuths_deg, (str, bytes)) or len(
+            listener_local_azimuths_deg
+        ) != len(frame_reports):
+            raise M5MetricsError(
+                "listener_local_azimuths_deg must match the frame count"
+            )
+
+    lateral_threshold = _finite_positive(
+        minimum_lateral_angle_deg, owner="minimum_lateral_angle_deg"
+    )
+    if lateral_threshold >= 90.0:
+        raise M5MetricsError("minimum_lateral_angle_deg must be below 90")
+    ild_threshold = _finite_positive(
+        minimum_absolute_ild_db, owner="minimum_absolute_ild_db"
+    )
+    itd_threshold = _finite_positive(
+        minimum_absolute_itd_seconds,
+        owner="minimum_absolute_itd_seconds",
+    )
+    consistency_threshold = _unit_interval(
+        minimum_consistency_rate, owner="minimum_consistency_rate"
+    )
+    if consistency_threshold <= 0.5:
+        raise M5MetricsError("minimum_consistency_rate must exceed one half")
+    coverage_threshold = _unit_interval(
+        minimum_cue_coverage_rate, owner="minimum_cue_coverage_rate"
+    )
+
+    counts: dict[str, int] = {
+        "total_frames": len(frame_reports),
+        "median_plane_exempt_frames": 0,
+        "lateral_frames": 0,
+        "gcc_boundary_rejected_frames": 0,
+        "ild_consistent_votes": 0,
+        "ild_inconsistent_votes": 0,
+        "ild_ambiguous_exempt_votes": 0,
+        "itd_consistent_votes": 0,
+        "itd_inconsistent_votes": 0,
+        "itd_ambiguous_exempt_votes": 0,
+    }
+    side_counts: dict[str, dict[str, int]] = {
+        side: {
+            "lateral_frames": 0,
+            "gcc_boundary_rejected_frames": 0,
+            "ild_consistent_votes": 0,
+            "ild_inconsistent_votes": 0,
+            "ild_ambiguous_exempt_votes": 0,
+            "itd_consistent_votes": 0,
+            "itd_inconsistent_votes": 0,
+            "itd_ambiguous_exempt_votes": 0,
+        }
+        for side in ("left", "right")
+    }
+    side_values: dict[str, dict[str, list[float]]] = {
+        side: {"ild_db": [], "itd_seconds": []} for side in ("left", "right")
+    }
+    observed_sides: set[str] = set()
+    frames: list[dict[str, Any]] = []
+    for ordinal, frame in enumerate(frame_reports):
+        if not isinstance(frame, Mapping):
+            raise M5MetricsError(f"frame_reports[{ordinal}] must be a mapping")
+        if listener_local_azimuths_deg is None:
+            azimuth_value = frame.get("listener_local_azimuth_deg")
+        else:
+            azimuth_value = listener_local_azimuths_deg[ordinal]
+        if (
+            isinstance(azimuth_value, bool)
+            or not isinstance(azimuth_value, Real)
+            or not math.isfinite(float(azimuth_value))
+            or not -180.0 <= float(azimuth_value) <= 180.0
+        ):
+            raise M5MetricsError(
+                f"frame_reports[{ordinal}] listener-local azimuth is invalid"
+            )
+        azimuth = float(azimuth_value)
+        lateral_angle = min(abs(azimuth), 180.0 - abs(azimuth))
+        frame_index = frame.get("frame_index", frame.get("stft_frame_index", ordinal))
+        if isinstance(frame_index, bool) or not isinstance(
+            frame_index, (int, np.integer)
+        ):
+            raise M5MetricsError(f"frame_reports[{ordinal}] frame index is invalid")
+
+        if lateral_angle < lateral_threshold:
+            boundary = bool(
+                isinstance(frame.get("itd"), Mapping)
+                and frame["itd"].get("at_search_boundary") is True
+            )
+            counts["median_plane_exempt_frames"] += 1
+            if boundary:
+                counts["gcc_boundary_rejected_frames"] += 1
+            frames.append(
+                {
+                    "frame_index": int(frame_index),
+                    "listener_local_azimuth_deg": azimuth,
+                    "lateral_angle_deg": lateral_angle,
+                    "side": "median_plane",
+                    "classification": "median_plane_exempt",
+                    "accepted_cue_count": 0,
+                    "ild_vote": "not_evaluated",
+                    "itd_vote": (
+                        "rejected_search_boundary" if boundary else "not_evaluated"
+                    ),
+                    "gcc_at_search_boundary": boundary,
+                }
+            )
+            continue
+
+        side = "right" if azimuth > 0.0 else "left"
+        observed_sides.add(side)
+        counts["lateral_frames"] += 1
+        side_counts[side]["lateral_frames"] += 1
+        expected_ild_sign = -1 if side == "right" else 1
+        expected_itd_sign = 1 if side == "right" else -1
+
+        ild_value = frame.get("ild_db", frame.get("broadband_ild_db"))
+        itd_report = frame.get("itd")
+        if (
+            isinstance(ild_value, bool)
+            or not isinstance(ild_value, Real)
+            or not math.isfinite(float(ild_value))
+        ):
+            raise M5MetricsError(f"frame_reports[{ordinal}] ILD is invalid")
+        if not isinstance(itd_report, Mapping):
+            raise M5MetricsError(f"frame_reports[{ordinal}] ITD report is invalid")
+        itd_value = itd_report.get("itd_seconds")
+        if (
+            isinstance(itd_value, bool)
+            or not isinstance(itd_value, Real)
+            or not math.isfinite(float(itd_value))
+        ):
+            raise M5MetricsError(f"frame_reports[{ordinal}] ITD value is invalid")
+
+        ild_vote = _signed_cue_vote(
+            float(ild_value),
+            expected_sign=expected_ild_sign,
+            ambiguity_threshold=ild_threshold,
+        )
+        boundary = itd_report.get("at_search_boundary") is True
+        if boundary:
+            itd_vote = "rejected_search_boundary"
+            counts["gcc_boundary_rejected_frames"] += 1
+            side_counts[side]["gcc_boundary_rejected_frames"] += 1
+        else:
+            itd_vote = _signed_cue_vote(
+                float(itd_value),
+                expected_sign=expected_itd_sign,
+                ambiguity_threshold=itd_threshold,
+            )
+
+        counts[f"ild_{ild_vote}_votes"] += 1
+        side_counts[side][f"ild_{ild_vote}_votes"] += 1
+        if itd_vote != "rejected_search_boundary":
+            counts[f"itd_{itd_vote}_votes"] += 1
+            side_counts[side][f"itd_{itd_vote}_votes"] += 1
+        side_values[side]["ild_db"].append(float(ild_value))
+        if not boundary:
+            side_values[side]["itd_seconds"].append(float(itd_value))
+        cue_votes = (ild_vote, itd_vote)
+        if boundary:
+            classification = "gcc_boundary_rejected"
+        elif "inconsistent" in cue_votes:
+            classification = "inconsistent"
+        elif cue_votes == ("ambiguous_exempt", "ambiguous_exempt"):
+            classification = "ambiguous_exempt"
+        else:
+            classification = "consistent"
+        frames.append(
+            {
+                "frame_index": int(frame_index),
+                "listener_local_azimuth_deg": azimuth,
+                "lateral_angle_deg": lateral_angle,
+                "side": side,
+                "classification": classification,
+                "accepted_cue_count": sum(
+                    vote == "consistent" or vote == "inconsistent" for vote in cue_votes
+                ),
+                "expected_ild_sign": expected_ild_sign,
+                "expected_itd_sign": expected_itd_sign,
+                "ild_db": float(ild_value),
+                "itd_seconds": float(itd_value),
+                "ild_vote": ild_vote,
+                "itd_vote": itd_vote,
+                "gcc_at_search_boundary": boundary,
+            }
+        )
+
+    def rates_for(cue_counts: Mapping[str, int]) -> dict[str, float | None]:
+        ild_consistent = cue_counts["ild_consistent_votes"]
+        ild_inconsistent = cue_counts["ild_inconsistent_votes"]
+        itd_consistent = cue_counts["itd_consistent_votes"]
+        itd_inconsistent = cue_counts["itd_inconsistent_votes"]
+        all_consistent = ild_consistent + itd_consistent
+        all_inconsistent = ild_inconsistent + itd_inconsistent
+        possible_cues = 2 * cue_counts["lateral_frames"]
+        measured_cues = all_consistent + all_inconsistent
+        return {
+            "ild_sign_consistency_rate": _consistency_rate(
+                ild_consistent, ild_inconsistent
+            ),
+            "itd_sign_consistency_rate": _consistency_rate(
+                itd_consistent, itd_inconsistent
+            ),
+            "combined_sign_consistency_rate": _consistency_rate(
+                all_consistent, all_inconsistent
+            ),
+            "cue_coverage_rate": (
+                float(measured_cues / possible_cues) if possible_cues else 0.0
+            ),
+        }
+
+    rates = rates_for(counts)
+    rates_by_side = {side: rates_for(side_counts[side]) for side in ("left", "right")}
+    aggregate_by_side: dict[str, dict[str, Any]] = {}
+    for side in ("left", "right"):
+        ild_values = side_values[side]["ild_db"]
+        itd_values = side_values[side]["itd_seconds"]
+        aggregate_by_side[side] = {
+            "lateral_frame_count": side_counts[side]["lateral_frames"],
+            "ild_db_median": (float(np.median(ild_values)) if ild_values else None),
+            "itd_seconds_median": (
+                float(np.median(itd_values)) if itd_values else None
+            ),
+            "gcc_boundary_rejected_frame_count": side_counts[side][
+                "gcc_boundary_rejected_frames"
+            ],
+            "rates": rates_by_side[side],
+        }
+
+    left_ild = aggregate_by_side["left"]["ild_db_median"]
+    right_ild = aggregate_by_side["right"]["ild_db_median"]
+    left_itd = aggregate_by_side["left"]["itd_seconds_median"]
+    right_itd = aggregate_by_side["right"]["itd_seconds_median"]
+    lateral_separation = {
+        "ild_left_minus_right_db": (
+            float(left_ild - right_ild)
+            if left_ild is not None and right_ild is not None
+            else None
         ),
+        "itd_right_minus_left_seconds": (
+            float(right_itd - left_itd)
+            if left_itd is not None and right_itd is not None
+            else None
+        ),
+    }
+
+    rejection_reasons: list[str] = []
+    if not counts["lateral_frames"]:
+        rejection_reasons.append("no_lateral_frame_outside_median_plane_exemption")
+    if observed_sides != {"left", "right"}:
+        rejection_reasons.append("both_left_and_right_lateral_sides_required")
+    for side in ("left", "right"):
+        side_rates = rates_by_side[side]
+        for cue in ("ild", "itd"):
+            rate = side_rates[f"{cue}_sign_consistency_rate"]
+            if rate is None:
+                rejection_reasons.append(f"{side}_has_no_non_ambiguous_{cue}_vote")
+            elif rate < consistency_threshold:
+                rejection_reasons.append(
+                    f"{side}_{cue}_sign_consistency_below_threshold"
+                )
+        if side_rates["cue_coverage_rate"] < coverage_threshold:
+            rejection_reasons.append(f"{side}_cue_coverage_below_threshold")
+    if rates["cue_coverage_rate"] < coverage_threshold:
+        rejection_reasons.append("cue_coverage_below_threshold")
+
+    if right_ild is None or right_ild > -ild_threshold:
+        rejection_reasons.append("right_median_ild_not_negative_nonzero")
+    if left_ild is None or left_ild < ild_threshold:
+        rejection_reasons.append("left_median_ild_not_positive_nonzero")
+    if right_itd is None or right_itd < itd_threshold:
+        rejection_reasons.append("right_median_itd_not_positive_nonzero")
+    if left_itd is None or left_itd > -itd_threshold:
+        rejection_reasons.append("left_median_itd_not_negative_nonzero")
+    ild_separation = lateral_separation["ild_left_minus_right_db"]
+    if ild_separation is None or ild_separation < 2.0 * ild_threshold:
+        rejection_reasons.append("left_right_ild_median_separation_below_threshold")
+    itd_separation = lateral_separation["itd_right_minus_left_seconds"]
+    if itd_separation is None or itd_separation < 2.0 * itd_threshold:
+        rejection_reasons.append("left_right_itd_median_separation_below_threshold")
+
+    passed = not rejection_reasons
+    return {
+        "schema": "avengine_m5_binaural_lateral_cue_consistency_v1",
+        "analysis_scope": "per_source_frame_cue_azimuth_semantics",
+        "status": "pass" if passed else "fail",
+        "formal_acceptance_allowed": passed,
+        "sign_convention": {
+            "listener_local_azimuth": "positive_right_degrees",
+            "right_expected_ild": "negative",
+            "right_expected_itd": "positive_t_left_minus_t_right",
+            "left_expected_ild": "positive",
+            "left_expected_itd": "negative_t_left_minus_t_right",
+        },
+        "ipd_role": ("frequency_dependent_circular_diagnostic_only_not_a_sign_gate"),
+        "thresholds": {
+            "minimum_lateral_angle_deg": lateral_threshold,
+            "minimum_absolute_ild_db": ild_threshold,
+            "minimum_absolute_itd_seconds": itd_threshold,
+            "minimum_consistency_rate": consistency_threshold,
+            "minimum_cue_coverage_rate": coverage_threshold,
+        },
+        "observed_lateral_sides": sorted(observed_sides),
+        "counts": counts,
+        "rates": rates,
+        "aggregate_by_side": aggregate_by_side,
+        "lateral_separation": lateral_separation,
+        "rejection_reasons": rejection_reasons,
+        "frames": frames,
     }
 
 
@@ -342,9 +720,7 @@ def _exact_frequency_ipd(
     sample_indices = np.arange(channels.shape[1], dtype=np.float64)
     result: dict[str, float] = {}
     for frequency in frequencies_hz:
-        kernel = np.exp(
-            -2.0j * math.pi * frequency * sample_indices / sample_rate_hz
-        )
+        kernel = np.exp(-2.0j * math.pi * frequency * sample_indices / sample_rate_hz)
         left = np.sum(channels[0] * kernel)
         right = np.sum(channels[1] * kernel)
         cross = left * np.conjugate(right)
@@ -442,9 +818,7 @@ def measure_binaural_rir_frame_cues(
             "pre_direct_samples_requested": pre_samples,
         },
         "ild_db": _ild_db(direct),
-        "ipd_radians_by_frequency_hz": _exact_frequency_ipd(
-            direct, rate, frequencies
-        ),
+        "ipd_radians_by_frequency_hz": _exact_frequency_ipd(direct, rate, frequencies),
         "itd": itd,
     }
 
@@ -463,9 +837,9 @@ def measure_binaural_rir_sequence_cues(
             raise M5MetricsError(
                 "impulse_responses array must have shape [frames, 2, samples]"
             )
-        frames: Sequence[Any] = tuple(impulse_responses[index] for index in range(
-            impulse_responses.shape[0]
-        ))
+        frames: Sequence[Any] = tuple(
+            impulse_responses[index] for index in range(impulse_responses.shape[0])
+        )
     elif isinstance(impulse_responses, Sequence) and not isinstance(
         impulse_responses, (str, bytes)
     ):
@@ -484,9 +858,7 @@ def measure_binaural_rir_sequence_cues(
             )
         arrivals = direct_arrival_samples
     reports: list[dict[str, Any]] = []
-    for frame_index, (frame, arrival) in enumerate(
-        zip(frames, arrivals, strict=True)
-    ):
+    for frame_index, (frame, arrival) in enumerate(zip(frames, arrivals, strict=True)):
         report = measure_binaural_rir_frame_cues(
             frame,
             sample_rate_hz,
@@ -639,9 +1011,7 @@ def _measure_wet_window(
                         / max(float(abs(right)), _ENERGY_EPSILON)
                     )
                 )
-                ipd = _wrap_phase(
-                    float(np.angle(left * np.conjugate(right)))
-                )
+                ipd = _wrap_phase(float(np.angle(left * np.conjugate(right))))
             else:
                 ild = None
                 ipd = None
@@ -691,9 +1061,7 @@ def _measure_wet_window(
             ipd_mean, ipd_resultant_length = _circular_mean(ipd_values, weights)
             summary_by_frequency[key] = {
                 "requested_frequency_hz": frequency,
-                "analysis_frequency_hz": valid_records[0][
-                    "analysis_frequency_hz"
-                ],
+                "analysis_frequency_hz": valid_records[0]["analysis_frequency_hz"],
                 "valid_frame_count": len(valid_records),
                 "ild_db_median": float(np.median(ild_values)),
                 "ipd_circular_mean_radians": ipd_mean,
@@ -829,6 +1197,11 @@ def measure_binaural_mixture_diagnostic(
 
 
 __all__ = [
+    "DEFAULT_MINIMUM_ABSOLUTE_ILD_DB",
+    "DEFAULT_MINIMUM_ABSOLUTE_ITD_SECONDS",
+    "DEFAULT_MINIMUM_CUE_CONSISTENCY_RATE",
+    "DEFAULT_MINIMUM_CUE_COVERAGE_RATE",
+    "DEFAULT_MINIMUM_LATERAL_ANGLE_DEG",
     "DEFAULT_IPD_FREQUENCIES_HZ",
     "DEFAULT_MAX_ITD_SECONDS",
     "M5MetricsError",
@@ -838,4 +1211,5 @@ __all__ = [
     "measure_binaural_rir_frame_cues",
     "measure_binaural_rir_sequence_cues",
     "measure_binaural_wet_stem_cues",
+    "summarize_lateral_cue_consistency",
 ]
