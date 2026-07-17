@@ -17,8 +17,8 @@ measurements.
   `formal_view_ids: []` and `review_view_ids: ["view0"]`; formal evidence emits
   the inverse. The review loader accepts only a `research_candidate`, while
   the formal loader accepts only a `canary_qualified` package.
-- Named outputs are immutable by policy. Commands require absent or empty fresh
-  destinations and do not replace non-empty prior evidence.
+- Named outputs are immutable by policy. Hardened commands require a fresh
+  destination that does not exist and never replace prior evidence.
 - Formal capture rejects dirty AVEngine/Habitat worktrees, a runtime commit or
   native binding that differs from `runtime.lock.yaml`, and a binding imported
   from a different runtime root.
@@ -157,7 +157,7 @@ cannot self-approve human review or rights.
 Review evidence must report 75 frames, world time `[0.0, 0.0]`, no formal
 views, one review `view0`, and three readback-verified modalities.
 
-## 5. Human review and promotion
+## 5. Human review and authenticated promotion replay
 
 Review complete cycles for mesh/skin alignment, rear-leg whole-limb motion,
 paw sliding/penetration/hovering, limb collapse or crossing, Idle stability
@@ -167,29 +167,40 @@ action, trajectory or media starts a new candidate.
 For this run the user accepted rear-leg naturalness on the r3 diagnostic. The
 r3 and v7/r5 packages have identical visual and action hashes; v7/r5 adds the
 passing cadence/root trajectory. Promotion also binds the final review media,
-world-contact audit and local MIT source snapshot:
+world-contact audit and local MIT source snapshot. The command below records
+the hardened no-replace replay as v8; it does not rename or overwrite the
+historical v7 package used by the already recorded formal capture:
 
 ```bash
+"$HABPY" -c 'from avengine.m2.admission import write_legacy_m2_human_review_decision; write_legacy_m2_human_review_decision("tmp/m2/rocketbox_beagle_m2_human_review_decision_v1.json")'
+
 "$HABPY" tools/m2/promote_canary.py \
   --candidate-manifest tmp/m2/rocketbox_beagle_m2_candidate_v7_world_contact_r5/asset_manifest.json \
+  --human-review-decision tmp/m2/rocketbox_beagle_m2_human_review_decision_v1.json \
   --review-request tmp/m2/rocketbox_beagle_m2_review_request_v7_world_contact_r5.json \
   --capture-evidence tmp/m2/rocketbox_beagle_m2_habitat_review_v7_world_contact_r5/evidence.json \
   --world-contact-audit tmp/m2/rocketbox_beagle_m2_world_contact_v2/world_contact_audit.json=355e52e289dccc202b0d928f4d5969ba6f32c4789b9de7977c3993e912b7a297 \
   --diagnostic-video tmp/m2/rocketbox_beagle_m2_habitat_review_v5_world_left_r3/review_media/view0_rgb_review.mp4=f789260e70a99b008685377b9d18d239d4bdbf6aa71fd20ccda4f09ee8bf03a9 \
   --rocketbox-root /data/datasets/rocketbox/Microsoft-Rocketbox \
-  --output tmp/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5 \
-  --reviewer-id workspace_user
+  --output tmp/m2/rocketbox_beagle_m2_canary_v8_decision_bound
 ```
+
+The migration writer is deliberately exact: it emits the authenticated record
+only for the already reviewed v7/r5 manifest, visual, Idle/Walk bytes and r3
+diagnostic. The user statement cannot be rebound to a different candidate or
+video, and every future review must create a fresh explicit decision record.
 
 The result must validate as `canary_qualified`, with automatic and human review
 both `pass`, `allowed_use: research_canary`, `redistribution: allowed`, and
 formal dataset registration still unauthorized.
 
-## 6. Build and run the formal canary
+## 6. Historical v7 formal canary record
 
-Commit all implementation changes first. Both repositories must be clean, the
-Habitat commit and native binding must match the lock, and imports must resolve
-inside `$RUNTIME`.
+The following commands identify the historical v7 formal run. For any new
+formal replay, commit all implementation changes first, select fresh output
+names, and use the same newly promoted package consistently in both commands.
+Both repositories must be clean, the Habitat commit and native binding must
+match the lock, and imports must resolve inside `$RUNTIME`.
 
 ```bash
 "$HABPY" tools/m2/build_canary_request.py \

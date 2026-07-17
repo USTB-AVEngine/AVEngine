@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/animal_appearance_batch_v1.schema.json",
+  "title": "AVEngine Animal Appearance L9 Batch v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "algorithm",
+    "parent_request",
+    "source_asset",
+    "taxonomy",
+    "coat_profile",
+    "axis_order",
+    "level_order",
+    "l9_level_rows",
+    "balance_audit",
+    "ofat_validation",
+    "state_classification",
+    "requests",
+    "batch_content_sha256",
+    "batch_id"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_animal_appearance_batch_v1"},
+    "algorithm": {"const": "orthogonal_array_l9_3_level_4_factor_v1"},
+    "parent_request": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "type": "object",
+          "required": ["request_id", "canonical_content_sha256"],
+          "properties": {
+            "request_id": {"$ref": "#/$defs/id"},
+            "canonical_content_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "source_asset": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "type": "object",
+          "required": ["asset_id"],
+          "properties": {"asset_id": {"$ref": "#/$defs/id"}}
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "taxonomy": {"$ref": "#/$defs/taxonomy"},
+    "coat_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "scope", "values"],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/id"},
+        "scope": {"$ref": "#/$defs/taxonomy"},
+        "values": {"$ref": "#/$defs/threeIds"}
+      }
+    },
+    "axis_order": {
+      "const": ["size", "body_build", "coat_profile", "life_stage"]
+    },
+    "level_order": {"$ref": "#/$defs/levelOrder"},
+    "l9_level_rows": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "array",
+        "minItems": 4,
+        "maxItems": 4,
+        "items": {"type": "integer", "minimum": 0, "maximum": 2}
+      }
+    },
+    "balance_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "every_level_three_times",
+        "level_counts",
+        "pair_counts",
+        "pairwise_orthogonal"
+      ],
+      "properties": {
+        "every_level_three_times": {"const": true},
+        "level_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["size", "body_build", "coat_profile", "life_stage"],
+          "properties": {
+            "size": {"$ref": "#/$defs/levelCount"},
+            "body_build": {"$ref": "#/$defs/levelCount"},
+            "coat_profile": {"$ref": "#/$defs/levelCount"},
+            "life_stage": {"$ref": "#/$defs/levelCount"}
+          }
+        },
+        "pair_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "size__body_build",
+            "size__coat_profile",
+            "size__life_stage",
+            "body_build__coat_profile",
+            "body_build__life_stage",
+            "coat_profile__life_stage"
+          ],
+          "properties": {
+            "size__body_build": {"$ref": "#/$defs/pairCount"},
+            "size__coat_profile": {"$ref": "#/$defs/pairCount"},
+            "size__life_stage": {"$ref": "#/$defs/pairCount"},
+            "body_build__coat_profile": {"$ref": "#/$defs/pairCount"},
+            "body_build__life_stage": {"$ref": "#/$defs/pairCount"},
+            "coat_profile__life_stage": {"$ref": "#/$defs/pairCount"}
+          }
+        },
+        "pairwise_orthogonal": {"const": true}
+      }
+    },
+    "ofat_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "status",
+        "required_before_formal_promotion",
+        "l9_substitution_allowed"
+      ],
+      "properties": {
+        "strategy": {"const": "separate_one_factor_at_a_time_v1"},
+        "status": {"const": "not_run"},
+        "required_before_formal_promotion": {"const": true},
+        "l9_substitution_allowed": {"const": false}
+      }
+    },
+    "state_classification": {"const": "research_candidate"},
+    "requests": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {"$ref": "#/$defs/instanceRequest"}
+    },
+    "batch_content_sha256": {"$ref": "#/$defs/sha256"},
+    "batch_id": {"$ref": "#/$defs/id"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "threeIds": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "fileRecord": {
+      "type": "object",
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["species", "breed"],
+      "properties": {
+        "species": {"$ref": "#/$defs/id"},
+        "breed": {"$ref": "#/$defs/id"}
+      }
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "coat_profile", "life_stage"],
+      "properties": {
+        "size": {"$ref": "#/$defs/id"},
+        "body_build": {"$ref": "#/$defs/id"},
+        "coat_profile": {"$ref": "#/$defs/id"},
+        "life_stage": {"$ref": "#/$defs/id"}
+      }
+    },
+    "levelOrder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "coat_profile", "life_stage"],
+      "properties": {
+        "size": {"$ref": "#/$defs/threeIds"},
+        "body_build": {"$ref": "#/$defs/threeIds"},
+        "coat_profile": {"$ref": "#/$defs/threeIds"},
+        "life_stage": {"$ref": "#/$defs/threeIds"}
+      }
+    },
+    "levelCount": {
+      "type": "object",
+      "minProperties": 3,
+      "maxProperties": 3,
+      "additionalProperties": {"const": 3}
+    },
+    "pairCount": {
+      "type": "object",
+      "minProperties": 9,
+      "maxProperties": 9,
+      "additionalProperties": {"const": 1}
+    },
+    "instanceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "parent_request_id",
+        "parent_request_file_sha256",
+        "source_asset_id",
+        "source_asset_sha256",
+        "ordinal",
+        "l9_levels",
+        "taxonomy",
+        "coat_profile_id",
+        "attributes",
+        "realization_operations",
+        "design_role",
+        "state_classification",
+        "instance_request_id",
+        "request_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_animal_appearance_instance_request_v1"},
+        "parent_request_id": {"$ref": "#/$defs/id"},
+        "parent_request_file_sha256": {"$ref": "#/$defs/sha256"},
+        "source_asset_id": {"$ref": "#/$defs/id"},
+        "source_asset_sha256": {"$ref": "#/$defs/sha256"},
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 9},
+        "l9_levels": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["size", "body_build", "coat_profile", "life_stage"],
+          "properties": {
+            "size": {"type": "integer", "minimum": 0, "maximum": 2},
+            "body_build": {"type": "integer", "minimum": 0, "maximum": 2},
+            "coat_profile": {"type": "integer", "minimum": 0, "maximum": 2},
+            "life_stage": {"type": "integer", "minimum": 0, "maximum": 2}
+          }
+        },
+        "taxonomy": {"$ref": "#/$defs/taxonomy"},
+        "coat_profile_id": {"$ref": "#/$defs/id"},
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "realization_operations": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["attribute", "operation_id", "parameters", "selected_value"],
+            "properties": {
+              "attribute": {"enum": ["size", "body_build", "coat_profile", "life_stage"]},
+              "operation_id": {"$ref": "#/$defs/id"},
+              "parameters": {"type": "object", "minProperties": 1},
+              "selected_value": {"$ref": "#/$defs/id"}
+            }
+          }
+        },
+        "design_role": {"const": "l9_combination_point_not_ofat"},
+        "state_classification": {"const": "research_candidate"},
+        "instance_request_id": {"$ref": "#/$defs/id"},
+        "request_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

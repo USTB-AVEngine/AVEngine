@@ -1,0 +1,69 @@
+{
+  "schema": "avengine_m2_variant_package_spec_v1",
+  "taxonomy": {
+    "species_id": "canis_lupus_familiaris",
+    "breed_id": "golden_retriever"
+  },
+  "appearance": {
+    "size": "medium",
+    "body_build": "standard",
+    "coat": "classic_golden",
+    "life_stage": "adult"
+  },
+  "rendering": {
+    "shader_type": "pbr"
+  },
+  "identity": {
+    "asset_id": "pixal_golden_retriever_diagnostic_v1",
+    "template_id": "pixal_generated_golden_retriever_mesh_quaternius_rig",
+    "body_plan_id": "quadruped_mammal_canid_v1",
+    "morphotype_id": "golden_retriever",
+    "skeleton_revision": "quaternius-dog-rotation-projection-v1",
+    "weights_revision": "pixal-golden-generated-skin-transfer-v1",
+    "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+    "action_revision": "quaternius-dog-idle-walk-projected-v1",
+    "source": "Pixal3D-derived Golden Retriever mesh on Quaternius Dog rig",
+    "source_revision": "2b137a4869c881f226d192dbdd6cbecf301a1aa78c5b8f983e77a0e31458af18",
+    "license": "AVENGINE_PROJECT_OWNER_AUTHORIZATION",
+    "allowed_use": "research_only",
+    "redistribution": "review_required",
+    "semantic_id": 200
+  },
+  "anchors": [
+    {
+      "anchor_id": "body",
+      "joint_id": "Bone.001",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "head",
+      "joint_id": "Bone.003",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "muzzle",
+      "joint_id": "Bone.003_end",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_front_left",
+      "joint_id": "Bone.018",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_front_right",
+      "joint_id": "Bone.015",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_hind_left",
+      "joint_id": "Bone.009",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_hind_right",
+      "joint_id": "Bone.012",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    }
+  ]
+}

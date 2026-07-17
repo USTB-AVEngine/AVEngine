@@ -1,0 +1,90 @@
+{
+  "schema": "avengine_m2_variant_package_spec_v1",
+  "taxonomy": {
+    "species_id": "felis_catus",
+    "breed_id": "generic"
+  },
+  "appearance": {
+    "size": "medium",
+    "body_build": "standard",
+    "coat": "charcoal_gray",
+    "life_stage": "adult"
+  },
+  "rendering": {
+    "shader_type": "pbr"
+  },
+  "identity": {
+    "asset_id": "quaternius_domestic_cat_generic_diagnostic_v1",
+    "template_id": "quaternius_animal_pack_cat",
+    "body_plan_id": "quadruped_mammal_felid_v1",
+    "morphotype_id": "domestic_cat_generic",
+    "skeleton_revision": "quaternius-cat-rotation-projection-all-joints-v1",
+    "weights_revision": "quaternius-cat-source-weights-v1",
+    "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+    "action_revision": "quaternius-cat-idle-walk-projected-v1",
+    "source": "Quaternius Animal Pack Cat",
+    "source_revision": "af2afb5e92c6d9daae98a918f8bd2bcb13ea4d7cfb880020d0d263e4d2f1277e",
+    "license": "CC0-1.0",
+    "allowed_use": "research_only",
+    "redistribution": "allowed",
+    "semantic_id": 200
+  },
+  "anchors": [
+    {
+      "anchor_id": "body",
+      "joint_id": "Bone.001",
+      "joint_from_anchor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    {
+      "anchor_id": "head",
+      "joint_id": "Bone.003",
+      "joint_from_anchor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    {
+      "anchor_id": "muzzle",
+      "joint_id": "Bone.003_end",
+      "joint_from_anchor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    {
+      "anchor_id": "paw_front_left",
+      "joint_id": "Bone.018",
+      "joint_from_anchor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    {
+      "anchor_id": "paw_front_right",
+      "joint_id": "Bone.015",
+      "joint_from_anchor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    {
+      "anchor_id": "paw_hind_left",
+      "joint_id": "Bone.009",
+      "joint_from_anchor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    {
+      "anchor_id": "paw_hind_right",
+      "joint_id": "Bone.012",
+      "joint_from_anchor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    }
+  ]
+}

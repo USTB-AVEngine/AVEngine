@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/animal_appearance_request_v1.schema.json",
+  "title": "AVEngine Animal Appearance Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "algorithm",
+    "taxonomy",
+    "source_asset",
+    "attribute_domains",
+    "baseline_attributes",
+    "l9_level_order",
+    "realization_bindings",
+    "ofat_validation"
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "threeIds": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "parameters_by_value"],
+      "properties": {
+        "operation_id": {"$ref": "#/$defs/id"},
+        "parameters_by_value": {
+          "type": "object",
+          "minProperties": 3,
+          "maxProperties": 3,
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema": {"const": "avengine_animal_appearance_request_v1"},
+    "request_id": {"$ref": "#/$defs/id"},
+    "algorithm": {"const": "orthogonal_array_l9_3_level_4_factor_v1"},
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["species", "breed"],
+      "properties": {
+        "species": {"$ref": "#/$defs/id"},
+        "breed": {"$ref": "#/$defs/id"}
+      }
+    },
+    "source_asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "expected_sha256"],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/id"},
+        "expected_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "attribute_domains": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "coat_profile", "life_stage"],
+      "properties": {
+        "size": {"$ref": "#/$defs/threeIds"},
+        "body_build": {"$ref": "#/$defs/threeIds"},
+        "coat_profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profile_id", "scope", "values"],
+          "properties": {
+            "profile_id": {"$ref": "#/$defs/id"},
+            "scope": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["species", "breed"],
+              "properties": {
+                "species": {"$ref": "#/$defs/id"},
+                "breed": {"$ref": "#/$defs/id"}
+              }
+            },
+            "values": {"$ref": "#/$defs/threeIds"}
+          }
+        },
+        "life_stage": {"$ref": "#/$defs/threeIds"}
+      }
+    },
+    "baseline_attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "coat_profile", "life_stage"],
+      "properties": {
+        "size": {"$ref": "#/$defs/id"},
+        "body_build": {"$ref": "#/$defs/id"},
+        "coat_profile": {"$ref": "#/$defs/id"},
+        "life_stage": {"$ref": "#/$defs/id"}
+      }
+    },
+    "l9_level_order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "coat_profile", "life_stage"],
+      "properties": {
+        "size": {"$ref": "#/$defs/threeIds"},
+        "body_build": {"$ref": "#/$defs/threeIds"},
+        "coat_profile": {"$ref": "#/$defs/threeIds"},
+        "life_stage": {"$ref": "#/$defs/threeIds"}
+      }
+    },
+    "realization_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "coat_profile", "life_stage"],
+      "properties": {
+        "size": {"$ref": "#/$defs/binding"},
+        "body_build": {"$ref": "#/$defs/binding"},
+        "coat_profile": {"$ref": "#/$defs/binding"},
+        "life_stage": {"$ref": "#/$defs/binding"}
+      }
+    },
+    "ofat_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "required_before_formal_promotion",
+        "l9_substitution_allowed"
+      ],
+      "properties": {
+        "strategy": {"const": "separate_one_factor_at_a_time_v1"},
+        "required_before_formal_promotion": {"const": true},
+        "l9_substitution_allowed": {"const": false}
+      }
+    }
+  }
+}

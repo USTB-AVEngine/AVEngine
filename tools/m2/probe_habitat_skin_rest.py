@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor.
 
-This is a capability probe, not an asset qualification tool.  It deliberately
-writes only to the caller-selected output directory and records every
-normalisation it applies.  M2 package compilation will consume the stricter
-``avengine.m2.glb`` parser once the rest-pose mapping is proven.
+This is a capability probe, not an asset qualification tool or a trusted
+execution attester.  It deliberately writes only to the caller-selected output
+directory and hash-binds the local configuration, measured runtime binding and
+observation files.  Those bindings establish local artifact integrity only;
+runtime execution conclusions belong to an external capture/audit boundary.
 """
 
 from __future__ import annotations
@@ -236,7 +237,7 @@ def _write_urdf(path: Path, skin: dict[str, Any]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _write_config(path: Path, glb_name: str) -> None:
+def _write_config(path: Path, glb_name: str, *, shader_type: str) -> dict[str, Any]:
     value = {
         "urdf_filepath": "animal.urdf",
         "render_asset": glb_name,
@@ -247,12 +248,55 @@ def _write_config(path: Path, glb_name: str) -> None:
         "inertia_source": "computed",
         "link_order": "tree_traversal",
         "render_mode": "skin",
-        "shader_type": "phong",
+        "shader_type": shader_type,
         "user_defined": {"avengine_native_gltf_skin_frame": True},
     }
     path.write_text(
         json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    return value
+
+
+def _file_record(
+    path: Path,
+    *,
+    relative_to: Path | None = None,
+    snapshot: Any | None = None,
+) -> dict[str, Any]:
+    record = {
+        "path": (
+            path.relative_to(relative_to).as_posix()
+            if relative_to is not None
+            else str(path.resolve())
+        ),
+        "byte_size": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    if snapshot is not None:
+        record["snapshot"] = snapshot
+    return record
+
+
+def _runtime_binding_data(
+    skin: dict[str, Any], runtime: dict[str, Any]
+) -> dict[str, Any]:
+    by_name = {item["link_name"]: item for item in runtime["link_mapping"]}
+    runtime_joint_order = [
+        joint["name"] for joint in skin["joints"] if joint["name"] != skin["root_name"]
+    ]
+    return {
+        "runtime_joint_order": runtime_joint_order,
+        "joint_position_count": runtime["joint_position_count"],
+        "quaternion_order": "xyzw",
+        "links": [
+            {
+                "link_name": name,
+                "joint_position_offset": by_name[name]["joint_position_offset"],
+                "joint_position_count": by_name[name]["joint_position_count"],
+            }
+            for name in runtime_joint_order
+        ],
+    }
 
 
 def _make_configuration(scene_dataset: Path) -> Any:
@@ -555,6 +599,12 @@ def main() -> int:
     parser.add_argument("--input-glb", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--scene-dataset", type=Path, required=True)
+    parser.add_argument(
+        "--shader-type",
+        choices=("phong", "pbr"),
+        default="phong",
+        help="Explicit Habitat AO shader; formal M2 remains phong by default.",
+    )
     args = parser.parse_args()
 
     source = args.input_glb.resolve()
@@ -571,20 +621,70 @@ def main() -> int:
     urdf = output / "animal.urdf"
     config = output / "animal.ao_config.json"
     _write_urdf(urdf, skin)
-    _write_config(config, copied_glb.name)
+    config_value = _write_config(config, copied_glb.name, shader_type=args.shader_type)
+    runtime = _run_habitat(output, config, scene_dataset, skin)
+    runtime_binding = _runtime_binding_data(skin, runtime)
+    runtime_binding_path = output / "habitat_runtime_binding.json"
+    runtime_binding_path.write_text(
+        json.dumps(runtime_binding, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    observation_paths = [
+        output / relative
+        for relative in (
+            "qa_bootstrap_rgb.png",
+            "qa_x_negative_rgb.png",
+            "qa_x_positive_rgb.png",
+            "qa_y_negative_rgb.png",
+            "qa_y_positive_rgb.png",
+            "qa_z_negative_rgb.png",
+            "qa_z_positive_rgb.png",
+            "rest_depth.png",
+            "rest_rgb.png",
+            "rest_semantic.png",
+        )
+    ]
     result = {
         "schema": "avengine_m2_habitat_skin_rest_probe_v1",
         "qualification_state": "research_candidate",
         "qualification_claim": False,
+        "evidence_scope": {
+            "local_report_claim": "artifact_integrity_only",
+            "trusted_runtime_attestation": False,
+            "runtime_execution_conclusion_source": "external_capture_audit_only",
+        },
+        "producer_source_integrity": _file_record(Path(__file__)),
+        "render_configuration_integrity": {
+            "configured_shader_type": args.shader_type,
+            "ao_config_artifact": _file_record(
+                config,
+                relative_to=output,
+                snapshot=config_value,
+            ),
+        },
+        "runtime_artifact_integrity": {
+            "runtime_binding_artifact": _file_record(
+                runtime_binding_path,
+                relative_to=output,
+                snapshot=runtime_binding,
+            ),
+            "observation_artifacts": [
+                _file_record(path, relative_to=output) for path in observation_paths
+            ],
+        },
         "input": {
             "path": str(source),
             "byte_size": source.stat().st_size,
             "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         },
         "normalisation": skin,
-        "runtime": _run_habitat(output, config, scene_dataset, skin),
+        "runtime": runtime,
+        "notes": [
+            "Local hashes bind the AO config, runtime binding, and observations.",
+            "This mutable local report is not a trusted Habitat execution attestation.",
+            "Runtime execution conclusions require a separately retained capture/audit.",
+        ],
     }
-    runtime = result["runtime"]
     observation = runtime["observation"]
     qa_counts = observation["qa_semantic_pixel_counts"]
     result["gates"] = {

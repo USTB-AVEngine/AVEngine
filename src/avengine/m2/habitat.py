@@ -477,6 +477,7 @@ def build_habitat_ao_config_data(
     render_asset: str,
     urdf_filepath: str,
     semantic_id: int,
+    shader_type: str = "phong",
 ) -> dict[str, Any]:
     """Return deterministic Habitat AO config JSON data for skinned rendering."""
 
@@ -490,6 +491,8 @@ def build_habitat_ao_config_data(
         or semantic_id < 0
     ):
         raise HabitatMappingError("semantic_id must be a non-negative integer")
+    if not isinstance(shader_type, str) or shader_type not in {"phong", "pbr"}:
+        raise HabitatMappingError("shader_type must be exactly 'phong' or 'pbr'")
     return {
         "urdf_filepath": urdf_filepath,
         "render_asset": render_asset,
@@ -500,7 +503,7 @@ def build_habitat_ao_config_data(
         "inertia_source": "computed",
         "link_order": "tree_traversal",
         "render_mode": "skin",
-        "shader_type": "phong",
+        "shader_type": shader_type,
         "user_defined": {AVENGINE_NATIVE_GLTF_SKIN_FRAME_KEY: True},
     }
 

@@ -147,7 +147,6 @@ def test_ao_config_is_skin_rendering_and_detached() -> None:
     config = build_habitat_ao_config_data(
         render_asset="visual.glb", urdf_filepath="animal.urdf", semantic_id=200
     )
-
     assert config == {
         "urdf_filepath": "animal.urdf",
         "render_asset": "visual.glb",
@@ -170,6 +169,17 @@ def test_ao_config_is_skin_rendering_and_detached() -> None:
     )
 
 
+def test_ao_config_accepts_explicit_pbr_shader() -> None:
+    config = build_habitat_ao_config_data(
+        render_asset="visual.glb",
+        urdf_filepath="animal.urdf",
+        semantic_id=200,
+        shader_type="pbr",
+    )
+
+    assert config["shader_type"] == "pbr"
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
@@ -177,6 +187,8 @@ def test_ao_config_is_skin_rendering_and_detached() -> None:
         ("urdf_filepath", "", "urdf_filepath"),
         ("semantic_id", True, "semantic_id"),
         ("semantic_id", -1, "semantic_id"),
+        ("shader_type", "metal", "shader_type"),
+        ("shader_type", [], "shader_type"),
     ],
 )
 def test_ao_config_rejects_invalid_fields(

@@ -8,14 +8,18 @@ layout, and always leaves human review unexecuted.
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
+import errno
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import shutil
 import struct
-from typing import Any, Mapping, Sequence
+import tempfile
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 
@@ -34,6 +38,8 @@ from avengine.m2.contracts import (
 from avengine.m2.glb import GlbDocument, decode_accessor, load_glb
 from avengine.m2.habitat import (
     HabitatAssetMapping,
+    HabitatLinkJointBlock,
+    bind_habitat_link_layout,
     build_habitat_ao_config_data,
     build_habitat_asset_mapping_from_rebase_report,
 )
@@ -61,6 +67,29 @@ _REQUIRED_STATIC_GATES = {
     "runtime_joint_mapping_complete",
     "runtime_link_bind_alignment",
 }
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+_REPORT_PRODUCER_BY_OWNER = {
+    "habitat_static_probe": _REPOSITORY_ROOT / "tools/m2/probe_habitat_skin_rest.py",
+    "habitat_animation_review": _REPOSITORY_ROOT
+    / "tools/m2/render_habitat_action_review.py",
+}
+_LOCAL_RUNTIME_EVIDENCE_SCOPE = {
+    "local_report_claim": "artifact_integrity_only",
+    "trusted_runtime_attestation": False,
+    "runtime_execution_conclusion_source": "external_capture_audit_only",
+}
+_STATIC_PROBE_OBSERVATION_PATHS = (
+    "qa_bootstrap_rgb.png",
+    "qa_x_negative_rgb.png",
+    "qa_x_positive_rgb.png",
+    "qa_y_negative_rgb.png",
+    "qa_y_positive_rgb.png",
+    "qa_z_negative_rgb.png",
+    "qa_z_positive_rgb.png",
+    "rest_depth.png",
+    "rest_rgb.png",
+    "rest_semantic.png",
+)
 
 _ROLE_PATHS: tuple[tuple[str, str], ...] = (
     ("visual", "visual.glb"),
@@ -429,9 +458,22 @@ def _validate_action_report(
 
 
 def _validate_habitat_static_probe(
-    report: _JsonInput, *, visual_sha256: str, visual_size: int
+    report: _JsonInput,
+    *,
+    visual_sha256: str,
+    visual_size: int,
+    shader_type: str,
+    semantic_id: int,
+    runtime_joint_order: Sequence[str],
 ) -> None:
     _require_pass_report(report, schema=HABITAT_STATIC_PROBE_SCHEMA)
+    _validate_local_runtime_artifact_integrity(
+        report,
+        expected=shader_type,
+        semantic_id=semantic_id,
+        owner="habitat_static_probe",
+        runtime_joint_order=runtime_joint_order,
+    )
     _require_reference(
         report.value.get("input"),
         owner="static_qa.input",
@@ -455,8 +497,17 @@ def _validate_habitat_animation_review(
     actions_size: int,
     rebase_report: _JsonInput,
     actions: BakedActionSet,
+    shader_type: str,
+    semantic_id: int,
 ) -> None:
     _require_pass_report(report, schema=HABITAT_ANIMATION_REVIEW_SCHEMA)
+    _validate_local_runtime_artifact_integrity(
+        report,
+        expected=shader_type,
+        semantic_id=semantic_id,
+        owner="habitat_animation_review",
+        runtime_joint_order=actions.runtime_joint_order,
+    )
     source = _mapping(report.value.get("source"), owner="animation_qa.source")
     _require_reference(
         source.get("visual_glb"),
@@ -516,6 +567,231 @@ def _validate_habitat_animation_review(
         seen.add(action_id)
     if seen != {"idle", "walk"}:
         raise PackageCompileError("animation_qa runs must cover idle and walk")
+
+
+def _read_report_relative_artifact(
+    report: _JsonInput,
+    value: Any,
+    *,
+    owner: str,
+    snapshot: bool,
+) -> tuple[Mapping[str, Any], bytes, dict[str, Any] | None]:
+    """Read and hash-close one real artifact below a report's directory."""
+
+    record = _mapping(value, owner=owner)
+    expected_fields = {"path", "byte_size", "sha256"}
+    if snapshot:
+        expected_fields.add("snapshot")
+    if set(record) != expected_fields:
+        raise PackageCompileError(f"{owner} fields are invalid")
+    relative_text = record.get("path")
+    if not isinstance(relative_text, str) or not relative_text or "\\" in relative_text:
+        raise PackageCompileError(f"{owner}.path must be a POSIX relative path")
+    relative = Path(relative_text)
+    if (
+        relative.is_absolute()
+        or relative == Path(".")
+        or ".." in relative.parts
+        or relative.as_posix() != relative_text
+    ):
+        raise PackageCompileError(f"{owner}.path must be a canonical relative path")
+    artifact_path = report.path.parent / relative
+    _, payload = _read_regular(artifact_path, owner=owner)
+    if (
+        record.get("byte_size") != len(payload)
+        or record.get("sha256") != hashlib.sha256(payload).hexdigest()
+    ):
+        raise PackageCompileError(f"{owner} does not hash-bind its real artifact")
+    parsed: dict[str, Any] | None = None
+    if snapshot:
+        parsed_input = _read_json(artifact_path, owner=owner)
+        parsed = parsed_input.value
+        if record.get("snapshot") != parsed:
+            raise PackageCompileError(
+                f"{owner}.snapshot differs from its real JSON artifact"
+            )
+    return record, payload, parsed
+
+
+def _validate_runtime_binding_snapshot(
+    value: Mapping[str, Any],
+    *,
+    runtime_joint_order: Sequence[str],
+    owner: str,
+) -> None:
+    links = _sequence(value.get("links"), owner=f"{owner}.links")
+    blocks: list[HabitatLinkJointBlock] = []
+    for index, item in enumerate(links):
+        link = _mapping(item, owner=f"{owner}.links[{index}]")
+        if set(link) != {
+            "link_name",
+            "joint_position_offset",
+            "joint_position_count",
+        }:
+            raise PackageCompileError(f"{owner}.links[{index}] fields are invalid")
+        blocks.append(
+            HabitatLinkJointBlock(
+                link_name=link.get("link_name"),
+                joint_position_offset=link.get("joint_position_offset"),
+                joint_position_count=link.get("joint_position_count"),
+            )
+        )
+    joint_position_count = value.get("joint_position_count")
+    try:
+        binding = bind_habitat_link_layout(
+            runtime_joint_order,
+            blocks,
+            joint_position_count=joint_position_count,
+        )
+    except (TypeError, ValueError) as exc:
+        raise PackageCompileError(
+            f"{owner} is not a valid Habitat binding: {exc}"
+        ) from exc
+    if binding.to_json_data() != value:
+        raise PackageCompileError(
+            f"{owner} differs from the canonical package runtime binding"
+        )
+
+
+def _validate_local_runtime_artifact_integrity(
+    report: _JsonInput,
+    *,
+    expected: str,
+    semantic_id: int,
+    owner: str,
+    runtime_joint_order: Sequence[str],
+) -> None:
+    """Validate local file integrity without treating it as runtime attestation.
+
+    These fields prove that a report, its AO configuration, its measured binding,
+    and its observation files form one hash-closed local bundle.  Because the
+    bundle and report share the same untrusted filesystem, this deliberately
+    makes no claim that Habitat executed those bytes.  Runtime conclusions come
+    only from a separately retained capture/audit boundary.
+    """
+
+    configuration_value = report.value.get("render_configuration_integrity")
+    if configuration_value is None and expected == "phong":
+        # Pre-integrity-contract Phong reports remain valid for the formal M2
+        # baseline.  They cannot be relabelled as PBR because PBR requires every
+        # field and real artifact below.
+        return
+    scope = _mapping(
+        report.value.get("evidence_scope"), owner=f"{owner}.evidence_scope"
+    )
+    if scope != _LOCAL_RUNTIME_EVIDENCE_SCOPE:
+        raise PackageCompileError(
+            f"{owner}.evidence_scope must declare local integrity without trusted "
+            "runtime attestation"
+        )
+    configuration = _mapping(
+        configuration_value,
+        owner=f"{owner}.render_configuration_integrity",
+    )
+    if set(configuration) != {"configured_shader_type", "ao_config_artifact"}:
+        raise PackageCompileError(
+            f"{owner}.render_configuration_integrity fields are invalid"
+        )
+    if configuration.get("configured_shader_type") != expected:
+        raise PackageCompileError(
+            f"{owner} AO configuration must bind shader_type {expected!r}"
+        )
+    expected_config = build_habitat_ao_config_data(
+        render_asset="visual.glb",
+        urdf_filepath="animal.urdf",
+        semantic_id=semantic_id,
+        shader_type=expected,
+    )
+    _, _, config_snapshot = _read_report_relative_artifact(
+        report,
+        configuration.get("ao_config_artifact"),
+        owner=f"{owner}.render_configuration_integrity.ao_config_artifact",
+        snapshot=True,
+    )
+    if config_snapshot != expected_config:
+        raise PackageCompileError(
+            f"{owner} real AO config does not match the requested package shader"
+        )
+    producer = _mapping(
+        report.value.get("producer_source_integrity"),
+        owner=f"{owner}.producer_source_integrity",
+    )
+    if set(producer) != {"path", "byte_size", "sha256"}:
+        raise PackageCompileError(f"{owner} producer source fields are invalid")
+    producer_path = _REPORT_PRODUCER_BY_OWNER[owner]
+    producer_payload = producer_path.read_bytes()
+    reported_path = producer.get("path")
+    if (
+        not isinstance(reported_path, str)
+        or not reported_path.replace("\\", "/").endswith(
+            f"tools/m2/{producer_path.name}"
+        )
+        or producer.get("byte_size") != len(producer_payload)
+        or producer.get("sha256") != hashlib.sha256(producer_payload).hexdigest()
+    ):
+        raise PackageCompileError(
+            f"{owner} does not bind its current producer source bytes"
+        )
+
+    artifacts = _mapping(
+        report.value.get("runtime_artifact_integrity"),
+        owner=f"{owner}.runtime_artifact_integrity",
+    )
+    if set(artifacts) != {"runtime_binding_artifact", "observation_artifacts"}:
+        raise PackageCompileError(f"{owner} runtime artifact fields are invalid")
+    _, _, binding_snapshot = _read_report_relative_artifact(
+        report,
+        artifacts.get("runtime_binding_artifact"),
+        owner=f"{owner}.runtime_artifact_integrity.runtime_binding_artifact",
+        snapshot=True,
+    )
+    assert binding_snapshot is not None
+    _validate_runtime_binding_snapshot(
+        binding_snapshot,
+        runtime_joint_order=runtime_joint_order,
+        owner=f"{owner}.runtime_binding",
+    )
+
+    observation_values = _sequence(
+        artifacts.get("observation_artifacts"),
+        owner=f"{owner}.runtime_artifact_integrity.observation_artifacts",
+    )
+    if owner == "habitat_static_probe":
+        observation_paths = [
+            _mapping(value, owner=f"{owner}.observation_artifacts[{index}]").get("path")
+            for index, value in enumerate(observation_values)
+        ]
+        observation_names = [
+            Path(path).name if isinstance(path, str) else None
+            for path in observation_paths
+        ]
+        if observation_names != list(_STATIC_PROBE_OBSERVATION_PATHS):
+            raise PackageCompileError(
+                f"{owner} must bind the complete deterministic observation set"
+            )
+    else:
+        expected_observations: list[Any] = []
+        for index, value in enumerate(
+            _sequence(report.value.get("runs"), owner=f"{owner}.runs")
+        ):
+            run = _mapping(value, owner=f"{owner}.runs[{index}]")
+            expected_observations.extend([run.get("video"), run.get("contact_sheet")])
+        if observation_values != expected_observations:
+            raise PackageCompileError(
+                f"{owner} observation artifacts differ from its review runs"
+            )
+    seen_paths: set[str] = set()
+    for index, value in enumerate(observation_values):
+        record, _, _ = _read_report_relative_artifact(
+            report,
+            value,
+            owner=f"{owner}.runtime_artifact_integrity.observation_artifacts[{index}]",
+            snapshot=False,
+        )
+        path = record["path"]
+        if path in seen_paths:
+            raise PackageCompileError(f"{owner} observation artifact paths repeat")
+        seen_paths.add(path)
 
 
 def _validate_static_qa(
@@ -1097,9 +1373,10 @@ def _validate_source_and_license(
 ) -> None:
     if not isinstance(source.value.get("schema"), str) or not source.value["schema"]:
         raise PackageCompileError("source_manifest.schema must be non-empty")
-    if source.value.get("formal_dataset_registration_authorized") is True:
+    if source.value.get("formal_dataset_registration_authorized") is not False:
         raise PackageCompileError(
-            "source_manifest cannot authorize formal dataset registration"
+            "source_manifest.formal_dataset_registration_authorized must be "
+            "exactly false"
         )
     if (
         not isinstance(license_snapshot.value.get("schema"), str)
@@ -1706,33 +1983,164 @@ def _action_manifest(
 
 def _prepare_output_directory(path: str | Path) -> Path:
     output = _absolute_without_symlinks(path, owner="output_directory")
-    if output.exists():
-        if not output.is_dir():
-            raise PackageCompileError("output_directory must be a directory")
-        try:
-            if any(output.iterdir()):
-                raise PackageCompileError("output_directory must be empty")
-        except OSError as exc:
-            raise PackageCompileError(
-                f"unable to inspect output_directory: {exc}"
-            ) from exc
-    else:
-        parent = output.parent
-        if not parent.is_dir():
-            raise PackageCompileError("output_directory parent must exist")
+    if os.path.lexists(output):
+        raise PackageCompileError("output_directory must not already exist")
+    parent = output.parent
+    if not parent.is_dir():
+        raise PackageCompileError("output_directory parent must exist")
     return output
 
 
-def _write_payloads(output: Path, payloads: Mapping[str, bytes]) -> None:
-    output.mkdir(parents=False, exist_ok=True)
-    for relative_path, payload in payloads.items():
-        destination = output / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.is_symlink() or destination.exists():
+def _publish_directory_no_replace(staging: Path, output: Path) -> None:
+    """Atomically expose one complete directory without replacing a name."""
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise PackageCompileError(
+            "atomic no-replace directory publication is unavailable"
+        )
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    at_fdcwd = -100
+    rename_noreplace = 1
+    result = renameat2(
+        at_fdcwd,
+        os.fsencode(staging),
+        at_fdcwd,
+        os.fsencode(output),
+        rename_noreplace,
+    )
+    if result == 0:
+        return
+    error = ctypes.get_errno()
+    if error in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise PackageCompileError(
+            "output_directory appeared during atomic publication; refusing to replace it"
+        )
+    raise PackageCompileError(
+        f"unable to atomically publish package directory: {os.strerror(error)}"
+    )
+
+
+def _write_file_exclusive(path: Path, payload: bytes) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o644)
+    failed = True
+    try:
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("exclusive package write made no progress")
+            view = view[written:]
+        os.fsync(descriptor)
+        failed = False
+    finally:
+        os.close(descriptor)
+        if failed:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def _output_tree_files(output: Path) -> set[str]:
+    files: set[str] = set()
+    for path in output.rglob("*"):
+        if path.is_symlink():
+            raise PackageCompileError("compiled package tree contains a symbolic link")
+        if path.is_file():
+            files.add(path.relative_to(output).as_posix())
+        elif not path.is_dir():
+            raise PackageCompileError("compiled package tree contains a special file")
+    return files
+
+
+def _write_payloads(
+    output: Path,
+    payloads: Mapping[str, bytes],
+    *,
+    validate: Callable[[Path], None],
+) -> None:
+    """Publish one package with exclusive leaves and rollback on any failure."""
+
+    created_output = False
+    created_directories: list[Path] = []
+    created_files: list[Path] = []
+    try:
+        try:
+            output.mkdir(parents=False, exist_ok=False)
+            created_output = True
+        except FileExistsError:
+            if output.is_symlink() or not output.is_dir():
+                raise PackageCompileError("output_directory must be a real directory")
+            if any(output.iterdir()):
+                raise PackageCompileError("output_directory must be empty")
+
+        for relative_path, payload in payloads.items():
+            relative = Path(relative_path)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise PackageCompileError(
+                    f"package path is not a safe relative path: {relative_path!r}"
+                )
+            destination = output / relative
+            current = output
+            for part in relative.parts[:-1]:
+                current /= part
+                try:
+                    current.mkdir(exist_ok=False)
+                    created_directories.append(current)
+                except FileExistsError:
+                    if current.is_symlink() or not current.is_dir():
+                        raise PackageCompileError(
+                            f"package directory is unsafe: {current.relative_to(output)!s}"
+                        )
+            try:
+                _write_file_exclusive(destination, payload)
+            except FileExistsError as exc:
+                raise PackageCompileError(
+                    f"refusing to replace package path {relative_path!r}"
+                ) from exc
+            except OSError as exc:
+                raise PackageCompileError(
+                    f"unable to publish package path {relative_path!r}: {exc}"
+                ) from exc
+            created_files.append(destination)
+
+        expected = set(payloads)
+        actual = _output_tree_files(output)
+        if actual != expected:
             raise PackageCompileError(
-                f"refusing to replace package path {relative_path!r}"
+                "compiled package tree differs from the exact payload set: "
+                f"missing={sorted(expected - actual)}, extra={sorted(actual - expected)}"
             )
-        destination.write_bytes(payload)
+        validate(output / "asset_manifest.json")
+    except Exception:
+        for path in reversed(created_files):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        for path in reversed(created_directories):
+            try:
+                path.rmdir()
+            except OSError:
+                pass
+        if created_output:
+            try:
+                output.rmdir()
+            except OSError:
+                pass
+        raise
 
 
 def compile_research_candidate_animal_package(
@@ -1753,16 +2161,19 @@ def compile_research_candidate_animal_package(
     anchor_definitions: Sequence[Any],
     source_manifest: str | Path,
     license_snapshot: str | Path,
+    shader_type: str = "phong",
 ) -> Path:
     """Compile a complete, hash-closed research-candidate animal package.
 
-    The destination may be absent or an existing empty real directory.  No
-    symbolic-link component is accepted.  All validation occurs before the
-    first output file is written.
+    The destination must be absent. No symbolic-link component is accepted.
+    The complete package is validated in a same-filesystem staging directory
+    and becomes visible with one atomic no-replace directory publication.
     """
 
     if not isinstance(identity, AnimalPackageIdentity):
         raise PackageCompileError("identity must be AnimalPackageIdentity")
+    if not isinstance(shader_type, str) or shader_type not in {"phong", "pbr"}:
+        raise PackageCompileError("shader_type must be exactly 'phong' or 'pbr'")
     output = _prepare_output_directory(output_directory)
 
     visual_path, visual_payload = _read_regular(visual_glb, owner="visual_glb")
@@ -1830,6 +2241,9 @@ def compile_research_candidate_animal_package(
         static_probe,
         visual_sha256=visual_sha256,
         visual_size=len(visual_payload),
+        shader_type=shader_type,
+        semantic_id=identity.semantic_id,
+        runtime_joint_order=action_set.runtime_joint_order,
     )
     _validate_habitat_animation_review(
         animation_review,
@@ -1839,6 +2253,8 @@ def compile_research_candidate_animal_package(
         actions_size=len(actions_payload),
         rebase_report=rebase,
         actions=action_set,
+        shader_type=shader_type,
+        semantic_id=identity.semantic_id,
     )
     topology_sha256, uv_sha256, weights_sha256, (minimum, maximum) = _mesh_evidence(
         document
@@ -1936,6 +2352,7 @@ def compile_research_candidate_animal_package(
         render_asset="../visual.glb",
         urdf_filepath="animal.urdf",
         semantic_id=identity.semantic_id,
+        shader_type=shader_type,
     )
 
     payloads: dict[str, bytes] = {
@@ -2064,8 +2481,10 @@ def compile_research_candidate_animal_package(
             "human_visual_review_status": "not_run",
             "human_review_binding_sha256": None,
             "decision_reason": (
-                "Hash-bound automatic technical reports passed; human visual "
-                "review has not run, so this package remains a research candidate."
+                "Hash-closed local technical artifacts passed structural checks; "
+                "the probe/review reports are not trusted runtime attestations. "
+                "External capture/audit and human visual review have not established "
+                "formal qualification, so this package remains a research candidate."
             ),
         },
         "provenance": {
@@ -2080,14 +2499,24 @@ def compile_research_candidate_animal_package(
     manifest_payload = _json_bytes(asset)
     payloads["asset_manifest.json"] = manifest_payload
 
-    _write_payloads(output, payloads)
-    manifest_path = output / "asset_manifest.json"
-    errors = validate_animal_asset_package(asset, manifest_path=manifest_path)
-    if errors:
-        raise PackageCompileError(
-            "compiled package failed its own contract: " + "; ".join(errors)
-        )
-    return manifest_path
+    def validate_compiled(manifest_path: Path) -> None:
+        errors = validate_animal_asset_package(asset, manifest_path=manifest_path)
+        if errors:
+            raise PackageCompileError(
+                "compiled package failed its own contract: " + "; ".join(errors)
+            )
+
+    # Validate the complete byte set in a same-filesystem staging directory
+    # before exposing the destination name at all.
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{output.name}.staging-", dir=output.parent)
+    )
+    try:
+        _write_payloads(staging, payloads, validate=validate_compiled)
+        _publish_directory_no_replace(staging, output)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return output / "asset_manifest.json"
 
 
 __all__ = [

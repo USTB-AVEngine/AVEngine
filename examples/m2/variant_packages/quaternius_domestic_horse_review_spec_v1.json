@@ -1,0 +1,69 @@
+{
+  "schema": "avengine_m2_variant_package_spec_v1",
+  "taxonomy": {
+    "species_id": "equus_caballus",
+    "breed_id": "generic"
+  },
+  "appearance": {
+    "size": "medium",
+    "body_build": "standard",
+    "coat": "dark_bay",
+    "life_stage": "adult"
+  },
+  "rendering": {
+    "shader_type": "pbr"
+  },
+  "identity": {
+    "asset_id": "quaternius_domestic_horse_generic_diagnostic_v1",
+    "template_id": "quaternius_farm_animal_pack_horse",
+    "body_plan_id": "quadruped_mammal_equid_v1",
+    "morphotype_id": "domestic_horse_generic",
+    "skeleton_revision": "quaternius-horse-rotation-projection-v1",
+    "weights_revision": "quaternius-horse-source-weights-v1",
+    "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+    "action_revision": "quaternius-horse-idle-walk-timing-normalized-projected-v1",
+    "source": "Quaternius Farm Animal Pack Horse",
+    "source_revision": "3cfea5616405fbf9ecf964794f4a5f68421a6dd04abf5749cfe3e51c849d97a2",
+    "license": "CC0-1.0",
+    "allowed_use": "research_only",
+    "redistribution": "allowed",
+    "semantic_id": 200
+  },
+  "anchors": [
+    {
+      "anchor_id": "body",
+      "joint_id": "Body",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "head",
+      "joint_id": "Head",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "muzzle",
+      "joint_id": "Body",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_front_left",
+      "joint_id": "FrontLowLeg.L",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_front_right",
+      "joint_id": "FrontLowLeg.R",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_hind_left",
+      "joint_id": "BackLowLeg.L",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    },
+    {
+      "anchor_id": "paw_hind_right",
+      "joint_id": "BackLowLeg.R",
+      "joint_from_anchor": {"translation_m": [0.0, 0.0, 0.0], "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]}
+    }
+  ]
+}

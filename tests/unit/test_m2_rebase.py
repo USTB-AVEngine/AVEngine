@@ -5,10 +5,16 @@ from pathlib import Path
 import struct
 from typing import Any, Sequence
 
+import numpy as np
 import pytest
 
 from avengine.m2.glb import extract_actions, extract_node_hierarchy, load_glb
-from avengine.m2.rebase import RebaseError, rebase_skin_root
+from avengine.m2.rebase import (
+    RebaseError,
+    rebase_skin_root,
+    rebase_skin_root_preserving_local_tr,
+)
+from tools.m2 import rebase_skin_root as rebase_cli
 
 
 _JSON_CHUNK_TYPE = 0x4E4F534A
@@ -261,6 +267,7 @@ def test_rebase_minimal_valid_synthetic_skin(tmp_path: Path) -> None:
     report = rebase_skin_root(source, output)
 
     assert output.is_file()
+    assert report["schema"] == "avengine_m2_skin_root_rebase_v1"
     assert report["status"] == "pass"
     assert report["qualification_state"] == "research_candidate"
     assert report["qualification_claim"] is False
@@ -278,6 +285,87 @@ def test_rebase_minimal_valid_synthetic_skin(tmp_path: Path) -> None:
     action = extract_actions(rebased)[0]
     assert action.channels[0].values == ((0.0, 1.0, 0.0),) * 2
     assert report["output"]["sha256"] == rebased.sha256
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_rebase_refuses_existing_output_without_replacing_it(
+    tmp_path: Path, kind: str
+) -> None:
+    document, binary = _synthetic_skin_fixture()
+    source, output = _write_source(tmp_path, document, binary)
+    if kind == "file":
+        output.write_bytes(b"sentinel")
+    else:
+        output.symlink_to(tmp_path / "dangling-rebased.glb")
+
+    with pytest.raises(RebaseError, match="refusing to replace output"):
+        rebase_skin_root(source, output)
+
+    if kind == "file":
+        assert output.read_bytes() == b"sentinel"
+    else:
+        assert output.is_symlink()
+
+
+def _rebase_cli_arguments(
+    source: Path,
+    output: Path,
+    report: Path,
+    *,
+    preserve_local_tr: bool = False,
+) -> list[str]:
+    arguments = [
+        "--input",
+        str(source),
+        "--output",
+        str(output),
+        "--report",
+        str(report),
+    ]
+    if preserve_local_tr:
+        arguments.append("--preserve-local-tr")
+    return arguments
+
+
+@pytest.mark.parametrize("occupied", ["output", "report"])
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_rebase_cli_preflights_both_outputs(
+    tmp_path: Path, occupied: str, kind: str
+) -> None:
+    document, binary = _synthetic_skin_fixture()
+    source, output = _write_source(tmp_path, document, binary)
+    report = tmp_path / "report.json"
+    path = output if occupied == "output" else report
+    if kind == "file":
+        path.write_bytes(b"sentinel")
+    else:
+        path.symlink_to(tmp_path / f"dangling-{occupied}")
+
+    with pytest.raises(SystemExit):
+        rebase_cli.main(_rebase_cli_arguments(source, output, report))
+
+    counterpart = report if occupied == "output" else output
+    assert not counterpart.exists()
+    assert not counterpart.is_symlink()
+    assert path.is_symlink() if kind == "symlink" else path.read_bytes() == b"sentinel"
+
+
+def test_rebase_cli_rolls_back_output_when_report_creation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    document, binary = _synthetic_skin_fixture()
+    source, output = _write_source(tmp_path, document, binary)
+    report = tmp_path / "report.json"
+
+    def fail_report(_path: Path, _payload: bytes) -> None:
+        raise OSError("injected report failure")
+
+    monkeypatch.setattr(rebase_cli, "_write_exclusive", fail_report)
+    with pytest.raises(SystemExit):
+        rebase_cli.main(_rebase_cli_arguments(source, output, report))
+
+    assert not output.exists()
+    assert not report.exists()
 
 
 def test_rebase_rejects_weights_that_do_not_sum_to_one(tmp_path: Path) -> None:
@@ -348,9 +436,144 @@ def test_rebase_rejects_dynamic_per_bone_translation(tmp_path: Path) -> None:
         rebase_skin_root(source, output)
 
 
+@pytest.mark.parametrize("interpolation", ["LINEAR", "STEP"])
+def test_local_tr_rebase_preserves_dynamic_nonroot_translation_and_unitizes_scale(
+    tmp_path: Path, interpolation: str
+) -> None:
+    document, raw_binary = _synthetic_skin_fixture(interpolation=interpolation)
+    document["nodes"][1]["scale"] = [1.00000036, 0.99999976, 1.00000012]
+    binary = bytearray(raw_binary)
+    accessor = document["animations"][0]["samplers"][0]["output"]
+    second_translation = _accessor_byte_offset(document, accessor) + 3 * 4
+    struct.pack_into("<3f", binary, second_translation, 0.25, 1.125, -0.5)
+    source, output = _write_source(tmp_path, document, bytes(binary))
+
+    report = rebase_skin_root_preserving_local_tr(source, output)
+
+    assert report["schema"] == "avengine_m2_skin_root_rebase_local_tr_v2"
+    assert report["skin"]["maximum_joint_scale_normalization_error"] == pytest.approx(
+        3.6e-7, abs=3.0e-8
+    )
+    runtime = report["runtime_contract"]
+    assert runtime == {
+        "schema": "avengine_m2_local_tr_runtime_v2",
+        "base_link": "root",
+        "coordinate_layout": "xyz_prismatic_then_xyzw_spherical",
+        "runtime_joint_order": ["paw"],
+        "translation_driven_joint_ids": ["paw"],
+        "translation_semantics": "absolute_child_local_meters",
+        "rotation_semantics": "absolute_child_local_xyzw",
+        "spherical_joint_count": 1,
+        "prismatic_joint_count": 3,
+        "joint_position_count": 7,
+        "actor_root_transform_source": "actor_from_canonical_root",
+        "per_bone_dynamic_translation": True,
+        "per_bone_dynamic_scale": False,
+    }
+    rebased = load_glb(output)
+    action = extract_actions(rebased)[0]
+    assert action.channels[0].interpolation == interpolation
+    assert np.asarray(action.channels[0].values) == pytest.approx(
+        np.asarray(((0.0, 1.0, 0.0), (0.25, 1.125, -0.5)))
+    )
+    assert all(
+        node.local_trs.scale == (1.0, 1.0, 1.0)
+        for node in extract_node_hierarchy(rebased)[:2]
+    )
+    assert report["output"]["sha256"] == rebased.sha256
+
+
+def test_local_tr_rebase_cli_requires_explicit_flag_and_writes_v2_report(
+    tmp_path: Path,
+) -> None:
+    document, raw_binary = _synthetic_skin_fixture()
+    binary = bytearray(raw_binary)
+    accessor = document["animations"][0]["samplers"][0]["output"]
+    second_translation = _accessor_byte_offset(document, accessor) + 3 * 4
+    struct.pack_into("<3f", binary, second_translation, 0.25, 1.0, 0.0)
+    source, output = _write_source(tmp_path, document, bytes(binary))
+    report = tmp_path / "local-tr-report.json"
+
+    assert (
+        rebase_cli.main(
+            _rebase_cli_arguments(
+                source,
+                output,
+                report,
+                preserve_local_tr=True,
+            )
+        )
+        == 0
+    )
+    assert json.loads(report.read_text())["schema"] == (
+        "avengine_m2_skin_root_rebase_local_tr_v2"
+    )
+
+
+@pytest.mark.parametrize(
+    ("target_path", "first", "second", "message"),
+    [
+        ("translation", (0.0, 0.0, 0.0), (0.25, 0.0, 0.0), "skin-root translation"),
+        ("scale", (1.0, 1.0, 1.0), (1.0, 1.1, 1.0), "scale is not exporter noise"),
+    ],
+)
+def test_local_tr_rebase_rejects_dynamic_root_and_scale(
+    tmp_path: Path,
+    target_path: str,
+    first: tuple[float, float, float],
+    second: tuple[float, float, float],
+    message: str,
+) -> None:
+    document, raw_binary = _synthetic_skin_fixture()
+    binary = bytearray(raw_binary)
+    channel = document["animations"][0]["channels"][0]
+    channel["target"]["path"] = target_path
+    if target_path == "translation":
+        channel["target"]["node"] = 0
+    accessor = document["animations"][0]["samplers"][0]["output"]
+    offset = _accessor_byte_offset(document, accessor)
+    struct.pack_into("<3f", binary, offset, *first)
+    struct.pack_into("<3f", binary, offset + 3 * 4, *second)
+    source, output = _write_source(tmp_path, document, bytes(binary))
+
+    with pytest.raises(RebaseError, match=message):
+        rebase_skin_root_preserving_local_tr(source, output)
+
+
+def test_local_tr_rebase_rejects_dynamic_root_rotation(tmp_path: Path) -> None:
+    document, raw_binary = _synthetic_skin_fixture()
+    binary = bytearray(raw_binary)
+    animation = document["animations"][0]
+    timestamps = animation["samplers"][0]["input"]
+    rotations = _append_float_accessor(
+        document,
+        binary,
+        "VEC4",
+        [
+            (0.0, 0.0, 0.0, 1.0),
+            (0.0, 0.2588190451, 0.0, 0.9659258263),
+        ],
+    )
+    sampler = len(animation["samplers"])
+    animation["samplers"].append(
+        {"input": timestamps, "output": rotations, "interpolation": "LINEAR"}
+    )
+    animation["channels"].append(
+        {"sampler": sampler, "target": {"node": 0, "path": "rotation"}}
+    )
+    document["buffers"][0]["byteLength"] = len(binary)
+    source, output = _write_source(tmp_path, document, bytes(binary))
+
+    with pytest.raises(RebaseError, match="skin-root animation is not constant"):
+        rebase_skin_root_preserving_local_tr(source, output)
+
+
 def test_rebase_rejects_cubic_spline_channel(tmp_path: Path) -> None:
     document, binary = _synthetic_skin_fixture(interpolation="CUBICSPLINE")
     source, output = _write_source(tmp_path, document, binary)
 
     with pytest.raises(RebaseError, match="CUBICSPLINE channels"):
         rebase_skin_root(source, output)
+
+    with pytest.raises(RebaseError, match="CUBICSPLINE channels"):
+        rebase_skin_root_preserving_local_tr(source, output)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import struct
 from typing import Any
@@ -647,6 +648,148 @@ def _load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _report_artifact_record(
+    path: Path,
+    *,
+    report_path: Path,
+    snapshot: Any | None = None,
+) -> dict[str, Any]:
+    record = _reference(path)
+    record["path"] = path.relative_to(report_path.parent).as_posix()
+    if snapshot is not None:
+        record["snapshot"] = snapshot
+    return record
+
+
+def _runtime_binding_fixture() -> dict[str, Any]:
+    return {
+        "runtime_joint_order": ["paw"],
+        "joint_position_count": 4,
+        "quaternion_order": "xyzw",
+        "links": [
+            {
+                "link_name": "paw",
+                "joint_position_offset": 0,
+                "joint_position_count": 4,
+            }
+        ],
+    }
+
+
+def _bind_local_runtime_artifact_integrity(
+    fixture: _Fixture, *, shader_type: str
+) -> None:
+    """Build local integrity fixtures; this does not emulate trusted execution."""
+
+    config = package_module.build_habitat_ao_config_data(
+        render_asset="visual.glb",
+        urdf_filepath="animal.urdf",
+        semantic_id=fixture.identity.semantic_id,
+        shader_type=shader_type,
+    )
+    repository = Path(__file__).resolve().parents[2]
+    bindings = (
+        (
+            fixture.habitat_static_probe,
+            repository / "tools/m2/probe_habitat_skin_rest.py",
+            "static",
+        ),
+        (
+            fixture.habitat_animation_review,
+            repository / "tools/m2/render_habitat_action_review.py",
+            "animation",
+        ),
+    )
+    for report_path, producer_path, report_kind in bindings:
+        artifact_root = report_path.parent / f"{report_path.stem}_artifacts"
+        artifact_root.mkdir()
+        config_path = artifact_root / "animal.ao_config.json"
+        _write_json(config_path, config)
+        runtime_binding = _runtime_binding_fixture()
+        runtime_binding_path = artifact_root / "habitat_runtime_binding.json"
+        _write_json(runtime_binding_path, runtime_binding)
+        report = _load_json(report_path)
+        report["evidence_scope"] = {
+            "local_report_claim": "artifact_integrity_only",
+            "trusted_runtime_attestation": False,
+            "runtime_execution_conclusion_source": "external_capture_audit_only",
+        }
+        report["producer_source_integrity"] = _reference(producer_path)
+        report["render_configuration_integrity"] = {
+            "configured_shader_type": shader_type,
+            "ao_config_artifact": _report_artifact_record(
+                config_path,
+                report_path=report_path,
+                snapshot=config,
+            ),
+        }
+        if report_kind == "static":
+            observation_names = package_module._STATIC_PROBE_OBSERVATION_PATHS
+            observation_paths = [artifact_root / name for name in observation_names]
+            for path in observation_paths:
+                path.write_bytes(f"fixture observation: {path.name}\n".encode())
+            report["runtime"] = {"joint_position_count": 4}
+        else:
+            report["runtime_contract"]["joint_position_count"] = 4
+            observation_paths = []
+            for index, run in enumerate(report["runs"]):
+                video = artifact_root / f"run_{index}_review.mp4"
+                contact_sheet = artifact_root / f"run_{index}_contact_sheet.png"
+                video.write_bytes(f"fixture video {index}\n".encode())
+                contact_sheet.write_bytes(f"fixture sheet {index}\n".encode())
+                run["video"] = _report_artifact_record(video, report_path=report_path)
+                run["contact_sheet"] = _report_artifact_record(
+                    contact_sheet, report_path=report_path
+                )
+                observation_paths.extend([video, contact_sheet])
+        report["runtime_artifact_integrity"] = {
+            "runtime_binding_artifact": _report_artifact_record(
+                runtime_binding_path,
+                report_path=report_path,
+                snapshot=runtime_binding,
+            ),
+            "observation_artifacts": [
+                _report_artifact_record(path, report_path=report_path)
+                for path in observation_paths
+            ],
+        }
+        _write_json(report_path, report)
+
+
+def _offline_relabel_legacy_reports_as_pbr(fixture: _Fixture) -> None:
+    """Reproduce the unsafe old helper: patch report JSON without execution."""
+
+    config = package_module.build_habitat_ao_config_data(
+        render_asset="visual.glb",
+        urdf_filepath="animal.urdf",
+        semantic_id=fixture.identity.semantic_id,
+        shader_type="pbr",
+    )
+    repository = Path(__file__).resolve().parents[2]
+    for report_path, producer_path in (
+        (
+            fixture.habitat_static_probe,
+            repository / "tools/m2/probe_habitat_skin_rest.py",
+        ),
+        (
+            fixture.habitat_animation_review,
+            repository / "tools/m2/render_habitat_action_review.py",
+        ),
+    ):
+        config_path = report_path.parent / f"{report_path.stem}_relabel_config.json"
+        _write_json(config_path, config)
+        report = _load_json(report_path)
+        report["producer"] = _reference(producer_path)
+        report["rendering"] = {
+            "shader_type": "pbr",
+            "ao_config": {
+                **_reference(config_path),
+                "snapshot": config,
+            },
+        }
+        _write_json(report_path, report)
+
+
 def test_compiler_emits_complete_candidate_without_implicit_promotion(
     tmp_path: Path,
 ) -> None:
@@ -663,8 +806,10 @@ def test_compiler_emits_complete_candidate_without_implicit_promotion(
         "human_visual_review_status": "not_run",
         "human_review_binding_sha256": None,
         "decision_reason": (
-            "Hash-bound automatic technical reports passed; human visual review "
-            "has not run, so this package remains a research candidate."
+            "Hash-closed local technical artifacts passed structural checks; the "
+            "probe/review reports are not trusted runtime attestations. External "
+            "capture/audit and human visual review have not established formal "
+            "qualification, so this package remains a research candidate."
         ),
     }
     records = {record["role"]: record for record in manifest["files"]}
@@ -696,6 +841,127 @@ def test_compiler_emits_complete_candidate_without_implicit_promotion(
     assert extras["used_for_physics"] is False
     assert extras["used_for_contact_inference"] is False
     assert collision.sha256 != _sha256(fixture.visual.read_bytes())
+    assert (
+        _load_json(manifest_path.parent / "habitat/animal.ao_config.json")[
+            "shader_type"
+        ]
+        == "phong"
+    )
+
+
+def test_compiler_emits_explicit_pbr_from_hash_closed_local_artifacts(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    _bind_local_runtime_artifact_integrity(fixture, shader_type="pbr")
+
+    arguments = fixture.arguments(tmp_path / "package")
+    arguments["shader_type"] = "pbr"
+    manifest_path = compile_research_candidate_animal_package(**arguments)
+
+    assert (
+        _load_json(manifest_path.parent / "habitat/animal.ao_config.json")[
+            "shader_type"
+        ]
+        == "pbr"
+    )
+    qualification = _load_json(manifest_path)["qualification"]
+    assert "not trusted runtime attestations" in qualification["decision_reason"]
+    assert "External capture/audit" in qualification["decision_reason"]
+
+
+def test_compiler_rejects_pbr_with_legacy_phong_runtime_evidence(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    arguments = fixture.arguments(tmp_path / "package")
+    arguments["shader_type"] = "pbr"
+
+    with pytest.raises(PackageCompileError, match="evidence_scope"):
+        compile_research_candidate_animal_package(**arguments)
+
+
+def test_compiler_rejects_offline_relabel_of_legacy_phong_reports(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    _offline_relabel_legacy_reports_as_pbr(fixture)
+    arguments = fixture.arguments(tmp_path / "package")
+    arguments["shader_type"] = "pbr"
+
+    with pytest.raises(PackageCompileError, match="evidence_scope"):
+        compile_research_candidate_animal_package(**arguments)
+
+
+@pytest.mark.parametrize(
+    ("report_field", "section", "field", "value", "message"),
+    [
+        (
+            "habitat_static_probe",
+            "producer_source_integrity",
+            "sha256",
+            "00" * 32,
+            "current producer source",
+        ),
+        (
+            "habitat_animation_review",
+            "ao_config_artifact",
+            "sha256",
+            "00" * 32,
+            "real artifact",
+        ),
+    ],
+)
+def test_compiler_rejects_tampered_pbr_runtime_binding(
+    tmp_path: Path,
+    report_field: str,
+    section: str,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    _bind_local_runtime_artifact_integrity(fixture, shader_type="pbr")
+    report_path = getattr(fixture, report_field)
+    report = _load_json(report_path)
+    target = (
+        report["producer_source_integrity"]
+        if section == "producer_source_integrity"
+        else report["render_configuration_integrity"]["ao_config_artifact"]
+    )
+    target[field] = value
+    _write_json(report_path, report)
+    arguments = fixture.arguments(tmp_path / "package")
+    arguments["shader_type"] = "pbr"
+
+    with pytest.raises(PackageCompileError, match=message):
+        compile_research_candidate_animal_package(**arguments)
+
+
+@pytest.mark.parametrize(
+    "artifact_kind", ["ao_config", "runtime_binding", "observation"]
+)
+def test_compiler_reads_real_pbr_artifacts_instead_of_trusting_report_json(
+    tmp_path: Path,
+    artifact_kind: str,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    _bind_local_runtime_artifact_integrity(fixture, shader_type="pbr")
+    report_path = fixture.habitat_animation_review
+    report = _load_json(report_path)
+    if artifact_kind == "ao_config":
+        record = report["render_configuration_integrity"]["ao_config_artifact"]
+    elif artifact_kind == "runtime_binding":
+        record = report["runtime_artifact_integrity"]["runtime_binding_artifact"]
+    else:
+        record = report["runtime_artifact_integrity"]["observation_artifacts"][0]
+    artifact_path = report_path.parent / record["path"]
+    artifact_path.write_bytes(artifact_path.read_bytes() + b"tampered")
+    arguments = fixture.arguments(tmp_path / "package")
+    arguments["shader_type"] = "pbr"
+
+    with pytest.raises(PackageCompileError, match="real artifact"):
+        compile_research_candidate_animal_package(**arguments)
 
 
 def test_compiler_accepts_untriggered_hind_metric_without_legacy_claim(
@@ -858,18 +1124,88 @@ def test_compiler_rejects_false_pass_and_unbound_evidence(
         )
 
 
-def test_compiler_rejects_nonempty_and_repeated_output(tmp_path: Path) -> None:
+def test_compiler_requires_absent_and_rejects_repeated_output(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path / "inputs")
     output = tmp_path / "package"
     output.mkdir()
     (output / "unexpected.txt").write_text("do not overwrite", encoding="utf-8")
-    with pytest.raises(PackageCompileError, match="must be empty"):
+    with pytest.raises(PackageCompileError, match="must not already exist"):
         compile_research_candidate_animal_package(**fixture.arguments(output))
 
     (output / "unexpected.txt").unlink()
+    output.rmdir()
     compile_research_candidate_animal_package(**fixture.arguments(output))
-    with pytest.raises(PackageCompileError, match="must be empty"):
+    with pytest.raises(PackageCompileError, match="must not already exist"):
         compile_research_candidate_animal_package(**fixture.arguments(output))
+
+
+def test_compiler_publishes_complete_directory_in_one_atomic_step(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    output = tmp_path / "package"
+    observed: dict[str, object] = {}
+    original = package_module._publish_directory_no_replace
+
+    def observe(staging: Path, destination: Path) -> None:
+        observed["destination_absent"] = not os.path.lexists(destination)
+        observed["staging_files"] = package_module._output_tree_files(staging)
+        original(staging, destination)
+
+    monkeypatch.setattr(package_module, "_publish_directory_no_replace", observe)
+    manifest = compile_research_candidate_animal_package(**fixture.arguments(output))
+
+    assert observed["destination_absent"] is True
+    assert observed["staging_files"] == {
+        path.relative_to(output).as_posix()
+        for path in output.rglob("*")
+        if path.is_file()
+    }
+    assert manifest.is_file()
+
+
+def test_atomic_package_publication_never_replaces_racing_empty_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    output = tmp_path / "package"
+    original = package_module._publish_directory_no_replace
+    raced_inode: int | None = None
+
+    def race(staging: Path, destination: Path) -> None:
+        nonlocal raced_inode
+        destination.mkdir()
+        raced_inode = destination.stat().st_ino
+        original(staging, destination)
+
+    monkeypatch.setattr(package_module, "_publish_directory_no_replace", race)
+    with pytest.raises(PackageCompileError, match="refusing to replace"):
+        compile_research_candidate_animal_package(**fixture.arguments(output))
+
+    assert raced_inode is not None
+    assert output.is_dir()
+    assert output.stat().st_ino == raced_inode
+    assert list(output.iterdir()) == []
+    assert not any(tmp_path.glob(".package.staging-*"))
+
+
+def test_atomic_package_publication_fails_closed_when_renameat2_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    output = tmp_path / "package"
+    monkeypatch.setattr(
+        package_module.ctypes, "CDLL", lambda *_args, **_kwargs: object()
+    )
+
+    with pytest.raises(PackageCompileError, match="no-replace.*unavailable"):
+        compile_research_candidate_animal_package(**fixture.arguments(output))
+
+    assert not output.exists()
+    assert not any(tmp_path.glob(".package.staging-*"))
 
 
 def test_compiler_rejects_symlinked_input_and_output(tmp_path: Path) -> None:
@@ -887,6 +1223,82 @@ def test_compiler_rejects_symlinked_input_and_output(tmp_path: Path) -> None:
     output_link.symlink_to(real_output, target_is_directory=True)
     with pytest.raises(PackageCompileError, match="symbolic link"):
         compile_research_candidate_animal_package(**fixture.arguments(output_link))
+
+
+def test_payload_publication_rolls_back_after_later_write_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "package"
+    original = package_module._write_file_exclusive
+    calls = 0
+
+    def fail_second(path: Path, payload: bytes) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected write failure")
+        original(path, payload)
+
+    monkeypatch.setattr(package_module, "_write_file_exclusive", fail_second)
+    with pytest.raises(PackageCompileError, match="injected write failure"):
+        package_module._write_payloads(
+            output,
+            {"first.bin": b"first", "nested/second.bin": b"second"},
+            validate=lambda path: None,
+        )
+    assert not output.exists()
+
+
+def test_payload_publication_rolls_back_after_final_validation_failure(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "package"
+    output.mkdir()
+
+    def fail_validation(path: Path) -> None:
+        raise PackageCompileError("injected final validation failure")
+
+    with pytest.raises(PackageCompileError, match="final validation failure"):
+        package_module._write_payloads(
+            output,
+            {"asset_manifest.json": b"{}\n", "qa/check.json": b"{}\n"},
+            validate=fail_validation,
+        )
+    assert output.is_dir()
+    assert list(output.iterdir()) == []
+
+
+def test_payload_publication_refuses_racing_leaf_and_removes_earlier_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "package"
+    output.mkdir()
+    original = package_module._write_file_exclusive
+    calls = 0
+
+    def inject_racing_leaf(path: Path, payload: bytes) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            path.write_bytes(b"foreign")
+        original(path, payload)
+
+    monkeypatch.setattr(
+        package_module,
+        "_write_file_exclusive",
+        inject_racing_leaf,
+    )
+
+    with pytest.raises(PackageCompileError, match="refusing to replace"):
+        package_module._write_payloads(
+            output,
+            {"first.bin": b"first", "second.bin": b"second"},
+            validate=lambda path: None,
+        )
+    assert not (output / "first.bin").exists()
+    assert (output / "second.bin").read_bytes() == b"foreign"
 
 
 def test_emitted_package_detects_payload_tampering(tmp_path: Path) -> None:
@@ -911,7 +1323,7 @@ def test_source_and_license_policy_are_explicitly_bound(tmp_path: Path) -> None:
     source = _load_json(fixture.source)
     source["formal_dataset_registration_authorized"] = True
     _write_json(fixture.source, source)
-    with pytest.raises(PackageCompileError, match="cannot authorize"):
+    with pytest.raises(PackageCompileError, match="must be exactly false"):
         compile_research_candidate_animal_package(
             **fixture.arguments(tmp_path / "source-package")
         )
@@ -924,4 +1336,31 @@ def test_source_and_license_policy_are_explicitly_bound(tmp_path: Path) -> None:
     with pytest.raises(PackageCompileError, match="identity.license"):
         compile_research_candidate_animal_package(
             **fixture.arguments(tmp_path / "license-package")
+        )
+
+
+@pytest.mark.parametrize("invalid_value", [1, "false"])
+def test_source_registration_authorization_requires_boolean_false(
+    tmp_path: Path, invalid_value: object
+) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    source = _load_json(fixture.source)
+    source["formal_dataset_registration_authorized"] = invalid_value
+    _write_json(fixture.source, source)
+
+    with pytest.raises(PackageCompileError, match="must be exactly false"):
+        compile_research_candidate_animal_package(
+            **fixture.arguments(tmp_path / "package")
+        )
+
+
+def test_source_registration_authorization_is_required(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path / "inputs")
+    source = _load_json(fixture.source)
+    source.pop("formal_dataset_registration_authorized")
+    _write_json(fixture.source, source)
+
+    with pytest.raises(PackageCompileError, match="must be exactly false"):
+        compile_research_candidate_animal_package(
+            **fixture.arguments(tmp_path / "package")
         )

@@ -1,0 +1,62 @@
+{
+  "schema": "avengine_m1_capture_request_v1",
+  "request_id": "m2_habitat_mp3d_articulated_single_view_v1",
+  "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+  "seed": 17,
+  "primary_camera_rig": {
+    "rig_id": "camera_rig_0",
+    "view_id": "view0",
+    "world_from_rig": {
+      "translation_m": [-4.1499128342, 1.572447, -1.2454376221],
+      "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+    },
+    "shared_calibration": {
+      "projection": "pinhole",
+      "resolution_hw": [240, 320],
+      "hfov_degrees": 90.0,
+      "near_m": 0.05,
+      "far_m": 100.0,
+      "rig_from_sensor": {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    "modalities": [
+      {"modality": "rgb", "sensor_uuid": "rig_rgb"},
+      {"modality": "depth", "sensor_uuid": "rig_depth"},
+      {"modality": "semantic", "sensor_uuid": "rig_semantic"}
+    ]
+  },
+  "listener": {
+    "listener_id": "listener0",
+    "attached_to": "camera_rig_0",
+    "rig_from_listener": {
+      "translation_m": [0.0, 0.0, 0.0],
+      "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+    }
+  },
+  "sources": [
+    {
+      "source_id": "source0",
+      "world_from_source": {
+        "translation_m": [-4.55, 0.35, -3.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    },
+    {
+      "source_id": "source1",
+      "world_from_source": {
+        "translation_m": [-3.6788, 0.35, -3.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0]
+      }
+    }
+  ],
+  "qa_views": [
+    {
+      "qa_id": "navmesh_topdown",
+      "kind": "topdown",
+      "meters_per_pixel": 0.05,
+      "height_m": 0.072447
+    }
+  ]
+}

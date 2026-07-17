@@ -23,6 +23,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from avengine.m2.actions import BakedActionSet, baked_actions_content_sha256
+from avengine.m2.glb import GlbDocument, extract_skins
 from avengine.m2.kinematics import (
     CONTACT_ORDER,
     AnchorDefinition,
@@ -33,10 +34,144 @@ from avengine.m2.kinematics import (
 
 WORLD_CONTACT_SCHEMA = "avengine_m2_world_contact_audit_v1"
 CONTACT_PHASES_SCHEMA = "avengine_m2_contact_phases_v1"
+REFERENCE_MAXIMUM_CONTACT_HORIZONTAL_STEP_M = 0.015
+REFERENCE_MINIMUM_DYNAMIC_VERTICAL_RANGE_M = 0.005
+REFERENCE_MAXIMUM_IDLE_VERTICAL_RANGE_M = 0.015
+REFERENCE_MAXIMUM_IDLE_STEP_DISPLACEMENT_M = 0.003
+REFERENCE_ROOT_STEP_SEARCH_MINIMUM_M = 0.005
+REFERENCE_ROOT_STEP_SEARCH_MAXIMUM_M = 0.04
+REFERENCE_ROOT_STEP_SEARCH_INCREMENT_M = 0.0001
 
 
 class WorldContactError(ValueError):
     """Cadence/contact inputs cannot support a deterministic world audit."""
+
+
+def scaled_contact_gate(linear_scale: float) -> float:
+    """Return the physical stance-residual gate for a uniform animal scale."""
+
+    scale = float(linear_scale)
+    if not math.isfinite(scale) or scale < 0.1 or scale > 10.0:
+        raise WorldContactError("linear scale must be finite and within [0.1, 10]")
+    return REFERENCE_MAXIMUM_CONTACT_HORIZONTAL_STEP_M * scale
+
+
+def _validated_linear_scale(linear_scale: float) -> float:
+    scale = float(linear_scale)
+    if not math.isfinite(scale) or scale < 0.1 or scale > 10.0:
+        raise WorldContactError("linear scale must be finite and within [0.1, 10]")
+    return scale
+
+
+@dataclass(frozen=True)
+class UniformSkinScaleAudit:
+    """Independent uniform-scale measurement from corresponding skin bones."""
+
+    linear_scale: float
+    measured_bone_count: int
+    minimum_bone_ratio: float
+    maximum_bone_ratio: float
+    maximum_relative_ratio_error: float
+
+    def to_json_data(self) -> dict[str, Any]:
+        return {
+            "method": "exact_joint_order_local_bone_length_ratio_v1",
+            "linear_scale": _canonical_float(self.linear_scale),
+            "measured_bone_count": self.measured_bone_count,
+            "minimum_bone_ratio": _canonical_float(self.minimum_bone_ratio),
+            "maximum_bone_ratio": _canonical_float(self.maximum_bone_ratio),
+            "maximum_relative_ratio_error": _canonical_float(
+                self.maximum_relative_ratio_error
+            ),
+        }
+
+
+def infer_uniform_skin_linear_scale(
+    reference: GlbDocument,
+    target: GlbDocument,
+    *,
+    maximum_relative_ratio_error: float = 5.0e-4,
+) -> UniformSkinScaleAudit:
+    """Measure target/reference scale without accepting a caller supplied value."""
+
+    reference_skins = extract_skins(reference)
+    target_skins = extract_skins(target)
+    if len(reference_skins) != 1 or len(target_skins) != 1:
+        raise WorldContactError("scale reference and target must each contain one skin")
+    reference_joints = reference_skins[0].joints
+    target_joints = target_skins[0].joints
+    reference_names = tuple(joint.name for joint in reference_joints)
+    target_names = tuple(joint.name for joint in target_joints)
+    if (
+        not reference_names
+        or any(name is None for name in reference_names)
+        or reference_names != target_names
+    ):
+        raise WorldContactError(
+            "scale reference and target skin joint orders must match exactly"
+        )
+    reference_ordinals = {
+        joint.node_index: joint.joint_ordinal for joint in reference_joints
+    }
+    target_ordinals = {joint.node_index: joint.joint_ordinal for joint in target_joints}
+    reference_parents = tuple(
+        None
+        if joint.parent_joint_node_index is None
+        else reference_ordinals[joint.parent_joint_node_index]
+        for joint in reference_joints
+    )
+    target_parents = tuple(
+        None
+        if joint.parent_joint_node_index is None
+        else target_ordinals[joint.parent_joint_node_index]
+        for joint in target_joints
+    )
+    if reference_parents != target_parents:
+        raise WorldContactError(
+            "scale reference and target skin parent structures differ"
+        )
+
+    ratios: list[float] = []
+    for reference_joint, target_joint in zip(
+        reference_joints, target_joints, strict=True
+    ):
+        reference_length = float(np.linalg.norm(reference_joint.local_trs.translation))
+        target_length = float(np.linalg.norm(target_joint.local_trs.translation))
+        if reference_length <= 1.0e-8:
+            if target_length > 1.0e-7:
+                raise WorldContactError(
+                    f"target joint {target_joint.name!r} adds a nonzero rest offset"
+                )
+            continue
+        ratio = target_length / reference_length
+        if not math.isfinite(ratio) or ratio <= 0.0:
+            raise WorldContactError(
+                f"target joint {target_joint.name!r} has an invalid bone ratio"
+            )
+        ratios.append(ratio)
+    if len(ratios) < 4:
+        raise WorldContactError(
+            "fewer than four nonzero corresponding skin bones support scale inference"
+        )
+    scale = _validated_linear_scale(float(np.median(np.asarray(ratios))))
+    errors = [abs(ratio / scale - 1.0) for ratio in ratios]
+    measured_error = max(errors)
+    tolerance = float(maximum_relative_ratio_error)
+    if not math.isfinite(tolerance) or tolerance <= 0.0:
+        raise WorldContactError("maximum relative ratio error must be positive")
+    if measured_error > tolerance:
+        raise WorldContactError(
+            "target skin is not a uniform-scale derivative of the reference: "
+            f"maximum relative bone-ratio error {measured_error:.9g} > "
+            f"{tolerance:.9g}"
+        )
+    return UniformSkinScaleAudit(
+        linear_scale=_canonical_float(scale),
+        measured_bone_count=len(ratios),
+        minimum_bone_ratio=_canonical_float(min(ratios)),
+        maximum_bone_ratio=_canonical_float(max(ratios)),
+        maximum_relative_ratio_error=_canonical_float(measured_error),
+    )
 
 
 def _canonical_float(value: float) -> float:
@@ -243,6 +378,82 @@ def _anchor_trajectories(
     return result
 
 
+def evaluate_idle_contact_gate(
+    positions_actor_m: np.ndarray,
+    *,
+    maximum_vertical_range_m: float,
+    maximum_step_displacement_m: float,
+) -> dict[str, dict[str, Any]]:
+    """Gate forced-idle contacts before they may claim high confidence."""
+
+    positions = np.asarray(positions_actor_m, dtype=np.float64)
+    if (
+        positions.ndim != 3
+        or positions.shape[0] < 2
+        or positions.shape[1:] != (len(CONTACT_ORDER), 3)
+        or not np.all(np.isfinite(positions))
+    ):
+        raise WorldContactError(
+            "idle contact positions must be finite frames x four contacts x xyz"
+        )
+    vertical_gate = float(maximum_vertical_range_m)
+    step_gate = float(maximum_step_displacement_m)
+    if (
+        not math.isfinite(vertical_gate)
+        or not math.isfinite(step_gate)
+        or vertical_gate <= 0.0
+        or step_gate <= 0.0
+    ):
+        raise WorldContactError("idle contact gates must be finite and positive")
+    result: dict[str, dict[str, Any]] = {}
+    for contact_index, contact_id in enumerate(CONTACT_ORDER):
+        values = positions[:, contact_index]
+        vertical_range = float(np.ptp(values[:, 1]))
+        measured_step = float(
+            np.max(np.linalg.norm(values - np.roll(values, 1, axis=0), axis=1))
+        )
+        passed = vertical_range <= vertical_gate and measured_step <= step_gate
+        result[contact_id] = {
+            "vertical_range_m": _canonical_float(vertical_range),
+            "maximum_vertical_range_m": _canonical_float(vertical_gate),
+            "maximum_step_displacement_m": _canonical_float(measured_step),
+            "maximum_allowed_step_displacement_m": _canonical_float(step_gate),
+            "passed": passed,
+        }
+    return result
+
+
+def evaluate_walk_dynamic_gate(
+    positions_actor_m: np.ndarray,
+    *,
+    minimum_vertical_range_m: float,
+) -> dict[str, dict[str, Any]]:
+    """Reject nominal walk clips whose paws have no physical swing excursion."""
+
+    positions = np.asarray(positions_actor_m, dtype=np.float64)
+    if (
+        positions.ndim != 3
+        or positions.shape[0] < 3
+        or positions.shape[1:] != (len(CONTACT_ORDER), 3)
+        or not np.all(np.isfinite(positions))
+    ):
+        raise WorldContactError(
+            "walk contact positions must be finite frames x four contacts x xyz"
+        )
+    threshold = float(minimum_vertical_range_m)
+    if not math.isfinite(threshold) or threshold <= 0.0:
+        raise WorldContactError("walk dynamic gate must be finite and positive")
+    result: dict[str, dict[str, Any]] = {}
+    for contact_index, contact_id in enumerate(CONTACT_ORDER):
+        vertical_range = float(np.ptp(positions[:, contact_index, 1]))
+        result[contact_id] = {
+            "vertical_range_m": _canonical_float(vertical_range),
+            "minimum_vertical_range_m": _canonical_float(threshold),
+            "passed": vertical_range >= threshold,
+        }
+    return result
+
+
 def derive_cadence_locked_contact_artifacts(
     mapping: HabitatAssetMapping,
     actions: BakedActionSet,
@@ -257,13 +468,25 @@ def derive_cadence_locked_contact_artifacts(
     ),
     walk_frame_count: int = 45,
     sample_rate_hz: int = 15,
-    maximum_contact_horizontal_step_m: float = 0.015,
+    linear_scale: float = 1.0,
     contact_height_fraction: float = 0.35,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return a package-compatible contact report and its world-space audit."""
 
     if walk_frame_count < 2 or sample_rate_hz <= 0:
         raise WorldContactError("walk frame count and sample rate must be positive")
+    scale = _validated_linear_scale(linear_scale)
+    maximum_contact_horizontal_step_m = scaled_contact_gate(scale)
+    minimum_dynamic_vertical_range_m = (
+        REFERENCE_MINIMUM_DYNAMIC_VERTICAL_RANGE_M * scale
+    )
+    maximum_idle_vertical_range_m = REFERENCE_MAXIMUM_IDLE_VERTICAL_RANGE_M * scale
+    maximum_idle_step_displacement_m = (
+        REFERENCE_MAXIMUM_IDLE_STEP_DISPLACEMENT_M * scale
+    )
+    root_step_search_minimum_m = REFERENCE_ROOT_STEP_SEARCH_MINIMUM_M * scale
+    root_step_search_maximum_m = REFERENCE_ROOT_STEP_SEARCH_MAXIMUM_M * scale
+    root_step_search_increment_m = REFERENCE_ROOT_STEP_SEARCH_INCREMENT_M * scale
     start = np.asarray(root_start_translation_m, dtype=np.float64)
     if start.shape != (3,) or not np.all(np.isfinite(start)):
         raise WorldContactError("root start translation must be a finite vec3")
@@ -280,6 +503,9 @@ def derive_cadence_locked_contact_artifacts(
         [walk[:, index] for index in range(len(CONTACT_ORDER))],
         stance_by_contact,
         root_rotation_xyzw=root_rotation_xyzw,
+        minimum_step_m=root_step_search_minimum_m,
+        maximum_step_m=root_step_search_maximum_m,
+        grid_step_m=root_step_search_increment_m,
     )
     direction = np.asarray(fit.direction_world, dtype=np.float64)
     root_rotation = _unit_quaternion(root_rotation_xyzw)
@@ -313,11 +539,43 @@ def derive_cadence_locked_contact_artifacts(
                 float(np.mean(residuals))
             ),
         }
+    idle_gate_records = evaluate_idle_contact_gate(
+        idle,
+        maximum_vertical_range_m=maximum_idle_vertical_range_m,
+        maximum_step_displacement_m=maximum_idle_step_displacement_m,
+    )
+    walk_dynamic_gate_records = evaluate_walk_dynamic_gate(
+        walk,
+        minimum_vertical_range_m=minimum_dynamic_vertical_range_m,
+    )
     end = start + direction * fit.step_m * (walk_frame_count - 1)
+    walk_gate_passed = (
+        fit.maximum_contact_horizontal_step_m <= maximum_contact_horizontal_step_m
+    )
+    idle_gate_passed = all(record["passed"] for record in idle_gate_records.values())
+    walk_dynamic_gate_passed = all(
+        record["passed"] for record in walk_dynamic_gate_records.values()
+    )
     status = (
         "pass"
-        if fit.maximum_contact_horizontal_step_m <= maximum_contact_horizontal_step_m
+        if walk_gate_passed and idle_gate_passed and walk_dynamic_gate_passed
         else "fail"
+    )
+    warnings = [
+        (
+            f"idle_anchor_motion:{contact_id}: vertical/step motion exceeds "
+            "the uniformly scaled idle-contact gate"
+        )
+        for contact_id, record in idle_gate_records.items()
+        if not record["passed"]
+    ]
+    warnings.extend(
+        (
+            f"walk_low_vertical_excursion:{contact_id}: paw swing is below "
+            "the uniformly scaled dynamic gate"
+        )
+        for contact_id, record in walk_dynamic_gate_records.items()
+        if not record["passed"]
     )
 
     action_records: list[dict[str, Any]] = []
@@ -342,7 +600,19 @@ def derive_cadence_locked_contact_artifacts(
                         if action_id == "idle"
                         else "height_backward_velocity_world_locked"
                     ),
-                    "confidence": "high",
+                    "confidence": (
+                        "high"
+                        if (
+                            idle_gate_records[contact_id]["passed"]
+                            if action_id == "idle"
+                            else world_metrics[contact_id][
+                                "maximum_contact_horizontal_step_m"
+                            ]
+                            <= maximum_contact_horizontal_step_m
+                            and walk_dynamic_gate_records[contact_id]["passed"]
+                        )
+                        else "low"
+                    ),
                     "idle_reference_height_m": _canonical_float(
                         float(np.median(idle[:, contact_index, 1]))
                     ),
@@ -429,14 +699,15 @@ def derive_cadence_locked_contact_artifacts(
         "contact_order": list(CONTACT_ORDER),
         "anchor_definitions": [anchor.to_json_data() for anchor in anchors],
         "thresholds": {
-            "minimum_dynamic_vertical_range_m": 0.005,
+            "minimum_dynamic_vertical_range_m": minimum_dynamic_vertical_range_m,
             "contact_height_fraction": contact_height_fraction,
-            "maximum_idle_vertical_range_m": 0.015,
-            "maximum_idle_step_displacement_m": 0.003,
+            "maximum_idle_vertical_range_m": maximum_idle_vertical_range_m,
+            "maximum_idle_step_displacement_m": maximum_idle_step_displacement_m,
             "maximum_contact_horizontal_step_m": maximum_contact_horizontal_step_m,
         },
+        "uniform_linear_scale": scale,
         "actions": action_records,
-        "warnings": [],
+        "warnings": warnings,
         "notes": [
             "Walk stance requires both low height and rearward actor-relative velocity.",
             "The hash-bound world audit fits root cadence and gates stance residuals.",
@@ -459,9 +730,9 @@ def derive_cadence_locked_contact_artifacts(
             "solver_id": "height_backward_velocity_constant_root_minimax_v1",
             "contact_height_fraction": contact_height_fraction,
             "root_step_search_m": {
-                "minimum": 0.005,
-                "maximum": 0.04,
-                "increment": 0.0001,
+                "minimum": root_step_search_minimum_m,
+                "maximum": root_step_search_maximum_m,
+                "increment": root_step_search_increment_m,
             },
         },
         "root_step_fit": fit.to_json_data(),
@@ -483,7 +754,24 @@ def derive_cadence_locked_contact_artifacts(
             "measured_maximum_contact_horizontal_step_m": (
                 fit.maximum_contact_horizontal_step_m
             ),
-            "passed": status == "pass",
+            "passed": walk_gate_passed,
+        },
+        "idle_gate": {
+            "passed": idle_gate_passed,
+            "contacts": idle_gate_records,
+        },
+        "walk_dynamic_gate": {
+            "passed": walk_dynamic_gate_passed,
+            "contacts": walk_dynamic_gate_records,
+        },
+        "overall_passed": status == "pass",
+        "uniform_linear_scale": {
+            "reference": 1.0,
+            "target": scale,
+            "normalized_measured_maximum_contact_horizontal_step_m": (
+                fit.maximum_contact_horizontal_step_m / scale
+            ),
+            "all_dimensional_solver_parameters_scaled": True,
         },
         "stance_frames_by_contact": {
             contact_id: [index for index, state in enumerate(states) if state]
@@ -495,10 +783,16 @@ def derive_cadence_locked_contact_artifacts(
 
 __all__ = [
     "CONTACT_PHASES_SCHEMA",
+    "REFERENCE_MAXIMUM_CONTACT_HORIZONTAL_STEP_M",
+    "UniformSkinScaleAudit",
     "WORLD_CONTACT_SCHEMA",
     "RootStepFit",
     "WorldContactError",
     "derive_cadence_locked_contact_artifacts",
+    "evaluate_idle_contact_gate",
+    "evaluate_walk_dynamic_gate",
     "fit_constant_root_step",
+    "infer_uniform_skin_linear_scale",
     "infer_height_backward_stance",
+    "scaled_contact_gate",
 ]

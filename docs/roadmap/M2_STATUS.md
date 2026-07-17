@@ -79,13 +79,17 @@ birds, horses or other motion families.
 
 The recorded user statement is:
 
-> 视频里面的后腿我觉得已经自然了，所以你可以继续完成M2没完成的地方并提交收尾
+> 视频里面的后腿我觉得已经自然了，所以你可以继续完成M2没完成的地方并提交收尾，然后再完成现在这个目标
 
 The user reviewed the r3 RGB diagnostic at SHA-256
 `f789260e70a99b008685377b9d18d239d4bdbf6aa71fd20ccda4f09ee8bf03a9`.
-Admission binds that diagnostic, the unchanged v7/r5 visual/action hashes, the
-final three review modalities, the passing world-contact audit and the exact
-candidate/request/evidence hashes. The final review media are:
+The no-replace decision record has SHA-256
+`6361ac467fc96b40723fe8582ab9e1e799a5b3af1b82d5c92b532e4824ffc7ac`.
+Its authenticated content binds that diagnostic, the exact v7/r5 candidate
+manifest and the unchanged visual/Idle/Walk hashes; the quote is rejected for
+any other bytes. Admission separately binds the final three review modalities,
+passing world-contact audit and exact request/evidence hashes. The final review
+media are:
 
 | Modality | SHA-256 |
 | --- | --- |
@@ -130,9 +134,19 @@ root.
 ## What remains outside M2
 
 M2 qualifies one fixed Beagle research canary, not an arbitrary animal
-generator. Appearance attributes, nine Beagle realizations, cat/horse/Golden
-Retriever assets and real-room coverage are the next goal and require new
-per-instance evidence. Acoustic propagation, multi-source RLR, authoritative
+generator. M2.1 has exercised nine Beagle appearance realizations and one
+cat/horse/Golden Retriever diagnostic each, including controlled-room and MP3D
+review captures. Those results remain unadmitted research evidence: the L9 is
+not a substitute for the required OFAT study, and the cross-species assets
+retain species-profile, contact or anatomy admission gates. The historical v7
+horse folded-leg result has been superseded for current research preview by a
+local-TR v2 route that passes two-room technical readback and engineering
+visual self-review, but that review-only correction does not widen formal M2
+or admit the horse. Golden current AVEngine research use is
+project-owner-authorized and is not a rights blocker. The final 24-video
+right-side Topdown review tree is
+`tmp/m2/topdown_review_delivery_v4/videos/`; those derived panels are not
+formal sensor views. Acoustic propagation, multi-source RLR, authoritative
 audio/visual timeline admission and dataset registration remain M3-M6 gates.
 
 The executable admission and formal-capture procedure is in

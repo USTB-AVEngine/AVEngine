@@ -1,0 +1,181 @@
+{
+  "algorithm": "orthogonal_array_l9_3_level_4_factor_v1",
+  "attribute_domains": {
+    "body_build": [
+      "slim",
+      "standard",
+      "stocky"
+    ],
+    "coat_profile": {
+      "profile_id": "dog_beagle_tricolor_v1",
+      "scope": {
+        "breed": "beagle",
+        "species": "dog"
+      },
+      "values": [
+        "light_tricolor",
+        "standard_tricolor",
+        "dark_tricolor"
+      ]
+    },
+    "life_stage": [
+      "young",
+      "adult",
+      "senior"
+    ],
+    "size": [
+      "small",
+      "medium",
+      "large"
+    ]
+  },
+  "baseline_attributes": {
+    "body_build": "standard",
+    "coat_profile": "standard_tricolor",
+    "life_stage": "adult",
+    "size": "medium"
+  },
+  "l9_level_order": {
+    "body_build": [
+      "standard",
+      "slim",
+      "stocky"
+    ],
+    "coat_profile": [
+      "standard_tricolor",
+      "light_tricolor",
+      "dark_tricolor"
+    ],
+    "life_stage": [
+      "adult",
+      "senior",
+      "young"
+    ],
+    "size": [
+      "medium",
+      "small",
+      "large"
+    ]
+  },
+  "ofat_validation": {
+    "l9_substitution_allowed": false,
+    "required_before_formal_promotion": true,
+    "strategy": "separate_one_factor_at_a_time_v1"
+  },
+  "realization_bindings": {
+    "body_build": {
+      "operation_id": "semantic_torso_girth_scale_v1",
+      "parameters_by_value": {
+        "slim": {
+          "semantic_joint_names": [
+            "Pelvis",
+            "Spine",
+            "Spine1",
+            "Spine2"
+          ],
+          "torso_girth_scale": 0.84
+        },
+        "standard": {
+          "semantic_joint_names": [
+            "Pelvis",
+            "Spine",
+            "Spine1",
+            "Spine2"
+          ],
+          "torso_girth_scale": 1.0
+        },
+        "stocky": {
+          "semantic_joint_names": [
+            "Pelvis",
+            "Spine",
+            "Spine1",
+            "Spine2"
+          ],
+          "torso_girth_scale": 1.16
+        }
+      }
+    },
+    "coat_profile": {
+      "operation_id": "breed_scoped_coat_luminance_v1",
+      "parameters_by_value": {
+        "dark_tricolor": {
+          "luminance_gain": 0.82,
+          "preserve_pattern": "tricolor"
+        },
+        "light_tricolor": {
+          "luminance_gain": 1.18,
+          "preserve_pattern": "tricolor"
+        },
+        "standard_tricolor": {
+          "luminance_gain": 1.0,
+          "preserve_pattern": "tricolor"
+        }
+      }
+    },
+    "life_stage": {
+      "operation_id": "semantic_life_stage_cues_v1",
+      "parameters_by_value": {
+        "adult": {
+          "coat_desaturation": 0.0,
+          "head_scale": 1.0,
+          "muzzle_gray_mix": 0.0,
+          "muzzle_gray_target": 0.62,
+          "semantic_joint_names": [
+            "Head",
+            "EarR",
+            "Ear L",
+            "Xtra Mouth"
+          ]
+        },
+        "senior": {
+          "coat_desaturation": 0.22,
+          "head_scale": 0.97,
+          "muzzle_gray_mix": 0.85,
+          "muzzle_gray_target": 0.62,
+          "semantic_joint_names": [
+            "Head",
+            "EarR",
+            "Ear L",
+            "Xtra Mouth"
+          ]
+        },
+        "young": {
+          "coat_desaturation": 0.0,
+          "head_scale": 1.12,
+          "muzzle_gray_mix": 0.0,
+          "muzzle_gray_target": 0.62,
+          "semantic_joint_names": [
+            "Head",
+            "EarR",
+            "Ear L",
+            "Xtra Mouth"
+          ]
+        }
+      }
+    },
+    "size": {
+      "operation_id": "uniform_actor_scale_v1",
+      "parameters_by_value": {
+        "large": {
+          "scale_ratio": 1.18
+        },
+        "medium": {
+          "scale_ratio": 1.0
+        },
+        "small": {
+          "scale_ratio": 0.82
+        }
+      }
+    }
+  },
+  "request_id": "beagle_appearance_l9_v1",
+  "schema": "avengine_animal_appearance_request_v1",
+  "source_asset": {
+    "asset_id": "rocketbox_beagle_m2_canary_v7_world_contact_r5_visual",
+    "expected_sha256": "788a667537f7660bac5e128c38c2182453d1d4a9a4f8380343e7a9fa1947538c"
+  },
+  "taxonomy": {
+    "breed": "beagle",
+    "species": "dog"
+  }
+}

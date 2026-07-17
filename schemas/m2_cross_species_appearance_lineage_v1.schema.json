@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m2_cross_species_appearance_lineage_v1.schema.json",
+  "title": "AVEngine M2 Cross-Species Diagnostic Appearance Lineage v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "design_kind",
+    "ofat_status",
+    "qualification_state",
+    "qualification_claim",
+    "formal_dataset_registration_authorized",
+    "taxonomy",
+    "appearance",
+    "inputs",
+    "artifacts",
+    "tool_identity",
+    "limitations",
+    "decision_reason",
+    "lineage_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m2_cross_species_appearance_lineage_v1"},
+    "status": {"const": "pass"},
+    "design_kind": {"const": "single_research_diagnostic"},
+    "ofat_status": {"const": "not_run"},
+    "qualification_state": {"const": "research_candidate"},
+    "qualification_claim": {"const": false},
+    "formal_dataset_registration_authorized": {"const": false},
+    "taxonomy": {"$ref": "#/$defs/taxonomy"},
+    "appearance": {"$ref": "#/$defs/appearance"},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variant_spec",
+        "upstream_source_manifest",
+        "material_realization_report",
+        "material_normalization_report",
+        "rebase_report"
+      ],
+      "properties": {
+        "variant_spec": {"$ref": "#/$defs/jsonBinding"},
+        "upstream_source_manifest": {"$ref": "#/$defs/jsonBinding"},
+        "material_realization_report": {"$ref": "#/$defs/jsonBinding"},
+        "material_normalization_report": {"$ref": "#/$defs/jsonBinding"},
+        "rebase_report": {"$ref": "#/$defs/jsonBinding"}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "material_realization_before_glb",
+        "material_realization_after_glb",
+        "pre_rebase_visual_glb",
+        "material_normalization_before_glb",
+        "material_normalization_after_glb",
+        "final_visual_glb"
+      ],
+      "properties": {
+        "material_realization_before_glb": {"$ref": "#/$defs/fileBinding"},
+        "material_realization_after_glb": {"$ref": "#/$defs/fileBinding"},
+        "pre_rebase_visual_glb": {"$ref": "#/$defs/fileBinding"},
+        "material_normalization_before_glb": {"$ref": "#/$defs/fileBinding"},
+        "material_normalization_after_glb": {"$ref": "#/$defs/fileBinding"},
+        "final_visual_glb": {"$ref": "#/$defs/fileBinding"}
+      }
+    },
+    "tool_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lineage_producer",
+        "lineage_contract",
+        "material_realization",
+        "material_normalization",
+        "material_algorithm",
+        "skin_root_rebase",
+        "rebase_algorithm"
+      ],
+      "properties": {
+        "lineage_producer": {"$ref": "#/$defs/fileBinding"},
+        "lineage_contract": {"$ref": "#/$defs/fileBinding"},
+        "material_realization": {"$ref": "#/$defs/fileBinding"},
+        "material_normalization": {"$ref": "#/$defs/fileBinding"},
+        "material_algorithm": {"$ref": "#/$defs/fileBinding"},
+        "skin_root_rebase": {"$ref": "#/$defs/fileBinding"},
+        "rebase_algorithm": {"$ref": "#/$defs/fileBinding"}
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "decision_reason": {"type": "string", "minLength": 1},
+    "lineage_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+    },
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["species_id", "breed_id"],
+      "properties": {
+        "species_id": {"$ref": "#/$defs/id"},
+        "breed_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "coat", "life_stage"],
+      "properties": {
+        "size": {"$ref": "#/$defs/id"},
+        "body_build": {"$ref": "#/$defs/id"},
+        "coat": {"$ref": "#/$defs/id"},
+        "life_stage": {"$ref": "#/$defs/id"}
+      }
+    },
+    "fileBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "jsonBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byte_size",
+        "sha256",
+        "canonical_content_sha256",
+        "snapshot"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_content_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot": {"type": "object"}
+      }
+    }
+  }
+}

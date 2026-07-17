@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Render hash-bound M2 Idle/Walk review media in Habitat.
 
-This is a human-review producer, not an asset qualification command.  It writes
-the exact baked joint pose before every observation, never advances Habitat's
-physics/animation clock, and captures co-located RGB/depth/semantic modalities
-in one observation call.  The two camera angles are explicitly QA-only; a
-formal M2 capture still has exactly one ``view0``.
+This is a human-review producer, not an asset qualification command or trusted
+execution attester.  It writes the exact baked joint pose before every
+observation, never advances Habitat's physics/animation clock, and captures
+co-located RGB/depth/semantic modalities in one observation call.  Its local
+hashes establish configuration-and-output integrity only.  The two camera
+angles are explicitly QA-only; a formal M2 capture still has one ``view0``.
 """
 
 from __future__ import annotations
@@ -81,7 +82,9 @@ def _make_configuration() -> tuple[Any, Any, Any]:
         spec.resolution = mn.Vector2i([480, 640])
         spec.hfov = 60.0
         spec.near = 0.02
-        spec.far = 20.0
+        # QA framing is derived from source-asset bounds; large research assets
+        # can require substantially more than the old fixed 20 m range.
+        spec.far = 100.0
         spec.gpu2gpu_transfer = False
         # CameraSensorSpec otherwise hides a default 1.5 m eye-height offset.
         spec.position = mn.Vector3(0.0, 0.0, 0.0)
@@ -128,34 +131,65 @@ def _apply_root_transform(
     )
 
 
-def _world_visual_target(articulated_object: Any, mn: Any) -> np.ndarray:
+def _world_visual_framing(
+    articulated_object: Any, mn: Any
+) -> tuple[np.ndarray, float, np.ndarray, np.ndarray]:
     node = articulated_object.root_scene_node
     node.compute_cumulative_bb()
     bounds = node.cumulative_bb
-    local_center = 0.5 * (
-        np.asarray(bounds.min, dtype=np.float64)
-        + np.asarray(bounds.max, dtype=np.float64)
+    local_minimum = np.asarray(bounds.min, dtype=np.float64)
+    local_maximum = np.asarray(bounds.max, dtype=np.float64)
+    world_points = np.asarray(
+        [
+            node.absolute_transformation().transform_point(mn.Vector3([x, y, z]))
+            for x in (local_minimum[0], local_maximum[0])
+            for y in (local_minimum[1], local_maximum[1])
+            for z in (local_minimum[2], local_maximum[2])
+        ],
+        dtype=np.float64,
     )
-    world_center = node.absolute_transformation().transform_point(
-        mn.Vector3(local_center)
-    )
-    return np.asarray(world_center, dtype=np.float64)
+    world_minimum = world_points.min(axis=0)
+    world_maximum = world_points.max(axis=0)
+    world_center = 0.5 * (world_minimum + world_maximum)
+    radius = float(np.max(np.linalg.norm(world_points - world_center, axis=1)))
+    if not math.isfinite(radius) or radius <= 0.0:
+        raise ValueError(f"invalid articulated-object visual radius: {radius}")
+    return world_center, radius, world_minimum, world_maximum
 
 
-def _camera_states(target: np.ndarray, habitat_sim: Any) -> dict[str, tuple[Any, Any]]:
+def _camera_states(
+    target: np.ndarray, visual_radius: float, habitat_sim: Any
+) -> tuple[dict[str, tuple[Any, Any]], float]:
     from habitat_sim.utils.common import quat_from_two_vectors
 
+    # The sensor is 640x480 with a 60-degree horizontal FOV.  Frame a bounding
+    # sphere inside 78% of the more restrictive vertical half-FOV.  The prior
+    # fixed 1.45 m offset could place the camera inside large source assets and
+    # still satisfy a pixel-count visibility check.
+    horizontal_half_fov = math.radians(60.0 / 2.0)
+    vertical_half_fov = math.atan(math.tan(horizontal_half_fov) * (480.0 / 640.0))
+    camera_distance = max(
+        1.45,
+        visual_radius / math.sin(vertical_half_fov * 0.78),
+    )
+    directions = {
+        "side": np.asarray([1.0, 0.055, 0.0], dtype=np.float64),
+        "front_quarter": np.asarray([1.0, 0.12, -1.0], dtype=np.float64),
+    }
     positions = {
-        "side": target + np.asarray([1.45, 0.08, 0.0]),
-        "front_quarter": target + np.asarray([1.05, 0.18, -1.05]),
+        qa_id: target + camera_distance * direction / np.linalg.norm(direction)
+        for qa_id, direction in directions.items()
     }
-    return {
-        qa_id: (
-            position,
-            quat_from_two_vectors(np.asarray([0.0, 0.0, -1.0]), target - position),
-        )
-        for qa_id, position in positions.items()
-    }
+    return (
+        {
+            qa_id: (
+                position,
+                quat_from_two_vectors(np.asarray([0.0, 0.0, -1.0]), target - position),
+            )
+            for qa_id, position in positions.items()
+        },
+        camera_distance,
+    )
 
 
 def _save_previews(
@@ -245,6 +279,7 @@ def render_review(
     rebase_report_path: Path,
     output_path: Path,
     actor_yaw_degrees: float,
+    shader_type: str = "phong",
 ) -> dict[str, Any]:
     output = _output_directory(output_path)
     document = load_glb(visual_glb)
@@ -262,14 +297,13 @@ def render_review(
     mapping_path = output / "habitat_joint_mapping.json"
     shutil.copyfile(visual_glb, visual_copy)
     urdf_path.write_text(mapping.render_urdf(), encoding="utf-8")
-    _write_json(
-        config_path,
-        build_habitat_ao_config_data(
-            render_asset=visual_copy.name,
-            urdf_filepath=urdf_path.name,
-            semantic_id=_SEMANTIC_ID,
-        ),
+    ao_config = build_habitat_ao_config_data(
+        render_asset=visual_copy.name,
+        urdf_filepath=urdf_path.name,
+        semantic_id=_SEMANTIC_ID,
+        shader_type=shader_type,
     )
+    _write_json(config_path, ao_config)
     _write_json(mapping_path, mapping.joint_mapping_data())
 
     configuration, qt, mn = _make_configuration()
@@ -329,12 +363,17 @@ def render_review(
             joint_position_count=len(articulated_object.joint_positions),
         )
         runtime_binding_path = output / "habitat_runtime_binding.json"
-        _write_json(runtime_binding_path, binding.to_json_data())
+        runtime_binding = binding.to_json_data()
+        _write_json(runtime_binding_path, runtime_binding)
 
         first_pose = actions.action("idle").rotations_xyzw[0]
         articulated_object.joint_positions = np.asarray(binding.map_pose(first_pose))
-        target = _world_visual_target(articulated_object, mn)
-        camera_states = _camera_states(target, habitat_sim)
+        target, visual_radius, visual_minimum, visual_maximum = _world_visual_framing(
+            articulated_object, mn
+        )
+        camera_states, camera_distance = _camera_states(
+            target, visual_radius, habitat_sim
+        )
         state = habitat_sim.AgentState()
         first_position, first_rotation = camera_states[_QA_VIEWS[0]]
         state.position = first_position
@@ -425,6 +464,32 @@ def render_review(
         "status": automatic_status,
         "qualification_state": "research_candidate",
         "qualification_claim": False,
+        "evidence_scope": {
+            "local_report_claim": "artifact_integrity_only",
+            "trusted_runtime_attestation": False,
+            "runtime_execution_conclusion_source": "external_capture_audit_only",
+        },
+        "producer_source_integrity": {
+            "path": str(Path(__file__).resolve()),
+            "byte_size": Path(__file__).stat().st_size,
+            "sha256": _sha256_file(Path(__file__)),
+        },
+        "render_configuration_integrity": {
+            "configured_shader_type": shader_type,
+            "ao_config_artifact": {
+                **_artifact_record(config_path, output),
+                "snapshot": ao_config,
+            },
+        },
+        "runtime_artifact_integrity": {
+            "runtime_binding_artifact": {
+                **_artifact_record(runtime_binding_path, output),
+                "snapshot": runtime_binding,
+            },
+            "observation_artifacts": [
+                _artifact_record(path, output) for path in emitted_artifacts
+            ],
+        },
         "source": {
             "visual_glb": {
                 "path": str(visual_glb.resolve()),
@@ -465,10 +530,21 @@ def render_review(
             "world_time_before": world_time_before,
             "world_time_after": world_time_after,
             "world_time_unchanged": world_time_before == world_time_after,
+            "camera_framing": {
+                "method": "idle_pose_world_bounding_sphere_v1",
+                "visual_center": target.tolist(),
+                "visual_minimum": visual_minimum.tolist(),
+                "visual_maximum": visual_maximum.tolist(),
+                "visual_radius": visual_radius,
+                "camera_distance": camera_distance,
+                "vertical_half_fov_fill_fraction": 0.78,
+            },
         },
         "runs": runs,
         "notes": [
-            "This report proves explicit Habitat pose application and review visibility only.",
+            "This report hash-binds local configuration and review outputs only.",
+            "It is not a trusted attestation that Habitat executed those bytes.",
+            "Runtime execution conclusions require a separately retained capture/audit.",
             "Mesh/skin/action alignment, anatomical plausibility, paw semantics, and contacts still require human review.",
             "The QA cameras are not additional formal dataset views.",
         ],
@@ -514,6 +590,12 @@ def _parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Explicit world_from_actor yaw; +90 maps this candidate's +X head direction to -Z.",
     )
+    parser.add_argument(
+        "--shader-type",
+        choices=("phong", "pbr"),
+        default="phong",
+        help="Explicit Habitat AO shader; formal M2 remains phong by default.",
+    )
     return parser
 
 
@@ -525,6 +607,7 @@ def main() -> int:
         rebase_report_path=args.rebase_report,
         output_path=args.output,
         actor_yaw_degrees=args.actor_yaw_degrees,
+        shader_type=args.shader_type,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["status"] == "pass" else 1

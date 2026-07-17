@@ -52,6 +52,68 @@ the formal single `view0` RGB/depth/semantic capture shares one per-frame state
 and pose hash; deformation/contact QA passes; visual mouth articulation is
 absent. These criteria passed for the fixed M2 Beagle hashes only.
 
+### M2.1: Appearance and Cross-Species Research Diagnostics
+
+Status: implemented as `research_candidate` evidence only; see
+[M2_1_STATUS.md](M2_1_STATUS.md). This is a post-M2 investigation, not a new
+sequential admission gate and not permission to start M3 with additional
+qualified species.
+
+Deliverables: an immutable OA(9, 4, 3, 2) L9 Beagle request over size, build,
+breed-scoped coat and life stage; strict material normalization; independent
+visual/action rebinding; scale-derived world-contact QA; generic package and
+single-view two-room review tooling; and cat, horse and Golden Retriever
+diagnostic probes. The L9 is balanced combination coverage, not OFAT. The
+separate one-factor-at-a-time study remains required and `not_run`.
+
+Current boundary: the nine Beagles pass the implemented technical checks but
+remain research candidates because OFAT and per-instance human promotion have
+not run. Their asset admission remains `blocked`, formal human visual review is
+`not_run`, and `qualification_claim` is false. `blender_custom` is a controlled
+test room for stable comparison; `habitat_mp3d_example` is the real scanned
+MP3D environment. They are two different review conditions, not two claims of
+real scanned-room coverage.
+
+The retained hardened local Beagle chain is `beagle_l9_realized_v9` →
+`beagle_l9_canonical_visual_v7` → `beagle_l9_rebound_actions_v8` →
+`beagle_l9_package_inputs_v10` → `beagle_l9_auto_qa_v11` →
+`beagle_l9_probe_v10` → `beagle_l9_final_action_review_v9` →
+`beagle_l9_world_contacts_v10` → `beagle_l9_material_readback_v1` →
+`beagle_l9_packages_v12` → `beagle_l9_captures_v14` →
+`beagle_l9_final_audit_v6`, all under ignored `tmp/m2/` evidence storage. The
+v9 outputs bind the exact current appearance realizer and pass an independent
+geometry/skin/texture byte audit; their visual bytes are identical to the
+immutable v8 predecessor. The paths are a local evidence index, not release
+artifacts. M2.1 variants bind Habitat `pbr` explicitly through spec, probes
+and package; the formal M2 default remains `phong`.
+
+The indexed `cross_species_delivery_v7` PBR assessment passes the six technical
+captures with an overall minimum semantic margin of 8 pixels and fixes the
+Golden lacquer/copper material response. The project owner accepts the exact
+cat and Golden research videos and rejects the historical v7 horse because its
+legs fold unnaturally. Golden current AVEngine research use is
+project-owner-authorized and is not a current rights blocker. The corrective
+`horse_local_tr_review_v2` preserves authored child local translations and
+rotations and passes two-room runtime readback plus engineering visual
+self-review without the v7 folded legs. It remains review-only and is not a
+formal horse admission or a hash-bound owner decision.
+
+The final `topdown_review_delivery_v4/videos/` tree contains 24 synchronized
+right-side Topdown videos: all nine Beagle variants and cat, Golden Retriever
+and corrected horse in both rooms. Actor heading is derived from the nearest
+non-zero trajectory tangent; camera heading remains the rig's local negative-Z
+axis. MP3D object footprints are read from its
+semantic `.house` descriptor, not inferred by a detector; the custom room has
+no descriptor and draws none. The installed MP3D config has an empty
+`light_setups` table and `default_lighting: no_lights`, so its apparent light is
+baked into textures and a runtime shadow-casting light is required for normal
+dynamic animal shadows, including after a mesh-only UE import.
+
+Cat, horse and Golden remain `research_candidate`, no species-specific formal
+promotion has run, and `qualification_claim` is false. No probe is an admitted
+asset. Avian support is out of scope until a hash-bound body-plan profile
+replaces the terrestrial four-paw/muzzle assumptions.
+
 ## M3: Acoustic Scene and Materials
 
 Deliverables: Acoustic Scene Package schema/compiler, explicit adapter

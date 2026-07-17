@@ -32,6 +32,12 @@ def _expected_artifact(value: str) -> ExpectedArtifact:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-manifest", type=Path, required=True)
+    parser.add_argument(
+        "--human-review-decision",
+        type=Path,
+        required=True,
+        help="Explicit no-replace, content-authenticated human decision JSON.",
+    )
     parser.add_argument("--review-request", type=Path, required=True)
     parser.add_argument("--capture-evidence", type=Path, required=True)
     parser.add_argument(
@@ -53,7 +59,6 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("/data/datasets/rocketbox/Microsoft-Rocketbox"),
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--reviewer-id", default="workspace_user")
     return parser
 
 
@@ -61,13 +66,13 @@ def main() -> int:
     args = _parser().parse_args()
     result = promote_research_candidate(
         candidate_manifest=args.candidate_manifest,
+        human_review_decision=args.human_review_decision,
         review_request=args.review_request,
         capture_evidence=args.capture_evidence,
         world_contact_audit=args.world_contact_audit,
         diagnostic_videos=args.diagnostic_video,
         rocketbox_root=args.rocketbox_root,
         output_directory=args.output,
-        reviewer_id=args.reviewer_id,
     )
     print(
         json.dumps(

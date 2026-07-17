@@ -13,6 +13,10 @@ converts that narrowly defined input into a root-local GLB:
 * constant translation/scale channels and the constant root channel are
   canonicalized so the runtime needs only root motion plus joint rotations.
 
+The separate :func:`rebase_skin_root_preserving_local_tr` entry point retains
+STEP/LINEAR non-root translations for the research-only local-TR v2 runtime.
+It shares the geometric proof but never changes the spherical-only default.
+
 The operation is a technical normalization, never an asset qualification.
 """
 
@@ -20,7 +24,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
+import os
 from pathlib import Path
 import struct
 from typing import Any, Iterable, Mapping, Sequence
@@ -35,11 +39,11 @@ from avengine.m2.glb import (
     extract_node_hierarchy,
     extract_skins,
     load_glb,
+    parse_glb,
 )
+from avengine.m2.glb_write import build_glb
 
 
-_JSON_CHUNK_TYPE = 0x4E4F534A
-_BIN_CHUNK_TYPE = 0x004E4942
 _FLOAT_COMPONENT_TYPE = 5126
 _COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
 _MAX_SCALE_NOISE = 5.0e-5
@@ -49,6 +53,26 @@ _MAX_CONSTANT_CHANNEL_ERROR = 5.0e-5
 
 class RebaseError(ValueError):
     """The candidate cannot be safely normalized by this bounded compiler."""
+
+
+def _write_exclusive(path: Path, payload: bytes) -> None:
+    """Create one output without following or replacing an existing leaf."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with path.open("xb") as stream:
+            created = True
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except OSError:
+        if created:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def _objects(value: Any, name: str) -> list[dict[str, Any]]:
@@ -366,16 +390,22 @@ def _canonicalize_channels(
     *,
     root_node: int,
     joint_nodes: set[int],
-) -> list[dict[str, Any]]:
+    preserve_local_tr: bool,
+) -> tuple[list[dict[str, Any]], set[int]]:
     node_defaults = {
         node.node_index: node.local_trs for node in extract_node_hierarchy(source)
     }
     reports: list[dict[str, Any]] = []
+    translation_driven_nodes: set[int] = set()
     for action in extract_actions(source):
         for channel in action.channels:
             if channel.target_node_index not in joint_nodes:
                 raise RebaseError(f"animation {action.name!r} targets a non-skin node")
             values = np.asarray(channel.values, dtype=np.float64)
+            if preserve_local_tr and channel.interpolation == "CUBICSPLINE":
+                raise RebaseError(
+                    "CUBICSPLINE channels are outside this rebase boundary"
+                )
             report = {
                 "action": action.name,
                 "node": channel.target_node_name,
@@ -402,23 +432,41 @@ def _canonicalize_channels(
                 default_error = max(
                     float(np.max(np.abs(values[0] - default))), temporal_error
                 )
-                if default_error > _MAX_CONSTANT_CHANNEL_ERROR:
+                if channel.target_node_index == root_node:
+                    if default_error > _MAX_CONSTANT_CHANNEL_ERROR:
+                        if preserve_local_tr:
+                            raise RebaseError(
+                                "skin-root translation is not constant: "
+                                f"{action.name} error={default_error:.9g}"
+                            )
+                        raise RebaseError(
+                            "per-bone dynamic/ambiguous translation cannot be "
+                            f"expressed by stock Habitat: {action.name}/"
+                            f"{channel.target_node_name} error={default_error:.9g}"
+                        )
+                    _set_channel_values(document, binary, channel, [0.0, 0.0, 0.0])
+                    report["canonicalized"] = "root_zero_translation"
+                elif preserve_local_tr:
+                    if channel.interpolation not in {"STEP", "LINEAR"}:
+                        raise RebaseError(
+                            "local-TR translation interpolation must be STEP or LINEAR"
+                        )
+                    if float(np.max(np.abs(values - default))) > (
+                        _MAX_CONSTANT_CHANNEL_ERROR
+                    ):
+                        translation_driven_nodes.add(channel.target_node_index)
+                    report["canonicalized"] = (
+                        "preserved_absolute_child_local_translation"
+                    )
+                elif default_error > _MAX_CONSTANT_CHANNEL_ERROR:
                     raise RebaseError(
                         "per-bone dynamic/ambiguous translation cannot be expressed "
                         f"by stock Habitat: {action.name}/{channel.target_node_name} "
                         f"error={default_error:.9g}"
                     )
-                target = (
-                    [0.0, 0.0, 0.0]
-                    if channel.target_node_index == root_node
-                    else default
-                )
-                _set_channel_values(document, binary, channel, target)
-                report["canonicalized"] = (
-                    "root_zero_translation"
-                    if channel.target_node_index == root_node
-                    else "fixed_bind_translation"
-                )
+                else:
+                    _set_channel_values(document, binary, channel, default)
+                    report["canonicalized"] = "fixed_bind_translation"
                 report["maximum_input_error"] = default_error
             elif channel.target_path == "rotation":
                 norms = np.linalg.norm(values, axis=1)
@@ -443,29 +491,7 @@ def _canonicalize_channels(
                 else:
                     report["canonicalized"] = "preserved_rotation"
             reports.append(report)
-    return reports
-
-
-def _build_glb(document: dict[str, Any], binary: bytes) -> bytes:
-    json_bytes = json.dumps(
-        document,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    json_bytes += b" " * ((-len(json_bytes)) % 4)
-    binary_bytes = bytes(binary)
-    binary_bytes += b"\0" * ((-len(binary_bytes)) % 4)
-    total = 12 + 8 + len(json_bytes) + 8 + len(binary_bytes)
-    return b"".join(
-        [
-            struct.pack("<4sII", b"glTF", 2, total),
-            struct.pack("<II", len(json_bytes), _JSON_CHUNK_TYPE),
-            json_bytes,
-            struct.pack("<II", len(binary_bytes), _BIN_CHUNK_TYPE),
-            binary_bytes,
-        ]
-    )
+    return reports, translation_driven_nodes
 
 
 def _ancestors(node_index: int, parents: Sequence[int | None]) -> list[int]:
@@ -481,13 +507,23 @@ def _unique(values: Iterable[int]) -> list[int]:
     return sorted(set(values))
 
 
-def rebase_skin_root(
+def _rebase_skin_root(
     source_path: str | Path,
     output_path: str | Path,
+    *,
+    preserve_local_tr: bool,
 ) -> dict[str, Any]:
-    """Create one root-local GLB and return its technical normalization report."""
+    """Implement the spherical-only and explicitly selected local-TR routes."""
 
-    source = load_glb(source_path)
+    source_resolved = Path(source_path).resolve()
+    output_argument = Path(output_path)
+    if output_argument.exists() or output_argument.is_symlink():
+        raise RebaseError(f"refusing to replace output: {output_argument}")
+    output = output_argument.resolve()
+    if output == source_resolved:
+        raise RebaseError("output must not overwrite the source candidate")
+
+    source = load_glb(source_resolved)
     source_json = source.json
     document = copy.deepcopy(dict(source_json))
     binary = bytearray(source.binary)
@@ -712,12 +748,13 @@ def rebase_skin_root(
             _write_accessor(document, binary, tangent_index, tangents)
             transformed_tangents.add(tangent_index)
 
-    channel_report = _canonicalize_channels(
+    channel_report, translation_driven_nodes = _canonicalize_channels(
         source,
         document,
         binary,
         root_node=root.node_index,
         joint_nodes=joint_nodes,
+        preserve_local_tr=preserve_local_tr,
     )
 
     # Canonical hierarchy: root/mesh/common ancestors are identity; children
@@ -758,15 +795,8 @@ def rebase_skin_root(
     )
     _write_accessor(document, binary, inverse_accessor, canonical_inverse)
 
-    output = Path(output_path).resolve()
-    source_resolved = Path(source_path).resolve()
-    if output == source_resolved:
-        raise RebaseError("output must not overwrite the source candidate")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    payload = _build_glb(document, binary)
-    output.write_bytes(payload)
-
-    verified = load_glb(output)
+    payload = build_glb(document, binary)
+    verified = parse_glb(payload)
     verified_skins = extract_skins(verified)
     if len(verified_skins) != 1:
         raise RebaseError("output skin readback failed")
@@ -789,8 +819,31 @@ def rebase_skin_root(
             f"output inverse-bind closure failed: {maximum_output_bind_error:.9g}"
         )
 
+    try:
+        _write_exclusive(output, payload)
+    except OSError as exc:
+        raise RebaseError(
+            f"failed to create output exclusively: {output}: {exc}"
+        ) from exc
+
+    runtime_joint_order = tuple(
+        joint.name for joint in skin.joints if joint.node_index != root.node_index
+    )
+    translation_driven_joint_ids = tuple(
+        joint.name
+        for joint in skin.joints
+        if joint.node_index in translation_driven_nodes
+    )
+    spherical_joint_count = len(skin.joints) - 1
+    prismatic_joint_count = (
+        3 * len(translation_driven_joint_ids) if preserve_local_tr else 0
+    )
     report = {
-        "schema": "avengine_m2_skin_root_rebase_v1",
+        "schema": (
+            "avengine_m2_skin_root_rebase_local_tr_v2"
+            if preserve_local_tr
+            else "avengine_m2_skin_root_rebase_v1"
+        ),
         "status": "pass",
         "qualification_state": "research_candidate",
         "qualification_claim": False,
@@ -827,10 +880,10 @@ def rebase_skin_root(
         "animation_channels": channel_report,
         "runtime_contract": {
             "base_link": root.name,
-            "spherical_joint_count": len(skin.joints) - 1,
-            "joint_position_count": 4 * (len(skin.joints) - 1),
+            "spherical_joint_count": spherical_joint_count,
+            "joint_position_count": (4 * spherical_joint_count + prismatic_joint_count),
             "actor_root_transform_source": "actor_from_canonical_root",
-            "per_bone_dynamic_translation": False,
+            "per_bone_dynamic_translation": preserve_local_tr,
             "per_bone_dynamic_scale": False,
         },
         "notes": [
@@ -838,4 +891,50 @@ def rebase_skin_root(
             "The actor root transform must be applied explicitly by the runtime; it is not a free-running GLB animation.",
         ],
     }
+    if preserve_local_tr:
+        report["runtime_contract"].update(
+            {
+                "schema": "avengine_m2_local_tr_runtime_v2",
+                "coordinate_layout": "xyz_prismatic_then_xyzw_spherical",
+                "translation_semantics": "absolute_child_local_meters",
+                "rotation_semantics": "absolute_child_local_xyzw",
+                "runtime_joint_order": list(runtime_joint_order),
+                "translation_driven_joint_ids": list(translation_driven_joint_ids),
+                "prismatic_joint_count": prismatic_joint_count,
+            }
+        )
+        report["notes"].append(
+            "This output requires the research-only local-TR v2 mixed prismatic/spherical runtime and is not compatible with the formal spherical-only v1 mapping."
+        )
     return report
+
+
+def rebase_skin_root(
+    source_path: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Create one formal-compatible spherical-only root-local GLB."""
+
+    return _rebase_skin_root(
+        source_path,
+        output_path,
+        preserve_local_tr=False,
+    )
+
+
+def rebase_skin_root_preserving_local_tr(
+    source_path: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Create one research-only local-TR v2 root-local GLB.
+
+    Non-root STEP/LINEAR translation samples remain absolute child-local
+    values.  Root motion, meaningful scale animation, and CUBICSPLINE remain
+    outside the bounded compiler contract.
+    """
+
+    return _rebase_skin_root(
+        source_path,
+        output_path,
+        preserve_local_tr=True,
+    )

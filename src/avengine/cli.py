@@ -7,6 +7,11 @@ from pathlib import Path
 import subprocess
 from typing import Any, Sequence
 
+from avengine.appearance import (
+    AppearanceContractError,
+    generate_l9_batch,
+    write_l9_batch_exclusive,
+)
 from avengine.contracts.json_io import load_json, sha256_file, write_json
 from avengine.m1.contracts import (
     ContractError,
@@ -261,6 +266,27 @@ def _aggregate(args: argparse.Namespace) -> int:
     return EXIT_BY_STATUS[status]
 
 
+def _build_appearance_l9(args: argparse.Namespace) -> int:
+    try:
+        batch = generate_l9_batch(args.request, args.source)
+        output = write_l9_batch_exclusive(args.output, batch)
+    except AppearanceContractError as error:
+        _print({"status": "fail", "errors": error.errors})
+        return 2
+    _print(
+        {
+            "status": "pass",
+            "output": str(output),
+            "batch_id": batch["batch_id"],
+            "batch_content_sha256": batch["batch_content_sha256"],
+            "request_count": len(batch["requests"]),
+            "pairwise_orthogonal": batch["balance_audit"]["pairwise_orthogonal"],
+            "ofat_status": batch["ofat_validation"]["status"],
+        }
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -303,6 +329,20 @@ def build_parser() -> argparse.ArgumentParser:
     aggregate.add_argument("evidence", nargs="+")
     aggregate.add_argument("--output")
     aggregate.set_defaults(handler=_aggregate)
+
+    appearance = commands.add_parser(
+        "appearance", help="Animal appearance contract/design commands"
+    )
+    appearance_commands = appearance.add_subparsers(
+        dest="appearance_command", required=True
+    )
+    build_l9 = appearance_commands.add_parser(
+        "build-l9", help="Build an immutable OA L9(3^4) appearance request batch"
+    )
+    build_l9.add_argument("--request", required=True)
+    build_l9.add_argument("--source", required=True)
+    build_l9.add_argument("--output", required=True)
+    build_l9.set_defaults(handler=_build_appearance_l9)
     return parser
 
 
