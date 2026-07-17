@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import shutil
 import tempfile
 from typing import Any, Mapping
@@ -40,6 +42,7 @@ from avengine.m5.metrics import (
     measure_binaural_mixture_diagnostic,
     measure_binaural_rir_sequence_cues,
     measure_binaural_wet_stem_cues,
+    summarize_lateral_cue_consistency,
 )
 from avengine.m5.timeline import (
     build_counterfactual_pair,
@@ -193,6 +196,7 @@ def _write_rir_sequence(
         "layout_type": sequence.layout_type,
         "layout_id": sequence.layout_id,
         "channel_labels": list(sequence.channel_labels),
+        "sample_rate_hz": sequence.sample_rate_hz,
     }
 
 
@@ -237,6 +241,8 @@ def _spatial_metrics(
     per_source: dict[str, Any] = {}
     median_ild: dict[str, float] = {}
     median_itd: dict[str, float] = {}
+    lateral_frames: list[Mapping[str, Any]] = []
+    lateral_azimuths: list[float] = []
     for source_index, source_id in enumerate(binaural.source_ids):
         rir_report = measure_binaural_rir_sequence_cues(
             binaural.samples[:, source_index], binaural.sample_rate_hz
@@ -251,6 +257,8 @@ def _spatial_metrics(
         ]
         for frame, azimuth in zip(rir_report["frames"], azimuths, strict=True):
             frame["listener_local_azimuth_deg"] = azimuth
+        lateral_frames.extend(rir_report["frames"])
+        lateral_azimuths.extend(azimuths)
         wet_report = measure_binaural_wet_stem_cues(
             stems[source_id].episode,
             binaural.sample_rate_hz,
@@ -278,8 +286,14 @@ def _spatial_metrics(
         for source in per_source.values()
         for frame in source["rir_direct_window"]["frames"]
     )
+    lateral_consistency = summarize_lateral_cue_consistency(
+        lateral_frames,
+        listener_local_azimuths_deg=lateral_azimuths,
+    )
     checks = {
         "all_source_itd_within_1ms": maximum_itd <= 0.0010000001,
+        "lateral_cue_consistency": lateral_consistency["status"] == "pass"
+        and lateral_consistency["formal_acceptance_allowed"] is True,
         "right_source_has_more_negative_ild_than_left_source": (
             median_ild["source0"] < median_ild["source1"]
         ),
@@ -295,11 +309,15 @@ def _spatial_metrics(
         },
         "formal_acceptance_scope": "per_source_retained_stems_and_rirs",
         "per_source": per_source,
+        "lateral_cue_consistency": lateral_consistency,
         "mixture_diagnostic": mixture_report,
         "summary": {
             "median_ild_db_by_source": median_ild,
             "median_itd_seconds_by_source": median_itd,
             "maximum_absolute_itd_seconds": maximum_itd,
+            "gcc_boundary_rejected_frame_count": lateral_consistency["counts"][
+                "gcc_boundary_rejected_frames"
+            ],
         },
         "checks": checks,
         "status": "pass" if all(checks.values()) else "fail",
@@ -353,6 +371,337 @@ def _portable_output_paths(value: Any, root: Path) -> Any:
         except (OSError, ValueError):
             pass
     return value
+
+
+def _confined_bundle_path(root: Path, value: Any, *, owner: str) -> Path:
+    """Resolve one POSIX bundle path while rejecting absolute/traversal paths."""
+
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise M5CanaryError(f"{owner} is not a portable bundle-relative path")
+    portable = PurePosixPath(value)
+    if portable.is_absolute() or any(part in {"", ".", ".."} for part in portable.parts):
+        raise M5CanaryError(f"{owner} is not a confined bundle-relative path")
+    candidate = (root / Path(*portable.parts)).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise M5CanaryError(f"{owner} escapes the evidence bundle") from exc
+    if candidate.is_symlink():
+        raise M5CanaryError(f"{owner} must not be a symlink")
+    return candidate
+
+
+def _rir_authority(
+    root: Path, evidence: Mapping[str, Any]
+) -> tuple[dict[str, tuple[np.ndarray, np.ndarray, Mapping[str, Any]]], dict[str, Any], list[str]]:
+    """Read and independently validate retained RIR arrays and trajectory."""
+
+    errors: list[str] = []
+    result: dict[str, tuple[np.ndarray, np.ndarray, Mapping[str, Any]]] = {}
+    trajectory: dict[str, Any] = {}
+    try:
+        trajectory = load_json(root / "trajectory" / "emitter_path.json")
+        declared = trajectory.get("trajectory_content_sha256")
+        content = dict(trajectory)
+        content.pop("trajectory_content_sha256", None)
+        recomputed = canonical_json_sha256(content)
+        if declared != recomputed:
+            errors.append("trajectory content hash differs")
+        keys = content.get("keyframes")
+        if not isinstance(keys, list) or len(keys) != 75:
+            errors.append("trajectory does not contain 75 keyframes")
+        elif [item.get("sample_index") for item in keys] != [
+            (3_200 * index + 1) // 3 for index in range(75)
+        ]:
+            errors.append("trajectory sample grid differs from the rational 15 Hz grid")
+    except Exception as exc:
+        errors.append(f"trajectory readback failed: {exc}")
+        return result, trajectory, errors
+
+    records = evidence.get("rir_sequences")
+    if not isinstance(records, Mapping):
+        return result, trajectory, errors + ["RIR evidence mapping is absent"]
+    trajectory_hash = canonical_json_sha256(
+        {key: value for key, value in trajectory.items() if key != "trajectory_content_sha256"}
+    )
+    input_records = evidence.get("inputs")
+    hrtf_record = input_records.get("hrtf") if isinstance(input_records, Mapping) else None
+    hrtf_hash: str | None = None
+    if isinstance(hrtf_record, Mapping):
+        try:
+            hrtf_file = _confined_bundle_path(
+                root, hrtf_record.get("path"), owner="inputs.hrtf.path"
+            )
+            hrtf_hash = sha256_file(hrtf_file)
+            if hrtf_hash != hrtf_record.get("sha256"):
+                errors.append("retained HRTF hash differs from its input record")
+        except Exception as exc:
+            errors.append(f"HRTF readback failed: {exc}")
+    else:
+        errors.append("HRTF input record is absent")
+
+    expected = {
+        "foa": ("ambisonics", 4, "rlr_foa_acn_n3d_world_v1", ["W", "Y", "Z", "X"]),
+        "binaural": ("binaural", 2, "rlr_binaural_lr_v1", ["left", "right"]),
+    }
+    for name, (layout_type, channels, layout_id, labels) in expected.items():
+        record = records.get(name)
+        if not isinstance(record, Mapping):
+            errors.append(f"{name} RIR record is absent")
+            continue
+        try:
+            samples_path = _confined_bundle_path(
+                root, record.get("samples_path"), owner=f"rir_sequences.{name}.samples_path"
+            )
+            lengths_path = _confined_bundle_path(
+                root, record.get("lengths_path"), owner=f"rir_sequences.{name}.lengths_path"
+            )
+            metadata_path = _confined_bundle_path(
+                root, record.get("metadata_path"), owner=f"rir_sequences.{name}.metadata_path"
+            )
+            samples = np.load(samples_path, allow_pickle=False)
+            lengths = np.load(lengths_path, allow_pickle=False)
+            metadata = load_json(metadata_path)
+            if (
+                samples.ndim != 4
+                or samples.shape[:3] != (75, 2, channels)
+                or samples.dtype != np.dtype("<f4")
+                or not np.all(np.isfinite(samples))
+            ):
+                errors.append(f"{name} RIR samples violate [75,2,{channels},L] float32")
+                continue
+            if (
+                lengths.shape != (75, 2)
+                or lengths.dtype.kind != "u"
+                or np.any(lengths < 2)
+                or np.any(lengths > samples.shape[3])
+            ):
+                errors.append(f"{name} RIR lengths are invalid")
+                continue
+            hashes = metadata.get("ir_sha256_by_frame_source")
+            if not isinstance(hashes, list) or len(hashes) != 75:
+                errors.append(f"{name} per-RIR hashes are absent")
+                continue
+            for frame_index in range(75):
+                for source_index, source_id in enumerate(("source0", "source1")):
+                    length = int(lengths[frame_index, source_index])
+                    unpadded = np.ascontiguousarray(
+                        samples[frame_index, source_index, :, :length], dtype="<f4"
+                    )
+                    observed = hashlib.sha256(unpadded.tobytes(order="C")).hexdigest()
+                    if hashes[frame_index].get(source_id) != observed:
+                        errors.append(f"{name} RIR hash differs at {frame_index}/{source_id}")
+                    if np.any(samples[frame_index, source_index, :, length:] != 0.0):
+                        errors.append(f"{name} RIR padding is nonzero at {frame_index}/{source_id}")
+            expected_metadata = {
+                "trajectory_sha256": trajectory_hash,
+                "source_ids": ["source0", "source1"],
+                "layout_type": layout_type,
+                "layout_id": layout_id,
+                "channel_labels": labels,
+                "sample_rate_hz": M5_AUDIO_SAMPLE_RATE_HZ,
+            }
+            for key, value in expected_metadata.items():
+                if metadata.get(key) != value or record.get(key) != value:
+                    errors.append(f"{name} RIR {key} differs")
+            if "wall_seconds" in metadata:
+                errors.append(f"{name} RIR retains nondeterministic wall_seconds")
+            if name == "foa" and metadata.get("hrtf") is not None:
+                errors.append("FOA RIR metadata unexpectedly names an HRTF")
+            if name == "binaural":
+                retained_hrtf = metadata.get("hrtf")
+                if not isinstance(retained_hrtf, Mapping) or retained_hrtf.get(
+                    "input_role"
+                ) != "hrtf" or retained_hrtf.get("sha256") != hrtf_hash:
+                    errors.append("binaural RIR HRTF role/hash differs from retained input")
+                for receipt in metadata.get("endpoint_receipts", []):
+                    listener = receipt.get("listener") if isinstance(receipt, Mapping) else None
+                    if not isinstance(listener, Mapping) or listener.get(
+                        "hrtf_file_path"
+                    ) != "input-role:hrtf":
+                        errors.append("binaural RIR receipt retains an invalid HRTF path")
+                        break
+            result[name] = (samples, lengths, metadata)
+        except Exception as exc:
+            errors.append(f"{name} RIR readback failed: {exc}")
+    if len(result) == 2 and result["foa"][2].get("trajectory_sha256") != result[
+        "binaural"
+    ][2].get("trajectory_sha256"):
+        errors.append("FOA and binaural RIR trajectories differ")
+    return result, trajectory, errors
+
+
+def _audio_reconstruction_errors(
+    root: Path,
+    evidence: Mapping[str, Any],
+    rir: Mapping[str, tuple[np.ndarray, np.ndarray, Mapping[str, Any]]],
+    trajectory: Mapping[str, Any],
+) -> list[str]:
+    """Rebuild dry buses, wet stems and mixtures without trusting declared checks."""
+
+    errors: list[str] = []
+    if set(rir) != {"foa", "binaural"}:
+        return ["RIR authority is incomplete; audio reconstruction was not attempted"]
+    inputs = evidence.get("inputs")
+    audio = evidence.get("audio")
+    if not isinstance(inputs, Mapping) or not isinstance(audio, Mapping):
+        return ["audio or input evidence mapping is absent"]
+    try:
+        pair = load_json(root / "episodes" / "counterfactual_pair.json")
+        raw_assets: dict[str, tuple[str, np.ndarray]] = {}
+        for asset_id, role in (("beagle_call", "beagle_dry"), ("golden_call", "golden_dry")):
+            record = inputs.get(role)
+            if not isinstance(record, Mapping):
+                raise M5CanaryError(f"input role {role} is absent")
+            source_path = _confined_bundle_path(
+                root, record.get("path"), owner=f"inputs.{role}.path"
+            )
+            samples, rate = read_pcm16_mono_wav(source_path)
+            if rate != M5_AUDIO_SAMPLE_RATE_HZ:
+                raise M5CanaryError(f"input role {role} has the wrong sample rate")
+            raw_assets[sha256_file(source_path)] = (
+                asset_id,
+                extract_faded_clip(
+                    samples,
+                    start_sample=M5_DRY_CLIP_START,
+                    end_sample=M5_DRY_CLIP_END,
+                    fade_samples=80,
+                ),
+            )
+        keyframes = trajectory.get("keyframes")
+        keyframe_samples = tuple(item["sample_index"] for item in keyframes)
+        for variant in ("A", "B"):
+            variant_request = pair["episodes"][variant]["request"]
+            route = {
+                event["source_id"]: raw_assets[event["dry_audio_asset_sha256"]][0]
+                for event in variant_request["events"]
+            }
+            buses, _ = place_simultaneous_events(
+                {asset_id: clip for asset_id, clip in raw_assets.values()},
+                route,
+                start_samples=M5_EVENT_STARTS,
+                output_sample_count=M5_AUDIO_SAMPLE_COUNT,
+                linear_gain=M5_DRY_LINEAR_GAIN,
+            )
+            variant_records = audio.get(variant)
+            if not isinstance(variant_records, Mapping):
+                errors.append(f"audio record for episode {variant} is absent")
+                continue
+            for source_id in ("source0", "source1"):
+                record = variant_records.get("dry_buses", {}).get(source_id)
+                path = _confined_bundle_path(
+                    root, record.get("audio_path"), owner=f"audio.{variant}.dry.{source_id}"
+                )
+                decoded = read_float32_wav(path, verify_sidecar=True)
+                if not np.array_equal(decoded.samples[0], buses[source_id].astype("<f4")):
+                    errors.append(f"{variant}/{source_id} dry bus cannot be rebuilt")
+            for layout, channels in (("foa", 4), ("binaural", 2)):
+                rir_samples, rir_lengths, _ = rir[layout]
+                stems, mixture = render_dynamic_stems_and_mix(
+                    buses,
+                    rir_samples,
+                    rir_lengths,
+                    source_ids=("source0", "source1"),
+                    keyframe_samples=keyframe_samples,
+                    output_sample_count=M5_AUDIO_SAMPLE_COUNT,
+                )
+                layout_records = variant_records.get(layout)
+                if not isinstance(layout_records, Mapping):
+                    errors.append(f"audio record for {variant}/{layout} is absent")
+                    continue
+                for source_id in ("source0", "source1"):
+                    record = layout_records.get(source_id)
+                    path = _confined_bundle_path(
+                        root,
+                        record.get("audio_path"),
+                        owner=f"audio.{variant}.{layout}.{source_id}",
+                    )
+                    decoded = read_float32_wav(path, verify_sidecar=True)
+                    expected = stems[source_id].episode.astype("<f4")
+                    if decoded.samples.shape != (channels, M5_AUDIO_SAMPLE_COUNT) or not np.array_equal(
+                        decoded.samples, expected
+                    ):
+                        errors.append(f"{variant}/{layout}/{source_id} stem cannot be rebuilt")
+                record = layout_records.get("mixture")
+                path = _confined_bundle_path(
+                    root,
+                    record.get("audio_path"),
+                    owner=f"audio.{variant}.{layout}.mixture",
+                )
+                decoded = read_float32_wav(path, verify_sidecar=True)
+                if decoded.samples.shape != (channels, M5_AUDIO_SAMPLE_COUNT) or not np.array_equal(
+                    decoded.samples, mixture.astype("<f4")
+                ):
+                    errors.append(f"{variant}/{layout}/mixture cannot be rebuilt")
+    except Exception as exc:
+        errors.append(f"audio reconstruction failed: {exc}")
+    return errors
+
+
+def _spatial_metric_errors(root: Path, evidence: Mapping[str, Any]) -> list[str]:
+    """Reject declared spatial passes that crossed an estimator boundary."""
+
+    errors: list[str] = []
+    summaries = evidence.get("spatial_metrics")
+    for variant in ("A", "B"):
+        try:
+            metrics = load_json(root / "episodes" / variant / "spatial_metrics.json")
+            retained = summaries.get(variant) if isinstance(summaries, Mapping) else None
+            if metrics.get("status") != "pass" or not isinstance(retained, Mapping):
+                errors.append(f"{variant} spatial metrics are not retained as pass")
+                continue
+            if retained.get("status") != "pass" or retained.get("summary") != metrics.get(
+                "summary"
+            ):
+                errors.append(f"{variant} spatial summary/status differs from retained report")
+            mixture = metrics.get("mixture_diagnostic")
+            if (
+                retained.get("mixture_diagnostic_only") is not True
+                or not isinstance(mixture, Mapping)
+                or mixture.get("diagnostic_only") is not True
+                or mixture.get("source_specific_acceptance_allowed") is not False
+            ):
+                errors.append(f"{variant} mixture was promoted beyond diagnostic-only scope")
+            checks = metrics.get("checks")
+            if not isinstance(checks, Mapping) or not checks or not all(
+                value is True for value in checks.values()
+            ):
+                errors.append(f"{variant} spatial checks are not all true")
+            lateral_frames: list[Mapping[str, Any]] = []
+            lateral_azimuths: list[float] = []
+            for source_id in ("source0", "source1"):
+                source = metrics.get("per_source", {}).get(source_id, {})
+                frames = source.get("rir_direct_window", {}).get("frames", [])
+                lateral_frames.extend(frames)
+                lateral_azimuths.extend(
+                    frame.get("listener_local_azimuth_deg") for frame in frames
+                )
+            recomputed = summarize_lateral_cue_consistency(
+                lateral_frames,
+                listener_local_azimuths_deg=lateral_azimuths,
+            )
+            if recomputed != metrics.get("lateral_cue_consistency"):
+                errors.append(f"{variant} lateral cue summary cannot be independently rebuilt")
+            if (
+                recomputed.get("status") != "pass"
+                or recomputed.get("formal_acceptance_allowed") is not True
+            ):
+                errors.append(f"{variant} lateral cue consistency does not pass")
+            rejected = [
+                frame
+                for frame in recomputed.get("frames", [])
+                if frame.get("gcc_at_search_boundary") is True
+            ]
+            if any(
+                frame.get("itd_vote") != "rejected_search_boundary"
+                for frame in rejected
+            ) or recomputed.get("counts", {}).get(
+                "gcc_boundary_rejected_frames"
+            ) != len(rejected):
+                errors.append(f"{variant} accepted a GCC-PHAT boundary ITD vote")
+        except Exception as exc:
+            errors.append(f"{variant} spatial metrics readback failed: {exc}")
+    return errors
 
 
 def run_m5_canary(
@@ -803,6 +1152,15 @@ def verify_m5_canary_evidence(
                 or sha256_file(candidate) != record.get("sha256")
             ):
                 artifact_errors.append(f"artifact bytes differ: {role}")
+        actual_roles = {
+            item.relative_to(root).as_posix()
+            for item in root.rglob("*")
+            if item.is_file() and item.name != "evidence.json"
+        }
+        if actual_roles != set(artifacts):
+            artifact_errors.append(
+                "artifact index does not exactly enumerate retained bundle files"
+            )
     else:
         artifact_errors.append("artifacts mapping is absent")
     add("artifact_closure", not artifact_errors, artifact_errors)
@@ -831,34 +1189,64 @@ def verify_m5_canary_evidence(
             array_errors.append(f"{name}: {exc}")
     add("visual_array_readback", not array_errors, array_errors)
 
-    audio_errors: list[str] = []
-    for variant in ("A", "B"):
-        for layout, channels in (("foa", 4), ("binaural", 2)):
-            for name in ("source0_stem", "source1_stem", "mixture"):
-                wav = root / "episodes" / variant / "audio" / layout / f"{name}.wav"
-                try:
-                    decoded = read_float32_wav(wav, verify_sidecar=True)
-                    if (
-                        decoded.frame_count != 80_000
-                        or decoded.sample_rate_hz != 16_000
-                        or decoded.channel_count != channels
-                    ):
-                        audio_errors.append(f"{variant}/{layout}/{name} contract differs")
-                except Exception as exc:
-                    audio_errors.append(f"{variant}/{layout}/{name}: {exc}")
-    add("authoritative_audio_readback", not audio_errors, audio_errors)
+    rir, trajectory, rir_errors = _rir_authority(root, evidence)
+    add("dynamic_rir_authority", not rir_errors, rir_errors)
+
+    audio_errors = _audio_reconstruction_errors(root, evidence, rir, trajectory)
+    add("dry_rir_stem_mixture_reconstruction", not audio_errors, audio_errors)
+
+    spatial_errors = _spatial_metric_errors(root, evidence)
+    add("spatial_metric_boundaries", not spatial_errors, spatial_errors)
+
+    media_path_errors: list[str] = []
+
+    def inspect_media_paths(value: Any, owner: str) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                child = f"{owner}.{key}"
+                if key == "path" or key.endswith("_path"):
+                    try:
+                        _confined_bundle_path(root, item, owner=child)
+                    except Exception as exc:
+                        media_path_errors.append(str(exc))
+                else:
+                    inspect_media_paths(item, child)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                inspect_media_paths(item, f"{owner}[{index}]")
+
+    inspect_media_paths(evidence.get("audio"), "audio")
+    inspect_media_paths(evidence.get("video"), "video")
+    add("reported_media_path_confinement", not media_path_errors, media_path_errors)
 
     video_errors: list[str] = []
     try:
-        formal_a = root / "videos" / "episode_A_view0_binaural.mp4"
-        formal_b = root / "videos" / "episode_B_view0_binaural.mp4"
+        video = evidence.get("video")
+        formal_a = _confined_bundle_path(
+            root,
+            video["episodes"]["A"]["formal"]["path"],
+            owner="video.episodes.A.formal.path",
+        )
+        formal_b = _confined_bundle_path(
+            root,
+            video["episodes"]["B"]["formal"]["path"],
+            owner="video.episodes.B.formal.path",
+        )
         probe_episode_video(formal_a)
         probe_episode_video(formal_b)
         probe_qa_review_video(
-            root / "videos" / "episode_A_view0_topdown_binaural_review.mp4"
+            _confined_bundle_path(
+                root,
+                video["episodes"]["A"]["qa_topdown"]["path"],
+                owner="video.episodes.A.qa_topdown.path",
+            )
         )
         probe_qa_review_video(
-            root / "videos" / "episode_B_view0_topdown_binaural_review.mp4"
+            _confined_bundle_path(
+                root,
+                video["episodes"]["B"]["qa_topdown"]["path"],
+                owner="video.episodes.B.qa_topdown.path",
+            )
         )
         hash_a = video_packet_sha256(formal_a)
         hash_b = video_packet_sha256(formal_b)

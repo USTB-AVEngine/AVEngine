@@ -7,7 +7,6 @@ import hashlib
 import math
 from pathlib import Path
 import tempfile
-import time
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -65,6 +64,26 @@ class DynamicRIRSequence:
     channel_labels: tuple[str, ...]
     trajectory_sha256: str
     metadata: Mapping[str, Any]
+
+
+_BUNDLE_HRTF_REFERENCE = "input-role:hrtf"
+
+
+def _portable_hrtf_references(value: Any, absolute_path: str) -> Any:
+    """Remove the machine-local HRTF path after native readback succeeds."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: _portable_hrtf_references(item, absolute_path)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_portable_hrtf_references(item, absolute_path) for item in value]
+    if isinstance(value, tuple):
+        return [_portable_hrtf_references(item, absolute_path) for item in value]
+    if isinstance(value, str) and value == absolute_path:
+        return _BUNDLE_HRTF_REFERENCE
+    return value
 
 
 def _finite_vector(value: Sequence[float], size: int, *, owner: str) -> tuple[float, ...]:
@@ -242,7 +261,6 @@ def render_dynamic_rir_sequence(
         "layout_type": layout_type,
         "channel_count": channel_count,
     }
-    started = time.perf_counter()
     raw_by_frame: list[list[np.ndarray]] = []
     receipts: list[dict[str, Any]] = []
     ir_hashes: list[dict[str, str]] = []
@@ -321,7 +339,12 @@ def render_dynamic_rir_sequence(
             if set(by_source) != set(source_ids):
                 raise RuntimeContractError("RLR omitted a named pair in dynamic sequence")
             raw_by_frame.append([by_source[source_id] for source_id in source_ids])
-            receipts.append({"frame_index": frame_index, **receipt})
+            retained_receipt = (
+                _portable_hrtf_references(receipt, hrtf_file_path)
+                if hrtf_file_path
+                else receipt
+            )
+            receipts.append({"frame_index": frame_index, **retained_receipt})
             ir_hashes.append(hashes)
             efficiency = float(context.indirect_ray_efficiency())
             if not math.isfinite(efficiency) or not 0.0 <= efficiency <= 1.0:
@@ -365,9 +388,11 @@ def render_dynamic_rir_sequence(
         "endpoint_receipts": receipts,
         "ir_sha256_by_frame_source": ir_hashes,
         "indirect_ray_efficiency": efficiencies,
-        "wall_seconds": time.perf_counter() - started,
         "hrtf": (
-            {"path": hrtf_file_path, "sha256": sha256_file(hrtf_file_path)}
+            {
+                "input_role": "hrtf",
+                "sha256": sha256_file(hrtf_file_path),
+            }
             if hrtf_file_path
             else None
         ),
