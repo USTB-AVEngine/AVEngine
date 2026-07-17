@@ -231,7 +231,8 @@ counterfactuals and binaural video mux/readback are M5-01/M5-02 work.
 ## M5.1-01: Legacy Apartment route and point-collision contract
 
 - Status: `pass` for route migration and its zero-radius center-point AABB
-  gate; mixed visual execution remains M5.1-03 work.
+  gate. The retained mixed visual execution and delivery also consume those
+  exact routes verbatim under M5.1-03.
 - Problem: an engine comparison is meaningless if camera/path geometry differs
   or a source center silently enters a wall/furniture obstacle.
 - Scope: hash-bind the old 18-second/270-frame route, transform SSOT positions
@@ -249,6 +250,9 @@ counterfactuals and binaural video mux/readback are M5-01/M5-02 work.
 
 ## M5.1-02: Detailed source, event and flag contract
 
+- Status: bounded research-contract `pass` for the checked-in human+Beagle
+  legacy-Apartment example. This does not admit the taxonomy, assets, audio,
+  episode, or dataset sample.
 - Problem: a flat source label or boolean-only flag file cannot explain what
   sounded, when it sounded, which actor emitted it, or whether a check ran.
 - Scope: human/animal taxonomies, emitter anchors, visual/audio provenance,
@@ -267,6 +271,10 @@ counterfactuals and binaural video mux/readback are M5-01/M5-02 work.
 
 ## M5.1-03: Mixed human/dog real-room comparison videos
 
+- Status: bounded research-review `pass` for both deliveries. The legacy
+  Apartment annotated/new-vs-old videos and the real MP3D 14/14
+  visual/navigation plus dynamic-binaural listening video are retained. This
+  is not asset, room, material, episode, or dataset admission.
 - Problem: the two-Beagle controlled-room canary does not demonstrate mixed
   source classes, a scanned room, or visual comparison with the old engine.
 - Scope: actual articulated Rocketbox human + Beagle capture in the legacy

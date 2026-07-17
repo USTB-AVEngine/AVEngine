@@ -71,6 +71,21 @@ independent verification groups; see
 [`M5_STATUS.md`](docs/roadmap/M5_STATUS.md). This is a bounded research canary,
 not dataset admission; `qualification_claim` remains false.
 
+The post-gate **M5.1 mixed real-room research review** is a bounded
+research-review `pass` for its completed route, source/event, legacy-Apartment
+delivery, and MP3D visual gates. It runs one animated Rocketbox human and one
+animated Beagle for 18 seconds/270 frames, preserves the old Apartment
+route/camera, validates center-only obstacle/navigation constraints, and adds
+detailed tri-state source/event/flag JSON. The retained Apartment output
+includes a two-channel binaural annotated Habitat + Topdown video and an old
+UE | new Habitat | Topdown comparison. MP3D passes a real declared-navmesh
+14/14 visual gate and retains its own 18-second annotated binaural listening
+video. Its RLR-only research package removes exactly one wholly degenerate
+scan primitive (458 zero-area triangles) without changing the visual room;
+the remaining geometry/material QA states stay explicit. See
+[`M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md). All M5.1 rooms/materials and
+media remain unqualified research evidence; dataset admission is false.
+
 ## Repository boundary
 
 | Repository | Owns |
@@ -120,8 +135,12 @@ Read these records in order:
 12. [`docs/roadmap/M5_STATUS.md`](docs/roadmap/M5_STATUS.md) and
     [`docs/roadmap/M5_EXECUTION.md`](docs/roadmap/M5_EXECUTION.md) — exact
     timeline, dynamic audio, counterfactual invariance and video readback.
-13. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
-   — what is reusable, optional, experimental, or retired.
+13. [`docs/roadmap/M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md) and
+    [`docs/roadmap/M5_1_EXECUTION.md`](docs/roadmap/M5_1_EXECUTION.md) — mixed
+    human/Beagle real-room review, legacy comparison, source/event/flag
+    contract and exact claim boundary.
+14. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+    — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
 [`schemas/avengine_timeline_v2.schema.json`](schemas/avengine_timeline_v2.schema.json).
@@ -142,7 +161,7 @@ arbitrary generated episode is synchronized.
 | M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
-| M5.1 | mixed human/dog real-room and legacy 18-second comparison, detailed source/event/flag metadata (research extension in progress) |
+| M5.1 | mixed human/Beagle real-room and legacy 18-second comparison, detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
 | M6 | registry/QA/CLI and admitted dataset canary |
 | M7 | benchmark, ablations, paper and release audit |
 
@@ -370,6 +389,22 @@ dynamic convolution stems and mixtures from retained inputs/RIR arrays and
 also verifies video packet identity. See
 [`M5_STATUS.md`](docs/roadmap/M5_STATUS.md) and reproduce it with
 [`M5_EXECUTION.md`](docs/roadmap/M5_EXECUTION.md).
+
+M5.1 preserves the old 18-second Apartment route and adds one animated human
+plus one animated Beagle, exact center-point gates, actual animated emitter
+link trajectories, detailed source/event/flag records, dynamic binaural review
+audio, and annotated main-view + Topdown QA media. Its ordinary MP4 contains
+two-channel binaural audio; Topdown remains QA-only and any four-channel FOA
+authority remains a separate WAV. The legacy room's acoustic package retains
+its real `fail`/`not_run` QA reports and `research_placeholder` material
+semantics. The real MP3D gate qualifies actor root centers on the declared
+navmesh only, not the full articulated meshes or complete-body framing. The
+MP3D listening review uses a separately hash-bound research package that
+removes only RLR-rejected zero-area faces; source-parity and geometry remain
+`fail`, material coverage remains `pass`, and ray leakage remains `not_run`.
+See
+[`M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md) and
+[`M5_1_EXECUTION.md`](docs/roadmap/M5_1_EXECUTION.md).
 
 Timeline v2 keeps its plural `view_ids` field for future extensibility, but the
 M1, M2 and M5 canaries and the initial M6 MVP require exactly `["view0"]`.

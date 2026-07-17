@@ -235,8 +235,14 @@ audio, HRTF, episode, or dataset sample.
 
 ### M5.1: Mixed Real-Room and Legacy Comparison
 
-Status: implementation in progress. This is a post-M5 research comparison,
-not a change to immutable Timeline v2 and not a new admission gate.
+Status: bounded research-review `pass` for the route, source/event,
+legacy-Apartment delivery, and MP3D visual gates retained in
+[M5_1_STATUS.md](M5_1_STATUS.md). The final MP3D dynamic-RIR and annotated
+binaural listening-video delivery is also retained and independently bound to
+the 14/14 visual/navmesh canary. This is a post-M5 research comparison, not a
+change to immutable Timeline v2 and not a new admission gate. Reproduce the
+retained scope with
+[M5_1_EXECUTION.md](M5_1_EXECUTION.md).
 
 Deliverables: one animated human and one animated dog; migrated 18-second,
 270-frame legacy Apartment route/camera; a zero-radius center-point obstacle
@@ -250,7 +256,15 @@ semantic identities and mouth/muzzle anchors read back; the legacy comparison
 video uses the same camera/path duration as the old AVEngine reference; the
 real-room canary executes without center-point penetration; source/event/flag
 JSON validates and reconstructs every per-frame active event; and all review
-media is explicitly QA/research-only.
+media is explicitly QA/research-only. The legacy route, mixed capture,
+source/event/flag contract, dynamic binaural delivery, and old/new comparison
+meet those bounded criteria. The real MP3D scan additionally passes 14/14
+declared-navmesh visual gates with both actor centers navigable and both
+semantic IDs visible for 270/270 frames. These center-only gates do not prove
+full articulated-mesh clearance or full-body framing. The MP3D listening
+delivery additionally passes exact 270-frame/288,000-sample media readback
+with 90 dynamic two-source binaural RIR keyframes. Apartment/MP3D materials
+remain `research_placeholder`/unqualified and dataset admission is false.
 
 ## M6: Dataset MVP
 
