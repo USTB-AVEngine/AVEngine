@@ -426,8 +426,24 @@ def load_compiled_acoustic_scene(
     manifest_snapshot: ImmutableFileSnapshot | None = None,
     snapshot_cache: dict[Path, ImmutableFileSnapshot] | None = None,
     validated_package: ValidatedAcousticScenePackage | None = None,
+    allow_nonpassing_research_qa: bool = False,
 ) -> CompiledAcousticScene:
-    """Read and hash-check the exact arrays consumed by the native runtime."""
+    """Read and hash-check the exact arrays consumed by the native runtime.
+
+    The default remains the M3 admission boundary: every required QA report
+    must be ``pass``.  A review-only caller may explicitly load a
+    ``research_candidate`` whose material semantics are
+    ``research_placeholder`` by setting ``allow_nonpassing_research_qa``.
+    That narrow escape hatch does not accept production packages, missing QA
+    reports, or any physical-material claim; it exists so downstream review
+    media can expose the behavior of unqualified real-room geometry without
+    misrepresenting it as an admitted acoustic scene.
+    """
+
+    if not isinstance(allow_nonpassing_research_qa, bool):
+        raise RuntimeContractError(
+            "allow_nonpassing_research_qa must be an explicit boolean"
+        )
 
     path = Path(manifest_path).resolve()
     if validated_package is not None:
@@ -555,9 +571,20 @@ def load_compiled_acoustic_scene(
         if report.get("status") != "pass"
     )
     if failed_qa:
-        raise RuntimeContractError(
-            "compiled package QA is not pass: " + ", ".join(failed_qa)
+        materials_claim = manifest.get("materials")
+        research_override_allowed = (
+            allow_nonpassing_research_qa
+            and manifest.get("package_mode") == "research_candidate"
+            and isinstance(materials_claim, Mapping)
+            and materials_claim.get("material_semantics")
+            == "research_placeholder"
+            and materials_claim.get("qualification_claim")
+            == "unqualified_research_placeholder"
         )
+        if not research_override_allowed:
+            raise RuntimeContractError(
+                "compiled package QA is not pass: " + ", ".join(failed_qa)
+            )
 
     triangle_count_by_material = {
         category: int(np.count_nonzero(material_ids == material_id))

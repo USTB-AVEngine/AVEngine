@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import replace
 import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -15,6 +17,7 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.m3.compiler import compile_custom_acoustic_scene
+from avengine.m3.contracts import load_and_validate_acoustic_scene_package
 from avengine.m3.runtime import (
     RLRSimulationConfig,
     RuntimeAnchor,
@@ -367,6 +370,55 @@ def test_compiled_package_is_hash_checked_and_rebased(tmp_path: Path) -> None:
     assert len(scene.objects[0]["triangle_material_ids"]) == len(
         scene.objects[0]["triangles"]
     )
+
+
+def test_only_explicit_unqualified_research_package_can_retain_failed_qa(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _compiled_package(tmp_path)
+    validated = load_and_validate_acoustic_scene_package(manifest_path)
+    failed_reports = deepcopy(validated.qa_reports)
+    failed_reports["geometry_report"]["status"] = "fail"
+    research_manifest = deepcopy(validated.manifest)
+    research_manifest["package_mode"] = "research_candidate"
+    research_manifest["materials"]["material_semantics"] = "research_placeholder"
+    research_manifest["materials"]["qualification_claim"] = (
+        "unqualified_research_placeholder"
+    )
+    research = replace(
+        validated,
+        manifest=research_manifest,
+        qa_reports=failed_reports,
+    )
+
+    with pytest.raises(RuntimeContractError, match="QA is not pass"):
+        load_compiled_acoustic_scene(
+            manifest_path,
+            validated_package=research,
+        )
+    scene = load_compiled_acoustic_scene(
+        manifest_path,
+        validated_package=research,
+        allow_nonpassing_research_qa=True,
+    )
+    assert scene.qa_reports["geometry_report"]["status"] == "fail"
+
+    production = replace(
+        research,
+        manifest=deepcopy(validated.manifest),
+    )
+    with pytest.raises(RuntimeContractError, match="QA is not pass"):
+        load_compiled_acoustic_scene(
+            manifest_path,
+            validated_package=production,
+            allow_nonpassing_research_qa=True,
+        )
+
+    with pytest.raises(RuntimeContractError, match="explicit boolean"):
+        load_compiled_acoustic_scene(
+            manifest_path,
+            allow_nonpassing_research_qa=1,  # type: ignore[arg-type]
+        )
 
 
 def test_compiled_package_rejects_tampered_array(tmp_path: Path) -> None:
