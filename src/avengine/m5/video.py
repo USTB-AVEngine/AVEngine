@@ -212,28 +212,24 @@ def _base_encode_command(
     ]
 
 
-def encode_h264_base_video(
+def _encode_h264_video_profile(
     frames: Iterable[Any],
     output_path: str | Path,
     *,
+    width: int,
+    height: int,
+    profile_name: str,
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
-    """Encode exactly 75 ``320x240`` RGB frames into a video-only base MP4.
-
-    The input is streamed as raw RGB, avoiding PNG metadata and filesystem
-    ordering.  x264 uses one thread, a fixed GOP and no B frames; metadata is
-    stripped and the MP4 video track uses the authoritative 48 kHz time base.
-    Existing outputs are never replaced.
-    """
-
-    destination = _new_mp4_path(output_path, owner="base video output")
+    owner = f"{profile_name} base video output"
+    destination = _new_mp4_path(output_path, owner=owner)
     executable = _tool(ffmpeg, owner="ffmpeg")
     temporary = _temporary_mp4(destination)
     command = _base_encode_command(
         ffmpeg=executable,
-        width=FRAME_WIDTH,
-        height=FRAME_HEIGHT,
+        width=width,
+        height=height,
         destination=temporary,
     )
     try:
@@ -253,7 +249,7 @@ def encode_h264_base_video(
         for count, value in enumerate(frames, start=1):
             frame = _rgb_frame(
                 value,
-                shape=(FRAME_HEIGHT, FRAME_WIDTH, 3),
+                shape=(height, width, 3),
                 owner=f"frame[{count - 1}]",
             )
             process.stdin.write(frame.tobytes(order="C"))
@@ -267,15 +263,19 @@ def encode_h264_base_video(
             )
         if count != FRAME_COUNT:
             raise M5VideoError(
-                f"base video requires exactly {FRAME_COUNT} frames, received {count}"
+                f"{profile_name} base video requires exactly {FRAME_COUNT} frames, "
+                f"received {count}"
             )
-        report = probe_episode_video(
+        report = _probe_video_profile(
             temporary,
+            expected_width=width,
+            expected_height=height,
+            profile_name=profile_name,
             require_audio=False,
             ffprobe=ffprobe,
         )
         packet_hash = video_packet_sha256(temporary, ffprobe=ffprobe)
-        _publish(temporary, destination, owner="base video output")
+        _publish(temporary, destination, owner=owner)
         report["path"] = str(destination)
         report["video_packet_hash"] = packet_hash
         return report
@@ -291,6 +291,52 @@ def encode_h264_base_video(
                 process.wait()
         temporary.unlink(missing_ok=True)
         raise
+
+
+def encode_h264_base_video(
+    frames: Iterable[Any],
+    output_path: str | Path,
+    *,
+    ffmpeg: str | Path = "ffmpeg",
+    ffprobe: str | Path = "ffprobe",
+) -> dict[str, Any]:
+    """Encode exactly 75 ``320x240`` RGB frames into a video-only base MP4.
+
+    The input is streamed as raw RGB, avoiding PNG metadata and filesystem
+    ordering.  x264 uses one thread, a fixed GOP and no B frames; metadata is
+    stripped and the MP4 video track uses the authoritative 48 kHz time base.
+    Existing outputs are never replaced.
+    """
+
+    return _encode_h264_video_profile(
+        frames,
+        output_path,
+        width=FRAME_WIDTH,
+        height=FRAME_HEIGHT,
+        profile_name="formal episode",
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+    )
+
+
+def encode_h264_qa_base_video(
+    frames: Iterable[Any],
+    output_path: str | Path,
+    *,
+    ffmpeg: str | Path = "ffmpeg",
+    ffprobe: str | Path = "ffprobe",
+) -> dict[str, Any]:
+    """Encode exactly 75 ``560x240`` main+topdown QA frames as H.264 MP4."""
+
+    return _encode_h264_video_profile(
+        frames,
+        output_path,
+        width=QA_PANEL_WIDTH,
+        height=QA_PANEL_HEIGHT,
+        profile_name="QA review",
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+    )
 
 
 def _mux_command(
@@ -366,15 +412,16 @@ def _integer_field(value: Mapping[str, Any], field: str, *, owner: str) -> int:
     return result
 
 
-def probe_episode_video(
+def _probe_video_profile(
     path: str | Path,
     *,
+    expected_width: int,
+    expected_height: int,
+    profile_name: str,
     require_audio: bool = True,
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
-    """Read back and strictly validate the base or muxed M5 MP4 contract."""
-
-    media = _media_path(path, owner="episode video")
+    media = _media_path(path, owner=f"{profile_name} video")
     value = _ffprobe_json(
         media,
         [
@@ -390,53 +437,61 @@ def probe_episode_video(
             "-show_format",
         ],
         ffprobe=ffprobe,
-        owner="FFprobe episode readback",
+        owner=f"FFprobe {profile_name} readback",
     )
     streams = value.get("streams")
     format_value = value.get("format")
     if not isinstance(streams, list) or not all(
         isinstance(stream, Mapping) for stream in streams
     ):
-        raise M5VideoError("FFprobe episode readback has no valid stream list")
+        raise M5VideoError(f"FFprobe {profile_name} readback has no valid stream list")
     if not isinstance(format_value, Mapping) or "mp4" not in str(
         format_value.get("format_name", "")
     ).split(","):
-        raise M5VideoError("episode video container is not MP4")
+        raise M5VideoError(f"{profile_name} video container is not MP4")
     videos = [stream for stream in streams if stream.get("codec_type") == "video"]
     audios = [stream for stream in streams if stream.get("codec_type") == "audio"]
     if len(videos) != 1:
-        raise M5VideoError("episode video must contain exactly one video stream")
+        raise M5VideoError(f"{profile_name} must contain exactly one video stream")
     expected_audio_count = 1 if require_audio else 0
     if len(audios) != expected_audio_count or len(streams) != 1 + expected_audio_count:
         raise M5VideoError(
-            "episode video must contain one video and "
+            f"{profile_name} must contain one video and "
             f"{expected_audio_count} audio streams"
         )
 
     video = videos[0]
     if video.get("codec_name") != "h264":
-        raise M5VideoError("episode video codec must be H.264")
+        raise M5VideoError(f"{profile_name} video codec must be H.264")
     if (
-        _integer_field(video, "width", owner="video") != FRAME_WIDTH
-        or _integer_field(video, "height", owner="video") != FRAME_HEIGHT
+        _integer_field(video, "width", owner="video") != expected_width
+        or _integer_field(video, "height", owner="video") != expected_height
         or video.get("pix_fmt") != "yuv420p"
     ):
-        raise M5VideoError("episode video must read back as 320x240 yuv420p")
+        raise M5VideoError(
+            f"{profile_name} video must read back as "
+            f"{expected_width}x{expected_height} yuv420p"
+        )
     try:
         average_rate = Fraction(str(video["avg_frame_rate"]))
     except (KeyError, ValueError, ZeroDivisionError) as exc:
         raise M5VideoError("video average frame rate is malformed") from exc
     if average_rate != FRAME_RATE:
-        raise M5VideoError("episode video average frame rate is not exactly 15 fps")
+        raise M5VideoError(
+            f"{profile_name} video average frame rate is not exactly 15 fps"
+        )
     frame_count = _integer_field(video, "nb_read_frames", owner="video")
     if frame_count != FRAME_COUNT:
         raise M5VideoError(
-            f"episode video has {frame_count} decoded frames, expected {FRAME_COUNT}"
+            f"{profile_name} video has {frame_count} decoded frames, "
+            f"expected {FRAME_COUNT}"
         )
     if _integer_field(video, "start_pts", owner="video") != 0:
-        raise M5VideoError("episode video first presentation timestamp is not zero")
+        raise M5VideoError(
+            f"{profile_name} video first presentation timestamp is not zero"
+        )
     if _stream_duration(video, owner="video") != Fraction(5, 1):
-        raise M5VideoError("episode video duration is not exactly five seconds")
+        raise M5VideoError(f"{profile_name} video duration is not exactly five seconds")
 
     audio_report: dict[str, Any] | None = None
     if require_audio:
@@ -475,8 +530,8 @@ def probe_episode_video(
         "format_name": format_value.get("format_name"),
         "video": {
             "codec_name": "h264",
-            "width": FRAME_WIDTH,
-            "height": FRAME_HEIGHT,
+            "width": expected_width,
+            "height": expected_height,
             "pixel_format": "yuv420p",
             "frame_count": FRAME_COUNT,
             "frame_rate": "15/1",
@@ -486,6 +541,42 @@ def probe_episode_video(
         },
         "audio": audio_report,
     }
+
+
+def probe_episode_video(
+    path: str | Path,
+    *,
+    require_audio: bool = True,
+    ffprobe: str | Path = "ffprobe",
+) -> dict[str, Any]:
+    """Read back and strictly validate the formal ``320x240`` M5 MP4."""
+
+    return _probe_video_profile(
+        path,
+        expected_width=FRAME_WIDTH,
+        expected_height=FRAME_HEIGHT,
+        profile_name="formal episode",
+        require_audio=require_audio,
+        ffprobe=ffprobe,
+    )
+
+
+def probe_qa_review_video(
+    path: str | Path,
+    *,
+    require_audio: bool = True,
+    ffprobe: str | Path = "ffprobe",
+) -> dict[str, Any]:
+    """Read back and strictly validate the QA ``560x240`` review MP4."""
+
+    return _probe_video_profile(
+        path,
+        expected_width=QA_PANEL_WIDTH,
+        expected_height=QA_PANEL_HEIGHT,
+        profile_name="QA review",
+        require_audio=require_audio,
+        ffprobe=ffprobe,
+    )
 
 
 def video_packet_sha256(
@@ -614,26 +705,30 @@ def _probe_authoritative_wav(
     }
 
 
-def mux_binaural_wav(
+def _mux_binaural_wav_profile(
     base_video_path: str | Path,
     authoritative_wav_path: str | Path,
     output_path: str | Path,
     *,
+    expected_width: int,
+    expected_height: int,
+    profile_name: str,
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
-    """Mux an exact M5 base video and authoritative binaural WAVE as AAC.
-
-    The video stream is copied, not decoded or re-encoded.  Input metadata and
-    chapters are discarded.  Duration is established by the two exact inputs;
-    ``-shortest`` is intentionally absent.
-    """
-
-    base_video = _media_path(base_video_path, owner="base video")
+    base_video = _media_path(base_video_path, owner=f"{profile_name} base video")
     audio_wav = _media_path(authoritative_wav_path, owner="authoritative WAVE")
-    destination = _new_mp4_path(output_path, owner="muxed episode output")
+    output_owner = f"muxed {profile_name} output"
+    destination = _new_mp4_path(output_path, owner=output_owner)
     executable = _tool(ffmpeg, owner="ffmpeg")
-    probe_episode_video(base_video, require_audio=False, ffprobe=ffprobe)
+    _probe_video_profile(
+        base_video,
+        expected_width=expected_width,
+        expected_height=expected_height,
+        profile_name=profile_name,
+        require_audio=False,
+        ffprobe=ffprobe,
+    )
     _probe_authoritative_wav(audio_wav, ffprobe=ffprobe)
     decoded_reference = _decode_audio_f32(audio_wav, ffmpeg=executable)
     if decoded_reference.shape != (AUDIO_SAMPLE_COUNT, AUDIO_CHANNEL_COUNT):
@@ -650,7 +745,14 @@ def mux_binaural_wav(
     )
     try:
         _run(command, owner="FFmpeg M5 AAC mux")
-        report = probe_episode_video(temporary, require_audio=True, ffprobe=ffprobe)
+        report = _probe_video_profile(
+            temporary,
+            expected_width=expected_width,
+            expected_height=expected_height,
+            profile_name=profile_name,
+            require_audio=True,
+            ffprobe=ffprobe,
+        )
         base_hash = video_packet_sha256(base_video, ffprobe=ffprobe)
         muxed_hash = video_packet_sha256(temporary, ffprobe=ffprobe)
         if (
@@ -658,7 +760,7 @@ def mux_binaural_wav(
             or base_hash["timeline_sha256"] != muxed_hash["timeline_sha256"]
         ):
             raise M5VideoError("mux changed the copied H.264 packet stream")
-        _publish(temporary, destination, owner="muxed episode output")
+        _publish(temporary, destination, owner=output_owner)
         report["path"] = str(destination)
         report["video_packet_hash"] = muxed_hash
         report["video_stream_copy_verified"] = True
@@ -672,6 +774,55 @@ def mux_binaural_wav(
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def mux_binaural_wav(
+    base_video_path: str | Path,
+    authoritative_wav_path: str | Path,
+    output_path: str | Path,
+    *,
+    ffmpeg: str | Path = "ffmpeg",
+    ffprobe: str | Path = "ffprobe",
+) -> dict[str, Any]:
+    """Mux an exact formal base video and authoritative binaural WAVE as AAC.
+
+    The video stream is copied, not decoded or re-encoded.  Input metadata and
+    chapters are discarded.  Duration is established by the two exact inputs;
+    ``-shortest`` is intentionally absent.
+    """
+
+    return _mux_binaural_wav_profile(
+        base_video_path,
+        authoritative_wav_path,
+        output_path,
+        expected_width=FRAME_WIDTH,
+        expected_height=FRAME_HEIGHT,
+        profile_name="formal episode",
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+    )
+
+
+def mux_qa_binaural_wav(
+    qa_base_video_path: str | Path,
+    authoritative_wav_path: str | Path,
+    output_path: str | Path,
+    *,
+    ffmpeg: str | Path = "ffmpeg",
+    ffprobe: str | Path = "ffprobe",
+) -> dict[str, Any]:
+    """Mux the exact ``560x240`` QA base video with the binaural AAC track."""
+
+    return _mux_binaural_wav_profile(
+        qa_base_video_path,
+        authoritative_wav_path,
+        output_path,
+        expected_width=QA_PANEL_WIDTH,
+        expected_height=QA_PANEL_HEIGHT,
+        profile_name="QA review",
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+    )
 
 
 def _decode_audio_f32(
@@ -980,7 +1131,10 @@ __all__ = [
     "compose_main_topdown_frames",
     "compose_main_topdown_panel",
     "encode_h264_base_video",
+    "encode_h264_qa_base_video",
     "mux_binaural_wav",
+    "mux_qa_binaural_wav",
     "probe_episode_video",
+    "probe_qa_review_video",
     "video_packet_sha256",
 ]

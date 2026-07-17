@@ -18,8 +18,11 @@ from avengine.m5.video import (
     compose_main_topdown_frames,
     compose_main_topdown_panel,
     encode_h264_base_video,
+    encode_h264_qa_base_video,
     mux_binaural_wav,
+    mux_qa_binaural_wav,
     probe_episode_video,
+    probe_qa_review_video,
     video_packet_sha256,
 )
 
@@ -162,6 +165,20 @@ def encoded_media(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     episode_b = root / "episode_b.mp4"
     episode_a_report = mux_binaural_wav(base_a, wav_a, episode_a)
     episode_b_report = mux_binaural_wav(base_a, wav_b, episode_b)
+
+    topdown_frames = np.ascontiguousarray(frames[:, :, :240])
+    qa_frames = compose_main_topdown_frames(
+        frames,
+        topdown_frames,
+        text_by_frame=[f"frame={index:02d}" for index in range(FRAME_COUNT)],
+        trajectory_by_frame=[
+            [(8, 220), (16 + index * 2, 120)] for index in range(FRAME_COUNT)
+        ],
+    )
+    qa_base = root / "qa_base.mp4"
+    qa_episode = root / "qa_episode.mp4"
+    qa_base_report = encode_h264_qa_base_video(qa_frames, qa_base)
+    qa_episode_report = mux_qa_binaural_wav(qa_base, wav_a, qa_episode)
     return {
         "root": root,
         "wav_a": wav_a,
@@ -173,6 +190,10 @@ def encoded_media(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         "episode_b": episode_b,
         "episode_a_report": episode_a_report,
         "episode_b_report": episode_b_report,
+        "qa_base": qa_base,
+        "qa_episode": qa_episode,
+        "qa_base_report": qa_base_report,
+        "qa_episode_report": qa_episode_report,
     }
 
 
@@ -249,6 +270,35 @@ def test_aac_full_decode_reports_count_alignment_quality_and_lr_diagnostic(
     assert report["lr_normal_correlation"] > report["lr_swapped_correlation"] + 0.5
     assert report["lr_swap_suspected"] is False
     assert report["diagnostic_only"] is True
+
+
+def test_composited_qa_review_encodes_muxes_and_reads_back_exactly(
+    encoded_media: dict[str, Any],
+) -> None:
+    qa_base = encoded_media["qa_base"]
+    qa_episode = encoded_media["qa_episode"]
+    base_report = probe_qa_review_video(qa_base, require_audio=False)
+    muxed_report = probe_qa_review_video(qa_episode)
+
+    assert base_report["video"] == {
+        "codec_name": "h264",
+        "width": 560,
+        "height": 240,
+        "pixel_format": "yuv420p",
+        "frame_count": 75,
+        "frame_rate": "15/1",
+        "first_pts": 0,
+        "duration_ticks": 240_000,
+        "duration_seconds": 5,
+    }
+    assert base_report["audio"] is None
+    assert muxed_report["audio"]["sample_rate_hz"] == 16_000
+    assert muxed_report["audio"]["channel_count"] == 2
+    assert muxed_report["audio"]["duration_seconds"] == 5
+    assert encoded_media["qa_episode_report"]["video_stream_copy_verified"] is True
+    assert video_packet_sha256(qa_base) == video_packet_sha256(qa_episode)
+    with pytest.raises(M5VideoError, match="320x240"):
+        probe_episode_video(qa_episode)
 
 
 def test_mux_rejects_non_stereo_authoritative_wav_before_publication(
