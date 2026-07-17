@@ -179,18 +179,39 @@ coefficients, a universal room RT60, or any M4 multi-source claim.
 
 ## M4: Multi-Source RLR
 
-Status: `not_run`. M3's single-pair material canary and any named-context API
-groundwork do not complete this gate.
+Status: bounded M4 software/source-pose canary `pass`. The retained formal run
+passed 10/10 declared checks and 14/14 independently recomputed verifier checks;
+its exact commits, hashes, measurements and test totals are recorded in
+[M4_STATUS.md](M4_STATUS.md).
 
-Deliverables: modern RLR C API adapter, named sources/listeners with exactly
-one listener in the MVP profile, per-pair IRs, independent stems,
-reset/temporal policy and performance report.
+Deliverables: modern RLR C API adapter; at least two stable named sources and
+exactly one camera-co-located MVP listener; all listener/source-pair IRs;
+independent per-source FOA and binaural stems; canonical full-tail canary
+mixtures; native endpoint receipts; order-invariance, reset/temporal and
+performance evidence; and an explicit licensed HRTF dependency.
 
-Exit criteria: at least two sources and the single MVP listener maintain
-actor/event/anchor identity; the listener remains co-located with the formal
-camera rig;
-source registration order does not create a systematic output change; each
-pair result is independently readable.
+The frozen FOA contract is raw RLR `[W, Y, Z, X]`, ACN/N3D, right-handed
+`avengine_world` with +X right, +Y up and -Z forward. The listening output is
+two-channel `[left, right]` RLR-native binaural using the explicit MIT KEMAR
+SOFA asset. Rendering remains 16 kHz; its 44.1 kHz HRTF input may be adapted
+only inside the exact RLR binary named by the M4 lock. AVEngine performs no
+implicit resampling, normalization or limiting.
+
+Exit criteria: source IDs preserve actor/event/anchor routing; native receipts
+match canonical indices and every declared endpoint field; the single listener
+matches the formal M1 camera rig; caller registration order produces exact
+mapped full-indirect IR equality; each pair IR and stem is independently
+readable and the mixtures reconstruct exactly; FOA axis/world and binaural
+left/right probes pass; reset reproduces the initial temporal frame exactly;
+the named source update retains identity; and one-source versus multi-source
+performance is measured.
+
+Claim boundary: the current identity fixture uses formal M1 static source
+poses, while event-time M2 dynamic-anchor evidence remains `not_run`. An M4
+pass therefore qualifies this bounded software/source-pose path only. It is not
+animal-asset, room, episode or dataset admission. M4 emits WAV artifacts only;
+M5 owns the exact five-second timeline, counterfactual pair, tail/crop policy
+and two-channel binaural video mux/readback.
 
 ## M5: Timeline and Counterfactual Episode
 

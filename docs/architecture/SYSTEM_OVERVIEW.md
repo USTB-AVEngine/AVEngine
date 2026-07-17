@@ -1,10 +1,12 @@
 # AVEngine System Overview
 
 Status: the system includes the M1 visual/room baseline, bounded M2 articulated
-animal runtime, and M3 explicit acoustic-scene/material-activation path.
+animal runtime, M3 explicit acoustic-scene/material-activation path and the M4
+named multi-source implementation. M4's bounded software/source-pose gate is
+`pass`; see [M4_STATUS.md](../roadmap/M4_STATUS.md).
 Authoritative milestone outcomes are recorded in
 [MILESTONES.md](../roadmap/MILESTONES.md). Physical room-material
-qualification, formal multi-source propagation semantics, dataset registration
+qualification, event-time dynamic-anchor qualification, dataset registration
 and end-to-end dataset claims remain later gates.
 
 ## Purpose
@@ -36,8 +38,8 @@ runtime fallback; see [MOTION_RETARGETING.md](MOTION_RETARGETING.md).
 |---|---|---|
 | Scene graph, GLB loading, PBR rendering, sensors, physics, navigation and articulated-object foundations | Habitat-Sim | Reused |
 | Geometric acoustic propagation and modern multi-source/listener C API | RLR / SoundSpaces 2.0 | Reused algorithm/API |
-| Deterministic non-human pose playback, strict RLR context lifecycle and explicit acoustic package ingestion/readback | Habitat runtime fork | Runtime extension; not a new propagation solver |
-| Single-view same-state multimodal capture profiles, audited animal/room/acoustic compilation, source identity, authoritative timeline, counterfactuals, QA, provenance and registry | AVEngine main repository | System contribution over stable Habitat/RLR APIs |
+| Deterministic non-human pose playback, strict RLR context lifecycle, explicit acoustic package ingestion/readback and named endpoint/native-receipt adapter | Habitat runtime fork | Runtime extension; not a new propagation solver |
+| Single-view same-state multimodal capture profiles, audited animal/room/acoustic compilation, named source identity, FOA/binaural stem and mixture assembly, authoritative timeline, counterfactuals, QA, provenance and registry | AVEngine main repository | System contribution over stable Habitat/RLR APIs |
 
 ## Initial scientific scope
 
@@ -76,7 +78,7 @@ of that file by full settings and vertex/index fingerprints.
 The co-located M1 listener is only a pose anchor. M1 does not instantiate an
 AudioSensor or execute RLR. M3 uses one controlled source/listener pair only
 to prove explicit scene ingestion and synthetic material activation;
-pair-specific named multi-source/listener semantics remain the M4 gate.
+pair-specific named multi-source/listener semantics are the separate M4 gate.
 
 ## M3 acoustic boundary
 
@@ -102,8 +104,57 @@ measurements and hashes are recorded in
 Native ingestion evidence combines exact API receipts, resolved material
 blocks and post-ingestion OBJ geometry readback. The OBJ cannot expose a
 recoverable per-face material-ID array, so it never replaces source-to-package
-material replay. Named multi-source all-pair IRs, stems, order invariance,
-reset/temporal policy and performance remain M4 work.
+material replay. M4 consumes this verified package without weakening its M3
+geometry/material contract.
+
+## M4 named spatial-audio boundary
+
+M4 realizes at least two bytewise-canonical stable source IDs and exactly one
+listener in each output-layout context. The listener is the same pose as the
+formal M1 camera rig. Native registration receipts close the requested and
+realized source/listener IDs, indices, transforms, radii, orientation, layout,
+channel count and explicit HRTF path. Every listener/source pair returns an
+owned, independently readable IR addressed by its stable IDs rather than by an
+unstable caller list position.
+
+The authority output is raw RLR first-order Ambisonics:
+
+```text
+channels: [W, Y, Z, X]
+indices:  ACN [0, 1, 2, 3]
+normalization: N3D
+coordinates: right-handed avengine_world
+axes: +X right, +Y up, +Z back, -Z forward
+```
+
+Each source's mono dry signal is linearly convolved with its pair IR to retain
+an independent four-channel FOA stem. Canonical source-ID summation produces a
+four-channel full-tail canary mixture without implicit resampling,
+normalization, limiting or cropping.
+
+For direct listening, M4 separately asks RLR for `[left, right]` native
+binaural pair IRs using the explicit MIT KEMAR normal-pinna SOFA asset, then
+retains the independent binaural stems and canonical two-channel canary
+mixture. Audio renders at 16 kHz. The pinned HRTF input is 44.1 kHz; adaptation
+is permitted only inside the exact RLR binary authenticated by the M4 runtime
+lock. AVEngine itself performs no hidden resampling. Six-cardinal FOA probes,
+listener-rotation invariance and horizontal binaural probes freeze the spatial
+interpretation instead of trusting channel names alone.
+
+M4 also proves exact mapped output under reversed caller source order, stable-ID
+source update, temporal-coherence execution, reset/reload reproduction and
+one-source versus multi-source performance measurement. See
+[M4_EXECUTION.md](../roadmap/M4_EXECUTION.md).
+
+M4 outputs full-tail WAV evidence only. It does not produce a synchronized
+episode or mux FOA/binaural audio into MP4. M5 owns exact 75-frame/80,000-sample/
+240,000-tick assembly, visual-invariant counterfactuals, final tail/crop policy
+and two-channel binaural video mux/readback.
+
+The current source identity fixture is grounded at formal M1 source poses, but
+its M2 event-time dynamic-anchor evidence is explicitly `not_run`. A bounded
+M4 pass therefore validates software routing and static source-pose acoustics;
+it does not admit an animal asset, physical room profile, episode or dataset.
 
 ## Versioned contracts
 

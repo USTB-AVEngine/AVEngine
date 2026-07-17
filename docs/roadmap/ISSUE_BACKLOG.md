@@ -150,29 +150,51 @@ formal controlled gate or room admission.
 
 ## M4-01: Modern RLR multi-source adapter
 
-- Status: `not_run`; M3 may provide context-lifecycle and single-pair
-  groundwork, but named multi-source completion remains this issue.
-- Problem: current Habitat AudioSensor uses the deprecated single-source wrapper.
-- Scope: context lifecycle, named source/listener updates and per-pair IR access.
+- Status: bounded `pass`; the retained formal evidence and focused
+  native/Python tests close the software/source-pose gate. See `M4_STATUS.md`
+  and `M4_EXECUTION.md`.
+- Problem addressed: the stock/legacy Habitat AudioSensor path uses a
+  deprecated single-source wrapper.
+- Scope: explicit context lifecycle, canonical named source/listener
+  realization, stable-ID updates, native endpoint receipts and all-pair owned
+  IR access.
 - Non-goals: a new propagation algorithm.
 - Dependencies: M3-01.
 - Deliverables: isolated fork adapter and C++/Python API tests.
 - Acceptance: at least two named sources and exactly the one formal MVP
-  listener are enumerated, listener/camera-rig transforms agree, and every
-  source-listener pair output has a valid shape.
+  listener are enumerated; native ID/index/pose/radius/orientation/layout/
+  channel/HRTF receipts agree with the request; listener/camera-rig transforms
+  agree; and every source-listener pair output has a valid owned shape and
+  explicit layout metadata.
 - Not-run condition: ABI/build failure is recorded with exact versions.
 - Documentation: audio extension and attribution boundaries.
 
 ## M4-02: Source identity, order and stem invariance
 
-- Problem: multiple coordinates alone do not preserve dataset identity.
-- Scope: actor/event/anchor mapping, reset policy, order tests and stems.
+- Status: bounded `pass`; the retained evidence passed the declared and
+  independently recomputed order/stem/spatial/lifecycle checks.
+- Problem addressed: multiple coordinates alone do not preserve dataset
+  identity.
+- Scope: actor/event/anchor mapping, exact caller-order invariance, per-source
+  FOA/binaural stems and mixtures, reset/temporal policy, spatial probes,
+  explicit HRTF binding and performance measurement.
 - Non-goals: mixture model training.
 - Dependencies: M4-01.
 - Deliverables: identity manifest, invariance tests and performance report.
-- Acceptance: source reordering preserves mapped results within declared tolerance.
-- Not-run condition: temporal-coherence mode not tested remains explicitly `not_run`.
+- Acceptance: source reordering preserves mapped full-indirect IRs exactly;
+  stems reconstruct from dry audio and pair IRs; canonical mixtures equal the
+  retained stem sum; raw FOA is `[W,Y,Z,X]` ACN/N3D `avengine_world`; explicit
+  MIT KEMAR binaural output passes left/right probes; reset reproduces the
+  initial temporal frame; and the one/multi-source performance report is
+  complete.
+- Not-run condition: missing native temporal/reset, HRTF, spatial-probe or
+  independent artifact verification remains explicitly `not_run`/`blocked`.
 - Documentation: source lifecycle and deterministic settings.
+
+The checked-in M4 identity canary is bound to static formal M1 source poses.
+Its M2 event-time dynamic-anchor evidence remains `not_run`, so neither issue
+grants asset/dataset admission. M4 retains WAVs only. Exact timeline assembly,
+counterfactuals and binaural video mux/readback are M5-01/M5-02 work.
 
 ## M5-01: Timeline builder, validator and fixed-state capture
 
