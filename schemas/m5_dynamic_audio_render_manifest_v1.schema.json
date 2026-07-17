@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m5_dynamic_audio_render_manifest_v1.schema.json",
+  "title": "AVEngine M5 Dynamic Audio Render Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "manifest_id",
+    "request_id",
+    "timeline_content_sha256",
+    "visual_timeline_sha256",
+    "time_base_hz",
+    "duration_ticks",
+    "frame_count",
+    "sample_rate_hz",
+    "sample_count",
+    "frame_sample_boundary",
+    "authority",
+    "listener_id",
+    "canonical_source_order",
+    "source_routes",
+    "render_policy",
+    "manifest_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m5_dynamic_audio_render_manifest_v1"},
+    "manifest_id": {"$ref": "#/$defs/stable_id"},
+    "request_id": {"$ref": "#/$defs/stable_id"},
+    "timeline_content_sha256": {"$ref": "#/$defs/sha256"},
+    "visual_timeline_sha256": {"$ref": "#/$defs/sha256"},
+    "time_base_hz": {"const": 48000},
+    "duration_ticks": {"const": 240000},
+    "frame_count": {"const": 75},
+    "sample_rate_hz": {"const": 16000},
+    "sample_count": {"const": 80000},
+    "frame_sample_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "formula"],
+      "properties": {
+        "algorithm": {"const": "nearest_integer_tick_boundary_v1"},
+        "formula": {"const": "B(f)=(3200*f+1)//3"}
+      }
+    },
+    "authority": {"$ref": "#/$defs/foa_contract"},
+    "listener_id": {"$ref": "#/$defs/stable_id"},
+    "canonical_source_order": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/stable_id"}
+    },
+    "source_routes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/source_route"}
+    },
+    "render_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_pose_evaluation",
+        "rir_application",
+        "accumulation",
+        "tail_policy",
+        "normalization_policy",
+        "limiter_policy"
+      ],
+      "properties": {
+        "source_pose_evaluation": {"const": "timeline_frame_fixed_state"},
+        "rir_application": {"const": "raised_cosine_source_time_partition_v1"},
+        "accumulation": {"const": "independent_stems_then_linear_sum"},
+        "tail_policy": {"const": "retain_full_tail_then_crop_half_open_0_80000"},
+        "normalization_policy": {"const": "forbidden"},
+        "limiter_policy": {"const": "forbidden"}
+      }
+    },
+    "manifest_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "source_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_id",
+        "actor_id",
+        "source_id",
+        "event_id",
+        "emitter_path_sha256",
+        "dry_audio_asset_sha256",
+        "start_sample",
+        "end_sample"
+      ],
+      "properties": {
+        "route_id": {"$ref": "#/$defs/stable_id"},
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "event_id": {"$ref": "#/$defs/stable_id"},
+        "emitter_path_sha256": {"$ref": "#/$defs/sha256"},
+        "dry_audio_asset_sha256": {"$ref": "#/$defs/sha256"},
+        "start_sample": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 79999
+        },
+        "end_sample": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 80000
+        }
+      }
+    },
+    "foa_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_id",
+        "ambisonic_order",
+        "channel_count",
+        "raw_channel_order",
+        "acn_indices",
+        "normalization",
+        "coordinate_frame",
+        "handedness",
+        "axes",
+        "raw_array_layout",
+        "dtype"
+      ],
+      "properties": {
+        "format_id": {"const": "rlr_foa_acn_n3d_world_v1"},
+        "ambisonic_order": {"const": 1},
+        "channel_count": {"const": 4},
+        "raw_channel_order": {"const": ["W", "Y", "Z", "X"]},
+        "acn_indices": {"const": [0, 1, 2, 3]},
+        "normalization": {"const": "N3D"},
+        "coordinate_frame": {"const": "avengine_world"},
+        "handedness": {"const": "right"},
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["right", "up", "back", "forward"],
+          "properties": {
+            "right": {"const": "+X"},
+            "up": {"const": "+Y"},
+            "back": {"const": "+Z"},
+            "forward": {"const": "-Z"}
+          }
+        },
+        "raw_array_layout": {"const": "channel_major_[channels,samples]"},
+        "dtype": {"const": "float32_le"}
+      }
+    }
+  }
+}

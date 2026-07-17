@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m5_episode_request_v1.schema.json",
+  "title": "AVEngine M5 Exact-Timeline Counterfactual Episode Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "counterfactual_pair_id",
+    "qualification_claim",
+    "seed",
+    "timeline_profile",
+    "visual_vocal_articulation",
+    "listener",
+    "actors",
+    "sources",
+    "events",
+    "counterfactual",
+    "request_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m5_episode_request_v1"},
+    "request_id": {"$ref": "#/$defs/stable_id"},
+    "counterfactual_pair_id": {"$ref": "#/$defs/stable_id"},
+    "qualification_claim": {"const": false},
+    "seed": {"type": "integer", "minimum": 0},
+    "timeline_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "time_base_hz",
+        "duration_ticks",
+        "video",
+        "audio"
+      ],
+      "properties": {
+        "time_base_hz": {"const": 48000},
+        "duration_ticks": {"const": 240000},
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fps_num",
+            "fps_den",
+            "frame_count",
+            "ticks_per_frame",
+            "view_ids"
+          ],
+          "properties": {
+            "fps_num": {"const": 15},
+            "fps_den": {"const": 1},
+            "frame_count": {"const": 75},
+            "ticks_per_frame": {"const": 3200},
+            "view_ids": {"const": ["view0"]}
+          }
+        },
+        "audio": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sample_rate_hz",
+            "sample_count",
+            "ticks_per_sample",
+            "authority"
+          ],
+          "properties": {
+            "sample_rate_hz": {"const": 16000},
+            "sample_count": {"const": 80000},
+            "ticks_per_sample": {"const": 3},
+            "authority": {"$ref": "#/$defs/foa_contract"}
+          }
+        }
+      }
+    },
+    "visual_vocal_articulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "mouth_motion_present"],
+      "properties": {
+        "mode": {"const": "disabled_for_shortcut_control"},
+        "mouth_motion_present": {"const": false}
+      }
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listener_id", "camera_rig_id", "view_id"],
+      "properties": {
+        "listener_id": {"$ref": "#/$defs/stable_id"},
+        "camera_rig_id": {"const": "camera_rig_0"},
+        "view_id": {"const": "view0"}
+      }
+    },
+    "actors": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/actor"}
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "events": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/event"}
+    },
+    "counterfactual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "variants",
+        "frozen_fields",
+        "allowed_changed_fields",
+        "derived_changed_fields"
+      ],
+      "properties": {
+        "operation": {"const": "swap_dry_audio_source_routing"},
+        "variants": {"const": ["A", "B"]},
+        "frozen_fields": {
+          "const": [
+            "timeline.video",
+            "timeline.actors",
+            "timeline.frames",
+            "timeline.audio_events_except_audio_asset_sha256",
+            "visual_vocal_articulation",
+            "listener",
+            "actor_source_event_ids"
+          ]
+        },
+        "allowed_changed_fields": {
+          "const": [
+            "request.events[*].dry_audio_asset_sha256",
+            "timeline.audio_events[*].audio_asset_sha256",
+            "dynamic_audio_render_manifest.source_routes[*].dry_audio_asset_sha256"
+          ]
+        },
+        "derived_changed_fields": {
+          "const": [
+            "request.request_content_sha256",
+            "dynamic_audio_render_manifest.timeline_content_sha256",
+            "dynamic_audio_render_manifest.manifest_content_sha256"
+          ]
+        }
+      }
+    },
+    "request_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "asset_id", "template_id", "body_plan_id"],
+      "properties": {
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "template_id": {"$ref": "#/$defs/stable_id"},
+        "body_plan_id": {"$ref": "#/$defs/stable_id"},
+        "skeleton_revision": {"type": "string", "minLength": 1},
+        "mesh_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "actor_id",
+        "semantic_anchor_id",
+        "emitter_bone",
+        "emitter_path_sha256"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "semantic_anchor_id": {"const": "muzzle"},
+        "emitter_bone": {"type": "string", "minLength": 1},
+        "emitter_path_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "actor_id",
+        "source_id",
+        "event_type",
+        "start_sample",
+        "end_sample",
+        "emitter_bone",
+        "emitter_path_sha256",
+        "dry_audio_asset_sha256",
+        "semantic_sync_required"
+      ],
+      "properties": {
+        "event_id": {"$ref": "#/$defs/stable_id"},
+        "actor_id": {"$ref": "#/$defs/stable_id"},
+        "source_id": {"$ref": "#/$defs/stable_id"},
+        "event_type": {"const": "vocalization"},
+        "start_sample": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 79999
+        },
+        "end_sample": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 80000
+        },
+        "emitter_bone": {"type": "string", "minLength": 1},
+        "emitter_path_sha256": {"$ref": "#/$defs/sha256"},
+        "dry_audio_asset_sha256": {"$ref": "#/$defs/sha256"},
+        "semantic_sync_required": {"const": true}
+      }
+    },
+    "foa_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_id",
+        "ambisonic_order",
+        "channel_count",
+        "raw_channel_order",
+        "acn_indices",
+        "normalization",
+        "coordinate_frame",
+        "handedness",
+        "axes",
+        "raw_array_layout",
+        "dtype"
+      ],
+      "properties": {
+        "format_id": {"const": "rlr_foa_acn_n3d_world_v1"},
+        "ambisonic_order": {"const": 1},
+        "channel_count": {"const": 4},
+        "raw_channel_order": {"const": ["W", "Y", "Z", "X"]},
+        "acn_indices": {"const": [0, 1, 2, 3]},
+        "normalization": {"const": "N3D"},
+        "coordinate_frame": {"const": "avengine_world"},
+        "handedness": {"const": "right"},
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["right", "up", "back", "forward"],
+          "properties": {
+            "right": {"const": "+X"},
+            "up": {"const": "+Y"},
+            "back": {"const": "+Z"},
+            "forward": {"const": "-Z"}
+          }
+        },
+        "raw_array_layout": {"const": "channel_major_[channels,samples]"},
+        "dtype": {"const": "float32_le"}
+      }
+    }
+  }
+}
