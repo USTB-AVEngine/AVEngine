@@ -84,11 +84,18 @@ loaded room's common light setup, and render with HBAO enabled. The retained
 Apartment output includes a two-channel binaural annotated Habitat + Topdown
 video and an old UE | new Habitat | Topdown comparison. MP3D passes a real declared-navmesh
 14/14 visual gate and retains its own 18-second annotated binaural listening
-video. Both Topdown panels use the shared Habitat camera/listener basis and
-show a visual HFOV wedge plus forward/left-ear/right-ear axes; audio has no
-camera-FOV or distance cutoff. Its RLR-only research package removes exactly
-one wholly degenerate scan primitive (458 zero-area triangles) without
-changing the visual room;
+video. A separate supplementary UE/SPEAR visual canary imports the same raw
+MP3D source, reuses the exact Habitat camera and Pathfinder-qualified
+actor-center routes, and emits a 1920x480 UE main | Habitat main | Habitat
+Topdown triptych. Its two-channel binaural AAC packets are copied unchanged
+from the Habitat review, so it is not a UE acoustic comparison. UE adds an
+explicit shadow-casting movable directional light and a bounded skylight for
+this review, not a reconstruction of the unknown Matterport capture lights.
+Both Topdown panels use the shared Habitat camera/listener basis and show a
+visual HFOV wedge plus forward/left-ear/right-ear axes; audio has no camera-FOV
+or distance cutoff. Its RLR-only research package removes exactly one wholly
+degenerate scan primitive (458 zero-area triangles) without changing the
+visual room;
 the remaining geometry/material QA states stay explicit. See
 [`M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md). All M5.1 rooms/materials and
 media remain unqualified research evidence; dataset admission is false.
@@ -168,7 +175,7 @@ arbitrary generated episode is synchronized.
 | M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
-| M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
+| M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
 | M6 | registry/QA/CLI and admitted dataset canary |
 | M7 | benchmark, ablations, paper and release audit |
 
@@ -420,6 +427,14 @@ navmesh only, not the full articulated meshes or complete-body framing. The
 MP3D listening review uses a separately hash-bound research package that
 removes only RLR-rejected zero-area faces; source-parity and geometry remain
 `fail`, material coverage remains `pass`, and ray leakage remains `not_run`.
+The separately retained UE/SPEAR comparison uses the same raw MP3D source,
+camera and 270-point actor-center routes to render an 18-second UE main |
+Habitat main | Habitat Topdown triptych. UE scene collision is disabled, so
+Habitat Pathfinder remains the center-only navigation authority. The triptych
+copies the Habitat binaural audio stream unchanged, and its explicit UE
+directional light and bounded skylight support visible shadow review without
+claiming full-body clearance, acoustic or light parity, Matterport-light
+reconstruction, or dataset admission.
 See
 [`M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md) and
 [`M5_1_EXECUTION.md`](docs/roadmap/M5_1_EXECUTION.md).

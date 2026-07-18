@@ -6,6 +6,9 @@ delivery described here. This is not a dataset-admission gate. The retained
 source, capture, acoustic, and delivery records explicitly keep
 `research_only: true` and/or
 `qualification_claim: false` as defined by their schemas.
+The separately retained same-room UE/SPEAR MP3D result below is a passed
+supplementary visual canary; it does not broaden the Habitat gate or its
+dataset-admission claim.
 
 Formal M5 remains independently `pass`: its fixed two-Beagle canary passed 9/9
 declared checks and 12/12 independently recomputed verification groups. M5.1
@@ -26,7 +29,10 @@ rooms. It adds:
 - variable-position binaural RIRs and exact dry/stem/mixture WAVs for both
   room reviews;
 - an annotated Habitat main-view + right-side Topdown listening video; and
-- a direct old UE | new Habitat | new Topdown comparison video.
+- a direct old Apartment UE | new Habitat | new Topdown legacy-route
+  comparison video; and
+- a separate same-source MP3D UE main | Habitat main | Habitat Topdown visual
+  triptych.
 
 The Topdown panel is QA-only. It is not a second dataset view, and it does not
 change the single-view sensor contract. Both Topdown implementations now use
@@ -55,6 +61,10 @@ not as M5.1 authority.
 | MP3D visual/navmesh gate | `tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/mp3d_gate_evidence.json` | `c19b295d9b43cd5189b5468dc5ad0ac3b332a040058856ec6a4fde471f4db4c9` |
 | MP3D acoustics | `tmp/m5_1/mp3d_acoustics_heading_lighting_20260718_01/evidence.json` | `e1912ce3769f1b7f97c4a642cb8b5a3942615bfb01f5f50fe561fe2887d88f71` |
 | MP3D delivery | `tmp/m5_1/mp3d_delivery_heading_lighting_20260718_02/evidence.json` | `14264969e1dec7056914a83652aab976ff105d0c81525a6c5d14c4e9cfd70ab7` |
+| MP3D UE/Habitat supplementary visual comparison | `/data/jzy/code/AVEngine/external/SPEAR/tmp/mp3d_ue_comparison_20260718_01/render/evidence.json` | `dd2f2efc1feed9aaa86c271ab2b380b6bbbfef4960d59b438f3fb147e112d75e` |
+
+The absolute SPEAR path above identifies a local auditable `tmp` result. It is
+not a versioned repository asset or a dataset artifact.
 
 The Rocketbox human declares anatomical forward as local `+Z`; the Beagle
 uses the M2 QA declaration local `+X`. Each actor's world-space anatomical
@@ -250,14 +260,51 @@ navigation diagnostics, not articulated-mesh clearances. The MP3D delivery's
 programs from the common source contract; legacy observer, trajectory,
 spatial flags, migration and visual-asset provenance are explicitly excluded.
 
+## Same-room MP3D UE/SPEAR visual comparison
+
+The passed supplementary comparison evidence is retained locally at
+`/data/jzy/code/AVEngine/external/SPEAR/tmp/mp3d_ue_comparison_20260718_01/render/evidence.json`,
+with SHA-256
+`dd2f2efc1feed9aaa86c271ab2b380b6bbbfef4960d59b438f3fb147e112d75e`.
+It binds scene `17DRP5sb8fy`, route
+`m5_1_mp3d_human_beagle_parallel_18s_v1`, the same raw MP3D source with
+SHA-256 `334456925e056c83a9a7a5c768b3d37cdd23425d8ca20743bfce015be3f56b04`,
+the exact Habitat camera, and both Pathfinder-qualified 270-point actor-center
+routes. The imported scene contains 71 meshes; camera, human-root, dog-root and
+explicit per-frame animation-phase readbacks passed.
+
+The formal local review video is
+`/data/jzy/code/AVEngine/external/SPEAR/tmp/mp3d_ue_comparison_20260718_01/render/mp3d_17DRP5sb8fy_ue_vs_habitat_triptych_binaural.mp4`,
+with SHA-256
+`54e17225c74341de837dd1415a8639d0ed0fdc5ea94d5ad738238be6ddfb2a23`.
+It is 1920x480, 15 fps and 270 frames/18 seconds: a 2x upscale of the 320x240
+UE main view, then the unchanged Habitat main view and unchanged Habitat
+Topdown QA panel. Its two-channel 16 kHz binaural AAC packets are copied
+unchanged from the Habitat review; both inputs and the triptych read back the
+same audio-packet SHA-256
+`be768ea6c279bf3aa1deb82165786806da28177316f8a57bff41e523387ea975`.
+This is therefore a visual-engine comparison, not a UE audio or acoustic
+comparison.
+
+The imported UE scene uses `NoCollision`; Habitat Pathfinder remains the sole
+navigation authority and proves only the two actor root centers. Because the
+MP3D scan has baked apparent illumination and no runtime room lights, this UE
+review adds a 10-lux movable shadow-casting directional light and a bounded
+`0.35` skylight. Those lights make dynamic-shadow behavior reviewable but do
+not recover the unknown Matterport capture lights or establish photometric
+parity. The local `tmp` evidence and video are auditable run products, not
+versioned assets.
+
 ## Claim boundary
 
 M5.1 is a bounded research review, not M6 admission. It does not admit the
 human, Beagle, dry audio, HRTF, Apartment, MP3D room, acoustic materials,
 episode, or dataset sample. `dataset_admission` remains false/not requested.
 The Apartment and MP3D material proposals remain research placeholders and
-unqualified. A same-room MP3D render in the legacy UE pipeline is a separate
-comparison task and is not part of this retained Habitat pass.
+unqualified. The completed same-room UE/SPEAR result is retained as a separate
+supplementary visual-engine canary. It does not enter the Habitat gate or
+qualify full-body clearance, room materials, lighting equivalence, acoustics,
+or dataset admission.
 
 Four-channel FOA remains an independent WAV authority when produced; it is not
 placed in MP4. Review MP4s carry only two-channel binaural audio because
