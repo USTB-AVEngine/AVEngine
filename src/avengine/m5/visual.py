@@ -96,19 +96,45 @@ def _instantiate_actor_with_semantic_template(
     base_handle: str,
     semantic_id: int,
     actor_index: int,
+    light_setup_key: str | None = None,
+    shader_type: str | None = None,
 ) -> tuple[Any, Any]:
+    if light_setup_key is not None and (
+        not isinstance(light_setup_key, str) or not light_setup_key
+    ):
+        raise HabitatCaptureError(
+            "M5 AO light_setup_key must be a non-empty string when provided"
+        )
+    if shader_type is not None and shader_type not in {
+        "material",
+        "flat",
+        "phong",
+        "pbr",
+    }:
+        raise HabitatCaptureError(
+            "M5 AO shader_type must be material, flat, phong, or pbr"
+        )
     manager = simulator.metadata_mediator.ao_template_manager
     attributes = manager.get_template_by_handle(base_handle)
     if attributes is None:
         raise HabitatCaptureError("cannot retrieve the loaded M5 AO template")
     attributes.semantic_id = int(semantic_id)
+    if shader_type is not None:
+        attributes.shader_type = shader_type
     handle = f"{base_handle}.m5_actor{actor_index}_semantic{semantic_id}"
     registered = manager.register_template(attributes, handle)
     if int(registered) < 0:
         raise HabitatCaptureError("failed to register a semantic M5 AO template")
-    articulated_object = simulator.get_articulated_object_manager().add_articulated_object_by_template_handle(
-        handle
-    )
+    object_manager = simulator.get_articulated_object_manager()
+    if light_setup_key is None:
+        articulated_object = object_manager.add_articulated_object_by_template_handle(
+            handle
+        )
+    else:
+        articulated_object = object_manager.add_articulated_object_by_template_handle(
+            handle,
+            light_setup_key=light_setup_key,
+        )
     if articulated_object is None:
         raise HabitatCaptureError(
             "Habitat failed to instantiate an M5 articulated actor"
@@ -143,6 +169,12 @@ def _instantiate_actor_with_semantic_template(
         raise HabitatCaptureError(
             "M5 AO creation semantic ID differs from its template"
         )
+    if shader_type is not None:
+        actual_shader_type = str(getattr(creation.shader_type, "name", "")).lower()
+        if actual_shader_type != shader_type:
+            raise HabitatCaptureError(
+                "M5 AO creation shader type differs from its template"
+            )
     _set_scene_node_semantic_readback(articulated_object, semantic_id)
     return articulated_object, binding
 

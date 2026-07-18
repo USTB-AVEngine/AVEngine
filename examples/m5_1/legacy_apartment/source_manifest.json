@@ -2409,7 +2409,19 @@
               "summary": "Camera-local lateral coordinate spans both signs.",
               "measurement": {
                 "metric": "camera_local_lateral_min_m",
-                "value": -6.944203453691106,
+                "value": -1.8807635032316918,
+                "unit": "m"
+              }
+            },
+            {
+              "evidence_id": "source0_crosses_azimuth_zero_max",
+              "kind": "metric",
+              "uri": "repo://examples/m5_1/legacy_apartment/route_manifest.json",
+              "sha256": "703a7a60fead9a6b489d73071ae5e1cd160e6ca4bef91fb35de47691509be92e",
+              "summary": "Camera-local lateral coordinate also reaches the positive side.",
+              "measurement": {
+                "metric": "camera_local_lateral_max_m",
+                "value": 4.502004709237127,
                 "unit": "m"
               }
             }
@@ -4945,7 +4957,19 @@
               "summary": "Camera-local lateral coordinate spans both signs.",
               "measurement": {
                 "metric": "camera_local_lateral_min_m",
-                "value": -7.1449552064139725,
+                "value": -2.0815152559545584,
+                "unit": "m"
+              }
+            },
+            {
+              "evidence_id": "source1_crosses_azimuth_zero_max",
+              "kind": "metric",
+              "uri": "repo://examples/m5_1/legacy_apartment/route_manifest.json",
+              "sha256": "703a7a60fead9a6b489d73071ae5e1cd160e6ca4bef91fb35de47691509be92e",
+              "summary": "Camera-local lateral coordinate also reaches the positive side.",
+              "measurement": {
+                "metric": "camera_local_lateral_max_m",
+                "value": 4.301252956514261,
                 "unit": "m"
               }
             }
@@ -8061,5 +8085,5 @@
       ]
     }
   },
-  "manifest_content_sha256": "67f3846657bd8c7865f50b2837940eb55717350e465c9bbde080a5480a920977"
+  "manifest_content_sha256": "5c3611aa324792a43e3a5e2946ea23419411972b850a20af051b57cc631bccb9"
 }

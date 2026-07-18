@@ -122,9 +122,6 @@ def _make_75_frame_variant() -> dict:
             "end_frame_exclusive": 25,
         }
     ]
-    dog["flags"]["crosses_azimuth_zero"].update(
-        {"status": "absent", "value": False}
-    )
     value["relationships"][0]["flags"]["sources_pass_each_other"].update(
         {"status": "absent", "value": False}
     )

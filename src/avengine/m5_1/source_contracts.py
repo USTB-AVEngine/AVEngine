@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from jsonschema import Draft202012Validator
 
 from avengine.contracts.json_io import canonical_json_sha256, load_json, sha256_file
+from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
 
 
 SOURCE_MANIFEST_SCHEMA = "avengine_m5_1_source_manifest_v1"
@@ -882,8 +883,7 @@ def _trajectory_flag_errors(
 ) -> list[str]:
     errors: list[str] = []
     observer_position = tuple(float(item) for item in observer["position_m"])
-    yaw = math.radians(float(observer["yaw_deg"]))
-    right_xz = (math.cos(yaw), math.sin(yaw))
+    right_xz = habitat_basis_from_yaw_degrees(observer["yaw_deg"]).right_xz
     positions_by_source: dict[str, list[tuple[float, float, float]]] = {}
     for index, source in enumerate(sources):
         positions = [

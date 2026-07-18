@@ -405,6 +405,9 @@ def main(argv: list[str] | None = None) -> int:
             actor_center_paths_m={"human0": route_paths.human, "dog0": route_paths.beagle},
             listener_position_m=listener,
             listener_yaw_deg=listener_yaw,
+            camera_hfov_degrees=float(
+                request["primary_camera_rig"]["shared_calibration"]["hfov_degrees"]
+            ),
             clearance_m=navmesh.clearance_m,
             shared_island_id=int(shared_islands[0]),
         )

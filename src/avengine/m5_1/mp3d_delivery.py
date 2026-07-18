@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from numbers import Real
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -21,6 +22,11 @@ from avengine.m5_1.delivery import (
     SOURCE_ANCHOR_INDEX,
     event_overlay_state,
     semantic_centroid_track,
+)
+from avengine.m5_1.orientation import (
+    M51OrientationError,
+    habitat_basis_from_yaw_degrees,
+    habitat_yaw_degrees_from_xyzw,
 )
 from avengine.m5_1.review import SourceOverlayTrack
 
@@ -59,15 +65,10 @@ def _font(size: int) -> ImageFont.ImageFont:
 def listener_yaw_degrees(rotation_xyzw: Sequence[float]) -> float:
     """Return Habitat Y-up yaw from a normalized XYZW quaternion."""
 
-    value = np.asarray(rotation_xyzw, dtype=np.float64)
-    if value.shape != (4,) or not np.all(np.isfinite(value)):
-        raise M51DeliveryError("listener rotation must be finite XYZW")
-    norm = float(np.linalg.norm(value))
-    if norm <= 1.0e-12:
-        raise M51DeliveryError("listener rotation quaternion has zero norm")
-    x, y, z, w = value / norm
-    # Yaw about +Y.  This reduces to +theta for q=(0,sin(theta/2),0,cos(theta/2)).
-    return math.degrees(math.atan2(2.0 * (w * y + x * z), 1.0 - 2.0 * (y * y + z * z)))
+    try:
+        return habitat_yaw_degrees_from_xyzw(rotation_xyzw)
+    except M51OrientationError as exc:
+        raise M51DeliveryError(f"listener rotation is invalid: {exc}") from exc
 
 
 def source_program_reuse_record(source_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -341,11 +342,16 @@ def render_mp3d_topdown_frames(
     actor_center_paths_m: Mapping[str, Any],
     listener_position_m: Sequence[float],
     listener_yaw_deg: float,
+    camera_hfov_degrees: float,
     clearance_m: Mapping[str, Any],
     shared_island_id: int,
     size_wh: tuple[int, int] = (640, 480),
 ) -> np.ndarray:
-    """Render real-navmesh complete/current paths as a QA-only panel."""
+    """Render real-navmesh complete/current paths as a QA-only panel.
+
+    The wedge is the visual camera HFOV.  It is not an acoustic audibility
+    gate; this review contract intentionally defines no microphone cutoff.
+    """
 
     navmesh = np.asarray(navmesh_binary_map, dtype=np.uint8)
     if navmesh.ndim != 2 or not np.any(navmesh) or np.any(~np.isin(navmesh, (0, 1))):
@@ -365,6 +371,17 @@ def render_mp3d_topdown_frames(
     listener = np.asarray(listener_position_m, dtype=np.float64)
     if listener.shape != (3,) or not np.all(np.isfinite(listener)):
         raise M51DeliveryError("listener position must be finite [3]")
+    if (
+        isinstance(camera_hfov_degrees, bool)
+        or not isinstance(camera_hfov_degrees, Real)
+        or not math.isfinite(float(camera_hfov_degrees))
+        or not 0.0 < float(camera_hfov_degrees) < 180.0
+    ):
+        raise M51DeliveryError("camera_hfov_degrees must be finite within (0,180)")
+    try:
+        listener_basis = habitat_basis_from_yaw_degrees(listener_yaw_deg)
+    except M51OrientationError as exc:
+        raise M51DeliveryError(f"listener yaw is invalid: {exc}") from exc
     width, height = size_wh
     if width < 320 or height < 240:
         raise M51DeliveryError("MP3D Topdown output must be at least 320x240")
@@ -411,6 +428,17 @@ def render_mp3d_topdown_frames(
             float((pixel[1] - crop_low[1]) / denominator[1] * (height - 1)),
         )
 
+    def panel_direction(
+        direction_xz: Sequence[float], *, pixel_length: float
+    ) -> np.ndarray:
+        direction = np.asarray(direction_xz, dtype=np.float64)
+        endpoint = listener + np.asarray((direction[0], 0.0, direction[1]))
+        delta = np.asarray(panel_point(endpoint)) - np.asarray(panel_point(listener))
+        norm = float(np.linalg.norm(delta))
+        if norm <= 1.0e-12:
+            raise M51DeliveryError("listener orientation has degenerate Topdown projection")
+        return delta / norm * pixel_length
+
     projected = {
         actor_id: [panel_point(point) for point in path]
         for actor_id, path in paths.items()
@@ -420,11 +448,30 @@ def render_mp3d_topdown_frames(
         "dog0": (250, 120, 70, 255),
     }
     listener_xy = panel_point(listener)
-    yaw = math.radians(float(listener_yaw_deg))
-    forward = np.asarray((math.sin(yaw), -math.cos(yaw)), dtype=np.float64)
+    forward_xz = np.asarray(listener_basis.forward_xz, dtype=np.float64)
+    right_xz = np.asarray(listener_basis.right_xz, dtype=np.float64)
+    half_fov = math.radians(float(camera_hfov_degrees) * 0.5)
+    left_ray_xz = math.cos(half_fov) * forward_xz - math.sin(half_fov) * right_xz
+    right_ray_xz = math.cos(half_fov) * forward_xz + math.sin(half_fov) * right_xz
+    wedge_length = max(42.0, min(width, height) * 0.18)
+    forward_delta = panel_direction(forward_xz, pixel_length=34.0)
+    right_delta = panel_direction(right_xz, pixel_length=24.0)
+    left_ray_delta = panel_direction(left_ray_xz, pixel_length=wedge_length)
+    right_ray_delta = panel_direction(right_ray_xz, pixel_length=wedge_length)
     frames: list[np.ndarray] = []
     for frame_index in range(frame_count):
         image = base.convert("RGBA")
+        lx, ly = listener_xy
+        wedge_overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        wedge_draw = ImageDraw.Draw(wedge_overlay, "RGBA")
+        wedge = (
+            (lx, ly),
+            (lx + left_ray_delta[0], ly + left_ray_delta[1]),
+            (lx + right_ray_delta[0], ly + right_ray_delta[1]),
+        )
+        wedge_draw.polygon(wedge, fill=(46, 154, 255, 48))
+        wedge_draw.line((*wedge, wedge[0]), fill=(46, 154, 255, 190), width=2)
+        image = Image.alpha_composite(image, wedge_overlay)
         draw = ImageDraw.Draw(image, "RGBA")
         for actor_id in ("human0", "dog0"):
             color = styles[actor_id]
@@ -441,9 +488,39 @@ def render_mp3d_topdown_frames(
                 stroke_width=2,
                 stroke_fill=(0, 0, 0, 255),
             )
-        lx, ly = listener_xy
         draw.ellipse((lx - 7, ly - 7, lx + 7, ly + 7), fill=(255, 224, 66, 255), outline=(0, 0, 0, 255), width=2)
-        draw.line((lx, ly, lx + 22 * forward[0], ly + 22 * forward[1]), fill=(20, 20, 20, 255), width=4)
+        left_ear = (lx - right_delta[0], ly - right_delta[1])
+        right_ear = (lx + right_delta[0], ly + right_delta[1])
+        draw.line((*left_ear, *right_ear), fill=(210, 80, 220, 255), width=3)
+        draw.text(
+            (left_ear[0] - 5, left_ear[1] - 13),
+            "L",
+            fill=(255, 255, 255, 255),
+            font=_font(10),
+            stroke_width=2,
+            stroke_fill=(0, 0, 0, 255),
+        )
+        draw.text(
+            (right_ear[0] - 4, right_ear[1] - 13),
+            "R",
+            fill=(255, 255, 255, 255),
+            font=_font(10),
+            stroke_width=2,
+            stroke_fill=(0, 0, 0, 255),
+        )
+        draw.line(
+            (lx, ly, lx + forward_delta[0], ly + forward_delta[1]),
+            fill=(20, 20, 20, 255),
+            width=4,
+        )
+        draw.text(
+            (lx + forward_delta[0] - 4, ly + forward_delta[1] - 13),
+            "F",
+            fill=(255, 255, 255, 255),
+            font=_font(10),
+            stroke_width=2,
+            stroke_fill=(0, 0, 0, 255),
+        )
         draw.text((lx + 10, ly + 5), "CAM/LISTENER", fill=(255, 235, 90, 255), font=_font(11), stroke_width=2, stroke_fill=(0, 0, 0, 255))
         draw.rectangle((0, 0, width - 1, 45), fill=(0, 0, 0, 190))
         separation = float(np.linalg.norm(paths["human0"][frame_index] - paths["dog0"][frame_index]))
@@ -461,6 +538,14 @@ def render_mp3d_topdown_frames(
             ),
             fill=(225, 225, 225, 255),
             font=_font(12),
+        )
+        draw.text(
+            (8, height - 37),
+            f"VISUAL HFOV={float(camera_hfov_degrees):g} deg only | AUDIO: no mic-distance cutoff",
+            fill=(255, 255, 255, 255),
+            font=_font(11),
+            stroke_width=2,
+            stroke_fill=(0, 0, 0, 255),
         )
         draw.text(
             (8, height - 20),

@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m2.glb import extract_actions, extract_skins, parse_glb
 from avengine.m2.glb_write import build_glb
 from avengine.m5_1.human_runtime import (
@@ -18,7 +19,10 @@ from avengine.m5_1.human_runtime import (
 )
 from avengine.m5_1.mixed_capture import (
     MixedCaptureError,
+    _actor_heading_evidence,
+    _beagle_anatomical_forward_binding,
     _continuous_beagle_walk_states,
+    _human_anatomical_forward_binding,
     capture_legacy_route,
     trajectory_world_matrices,
 )
@@ -128,7 +132,17 @@ def test_promote_rocketbox_appends_zero_weight_ancestors_without_reindexing() ->
     )
 
 
-def test_trajectory_world_matrices_preserve_points_and_face_local_minus_z() -> None:
+@pytest.mark.parametrize(
+    "local_forward_axis",
+    [
+        (0.0, 0.0, -1.0),
+        (0.0, 0.0, 1.0),
+        (1.0, 0.0, 0.0),
+    ],
+)
+def test_trajectory_world_matrices_preserve_points_and_align_asset_forward(
+    local_forward_axis: tuple[float, float, float],
+) -> None:
     points = np.column_stack(
         (
             np.linspace(-1.0, 2.0, 270),
@@ -136,15 +150,134 @@ def test_trajectory_world_matrices_preserve_points_and_face_local_minus_z() -> N
             np.linspace(3.0, -4.0, 270),
         )
     )
-    matrices = trajectory_world_matrices(points)
+    matrices = trajectory_world_matrices(
+        points, local_forward_axis=local_forward_axis
+    )
     expected_forward = points[-1] - points[0]
     expected_forward[1] = 0.0
     expected_forward /= np.linalg.norm(expected_forward)
 
     assert matrices.shape == (270, 4, 4)
     assert np.array_equal(matrices[:, :3, 3], points)
-    assert np.allclose(matrices[:, :3, :3] @ np.asarray([0.0, 0.0, -1.0]), expected_forward)
+    assert np.allclose(
+        matrices[:, :3, :3] @ np.asarray(local_forward_axis), expected_forward
+    )
     assert np.allclose(np.linalg.det(matrices[:, :3, :3]), 1.0)
+
+
+def test_trajectory_world_matrices_reject_vertical_or_implicit_forward_axis() -> None:
+    points = np.column_stack(
+        (
+            np.linspace(0.0, 1.0, 270),
+            np.zeros(270),
+            np.zeros(270),
+        )
+    )
+    with pytest.raises(TypeError, match="local_forward_axis"):
+        trajectory_world_matrices(points)  # type: ignore[call-arg]
+    with pytest.raises(MixedCaptureError, match="must be horizontal"):
+        trajectory_world_matrices(
+            points, local_forward_axis=(0.0, 1.0, 0.0)
+        )
+
+
+def test_actor_heading_evidence_retains_every_frame_and_fails_closed() -> None:
+    points = np.column_stack(
+        (
+            np.linspace(0.0, 2.0, 270),
+            np.full(270, 0.271),
+            np.zeros(270),
+        )
+    )
+    matrices = trajectory_world_matrices(
+        points, local_forward_axis=(0.0, 0.0, 1.0)
+    )
+    evidence = _actor_heading_evidence(
+        actor_id="human0",
+        points_m=points,
+        actor_world_matrices=matrices,
+        local_forward_axis=(0.0, 0.0, 1.0),
+        binding_source={"kind": "unit_test", "declared_axis": "+Z"},
+    )
+
+    assert evidence["status"] == "pass"
+    assert evidence["gate"]["all_frames_passed"] is True
+    assert len(evidence["frames"]) == 270
+    assert all(frame["passed"] for frame in evidence["frames"])
+    assert evidence["frames"][137]["path_tangent_world"] == [1.0, 0.0, 0.0]
+
+    wrong = np.repeat(np.eye(4, dtype=np.float64)[None, :, :], 270, axis=0)
+    wrong[:, :3, 3] = points
+    with pytest.raises(MixedCaptureError, match="heading gate failed"):
+        _actor_heading_evidence(
+            actor_id="human0",
+            points_m=points,
+            actor_world_matrices=wrong,
+            local_forward_axis=(0.0, 0.0, 1.0),
+            binding_source={"kind": "unit_test", "declared_axis": "+Z"},
+        )
+
+
+def test_human_forward_binding_reads_hash_closed_runtime_metadata(
+    tmp_path: Path,
+) -> None:
+    manifest = {
+        "schema": "avengine_m5_1_rocketbox_human_runtime_v1",
+        "status": "pass",
+        "anatomical_frame": {
+            "actor_up_axis": "+Y",
+            "actor_forward_axis": "+Z",
+            "source": "fixture_rest_pose_head_to_mjaw_axis",
+        },
+    }
+    manifest["manifest_content_sha256"] = canonical_json_sha256(manifest)
+    path = tmp_path / "human_runtime_manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    axis, source = _human_anatomical_forward_binding(path)
+
+    assert axis == (0.0, 0.0, 1.0)
+    assert source["declared_axis"] == "+Z"
+    assert source["sha256"] == sha256_file(path)
+
+
+def test_beagle_forward_binding_reads_manifest_bound_animation_qa(
+    tmp_path: Path,
+) -> None:
+    qa = {
+        "schema": "avengine_m2_animation_qa_v1",
+        "status": "pass",
+        "semantic_terminal_motion": {
+            "actor_up_axis": "+Y",
+            "source_facing_axis_in_actor_frame": "+X",
+        },
+    }
+    qa_path = tmp_path / "animation.json"
+    qa_path.write_text(json.dumps(qa), encoding="utf-8")
+    asset = {
+        "files": [
+            {
+                "role": "animation_qa",
+                "path": qa_path.name,
+                "byte_size": qa_path.stat().st_size,
+                "sha256": sha256_file(qa_path),
+            }
+        ]
+    }
+
+    axis, source = _beagle_anatomical_forward_binding(
+        asset=asset, asset_manifest_path=tmp_path / "asset_manifest.json"
+    )
+
+    assert axis == (1.0, 0.0, 0.0)
+    assert source["declared_axis"] == "+X"
+    assert source["sha256"] == sha256_file(qa_path)
+
+    qa_path.write_text(json.dumps({**qa, "status": "fail"}), encoding="utf-8")
+    with pytest.raises(MixedCaptureError, match="bytes differ"):
+        _beagle_anatomical_forward_binding(
+            asset=asset, asset_manifest_path=tmp_path / "asset_manifest.json"
+        )
 
 
 @dataclass(frozen=True)

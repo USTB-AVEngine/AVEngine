@@ -20,6 +20,8 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
+
 
 REVIEW_SCHEMA = "avengine_m5_1_annotated_review_v1"
 REVIEW_WIDTH = 1280
@@ -126,14 +128,14 @@ def _source_geometry(
     listener = np.asarray(listener_position_m, dtype=np.float64)
     delta = source - listener
     distance = float(np.linalg.norm(delta))
-    # Habitat's world forward is -Z.  Yaw 0 therefore has right vector +X;
-    # positive local azimuth is listener-left, matching M4/M5 diagnostics.
-    yaw = math.radians(float(listener_yaw_deg))
-    right = np.asarray((math.cos(yaw), 0.0, math.sin(yaw)), dtype=np.float64)
-    forward = np.asarray((math.sin(yaw), 0.0, -math.cos(yaw)), dtype=np.float64)
+    # Match RLR/Habitat exactly: world_from_listener rotates local forward -Z
+    # and local/right-ear +X.  M4/M5 diagnostics define positive azimuth right.
+    basis = habitat_basis_from_yaw_degrees(listener_yaw_deg)
+    right = np.asarray(basis.right_xyz, dtype=np.float64)
+    forward = np.asarray(basis.forward_xyz, dtype=np.float64)
     local_right = float(np.dot(delta, right))
     local_forward = float(np.dot(delta, forward))
-    azimuth = math.degrees(math.atan2(-local_right, local_forward))
+    azimuth = math.degrees(math.atan2(local_right, local_forward))
     return distance, azimuth
 
 

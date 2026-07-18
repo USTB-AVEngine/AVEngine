@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from avengine.m5_1.legacy_route import assert_valid_route_manifest
+from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
 
 
 TOPDOWN_SCHEMA = "avengine_m5_1_legacy_topdown_v1"
@@ -80,7 +81,11 @@ def render_legacy_topdown_frame(
     size_wh: tuple[int, int] = (320, 240),
     _prepared: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> np.ndarray:
-    """Render one complete-path QA frame; Topdown never becomes a formal view."""
+    """Render one complete-path QA frame; Topdown never becomes a formal view.
+
+    The wedge is the visual camera HFOV.  It is not an acoustic audibility
+    gate; this review contract intentionally defines no microphone cutoff.
+    """
 
     if _prepared is None:
         assert_valid_route_manifest(route_manifest)
@@ -167,23 +172,81 @@ def render_legacy_topdown_frame(
 
     camera = np.asarray(route_manifest["camera"]["habitat_position_m"], dtype=np.float64)
     camera_xy = project_xz(camera[[0, 2]])
-    yaw = math.radians(float(route_manifest["camera"]["habitat_yaw_deg"]))
-    forward_xz = np.asarray((math.sin(yaw), -math.cos(yaw)), dtype=np.float64)
-    camera_end = (
-        camera_xy[0] + 15.0 * forward_xz[0],
-        camera_xy[1] - 15.0 * forward_xz[1],
+    basis = habitat_basis_from_yaw_degrees(
+        float(route_manifest["camera"]["habitat_yaw_deg"])
     )
+    forward_xz = np.asarray(basis.forward_xz, dtype=np.float64)
+    right_xz = np.asarray(basis.right_xz, dtype=np.float64)
+
+    def screen_direction(
+        direction_xz: Sequence[float], *, pixel_length: float
+    ) -> np.ndarray:
+        endpoint = project_xz(camera[[0, 2]] + np.asarray(direction_xz))
+        delta = np.asarray(endpoint) - np.asarray(camera_xy)
+        norm = float(np.linalg.norm(delta))
+        if norm <= 1.0e-12:
+            raise M51TopdownError("camera orientation has degenerate Topdown projection")
+        return delta / norm * pixel_length
+
+    hfov_degrees = float(route_manifest["camera"]["horizontal_fov_deg"])
+    half_fov = math.radians(hfov_degrees * 0.5)
+    left_ray_xz = math.cos(half_fov) * forward_xz - math.sin(half_fov) * right_xz
+    right_ray_xz = math.cos(half_fov) * forward_xz + math.sin(half_fov) * right_xz
+    left_ray_delta = screen_direction(left_ray_xz, pixel_length=44.0)
+    right_ray_delta = screen_direction(right_ray_xz, pixel_length=44.0)
+    forward_delta = screen_direction(forward_xz, pixel_length=23.0)
+    ear_delta = screen_direction(right_xz, pixel_length=16.0)
+    wedge = (
+        camera_xy,
+        (camera_xy[0] + left_ray_delta[0], camera_xy[1] + left_ray_delta[1]),
+        (camera_xy[0] + right_ray_delta[0], camera_xy[1] + right_ray_delta[1]),
+    )
+    draw.polygon(wedge, fill=(46, 154, 255, 45))
+    draw.line((*wedge, wedge[0]), fill=(46, 154, 255, 180), width=2)
     draw.ellipse(
         (camera_xy[0] - 5, camera_xy[1] - 5, camera_xy[0] + 5, camera_xy[1] + 5),
         fill=(255, 224, 66, 255),
         outline=(0, 0, 0, 255),
     )
+    left_ear = (camera_xy[0] - ear_delta[0], camera_xy[1] - ear_delta[1])
+    right_ear = (camera_xy[0] + ear_delta[0], camera_xy[1] + ear_delta[1])
+    draw.line((*left_ear, *right_ear), fill=(175, 40, 190, 255), width=2)
+    draw.text(
+        (left_ear[0] - 4, left_ear[1] - 11),
+        "L",
+        font=_font(9),
+        fill=(255, 255, 255, 255),
+        stroke_width=1,
+        stroke_fill=(0, 0, 0, 255),
+    )
+    draw.text(
+        (right_ear[0] - 3, right_ear[1] - 11),
+        "R",
+        font=_font(9),
+        fill=(255, 255, 255, 255),
+        stroke_width=1,
+        stroke_fill=(0, 0, 0, 255),
+    )
+    camera_end = (
+        camera_xy[0] + forward_delta[0],
+        camera_xy[1] + forward_delta[1],
+    )
     draw.line((*camera_xy, *camera_end), fill=(20, 20, 20, 255), width=3)
     draw.text(
-        (camera_xy[0] + 7, camera_xy[1] + 2),
+        (camera_end[0] - 3, camera_end[1] - 11),
+        "F",
+        font=_font(9),
+        fill=(255, 255, 255, 255),
+        stroke_width=1,
+        stroke_fill=(0, 0, 0, 255),
+    )
+    draw.text(
+        (camera_xy[0] + 7, camera_xy[1] + 10),
         "CAM/LISTENER",
         font=_font(9),
         fill=(30, 30, 30, 255),
+        stroke_width=1,
+        stroke_fill=(255, 255, 255, 230),
     )
 
     gate_h = route_manifest["gates"]["human_center_point_aabb"]["frames"][frame_index]["status"]
@@ -193,6 +256,13 @@ def render_legacy_topdown_frame(
         (7, 6),
         f"TOPDOWN QA {frame_index:03d}/{human.shape[0]-1:03d}  point gate H={gate_h} D={gate_d}",
         font=_font(10),
+        fill=(255, 255, 255, 255),
+    )
+    draw.rectangle((3, height - 19, width - 4, height - 3), fill=(0, 0, 0, 178))
+    draw.text(
+        (7, height - 17),
+        f"VISUAL HFOV={hfov_degrees:g} deg only | AUDIO: no mic-distance cutoff",
+        font=_font(9),
         fill=(255, 255, 255, 255),
     )
     return np.ascontiguousarray(np.asarray(image, dtype=np.uint8))

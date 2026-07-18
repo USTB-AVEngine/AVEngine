@@ -76,12 +76,19 @@ research-review `pass` for its completed route, source/event, legacy-Apartment
 delivery, and MP3D visual gates. It runs one animated Rocketbox human and one
 animated Beagle for 18 seconds/270 frames, preserves the old Apartment
 route/camera, validates center-only obstacle/navigation constraints, and adds
-detailed tri-state source/event/flag JSON. The retained Apartment output
-includes a two-channel binaural annotated Habitat + Topdown video and an old
-UE | new Habitat | Topdown comparison. MP3D passes a real declared-navmesh
+detailed tri-state source/event/flag JSON. A corrected retained pass binds the
+human's local anatomical `+Z` and the Beagle's local `+X` to the route tangent
+on 270/270 frames per actor in both rooms; it supersedes the earlier
+backward-human/sideways-Beagle review media. Both actors read back PBR, use the
+loaded room's common light setup, and render with HBAO enabled. The retained
+Apartment output includes a two-channel binaural annotated Habitat + Topdown
+video and an old UE | new Habitat | Topdown comparison. MP3D passes a real declared-navmesh
 14/14 visual gate and retains its own 18-second annotated binaural listening
-video. Its RLR-only research package removes exactly one wholly degenerate
-scan primitive (458 zero-area triangles) without changing the visual room;
+video. Both Topdown panels use the shared Habitat camera/listener basis and
+show a visual HFOV wedge plus forward/left-ear/right-ear axes; audio has no
+camera-FOV or distance cutoff. Its RLR-only research package removes exactly
+one wholly degenerate scan primitive (458 zero-area triangles) without
+changing the visual room;
 the remaining geometry/material QA states stay explicit. See
 [`M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md). All M5.1 rooms/materials and
 media remain unqualified research evidence; dataset admission is false.
@@ -161,7 +168,7 @@ arbitrary generated episode is synchronized.
 | M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
-| M5.1 | mixed human/Beagle real-room and legacy 18-second comparison, detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
+| M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
 | M6 | registry/QA/CLI and admitted dataset canary |
 | M7 | benchmark, ablations, paper and release audit |
 
@@ -256,7 +263,10 @@ The installed MP3D dataset config has an empty `light_setups` table and
 `default_lighting: no_lights`; its apparent illumination is baked into the
 scan textures. Importing the room mesh alone into an unlit UE level therefore
 does not provide a normal dynamic animal shadow. A runtime shadow-casting
-light must be added and calibrated against the baked appearance.
+light must be added and calibrated against the baked appearance. M5.1 copies
+the loaded room setup to one actor-light key, binds both PBR actors to it and
+enables HBAO; MP3D correctly reads back zero room lights. HBAO is screen-space
+ambient occlusion, not a dynamic shadow map or evidence of UE-quality shadows.
 
 The three cross-species assets remain review-only because no species-specific
 formal promotion has occurred, and `qualification_claim` is false. See
@@ -393,8 +403,16 @@ also verifies video packet identity. See
 M5.1 preserves the old 18-second Apartment route and adds one animated human
 plus one animated Beagle, exact center-point gates, actual animated emitter
 link trajectories, detailed source/event/flag records, dynamic binaural review
-audio, and annotated main-view + Topdown QA media. Its ordinary MP4 contains
-two-channel binaural audio; Topdown remains QA-only and any four-channel FOA
+audio, and annotated main-view + Topdown QA media. Human local `+Z` and Beagle
+local `+X` anatomical-forward declarations now align to movement on every one
+of 270 frames per actor in each retained room; the earlier backward/sideways
+captures are superseded. Both actors are PBR, share the loaded room-light
+setup and read back HBAO enabled. The Legacy setup has three lights, while the
+MP3D scan has zero runtime lights and retains baked scan illumination. Its
+Topdown visual uses the shared Habitat `world_from_local` listener basis,
+visual-HFOV wedge and `F`/`L`/`R` axes; no audio FOV/distance cutoff is implied.
+Its ordinary MP4 contains two-channel binaural audio; Topdown remains QA-only
+and any four-channel FOA
 authority remains a separate WAV. The legacy room's acoustic package retains
 its real `fail`/`not_run` QA reports and `research_placeholder` material
 semantics. The real MP3D gate qualifies actor root centers on the declared

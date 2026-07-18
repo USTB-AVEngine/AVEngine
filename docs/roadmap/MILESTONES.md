@@ -248,13 +248,22 @@ Deliverables: one animated human and one animated dog; migrated 18-second,
 270-frame legacy Apartment route/camera; a zero-radius center-point obstacle
 gate; a real scanned-room review; synchronized main-view + right-side Topdown
 media; and detailed per-source taxonomy, provenance, event windows,
-per-source/pair/clip flags, and frame-current event state.
+per-source/pair/clip flags, and frame-current event state. The corrected pass
+also freezes per-asset anatomical-forward declarations, binds both PBR actors
+to the loaded room-light setup with HBAO, and renders listener-aware Topdown
+QA with the visual HFOV wedge and `F`/`L`/`R` axes. Topdown has no audio-FOV or
+distance-cutoff semantics.
 
 Exit criteria: the old route and coordinate transform are hash-bound; both
 actor centers avoid every declared gate obstacle on every frame; human/dog
 semantic identities and mouth/muzzle anchors read back; the legacy comparison
-video uses the same camera/path duration as the old AVEngine reference; the
-real-room canary executes without center-point penetration; source/event/flag
+video uses the same camera/path duration as the old AVEngine reference; human
+local `+Z` and Beagle local `+X` anatomical forward align to the route tangent
+on 270/270 frames per actor in both rooms; PBR and HBAO readbacks pass; both
+actor creation calls record the same room-light key and the registered setup
+reads back equal to the current room setup (the pinned binding exposes no
+native per-actor key getter); the real-room canary executes without center-point
+penetration; source/event/flag
 JSON validates and reconstructs every per-frame active event; and all review
 media is explicitly QA/research-only. The legacy route, mixed capture,
 source/event/flag contract, dynamic binaural delivery, and old/new comparison
@@ -265,6 +274,8 @@ full articulated-mesh clearance or full-body framing. The MP3D listening
 delivery additionally passes exact 270-frame/288,000-sample media readback
 with 90 dynamic two-source binaural RIR keyframes. Apartment/MP3D materials
 remain `research_placeholder`/unqualified and dataset admission is false.
+The Legacy room exposes three current/registered lights. MP3D exposes zero;
+its scan illumination is baked, and HBAO is not dynamic-shadow evidence.
 
 ## M6: Dataset MVP
 

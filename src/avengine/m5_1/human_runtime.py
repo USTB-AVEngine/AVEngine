@@ -66,6 +66,10 @@ MOUTH_LINK_NAME = "Bip01 MJaw"
 DEFAULT_SEMANTIC_ID = 220
 SOURCE_ACTION_NAMES = ("Walking", "Standing_Idle")
 RUNTIME_ACTION_ALIASES = {"Standing_Idle": "Idle"}
+HUMAN_ANATOMICAL_FORWARD_AXIS_LABEL = "+Z"
+HUMAN_ANATOMICAL_FORWARD_SOURCE = (
+    "rocketbox_male_adult_01_rest_pose_head_to_mjaw_horizontal_axis"
+)
 
 
 class HumanRuntimeError(ValueError):
@@ -449,6 +453,11 @@ def prepare_rocketbox_habitat_runtime(
                 "head_link": HEAD_LINK_NAME,
                 "mouth_emitter_link": MOUTH_LINK_NAME,
             },
+            "anatomical_frame": {
+                "actor_up_axis": "+Y",
+                "actor_forward_axis": HUMAN_ANATOMICAL_FORWARD_AXIS_LABEL,
+                "source": HUMAN_ANATOMICAL_FORWARD_SOURCE,
+            },
             "actor_from_skin_root": [list(row) for row in actor_from_skin_root],
             "notes": [
                 "No static-human sliding fallback is allowed.",
@@ -488,6 +497,8 @@ __all__ = [
     "ARMATURE_NODE_NAME",
     "DEFAULT_SEMANTIC_ID",
     "HEAD_LINK_NAME",
+    "HUMAN_ANATOMICAL_FORWARD_AXIS_LABEL",
+    "HUMAN_ANATOMICAL_FORWARD_SOURCE",
     "HumanRuntimeError",
     "HumanRuntimePackage",
     "MOUTH_LINK_NAME",

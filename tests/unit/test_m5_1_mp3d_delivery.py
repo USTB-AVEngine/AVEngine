@@ -85,6 +85,7 @@ def test_real_navmesh_topdown_renderer_has_exact_review_shape_and_progress() -> 
         actor_center_paths_m={"human0": human, "dog0": dog},
         listener_position_m=(-4.15, 1.57, -1.25),
         listener_yaw_deg=0.0,
+        camera_hfov_degrees=90.0,
         clearance_m={"human0": np.full(3, 0.6), "dog0": np.full(3, 0.3)},
         shared_island_id=1,
         size_wh=(640, 480),

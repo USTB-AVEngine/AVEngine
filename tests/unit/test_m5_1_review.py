@@ -6,6 +6,7 @@ import pytest
 from avengine.m5_1.review import (
     M51ReviewError,
     SourceOverlayTrack,
+    _source_geometry,
     compose_annotated_frames,
     encode_annotated_review,
 )
@@ -52,6 +53,15 @@ def test_compose_annotated_frames_is_deterministic_and_exact_shape() -> None:
     assert first.dtype == np.uint8
     assert np.array_equal(first, second)
     assert np.count_nonzero(first) > 0
+
+
+def test_source_geometry_uses_habitat_forward_and_positive_right_azimuth() -> None:
+    listener = (0.0, 0.0, 0.0)
+
+    # At +90-degree Habitat yaw, head-forward is world -X and right ear is -Z.
+    assert _source_geometry((-2.0, 0.0, 0.0), listener, 90.0) == (2.0, 0.0)
+    assert _source_geometry((0.0, 0.0, -2.0), listener, 90.0) == (2.0, 90.0)
+    assert _source_geometry((0.0, 0.0, 2.0), listener, 90.0) == (2.0, -90.0)
 
 
 def test_compose_rejects_event_length_mismatch() -> None:

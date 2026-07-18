@@ -26,6 +26,7 @@ from avengine.contracts.json_io import (
     canonical_json_sha256,
     file_record,
     load_json,
+    resolve_declared_path,
     sha256_file,
 )
 from avengine.contracts.transforms import normalized_quaternion_xyzw
@@ -76,6 +77,7 @@ from avengine.m5_1.legacy_route import (
 
 
 MIXED_CAPTURE_SCHEMA = "avengine_m5_1_human_beagle_capture_v1"
+HEADING_ALIGNMENT_SCHEMA = "avengine_m5_1_actor_heading_gate_v1"
 HUMAN_SEMANTIC_ID = 220
 BEAGLE_SEMANTIC_ID = 221
 BEAGLE_MOUTH_LINK_NAME = "beagle Xtra Mouth"
@@ -84,9 +86,12 @@ TICKS_PER_FRAME = TIME_BASE_HZ // FRAME_RATE_HZ
 LEGACY_CAMERA_POSITION_M = (-0.7, 1.471, 0.65)
 LEGACY_CAMERA_YAW_DEG = 55.0
 LEGACY_CAMERA_HFOV_DEG = 105.0
+M5_1_LIGHT_SETUP_KEY = "avengine_m5_1_room_lighting"
+M5_1_ACTOR_SHADER_TYPE = "pbr"
 _ROOT_READBACK_ATOL = 2.0e-6
 _JOINT_READBACK_ATOL = 2.0e-6
 _LINK_MATRIX_READBACK_ATOL = 2.0e-5
+_HEADING_ALIGNMENT_MAX_ERROR_DEG = 1.0e-6
 
 
 class MixedCaptureError(RuntimeError):
@@ -118,33 +123,241 @@ def _points(value: Any, *, owner: str) -> np.ndarray:
     return np.ascontiguousarray(array)
 
 
-def trajectory_world_matrices(points_m: Any) -> np.ndarray:
-    """Create actor transforms whose local ``-Z`` faces the path tangent."""
+def _axis_label_vector(value: Any, *, owner: str) -> tuple[float, float, float]:
+    axes = {
+        "+X": (1.0, 0.0, 0.0),
+        "-X": (-1.0, 0.0, 0.0),
+        "+Z": (0.0, 0.0, 1.0),
+        "-Z": (0.0, 0.0, -1.0),
+    }
+    try:
+        return axes[value]
+    except (KeyError, TypeError) as exc:
+        raise MixedCaptureError(
+            f"{owner} must be one of {sorted(axes)} in the +Y-up actor frame"
+        ) from exc
 
+
+def _horizontal_unit_axis(value: Any, *, owner: str) -> np.ndarray:
+    try:
+        axis = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MixedCaptureError(
+            f"{owner} must be a finite horizontal 3-vector"
+        ) from exc
+    if axis.shape != (3,) or not np.all(np.isfinite(axis)):
+        raise MixedCaptureError(f"{owner} must be a finite horizontal 3-vector")
+    if not math.isclose(float(axis[1]), 0.0, rel_tol=0.0, abs_tol=1.0e-12):
+        raise MixedCaptureError(f"{owner} must be horizontal in the +Y-up actor frame")
+    norm = float(np.linalg.norm(axis))
+    if norm <= 1.0e-12:
+        raise MixedCaptureError(f"{owner} must be nonzero")
+    return np.ascontiguousarray(axis / norm)
+
+
+def _trajectory_tangents(points_m: Any) -> np.ndarray:
     points = _points(points_m, owner="actor trajectory")
     tangents = np.empty_like(points)
     tangents[0] = points[1] - points[0]
     tangents[-1] = points[-1] - points[-2]
     tangents[1:-1] = points[2:] - points[:-2]
     tangents[:, 1] = 0.0
-    fallback = np.asarray([0.0, 0.0, -1.0], dtype=np.float64)
-    for index in range(len(tangents)):
-        norm = float(np.linalg.norm(tangents[index]))
-        if norm <= 1.0e-12:
-            tangents[index] = tangents[index - 1] if index else fallback
-            norm = float(np.linalg.norm(tangents[index]))
-        tangents[index] /= norm
+    norms = np.linalg.norm(tangents, axis=1)
+    moving_indices = np.flatnonzero(norms > 1.0e-12)
+    if not len(moving_indices):
+        raise MixedCaptureError("actor trajectory has no horizontal path tangent")
+    tangents[moving_indices] /= norms[moving_indices, None]
+    for index in np.flatnonzero(norms <= 1.0e-12):
+        nearest = moving_indices[
+            int(np.argmin(np.abs(moving_indices - int(index))))
+        ]
+        tangents[index] = tangents[nearest]
+    return np.ascontiguousarray(tangents)
+
+
+def trajectory_world_matrices(
+    points_m: Any, *, local_forward_axis: Any
+) -> np.ndarray:
+    """Create actor transforms that align an asset's forward axis to its path."""
+
+    points = _points(points_m, owner="actor trajectory")
+    tangents = _trajectory_tangents(points)
+    local_forward = _horizontal_unit_axis(
+        local_forward_axis, owner="local anatomical forward axis"
+    )
     up = np.asarray([0.0, 1.0, 0.0], dtype=np.float64)
+    local_right = np.cross(local_forward, up)
+    local_right /= np.linalg.norm(local_right)
+    local_basis = np.stack((local_right, up, -local_forward), axis=1)
+    if not math.isclose(float(np.linalg.det(local_basis)), 1.0, abs_tol=1.0e-12):
+        raise MixedCaptureError("local anatomical frame is not a proper rotation")
     matrices = np.repeat(np.eye(4, dtype=np.float64)[None, :, :], FRAME_COUNT, axis=0)
     for index, forward in enumerate(tangents):
         right = np.cross(forward, up)
         right /= np.linalg.norm(right)
-        rotation = np.stack((right, up, -forward), axis=1)
+        world_basis = np.stack((right, up, -forward), axis=1)
+        rotation = world_basis @ local_basis.T
         if not math.isclose(float(np.linalg.det(rotation)), 1.0, abs_tol=1.0e-12):
             raise MixedCaptureError("trajectory tangent produced an improper rotation")
         matrices[index, :3, :3] = rotation
         matrices[index, :3, 3] = points[index]
     return np.ascontiguousarray(matrices)
+
+
+def _actor_heading_evidence(
+    *,
+    actor_id: str,
+    points_m: Any,
+    actor_world_matrices: Any,
+    local_forward_axis: Any,
+    binding_source: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Retain and gate every frame's anatomical-forward/path alignment."""
+
+    points = _points(points_m, owner=f"{actor_id} root path")
+    matrices = np.asarray(actor_world_matrices, dtype=np.float64)
+    if matrices.shape != (FRAME_COUNT, 4, 4) or not np.all(np.isfinite(matrices)):
+        raise MixedCaptureError(
+            f"{actor_id} actor_world_matrices must be finite [270,4,4]"
+        )
+    local_forward = _horizontal_unit_axis(
+        local_forward_axis, owner=f"{actor_id} local anatomical forward axis"
+    )
+    tangents = _trajectory_tangents(points)
+    world_forwards = np.einsum(
+        "nij,j->ni", matrices[:, :3, :3], local_forward
+    )
+    forward_norms = np.linalg.norm(world_forwards, axis=1)
+    if np.any(forward_norms <= 1.0e-12):
+        raise MixedCaptureError(f"{actor_id} produced a zero world anatomical forward")
+    world_forwards /= forward_norms[:, None]
+    dots = np.clip(np.sum(world_forwards * tangents, axis=1), -1.0, 1.0)
+    cross_norms = np.linalg.norm(np.cross(world_forwards, tangents), axis=1)
+    errors_deg = np.degrees(np.arctan2(cross_norms, dots))
+    passed = errors_deg <= _HEADING_ALIGNMENT_MAX_ERROR_DEG
+    maximum_index = int(np.argmax(errors_deg))
+    if not bool(np.all(passed)):
+        raise MixedCaptureError(
+            f"{actor_id} anatomical forward/path heading gate failed at frame "
+            f"{maximum_index}: {float(errors_deg[maximum_index]):.9f} degrees"
+        )
+
+    frames = [
+        {
+            "frame_index": index,
+            "path_tangent_world": [float(value) for value in tangents[index]],
+            "anatomical_forward_world": [
+                float(value) for value in world_forwards[index]
+            ],
+            "alignment_dot": float(dots[index]),
+            "heading_error_degrees": float(errors_deg[index]),
+            "passed": bool(passed[index]),
+        }
+        for index in range(FRAME_COUNT)
+    ]
+    return {
+        "actor_id": actor_id,
+        "status": "pass",
+        "local_anatomical_forward_axis": [float(value) for value in local_forward],
+        "binding_source": dict(binding_source),
+        "gate": {
+            "maximum_allowed_error_degrees": _HEADING_ALIGNMENT_MAX_ERROR_DEG,
+            "maximum_observed_error_degrees": float(errors_deg[maximum_index]),
+            "maximum_error_frame_index": maximum_index,
+            "minimum_alignment_dot": float(np.min(dots)),
+            "all_frames_passed": True,
+        },
+        "frames": frames,
+    }
+
+
+def _human_anatomical_forward_binding(
+    manifest_path: str | Path,
+) -> tuple[tuple[float, float, float], dict[str, Any]]:
+    path = Path(manifest_path).resolve()
+    manifest = load_json(path)
+    if (
+        manifest.get("schema") != "avengine_m5_1_rocketbox_human_runtime_v1"
+        or manifest.get("status") != "pass"
+    ):
+        raise MixedCaptureError("human runtime manifest must be a passing M5.1 report")
+    content = dict(manifest)
+    declared_content_hash = content.pop("manifest_content_sha256", None)
+    if declared_content_hash != canonical_json_sha256(content):
+        raise MixedCaptureError("human runtime manifest content hash differs")
+    anatomical_frame = manifest.get("anatomical_frame")
+    if not isinstance(anatomical_frame, Mapping):
+        raise MixedCaptureError("human runtime manifest lacks anatomical_frame")
+    if anatomical_frame.get("actor_up_axis") != "+Y":
+        raise MixedCaptureError("human anatomical frame must declare actor_up_axis +Y")
+    source = anatomical_frame.get("source")
+    if not isinstance(source, str) or not source.strip():
+        raise MixedCaptureError("human anatomical forward source must be explicit")
+    axis_label = anatomical_frame.get("actor_forward_axis")
+    axis = _axis_label_vector(axis_label, owner="human actor_forward_axis")
+    return axis, {
+        "kind": "generated_human_runtime_manifest",
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "json_field": "anatomical_frame.actor_forward_axis",
+        "declared_axis": axis_label,
+        "declared_source": source,
+    }
+
+
+def _beagle_anatomical_forward_binding(
+    *, asset: Mapping[str, Any], asset_manifest_path: str | Path
+) -> tuple[tuple[float, float, float], dict[str, Any]]:
+    records = [
+        record
+        for record in asset.get("files", [])
+        if isinstance(record, Mapping) and record.get("role") == "animation_qa"
+    ]
+    if len(records) != 1:
+        raise MixedCaptureError(
+            "Beagle package must bind exactly one animation_qa file"
+        )
+    record = records[0]
+    raw_path = record.get("path")
+    try:
+        path = resolve_declared_path(
+            raw_path,
+            manifest_dir=Path(asset_manifest_path).resolve().parent,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        raise MixedCaptureError(f"Beagle animation_qa path is invalid: {exc}") from exc
+    if path.is_symlink() or not path.is_file():
+        raise MixedCaptureError("Beagle animation_qa is not a regular package file")
+    actual_sha256 = sha256_file(path)
+    if path.stat().st_size != record.get("byte_size") or actual_sha256 != record.get(
+        "sha256"
+    ):
+        raise MixedCaptureError("Beagle animation_qa bytes differ from its manifest")
+    animation_qa = load_json(path)
+    if (
+        animation_qa.get("schema") != "avengine_m2_animation_qa_v1"
+        or animation_qa.get("status") != "pass"
+    ):
+        raise MixedCaptureError("Beagle animation_qa must be a passing M2 report")
+    terminal_motion = animation_qa.get("semantic_terminal_motion")
+    if not isinstance(terminal_motion, Mapping):
+        raise MixedCaptureError("Beagle animation_qa lacks semantic_terminal_motion")
+    if terminal_motion.get("actor_up_axis") != "+Y":
+        raise MixedCaptureError("Beagle animation QA must declare actor_up_axis +Y")
+    axis_label = terminal_motion.get("source_facing_axis_in_actor_frame")
+    axis = _axis_label_vector(
+        axis_label,
+        owner="Beagle semantic_terminal_motion.source_facing_axis_in_actor_frame",
+    )
+    return axis, {
+        "kind": "m2_animation_qa_declared_axis",
+        "path": str(path),
+        "sha256": actual_sha256,
+        "json_field": (
+            "semantic_terminal_motion.source_facing_axis_in_actor_frame"
+        ),
+        "declared_axis": axis_label,
+    }
 
 
 def _continuous_beagle_walk_states(
@@ -196,13 +409,112 @@ def _validate_legacy_camera(room_inputs: Any) -> None:
         raise MixedCaptureError("legacy camera yaw must be +55 degrees about Habitat +Y")
 
 
+def _shader_type_name(value: Any) -> str:
+    name = getattr(value, "name", None)
+    if isinstance(name, str) and name:
+        return name.lower()
+    text = str(value)
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+    return text.lower()
+
+
+def _bind_m5_1_scene_lighting(
+    simulator: Any,
+    configuration: Any,
+    *,
+    light_setup_key: str = M5_1_LIGHT_SETUP_KEY,
+) -> dict[str, Any]:
+    """Copy the stage's effective setup to the AO-specific M5.1 key."""
+
+    if not isinstance(light_setup_key, str) or not light_setup_key:
+        raise MixedCaptureError("M5.1 light setup key must be a non-empty string")
+    configured_hbao = bool(configuration.sim_cfg.enable_hbao)
+    simulator_hbao = bool(simulator.config.sim_cfg.enable_hbao)
+    if not configured_hbao or not simulator_hbao:
+        raise MixedCaptureError("M5.1 HBAO configuration did not read back enabled")
+
+    current_setup = list(simulator.get_current_light_setup())
+    simulator.set_light_setup(current_setup, light_setup_key)
+    registered_setup = list(simulator.get_light_setup(light_setup_key))
+    registered_matches_current = registered_setup == current_setup
+    if not registered_matches_current:
+        raise MixedCaptureError(
+            "M5.1 registered actor light setup differs from the scene setup"
+        )
+    return {
+        "status": "pass",
+        "hbao": {
+            "requested": True,
+            "configuration_readback": configured_hbao,
+            "simulator_readback": simulator_hbao,
+            "effect_scope": (
+                "screen-space ambient occlusion; not dynamic shadow-map evidence"
+            ),
+        },
+        "scene_lighting": {
+            "actor_light_setup_key": light_setup_key,
+            "source_api": "Simulator.get_current_light_setup",
+            "registration_api": "Simulator.set_light_setup",
+            "current_light_count": len(current_setup),
+            "registered_light_count": len(registered_setup),
+            "registered_setup_matches_current": registered_matches_current,
+        },
+    }
+
+
+def _actor_render_creation_evidence(
+    actor: Any,
+    *,
+    actor_id: str,
+    requested_shader_type: str,
+    light_setup_key: str,
+) -> dict[str, Any]:
+    creation_shader_type = _shader_type_name(actor.creation_attributes.shader_type)
+    if creation_shader_type != requested_shader_type:
+        raise MixedCaptureError(
+            f"{actor_id} creation shader type is {creation_shader_type!r}, "
+            f"not {requested_shader_type!r}"
+        )
+    return {
+        "status": "pass",
+        "requested_shader_type": requested_shader_type,
+        "creation_shader_type_readback": creation_shader_type,
+        "creation_light_setup_key_argument": light_setup_key,
+        "creation_light_setup_binding_api": (
+            "ArticulatedObjectManager."
+            "add_articulated_object_by_template_handle(light_setup_key=...)"
+        ),
+        "native_per_actor_light_key_readback": (
+            "not_exposed_by_pinned_habitat_binding"
+        ),
+    }
+
+
 def _instantiate_human(
     simulator: Any,
     *,
     package: HumanRuntimePackage,
     habitat_sim: Any,
     semantic_id: int,
+    light_setup_key: str | None = None,
+    shader_type: str | None = None,
 ) -> tuple[Any, Any, tuple[HabitatLinkJointBlock, ...]]:
+    if light_setup_key is not None and (
+        not isinstance(light_setup_key, str) or not light_setup_key
+    ):
+        raise MixedCaptureError(
+            "human light_setup_key must be a non-empty string when provided"
+        )
+    if shader_type is not None and shader_type not in {
+        "material",
+        "flat",
+        "phong",
+        "pbr",
+    }:
+        raise MixedCaptureError(
+            "human shader_type must be material, flat, phong, or pbr"
+        )
     manager = simulator.metadata_mediator.ao_template_manager
     loaded = manager.load_configs(str(package.habitat_ao_config))
     prefix = package.habitat_ao_config.stem.removesuffix(".ao_config")
@@ -215,12 +527,19 @@ def _instantiate_human(
     if attributes is None:
         raise MixedCaptureError("cannot retrieve the loaded human AO template")
     attributes.semantic_id = int(semantic_id)
+    if shader_type is not None:
+        attributes.shader_type = shader_type
     handle = f"{handles[0]}.m5_1_semantic{semantic_id}"
     if int(manager.register_template(attributes, handle)) < 0:
         raise MixedCaptureError("failed to register the semantic human AO template")
-    actor = simulator.get_articulated_object_manager().add_articulated_object_by_template_handle(
-        handle
-    )
+    object_manager = simulator.get_articulated_object_manager()
+    if light_setup_key is None:
+        actor = object_manager.add_articulated_object_by_template_handle(handle)
+    else:
+        actor = object_manager.add_articulated_object_by_template_handle(
+            handle,
+            light_setup_key=light_setup_key,
+        )
     if actor is None:
         raise MixedCaptureError("Habitat failed to instantiate the Rocketbox human")
     actor.motion_type = habitat_sim.physics.MotionType.KINEMATIC
@@ -244,6 +563,10 @@ def _instantiate_human(
         raise MixedCaptureError("human AO base link differs from the synthetic root")
     if int(actor.creation_attributes.semantic_id) != semantic_id:
         raise MixedCaptureError("human AO creation semantic ID differs")
+    if shader_type is not None and _shader_type_name(
+        actor.creation_attributes.shader_type
+    ) != shader_type:
+        raise MixedCaptureError("human AO creation shader type differs")
     _set_scene_node_semantic_readback(actor, semantic_id)
     return actor, binding, blocks
 
@@ -380,8 +703,6 @@ def capture_human_beagle_paths(
         raise MixedCaptureError("human and Beagle semantic IDs must be distinct nonnegative integers")
     human_points = _points(human_root_path_m, owner="human root path")
     beagle_points = _points(beagle_root_path_m, owner="Beagle root path")
-    human_world = trajectory_world_matrices(human_points)
-    beagle_world = trajectory_world_matrices(beagle_points)
     output = Path(output_dir).resolve()
     if output.exists() or output.is_symlink():
         raise MixedCaptureError(f"refusing to replace capture output: {output}")
@@ -398,6 +719,37 @@ def capture_human_beagle_paths(
             beagle_animal_manifest_path, beagle_m2_request_path
         )
         beagle_bundle = load_runtime_asset_bundle(m2_inputs)
+        human_forward_axis, human_forward_source = (
+            _human_anatomical_forward_binding(human_package.package_manifest)
+        )
+        beagle_forward_axis, beagle_forward_source = (
+            _beagle_anatomical_forward_binding(
+                asset=m2_inputs.asset,
+                asset_manifest_path=m2_inputs.asset_path,
+            )
+        )
+        human_world = trajectory_world_matrices(
+            human_points, local_forward_axis=human_forward_axis
+        )
+        beagle_world = trajectory_world_matrices(
+            beagle_points, local_forward_axis=beagle_forward_axis
+        )
+        heading_records = [
+            _actor_heading_evidence(
+                actor_id="human0",
+                points_m=human_points,
+                actor_world_matrices=human_world,
+                local_forward_axis=human_forward_axis,
+                binding_source=human_forward_source,
+            ),
+            _actor_heading_evidence(
+                actor_id="dog0",
+                points_m=beagle_points,
+                actor_world_matrices=beagle_world,
+                local_forward_axis=beagle_forward_axis,
+                binding_source=beagle_forward_source,
+            ),
+        ]
         beagle_states = compile_frame_applications(m2_inputs, beagle_bundle)
         if len(beagle_states) != 75:
             raise MixedCaptureError("Beagle M2 request must provide 75 validated states")
@@ -425,6 +777,9 @@ def capture_human_beagle_paths(
         configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
             _make_configuration(room_inputs, runtime, output / "scene_scratch")
         )
+        configuration.sim_cfg.enable_hbao = True
+        if not bool(configuration.sim_cfg.enable_hbao):
+            raise MixedCaptureError("M5.1 HBAO could not be enabled in configuration")
         room_declared_physics = bool(resolved_scene.get("enable_physics", False))
         physics_enabled_for_articulation = not room_declared_physics
         if physics_enabled_for_articulation:
@@ -455,6 +810,10 @@ def capture_human_beagle_paths(
             navmesh_path = resolved_scene.get("navmesh")
             if navmesh_path is not None and Path(navmesh_path).is_file():
                 simulator.pathfinder.load_nav_mesh(str(navmesh_path))
+            rendering_evidence = _bind_m5_1_scene_lighting(
+                simulator,
+                configuration,
+            )
             simulator.seed(int(m2_inputs.request["seed"]))
             rig = room_inputs.request["primary_camera_rig"]
             camera_state = habitat_sim.AgentState()
@@ -472,6 +831,14 @@ def capture_human_beagle_paths(
                 package=human_package,
                 habitat_sim=habitat_sim,
                 semantic_id=human_semantic_id,
+                light_setup_key=M5_1_LIGHT_SETUP_KEY,
+                shader_type=M5_1_ACTOR_SHADER_TYPE,
+            )
+            human_render_evidence = _actor_render_creation_evidence(
+                human,
+                actor_id="human0",
+                requested_shader_type=M5_1_ACTOR_SHADER_TYPE,
+                light_setup_key=M5_1_LIGHT_SETUP_KEY,
             )
             template_manager = simulator.metadata_mediator.ao_template_manager
             dog_config = beagle_bundle.paths_by_role["habitat_ao_config"]
@@ -487,6 +854,14 @@ def capture_human_beagle_paths(
                 base_handle=dog_handles[0],
                 semantic_id=beagle_semantic_id,
                 actor_index=1,
+                light_setup_key=M5_1_LIGHT_SETUP_KEY,
+                shader_type=M5_1_ACTOR_SHADER_TYPE,
+            )
+            beagle_render_evidence = _actor_render_creation_evidence(
+                beagle,
+                actor_id="dog0",
+                requested_shader_type=M5_1_ACTOR_SHADER_TYPE,
+                light_setup_key=M5_1_LIGHT_SETUP_KEY,
             )
             human_head_link = _link_id_by_name(human, HEAD_LINK_NAME)
             human_mouth_link = _link_id_by_name(human, MOUTH_LINK_NAME)
@@ -779,6 +1154,8 @@ def capture_human_beagle_paths(
                     "fixed_state_playback": True,
                     "head_link": HEAD_LINK_NAME,
                     "emitter_link": MOUTH_LINK_NAME,
+                    "local_anatomical_forward_axis": list(human_forward_axis),
+                    "rendering": human_render_evidence,
                 },
                 {
                     "actor_id": "dog0",
@@ -789,8 +1166,20 @@ def capture_human_beagle_paths(
                         "modulo 45"
                     ),
                     "emitter_link": BEAGLE_MOUTH_LINK_NAME,
+                    "local_anatomical_forward_axis": list(beagle_forward_axis),
+                    "rendering": beagle_render_evidence,
                 },
             ],
+            "rendering": rendering_evidence,
+            "heading_alignment": {
+                "schema": HEADING_ALIGNMENT_SCHEMA,
+                "status": "pass",
+                "gate": {
+                    "required_actor_ids": ["human0", "dog0"],
+                    "all_actors_all_frames_passed": True,
+                },
+                "actors": heading_records,
+            },
             "inputs": {
                 "room_manifest": {
                     "path": str(Path(room_manifest_path).resolve()),
