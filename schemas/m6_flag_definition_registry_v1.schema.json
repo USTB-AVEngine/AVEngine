@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_flag_definition_registry_v1.schema.json",
+  "title": "AVEngine M6 Legacy-Compatible Flag Definition Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "registry_id", "revision", "thresholds", "flags", "registry_content_sha256"],
+  "properties": {
+    "schema": {"const": "avengine_m6_flag_definition_registry_v1"},
+    "registry_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "thresholds": {"$ref": "#/$defs/thresholds"},
+    "flags": {"type": "array", "minItems": 12, "maxItems": 12, "items": {"$ref": "#/$defs/flag"}},
+    "registry_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "stable_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "thresholds": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "passes_close_to_mic_m", "far_from_mic_whole_clip_m", "stationary_mean_speed_mps",
+        "steady_walk_min_mean_speed_mps", "steady_walk_max_speed_cv", "stop_and_go_stop_speed_mps",
+        "stop_and_go_min_stopped_frames", "stop_and_go_min_moving_frames", "sources_pass_each_other_m"
+      ],
+      "properties": {
+        "passes_close_to_mic_m": {"const": 1.0},
+        "far_from_mic_whole_clip_m": {"const": 4.0},
+        "stationary_mean_speed_mps": {"const": 0.1},
+        "steady_walk_min_mean_speed_mps": {"const": 0.15},
+        "steady_walk_max_speed_cv": {"const": 0.4},
+        "stop_and_go_stop_speed_mps": {"const": 0.05},
+        "stop_and_go_min_stopped_frames": {"const": 3},
+        "stop_and_go_min_moving_frames": {"const": 3},
+        "sources_pass_each_other_m": {"const": 0.5}
+      }
+    },
+    "flag": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "flag_id", "definition_revision", "scope", "clip_aggregation", "evaluator_kind",
+        "required_fact_ids", "threshold_ids", "definition"
+      ],
+      "properties": {
+        "flag_id": {"$ref": "#/$defs/stable_id"},
+        "definition_revision": {"const": "m5_1_v1"},
+        "scope": {"enum": ["per_source", "pairwise"]},
+        "clip_aggregation": {"enum": ["or", "and"]},
+        "evaluator_kind": {"enum": ["provider_assessment", "m5_1_trajectory", "m5_1_pair_trajectory"]},
+        "required_fact_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
+        "threshold_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
+        "definition": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

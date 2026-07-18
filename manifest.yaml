@@ -1,70 +1,48 @@
-# AVEngine dependency manifest — single source of truth.
-# scripts/setup.sh reads this. If you add a new external repo here,
-# rerun `bash scripts/setup.sh` and it will pick it up.
+# AVEngine Habitat-native bootstrap manifest.
+# This file intentionally contains no SPEAR, UE, gpuRIR or generative-model
+# dependency. Historical backends require the explicit legacy_optional profile.
 
-version: 1
+schema: avengine_bootstrap_manifest_v2
+version: 2
+default_profile: habitat_native
 
-dependencies:
-  SPEAR:
-    url: git@github.com:Eastforward/spear.git
-    commit: a5168b8c357afa494f6200dedb03b93c3a59be57
-    path: external/SPEAR
-    upstream: https://github.com/spear-sim/spear.git
-    local_hint: null                                    # Was /data/jzy/code/SPEAR
-                                                       # before mv. Now SPEAR lives
-                                                       # directly under external/,
-                                                       # so setup.sh needs no hint.
-                                                       # Set to a path on collaborator
-                                                       # machines only if they have
-                                                       # a pre-existing SPEAR clone
-                                                       # they want to symlink instead
-                                                       # of re-cloning.
+repositories:
+  avengine:
+    role: primary_source_checkout
+    path: .
+  habitat_runtime:
+    role: pinned_native_runtime_fork
+    url: https://github.com/Eastforward/habitat-sim-AVEngine.git
+    default_path: ../habitat-sim-AVEngine
+    environment_override: AVENGINE_HABITAT_RUNTIME_ROOT
+    commit: e9c81c10834f7e89f33f4e0602c75535a84e054b
+    upstream_repository: https://github.com/facebookresearch/habitat-sim.git
+    upstream_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
+    rlr_commit: 4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
+    install_by_default: false
+    reason: native builds are a separate test layer; fast bootstrap only validates the checkout when present
 
-  Hunyuan3D-2.1:
-    url: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git
-    commit: 82920d643c0dc2f7bfd7255f45f62d386edfe60c
-    path: external/Hunyuan3D-2.1
-    upstream: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git
-    local_hint: null                                    # Was /data/jzy/code/Hunyuan3D-2.1
-                                                       # before mv. Now under external/.
+python:
+  requires: ">=3.10"
+  native_reference: "3.12"
+  default_environment: .venv
+  editable_install: ".[test]"
 
-external_data:
-  # These are NOT downloaded by setup.sh. Collaborators must obtain and
-  # place them at the paths below (or symlink to their own copies) BEFORE
-  # running pipeline. Loader code in SPEAR reads from these paths.
+profiles:
+  habitat_native:
+    default: true
+    repositories: [avengine, habitat_runtime]
+    automatic_backends: []
+  legacy_optional:
+    default: false
+    explicit_opt_in_required: true
+    documentation: docs/legacy/OPTIONAL_BACKENDS.md
+    automatic_backends: []
+    note: Historical UE, SPEAR, gpuRIR and generative-asset dependencies are never installed by the current setup script.
 
-  omniaudio_wavs:
-    expected_path: /data/datasets/omniaudio/train-data-az-360-large
-    description: "~58k AudioSet .wav clips indexed by keyword"
-    source: "Contact <author> or reproduce from AudioSet dumps"
-    size_estimate: "~40 GB"
-    used_by: SPEAR/tools/gpurir_scenes/audio_registry.py
-
-  stable_audio_open:
-    expected_path: /data/datasets/omniaudio/stable-audio-open
-    description: "Stable Audio Open 1.0 model weights"
-    source: https://huggingface.co/stabilityai/stable-audio-open-1.0
-    size_estimate: "~5 GB"
-    used_by: SPEAR/tools/gpurir_scenes/gen_sao_clip.py
-
-  hunyuan3d_weights:
-    expected_path: /data/jzy/code/Hunyuan3D-2.1/pretrained_models
-    description: "Hunyuan3D-2.1 shape + paint weights"
-    source: https://huggingface.co/Tencent-Hunyuan/Hunyuan3D-2.1
-    size_estimate: "~20 GB"
-    used_by: SPEAR/tools/hy3d_bake_diffuse.py
-
-python_environments:
-  # setup.sh does NOT create these. README instructs manual creation.
-  spear-env:
-    yml: envs/spear-env.yml
-    python: "3.11"
-    critical_packages: [spear_ext]
-  sao-env:
-    yml: envs/sao-env.yml
-    python: "3.10"
-    critical_packages: [torch>=2.7, stable-audio-tools, gpuRIR==1.2.0, numpy<2]
-  hunyuan3d-env:
-    yml: envs/hunyuan3d-env.yml
-    python: "3.10"
-    critical_packages: [diffusers, hy3dgen]
+fast_checkout_contract:
+  editable_install: true
+  schema_validation: true
+  fast_unit_tests: true
+  native_runtime_build: false
+  external_dataset_download: false

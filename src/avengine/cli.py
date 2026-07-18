@@ -55,6 +55,12 @@ from avengine.m4.contracts import (
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
 from avengine.m5.timeline import validate_episode_request
+from avengine.m6.canary import (
+    M6CanaryError,
+    load_controlled_canary_request,
+    run_controlled_canary,
+    verify_controlled_canary_evidence,
+)
 
 
 EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
@@ -83,6 +89,21 @@ def _require_ignored_or_external_output(path: str | Path) -> Path:
             "writing it cannot invalidate clean evidence"
         )
     return resolved
+
+
+def _require_ignored_repository_output(path: str | Path) -> Path:
+    """Select a Git-ignored output under the trusted AVEngine workspace."""
+
+    resolved = Path(path).resolve()
+    repository_root = Path(__file__).resolve().parents[2]
+    try:
+        resolved.relative_to(repository_root)
+    except ValueError as exc:
+        raise ValueError(
+            "M6 controlled output must remain inside the trusted AVEngine "
+            "repository and be Git-ignored"
+        ) from exc
+    return _require_ignored_or_external_output(resolved)
 
 
 def _validate_room(args: argparse.Namespace) -> int:
@@ -702,6 +723,67 @@ def _m5_verify_canary(args: argparse.Namespace) -> int:
     return 0 if status == "pass" else 1
 
 
+def _m6_validate_controlled_request(args: argparse.Namespace) -> int:
+    try:
+        request = load_controlled_canary_request(args.request)
+    except (M6CanaryError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "pass",
+            "request": str(Path(args.request).resolve()),
+            "run_id": request["run_id"],
+            "research_only": request["research_only"],
+            "qualification_claim": request["qualification_claim"],
+        }
+    )
+    return 0
+
+
+def _m6_run_controlled(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_repository_output(args.output)
+        evidence = run_controlled_canary(
+            request_path=args.request,
+            upstream_evidence_path=args.upstream_evidence,
+            output_directory=output,
+            implementation_commit=args.implementation_commit,
+            registry_directory=args.registry_directory,
+            room_registry_path=args.room_registry,
+            room_qualification_path=args.room_qualification,
+            program_path=args.program,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+        )
+    except (M6CanaryError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    generated = load_json(evidence)
+    generated_status = str(generated.get("overall_status"))
+    _print(
+        {
+            "status": generated_status,
+            "research_only": True,
+            "qualification_claim": False,
+            "canary_evidence": str(evidence),
+        }
+    )
+    return EXIT_BY_STATUS.get(generated_status, 2)
+
+
+def _m6_verify_controlled(args: argparse.Namespace) -> int:
+    try:
+        status, checks = verify_controlled_canary_evidence(
+            args.evidence, ffmpeg=args.ffmpeg, ffprobe=args.ffprobe
+        )
+    except (M6CanaryError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print({"status": status, "checks": checks})
+    return 0 if status == "pass" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -878,6 +960,34 @@ def build_parser() -> argparse.ArgumentParser:
     m5_verify = m5_commands.add_parser("verify-canary")
     m5_verify.add_argument("evidence")
     m5_verify.set_defaults(handler=_m5_verify_canary)
+
+    m6 = commands.add_parser(
+        "m6", help="M6 extensibility, room qualification, and feasibility canaries"
+    )
+    m6_commands = m6.add_subparsers(dest="m6_command", required=True)
+
+    m6_validate = m6_commands.add_parser("validate-controlled-request")
+    m6_validate.add_argument("request")
+    m6_validate.set_defaults(handler=_m6_validate_controlled_request)
+
+    m6_run = m6_commands.add_parser("run-controlled-canary")
+    m6_run.add_argument("--request", required=True)
+    m6_run.add_argument("--upstream-evidence", required=True)
+    m6_run.add_argument("--output", required=True)
+    m6_run.add_argument("--implementation-commit", required=True)
+    m6_run.add_argument("--registry-directory")
+    m6_run.add_argument("--room-registry")
+    m6_run.add_argument("--room-qualification")
+    m6_run.add_argument("--program")
+    m6_run.add_argument("--ffmpeg", default="ffmpeg")
+    m6_run.add_argument("--ffprobe", default="ffprobe")
+    m6_run.set_defaults(handler=_m6_run_controlled)
+
+    m6_verify = m6_commands.add_parser("verify-controlled-canary")
+    m6_verify.add_argument("evidence")
+    m6_verify.add_argument("--ffmpeg", default="ffmpeg")
+    m6_verify.add_argument("--ffprobe", default="ffprobe")
+    m6_verify.set_defaults(handler=_m6_verify_controlled)
 
     appearance = commands.add_parser(
         "appearance", help="Animal appearance contract/design commands"

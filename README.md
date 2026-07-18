@@ -1,9 +1,24 @@
-# AVEngine — Habitat-native Audiovisual Dataset Engine
+# AVEngine — Habitat-native Audiovisual Research Toolkit
 
-AVEngine is a private research project for deterministic,
-identity-preserving audiovisual episode generation. Habitat-Sim is the primary
-visual/scene/sensor/physics runtime; RLR Audio Propagation is the geometric
-acoustic foundation. AVEngine is not a simulator built from scratch.
+AVEngine is a Habitat-native research toolkit being prepared for open-source
+release. It generates deterministic, identity-preserving audiovisual episodes
+from explicit assets, rooms, source programs and evidence contracts.
+Habitat-Sim is the primary visual/scene/sensor/physics runtime; RLR Audio
+Propagation is the geometric acoustic foundation. AVEngine is not a simulator
+built from scratch.
+
+## Current release authority
+
+The only cross-repository release authority is
+[`release/avengine_release_manifest_v1.json`](release/avengine_release_manifest_v1.json).
+If that file is absent or fails verification, the current state is **pending**.
+If it is present, its release state, implementation commit, evidence and tag
+must be verified rather than inferred from README prose. A schema or verifier
+without a valid manifest/tag is not a release.
+
+Root [`runtime.lock.yaml`](runtime.lock.yaml) and files under [`locks/`](locks/)
+are immutable historical milestone evidence. They do not override the current
+release manifest and must not be rewritten to make old evidence appear current.
 
 This branch has completed **M1: Habitat visual and three-room canary** and the
 bounded **M2 articulated-dog research canary** on top of the M0
@@ -100,6 +115,25 @@ the remaining geometry/material QA states stay explicit. See
 [`M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md). All M5.1 rooms/materials and
 media remain unqualified research evidence; dataset admission is false.
 
+**M6 feasibility/interfaces/room-canary closeout is manifest-governed.** Its scope is
+to close the engineering and release boundary; add versioned entity, animal,
+source, sound, AudioProgram and room contracts; preserve the M5.1 tri-state
+source/event/flag authority through adapters; and attempt four complementary
+room qualifications plus an independent corrupted fixture. M6 does not freeze
+a final dataset-item schema, generate natural-language QA, train a model or
+claim broad animal/room coverage. See
+[`M6_STATUS.md`](docs/roadmap/M6_STATUS.md),
+[`M6_EXECUTION.md`](docs/roadmap/M6_EXECUTION.md), and
+[`M6_ROOM_MATRIX.md`](docs/roadmap/M6_ROOM_MATRIX.md). M6 is closed only in a
+checkout whose controlled canary and annotated-tag release manifest verify;
+otherwise it remains in progress.
+
+The AudioProgram contract vocabulary is `one_active_of_n`,
+`simultaneous_subset`, `sequential_sources`, `intermittent_events`,
+`counterfactual_route_swap`, and `silent_negative`. M6 executes and retains a
+controlled canary only for `one_active_of_n`; the other modes are versioned
+extension contracts, not claims of six completed executable canaries.
+
 ## Repository boundary
 
 | Repository | Owns |
@@ -153,7 +187,16 @@ Read these records in order:
     [`docs/roadmap/M5_1_EXECUTION.md`](docs/roadmap/M5_1_EXECUTION.md) — mixed
     human/Beagle real-room review, legacy comparison, source/event/flag
     contract and exact claim boundary.
-14. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+14. [`docs/architecture/LEGACY_SOURCE_EVENT_FLAG_AUTHORITY.md`](docs/architecture/LEGACY_SOURCE_EVENT_FLAG_AUTHORITY.md)
+    — the preserved M5.1 flag definitions, thresholds, three-state values and
+    clip aggregation authority.
+15. [`docs/roadmap/M6_STATUS.md`](docs/roadmap/M6_STATUS.md),
+    [`docs/roadmap/M6_EXECUTION.md`](docs/roadmap/M6_EXECUTION.md), and
+    [`docs/roadmap/M6_ROOM_MATRIX.md`](docs/roadmap/M6_ROOM_MATRIX.md) — M6
+    interface, execution, room-qualification and claim boundaries.
+16. [`docs/security/FILESYSTEM_TRUST_MODEL.md`](docs/security/FILESYSTEM_TRUST_MODEL.md)
+    — the declared `trusted_research_workspace` path and publication model.
+17. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
     — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
@@ -176,7 +219,7 @@ arbitrary generated episode is synchronized.
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
-| M6 | registry/QA/CLI and admitted dataset canary |
+| M6 | feasibility foundation: release/trust boundaries, extensible registries, legacy-compatible flags, four-room qualification attempts, controlled source canary and independent fail-closed fixture (status: verified release manifest, or `in_progress` when absent/invalid; no dataset admission claim) |
 | M7 | benchmark, ablations, paper and release audit |
 
 M1 loads an official Habitat room, a Blender custom room and an audited legacy
@@ -457,9 +500,11 @@ license and upstream attribution. RLR is CC BY-NC 4.0 and limits the current
 audio runtime route to non-commercial use. Models, rooms, audio, and derived
 assets have separate terms and are admitted item by item.
 
-The AVEngine repository itself is currently private and all-rights-reserved;
-see [`LICENSE`](LICENSE). No open-source or dataset redistribution decision is
-implied by the M0/M1 foundation work.
+AVEngine is being organized for an open-source source release, but the current
+[`LICENSE`](LICENSE) remains all-rights-reserved until the project owner selects
+and commits an explicit open-source license. Source visibility does not itself
+grant redistribution rights. Dataset, room, model, sound and RLR rights remain
+separate even after the code license is selected.
 
 ## Contact
 

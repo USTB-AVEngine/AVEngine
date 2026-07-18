@@ -1,0 +1,42 @@
+{
+  "schema": "avengine_m6_source_endpoint_registry_v1",
+  "registry_id": "m6_source_endpoints_canary_v1",
+  "revision": "v1",
+  "source_endpoints": [
+    {
+      "source_endpoint_id": "beagle_0_muzzle",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "beagle_0",
+        "entity_asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+        "entity_asset_revision": "m2_v7_world_contact_r5",
+        "emitter_anchor_id": "muzzle"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": ["animal_vocalization"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "76c5106d9f85735a0f559f5689af57f8fa42298107ac7f432699754cf004cfdc"
+    },
+    {
+      "source_endpoint_id": "beagle_1_muzzle",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "beagle_1",
+        "entity_asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+        "entity_asset_revision": "m2_v7_world_contact_r5",
+        "emitter_anchor_id": "muzzle"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": ["animal_vocalization"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "76c5106d9f85735a0f559f5689af57f8fa42298107ac7f432699754cf004cfdc"
+    }
+  ],
+  "registry_content_sha256": "f21b7dad435934a7e7ab45c75bf571bc85fa5b89b7a3227c4ad85b06b87c7e8a"
+}

@@ -4,6 +4,7 @@ external/*
 
 # setup state (per-machine)
 .setup_state.json
+.avengine-workspace.json
 
 # python
 __pycache__/

@@ -277,16 +277,47 @@ remain `research_placeholder`/unqualified and dataset admission is false.
 The Legacy room exposes three current/registered lights. MP3D exposes zero;
 its scan illumination is baked, and HBAO is not dynamic-shadow evidence.
 
-## M6: Dataset MVP
+## M6: Feasibility Interfaces and Room Canary
 
-Deliverables: stable CLI, asset/scene/episode registries, QA aggregation,
-provenance manifests, structured rejection and deterministic rerun.
+Status: determined by the verified release manifest; absent/invalid means
+`in_progress`. See [M6_STATUS.md](M6_STATUS.md),
+[M6_EXECUTION.md](M6_EXECUTION.md), and [M6_ROOM_MATRIX.md](M6_ROOM_MATRIX.md).
+`in_progress` is project state, not a verification status. Every executable
+check still reports only `pass`, `fail`, `blocked`, or `not_run`.
 
-Exit criteria: two actor instances of one canonical Dog asset + custom room +
-at least two named sources are admitted end to end; the same request/seed
-reproduces compatible timeline/manifests with exactly the formal `view0` and
-one co-located listener; QA-only cameras are excluded; `not_run` cannot be
-promoted to `pass`.
+Deliverables: one current cross-repository release-manifest authority; a
+documented `trusted_research_workspace` path policy; Habitat-native bootstrap;
+versioned entity, animal-template, source-endpoint, sound-asset, AudioProgram
+and room contracts; structured OOD rejection; a stable adapter over the M5.1
+source/event/flag authority; four complementary room qualification attempts;
+an independent corrupted acoustic fixture; and one controlled two-endpoint
+program in which only the declared endpoint emits during its event windows.
+
+The four room cases have separate responsibilities:
+
+- `blender_custom_two_zone_v1`: controlled geometry/material reference;
+- ReplicaCAD `apt_0`: structured Habitat-native CAD provider;
+- `legacy_ue_apartment_0000_v1`: migration continuity using real surfaces,
+  with historical AABB data retained only for center-point diagnostics;
+- MP3D `17DRP5sb8fy`: immutable raw scan plus a declared, versioned acoustic
+  derivation whose identity, integrity, spatial parity, solver, topology,
+  material and ray states remain independent.
+
+Exit criteria: all M6 v2 Definition-of-Done items have executable evidence;
+the controlled room canary retains the current 360° binaural/timeline/per-source
+stem semantics; M5.1 `present`/`absent`/`not_evaluated` and OR/AND clip
+aggregation remain compatible; unavailable facts remain `not_evaluated`; every
+room reports visual, navigation, acoustic geometry, material, ray, physical
+truth, episode-feasibility and admission separately; the corrupted fixture
+keeps admission false; fresh-checkout fast tests pass; unrun native/RLR/Blender
+and media layers remain `not_run`; and the unique release manifest verifies
+from a clean tagged cross-repository state.
+
+M6 does **not** generate natural-language QA, freeze the final training-item
+schema, train a model, qualify arbitrary animal species, batch-qualify rooms or
+promote a historical research bundle by renaming its status. Stable IDs and
+hashes are retained so a later task exporter can read the evidence without
+rerunning simulation.
 
 ## M7: Benchmark and Paper Release
 

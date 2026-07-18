@@ -1,0 +1,552 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/avengine_release_manifest_v1.schema.json",
+  "title": "AVEngine Cross-Repository Release Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "release",
+    "repositories",
+    "schemas",
+    "native_artifacts",
+    "environment",
+    "evidence_bundles",
+    "m6_evidence",
+    "test_layers"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avengine_release_manifest_v1"
+    },
+    "release": {
+      "$ref": "#/$defs/release"
+    },
+    "repositories": {
+      "$ref": "#/$defs/repositories"
+    },
+    "schemas": {
+      "$ref": "#/$defs/schemaSet"
+    },
+    "native_artifacts": {
+      "$ref": "#/$defs/nativeArtifacts"
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "evidence_bundles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceBundle"
+      }
+    },
+    "m6_evidence": {
+      "$ref": "#/$defs/m6Evidence"
+    },
+    "test_layers": {
+      "$ref": "#/$defs/testLayers"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
+    },
+    "verificationStatus": {
+      "enum": [
+        "pass",
+        "fail",
+        "blocked",
+        "not_run"
+      ]
+    },
+    "fileRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_id",
+        "path",
+        "byte_size",
+        "sha256"
+      ],
+      "properties": {
+        "root_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_id",
+        "tag",
+        "state",
+        "current_milestone",
+        "manifest_path",
+        "metadata_commit_policy"
+      ],
+      "properties": {
+        "release_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+\\-]*$"
+        },
+        "state": {
+          "enum": [
+            "candidate",
+            "released"
+          ]
+        },
+        "current_milestone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "metadata_commit_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "allowed_changed_paths",
+            "require_clean_worktrees",
+            "require_annotated_tag"
+          ],
+          "properties": {
+            "mode": {
+              "const": "direct_child_of_implementation"
+            },
+            "allowed_changed_paths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relativePath"
+              }
+            },
+            "require_clean_worktrees": {
+              "const": true
+            },
+            "require_annotated_tag": {
+              "const": true
+            }
+          }
+        }
+      }
+    },
+    "avengineRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "implementation_commit"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation_commit": {
+          "$ref": "#/$defs/gitCommit"
+        }
+      }
+    },
+    "habitatRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "commit",
+        "upstream_repository",
+        "upstream_commit",
+        "rlr_repository",
+        "rlr_commit",
+        "rlr_submodule_path"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "upstream_repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upstream_commit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "rlr_repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rlr_commit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "rlr_submodule_path": {
+          "$ref": "#/$defs/relativePath"
+        }
+      }
+    },
+    "repositories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "avengine",
+        "habitat_runtime"
+      ],
+      "properties": {
+        "avengine": {
+          "$ref": "#/$defs/avengineRepository"
+        },
+        "habitat_runtime": {
+          "$ref": "#/$defs/habitatRepository"
+        }
+      }
+    },
+    "schemaSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory",
+        "algorithm",
+        "files",
+        "set_sha256"
+      ],
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "algorithm": {
+          "const": "sha256_canonical_file_records_v1"
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/fileRecord"
+          }
+        },
+        "set_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "nativeArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "habitat_sim_binding",
+        "rlr_binary"
+      ],
+      "properties": {
+        "habitat_sim_binding": {
+          "$ref": "#/$defs/fileRecord"
+        },
+        "rlr_binary": {
+          "$ref": "#/$defs/fileRecord"
+        }
+      }
+    },
+    "pythonDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distribution",
+        "version"
+      ],
+      "properties": {
+        "distribution": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "python",
+        "compiler",
+        "python_dependencies"
+      ],
+      "properties": {
+        "os": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "system",
+            "release",
+            "machine"
+          ],
+          "properties": {
+            "system": {
+              "type": "string",
+              "minLength": 1
+            },
+            "release": {
+              "type": "string",
+              "minLength": 1
+            },
+            "machine": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "python": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "implementation",
+            "version"
+          ],
+          "properties": {
+            "implementation": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "compiler": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "command",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "python_dependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pythonDependency"
+          }
+        }
+      }
+    },
+    "evidenceBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "status",
+        "artifacts",
+        "bundle_sha256"
+      ],
+      "properties": {
+        "evidence_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "status": {
+          "$ref": "#/$defs/verificationStatus"
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/fileRecord"
+          }
+        },
+        "bundle_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "m6Evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "controlled_canary_bundle_id",
+        "controlled_canary_entry",
+        "room_qualification_bundle_id",
+        "room_qualification_entry"
+      ],
+      "properties": {
+        "controlled_canary_bundle_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "controlled_canary_entry": {
+          "$ref": "#/$defs/fileRecord"
+        },
+        "room_qualification_bundle_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "room_qualification_entry": {
+          "$ref": "#/$defs/fileRecord"
+        }
+      }
+    },
+    "testLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "command",
+        "evidence_bundle_ids"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/verificationStatus"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_bundle_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/stableId"
+          }
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "command": {
+                "minItems": 1
+              },
+              "evidence_bundle_ids": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "blocked",
+                  "not_run"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      ]
+    },
+    "testLayers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fast-unit",
+        "slow-hermetic",
+        "native-habitat",
+        "rlr-audio",
+        "blender-assets",
+        "media-readback",
+        "release-canary"
+      ],
+      "properties": {
+        "fast-unit": {
+          "$ref": "#/$defs/testLayer"
+        },
+        "slow-hermetic": {
+          "$ref": "#/$defs/testLayer"
+        },
+        "native-habitat": {
+          "$ref": "#/$defs/testLayer"
+        },
+        "rlr-audio": {
+          "$ref": "#/$defs/testLayer"
+        },
+        "blender-assets": {
+          "$ref": "#/$defs/testLayer"
+        },
+        "media-readback": {
+          "$ref": "#/$defs/testLayer"
+        },
+        "release-canary": {
+          "$ref": "#/$defs/testLayer"
+        }
+      }
+    }
+  }
+}

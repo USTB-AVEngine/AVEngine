@@ -4,6 +4,13 @@ This is the immutable-at-closure M0 snapshot; its M1 and M2 `not_run` rows
 record the state at that earlier gate. For current results, see
 [M1_STATUS.md](M1_STATUS.md) and [M2_STATUS.md](M2_STATUS.md).
 
+This document and root `runtime.lock.yaml` are historical evidence, not the
+current release authority. The sole current cross-repository authority is
+`release/avengine_release_manifest_v1.json` once that candidate has been
+generated and verified; see [locks/README.md](../../locks/README.md). Until it
+exists, the current release state is pending rather than inferred from this
+baseline or a later milestone status page.
+
 Recorded: 2026-07-16. Status values are only `pass`, `fail`, `blocked`, or
 `not_run`. A successful build does not imply that a runtime or scientific
 canary passed.

@@ -1,0 +1,88 @@
+{
+  "schema": "avengine_m6_controlled_canary_request_v1",
+  "run_id": "m6_controlled_one_active_of_two_v1",
+  "research_only": true,
+  "qualification_claim": false,
+  "room": {
+    "room_id": "blender_custom_two_zone_v1",
+    "revision": "controlled_geometry_v1",
+    "qualification_report_id": "blender_custom_two_zone_m6_audit_v1"
+  },
+  "entity_instances": [
+    {
+      "entity_instance_id": "beagle_0",
+      "timeline_actor_id": "actor0",
+      "entity_asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "entity_asset_revision": "m2_v7_world_contact_r5"
+    },
+    {
+      "entity_instance_id": "beagle_1",
+      "timeline_actor_id": "actor1",
+      "entity_asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "entity_asset_revision": "m2_v7_world_contact_r5"
+    }
+  ],
+  "source_endpoint_ids": [
+    "beagle_0_muzzle",
+    "beagle_1_muzzle"
+  ],
+  "endpoint_to_upstream_source_id": {
+    "beagle_0_muzzle": "source0",
+    "beagle_1_muzzle": "source1"
+  },
+  "listener": {
+    "listener_id": "listener0",
+    "camera_rig_id": "camera_rig_0",
+    "view_id": "view0",
+    "observer_yaw_deg": -90
+  },
+  "audio_program": {
+    "program_id": "beagle_one_active_of_two_v1",
+    "revision": "v1"
+  },
+  "legacy_flag_registry": {
+    "registry_id": "legacy_m5_1_source_event_flags",
+    "revision": "v1"
+  },
+  "upstream_evidence": {
+    "kind": "verified_m5_controlled_bundle",
+    "episode_variant": "A",
+    "evidence_content_sha256": "c75674338ac972ac846bb74621ef7a3bde6d51c3ae219ee4ab840e82767cd428",
+    "rir_projection_sha256_by_layout": {
+      "binaural": "d94cbf128ae1d599798b2824e8e5258632f83c2f5710262054107b6a0de4eaa2",
+      "foa": "25b0484b658e371489ce99aaa7a619490ac2b78687c3831a291d7d5d7da8df50"
+    }
+  },
+  "spatial_audio": {
+    "sample_rate_hz": 16000,
+    "sample_count": 80000,
+    "binaural": {
+      "layout_id": "rlr_binaural_lr_v1",
+      "channel_labels": [
+        "left",
+        "right"
+      ],
+      "azimuth_domain_deg": [
+        0,
+        360
+      ]
+    },
+    "foa": {
+      "layout_id": "rlr_foa_acn_n3d_world_v1",
+      "channel_order": [
+        "W",
+        "Y",
+        "Z",
+        "X"
+      ],
+      "normalization": "N3D",
+      "coordinate_frame": "avengine_world"
+    }
+  },
+  "release_manifest_ref": {
+    "release_id": "avengine_m6_feasibility_v1",
+    "repository_path": "release/avengine_release_manifest_v1.json",
+    "expected_tag": "avengine-m6-feasibility-v1"
+  },
+  "request_content_sha256": "837569295e74864d43be8255dff47dc1e53de46ebf371c4990c6113b3d43b9b2"
+}

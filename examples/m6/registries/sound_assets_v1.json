@@ -1,0 +1,32 @@
+{
+  "schema": "avengine_m6_sound_asset_registry_v1",
+  "registry_id": "m6_sound_assets_canary_v1",
+  "revision": "v1",
+  "sound_assets": [
+    {
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "revision": "legacy_m5_1_v1",
+      "semantic_sound_class": "animal_vocalization",
+      "taxonomy_path": ["animal", "canine", "bark"],
+      "instance_lineage_id": "legacy_beagle_call_v2",
+      "dry_audio": {
+        "uri": "artifact://legacy-m5-1/audio/dog_beagle_v2_scheduled_dry.wav",
+        "sha256": "12d9b3a2c9cd81852ddeb76d1abeef41ef623868b6731ff91ed511d474d2c634",
+        "sample_rate_hz": 16000,
+        "channel_count": 1,
+        "sample_count": 240000
+      },
+      "normalization_policy": {"mode": "preserve", "target_dbfs": null},
+      "allowed_transforms": ["crop", "deterministic_resample", "gain", "zero_pad"],
+      "tags": ["bark", "canine", "legacy_m5_1"],
+      "provenance": {
+        "origin": "research_recording",
+        "license": null,
+        "rights_status": "unresolved",
+        "rights_evidence_sha256": "7b7d2455073d73e02ab055fc4399befc1b6a615b451166568a377287cc05a27b"
+      },
+      "admissibility": "research"
+    }
+  ],
+  "registry_content_sha256": "053fd1502fbd1018830853e837e09ce20783a16620673330cb172263f3deed70"
+}

@@ -1,0 +1,120 @@
+{
+  "schema": "avengine_m6_room_qualification_report_v1",
+  "report_id": "legacy_ue_apartment_m6_audit_v1",
+  "subject": {
+    "room_id": "legacy_ue_apartment_0000_v1",
+    "revision": "real_surface_export_pending_portable_package_v1",
+    "qualification_scope": "acoustic_representation",
+    "acoustic_representation_id": "legacy_real_surface_acoustic_v1",
+    "acoustic_representation_kind": "production_authority"
+  },
+  "evidence_basis": "audited_historical",
+  "evidence_artifacts": [],
+  "dimensions": {
+    "visual_runtime_status": {
+      "status": "pass",
+      "summary": "The historical real-surface Habitat visual capture and UE-versus-Habitat review passed their research gates.",
+      "evidence_refs": ["docs/roadmap/M1_STATUS.md", "docs/roadmap/M5_1_STATUS.md"]
+    },
+    "navigation_status": {
+      "status": "pass",
+      "summary": "The historical package loaded its navmesh; route AABBs only certified center-point diagnostics.",
+      "evidence_refs": ["docs/roadmap/M1_STATUS.md", "docs/roadmap/M5_1_STATUS.md"]
+    },
+    "acoustic_geometry_status": {
+      "status": "blocked",
+      "summary": "The real-surface export is not a portable checked-in package, and the historical topology/parity attempt did not pass production gates.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "legacy_real_surface_not_portable_or_qualified"
+    },
+    "material_binding_status": {
+      "status": "blocked",
+      "summary": "Historical triangle coverage passed, but the mapping remained a research placeholder without formal activation/readback qualification.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "legacy_material_semantics_unqualified"
+    },
+    "ray_leakage_status": {
+      "status": "not_run",
+      "summary": "Real-surface door, wall, floor, ceiling, LOS/NLOS, and leakage checks were not declared or run.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "legacy_real_surface_rays_not_run"
+    },
+    "physical_material_truth_status": {
+      "status": "unqualified",
+      "summary": "Research placeholder coefficients are not controlled approximation or measured truth.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "legacy_material_truth_unqualified"
+    },
+    "episode_feasibility_status": {
+      "status": "pass",
+      "summary": "The existing 18-second human-plus-Beagle research route and dynamic binaural delivery completed.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    }
+  },
+  "placement_feasibility": {
+    "status": "not_run",
+    "summary": "Historical center-point AABB checks do not replace five-point support, body clearance, or camera-frustum leakage probes.",
+    "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+    "blocker_code": "legacy_full_placement_probe_not_run",
+    "checks": [],
+    "failure_reasons": ["legacy_center_aabb_is_non_authoritative"]
+  },
+  "acoustic_diagnostics": {
+    "raw_source_identity": {
+      "status": "blocked",
+      "summary": "The historical real-surface hash is known locally, but the export is absent from a portable release package.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "legacy_surface_release_binding_missing"
+    },
+    "declared_derivation_integrity": {
+      "status": "not_run",
+      "summary": "No qualified declared proxy derivation has been promoted.",
+      "evidence_refs": [],
+      "blocker_code": "legacy_derivation_not_run"
+    },
+    "visual_to_acoustic_spatial_parity": {
+      "status": "fail",
+      "summary": "The historical audit declared 782305 triangles while the package extractor observed 782306.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "legacy_triangle_count_parity_mismatch"
+    },
+    "solver_loadability": {
+      "status": "pass",
+      "summary": "The research-review escape hatch loaded the real-surface package and generated dynamic RIRs.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"]
+    },
+    "topology_diagnostics": {
+      "status": "fail",
+      "summary": "Historical diagnostics found one duplicate triangle, 20734 boundary edges, and seven non-manifold edges.",
+      "evidence_refs": ["docs/roadmap/M5_1_STATUS.md"],
+      "blocker_code": "legacy_topology_gate_failed"
+    },
+    "opening_and_enclosure_checks": {
+      "status": "not_run",
+      "summary": "No authoritative real-surface opening/enclosure suite has run.",
+      "evidence_refs": [],
+      "blocker_code": "legacy_opening_enclosure_not_run"
+    }
+  },
+  "dataset_admission": false,
+  "admission_blockers": [
+    "acoustic_geometry_status=blocked",
+    "material_binding_status=blocked",
+    "ray_leakage_status=not_run",
+    "physical_material_truth_status=unqualified",
+    "placement_feasibility=not_run",
+    "acoustic_diagnostics.raw_source_identity=blocked",
+    "acoustic_diagnostics.declared_derivation_integrity=not_run",
+    "acoustic_diagnostics.visual_to_acoustic_spatial_parity=fail",
+    "acoustic_diagnostics.topology_diagnostics=fail",
+    "acoustic_diagnostics.opening_and_enclosure_checks=not_run"
+  ],
+  "provenance": {
+    "source_records": [
+      "examples/m5_1/legacy_apartment/route_manifest.json",
+      "examples/m5_1/legacy_apartment/source_manifest.json",
+      "docs/roadmap/M5_1_STATUS.md"
+    ],
+    "notes": "Passes are historical research evidence only. AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT and PACKAGE_ROOT must point to rebuilt, hash-verified artifacts for a fresh run."
+  }
+}

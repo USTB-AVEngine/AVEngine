@@ -1,60 +1,45 @@
-# AVEngine external resource paths — single source of truth for absolute
-# paths outside the AVEngine repo (datasets, model weights, third-party
-# tools). Edit this file when your machine's layout differs.
-#
-# How code reads this: AVEngine/scripts/load_paths.py loads this YAML,
-# sets each key as an environment variable prefixed with AVENGINE_.
-# Runtime code then does:
-#     import os
-#     path = os.environ.get("AVENGINE_AUDIO_CORPUS", "<fallback>")
-#
-# To activate all vars in current shell:
-#     eval "$(python3 scripts/load_paths.py --export)"
-# Or in a Python script:
-#     from scripts.load_paths import load_paths_env
-#     load_paths_env()          # sets env vars in-process
-#
-# Fields marked REQUIRED must exist on your machine (pipeline will crash).
-# Fields marked OPTIONAL have sensible defaults or are read only at
-# rendering/training time (not import time).
+# Machine-local paths for the Habitat-native route. Defaults are relative to
+# this repository; optional datasets are supplied only through environment
+# variables. No private-server absolute path is part of the public default.
 
-version: 1
+schema: avengine_workspace_paths_v2
+version: 2
+trust_mode: trusted_research_workspace
 
-# ---- Unreal Engine (REQUIRED for spear_ext compile + rendering) ----------
-unreal_engine_dir: /data/UE_5.5
+paths:
+  AVENGINE_REPOSITORY_ROOT:
+    default: .
+    kind: directory
+    required_for: [fast_unit]
+  AVENGINE_HABITAT_RUNTIME_ROOT:
+    default: ../habitat-sim-AVEngine
+    kind: directory
+    required_for: [native_habitat, rlr_audio, release_canary]
+  AVENGINE_EVIDENCE_ROOT:
+    default: tmp
+    kind: output_directory
+    required_for: [release_canary]
+  AVENGINE_REPLICACAD_ROOT:
+    default: null
+    kind: directory
+    required_for: [replicacad_room]
+  AVENGINE_MP3D_ROOT:
+    default: null
+    kind: directory
+    required_for: [mp3d_room]
+  AVENGINE_LEGACY_APARTMENT_ROOT:
+    default: null
+    kind: directory
+    required_for: [legacy_room]
 
-# ---- AudioSet source wavs (REQUIRED for audio pipeline) ------------------
-# ~58k .wav clips indexed by filename keyword. Not distributed by AVEngine
-# (large; contact author for a research copy).
-audio_corpus: /data/datasets/omniaudio/train-data-az-360-large
+workspace_root_entries:
+  - AVENGINE_REPOSITORY_ROOT
+  - AVENGINE_HABITAT_RUNTIME_ROOT
+  - AVENGINE_EVIDENCE_ROOT
+  - AVENGINE_REPLICACAD_ROOT
+  - AVENGINE_MP3D_ROOT
+  - AVENGINE_LEGACY_APARTMENT_ROOT
 
-# ---- Stable Audio Open 1.0 checkpoint (OPTIONAL) -------------------------
-# Only used for tags without a good local AudioSet match (chipmunk, yak,
-# donkey). Skipping = those tags silently fall back to loop-a-generic-wav.
-stable_audio_open_dir: /data/datasets/omniaudio/stable-audio-open
-
-# ---- Hunyuan3D-2.1 pretrained weights (OPTIONAL, ~20 GB) -----------------
-# Required only when re-generating meshes for new tags via
-# tools/batch_animal_pipeline.py . Not needed for demo scenes that reuse
-# existing UE-cooked meshes.
-hunyuan3d_weights_dir: /data/jzy/code/AVEngine/external/Hunyuan3D-2.1/pretrained_models
-
-# ---- Hunyuan3D-2.1 audioset asset outputs (OPTIONAL) --------------------
-# Where Hunyuan writes per-tag textured meshes (used by static ungulates
-# in species_rig_map). Path is baked into UE .uasset at cook time.
-hy3d_audioset_dir: /data/jzy/code/AVEngine/external/Hunyuan3D-2.1/outputs/audioset_assets
-
-# ---- Hunyuan3D-2.1 batch dir (OPTIONAL) ---------------------------------
-# Where tools/batch_animal_pipeline.py writes per-tag reference.png +
-# hy3d_textured.obj + turntable_grid.png. Only needed for regeneration.
-hy3d_batch_dir: /data/jzy/code/AVEngine/external/SPEAR/tmp/hy3d_batch
-
-# ---- Cosmos Transfer 2.5 (OPTIONAL, unused in current pipeline) ---------
-# Currently disabled per project decision (identity drift breaks GT).
-# cosmos_transfer_dir: /data/jzy/code/cosmos-transfer2.5
-
-# ---- Conda envs (informational — used only in docs) ---------------------
-conda_envs:
-  spear-env: /data/jzy/miniconda3/envs/spear-env
-  sao-env: /data/jzy/miniconda3/envs/sao-env
-  hunyuan3d: /data/jzy/miniconda3/envs/hunyuan3d
+optional_backends:
+  enabled_by_default: false
+  documentation: docs/legacy/OPTIONAL_BACKENDS.md

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schemas/m6_canary_evidence_v1.schema.json",
+  "title": "AVEngine M6 feasibility canary evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "evidence_kind",
+    "research_only",
+    "qualification_claim",
+    "dataset_admission",
+    "implementation_commit",
+    "request",
+    "release_manifest_ref",
+    "upstream_evidence",
+    "artifacts",
+    "checks",
+    "overall_status",
+    "evidence_content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6_canary_evidence_v1"},
+    "run_id": {"$ref": "#/$defs/id"},
+    "evidence_kind": {
+      "enum": [
+        "controlled_one_active_of_n",
+        "room_qualification_attempt",
+        "corrupted_fixture_negative"
+      ]
+    },
+    "research_only": {"type": "boolean"},
+    "qualification_claim": {"type": "boolean"},
+    "dataset_admission": {"type": "boolean"},
+    "implementation_commit": {"$ref": "#/$defs/git_commit"},
+    "request": {"$ref": "#/$defs/artifact"},
+    "release_manifest_ref": {"$ref": "#/$defs/artifact"},
+    "upstream_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "path", "sha256"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/artifact"}
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check_id", "status", "measured"],
+        "properties": {
+          "check_id": {"$ref": "#/$defs/id"},
+          "status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+          "measured": {}
+        }
+      }
+    },
+    "overall_status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+    "evidence_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "byte_size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

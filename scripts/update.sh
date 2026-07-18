@@ -1,6 +1,6 @@
-#!/bin/bash
-# Convenience alias for `bash scripts/setup.sh --update`.
-# Only affects cloned external repos (symlinks are left alone; use
-# `git pull` in the linked directory instead).
+#!/usr/bin/env bash
+# Re-run the current Habitat-native bootstrap. Dependency pin changes are made
+# in manifest.yaml; this helper never checks out or overwrites a runtime tree.
+set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec bash "$SCRIPT_DIR/setup.sh" --update "$@"
+exec bash "$SCRIPT_DIR/setup.sh" "$@"

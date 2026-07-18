@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_room_qualification_report_v1.schema.json",
+  "title": "AVEngine M6 Room Qualification Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "report_id",
+    "subject",
+    "evidence_basis",
+    "evidence_artifacts",
+    "dimensions",
+    "placement_feasibility",
+    "acoustic_diagnostics",
+    "dataset_admission",
+    "admission_blockers",
+    "provenance"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6_room_qualification_report_v1"},
+    "report_id": {"type": "string", "minLength": 1},
+    "subject": {"$ref": "#/$defs/subject"},
+    "evidence_basis": {
+      "enum": ["current_execution", "audited_historical", "contract_fixture"]
+    },
+    "evidence_artifacts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_id", "path", "sha256"],
+        "properties": {
+          "artifact_id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "dimensions": {"$ref": "#/$defs/dimensions"},
+    "placement_feasibility": {"$ref": "#/$defs/placement"},
+    "acoustic_diagnostics": {"$ref": "#/$defs/acoustic_diagnostics"},
+    "dataset_admission": {"type": "boolean"},
+    "admission_blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_id",
+        "revision",
+        "qualification_scope",
+        "acoustic_representation_id"
+      ],
+      "properties": {
+        "room_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "qualification_scope": {
+          "enum": ["room_revision", "acoustic_representation", "corrupted_fixture"]
+        },
+        "acoustic_representation_id": {
+          "oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]
+        },
+        "acoustic_representation_kind": {
+          "enum": [
+            "production_authority",
+            "raw_source",
+            "derived_proxy",
+            "unavailable",
+            "corrupted_fixture"
+          ]
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary", "evidence_refs"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "summary": {"type": "string", "minLength": 1},
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "blocker_code": {"type": "string", "minLength": 1}
+      }
+    },
+    "truth_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary", "evidence_refs"],
+      "properties": {
+        "status": {
+          "enum": [
+            "controlled_profile",
+            "measured",
+            "controlled_approximation",
+            "semantic_mapping_approximation",
+            "unqualified",
+            "none"
+          ]
+        },
+        "summary": {"type": "string", "minLength": 1},
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "blocker_code": {"type": "string", "minLength": 1}
+      }
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "visual_runtime_status",
+        "navigation_status",
+        "acoustic_geometry_status",
+        "material_binding_status",
+        "ray_leakage_status",
+        "physical_material_truth_status",
+        "episode_feasibility_status"
+      ],
+      "properties": {
+        "visual_runtime_status": {"$ref": "#/$defs/check"},
+        "navigation_status": {"$ref": "#/$defs/check"},
+        "acoustic_geometry_status": {"$ref": "#/$defs/check"},
+        "material_binding_status": {"$ref": "#/$defs/check"},
+        "ray_leakage_status": {"$ref": "#/$defs/check"},
+        "physical_material_truth_status": {"$ref": "#/$defs/truth_check"},
+        "episode_feasibility_status": {"$ref": "#/$defs/check"}
+      }
+    },
+    "placement_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "passed", "measured", "threshold"],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "passed": {"type": "boolean"},
+        "measured": {"type": "object"},
+        "threshold": {"type": "object"}
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "summary",
+        "evidence_refs",
+        "checks",
+        "failure_reasons"
+      ],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "summary": {"type": "string", "minLength": 1},
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "blocker_code": {"type": "string", "minLength": 1},
+        "checks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/placement_check"}
+        },
+        "failure_reasons": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "acoustic_diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "raw_source_identity",
+        "declared_derivation_integrity",
+        "visual_to_acoustic_spatial_parity",
+        "solver_loadability",
+        "topology_diagnostics",
+        "opening_and_enclosure_checks"
+      ],
+      "properties": {
+        "raw_source_identity": {"$ref": "#/$defs/check"},
+        "declared_derivation_integrity": {"$ref": "#/$defs/check"},
+        "visual_to_acoustic_spatial_parity": {"$ref": "#/$defs/check"},
+        "solver_loadability": {"$ref": "#/$defs/check"},
+        "topology_diagnostics": {"$ref": "#/$defs/check"},
+        "opening_and_enclosure_checks": {"$ref": "#/$defs/check"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_records", "notes"],
+      "properties": {
+        "source_records": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "notes": {"type": "string"}
+      }
+    }
+  }
+}

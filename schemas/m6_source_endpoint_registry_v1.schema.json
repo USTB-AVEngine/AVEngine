@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_source_endpoint_registry_v1.schema.json",
+  "title": "AVEngine M6 Source Endpoint Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "registry_id", "revision", "source_endpoints", "registry_content_sha256"],
+  "properties": {
+    "schema": {"const": "avengine_m6_source_endpoint_registry_v1"},
+    "registry_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "source_endpoints": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/endpoint"}},
+    "registry_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "stable_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "vec3": {"type": "array", "minItems": 3, "maxItems": 3, "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "items": false},
+    "entity_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "entity_instance_id", "entity_asset_id", "entity_asset_revision", "emitter_anchor_id"],
+      "properties": {
+        "kind": {"const": "entity_anchor"},
+        "entity_instance_id": {"$ref": "#/$defs/stable_id"},
+        "entity_asset_id": {"$ref": "#/$defs/stable_id"},
+        "entity_asset_revision": {"$ref": "#/$defs/stable_id"},
+        "emitter_anchor_id": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "world_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "world_point_id", "emitter_anchor_id", "coordinate_frame", "position_m"],
+      "properties": {
+        "kind": {"const": "world_point"},
+        "world_point_id": {"$ref": "#/$defs/stable_id"},
+        "emitter_anchor_id": {"$ref": "#/$defs/stable_id"},
+        "coordinate_frame": {"const": "avengine_world_right_handed_y_up_m"},
+        "position_m": {"$ref": "#/$defs/vec3"}
+      }
+    },
+    "endpoint": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "source_endpoint_id", "revision", "binding", "source_visibility_mode",
+        "allowed_sound_class_ids", "directivity_profile_id", "persistent_when_silent",
+        "admission_state", "evidence_sha256"
+      ],
+      "properties": {
+        "source_endpoint_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "binding": {"oneOf": [{"$ref": "#/$defs/entity_binding"}, {"$ref": "#/$defs/world_binding"}]},
+        "source_visibility_mode": {"enum": ["visible_entity", "offscreen_entity", "environmental_region", "diffuse_ambient"]},
+        "allowed_sound_class_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
+        "directivity_profile_id": {"$ref": "#/$defs/stable_id"},
+        "persistent_when_silent": {"const": true},
+        "admission_state": {"enum": ["formal", "research", "unavailable", "rejected"]},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

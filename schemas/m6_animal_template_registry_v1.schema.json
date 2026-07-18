@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_animal_template_registry_v1.schema.json",
+  "title": "AVEngine M6 Animal Template Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "registry_id", "revision", "templates", "registry_content_sha256"],
+  "properties": {
+    "schema": {"const": "avengine_m6_animal_template_registry_v1"},
+    "registry_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "templates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/template"}},
+    "registry_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "stable_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "vec3": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}], "items": false
+    },
+    "anchor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["anchor_id", "anchor_type", "joint_id", "local_position_m"],
+      "properties": {
+        "anchor_id": {"$ref": "#/$defs/stable_id"},
+        "anchor_type": {"enum": ["head", "muzzle", "paw", "body", "object_speaker", "environmental_point", "offscreen_point"]},
+        "joint_id": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+        "local_position_m": {"$ref": "#/$defs/vec3"}
+      }
+    },
+    "hash_revisions": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "topology_sha256", "uv_sha256", "skeleton_revision", "skeleton_sha256",
+        "skin_weights_revision", "skin_weights_sha256", "collision_revision", "collision_sha256"
+      ],
+      "properties": {
+        "topology_sha256": {"$ref": "#/$defs/sha256"},
+        "uv_sha256": {"$ref": "#/$defs/sha256"},
+        "skeleton_revision": {"$ref": "#/$defs/stable_id"},
+        "skeleton_sha256": {"$ref": "#/$defs/sha256"},
+        "skin_weights_revision": {"$ref": "#/$defs/stable_id"},
+        "skin_weights_sha256": {"$ref": "#/$defs/sha256"},
+        "collision_revision": {"$ref": "#/$defs/stable_id"},
+        "collision_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "action_family": {
+      "type": "object", "additionalProperties": false,
+      "required": ["action_family_id", "revision", "sha256"],
+      "properties": {
+        "action_family_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "range": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {"minimum": {"type": "number"}, "maximum": {"type": "number"}}
+    },
+    "qa_evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["check_id", "status", "uri", "sha256"],
+      "properties": {
+        "check_id": {"$ref": "#/$defs/stable_id"},
+        "status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "uri": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "contact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contact_id", "anchor_id", "semantic_role"],
+      "properties": {
+        "contact_id": {"$ref": "#/$defs/stable_id"},
+        "anchor_id": {"$ref": "#/$defs/stable_id"},
+        "semantic_role": {"enum": ["support", "contact_sound", "both"]}
+      }
+    },
+    "appearance_domains": {
+      "type": "object", "additionalProperties": false,
+      "required": ["size", "body_build", "life_stage", "coat_profile"],
+      "properties": {
+        "size": {"type": "array", "minItems": 3, "maxItems": 3, "prefixItems": [{"const": "small"}, {"const": "medium"}, {"const": "large"}], "items": false},
+        "body_build": {"type": "array", "minItems": 3, "maxItems": 3, "prefixItems": [{"const": "slim"}, {"const": "standard"}, {"const": "stocky"}], "items": false},
+        "life_stage": {"type": "array", "minItems": 3, "maxItems": 3, "prefixItems": [{"const": "young"}, {"const": "adult"}, {"const": "senior"}], "items": false},
+        "coat_profile": {
+          "type": "object", "additionalProperties": false,
+          "required": ["profile_id", "values"],
+          "properties": {
+            "profile_id": {"$ref": "#/$defs/stable_id"},
+            "values": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}}
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "source_revision", "license", "rights_status", "evidence_sha256"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "source_revision": {"type": "string", "minLength": 1},
+        "license": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+        "rights_status": {"enum": ["licensed", "research_use_only", "review_required", "unresolved"]},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "template": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "template_id", "revision", "body_plan_id", "morphotype_id", "taxonomy",
+        "asset_revisions", "action_families", "morphology_reference",
+        "allowed_morphology_range", "appearance_domains", "native_qa_baseline",
+        "emitter_anchors", "contact_semantics", "collision_proxy", "provenance", "status"
+      ],
+      "properties": {
+        "template_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "body_plan_id": {"$ref": "#/$defs/stable_id"},
+        "morphotype_id": {"$ref": "#/$defs/stable_id"},
+        "taxonomy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["species_id", "breed_id"],
+          "properties": {
+            "species_id": {"$ref": "#/$defs/stable_id"},
+            "breed_id": {"$ref": "#/$defs/stable_id"}
+          }
+        },
+        "asset_revisions": {"$ref": "#/$defs/hash_revisions"},
+        "action_families": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action_family"}},
+        "morphology_reference": {
+          "type": "object", "minProperties": 3,
+          "additionalProperties": {"type": "number"}
+        },
+        "allowed_morphology_range": {
+          "type": "object", "minProperties": 3,
+          "additionalProperties": {"$ref": "#/$defs/range"}
+        },
+        "appearance_domains": {"$ref": "#/$defs/appearance_domains"},
+        "native_qa_baseline": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/qa_evidence"}},
+        "emitter_anchors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/anchor"}},
+        "contact_semantics": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/contact"}},
+        "collision_proxy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["proxy_id", "revision", "sha256", "kind"],
+          "properties": {
+            "proxy_id": {"$ref": "#/$defs/stable_id"},
+            "revision": {"$ref": "#/$defs/stable_id"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "kind": {"enum": ["kinematic_proxy", "convex_hull", "articulated_collision"]}
+          }
+        },
+        "provenance": {"$ref": "#/$defs/provenance"},
+        "status": {"enum": ["formal", "research", "unavailable", "rejected"]}
+      }
+    }
+  }
+}

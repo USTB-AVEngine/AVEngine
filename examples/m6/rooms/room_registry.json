@@ -1,0 +1,518 @@
+{
+  "schema": "avengine_m6_room_registry_v1",
+  "registry_id": "avengine_m6_representative_rooms_v1",
+  "records": [
+    {
+      "room_id": "blender_custom_two_zone_v1",
+      "revision": "controlled_geometry_v1",
+      "provider_id": "blender_custom",
+      "lineage": {
+        "scene_lineage_id": "avengine_procedural_two_zone",
+        "room_geometry_id": "two_zone_real_surface_v1",
+        "layout_variant_id": "empty_controlled_layout_v1",
+        "acoustic_profile_id": "controlled_low_high_profiles_v1",
+        "episode_layout_id": "m6_one_active_of_n_pending_v1"
+      },
+      "tier": "controlled_material_truth",
+      "coordinate_system": {
+        "handedness": "right",
+        "up_axis": "+Y",
+        "forward_axis": "-Z",
+        "linear_unit": "meter"
+      },
+      "resources": [
+        {
+          "resource_id": "custom_room_manifest",
+          "resource_type": "room_manifest",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m1/rooms/blender_custom/room_manifest.json"
+          },
+          "sha256": "d10e081829bce1b5cdeb41a8a1407f82b47bc1aede0c86b613e31658c2430b7f",
+          "required_for": ["visual_runtime", "navigation", "acoustic_geometry"],
+          "redistribution": "repository"
+        },
+        {
+          "resource_id": "custom_visual_surface",
+          "resource_type": "visual_scene",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m1/rooms/blender_custom/visual/stages/m1_custom_room.glb"
+          },
+          "sha256": "7a4cf2709f8d66922f9bf42a7925d7b4d073882ae8725be804f0e842370ae55e",
+          "required_for": ["visual_runtime", "acoustic_geometry"],
+          "redistribution": "repository"
+        },
+        {
+          "resource_id": "custom_navmesh",
+          "resource_type": "navmesh",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m1/rooms/blender_custom/visual/navmeshes/m1_custom_room.navmesh"
+          },
+          "sha256": "fc6a3f8f140dc999250b2dd0d7be288ec6004e73aa4ca89c23b0f6257d71f014",
+          "required_for": ["navigation", "episode_feasibility"],
+          "redistribution": "repository"
+        },
+        {
+          "resource_id": "custom_acoustic_package",
+          "resource_type": "acoustic_package",
+          "location": {
+            "kind": "generated",
+            "producer": "avengine.m3.compiler:compile_custom_acoustic_scene"
+          },
+          "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
+          "redistribution": "generated_local",
+          "notes": "The historical formal package lived under ignored tmp; rebuild it instead of publishing that absolute path."
+        }
+      ],
+      "acoustic_representations": [
+        {
+          "representation_id": "custom_two_zone_acoustic_v1",
+          "role": "production_authority",
+          "geometry_kind": "real_surface_mesh",
+          "resource_id": "custom_acoustic_package",
+          "build_mode": "compile",
+          "producer": "avengine.m3.compiler:compile_custom_acoustic_scene",
+          "input_resource_ids": ["custom_room_manifest", "custom_visual_surface"],
+          "immutable": false,
+          "derived_from": null,
+          "material_semantics": "controlled_profile",
+          "notes": "Synthetic controlled-material activation baseline; not measured real-room truth."
+        }
+      ],
+      "openings": [
+        {
+          "opening_id": "door_main",
+          "kind": "door",
+          "qualification_role": "ray_test_required"
+        },
+        {
+          "opening_id": "window_north",
+          "kind": "window",
+          "qualification_role": "ray_whitelist"
+        }
+      ],
+      "qualification_reports": [
+        {
+          "report_id": "blender_custom_two_zone_m6_audit_v1",
+          "acoustic_representation_id": "custom_two_zone_acoustic_v1",
+          "path": "examples/m6/rooms/qualification/blender_custom_two_zone.json"
+        }
+      ],
+      "admission_state": "not_admitted",
+      "provenance": {
+        "source_dataset": "AVEngine procedural controlled room",
+        "source_revision": "blender_custom_two_zone_v1",
+        "rights": "repository-owned test asset",
+        "notes": "Acoustic profile and episode layout are independent lineage axes."
+      }
+    },
+    {
+      "room_id": "replicacad_apt_0",
+      "revision": "replica_cad_dataset_1_5_layout_apt_0",
+      "provider_id": "replica_cad",
+      "lineage": {
+        "scene_lineage_id": "replica_cad_apt_0",
+        "room_geometry_id": "frl_apartment_stage_v1_5",
+        "layout_variant_id": "apt_0_scene_instance_v1_5",
+        "acoustic_profile_id": "replicacad_controlled_approximation_pending_v1",
+        "episode_layout_id": "m6_replicacad_canary_pending_v1"
+      },
+      "tier": "geometry_faithful_material_controlled",
+      "coordinate_system": {
+        "handedness": "right",
+        "up_axis": "+Y",
+        "forward_axis": "-Z",
+        "linear_unit": "meter"
+      },
+      "resources": [
+        {
+          "resource_id": "replicacad_dataset_config",
+          "resource_type": "scene_dataset_config",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_REPLICACAD_ROOT",
+            "path_template": "${AVENGINE_REPLICACAD_ROOT}/replicaCAD.scene_dataset_config.json"
+          },
+          "sha256": "a51d4fe5e1853e616c13710930191bad33c0b277edece7c4e520d1194831f5e3",
+          "required_for": ["visual_runtime"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "replicacad_apt_0_instance",
+          "resource_type": "scene_instance_config",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_REPLICACAD_ROOT",
+            "path_template": "${AVENGINE_REPLICACAD_ROOT}/configs/scenes/apt_0.scene_instance.json"
+          },
+          "sha256": "7935087e35b8c0fb23d3503749eaa8b5b766cf44dc21c20ce70b79a64e8651fe",
+          "required_for": ["visual_runtime", "episode_feasibility"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "replicacad_stage_surface",
+          "resource_type": "visual_scene",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_REPLICACAD_ROOT",
+            "path_template": "${AVENGINE_REPLICACAD_ROOT}/stages/frl_apartment_stage.glb"
+          },
+          "sha256": "9a28a0511ab15cb48bbd1a6a171798918f24b66e54a8406d69d270938d71d923",
+          "required_for": ["visual_runtime", "acoustic_geometry"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "replicacad_apt_0_navmesh",
+          "resource_type": "navmesh",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_REPLICACAD_ROOT",
+            "path_template": "${AVENGINE_REPLICACAD_ROOT}/navmeshes/apt_0.navmesh"
+          },
+          "sha256": "1b5336a6b22278412ab9297f0a18d9a821942754fc1413274832bfe80bd54e01",
+          "required_for": ["navigation", "episode_feasibility"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "replicacad_acoustic_proxy",
+          "resource_type": "acoustic_package",
+          "location": {
+            "kind": "generated",
+            "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene"
+          },
+          "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
+          "redistribution": "generated_local"
+        }
+      ],
+      "acoustic_representations": [
+        {
+          "representation_id": "replicacad_stage_raw_v1_5",
+          "role": "raw_source",
+          "geometry_kind": "real_surface_mesh",
+          "resource_id": "replicacad_stage_surface",
+          "build_mode": "reference",
+          "input_resource_ids": ["replicacad_stage_surface"],
+          "immutable": true,
+          "derived_from": null,
+          "material_semantics": "unqualified",
+          "notes": "Visual stage source; not automatically an admitted acoustic mesh."
+        },
+        {
+          "representation_id": "replicacad_apt_0_acoustic_proxy_v1",
+          "role": "derived_proxy",
+          "geometry_kind": "declared_derived_surface",
+          "resource_id": "replicacad_acoustic_proxy",
+          "build_mode": "derive",
+          "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene",
+          "input_resource_ids": ["replicacad_stage_surface"],
+          "immutable": false,
+          "derived_from": "replicacad_stage_raw_v1_5",
+          "material_semantics": "controlled_approximation",
+          "notes": "Target contract only; current qualification remains not_run."
+        }
+      ],
+      "openings": [],
+      "qualification_reports": [
+        {
+          "report_id": "replicacad_apt_0_m6_audit_v1",
+          "acoustic_representation_id": "replicacad_apt_0_acoustic_proxy_v1",
+          "path": "examples/m6/rooms/qualification/replicacad_apt_0.json"
+        }
+      ],
+      "admission_state": "not_admitted",
+      "provenance": {
+        "source_dataset": "ReplicaCAD",
+        "source_revision": "replica_cad_dataset_1.5",
+        "rights": "external dataset terms apply",
+        "notes": "apt_0 is a layout variant over the stage lineage, not a new building for every furniture variation."
+      }
+    },
+    {
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "revision": "real_surface_export_pending_portable_package_v1",
+      "provider_id": "legacy_ue_apartment",
+      "lineage": {
+        "scene_lineage_id": "legacy_ue_apartment_0000",
+        "room_geometry_id": "ue_staticmesh_lod0_real_surface_v1",
+        "layout_variant_id": "legacy_apartment_0000_original_layout",
+        "acoustic_profile_id": "legacy_controlled_approximation_pending_v1",
+        "episode_layout_id": "legacy_18_second_route_v1"
+      },
+      "tier": "visual_research_only",
+      "coordinate_system": {
+        "handedness": "right",
+        "up_axis": "+Y",
+        "forward_axis": "-Z",
+        "linear_unit": "meter"
+      },
+      "resources": [
+        {
+          "resource_id": "legacy_route_manifest",
+          "resource_type": "route_manifest",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m5_1/legacy_apartment/route_manifest.json"
+          },
+          "sha256": "703a7a60fead9a6b489d73071ae5e1cd160e6ca4bef91fb35de47691509be92e",
+          "required_for": ["episode_feasibility"],
+          "redistribution": "repository",
+          "notes": "Embedded shell/furniture AABBs are center-point diagnostics only and are non-authoritative for acoustics."
+        },
+        {
+          "resource_id": "legacy_source_manifest",
+          "resource_type": "source_manifest",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m5_1/legacy_apartment/source_manifest.json"
+          },
+          "sha256": "324859a2c7038c2385f0ee8992d9bfedad5090478b285bf058747d8eb609aef0",
+          "required_for": ["episode_feasibility"],
+          "redistribution": "repository"
+        },
+        {
+          "resource_id": "legacy_real_surface",
+          "resource_type": "visual_scene",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT",
+            "path_template": "${AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT}/scene.glb"
+          },
+          "sha256": "3c0f53d0a46d99cad90b016763d420d53618cfd0ca881851f142db4d91d399b2",
+          "required_for": ["visual_runtime", "acoustic_geometry"],
+          "redistribution": "external_required",
+          "notes": "Historical ignored tmp path is deliberately not encoded here; rebuild/export and set the root explicitly."
+        },
+        {
+          "resource_id": "legacy_scene_dataset_config",
+          "resource_type": "scene_dataset_config",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT",
+            "path_template": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/legacy_apartment_0000.scene_dataset_config.json"
+          },
+          "required_for": ["visual_runtime"],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "legacy_navmesh",
+          "resource_type": "navmesh",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT",
+            "path_template": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/navmeshes/legacy_apartment_0000.navmesh"
+          },
+          "required_for": ["navigation", "episode_feasibility"],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "legacy_real_surface_acoustic_package",
+          "resource_type": "acoustic_package",
+          "location": {
+            "kind": "generated",
+            "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene"
+          },
+          "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
+          "redistribution": "generated_local"
+        }
+      ],
+      "acoustic_representations": [
+        {
+          "representation_id": "legacy_real_surface_acoustic_v1",
+          "role": "production_authority",
+          "geometry_kind": "real_surface_mesh",
+          "resource_id": "legacy_real_surface_acoustic_package",
+          "build_mode": "compile",
+          "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene",
+          "input_resource_ids": ["legacy_real_surface"],
+          "immutable": false,
+          "derived_from": null,
+          "material_semantics": "research_placeholder",
+          "notes": "Current historical attempt is research-only and has unresolved topology/material/ray gates."
+        },
+        {
+          "representation_id": "legacy_route_aabb_diagnostic",
+          "role": "diagnostic_only",
+          "geometry_kind": "debug_aabb_proxy",
+          "resource_id": "legacy_route_manifest",
+          "build_mode": "reference",
+          "input_resource_ids": ["legacy_route_manifest"],
+          "immutable": true,
+          "derived_from": null,
+          "material_semantics": "unqualified",
+          "notes": "Center-point obstacle diagnostics only; never an acoustic authority."
+        }
+      ],
+      "openings": [],
+      "qualification_reports": [
+        {
+          "report_id": "legacy_ue_apartment_m6_audit_v1",
+          "acoustic_representation_id": "legacy_real_surface_acoustic_v1",
+          "path": "examples/m6/rooms/qualification/legacy_ue_apartment.json"
+        }
+      ],
+      "admission_state": "not_admitted",
+      "provenance": {
+        "source_dataset": "legacy AVEngine UE apartment_0000",
+        "source_revision": "UE StaticMesh render-data LOD0 export",
+        "rights": "legacy project assets; external package preparation required",
+        "notes": "The 18-second route is preserved separately from room geometry and acoustic profile lineage."
+      }
+    },
+    {
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "revision": "raw_v1_plus_declared_proxy_v2_research",
+      "provider_id": "matterport3d",
+      "lineage": {
+        "scene_lineage_id": "matterport3d_17DRP5sb8fy",
+        "room_geometry_id": "mp3d_17DRP5sb8fy_raw_scan",
+        "layout_variant_id": "mp3d_scan_as_captured",
+        "acoustic_profile_id": "semantic_mapping_approximation_pending_v2",
+        "episode_layout_id": "m5_1_human_beagle_route_v1"
+      },
+      "tier": "visual_research_only",
+      "coordinate_system": {
+        "handedness": "right",
+        "up_axis": "+Y",
+        "forward_axis": "-Z",
+        "linear_unit": "meter"
+      },
+      "resources": [
+        {
+          "resource_id": "mp3d_room_manifest",
+          "resource_type": "room_manifest",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+          },
+          "sha256": "1e1cb31aea888d33b953f029fac81da06a7b47a8f72c0223e2da12227b474f7d",
+          "required_for": ["visual_runtime", "navigation"],
+          "redistribution": "repository"
+        },
+        {
+          "resource_id": "mp3d_dataset_config",
+          "resource_type": "scene_dataset_config",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
+            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json"
+          },
+          "sha256": "b56050135d429839ca7066f335de51897d27e9741810bff8e13972fe539b0f5f",
+          "required_for": ["visual_runtime"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "mp3d_raw_visual_surface",
+          "resource_type": "visual_scene",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
+            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb"
+          },
+          "sha256": "334456925e056c83a9a7a5c768b3d37cdd23425d8ca20743bfce015be3f56b04",
+          "required_for": ["visual_runtime", "acoustic_geometry"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "mp3d_navmesh",
+          "resource_type": "navmesh",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
+            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh"
+          },
+          "sha256": "0f36abb98ee3545d7e1f5103882269206feaaea05dcb54014333290b1d2b00c8",
+          "required_for": ["navigation", "episode_feasibility"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "mp3d_house_descriptor",
+          "resource_type": "semantic_resource",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
+            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house"
+          },
+          "sha256": "bdb833931a9196d2c72df8ead2842d9a161e8dc7d42da1536b10b461a9b14d8a",
+          "required_for": ["material_binding"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "mp3d_semantic_mesh",
+          "resource_type": "semantic_resource",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
+            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply"
+          },
+          "sha256": "b7b522bd2d0aa59ee3aec15e509f0b22ea63115b8b66301b50a3a3a0be0a7a26",
+          "required_for": ["material_binding", "ray_leakage"],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "mp3d_declared_proxy_v2",
+          "resource_type": "acoustic_package",
+          "location": {
+            "kind": "generated",
+            "producer": "avengine.m3.research_cleanup:derive_research_package"
+          },
+          "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
+          "redistribution": "generated_local",
+          "notes": "Historical ignored tmp proxy is not a portable released artifact; rerun deterministic derivation."
+        }
+      ],
+      "acoustic_representations": [
+        {
+          "representation_id": "mp3d_17DRP5sb8fy_raw_source_v1",
+          "role": "raw_source",
+          "geometry_kind": "real_surface_mesh",
+          "resource_id": "mp3d_raw_visual_surface",
+          "build_mode": "reference",
+          "input_resource_ids": ["mp3d_raw_visual_surface"],
+          "immutable": true,
+          "derived_from": null,
+          "material_semantics": "research_placeholder",
+          "notes": "Immutable scan identity; raw RLR upload is rejected by a 458-face zero-area primitive."
+        },
+        {
+          "representation_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+          "role": "derived_proxy",
+          "geometry_kind": "declared_derived_surface",
+          "resource_id": "mp3d_declared_proxy_v2",
+          "build_mode": "derive",
+          "producer": "avengine.m3.research_cleanup:derive_research_package",
+          "input_resource_ids": [
+            "mp3d_raw_visual_surface",
+            "mp3d_house_descriptor",
+            "mp3d_semantic_mesh"
+          ],
+          "immutable": false,
+          "derived_from": "mp3d_17DRP5sb8fy_raw_source_v1",
+          "material_semantics": "semantic_mapping_approximation",
+          "notes": "Declared target revision; current local cleanup is solver-loadable but topology/material/ray qualification is incomplete."
+        }
+      ],
+      "openings": [],
+      "qualification_reports": [
+        {
+          "report_id": "mp3d_17DRP5sb8fy_raw_m6_audit_v1",
+          "acoustic_representation_id": "mp3d_17DRP5sb8fy_raw_source_v1",
+          "path": "examples/m6/rooms/qualification/mp3d_17DRP5sb8fy_raw.json"
+        },
+        {
+          "report_id": "mp3d_17DRP5sb8fy_derived_m6_audit_v1",
+          "acoustic_representation_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+          "path": "examples/m6/rooms/qualification/mp3d_17DRP5sb8fy_derived.json"
+        }
+      ],
+      "admission_state": "not_admitted",
+      "provenance": {
+        "source_dataset": "Matterport3D / Habitat MP3D example",
+        "source_revision": "mp3d_example_scene_1.1",
+        "rights": "Matterport3D terms apply; external asset",
+        "notes": "Raw scan, semantic resources and declared derived acoustic proxy remain separately auditable."
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema": "avengine_m6_entity_asset_registry_v1",
+  "registry_id": "m6_entity_assets_canary_v1",
+  "revision": "v1",
+  "entities": [
+    {
+      "entity_asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "revision": "m2_v7_world_contact_r5",
+      "entity_class": "articulated_animal",
+      "visual_asset": {
+        "uri": "artifact://m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/visual.glb",
+        "sha256": "788a667537f7660bac5e128c38c2182453d1d4a9a4f8380343e7a9fa1947538c"
+      },
+      "animal_template_ref": {
+        "template_id": "rocketbox_dog_beagle_01",
+        "revision": "m2_v7_world_contact_r5"
+      },
+      "realized_visual_attributes": {
+        "species_id": "dog",
+        "breed_id": "beagle",
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "dog_beagle_tricolor_v1",
+          "value": "standard_tricolor"
+        }
+      },
+      "capabilities": {
+        "articulated": true,
+        "skeleton_revision": "rocketbox-beagle-skeleton-m2-v4-world-left",
+        "skeleton_sha256": "711ce9669235a7d0547bd9b88dbf4c0d056149d96bcd0f451598943dbcd32841",
+        "action_ids": ["idle", "walk"]
+      },
+      "emitter_anchors": [
+        {"anchor_id": "body", "anchor_type": "body", "joint_id": "beagle Pelvis", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "head", "anchor_type": "head", "joint_id": "beagle Head", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "muzzle", "anchor_type": "muzzle", "joint_id": "beagle Xtra Mouth", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_front_left", "anchor_type": "paw", "joint_id": "beagle L Finger0", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_front_right", "anchor_type": "paw", "joint_id": "beagle R Finger0", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_hind_left", "anchor_type": "paw", "joint_id": "beagle L Toe0", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "paw_hind_right", "anchor_type": "paw", "joint_id": "beagle R Toe0", "local_position_m": [0.0, 0.0, 0.0]}
+      ],
+      "provenance": {
+        "source": "Microsoft Rocketbox Dog_Beagle_01 plus reviewed AVEngine realization",
+        "source_revision": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+        "license": "MIT",
+        "rights_status": "research_use_only",
+        "evidence_sha256": "ad5df61f4b955980f6ab3d6d00e44f31942cb31ce3d2f2a3c1a1f353c307e240"
+      },
+      "admission_state": "research"
+    }
+  ],
+  "registry_content_sha256": "d39fee4137e6f07af37b417c2aea2789cd119164164fa3c8845abd26e2abb1a0"
+}

@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_room_registry_v1.schema.json",
+  "title": "AVEngine M6 Room Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "registry_id", "records"],
+  "properties": {
+    "schema": {"const": "avengine_m6_room_registry_v1"},
+    "registry_id": {"type": "string", "minLength": 1},
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/room_record"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "coordinate_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["handedness", "up_axis", "forward_axis", "linear_unit"],
+      "properties": {
+        "handedness": {"const": "right"},
+        "up_axis": {"const": "+Y"},
+        "forward_axis": {"const": "-Z"},
+        "linear_unit": {"const": "meter"}
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scene_lineage_id",
+        "room_geometry_id",
+        "layout_variant_id",
+        "acoustic_profile_id",
+        "episode_layout_id"
+      ],
+      "properties": {
+        "scene_lineage_id": {"type": "string", "minLength": 1},
+        "room_geometry_id": {"type": "string", "minLength": 1},
+        "layout_variant_id": {"type": "string", "minLength": 1},
+        "acoustic_profile_id": {"type": "string", "minLength": 1},
+        "episode_layout_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "resource_location": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": {"const": "repository_relative"},
+            "path": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "environment_variable", "path_template"],
+          "properties": {
+            "kind": {"const": "environment_template"},
+            "environment_variable": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "path_template": {"type": "string", "minLength": 5}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "producer"],
+          "properties": {
+            "kind": {"const": "generated"},
+            "producer": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "blocker"],
+          "properties": {
+            "kind": {"const": "unavailable"},
+            "blocker": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_id",
+        "resource_type",
+        "location",
+        "required_for",
+        "redistribution"
+      ],
+      "properties": {
+        "resource_id": {"type": "string", "minLength": 1},
+        "resource_type": {
+          "enum": [
+            "room_manifest",
+            "visual_scene",
+            "scene_dataset_config",
+            "scene_instance_config",
+            "navmesh",
+            "semantic_resource",
+            "route_manifest",
+            "source_manifest",
+            "acoustic_package",
+            "diagnostic_aabb"
+          ]
+        },
+        "location": {"$ref": "#/$defs/resource_location"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "required_for": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "visual_runtime",
+              "navigation",
+              "acoustic_geometry",
+              "material_binding",
+              "ray_leakage",
+              "episode_feasibility"
+            ]
+          }
+        },
+        "redistribution": {
+          "enum": ["repository", "external_required", "generated_local", "unavailable"]
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "acoustic_representation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation_id",
+        "role",
+        "geometry_kind",
+        "resource_id",
+        "build_mode",
+        "input_resource_ids",
+        "immutable",
+        "derived_from",
+        "material_semantics"
+      ],
+      "properties": {
+        "representation_id": {"type": "string", "minLength": 1},
+        "role": {
+          "enum": [
+            "production_authority",
+            "raw_source",
+            "derived_proxy",
+            "diagnostic_only"
+          ]
+        },
+        "geometry_kind": {
+          "enum": ["real_surface_mesh", "declared_derived_surface", "debug_aabb_proxy"]
+        },
+        "resource_id": {
+          "oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]
+        },
+        "build_mode": {"enum": ["reference", "compile", "derive", "unavailable"]},
+        "producer": {"type": "string", "minLength": 1},
+        "blocker": {"type": "string", "minLength": 1},
+        "input_resource_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "immutable": {"type": "boolean"},
+        "derived_from": {
+          "oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]
+        },
+        "material_semantics": {
+          "enum": [
+            "controlled_profile",
+            "controlled_approximation",
+            "semantic_mapping_approximation",
+            "research_placeholder",
+            "unqualified"
+          ]
+        },
+        "notes": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"role": {"const": "raw_source"}}},
+          "then": {"properties": {"immutable": {"const": true}}}
+        },
+        {
+          "if": {"properties": {"role": {"const": "derived_proxy"}}},
+          "then": {"properties": {"derived_from": {"type": "string"}}}
+        },
+        {
+          "if": {"properties": {"geometry_kind": {"const": "debug_aabb_proxy"}}},
+          "then": {"properties": {"role": {"const": "diagnostic_only"}}}
+        }
+      ]
+    },
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opening_id", "kind", "qualification_role"],
+      "properties": {
+        "opening_id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["door", "window", "archway", "other"]},
+        "qualification_role": {
+          "enum": ["ray_whitelist", "ray_test_required", "unreviewed"]
+        }
+      }
+    },
+    "qualification_report_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report_id", "acoustic_representation_id", "path"],
+      "properties": {
+        "report_id": {"type": "string", "minLength": 1},
+        "acoustic_representation_id": {
+          "oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]
+        },
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_dataset", "source_revision", "rights", "notes"],
+      "properties": {
+        "source_dataset": {"type": "string", "minLength": 1},
+        "source_revision": {"type": "string", "minLength": 1},
+        "rights": {"type": "string", "minLength": 1},
+        "notes": {"type": "string"}
+      }
+    },
+    "room_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_id",
+        "revision",
+        "provider_id",
+        "lineage",
+        "tier",
+        "coordinate_system",
+        "resources",
+        "acoustic_representations",
+        "openings",
+        "qualification_reports",
+        "admission_state",
+        "provenance"
+      ],
+      "properties": {
+        "room_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "provider_id": {
+          "enum": ["blender_custom", "replica_cad", "legacy_ue_apartment", "matterport3d"]
+        },
+        "lineage": {"$ref": "#/$defs/lineage"},
+        "tier": {
+          "enum": [
+            "controlled_material_truth",
+            "geometry_faithful_material_controlled",
+            "visual_research_only"
+          ]
+        },
+        "coordinate_system": {"$ref": "#/$defs/coordinate_system"},
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/resource"}
+        },
+        "acoustic_representations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/acoustic_representation"}
+        },
+        "openings": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/opening"}
+        },
+        "qualification_reports": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/qualification_report_ref"}
+        },
+        "admission_state": {"enum": ["admitted", "not_admitted"]},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    }
+  }
+}

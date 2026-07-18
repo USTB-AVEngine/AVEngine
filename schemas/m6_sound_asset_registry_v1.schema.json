@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_sound_asset_registry_v1.schema.json",
+  "title": "AVEngine M6 Sound Asset Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "registry_id", "revision", "sound_assets", "registry_content_sha256"],
+  "properties": {
+    "schema": {"const": "avengine_m6_sound_asset_registry_v1"},
+    "registry_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "sound_assets": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sound"}},
+    "registry_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "stable_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sound": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "sound_asset_id", "revision", "semantic_sound_class", "taxonomy_path",
+        "instance_lineage_id", "dry_audio", "normalization_policy", "allowed_transforms",
+        "tags", "provenance", "admissibility"
+      ],
+      "properties": {
+        "sound_asset_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "semantic_sound_class": {"$ref": "#/$defs/stable_id"},
+        "taxonomy_path": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
+        "instance_lineage_id": {"oneOf": [{"$ref": "#/$defs/stable_id"}, {"type": "null"}]},
+        "dry_audio": {
+          "type": "object", "additionalProperties": false,
+          "required": ["uri", "sha256", "sample_rate_hz", "channel_count", "sample_count"],
+          "properties": {
+            "uri": {"type": "string", "minLength": 1},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "sample_rate_hz": {"type": "integer", "minimum": 1},
+            "channel_count": {"type": "integer", "minimum": 1},
+            "sample_count": {"type": "integer", "minimum": 1}
+          }
+        },
+        "normalization_policy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["mode", "target_dbfs"],
+          "properties": {
+            "mode": {"enum": ["preserve", "peak_dbfs", "rms_dbfs"]},
+            "target_dbfs": {"oneOf": [{"type": "number", "maximum": 0}, {"type": "null"}]}
+          }
+        },
+        "allowed_transforms": {"type": "array", "uniqueItems": true, "items": {"enum": ["crop", "zero_pad", "deterministic_resample", "gain"]}},
+        "tags": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
+        "provenance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["origin", "license", "rights_status", "rights_evidence_sha256"],
+          "properties": {
+            "origin": {"type": "string", "minLength": 1},
+            "license": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+            "rights_status": {"enum": ["licensed", "research_use_only", "review_required", "unresolved"]},
+            "rights_evidence_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "admissibility": {"enum": ["formal", "research", "unavailable", "rejected"]}
+      }
+    }
+  }
+}
