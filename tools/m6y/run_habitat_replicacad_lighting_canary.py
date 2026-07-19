@@ -18,11 +18,13 @@ from avengine.m5_1.replicacad_capture import (
 from avengine.optional_backends.spear_replicacad_execution import (
     DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
     ROOM_LOCAL_REVIEW_PROFILE_ID,
+    ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
     ReplicaCADExecutionError,
     apply_replicacad_habitat_lighting_profile,
     compile_replicacad_lighting_profile,
     configure_replicacad_habitat_lighting_profile,
     load_replicacad_lighting_profiles,
+    resolve_replicacad_route_center_fill,
     validate_replicacad_habitat_lighting_readback,
 )
 
@@ -50,6 +52,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=(
             DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
             ROOM_LOCAL_REVIEW_PROFILE_ID,
+            ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
         ),
         default=ROOM_LOCAL_REVIEW_PROFILE_ID,
     )
@@ -77,6 +80,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             profile_document=load_replicacad_lighting_profiles(args.lighting_profiles),
             profile_id=args.lighting_profile,
+        )
+        profile = resolve_replicacad_route_center_fill(
+            profile,
+            _load_object(args.route_manifest, owner="ReplicaCAD route manifest"),
         )
 
         def configuration_hook(
@@ -157,6 +164,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ],
                 "habitat_usage": profile["habitat_usage"],
                 "habitat_maintained_default": profile["habitat_maintained_default"],
+                "review_light_added": profile["review_light_added"],
+                "generated_interior_fill": profile.get("generated_interior_fill"),
                 "capture_output": str(result.capture.output_dir),
                 "capture_evidence": str(result.capture.output_dir / "evidence.json"),
                 "review_frame_index": frame_index,

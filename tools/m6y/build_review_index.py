@@ -144,16 +144,29 @@ def _habitat_apartment_section(
             )
     state = _status(value.get("status"))
     bundle_index = root / "REVIEW_INDEX.html"
+    profile_id = str(profile.get("profile_id", "unknown"))
+    if "route_fill" in profile_id:
+        heading = "Habitat Apartment route-fill review"
+        profile_summary = (
+            "adds one warm point fill over the occupied route area while retaining "
+            "the two directional review lights and HBAO. The fill is visual-only "
+            "and does not alter navigation, source logic or acoustics."
+        )
+    else:
+        heading = "Habitat Apartment natural-light review"
+        profile_summary = (
+            "uses a shallow neutral window key, a cool-neutral bounce and a weaker "
+            "warm practical while retaining HBAO. It redistributes contrast rather "
+            "than applying one global darkening factor."
+        )
     return (
-        "<section><h2>Habitat Apartment natural-light review</h2>"
+        f"<section><h2>{heading}</h2>"
         f'<p><span class="status {escape(state)}">{escape(state)}</span> · '
         f'<a href="{_url(bundle_index, output=output)}">full S0–S5 review</a> · '
         f'<a href="{_url(root / "bundle_manifest.json", output=output)}">'
         "bundle_manifest.json</a></p>"
-        f"<p>Profile <code>{escape(str(profile.get('profile_id', 'unknown')))}</code> "
-        "uses a shallow neutral window key, a cool-neutral bounce and a weaker "
-        "warm practical while retaining HBAO. It redistributes contrast rather "
-        "than applying one global darkening factor. The fixed-camera exterior "
+        f"<p>Profile <code>{escape(profile_id)}</code> {profile_summary} "
+        "The fixed-camera exterior "
         "is still a direction-projected panel, not UE glass, HDRIBackdrop, "
         "reflection capture or Lumen.</p>"
         f'<div class="media-grid">{"".join(cards)}</div></section>'
@@ -342,6 +355,22 @@ def _replicacad_section(
         if isinstance(excluded_ids, list)
         else "?"
     )
+    generated = lighting.get("generated_interior_fill")
+    generated_count = scene.get("generated_review_point_light_count", 0)
+    if isinstance(generated, Mapping) and generated_count == 1:
+        fill_text = (
+            " It also adds and reads back one neutral route-center ceiling fill "
+            f"at {escape(str(generated.get('intensity_lumens', '?')))} lm. The fill "
+            "is visual-review assistance, not a dataset-authored light or acoustic "
+            "truth."
+        )
+    else:
+        fill_text = (
+            " It neither moves nor adds lights. A real Habitat point-light "
+            "comparison was darker and less natural, so the maintained Habitat "
+            "presentation remains <code>no_lights + HBAO</code>; its point-light "
+            "realization is research-only."
+        )
     return (
         "<section><h2>ReplicaCAD apt_0</h2>"
         f'<p><span class="status {escape(state)}">{escape(state)}</span> · '
@@ -359,10 +388,7 @@ def _replicacad_section(
         f"{escape(_status(exposure.get('status')))}</span>.</p>"
         "<p>The two strongest positive dataset lights sit outside the open "
         "stage-shell bounds. The review profile sets those two to zero, keeps "
-        "the three indoor source lights, and neither moves nor adds lights. "
-        "A real Habitat point-light comparison was darker and less natural, "
-        "so the maintained Habitat presentation remains <code>no_lights + "
-        "HBAO</code>; its point-light realization is research-only.</p>"
+        f"the three indoor source lights.{fill_text}</p>"
         f"<p>{escape(claim_text)}</p>"
         f'<div class="media-grid">{"".join(cards)}</div></section>'
     )

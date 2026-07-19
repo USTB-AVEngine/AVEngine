@@ -39,6 +39,7 @@ from avengine.optional_backends.spear_replicacad_execution import (
     M5_1_SOURCE_GATE_SCHEMA,
     M5_1_SOURCE_PROGRAM_SCHEMA,
     ROOM_LOCAL_REVIEW_PROFILE_ID,
+    ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
     ReplicaCADExecutionError,
     apply_replicacad_habitat_lighting_profile,
     apply_replicacad_lighting_profile_to_runtime_plan,
@@ -48,6 +49,7 @@ from avengine.optional_backends.spear_replicacad_execution import (
     configure_replicacad_habitat_lighting_profile,
     load_replicacad_lighting_profiles,
     replicacad_fixed_exposure_profile,
+    resolve_replicacad_route_center_fill,
     validate_replicacad_habitat_lighting_readback,
     validate_replicacad_editor_result,
 )
@@ -383,6 +385,76 @@ def test_room_local_profile_updates_runtime_counts_without_changing_authority() 
     assert plan["exposure_and_lighting"]["source_intensities_scaled"] is True
 
 
+def _route_manifest_for_generated_fill() -> dict[str, object]:
+    return {
+        "schema": M5_1_ROUTE_SCHEMA,
+        "routes": {
+            "human0": {
+                "start_m": [1.0, 0.1193729192, 5.4],
+                "end_m": [1.0, 0.1193729192, 6.6],
+            },
+            "dog0": {
+                "start_m": [3.0, 0.1193729192, 5.4],
+                "end_m": [3.0, 0.1193729192, 6.6],
+            },
+        },
+    }
+
+
+def test_route_center_fill_resolves_from_actor_routes_inside_stage_shell() -> None:
+    document = load_replicacad_lighting_profiles(
+        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+    )
+    profile = compile_replicacad_lighting_profile(
+        execution_request={"lighting": {"lights": _apt0_signed_light_records()}},
+        profile_document=document,
+        profile_id=ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
+    )
+
+    assert profile["review_light_added"] is True
+    assert profile["generated_interior_fill"]["resolved"] is False
+    resolved = resolve_replicacad_route_center_fill(
+        profile, _route_manifest_for_generated_fill()
+    )
+    fill = resolved["generated_interior_fill"]
+
+    assert fill["resolved"] is True
+    assert fill["route_endpoint_count"] == 4
+    assert fill["habitat_position_m"] == pytest.approx(
+        [2.0, 3.0445577901000036 - 0.45, 6.0]
+    )
+    assert fill["ue_position_cm"] == pytest.approx(
+        [200.0, 600.0, (3.0445577901000036 - 0.45) * 100.0]
+    )
+
+
+def test_route_center_fill_updates_runtime_counts_without_changing_authority() -> None:
+    inputs = _m5_1_runtime_inputs()
+    base = build_m5_1_replicacad_runtime_plan(**inputs)
+    document = load_replicacad_lighting_profiles(
+        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+    )
+    profile = compile_replicacad_lighting_profile(
+        execution_request=inputs["execution_request"],
+        profile_document=document,
+        profile_id=ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
+    )
+    profile = resolve_replicacad_route_center_fill(
+        profile, _route_manifest_for_generated_fill()
+    )
+
+    plan = apply_replicacad_lighting_profile_to_runtime_plan(base, profile)
+
+    assert plan["authority"] == base["authority"]
+    assert plan["scene"]["runtime_active_dataset_point_light_count"] == 3
+    assert plan["scene"]["generated_review_point_light_count"] == 1
+    assert plan["scene"]["runtime_positive_point_light_count"] == 4
+    assert plan["scene"]["review_light_added"] is True
+    exposure = plan["exposure_and_lighting"]
+    assert exposure["review_light_added"] is True
+    assert "not dataset-authored" in exposure["claim_boundary"]
+
+
 @dataclass(frozen=True)
 class _FakeLightInfo:
     vector: tuple[float, float, float, float]
@@ -461,6 +533,55 @@ def test_habitat_room_local_profile_scales_same_three_source_lights() -> None:
     )
     assert readback["current_matches_profile"] is True
     assert readback["actor_setup_matches_profile"] is True
+
+
+def test_habitat_route_center_profile_adds_one_explicit_fill() -> None:
+    document = load_replicacad_lighting_profiles(
+        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+    )
+    profile = compile_replicacad_lighting_profile(
+        execution_request={"lighting": {"lights": _apt0_signed_light_records()}},
+        profile_document=document,
+        profile_id=ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
+    )
+    profile = resolve_replicacad_route_center_fill(
+        profile, _route_manifest_for_generated_fill()
+    )
+    fake_habitat = SimpleNamespace(
+        gfx=SimpleNamespace(
+            DEFAULT_LIGHTING_KEY="default-light-key",
+            LightInfo=_FakeLightInfo,
+            LightPositionModel=SimpleNamespace(Global="global"),
+        )
+    )
+    configuration = SimpleNamespace(
+        sim_cfg=SimpleNamespace(
+            scene_light_setup="lighting/frl_apartment_stage",
+            override_scene_light_defaults=False,
+        )
+    )
+    configure_replicacad_habitat_lighting_profile(
+        configuration=configuration,
+        habitat_sim=fake_habitat,
+        lighting_profile=profile,
+    )
+    simulator = _FakeHabitatSimulator(configuration)
+
+    applied = apply_replicacad_habitat_lighting_profile(
+        simulator=simulator,
+        lighting_profile=profile,
+        habitat_sim=fake_habitat,
+        actor_light_setup_key="actor-key",
+    )
+
+    assert applied["active_light_count"] == 4
+    assert applied["review_light_added"] is True
+    fill = profile["generated_interior_fill"]
+    assert simulator.current[-1].vector == pytest.approx(
+        (*fill["habitat_position_m"], 1.0)
+    )
+    assert simulator.current[-1].color == pytest.approx((3.0, 3.0, 3.0))
+    assert applied["lights"][-1]["generated_review_light"] is True
 
 
 def _m5_1_runtime_inputs() -> dict[str, object]:

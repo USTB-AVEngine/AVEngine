@@ -58,6 +58,7 @@ APT0_EXPECTED_LOGICAL_COUNTS = {"stage": 1, "rigid": 113, "articulated": 6}
 LIGHTING_PROFILE_SCHEMA = "avengine_replicacad_visual_lighting_profiles_v1"
 DATASET_LIGHTS_FAITHFUL_PROFILE_ID = "dataset_lights_faithful"
 ROOM_LOCAL_REVIEW_PROFILE_ID = "room_local_review"
+ROUTE_CENTER_FILL_REVIEW_PROFILE_ID = "route_center_fill_review"
 DATASET_LIGHT_LUMENS_PER_SCALED_UNIT = 250.0
 
 
@@ -649,8 +650,11 @@ def load_replicacad_lighting_profiles(path: str | Path) -> dict[str, Any]:
     )
     if any(low >= high for low, high in zip(minimum, maximum)):
         raise ReplicaCADExecutionError("ReplicaCAD stage-shell bounds are empty")
+    profiles = value.get("profiles")
+    if not isinstance(profiles, Mapping):
+        raise ReplicaCADExecutionError("ReplicaCAD lighting profiles must be an object")
     required = {DATASET_LIGHTS_FAITHFUL_PROFILE_ID, ROOM_LOCAL_REVIEW_PROFILE_ID}
-    if set(value["profiles"]) != required:
+    if not required.issubset(profiles):
         raise ReplicaCADExecutionError(
             "ReplicaCAD lighting profiles must define faithful and room-local modes"
         )
@@ -813,6 +817,62 @@ def compile_replicacad_lighting_profile(
         raise ReplicaCADExecutionError(
             "ReplicaCAD Habitat lighting policy must retain no_lights plus HBAO"
         )
+    generated_raw = raw_profile.get("generated_interior_fill")
+    generated_fill: dict[str, Any] | None = None
+    if generated_raw is not None:
+        if (
+            profile_id != ROUTE_CENTER_FILL_REVIEW_PROFILE_ID
+            or not isinstance(generated_raw, Mapping)
+            or generated_raw.get("placement_rule")
+            != "route_centroid_below_stage_ceiling"
+        ):
+            raise ReplicaCADExecutionError(
+                "ReplicaCAD generated interior fill declaration is invalid"
+            )
+        numeric_fields = {
+            "ceiling_offset_m": (0.05, 1.5),
+            "horizontal_margin_m": (0.0, 2.0),
+            "ue_intensity_lumens": (1.0, 10_000.0),
+            "ue_attenuation_radius_cm": (50.0, 2_000.0),
+            "habitat_intensity": (0.01, 100.0),
+        }
+        numeric: dict[str, float] = {}
+        for field, (minimum_value, maximum_value) in numeric_fields.items():
+            raw_value = generated_raw.get(field)
+            if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+                raise ReplicaCADExecutionError(
+                    f"ReplicaCAD generated fill {field} must be numeric"
+                )
+            value = float(raw_value)
+            if (
+                not math.isfinite(value)
+                or value < minimum_value
+                or value > maximum_value
+            ):
+                raise ReplicaCADExecutionError(
+                    f"ReplicaCAD generated fill {field} is out of range"
+                )
+            numeric[field] = value
+        color = _finite_vector(
+            generated_raw.get("color_rgb"),
+            owner="ReplicaCAD generated fill color",
+            length=3,
+        )
+        if tuple(color) != (1.0, 1.0, 1.0):
+            raise ReplicaCADExecutionError(
+                "ReplicaCAD generated fill currently supports neutral white only"
+            )
+        generated_fill = {
+            "light_id": "generated_route_center_fill",
+            "placement_rule": generated_raw["placement_rule"],
+            **numeric,
+            "color_rgb": list(color),
+            "resolved": False,
+        }
+    elif profile_id == ROUTE_CENTER_FILL_REVIEW_PROFILE_ID:
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD route-center profile lacks its generated interior fill"
+        )
     return {
         "schema": LIGHTING_PROFILE_SCHEMA,
         "status": "pass",
@@ -838,9 +898,92 @@ def compile_replicacad_lighting_profile(
         "habitat_maintained_default": habitat_maintained_default,
         "stage_shadow_mode": shadow_mode,
         "source_lights_moved": False,
-        "review_light_added": False,
+        "review_light_added": generated_fill is not None,
+        "generated_interior_fill": generated_fill,
         "claim_boundary": str(raw_profile.get("claim_boundary", "")),
     }
+
+
+def resolve_replicacad_route_center_fill(
+    lighting_profile: Mapping[str, Any], route_manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Resolve the optional fill from route endpoints and the stage-shell AABB."""
+
+    if lighting_profile.get("schema") != LIGHTING_PROFILE_SCHEMA:
+        raise ReplicaCADExecutionError("ReplicaCAD lighting profile identity differs")
+    resolved = deepcopy(dict(lighting_profile))
+    fill = resolved.get("generated_interior_fill")
+    if fill is None:
+        return resolved
+    if not isinstance(fill, Mapping) or fill.get("resolved") is not False:
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD generated interior fill must be unresolved exactly once"
+        )
+    if route_manifest.get("schema") != M5_1_ROUTE_SCHEMA:
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD generated fill route authority differs"
+        )
+    routes = route_manifest.get("routes")
+    if not isinstance(routes, Mapping) or set(routes) != {"human0", "dog0"}:
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD generated fill requires human0 and dog0 routes"
+        )
+    endpoints: list[tuple[float, float, float]] = []
+    for actor_id in ("human0", "dog0"):
+        route = routes[actor_id]
+        if not isinstance(route, Mapping):
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD generated fill route {actor_id} is invalid"
+            )
+        endpoints.extend(
+            (
+                _finite_vector(
+                    route.get(field),
+                    owner=f"ReplicaCAD generated fill {actor_id} {field}",
+                    length=3,
+                )
+                for field in ("start_m", "end_m")
+            )
+        )
+    bounds = resolved["stage_shell_bounds_habitat_m"]
+    minimum = _finite_vector(
+        bounds["minimum"], owner="ReplicaCAD generated fill minimum", length=3
+    )
+    maximum = _finite_vector(
+        bounds["maximum"], owner="ReplicaCAD generated fill maximum", length=3
+    )
+    margin = float(fill["horizontal_margin_m"])
+    for axis in (0, 2):
+        if minimum[axis] + margin >= maximum[axis] - margin:
+            raise ReplicaCADExecutionError(
+                "ReplicaCAD generated fill margin collapses stage bounds"
+            )
+    centroid_x = sum(item[0] for item in endpoints) / len(endpoints)
+    centroid_z = sum(item[2] for item in endpoints) / len(endpoints)
+    position = (
+        min(max(centroid_x, minimum[0] + margin), maximum[0] - margin),
+        maximum[1] - float(fill["ceiling_offset_m"]),
+        min(max(centroid_z, minimum[2] + margin), maximum[2] - margin),
+    )
+    if not all(
+        low < value < high for value, low, high in zip(position, minimum, maximum)
+    ):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD generated fill did not resolve inside the stage shell"
+        )
+    fill = {
+        **dict(fill),
+        "resolved": True,
+        "habitat_position_m": list(position),
+        "ue_position_cm": [
+            100.0 * position[0],
+            100.0 * position[2],
+            100.0 * position[1],
+        ],
+        "route_endpoint_count": len(endpoints),
+    }
+    resolved["generated_interior_fill"] = fill
+    return resolved
 
 
 def apply_replicacad_lighting_profile_to_runtime_plan(
@@ -863,8 +1006,19 @@ def apply_replicacad_lighting_profile_to_runtime_plan(
         raise ReplicaCADExecutionError("ReplicaCAD lighting profile selects no lights")
     updated = deepcopy(dict(plan))
     updated["lighting_profile"] = deepcopy(dict(lighting_profile))
+    generated = lighting_profile.get("generated_interior_fill")
+    generated_count = 1 if isinstance(generated, Mapping) else 0
+    if generated_count and generated.get("resolved") is not True:
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD generated fill must be resolved before runtime planning"
+        )
     updated["scene"]["dataset_point_light_actor_count"] = 5
-    updated["scene"]["runtime_positive_point_light_count"] = len(active_ids)
+    updated["scene"]["runtime_active_dataset_point_light_count"] = len(active_ids)
+    updated["scene"]["runtime_positive_point_light_count"] = (
+        len(active_ids) + generated_count
+    )
+    updated["scene"]["generated_review_point_light_count"] = generated_count
+    updated["scene"]["review_light_added"] = bool(generated_count)
     updated["scene"]["stage_static_mesh_actor_count"] = 20
     updated["exposure_and_lighting"] = replicacad_fixed_exposure_profile(
         output_gain=float(plan["exposure_and_lighting"]["fixed_output_gain"]),
@@ -954,6 +1108,38 @@ def _replicacad_habitat_profile_lights(
                 "profile_color_rgb": list(profile_color),
             }
         )
+    fill = lighting_profile.get("generated_interior_fill")
+    if fill is not None:
+        if not isinstance(fill, Mapping) or fill.get("resolved") is not True:
+            raise ReplicaCADExecutionError(
+                "Habitat generated interior fill is not resolved"
+            )
+        position = _finite_vector(
+            fill.get("habitat_position_m"),
+            owner="Habitat generated fill position",
+            length=3,
+        )
+        color = _finite_vector(
+            fill.get("color_rgb"), owner="Habitat generated fill color", length=3
+        )
+        intensity = float(fill["habitat_intensity"])
+        profile_color = tuple(channel * intensity for channel in color)
+        lights.append(
+            habitat_sim.gfx.LightInfo(
+                vector=(*position, 1.0),
+                color=profile_color,
+                model=habitat_sim.gfx.LightPositionModel.Global,
+            )
+        )
+        evidence.append(
+            {
+                "light_id": str(fill["light_id"]),
+                "habitat_position_m": list(position),
+                "profile_color_rgb": list(profile_color),
+                "generated_review_light": True,
+                "placement_rule": str(fill["placement_rule"]),
+            }
+        )
     return lights, evidence
 
 
@@ -1025,7 +1211,10 @@ def apply_replicacad_habitat_lighting_profile(
         ),
         "lights": selected_records,
         "source_lights_moved": False,
-        "review_light_added": False,
+        "review_light_added": bool(lighting_profile["review_light_added"]),
+        "generated_interior_fill": deepcopy(
+            lighting_profile.get("generated_interior_fill")
+        ),
     }
 
 
@@ -1075,9 +1264,9 @@ def replicacad_fixed_exposure_profile(
 
     ReplicaCAD declares seven signed Habitat lights.  The editor importer
     instantiates the five positive point lights and records the two negative
-    fills, which UE cannot represent as subtractive lights.  This profile does
-    not silently add a skylight or key light: it disables temporal eye
-    adaptation and measures the resulting dataset-light-only pixels.
+    fills, which UE cannot represent as subtractive lights.  A profile may
+    explicitly declare one research-only generated fill; it is then reported
+    separately from the dataset lights.  Temporal eye adaptation remains off.
     """
 
     if isinstance(output_gain, bool) or not isinstance(output_gain, (int, float)):
@@ -1092,6 +1281,7 @@ def replicacad_fixed_exposure_profile(
     ue_intensity_scale = 1.0
     habitat_intensity_scale = 1.0
     source_intensities_scaled = False
+    review_light_added = False
     if lighting_profile is not None:
         if lighting_profile.get("schema") != LIGHTING_PROFILE_SCHEMA:
             raise ReplicaCADExecutionError(
@@ -1111,6 +1301,33 @@ def replicacad_fixed_exposure_profile(
         source_intensities_scaled = bool(
             lighting_profile.get("ue_source_intensities_scaled")
         )
+        generated = lighting_profile.get("generated_interior_fill")
+        if generated is not None:
+            if (
+                not isinstance(generated, Mapping)
+                or generated.get("resolved") is not True
+            ):
+                raise ReplicaCADExecutionError(
+                    "ReplicaCAD fixed exposure requires a resolved generated fill"
+                )
+            active_count += 1
+            review_light_added = True
+    active_dataset_count = active_count - int(review_light_added)
+    if review_light_added:
+        claim_boundary = (
+            f"{active_dataset_count} positive lights from ReplicaCAD's declared "
+            "lighting setup and one explicitly generated route-center review fill "
+            "are active; the generated fill is not dataset-authored or acoustic "
+            "truth. The two signed negative fills remain recorded but are not "
+            "representable by UE point lights."
+        )
+    else:
+        claim_boundary = (
+            f"{active_dataset_count} positive lights from ReplicaCAD's declared "
+            "lighting setup are active; the two signed negative fills remain "
+            "recorded but are not representable by UE point lights. No review "
+            "light is added."
+        )
     return {
         "profile_id": f"replicacad_{lighting_profile_id}_fixed_exposure_v1",
         "lighting_profile_id": lighting_profile_id,
@@ -1128,7 +1345,12 @@ def replicacad_fixed_exposure_profile(
         "source_intensities_scaled": source_intensities_scaled,
         "stage_shadow_mode": shadow_mode,
         "recorded_negative_fill_count": 2,
-        "review_light_added": False,
+        "review_light_added": review_light_added,
+        "generated_interior_fill": deepcopy(
+            lighting_profile.get("generated_interior_fill")
+            if lighting_profile is not None
+            else None
+        ),
         "qa": {
             "luminance_saturation_threshold": 0.98,
             "nonblack_luminance_threshold": 0.01,
@@ -1139,11 +1361,7 @@ def replicacad_fixed_exposure_profile(
             "maximum_mean_luminance": 0.80,
             "maximum_p95_luminance": 0.98,
         },
-        "claim_boundary": (
-            f"{active_count} positive lights from ReplicaCAD's declared lighting "
-            "setup are active; the two signed negative fills remain recorded but "
-            "are not representable by UE point lights. No review light is added."
-        ),
+        "claim_boundary": claim_boundary,
     }
 
 
@@ -1579,6 +1797,7 @@ __all__ = [
     "M5_1_ROUTE_ID",
     "M5_1_RUNTIME_SCHEMA",
     "ROOM_LOCAL_REVIEW_PROFILE_ID",
+    "ROUTE_CENTER_FILL_REVIEW_PROFILE_ID",
     "ReplicaCADExecutionError",
     "configure_replicacad_habitat_lighting_profile",
     "apply_replicacad_habitat_lighting_profile",
@@ -1589,6 +1808,7 @@ __all__ = [
     "compile_replicacad_lighting_profile",
     "load_replicacad_lighting_profiles",
     "replicacad_fixed_exposure_profile",
+    "resolve_replicacad_route_center_fill",
     "validate_replicacad_habitat_lighting_readback",
     "validate_replicacad_editor_result",
 ]

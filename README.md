@@ -195,13 +195,27 @@ former white/grey result was a color-space bug rather than an unavoidable scan
 property. ReplicaCAD `apt_0` also passes real editor import/reload and a
 270-frame UE runtime: all 171 tagged scene mesh actors are read back, while the
 three room-local source lights remain active and the two strongest lights
-outside the open stage shell are disabled. No light is moved or invented. The
-retained MP3D and ReplicaCAD routes move each root only 1.1 m and 1.2 m
+outside the open stage shell are disabled. The default room-local profile moves
+or invents no light. An optional `route_center_fill_review` mode adds one
+explicitly labelled neutral review light below the ceiling at the actor-route
+centroid; the position is clamped inside the stage shell and independently
+realized in UE and Habitat units. It is visual-review assistance, not a
+dataset-authored light or acoustic truth. The retained MP3D and ReplicaCAD
+routes move each root only 1.1 m and 1.2 m
 respectively over 18 seconds; both remain slow compatibility routes, not
 normal-speed results. These are bounded visual comparisons, not a second
 engine, material qualification or dataset admission. See
 [`M6Y_STATUS.md`](docs/roadmap/M6Y_STATUS.md) for current videos, claim
 boundaries and the local review-page command.
+
+The recommended presentation routing is room-specific: use Habitat-Sim for
+MP3D so its scan-baked color and illumination are not re-lit as if they were a
+clean PBR room; use UE/SPEAR for ReplicaCAD because its PBR assets and local
+shadows are more coherent there; and use the native UE/SPEAR map for Apartment
+when visual realism is the priority. Habitat Apartment remains the protocol,
+navigation, sensor and source-logic reference and has an optional warm indoor
+route-area fill for review. These choices do not split Timeline, audio,
+Topdown, flags or navigation authority across engines.
 
 ### Run the fixed Apartment S0--S5 canary
 

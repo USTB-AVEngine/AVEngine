@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from tools.m6y.build_review_index import build_page
+from tools.m6y.build_review_index import _replicacad_section, build_page
 
 
 def _media(name: str) -> dict[str, object]:
@@ -91,3 +91,30 @@ def test_lighting_review_reports_corrected_profiles(tmp_path: Path) -> None:
     assert "white/grey result was an import-color-space error" in page
     assert "active room-local lights (IDs 0, 1, 2; excluded 3, 4" in page
     assert "no_lights + HBAO" in page
+
+
+def test_replicacad_review_reports_generated_fill_without_claiming_source_light(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "replicacad"
+    value = {
+        "status": "pass",
+        "runtime": {
+            "scene_and_lighting_readback": {
+                "active_positive_point_light_count": 3,
+                "generated_review_point_light_count": 1,
+                "lighting_profile_application": {
+                    "active_positive_light_ids": ["0", "1", "2"],
+                    "excluded_positive_light_ids": ["3", "4"],
+                    "ue_intensity_scale": 1.0,
+                    "generated_interior_fill": {"intensity_lumens": 1400.0},
+                },
+            }
+        },
+        "media": {},
+    }
+
+    section = _replicacad_section((root, value), tmp_path / "REVIEW_INDEX.html")
+
+    assert "one neutral route-center ceiling fill at 1400.0 lm" in section
+    assert "not a dataset-authored light or acoustic truth" in section

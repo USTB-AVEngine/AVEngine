@@ -39,10 +39,12 @@ from avengine.optional_backends.spear_replicacad_execution import (  # noqa: E40
     M5_1_ROOM_ID,
     M5_1_RUNTIME_SCHEMA,
     ROOM_LOCAL_REVIEW_PROFILE_ID,
+    ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
     apply_replicacad_lighting_profile_to_runtime_plan,
     build_m5_1_replicacad_runtime_plan,
     compile_replicacad_lighting_profile,
     load_replicacad_lighting_profiles,
+    resolve_replicacad_route_center_fill,
 )
 from run_spear_mp3d_canary import (  # noqa: E402
     _LuminanceAccumulator,
@@ -144,6 +146,9 @@ def build_execution_plan(args: argparse.Namespace) -> dict[str, Any]:
         profile_document=profile_document,
         profile_id=args.lighting_profile,
     )
+    lighting_profile = resolve_replicacad_route_center_fill(
+        lighting_profile, loaded["route_manifest"]
+    )
     return apply_replicacad_lighting_profile_to_runtime_plan(plan, lighting_profile)
 
 
@@ -226,6 +231,56 @@ def _apply_lighting_profile(game: Any, plan: Mapping[str, Any]) -> dict[str, Any
         item.pop("actor")
         item.pop("component")
 
+    generated_record: dict[str, Any] | None = None
+    fill = profile.get("generated_interior_fill")
+    if fill is not None:
+        if not isinstance(fill, Mapping) or fill.get("resolved") is not True:
+            raise RuntimeError("ReplicaCAD generated interior fill is not resolved")
+        location = [float(value) for value in fill["ue_position_cm"]]
+        actor = game.unreal_service.spawn_actor(
+            uclass="APointLight",
+            location={"X": location[0], "Y": location[1], "Z": location[2]},
+        )
+        if actor is None:
+            raise RuntimeError("ReplicaCAD generated interior fill did not spawn")
+        actor.K2_GetRootComponent().SetMobility(NewMobility="Movable")
+        component = game.unreal_service.get_component_by_class(
+            actor=actor, uclass="UPointLightComponent"
+        )
+        component.SetIntensity(NewIntensity=float(fill["ue_intensity_lumens"]))
+        component.SetAttenuationRadius(
+            NewRadius=float(fill["ue_attenuation_radius_cm"])
+        )
+        component.SetCastShadows(bNewValue=True)
+        observed_location = _actor_readback(actor, 0)["location_cm"]
+        observed_intensity = float(
+            component.get_property_value(property_name="Intensity")
+        )
+        observed_radius = float(
+            component.get_property_value(property_name="AttenuationRadius")
+        )
+        observed_shadows = bool(
+            component.get_property_value(property_name="CastShadows")
+        )
+        if (
+            math.dist(observed_location, location) > 0.1
+            or abs(observed_intensity - float(fill["ue_intensity_lumens"])) > 0.1
+            or abs(observed_radius - float(fill["ue_attenuation_radius_cm"])) > 0.1
+            or not observed_shadows
+        ):
+            raise RuntimeError(
+                "ReplicaCAD generated interior fill runtime readback differs"
+            )
+        generated_record = {
+            "light_id": str(fill["light_id"]),
+            "generated_review_light": True,
+            "placement_rule": str(fill["placement_rule"]),
+            "location_cm": observed_location,
+            "intensity_lumens": observed_intensity,
+            "attenuation_radius_cm": observed_radius,
+            "cast_shadows": observed_shadows,
+        }
+
     mesh_actors = game.unreal_service.find_actors_by_class(uclass="AStaticMeshActor")
     stage_actors = [
         actor
@@ -284,7 +339,8 @@ def _apply_lighting_profile(game: Any, plan: Mapping[str, Any]) -> dict[str, Any
         "status": "pass",
         "profile_id": profile["profile_id"],
         "source_lights_moved": False,
-        "review_light_added": False,
+        "review_light_added": generated_record is not None,
+        "generated_interior_fill": generated_record,
         "ue_intensity_scale": ue_intensity_scale,
         "source_intensities_scaled": bool(profile["ue_source_intensities_scaled"]),
         "active_positive_light_ids": sorted(active_ids, key=int),
@@ -305,10 +361,13 @@ def _scene_readback(
             f"ReplicaCAD runtime mesh count {len(mesh_actors)} != "
             f"{plan['scene']['static_mesh_actor_count']}"
         )
-    if len(point_lights) != plan["scene"]["dataset_point_light_actor_count"]:
+    expected_total_lights = int(plan["scene"]["dataset_point_light_actor_count"]) + int(
+        plan["scene"]["generated_review_point_light_count"]
+    )
+    if len(point_lights) != expected_total_lights:
         raise RuntimeError(
             f"ReplicaCAD runtime point-light count {len(point_lights)} != "
-            f"{plan['scene']['dataset_point_light_actor_count']}"
+            f"{expected_total_lights}"
         )
     tagged_meshes = sum(
         bool(actor.ActorHasTag(Tag="avengine_comparison_visual"))
@@ -317,19 +376,29 @@ def _scene_readback(
     tagged_lights = sum(
         bool(actor.ActorHasTag(Tag="avengine_dataset_light")) for actor in point_lights
     )
-    if tagged_meshes != len(mesh_actors) or tagged_lights != len(point_lights):
+    if (
+        tagged_meshes != len(mesh_actors)
+        or tagged_lights != plan["scene"]["dataset_point_light_actor_count"]
+    ):
         raise RuntimeError(
             "ReplicaCAD runtime actor tags do not close over imported map actors"
         )
+    fill = plan["lighting_profile"].get("generated_interior_fill")
+    fill_position = (
+        [float(value) for value in fill["ue_position_cm"]]
+        if isinstance(fill, Mapping)
+        else None
+    )
     light_records = []
     for index, actor in enumerate(point_lights):
         component = game.unreal_service.get_component_by_class(
             actor=actor, uclass="UPointLightComponent"
         )
+        location = _actor_readback(actor, 0)["location_cm"]
         light_records.append(
             {
                 "runtime_index": index,
-                "location_cm": _actor_readback(actor, 0)["location_cm"],
+                "location_cm": location,
                 "intensity": float(
                     component.get_property_value(property_name="Intensity")
                 ),
@@ -339,29 +408,49 @@ def _scene_readback(
                 "cast_shadows": bool(
                     component.get_property_value(property_name="CastShadows")
                 ),
+                "dataset_light_tag": bool(
+                    actor.ActorHasTag(Tag="avengine_dataset_light")
+                ),
+                "generated_review_light": (
+                    fill_position is not None
+                    and math.dist(location, fill_position) <= 0.1
+                ),
             }
         )
     if not all(
         item["intensity"] >= 0.0 and item["cast_shadows"] for item in light_records
     ):
-        raise RuntimeError("ReplicaCAD runtime dataset-light readback failed")
-    active_count = sum(item["intensity"] > 1.0e-6 for item in light_records)
-    if active_count != plan["scene"]["runtime_positive_point_light_count"]:
+        raise RuntimeError("ReplicaCAD runtime point-light readback failed")
+    active_total_count = sum(item["intensity"] > 1.0e-6 for item in light_records)
+    generated_count = sum(item["generated_review_light"] for item in light_records)
+    active_dataset_count = sum(
+        item["intensity"] > 1.0e-6 and item["dataset_light_tag"]
+        for item in light_records
+    )
+    if (
+        active_total_count != plan["scene"]["runtime_positive_point_light_count"]
+        or active_dataset_count
+        != plan["scene"]["runtime_active_dataset_point_light_count"]
+        or generated_count != plan["scene"]["generated_review_point_light_count"]
+    ):
         raise RuntimeError(
-            f"ReplicaCAD active point-light count {active_count} != "
-            f"{plan['scene']['runtime_positive_point_light_count']}"
+            "ReplicaCAD active/generated point-light counts differ from plan"
         )
     return {
         "status": "pass",
         "map_path": plan["scene"]["map_path"],
         "static_mesh_actor_count": len(mesh_actors),
         "tagged_comparison_visual_actor_count": tagged_meshes,
-        "positive_dataset_point_light_count": len(point_lights),
-        "active_positive_point_light_count": active_count,
+        "positive_dataset_point_light_count": int(
+            plan["scene"]["dataset_point_light_actor_count"]
+        ),
+        "active_positive_point_light_count": active_dataset_count,
+        "active_total_point_light_count": active_total_count,
+        "generated_review_point_light_count": generated_count,
         "tagged_dataset_light_count": tagged_lights,
         "declared_dataset_light_count": 7,
         "recorded_negative_fill_count": 2,
-        "review_light_added": False,
+        "review_light_added": bool(generated_count),
         "lighting_profile_application": dict(lighting_application),
         "lights": sorted(light_records, key=lambda item: item["intensity"]),
     }
@@ -863,7 +952,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--lighting-profile",
-        choices=(DATASET_LIGHTS_FAITHFUL_PROFILE_ID, ROOM_LOCAL_REVIEW_PROFILE_ID),
+        choices=(
+            DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
+            ROOM_LOCAL_REVIEW_PROFILE_ID,
+            ROUTE_CENTER_FILL_REVIEW_PROFILE_ID,
+        ),
         default=DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
     )
     parser.add_argument("--habitat-review", type=Path, default=DEFAULT_HABITAT_REVIEW)
