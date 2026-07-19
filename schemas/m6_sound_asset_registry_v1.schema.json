@@ -20,7 +20,7 @@
       "required": [
         "sound_asset_id", "revision", "semantic_sound_class", "taxonomy_path",
         "instance_lineage_id", "dry_audio", "normalization_policy", "allowed_transforms",
-        "tags", "provenance", "admissibility"
+        "permitted_event_usage", "tags", "provenance", "admissibility"
       ],
       "properties": {
         "sound_asset_id": {"$ref": "#/$defs/stable_id"},
@@ -48,6 +48,10 @@
           }
         },
         "allowed_transforms": {"type": "array", "uniqueItems": true, "items": {"enum": ["crop", "zero_pad", "deterministic_resample", "gain"]}},
+        "permitted_event_usage": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["counterfactual_route_swap", "intermittent_events", "one_active_of_n", "sequential_sources", "simultaneous_subset"]}
+        },
         "tags": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
         "provenance": {
           "type": "object", "additionalProperties": false,

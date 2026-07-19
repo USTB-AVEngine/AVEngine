@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from html import escape
-import json
-import math
 import os
 from pathlib import Path
 import shutil
@@ -45,7 +43,6 @@ from avengine.m5_1.acoustics import (
 )
 from avengine.m5_1.delivery import binaural_frame_diagnostics
 from avengine.m5_1.dry_audio import DryAudioClipSpec, assemble_dry_audio_buses
-from avengine.m5_1.mixed_capture import capture_human_beagle_paths
 from avengine.m5_1.review import (
     SourceOverlayTrack,
     compose_annotated_frames,
@@ -67,23 +64,23 @@ from avengine.m6x.apartment import (
     listener_orientation_wxyz,
     qualify_fixed_apartment,
 )
+from avengine.m6x.capture_adapter import (
+    CaptureAdapterError,
+    CaptureData,
+    FixedApartmentCaptureAdapter,
+    HUMAN_BEAGLE_CAPTURE_ADAPTER,
+)
 from avengine.m6x.contracts import (
     validate_anchor_library,
     validate_room_capsule,
     validate_scenario_suite,
     validate_trajectory_template_set,
 )
+from avengine.m6x.input_snapshot import write_canary_input_snapshot
 from avengine.m6x.topdown import render_runtime_topdown_frames
-from avengine.m6x.trajectory import materialize_template_route
 
 
 CANARY_SCHEMA = "avengine_m6x_fixed_apartment_canary_v1"
-CAPTURE_SCHEMA = "avengine_m5_1_human_beagle_capture_v1"
-CAPTURE_ANCHOR_ORDER = (
-    "human0.head",
-    "human0.mouth_emitter",
-    "dog0.mouth_emitter",
-)
 FRAME_COUNT = 75
 MASTER_FRAME_COUNT = 270
 FPS = 15
@@ -94,17 +91,6 @@ RIR_STRIDE_FRAMES = 3
 
 class M6XCanaryError(RuntimeError):
     """The M6.x canary failed before a reviewable delivery was complete."""
-
-
-@dataclass(frozen=True)
-class CaptureData:
-    root: Path
-    rgb: np.ndarray
-    semantic: np.ndarray
-    actor_world_matrices: np.ndarray
-    anchor_positions_m: np.ndarray
-    records: tuple[Mapping[str, Any], ...]
-    evidence: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -121,83 +107,19 @@ def _validate_capture_reuse_contract(
     *,
     room_manifest_path: str | Path,
     m1_request_path: str | Path,
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> None:
-    """Bind a retained capture to the current fixed-Apartment request."""
+    """Bind a retained capture through the selected provider adapter."""
 
-    room_manifest_path = Path(room_manifest_path).resolve()
-    m1_request_path = Path(m1_request_path).resolve()
-    room_manifest = load_json(room_manifest_path)
-    request = load_json(m1_request_path)
-    errors: list[str] = []
-
-    if evidence.get("schema") != CAPTURE_SCHEMA:
-        errors.append(f"schema must be {CAPTURE_SCHEMA!r}")
-    if evidence.get("status") != "pass":
-        errors.append("status must be 'pass'")
-    if evidence.get("frame_count") != MASTER_FRAME_COUNT:
-        errors.append(f"frame_count must be {MASTER_FRAME_COUNT}")
-    if evidence.get("frame_rate_hz") != FPS:
-        errors.append(f"frame_rate_hz must be {FPS}")
-    if evidence.get("time_base_hz") != TIME_BASE_HZ:
-        errors.append(f"time_base_hz must be {TIME_BASE_HZ}")
-    if evidence.get("anchor_order") != list(CAPTURE_ANCHOR_ORDER):
-        errors.append(f"anchor_order must be {list(CAPTURE_ANCHOR_ORDER)!r}")
-
-    request_room_id = request.get("room_id")
-    manifest_room_id = room_manifest.get("room_id")
-    if not isinstance(request_room_id, str) or request_room_id != manifest_room_id:
-        errors.append("current request room_id differs from its room manifest")
-
-    inputs = evidence.get("inputs")
-    if not isinstance(inputs, Mapping):
-        errors.append("inputs must identify the retained capture inputs")
-    else:
-        for key, expected_path in (
-            ("room_manifest", room_manifest_path),
-            ("m1_request", m1_request_path),
-        ):
-            record = inputs.get(key)
-            if not isinstance(record, Mapping):
-                errors.append(f"inputs.{key} is missing")
-            elif record.get("sha256") != sha256_file(expected_path):
-                errors.append(f"inputs.{key} differs from the current Apartment input")
-
-    rig = request.get("primary_camera_rig")
-    if not isinstance(rig, Mapping):
-        errors.append("current Apartment request has no primary_camera_rig")
-    else:
-        world_from_rig = rig.get("world_from_rig")
-        calibration = rig.get("shared_calibration")
-        if not isinstance(world_from_rig, Mapping) or not isinstance(
-            calibration, Mapping
-        ):
-            errors.append("current Apartment camera contract is incomplete")
-        else:
-            expected_camera = {
-                "position_m": world_from_rig.get("translation_m"),
-                "rotation_xyzw": world_from_rig.get("rotation_xyzw"),
-                "horizontal_fov_deg": calibration.get("hfov_degrees"),
-                "legacy_camera_contract_required": True,
-            }
-            camera = evidence.get("camera")
-            if not isinstance(camera, Mapping) or any(
-                camera.get(key) != value for key, value in expected_camera.items()
-            ):
-                errors.append("camera differs from the current fixed-Apartment request")
-
-    ticks_per_frame = TIME_BASE_HZ // FPS
-    if len(records) != MASTER_FRAME_COUNT:
-        errors.append(f"frame_readback must contain {MASTER_FRAME_COUNT} records")
-    elif any(
-        not isinstance(record, Mapping)
-        or record.get("frame_index") != index
-        or record.get("pts_ticks") != index * ticks_per_frame
-        for index, record in enumerate(records)
-    ):
-        errors.append("frame_readback frame_index/pts_ticks do not match the time base")
-
-    if errors:
-        raise M6XCanaryError("capture reuse contract failed: " + "; ".join(errors))
+    try:
+        capture_adapter.validate_capture_reuse_contract(
+            evidence,
+            records,
+            room_manifest_path=room_manifest_path,
+            m1_request_path=m1_request_path,
+        )
+    except CaptureAdapterError as exc:
+        raise M6XCanaryError(str(exc)) from exc
 
 
 def _load_capture(
@@ -205,64 +127,16 @@ def _load_capture(
     *,
     room_manifest_path: str | Path,
     m1_request_path: str | Path,
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> CaptureData:
-    root = Path(path).resolve()
-    required = {
-        "rgb": root / "arrays/rgb.npy",
-        "semantic": root / "arrays/semantic.npy",
-        "actor": root / "arrays/actor_world_matrices.npy",
-        "anchors": root / "arrays/anchor_positions_m.npy",
-        "records": root / "frame_readback.json",
-        "evidence": root / "evidence.json",
-    }
-    missing = [str(value) for value in required.values() if not value.is_file()]
-    if missing:
-        raise M6XCanaryError(f"capture is incomplete: {missing}")
-    records = json.loads(required["records"].read_text(encoding="utf-8"))
-    evidence = load_json(required["evidence"])
-    if not isinstance(records, list):
-        raise M6XCanaryError("capture frame_readback must be a JSON array")
-    _validate_capture_reuse_contract(
-        evidence,
-        records,
-        room_manifest_path=room_manifest_path,
-        m1_request_path=m1_request_path,
-    )
-    rgb = np.load(required["rgb"], allow_pickle=False)
-    semantic = np.load(required["semantic"], allow_pickle=False)
-    actor = np.load(required["actor"], allow_pickle=False)
-    anchors = np.load(required["anchors"], allow_pickle=False)
-    if (
-        rgb.shape != (MASTER_FRAME_COUNT, 240, 320, 3)
-        or rgb.dtype != np.uint8
-        or semantic.shape != (MASTER_FRAME_COUNT, 240, 320)
-        or actor.shape != (MASTER_FRAME_COUNT, 2, 4, 4)
-        or anchors.shape != (MASTER_FRAME_COUNT, len(CAPTURE_ANCHOR_ORDER), 3)
-    ):
-        raise M6XCanaryError(
-            "capture arrays/evidence differ from the 270-frame contract"
+    try:
+        return capture_adapter.load_capture(
+            path,
+            room_manifest_path=room_manifest_path,
+            m1_request_path=m1_request_path,
         )
-    return CaptureData(
-        root=root,
-        rgb=np.ascontiguousarray(rgb),
-        semantic=np.ascontiguousarray(semantic),
-        actor_world_matrices=np.ascontiguousarray(actor),
-        anchor_positions_m=np.ascontiguousarray(anchors),
-        records=tuple(records),
-        evidence=evidence,
-    )
-
-
-def _capture_data(result: Any) -> CaptureData:
-    return CaptureData(
-        root=result.output_dir,
-        rgb=result.rgb,
-        semantic=result.semantic,
-        actor_world_matrices=result.actor_world_matrices,
-        anchor_positions_m=result.anchor_positions_m,
-        records=result.records,
-        evidence=result.evidence,
-    )
+    except CaptureAdapterError as exc:
+        raise M6XCanaryError(str(exc)) from exc
 
 
 def _validated_inputs(
@@ -272,6 +146,7 @@ def _validated_inputs(
     entity_registry_path: Path,
     endpoint_registry_path: Path,
     sound_registry_path: Path,
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> dict[str, Any]:
     values = {
         "room_capsule": load_json(config_root / "room_capsule.json"),
@@ -329,6 +204,10 @@ def _validated_inputs(
             "sound registry": values["sounds"],
         }[owner]
         errors.extend(f"{owner}: {item}" for item in validator(registry))
+    errors.extend(
+        f"capture adapter: {item}"
+        for item in capture_adapter.validate_registry_bindings(values["endpoints"])
+    )
     for program in programs:
         errors.extend(
             f"AudioProgram {program.get('program_id')}: {item}"
@@ -344,85 +223,6 @@ def _validated_inputs(
         (program["program_id"], program["revision"]): program for program in programs
     }
     return values
-
-
-def _anchor_positions(anchor_library: Mapping[str, Any]) -> dict[str, np.ndarray]:
-    return {
-        item["anchor_id"]: np.asarray(item["position_m"], dtype=np.float64)
-        for item in anchor_library["anchors"]
-    }
-
-
-def _master_root_paths(
-    trajectory_templates: Mapping[str, Any], anchor_library: Mapping[str, Any]
-) -> tuple[np.ndarray, np.ndarray]:
-    human = materialize_template_route(
-        trajectory_templates,
-        template_id="human_master_motion_270",
-        route_id="human_master_route",
-        anchor_library=anchor_library,
-    )
-    dog = materialize_template_route(
-        trajectory_templates,
-        template_id="dog_master_motion_270",
-        route_id="dog_master_route",
-        anchor_library=anchor_library,
-    )
-    if human.shape != (MASTER_FRAME_COUNT, 3) or dog.shape != (MASTER_FRAME_COUNT, 3):
-        raise M6XCanaryError("master human/dog routes must contain exactly 270 points")
-    return human, dog
-
-
-def _static_path(point: Sequence[float]) -> np.ndarray:
-    value = np.asarray(point, dtype=np.float64)
-    if value.shape != (3,) or not np.all(np.isfinite(value)):
-        raise M6XCanaryError("static source position is invalid")
-    return np.ascontiguousarray(np.repeat(value[None, :], MASTER_FRAME_COUNT, axis=0))
-
-
-def _provisional_source_paths(
-    anchor_library: Mapping[str, Any], human: np.ndarray, dog: np.ndarray
-) -> dict[str, np.ndarray]:
-    anchors = _anchor_positions(anchor_library)
-    return {
-        "m6x_dog0_muzzle": dog,
-        "m6x_human0_mouth": human,
-        "m6x_marker_front_speaker": _static_path(anchors["marker_front"]),
-        "m6x_marker_rear_speaker": _static_path(anchors["marker_rear"]),
-        "m6x_world_los_speaker": _static_path(anchors["world_los"]),
-        "m6x_world_nlos_speaker": _static_path(anchors["world_nlos"]),
-    }
-
-
-def _actual_source_paths(
-    anchor_library: Mapping[str, Any], capture: CaptureData
-) -> dict[str, np.ndarray]:
-    anchors = _anchor_positions(anchor_library)
-    anchor_order = capture.evidence.get("anchor_order")
-    if (
-        not isinstance(anchor_order, list)
-        or len(anchor_order) != len(set(anchor_order))
-        or not all(isinstance(item, str) for item in anchor_order)
-    ):
-        raise M6XCanaryError("capture anchor_order must contain unique string names")
-    anchor_indices = {name: index for index, name in enumerate(anchor_order)}
-    required = ("human0.mouth_emitter", "dog0.mouth_emitter")
-    missing = [name for name in required if name not in anchor_indices]
-    if missing:
-        raise M6XCanaryError(f"capture is missing emitter anchors: {missing}")
-    result = {
-        "m6x_dog0_muzzle": np.ascontiguousarray(
-            capture.anchor_positions_m[:, anchor_indices["dog0.mouth_emitter"], :]
-        ),
-        "m6x_human0_mouth": np.ascontiguousarray(
-            capture.anchor_positions_m[:, anchor_indices["human0.mouth_emitter"], :]
-        ),
-        "m6x_marker_front_speaker": _static_path(anchors["marker_front"]),
-        "m6x_marker_rear_speaker": _static_path(anchors["marker_rear"]),
-        "m6x_world_los_speaker": _static_path(anchors["world_los"]),
-        "m6x_world_nlos_speaker": _static_path(anchors["world_nlos"]),
-    }
-    return dict(sorted(result.items()))
 
 
 def _scenario_grid_and_sequence(
@@ -847,17 +647,20 @@ def _asset_bindings(
     sounds: Mapping[str, Any],
     *,
     repository_root: Path,
-    beagle_audio_path: Path,
+    external_sound_asset_paths: Mapping[str, Path],
 ) -> dict[str, dict[str, str]]:
     result: dict[str, dict[str, str]] = {}
     for sound_id, record in _sound_index(sounds).items():
         uri = str(record["dry_audio"]["uri"])
         if uri.startswith("repo://"):
             path = (repository_root / uri.removeprefix("repo://")).resolve()
-        elif sound_id == "dog_beagle_v2_scheduled_dry":
-            path = beagle_audio_path.resolve()
+        elif sound_id in external_sound_asset_paths:
+            path = external_sound_asset_paths[sound_id].resolve()
         else:
-            continue
+            raise M6XCanaryError(
+                f"non-repository dry audio requires an external path mapping: "
+                f"{sound_id} ({uri})"
+            )
         if not path.is_file():
             raise M6XCanaryError(f"dry audio is missing for {sound_id}: {path}")
         expected = str(record["dry_audio"]["sha256"])
@@ -951,64 +754,6 @@ def _semantic_centroids(semantic: np.ndarray, semantic_id: int) -> np.ndarray:
     return result
 
 
-def _matrix_quaternion_xyzw(matrix: np.ndarray) -> list[float]:
-    rotation = np.asarray(matrix, dtype=np.float64)
-    if rotation.shape != (3, 3) or not np.all(np.isfinite(rotation)):
-        raise M6XCanaryError("actor rotation matrix is invalid")
-    trace = float(np.trace(rotation))
-    if trace > 0.0:
-        s = math.sqrt(trace + 1.0) * 2.0
-        values = np.asarray(
-            [
-                (rotation[2, 1] - rotation[1, 2]) / s,
-                (rotation[0, 2] - rotation[2, 0]) / s,
-                (rotation[1, 0] - rotation[0, 1]) / s,
-                0.25 * s,
-            ],
-            dtype=np.float64,
-        )
-    else:
-        diagonal = np.diag(rotation)
-        index = int(np.argmax(diagonal))
-        if index == 0:
-            s = math.sqrt(1.0 + rotation[0, 0] - rotation[1, 1] - rotation[2, 2]) * 2.0
-            values = np.asarray(
-                [
-                    0.25 * s,
-                    (rotation[0, 1] + rotation[1, 0]) / s,
-                    (rotation[0, 2] + rotation[2, 0]) / s,
-                    (rotation[2, 1] - rotation[1, 2]) / s,
-                ]
-            )
-        elif index == 1:
-            s = math.sqrt(1.0 + rotation[1, 1] - rotation[0, 0] - rotation[2, 2]) * 2.0
-            values = np.asarray(
-                [
-                    (rotation[0, 1] + rotation[1, 0]) / s,
-                    0.25 * s,
-                    (rotation[1, 2] + rotation[2, 1]) / s,
-                    (rotation[0, 2] - rotation[2, 0]) / s,
-                ]
-            )
-        else:
-            s = math.sqrt(1.0 + rotation[2, 2] - rotation[0, 0] - rotation[1, 1]) * 2.0
-            values = np.asarray(
-                [
-                    (rotation[0, 2] + rotation[2, 0]) / s,
-                    (rotation[1, 2] + rotation[2, 1]) / s,
-                    0.25 * s,
-                    (rotation[1, 0] - rotation[0, 1]) / s,
-                ]
-            )
-    norm = float(np.linalg.norm(values))
-    if norm <= 1.0e-12 or not math.isfinite(norm):
-        raise M6XCanaryError("actor rotation quaternion is invalid")
-    values /= norm
-    if values[3] < 0.0:
-        values *= -1.0
-    return [0.0 if abs(float(value)) < 1.0e-15 else float(value) for value in values]
-
-
 def _endpoint_actor_id(endpoint: Mapping[str, Any]) -> str:
     binding = endpoint["binding"]
     if binding["kind"] == "entity_anchor":
@@ -1025,6 +770,7 @@ def _timeline(
     endpoints: Mapping[str, Any],
     sounds: Mapping[str, Any],
     listener_record: Mapping[str, Any],
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> dict[str, Any]:
     endpoint_records = _endpoint_index(endpoints)
     sound_records = _sound_index(sounds)
@@ -1033,48 +779,14 @@ def _timeline(
         source_id: _endpoint_actor_id(endpoint_records[source_id])
         for source_id in candidate_ids
     }
-    actor_ids = tuple(sorted({"dog0", "human0", *candidate_actor.values()}))
-    asset_by_actor = {
-        "dog0": (
-            "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
-            "rocketbox_dog_beagle_01",
-            "quadruped_canine",
-        ),
-        "human0": (
-            "rocketbox_human_male_adult_01_m5_1_candidate",
-            "rocketbox_human_male_adult_01",
-            "biped_human",
-        ),
-        "marker_front": (
-            "legacy_apartment_source_marker_front_v1",
-            "rigid_source_marker",
-            "rigid_object",
-        ),
-        "marker_rear": (
-            "legacy_apartment_source_marker_rear_v1",
-            "rigid_source_marker",
-            "rigid_object",
-        ),
-        "spear_apartment_los_point": (
-            "world_source_point",
-            "world_source_point",
-            "environmental_source",
-        ),
-        "spear_apartment_nlos_point": (
-            "world_source_point",
-            "world_source_point",
-            "environmental_source",
-        ),
-    }
-    actors = [
-        {
-            "actor_id": actor_id,
-            "asset_id": asset_by_actor[actor_id][0],
-            "template_id": asset_by_actor[actor_id][1],
-            "body_plan_id": asset_by_actor[actor_id][2],
-        }
-        for actor_id in actor_ids
-    ]
+    try:
+        actor_ids = capture_adapter.timeline_actor_ids(tuple(candidate_actor.values()))
+        actors = [
+            capture_adapter.actor_binding(actor_id).timeline_record()
+            for actor_id in actor_ids
+        ]
+    except CaptureAdapterError as exc:
+        raise M6XCanaryError(str(exc)) from exc
     emitter_hash = {
         source_id: canonical_json_sha256(trajectories[source_id].tolist())
         for source_id in candidate_ids
@@ -1119,31 +831,17 @@ def _timeline(
         sample_end = (3200 * (local_frame + 1) + 1) // 3
         states = []
         for actor_id in actor_ids:
-            if actor_id == "human0":
-                matrix = capture.actor_world_matrices[master_frame, 0]
-                position = matrix[:3, 3]
-                rotation = _matrix_quaternion_xyzw(matrix[:3, :3])
-                action_id = "walk"
-                action_phase = (master_frame % 16) / 16.0
-                pose_hash = str(capture.records[master_frame]["human"]["pose_sha256"])
-            elif actor_id == "dog0":
-                matrix = capture.actor_world_matrices[master_frame, 1]
-                position = matrix[:3, 3]
-                rotation = _matrix_quaternion_xyzw(matrix[:3, :3])
-                action_id = "walk"
-                action_phase = (master_frame % 45) / 45.0
-                pose_hash = str(
-                    capture.records[master_frame]["beagle"]["readback"]["state_sha256"]
+            try:
+                actor_state = capture_adapter.timeline_actor_state(
+                    capture,
+                    actor_id=actor_id,
+                    master_frame=master_frame,
+                    local_frame=local_frame,
+                    source_endpoint_id=endpoint_by_actor.get(actor_id),
+                    trajectories=trajectories,
                 )
-            else:
-                source_id = endpoint_by_actor[actor_id]
-                position = trajectories[source_id][local_frame]
-                rotation = [0.0, 0.0, 0.0, 1.0]
-                action_id = "static"
-                action_phase = 0.0
-                pose_hash = canonical_json_sha256(
-                    {"actor_id": actor_id, "position_m": position.tolist()}
-                )
+            except CaptureAdapterError as exc:
+                raise M6XCanaryError(str(exc)) from exc
             vocalizing = any(
                 event["start_sample"] <= sample_start < event["end_sample"]
                 for event in events_by_actor[actor_id]
@@ -1152,14 +850,14 @@ def _timeline(
                 {
                     "actor_id": actor_id,
                     "root_transform": {
-                        "translation_m": position.tolist(),
-                        "rotation_xyzw": rotation,
+                        "translation_m": list(actor_state.translation_m),
+                        "rotation_xyzw": list(actor_state.rotation_xyzw),
                         "scale": [1.0, 1.0, 1.0],
                     },
-                    "action_id": action_id,
+                    "action_id": actor_state.action_id,
                     "action_time_ticks": local_frame * 3200,
-                    "action_phase": action_phase,
-                    "pose_hash": pose_hash,
+                    "action_phase": actor_state.action_phase,
+                    "pose_hash": actor_state.pose_hash,
                     "contacts": {},
                     "mouth_state": {
                         "open_ratio": 0.0,
@@ -1210,31 +908,27 @@ def _visibility_facts(
     semantic: np.ndarray,
     endpoint_records: Mapping[str, Mapping[str, Any]],
     anchor_qualification: Mapping[str, Any],
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> dict[str, dict[str, Any]]:
-    semantic_id = {
-        "m6x_human0_mouth": 220,
-        "m6x_dog0_muzzle": 221,
-        "m6x_marker_front_speaker": 101,
-        "m6x_marker_rear_speaker": 102,
-    }
-    anchor_by_endpoint = {
-        "m6x_marker_front_speaker": "marker_front",
-        "m6x_marker_rear_speaker": "marker_rear",
-        "m6x_world_los_speaker": "world_los",
-        "m6x_world_nlos_speaker": "world_nlos",
-    }
+    del endpoint_records
     qualified = {
         item["anchor_id"]: item for item in anchor_qualification.get("records", [])
     }
     result: dict[str, dict[str, Any]] = {}
     for source_id in source_ids:
-        if source_id in semantic_id:
-            visible = [
-                bool(np.any(frame == semantic_id[source_id])) for frame in semantic
-            ]
+        try:
+            source = capture_adapter.source_binding(source_id)
+        except CaptureAdapterError as exc:
+            raise M6XCanaryError(str(exc)) from exc
+        if source.semantic_id is not None:
+            visible = [bool(np.any(frame == source.semantic_id)) for frame in semantic]
             occlusion = ["clear" if value else None for value in visible]
         else:
-            anchor = qualified[anchor_by_endpoint[source_id]]
+            if source.room_anchor_id is None:
+                raise M6XCanaryError(
+                    f"source {source_id!r} has neither semantic nor room anchor"
+                )
+            anchor = qualified[source.room_anchor_id]
             in_fov = anchor["observed_camera_fov"] == "in_fov"
             visible = [in_fov] * FRAME_COUNT
             path = anchor["observed_acoustic_path"]
@@ -1254,6 +948,7 @@ def _source_manifest(
     trajectories: Mapping[str, np.ndarray],
     endpoints: Mapping[str, Any],
     sounds: Mapping[str, Any],
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> dict[str, Any]:
     endpoint_records = _endpoint_index(endpoints)
     sound_records = _sound_index(sounds)
@@ -1275,11 +970,9 @@ def _source_manifest(
                 "source_endpoint_id": source_id,
                 "endpoint": endpoint_records[source_id],
                 "trajectory": {
-                    "position_authority": (
-                        "captured_articulated_emitter_link_world_transform"
-                        if source_id in {"m6x_human0_mouth", "m6x_dog0_muzzle"}
-                        else "fixed_anchor_world_position"
-                    ),
+                    "position_authority": capture_adapter.source_binding(
+                        source_id
+                    ).position_authority,
                     "frame_count": FRAME_COUNT,
                     "positions_m": trajectories[source_id].tolist(),
                 },
@@ -1307,46 +1000,15 @@ def _source_manifest(
     }
 
 
-def _track_class(source_id: str) -> tuple[str, str, tuple[int, int, int], str]:
-    mapping = {
-        "m6x_dog0_muzzle": (
-            "Beagle",
-            "animal_vocalization",
-            (250, 120, 70),
-            "dog",
-        ),
-        "m6x_human0_mouth": (
-            "Human",
-            "human_speech",
-            (42, 210, 220),
-            "human",
-        ),
-        "m6x_marker_front_speaker": (
-            "Front marker",
-            "test_signal",
-            (255, 90, 70),
-            "rigid_object",
-        ),
-        "m6x_marker_rear_speaker": (
-            "Rear marker",
-            "test_signal",
-            (89, 156, 255),
-            "rigid_object",
-        ),
-        "m6x_world_los_speaker": (
-            "LOS source",
-            "test_signal",
-            (120, 220, 112),
-            "world_point",
-        ),
-        "m6x_world_nlos_speaker": (
-            "NLOS source",
-            "test_signal",
-            (167, 121, 255),
-            "world_point",
-        ),
-    }
-    return mapping[source_id]
+def _track_class(
+    source_id: str,
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
+) -> tuple[str, str, tuple[int, int, int], str]:
+    try:
+        source = capture_adapter.source_binding(source_id)
+    except CaptureAdapterError as exc:
+        raise M6XCanaryError(str(exc)) from exc
+    return source.label, source.sound_class, source.color_rgb, source.asset_class
 
 
 def _scenario_tracks(
@@ -1358,16 +1020,14 @@ def _scenario_tracks(
     events: Mapping[str, tuple[str | None, ...]],
     gate: Mapping[str, Any],
     window_start: int,
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> tuple[SourceOverlayTrack, ...]:
-    semantic_ids = {
-        "m6x_dog0_muzzle": 221,
-        "m6x_human0_mouth": 220,
-        "m6x_marker_front_speaker": 101,
-        "m6x_marker_rear_speaker": 102,
-    }
     tracks = []
     for source_id in source_ids:
-        label, sound_class, color, asset_class = _track_class(source_id)
+        label, sound_class, color, asset_class = _track_class(
+            source_id, capture_adapter
+        )
+        source_binding = capture_adapter.source_binding(source_id)
         source_gate = gate["sources"][source_id]
         nav_clearance = np.asarray(
             [
@@ -1380,8 +1040,8 @@ def _scenario_tracks(
         )
         main_marker = (
             None
-            if source_id not in semantic_ids
-            else _semantic_centroids(semantic, semantic_ids[source_id])
+            if source_binding.semantic_id is None
+            else _semantic_centroids(semantic, source_binding.semantic_id)
         )
         tracks.append(
             SourceOverlayTrack(
@@ -1432,6 +1092,7 @@ def _render_variant(
     asset_bindings: Mapping[str, Any],
     rir_metadata_path: Path,
     rir_bundle_uri: str,
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> dict[str, Any]:
     source_ids = tuple(program["candidate_source_endpoint_ids"])
     clip = DryAudioClipSpec.from_values(
@@ -1505,8 +1166,14 @@ def _render_variant(
     clean_base.unlink()
 
     activity, event_state = _program_frame_state(program, source_ids)
-    labels = {source_id: _track_class(source_id)[0] for source_id in source_ids}
-    colors = {source_id: _track_class(source_id)[2] for source_id in source_ids}
+    labels = {
+        source_id: _track_class(source_id, capture_adapter)[0]
+        for source_id in source_ids
+    }
+    colors = {
+        source_id: _track_class(source_id, capture_adapter)[2]
+        for source_id in source_ids
+    }
     topdown = render_runtime_topdown_frames(
         qualification.obstacle_map,
         trajectories,
@@ -1522,6 +1189,7 @@ def _render_variant(
         semantic=semantic,
         endpoint_records=_endpoint_index(endpoints),
         anchor_qualification=qualification.anchor_qualification,
+        capture_adapter=capture_adapter,
     )
     flags = evaluate_legacy_flags(
         observer_position_m=listener_position_m,
@@ -1543,6 +1211,7 @@ def _render_variant(
         events=event_state,
         gate=qualification.source_center_gate,
         window_start=window_start,
+        capture_adapter=capture_adapter,
     )
     annotated = compose_annotated_frames(
         main_rgb=rgb,
@@ -1576,6 +1245,7 @@ def _render_variant(
         trajectories=trajectories,
         endpoints=endpoints,
         sounds=sounds,
+        capture_adapter=capture_adapter,
     )
     source_manifest["rir_evidence"] = {
         "uri": rir_bundle_uri,
@@ -1593,6 +1263,7 @@ def _render_variant(
             "position_m": list(listener_position_m),
             "orientation_wxyz": list(listener_orientation),
         },
+        capture_adapter=capture_adapter,
     )
     metadata_root = variant_root / "metadata"
     write_json(
@@ -1629,6 +1300,7 @@ def _render_variant(
             "visual_capture": "bundle://shared/master_capture",
             "rir_evidence": rir_bundle_uri,
             "runtime_backend": qualification.record["runtime_backend"],
+            "capture_adapter_id": capture_adapter.adapter_id,
             "placement_semantics": "source_center_only",
             "topdown_obstacle_authority": qualification.record["obstacle_authority"][
                 "authority"
@@ -1686,6 +1358,8 @@ def _write_review_index(
     *,
     listener_position_m: Sequence[float],
     listener_yaw_deg: float,
+    input_snapshot_path: Path | None = None,
+    final_report_path: Path | None = None,
 ) -> Path:
     table_rows = []
     for row in rows:
@@ -1719,6 +1393,16 @@ def _write_review_index(
         )
     listener_text = escape(str([float(value) for value in listener_position_m]))
     listener_yaw_text = escape(f"{listener_yaw_deg:g}")
+    evidence_links = []
+    if input_snapshot_path is not None:
+        input_href = input_snapshot_path.relative_to(output).as_posix()
+        evidence_links.append(f'<a href="{escape(input_href)}">input snapshot</a>')
+    if final_report_path is not None:
+        report_href = final_report_path.relative_to(output).as_posix()
+        evidence_links.append(f'<a href="{escape(report_href)}">final report</a>')
+    evidence_text = " | ".join(evidence_links)
+    if evidence_text:
+        evidence_text = "<br>Evidence: " + evidence_text
     html = (
         """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -1741,7 +1425,11 @@ Listener: one co-located/co-oriented camera + microphone rig at
 Clip: 5 s / 75 frames / 15 fps / 16 kHz binaural<br>
 Audio: 360° propagation; never cut off by camera FOV<br>
 Placement gate: source center only; no body-volume claim<br>
-Obstacle authority: live Habitat navmesh + every loaded rigid collision OBB
+Obstacle authority: live Habitat navmesh + every loaded rigid collision OBB<br>
+Acoustic claim: source-logic canary pass; materials remain
+<code>research_placeholder</code>; physical room qualification is false"""
+        + evidence_text
+        + """
 </div>
 <table><thead><tr><th>Scenario</th><th>Purpose</th><th>Variant</th><th>Endpoints</th><th>Active event windows</th><th>Expected/observed spatial state</th><th>Status</th><th>Checks</th><th>Clean video</th><th>Diagnostic</th><th>Mixture</th><th>Independent stems</th><th>Scenario RIR</th></tr></thead>
 <tbody>"""
@@ -1764,10 +1452,8 @@ def run_fixed_apartment_canary(
     entity_registry_path: str | Path,
     endpoint_registry_path: str | Path,
     sound_registry_path: str | Path,
-    human_runtime_glb_path: str | Path,
-    beagle_animal_manifest_path: str | Path,
-    beagle_m2_request_path: str | Path,
-    beagle_audio_path: str | Path,
+    capture_provider_assets: Mapping[str, str | Path],
+    external_sound_asset_paths: Mapping[str, str | Path],
     acoustic_package_manifest_path: str | Path,
     m4_request_path: str | Path,
     hrtf_file_path: str | Path,
@@ -1775,6 +1461,7 @@ def run_fixed_apartment_canary(
     runtime_root: str | Path | None = None,
     capture_dir: str | Path | None = None,
     acoustics_dir: str | Path | None = None,
+    capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> M6XCanaryResult:
     """Build all fixed-room S0--S5 visual, acoustic, and metadata outputs."""
 
@@ -1782,21 +1469,47 @@ def run_fixed_apartment_canary(
     config_root = Path(config_root).resolve()
     room_manifest_path = Path(room_manifest_path).resolve()
     m1_request_path = Path(m1_request_path).resolve()
+    room_registry_path = Path(room_registry_path).resolve()
+    entity_registry_path = Path(entity_registry_path).resolve()
+    endpoint_registry_path = Path(endpoint_registry_path).resolve()
+    sound_registry_path = Path(sound_registry_path).resolve()
+    capture_provider_assets = {
+        str(key): Path(value).resolve()
+        for key, value in capture_provider_assets.items()
+    }
+    external_sound_asset_paths = {
+        str(key): Path(value).resolve()
+        for key, value in external_sound_asset_paths.items()
+    }
+    acoustic_package_manifest_path = Path(acoustic_package_manifest_path).resolve()
+    m4_request_path = Path(m4_request_path).resolve()
+    hrtf_file_path = Path(hrtf_file_path).resolve()
+    resolved_runtime_root = (
+        Path(runtime_root).resolve()
+        if runtime_root is not None
+        else (repository_root.parent / "habitat-sim-AVEngine").resolve()
+    )
     output = Path(output_dir).resolve()
     staging = output.with_name(f".{output.name}.staging")
     if os.path.lexists(output) or os.path.lexists(staging):
         raise M6XCanaryError(f"refusing to replace output or staging path: {output}")
     values = _validated_inputs(
         config_root=config_root,
-        room_registry_path=Path(room_registry_path).resolve(),
-        entity_registry_path=Path(entity_registry_path).resolve(),
-        endpoint_registry_path=Path(endpoint_registry_path).resolve(),
-        sound_registry_path=Path(sound_registry_path).resolve(),
+        room_registry_path=room_registry_path,
+        entity_registry_path=entity_registry_path,
+        endpoint_registry_path=endpoint_registry_path,
+        sound_registry_path=sound_registry_path,
+        capture_adapter=capture_adapter,
     )
-    human_root, dog_root = _master_root_paths(values["trajectories"], values["anchors"])
-    provisional_paths = _provisional_source_paths(
-        values["anchors"], human_root, dog_root
-    )
+    try:
+        actor_root_paths = capture_adapter.materialize_actor_root_paths(
+            values["trajectories"], values["anchors"]
+        )
+        provisional_paths = capture_adapter.provisional_source_paths(
+            values["anchors"], actor_root_paths
+        )
+    except CaptureAdapterError as exc:
+        raise M6XCanaryError(str(exc)) from exc
     preflight = qualify_fixed_apartment(
         room_manifest_path=room_manifest_path,
         m1_request_path=m1_request_path,
@@ -1811,44 +1524,45 @@ def run_fixed_apartment_canary(
     staging.mkdir(parents=True)
     try:
         if capture_dir is None:
-            capture_result = capture_human_beagle_paths(
-                room_manifest_path=room_manifest_path,
-                m1_request_path=m1_request_path,
-                human_runtime_glb_path=human_runtime_glb_path,
-                beagle_animal_manifest_path=beagle_animal_manifest_path,
-                beagle_m2_request_path=beagle_m2_request_path,
-                human_root_path_m=human_root,
-                beagle_root_path_m=dog_root,
-                output_dir=staging / "shared/master_capture",
-                runtime_root=runtime_root,
-                route_provenance={
-                    "route_family": "m6x_fixed_apartment_master_270",
-                    "source": "examples/m6x/fixed_apartment/trajectory_templates.json",
-                    "placement_semantics": "source_center_only",
-                },
-                require_legacy_camera=True,
-            )
-            capture = _capture_data(capture_result)
-            _validate_capture_reuse_contract(
-                capture.evidence,
-                capture.records,
-                room_manifest_path=room_manifest_path,
-                m1_request_path=m1_request_path,
-            )
+            try:
+                capture = capture_adapter.capture(
+                    room_manifest_path=room_manifest_path,
+                    m1_request_path=m1_request_path,
+                    provider_assets=capture_provider_assets,
+                    actor_root_paths=actor_root_paths,
+                    output_dir=staging / "shared/master_capture",
+                    runtime_root=runtime_root,
+                    route_provenance={
+                        "route_family": "m6x_fixed_apartment_master_270",
+                        "source": (
+                            "examples/m6x/fixed_apartment/trajectory_templates.json"
+                        ),
+                        "placement_semantics": "source_center_only",
+                    },
+                )
+            except CaptureAdapterError as exc:
+                raise M6XCanaryError(str(exc)) from exc
         else:
             source_capture = _load_capture(
                 capture_dir,
                 room_manifest_path=room_manifest_path,
                 m1_request_path=m1_request_path,
+                capture_adapter=capture_adapter,
             )
             shutil.copytree(source_capture.root, staging / "shared/master_capture")
             capture = _load_capture(
                 staging / "shared/master_capture",
                 room_manifest_path=room_manifest_path,
                 m1_request_path=m1_request_path,
+                capture_adapter=capture_adapter,
             )
 
-        source_paths = _actual_source_paths(values["anchors"], capture)
+        try:
+            source_paths = capture_adapter.actual_source_paths(
+                values["anchors"], capture
+            )
+        except CaptureAdapterError as exc:
+            raise M6XCanaryError(str(exc)) from exc
         qualification = qualify_fixed_apartment(
             room_manifest_path=room_manifest_path,
             m1_request_path=m1_request_path,
@@ -1877,7 +1591,8 @@ def run_fixed_apartment_canary(
             listener_yaw_deg=qualification.record["listener"]["yaw_deg"],
             camera_hfov_degrees=qualification.record["listener"]["camera_hfov_degrees"],
             source_labels={
-                source_id: _track_class(source_id)[0] for source_id in overview_paths
+                source_id: _track_class(source_id, capture_adapter)[0]
+                for source_id in overview_paths
             },
         )[0]
         from PIL import Image
@@ -1907,7 +1622,7 @@ def run_fixed_apartment_canary(
         )
         m4_request = load_json(m4_request_path)
         simulation = M4SimulationConfig.from_mapping(m4_request["simulation"])
-        resolved_hrtf = Path(hrtf_file_path).resolve()
+        resolved_hrtf = hrtf_file_path
         acoustics_root = staging / "shared/acoustics"
         if acoustics_dir is None:
             master_sequence = render_research_review_binaural_rir_sequence(
@@ -1958,7 +1673,7 @@ def run_fixed_apartment_canary(
         bindings = _asset_bindings(
             values["sounds"],
             repository_root=repository_root,
-            beagle_audio_path=Path(beagle_audio_path),
+            external_sound_asset_paths=external_sound_asset_paths,
         )
         rows: list[dict[str, Any]] = []
         for scenario in values["suite"]["scenarios"]:
@@ -2049,14 +1764,63 @@ def run_fixed_apartment_canary(
                         asset_bindings=bindings,
                         rir_metadata_path=rir_metadata_path,
                         rir_bundle_uri=rir_bundle_uri,
+                        capture_adapter=capture_adapter,
                     )
                 )
 
+        provider_json_inputs = {
+            f"capture_provider_{key}": path
+            for key, path in capture_provider_assets.items()
+            if path.suffix.lower() == ".json"
+        }
+        provider_external_assets = {
+            f"capture_provider_{key}": path
+            for key, path in capture_provider_assets.items()
+            if path.suffix.lower() != ".json"
+        }
+        sound_external_assets = {
+            f"sound_asset_{sound_id}": path
+            for sound_id, path in external_sound_asset_paths.items()
+        }
+        input_snapshot_path = write_canary_input_snapshot(
+            staging,
+            repository_root=repository_root,
+            runtime_root=resolved_runtime_root,
+            config_root=config_root,
+            json_inputs={
+                "room_manifest": room_manifest_path,
+                "m1_capture_request": m1_request_path,
+                "room_registry": room_registry_path,
+                "entity_registry": entity_registry_path,
+                "source_endpoint_registry": endpoint_registry_path,
+                "sound_asset_registry": sound_registry_path,
+                "acoustic_package_manifest": acoustic_package_manifest_path,
+                "m4_simulation_request": m4_request_path,
+                **provider_json_inputs,
+            },
+            external_assets={
+                "binaural_hrtf": resolved_hrtf,
+                **provider_external_assets,
+                **sound_external_assets,
+            },
+            acoustic_identity=acoustic_identity,
+            capture_mode=(
+                "fresh_native" if capture_dir is None else "retained_validated"
+            ),
+            acoustics_mode=(
+                "fresh_native_rlr" if acoustics_dir is None else "retained_validated"
+            ),
+        )
+        final_report_source = repository_root / "docs/roadmap/M6X_FINAL_REPORT.md"
+        final_report_path = staging / "FINAL_REPORT.md"
+        shutil.copy2(final_report_source, final_report_path)
         index = _write_review_index(
             staging,
             rows,
             listener_position_m=listener_position,
             listener_yaw_deg=listener_yaw,
+            input_snapshot_path=input_snapshot_path,
+            final_report_path=final_report_path,
         )
         manifest = {
             "schema": CANARY_SCHEMA,
@@ -2080,6 +1844,9 @@ def run_fixed_apartment_canary(
             },
             "audio_visibility_policy": "360_degree_no_camera_fov_cutoff",
             "acoustic_identity": acoustic_identity,
+            "capture_adapter_id": capture_adapter.adapter_id,
+            "input_snapshot": input_snapshot_path.relative_to(staging).as_posix(),
+            "final_report": final_report_path.relative_to(staging).as_posix(),
             "variants": [
                 {
                     "scenario_id": row["scenario_id"],

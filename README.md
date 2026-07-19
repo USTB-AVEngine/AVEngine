@@ -188,6 +188,14 @@ large-scale dataset generation remain outside this canary.
 
 Use the Habitat/RLR Conda environment; `.venv` is not required:
 
+The command expects the existing local M1 Apartment package, M2 Beagle runtime
+records, M3 acoustic package, the supplied human GLB and Beagle dry audio. It
+also needs `ffmpeg`/`ffprobe` and the default HRTF at
+`/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa` (or pass `--hrtf`). These
+inputs already exist in the project workspace used for the closeout run. The
+output directory must be new; the runner deliberately refuses to overwrite an
+earlier review bundle.
+
 ```bash
 cd /data/jzy/code/AVEngine-habitat-native
 export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
@@ -198,36 +206,57 @@ python tools/m6x/build_fixed_apartment_canary.py \
   --runtime-root /data/jzy/code/habitat-sim-AVEngine \
   --human-runtime-glb /data/jzy/code/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb \
   --beagle-audio /data/jzy/code/AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav \
-  --output tmp/m6x/fixed_apartment_run
+  --output tmp/m6x/fixed_apartment_run_01
 ```
 
-Open `tmp/m6x/fixed_apartment_run/REVIEW_INDEX.html` to review every clean
+Open `tmp/m6x/fixed_apartment_run_01/REVIEW_INDEX.html` to review every clean
 binaural video, annotated main-view + Topdown video, mixture WAV and independent
 source stem. Each scenario variant also retains its AudioProgram, Timeline v2,
 source manifest, legacy flags and final status under `metadata/`.
+At bundle root, `inputs/input_index.json` records the small configuration
+snapshot, code commits and direct external assets; `FINAL_REPORT.md` states the
+bounded acoustic and placement claims.
 The local closeout run is retained at
 `tmp/m6x/fixed_apartment_canary_20260719_03/REVIEW_INDEX.html`.
+The bounded feasibility result and its acoustic claim boundary are summarized
+in [the M6.x final report](docs/roadmap/M6X_FINAL_REPORT.md).
+
+To rebuild only the scenario media and metadata while reusing the closeout
+Habitat capture and native RLR result, run:
+
+```bash
+python tools/m6x/build_fixed_apartment_canary.py \
+  --runtime-root /data/jzy/code/habitat-sim-AVEngine \
+  --human-runtime-glb /data/jzy/code/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb \
+  --beagle-audio /data/jzy/code/AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav \
+  --capture-dir tmp/m6x/fixed_apartment_canary_20260719_03/shared/master_capture \
+  --acoustics-dir tmp/m6x/fixed_apartment_canary_20260719_03/shared/acoustics \
+  --output tmp/m6x/fixed_apartment_rebuild_01
+```
 
 ### Rebuild the ReplicaCAD furniture-aware review
 
 This command reuses the retained 18-second RGB capture and binaural mixture. It
 briefly loads the real `apt_0` room, reads all 113 rigid furniture collision
 OBBs, applies the source-center-only gate and rebuilds the diagnostic Topdown;
-it does not rerun visual capture or RLR acoustics:
+it does not rerun visual capture or RLR acoustics. Use the same Conda environment
+shown above and choose a new output directory:
 
 ```bash
 python tools/m6x/rebuild_replicacad_obstacle_review.py \
   --replicacad-root tmp/m6x/datasets/replica_cad \
   --capture-dir tmp/m5_1/replicacad_mixed_20260719_04 \
   --delivery-dir tmp/m5_1/replicacad_delivery_20260719_03 \
-  --output tmp/m6x/replicacad_obstacle_review_run
+  --output tmp/m6x/replicacad_obstacle_review_run_01
 ```
 
-The generated video, obstacle map and center-point gate are written below the
-chosen output directory. ReplicaCAD's six room articulated objects do not
-expose rigid-equivalent collision OBBs through the runtime API; they remain
-represented by the declared navmesh and are reported separately rather than
-being approximated as fake collision boxes.
+The main outputs are
+`videos/replicacad_runtime_obstacles_diagnostic.mp4`,
+`room/runtime_obstacle_map.png`, `source_center_gate.json` and `status.json`
+below the chosen output directory. ReplicaCAD's six room articulated objects
+do not expose rigid-equivalent collision OBBs through the runtime API; they
+remain represented by the declared navmesh and are reported separately rather
+than being approximated as fake collision boxes.
 
 ## Repository boundary
 

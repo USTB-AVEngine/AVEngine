@@ -62,6 +62,13 @@ def test_checked_in_registries_validate_and_resolve_legacy_beagle_instances() ->
     )
     assert dog_sound["admissibility"] == "research"
     assert dog_sound["provenance"]["rights_status"] == "unresolved"
+    assert dog_sound["permitted_event_usage"] == [
+        "counterfactual_route_swap",
+        "intermittent_events",
+        "one_active_of_n",
+        "sequential_sources",
+        "simultaneous_subset",
+    ]
 
 
 def test_beagle_appearance_domains_are_data_driven_and_breed_scoped() -> None:

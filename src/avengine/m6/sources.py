@@ -72,6 +72,12 @@ def validate_sound_asset_registry(value: Any) -> list[str]:
                 sound.get("tags"), f"sound_assets[{index}].tags"
             )
         )
+        errors.extend(
+            _canonical_string_list(
+                sound.get("permitted_event_usage"),
+                f"sound_assets[{index}].permitted_event_usage",
+            )
+        )
     return errors
 
 

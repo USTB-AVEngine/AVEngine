@@ -1,5 +1,10 @@
 """Fixed-room M6.x contracts and executable canary support."""
 
+from avengine.m6x.capture_adapter import (
+    FixedApartmentCaptureAdapter,
+    HUMAN_BEAGLE_CAPTURE_ADAPTER,
+    HumanBeagleCaptureAdapter,
+)
 from avengine.m6x.contracts import (
     ANCHOR_LIBRARY_SCHEMA,
     M6XContractError,
@@ -19,6 +24,9 @@ from avengine.m6x.contracts import (
 
 __all__ = [
     "ANCHOR_LIBRARY_SCHEMA",
+    "FixedApartmentCaptureAdapter",
+    "HUMAN_BEAGLE_CAPTURE_ADAPTER",
+    "HumanBeagleCaptureAdapter",
     "M6XContractError",
     "ROOM_CAPSULE_SCHEMA",
     "SCENARIO_CONTRACT",

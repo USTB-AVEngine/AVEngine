@@ -18,6 +18,7 @@
       },
       "normalization_policy": {"mode": "preserve", "target_dbfs": null},
       "allowed_transforms": ["crop", "gain", "zero_pad"],
+      "permitted_event_usage": ["counterfactual_route_swap", "intermittent_events", "one_active_of_n", "sequential_sources", "simultaneous_subset"],
       "tags": ["canary", "directional", "synthetic"],
       "provenance": {
         "origin": "AVEngine deterministic sine-chime generator",
@@ -42,6 +43,7 @@
       },
       "normalization_policy": {"mode": "preserve", "target_dbfs": null},
       "allowed_transforms": ["crop", "deterministic_resample", "gain", "zero_pad"],
+      "permitted_event_usage": ["counterfactual_route_swap", "intermittent_events", "one_active_of_n", "sequential_sources", "simultaneous_subset"],
       "tags": ["bark", "canine", "legacy_m5_1"],
       "provenance": {
         "origin": "research_recording",
@@ -66,6 +68,7 @@
       },
       "normalization_policy": {"mode": "preserve", "target_dbfs": null},
       "allowed_transforms": ["crop", "gain", "zero_pad"],
+      "permitted_event_usage": ["counterfactual_route_swap", "intermittent_events", "one_active_of_n", "sequential_sources", "simultaneous_subset"],
       "tags": ["human", "legacy_m5_1", "speech"],
       "provenance": {
         "origin": "LibriTTS deterministic 16 kHz AVEngine derivative",
@@ -76,5 +79,5 @@
       "admissibility": "research"
     }
   ],
-  "registry_content_sha256": "95b91b0f3399c6242c5d9b4b5a792325accfcdc178598a77b9d3e5a8fdeb49aa"
+  "registry_content_sha256": "048ae93d8cc6a6b53172032e5a8fd8964ce357c9d774c5d1af9fa3330bb6c7ab"
 }

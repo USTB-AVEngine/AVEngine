@@ -335,6 +335,8 @@ Apartment with one co-located/co-oriented camera-listener rig, 360-degree
 binaural mixtures, independent stems, Timeline/flags and clean plus diagnostic
 Topdown videos.
 
+Final evidence and claim boundary: [M6X_FINAL_REPORT.md](M6X_FINAL_REPORT.md).
+
 Deliverables: one frozen Habitat-compatible SPEAR `apartment_0000`
 `RoomCapsule`; stable registered human, animal, rigid-object and source-endpoint
 insertion; reuse of the M5.1 source/event/flag authority; and a bounded

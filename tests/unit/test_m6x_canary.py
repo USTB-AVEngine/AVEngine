@@ -15,15 +15,12 @@ from avengine.m5_1.acoustics import (
 )
 from avengine.m6.audio_program import materialize_audio_program_variant
 from avengine.m6x.canary import (
-    CaptureData,
     M6XCanaryError,
-    _actual_source_paths,
+    _asset_bindings,
     _fixed_acoustic_identity,
     _float32_stems_and_exact_mixture,
     _load_capture,
     _load_retained_master_sequence,
-    _master_root_paths,
-    _provisional_source_paths,
     _scenario_grid_and_sequence,
     _timeline,
     _validate_capture_reuse_contract,
@@ -31,9 +28,59 @@ from avengine.m6x.canary import (
     _write_review_index,
     _write_scenario_rir_evidence,
 )
+from avengine.m6x.capture_adapter import (
+    CaptureData,
+    HUMAN_BEAGLE_CAPTURE_ADAPTER,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_external_sound_binding_is_keyed_by_registry_id_not_species(
+    tmp_path: Path,
+) -> None:
+    audio = tmp_path / "generic.wav"
+    audio.write_bytes(b"generic external dry sound")
+    sound_id = "registered_external_sound_v1"
+    result = _asset_bindings(
+        {
+            "sound_assets": [
+                {
+                    "sound_asset_id": sound_id,
+                    "dry_audio": {
+                        "uri": "artifact://external/generic.wav",
+                        "sha256": sha256_file(audio),
+                    },
+                }
+            ]
+        },
+        repository_root=ROOT,
+        external_sound_asset_paths={sound_id: audio},
+    )
+
+    assert result[sound_id]["path"] == str(audio.resolve())
+
+
+def test_unmapped_external_sound_fails_without_species_fallback(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(M6XCanaryError, match="external path mapping"):
+        _asset_bindings(
+            {
+                "sound_assets": [
+                    {
+                        "sound_asset_id": "unmapped_sound_v1",
+                        "dry_audio": {
+                            "uri": "artifact://external/unmapped.wav",
+                            "sha256": "0" * 64,
+                        },
+                    }
+                ]
+            },
+            repository_root=tmp_path,
+            external_sound_asset_paths={},
+        )
 
 
 def _capture_reuse_fixture(
@@ -237,7 +284,7 @@ def test_actual_source_paths_use_named_capture_anchor_evidence() -> None:
         },
     )
 
-    paths = _actual_source_paths(values["anchors"], capture)
+    paths = HUMAN_BEAGLE_CAPTURE_ADAPTER.actual_source_paths(values["anchors"], capture)
 
     assert np.array_equal(paths["m6x_dog0_muzzle"], anchor_positions[:, 0, :])
     assert np.array_equal(paths["m6x_human0_mouth"], anchor_positions[:, 2, :])
@@ -245,7 +292,10 @@ def test_actual_source_paths_use_named_capture_anchor_evidence() -> None:
 
 def test_master_routes_have_exact_authored_holds_and_motion() -> None:
     values = _inputs()
-    human, dog = _master_root_paths(values["trajectories"], values["anchors"])
+    roots = HUMAN_BEAGLE_CAPTURE_ADAPTER.materialize_actor_root_paths(
+        values["trajectories"], values["anchors"]
+    )
+    human, dog = roots["human0"], roots["dog0"]
     assert human.shape == dog.shape == (270, 3)
     assert np.allclose(human[:76], human[0], atol=1.0e-15, rtol=0.0)
     assert np.allclose(human[194], human[-1], atol=1.0e-15, rtol=0.0)
@@ -258,9 +308,12 @@ def test_master_routes_have_exact_authored_holds_and_motion() -> None:
 
 def test_every_scenario_materializes_a_schema_valid_timeline() -> None:
     values = _inputs()
-    human, dog = _master_root_paths(values["trajectories"], values["anchors"])
-    paths = dict(
-        sorted(_provisional_source_paths(values["anchors"], human, dog).items())
+    roots = HUMAN_BEAGLE_CAPTURE_ADAPTER.materialize_actor_root_paths(
+        values["trajectories"], values["anchors"]
+    )
+    human, dog = roots["human0"], roots["dog0"]
+    paths = HUMAN_BEAGLE_CAPTURE_ADAPTER.provisional_source_paths(
+        values["anchors"], roots
     )
     actor = np.repeat(np.eye(4)[None, None, :, :], 270 * 2, axis=0).reshape(
         270, 2, 4, 4
@@ -368,9 +421,11 @@ def test_retained_master_sequence_requires_the_same_trajectory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     values = _inputs()
-    human, dog = _master_root_paths(values["trajectories"], values["anchors"])
-    paths = dict(
-        sorted(_provisional_source_paths(values["anchors"], human, dog).items())
+    roots = HUMAN_BEAGLE_CAPTURE_ADAPTER.materialize_actor_root_paths(
+        values["trajectories"], values["anchors"]
+    )
+    paths = HUMAN_BEAGLE_CAPTURE_ADAPTER.provisional_source_paths(
+        values["anchors"], roots
     )
     listener = (-0.7, 1.471, 0.65)
     orientation = (0.8870108331782217, 0.0, 0.4617486132350339, 0.0)
@@ -501,6 +556,11 @@ def test_review_index_exposes_listener_events_checks_and_rir(tmp_path: Path) -> 
     rir = tmp_path / "rir/metadata.json"
     rir.parent.mkdir()
     rir.write_text("{}", encoding="utf-8")
+    input_snapshot = tmp_path / "inputs/input_index.json"
+    input_snapshot.parent.mkdir()
+    input_snapshot.write_text("{}", encoding="utf-8")
+    final_report = tmp_path / "FINAL_REPORT.md"
+    final_report.write_text("# final\n", encoding="utf-8")
     index = _write_review_index(
         tmp_path,
         [
@@ -525,10 +585,15 @@ def test_review_index_exposes_listener_events_checks_and_rir(tmp_path: Path) -> 
         ],
         listener_position_m=(-0.7, 1.471, 0.65),
         listener_yaw_deg=55.0,
+        input_snapshot_path=input_snapshot,
+        final_report_path=final_report,
     )
     html = index.read_text(encoding="utf-8")
     assert "[-0.7, 1.471, 0.65]" in html
     assert "yaw <code>55°" in html
     assert "out_of_fov" in html
     assert "RIR evidence" in html
+    assert "research_placeholder" in html
+    assert 'href="inputs/input_index.json"' in html
+    assert 'href="FINAL_REPORT.md"' in html
     assert "{escape(" not in html

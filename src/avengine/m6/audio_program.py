@@ -265,6 +265,11 @@ def validate_audio_program(
                         endpoint, sound, owner=f"events[{index}]"
                     )
                 )
+                if mode not in sound["permitted_event_usage"]:
+                    errors.append(
+                        f"events[{index}] sound asset {sound['sound_asset_id']!r} "
+                        f"does not permit AudioProgram mode {mode!r}"
+                    )
     return errors
 
 

@@ -72,16 +72,20 @@ def main(argv: list[str] | None = None) -> int:
         sound_registry_path=(
             REPOSITORY / "examples/m6/registries/sound_assets_v1.json"
         ),
-        human_runtime_glb_path=args.human_runtime_glb,
-        beagle_animal_manifest_path=(
-            REPOSITORY
-            / "tmp/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json"
-        ),
-        beagle_m2_request_path=(
-            REPOSITORY
-            / "tmp/m2/rocketbox_beagle_m2_formal_request_v7_world_contact_r5.json"
-        ),
-        beagle_audio_path=args.beagle_audio,
+        capture_provider_assets={
+            "human_runtime_glb_path": args.human_runtime_glb,
+            "animal_manifest_path": (
+                REPOSITORY
+                / "tmp/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json"
+            ),
+            "animal_request_path": (
+                REPOSITORY
+                / "tmp/m2/rocketbox_beagle_m2_formal_request_v7_world_contact_r5.json"
+            ),
+        },
+        external_sound_asset_paths={
+            "dog_beagle_v2_scheduled_dry": args.beagle_audio,
+        },
         acoustic_package_manifest_path=args.acoustic_package_manifest,
         m4_request_path=(
             REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"

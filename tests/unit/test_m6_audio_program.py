@@ -166,6 +166,29 @@ def test_audio_program_rejects_sound_class_not_supported_by_endpoint() -> None:
     assert any("sound class 'speech' is not allowed" in item for item in errors)
 
 
+def test_audio_program_rejects_sound_event_usage_not_permitted_by_asset() -> None:
+    endpoints, sounds, program = _inputs()
+    sounds = deepcopy(sounds)
+    dog_sound = next(
+        item
+        for item in sounds["sound_assets"]
+        if item["sound_asset_id"] == "dog_beagle_v2_scheduled_dry"
+    )
+    dog_sound["permitted_event_usage"] = ["simultaneous_subset"]
+    from avengine.m6.registry import bind_content_hash
+
+    sounds = bind_content_hash(sounds)
+    errors = validate_audio_program(
+        program,
+        source_endpoint_registry=endpoints,
+        sound_asset_registry=sounds,
+    )
+    assert any(
+        "does not permit AudioProgram mode 'one_active_of_n'" in item
+        for item in errors
+    )
+
+
 def test_all_declared_audio_program_modes_have_enforced_semantics() -> None:
     endpoints, sounds, base = _inputs()
 
