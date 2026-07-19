@@ -356,6 +356,37 @@ every live rigid collision OBB. This result does not claim full-body collision,
 material physical truth or dataset admission. Automatic furnishing,
 natural-language QA and a large-scale dataset remain out of scope.
 
+## M6.y: Optional SPEAR/UE Comparison Visuals
+
+Status: `pass` as a bounded comparison-visual workstream. Native Apartment,
+MP3D and ReplicaCAD runtime evidence all pass their declared gates. See
+[M6Y_STATUS.md](M6Y_STATUS.md).
+
+Purpose: test whether SPEAR/UE can provide an enhanced visual presentation for
+the same constrained episode without becoming a second task engine.
+Habitat-native AVEngine remains authoritative for Timeline or retained-route
+state, navigation, source-center placement, source programs, binaural audio,
+Topdown, flags and metadata. The optional UE backend has the fixed role
+`comparison_visual` and may not replan actors or sources.
+
+Current evidence covers native SPEAR Apartment S0/S3/S4 at 75 frames per
+scenario and the retained 270-frame MP3D M5.1 route. Apartment uses its native
+UE map, outdoor view, materials and lighting. MP3D uses fixed exposure and weak
+shadow-review lighting over illumination-baked scan textures; it does not claim
+to recover Matterport capture lights. Its retained route moves each root only
+1.1 m in 18 seconds. ReplicaCAD has real editor import/reload and 270-frame
+runtime evidence over 171 tagged scene mesh actors and the five positive dataset
+point lights, all with shadows and no added review light. Its retained route
+moves each root only 1.2 m in 18 seconds. Neither compatibility pass claims a
+normal-speed episode.
+
+Exit criteria: each claimed room has real UE execution evidence and decodable
+review media; actor roots, headings and animation phase agree with the
+Habitat-native authority; visual QA remains room-specific and honest; and an
+unavailable room is reported as pending or blocked rather than inferred from a
+plan. Placement stays source-center-only. No new release-manifest, symlink or
+leaf-hash maintenance layer is part of this workstream.
+
 ## M7: Benchmark and Paper Release
 
 Deliverables: Dynamic Articulated Source Attribution task, splits, loaders,

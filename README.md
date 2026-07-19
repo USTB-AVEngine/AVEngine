@@ -184,6 +184,21 @@ the map while still affecting placement. Audio remains 360 degrees and is
 never gated by the camera HFOV. Automatic furnishing, natural-language QA and
 large-scale dataset generation remain outside this canary.
 
+The follow-on **M6.y optional SPEAR/UE comparison-visual workstream** keeps the
+current Habitat-native AVEngine as the sole authority for actor state,
+navigation, source centers, source logic, audio, Topdown, flags and metadata.
+SPEAR/UE may render native UE pixels but may not replan the episode. Real native
+Apartment S0/S3/S4 renders and a fixed-exposure 270-frame MP3D compatibility
+render pass their declared runtime/media gates. ReplicaCAD `apt_0` also passes
+real editor import/reload and a 270-frame UE runtime: all 171 tagged scene mesh
+actors and five positive dataset lights are read back, with no added review
+light. The retained MP3D and ReplicaCAD routes move each root only 1.1 m and
+1.2 m respectively over 18 seconds; both remain slow compatibility routes, not
+normal-speed results. These are bounded visual comparisons, not a second
+engine, material qualification or dataset admission. See
+[`M6Y_STATUS.md`](docs/roadmap/M6Y_STATUS.md) for current videos, claim
+boundaries and the local review-page command.
+
 ### Run the fixed Apartment S0--S5 canary
 
 Use the Habitat/RLR Conda environment; `.venv` is not required.
@@ -377,9 +392,12 @@ Read these records in order:
     [`docs/roadmap/M6_EXECUTION.md`](docs/roadmap/M6_EXECUTION.md), and
     [`docs/roadmap/M6_ROOM_MATRIX.md`](docs/roadmap/M6_ROOM_MATRIX.md) — M6
     interface, execution, room-qualification and claim boundaries.
-16. [`docs/security/FILESYSTEM_TRUST_MODEL.md`](docs/security/FILESYSTEM_TRUST_MODEL.md)
+16. [`docs/roadmap/M6X_FINAL_REPORT.md`](docs/roadmap/M6X_FINAL_REPORT.md) and
+    [`docs/roadmap/M6Y_STATUS.md`](docs/roadmap/M6Y_STATUS.md) — the fixed
+    Apartment Habitat canary and optional SPEAR/UE comparison-visual status.
+17. [`docs/security/FILESYSTEM_TRUST_MODEL.md`](docs/security/FILESYSTEM_TRUST_MODEL.md)
     — the declared `trusted_research_workspace` path and publication model.
-17. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
+18. [`docs/migration/LEGACY_AVENGINE_INVENTORY.md`](docs/migration/LEGACY_AVENGINE_INVENTORY.md)
     — what is reusable, optional, experimental, or retired.
 
 The authoritative timeline schema is
@@ -404,6 +422,7 @@ arbitrary generated episode is synchronized.
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
 | M6 | feasibility foundation: extensible registries, legacy-compatible flags, room interfaces, retained controlled-source materialization and one independent fail-closed fixture (`pass`; no dataset admission claim) |
 | M6.x | fixed SPEAR `apartment_0000` Habitat RoomCapsule, runtime-authoritative obstacles and executable source-logic S0--S5 binaural/Topdown canary (`pass`, bounded research canary; source-center placement only) |
+| M6.y | optional SPEAR/UE `comparison_visual`: native Apartment S0/S3/S4, fixed-exposure MP3D and imported ReplicaCAD runtime `pass` (bounded visual comparison; Habitat-native protocol/audio authority unchanged) |
 | M7 | benchmark, ablations, paper and release audit |
 
 M1 loads an official Habitat room, a Blender custom room and an audited legacy

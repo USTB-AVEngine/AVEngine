@@ -1,0 +1,453 @@
+from __future__ import annotations
+
+from copy import deepcopy
+import importlib.util
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+
+import avengine.optional_backends.spear_apartment as apartment
+
+
+_RUNNER_SPEC = importlib.util.spec_from_file_location(
+    "run_spear_apartment_canary",
+    Path(__file__).resolve().parents[2] / "tools/m6y/run_spear_apartment_canary.py",
+)
+assert _RUNNER_SPEC is not None and _RUNNER_SPEC.loader is not None
+_RUNNER = importlib.util.module_from_spec(_RUNNER_SPEC)
+_RUNNER_SPEC.loader.exec_module(_RUNNER)
+
+
+def _plan(scenario_id: str = "S3") -> dict:
+    actors = [
+        {
+            "actor_id": "dog0",
+            "asset_id": apartment.BEAGLE_ASSET_ID,
+            "blueprint_class_path": "dog_bp",
+            "idle_animation": "dog_idle",
+            "walking_animation": "dog_walk",
+        },
+        {
+            "actor_id": "human0",
+            "asset_id": apartment.HUMAN_ASSET_ID,
+            "blueprint_class_path": "human_bp",
+            "idle_animation": "human_idle",
+            "walking_animation": "human_walk",
+        },
+    ]
+    frames = []
+    for frame_index in range(apartment.FRAME_COUNT):
+        frames.append(
+            {
+                "frame_index": frame_index,
+                "pts_ticks": frame_index * 3_200,
+                "actor_states": [
+                    {
+                        "actor_id": "dog0",
+                        "translation_ue_cm": [1.0, 2.0, 27.1],
+                        "actor_yaw_ue_deg": -90.0,
+                    },
+                    {
+                        "actor_id": "human0",
+                        "translation_ue_cm": [3.0 + frame_index, 4.0, 27.1],
+                        "actor_yaw_ue_deg": -145.0,
+                    },
+                ],
+            }
+        )
+    return {
+        "schema": apartment.PLAN_SCHEMA,
+        "backend_role": "comparison_visual",
+        "authority": {"backend_may_replan": False},
+        "room": {
+            "source_scene_provenance": {
+                "provider": "SPEAR_Unreal",
+                "scene_id": "apartment_0000",
+            }
+        },
+        "camera": {
+            "ue_position_cm": [-70.0, 65.0, 147.1],
+            "ue_yaw_deg": -145.0,
+            "horizontal_fov_deg": 105.0,
+        },
+        "render": {
+            "frame_count": 75,
+            "fps_num": 15,
+            "fps_den": 1,
+            "ticks_per_frame": 3_200,
+        },
+        "actors": actors,
+        "source_logic": {"scenario_id": scenario_id},
+        "frames": frames,
+    }
+
+
+def _make_input_tree(root: Path, scenario_id: str = "S3") -> dict[str, Path]:
+    scenario_directory, variant_id = apartment.SCENARIO_DIRECTORIES[scenario_id]
+    metadata = root / "scenarios" / scenario_directory / "variants" / variant_id / "metadata"
+    videos = metadata.parent / "videos"
+    metadata.mkdir(parents=True)
+    videos.mkdir()
+    values = {
+        "timeline": metadata / "timeline.json",
+        "source_manifest": metadata / "source_manifest.json",
+        "flags": metadata / "flags.json",
+        "room_capsule": root / "inputs/fixed_apartment_config/room_capsule.json",
+        "qualification": root / "room/qualification.json",
+        "authoritative_clean_binaural": videos / "clean_binaural.mp4",
+        "authoritative_diagnostic_topdown": videos / "diagnostic_topdown_binaural.mp4",
+    }
+    for path in values.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"{}\n")
+    return values
+
+
+def test_scenario_path_discovery_is_bounded_to_s0_s3_s4(tmp_path: Path) -> None:
+    expected = _make_input_tree(tmp_path, "S3")
+    observed = apartment.scenario_input_paths(tmp_path, "S3")
+    assert observed == {key: value.resolve() for key, value in expected.items()}
+    with pytest.raises(apartment.SpearApartmentError, match="unsupported"):
+        apartment.scenario_input_paths(tmp_path, "S2")
+
+
+def test_scenario_execution_keeps_native_map_and_habitat_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = _make_input_tree(tmp_path, "S3")
+    monkeypatch.setattr(
+        apartment,
+        "build_spear_visual_plan_from_files",
+        lambda **_: _plan("S3"),
+    )
+    record = apartment.build_native_apartment_scenario(tmp_path, "S3")
+    assert record["native_scene"] == {
+        "map": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
+        "layout": "native_map_unchanged",
+        "lighting": "native_map_unchanged_no_added_lights",
+        "outdoor_view": "native_map_assets_and_postprocess",
+    }
+    assert record["render"] == {
+        "width": 1280,
+        "height": 720,
+        "frame_count": 75,
+        "frame_rate_hz": 15,
+        "horizontal_fov_deg": 105.0,
+        "streaming_warmup_frames": 120,
+        "camera_warmup_frames": 40,
+    }
+    assert record["reuse_contract"]["audio_camera_fov_cutoff"] is False
+    assert record["plan"]["authority"]["backend_may_replan"] is False
+    dog = next(
+        value for value in record["plan"]["actors"] if value["actor_id"] == "dog0"
+    )
+    assert dog["ue_component_frame_delta"] == {
+        "schema": "avengine_spear_component_frame_delta_v1",
+        "rotation_deg": [0.0, 90.0, 0.0],
+        "translation_cm": [0.0, 0.0, 33.64],
+        "composition": "add_relative_preserving_blueprint_transform",
+        "reason": "exact_M2_GLTF_to_UE_asset_local_axis_and_floor_calibration",
+    }
+    assert record["authoritative_inputs"] == {
+        key: value.relative_to(tmp_path).as_posix() for key, value in paths.items()
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("map", "not the native"),
+        ("scenario", "disagrees"),
+        ("replan", "must not replan"),
+        ("hfov", "105 degree"),
+        ("actors", "actor closure"),
+    ],
+)
+def test_native_plan_validation_fails_closed(mutation: str, message: str) -> None:
+    plan = _plan("S3")
+    if mutation == "map":
+        plan["room"]["source_scene_provenance"]["scene_id"] = "proxy"
+    elif mutation == "scenario":
+        plan["source_logic"]["scenario_id"] = "S4"
+    elif mutation == "replan":
+        plan["authority"]["backend_may_replan"] = True
+    elif mutation == "hfov":
+        plan["camera"]["horizontal_fov_deg"] = 90.0
+    elif mutation == "actors":
+        plan["actors"].reverse()
+    with pytest.raises(apartment.SpearApartmentError, match=message):
+        apartment._validate_native_plan(plan, scenario_id="S3")
+
+
+def test_animation_position_uses_normalized_timeline_phase() -> None:
+    assert apartment.animation_position_seconds(0.625, 1.6) == pytest.approx(1.0)
+    with pytest.raises(apartment.SpearApartmentError, match=r"\[0,1\)"):
+        apartment.animation_position_seconds(1.0, 1.6)
+    with pytest.raises(apartment.SpearApartmentError, match="positive"):
+        apartment.animation_position_seconds(0.5, 0.0)
+
+
+def test_root_readback_gate_covers_every_actor_and_camera_frame() -> None:
+    plan = _plan()
+    actor_readbacks = {"dog0": [], "human0": []}
+    camera_readbacks = []
+    for frame_index, frame in enumerate(plan["frames"]):
+        for state in frame["actor_states"]:
+            actor_readbacks[state["actor_id"]].append(
+                {
+                    "frame_index": frame_index,
+                    "location_cm": list(state["translation_ue_cm"]),
+                    "rotation_deg": [0.0, 0.0, state["actor_yaw_ue_deg"]],
+                }
+            )
+        camera_readbacks.append(
+            {
+                "frame_index": frame_index,
+                "location_cm": [-70.0, 65.0, 147.1],
+                "rotation_deg": [0.0, 0.0, -145.0],
+            }
+        )
+    summary = apartment.summarize_root_readbacks(
+        expected_frames=plan["frames"],
+        actor_readbacks=actor_readbacks,
+        camera_readbacks=camera_readbacks,
+        camera_position_cm=[-70.0, 65.0, 147.1],
+        camera_yaw_deg=-145.0,
+    )
+    assert set(summary) == {"dog0", "human0", "camera"}
+    assert all(value["status"] == "pass" for value in summary.values())
+
+    drifted = deepcopy(actor_readbacks)
+    drifted["human0"][11]["location_cm"][0] += 1.0
+    with pytest.raises(apartment.SpearApartmentError, match="human0.*drifted"):
+        apartment.summarize_root_readbacks(
+            expected_frames=plan["frames"],
+            actor_readbacks=drifted,
+            camera_readbacks=camera_readbacks,
+            camera_position_cm=[-70.0, 65.0, 147.1],
+            camera_yaw_deg=-145.0,
+        )
+
+
+def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:
+    clean = apartment.build_clean_binaural_mux_command(
+        ue_video_path="ue.mp4",
+        authoritative_clean_path="habitat_clean.mp4",
+        output_path="clean.mp4",
+    )
+    assert clean[clean.index("-map") + 1] == "0:v:0"
+    assert "1:a:0" in clean
+    assert clean[clean.index("-c:a") + 1] == "copy"
+    assert "-shortest" not in clean
+
+    topdown = apartment.build_topdown_binaural_command(
+        ue_video_path="ue.mp4",
+        authoritative_diagnostic_path="habitat_diag.mp4",
+        output_path="topdown.mp4",
+    )
+    graph = topdown[topdown.index("-filter_complex") + 1]
+    assert "crop=640:480:640:0[topdown]" in graph
+    assert "[ue][topdown]hstack" in graph
+    assert topdown[topdown.index("-c:a") + 1] == "copy"
+    assert "-shortest" not in topdown
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="FFmpeg tools are unavailable",
+)
+def test_media_probe_requires_full_packet_identical_binaural_copy(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.mp4"
+    visual = tmp_path / "visual.mp4"
+    copied = tmp_path / "copied.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=gray:s=64x48:r=15:d=5",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=16000:duration=5",
+            "-frames:v",
+            "75",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-ar",
+            "16000",
+            "-ac",
+            "2",
+            str(source),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x48:r=15:d=5",
+            "-frames:v",
+            "75",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(visual),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        apartment.build_clean_binaural_mux_command(
+            ue_video_path=visual,
+            authoritative_clean_path=source,
+            output_path=copied,
+        ),
+        check=True,
+    )
+
+    probe = _RUNNER._probe_media(
+        copied,
+        expected_width=64,
+        expected_height=48,
+        expect_audio=True,
+    )
+    assert probe["audio_packet_sha256"] == _RUNNER._audio_packet_sha256(source)
+
+
+def test_default_asset_forward_bindings_are_explicit() -> None:
+    assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.BEAGLE_ASSET_ID][
+        "ue_anatomical_forward_yaw_deg"
+    ] == 0.0
+    assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID][
+        "ue_anatomical_forward_yaw_deg"
+    ] == 90.0
+    assert "Standing_Idle" in apartment.DEFAULT_ACTOR_BINDINGS[
+        apartment.HUMAN_ASSET_ID
+    ]["idle_animation"]
+    assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.BEAGLE_ASSET_ID][
+        "ue_component_frame_delta"
+    ]["rotation_deg"] == [0.0, 90.0, 0.0]
+    assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.BEAGLE_ASSET_ID][
+        "ue_component_frame_delta"
+    ]["translation_cm"] == [0.0, 0.0, 33.64]
+    assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID][
+        "ue_component_frame_delta"
+    ]["translation_cm"] == [0.0, 0.0, 0.0]
+
+
+def test_component_frame_delta_must_preserve_blueprint_transform(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_input_tree(tmp_path, "S3")
+    monkeypatch.setattr(
+        apartment,
+        "build_spear_visual_plan_from_files",
+        lambda **_: _plan("S3"),
+    )
+    bindings = deepcopy(apartment.DEFAULT_ACTOR_BINDINGS)
+    bindings[apartment.BEAGLE_ASSET_ID]["ue_component_frame_delta"][
+        "composition"
+    ] = "replace_blueprint_transform"
+    with pytest.raises(apartment.SpearApartmentError, match="may not replace"):
+        apartment.build_native_apartment_scenario(
+            tmp_path, "S3", actor_bindings=bindings
+        )
+
+
+def test_runtime_component_delta_is_added_to_authored_blueprint_transform() -> None:
+    class FakeComponent:
+        def __init__(self) -> None:
+            self.location = {"X": 1.0, "Y": -2.0, "Z": 3.0}
+            self.rotation = {"Roll": 4.0, "Pitch": 5.0, "Yaw": 6.0}
+
+        def get_property_value(self, *, property_name: str):
+            if property_name == "RelativeLocation":
+                return dict(self.location)
+            if property_name == "RelativeRotation":
+                return dict(self.rotation)
+            raise AssertionError(property_name)
+
+        def K2_AddRelativeLocation(self, *, DeltaLocation, **_):
+            for axis in ("X", "Y", "Z"):
+                self.location[axis] += DeltaLocation[axis]
+
+        def K2_AddRelativeRotation(self, *, DeltaRotation, **_):
+            for axis in ("Roll", "Pitch", "Yaw"):
+                self.rotation[axis] += DeltaRotation[axis]
+
+    declaration = {
+        "actor_id": "dog0",
+        "asset_id": apartment.BEAGLE_ASSET_ID,
+        "ue_component_frame_delta": apartment.DEFAULT_ACTOR_BINDINGS[
+            apartment.BEAGLE_ASSET_ID
+        ]["ue_component_frame_delta"],
+    }
+    result = apartment.apply_ue_component_frame_delta(FakeComponent(), declaration)
+    assert result["blueprint_relative_before"] == {
+        "translation_cm": [1.0, -2.0, 3.0],
+        "rotation_deg": [4.0, 5.0, 6.0],
+    }
+    assert result["blueprint_relative_after"] == {
+        "translation_cm": [1.0, -2.0, 36.64],
+        "rotation_deg": [4.0, 95.0, 6.0],
+    }
+    assert result["timeline_anchor_mutated"] is False
+    assert result["target"] == "attached_visual_actor_root_component"
+
+
+def test_visual_bounds_gate_proves_beagle_floor_contact_and_horizontal_frame() -> None:
+    plan = _plan()
+    records = {"dog0": [], "human0": []}
+    for frame_index, frame in enumerate(plan["frames"]):
+        dog_root = frame["actor_states"][0]["translation_ue_cm"]
+        human_root = frame["actor_states"][1]["translation_ue_cm"]
+        records["dog0"].append(
+            {
+                "frame_index": frame_index,
+                "minimum_cm": [dog_root[0] - 35.0, dog_root[1] - 25.0, dog_root[2]],
+                "maximum_cm": [dog_root[0] + 35.0, dog_root[1] + 25.0, dog_root[2] + 50.0],
+            }
+        )
+        records["human0"].append(
+            {
+                "frame_index": frame_index,
+                "minimum_cm": [human_root[0] - 20.0, human_root[1] - 20.0, human_root[2]],
+                "maximum_cm": [human_root[0] + 20.0, human_root[1] + 20.0, human_root[2] + 175.0],
+            }
+        )
+    summary = apartment.summarize_actor_bounds(
+        expected_frames=plan["frames"],
+        actor_declarations=plan["actors"],
+        actor_bounds=records,
+    )
+    assert summary["dog0"]["status"] == "pass"
+    assert summary["dog0"]["maximum_floor_error_cm"] == 0.0
+    assert summary["human0"]["status"] == "observed"
+
+    drifted = deepcopy(records)
+    drifted["dog0"][4]["minimum_cm"][2] -= 2.0
+    with pytest.raises(apartment.SpearApartmentError, match="actor-root floor"):
+        apartment.summarize_actor_bounds(
+            expected_frames=plan["frames"],
+            actor_declarations=plan["actors"],
+            actor_bounds=drifted,
+        )
