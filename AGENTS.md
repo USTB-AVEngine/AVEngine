@@ -19,8 +19,9 @@ under `docs/legacy/` and are never default authority.
 - Runtime C++/binding changes belong in the sibling runtime fork and must keep
   upstream behavior as the default unless a reviewed AVEngine opt-in is used.
 - Generated media, native evidence and large assets belong under ignored
-  output roots, not in Git. Track schemas, compact fixtures, requests, hashes
-  and human-readable status records.
+  output roots, not in Git. Track schemas, compact fixtures, requests, one
+  authoritative bundle identity and human-readable status records; do not
+  duplicate leaf hashes in prose or unrelated lock files.
 - UE, SPEAR, gpuRIR and generative-asset tooling are legacy or optional
   backends. Default imports, tests, bootstrap and admission must not load them.
 
@@ -54,8 +55,11 @@ This mode does not claim protection from a malicious local symlink race,
 portable `O_NOFOLLOW` directory semantics or general TOCTOU attacks. Do not
 describe it as an untrusted-upload sandbox.
 
-Every formal claim must bind exact inputs, code/runtime identity, artifact
-hashes, checks and status. Use `pass`, `fail`, `blocked`, `not_run`,
+Every formal claim must bind exact result-changing inputs, code/runtime
+identity, checks and status. Git supplies the identity of checked-in files;
+content hashes are reserved for external assets, generated closures, execution
+receipts and other formal artifacts outside that Git identity. Use `pass`,
+`fail`, `blocked`, `not_run`,
 `research_only` and `qualified` precisely. Python-only tests cannot substitute
 for native Habitat, RLR, Blender or media-readback execution.
 

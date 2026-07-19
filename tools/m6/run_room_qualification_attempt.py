@@ -44,6 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--legacy-export-root", type=Path)
     run.add_argument("--legacy-package-root", type=Path)
     run.add_argument("--habitat-runtime-root", type=Path)
+    run.add_argument("--mp3d-proxy-root", type=Path)
 
     verify = subparsers.add_parser("verify", help="rehash and validate a bundle")
     verify.add_argument("manifest", type=Path)
@@ -57,6 +58,7 @@ def _environment(arguments: argparse.Namespace) -> dict[str, str]:
         "AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT": arguments.legacy_export_root,
         "AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT": arguments.legacy_package_root,
         "AVENGINE_HABITAT_RUNTIME_ROOT": arguments.habitat_runtime_root,
+        "AVENGINE_MP3D_PROXY_V2_ROOT": arguments.mp3d_proxy_root,
     }
     for name, value in overrides.items():
         if value is not None:

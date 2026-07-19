@@ -1,7 +1,8 @@
 # M1 Status: Habitat Visual and Three-Room Canary
 
 Status: `pass` on 2026-07-16 for the clean AVEngine commit recorded by formal
-evidence and the Habitat runtime pinned in `runtime.lock.yaml`. Formal evidence
+evidence and the Habitat runtime pinned by the M1 profile selected through
+`runtime.lock.yaml`. Formal evidence
 is generated under ignored `tmp/` output and remains valid only while the
 checked-out AVEngine commit, runtime commit, runtime binary, input manifests
 and scene assets match its recorded hashes.

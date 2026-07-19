@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 from avengine.contracts.json_io import load_json
@@ -47,6 +48,31 @@ def test_custom_provider_resolves_checked_in_inputs_but_not_generated_audio() ->
     assert resolution.resources["custom_acoustic_package"].status == "not_run"
     assert acoustic.status == "not_run"
     assert acoustic.producer == "avengine.m3.compiler:compile_custom_acoustic_scene"
+
+
+def test_compiled_representation_preserves_output_hash_failure() -> None:
+    record = deepcopy(find_room_record(REGISTRY, "blender_custom_two_zone_v1"))
+    output = next(
+        resource
+        for resource in record["resources"]
+        if resource["resource_id"] == "custom_acoustic_package"
+    )
+    output["location"] = {
+        "kind": "repository_relative",
+        "path": "README.md",
+    }
+    output["sha256"] = "0" * 64
+    provider = provider_for_id(record["provider_id"])
+
+    acoustic = provider.acoustic_representation(
+        record,
+        "custom_two_zone_acoustic_v1",
+        repository_root=REPOSITORY_ROOT,
+        environment={},
+    )
+
+    assert acoustic.status == "fail"
+    assert "SHA-256 mismatch" in (acoustic.reason or "")
 
 
 def test_replicacad_provider_requires_declared_environment_root() -> None:

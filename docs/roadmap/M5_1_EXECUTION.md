@@ -20,6 +20,10 @@ MP3D_CLEAN_REPLAY="tmp/m3/root_mp3d_package_rlr_clean_replay_${REPLAY_TAG}"
 MP3D_CAPTURE_REPLAY="tmp/m5_1/mp3d_mixed_replay_${REPLAY_TAG}"
 MP3D_ACOUSTICS_REPLAY="tmp/m5_1/mp3d_acoustics_replay_${REPLAY_TAG}"
 MP3D_DELIVERY_REPLAY="tmp/m5_1/mp3d_delivery_replay_${REPLAY_TAG}"
+REPLICACAD_CAPTURE_REPLAY="tmp/m5_1/replicacad_mixed_replay_${REPLAY_TAG}"
+REPLICACAD_ACOUSTICS_REPLAY="tmp/m5_1/replicacad_acoustics_replay_${REPLAY_TAG}"
+REPLICACAD_DELIVERY_REPLAY="tmp/m5_1/replicacad_delivery_replay_${REPLAY_TAG}"
+export AVENGINE_REPLICACAD_ROOT=/path/to/replica_cad
 ```
 
 The commands below reference local research inputs and retained M0-M4/M2
@@ -259,7 +263,79 @@ The Topdown panel is a derived real-Pathfinder QA view, not a second sensor.
 The source-program reuse record must explicitly exclude every legacy spatial
 flag, observer, trajectory, migration and visual-provenance field.
 
-## 8. Run focused tests
+## 8. Execute the ReplicaCAD v2 furnished root-center review
+
+This is a bounded research review, not a room qualification.  It loads the
+official `apt_0` scene instance and declared navmesh, then validates the two
+270-frame actor-root routes against PathFinder and every loaded furnished rigid
+object collision OBB.  It does not claim full articulated-body collision.
+
+```bash
+python tools/m5_1/capture_human_beagle_replicacad.py \
+  --route-manifest examples/m5_1/replicacad_articulated_review/route_manifest.json \
+  --room-manifest examples/m5_1/replicacad_articulated_review/room_manifest.json \
+  --m1-request examples/m5_1/replicacad_articulated_review/capture_request.json \
+  --human-runtime-glb "$LEGACY/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb" \
+  --beagle-manifest tmp/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json \
+  --beagle-m2-request tmp/m2/rocketbox_beagle_m2_formal_request_v7_world_contact_r5.json \
+  --replicacad-root "$AVENGINE_REPLICACAD_ROOT" \
+  --runtime-root "$RUNTIME" \
+  --output "$REPLICACAD_CAPTURE_REPLAY"
+```
+
+The gate must report 19/19: exact selected closure, declared navmesh, both
+routes on one island without sliding, navmesh clearance, camera/listener floor
+placement, actor LOS, semantic visibility, articulated readback and furnished
+rigid-object root-center clearance.  The complete package is built in one
+sibling staging directory, reopens every array/file/JSON locator and is only
+then published atomically.
+
+Render the room-bound dynamic RIR sequence.  The command verifies that the
+acoustic package `source_room`, capture, route, request, source manifest and
+explicit source-to-actor/emitter binding all describe the same room state.
+
+```bash
+python tools/m5_1/render_review_acoustics.py \
+  --capture-dir "$REPLICACAD_CAPTURE_REPLAY" \
+  --source-manifest examples/m5_1/legacy_apartment/source_manifest.json \
+  --acoustic-package-manifest \
+    tmp/m3/replicacad_apt_0_package_rlr_clean_20260719_01/manifest.json \
+  --m4-request examples/m4/blender_custom/multi_source_canary_request.json \
+  --hrtf /usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa \
+  --runtime-root "$RUNTIME" \
+  --listener-position-m 2.6 1.47 3.4 \
+  --listener-yaw-deg 180 \
+  --fps 15 \
+  --rir-stride-frames 3 \
+  --output-dir "$REPLICACAD_ACOUSTICS_REPLAY"
+```
+
+Build the independent dry buses, binaural stems, exact mixture and annotated
+Habitat+Topdown review:
+
+```bash
+python tools/m5_1/build_mp3d_delivery.py \
+  --capture-dir "$REPLICACAD_CAPTURE_REPLAY" \
+  --acoustics-dir "$REPLICACAD_ACOUSTICS_REPLAY" \
+  --source-manifest examples/m5_1/legacy_apartment/source_manifest.json \
+  --route-manifest examples/m5_1/replicacad_articulated_review/route_manifest.json \
+  --m1-request examples/m5_1/replicacad_articulated_review/capture_request.json \
+  --room-family replicacad \
+  --replicacad-root "$AVENGINE_REPLICACAD_ROOT" \
+  --human-gain 0.18 \
+  --beagle-gain 0.18 \
+  --fade-samples 80 \
+  --output-dir "$REPLICACAD_DELIVERY_REPLAY"
+```
+
+Both gains must be finite and positive.  Every declared event window must have
+nonzero energy in its source dry bus and binaural stem.  The standalone video
+permanently labels `RESEARCH ONLY`, `UNQUALIFIED ACOUSTICS`, `ROOT-CENTER
+CLEARANCE ONLY`, `ACOUSTIC GEOMETRY: STAGE SURFACE ONLY`, and the unresolved
+Beagle dry-audio rights item.  A successful render does not qualify the room,
+materials, topology or ray leakage.
+
+## 9. Run focused tests
 
 ```bash
 pytest -q \
@@ -269,12 +345,14 @@ pytest -q \
   tests/unit/test_m5_1_lighting.py \
   tests/unit/test_m5_1_mixed_capture.py \
   tests/unit/test_m5_1_mp3d_capture.py \
+  tests/unit/test_m5_1_replicacad_capture.py \
   tests/unit/test_m5_1_acoustics.py \
   tests/unit/test_m5_1_orientation.py \
   tests/unit/test_m5_1_topdown.py \
   tests/unit/test_m5_1_review.py \
   tests/unit/test_m5_1_delivery.py \
   tests/unit/test_m5_1_mp3d_delivery.py \
+  tests/unit/test_m5_1_replicacad_delivery.py \
   tests/unit/test_m3_research_cleanup.py
 ```
 

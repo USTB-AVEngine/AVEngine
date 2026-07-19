@@ -40,6 +40,7 @@ from avengine.m1.contracts import (
     validate_room_manifest,
     validate_scene_asset_graph,
 )
+from avengine.runtime_lock import RuntimeLockError, resolve_runtime_profile
 
 
 def make_check(
@@ -743,7 +744,10 @@ def _runtime_check(evidence: dict[str, Any]) -> tuple[dict[str, Any], Path | Non
     current_avengine_commit = _git_output(repository_root, "rev-parse", "HEAD")
     avengine_status = _git_output(repository_root, "status", "--porcelain")
     current_binding_hash = sha256_file(binding_path) if binding_path.is_file() else None
-    lock_path = repository_root / "runtime.lock.yaml"
+    try:
+        lock_path = resolve_runtime_profile(repository_root, "m1")
+    except RuntimeLockError:
+        lock_path = repository_root / "runtime.lock.yaml"
     current_lock_hash = sha256_file(lock_path) if lock_path.is_file() else None
     lock_text = lock_path.read_text(encoding="utf-8") if lock_path.is_file() else ""
     match = re.search(

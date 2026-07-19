@@ -295,6 +295,37 @@ not recover the unknown Matterport capture lights or establish photometric
 parity. The local `tmp` evidence and video are auditable run products, not
 versioned assets.
 
+## ReplicaCAD furnished root-center development extension
+
+The later M6 human-review media uses the same M5.1 source/event/flag and
+delivery machinery in official ReplicaCAD `apt_0`. This is a development
+extension, not a retroactive M5.1 room admission. The v2 native capture is
+retained at `tmp/m5_1/replicacad_mixed_20260719_04/`: 270/270 frames pass and
+the aggregated visual/navigation gate is 19/19. In addition to PathFinder,
+LOS, semantic and articulated-state checks, each actor root is tested against
+all 113 loaded furnished rigid-object collision OBBs. Minimum navmesh-edge
+clearance is `0.3411641717 m` for the human and `0.8656883240 m` for the
+Beagle; minimum rigid-object OBB clearance is `0.0839563432 m` and
+`0.0719066970 m`, respectively. These remain root-point facts, not full-body
+or limb collision claims.
+
+The matching acoustic and delivery evidence is retained at
+`tmp/m5_1/replicacad_acoustics_20260719_04/` and
+`tmp/m5_1/replicacad_delivery_20260719_03/`. The former contains 90
+two-source, two-channel RIR keyframes; the latter contains independent dry
+buses, binaural stems and the exact mixture. Every declared event window has
+nonzero dry and binaural-stem energy. Capture, route, request, source-to-actor
+emitter binding and `source_room` identity are checked end to end.
+
+The principal 18-second video is
+`tmp/m5_1/replicacad_delivery_20260719_03/videos/replicacad_human_beagle_annotated_binaural.mp4`.
+It permanently labels the output `RESEARCH ONLY`, `UNQUALIFIED ACOUSTICS`,
+`ROOT-CENTER CLEARANCE ONLY`, `ACOUSTIC GEOMETRY: STAGE SURFACE ONLY`, and
+retains the unresolved Beagle dry-audio rights notice. The stage-surface
+acoustic proxy still fails topology qualification and has research-placeholder
+materials with ray leakage `not_run`; successful RIR rendering does not change
+those states.
+
 ## Claim boundary
 
 M5.1 is a bounded research review, not M6 admission. It does not admit the

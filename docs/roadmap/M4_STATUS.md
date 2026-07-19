@@ -88,14 +88,9 @@ its independent verification and the final regression runs.
 | Retained evidence root | `tmp/m4/formal_20260717_01` |
 | AVEngine implementation commit | `2980ecd5fbe2b680eef2942e04b59fdb1f8842ba` |
 | Habitat fork implementation commit | `5641931245a76439cc1493d87d79dc518c6f453a` |
-| M4 runtime-lock SHA-256 | `18ef3b4f121ce9a904fccd1dbbacf404227e84cc65b4f1a306d7ba05b95caab7` |
-| Habitat native binding SHA-256 | `395cb0e6789d2664d5d8b6abac1aa48217851cac008875718cb55cf461ed5cc7` |
-| RLR native library SHA-256 | `31e948eef4908d8cbb403b5f445d9d0eab59fc81b05a658538f8795984f9bfb4` |
-| Explicit HRTF SHA-256 | `2768ac841213a7ae11d1ea7fd0f25a69b39216102dc5dd913ea6ba0f0dc57e28` |
-| HRTF license-evidence SHA-256 | `f8fc1df6758230ba10c507b595ae6953a78024dbbe6ca494ee83fcd3c76ae441` |
+| Historical runtime profile | [`locks/m4_runtime_v1.json`](../../locks/m4_runtime_v1.json) via the root index |
+| Native/HRTF authority | the dedicated M4 profile and retained evidence bundle |
 | Native evidence path | `tmp/m4/formal_20260717_01/m4_canary_evidence.json` |
-| Native evidence file SHA-256 | `99293d4f2dd6527a7b75392ce7fab157215d6d16d5ac98f39b997eba6e84140e` |
-| Native evidence content SHA-256 | `925b4d445dc1ffcaad898319717957f408afb1c5ad32da3d7bdd47e7f8465025` |
 | Independent verifier | `pass`; 14/14 independently recomputed checks |
 | Focused AVEngine M4 tests | `85 passed in 1.08s` |
 | Focused Habitat fork tests | C++: 13 cases/213 checks `pass`; Python: 21 `pass` |

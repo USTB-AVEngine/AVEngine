@@ -16,9 +16,22 @@ If it is present, its release state, implementation commit, evidence and tag
 must be verified rather than inferred from README prose. A schema or verifier
 without a valid manifest/tag is not a release.
 
-Root [`runtime.lock.yaml`](runtime.lock.yaml) and files under [`locks/`](locks/)
-are immutable historical milestone evidence. They do not override the current
-release manifest and must not be rewritten to make old evidence appear current.
+Root [`runtime.lock.yaml`](runtime.lock.yaml) is only a lightweight index into
+the exact M1--M4 compatibility profiles under [`locks/`](locks/). The profiles
+are immutable historical inputs; the index contains no repeated test status or
+artifact hashes. Neither overrides the current release manifest.
+
+Hashes are evidence identities, not runtime feature locks. Git commits and tags
+identify checked-in source, schemas and configuration; explicit versions record
+the compiler, Python and dependency environment. Content hashes are retained
+only at trust boundaries where a same-looking path could otherwise name
+different result-changing bytes: external room/model/action/audio assets,
+generated package closures, native binaries used by formal evidence, test
+receipts and release bundles. Human-facing documentation refers to one package
+or bundle identity instead of repeating every leaf hash. Transient previews,
+logs, local paths and uncited intermediates are not release gates. A missing
+optional input is `blocked` or `not_run`; a byte mismatch is `fail` only when
+that input was explicitly declared authoritative for the attempted result.
 
 This branch has completed **M1: Habitat visual and three-room canary** and the
 bounded **M2 articulated-dog research canary** on top of the M0
@@ -128,11 +141,43 @@ claim broad animal/room coverage. See
 checkout whose controlled canary and annotated-tag release manifest verify;
 otherwise it remains in progress.
 
+M6 defines six qualification cases over four visual room lineages, not six
+different rooms: controlled Blender, ReplicaCAD, Legacy Apartment and MP3D.
+MP3D raw and derived are two acoustic representations of the same visual room;
+the independent corrupted fixture is not a room. The A3 controlled runner
+implements a verified retained-evidence materialization. Its `pass` is scoped
+to `semantic_materialization_verifier`; it does not mean Habitat-Sim or RLR
+Audio Propagation ran again. Formal post-A3 evidence is pending until it is
+generated from a clean implementation commit. Current native Habitat, native
+RLR propagation and native episode feasibility remain `not_run`.
+
+A separate development review now exercises ReplicaCAD `apt_0` with a real
+270-frame Habitat capture, PathFinder Topdown and a 90-keyframe two-source RLR
+binaural render. The v2 route passes 19/19 visual, navmesh, LOS, semantic and
+furnished rigid-object root-center gates. Both dry buses and both binaural
+stems are non-silent in every declared event window. Acoustic geometry remains
+stage-surface-only, while topology, material truth, ray qualification and the
+Beagle dry-audio rights item remain unqualified. The six-case review builder
+keeps those facts visible; its post-hoc verifier reopens the request,
+source-media bindings, all segments and the combined media without promoting
+review media into dataset admission or a formal M6 native release layer.
+
 The AudioProgram contract vocabulary is `one_active_of_n`,
 `simultaneous_subset`, `sequential_sources`, `intermittent_events`,
-`counterfactual_route_swap`, and `silent_negative`. M6 executes and retains a
-controlled canary only for `one_active_of_n`; the other modes are versioned
-extension contracts, not claims of six completed executable canaries.
+`counterfactual_route_swap`, and `silent_negative`. M6 materializes and verifies
+the retained `one_active_of_n` controlled evidence; it does not claim a new
+native Habitat/RLR execution. The other modes are versioned extension
+contracts, not claims of six completed executable canaries.
+
+The immediate follow-on is the pending **M6.x fixed SPEAR Apartment
+source-logic canary**. It may begin only after the current M6 release manifest,
+annotated tag and post-tag attestation verify. That bounded task will reuse the
+Habitat-compatible `apartment_0000` room revision and the existing M5.1
+source/event/flag authority to exercise fixed-room routing, rear-source,
+silent-distractor, moving-source, overlapping-source and LOS/NLOS scenarios.
+No `RoomCapsule` or S0--S5 implementation is claimed by the current M6 branch.
+Automatic furnishing, natural-language QA and large-scale dataset generation
+remain outside that follow-on canary.
 
 ## Repository boundary
 
@@ -219,7 +264,8 @@ arbitrary generated episode is synchronized.
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
-| M6 | feasibility foundation: release/trust boundaries, extensible registries, legacy-compatible flags, four-room qualification attempts, controlled source canary and independent fail-closed fixture (status: verified release manifest, or `in_progress` when absent/invalid; no dataset admission claim) |
+| M6 | feasibility foundation: release/trust boundaries, extensible registries, legacy-compatible flags, six qualification cases over four room lineages, retained controlled-source materialization and one independent fail-closed fixture (`in_progress` until the manifest/tag verifies; native Habitat/RLR remain `not_run`; no dataset admission claim) |
+| M6.x | fixed SPEAR `apartment_0000` Habitat RoomCapsule and source-logic S0--S5 feasibility canary (`pending`; starts only after verified M6 closeout) |
 | M7 | benchmark, ablations, paper and release audit |
 
 M1 loads an official Habitat room, a Blender custom room and an audited legacy
@@ -338,8 +384,9 @@ repeatably, not that they are physical measurements for the modeled surfaces.
 MP3D and UE visual-material-slot mappings remain research proposals without
 physical qualification or admission.
 
-Detailed formal measurements, evidence hashes and the exact runtime-lock input
-hash are recorded in [`M3_STATUS.md`](docs/roadmap/M3_STATUS.md).
+Detailed formal measurements and the single authoritative profile/evidence
+locations are recorded in [`M3_STATUS.md`](docs/roadmap/M3_STATUS.md); leaf
+hashes remain inside those machine-readable bundles rather than this README.
 
 M3.1 does not guess physical acoustic materials from visual appearance. It
 starts from an explicit base database and resolves controls in this order:

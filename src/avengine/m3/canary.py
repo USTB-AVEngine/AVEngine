@@ -60,6 +60,7 @@ from avengine.m3.runtime import (
     load_compiled_acoustic_scene,
     simulate_compiled_acoustic_scene,
 )
+from avengine.runtime_lock import resolve_runtime_profile
 
 
 CANARY_EVIDENCE_SCHEMA = "avengine_m3_acoustic_canary_evidence_v1"
@@ -163,7 +164,7 @@ def _snapshot_record(snapshot: ImmutableFileSnapshot) -> dict[str, Any]:
 
 
 def _runtime_lock_path() -> Path:
-    return Path(__file__).resolve().parents[3] / "runtime.lock.yaml"
+    return resolve_runtime_profile(Path(__file__).resolve().parents[3], "m3")
 
 
 def _load_json_snapshot(
@@ -1724,6 +1725,19 @@ def _verify_canary_evidence_document(
             errors.append("request source record differs from its immutable snapshot")
         runtime_lock_snapshot = _external_file_snapshot(_runtime_lock_path())
         runtime_lock_record = _snapshot_record(runtime_lock_snapshot)
+        recorded_runtime_lock = inputs.get("runtime_lock")
+        if (
+            isinstance(recorded_runtime_lock, Mapping)
+            and recorded_runtime_lock.get("byte_size")
+            == runtime_lock_record["byte_size"]
+            and recorded_runtime_lock.get("sha256")
+            == runtime_lock_record["sha256"]
+            and isinstance(recorded_runtime_lock.get("path"), str)
+        ):
+            # Pre-index M3 evidence named the repository-root lock.  The exact
+            # bytes now live under locks/; path relocation does not change the
+            # historical experiment input authenticated by size and SHA-256.
+            runtime_lock_record = dict(recorded_runtime_lock)
         expected_inputs = {
             "room_manifest": snapshots["room_manifest"]["record"],
             "material_mapping": snapshots["material_mapping"]["record"],

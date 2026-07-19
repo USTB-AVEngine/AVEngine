@@ -1,0 +1,171 @@
+{
+  "schema": "avengine_m6_six_case_review_request_v1",
+  "review_id": "m6_six_case_human_review_v1",
+  "output_profile": {
+    "width": 1280,
+    "height": 720,
+    "frame_rate_hz": 15,
+    "segment_duration_seconds": 5,
+    "audio_sample_rate_hz": 48000
+  },
+  "cases": [
+    {
+      "case_id": "controlled_blender",
+      "role": "controlled_blender_room",
+      "case_kind": "room_review",
+      "title": "Controlled Blender room",
+      "is_room": true,
+      "room_id": "blender_custom_two_zone_v1",
+      "room_lineage_id": "avengine_procedural_two_zone",
+      "visual": {
+        "availability": "available",
+        "path": "tmp/m6/formal_controlled_v1/visual/primary_view.mp4",
+        "start_seconds": 0
+      },
+      "audio": {
+        "availability": "available",
+        "path": "tmp/m6/formal_controlled_v1/visual/primary_view.mp4",
+        "start_seconds": 0,
+        "channel_count": 2,
+        "presentation_format": "binaural",
+        "evidence_tier": "research_only"
+      },
+      "status": {
+        "scope": "retained_review_media_only",
+        "value": "research_only",
+        "qualification": "unqualified",
+        "summary": "When the referenced commit-A-bound bundle exists and verifies, this segment presents its controlled retained-evidence materialization. Any pass is limited to semantic materialization and media readback; it is not a new native Habitat or RLR execution and does not qualify the room."
+      }
+    },
+    {
+      "case_id": "replicacad_apt_0",
+      "role": "replicacad_room",
+      "case_kind": "room_review",
+      "title": "ReplicaCAD apt_0 research review",
+      "is_room": true,
+      "room_id": "replicacad_apt_0",
+      "room_lineage_id": "replica_cad_dataset_1_5_apt_0",
+      "visual": {
+        "availability": "available",
+        "path": "tmp/m5_1/replicacad_delivery_20260719_03/videos/replicacad_human_beagle_annotated_binaural.mp4",
+        "start_seconds": 4
+      },
+      "audio": {
+        "availability": "available",
+        "path": "tmp/m5_1/replicacad_delivery_20260719_03/videos/replicacad_human_beagle_annotated_binaural.mp4",
+        "start_seconds": 4,
+        "channel_count": 2,
+        "presentation_format": "binaural",
+        "evidence_tier": "research_only"
+      },
+      "status": {
+        "scope": "replicacad_research_review_episode",
+        "value": "research_only",
+        "qualification": "unqualified",
+        "summary": "The v2 native route passes 19/19 visual, navmesh, LOS, semantic, and furnished rigid-object root-center gates; its 90-keyframe RLR dynamic binaural review succeeded. Acoustic geometry remains stage-surface-only, topology/material qualification is incomplete, and the Beagle dry-audio item still requires rights review; this is not admitted-dataset media."
+      }
+    },
+    {
+      "case_id": "legacy_ue_apartment",
+      "role": "legacy_ue_apartment_room",
+      "case_kind": "room_review",
+      "title": "Legacy UE apartment / Habitat comparison",
+      "is_room": true,
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "room_lineage_id": "legacy_ue_apartment_export",
+      "visual": {
+        "availability": "available",
+        "path": "tmp/m5_1/legacy_apartment_delivery_heading_lighting_20260718_02/videos/legacy_apartment_ue_vs_habitat.mp4",
+        "start_seconds": 4
+      },
+      "audio": {
+        "availability": "available",
+        "path": "tmp/m5_1/legacy_apartment_delivery_heading_lighting_20260718_02/videos/legacy_apartment_habitat_annotated_binaural.mp4",
+        "start_seconds": 4,
+        "channel_count": 2,
+        "presentation_format": "binaural",
+        "evidence_tier": "research_only"
+      },
+      "status": {
+        "scope": "historical_research_episode",
+        "value": "pass",
+        "qualification": "unqualified",
+        "summary": "The historical human-plus-Beagle episode rendered, while room topology and material truth remain unqualified."
+      }
+    },
+    {
+      "case_id": "mp3d_raw",
+      "role": "mp3d_raw_representation",
+      "case_kind": "acoustic_representation_review",
+      "title": "MP3D 17DRP5sb8fy / raw acoustic representation",
+      "is_room": true,
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "room_lineage_id": "mp3d_17DRP5sb8fy_scan",
+      "visual": {
+        "availability": "available",
+        "path": "tmp/m5_1/mp3d_delivery_heading_lighting_20260718_02/videos/mp3d_human_beagle_annotated_binaural.mp4",
+        "start_seconds": 4
+      },
+      "audio": {
+        "availability": "unavailable",
+        "reason": "The immutable raw acoustic mesh fails RLR upload; embedded research proxy audio is deliberately discarded for this raw case.",
+        "evidence_tier": "unqualified"
+      },
+      "status": {
+        "scope": "raw_acoustic_representation",
+        "value": "fail",
+        "qualification": "unqualified",
+        "summary": "Raw RLR upload fails on zero-area geometry; this segment must be silent."
+      }
+    },
+    {
+      "case_id": "mp3d_derived",
+      "role": "mp3d_derived_representation",
+      "case_kind": "acoustic_representation_review",
+      "title": "MP3D 17DRP5sb8fy / derived proxy research result",
+      "is_room": true,
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "room_lineage_id": "mp3d_17DRP5sb8fy_scan",
+      "visual": {
+        "availability": "shared",
+        "reuse_from_case_id": "mp3d_raw"
+      },
+      "audio": {
+        "availability": "available",
+        "path": "tmp/m5_1/mp3d_delivery_heading_lighting_20260718_02/videos/mp3d_human_beagle_annotated_binaural.mp4",
+        "start_seconds": 4,
+        "channel_count": 2,
+        "presentation_format": "binaural",
+        "evidence_tier": "research_only"
+      },
+      "status": {
+        "scope": "derived_proxy_research_episode",
+        "value": "research_only",
+        "qualification": "unqualified",
+        "summary": "The declared derivation and spatial parity checks pass, while topology, material binding, ray checks, native execution, and room qualification remain incomplete."
+      }
+    },
+    {
+      "case_id": "corrupted_fixture",
+      "role": "corrupted_fixture_negative",
+      "case_kind": "diagnostic_negative",
+      "title": "Corrupted fixture / expected diagnostic failure",
+      "is_room": false,
+      "visual": {
+        "availability": "unavailable",
+        "reason": "This is a malformed contract fixture, not a renderable room."
+      },
+      "audio": {
+        "availability": "not_applicable",
+        "reason": "A corrupted non-room fixture has no spatial audio presentation.",
+        "evidence_tier": "not_applicable"
+      },
+      "status": {
+        "scope": "corrupted_fixture_subject",
+        "value": "fail",
+        "qualification": "not_applicable",
+        "summary": "The intentionally corrupted input is retained only to demonstrate fail-closed diagnostics."
+      }
+    }
+  ]
+}

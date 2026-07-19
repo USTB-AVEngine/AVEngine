@@ -126,10 +126,11 @@ It proved:
 
 Capture ran with clean AVEngine commit
 `b3d3a63055d5ec5017824148968644c7f11fe631` and clean Habitat runtime commit
-`bcca512aa58e8b2819454716b710ef3da72f7f47`. The imported native binding SHA-256
-`06079ce3a06053088e921a1852a98fba10a5409009f8502c44ed03f75dbd1211`
-matched `runtime.lock.yaml`, and the binary originated from the locked runtime
-root.
+`bcca512aa58e8b2819454716b710ef3da72f7f47`. The imported native binding
+matched the authoritative bundle record in the indexed
+[`locks/m2_runtime_v1.yaml`](../../locks/m2_runtime_v1.yaml) profile, and the
+binary originated from the locked runtime root. Its leaf identity remains in
+that machine-readable profile rather than being repeated here.
 
 ## What remains outside M2
 

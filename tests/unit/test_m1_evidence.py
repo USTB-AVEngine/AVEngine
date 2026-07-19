@@ -261,7 +261,10 @@ def complete_evidence(
     habitat_module.parent.mkdir(parents=True, exist_ok=True)
     habitat_module.write_text("# test habitat module\n", encoding="utf-8")
     native_binding.write_bytes(b"test native binding")
-    runtime_lock_path = Path(__file__).resolve().parents[2] / "runtime.lock.yaml"
+    from avengine.runtime_lock import resolve_runtime_profile
+
+    repository_root = Path(__file__).resolve().parents[2]
+    runtime_lock_path = resolve_runtime_profile(repository_root, "m1")
     runtime_lock_text = runtime_lock_path.read_text(encoding="utf-8")
     runtime_commit_match = re.search(
         r"^habitat_runtime:\s*$.*?^\s+fork_governance_commit:\s+([0-9a-f]{40})\s*$",

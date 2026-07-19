@@ -153,7 +153,8 @@ qualify physical coefficients, MP3D/UE research proposals, or a dataset room.
 
 Status: the deterministic coefficient-profile path is `pass`; native
 target-decay calibration evidence is `not_run`. This post-gate extension does
-not rewrite the fixed M3 formal result or its runtime-lock input hash.
+not rewrite the fixed M3 formal result or its selected historical runtime
+profile.
 
 Deliverables: versioned profile schema, scalar-to-band expansion,
 base/global/exact-material precedence, fail-closed selector validation,
@@ -181,8 +182,8 @@ coefficients, a universal room RT60, or any M4 multi-source claim.
 
 Status: bounded M4 software/source-pose canary `pass`. The retained formal run
 passed 10/10 declared checks and 14/14 independently recomputed verifier checks;
-its exact commits, hashes, measurements and test totals are recorded in
-[M4_STATUS.md](M4_STATUS.md).
+its exact commits, authoritative bundle identities, measurements and test
+totals are recorded in [M4_STATUS.md](M4_STATUS.md).
 
 Deliverables: modern RLR C API adapter; at least two stable named sources and
 exactly one camera-co-located MVP listener; all listener/source-pair IRs;
@@ -289,11 +290,12 @@ Deliverables: one current cross-repository release-manifest authority; a
 documented `trusted_research_workspace` path policy; Habitat-native bootstrap;
 versioned entity, animal-template, source-endpoint, sound-asset, AudioProgram
 and room contracts; structured OOD rejection; a stable adapter over the M5.1
-source/event/flag authority; four complementary room qualification attempts;
-an independent corrupted acoustic fixture; and one controlled two-endpoint
-program in which only the declared endpoint emits during its event windows.
+source/event/flag authority; six qualification cases over four complementary
+visual room lineages; an independent corrupted acoustic fixture; and one
+controlled retained-evidence two-endpoint materialization in which only the
+declared endpoint emits during its event windows.
 
-The four room cases have separate responsibilities:
+The four visual room lineages have separate responsibilities:
 
 - `blender_custom_two_zone_v1`: controlled geometry/material reference;
 - ReplicaCAD `apt_0`: structured Habitat-native CAD provider;
@@ -303,9 +305,13 @@ The four room cases have separate responsibilities:
   derivation whose identity, integrity, spatial parity, solver, topology,
   material and ray states remain independent.
 
+MP3D raw and derived are two acoustic representations of the same visual room;
+the corrupted fixture is the sixth case and is not a room.
+
 Exit criteria: all M6 v2 Definition-of-Done items have executable evidence;
-the controlled room canary retains the current 360° binaural/timeline/per-source
-stem semantics; M5.1 `present`/`absent`/`not_evaluated` and OR/AND clip
+the controlled semantic materialization retains the verified 360°
+binaural/timeline/per-source stem bytes without claiming a new native
+Habitat/RLR run; M5.1 `present`/`absent`/`not_evaluated` and OR/AND clip
 aggregation remain compatible; unavailable facts remain `not_evaluated`; every
 room reports visual, navigation, acoustic geometry, material, ray, physical
 truth, episode-feasibility and admission separately; the corrupted fixture
@@ -315,9 +321,32 @@ from a clean tagged cross-repository state.
 
 M6 does **not** generate natural-language QA, freeze the final training-item
 schema, train a model, qualify arbitrary animal species, batch-qualify rooms or
-promote a historical research bundle by renaming its status. Stable IDs and
-hashes are retained so a later task exporter can read the evidence without
-rerunning simulation.
+promote a historical research bundle by renaming its status. Git identifies
+checked-in source/configuration; content hashes are retained only for external
+result-changing inputs, generated closures and formal evidence needed by a
+later read-only exporter.
+
+## M6.x: Fixed SPEAR Apartment Source-Logic Canary
+
+Status: `pending`. This follow-on must not begin until M6 has a verified release
+manifest, annotated tag and post-tag attestation. Its presence in the roadmap
+does not claim that a `RoomCapsule` or any S0--S5 scenario is implemented.
+
+Deliverables: one frozen Habitat-compatible SPEAR `apartment_0000`
+`RoomCapsule`; stable registered human, animal, rigid-object and source-endpoint
+insertion; reuse of the M5.1 source/event/flag authority; and a bounded
+fixed-room suite covering routing, a rear source, a visible silent distractor,
+a moving source, overlapping sources and qualified LOS/NLOS contrast. Review
+outputs retain clean video, diagnostic Topdown, independent stems and 360-degree
+binaural evidence where the runtime is available.
+
+Exit criteria: the fixed room revision, visual/acoustic package,
+camera-listener, anchors and trajectories remain reproducible across scenarios;
+AudioPrograms activate zero, one or multiple named endpoints according to the
+declared timeline; source identity, direction, event state and existing flags
+remain consistent; and every unavailable scenario reports a precise
+`blocked`/`not_run` state. Automatic furnishing, natural-language QA and a
+large-scale dataset remain out of scope.
 
 ## M7: Benchmark and Paper Release
 

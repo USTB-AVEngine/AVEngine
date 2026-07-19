@@ -1149,9 +1149,11 @@ def validate_room_manifest(room: dict[str, Any]) -> list[str]:
 
         required_roles = {"render_surface_mesh", "scene_dataset_config"}
         if room_kind == "habitat_native":
-            required_roles.update(
-                {"semantic_surface_mesh", "semantic_descriptor", "navmesh"}
-            )
+            required_roles.add("navmesh")
+            if isinstance(scene, dict) and scene.get("load_semantic_mesh") is True:
+                required_roles.update(
+                    {"semantic_surface_mesh", "semantic_descriptor"}
+                )
         elif room_kind == "blender_custom":
             required_roles.update(
                 {

@@ -65,6 +65,16 @@
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
     },
+    "releasePath": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/relativePath"
+        },
+        {
+          "pattern": "^release/"
+        }
+      ]
+    },
     "verificationStatus": {
       "enum": [
         "pass",
@@ -119,17 +129,14 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+\\-]*$"
         },
         "state": {
-          "enum": [
-            "candidate",
-            "released"
-          ]
+          "const": "candidate"
         },
         "current_milestone": {
           "type": "string",
           "minLength": 1
         },
         "manifest_path": {
-          "$ref": "#/$defs/relativePath"
+          "$ref": "#/$defs/releasePath"
         },
         "metadata_commit_policy": {
           "type": "object",
@@ -149,7 +156,7 @@
               "minItems": 1,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/relativePath"
+                "$ref": "#/$defs/releasePath"
               }
             },
             "require_clean_worktrees": {
@@ -384,6 +391,7 @@
       "additionalProperties": false,
       "required": [
         "evidence_id",
+        "status_scope",
         "status",
         "artifacts",
         "bundle_sha256"
@@ -391,6 +399,14 @@
       "properties": {
         "evidence_id": {
           "$ref": "#/$defs/stableId"
+        },
+        "status_scope": {
+          "enum": [
+            "artifact_integrity",
+            "controlled_canary_verifier",
+            "room_attempt_verifier",
+            "test_execution"
+          ]
         },
         "status": {
           "$ref": "#/$defs/verificationStatus"
@@ -437,7 +453,8 @@
       "required": [
         "status",
         "command",
-        "evidence_bundle_ids"
+        "evidence_bundle_ids",
+        "receipt_artifacts"
       ],
       "properties": {
         "status": {
@@ -454,6 +471,13 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/stableId"
+          }
+        },
+        "receipt_artifacts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/fileRecord"
           }
         },
         "summary": {
@@ -486,6 +510,10 @@
               },
               "evidence_bundle_ids": {
                 "minItems": 1
+              },
+              "receipt_artifacts": {
+                "minItems": 1,
+                "maxItems": 1
               }
             }
           }
@@ -507,7 +535,12 @@
           "then": {
             "required": [
               "reason"
-            ]
+            ],
+            "properties": {
+              "receipt_artifacts": {
+                "maxItems": 0
+              }
+            }
           }
         }
       ]

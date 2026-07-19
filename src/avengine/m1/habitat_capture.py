@@ -42,6 +42,7 @@ from avengine.m1.evidence import (
     save_observations,
     verify_evidence_artifacts,
 )
+from avengine.runtime_lock import RuntimeLockError, resolve_runtime_profile
 
 
 VISUAL_SENSOR_TYPES = {
@@ -90,8 +91,9 @@ def _git_value(repository: Path, *arguments: str) -> str | None:
 
 
 def _runtime_lock_commit(repository_root: Path) -> str | None:
-    lock_path = repository_root / "runtime.lock.yaml"
-    if not lock_path.is_file():
+    try:
+        lock_path = resolve_runtime_profile(repository_root, "m1")
+    except RuntimeLockError:
         return None
     text = lock_path.read_text(encoding="utf-8")
     match = re.search(
@@ -1455,7 +1457,7 @@ def capture_m1(
     )
     checks.append(independent_check)
 
-    lock_path = repository_root / "runtime.lock.yaml"
+    lock_path = resolve_runtime_profile(repository_root, "m1")
     evidence: dict[str, Any] = {
         "schema": EVIDENCE_SCHEMA,
         "evidence_kind": "completed_capture",

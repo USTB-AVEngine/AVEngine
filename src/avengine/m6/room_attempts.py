@@ -24,6 +24,8 @@ import subprocess
 import tempfile
 from typing import Any, Mapping, Sequence
 
+from jsonschema import Draft202012Validator
+
 from avengine.contracts.json_io import (
     canonical_json_sha256,
     file_record,
@@ -46,6 +48,7 @@ from avengine.m6.qualification import (
 )
 from avengine.m6.room_providers import provider_for_id
 from avengine.m6.rooms import (
+    find_acoustic_representation,
     find_room_record,
     load_room_registry,
     room_revision_key,
@@ -59,6 +62,7 @@ from avengine.security.path_policy import (
 
 ATTEMPT_MANIFEST_SCHEMA = "avengine_m6_room_qualification_attempt_v1"
 OBSERVATION_SCHEMA = "avengine_m6_room_qualification_observation_v1"
+DERIVED_PROXY_SCHEMA = "avengine_m6_derived_acoustic_proxy_v1"
 CANONICAL_ROOM_REGISTRY_PATH = "examples/m6/rooms/room_registry.json"
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 ATTEMPT_CASE_IDS = (
@@ -73,6 +77,261 @@ ATTEMPT_CASE_IDS = (
 
 class RoomAttemptError(ValueError):
     """Raised when an attempt bundle is malformed or cannot be published."""
+
+
+def _aggregate_attempt_status(*statuses: str | None) -> str:
+    """Combine independent evidence states without weakening a hard failure."""
+
+    observed = [status for status in statuses if status is not None]
+    if not observed:
+        return "not_run"
+    if any(status not in {"pass", "fail", "blocked", "not_run"} for status in observed):
+        return "fail"
+    for candidate in ("fail", "blocked", "not_run"):
+        if candidate in observed:
+            return candidate
+    return "pass"
+
+
+def _proxy_descriptor_assessment(
+    descriptor_path: Path | None,
+    package_manifest_path: str | Path | None,
+    raw_package_manifest_path: str | Path | None,
+    *,
+    descriptor_resolution_status: str | None = None,
+    provider_manifest_path: Path | None = None,
+    provider_manifest_status: str | None = None,
+    provider_representation_status: str | None = None,
+    room_record: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Authenticate one materialized package against its committed proxy descriptor."""
+
+    errors: list[str] = []
+    prerequisite_status = _aggregate_attempt_status(
+        descriptor_resolution_status
+        if descriptor_resolution_status is not None
+        else ("pass" if descriptor_path is not None else "not_run"),
+        "pass" if package_manifest_path is not None else "not_run",
+        "pass" if raw_package_manifest_path is not None else "not_run",
+        provider_manifest_status,
+        provider_representation_status,
+    )
+    if descriptor_path is None:
+        return {
+            "status": prerequisite_status,
+            "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+            "errors": ["committed proxy descriptor did not resolve"],
+            "artifact_count": 0,
+        }
+    if package_manifest_path is None:
+        return {
+            "status": prerequisite_status,
+            "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+            "errors": ["materialized proxy package manifest was not supplied"],
+            "artifact_count": 0,
+        }
+    if raw_package_manifest_path is None:
+        return {
+            "status": prerequisite_status,
+            "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+            "errors": ["immutable raw package manifest was not supplied"],
+            "artifact_count": 0,
+        }
+    if provider_manifest_status is not None and provider_manifest_status != "pass":
+        return {
+            "status": prerequisite_status,
+            "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+            "errors": [
+                "provider output manifest did not resolve with status pass: "
+                f"{provider_manifest_status}"
+            ],
+            "artifact_count": 0,
+        }
+    if (
+        provider_representation_status is not None
+        and provider_representation_status != "pass"
+    ):
+        return {
+            "status": prerequisite_status,
+            "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+            "errors": [
+                "provider acoustic representation did not resolve with status pass: "
+                f"{provider_representation_status}"
+            ],
+            "artifact_count": 0,
+        }
+    try:
+        descriptor = load_json(descriptor_path)
+        schema = load_json(
+            Path(__file__).resolve().parents[3]
+            / "schemas"
+            / "m6_derived_acoustic_proxy_v1.schema.json"
+        )
+        errors.extend(
+            f"descriptor schema {'.'.join(str(part) for part in error.path) or '$'}: "
+            f"{error.message}"
+            for error in sorted(
+                Draft202012Validator(schema).iter_errors(descriptor),
+                key=lambda item: list(item.path),
+            )
+        )
+        descriptor_core = deepcopy(descriptor)
+        declared_descriptor_hash = descriptor_core.pop(
+            "descriptor_content_sha256", None
+        )
+        if declared_descriptor_hash != canonical_json_sha256(descriptor_core):
+            errors.append("proxy descriptor content hash mismatch")
+
+        manifest_path = Path(package_manifest_path).resolve(strict=True)
+        package_root = manifest_path.parent
+        package = load_json(manifest_path)
+        declared_package = descriptor["package"]
+        raw_manifest_path = Path(raw_package_manifest_path).resolve(strict=True)
+        provider_path = (
+            provider_manifest_path.resolve(strict=True)
+            if provider_manifest_path is not None
+            else None
+        )
+        if provider_manifest_status == "pass" and provider_path is None:
+            errors.append("provider passed without a materialized output manifest path")
+        if provider_path is not None and provider_path != manifest_path:
+            errors.append(
+                "provider output and qualification candidate are different manifests"
+            )
+        if descriptor.get("proxy_id") != "mp3d_17DRP5sb8fy_acoustic_proxy_v2":
+            errors.append("proxy descriptor stable ID differs")
+        if descriptor.get("representation_id") != descriptor.get("proxy_id"):
+            errors.append("proxy descriptor representation ID differs")
+        if package.get("source_room", {}).get("room_id") != descriptor.get("room_id"):
+            errors.append("materialized package room identity differs from descriptor")
+        if package.get("package_id") != declared_package.get("package_id"):
+            errors.append("materialized package ID differs from descriptor")
+        if package.get("package_content_sha256") != declared_package.get(
+            "package_content_sha256"
+        ):
+            errors.append("materialized package content identity differs")
+        source = descriptor.get("source", {})
+        if package.get("source_room", {}).get("geometry_asset_sha256") != source.get(
+            "sha256"
+        ):
+            errors.append("materialized package raw geometry identity differs")
+        if sha256_file(raw_manifest_path) != source.get(
+            "raw_package_manifest_sha256"
+        ):
+            errors.append("immutable raw package manifest identity differs")
+
+        if room_record is not None:
+            try:
+                representation = find_acoustic_representation(
+                    room_record, descriptor["representation_id"]
+                )
+                raw_representation = find_acoustic_representation(
+                    room_record, source["representation_id"]
+                )
+                descriptor_resources = [
+                    resource
+                    for resource in room_record["resources"]
+                    if resource["resource_type"] == "derived_proxy_descriptor"
+                ]
+                if descriptor.get("room_id") != room_record.get("room_id"):
+                    errors.append("proxy descriptor room differs from registry record")
+                if representation.get("role") != "derived_proxy":
+                    errors.append("registry representation is not a derived proxy")
+                if representation.get("resource_id") != declared_package.get(
+                    "resource_id"
+                ):
+                    errors.append("proxy output resource differs from registry")
+                if representation.get("producer") != descriptor.get(
+                    "derivation", {}
+                ).get("producer"):
+                    errors.append("proxy producer differs from registry")
+                if representation.get("derived_from") != raw_representation.get(
+                    "representation_id"
+                ):
+                    errors.append("proxy raw representation lineage differs")
+                if raw_representation.get("resource_id") != source.get("resource_id"):
+                    errors.append("proxy raw resource differs from registry")
+                if source.get("resource_id") not in representation.get(
+                    "input_resource_ids", []
+                ):
+                    errors.append("proxy raw resource is absent from registry inputs")
+                if len(descriptor_resources) != 1 or descriptor_resources[0].get(
+                    "resource_id"
+                ) not in representation.get("input_resource_ids", []):
+                    errors.append("proxy descriptor resource is absent from registry inputs")
+                if package.get("materials", {}).get(
+                    "material_semantics"
+                ) != representation.get("material_semantics"):
+                    errors.append("proxy material semantics differ from registry")
+            except (KeyError, TypeError, ValueError) as error:
+                errors.append(f"proxy registry contract is malformed: {error}")
+
+        entries = sorted(package_root.rglob("*"))
+        if any(path.is_symlink() for path in entries):
+            errors.append("materialized proxy artifact closure contains a symlink")
+        actual_records = [
+            file_record(path, relative_to=package_root)
+            for path in entries
+            if path.is_file() and not path.is_symlink()
+        ]
+        if actual_records != declared_package.get("artifacts"):
+            errors.append("materialized proxy artifact closure differs from descriptor")
+        if canonical_json_sha256(actual_records) != declared_package.get(
+            "artifact_set_sha256"
+        ):
+            errors.append("materialized proxy artifact-set hash differs")
+        manifest_record = file_record(manifest_path, relative_to=package_root)
+        if manifest_record != declared_package.get("manifest"):
+            errors.append("materialized proxy manifest record differs")
+
+        geometry = load_json(package_root / "qa" / "geometry_report.json")
+        cleanup = geometry.get("research_cleanup", {})
+        declared_cleanup = descriptor.get("derivation", {})
+        cleanup_fields = {
+            "policy": cleanup.get("policy"),
+            "record_content_sha256": cleanup.get("record_content_sha256"),
+            "removed_triangle_count": cleanup.get("removed_triangle_count"),
+            "removed_triangle_indices_sha256": cleanup.get(
+                "removed_triangle_indices_sha256"
+            ),
+            "removed_triangle_area_max_m2": cleanup.get(
+                "removed_triangle_area_max_m2"
+            ),
+            "source_triangle_count": cleanup.get("source_triangle_count"),
+            "derived_triangle_count": cleanup.get("derived_triangle_count"),
+            "source_array_hashes": cleanup.get("source_arrays"),
+            "derived_array_hashes": cleanup.get("derived_arrays"),
+        }
+        for key, observed in cleanup_fields.items():
+            if declared_cleanup.get(key) != observed:
+                errors.append(f"proxy derivation field {key} differs")
+        if descriptor.get("qualification_claim") is not False:
+            errors.append("proxy descriptor makes a qualification claim")
+        if descriptor.get("dataset_admission") is not False:
+            errors.append("proxy descriptor admits an unqualified package")
+        return {
+            "status": "pass" if not errors else "fail",
+            "proxy_id": descriptor.get("proxy_id"),
+            "descriptor_sha256": sha256_file(descriptor_path),
+            "package_manifest_sha256": sha256_file(manifest_path),
+            "provider_manifest_sha256": (
+                sha256_file(provider_path) if provider_path is not None else None
+            ),
+            "same_materialized_manifest": (
+                provider_path == manifest_path if provider_path is not None else None
+            ),
+            "package_content_sha256": package.get("package_content_sha256"),
+            "artifact_count": len(actual_records),
+            "artifact_set_sha256": canonical_json_sha256(actual_records),
+            "errors": errors,
+        }
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        return {
+            "status": "fail",
+            "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+            "errors": [str(error)],
+            "artifact_count": 0,
+        }
 
 
 def _now_utc() -> str:
@@ -108,6 +367,7 @@ def _redactions(repository_root: Path, environment: Mapping[str, str]) -> list[t
         "AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT",
         "AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT",
         "AVENGINE_HABITAT_RUNTIME_ROOT",
+        "AVENGINE_MP3D_PROXY_V2_ROOT",
     ):
         raw = environment.get(name)
         if raw:
@@ -1343,6 +1603,41 @@ def run_room_qualification_attempt(
         derived_observation["raw_candidate_package"] = raw_observed
         derived_observation["derived_candidate_package"] = derived_observed
         derived_observation["declared_derivation_assessment"] = derivation
+        proxy_representation_status = next(
+            (
+                item["status"]
+                for item in mp3d_provider["acoustic_representations"]
+                if item["representation_id"]
+                == "mp3d_17DRP5sb8fy_acoustic_proxy_v2"
+            ),
+            "not_run",
+        )
+        proxy_output = mp3d_resolution.resources["mp3d_declared_proxy_v2"]
+        proxy_descriptor = mp3d_resolution.resources["mp3d_proxy_v2_descriptor"]
+        proxy_binding = _proxy_descriptor_assessment(
+            proxy_descriptor.path,
+            mp3d_derived_package_manifest,
+            mp3d_raw_package_manifest,
+            descriptor_resolution_status=proxy_descriptor.status,
+            provider_manifest_path=proxy_output.path,
+            provider_manifest_status=proxy_output.status,
+            provider_representation_status=proxy_representation_status,
+            room_record=mp3d_record,
+        )
+        binding_components = {
+            "descriptor_and_closure": proxy_binding["status"],
+            "raw_candidate_package": raw_observed["status"],
+            "derived_candidate_package": derived_observed["status"],
+            "provider_output_manifest": proxy_output.status,
+            "provider_representation": proxy_representation_status,
+        }
+        binding_status = _aggregate_attempt_status(*binding_components.values())
+        proxy_binding = {
+            **proxy_binding,
+            "status": binding_status,
+            "component_statuses": binding_components,
+        }
+        derived_observation["materialized_proxy_binding"] = proxy_binding
         derived_artifact = _write_observation(
             staging, "mp3d_17DRP5sb8fy_derived", derived_observation
         )
@@ -1350,6 +1645,18 @@ def run_room_qualification_attempt(
             derived_package.qa_reports["geometry_report"]
             if derived_package is not None
             else None
+        )
+        materialized_proxy_bound = (
+            derived_package is not None and binding_status == "pass"
+        )
+        bound_geometry = derived_geometry if materialized_proxy_bound else None
+        topology_status = (
+            bound_geometry.get("status", "fail")
+            if bound_geometry is not None
+            else binding_status
+        )
+        derivation_status = _aggregate_attempt_status(
+            binding_status, derivation["status"]
         )
         derived_report = _build_report(
             report_id=f"{attempt_id}_mp3d_derived",
@@ -1371,16 +1678,25 @@ def run_room_qualification_attempt(
                     "mp3d_derived_native_navigation_not_run",
                 ),
                 "acoustic_geometry_status": _check(
-                    "fail" if derived_geometry is not None else "not_run",
+                    topology_status,
                     (
-                        "declared cleanup removes zero-area faces, but duplicate/boundary/"
-                        "nonmanifold topology gates still fail"
-                        if derived_geometry is not None
-                        else "derived proxy candidate was not supplied"
+                        "materialized proxy is bound and its topology gates pass"
+                        if topology_status == "pass"
+                        else (
+                            "materialized proxy removes zero-area faces, but duplicate/"
+                            "boundary/nonmanifold topology gates still fail"
+                            if materialized_proxy_bound
+                            else "topology was not assessed because the versioned proxy "
+                            f"binding is {binding_status}"
+                        )
                     ),
-                    "mp3d_derived_topology_failed"
-                    if derived_geometry is not None
-                    else "mp3d_derived_package_not_run",
+                    None
+                    if topology_status == "pass"
+                    else (
+                        "mp3d_derived_topology_failed"
+                        if materialized_proxy_bound
+                        else f"mp3d_derived_proxy_binding_{binding_status}"
+                    ),
                 ),
                 "material_binding_status": _check(
                     "blocked",
@@ -1419,22 +1735,28 @@ def run_room_qualification_attempt(
                     None if raw_identity_pass else "mp3d_derived_raw_identity_blocked",
                 ),
                 "declared_derivation_integrity": _check(
-                    derivation["status"],
-                    derivation["reason"],
+                    derivation_status,
+                    (
+                        "committed proxy descriptor, immutable raw source, complete "
+                        "materialized package closure, and declared cleanup all match"
+                        if derivation_status == "pass"
+                        else "; ".join(proxy_binding.get("errors", []))
+                        or derivation["reason"]
+                    ),
                     None
-                    if derivation["status"] == "pass"
-                    else "mp3d_declared_derivation_not_verified",
+                    if derivation_status == "pass"
+                    else "mp3d_materialized_proxy_binding_not_verified",
                 ),
                 "visual_to_acoustic_spatial_parity": _check(
-                    "pass" if derivation["status"] == "pass" else "not_run",
+                    "pass" if derivation_status == "pass" else "not_run",
                     (
                         "source transform/bounds identity is preserved by the declared "
                         "zero-area cleanup; byte equality is not required"
-                        if derivation["status"] == "pass"
+                        if derivation_status == "pass"
                         else "derived spatial parity could not be assessed"
                     ),
                     None
-                    if derivation["status"] == "pass"
+                    if derivation_status == "pass"
                     else "mp3d_derived_spatial_parity_not_run",
                 ),
                 "solver_loadability": _check(
@@ -1443,13 +1765,24 @@ def run_room_qualification_attempt(
                     "mp3d_derived_current_solver_load_not_run",
                 ),
                 "topology_diagnostics": _check(
-                    "fail" if derived_geometry is not None else "not_run",
-                    "zero-area faces are gone, but other topology gates remain failed"
-                    if derived_geometry is not None
-                    else "derived topology package was not supplied",
-                    "mp3d_derived_topology_failed"
-                    if derived_geometry is not None
-                    else "mp3d_derived_topology_not_run",
+                    topology_status,
+                    (
+                        "bound derived proxy topology passed"
+                        if topology_status == "pass"
+                        else (
+                            "zero-area faces are gone, but other topology gates remain failed"
+                            if materialized_proxy_bound
+                            else "topology was not inspected because the materialized proxy "
+                            f"binding is {binding_status}"
+                        )
+                    ),
+                    None
+                    if topology_status == "pass"
+                    else (
+                        "mp3d_derived_topology_failed"
+                        if materialized_proxy_bound
+                        else f"mp3d_derived_proxy_binding_{binding_status}"
+                    ),
                 ),
                 "opening_and_enclosure_checks": _check(
                     "not_run",
@@ -1459,11 +1792,14 @@ def run_room_qualification_attempt(
             },
             source_records=[
                 "examples/m6/rooms/room_registry.json",
+                "examples/m6/rooms/proxies/mp3d_17DRP5sb8fy_acoustic_proxy_v2.json",
                 "current_observation",
             ],
             notes=(
-                "A legitimate declared derivation is assessed separately from byte parity. "
-                "No qualified revision is created while remaining gates fail/not_run."
+                "The materialized generated-local package is authenticated by the "
+                "committed proxy descriptor and assessed separately from raw byte parity. "
+                "No qualified revision is created while topology/material/ray/native "
+                "gates fail or remain not_run."
             ),
         )
         report_records.append(
@@ -1907,6 +2243,7 @@ def verify_room_qualification_attempt(
 
     report_errors: list[str] = []
     report_case_ids: list[str] = []
+    derived_binding_observation: Mapping[str, Any] | None = None
     manifest_registry = manifest.get("registry")
     manifest_registry_sha = (
         manifest_registry.get("sha256")
@@ -1962,6 +2299,8 @@ def verify_room_qualification_attempt(
                         f"{record['case_id']}: evidence artifact hash mismatch"
                     )
                 observation = load_json(artifact_path)
+                if record["case_id"] == "mp3d_17DRP5sb8fy_derived":
+                    derived_binding_observation = observation
                 observation_core = deepcopy(observation)
                 observation_hash = observation_core.pop("content_sha256", None)
                 if observation_hash != canonical_json_sha256(observation_core):
@@ -2017,16 +2356,124 @@ def verify_room_qualification_attempt(
             and derived_report["acoustic_diagnostics"][
                 "declared_derivation_integrity"
             ]["status"]
-            in {"pass", "fail", "not_run"}
+            in {"pass", "fail", "blocked", "not_run"}
             and derived_report["acoustic_diagnostics"][
                 "visual_to_acoustic_spatial_parity"
             ]["status"]
-            in {"pass", "fail", "not_run"}
+            in {"pass", "fail", "blocked", "not_run"}
             and derived_report["dataset_admission"] is False
         )
     except (OSError, ValueError, KeyError):
         separate_derivation = False
     add("mp3d_split_diagnostics", separate_derivation, separate_derivation)
+
+    binding_errors: list[str] = []
+    binding_measured: dict[str, Any] = {
+        "formal_release_eligible": claimed_clean is True,
+    }
+    try:
+        if not isinstance(derived_binding_observation, Mapping):
+            raise ValueError("derived MP3D observation is unavailable")
+        binding = derived_binding_observation["materialized_proxy_binding"]
+        components = binding["component_statuses"]
+        provider = derived_binding_observation["provider_resolution"]
+        derived_candidate = derived_binding_observation["derived_candidate_package"]
+        raw_candidate = derived_binding_observation["raw_candidate_package"]
+        declared_derivation = derived_binding_observation[
+            "declared_derivation_assessment"
+        ]
+        derived_report_path = _resolve_bundle_file(
+            root, "reports/mp3d_17DRP5sb8fy_derived.json"
+        )
+        derived_report = load_json(derived_report_path)
+        provider_representation = next(
+            item
+            for item in provider["acoustic_representations"]
+            if item["representation_id"]
+            == "mp3d_17DRP5sb8fy_acoustic_proxy_v2"
+        )
+        provider_output = next(
+            item
+            for item in provider["resources"]
+            if item["resource_id"] == "mp3d_declared_proxy_v2"
+        )
+        descriptor_resource = next(
+            item
+            for item in provider["resources"]
+            if item["resource_id"] == "mp3d_proxy_v2_descriptor"
+        )
+        expected_binding_status = _aggregate_attempt_status(
+            *components.values()
+        )
+        expected_derivation_status = _aggregate_attempt_status(
+            binding["status"], declared_derivation["status"]
+        )
+        expected_topology_status = (
+            derived_candidate.get("geometry", {}).get("status", "fail")
+            if binding["status"] == "pass"
+            else binding["status"]
+        )
+        binding_consistent = (
+            binding["status"] == expected_binding_status
+            and derived_report["acoustic_diagnostics"]
+            ["declared_derivation_integrity"]["status"]
+            == expected_derivation_status
+            and derived_report["dimensions"]["acoustic_geometry_status"]["status"]
+            == expected_topology_status
+            and derived_report["acoustic_diagnostics"]["topology_diagnostics"]
+            ["status"]
+            == expected_topology_status
+        )
+        exact_binding_pass = (
+            binding["status"] == "pass"
+            and not binding.get("errors")
+            and binding.get("same_materialized_manifest") is True
+            and binding.get("package_manifest_sha256")
+            == binding.get("provider_manifest_sha256")
+            and raw_candidate.get("status") == "pass"
+            and derived_candidate.get("status") == "pass"
+            and provider_representation.get("status") == "pass"
+            and provider_output.get("status") == "pass"
+            and descriptor_resource.get("status") == "pass"
+            and declared_derivation.get("status") == "pass"
+            and derived_report["acoustic_diagnostics"]
+            ["declared_derivation_integrity"]["status"]
+            == "pass"
+        )
+        if not binding_consistent:
+            binding_errors.append(
+                "MP3D binding, derivation, and topology report statuses are inconsistent"
+            )
+        if claimed_clean is True and not exact_binding_pass:
+            binding_errors.append(
+                "formal room evidence requires an exact materialized MP3D proxy binding"
+            )
+        binding_measured.update(
+            {
+                "binding_status": binding.get("status"),
+                "component_statuses": deepcopy(dict(components)),
+                "same_materialized_manifest": binding.get(
+                    "same_materialized_manifest"
+                ),
+                "provider_manifest_sha256": binding.get(
+                    "provider_manifest_sha256"
+                ),
+                "candidate_manifest_sha256": binding.get(
+                    "package_manifest_sha256"
+                ),
+                "binding_consistent": binding_consistent,
+                "exact_binding_pass": exact_binding_pass,
+                "errors": binding_errors,
+            }
+        )
+    except (KeyError, OSError, StopIteration, TypeError, ValueError) as error:
+        binding_errors.append(str(error))
+        binding_measured["errors"] = binding_errors
+    add(
+        "mp3d_materialized_proxy_binding",
+        not binding_errors,
+        binding_measured,
+    )
 
     status = "pass" if all(check["status"] == "pass" for check in checks) else "fail"
     return status, checks

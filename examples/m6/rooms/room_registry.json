@@ -451,15 +451,29 @@
           "redistribution": "external_required"
         },
         {
+          "resource_id": "mp3d_proxy_v2_descriptor",
+          "resource_type": "derived_proxy_descriptor",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m6/rooms/proxies/mp3d_17DRP5sb8fy_acoustic_proxy_v2.json"
+          },
+          "sha256": "47a30c5536b5994d84e3962e519b5a44bf7a8f345dec1183103d9471cbd88b64",
+          "required_for": ["acoustic_geometry"],
+          "redistribution": "repository",
+          "notes": "Stable descriptor binds raw identity, declared zero-area cleanup, package manifest, and the complete generated artifact set."
+        },
+        {
           "resource_id": "mp3d_declared_proxy_v2",
           "resource_type": "acoustic_package",
           "location": {
-            "kind": "generated",
-            "producer": "avengine.m3.research_cleanup:derive_research_package"
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_MP3D_PROXY_V2_ROOT",
+            "path_template": "${AVENGINE_MP3D_PROXY_V2_ROOT}/manifest.json"
           },
+          "sha256": "f35e4f451d795c26a685e8da192ae08ae49922bd654a5fe340d1ab37c26da5b2",
           "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
           "redistribution": "generated_local",
-          "notes": "Historical ignored tmp proxy is not a portable released artifact; rerun deterministic derivation."
+          "notes": "Materialized research proxy. The committed descriptor and release evidence bind its complete ignored artifact closure."
         }
       ],
       "acoustic_representations": [
@@ -484,13 +498,12 @@
           "producer": "avengine.m3.research_cleanup:derive_research_package",
           "input_resource_ids": [
             "mp3d_raw_visual_surface",
-            "mp3d_house_descriptor",
-            "mp3d_semantic_mesh"
+            "mp3d_proxy_v2_descriptor"
           ],
           "immutable": false,
           "derived_from": "mp3d_17DRP5sb8fy_raw_source_v1",
-          "material_semantics": "semantic_mapping_approximation",
-          "notes": "Declared target revision; current local cleanup is solver-loadable but topology/material/ray qualification is incomplete."
+          "material_semantics": "research_placeholder",
+          "notes": "Materialized and hash-bound zero-area cleanup research revision; semantic material mapping has not yet been implemented, and topology/material/ray qualification remains incomplete."
         }
       ],
       "openings": [],

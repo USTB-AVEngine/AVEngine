@@ -112,6 +112,7 @@
             "route_manifest",
             "source_manifest",
             "acoustic_package",
+            "derived_proxy_descriptor",
             "diagnostic_aabb"
           ]
         },
