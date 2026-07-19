@@ -209,10 +209,10 @@ def load_review_visual_profile(path: str | Path) -> ReviewVisualProfile:
             "exterior_proxy.runtime_asset_argument must be exterior_proxy_glb_path"
         )
     if exterior.get("proxy_kind") != (
-        "inward_uv_sphere_with_fixed_window_panels"
+        "inward_uv_sphere_with_direction_projected_window_panels"
     ):
         raise M6XVisualProfileError(
-            "exterior proxy must include the inward sphere and fixed window panels"
+            "exterior proxy must use listener-direction-projected window panels"
         )
     if exterior.get("center") != "camera_listener":
         raise M6XVisualProfileError("exterior proxy must be centered on camera_listener")
@@ -274,17 +274,46 @@ def load_review_visual_profile(path: str | Path) -> ReviewVisualProfile:
         )
         if any(item <= 0.0 for item in size):
             raise M6XVisualProfileError(f"{owner}.size_wh_m must be positive")
-        uv = _finite_vector(
-            panel.get("uv_rect"), owner=f"{owner}.uv_rect", length=4
-        )
+        subdivisions = panel.get("grid_subdivisions_wh")
         if (
-            any(item < 0.0 or item > 1.0 for item in uv)
-            or uv[0] >= uv[2]
-            or uv[1] >= uv[3]
+            not isinstance(subdivisions, list)
+            or len(subdivisions) != 2
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, int)
+                or item < 2
+                or item > 128
+                for item in subdivisions
+            )
         ):
             raise M6XVisualProfileError(
-                f"{owner}.uv_rect must be [u0,v0,u1,v1] inside [0,1]"
+                f"{owner}.grid_subdivisions_wh must be two integers in [2,128]"
             )
+        if panel.get("uv_projection") != "listener_direction_equirectangular":
+            raise M6XVisualProfileError(
+                f"{owner}.uv_projection must use listener-direction mapping"
+            )
+    capture_objects = exterior.get("capture_scene_objects")
+    if not isinstance(capture_objects, Mapping):
+        raise M6XVisualProfileError(
+            "exterior_proxy.capture_scene_objects must be an object"
+        )
+    prefixes = capture_objects.get("remove_handle_prefixes")
+    if prefixes != ["source_marker_"]:
+        raise M6XVisualProfileError(
+            "capture scene must remove only the legacy source_marker_ objects"
+        )
+    if capture_objects.get("expected_removed_count") != 2:
+        raise M6XVisualProfileError(
+            "capture scene must remove exactly the two legacy source markers"
+        )
+    if (
+        capture_objects.get("logical_source_representation")
+        != "topdown_timeline_and_audio_only"
+    ):
+        raise M6XVisualProfileError(
+            "removed source markers must remain represented by logical evidence"
+        )
     if exterior.get("shader_type") != "flat" or exterior.get("semantic_id") != 0:
         raise M6XVisualProfileError(
             "exterior proxy must use flat shading and background semantic ID 0"
@@ -353,6 +382,7 @@ def validate_realized_review_profile(
             "capture lacks realized review_visual_profile evidence"
         )
     exterior = realized.get("exterior_proxy")
+    capture_objects = realized.get("capture_scene_objects")
     configured = realized.get("configuration")
     final_lighting = realized.get("final_light_readback")
     expected_excluded = profile.raw["exterior_proxy"]["excluded_from"]
@@ -380,6 +410,20 @@ def validate_realized_review_profile(
         != [
             panel["panel_id"]
             for panel in profile.raw["exterior_proxy"]["window_panels"]
+        ]
+        or not isinstance(capture_objects, Mapping)
+        or capture_objects.get("removed_handle_prefixes")
+        != profile.raw["exterior_proxy"]["capture_scene_objects"][
+            "remove_handle_prefixes"
+        ]
+        or capture_objects.get("removed_count")
+        != profile.raw["exterior_proxy"]["capture_scene_objects"][
+            "expected_removed_count"
+        ]
+        or capture_objects.get("remaining_matching_count") != 0
+        or capture_objects.get("logical_source_representation")
+        != profile.raw["exterior_proxy"]["capture_scene_objects"][
+            "logical_source_representation"
         ]
         or not isinstance(final_lighting, Mapping)
         or final_lighting.get("status") != "pass"
@@ -518,7 +562,7 @@ def apply_runtime_review_profile(
     habitat_sim: Any,
     mn: Any,
 ) -> dict[str, Any]:
-    """Realize review lights and a transient, non-collidable exterior sphere."""
+    """Realize review lights, clean capture objects, and the exterior proxy."""
 
     proxy_path = Path(exterior_proxy_glb_path).resolve()
     if not proxy_path.is_file() or proxy_path.suffix.casefold() != ".glb":
@@ -543,11 +587,39 @@ def apply_runtime_review_profile(
     if list(simulator.get_current_light_setup()) != lights:
         raise M6XVisualProfileError("review scene light setup did not read back")
 
+    exterior = profile.raw["exterior_proxy"]
+    object_manager = simulator.get_rigid_object_manager()
+    capture_objects = exterior["capture_scene_objects"]
+    prefixes = tuple(capture_objects["remove_handle_prefixes"])
+    existing = tuple(
+        item
+        for item in object_manager.get_objects_by_handle_substring().values()
+        if str(item.handle).startswith(prefixes)
+    )
+    if len(existing) != int(capture_objects["expected_removed_count"]):
+        raise M6XVisualProfileError(
+            "capture simulator does not contain the expected legacy source markers"
+        )
+    removed = [
+        {"object_id": int(item.object_id), "handle": str(item.handle)}
+        for item in existing
+    ]
+    for item in existing:
+        object_manager.remove_object_by_id(int(item.object_id))
+    remaining = tuple(
+        item
+        for item in object_manager.get_objects_by_handle_substring().values()
+        if str(item.handle).startswith(prefixes)
+    )
+    if remaining:
+        raise M6XVisualProfileError(
+            "legacy source markers remained visible in the capture simulator"
+        )
+
     manager = simulator.get_object_template_manager()
     attributes = manager.create_new_template(str(proxy_path), False)
     if attributes is None:
         raise M6XVisualProfileError("Habitat could not create the exterior proxy template")
-    exterior = profile.raw["exterior_proxy"]
     # ``create_new_template(path, False)`` already seeds both asset handles.
     # Reassigning the same GLB here makes the pinned Habitat resource manager
     # attempt to replace a finalized resource while the furnished stage is
@@ -590,6 +662,15 @@ def apply_runtime_review_profile(
             "lights": list(records),
             "hbao": True,
             "claim_boundary": profile.raw["lighting"]["claim_boundary"],
+        },
+        "capture_scene_objects": {
+            "removed_handle_prefixes": list(prefixes),
+            "removed_count": len(removed),
+            "removed_objects": removed,
+            "remaining_matching_count": len(remaining),
+            "logical_source_representation": capture_objects[
+                "logical_source_representation"
+            ],
         },
         "exterior_proxy": {
             "source_asset_uri": exterior["source_asset_uri"],

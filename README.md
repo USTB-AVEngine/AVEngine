@@ -195,15 +195,27 @@ CRF 18; only the diagnostic main-view panel is downscaled and letterboxed to
 capture. The profile also installs a Habitat directional key/fill setup and a
 transient exterior proxy made from UE's stock `approaching_storm_4k` HDRI.
 Because the exported Apartment glass writes depth as a black surface, the proxy
-contains a distant inward sphere plus two room-aligned panels immediately
-behind the visible window frames. This is a review approximation, not a claim
-that Habitat reproduces UE exposure, Lumen, baked lighting, or reflection
-captures.
+contains a distant inward sphere plus two finely subdivided, room-aligned
+panels immediately behind the visible window frames. Each panel vertex samples
+the 4096x2048 equirectangular image from the real listener-to-window direction;
+there is no hand-authored rectangular crop or stretched panorama. This is a
+fixed-camera review approximation, not a claim that Habitat reproduces UE
+HDRIBackdrop, exposure, Lumen, baked lighting, or reflection captures. A moving
+camera would require a real skybox/custom shader rather than these panels.
+
+The two legacy red/blue icosphere source markers are used only by the separate
+native anchor/LOS qualification. They are removed from the RGB/semantic capture
+simulator, so clean videos contain no debugging ball. Their logical endpoints
+remain available in audio routing, Timeline metadata and Topdown diagnostics.
 
 Articulated actors use `idle` while their authored root is stationary and
 `walk` only while it moves. The action clock resets at each transition, and a
 retained capture is accepted only when its positions, rotations, heading and
-locomotion records still match the current authored route.
+locomotion records still match the current authored route. The S3 human route
+is a deterministic, live-navmesh-qualified 4.324 m polyline at
+`0.861--0.881 m/s`, replacing the earlier `0.121 m/s` drift. The Beagle master
+route uses `0.296 m/s`, the asset-specific speed selected by its M2 world-contact
+fit, rather than a species-wide hard-coded speed.
 
 Prepare the real exterior proxy once. The command fails if the UE asset cannot
 be exported; it never substitutes a synthetic sky:
@@ -219,7 +231,7 @@ An already exported HDRI can instead be supplied with `--retained-hdri`
 without a UE installation. That mode is recorded as user-supplied input; it
 does not claim to independently prove the file's Unreal provenance.
 
-The sphere and panels exist only in the visual capture simulator. They are
+The sphere and direction-projected panels exist only in the visual capture simulator. They are
 non-collidable, use semantic background ID 0, and render as distant depth
 surfaces; they are not added to the room SceneInstance, navmesh, Topdown
 obstacle map, placement gate, or RLR acoustic geometry. Runtime evidence checks
@@ -254,14 +266,15 @@ At bundle root, `inputs/input_index.json` records the small configuration
 snapshot, code commits and direct external assets; `FINAL_REPORT.md` states the
 bounded acoustic and placement claims.
 The refreshed local closeout run is retained at
-`tmp/m6x/fixed_apartment_canary_20260719_06/REVIEW_INDEX.html`.
+`tmp/m6x/fixed_apartment_canary_20260720_02/REVIEW_INDEX.html`.
 The bounded feasibility result and its acoustic claim boundary are summarized
 in [the M6.x final report](docs/roadmap/M6X_FINAL_REPORT.md).
 
-The earlier `_04` closeout capture is a historical `320x240` baseline and does
-not satisfy the new visual-profile readback. A fresh run is therefore required
-once. After that, scenario media and metadata can be rebuilt from the new
-capture and native RLR result:
+The earlier `_04` closeout capture is a historical `320x240` baseline, and
+`_06` predates the hidden test markers, direction-projected exterior and normal
+S3 route. Neither satisfies the current visual/trajectory readback. A fresh run
+is therefore required once. After that, scenario media and metadata can be
+rebuilt from the new capture and native RLR result:
 
 ```bash
 BUNDLE=tmp/m6x/fixed_apartment_720p_run_01

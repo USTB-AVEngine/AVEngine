@@ -28,12 +28,12 @@
       "anchor_id": "dog_front_right_end",
       "kind": "entity_spawn",
       "position_m": [
-        -1.741,
+        -2.9,
         0.271,
-        -1.52
+        -1.45
       ],
       "yaw_deg": 26.565051,
-      "listener_relative_sector": "front_right",
+      "listener_relative_sector": "front",
       "expected_camera_fov": "in_fov",
       "expected_acoustic_path": "los",
       "validation_status": {
@@ -62,12 +62,29 @@
       "anchor_id": "human_front_left_end",
       "kind": "entity_spawn",
       "position_m": [
-        -4.301,
+        -1.25,
         0.271,
-        1.36
+        -2.6
       ],
       "yaw_deg": 180.0,
-      "listener_relative_sector": "front_left",
+      "listener_relative_sector": "front_right",
+      "expected_camera_fov": "in_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 1.63
+    },
+    {
+      "anchor_id": "human_front_left_midpoint",
+      "kind": "trajectory_waypoint",
+      "position_m": [
+        -3.85,
+        0.271,
+        -0.4
+      ],
+      "yaw_deg": 180,
+      "listener_relative_sector": "front",
       "expected_camera_fov": "in_fov",
       "expected_acoustic_path": "los",
       "validation_status": {

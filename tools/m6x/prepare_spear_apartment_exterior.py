@@ -55,9 +55,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPOSITORY / "tmp/m6x/assets/approaching_storm_4k_exterior_v2",
+        default=REPOSITORY / "tmp/m6x/assets/approaching_storm_4k_exterior_v3",
     )
-    parser.add_argument("--texture-width", type=int, default=2048)
+    parser.add_argument("--texture-width", type=int, default=4096)
     return parser.parse_args(argv)
 
 

@@ -41,10 +41,10 @@ def _captured_locomotion_state(actor_id: str, frame_index: int) -> dict:
     if actor_id == "human0":
         if frame_index < 75:
             action_id, start, period = "idle", 0, 175
-        elif frame_index < 195:
+        elif frame_index < 150:
             action_id, start, period = "walk", 75, 16
         else:
-            action_id, start, period = "idle", 195, 175
+            action_id, start, period = "idle", 150, 175
     elif actor_id == "dog0":
         if frame_index < 195:
             action_id, start, period = "idle", 0, 25
@@ -332,12 +332,21 @@ def test_master_routes_have_exact_authored_holds_and_motion() -> None:
     human, dog = roots["human0"], roots["dog0"]
     assert human.shape == dog.shape == (270, 3)
     assert np.allclose(human[:76], human[0], atol=1.0e-15, rtol=0.0)
-    assert np.allclose(human[194], human[-1], atol=1.0e-15, rtol=0.0)
-    assert np.allclose(human[194:], human[-1], atol=1.0e-15, rtol=0.0)
+    assert not np.allclose(human[91], human[75], atol=1.0e-15, rtol=0.0)
+    assert np.allclose(human[149], human[-1], atol=1.0e-15, rtol=0.0)
+    assert np.allclose(human[149:], human[-1], atol=1.0e-15, rtol=0.0)
     assert np.allclose(dog[:196], dog[0], atol=1.0e-15, rtol=0.0)
     assert np.allclose(dog[269], dog[-1], atol=1.0e-15, rtol=0.0)
-    assert np.linalg.norm(human[-1] - human[0]) > 0.9
-    assert np.linalg.norm(dog[-1] - dog[0]) > 0.5
+    human_segment_speeds = np.linalg.norm(
+        np.diff(human[75:150, (0, 2)], axis=0), axis=1
+    ) * 15.0
+    assert np.min(human_segment_speeds) > 0.8
+    assert np.max(human_segment_speeds) < 0.9
+    dog_segment_speeds = np.linalg.norm(
+        np.diff(dog[195:270, (0, 2)], axis=0), axis=1
+    ) * 15.0
+    assert np.min(dog_segment_speeds) == pytest.approx(0.2955, abs=1.0e-3)
+    assert np.max(dog_segment_speeds) == pytest.approx(0.2955, abs=1.0e-3)
 
 
 def test_every_scenario_materializes_a_schema_valid_timeline() -> None:

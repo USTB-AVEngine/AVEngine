@@ -26,8 +26,14 @@ source-resolved episodes in the existing Habitat-compatible SPEAR
   keeps clean video at that resolution, and only downscales the diagnostic
   panel. A transient non-collidable, semantic-ID-0 proxy restores the fixed
   Apartment window exterior from UE's stock `approaching_storm_4k` HDRI. Its
-  sphere/window panels are visual-capture-only and never enter placement,
-  Topdown, navmesh or RLR geometry.
+  4096x2048 window panels use listener-direction equirectangular projection
+  instead of stretched, hand-authored UV rectangles. They are
+  visual-capture-only and never enter placement, Topdown, navmesh or RLR
+  geometry. This remains a fixed-camera approximation, not UE HDRIBackdrop or
+  Lumen parity.
+- The legacy red/blue source-marker meshes remain available to the independent
+  native anchor/LOS qualification, but are removed from RGB/semantic capture.
+  Their nonvisual logical endpoints remain in audio, Timeline and Topdown.
 - Articulated actors select `idle` or `walk` from their authored root speed
   with deterministic hysteresis. Action time resets at every transition, and
   retained captures are rechecked against the current route and heading
@@ -39,8 +45,10 @@ source-resolved episodes in the existing Habitat-compatible SPEAR
 
 The reviewed Apartment bundle contains eight variants and sixteen videos. S1
 keeps decoded RGB identical while swapping front/rear routing; S2's silent
-negative is exactly zero; S3 moves the active endpoint by about 0.585 m; S4
-contains 0.9 s of real two-source overlap; and S5 uses live raycast LOS/NLOS.
+negative is exactly zero; S3 follows a 4.324 m live-navmesh-qualified human
+root route at `0.861--0.881 m/s`; S4 contains 0.9 s of real two-source overlap;
+and S5 uses live raycast LOS/NLOS. The Beagle master route uses its M2
+world-contact-fit speed of `0.296 m/s` rather than a generic species constant.
 
 ## Claim boundary and remaining work
 

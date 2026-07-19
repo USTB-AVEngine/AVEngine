@@ -39,7 +39,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=(
             REPOSITORY
-            / "tmp/m6x/assets/approaching_storm_4k_exterior_v2/approaching_storm_4k_exterior.glb"
+            / "tmp/m6x/assets/approaching_storm_4k_exterior_v3/approaching_storm_4k_exterior.glb"
         ),
     )
     parser.add_argument("--output", required=True, type=Path)

@@ -91,7 +91,12 @@
       "properties": {
         "anchor_id": {"$ref": "#/$defs/stable_id"},
         "kind": {
-          "enum": ["camera_listener_pose", "entity_spawn", "world_source"]
+          "enum": [
+            "camera_listener_pose",
+            "entity_spawn",
+            "trajectory_waypoint",
+            "world_source"
+          ]
         },
         "position_m": {"$ref": "#/$defs/vec3"},
         "yaw_deg": {"type": "number", "minimum": -180, "maximum": 180},

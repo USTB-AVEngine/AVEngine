@@ -1,6 +1,6 @@
 {
   "schema": "avengine_m6x_review_visual_profile_v1",
-  "profile_id": "spear_apartment_habitat_review_720p_v1",
+  "profile_id": "spear_apartment_habitat_review_720p_v2",
   "capture": {
     "resolution_hw": [720, 1280],
     "frame_rate_hz": 15,
@@ -50,7 +50,7 @@
     "enabled": true,
     "source_asset_uri": "unreal:///HDRIBackdrop/Textures/approaching_storm_4k",
     "runtime_asset_argument": "exterior_proxy_glb_path",
-    "proxy_kind": "inward_uv_sphere_with_fixed_window_panels",
+    "proxy_kind": "inward_uv_sphere_with_direction_projected_window_panels",
     "center": "camera_listener",
     "scale_xyz": [1.0, 1.0, 1.0],
     "sphere_radius_m": 30.0,
@@ -68,7 +68,8 @@
         "width_axis": [1.0, 0.0, 0.0],
         "height_axis": [0.0, 1.0, 0.0],
         "size_wh_m": [2.86, 1.61],
-        "uv_rect": [0.05, 0.28, 0.35, 0.72]
+        "grid_subdivisions_wh": [24, 14],
+        "uv_projection": "listener_direction_equirectangular"
       },
       {
         "panel_id": "living_room_window",
@@ -76,9 +77,15 @@
         "width_axis": [0.0, 0.0, 1.0],
         "height_axis": [0.0, 1.0, 0.0],
         "size_wh_m": [6.25, 3.3],
-        "uv_rect": [0.35, 0.24, 0.85, 0.76]
+        "grid_subdivisions_wh": [32, 18],
+        "uv_projection": "listener_direction_equirectangular"
       }
     ],
+    "capture_scene_objects": {
+      "remove_handle_prefixes": ["source_marker_"],
+      "expected_removed_count": 2,
+      "logical_source_representation": "topdown_timeline_and_audio_only"
+    },
     "excluded_from": [
       "room_scene_instance",
       "collision",

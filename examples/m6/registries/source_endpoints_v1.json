@@ -81,7 +81,7 @@
         "entity_asset_revision": "m1_package_v1",
         "emitter_anchor_id": "speaker"
       },
-      "source_visibility_mode": "visible_entity",
+      "source_visibility_mode": "logical_point",
       "allowed_sound_class_ids": ["test_signal"],
       "directivity_profile_id": "point_emitter_v1",
       "persistent_when_silent": true,
@@ -98,7 +98,7 @@
         "entity_asset_revision": "m1_package_v1",
         "emitter_anchor_id": "speaker"
       },
-      "source_visibility_mode": "offscreen_entity",
+      "source_visibility_mode": "logical_point",
       "allowed_sound_class_ids": ["test_signal"],
       "directivity_profile_id": "point_emitter_v1",
       "persistent_when_silent": true,
@@ -140,5 +140,5 @@
       "evidence_sha256": "a3447420c2ba761af94f945f69fe09ab4bb8060d56c57d7fbb7d6202c852fc27"
     }
   ],
-  "registry_content_sha256": "23544b98b1c8f333f7baaf8578704d50754fe9133e30d34e1befecf039663bb3"
+  "registry_content_sha256": "d642160d50cdc1ef888037c0a487110e90b007bfca7c4b7e3ad15a13085d666c"
 }

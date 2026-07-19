@@ -55,6 +55,13 @@ def test_checked_in_registries_validate_and_resolve_legacy_beagle_instances() ->
         for source_id in ("beagle_0_muzzle", "beagle_1_muzzle")
     )
     assert all(item.persistent_when_silent for item in resolved)
+    assert all(
+        resolved_by_id[source_id].source_visibility_mode == "logical_point"
+        for source_id in (
+            "m6x_marker_front_speaker",
+            "m6x_marker_rear_speaker",
+        )
+    )
     dog_sound = next(
         item
         for item in sounds["sound_assets"]

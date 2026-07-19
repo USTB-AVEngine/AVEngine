@@ -47,13 +47,15 @@
           "anchor_ids": [
             "human_front_left_start",
             "human_front_left_start",
+            "human_front_left_midpoint",
             "human_front_left_end",
             "human_front_left_end"
           ],
           "anchor_frame_indices": [
             0,
             75,
-            194,
+            91,
+            149,
             269
           ],
           "interpolation": "piecewise_linear"

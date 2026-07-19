@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -17,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-hdri", required=True, type=Path)
     parser.add_argument("--output-glb", required=True, type=Path)
     parser.add_argument("--visual-profile", required=True, type=Path)
-    parser.add_argument("--texture-width", type=int, default=2048)
+    parser.add_argument("--texture-width", type=int, default=4096)
     return parser.parse_args(argv)
 
 
@@ -27,28 +28,65 @@ def _habitat_to_blender(value: list[float]) -> Vector:
     return Vector((value[0], -value[2], value[1]))
 
 
+def _direction_uv(direction: Vector) -> tuple[float, float]:
+    """Match Blender's UV-sphere mapping for one listener-centered view ray."""
+
+    unit = direction.normalized()
+    return (
+        0.5 + math.atan2(float(unit.y), float(unit.x)) / (2.0 * math.pi),
+        0.5 + math.asin(float(unit.z)) / math.pi,
+    )
+
+
 def _add_window_panel(panel: dict, material: bpy.types.Material) -> bpy.types.Object:
     center = _habitat_to_blender(panel["center_from_listener_m"])
     width = _habitat_to_blender(panel["width_axis"])
     height = _habitat_to_blender(panel["height_axis"])
     half_w = float(panel["size_wh_m"][0]) / 2.0
     half_h = float(panel["size_wh_m"][1]) / 2.0
-    vertices = [
-        center - width * half_w - height * half_h,
-        center + width * half_w - height * half_h,
-        center + width * half_w + height * half_h,
-        center - width * half_w + height * half_h,
-    ]
+    subdivisions_w, subdivisions_h = (
+        int(item) for item in panel["grid_subdivisions_wh"]
+    )
+    vertices = []
+    vertex_uvs = []
+    for row in range(subdivisions_h + 1):
+        vertical = (row / subdivisions_h - 0.5) * 2.0 * half_h
+        for column in range(subdivisions_w + 1):
+            horizontal = (column / subdivisions_w - 0.5) * 2.0 * half_w
+            vertex = center + width * horizontal + height * vertical
+            vertices.append(vertex)
+            vertex_uvs.append(_direction_uv(vertex))
+    faces = []
+    stride = subdivisions_w + 1
+    for row in range(subdivisions_h):
+        for column in range(subdivisions_w):
+            lower_left = row * stride + column
+            faces.append(
+                (
+                    lower_left,
+                    lower_left + 1,
+                    lower_left + stride + 1,
+                    lower_left + stride,
+                )
+            )
     mesh = bpy.data.meshes.new(f"{panel['panel_id']}_mesh")
-    mesh.from_pydata(vertices, [], [(0, 1, 2, 3)])
+    mesh.from_pydata(vertices, [], faces)
     mesh.materials.append(material)
     uv_layer = mesh.uv_layers.new(name="UVMap")
-    u0, v0, u1, v1 = (float(item) for item in panel["uv_rect"])
-    uv_by_vertex = ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
     for polygon in mesh.polygons:
+        polygon_uvs = [
+            vertex_uvs[mesh.loops[index].vertex_index]
+            for index in polygon.loop_indices
+        ]
+        crosses_seam = max(item[0] for item in polygon_uvs) - min(
+            item[0] for item in polygon_uvs
+        ) > 0.5
         for loop_index in polygon.loop_indices:
             vertex_index = mesh.loops[loop_index].vertex_index
-            uv_layer.data[loop_index].uv = uv_by_vertex[vertex_index]
+            u, v = vertex_uvs[vertex_index]
+            if crosses_seam and u < 0.5:
+                u += 1.0
+            uv_layer.data[loop_index].uv = (u, v)
     mesh.update()
     result = bpy.data.objects.new(panel["panel_id"], mesh)
     bpy.context.collection.objects.link(result)
@@ -71,8 +109,12 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     visual_profile = json.loads(visual_profile_path.read_text(encoding="utf-8"))
     exterior = visual_profile["exterior_proxy"]
-    if exterior["proxy_kind"] != "inward_uv_sphere_with_fixed_window_panels":
-        raise RuntimeError("visual profile does not declare the fixed window panels")
+    if exterior["proxy_kind"] != (
+        "inward_uv_sphere_with_direction_projected_window_panels"
+    ):
+        raise RuntimeError(
+            "visual profile does not declare direction-projected window panels"
+        )
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     image = bpy.data.images.load(str(hdri), check_existing=False)

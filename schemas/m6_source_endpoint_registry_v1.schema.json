@@ -49,7 +49,15 @@
         "source_endpoint_id": {"$ref": "#/$defs/stable_id"},
         "revision": {"$ref": "#/$defs/stable_id"},
         "binding": {"oneOf": [{"$ref": "#/$defs/entity_binding"}, {"$ref": "#/$defs/world_binding"}]},
-        "source_visibility_mode": {"enum": ["visible_entity", "offscreen_entity", "environmental_region", "diffuse_ambient"]},
+        "source_visibility_mode": {
+          "enum": [
+            "visible_entity",
+            "offscreen_entity",
+            "logical_point",
+            "environmental_region",
+            "diffuse_ambient"
+          ]
+        },
         "allowed_sound_class_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
         "directivity_profile_id": {"$ref": "#/$defs/stable_id"},
         "persistent_when_silent": {"const": true},

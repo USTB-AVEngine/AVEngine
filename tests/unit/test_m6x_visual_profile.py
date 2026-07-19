@@ -32,6 +32,15 @@ def test_review_profile_freezes_native_720p_and_non_upscaling_diagnostic() -> No
 
     assert profile.capture_resolution_hw == (720, 1280)
     assert profile.diagnostic_panel_resolution_hw == (480, 640)
+    assert profile.raw["exterior_proxy"]["proxy_kind"] == (
+        "inward_uv_sphere_with_direction_projected_window_panels"
+    )
+    assert all(
+        panel["uv_projection"] == "listener_direction_equirectangular"
+        and min(panel["grid_subdivisions_wh"]) >= 2
+        and "uv_rect" not in panel
+        for panel in profile.raw["exterior_proxy"]["window_panels"]
+    )
     validate_profile_capture_request(profile, load_json(REQUEST_PATH))
 
 
@@ -195,6 +204,14 @@ def test_retained_capture_visual_evidence_binds_profile_and_proxy(tmp_path: Path
                 "expected_light_count": 3,
                 "current_matches_profile": True,
                 "actor_setup_matches_profile": True,
+            },
+            "capture_scene_objects": {
+                "removed_handle_prefixes": ["source_marker_"],
+                "removed_count": 2,
+                "remaining_matching_count": 0,
+                "logical_source_representation": (
+                    "topdown_timeline_and_audio_only"
+                ),
             },
             "exterior_proxy": {
                 "prepared_glb_sha256": sha256_file(proxy),
