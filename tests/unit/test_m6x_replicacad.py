@@ -11,6 +11,7 @@ from avengine.m6x.replicacad import (
     RetainedReplicaCADReview,
     build_replicacad_runtime_review,
     inspect_replicacad_articulated_room_objects,
+    load_replicacad_semantic_categories,
     load_retained_replicacad_review,
 )
 
@@ -33,6 +34,7 @@ class _Object:
     def __init__(self, object_id: int, translation=(10.0, 1.0, 10.0)) -> None:
         self.object_id = object_id
         self.handle = f"furniture_{object_id:03d}"
+        self.semantic_id = 20
         self.collision_shape_aabb = _Bounds()
         self.transformation = _Transform(translation)
 
@@ -186,8 +188,15 @@ def test_build_uses_one_live_snapshot_for_gate_and_all_rigid_footprints(
         floor_height_m=0.4,
         meters_per_pixel=0.5,
         expected_rigid_count=3,
+        semantic_categories_by_id={20: "chair"},
     )
     assert len(result.obstacle_map.rigid_obstacles) == 3
+    assert result.obstacle_map.summary()["rigid_obstacle_role_counts"] == {
+        "elevated_object": 0,
+        "ground_blocker": 3,
+        "unknown": 0,
+        "walkable_floor_covering": 0,
+    }
     assert result.source_center_gate["status"] == "pass"
     assert result.source_center_gate["full_body_collision_claim"] is False
     assert result.source_center_gate["pathfinder_snapshot_match"] is True
@@ -205,7 +214,32 @@ def test_build_rejects_missing_live_furniture(tmp_path: Path) -> None:
             floor_height_m=0.4,
             meters_per_pixel=0.5,
             expected_rigid_count=3,
+            semantic_categories_by_id={20: "chair"},
         )
+
+
+def test_loads_semantic_categories_from_declared_replicacad_lexicon(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "replica_cad"
+    write_json(
+        root / "replicaCAD.scene_dataset_config.json",
+        {
+            "semantic_scene_descriptor_instances": {
+                "replicaCAD_ssd_map": "configs/ssd/lexicon.json"
+            }
+        },
+    )
+    write_json(
+        root / "configs/ssd/lexicon.json",
+        {
+            "classes": [
+                {"id": 20, "name": "Chair"},
+                {"id": 98, "name": "Rug"},
+            ]
+        },
+    )
+    assert load_replicacad_semantic_categories(root) == {20: "chair", 98: "rug"}
 
 
 def test_articulated_room_inventory_is_not_promoted_to_collision_obb() -> None:

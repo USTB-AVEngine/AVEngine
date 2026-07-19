@@ -186,7 +186,44 @@ large-scale dataset generation remain outside this canary.
 
 ### Run the fixed Apartment S0--S5 canary
 
-Use the Habitat/RLR Conda environment; `.venv` is not required:
+Use the Habitat/RLR Conda environment; `.venv` is not required.
+
+The review profile now captures the native RGB/depth/semantic rig at
+`1280x720`. Clean video stays at that resolution and is encoded as H.264
+CRF 18; only the diagnostic main-view panel is downscaled and letterboxed to
+`640x480` beside Topdown. The compositor refuses to upscale a low-resolution
+capture. The profile also installs a Habitat directional key/fill setup and a
+transient exterior proxy made from UE's stock `approaching_storm_4k` HDRI.
+Because the exported Apartment glass writes depth as a black surface, the proxy
+contains a distant inward sphere plus two room-aligned panels immediately
+behind the visible window frames. This is a review approximation, not a claim
+that Habitat reproduces UE exposure, Lumen, baked lighting, or reflection
+captures.
+
+Articulated actors use `idle` while their authored root is stationary and
+`walk` only while it moves. The action clock resets at each transition, and a
+retained capture is accepted only when its positions, rotations, heading and
+locomotion records still match the current authored route.
+
+Prepare the real exterior proxy once. The command fails if the UE asset cannot
+be exported; it never substitutes a synthetic sky:
+
+```bash
+python tools/m6x/prepare_spear_apartment_exterior.py \
+  --ue-root /path/to/UE_5.5 \
+  --uproject /path/to/SpearSim.uproject \
+  --blender /path/to/blender
+```
+
+An already exported HDRI can instead be supplied with `--retained-hdri`
+without a UE installation. That mode is recorded as user-supplied input; it
+does not claim to independently prove the file's Unreal provenance.
+
+The sphere and panels exist only in the visual capture simulator. They are
+non-collidable, use semantic background ID 0, and render as distant depth
+surfaces; they are not added to the room SceneInstance, navmesh, Topdown
+obstacle map, placement gate, or RLR acoustic geometry. Runtime evidence checks
+the final scene and articulated-actor light keys after actor-light binding.
 
 The command expects the existing local M1 Apartment package, M2 Beagle runtime
 records, M3 acoustic package, the supplied human GLB and Beagle dry audio. It
@@ -216,21 +253,24 @@ source manifest, legacy flags and final status under `metadata/`.
 At bundle root, `inputs/input_index.json` records the small configuration
 snapshot, code commits and direct external assets; `FINAL_REPORT.md` states the
 bounded acoustic and placement claims.
-The local closeout run is retained at
-`tmp/m6x/fixed_apartment_canary_20260719_04/REVIEW_INDEX.html`.
+The refreshed local closeout run is retained at
+`tmp/m6x/fixed_apartment_canary_20260719_06/REVIEW_INDEX.html`.
 The bounded feasibility result and its acoustic claim boundary are summarized
 in [the M6.x final report](docs/roadmap/M6X_FINAL_REPORT.md).
 
-To rebuild only the scenario media and metadata while reusing the closeout
-Habitat capture and native RLR result, run:
+The earlier `_04` closeout capture is a historical `320x240` baseline and does
+not satisfy the new visual-profile readback. A fresh run is therefore required
+once. After that, scenario media and metadata can be rebuilt from the new
+capture and native RLR result:
 
 ```bash
+BUNDLE=tmp/m6x/fixed_apartment_720p_run_01
 python tools/m6x/build_fixed_apartment_canary.py \
   --runtime-root /data/jzy/code/habitat-sim-AVEngine \
   --human-runtime-glb /data/jzy/code/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb \
   --beagle-audio /data/jzy/code/AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav \
-  --capture-dir tmp/m6x/fixed_apartment_canary_20260719_04/shared/master_capture \
-  --acoustics-dir tmp/m6x/fixed_apartment_canary_20260719_04/shared/acoustics \
+  --capture-dir "$BUNDLE/shared/master_capture" \
+  --acoustics-dir "$BUNDLE/shared/acoustics" \
   --output tmp/m6x/fixed_apartment_rebuild_01
 ```
 
@@ -257,6 +297,12 @@ below the chosen output directory. ReplicaCAD's six room articulated objects
 do not expose rigid-equivalent collision OBBs through the runtime API; they
 remain represented by the declared navmesh and are reported separately rather
 than being approximated as fake collision boxes.
+
+The reviewed `apt_0` snapshot classifies the 113 rigid objects as 39
+ground-level blockers, 71 elevated objects and 3 walkable rugs/mats, with no
+unknown objects. Rugs remain visible in teal on Topdown but do not fail the
+source-center gate; elevated furniture remains visible in blue and is checked
+with its actual 3-D OBB rather than being flattened into a floor blocker.
 
 ## Repository boundary
 

@@ -1,0 +1,90 @@
+{
+  "schema": "avengine_m6x_review_visual_profile_v1",
+  "profile_id": "spear_apartment_habitat_review_720p_v1",
+  "capture": {
+    "resolution_hw": [720, 1280],
+    "frame_rate_hz": 15,
+    "clean_video": {
+      "codec": "h264",
+      "crf": 18,
+      "preset": "medium"
+    },
+    "diagnostic": {
+      "panel_resolution_hw": [480, 640],
+      "main_panel_policy": "aspect_preserving_downscale_no_upscale",
+      "composition": "main_plus_topdown"
+    }
+  },
+  "lighting": {
+    "setup_id": "spear_apartment_window_key_fill_v1",
+    "hbao": true,
+    "lights": [
+      {
+        "light_id": "window_directional_key",
+        "type": "directional",
+        "direction": [0.38, -0.88, -0.28],
+        "color": [1.0, 0.95, 0.86],
+        "intensity": 1.8,
+        "position_model": "global"
+      },
+      {
+        "light_id": "soft_directional_fill",
+        "type": "directional",
+        "direction": [-0.42, -0.72, 0.55],
+        "color": [0.72, 0.82, 1.0],
+        "intensity": 0.55,
+        "position_model": "global"
+      },
+      {
+        "light_id": "interior_practical_fill",
+        "type": "point",
+        "position": [0.0, 2.65, 1.9],
+        "color": [1.0, 0.84, 0.68],
+        "intensity": 1.25,
+        "position_model": "global"
+      }
+    ],
+    "claim_boundary": "Review lighting only. It is not a reconstruction of the original UE light transport, exposure, reflection captures, baked lighting, or Lumen."
+  },
+  "exterior_proxy": {
+    "enabled": true,
+    "source_asset_uri": "unreal:///HDRIBackdrop/Textures/approaching_storm_4k",
+    "runtime_asset_argument": "exterior_proxy_glb_path",
+    "proxy_kind": "inward_uv_sphere_with_fixed_window_panels",
+    "center": "camera_listener",
+    "scale_xyz": [1.0, 1.0, 1.0],
+    "sphere_radius_m": 30.0,
+    "yaw_degrees": 0.0,
+    "shader_type": "flat",
+    "semantic_id": 0,
+    "semantic_behavior": "background_id_zero",
+    "depth_behavior": "renders_as_far_exterior_surface",
+    "collidable": false,
+    "motion_type": "kinematic",
+    "window_panels": [
+      {
+        "panel_id": "kitchen_rear_window",
+        "center_from_listener_m": [-2.25, 0.6139, -7.45],
+        "width_axis": [1.0, 0.0, 0.0],
+        "height_axis": [0.0, 1.0, 0.0],
+        "size_wh_m": [2.86, 1.61],
+        "uv_rect": [0.05, 0.28, 0.35, 0.72]
+      },
+      {
+        "panel_id": "living_room_window",
+        "center_from_listener_m": [6.2, 0.509, 2.5],
+        "width_axis": [0.0, 0.0, 1.0],
+        "height_axis": [0.0, 1.0, 0.0],
+        "size_wh_m": [6.25, 3.3],
+        "uv_rect": [0.35, 0.24, 0.85, 0.76]
+      }
+    ],
+    "excluded_from": [
+      "room_scene_instance",
+      "collision",
+      "navmesh",
+      "topdown_obstacle_map",
+      "rlr_acoustic_geometry"
+    ]
+  }
+}

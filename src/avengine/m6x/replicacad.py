@@ -114,6 +114,68 @@ def _load_array(path: Path, *, owner: str) -> np.ndarray:
     return np.ascontiguousarray(value)
 
 
+def load_replicacad_semantic_categories(
+    replicacad_root: str | Path,
+) -> Mapping[int, str]:
+    """Load ReplicaCAD's declared semantic-ID lexicon from its dataset config."""
+
+    root = Path(replicacad_root).resolve()
+    dataset_config_path = _required_file(
+        root / "replicaCAD.scene_dataset_config.json",
+        owner="ReplicaCAD scene dataset config",
+    )
+    try:
+        dataset_config = load_json(dataset_config_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise M6XReplicaCADError(
+            f"ReplicaCAD scene dataset config cannot be read: {exc}"
+        ) from exc
+    descriptors = dataset_config.get("semantic_scene_descriptor_instances")
+    if not isinstance(descriptors, Mapping):
+        raise M6XReplicaCADError(
+            "ReplicaCAD dataset config lacks semantic descriptor instances"
+        )
+    relative = descriptors.get("replicaCAD_ssd_map")
+    if not isinstance(relative, str) or not relative:
+        raise M6XReplicaCADError(
+            "ReplicaCAD dataset config lacks replicaCAD_ssd_map"
+        )
+    lexicon_path = _required_file(root / relative, owner="ReplicaCAD semantic lexicon")
+    try:
+        lexicon = load_json(lexicon_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise M6XReplicaCADError(
+            f"ReplicaCAD semantic lexicon cannot be read: {exc}"
+        ) from exc
+    classes = lexicon.get("classes")
+    if not isinstance(classes, list) or not classes:
+        raise M6XReplicaCADError("ReplicaCAD semantic lexicon has no classes")
+    result: dict[int, str] = {}
+    for index, item in enumerate(classes):
+        if not isinstance(item, Mapping):
+            raise M6XReplicaCADError(
+                f"ReplicaCAD semantic class {index} must be an object"
+            )
+        semantic_id = item.get("id")
+        name = item.get("name")
+        if (
+            isinstance(semantic_id, bool)
+            or not isinstance(semantic_id, int)
+            or semantic_id < 0
+            or not isinstance(name, str)
+            or not name.strip()
+        ):
+            raise M6XReplicaCADError(
+                f"ReplicaCAD semantic class {index} is invalid"
+            )
+        if semantic_id in result:
+            raise M6XReplicaCADError(
+                f"ReplicaCAD semantic ID {semantic_id} is duplicated"
+            )
+        result[semantic_id] = name.strip().lower()
+    return result
+
+
 def _sound_class(source: Mapping[str, Any]) -> str:
     taxonomy = source.get("voice_taxonomy")
     field = "vocalization_type"
@@ -476,6 +538,7 @@ def build_replicacad_runtime_review(
     floor_height_m: float,
     meters_per_pixel: float = 0.02,
     expected_rigid_count: int = DEFAULT_EXPECTED_RIGID_COUNT,
+    semantic_categories_by_id: Mapping[int, str] | None = None,
 ) -> ReplicaCADRuntimeReview:
     """Build gate and review frames from one still-live ReplicaCAD snapshot."""
 
@@ -486,6 +549,7 @@ def build_replicacad_runtime_review(
         magnum,
         floor_height_m=floor_height_m,
         meters_per_pixel=meters_per_pixel,
+        semantic_categories_by_id=semantic_categories_by_id,
     )
     if len(obstacle_map.rigid_obstacles) != expected:
         raise M6XReplicaCADError(
@@ -645,6 +709,7 @@ def rebuild_replicacad_obstacle_review(
         delivery_dir=delivery_dir,
         m1_request_path=request_path,
     )
+    semantic_categories = load_replicacad_semantic_categories(dataset)
     request = load_json(request_path)
     qa_views = [
         item
@@ -680,6 +745,7 @@ def rebuild_replicacad_obstacle_review(
             floor_height_m=floor_height,
             meters_per_pixel=meters_per_pixel,
             expected_rigid_count=loaded.expected_rigid_count,
+            semantic_categories_by_id=semantic_categories,
         )
         articulated_room_objects = inspect_replicacad_articulated_room_objects(
             loaded.simulator.get_articulated_object_manager(),
@@ -725,6 +791,16 @@ def rebuild_replicacad_obstacle_review(
             "one live declared navmesh plus all loaded rigid collision OBBs"
         ),
         "rigid_obstacle_count": obstacle_summary["rigid_obstacle_count"],
+        "rigid_obstacle_role_counts": obstacle_summary[
+            "rigid_obstacle_role_counts"
+        ],
+        "blocking_rigid_obstacle_count": obstacle_summary[
+            "blocking_rigid_obstacle_count"
+        ],
+        "obstacle_role_policy": (
+            "ReplicaCAD semantic category plus live collision OBB height and "
+            "navmesh footprint probes; unresolved categories stay conservative"
+        ),
         "articulated_room_object_count": articulated_room_objects["object_count"],
         "articulated_room_object_representation": articulated_room_objects[
             "representation"
@@ -755,6 +831,7 @@ __all__ = [
     "RetainedReplicaCADReview",
     "build_replicacad_runtime_review",
     "inspect_replicacad_articulated_room_objects",
+    "load_replicacad_semantic_categories",
     "load_retained_replicacad_review",
     "rebuild_replicacad_obstacle_review",
 ]

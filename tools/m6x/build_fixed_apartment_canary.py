@@ -26,6 +26,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--human-runtime-glb", required=True, type=Path)
     parser.add_argument("--beagle-audio", required=True, type=Path)
+    parser.add_argument(
+        "--review-visual-profile",
+        type=Path,
+        default=(
+            REPOSITORY
+            / "examples/m6x/fixed_apartment/review_visual_profile.json"
+        ),
+    )
+    parser.add_argument(
+        "--exterior-proxy-glb",
+        type=Path,
+        default=(
+            REPOSITORY
+            / "tmp/m6x/assets/approaching_storm_4k_exterior_v2/approaching_storm_4k_exterior.glb"
+        ),
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
         "--capture-dir",
@@ -60,7 +76,8 @@ def main(argv: list[str] | None = None) -> int:
             REPOSITORY / "tmp/m1/legacy_apartment_package/room_manifest.json"
         ),
         m1_request_path=(
-            REPOSITORY / "examples/m5_1/legacy_apartment/m1_capture_request.json"
+            REPOSITORY
+            / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
         ),
         room_registry_path=REPOSITORY / "examples/m6/rooms/room_registry.json",
         entity_registry_path=(
@@ -82,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
                 REPOSITORY
                 / "tmp/m2/rocketbox_beagle_m2_formal_request_v7_world_contact_r5.json"
             ),
+            "review_visual_profile_path": args.review_visual_profile,
+            "exterior_proxy_glb_path": args.exterior_proxy_glb,
         },
         external_sound_asset_paths={
             "dog_beagle_v2_scheduled_dry": args.beagle_audio,
@@ -91,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
             REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
         ),
         hrtf_file_path=args.hrtf,
+        review_visual_profile_path=args.review_visual_profile,
+        exterior_proxy_glb_path=args.exterior_proxy_glb,
         output_dir=args.output,
         runtime_root=args.runtime_root,
         capture_dir=args.capture_dir,

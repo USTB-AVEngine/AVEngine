@@ -23,7 +23,9 @@ from avengine.m5_1.mixed_capture import (
     _beagle_anatomical_forward_binding,
     _continuous_beagle_walk_states,
     _human_anatomical_forward_binding,
+    _validate_used_action_render_evidence,
     capture_legacy_route,
+    locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
 )
 
@@ -179,6 +181,124 @@ def test_trajectory_world_matrices_reject_vertical_or_implicit_forward_axis() ->
         trajectory_world_matrices(
             points, local_forward_axis=(0.0, 1.0, 0.0)
         )
+
+
+def test_stationary_trajectory_uses_authored_fallback_without_changing_moving_route() -> None:
+    stationary = np.repeat(
+        np.asarray([[1.25, 0.271, -0.75]], dtype=np.float64), 270, axis=0
+    )
+    fallback_xz = np.asarray((0.6, -0.8), dtype=np.float64)
+    matrices = trajectory_world_matrices(
+        stationary,
+        local_forward_axis=(0.0, 0.0, 1.0),
+        fallback_forward_xz=fallback_xz,
+    )
+    world_forward = matrices[:, :3, :3] @ np.asarray((0.0, 0.0, 1.0))
+
+    assert np.array_equal(matrices[:, :3, 3], stationary)
+    assert np.allclose(world_forward, (0.6, 0.0, -0.8))
+    evidence = _actor_heading_evidence(
+        actor_id="stationary0",
+        points_m=stationary,
+        actor_world_matrices=matrices,
+        local_forward_axis=(0.0, 0.0, 1.0),
+        binding_source={"kind": "unit_test"},
+        fallback_forward_xz=fallback_xz,
+    )
+    assert evidence["gate"]["all_frames_passed"] is True
+    assert evidence["heading_authority"] == "authored_first_anchor_yaw_fallback"
+    assert evidence["stationary_fallback_forward_xz"] == [0.6, -0.8]
+
+    with pytest.raises(MixedCaptureError, match="authored fallback_forward_xz"):
+        trajectory_world_matrices(
+            stationary, local_forward_axis=(0.0, 0.0, 1.0)
+        )
+
+    moving = stationary.copy()
+    moving[:, 0] += np.linspace(0.0, 1.0, 270)
+    without_fallback = trajectory_world_matrices(
+        moving, local_forward_axis=(0.0, 0.0, 1.0)
+    )
+    with_fallback = trajectory_world_matrices(
+        moving,
+        local_forward_axis=(0.0, 0.0, 1.0),
+        fallback_forward_xz=(-1.0, 0.0),
+    )
+    assert np.array_equal(with_fallback, without_fallback)
+
+
+def test_locomotion_schedule_uses_root_speed_and_resets_each_action_clock() -> None:
+    points = np.zeros((270, 3), dtype=np.float64)
+    points[76:195, 0] = np.linspace(0.01, 1.19, 119)
+    points[195:, 0] = points[194, 0]
+
+    schedule = locomotion_schedule_from_root_trajectory(
+        points,
+        action_sample_counts={"idle": 175, "walk": 16},
+    )
+
+    assert [state.action_id for state in schedule[:75]] == ["idle"] * 75
+    assert [state.action_id for state in schedule[75:195]] == ["walk"] * 120
+    assert [state.action_id for state in schedule[195:]] == ["idle"] * 75
+    assert schedule[0].action_frame_index == schedule[0].action_sample_index == 0
+    assert schedule[74].action_frame_index == 74
+    assert schedule[75].state_transition is True
+    assert schedule[75].action_frame_index == schedule[75].action_sample_index == 0
+    assert schedule[76].action_phase == 1 / 16
+    assert schedule[194].action_sample_index == 7
+    assert schedule[195].state_transition is True
+    assert schedule[195].action_frame_index == 0
+    assert schedule[195].action_phase == 0.0
+
+
+def test_locomotion_schedule_hysteresis_ignores_subthreshold_root_jitter() -> None:
+    points = np.zeros((270, 3), dtype=np.float64)
+    # 0.02 m/s lies between the 0.015 idle-enter and 0.03 walk-enter gates.
+    points[:, 0] = np.arange(270) * (0.02 / 15.0)
+    schedule = locomotion_schedule_from_root_trajectory(
+        points,
+        action_sample_counts={"idle": 25, "walk": 25},
+    )
+    assert {state.action_id for state in schedule} == {"idle"}
+
+    moving = points.copy()
+    moving[1:, 0] += np.arange(1, 270) * (0.04 / 15.0)
+    moving_schedule = locomotion_schedule_from_root_trajectory(
+        moving,
+        action_sample_counts={"idle": 25, "walk": 25},
+    )
+    assert {state.action_id for state in moving_schedule} == {"walk"}
+
+
+def test_render_evidence_requires_only_actions_selected_by_the_route() -> None:
+    stationary = np.zeros((270, 3), dtype=np.float64)
+    idle_schedule = locomotion_schedule_from_root_trajectory(
+        stationary,
+        action_sample_counts={"idle": 25, "walk": 25},
+    )
+    _validate_used_action_render_evidence(
+        actor_id="dog0",
+        schedule=idle_schedule,
+        pose_hashes_by_action={"idle": {"idle-hash"}, "walk": set()},
+    )
+    with pytest.raises(MixedCaptureError, match="used actions.*idle"):
+        _validate_used_action_render_evidence(
+            actor_id="dog0",
+            schedule=idle_schedule,
+            pose_hashes_by_action={"idle": set(), "walk": {"walk-hash"}},
+        )
+
+    moving = stationary.copy()
+    moving[:, 0] = np.linspace(0.0, 1.0, 270)
+    walk_schedule = locomotion_schedule_from_root_trajectory(
+        moving,
+        action_sample_counts={"idle": 25, "walk": 25},
+    )
+    _validate_used_action_render_evidence(
+        actor_id="dog0",
+        schedule=walk_schedule,
+        pose_hashes_by_action={"idle": set(), "walk": {"walk-hash"}},
+    )
 
 
 def test_actor_heading_evidence_retains_every_frame_and_fails_closed() -> None:

@@ -18,8 +18,30 @@ from typing import Any, Mapping, Protocol, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256, load_json, sha256_file
-from avengine.m5_1.mixed_capture import capture_human_beagle_paths
-from avengine.m6x.trajectory import materialize_template_route
+from avengine.m5_1.mixed_capture import (
+    LOCOMOTION_POLICY_ID,
+    MixedCaptureError,
+    capture_human_beagle_paths,
+    locomotion_schedule_from_root_trajectory,
+    trajectory_world_matrices,
+)
+from avengine.m5_1.orientation import (
+    M51OrientationError,
+    habitat_basis_from_yaw_degrees,
+)
+from avengine.m6x.trajectory import (
+    M6XTrajectoryError,
+    materialize_template_route,
+    template_route_first_anchor_yaw_degrees,
+)
+from avengine.m6x.visual_profile import (
+    M6XVisualProfileError,
+    apply_runtime_review_profile,
+    configure_runtime_review_profile,
+    load_review_visual_profile,
+    validate_profile_capture_request,
+    validate_runtime_review_light_readback,
+)
 
 
 MASTER_FRAME_COUNT = 270
@@ -60,6 +82,13 @@ class ActorCaptureBinding:
     trajectory_template_id: str | None = None
     trajectory_route_id: str | None = None
     always_include_in_timeline: bool = False
+    action_id_record_path: tuple[str, ...] | None = None
+    action_time_ticks_record_path: tuple[str, ...] | None = None
+    action_sample_index_record_path: tuple[str, ...] | None = None
+    action_phase_record_path: tuple[str, ...] | None = None
+    actor_root_position_record_path: tuple[str, ...] | None = None
+    action_sample_counts_evidence_path: tuple[str, ...] | None = None
+    local_anatomical_forward_axis: tuple[float, float, float] | None = None
 
     def timeline_record(self) -> dict[str, str]:
         return {
@@ -94,6 +123,7 @@ class CaptureActorState:
     translation_m: tuple[float, float, float]
     rotation_xyzw: tuple[float, float, float, float]
     action_id: str
+    action_time_ticks: int
     action_phase: float
     pose_hash: str
 
@@ -114,6 +144,12 @@ class FixedApartmentCaptureAdapter(Protocol):
     ) -> list[str]: ...
 
     def materialize_actor_root_paths(
+        self,
+        trajectory_templates: Mapping[str, Any],
+        anchor_library: Mapping[str, Any],
+    ) -> dict[str, np.ndarray]: ...
+
+    def materialize_actor_fallback_forwards_xz(
         self,
         trajectory_templates: Mapping[str, Any],
         anchor_library: Mapping[str, Any],
@@ -155,12 +191,24 @@ class FixedApartmentCaptureAdapter(Protocol):
         m1_request_path: str | Path,
     ) -> None: ...
 
+    def validate_capture_locomotion(self, capture: CaptureData) -> None: ...
+
+    def validate_capture_orientation(
+        self,
+        capture: CaptureData,
+        *,
+        actor_root_paths: Mapping[str, np.ndarray],
+        actor_fallback_forwards_xz: Mapping[str, np.ndarray],
+    ) -> None: ...
+
     def load_capture(
         self,
         path: str | Path,
         *,
         room_manifest_path: str | Path,
         m1_request_path: str | Path,
+        actor_root_paths: Mapping[str, np.ndarray],
+        actor_fallback_forwards_xz: Mapping[str, np.ndarray],
     ) -> CaptureData: ...
 
     def capture(
@@ -170,6 +218,7 @@ class FixedApartmentCaptureAdapter(Protocol):
         m1_request_path: str | Path,
         provider_assets: Mapping[str, str | Path],
         actor_root_paths: Mapping[str, np.ndarray],
+        actor_fallback_forwards_xz: Mapping[str, np.ndarray],
         output_dir: str | Path,
         runtime_root: str | Path | None,
         route_provenance: Mapping[str, Any],
@@ -292,6 +341,16 @@ class HumanBeagleCaptureAdapter:
             trajectory_template_id="dog_master_motion_270",
             trajectory_route_id="dog_master_route",
             always_include_in_timeline=True,
+            action_id_record_path=("beagle", "action_id"),
+            action_time_ticks_record_path=("beagle", "action_time_ticks"),
+            action_sample_index_record_path=("beagle", "action_sample_index"),
+            action_phase_record_path=("beagle", "action_phase"),
+            actor_root_position_record_path=("beagle", "actor_root_position_m"),
+            action_sample_counts_evidence_path=(
+                "runtime",
+                "beagle_action_sample_counts",
+            ),
+            local_anatomical_forward_axis=(1.0, 0.0, 0.0),
         ),
         ActorCaptureBinding(
             actor_id="human0",
@@ -306,6 +365,16 @@ class HumanBeagleCaptureAdapter:
             trajectory_template_id="human_master_motion_270",
             trajectory_route_id="human_master_route",
             always_include_in_timeline=True,
+            action_id_record_path=("human", "action_id"),
+            action_time_ticks_record_path=("human", "action_time_ticks"),
+            action_sample_index_record_path=("human", "action_sample_index"),
+            action_phase_record_path=("human", "action_phase"),
+            actor_root_position_record_path=("human", "actor_root_position_m"),
+            action_sample_counts_evidence_path=(
+                "runtime",
+                "human_action_sample_counts",
+            ),
+            local_anatomical_forward_axis=(0.0, 0.0, 1.0),
         ),
         ActorCaptureBinding(
             actor_id="marker_front",
@@ -533,6 +602,40 @@ class HumanBeagleCaptureAdapter:
             result[actor.actor_id] = np.ascontiguousarray(route)
         return dict(sorted(result.items()))
 
+    def materialize_actor_fallback_forwards_xz(
+        self,
+        trajectory_templates: Mapping[str, Any],
+        anchor_library: Mapping[str, Any],
+    ) -> dict[str, np.ndarray]:
+        """Resolve each captured route's authored first-anchor Habitat yaw."""
+
+        result: dict[str, np.ndarray] = {}
+        for actor in self.actor_bindings:
+            if actor.trajectory_template_id is None:
+                continue
+            if actor.trajectory_route_id is None:
+                raise CaptureAdapterError(
+                    f"actor {actor.actor_id!r} has a template without a route"
+                )
+            try:
+                yaw_degrees = template_route_first_anchor_yaw_degrees(
+                    trajectory_templates,
+                    template_id=actor.trajectory_template_id,
+                    route_id=actor.trajectory_route_id,
+                    anchor_library=anchor_library,
+                )
+                forward_xz = habitat_basis_from_yaw_degrees(
+                    yaw_degrees
+                ).forward_xz
+            except (M6XTrajectoryError, M51OrientationError) as exc:
+                raise CaptureAdapterError(
+                    f"actor {actor.actor_id!r} has no valid authored first-anchor yaw"
+                ) from exc
+            result[actor.actor_id] = np.ascontiguousarray(
+                np.asarray(forward_xz, dtype=np.float64)
+            )
+        return dict(sorted(result.items()))
+
     def provisional_source_paths(
         self,
         anchor_library: Mapping[str, Any],
@@ -665,16 +768,59 @@ class HumanBeagleCaptureAdapter:
             pose_hash = canonical_json_sha256(
                 {"actor_id": actor_id, "position_m": position.tolist()}
             )
-        phase = (
-            0.0
-            if actor.action_phase_period_frames == 1
-            else (master_frame % actor.action_phase_period_frames)
-            / actor.action_phase_period_frames
+        action_record_paths = (
+            actor.action_id_record_path,
+            actor.action_time_ticks_record_path,
+            actor.action_phase_record_path,
         )
+        if any(path is not None for path in action_record_paths):
+            if not all(path is not None for path in action_record_paths):
+                raise CaptureAdapterError(
+                    f"actor {actor_id!r} has an incomplete action-record binding"
+                )
+            record = capture.records[master_frame]
+            action_id = _nested_record_value(
+                record, actor.action_id_record_path or ()
+            )
+            action_time_ticks = _nested_record_value(
+                record, actor.action_time_ticks_record_path or ()
+            )
+            phase = _nested_record_value(
+                record, actor.action_phase_record_path or ()
+            )
+            if (
+                not isinstance(action_id, str)
+                or not action_id
+                or isinstance(action_time_ticks, bool)
+                or not isinstance(action_time_ticks, int)
+                or action_time_ticks < 0
+                or isinstance(phase, bool)
+                or not isinstance(phase, (int, float))
+                or not math.isfinite(float(phase))
+                or not 0.0 <= float(phase) < 1.0
+            ):
+                raise CaptureAdapterError(
+                    f"actor {actor_id!r} captured action state is invalid"
+                )
+            phase = float(phase)
+        else:
+            action_id = actor.action_id
+            action_time_ticks = (
+                0
+                if actor.action_phase_period_frames == 1
+                else master_frame * (TIME_BASE_HZ // FRAME_RATE_HZ)
+            )
+            phase = (
+                0.0
+                if actor.action_phase_period_frames == 1
+                else (master_frame % actor.action_phase_period_frames)
+                / actor.action_phase_period_frames
+            )
         return CaptureActorState(
             translation_m=tuple(float(value) for value in position),
             rotation_xyzw=rotation,
-            action_id=actor.action_id,
+            action_id=action_id,
+            action_time_ticks=action_time_ticks,
             action_phase=phase,
             pose_hash=pose_hash,
         )
@@ -765,9 +911,406 @@ class HumanBeagleCaptureAdapter:
                 "frame_readback frame_index/pts_ticks do not match the time base"
             )
 
+        locomotion = evidence.get("locomotion")
+        if (
+            not isinstance(locomotion, Mapping)
+            or locomotion.get("policy_id") != LOCOMOTION_POLICY_ID
+        ):
+            errors.append(
+                f"locomotion.policy_id must be {LOCOMOTION_POLICY_ID!r}"
+            )
+        if len(records) == MASTER_FRAME_COUNT:
+            for actor in self.actor_bindings:
+                paths = (
+                    actor.action_id_record_path,
+                    actor.action_time_ticks_record_path,
+                    actor.action_phase_record_path,
+                )
+                if not any(path is not None for path in paths):
+                    continue
+                if not all(path is not None for path in paths):
+                    errors.append(
+                        f"actor {actor.actor_id!r} action-record binding is incomplete"
+                    )
+                    continue
+                previous_action: str | None = None
+                previous_time = 0
+                for frame_index, record in enumerate(records):
+                    try:
+                        action_id = _nested_record_value(
+                            record, actor.action_id_record_path or ()
+                        )
+                        action_time = _nested_record_value(
+                            record, actor.action_time_ticks_record_path or ()
+                        )
+                        phase = _nested_record_value(
+                            record, actor.action_phase_record_path or ()
+                        )
+                    except CaptureAdapterError as exc:
+                        errors.append(str(exc))
+                        break
+                    if (
+                        action_id not in {"idle", "walk"}
+                        or isinstance(action_time, bool)
+                        or not isinstance(action_time, int)
+                        or action_time < 0
+                        or isinstance(phase, bool)
+                        or not isinstance(phase, (int, float))
+                        or not math.isfinite(float(phase))
+                        or not 0.0 <= float(phase) < 1.0
+                    ):
+                        errors.append(
+                            f"actor {actor.actor_id!r} frame {frame_index} has an "
+                            "invalid captured locomotion state"
+                        )
+                        break
+                    expected_time = (
+                        0
+                        if frame_index == 0 or action_id != previous_action
+                        else previous_time + ticks_per_frame
+                    )
+                    if action_time != expected_time:
+                        errors.append(
+                            f"actor {actor.actor_id!r} frame {frame_index} action "
+                            "clock did not reset/increment deterministically"
+                        )
+                        break
+                    previous_action = action_id
+                    previous_time = action_time
+
         if errors:
             raise CaptureAdapterError(
                 "capture reuse contract failed: " + "; ".join(errors)
+            )
+
+    def validate_capture_locomotion(self, capture: CaptureData) -> None:
+        """Close retained action records against retained actor-root matrices."""
+
+        matrices = np.asarray(capture.actor_world_matrices, dtype=np.float64)
+        if (
+            matrices.ndim != 4
+            or matrices.shape[0] != MASTER_FRAME_COUNT
+            or matrices.shape[2:] != (4, 4)
+            or not np.all(np.isfinite(matrices))
+        ):
+            raise CaptureAdapterError(
+                "capture locomotion closure requires finite actor_world_matrices"
+            )
+        if len(capture.records) != MASTER_FRAME_COUNT:
+            raise CaptureAdapterError(
+                f"capture locomotion closure requires {MASTER_FRAME_COUNT} records"
+            )
+
+        ticks_per_frame = TIME_BASE_HZ // FRAME_RATE_HZ
+        errors: list[str] = []
+        for actor in self.actor_bindings:
+            paths = {
+                "action_id": actor.action_id_record_path,
+                "action_time_ticks": actor.action_time_ticks_record_path,
+                "action_sample_index": actor.action_sample_index_record_path,
+                "action_phase": actor.action_phase_record_path,
+                "actor_root_position_m": actor.actor_root_position_record_path,
+                "action_sample_counts": actor.action_sample_counts_evidence_path,
+            }
+            if not any(path is not None for path in paths.values()):
+                continue
+            missing_paths = sorted(
+                name for name, path in paths.items() if path is None
+            )
+            if actor.capture_matrix_index is None or missing_paths:
+                errors.append(
+                    f"actor {actor.actor_id!r} locomotion binding is incomplete: "
+                    f"{missing_paths}"
+                )
+                continue
+            matrix_index = actor.capture_matrix_index
+            if matrix_index < 0 or matrix_index >= matrices.shape[1]:
+                errors.append(
+                    f"actor {actor.actor_id!r} capture matrix index is out of range"
+                )
+                continue
+            try:
+                raw_counts = _nested_record_value(
+                    capture.evidence,
+                    actor.action_sample_counts_evidence_path or (),
+                )
+            except CaptureAdapterError as exc:
+                errors.append(str(exc))
+                continue
+            if not isinstance(raw_counts, Mapping) or any(
+                action_id not in raw_counts
+                or isinstance(raw_counts[action_id], bool)
+                or not isinstance(raw_counts[action_id], int)
+                or raw_counts[action_id] < 1
+                for action_id in ("idle", "walk")
+            ):
+                errors.append(
+                    f"actor {actor.actor_id!r} action sample counts are invalid"
+                )
+                continue
+            roots = np.ascontiguousarray(matrices[:, matrix_index, :3, 3])
+            try:
+                expected_schedule = locomotion_schedule_from_root_trajectory(
+                    roots,
+                    action_sample_counts={
+                        action_id: int(raw_counts[action_id])
+                        for action_id in ("idle", "walk")
+                    },
+                )
+            except MixedCaptureError as exc:
+                errors.append(
+                    f"actor {actor.actor_id!r} retained root trajectory is invalid: {exc}"
+                )
+                continue
+
+            for frame_index, (record, expected) in enumerate(
+                zip(capture.records, expected_schedule, strict=True)
+            ):
+                try:
+                    action_id = _nested_record_value(
+                        record, actor.action_id_record_path or ()
+                    )
+                    action_time_ticks = _nested_record_value(
+                        record, actor.action_time_ticks_record_path or ()
+                    )
+                    sample_index = _nested_record_value(
+                        record, actor.action_sample_index_record_path or ()
+                    )
+                    phase = _nested_record_value(
+                        record, actor.action_phase_record_path or ()
+                    )
+                    root_record = _nested_record_value(
+                        record, actor.actor_root_position_record_path or ()
+                    )
+                except CaptureAdapterError as exc:
+                    errors.append(str(exc))
+                    break
+                try:
+                    root_position = np.asarray(root_record, dtype=np.float64)
+                except (TypeError, ValueError, OverflowError):
+                    root_position = np.empty(0, dtype=np.float64)
+                if (
+                    root_position.shape != (3,)
+                    or not np.all(np.isfinite(root_position))
+                    or not np.allclose(
+                        root_position,
+                        roots[frame_index],
+                        rtol=0.0,
+                        atol=1.0e-12,
+                    )
+                ):
+                    errors.append(
+                        f"actor {actor.actor_id!r} frame {frame_index} root position "
+                        "differs from actor_world_matrices"
+                    )
+                    break
+                expected_time_ticks = expected.action_frame_index * ticks_per_frame
+                if action_id != expected.action_id:
+                    errors.append(
+                        f"actor {actor.actor_id!r} frame {frame_index} action_id "
+                        "differs from recomputed root-speed locomotion"
+                    )
+                    break
+                if (
+                    isinstance(action_time_ticks, bool)
+                    or not isinstance(action_time_ticks, int)
+                    or action_time_ticks != expected_time_ticks
+                ):
+                    errors.append(
+                        f"actor {actor.actor_id!r} frame {frame_index} "
+                        "action_time_ticks differs from recomputed locomotion"
+                    )
+                    break
+                if (
+                    isinstance(sample_index, bool)
+                    or not isinstance(sample_index, int)
+                    or sample_index != expected.action_sample_index
+                ):
+                    errors.append(
+                        f"actor {actor.actor_id!r} frame {frame_index} "
+                        "action_sample_index differs from recomputed locomotion"
+                    )
+                    break
+                if (
+                    isinstance(phase, bool)
+                    or not isinstance(phase, (int, float))
+                    or not math.isfinite(float(phase))
+                    or not math.isclose(
+                        float(phase),
+                        expected.action_phase,
+                        rel_tol=0.0,
+                        abs_tol=1.0e-12,
+                    )
+                ):
+                    errors.append(
+                        f"actor {actor.actor_id!r} frame {frame_index} action_phase "
+                        "differs from recomputed locomotion"
+                    )
+                    break
+
+        if errors:
+            raise CaptureAdapterError(
+                "capture locomotion closure failed: " + "; ".join(errors)
+            )
+
+    def validate_capture_orientation(
+        self,
+        capture: CaptureData,
+        *,
+        actor_root_paths: Mapping[str, np.ndarray],
+        actor_fallback_forwards_xz: Mapping[str, np.ndarray],
+    ) -> None:
+        """Close retained rigid transforms against the current authored routes.
+
+        Retained evidence is deliberately not an authority here.  The expected
+        heading is recomputed from the current materialized route and its
+        current first-anchor yaw fallback, using the same path-tangent rule as
+        a fresh capture.
+        """
+
+        matrices = np.asarray(capture.actor_world_matrices, dtype=np.float64)
+        if (
+            matrices.ndim != 4
+            or matrices.shape[0] != MASTER_FRAME_COUNT
+            or matrices.shape[2:] != (4, 4)
+        ):
+            raise CaptureAdapterError(
+                "capture orientation closure requires actor_world_matrices "
+                f"with shape ({MASTER_FRAME_COUNT}, actor_count, 4, 4)"
+            )
+
+        errors: list[str] = []
+        identity = np.eye(3, dtype=np.float64)
+        expected_bottom_row = np.asarray((0.0, 0.0, 0.0, 1.0), dtype=np.float64)
+        for actor in self.actor_bindings:
+            matrix_index = actor.capture_matrix_index
+            if matrix_index is None:
+                continue
+            if matrix_index < 0 or matrix_index >= matrices.shape[1]:
+                errors.append(
+                    f"actor {actor.actor_id!r} capture matrix index is out of range"
+                )
+                continue
+            if actor.local_anatomical_forward_axis is None:
+                errors.append(
+                    f"actor {actor.actor_id!r} has no anatomical forward binding"
+                )
+                continue
+            try:
+                route = np.asarray(
+                    actor_root_paths[actor.actor_id], dtype=np.float64
+                )
+                fallback = np.asarray(
+                    actor_fallback_forwards_xz[actor.actor_id], dtype=np.float64
+                )
+            except KeyError:
+                errors.append(
+                    f"actor {actor.actor_id!r} lacks a current authoritative "
+                    "route or first-anchor yaw fallback"
+                )
+                continue
+            if (
+                route.shape != (MASTER_FRAME_COUNT, 3)
+                or not np.all(np.isfinite(route))
+            ):
+                errors.append(
+                    f"actor {actor.actor_id!r} current authoritative route is invalid"
+                )
+                continue
+
+            actor_matrices = matrices[:, matrix_index]
+            if not np.all(np.isfinite(actor_matrices)):
+                errors.append(
+                    f"actor {actor.actor_id!r} retained 4x4 transforms are not finite"
+                )
+                continue
+            bottom_error = np.max(
+                np.abs(actor_matrices[:, 3, :] - expected_bottom_row), axis=1
+            )
+            bad_bottom = np.flatnonzero(bottom_error > 1.0e-12)
+            if len(bad_bottom):
+                errors.append(
+                    f"actor {actor.actor_id!r} frame {int(bad_bottom[0])} retained "
+                    "4x4 transform is not affine/rigid"
+                )
+                continue
+
+            rotations = actor_matrices[:, :3, :3]
+            gram = np.swapaxes(rotations, 1, 2) @ rotations
+            orthogonality_error = np.max(np.abs(gram - identity), axis=(1, 2))
+            bad_rigid = np.flatnonzero(orthogonality_error > 1.0e-9)
+            if len(bad_rigid):
+                errors.append(
+                    f"actor {actor.actor_id!r} frame {int(bad_rigid[0])} retained "
+                    "rotation is not rigid/orthonormal"
+                )
+                continue
+            determinants = np.linalg.det(rotations)
+            bad_handedness = np.flatnonzero(
+                np.abs(determinants - 1.0) > 1.0e-9
+            )
+            if len(bad_handedness):
+                errors.append(
+                    f"actor {actor.actor_id!r} frame "
+                    f"{int(bad_handedness[0])} retained rotation is not right-handed"
+                )
+                continue
+
+            root_error = np.max(
+                np.abs(actor_matrices[:, :3, 3] - route), axis=1
+            )
+            bad_root = np.flatnonzero(root_error > 1.0e-12)
+            if len(bad_root):
+                errors.append(
+                    f"actor {actor.actor_id!r} frame {int(bad_root[0])} retained "
+                    "root differs from the current authoritative route"
+                )
+                continue
+
+            local_forward = np.asarray(
+                actor.local_anatomical_forward_axis, dtype=np.float64
+            )
+            try:
+                expected_matrices = trajectory_world_matrices(
+                    route,
+                    local_forward_axis=local_forward,
+                    fallback_forward_xz=fallback,
+                )
+            except MixedCaptureError as exc:
+                errors.append(
+                    f"actor {actor.actor_id!r} current heading authority is invalid: "
+                    f"{exc}"
+                )
+                continue
+            actual_forward = rotations @ local_forward
+            expected_forward = expected_matrices[:, :3, :3] @ local_forward
+            forward_error = np.linalg.norm(
+                actual_forward - expected_forward, axis=1
+            )
+            bad_forward = np.flatnonzero(forward_error > 1.0e-9)
+            if len(bad_forward):
+                errors.append(
+                    f"actor {actor.actor_id!r} frame {int(bad_forward[0])} retained "
+                    "world forward differs from the current authoritative route "
+                    "tangent or first-anchor yaw fallback"
+                )
+                continue
+            canonical_rotation_error = np.max(
+                np.abs(rotations - expected_matrices[:, :3, :3]), axis=(1, 2)
+            )
+            bad_canonical_rotation = np.flatnonzero(
+                canonical_rotation_error > 1.0e-9
+            )
+            if len(bad_canonical_rotation):
+                errors.append(
+                    f"actor {actor.actor_id!r} frame "
+                    f"{int(bad_canonical_rotation[0])} retained rotation differs "
+                    "from the canonical current route orientation"
+                )
+
+        if errors:
+            raise CaptureAdapterError(
+                "capture orientation closure failed: " + "; ".join(errors)
             )
 
     def load_capture(
@@ -776,6 +1319,8 @@ class HumanBeagleCaptureAdapter:
         *,
         room_manifest_path: str | Path,
         m1_request_path: str | Path,
+        actor_root_paths: Mapping[str, np.ndarray],
+        actor_fallback_forwards_xz: Mapping[str, np.ndarray],
     ) -> CaptureData:
         root = Path(path).resolve()
         required = {
@@ -803,20 +1348,25 @@ class HumanBeagleCaptureAdapter:
         semantic = np.load(required["semantic"], allow_pickle=False)
         actor = np.load(required["actor"], allow_pickle=False)
         anchors = np.load(required["anchors"], allow_pickle=False)
+        request = load_json(Path(m1_request_path).resolve())
         captured_actor_count = sum(
             item.capture_matrix_index is not None for item in self.actor_bindings
         )
+        calibration = request["primary_camera_rig"]["shared_calibration"]
+        capture_height, capture_width = calibration["resolution_hw"]
         if (
-            rgb.shape != (MASTER_FRAME_COUNT, 240, 320, 3)
+            rgb.shape
+            != (MASTER_FRAME_COUNT, capture_height, capture_width, 3)
             or rgb.dtype != np.uint8
-            or semantic.shape != (MASTER_FRAME_COUNT, 240, 320)
+            or semantic.shape
+            != (MASTER_FRAME_COUNT, capture_height, capture_width)
             or actor.shape != (MASTER_FRAME_COUNT, captured_actor_count, 4, 4)
             or anchors.shape != (MASTER_FRAME_COUNT, len(self.capture_anchor_order), 3)
         ):
             raise CaptureAdapterError(
                 "capture arrays/evidence differ from the adapter contract"
             )
-        return CaptureData(
+        capture = CaptureData(
             root=root,
             rgb=np.ascontiguousarray(rgb),
             semantic=np.ascontiguousarray(semantic),
@@ -825,6 +1375,13 @@ class HumanBeagleCaptureAdapter:
             records=tuple(records),
             evidence=evidence,
         )
+        self.validate_capture_locomotion(capture)
+        self.validate_capture_orientation(
+            capture,
+            actor_root_paths=actor_root_paths,
+            actor_fallback_forwards_xz=actor_fallback_forwards_xz,
+        )
+        return capture
 
     def capture_data(self, result: Any) -> CaptureData:
         return CaptureData(
@@ -844,6 +1401,7 @@ class HumanBeagleCaptureAdapter:
         m1_request_path: str | Path,
         provider_assets: Mapping[str, str | Path],
         actor_root_paths: Mapping[str, np.ndarray],
+        actor_fallback_forwards_xz: Mapping[str, np.ndarray],
         output_dir: str | Path,
         runtime_root: str | Path | None,
         route_provenance: Mapping[str, Any],
@@ -852,6 +1410,8 @@ class HumanBeagleCaptureAdapter:
             "human_runtime_glb_path",
             "animal_manifest_path",
             "animal_request_path",
+            "review_visual_profile_path",
+            "exterior_proxy_glb_path",
         }
         missing_assets = sorted(required_assets.difference(provider_assets))
         if missing_assets:
@@ -864,19 +1424,71 @@ class HumanBeagleCaptureAdapter:
             raise CaptureAdapterError(
                 f"capture provider root paths are missing: {missing_actors}"
             )
-        result = capture_human_beagle_paths(
-            room_manifest_path=room_manifest_path,
-            m1_request_path=m1_request_path,
-            human_runtime_glb_path=provider_assets["human_runtime_glb_path"],
-            beagle_animal_manifest_path=provider_assets["animal_manifest_path"],
-            beagle_m2_request_path=provider_assets["animal_request_path"],
-            human_root_path_m=actor_root_paths["human0"],
-            beagle_root_path_m=actor_root_paths["dog0"],
-            output_dir=output_dir,
-            runtime_root=runtime_root,
-            route_provenance=route_provenance,
-            require_legacy_camera=True,
+        missing_forwards = sorted(
+            required_actors.difference(actor_fallback_forwards_xz)
         )
+        if missing_forwards:
+            raise CaptureAdapterError(
+                "capture provider authored fallback forwards are missing: "
+                f"{missing_forwards}"
+            )
+        try:
+            visual_profile = load_review_visual_profile(
+                provider_assets["review_visual_profile_path"]
+            )
+            validate_profile_capture_request(
+                visual_profile, load_json(Path(m1_request_path).resolve())
+            )
+
+            def review_configuration_hook(**kwargs: Any) -> Mapping[str, Any]:
+                return configure_runtime_review_profile(
+                    configuration=kwargs["configuration"],
+                    profile=visual_profile,
+                    habitat_sim=kwargs["habitat_sim"],
+                )
+
+            def review_scene_hook(**kwargs: Any) -> Mapping[str, Any]:
+                return apply_runtime_review_profile(
+                    simulator=kwargs["simulator"],
+                    profile=visual_profile,
+                    exterior_proxy_glb_path=provider_assets[
+                        "exterior_proxy_glb_path"
+                    ],
+                    camera_listener_position_m=kwargs[
+                        "camera_listener_position_m"
+                    ],
+                    habitat_sim=kwargs["habitat_sim"],
+                    mn=kwargs["mn"],
+                )
+
+            def review_scene_readback_hook(**kwargs: Any) -> Mapping[str, Any]:
+                return validate_runtime_review_light_readback(
+                    simulator=kwargs["simulator"],
+                    profile=visual_profile,
+                    habitat_sim=kwargs["habitat_sim"],
+                    actor_light_setup_key=kwargs["actor_light_setup_key"],
+                )
+
+            result = capture_human_beagle_paths(
+                room_manifest_path=room_manifest_path,
+                m1_request_path=m1_request_path,
+                human_runtime_glb_path=provider_assets["human_runtime_glb_path"],
+                beagle_animal_manifest_path=provider_assets["animal_manifest_path"],
+                beagle_m2_request_path=provider_assets["animal_request_path"],
+                human_root_path_m=actor_root_paths["human0"],
+                beagle_root_path_m=actor_root_paths["dog0"],
+                human_fallback_forward_xz=actor_fallback_forwards_xz["human0"],
+                beagle_fallback_forward_xz=actor_fallback_forwards_xz["dog0"],
+                output_dir=output_dir,
+                runtime_root=runtime_root,
+                route_provenance=route_provenance,
+                require_legacy_camera=True,
+                review_configuration_hook=review_configuration_hook,
+                review_scene_hook=review_scene_hook,
+                review_scene_readback_hook=review_scene_readback_hook,
+            )
+        except M6XVisualProfileError as exc:
+            raise CaptureAdapterError(str(exc)) from exc
         capture = self.capture_data(result)
         self.validate_capture_reuse_contract(
             capture.evidence,
@@ -884,6 +1496,7 @@ class HumanBeagleCaptureAdapter:
             room_manifest_path=room_manifest_path,
             m1_request_path=m1_request_path,
         )
+        self.validate_capture_locomotion(capture)
         return capture
 
 

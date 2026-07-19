@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 
 from avengine.m6x.geometry import (
+    ELEVATED_OBJECT,
+    GROUND_BLOCKER,
     M6XGeometryError,
+    UNKNOWN_OBSTACLE_ROLE,
+    WALKABLE_FLOOR_COVERING,
     build_runtime_obstacle_map,
     evaluate_source_center_gate,
     extract_loaded_rigid_obstacles,
@@ -39,10 +43,16 @@ class _Object:
         *,
         rotation: np.ndarray | None = None,
         translation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        semantic_id: int | None = None,
+        collision_bounds: tuple[
+            tuple[float, float, float], tuple[float, float, float]
+        ] = ((-0.5, -0.25, -0.2), (0.5, 0.25, 0.2)),
     ):
         self.object_id = object_id
         self.handle = handle
-        self.collision_shape_aabb = _Bounds((-0.5, -0.25, -0.2), (0.5, 0.25, 0.2))
+        if semantic_id is not None:
+            self.semantic_id = semantic_id
+        self.collision_shape_aabb = _Bounds(*collision_bounds)
         self.transformation = _Transform(
             np.eye(3) if rotation is None else rotation,
             translation,
@@ -68,6 +78,7 @@ class _PathFinder:
 
     def __init__(self) -> None:
         self.changed = False
+        self.is_navigable_call_count = 0
 
     def get_topdown_view(self, meters_per_pixel: float, height_m: float):
         assert meters_per_pixel == pytest.approx(0.1)
@@ -82,6 +93,7 @@ class _PathFinder:
         return np.asarray(((0.0, 0.0, 0.0), (2.0, 2.0, 2.0)), dtype=np.float64)
 
     def is_navigable(self, point, maximum_y_delta):
+        self.is_navigable_call_count += 1
         x, _, z = np.asarray(point, dtype=np.float64)
         return 0.0 <= x <= 2.0 and 0.0 <= z <= 2.0 and not 0.9 <= x <= 1.1
 
@@ -191,6 +203,109 @@ def test_runtime_map_retains_all_113_replicacad_style_rigid_obbs() -> None:
         range(113)
     )
     assert obstacle_map.summary()["rigid_obstacle_count"] == 113
+
+
+def test_roles_require_semantics_geometry_and_live_navmesh_confirmation() -> None:
+    rug = _Object(
+        1,
+        "opaque_asset_name_a",
+        translation=(0.5, 0.4, 0.5),
+        semantic_id=98,
+        collision_bounds=((-0.3, -0.04, -0.3), (0.3, 0.04, 0.3)),
+    )
+    chair = _Object(
+        2,
+        "opaque_asset_name_b",
+        translation=(1.5, 0.4, 1.5),
+        semantic_id=20,
+    )
+    picture = _Object(
+        3,
+        "opaque_asset_name_c",
+        translation=(0.5, 1.5, 1.5),
+        semantic_id=59,
+        collision_bounds=((-0.2, -0.1, -0.05), (0.2, 0.1, 0.05)),
+    )
+    unresolved = _Object(4, "opaque_asset_name_d", translation=(0.5, 0.4, 1.0))
+    pathfinder = _PathFinder()
+    obstacle_map = build_runtime_obstacle_map(
+        pathfinder,
+        _Manager(rug, chair, picture, unresolved),
+        _Mn,
+        floor_height_m=0.4,
+        meters_per_pixel=0.1,
+        semantic_categories_by_id={20: "chair", 59: "picture", 98: "rug"},
+    )
+    by_id = {item["object_id"]: item for item in obstacle_map.rigid_obstacles}
+    assert by_id[1]["obstacle_role"] == WALKABLE_FLOOR_COVERING
+    assert by_id[1]["blocks_source_center"] is False
+    assert by_id[1]["semantic_category"] == "rug"
+    assert by_id[1]["role_evidence"]["navmesh_floor_confirmation"] is True
+    assert by_id[2]["obstacle_role"] == GROUND_BLOCKER
+    assert by_id[3]["obstacle_role"] == ELEVATED_OBJECT
+    assert by_id[4]["obstacle_role"] == UNKNOWN_OBSTACLE_ROLE
+    assert pathfinder.is_navigable_call_count == 5
+    assert by_id[2]["role_evidence"]["navmesh_floor_probe_count"] == 0
+    assert by_id[2]["role_evidence"]["navmesh_floor_confirmation"] is None
+    assert obstacle_map.summary()["rigid_obstacle_role_counts"] == {
+        ELEVATED_OBJECT: 1,
+        GROUND_BLOCKER: 1,
+        UNKNOWN_OBSTACLE_ROLE: 1,
+        WALKABLE_FLOOR_COVERING: 1,
+    }
+
+    # A source center may occupy the confirmed thin floor covering, while an
+    # unresolved OBB remains conservative and blocks the same exact 3-D test.
+    report = evaluate_source_center_gate(
+        pathfinder,
+        obstacle_map,
+        {
+            "on_rug": [[0.5, 0.4, 0.5]],
+            "inside_unknown": [[0.5, 0.4, 1.0]],
+            "near_elevated": [[0.5, 1.7, 1.5]],
+            "inside_elevated": [[0.5, 1.5, 1.5]],
+        },
+    )
+    assert report["sources"]["on_rug"]["status"] == "pass"
+    rug_frame = report["sources"]["on_rug"]["frames"][0]
+    assert rug_frame["inside_loaded_rigid_obstacle"] is True
+    assert rug_frame["inside_blocking_loaded_rigid_obstacle"] is False
+    assert rug_frame["nearest_rigid_obstacle"]["obstacle_role"] == (
+        WALKABLE_FLOOR_COVERING
+    )
+    assert rug_frame["nearest_blocking_rigid_obstacle"] is not None
+    assert rug_frame["rigid_obstacle_clearance_m"] == pytest.approx(0.0)
+    assert rug_frame["blocking_rigid_obstacle_clearance_m"] > 0.0
+    assert report["sources"]["inside_unknown"]["status"] == "fail"
+    assert report["sources"]["near_elevated"]["status"] == "pass"
+    assert report["sources"]["inside_elevated"]["status"] == "fail"
+    assert (
+        report["sources"]["inside_elevated"]["frames"][0][
+            "nearest_rigid_obstacle"
+        ]["obstacle_role"]
+        == ELEVATED_OBJECT
+    )
+
+
+def test_floor_covering_semantics_alone_cannot_bypass_collision_gate() -> None:
+    thick_or_unsupported_rug = _Object(
+        1,
+        "not_used_for_classification",
+        translation=(1.0, 0.7, 0.5),
+        semantic_id=98,
+        collision_bounds=((-0.3, -0.3, -0.3), (0.3, 0.3, 0.3)),
+    )
+    obstacle_map = build_runtime_obstacle_map(
+        _PathFinder(),
+        _Manager(thick_or_unsupported_rug),
+        _Mn,
+        floor_height_m=0.4,
+        meters_per_pixel=0.1,
+        semantic_categories_by_id={98: "rug"},
+    )
+    record = obstacle_map.rigid_obstacles[0]
+    assert record["obstacle_role"] == UNKNOWN_OBSTACLE_ROLE
+    assert record["blocks_source_center"] is True
 
 
 def test_gate_rejects_a_different_or_reloaded_pathfinder() -> None:

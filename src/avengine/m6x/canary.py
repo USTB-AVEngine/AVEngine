@@ -33,7 +33,6 @@ from avengine.m4.audio import read_float32_wav, write_float32_wav
 from avengine.m4.runtime import M4SimulationConfig
 from avengine.m5.acoustics import DynamicRIRSequence
 from avengine.m5.timeline import json_schema_errors as m5_json_schema_errors
-from avengine.m5.video import encode_h264_base_video, mux_binaural_wav
 from avengine.m5_1.acoustics import (
     ResearchReviewKeyframeGrid,
     build_strided_review_keyframes,
@@ -45,7 +44,6 @@ from avengine.m5_1.delivery import binaural_frame_diagnostics
 from avengine.m5_1.dry_audio import DryAudioClipSpec, assemble_dry_audio_buses
 from avengine.m5_1.review import (
     SourceOverlayTrack,
-    compose_annotated_frames,
     encode_annotated_review,
 )
 from avengine.m6.audio_program import (
@@ -78,6 +76,16 @@ from avengine.m6x.contracts import (
 )
 from avengine.m6x.input_snapshot import write_canary_input_snapshot
 from avengine.m6x.topdown import render_runtime_topdown_frames
+from avengine.m6x.visual_profile import (
+    M6XVisualProfileError,
+    ReviewVisualProfile,
+    compose_profiled_annotated_frames,
+    encode_profiled_h264_base_video,
+    load_review_visual_profile,
+    mux_profiled_binaural_wav,
+    validate_profile_capture_request,
+    validate_realized_review_profile,
+)
 
 
 CANARY_SCHEMA = "avengine_m6x_fixed_apartment_canary_v1"
@@ -127,6 +135,8 @@ def _load_capture(
     *,
     room_manifest_path: str | Path,
     m1_request_path: str | Path,
+    actor_root_paths: Mapping[str, np.ndarray],
+    actor_fallback_forwards_xz: Mapping[str, np.ndarray],
     capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
 ) -> CaptureData:
     try:
@@ -134,6 +144,8 @@ def _load_capture(
             path,
             room_manifest_path=room_manifest_path,
             m1_request_path=m1_request_path,
+            actor_root_paths=actor_root_paths,
+            actor_fallback_forwards_xz=actor_fallback_forwards_xz,
         )
     except CaptureAdapterError as exc:
         raise M6XCanaryError(str(exc)) from exc
@@ -855,7 +867,7 @@ def _timeline(
                         "scale": [1.0, 1.0, 1.0],
                     },
                     "action_id": actor_state.action_id,
-                    "action_time_ticks": local_frame * 3200,
+                    "action_time_ticks": actor_state.action_time_ticks,
                     "action_phase": actor_state.action_phase,
                     "pose_hash": actor_state.pose_hash,
                     "contacts": {},
@@ -1093,6 +1105,7 @@ def _render_variant(
     rir_metadata_path: Path,
     rir_bundle_uri: str,
     capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
+    visual_profile: ReviewVisualProfile,
 ) -> dict[str, Any]:
     source_ids = tuple(program["candidate_source_endpoint_ids"])
     clip = DryAudioClipSpec.from_values(
@@ -1161,8 +1174,10 @@ def _render_variant(
 
     clean_base = variant_root / "videos/clean_video_only.mp4"
     clean_path = variant_root / "videos/clean_binaural.mp4"
-    encode_h264_base_video(rgb, clean_base)
-    mux_binaural_wav(clean_base, mixture_path, clean_path)
+    encode_profiled_h264_base_video(rgb, clean_base, profile=visual_profile)
+    mux_profiled_binaural_wav(
+        clean_base, mixture_path, clean_path, profile=visual_profile
+    )
     clean_base.unlink()
 
     activity, event_state = _program_frame_state(program, source_ids)
@@ -1183,6 +1198,10 @@ def _render_variant(
         source_activity_by_frame=activity,
         source_labels=labels,
         source_colors=colors,
+        size_wh=(
+            visual_profile.diagnostic_width,
+            visual_profile.diagnostic_height,
+        ),
     )
     visibility = _visibility_facts(
         source_ids=source_ids,
@@ -1213,7 +1232,8 @@ def _render_variant(
         window_start=window_start,
         capture_adapter=capture_adapter,
     )
-    annotated = compose_annotated_frames(
+    annotated = compose_profiled_annotated_frames(
+        profile=visual_profile,
         main_rgb=rgb,
         topdown_rgb=topdown,
         tracks=tracks,
@@ -1457,6 +1477,8 @@ def run_fixed_apartment_canary(
     acoustic_package_manifest_path: str | Path,
     m4_request_path: str | Path,
     hrtf_file_path: str | Path,
+    review_visual_profile_path: str | Path,
+    exterior_proxy_glb_path: str | Path,
     output_dir: str | Path,
     runtime_root: str | Path | None = None,
     capture_dir: str | Path | None = None,
@@ -1484,6 +1506,20 @@ def run_fixed_apartment_canary(
     acoustic_package_manifest_path = Path(acoustic_package_manifest_path).resolve()
     m4_request_path = Path(m4_request_path).resolve()
     hrtf_file_path = Path(hrtf_file_path).resolve()
+    review_visual_profile_path = Path(review_visual_profile_path).resolve()
+    exterior_proxy_glb_path = Path(exterior_proxy_glb_path).resolve()
+    try:
+        visual_profile = load_review_visual_profile(review_visual_profile_path)
+        validate_profile_capture_request(
+            visual_profile, load_json(m1_request_path)
+        )
+    except M6XVisualProfileError as exc:
+        raise M6XCanaryError(str(exc)) from exc
+    if not exterior_proxy_glb_path.is_file():
+        raise M6XCanaryError(
+            "prepared approaching_storm exterior proxy GLB is missing; run "
+            "tools/m6x/prepare_spear_apartment_exterior.py first"
+        )
     resolved_runtime_root = (
         Path(runtime_root).resolve()
         if runtime_root is not None
@@ -1504,6 +1540,11 @@ def run_fixed_apartment_canary(
     try:
         actor_root_paths = capture_adapter.materialize_actor_root_paths(
             values["trajectories"], values["anchors"]
+        )
+        actor_fallback_forwards_xz = (
+            capture_adapter.materialize_actor_fallback_forwards_xz(
+                values["trajectories"], values["anchors"]
+            )
         )
         provisional_paths = capture_adapter.provisional_source_paths(
             values["anchors"], actor_root_paths
@@ -1530,6 +1571,7 @@ def run_fixed_apartment_canary(
                     m1_request_path=m1_request_path,
                     provider_assets=capture_provider_assets,
                     actor_root_paths=actor_root_paths,
+                    actor_fallback_forwards_xz=actor_fallback_forwards_xz,
                     output_dir=staging / "shared/master_capture",
                     runtime_root=runtime_root,
                     route_provenance={
@@ -1538,6 +1580,12 @@ def run_fixed_apartment_canary(
                             "examples/m6x/fixed_apartment/trajectory_templates.json"
                         ),
                         "placement_semantics": "source_center_only",
+                        "actor_first_anchor_forward_xz": {
+                            actor_id: [float(value) for value in forward]
+                            for actor_id, forward in sorted(
+                                actor_fallback_forwards_xz.items()
+                            )
+                        },
                     },
                 )
             except CaptureAdapterError as exc:
@@ -1547,6 +1595,8 @@ def run_fixed_apartment_canary(
                 capture_dir,
                 room_manifest_path=room_manifest_path,
                 m1_request_path=m1_request_path,
+                actor_root_paths=actor_root_paths,
+                actor_fallback_forwards_xz=actor_fallback_forwards_xz,
                 capture_adapter=capture_adapter,
             )
             shutil.copytree(source_capture.root, staging / "shared/master_capture")
@@ -1554,14 +1604,21 @@ def run_fixed_apartment_canary(
                 staging / "shared/master_capture",
                 room_manifest_path=room_manifest_path,
                 m1_request_path=m1_request_path,
+                actor_root_paths=actor_root_paths,
+                actor_fallback_forwards_xz=actor_fallback_forwards_xz,
                 capture_adapter=capture_adapter,
             )
 
         try:
+            validate_realized_review_profile(
+                capture.evidence,
+                profile=visual_profile,
+                exterior_proxy_glb_path=exterior_proxy_glb_path,
+            )
             source_paths = capture_adapter.actual_source_paths(
                 values["anchors"], capture
             )
-        except CaptureAdapterError as exc:
+        except (CaptureAdapterError, M6XVisualProfileError) as exc:
             raise M6XCanaryError(str(exc)) from exc
         qualification = qualify_fixed_apartment(
             room_manifest_path=room_manifest_path,
@@ -1765,6 +1822,7 @@ def run_fixed_apartment_canary(
                         rir_metadata_path=rir_metadata_path,
                         rir_bundle_uri=rir_bundle_uri,
                         capture_adapter=capture_adapter,
+                        visual_profile=visual_profile,
                     )
                 )
 
@@ -1796,10 +1854,12 @@ def run_fixed_apartment_canary(
                 "sound_asset_registry": sound_registry_path,
                 "acoustic_package_manifest": acoustic_package_manifest_path,
                 "m4_simulation_request": m4_request_path,
+                "review_visual_profile": review_visual_profile_path,
                 **provider_json_inputs,
             },
             external_assets={
                 "binaural_hrtf": resolved_hrtf,
+                "exterior_proxy_glb": exterior_proxy_glb_path,
                 **provider_external_assets,
                 **sound_external_assets,
             },
@@ -1845,6 +1905,15 @@ def run_fixed_apartment_canary(
             "audio_visibility_policy": "360_degree_no_camera_fov_cutoff",
             "acoustic_identity": acoustic_identity,
             "capture_adapter_id": capture_adapter.adapter_id,
+            "review_visual_profile": {
+                "profile_id": visual_profile.profile_id,
+                "capture_resolution_hw": list(
+                    visual_profile.capture_resolution_hw
+                ),
+                "diagnostic_panel_resolution_hw": list(
+                    visual_profile.diagnostic_panel_resolution_hw
+                ),
+            },
             "input_snapshot": input_snapshot_path.relative_to(staging).as_posix(),
             "final_report": final_report_path.relative_to(staging).as_posix(),
             "variants": [

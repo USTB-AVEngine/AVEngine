@@ -1,11 +1,11 @@
 """Fixed-state Habitat capture for the M5.1 Rocketbox-human + Beagle route.
 
 The public path entrypoint consumes two 270-point actor trajectories.  It
-compiles the Rocketbox Walking clip to 15 fps, repeats the caller-provided M2
-Beagle states, writes both articulated states explicitly for every frame, and
-makes exactly one co-located RGB/depth/semantic observation call.  RGB and
-semantic are retained; depth is observed only to preserve the M1 shared-view
-contract.
+derives each actor's idle/walk state from its authored root trajectory, samples
+the action loops declared by that actor's runtime package, writes both
+articulated states explicitly for every frame, and makes exactly one
+co-located RGB/depth/semantic observation call.  RGB and semantic are retained;
+depth is observed only to preserve the M1 shared-view contract.
 
 The legacy-route wrapper reads the two paths verbatim from the committed M5.1
 route manifest.  Neither entrypoint advances Habitat physics or uses a static
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 
@@ -92,6 +92,9 @@ _ROOT_READBACK_ATOL = 2.0e-6
 _JOINT_READBACK_ATOL = 2.0e-6
 _LINK_MATRIX_READBACK_ATOL = 2.0e-5
 _HEADING_ALIGNMENT_MAX_ERROR_DEG = 1.0e-6
+LOCOMOTION_POLICY_ID = "authored_root_horizontal_speed_hysteresis_v1"
+LOCOMOTION_WALK_ENTER_SPEED_M_S = 0.03
+LOCOMOTION_IDLE_ENTER_SPEED_M_S = 0.015
 
 
 class MixedCaptureError(RuntimeError):
@@ -113,6 +116,18 @@ class MixedCaptureResult:
     evidence: Mapping[str, Any]
 
 
+@dataclass(frozen=True)
+class LocomotionFrameState:
+    """One action selection derived only from an authored actor-root path."""
+
+    action_id: str
+    action_frame_index: int
+    action_sample_index: int
+    action_phase: float
+    horizontal_speed_m_s: float
+    state_transition: bool
+
+
 def _points(value: Any, *, owner: str) -> np.ndarray:
     try:
         array = np.asarray(value, dtype=np.float64)
@@ -121,6 +136,134 @@ def _points(value: Any, *, owner: str) -> np.ndarray:
     if array.shape != (FRAME_COUNT, 3) or not np.all(np.isfinite(array)):
         raise MixedCaptureError(f"{owner} must be a finite [270,3] array")
     return np.ascontiguousarray(array)
+
+
+def locomotion_schedule_from_root_trajectory(
+    points_m: Any,
+    *,
+    action_sample_counts: Mapping[str, int],
+    frame_rate_hz: int = FRAME_RATE_HZ,
+    walk_enter_speed_m_s: float = LOCOMOTION_WALK_ENTER_SPEED_M_S,
+    idle_enter_speed_m_s: float = LOCOMOTION_IDLE_ENTER_SPEED_M_S,
+) -> tuple[LocomotionFrameState, ...]:
+    """Select ``idle``/``walk`` from root speed with deterministic hysteresis.
+
+    The speed at a visual frame is the larger of its incoming and outgoing
+    horizontal segment speeds.  This makes the pose switch to ``walk`` on the
+    first authored moving frame and remain ``walk`` through the final moving
+    frame.  A change of semantic action resets that action's sample clock.
+    """
+
+    points = _points(points_m, owner="actor root trajectory")
+    try:
+        sample_counts = {
+            action_id: int(action_sample_counts[action_id])
+            for action_id in ("idle", "walk")
+        }
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise MixedCaptureError(
+            "locomotion actions must declare positive idle and walk sample counts"
+        ) from exc
+    if (
+        any(value < 1 for value in sample_counts.values())
+        or isinstance(frame_rate_hz, bool)
+        or not isinstance(frame_rate_hz, int)
+        or frame_rate_hz < 1
+        or not math.isfinite(float(walk_enter_speed_m_s))
+        or not math.isfinite(float(idle_enter_speed_m_s))
+        or idle_enter_speed_m_s < 0.0
+        or walk_enter_speed_m_s <= idle_enter_speed_m_s
+    ):
+        raise MixedCaptureError(
+            "locomotion thresholds/counts must be finite with "
+            "0 <= idle-enter < walk-enter and positive sample counts"
+        )
+
+    segment_speeds = (
+        np.linalg.norm(np.diff(points[:, (0, 2)], axis=0), axis=1)
+        * frame_rate_hz
+    )
+    frame_speeds = np.empty(FRAME_COUNT, dtype=np.float64)
+    frame_speeds[0] = segment_speeds[0]
+    frame_speeds[-1] = segment_speeds[-1]
+    frame_speeds[1:-1] = np.maximum(segment_speeds[:-1], segment_speeds[1:])
+
+    action_id = (
+        "walk" if frame_speeds[0] >= walk_enter_speed_m_s else "idle"
+    )
+    action_frame_index = 0
+    schedule: list[LocomotionFrameState] = []
+    for frame_index, speed in enumerate(frame_speeds):
+        selected = action_id
+        if action_id == "idle" and speed >= walk_enter_speed_m_s:
+            selected = "walk"
+        elif action_id == "walk" and speed <= idle_enter_speed_m_s:
+            selected = "idle"
+        transition = frame_index == 0 or selected != action_id
+        if transition:
+            action_frame_index = 0
+        else:
+            action_frame_index += 1
+        action_id = selected
+        sample_count = sample_counts[action_id]
+        sample_index = action_frame_index % sample_count
+        schedule.append(
+            LocomotionFrameState(
+                action_id=action_id,
+                action_frame_index=action_frame_index,
+                action_sample_index=sample_index,
+                action_phase=sample_index / sample_count,
+                horizontal_speed_m_s=float(speed),
+                state_transition=transition,
+            )
+        )
+    return tuple(schedule)
+
+
+def _locomotion_schedule_summary(
+    schedule: Sequence[LocomotionFrameState],
+) -> dict[str, Any]:
+    runs: list[dict[str, Any]] = []
+    for frame_index, state in enumerate(schedule):
+        if frame_index == 0 or state.action_id != schedule[frame_index - 1].action_id:
+            runs.append(
+                {
+                    "action_id": state.action_id,
+                    "start_frame": frame_index,
+                    "end_frame_exclusive": frame_index + 1,
+                }
+            )
+        else:
+            runs[-1]["end_frame_exclusive"] = frame_index + 1
+    return {
+        "policy_id": LOCOMOTION_POLICY_ID,
+        "horizontal_speed_authority": "authored_actor_root_trajectory_xz",
+        "frame_speed_estimator": "max_incoming_outgoing_segment_speed",
+        "walk_enter_speed_m_s": LOCOMOTION_WALK_ENTER_SPEED_M_S,
+        "idle_enter_speed_m_s": LOCOMOTION_IDLE_ENTER_SPEED_M_S,
+        "action_clock_reset_on_transition": True,
+        "runs": runs,
+    }
+
+
+def _validate_used_action_render_evidence(
+    *,
+    actor_id: str,
+    schedule: Sequence[LocomotionFrameState],
+    pose_hashes_by_action: Mapping[str, set[str]],
+) -> None:
+    """Require render evidence only for actions selected by this route."""
+
+    used_actions = {state.action_id for state in schedule}
+    missing = sorted(
+        action_id
+        for action_id in used_actions
+        if not pose_hashes_by_action.get(action_id)
+    )
+    if missing:
+        raise MixedCaptureError(
+            f"{actor_id} did not render pose evidence for used actions {missing}"
+        )
 
 
 def _axis_label_vector(value: Any, *, owner: str) -> tuple[float, float, float]:
@@ -155,7 +298,9 @@ def _horizontal_unit_axis(value: Any, *, owner: str) -> np.ndarray:
     return np.ascontiguousarray(axis / norm)
 
 
-def _trajectory_tangents(points_m: Any) -> np.ndarray:
+def _trajectory_tangents(
+    points_m: Any, *, fallback_forward_xz: Any | None = None
+) -> np.ndarray:
     points = _points(points_m, owner="actor trajectory")
     tangents = np.empty_like(points)
     tangents[0] = points[1] - points[0]
@@ -165,7 +310,31 @@ def _trajectory_tangents(points_m: Any) -> np.ndarray:
     norms = np.linalg.norm(tangents, axis=1)
     moving_indices = np.flatnonzero(norms > 1.0e-12)
     if not len(moving_indices):
-        raise MixedCaptureError("actor trajectory has no horizontal path tangent")
+        if fallback_forward_xz is None:
+            raise MixedCaptureError(
+                "stationary actor trajectory requires an authored fallback_forward_xz"
+            )
+        try:
+            fallback_xz = np.asarray(fallback_forward_xz, dtype=np.float64)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise MixedCaptureError(
+                "authored fallback_forward_xz must be a finite nonzero 2-vector"
+            ) from exc
+        if fallback_xz.shape != (2,) or not np.all(np.isfinite(fallback_xz)):
+            raise MixedCaptureError(
+                "authored fallback_forward_xz must be a finite nonzero 2-vector"
+            )
+        fallback_norm = float(np.linalg.norm(fallback_xz))
+        if fallback_norm <= 1.0e-12:
+            raise MixedCaptureError(
+                "authored fallback_forward_xz must be a finite nonzero 2-vector"
+            )
+        fallback = np.asarray(
+            [fallback_xz[0] / fallback_norm, 0.0, fallback_xz[1] / fallback_norm],
+            dtype=np.float64,
+        )
+        tangents[:] = fallback
+        return np.ascontiguousarray(tangents)
     tangents[moving_indices] /= norms[moving_indices, None]
     for index in np.flatnonzero(norms <= 1.0e-12):
         nearest = moving_indices[
@@ -176,12 +345,17 @@ def _trajectory_tangents(points_m: Any) -> np.ndarray:
 
 
 def trajectory_world_matrices(
-    points_m: Any, *, local_forward_axis: Any
+    points_m: Any,
+    *,
+    local_forward_axis: Any,
+    fallback_forward_xz: Any | None = None,
 ) -> np.ndarray:
     """Create actor transforms that align an asset's forward axis to its path."""
 
     points = _points(points_m, owner="actor trajectory")
-    tangents = _trajectory_tangents(points)
+    tangents = _trajectory_tangents(
+        points, fallback_forward_xz=fallback_forward_xz
+    )
     local_forward = _horizontal_unit_axis(
         local_forward_axis, owner="local anatomical forward axis"
     )
@@ -211,6 +385,7 @@ def _actor_heading_evidence(
     actor_world_matrices: Any,
     local_forward_axis: Any,
     binding_source: Mapping[str, Any],
+    fallback_forward_xz: Any | None = None,
 ) -> dict[str, Any]:
     """Retain and gate every frame's anatomical-forward/path alignment."""
 
@@ -223,7 +398,9 @@ def _actor_heading_evidence(
     local_forward = _horizontal_unit_axis(
         local_forward_axis, owner=f"{actor_id} local anatomical forward axis"
     )
-    tangents = _trajectory_tangents(points)
+    tangents = _trajectory_tangents(
+        points, fallback_forward_xz=fallback_forward_xz
+    )
     world_forwards = np.einsum(
         "nij,j->ni", matrices[:, :3, :3], local_forward
     )
@@ -255,10 +432,27 @@ def _actor_heading_evidence(
         }
         for index in range(FRAME_COUNT)
     ]
+    stationary_heading = bool(
+        np.allclose(
+            points[:, (0, 2)],
+            points[0, (0, 2)],
+            rtol=0.0,
+            atol=1.0e-12,
+        )
+    )
     return {
         "actor_id": actor_id,
         "status": "pass",
         "local_anatomical_forward_axis": [float(value) for value in local_forward],
+        "heading_authority": (
+            "authored_first_anchor_yaw_fallback"
+            if stationary_heading
+            else "authored_root_path_tangent"
+        ),
+        "stationary_fallback_forward_xz": (
+            [float(tangents[0, 0]), float(tangents[0, 2])]
+            if stationary_heading else None
+        ),
         "binding_source": dict(binding_source),
         "gate": {
             "maximum_allowed_error_degrees": _HEADING_ALIGNMENT_MAX_ERROR_DEG,
@@ -688,8 +882,13 @@ def capture_human_beagle_paths(
     require_legacy_camera: bool = False,
     human_semantic_id: int = HUMAN_SEMANTIC_ID,
     beagle_semantic_id: int = BEAGLE_SEMANTIC_ID,
+    human_fallback_forward_xz: Any | None = None,
+    beagle_fallback_forward_xz: Any | None = None,
+    review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
+    review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
+    review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
 ) -> MixedCaptureResult:
-    """Capture explicit Walking-human + declared-state Beagle on two paths."""
+    """Capture two articulated actors with root-speed-selected locomotion."""
 
     if (
         isinstance(human_semantic_id, bool)
@@ -729,10 +928,14 @@ def capture_human_beagle_paths(
             )
         )
         human_world = trajectory_world_matrices(
-            human_points, local_forward_axis=human_forward_axis
+            human_points,
+            local_forward_axis=human_forward_axis,
+            fallback_forward_xz=human_fallback_forward_xz,
         )
         beagle_world = trajectory_world_matrices(
-            beagle_points, local_forward_axis=beagle_forward_axis
+            beagle_points,
+            local_forward_axis=beagle_forward_axis,
+            fallback_forward_xz=beagle_fallback_forward_xz,
         )
         heading_records = [
             _actor_heading_evidence(
@@ -741,6 +944,7 @@ def capture_human_beagle_paths(
                 actor_world_matrices=human_world,
                 local_forward_axis=human_forward_axis,
                 binding_source=human_forward_source,
+                fallback_forward_xz=human_fallback_forward_xz,
             ),
             _actor_heading_evidence(
                 actor_id="dog0",
@@ -748,17 +952,36 @@ def capture_human_beagle_paths(
                 actor_world_matrices=beagle_world,
                 local_forward_axis=beagle_forward_axis,
                 binding_source=beagle_forward_source,
+                fallback_forward_xz=beagle_fallback_forward_xz,
             ),
         ]
         beagle_states = compile_frame_applications(m2_inputs, beagle_bundle)
         if len(beagle_states) != 75:
             raise MixedCaptureError("Beagle M2 request must provide 75 validated states")
-        beagle_walking_indices, beagle_walking_states = (
-            _continuous_beagle_walk_states(beagle_states)
-        )
-        walking = human_package.actions.action("walk")
-        if walking.sample_count != 16:
+        human_actions = {
+            action_id: human_package.actions.action(action_id)
+            for action_id in ("idle", "walk")
+        }
+        if human_actions["walk"].sample_count != 16:
             raise MixedCaptureError("human Walking loop must contain exactly 16 samples")
+        beagle_actions = {
+            action_id: beagle_bundle.action_sets_by_role[
+                beagle_bundle.action_roles_by_id[action_id]
+            ].action(action_id)
+            for action_id in ("idle", "walk")
+        }
+        human_locomotion = locomotion_schedule_from_root_trajectory(
+            human_points,
+            action_sample_counts={
+                key: value.sample_count for key, value in human_actions.items()
+            },
+        )
+        beagle_locomotion = locomotion_schedule_from_root_trajectory(
+            beagle_points,
+            action_sample_counts={
+                key: value.sample_count for key, value in beagle_actions.items()
+            },
+        )
         runtime = discover_runtime_root(runtime_root)
         missing = [
             record
@@ -796,7 +1019,12 @@ def capture_human_beagle_paths(
         anchors: list[np.ndarray] = []
         visibility: list[tuple[int, int]] = []
         records: list[dict[str, Any]] = []
-        human_pose_hashes: set[str] = set()
+        human_pose_hashes: dict[str, set[str]] = {
+            action_id: set() for action_id in human_actions
+        }
+        beagle_state_hashes: dict[str, set[str]] = {
+            action_id: set() for action_id in beagle_actions
+        }
         maximum_errors = {
             "human_root": 0.0,
             "human_prismatic": 0.0,
@@ -806,14 +1034,69 @@ def capture_human_beagle_paths(
             "beagle_spherical": 0.0,
         }
 
+        review_visual_profile_evidence: Mapping[str, Any] | None = None
+        review_configuration_evidence: Mapping[str, Any] | None = None
+        if review_configuration_hook is not None:
+            configured = review_configuration_hook(
+                configuration=configuration,
+                habitat_sim=habitat_sim,
+            )
+            if not isinstance(configured, Mapping) or configured.get("status") != "pass":
+                raise MixedCaptureError(
+                    "review configuration hook did not return pass evidence"
+                )
+            review_configuration_evidence = dict(configured)
         with habitat_sim.Simulator(configuration) as simulator:
             navmesh_path = resolved_scene.get("navmesh")
             if navmesh_path is not None and Path(navmesh_path).is_file():
                 simulator.pathfinder.load_nav_mesh(str(navmesh_path))
+            if review_scene_hook is not None:
+                realized = review_scene_hook(
+                    simulator=simulator,
+                    configuration=configuration,
+                    camera_listener_position_m=room_inputs.request[
+                        "primary_camera_rig"
+                    ]["world_from_rig"]["translation_m"],
+                    habitat_sim=habitat_sim,
+                    mn=mn,
+                )
+                if not isinstance(realized, Mapping) or realized.get("status") != "pass":
+                    raise MixedCaptureError(
+                        "review scene hook did not return pass evidence"
+                    )
+                review_visual_profile_evidence = dict(realized)
+                if review_configuration_evidence is not None:
+                    review_visual_profile_evidence = {
+                        **review_visual_profile_evidence,
+                        "configuration": dict(review_configuration_evidence),
+                    }
             rendering_evidence = _bind_m5_1_scene_lighting(
                 simulator,
                 configuration,
             )
+            if review_scene_readback_hook is not None:
+                if review_visual_profile_evidence is None:
+                    raise MixedCaptureError(
+                        "review scene readback requires a realized review scene"
+                    )
+                final_readback = review_scene_readback_hook(
+                    simulator=simulator,
+                    configuration=configuration,
+                    habitat_sim=habitat_sim,
+                    mn=mn,
+                    actor_light_setup_key=M5_1_LIGHT_SETUP_KEY,
+                )
+                if (
+                    not isinstance(final_readback, Mapping)
+                    or final_readback.get("status") != "pass"
+                ):
+                    raise MixedCaptureError(
+                        "review scene readback hook did not return pass evidence"
+                    )
+                review_visual_profile_evidence = {
+                    **review_visual_profile_evidence,
+                    "final_light_readback": dict(final_readback),
+                }
             simulator.seed(int(m2_inputs.request["seed"]))
             rig = room_inputs.request["primary_camera_rig"]
             camera_state = habitat_sim.AgentState()
@@ -879,24 +1162,28 @@ def capture_human_beagle_paths(
             initial_world_time = float(simulator.get_world_time())
 
             for frame_index in range(FRAME_COUNT):
-                human_sample_index = frame_index % walking.sample_count
+                human_locomotion_state = human_locomotion[frame_index]
+                human_action = human_actions[human_locomotion_state.action_id]
+                human_sample_index = human_locomotion_state.action_sample_index
                 human_translations = np.asarray(
-                    walking.translations_m[human_sample_index], dtype=np.float64
+                    human_action.translations_m[human_sample_index], dtype=np.float64
                 )
                 human_rotations = np.asarray(
-                    walking.rotations_xyzw[human_sample_index], dtype=np.float64
+                    human_action.rotations_xyzw[human_sample_index], dtype=np.float64
                 )
                 human_skin = human_world[frame_index] @ human_actor_from_skin
                 human_joints = np.asarray(
                     human_binding.map_pose(human_translations, human_rotations),
                     dtype=np.float64,
                 )
-                walking_state_index = frame_index % len(beagle_walking_states)
-                beagle_state = beagle_walking_states[walking_state_index]
-                beagle_state_index = beagle_walking_indices[walking_state_index]
+                beagle_locomotion_state = beagle_locomotion[frame_index]
+                beagle_action = beagle_actions[beagle_locomotion_state.action_id]
+                beagle_sample_index = beagle_locomotion_state.action_sample_index
                 beagle_skin = beagle_world[frame_index] @ beagle_actor_from_skin
                 beagle_joints = np.asarray(
-                    beagle_binding.map_pose(beagle_state.joint_rotations_xyzw),
+                    beagle_binding.map_pose(
+                        beagle_action.rotations_xyzw[beagle_sample_index]
+                    ),
                     dtype=np.float64,
                 )
 
@@ -995,12 +1282,16 @@ def capture_human_beagle_paths(
 
                 pose_hash = canonical_json_sha256(
                     {
+                        "action_id": human_locomotion_state.action_id,
                         "sample_index": human_sample_index,
                         "translations_m": human_translations.tolist(),
                         "rotations_xyzw": human_rotations.tolist(),
                     }
                 )
-                human_pose_hashes.add(pose_hash)
+                human_pose_hashes[human_locomotion_state.action_id].add(pose_hash)
+                beagle_state_hashes[beagle_locomotion_state.action_id].add(
+                    str(beagle_before["sha256"])
+                )
                 rgb = np.asarray(arrays["rgb"])[..., :3].astype(np.uint8, copy=True)
                 semantic = np.asarray(arrays["semantic"]).copy()
                 rgb_frames.append(rgb)
@@ -1023,9 +1314,20 @@ def capture_human_beagle_paths(
                         "frame_index": frame_index,
                         "pts_ticks": frame_index * TICKS_PER_FRAME,
                         "human": {
-                            "action_id": "walk",
-                            "source_action_name": walking.source_action_name,
+                            "action_id": human_locomotion_state.action_id,
+                            "source_action_name": human_action.source_action_name,
+                            "action_time_ticks": (
+                                human_locomotion_state.action_frame_index
+                                * TICKS_PER_FRAME
+                            ),
                             "action_sample_index": human_sample_index,
+                            "action_phase": human_locomotion_state.action_phase,
+                            "root_horizontal_speed_m_s": (
+                                human_locomotion_state.horizontal_speed_m_s
+                            ),
+                            "locomotion_state_transition": (
+                                human_locomotion_state.state_transition
+                            ),
                             "pose_sha256": pose_hash,
                             "actor_root_position_m": human_points[
                                 frame_index
@@ -1046,9 +1348,20 @@ def capture_human_beagle_paths(
                             },
                         },
                         "beagle": {
-                            "m2_state_index": beagle_state_index,
-                            "action_id": beagle_state.action_id,
-                            "action_sample_index": beagle_state.action_sample_index,
+                            "action_id": beagle_locomotion_state.action_id,
+                            "source_action_name": beagle_action.source_action_name,
+                            "action_time_ticks": (
+                                beagle_locomotion_state.action_frame_index
+                                * TICKS_PER_FRAME
+                            ),
+                            "action_sample_index": beagle_sample_index,
+                            "action_phase": beagle_locomotion_state.action_phase,
+                            "root_horizontal_speed_m_s": (
+                                beagle_locomotion_state.horizontal_speed_m_s
+                            ),
+                            "locomotion_state_transition": (
+                                beagle_locomotion_state.state_transition
+                            ),
                             "actor_root_position_m": beagle_points[
                                 frame_index
                             ].tolist(),
@@ -1084,9 +1397,14 @@ def capture_human_beagle_paths(
         )
         anchor_array = np.ascontiguousarray(np.stack(anchors, axis=0))
         visibility_array = np.asarray(visibility, dtype=np.int64)
-        if len(human_pose_hashes) != walking.sample_count:
-            raise MixedCaptureError(
-                "270-frame capture did not exercise every human Walking sample"
+        for actor_id, schedule, pose_hashes in (
+            ("human0", human_locomotion, human_pose_hashes),
+            ("dog0", beagle_locomotion, beagle_state_hashes),
+        ):
+            _validate_used_action_render_evidence(
+                actor_id=actor_id,
+                schedule=schedule,
+                pose_hashes_by_action=pose_hashes,
             )
         if np.max(visibility_array, axis=0).min() <= 0:
             raise MixedCaptureError(
@@ -1143,6 +1461,9 @@ def capture_human_beagle_paths(
                 "horizontal_fov_deg": retained_rig["shared_calibration"][
                     "hfov_degrees"
                 ],
+                "resolution_hw": list(
+                    retained_rig["shared_calibration"]["resolution_hw"]
+                ),
                 "legacy_camera_contract_required": require_legacy_camera,
             },
             "actors": [
@@ -1150,7 +1471,8 @@ def capture_human_beagle_paths(
                     "actor_id": "human0",
                     "actor_class": "human",
                     "semantic_id": human_semantic_id,
-                    "action": "Walking",
+                    "actions": ["idle", "walk"],
+                    "action_selection": LOCOMOTION_POLICY_ID,
                     "fixed_state_playback": True,
                     "head_link": HEAD_LINK_NAME,
                     "emitter_link": MOUTH_LINK_NAME,
@@ -1161,16 +1483,24 @@ def capture_human_beagle_paths(
                     "actor_id": "dog0",
                     "actor_class": "dog",
                     "semantic_id": beagle_semantic_id,
-                    "state_source": (
-                        "only continuous 45-state validated walk block repeated "
-                        "modulo 45"
-                    ),
+                    "actions": ["idle", "walk"],
+                    "action_selection": LOCOMOTION_POLICY_ID,
+                    "state_source": "asset_role_bound_action_clips",
                     "emitter_link": BEAGLE_MOUTH_LINK_NAME,
                     "local_anatomical_forward_axis": list(beagle_forward_axis),
                     "rendering": beagle_render_evidence,
                 },
             ],
             "rendering": rendering_evidence,
+            "review_visual_profile": review_visual_profile_evidence,
+            "locomotion": {
+                "policy_id": LOCOMOTION_POLICY_ID,
+                "source": "authored_actor_root_trajectories",
+                "actors": {
+                    "human0": _locomotion_schedule_summary(human_locomotion),
+                    "dog0": _locomotion_schedule_summary(beagle_locomotion),
+                },
+            },
             "heading_alignment": {
                 "schema": HEADING_ALIGNMENT_SCHEMA,
                 "status": "pass",
@@ -1207,20 +1537,24 @@ def capture_human_beagle_paths(
                 "human_package_manifest": file_record(
                     human_package.package_manifest, relative_to=output
                 ),
-                "human_walking_sample_count": walking.sample_count,
-                "human_distinct_pose_count": len(human_pose_hashes),
+                "human_action_sample_counts": {
+                    action_id: action.sample_count
+                    for action_id, action in sorted(human_actions.items())
+                },
+                "human_distinct_pose_count_by_action": {
+                    action_id: len(values)
+                    for action_id, values in sorted(human_pose_hashes.items())
+                },
                 "beagle_declared_state_count": len(beagle_states),
-                "beagle_selected_walking_state_count": len(
-                    beagle_walking_states
-                ),
-                "beagle_selected_walking_state_indices": list(
-                    beagle_walking_indices
-                ),
-                "beagle_selected_walking_applied_state_hashes": [
-                    state.declared_applied_state_hash
-                    for state in beagle_walking_states
-                ],
-                "beagle_selected_walking_source_request_sha256": sha256_file(
+                "beagle_action_sample_counts": {
+                    action_id: action.sample_count
+                    for action_id, action in sorted(beagle_actions.items())
+                },
+                "beagle_distinct_state_count_by_action": {
+                    action_id: len(values)
+                    for action_id, values in sorted(beagle_state_hashes.items())
+                },
+                "beagle_validated_source_request_sha256": sha256_file(
                     beagle_m2_request_path
                 ),
             },
@@ -1317,10 +1651,15 @@ __all__ = [
     "BEAGLE_MOUTH_LINK_NAME",
     "BEAGLE_SEMANTIC_ID",
     "HUMAN_SEMANTIC_ID",
+    "LOCOMOTION_IDLE_ENTER_SPEED_M_S",
+    "LOCOMOTION_POLICY_ID",
+    "LOCOMOTION_WALK_ENTER_SPEED_M_S",
     "MIXED_CAPTURE_SCHEMA",
+    "LocomotionFrameState",
     "MixedCaptureError",
     "MixedCaptureResult",
     "capture_human_beagle_paths",
     "capture_legacy_route",
+    "locomotion_schedule_from_root_trajectory",
     "trajectory_world_matrices",
 ]

@@ -24,11 +24,45 @@ def _obstacle_map() -> RuntimeObstacleMap:
             {
                 "object_id": 17,
                 "handle": "chair_17",
+                "obstacle_role": "ground_blocker",
                 "footprint_xz_m": [
                     [2.6, 2.5],
                     [3.4, 2.5],
                     [3.4, 3.2],
                     [2.6, 3.2],
+                ],
+            },
+            {
+                "object_id": 18,
+                "handle": "rug_18",
+                "obstacle_role": "walkable_floor_covering",
+                "footprint_xz_m": [
+                    [0.2, 2.4],
+                    [0.8, 2.4],
+                    [0.8, 2.8],
+                    [0.2, 2.8],
+                ],
+            },
+            {
+                "object_id": 19,
+                "handle": "picture_19",
+                "obstacle_role": "elevated_object",
+                "footprint_xz_m": [
+                    [3.2, 0.2],
+                    [3.7, 0.2],
+                    [3.7, 0.5],
+                    [3.2, 0.5],
+                ],
+            },
+            {
+                "object_id": 20,
+                "handle": "unresolved_20",
+                "obstacle_role": "unknown",
+                "footprint_xz_m": [
+                    [2.5, 0.3],
+                    [2.9, 0.3],
+                    [2.9, 0.7],
+                    [2.5, 0.7],
                 ],
             },
         ),
@@ -74,9 +108,8 @@ def test_draws_navmesh_rigid_obb_listener_fov_and_multiple_source_centers() -> N
     assert frame.flags.c_contiguous
 
     # Every major authority has a distinct color family in the rendered
-    # pixels: dark non-navmesh, orange OBB, blue HFOV, yellow listener and
-    # cyan/orange source markers.  This catches regressions that silently
-    # drop ReplicaCAD-style rigid furniture from the panel.
+    # pixels: dark non-navmesh; orange blocking, teal walkable, blue elevated
+    # and red unresolved OBBs; blue HFOV; yellow listener; and source markers.
     pixels = frame.reshape(-1, 3).astype(np.int16)
 
     def near(color: tuple[int, int, int], tolerance: int = 8) -> bool:
@@ -84,6 +117,9 @@ def test_draws_navmesh_rigid_obb_listener_fov_and_multiple_source_centers() -> N
 
     assert near((43, 50, 59))
     assert near((255, 186, 90))
+    assert near((76, 222, 194))
+    assert near((151, 184, 218))
+    assert near((244, 102, 110))
     assert near((46, 154, 255), tolerance=20)
     assert near((255, 224, 66))
     assert near((42, 210, 220))
@@ -226,3 +262,44 @@ def test_draws_every_replicacad_style_rigid_footprint(
     # One polygon per retained rigid footprint, plus the visual-only HFOV
     # wedge.  No high-object-count shortcut may silently omit furniture.
     assert len(polygon_calls) == 114
+
+
+def test_elevated_obstacle_fill_is_alpha_composited() -> None:
+    obstacle_map = RuntimeObstacleMap(
+        binary_navmesh=np.ones((20, 20), dtype=np.uint8),
+        bounds_m=((0.0, 0.0, 0.0), (2.0, 2.0, 2.0)),
+        floor_height_m=0.0,
+        meters_per_pixel=0.1,
+        rigid_obstacles=(
+            {
+                "object_id": 1,
+                "handle": "elevated_lamp",
+                "obstacle_role": "elevated_object",
+                "footprint_xz_m": [
+                    [0.7, 0.7],
+                    [1.3, 0.7],
+                    [1.3, 1.3],
+                    [0.7, 1.3],
+                ],
+            },
+        ),
+    )
+    frame = render_runtime_topdown_frame(
+        obstacle_map,
+        {"source0": [[1.8, 1.0, 1.8]]},
+        0,
+        listener_position_m=(0.2, 1.47, 0.2),
+        listener_yaw_deg=0.0,
+        camera_hfov_degrees=90.0,
+        size_wh=(480, 360),
+        rigid_label_limit=0,
+    )
+
+    # The room center lies inside the elevated footprint.  Its blue alpha-36
+    # fill must be blended over the light-gray navmesh, not written as opaque
+    # RGB and then stripped of alpha.
+    center = frame[183, 239]
+    blue = np.asarray((104, 135, 168), dtype=np.uint8)
+    navmesh = np.asarray((209, 219, 225), dtype=np.uint8)
+    assert np.all(center > blue)
+    assert np.all(center < navmesh)

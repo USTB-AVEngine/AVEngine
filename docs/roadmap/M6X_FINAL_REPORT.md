@@ -22,10 +22,20 @@ source-resolved episodes in the existing Habitat-compatible SPEAR
   evidence.
 - Audio is 360 degrees and is not switched by camera FOV. Each variant has a
   clean video and a diagnostic main-view + Topdown video.
+- The refreshed review profile captures native `1280x720` RGB/depth/semantic,
+  keeps clean video at that resolution, and only downscales the diagnostic
+  panel. A transient non-collidable, semantic-ID-0 proxy restores the fixed
+  Apartment window exterior from UE's stock `approaching_storm_4k` HDRI. Its
+  sphere/window panels are visual-capture-only and never enter placement,
+  Topdown, navmesh or RLR geometry.
+- Articulated actors select `idle` or `walk` from their authored root speed
+  with deterministic hysteresis. Action time resets at every transition, and
+  retained captures are rechecked against the current route and heading
+  authority before reuse.
 - Placement is intentionally source-center-only. The center gate and Topdown
-  consume the same runtime obstacle snapshot. Apartment furniture is baked
-  into the stage/navmesh; ReplicaCAD additionally exposes 113 live rigid
-  collision OBBs.
+  consume the same runtime obstacle snapshot. Apartment baked furniture is
+  checked as source-center XZ against the live floor navmesh; ReplicaCAD also
+  checks the source-center XYZ against 113 live rigid collision OBBs.
 
 The reviewed Apartment bundle contains eight variants and sixteen videos. S1
 keeps decoded RGB identical while swapping front/rear routing; S2's silent
@@ -45,6 +55,11 @@ unqualified and are not hidden by the scenario-level acoustic `pass`:
   bounded routing/spatialization canary, not for formal room admission.
 - The center-point rule does not guarantee that a rendered human or animal body
   never visually brushes furniture.
+- The Apartment gate does not claim an arbitrary three-dimensional
+  point-inside-test for its baked stage triangle mesh. ReplicaCAD's six room
+  articulated objects have no rigid-equivalent collision OBB in the public
+  runtime API, so they remain navmesh-covered and separately reported rather
+  than receiving invented collision boxes.
 - The fixed human/Beagle visual capture is a replaceable capture adapter. The
   RoomCapsule, source endpoints, AudioPrograms, timelines and acoustic renderer
   are data-driven, but a new articulated asset family still needs a compatible
@@ -70,5 +85,7 @@ When this report is copied into a generated bundle, open the sibling
 Conda commands, prerequisites, retained-capture fast path and ReplicaCAD
 obstacle-review command.
 
-Current verification: `1409 passed, 1 skipped`. The skip is the optional old-M6
-retained-evidence readback and is not an M6.x failure.
+Full repository verification (`SKBUILD_EDITABLE_SKIP=1`, repository `src` and
+root on `PYTHONPATH`, then `.venv/bin/pytest -q`): `1439 passed, 1 skipped`.
+The skip is the optional old-M6 retained-evidence readback and is not an M6.x
+failure.

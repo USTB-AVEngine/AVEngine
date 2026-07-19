@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from numbers import Real
 from typing import Any, Mapping
 
 import numpy as np
@@ -136,8 +138,71 @@ def materialize_template_route(
     )
 
 
+def template_route_first_anchor_yaw_degrees(
+    template_set: Mapping[str, Any],
+    *,
+    template_id: str,
+    route_id: str,
+    anchor_library: Mapping[str, Any],
+) -> float:
+    """Return the authored Habitat yaw of a route's first anchor.
+
+    A path tangent is the primary heading authority whenever a route moves.
+    A completely stationary route has no tangent, so its first anchor yaw is
+    the explicit authored fallback rather than an implicit world-axis default.
+    """
+
+    templates = [
+        item
+        for item in template_set.get("templates", [])
+        if item.get("template_id") == template_id
+    ]
+    if len(templates) != 1:
+        raise M6XTrajectoryError(
+            f"trajectory template {template_id!r} must resolve exactly once"
+        )
+    routes = [
+        item
+        for item in templates[0].get("routes", [])
+        if item.get("route_id") == route_id
+    ]
+    if len(routes) != 1:
+        raise M6XTrajectoryError(
+            f"trajectory route {route_id!r} must resolve exactly once"
+        )
+    anchor_ids = routes[0].get("anchor_ids")
+    if (
+        not isinstance(anchor_ids, list)
+        or not anchor_ids
+        or not isinstance(anchor_ids[0], str)
+        or not anchor_ids[0]
+    ):
+        raise M6XTrajectoryError("trajectory route has no valid first anchor")
+    first_anchor_id = anchor_ids[0]
+    anchors = [
+        item
+        for item in anchor_library.get("anchors", [])
+        if isinstance(item, Mapping) and item.get("anchor_id") == first_anchor_id
+    ]
+    if len(anchors) != 1:
+        raise M6XTrajectoryError(
+            f"trajectory first anchor {first_anchor_id!r} must resolve exactly once"
+        )
+    yaw = anchors[0].get("yaw_deg")
+    if (
+        isinstance(yaw, bool)
+        or not isinstance(yaw, Real)
+        or not math.isfinite(float(yaw))
+    ):
+        raise M6XTrajectoryError(
+            f"trajectory first anchor {first_anchor_id!r} has no finite yaw_deg"
+        )
+    return float(yaw)
+
+
 __all__ = [
     "M6XTrajectoryError",
     "materialize_route",
     "materialize_template_route",
+    "template_route_first_anchor_yaw_degrees",
 ]

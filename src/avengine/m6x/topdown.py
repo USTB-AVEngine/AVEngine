@@ -20,10 +20,16 @@ from avengine.m5_1.orientation import (
     M51OrientationError,
     habitat_basis_from_yaw_degrees,
 )
-from avengine.m6x.geometry import RuntimeObstacleMap
+from avengine.m6x.geometry import (
+    ELEVATED_OBJECT,
+    GROUND_BLOCKER,
+    UNKNOWN_OBSTACLE_ROLE,
+    WALKABLE_FLOOR_COVERING,
+    RuntimeObstacleMap,
+)
 
 
-TOPDOWN_SCHEMA = "avengine_m6x_runtime_obstacle_topdown_v1"
+TOPDOWN_SCHEMA = "avengine_m6x_runtime_obstacle_topdown_v2"
 
 
 class M6XTopdownError(ValueError):
@@ -40,6 +46,15 @@ _SOURCE_COLORS = (
     (89, 156, 255, 255),
     (232, 232, 232, 255),
 )
+
+_OBSTACLE_ROLE_STYLES: Mapping[
+    str, tuple[tuple[int, int, int, int], tuple[int, int, int, int]]
+] = {
+    GROUND_BLOCKER: ((230, 139, 58, 116), (255, 186, 90, 235)),
+    WALKABLE_FLOOR_COVERING: ((44, 155, 137, 88), (76, 222, 194, 235)),
+    ELEVATED_OBJECT: ((104, 135, 168, 36), (151, 184, 218, 175)),
+    UNKNOWN_OBSTACLE_ROLE: ((181, 67, 73, 94), (244, 102, 110, 235)),
+}
 
 
 def _font(size: int) -> ImageFont.ImageFont:
@@ -250,7 +265,11 @@ class _PreparedTopdown:
         )
         base.paste(map_image, (left, top))
 
-        draw = ImageDraw.Draw(base, "RGBA")
+        obstacle_overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        obstacle_draw = ImageDraw.Draw(obstacle_overlay, "RGBA")
+        obstacle_outlines: list[
+            tuple[list[tuple[float, float]], tuple[int, int, int, int]]
+        ] = []
         for obstacle in obstacle_map.rigid_obstacles:
             try:
                 footprint = np.asarray(obstacle["footprint_xz_m"], dtype=np.float64)
@@ -263,12 +282,29 @@ class _PreparedTopdown:
                 or not np.all(np.isfinite(footprint))
             ):
                 raise M6XTopdownError("rigid obstacle footprint is invalid")
+            role = obstacle.get("obstacle_role", UNKNOWN_OBSTACLE_ROLE)
+            if role not in _OBSTACLE_ROLE_STYLES:
+                role = UNKNOWN_OBSTACLE_ROLE
+            fill, outline = _OBSTACLE_ROLE_STYLES[str(role)]
             polygon = [self.panel_point_xz(point) for point in footprint]
-            draw.polygon(
+            obstacle_draw.polygon(
                 polygon,
-                fill=(230, 139, 58, 116),
-                outline=(255, 186, 90, 235),
+                fill=fill,
+            )
+            obstacle_outlines.append((polygon, outline))
+
+        # ImageDraw replaces RGBA pixels; a later RGB conversion would simply
+        # discard their alpha instead of blending it.  Composite explicitly so
+        # rugs and elevated objects stay contextual overlays rather than
+        # opaque floor blockers.
+        base = Image.alpha_composite(base, obstacle_overlay)
+        draw = ImageDraw.Draw(base, "RGBA")
+        for polygon, outline in obstacle_outlines:
+            draw.line(
+                (*polygon, polygon[0]),
+                fill=(*outline[:3], 255),
                 width=2,
+                joint="curve",
             )
 
         if len(obstacle_map.rigid_obstacles) <= rigid_label_limit:
@@ -278,10 +314,14 @@ class _PreparedTopdown:
                 handle = str(
                     obstacle.get("handle", obstacle.get("object_id", "object"))
                 )
+                role = obstacle.get("obstacle_role", UNKNOWN_OBSTACLE_ROLE)
+                if role not in _OBSTACLE_ROLE_STYLES:
+                    role = UNKNOWN_OBSTACLE_ROLE
+                _fill, outline = _OBSTACLE_ROLE_STYLES[str(role)]
                 draw.text(
                     (x + 3, y + 2),
                     handle,
-                    fill=(255, 224, 174, 255),
+                    fill=(*outline[:3], 255),
                     font=_font(9),
                     stroke_width=2,
                     stroke_fill=(30, 24, 18, 230),
@@ -538,7 +578,7 @@ def _render_prepared_frame(
     )
     draw.text(
         (8, 25),
-        "NAVMESH=baked stage/furniture | ORANGE=loaded rigid collision OBB footprint",
+        "OBB: ORANGE=BLOCK | TEAL=RUG/MAT | BLUE=ELEVATED | RED=UNKNOWN",
         fill=(230, 230, 230, 255),
         font=_font(11),
     )

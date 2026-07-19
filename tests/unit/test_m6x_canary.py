@@ -37,6 +37,29 @@ from avengine.m6x.capture_adapter import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _captured_locomotion_state(actor_id: str, frame_index: int) -> dict:
+    if actor_id == "human0":
+        if frame_index < 75:
+            action_id, start, period = "idle", 0, 175
+        elif frame_index < 195:
+            action_id, start, period = "walk", 75, 16
+        else:
+            action_id, start, period = "idle", 195, 175
+    elif actor_id == "dog0":
+        if frame_index < 195:
+            action_id, start, period = "idle", 0, 25
+        else:
+            action_id, start, period = "walk", 195, 25
+    else:
+        raise AssertionError(actor_id)
+    action_frame = frame_index - start
+    return {
+        "action_id": action_id,
+        "action_time_ticks": action_frame * 3_200,
+        "action_phase": (action_frame % period) / period,
+    }
+
+
 def test_external_sound_binding_is_keyed_by_registry_id_not_species(
     tmp_path: Path,
 ) -> None:
@@ -138,9 +161,18 @@ def _capture_reuse_fixture(
             "room_manifest": {"sha256": sha256_file(room_manifest)},
             "m1_request": {"sha256": sha256_file(request)},
         },
+        "locomotion": {
+            "policy_id": "authored_root_horizontal_speed_hysteresis_v1"
+        },
     }
     records = [
-        {"frame_index": index, "pts_ticks": index * 3_200} for index in range(270)
+        {
+            "frame_index": index,
+            "pts_ticks": index * 3_200,
+            "human": _captured_locomotion_state("human0", index),
+            "beagle": _captured_locomotion_state("dog0", index),
+        }
+        for index in range(270)
     ]
     return evidence, records, room_manifest, request
 
@@ -226,6 +258,8 @@ def test_capture_reuse_rejects_timing_or_anchor_contract_changes(
             capture,
             room_manifest_path=room_manifest,
             m1_request_path=request,
+            actor_root_paths={},
+            actor_fallback_forwards_xz={},
         )
 
 
@@ -329,10 +363,16 @@ def test_every_scenario_materializes_a_schema_valid_timeline() -> None:
         anchor_positions_m=np.zeros((270, 3, 3), dtype=np.float64),
         records=tuple(
             {
-                "human": {"pose_sha256": digest},
-                "beagle": {"readback": {"state_sha256": digest}},
+                "human": {
+                    "pose_sha256": digest,
+                    **_captured_locomotion_state("human0", index),
+                },
+                "beagle": {
+                    "readback": {"state_sha256": digest},
+                    **_captured_locomotion_state("dog0", index),
+                },
             }
-            for _ in range(270)
+            for index in range(270)
         ),
         evidence={"status": "pass"},
     )
@@ -412,6 +452,33 @@ def test_every_scenario_materializes_a_schema_valid_timeline() -> None:
             )
             assert timeline["video"]["frame_count"] == 75
             assert timeline["audio"]["channel_count"] == 2
+            expected_articulated = (
+                {"human0": "walk", "dog0": "idle"}
+                if scenario["scenario_id"] == "S3"
+                else {"human0": "idle", "dog0": "idle"}
+            )
+            for timeline_frame in timeline["frames"]:
+                states = {
+                    state["actor_id"]: state
+                    for state in timeline_frame["actor_states"]
+                }
+                assert {
+                    actor_id: states[actor_id]["action_id"]
+                    for actor_id in expected_articulated
+                } == expected_articulated
+                assert all(
+                    state["action_id"] == "static"
+                    for actor_id, state in states.items()
+                    if actor_id not in expected_articulated
+                )
+            first_states = {
+                state["actor_id"]: state
+                for state in timeline["frames"][0]["actor_states"]
+            }
+            assert first_states["human0"]["action_time_ticks"] == 0
+            assert first_states["dog0"]["action_time_ticks"] == (
+                75 * 3_200 if scenario["scenario_id"] == "S3" else 0
+            )
             observed += 1
     assert observed == 8
 

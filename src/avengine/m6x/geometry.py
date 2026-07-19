@@ -21,8 +21,29 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 
 
-OBSTACLE_MAP_SCHEMA = "avengine_m6x_runtime_obstacle_map_v1"
-SOURCE_CENTER_GATE_SCHEMA = "avengine_m6x_source_center_obstacle_gate_v1"
+OBSTACLE_MAP_SCHEMA = "avengine_m6x_runtime_obstacle_map_v2"
+SOURCE_CENTER_GATE_SCHEMA = "avengine_m6x_source_center_obstacle_gate_v2"
+
+WALKABLE_FLOOR_COVERING = "walkable_floor_covering"
+GROUND_BLOCKER = "ground_blocker"
+ELEVATED_OBJECT = "elevated_object"
+UNKNOWN_OBSTACLE_ROLE = "unknown"
+OBSTACLE_ROLES = frozenset(
+    {
+        WALKABLE_FLOOR_COVERING,
+        GROUND_BLOCKER,
+        ELEVATED_OBJECT,
+        UNKNOWN_OBSTACLE_ROLE,
+    }
+)
+
+# These are semantic categories, not handle fragments.  A category match alone
+# is deliberately insufficient: the collision OBB must also be thin, close to
+# the operating floor, and have navigable probes through its footprint.
+_FLOOR_COVERING_CATEGORIES = frozenset({"carpet", "mat", "rug"})
+_FLOOR_COVERING_MAX_THICKNESS_M = 0.15
+_FLOOR_COVERING_MAX_FLOOR_OFFSET_M = 0.15
+_GROUND_CONTACT_MAX_FLOOR_OFFSET_M = 0.15
 
 
 class M6XGeometryError(ValueError):
@@ -163,12 +184,182 @@ def _object_world_obb(value: Any, mn: Any) -> dict[str, Any]:
     }
 
 
+def _semantic_record(
+    value: Any, semantic_categories_by_id: Mapping[int, str] | None
+) -> dict[str, Any]:
+    """Read an object's dataset semantic ID without guessing from its handle."""
+
+    raw = getattr(value, "semantic_id", None)
+    creation = getattr(value, "creation_attributes", None)
+    creation_raw = getattr(creation, "semantic_id", None)
+    if raw is None:
+        raw = creation_raw
+    if isinstance(raw, bool) or not isinstance(raw, Real):
+        semantic_id = None
+    else:
+        number = float(raw)
+        semantic_id = (
+            int(number) if math.isfinite(number) and number.is_integer() else None
+        )
+    if (
+        semantic_id is not None
+        and creation_raw is not None
+        and not isinstance(creation_raw, bool)
+        and isinstance(creation_raw, Real)
+        and math.isfinite(float(creation_raw))
+        and int(creation_raw) != semantic_id
+    ):
+        raise M6XGeometryError(
+            f"{value.handle} live and creation-attribute semantic IDs differ"
+        )
+
+    category: str | None = None
+    if semantic_id is not None and semantic_categories_by_id is not None:
+        raw_category = semantic_categories_by_id.get(semantic_id)
+        if isinstance(raw_category, str) and raw_category.strip():
+            category = raw_category.strip().lower()
+    return {
+        "semantic_id": semantic_id,
+        "semantic_category": category,
+    }
+
+
+def _footprint_probe_points(footprint_xz_m: Any) -> np.ndarray:
+    """Return deterministic interior probes for a convex OBB footprint."""
+
+    footprint = np.asarray(footprint_xz_m, dtype=np.float64)
+    if (
+        footprint.ndim != 2
+        or footprint.shape[0] < 3
+        or footprint.shape[1] != 2
+        or not np.all(np.isfinite(footprint))
+    ):
+        raise M6XGeometryError("rigid obstacle footprint is invalid")
+    center = np.mean(footprint, axis=0)
+    # Pull corner probes inward so a valid covering is not rejected merely
+    # because PathFinder treats a polygon boundary as non-navigable.
+    interior = center[None, :] * 0.65 + footprint * 0.35
+    return np.concatenate((center[None, :], interior), axis=0)
+
+
+def classify_rigid_obstacle_role(
+    obstacle: Mapping[str, Any],
+    pathfinder: Any,
+    *,
+    floor_height_m: float,
+    maximum_navmesh_y_delta_m: float = 0.25,
+) -> dict[str, Any]:
+    """Classify one collision OBB for placement QA and Topdown display.
+
+    The role is intentionally separate from the existence of collision
+    geometry.  All OBBs remain in the inventory.  Only a dataset-semantic
+    rug/mat/carpet that also passes low/thin geometry and live-navmesh probes
+    becomes a non-blocking floor covering.  Missing semantics stay
+    conservatively ``unknown``.
+    """
+
+    floor = _finite_number(floor_height_m, owner="floor_height_m")
+    max_y = _positive_number(
+        maximum_navmesh_y_delta_m,
+        owner="maximum_navmesh_y_delta_m",
+        allow_zero=True,
+    )
+    try:
+        world_aabb = obstacle["world_aabb_m"]
+        lower = _finite_point(world_aabb["minimum"], owner="world AABB minimum")
+        upper = _finite_point(world_aabb["maximum"], owner="world AABB maximum")
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise M6XGeometryError("rigid obstacle world AABB is invalid") from exc
+    if np.any(upper <= lower):
+        raise M6XGeometryError("rigid obstacle world AABB is degenerate")
+
+    category_raw = obstacle.get("semantic_category")
+    category = (
+        category_raw.strip().lower()
+        if isinstance(category_raw, str) and category_raw.strip()
+        else None
+    )
+    thickness = float(upper[1] - lower[1])
+    top_floor_offset = float(upper[1] - floor)
+    bottom_floor_offset = float(lower[1] - floor)
+    floor_covering_semantic = category in _FLOOR_COVERING_CATEGORIES
+    floor_covering_geometry = (
+        thickness <= _FLOOR_COVERING_MAX_THICKNESS_M
+        and abs(top_floor_offset) <= _FLOOR_COVERING_MAX_FLOOR_OFFSET_M
+        and bottom_floor_offset <= _FLOOR_COVERING_MAX_FLOOR_OFFSET_M
+    )
+    # Navmesh confirmation is meaningful only for a semantic floor covering
+    # whose OBB is already low and thin.  Deferring the probes avoids several
+    # hundred unnecessary native PathFinder calls in furniture-heavy rooms.
+    navigable_flags: list[bool] = []
+    required_navigable = 0
+    if floor_covering_semantic and floor_covering_geometry:
+        probes = _footprint_probe_points(obstacle.get("footprint_xz_m"))
+        navigable_flags = [
+            bool(
+                pathfinder.is_navigable(
+                    np.asarray((point[0], floor, point[1]), dtype=np.float64),
+                    max_y,
+                )
+            )
+            for point in probes
+        ]
+        required_navigable = max(1, math.ceil(len(navigable_flags) * 0.4))
+    navigable_count = sum(navigable_flags)
+    floor_covering_navmesh = (
+        navigable_count >= required_navigable
+        if required_navigable > 0
+        else None
+    )
+
+    if (
+        floor_covering_semantic
+        and floor_covering_geometry
+        and floor_covering_navmesh
+    ):
+        role = WALKABLE_FLOOR_COVERING
+        reason = "semantic_floor_covering_with_low_thin_obb_and_navigable_footprint"
+    elif category is None:
+        role = UNKNOWN_OBSTACLE_ROLE
+        reason = "missing_or_unresolved_dataset_semantic_category"
+    elif lower[1] > floor + _GROUND_CONTACT_MAX_FLOOR_OFFSET_M:
+        role = ELEVATED_OBJECT
+        reason = "known_semantic_obb_is_clear_above_operating_floor"
+    elif floor_covering_semantic:
+        role = UNKNOWN_OBSTACLE_ROLE
+        reason = "floor_covering_semantic_failed_geometry_or_navmesh_confirmation"
+    else:
+        role = GROUND_BLOCKER
+        reason = "known_noncovering_semantic_obb_reaches_operating_floor_band"
+
+    return {
+        "obstacle_role": role,
+        "blocks_source_center": role != WALKABLE_FLOOR_COVERING,
+        "role_evidence": {
+            "reason": reason,
+            "floor_height_m": floor,
+            "world_y_min_m": float(lower[1]),
+            "world_y_max_m": float(upper[1]),
+            "obb_world_y_span_m": thickness,
+            "top_to_floor_offset_m": top_floor_offset,
+            "bottom_to_floor_offset_m": bottom_floor_offset,
+            "floor_covering_semantic_match": floor_covering_semantic,
+            "floor_covering_low_thin_geometry": floor_covering_geometry,
+            "navmesh_floor_probe_count": len(navigable_flags),
+            "navmesh_navigable_probe_count": navigable_count,
+            "navmesh_required_navigable_probe_count": required_navigable,
+            "navmesh_floor_confirmation": floor_covering_navmesh,
+        },
+    }
+
+
 def extract_loaded_rigid_obstacles(
     object_manager: Any,
     mn: Any,
     *,
     excluded_object_ids: Iterable[int] = (),
     excluded_handle_prefixes: Iterable[str] = (),
+    semantic_categories_by_id: Mapping[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Read every loaded rigid collision OBB from the live Habitat scene.
 
@@ -196,6 +387,7 @@ def extract_loaded_rigid_obstacles(
             "handle": handle,
             "source": "live_habitat_rigid_collision_shape",
         }
+        record.update(_semantic_record(value, semantic_categories_by_id))
         record.update(_object_world_obb(value, mn))
         records.append(record)
     return records
@@ -217,6 +409,12 @@ class RuntimeObstacleMap:
 
     def summary(self) -> dict[str, Any]:
         value = np.asarray(self.binary_navmesh, dtype=np.uint8)
+        role_counts = {role: 0 for role in sorted(OBSTACLE_ROLES)}
+        for obstacle in self.rigid_obstacles:
+            role = obstacle.get("obstacle_role", UNKNOWN_OBSTACLE_ROLE)
+            if role not in role_counts:
+                role = UNKNOWN_OBSTACLE_ROLE
+            role_counts[str(role)] += 1
         return {
             "schema": OBSTACLE_MAP_SCHEMA,
             "authority": (
@@ -231,6 +429,11 @@ class RuntimeObstacleMap:
             "navmesh_shape_hw": list(value.shape),
             "navigable_pixel_count": int(np.count_nonzero(value)),
             "rigid_obstacle_count": len(self.rigid_obstacles),
+            "rigid_obstacle_role_counts": role_counts,
+            "blocking_rigid_obstacle_count": sum(
+                int(item.get("blocks_source_center", True) is not False)
+                for item in self.rigid_obstacles
+            ),
             "rigid_obstacles": [dict(item) for item in self.rigid_obstacles],
         }
 
@@ -244,6 +447,7 @@ def build_runtime_obstacle_map(
     meters_per_pixel: float = 0.02,
     excluded_object_ids: Iterable[int] = (),
     excluded_handle_prefixes: Iterable[str] = (),
+    semantic_categories_by_id: Mapping[int, str] | None = None,
 ) -> RuntimeObstacleMap:
     """Snapshot baked-stage navigation and separately loaded room objects."""
 
@@ -273,7 +477,19 @@ def build_runtime_obstacle_map(
         mn,
         excluded_object_ids=excluded_object_ids,
         excluded_handle_prefixes=excluded_handle_prefixes,
+        semantic_categories_by_id=semantic_categories_by_id,
     )
+    rigid = [
+        {
+            **record,
+            **classify_rigid_obstacle_role(
+                record,
+                pathfinder,
+                floor_height_m=floor,
+            ),
+        }
+        for record in rigid
+    ]
     return RuntimeObstacleMap(
         binary_navmesh=np.ascontiguousarray(binary),
         bounds_m=(tuple(bounds_raw[0]), tuple(bounds_raw[1])),
@@ -374,8 +590,10 @@ def evaluate_source_center_gate(
     """Check only source centers against the same live obstacle authority.
 
     The point's X/Z is projected onto the fixed operating floor for the
-    PathFinder query.  Loaded rigid collision OBBs are checked in full 3-D.
-    A point inside any OBB fails even when the configured clearance is zero.
+    PathFinder query.  Blocking rigid collision OBBs are checked in full 3-D.
+    A point inside any blocking OBB fails even when the configured clearance
+    is zero.  A confirmed walkable floor covering remains in the inventory but
+    is deliberately excluded from rigid blocking.
     """
 
     _assert_pathfinder_matches_snapshot(pathfinder, obstacle_map)
@@ -420,7 +638,8 @@ def evaluate_source_center_gate(
         frames: list[dict[str, Any]] = []
         failed: list[int] = []
         nav_clearances: list[float] = []
-        rigid_clearances: list[float] = []
+        loaded_rigid_clearances: list[float] = []
+        blocking_rigid_clearances: list[float] = []
         for frame_index, point in enumerate(points):
             floor_query = np.asarray(
                 [point[0], obstacle_map.floor_height_m, point[2]],
@@ -437,22 +656,38 @@ def evaluate_source_center_gate(
             if not math.isfinite(nav_clearance) or nav_clearance < 0.0:
                 raise M6XGeometryError("Habitat returned invalid obstacle clearance")
 
-            nearest_rigid: dict[str, Any] | None = None
-            rigid_clearance = math.inf
-            inside_rigid = False
+            nearest_loaded_rigid: dict[str, Any] | None = None
+            nearest_blocking_rigid: dict[str, Any] | None = None
+            loaded_rigid_clearance = math.inf
+            blocking_rigid_clearance = math.inf
+            inside_loaded_rigid = False
+            inside_blocking_rigid = False
             for obstacle in obstacle_map.rigid_obstacles:
                 clearance, inside = point_to_world_obb_clearance(point, obstacle)
-                if clearance < rigid_clearance or (
-                    math.isclose(clearance, rigid_clearance) and inside
+                identity = {
+                    "object_id": obstacle.get("object_id"),
+                    "handle": obstacle.get("handle"),
+                    "obstacle_role": obstacle.get(
+                        "obstacle_role", UNKNOWN_OBSTACLE_ROLE
+                    ),
+                }
+                if clearance < loaded_rigid_clearance or (
+                    math.isclose(clearance, loaded_rigid_clearance) and inside
                 ):
-                    rigid_clearance = clearance
-                    inside_rigid = inside
-                    nearest_rigid = {
-                        "object_id": obstacle.get("object_id"),
-                        "handle": obstacle.get("handle"),
-                    }
-            rigid_pass = not inside_rigid and (
-                math.isinf(rigid_clearance) or rigid_clearance >= min_rigid
+                    loaded_rigid_clearance = clearance
+                    inside_loaded_rigid = inside
+                    nearest_loaded_rigid = identity
+                if obstacle.get("blocks_source_center", True) is False:
+                    continue
+                if clearance < blocking_rigid_clearance or (
+                    math.isclose(blocking_rigid_clearance, clearance) and inside
+                ):
+                    blocking_rigid_clearance = clearance
+                    inside_blocking_rigid = inside
+                    nearest_blocking_rigid = identity
+            rigid_pass = not inside_blocking_rigid and (
+                math.isinf(blocking_rigid_clearance)
+                or blocking_rigid_clearance >= min_rigid
             )
             passed = (
                 navigable
@@ -463,7 +698,8 @@ def evaluate_source_center_gate(
             if not passed:
                 failed.append(frame_index)
             nav_clearances.append(nav_clearance)
-            rigid_clearances.append(rigid_clearance)
+            loaded_rigid_clearances.append(loaded_rigid_clearance)
+            blocking_rigid_clearances.append(blocking_rigid_clearance)
             frames.append(
                 {
                     "frame_index": frame_index,
@@ -474,21 +710,38 @@ def evaluate_source_center_gate(
                     "floor_navigable": navigable,
                     "floor_snap_xz_m": snap_xz,
                     "navmesh_clearance_m": nav_clearance,
-                    "inside_loaded_rigid_obstacle": inside_rigid,
-                    "nearest_rigid_obstacle": nearest_rigid,
+                    "inside_loaded_rigid_obstacle": inside_loaded_rigid,
+                    "inside_blocking_loaded_rigid_obstacle": inside_blocking_rigid,
+                    "nearest_rigid_obstacle": nearest_loaded_rigid,
+                    "nearest_blocking_rigid_obstacle": nearest_blocking_rigid,
                     "rigid_obstacle_clearance_m": (
-                        None if math.isinf(rigid_clearance) else rigid_clearance
+                        None
+                        if math.isinf(loaded_rigid_clearance)
+                        else loaded_rigid_clearance
+                    ),
+                    "blocking_rigid_obstacle_clearance_m": (
+                        None
+                        if math.isinf(blocking_rigid_clearance)
+                        else blocking_rigid_clearance
                     ),
                 }
             )
-        finite_rigid = [value for value in rigid_clearances if math.isfinite(value)]
+        finite_loaded_rigid = [
+            value for value in loaded_rigid_clearances if math.isfinite(value)
+        ]
+        finite_blocking_rigid = [
+            value for value in blocking_rigid_clearances if math.isfinite(value)
+        ]
         source_records[source_id] = {
             "status": "fail" if failed else "pass",
             "frame_count": len(frames),
             "failed_frame_indices": failed,
             "minimum_navmesh_clearance_m": min(nav_clearances),
             "minimum_loaded_rigid_clearance_m": (
-                min(finite_rigid) if finite_rigid else None
+                min(finite_loaded_rigid) if finite_loaded_rigid else None
+            ),
+            "minimum_blocking_loaded_rigid_clearance_m": (
+                min(finite_blocking_rigid) if finite_blocking_rigid else None
             ),
             "frames": frames,
         }
@@ -504,7 +757,8 @@ def evaluate_source_center_gate(
         "authority": obstacle_map.summary(),
         "semantics": (
             "source_center_xz_vs_loaded_navmesh_and_source_center_xyz_vs_"
-            "loaded_rigid_collision_obb"
+            "blocking_loaded_rigid_collision_obb; confirmed_walkable_floor_"
+            "coverings_are_inventory_only"
         ),
         "full_body_collision_claim": False,
         "pathfinder_snapshot_match": True,
@@ -521,10 +775,16 @@ def evaluate_source_center_gate(
 
 __all__ = [
     "M6XGeometryError",
+    "ELEVATED_OBJECT",
+    "GROUND_BLOCKER",
     "OBSTACLE_MAP_SCHEMA",
+    "OBSTACLE_ROLES",
     "RuntimeObstacleMap",
     "SOURCE_CENTER_GATE_SCHEMA",
+    "UNKNOWN_OBSTACLE_ROLE",
+    "WALKABLE_FLOOR_COVERING",
     "build_runtime_obstacle_map",
+    "classify_rigid_obstacle_role",
     "evaluate_source_center_gate",
     "extract_loaded_rigid_obstacles",
     "point_to_world_obb_clearance",
