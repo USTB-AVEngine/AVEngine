@@ -15,6 +15,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -52,6 +53,7 @@ from avengine.m6.rooms import (
     find_room_record,
     load_room_registry,
     room_revision_key,
+    validate_room_registry,
 )
 from avengine.security.path_policy import (
     PathPolicyError,
@@ -63,6 +65,8 @@ from avengine.security.path_policy import (
 ATTEMPT_MANIFEST_SCHEMA = "avengine_m6_room_qualification_attempt_v1"
 OBSERVATION_SCHEMA = "avengine_m6_room_qualification_observation_v1"
 DERIVED_PROXY_SCHEMA = "avengine_m6_derived_acoustic_proxy_v1"
+ATTEMPT_MANIFEST_SCHEMA_FILE = "m6_room_qualification_attempt_v1.schema.json"
+OBSERVATION_SCHEMA_FILE = "m6_room_qualification_observation_v1.schema.json"
 CANONICAL_ROOM_REGISTRY_PATH = "examples/m6/rooms/room_registry.json"
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 ATTEMPT_CASE_IDS = (
@@ -74,9 +78,212 @@ ATTEMPT_CASE_IDS = (
     "independent_corrupted_fixture",
 )
 
+_NOT_RUN_NATIVE_EXECUTION = {
+    "habitat_sim": "not_run",
+    "rlr_audio_propagation": "not_run",
+    "blender": "not_run",
+    "media_render": "not_run",
+}
+_ATTEMPT_CLAIMS = {
+    "current_native_runtime_pass": False,
+    "dataset_admission_count": 0,
+    "historical_artifact_statuses_promoted_to_current_native_pass": False,
+    "mp3d_raw_modified": False,
+}
+_CASE_REGISTRY_BINDINGS = {
+    "blender_custom_two_zone": (
+        "blender_custom_two_zone_v1",
+        "custom_two_zone_acoustic_v1",
+    ),
+    "replicacad_apt_0": (
+        "replicacad_apt_0",
+        "replicacad_apt_0_acoustic_proxy_v1",
+    ),
+    "legacy_ue_apartment": (
+        "legacy_ue_apartment_0000_v1",
+        "legacy_real_surface_acoustic_v1",
+    ),
+    "mp3d_17DRP5sb8fy_raw": (
+        "habitat_mp3d_example_17DRP5sb8fy",
+        "mp3d_17DRP5sb8fy_raw_source_v1",
+    ),
+    "mp3d_17DRP5sb8fy_derived": (
+        "habitat_mp3d_example_17DRP5sb8fy",
+        "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+    ),
+}
+_CASE_REPORT_SUFFIXES = {
+    "blender_custom_two_zone": "blender_custom_two_zone",
+    "replicacad_apt_0": "replicacad_apt_0",
+    "legacy_ue_apartment": "legacy_ue_apartment",
+    "mp3d_17DRP5sb8fy_raw": "mp3d_raw",
+    "mp3d_17DRP5sb8fy_derived": "mp3d_derived",
+}
+_FIXTURE_REPORT_ID = "m6_corrupted_acoustic_package_v1_qualification_v1"
+_FIXTURE_SUBJECT = {
+    "room_id": "m6_corrupted_acoustic_package_v1",
+    "revision": "fixture_v1",
+    "qualification_scope": "corrupted_fixture",
+    "acoustic_representation_id": "deliberately_corrupted_package",
+    "acoustic_representation_kind": "corrupted_fixture",
+}
+_OBSERVATION_BASE_KEYS = {
+    "schema",
+    "case_id",
+    "room_key",
+    "registry_sha256",
+    "execution_mode",
+    "native_execution",
+    "code_provenance",
+    "notes",
+    "content_sha256",
+}
+_OBSERVATION_KEYS_BY_CASE = {
+    "blender_custom_two_zone": _OBSERVATION_BASE_KEYS
+    | {
+        "provider_resolution",
+        "candidate_package",
+        "retained_m5_evidence_verification",
+    },
+    "replicacad_apt_0": _OBSERVATION_BASE_KEYS
+    | {"provider_resolution", "raw_stage_topology_probe"},
+    "legacy_ue_apartment": _OBSERVATION_BASE_KEYS
+    | {
+        "provider_resolution",
+        "aabb_authority",
+        "candidate_package",
+        "retained_delivery_artifact",
+    },
+    "mp3d_17DRP5sb8fy_raw": _OBSERVATION_BASE_KEYS
+    | {"provider_resolution", "candidate_package"},
+    "mp3d_17DRP5sb8fy_derived": _OBSERVATION_BASE_KEYS
+    | {
+        "provider_resolution",
+        "materialized_proxy_binding",
+        "raw_candidate_package",
+        "derived_candidate_package",
+        "declared_derivation_assessment",
+    },
+    "independent_corrupted_fixture": _OBSERVATION_BASE_KEYS
+    | {"fixture", "findings"},
+}
+
 
 class RoomAttemptError(ValueError):
     """Raised when an attempt bundle is malformed or cannot be published."""
+
+
+def _schema_path(filename: str) -> Path:
+    source = Path(__file__).resolve().parents[3] / "schemas" / filename
+    installed = Path(os.sys.prefix) / "share" / "avengine" / "schemas" / filename
+    return source if source.is_file() else installed
+
+
+def _document_schema_errors(value: Any, filename: str) -> list[str]:
+    try:
+        schema = load_json(_schema_path(filename))
+        Draft202012Validator.check_schema(schema)
+    except (OSError, ValueError) as error:
+        return [f"could not load {filename}: {error}"]
+    validator = Draft202012Validator(schema)
+    return [
+        f"{'.'.join(str(part) for part in error.absolute_path) or '$'}: "
+        f"{error.message}"
+        for error in sorted(
+            validator.iter_errors(value),
+            key=lambda item: tuple(str(part) for part in item.absolute_path),
+        )
+    ]
+
+
+def _expected_observation_execution(case_id: str) -> tuple[str, dict[str, str]]:
+    mode = (
+        "contract_fixture_evaluation"
+        if case_id == "independent_corrupted_fixture"
+        else "read_only_qualification_attempt"
+    )
+    return mode, dict(_NOT_RUN_NATIVE_EXECUTION)
+
+
+def _bound_registry_document(
+    manifest: Mapping[str, Any], *, git_observation: Mapping[str, Any]
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Load the exact registry bytes named by the attempt, from worktree or Git."""
+
+    registry = manifest.get("registry")
+    repository = git_observation.get("repository")
+    commit = git_observation.get("commit")
+    if not isinstance(registry, Mapping):
+        return None, ["attempt registry record is missing"]
+    if not isinstance(repository, Path):
+        return None, ["Git repository is unavailable for registry binding"]
+    if (
+        registry.get("kind") != "repository_relative"
+        or registry.get("path") != CANONICAL_ROOM_REGISTRY_PATH
+    ):
+        return None, ["attempt registry must use the canonical repository locator"]
+
+    declared_size = registry.get("byte_size")
+    declared_sha = registry.get("sha256")
+    payload: bytes | None = None
+    candidate = repository / CANONICAL_ROOM_REGISTRY_PATH
+    symlink = _first_symlink_component(candidate)
+    if symlink is None and candidate.is_file():
+        current = candidate.read_bytes()
+        if (
+            len(current) == declared_size
+            and hashlib.sha256(current).hexdigest() == declared_sha
+        ):
+            payload = current
+    if payload is None and isinstance(commit, str) and _COMMIT_PATTERN.fullmatch(commit):
+        shown = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repository),
+                "show",
+                f"{commit}:{CANONICAL_ROOM_REGISTRY_PATH}",
+            ],
+            check=False,
+            capture_output=True,
+        )
+        if (
+            shown.returncode == 0
+            and len(shown.stdout) == declared_size
+            and hashlib.sha256(shown.stdout).hexdigest() == declared_sha
+        ):
+            payload = shown.stdout
+    if payload is None:
+        return None, ["attempt registry bytes do not match the declared Git/worktree blob"]
+    try:
+        document = json.loads(payload.decode("utf-8"))
+    except (UnicodeError, ValueError) as error:
+        return None, [f"attempt registry JSON is invalid: {error}"]
+    errors = validate_room_registry(document)
+    if errors or not isinstance(document, dict):
+        return None, errors or ["attempt registry root must be an object"]
+    return document, []
+
+
+def _expected_case_identity(
+    case_id: str,
+    *,
+    attempt_id: str,
+    registry: Mapping[str, Any],
+) -> tuple[str | None, str, dict[str, Any]]:
+    """Return expected observation room key, report ID and report subject."""
+
+    if case_id == "independent_corrupted_fixture":
+        return None, _FIXTURE_REPORT_ID, deepcopy(_FIXTURE_SUBJECT)
+    room_id, representation_id = _CASE_REGISTRY_BINDINGS[case_id]
+    record = find_room_record(registry, room_id)
+    representation = find_acoustic_representation(record, representation_id)
+    report_id = f"{attempt_id}_{_CASE_REPORT_SUFFIXES[case_id]}"
+    return (
+        room_revision_key(record),
+        report_id,
+        _subject(record, representation_id, representation["role"]),
+    )
 
 
 def _aggregate_attempt_status(*statuses: str | None) -> str:
@@ -864,6 +1071,11 @@ def _write_observation(staging: Path, case_id: str, value: dict[str, Any]) -> di
     core = deepcopy(value)
     core.pop("content_sha256", None)
     value["content_sha256"] = canonical_json_sha256(core)
+    schema_errors = _document_schema_errors(value, OBSERVATION_SCHEMA_FILE)
+    if schema_errors:
+        raise RoomAttemptError(
+            f"invalid {case_id} observation: " + "; ".join(schema_errors)
+        )
     path = staging / "observations" / f"{case_id}.json"
     write_json(path, value)
     return {
@@ -1883,6 +2095,14 @@ def run_room_qualification_attempt(
         }
         core = deepcopy(manifest)
         manifest["content_sha256"] = canonical_json_sha256(core)
+        schema_errors = _document_schema_errors(
+            manifest, ATTEMPT_MANIFEST_SCHEMA_FILE
+        )
+        if schema_errors:
+            raise RoomAttemptError(
+                "invalid room qualification attempt manifest: "
+                + "; ".join(schema_errors)
+            )
         write_json(staging / "attempt_manifest.json", manifest)
 
         published = atomic_publish_directory(output_policy, staging, destination)
@@ -2145,11 +2365,10 @@ def verify_room_qualification_attempt(
             "recomputed": canonical_json_sha256(core),
         },
     )
-    add(
-        "manifest_schema",
-        manifest.get("schema") == ATTEMPT_MANIFEST_SCHEMA,
-        manifest.get("schema"),
+    manifest_schema_errors = _document_schema_errors(
+        manifest, ATTEMPT_MANIFEST_SCHEMA_FILE
     )
+    add("manifest_schema", not manifest_schema_errors, manifest_schema_errors)
     add(
         "case_set",
         manifest.get("case_ids") == list(ATTEMPT_CASE_IDS),
@@ -2157,12 +2376,14 @@ def verify_room_qualification_attempt(
     )
     add(
         "no_native_pass_claim",
-        manifest.get("claims", {}).get("current_native_runtime_pass") is False
-        and manifest.get("claims", {}).get(
-            "historical_artifact_statuses_promoted_to_current_native_pass"
-        )
-        is False,
-        manifest.get("claims"),
+        manifest.get("execution_mode") == "read_only_qualification_attempt"
+        and manifest.get("native_execution") == _NOT_RUN_NATIVE_EXECUTION
+        and manifest.get("claims") == _ATTEMPT_CLAIMS,
+        {
+            "execution_mode": manifest.get("execution_mode"),
+            "native_execution": manifest.get("native_execution"),
+            "claims": manifest.get("claims"),
+        },
     )
 
     git_observation = _git_provenance_observation(manifest, bundle_root=root)
@@ -2205,6 +2426,14 @@ def verify_room_qualification_attempt(
         "formal_registry_git_binding",
         registry_binding_pass,
         registry_binding,
+    )
+    bound_registry, bound_registry_errors = _bound_registry_document(
+        manifest, git_observation=git_observation
+    )
+    add(
+        "registry_case_identity_source",
+        not bound_registry_errors,
+        bound_registry_errors,
     )
 
     artifact_errors: list[str] = []
@@ -2250,9 +2479,16 @@ def verify_room_qualification_attempt(
         if isinstance(manifest_registry, Mapping)
         else None
     )
+    actual_dataset_admission_count = 0
     for record in manifest.get("reports", []):
         try:
-            report_case_ids.append(record["case_id"])
+            case_id = record["case_id"]
+            report_case_ids.append(case_id)
+            expected_report_path = f"reports/{case_id}.json"
+            if record.get("path") != expected_report_path:
+                report_errors.append(
+                    f"{case_id}: report path is not the canonical case path"
+                )
             report_path = _resolve_bundle_file(root, record["path"])
             report = load_json(report_path)
             declared_report_artifact = next(
@@ -2274,56 +2510,146 @@ def verify_room_qualification_attempt(
                 }
             ):
                 report_errors.append(
-                    f"{record['case_id']}: report record/artifact binding mismatch"
+                    f"{case_id}: report record/artifact binding mismatch"
                 )
             report_errors.extend(
-                f"{record['case_id']}: {error}"
+                f"{case_id}: {error}"
                 for error in validate_qualification_report(report)
             )
-            if report["dataset_admission"]:
+            if record.get("dataset_admission") != report.get("dataset_admission"):
                 report_errors.append(
-                    f"{record['case_id']}: read-only attempt unexpectedly admitted room"
+                    f"{case_id}: outer dataset_admission differs from report"
                 )
-            for artifact in report["evidence_artifacts"]:
-                expected_observation = (
-                    f"observations/{record['case_id']}.json"
+            if record.get("admission_blockers") != report.get("admission_blockers"):
+                report_errors.append(
+                    f"{case_id}: outer admission_blockers differ from report"
                 )
+            if report["dataset_admission"]:
+                actual_dataset_admission_count += 1
+                report_errors.append(
+                    f"{case_id}: read-only attempt unexpectedly admitted room"
+                )
+            if bound_registry is None:
+                report_errors.append(
+                    f"{case_id}: bound registry is unavailable for identity checks"
+                )
+                expected_room_key = None
+                expected_report_id = None
+                expected_subject = None
+            else:
+                expected_room_key, expected_report_id, expected_subject = (
+                    _expected_case_identity(
+                        case_id,
+                        attempt_id=manifest["attempt_id"],
+                        registry=bound_registry,
+                    )
+                )
+            if report.get("report_id") != expected_report_id:
+                report_errors.append(f"{case_id}: report_id differs from case identity")
+            if report.get("subject") != expected_subject:
+                report_errors.append(f"{case_id}: report subject differs from registry")
+
+            evidence_artifacts = report.get("evidence_artifacts")
+            if not isinstance(evidence_artifacts, list) or len(evidence_artifacts) != 1:
+                raise ValueError("report must bind exactly one current observation")
+            for artifact in evidence_artifacts:
+                expected_observation = f"observations/{case_id}.json"
                 if artifact["path"] != expected_observation:
                     report_errors.append(
-                        f"{record['case_id']}: report evidence does not bind its "
+                        f"{case_id}: report evidence does not bind its "
                         "case observation"
+                    )
+                if artifact.get("artifact_id") != "current_observation":
+                    report_errors.append(
+                        f"{case_id}: report evidence artifact_id is not current_observation"
                     )
                 artifact_path = _resolve_bundle_file(root, artifact["path"])
                 if sha256_file(artifact_path) != artifact["sha256"]:
                     report_errors.append(
-                        f"{record['case_id']}: evidence artifact hash mismatch"
+                        f"{case_id}: evidence artifact hash mismatch"
                     )
                 observation = load_json(artifact_path)
-                if record["case_id"] == "mp3d_17DRP5sb8fy_derived":
+                if case_id == "mp3d_17DRP5sb8fy_derived":
                     derived_binding_observation = observation
+                observation_schema_errors = _document_schema_errors(
+                    observation, OBSERVATION_SCHEMA_FILE
+                )
+                report_errors.extend(
+                    f"{case_id}: observation schema {error}"
+                    for error in observation_schema_errors
+                )
+                expected_observation_keys = _OBSERVATION_KEYS_BY_CASE[case_id]
+                if set(observation) != expected_observation_keys:
+                    report_errors.append(
+                        f"{case_id}: observation top-level keys differ; "
+                        f"missing={sorted(expected_observation_keys - set(observation))}, "
+                        f"extra={sorted(set(observation) - expected_observation_keys)}"
+                    )
                 observation_core = deepcopy(observation)
                 observation_hash = observation_core.pop("content_sha256", None)
                 if observation_hash != canonical_json_sha256(observation_core):
                     report_errors.append(
-                        f"{record['case_id']}: observation content hash mismatch"
+                        f"{case_id}: observation content hash mismatch"
+                    )
+                expected_mode, expected_native = _expected_observation_execution(
+                    case_id
+                )
+                if observation.get("case_id") != case_id:
+                    report_errors.append(
+                        f"{case_id}: observation case_id differs from report case"
+                    )
+                if observation.get("room_key") != expected_room_key:
+                    report_errors.append(
+                        f"{case_id}: observation room_key differs from registry"
+                    )
+                if observation.get("execution_mode") != expected_mode:
+                    report_errors.append(
+                        f"{case_id}: observation execution_mode is not {expected_mode}"
+                    )
+                if observation.get("native_execution") != expected_native:
+                    report_errors.append(
+                        f"{case_id}: observation native_execution must be exact not_run"
                     )
                 if observation.get("code_provenance") != manifest.get(
                     "code_provenance"
                 ):
                     report_errors.append(
-                        f"{record['case_id']}: observation code provenance differs "
+                        f"{case_id}: observation code provenance differs "
                         "from attempt manifest"
                     )
                 if observation.get("registry_sha256") != manifest_registry_sha:
                     report_errors.append(
-                        f"{record['case_id']}: observation registry SHA-256 differs "
+                        f"{case_id}: observation registry SHA-256 differs "
                         "from attempt manifest"
                     )
         except (KeyError, OSError, TypeError, ValueError) as error:
             report_errors.append(f"malformed report record: {error}")
+    claims = manifest.get("claims")
+    claims_match_reports = (
+        isinstance(claims, Mapping)
+        and set(claims) == set(_ATTEMPT_CLAIMS)
+        and claims.get("current_native_runtime_pass") is False
+        and claims.get("historical_artifact_statuses_promoted_to_current_native_pass")
+        is False
+        and claims.get("mp3d_raw_modified") is False
+        and claims.get("dataset_admission_count")
+        == actual_dataset_admission_count
+    )
+    add(
+        "claims_report_consistency",
+        claims_match_reports,
+        {
+            "declared": deepcopy(dict(claims))
+            if isinstance(claims, Mapping)
+            else claims,
+            "recomputed_dataset_admission_count": actual_dataset_admission_count,
+        },
+    )
     add(
         "qualification_reports",
-        report_case_ids == list(ATTEMPT_CASE_IDS) and not report_errors,
+        report_case_ids == list(ATTEMPT_CASE_IDS)
+        and not report_errors
+        and claims_match_reports,
         {"case_ids": report_case_ids, "errors": report_errors},
     )
 

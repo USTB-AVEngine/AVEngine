@@ -35,6 +35,24 @@ def _rewrite_manifest(path: Path, value: dict) -> None:
     write_json(path, value)
 
 
+def _rehash_attempt_bundle(manifest_path: Path) -> None:
+    manifest = load_json(manifest_path)
+    for record in manifest["reports"]:
+        report_path = manifest_path.parent / record["path"]
+        report = load_json(report_path)
+        for artifact in report["evidence_artifacts"]:
+            artifact_path = manifest_path.parent / artifact["path"]
+            artifact["sha256"] = sha256_file(artifact_path)
+        write_json(report_path, report)
+        record["byte_size"] = report_path.stat().st_size
+        record["sha256"] = sha256_file(report_path)
+    for record in manifest["artifacts"]:
+        artifact_path = manifest_path.parent / record["path"]
+        record["byte_size"] = artifact_path.stat().st_size
+        record["sha256"] = sha256_file(artifact_path)
+    _rewrite_manifest(manifest_path, manifest)
+
+
 def _git(repository: Path, *arguments: str) -> str:
     completed = subprocess.run(
         ["git", "-C", str(repository), *arguments],
@@ -133,6 +151,104 @@ def test_attempt_verifier_detects_report_tamper(tmp_path: Path) -> None:
         check for check in checks if check["check_id"] == "artifact_hashes"
     )
     assert artifact_check["status"] == "fail"
+
+
+def test_attempt_verifier_rejects_rehashed_top_level_native_and_claim_attack(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _run_minimal(tmp_path)
+    manifest = load_json(manifest_path)
+    manifest["execution_mode"] = "current_native_execution"
+    manifest["native_execution"]["habitat_sim"] = "pass"
+    manifest["claims"]["current_native_runtime_pass"] = True
+    manifest["claims"]["dataset_admission_count"] = 1
+    manifest["claims"]["historical_artifact_statuses_promoted_to_current_native_pass"] = True
+    manifest["claims"]["mp3d_raw_modified"] = True
+    manifest["claims"]["undeclared_claim"] = False
+    _rewrite_manifest(manifest_path, manifest)
+
+    status, checks = verify_room_qualification_attempt(manifest_path)
+
+    assert status == "fail"
+    assert next(
+        check for check in checks if check["check_id"] == "manifest_schema"
+    )["status"] == "fail"
+    assert next(
+        check for check in checks if check["check_id"] == "no_native_pass_claim"
+    )["status"] == "fail"
+    assert next(
+        check
+        for check in checks
+        if check["check_id"] == "claims_report_consistency"
+    )["status"] == "fail"
+
+
+def test_attempt_verifier_rejects_fully_rehashed_observation_native_pass_attack(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _run_minimal(tmp_path)
+    observation_path = (
+        manifest_path.parent / "observations/replicacad_apt_0.json"
+    )
+    observation = load_json(observation_path)
+    observation["execution_mode"] = "current_native_execution"
+    observation["native_execution"]["habitat_sim"] = "pass"
+    observation["native_execution"]["undeclared_runtime"] = "not_run"
+    _rewrite_manifest(observation_path, observation)
+    _rehash_attempt_bundle(manifest_path)
+
+    status, checks = verify_room_qualification_attempt(manifest_path)
+
+    assert status == "fail"
+    report_check = next(
+        check for check in checks if check["check_id"] == "qualification_reports"
+    )
+    assert report_check["status"] == "fail"
+    assert any(
+        "observation" in error
+        and (
+            "execution_mode" in error
+            or "native_execution" in error
+            or "schema" in error
+        )
+        for error in report_check["measured"]["errors"]
+    )
+
+
+def test_attempt_verifier_rejects_fully_rehashed_case_identity_attack(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _run_minimal(tmp_path)
+    report_path = manifest_path.parent / "reports/blender_custom_two_zone.json"
+    report = load_json(report_path)
+    report["report_id"] = "unit_minimal_room_attempt_replicacad_apt_0"
+    report["subject"]["room_id"] = "replicacad_apt_0"
+    write_json(report_path, report)
+    observation_path = (
+        manifest_path.parent / "observations/blender_custom_two_zone.json"
+    )
+    observation = load_json(observation_path)
+    observation["case_id"] = "replicacad_apt_0"
+    observation["room_key"] = "replicacad_apt_0@wrong_revision"
+    _rewrite_manifest(observation_path, observation)
+    manifest = load_json(manifest_path)
+    manifest["reports"][0]["admission_blockers"] = ["wrong_outer_blocker"]
+    _rewrite_manifest(manifest_path, manifest)
+    _rehash_attempt_bundle(manifest_path)
+
+    status, checks = verify_room_qualification_attempt(manifest_path)
+
+    assert status == "fail"
+    report_check = next(
+        check for check in checks if check["check_id"] == "qualification_reports"
+    )
+    assert report_check["status"] == "fail"
+    errors = "\n".join(report_check["measured"]["errors"])
+    assert "report_id differs" in errors
+    assert "report subject differs" in errors
+    assert "observation case_id differs" in errors
+    assert "observation room_key differs" in errors
+    assert "outer admission_blockers differ" in errors
 
 
 def test_attempt_verifier_rejects_self_claimed_commit_rebind(tmp_path: Path) -> None:

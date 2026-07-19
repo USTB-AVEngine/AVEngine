@@ -60,6 +60,16 @@ _HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _STABLE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _PYTHON_EXECUTABLE_NAME = re.compile(r"^python(?:3(?:\.\d+)?)?$")
 _VERIFICATION_STATUSES = {"pass", "fail", "blocked", "not_run"}
+_M6_FAST_UNIT_MARKER = "not integration and not canary"
+_M6_FAST_UNIT_COMMAND_TAIL = (
+    "-m",
+    "pytest",
+    "-q",
+    "tests/unit",
+    "-m",
+    _M6_FAST_UNIT_MARKER,
+    "--junitxml",
+)
 _EVIDENCE_STATUS_SCOPES = {
     "artifact_integrity",
     "controlled_canary_verifier",
@@ -201,6 +211,40 @@ def canonical_file_record_set_sha256(records: Iterable[Mapping[str, Any]]) -> st
     return hashlib.sha256(payload).hexdigest()
 
 
+def _m6_fast_unit_command_errors(command: Any) -> list[str]:
+    """Validate the complete, non-narrowed M6 fast-unit pytest invocation."""
+
+    owner = "test_layers.fast-unit.command"
+    if not isinstance(command, list) or any(
+        not isinstance(value, str) or not value for value in command
+    ):
+        return [f"{owner} must be an array of non-empty argv strings"]
+    if len(command) != 9:
+        return [
+            f"{owner} must run the complete tests/unit fast layer with the "
+            "canonical marker and one split-form --junitxml path"
+        ]
+    if _PYTHON_EXECUTABLE_NAME.fullmatch(Path(command[0]).name) is None:
+        return [f"{owner}[0] must name a Python executable"]
+    if tuple(command[1:8]) != _M6_FAST_UNIT_COMMAND_TAIL:
+        return [
+            f"{owner} must equal <python> -m pytest -q tests/unit -m "
+            f"{_M6_FAST_UNIT_MARKER!r} --junitxml <repository-relative-path>; "
+            "narrowing flags, node IDs and individual test files are forbidden"
+        ]
+    junit = Path(command[8])
+    if (
+        junit.is_absolute()
+        or ".." in junit.parts
+        or command[8] != junit.as_posix()
+        or not command[8].endswith(".xml")
+    ):
+        return [
+            f"{owner}[8] must be a normalized repository-relative JUnit XML path"
+        ]
+    return []
+
+
 def validate_release_manifest_document(
     value: Mapping[str, Any],
     *,
@@ -228,6 +272,8 @@ def validate_release_manifest_document(
     # schema so callers cannot weaken the boundary with a custom schema path.
     release = value.get("release")
     if isinstance(release, Mapping):
+        if release.get("current_milestone") != "M6":
+            errors.append("release.current_milestone must equal 'M6'")
         manifest_path = release.get("manifest_path")
         if isinstance(manifest_path, str) and not manifest_path.startswith("release/"):
             errors.append(
@@ -258,6 +304,13 @@ def validate_release_manifest_document(
                         "must allow release.manifest_path "
                         f"{manifest_path!r}"
                     )
+    test_layers = value.get("test_layers")
+    if isinstance(test_layers, Mapping):
+        fast_unit = test_layers.get("fast-unit")
+        if isinstance(fast_unit, Mapping):
+            if fast_unit.get("status") != "pass":
+                errors.append("test_layers.fast-unit.status must equal 'pass'")
+            errors.extend(_m6_fast_unit_command_errors(fast_unit.get("command")))
     return errors
 
 
@@ -384,12 +437,22 @@ def _verify_file_records(
     return errors
 
 
+def _git_environment() -> dict[str, str]:
+    """Return an environment in which Git cannot rewrite object ancestry."""
+
+    environment = os.environ.copy()
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    environment.pop("GIT_REPLACE_REF_BASE", None)
+    return environment
+
+
 def _git(root: Path, *arguments: str, allow_failure: bool = False) -> str:
     result = subprocess.run(
         ["git", "-C", str(root), *arguments],
         check=False,
         capture_output=True,
         text=True,
+        env=_git_environment(),
     )
     if result.returncode != 0 and not allow_failure:
         message = result.stderr.strip() or result.stdout.strip() or "git command failed"
@@ -397,6 +460,58 @@ def _git(root: Path, *arguments: str, allow_failure: bool = False) -> str:
             [f"git -C {root} {' '.join(arguments)}: {message}"]
         )
     return result.stdout.strip()
+
+
+def _git_metadata_path(root: Path, value: str) -> Path:
+    selected = Path(value)
+    if not selected.is_absolute():
+        selected = root / selected
+    return selected.resolve(strict=False)
+
+
+def _git_history_override_errors(root: Path, *, owner: str) -> list[str]:
+    """Reject local replace refs and legacy graft files that rewrite history."""
+
+    errors: list[str] = []
+    try:
+        replace_refs = [
+            line
+            for line in _git(
+                root,
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/replace",
+            ).splitlines()
+            if line
+        ]
+        if replace_refs:
+            errors.append(
+                f"{owner} contains forbidden Git replace refs: {replace_refs}"
+            )
+
+        metadata_directories = {
+            _git_metadata_path(root, _git(root, "rev-parse", "--git-dir")),
+            _git_metadata_path(root, _git(root, "rev-parse", "--git-common-dir")),
+        }
+        graft_paths = {
+            directory / "info" / "grafts" for directory in metadata_directories
+        }
+        graft_paths.add(
+            _git_metadata_path(
+                root, _git(root, "rev-parse", "--git-path", "info/grafts")
+            )
+        )
+        present_grafts = sorted(
+            str(path) for path in graft_paths if os.path.lexists(path)
+        )
+        if present_grafts:
+            errors.append(
+                f"{owner} contains forbidden legacy Git graft files: "
+                f"{present_grafts}"
+            )
+    except ReleaseManifestError as exc:
+        errors.extend(f"{owner}: {error}" for error in exc.errors)
+    return errors
 
 
 def _normalize_git_url(value: str) -> str:
@@ -445,6 +560,16 @@ def _verify_git_identity(
     policy = release["metadata_commit_policy"]
 
     try:
+        for repository_root, owner in (
+            (avengine_root, "AVEngine repository"),
+            (habitat_root, "Habitat runtime repository"),
+        ):
+            errors.extend(
+                _git_history_override_errors(repository_root, owner=owner)
+            )
+        if errors:
+            return errors, observed
+
         av_head = _git(avengine_root, "rev-parse", "HEAD")
         av_parent = _git(avengine_root, "rev-parse", "HEAD^")
         parent_line = _git(avengine_root, "rev-list", "--parents", "-n", "1", "HEAD")
@@ -525,6 +650,7 @@ def _verify_git_identity(
             check=False,
             capture_output=True,
             text=True,
+            env=_git_environment(),
         )
         if ancestor.returncode != 0:
             errors.append("declared upstream Habitat commit is not an ancestor of fork")
@@ -532,6 +658,12 @@ def _verify_git_identity(
         submodule_path = Path(habitat["rlr_submodule_path"])
         rlr_root = (habitat_root / submodule_path).resolve(strict=True)
         rlr_root.relative_to(habitat_root.resolve(strict=True))
+        rlr_override_errors = _git_history_override_errors(
+            rlr_root, owner="RLR repository"
+        )
+        if rlr_override_errors:
+            errors.extend(rlr_override_errors)
+            return errors, observed
         rlr_head = _git(rlr_root, "rev-parse", "HEAD")
         observed["rlr_commit"] = rlr_head
         if rlr_head != habitat["rlr_commit"]:
@@ -1493,6 +1625,16 @@ def build_release_manifest(
         habitat_runtime_root=habitat_root,
         artifact_roots=artifact_roots,
     )
+    history_override_errors = [
+        error
+        for repository_root, owner in (
+            (root, "AVEngine repository"),
+            (habitat_root, "Habitat runtime repository"),
+        )
+        for error in _git_history_override_errors(repository_root, owner=owner)
+    ]
+    if history_override_errors:
+        raise ReleaseManifestError(history_override_errors)
     _require_exact_keys(
         request,
         owner="release build request",
@@ -1535,6 +1677,7 @@ def build_release_manifest(
         check=False,
         capture_output=True,
         text=True,
+        env=_git_environment(),
     )
     if tag_format.returncode != 0:
         raise _build_request_error("release.tag", "is not a valid Git tag name")
@@ -1551,6 +1694,7 @@ def build_release_manifest(
         check=False,
         capture_output=True,
         text=True,
+        env=_git_environment(),
     )
     if existing_tag.returncode == 0:
         raise _build_request_error(
@@ -1568,6 +1712,10 @@ def build_release_manifest(
     milestone = _require_string(
         release_request["current_milestone"], owner="release.current_milestone"
     )
+    if milestone != "M6":
+        raise _build_request_error(
+            "release.current_milestone", "must equal 'M6' for this release schema"
+        )
     manifest_relative = _require_relative_path(
         release_request["manifest_path"], owner="release.manifest_path"
     )
@@ -1688,6 +1836,7 @@ def build_release_manifest(
         check=False,
         capture_output=True,
         text=True,
+        env=_git_environment(),
     )
     if ancestor.returncode != 0:
         raise _build_request_error(
@@ -1701,6 +1850,11 @@ def build_release_manifest(
         raise _build_request_error(
             "repositories.rlr_submodule_path", f"cannot resolve submodule: {exc}"
         ) from exc
+    rlr_override_errors = _git_history_override_errors(
+        rlr_root, owner="RLR repository"
+    )
+    if rlr_override_errors:
+        raise ReleaseManifestError(rlr_override_errors)
     observed_rlr_commit = _git(rlr_root, "rev-parse", "HEAD")
     if observed_rlr_commit != rlr_commit:
         raise _build_request_error(
@@ -2066,6 +2220,20 @@ def build_release_manifest(
                 )
         test_layers[layer_id] = layer
         receipt_sources_by_layer[layer_id] = receipt_sources
+
+    fast_unit = _require_mapping(
+        test_layers["fast-unit"], owner="test_layers.fast-unit"
+    )
+    if fast_unit.get("status") != "pass":
+        raise _build_request_error(
+            "test_layers.fast-unit.status",
+            "must be pass for the M6 release profile",
+        )
+    fast_unit_command_errors = _m6_fast_unit_command_errors(
+        fast_unit.get("command")
+    )
+    if fast_unit_command_errors:
+        raise ReleaseManifestError(fast_unit_command_errors)
 
     release_canary = _require_mapping(
         test_layers["release-canary"], owner="test_layers.release-canary"

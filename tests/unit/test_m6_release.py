@@ -208,7 +208,10 @@ def _make_release_fixture(tmp_path: Path) -> ReleaseFixture:
         "python",
         "-m",
         "pytest",
+        "-q",
         "tests/unit",
+        "-m",
+        "not integration and not canary",
         "--junitxml",
         junit_path,
     ]
@@ -888,6 +891,64 @@ def test_release_manifest_requires_annotated_tag(tmp_path: Path) -> None:
     )
 
 
+def test_release_verifier_rejects_git_replace_grafted_lineage(
+    tmp_path: Path,
+) -> None:
+    fixture = _make_release_fixture(tmp_path)
+    _git(fixture.avengine, "tag", "-d", fixture.release_tag)
+    fixture.manifest_path.write_bytes(fixture.manifest_path.read_bytes() + b"\n")
+    forged_metadata_commit = _commit_all(
+        fixture.avengine, "metadata commit with the wrong real parent"
+    )
+    assert _git(fixture.avengine, "rev-parse", "HEAD^") == fixture.metadata_commit
+    _git(
+        fixture.avengine,
+        "replace",
+        "--graft",
+        forged_metadata_commit,
+        fixture.implementation_commit,
+    )
+    assert _git(fixture.avengine, "rev-parse", "HEAD^") == fixture.implementation_commit
+    assert _git(fixture.avengine, "status", "--porcelain") == ""
+    _git(
+        fixture.avengine,
+        "tag",
+        "-a",
+        fixture.release_tag,
+        "-m",
+        "replace-grafted release tag",
+    )
+
+    report = _verify(fixture, verify_environment=False)
+
+    assert report["status"] == "fail"
+    assert any(
+        "forbidden Git replace refs" in error
+        for error in _check_errors(report, "git_identity")
+    )
+
+
+def test_release_verifier_rejects_legacy_git_grafts_file(tmp_path: Path) -> None:
+    fixture = _make_release_fixture(tmp_path)
+    common_dir = Path(_git(fixture.avengine, "rev-parse", "--git-common-dir"))
+    if not common_dir.is_absolute():
+        common_dir = fixture.avengine / common_dir
+    grafts = common_dir / "info" / "grafts"
+    grafts.parent.mkdir(parents=True, exist_ok=True)
+    grafts.write_text(
+        f"{fixture.metadata_commit} {fixture.implementation_commit}\n",
+        encoding="utf-8",
+    )
+
+    report = _verify(fixture, verify_environment=False)
+
+    assert report["status"] == "fail"
+    assert any(
+        "forbidden legacy Git graft files" in error
+        for error in _check_errors(report, "git_identity")
+    )
+
+
 def test_release_metadata_commit_rejects_non_release_changes(tmp_path: Path) -> None:
     fixture = _make_release_fixture(tmp_path)
     _git(fixture.avengine, "tag", "-d", fixture.release_tag)
@@ -962,6 +1023,59 @@ def test_release_metadata_allowlist_must_include_manifest_path(tmp_path: Path) -
         "must allow release.manifest_path" in error
         for error in _check_errors(report, "manifest_schema")
     )
+
+
+def test_release_manifest_fast_unit_pass_policy_survives_custom_schema(
+    tmp_path: Path,
+) -> None:
+    fixture = _make_release_fixture(tmp_path)
+    manifest = load_json_strict(fixture.manifest_path)
+    fast_unit = manifest["test_layers"]["fast-unit"]
+    fast_unit.update(
+        {
+            "status": "not_run",
+            "command": [],
+            "evidence_bundle_ids": [],
+            "receipt_artifacts": [],
+            "reason": "self-declared skip",
+        }
+    )
+    _write_json(fixture.manifest_path, manifest)
+    permissive_schema = tmp_path / "permissive.schema.json"
+    _write_json(permissive_schema, {"type": "object"})
+
+    report = _verify(
+        fixture,
+        schema_path=permissive_schema,
+        verify_git=False,
+        verify_environment=False,
+    )
+
+    assert report["status"] == "fail"
+    assert "test_layers.fast-unit.status must equal 'pass'" in _check_errors(
+        report, "manifest_schema"
+    )
+
+
+@pytest.mark.parametrize(
+    "selected_target",
+    [
+        "tests/unit/test_m6_release.py",
+        "tests/unit/test_m6_release.py::test_release_schema_is_valid_draft_2020_12",
+    ],
+)
+def test_release_manifest_rejects_narrowed_fast_unit_target(
+    tmp_path: Path, selected_target: str
+) -> None:
+    fixture = _make_release_fixture(tmp_path)
+    manifest = load_json_strict(fixture.manifest_path)
+    manifest["test_layers"]["fast-unit"]["command"][4] = selected_target
+    _write_json(fixture.manifest_path, manifest)
+
+    report = _verify(fixture, verify_git=False, verify_environment=False)
+
+    assert report["status"] == "fail"
+    assert _check_errors(report, "manifest_schema")
 
 
 def test_require_verified_release_manifest_raises_structured_error(

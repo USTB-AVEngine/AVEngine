@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_room_qualification_observation_v1.schema.json",
+  "title": "AVEngine M6 room qualification observation v1",
+  "type": "object",
+  "required": [
+    "schema", "case_id", "room_key", "registry_sha256", "execution_mode",
+    "native_execution", "code_provenance", "notes", "content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6_room_qualification_observation_v1"},
+    "case_id": {
+      "enum": [
+        "blender_custom_two_zone", "replicacad_apt_0", "legacy_ue_apartment",
+        "mp3d_17DRP5sb8fy_raw", "mp3d_17DRP5sb8fy_derived",
+        "independent_corrupted_fixture"
+      ]
+    },
+    "room_key": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "registry_sha256": {"$ref": "#/$defs/sha256"},
+    "execution_mode": {"enum": ["read_only_qualification_attempt", "contract_fixture_evaluation"]},
+    "native_execution": {"$ref": "#/$defs/notRunNativeExecution"},
+    "code_provenance": {"$ref": "#/$defs/codeProvenance"},
+    "notes": {"type": "string", "minLength": 1},
+    "content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"case_id": {"const": "independent_corrupted_fixture"}}, "required": ["case_id"]},
+      "then": {"properties": {"room_key": {"const": null}, "execution_mode": {"const": "contract_fixture_evaluation"}}},
+      "else": {"properties": {"room_key": {"type": "string", "minLength": 1}, "execution_mode": {"const": "read_only_qualification_attempt"}}}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "gitCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "notRunNativeExecution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["habitat_sim", "rlr_audio_propagation", "blender", "media_render"],
+      "properties": {
+        "habitat_sim": {"const": "not_run"},
+        "rlr_audio_propagation": {"const": "not_run"},
+        "blender": {"const": "not_run"},
+        "media_render": {"const": "not_run"}
+      }
+    },
+    "codeProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["commit", "branch", "worktree_clean"],
+      "properties": {
+        "commit": {"$ref": "#/$defs/gitCommit"},
+        "branch": {"type": "string", "minLength": 1},
+        "worktree_clean": {"type": "boolean"}
+      }
+    }
+  }
+}

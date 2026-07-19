@@ -174,7 +174,10 @@ def _build_request_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str, str]:
         sys.executable,
         "-m",
         "pytest",
+        "-q",
         "tests/unit",
+        "-m",
+        "not integration and not canary",
         "--junitxml",
         junit_path,
     ]
@@ -624,6 +627,28 @@ def test_prepare_rejects_commit_a_drift(tmp_path: Path) -> None:
     request_value["repositories"]["implementation_commit"] = "0" * 40
     _write_json(request, request_value)
     with pytest.raises(ReleaseManifestError, match="current AVEngine HEAD"):
+        prepare_release_manifest(
+            request,
+            avengine_root=avengine,
+            habitat_runtime_root=habitat,
+        )
+
+
+def test_prepare_requires_complete_passing_fast_unit_profile(tmp_path: Path) -> None:
+    avengine, habitat, request, _, _ = _build_request_fixture(tmp_path)
+    request_value = load_json_strict(request)
+    fast_unit = request_value["test_layers"]["fast-unit"]
+    fast_unit.update(
+        {
+            "status": "not_run",
+            "command": [],
+            "evidence_bundle_ids": [],
+            "receipt_artifacts": [],
+            "reason": "attempted self-declared skip",
+        }
+    )
+    _write_json(request, request_value)
+    with pytest.raises(ReleaseManifestError, match="fast-unit.status"):
         prepare_release_manifest(
             request,
             avengine_root=avengine,

@@ -98,6 +98,7 @@ side read.
       "status": "pass",
       "command": [
         ".venv/bin/python", "-m", "pytest", "-q", "tests/unit",
+        "-m", "not integration and not canary",
         "--junitxml", "tmp/m6/test_receipts/fast-unit.junit.xml"
       ],
       "evidence_bundle_ids": ["m6-test-layers-formal"],
@@ -154,6 +155,7 @@ python tools/release/build_manifest.py receipt \
   --layer-id fast-unit \
   --junit-xml tmp/m6/test_receipts/fast-unit.junit.xml \
   -- .venv/bin/python -m pytest -q tests/unit \
+     -m "not integration and not canary" \
      --junitxml tmp/m6/test_receipts/fast-unit.junit.xml
 ```
 

@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_room_qualification_attempt_v1.schema.json",
+  "title": "AVEngine M6 read-only room qualification attempt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "attempt_id", "generated_at_utc", "execution_mode",
+    "native_execution", "registry", "reports", "artifacts", "case_ids",
+    "code_provenance", "claims", "content_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6_room_qualification_attempt_v1"},
+    "attempt_id": {"$ref": "#/$defs/id"},
+    "generated_at_utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "execution_mode": {"const": "read_only_qualification_attempt"},
+    "native_execution": {"$ref": "#/$defs/notRunNativeExecution"},
+    "registry": {
+      "allOf": [
+        {"$ref": "#/$defs/repositoryFileRecord"},
+        {"properties": {"path": {"const": "examples/m6/rooms/room_registry.json"}}}
+      ]
+    },
+    "reports": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        {"$ref": "#/$defs/blenderReport"},
+        {"$ref": "#/$defs/replicaReport"},
+        {"$ref": "#/$defs/legacyReport"},
+        {"$ref": "#/$defs/mp3dRawReport"},
+        {"$ref": "#/$defs/mp3dDerivedReport"},
+        {"$ref": "#/$defs/corruptedReport"}
+      ],
+      "items": false
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 12,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/fileRecord"}
+    },
+    "case_ids": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        {"const": "blender_custom_two_zone"},
+        {"const": "replicacad_apt_0"},
+        {"const": "legacy_ue_apartment"},
+        {"const": "mp3d_17DRP5sb8fy_raw"},
+        {"const": "mp3d_17DRP5sb8fy_derived"},
+        {"const": "independent_corrupted_fixture"}
+      ],
+      "items": false
+    },
+    "code_provenance": {"$ref": "#/$defs/codeProvenance"},
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_native_runtime_pass", "dataset_admission_count",
+        "historical_artifact_statuses_promoted_to_current_native_pass",
+        "mp3d_raw_modified"
+      ],
+      "properties": {
+        "current_native_runtime_pass": {"const": false},
+        "dataset_admission_count": {"const": 0},
+        "historical_artifact_statuses_promoted_to_current_native_pass": {"const": false},
+        "mp3d_raw_modified": {"const": false}
+      }
+    },
+    "content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "gitCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "relativePath": {
+      "type": "string", "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "notRunNativeExecution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["habitat_sim", "rlr_audio_propagation", "blender", "media_render"],
+      "properties": {
+        "habitat_sim": {"const": "not_run"},
+        "rlr_audio_propagation": {"const": "not_run"},
+        "blender": {"const": "not_run"},
+        "media_render": {"const": "not_run"}
+      }
+    },
+    "fileRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "byte_size", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "repositoryFileRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "byte_size", "sha256"],
+      "properties": {
+        "kind": {"const": "repository_relative"},
+        "path": {"$ref": "#/$defs/relativePath"},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "codeProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["commit", "branch", "worktree_clean"],
+      "properties": {
+        "commit": {"$ref": "#/$defs/gitCommit"},
+        "branch": {"type": "string", "minLength": 1},
+        "worktree_clean": {"type": "boolean"}
+      }
+    },
+    "reportRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["case_id", "path", "byte_size", "sha256", "dataset_admission", "admission_blockers"],
+      "properties": {
+        "case_id": {"$ref": "#/$defs/id"},
+        "path": {"$ref": "#/$defs/relativePath"},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "dataset_admission": {"const": false},
+        "admission_blockers": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "blenderReport": {"allOf": [{"$ref": "#/$defs/reportRecord"}, {"properties": {"case_id": {"const": "blender_custom_two_zone"}, "path": {"const": "reports/blender_custom_two_zone.json"}}}]},
+    "replicaReport": {"allOf": [{"$ref": "#/$defs/reportRecord"}, {"properties": {"case_id": {"const": "replicacad_apt_0"}, "path": {"const": "reports/replicacad_apt_0.json"}}}]},
+    "legacyReport": {"allOf": [{"$ref": "#/$defs/reportRecord"}, {"properties": {"case_id": {"const": "legacy_ue_apartment"}, "path": {"const": "reports/legacy_ue_apartment.json"}}}]},
+    "mp3dRawReport": {"allOf": [{"$ref": "#/$defs/reportRecord"}, {"properties": {"case_id": {"const": "mp3d_17DRP5sb8fy_raw"}, "path": {"const": "reports/mp3d_17DRP5sb8fy_raw.json"}}}]},
+    "mp3dDerivedReport": {"allOf": [{"$ref": "#/$defs/reportRecord"}, {"properties": {"case_id": {"const": "mp3d_17DRP5sb8fy_derived"}, "path": {"const": "reports/mp3d_17DRP5sb8fy_derived.json"}}}]},
+    "corruptedReport": {"allOf": [{"$ref": "#/$defs/reportRecord"}, {"properties": {"case_id": {"const": "independent_corrupted_fixture"}, "path": {"const": "reports/independent_corrupted_fixture.json"}}}]}
+  }
+}

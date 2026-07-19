@@ -132,8 +132,7 @@
           "const": "candidate"
         },
         "current_milestone": {
-          "type": "string",
-          "minLength": 1
+          "const": "M6"
         },
         "manifest_path": {
           "$ref": "#/$defs/releasePath"
@@ -559,7 +558,47 @@
       ],
       "properties": {
         "fast-unit": {
-          "$ref": "#/$defs/testLayer"
+          "allOf": [
+            {
+              "$ref": "#/$defs/testLayer"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "pass"
+                },
+                "command": {
+                  "type": "array",
+                  "minItems": 9,
+                  "maxItems": 9,
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "pattern": "(?:^|/)python(?:3(?:\\.[0-9]+)?)?$"
+                    },
+                    {"const": "-m"},
+                    {"const": "pytest"},
+                    {"const": "-q"},
+                    {"const": "tests/unit"},
+                    {"const": "-m"},
+                    {"const": "not integration and not canary"},
+                    {"const": "--junitxml"},
+                    {
+                      "allOf": [
+                        {"$ref": "#/$defs/relativePath"},
+                        {"pattern": "\\.xml$"}
+                      ]
+                    }
+                  ],
+                  "items": false
+                },
+                "receipt_artifacts": {
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              }
+            }
+          ]
         },
         "slow-hermetic": {
           "$ref": "#/$defs/testLayer"
