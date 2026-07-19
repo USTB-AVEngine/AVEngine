@@ -949,6 +949,40 @@ def test_release_verifier_rejects_legacy_git_grafts_file(tmp_path: Path) -> None
     )
 
 
+def test_release_manifest_rejects_tracked_symlink_to_ignored_manifest(
+    tmp_path: Path,
+) -> None:
+    fixture = _make_release_fixture(tmp_path)
+    manifest = load_json_strict(fixture.manifest_path)
+    _git(fixture.avengine, "tag", "-d", fixture.release_tag)
+    _git(fixture.avengine, "switch", "--detach", fixture.implementation_commit)
+
+    ignored_target = fixture.avengine / "tmp" / "ignored" / "manifest.json"
+    _write_json(ignored_target, manifest)
+    fixture.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    fixture.manifest_path.symlink_to(Path("../tmp/ignored/manifest.json"))
+    _commit_all(fixture.avengine, "release metadata symlink B")
+    _git(
+        fixture.avengine,
+        "tag",
+        "-a",
+        fixture.release_tag,
+        "-m",
+        "symlink release fixture",
+    )
+    assert _git(
+        fixture.avengine, "status", "--porcelain", "--untracked-files=all"
+    ) == ""
+
+    report = _verify(fixture, verify_environment=False)
+
+    assert report["status"] == "fail"
+    assert any(
+        "must not be or traverse a symlink" in error
+        for error in _check_errors(report, "manifest_json")
+    )
+
+
 def test_release_metadata_commit_rejects_non_release_changes(tmp_path: Path) -> None:
     fixture = _make_release_fixture(tmp_path)
     _git(fixture.avengine, "tag", "-d", fixture.release_tag)

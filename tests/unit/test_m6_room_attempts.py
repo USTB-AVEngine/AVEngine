@@ -103,7 +103,21 @@ def test_minimal_attempt_is_complete_honest_and_fail_closed(tmp_path: Path) -> N
     status, checks = verify_room_qualification_attempt(manifest_path)
     manifest = load_json(manifest_path)
 
-    assert status == "pass", checks
+    # A clean checkout promotes this same minimal fixture into formal scope,
+    # where the intentionally absent materialized MP3D proxy must fail closed.
+    # In an ordinary dirty development checkout it remains a valid diagnostic
+    # attempt. Keep both outcomes explicit instead of depending on how the
+    # surrounding repository happened to be invoked by pytest.
+    if manifest["code_provenance"]["worktree_clean"]:
+        assert status == "fail", checks
+        binding_check = next(
+            check
+            for check in checks
+            if check["check_id"] == "mp3d_materialized_proxy_binding"
+        )
+        assert binding_check["status"] == "fail"
+    else:
+        assert status == "pass", checks
     assert manifest["case_ids"] == list(ATTEMPT_CASE_IDS)
     assert len(manifest["reports"]) == 6
     assert manifest["claims"] == {

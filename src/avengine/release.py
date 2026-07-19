@@ -835,6 +835,45 @@ def _require_relative_path(value: Any, *, owner: str) -> str:
     return normalized
 
 
+def _resolve_repository_manifest_path(
+    value: str | Path,
+    *,
+    repository_root: Path,
+    owner: str,
+    strict: bool,
+) -> Path:
+    """Resolve a manifest while rejecting lexical symlink indirection."""
+
+    root = repository_root.resolve(strict=True)
+    raw = Path(value)
+    if ".." in raw.parts:
+        raise _build_request_error(owner, "must not contain a parent traversal")
+    candidate = raw if raw.is_absolute() else root / raw
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise _build_request_error(
+            owner, "must remain inside the AVEngine repository"
+        ) from exc
+    if not relative.parts:
+        raise _build_request_error(owner, "must name a file beneath the repository")
+
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise _build_request_error(
+                owner,
+                f"must not be or traverse a symlink: {relative.as_posix()}",
+            )
+    try:
+        resolved = candidate.resolve(strict=strict)
+        resolved.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise _build_request_error(owner, f"cannot resolve manifest path: {exc}") from exc
+    return resolved
+
+
 def _require_clean_worktree(root: Path, *, owner: str) -> None:
     dirty = _git(root, "status", "--porcelain", "--untracked-files=all")
     if dirty:
@@ -2435,7 +2474,12 @@ def prepare_release_manifest(
         habitat_runtime_root=habitat_root,
         artifact_roots=artifact_roots,
     )
-    destination = root / manifest["release"]["manifest_path"]
+    destination = _resolve_repository_manifest_path(
+        manifest["release"]["manifest_path"],
+        repository_root=root,
+        owner="release manifest output",
+        strict=False,
+    )
     payload = (
         json.dumps(
             manifest,
@@ -2472,10 +2516,12 @@ def verify_release_manifest(
     try:
         av_root = Path(avengine_root).resolve(strict=True)
         habitat_root = Path(habitat_runtime_root).resolve(strict=True)
-        raw_source = Path(manifest_path)
-        source = (
-            raw_source if raw_source.is_absolute() else av_root / raw_source
-        ).resolve(strict=True)
+        source = _resolve_repository_manifest_path(
+            manifest_path,
+            repository_root=av_root,
+            owner="release manifest input",
+            strict=True,
+        )
         observed["manifest_file_record"] = build_file_record(
             source, root=av_root, root_id="avengine"
         )
@@ -2871,16 +2917,12 @@ def write_release_attestation(
 
     root = Path(avengine_root).resolve(strict=True)
     habitat_root = Path(habitat_runtime_root).resolve(strict=True)
-    raw_source = Path(manifest_path)
-    source = (
-        raw_source if raw_source.is_absolute() else root / raw_source
-    ).resolve(strict=True)
-    try:
-        source.relative_to(root)
-    except ValueError as exc:
-        raise _build_request_error(
-            "release attestation manifest", "must be inside the AVEngine repository"
-        ) from exc
+    source = _resolve_repository_manifest_path(
+        manifest_path,
+        repository_root=root,
+        owner="release attestation manifest",
+        strict=True,
+    )
     manifest = load_release_manifest(source)
     expected_manifest = (root / manifest["release"]["manifest_path"]).resolve(
         strict=True
@@ -3127,7 +3169,7 @@ def verify_release_attestation(
     _check(checks, "verification_command", command_errors)
 
     current_report = verify_release_manifest(
-        manifest_path_resolved,
+        manifest_record["path"],
         avengine_root=root,
         habitat_runtime_root=habitat_root,
         artifact_roots={
