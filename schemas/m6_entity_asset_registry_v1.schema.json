@@ -42,7 +42,7 @@
       "properties": {
         "anchor_id": {"$ref": "#/$defs/stable_id"},
         "anchor_type": {
-          "enum": ["head", "muzzle", "paw", "body", "object_speaker", "environmental_point", "offscreen_point"]
+          "enum": ["head", "mouth", "muzzle", "paw", "body", "object_speaker", "environmental_point", "offscreen_point"]
         },
         "joint_id": {
           "oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]

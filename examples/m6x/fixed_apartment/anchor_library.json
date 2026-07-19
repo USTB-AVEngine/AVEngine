@@ -1,0 +1,167 @@
+{
+  "schema": "avengine_m6x_anchor_library_v1",
+  "anchor_library_id": "spear_apartment_0000_anchor_library_v1",
+  "revision": "v1",
+  "room_capsule_ref": {
+    "room_capsule_id": "spear_apartment_0000_habitat_fixed_v1",
+    "revision": "v1"
+  },
+  "coordinate_frame": "avengine_world_right_handed_y_up_m",
+  "anchors": [
+    {
+      "anchor_id": "camera_listener_default",
+      "kind": "camera_listener_pose",
+      "position_m": [
+        -0.7,
+        1.471,
+        0.65
+      ],
+      "yaw_deg": 55.0,
+      "listener_relative_sector": "not_applicable",
+      "expected_camera_fov": "not_applicable",
+      "expected_acoustic_path": "not_applicable",
+      "validation_status": {
+        "state": "run"
+      }
+    },
+    {
+      "anchor_id": "dog_front_right_end",
+      "kind": "entity_spawn",
+      "position_m": [
+        -1.741,
+        0.271,
+        -1.52
+      ],
+      "yaw_deg": 26.565051,
+      "listener_relative_sector": "front_right",
+      "expected_camera_fov": "in_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 0.45
+    },
+    {
+      "anchor_id": "dog_front_right_start",
+      "kind": "entity_spawn",
+      "position_m": [
+        -1.501,
+        0.271,
+        -1.04
+      ],
+      "yaw_deg": 26.565051,
+      "listener_relative_sector": "front_right",
+      "expected_camera_fov": "in_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 0.45
+    },
+    {
+      "anchor_id": "human_front_left_end",
+      "kind": "entity_spawn",
+      "position_m": [
+        -4.301,
+        0.271,
+        1.36
+      ],
+      "yaw_deg": 180.0,
+      "listener_relative_sector": "front_left",
+      "expected_camera_fov": "in_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 1.63
+    },
+    {
+      "anchor_id": "human_front_left_start",
+      "kind": "entity_spawn",
+      "position_m": [
+        -4.301,
+        0.271,
+        0.4
+      ],
+      "yaw_deg": 180.0,
+      "listener_relative_sector": "front_left",
+      "expected_camera_fov": "in_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 1.63
+    },
+    {
+      "anchor_id": "marker_front",
+      "kind": "entity_spawn",
+      "position_m": [
+        -2.88,
+        0.721,
+        -0.75
+      ],
+      "yaw_deg": 0.0,
+      "listener_relative_sector": "front",
+      "expected_camera_fov": "in_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 0.0
+    },
+    {
+      "anchor_id": "marker_rear",
+      "kind": "entity_spawn",
+      "position_m": [
+        1.48,
+        0.721,
+        4.36
+      ],
+      "yaw_deg": 0.0,
+      "listener_relative_sector": "rear_left",
+      "expected_camera_fov": "out_of_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 0.0
+    },
+    {
+      "anchor_id": "world_los",
+      "kind": "world_source",
+      "position_m": [
+        -1.501,
+        0.721,
+        -1.04
+      ],
+      "yaw_deg": 0.0,
+      "listener_relative_sector": "front_right",
+      "expected_camera_fov": "in_fov",
+      "expected_acoustic_path": "los",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 0.0
+    },
+    {
+      "anchor_id": "world_nlos",
+      "kind": "world_source",
+      "position_m": [
+        -4.092,
+        0.721,
+        2.694
+      ],
+      "yaw_deg": 0.0,
+      "listener_relative_sector": "front_left",
+      "expected_camera_fov": "out_of_fov",
+      "expected_acoustic_path": "nlos",
+      "validation_status": {
+        "state": "run"
+      },
+      "los_probe_height_m": 0.0
+    }
+  ],
+  "execution_status": {
+    "state": "run"
+  }
+}

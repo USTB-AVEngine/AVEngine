@@ -296,6 +296,17 @@
           "redistribution": "generated_local"
         },
         {
+          "resource_id": "legacy_scene_instance_config",
+          "resource_type": "scene_instance_config",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT",
+            "path_template": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/scenes/legacy_apartment_0000.scene_instance.json"
+          },
+          "required_for": ["visual_runtime", "episode_feasibility"],
+          "redistribution": "generated_local"
+        },
+        {
           "resource_id": "legacy_navmesh",
           "resource_type": "navmesh",
           "location": {

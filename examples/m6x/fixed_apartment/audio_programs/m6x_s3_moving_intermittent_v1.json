@@ -1,0 +1,69 @@
+{
+  "schema": "avengine_m6_audio_program_v1",
+  "program_id": "m6x_s3_moving_intermittent_v1",
+  "revision": "v1",
+  "mode": "intermittent_events",
+  "timeline": {
+    "time_base_hz": 48000,
+    "ticks_per_frame": 3200,
+    "video_fps": 15,
+    "frame_count": 75,
+    "sample_rate_hz": 16000,
+    "ticks_per_sample": 3,
+    "sample_count": 80000
+  },
+  "candidate_source_endpoint_ids": [
+    "m6x_dog0_muzzle",
+    "m6x_human0_mouth"
+  ],
+  "events": [
+    {
+      "event_id": "s3_human_speech_0",
+      "source_endpoint_id": "m6x_human0_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 12000,
+      "end_tick_exclusive": 60000,
+      "start_sample": 4000,
+      "end_sample_exclusive": 20000,
+      "source_start_sample": 0,
+      "source_end_sample_exclusive": 16000,
+      "linear_gain": 0.22,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "s3_human_speech_1",
+      "source_endpoint_id": "m6x_human0_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 108000,
+      "end_tick_exclusive": 168000,
+      "start_sample": 36000,
+      "end_sample_exclusive": 56000,
+      "source_start_sample": 16000,
+      "source_end_sample_exclusive": 36000,
+      "linear_gain": 0.22,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "s3_human_speech_2",
+      "source_endpoint_id": "m6x_human0_mouth",
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "start_tick": 204000,
+      "end_tick_exclusive": 234000,
+      "start_sample": 68000,
+      "end_sample_exclusive": 78000,
+      "source_start_sample": 36000,
+      "source_end_sample_exclusive": 46000,
+      "linear_gain": 0.22,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    }
+  ],
+  "source_specific_stems": true,
+  "admission_state": "research",
+  "program_content_sha256": "545c95c6ea9a2ecc949e396368fe606fe9c21051ba5326382527ceb0b08a5dc1"
+}

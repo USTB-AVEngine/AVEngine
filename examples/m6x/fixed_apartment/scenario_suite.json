@@ -1,0 +1,257 @@
+{
+  "schema": "avengine_m6x_scenario_suite_v1",
+  "scenario_suite_id": "spear_apartment_0000_s0_s5_v1",
+  "revision": "v1",
+  "room_capsule_ref": {
+    "room_capsule_id": "spear_apartment_0000_habitat_fixed_v1",
+    "revision": "v1"
+  },
+  "anchor_library_ref": {
+    "anchor_library_id": "spear_apartment_0000_anchor_library_v1",
+    "revision": "v1"
+  },
+  "trajectory_template_set_ref": {
+    "trajectory_template_set_id": "spear_apartment_0000_trajectories_v1",
+    "revision": "v1"
+  },
+  "authority_refs": {
+    "audio_program_schema": "avengine_m6_audio_program_v1",
+    "timeline_schema": "avengine_authoritative_timeline_v2",
+    "legacy_flag_registry_id": "legacy_m5_1_source_event_flags",
+    "legacy_flag_definition_revision": "m5_1_v1"
+  },
+  "fixed_room_policy": {
+    "same_room_revision": true,
+    "same_scene_instance": true,
+    "same_acoustic_package": true,
+    "furniture_mutation": "forbidden",
+    "automatic_furnishing": false
+  },
+  "scenarios": [
+    {
+      "scenario_id": "S0",
+      "purpose": "routing_sanity",
+      "listener_anchor_id": "camera_listener_default",
+      "capture_frame_window": {
+        "start_frame": 0,
+        "end_frame_exclusive": 75
+      },
+      "audio_program_ref": {
+        "program_id": "m6x_s0_routing_sanity_v1",
+        "revision": "v1",
+        "expected_mode": "one_active_of_n"
+      },
+      "audio_variants": [
+        "A"
+      ],
+      "source_bindings": [
+        {
+          "source_endpoint_id": "m6x_dog0_muzzle",
+          "entity_instance_id": "dog0",
+          "spawn_anchor_id": "dog_front_right_start",
+          "trajectory_template_id": "static_dog_front_right",
+          "trajectory_route_id": "static_dog_front_right_route"
+        },
+        {
+          "source_endpoint_id": "m6x_human0_mouth",
+          "entity_instance_id": "human0",
+          "spawn_anchor_id": "human_front_left_start",
+          "trajectory_template_id": "static_human_front_left",
+          "trajectory_route_id": "static_human_front_left_route"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "scenario_id": "S1",
+      "purpose": "rear_source",
+      "listener_anchor_id": "camera_listener_default",
+      "capture_frame_window": {
+        "start_frame": 0,
+        "end_frame_exclusive": 75
+      },
+      "audio_program_ref": {
+        "program_id": "m6x_s1_front_rear_route_swap_v1",
+        "revision": "v1",
+        "expected_mode": "counterfactual_route_swap"
+      },
+      "audio_variants": [
+        "A",
+        "B"
+      ],
+      "source_bindings": [
+        {
+          "source_endpoint_id": "m6x_marker_front_speaker",
+          "entity_instance_id": "marker_front",
+          "spawn_anchor_id": "marker_front",
+          "trajectory_template_id": "static_marker_front",
+          "trajectory_route_id": "static_marker_front_route"
+        },
+        {
+          "source_endpoint_id": "m6x_marker_rear_speaker",
+          "entity_instance_id": "marker_rear",
+          "spawn_anchor_id": "marker_rear",
+          "trajectory_template_id": "static_marker_rear",
+          "trajectory_route_id": "static_marker_rear_route"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "scenario_id": "S2",
+      "purpose": "visible_silent_distractor",
+      "listener_anchor_id": "camera_listener_default",
+      "capture_frame_window": {
+        "start_frame": 0,
+        "end_frame_exclusive": 75
+      },
+      "audio_program_ref": {
+        "program_id": "m6x_s2_visible_silent_distractor_v1",
+        "revision": "v1",
+        "expected_mode": "one_active_of_n"
+      },
+      "audio_variants": [
+        "A"
+      ],
+      "source_bindings": [
+        {
+          "source_endpoint_id": "m6x_dog0_muzzle",
+          "entity_instance_id": "dog0",
+          "spawn_anchor_id": "dog_front_right_start",
+          "trajectory_template_id": "static_dog_front_right",
+          "trajectory_route_id": "static_dog_front_right_route"
+        },
+        {
+          "source_endpoint_id": "m6x_human0_mouth",
+          "entity_instance_id": "human0",
+          "spawn_anchor_id": "human_front_left_start",
+          "trajectory_template_id": "static_human_front_left",
+          "trajectory_route_id": "static_human_front_left_route"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      },
+      "silent_negative_program_ref": {
+        "program_id": "m6x_s2_silent_negative_v1",
+        "revision": "v1",
+        "expected_mode": "silent_negative"
+      }
+    },
+    {
+      "scenario_id": "S3",
+      "purpose": "moving_source",
+      "listener_anchor_id": "camera_listener_default",
+      "capture_frame_window": {
+        "start_frame": 75,
+        "end_frame_exclusive": 150
+      },
+      "audio_program_ref": {
+        "program_id": "m6x_s3_moving_intermittent_v1",
+        "revision": "v1",
+        "expected_mode": "intermittent_events"
+      },
+      "audio_variants": [
+        "A"
+      ],
+      "source_bindings": [
+        {
+          "source_endpoint_id": "m6x_dog0_muzzle",
+          "entity_instance_id": "dog0",
+          "spawn_anchor_id": "dog_front_right_start",
+          "trajectory_template_id": "static_dog_front_right",
+          "trajectory_route_id": "static_dog_front_right_route"
+        },
+        {
+          "source_endpoint_id": "m6x_human0_mouth",
+          "entity_instance_id": "human0",
+          "spawn_anchor_id": "human_front_left_start",
+          "trajectory_template_id": "human_master_motion_270",
+          "trajectory_route_id": "human_master_route"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "scenario_id": "S4",
+      "purpose": "overlapping_sources",
+      "listener_anchor_id": "camera_listener_default",
+      "capture_frame_window": {
+        "start_frame": 0,
+        "end_frame_exclusive": 75
+      },
+      "audio_program_ref": {
+        "program_id": "m6x_s4_overlapping_sources_v1",
+        "revision": "v1",
+        "expected_mode": "simultaneous_subset"
+      },
+      "audio_variants": [
+        "A"
+      ],
+      "source_bindings": [
+        {
+          "source_endpoint_id": "m6x_dog0_muzzle",
+          "entity_instance_id": "dog0",
+          "spawn_anchor_id": "dog_front_right_start",
+          "trajectory_template_id": "static_dog_front_right",
+          "trajectory_route_id": "static_dog_front_right_route"
+        },
+        {
+          "source_endpoint_id": "m6x_human0_mouth",
+          "entity_instance_id": "human0",
+          "spawn_anchor_id": "human_front_left_start",
+          "trajectory_template_id": "static_human_front_left",
+          "trajectory_route_id": "static_human_front_left_route"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "scenario_id": "S5",
+      "purpose": "los_nlos_contrast",
+      "listener_anchor_id": "camera_listener_default",
+      "capture_frame_window": {
+        "start_frame": 0,
+        "end_frame_exclusive": 75
+      },
+      "audio_program_ref": {
+        "program_id": "m6x_s5_los_nlos_sequential_v1",
+        "revision": "v1",
+        "expected_mode": "sequential_sources"
+      },
+      "audio_variants": [
+        "A"
+      ],
+      "source_bindings": [
+        {
+          "source_endpoint_id": "m6x_world_los_speaker",
+          "entity_instance_id": "world_los",
+          "spawn_anchor_id": "world_los",
+          "trajectory_template_id": "static_world_los",
+          "trajectory_route_id": "static_world_los_route"
+        },
+        {
+          "source_endpoint_id": "m6x_world_nlos_speaker",
+          "entity_instance_id": "world_nlos",
+          "spawn_anchor_id": "world_nlos",
+          "trajectory_template_id": "static_world_nlos",
+          "trajectory_route_id": "static_world_nlos_route"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    }
+  ],
+  "execution_status": {
+    "state": "run"
+  }
+}

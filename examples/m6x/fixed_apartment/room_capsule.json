@@ -1,0 +1,108 @@
+{
+  "schema": "avengine_m6x_room_capsule_v1",
+  "room_capsule_id": "spear_apartment_0000_habitat_fixed_v1",
+  "revision": "v1",
+  "source_scene_provenance": {
+    "provider": "SPEAR_Unreal",
+    "scene_id": "apartment_0000",
+    "upstream_role": "visual_and_scene_authoring_provenance"
+  },
+  "room_registry_ref": {
+    "registry_id": "avengine_m6_representative_rooms_v1",
+    "room_id": "legacy_ue_apartment_0000_v1",
+    "room_revision": "real_surface_export_pending_portable_package_v1"
+  },
+  "resource_refs": [
+    {
+      "role": "navmesh",
+      "resource_id": "legacy_navmesh"
+    },
+    {
+      "role": "scene_dataset",
+      "resource_id": "legacy_scene_dataset_config"
+    },
+    {
+      "role": "scene_instance",
+      "resource_id": "legacy_scene_instance_config"
+    },
+    {
+      "role": "visual_scene",
+      "resource_id": "legacy_real_surface"
+    }
+  ],
+  "acoustic_package_ref": {
+    "acoustic_representation_id": "legacy_real_surface_acoustic_v1",
+    "resource_id": "legacy_real_surface_acoustic_package"
+  },
+  "qualification_report_id": "legacy_ue_apartment_m6_audit_v1",
+  "runtime_backend": "habitat_sim_avengine",
+  "formal_canary_output": "habitat_native",
+  "operating_area": {
+    "authority": "declared_habitat_navmesh",
+    "floor_height_m": 0.271,
+    "bounds_m": [
+      [
+        -5.900907516479492,
+        -4.2601328852763943e-16,
+        -6.960035800933838
+      ],
+      [
+        5.953448295593262,
+        5.769458770751953,
+        7.088130950927734
+      ]
+    ],
+    "placement_claim": "source_center_only"
+  },
+  "fixed_visual_object_set": {
+    "authority_resource_id": "legacy_scene_instance_config",
+    "mutation": "forbidden"
+  },
+  "visual_profile": {
+    "profile_id": "legacy_apartment_habitat_fixed_v1",
+    "lighting_setup_id": "legacy_apartment_0000",
+    "fixed": true,
+    "hbao": true,
+    "notes": "One logical camera/listener; RGB, depth, and semantic sensors share the same pose."
+  },
+  "acoustic_material_status": "research_placeholder",
+  "forbidden_zones": [
+    "loaded_rigid_collision_obbs",
+    "navmesh_non_navigable"
+  ],
+  "camera_listener_rig": {
+    "rig_id": "camera_rig_0",
+    "formal_view_id": "view0",
+    "listener_id": "listener0",
+    "logical_camera_count": 1,
+    "listener_count": 1,
+    "camera_listener_colocated": true,
+    "camera_listener_cooriented": true,
+    "sensor_modalities": [
+      "rgb",
+      "depth",
+      "semantic"
+    ],
+    "pose_anchor_ids": [
+      "camera_listener_default"
+    ]
+  },
+  "anchor_library_ref": {
+    "anchor_library_id": "spear_apartment_0000_anchor_library_v1",
+    "revision": "v1"
+  },
+  "trajectory_template_set_ref": {
+    "trajectory_template_set_id": "spear_apartment_0000_trajectories_v1",
+    "revision": "v1"
+  },
+  "fixed_layout_policy": {
+    "room_object_mutation": "forbidden",
+    "furniture_mutation": "forbidden",
+    "automatic_furnishing": false,
+    "layout_authority": "room_registry_scene_instance_resource"
+  },
+  "admission_state": "research",
+  "execution_status": {
+    "state": "run"
+  }
+}

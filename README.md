@@ -128,8 +128,8 @@ the remaining geometry/material QA states stay explicit. See
 [`M5_1_STATUS.md`](docs/roadmap/M5_1_STATUS.md). All M5.1 rooms/materials and
 media remain unqualified research evidence; dataset admission is false.
 
-**M6 feasibility/interfaces/room-canary closeout is manifest-governed.** Its scope is
-to close the engineering and release boundary; add versioned entity, animal,
+**M6 feasibility/interfaces/room-canary is closed.** Its scope was to add
+versioned entity, animal,
 source, sound, AudioProgram and room contracts; preserve the M5.1 tri-state
 source/event/flag authority through adapters; and attempt four complementary
 room qualifications plus an independent corrupted fixture. M6 does not freeze
@@ -137,9 +137,10 @@ a final dataset-item schema, generate natural-language QA, train a model or
 claim broad animal/room coverage. See
 [`M6_STATUS.md`](docs/roadmap/M6_STATUS.md),
 [`M6_EXECUTION.md`](docs/roadmap/M6_EXECUTION.md), and
-[`M6_ROOM_MATRIX.md`](docs/roadmap/M6_ROOM_MATRIX.md). M6 is closed only in a
-checkout whose controlled canary and annotated-tag release manifest verify;
-otherwise it remains in progress.
+[`M6_ROOM_MATRIX.md`](docs/roadmap/M6_ROOM_MATRIX.md). The final closeout is in
+[`M6_FINAL_REPORT.md`](release/M6_FINAL_REPORT.md). The current bounded M6 code,
+controlled canary, tagged release verification and attestation passed; this
+does not promote the research rooms or assets into a dataset.
 
 M6 defines six qualification cases over four visual room lineages, not six
 different rooms: controlled Blender, ReplicaCAD, Legacy Apartment and MP3D.
@@ -147,9 +148,10 @@ MP3D raw and derived are two acoustic representations of the same visual room;
 the independent corrupted fixture is not a room. The A3 controlled runner
 implements a verified retained-evidence materialization. Its `pass` is scoped
 to `semantic_materialization_verifier`; it does not mean Habitat-Sim or RLR
-Audio Propagation ran again. Formal post-A3 evidence is pending until it is
-generated from a clean implementation commit. Current native Habitat, native
-RLR propagation and native episode feasibility remain `not_run`.
+Audio Propagation ran again. The formal post-A3 bundle, annotated tag,
+post-tag verifier and attestation are complete. The M6-native Habitat, native
+RLR propagation and native episode-feasibility layers remain `not_run` by that
+milestone's declared scope.
 
 A separate development review now exercises ReplicaCAD `apt_0` with a real
 270-frame Habitat capture, PathFinder Topdown and a 90-keyframe two-source RLR
@@ -169,15 +171,63 @@ the retained `one_active_of_n` controlled evidence; it does not claim a new
 native Habitat/RLR execution. The other modes are versioned extension
 contracts, not claims of six completed executable canaries.
 
-The immediate follow-on is the pending **M6.x fixed SPEAR Apartment
-source-logic canary**. It may begin only after the current M6 release manifest,
-annotated tag and post-tag attestation verify. That bounded task will reuse the
-Habitat-compatible `apartment_0000` room revision and the existing M5.1
-source/event/flag authority to exercise fixed-room routing, rear-source,
-silent-distractor, moving-source, overlapping-source and LOS/NLOS scenarios.
-No `RoomCapsule` or S0--S5 implementation is claimed by the current M6 branch.
-Automatic furnishing, natural-language QA and large-scale dataset generation
-remain outside that follow-on canary.
+The **M6.x fixed SPEAR Apartment source-logic canary** reuses the existing
+Habitat-compatible `apartment_0000` package without copying or rearranging its
+furniture. It implements a compact RoomCapsule, anchor library, 270-frame
+human/Beagle master route and executable S0--S5 programs for routing, front/rear
+counterfactuals, visible silence, moving sound, overlap and LOS/NLOS. Placement
+checks only the source center. Apartment baked furniture is represented by the
+live PathFinder navmesh; separately loaded furnished scenes such as ReplicaCAD
+add every live rigid collision OBB. The same runtime obstacle snapshot drives
+both the gate and the diagnostic Topdown, so furniture cannot disappear from
+the map while still affecting placement. Audio remains 360 degrees and is
+never gated by the camera HFOV. Automatic furnishing, natural-language QA and
+large-scale dataset generation remain outside this canary.
+
+### Run the fixed Apartment S0--S5 canary
+
+Use the Habitat/RLR Conda environment; `.venv` is not required:
+
+```bash
+cd /data/jzy/code/AVEngine-habitat-native
+export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
+export SKBUILD_EDITABLE_SKIP=1
+export PYTHONPATH="$PWD/src:$PWD"
+
+python tools/m6x/build_fixed_apartment_canary.py \
+  --runtime-root /data/jzy/code/habitat-sim-AVEngine \
+  --human-runtime-glb /data/jzy/code/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb \
+  --beagle-audio /data/jzy/code/AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav \
+  --output tmp/m6x/fixed_apartment_run
+```
+
+Open `tmp/m6x/fixed_apartment_run/REVIEW_INDEX.html` to review every clean
+binaural video, annotated main-view + Topdown video, mixture WAV and independent
+source stem. Each scenario variant also retains its AudioProgram, Timeline v2,
+source manifest, legacy flags and final status under `metadata/`.
+The local closeout run is retained at
+`tmp/m6x/fixed_apartment_canary_20260719_03/REVIEW_INDEX.html`.
+
+### Rebuild the ReplicaCAD furniture-aware review
+
+This command reuses the retained 18-second RGB capture and binaural mixture. It
+briefly loads the real `apt_0` room, reads all 113 rigid furniture collision
+OBBs, applies the source-center-only gate and rebuilds the diagnostic Topdown;
+it does not rerun visual capture or RLR acoustics:
+
+```bash
+python tools/m6x/rebuild_replicacad_obstacle_review.py \
+  --replicacad-root tmp/m6x/datasets/replica_cad \
+  --capture-dir tmp/m5_1/replicacad_mixed_20260719_04 \
+  --delivery-dir tmp/m5_1/replicacad_delivery_20260719_03 \
+  --output tmp/m6x/replicacad_obstacle_review_run
+```
+
+The generated video, obstacle map and center-point gate are written below the
+chosen output directory. ReplicaCAD's six room articulated objects do not
+expose rigid-equivalent collision OBBs through the runtime API; they remain
+represented by the declared navmesh and are reported separately rather than
+being approximated as fake collision boxes.
 
 ## Repository boundary
 
@@ -264,8 +314,8 @@ arbitrary generated episode is synchronized.
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
-| M6 | feasibility foundation: release/trust boundaries, extensible registries, legacy-compatible flags, six qualification cases over four room lineages, retained controlled-source materialization and one independent fail-closed fixture (`in_progress` until the manifest/tag verifies; native Habitat/RLR remain `not_run`; no dataset admission claim) |
-| M6.x | fixed SPEAR `apartment_0000` Habitat RoomCapsule and source-logic S0--S5 feasibility canary (`pending`; starts only after verified M6 closeout) |
+| M6 | feasibility foundation: extensible registries, legacy-compatible flags, room interfaces, retained controlled-source materialization and one independent fail-closed fixture (`pass`; no dataset admission claim) |
+| M6.x | fixed SPEAR `apartment_0000` Habitat RoomCapsule, runtime-authoritative obstacles and executable source-logic S0--S5 binaural/Topdown canary (`pass`, bounded research canary; source-center placement only) |
 | M7 | benchmark, ablations, paper and release audit |
 
 M1 loads an official Habitat room, a Blender custom room and an audited legacy

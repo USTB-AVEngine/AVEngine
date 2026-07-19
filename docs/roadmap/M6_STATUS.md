@@ -1,5 +1,8 @@
 # M6 Status — Feasibility Interfaces and Room Canary
 
+> Historical pre-release snapshot. M6 was subsequently closed; the final
+> result is recorded in [M6_FINAL_REPORT.md](../../release/M6_FINAL_REPORT.md).
+
 Recorded: 2026-07-19 implementation snapshot, before release metadata commit.
 Milestone closeout is determined only by the verified release manifest; this
 snapshot is **pending** when no such manifest/tag exists. A later tagged

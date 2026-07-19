@@ -4,6 +4,66 @@
   "revision": "v1",
   "entities": [
     {
+      "entity_asset_id": "legacy_apartment_source_marker_front_v1",
+      "revision": "m1_package_v1",
+      "entity_class": "rigid_object",
+      "visual_asset": {
+        "uri": "artifact://m1/legacy_apartment_package/visual/objects/source_marker_0.glb",
+        "sha256": "a5cea9d5cd067afc1ccbd28bc0740256786cd53425e26a4ff707d2da76b8336c"
+      },
+      "realized_visual_attributes": {
+        "object_type": "directional_source_marker",
+        "color": "red"
+      },
+      "capabilities": {
+        "articulated": false,
+        "skeleton_revision": null,
+        "skeleton_sha256": null,
+        "action_ids": []
+      },
+      "emitter_anchors": [
+        {"anchor_id": "speaker", "anchor_type": "object_speaker", "joint_id": null, "local_position_m": [0.0, 0.0, 0.0]}
+      ],
+      "provenance": {
+        "source": "SPEAR apartment_0000 Habitat package source marker",
+        "source_revision": "m1_package_v1",
+        "license": null,
+        "rights_status": "research_use_only",
+        "evidence_sha256": "a5cea9d5cd067afc1ccbd28bc0740256786cd53425e26a4ff707d2da76b8336c"
+      },
+      "admission_state": "research"
+    },
+    {
+      "entity_asset_id": "legacy_apartment_source_marker_rear_v1",
+      "revision": "m1_package_v1",
+      "entity_class": "rigid_object",
+      "visual_asset": {
+        "uri": "artifact://m1/legacy_apartment_package/visual/objects/source_marker_1.glb",
+        "sha256": "93d74624050d905594315defefaec4465b0794650beb5f842f1b6c9b0e7b38e7"
+      },
+      "realized_visual_attributes": {
+        "object_type": "directional_source_marker",
+        "color": "blue"
+      },
+      "capabilities": {
+        "articulated": false,
+        "skeleton_revision": null,
+        "skeleton_sha256": null,
+        "action_ids": []
+      },
+      "emitter_anchors": [
+        {"anchor_id": "speaker", "anchor_type": "object_speaker", "joint_id": null, "local_position_m": [0.0, 0.0, 0.0]}
+      ],
+      "provenance": {
+        "source": "SPEAR apartment_0000 Habitat package source marker",
+        "source_revision": "m1_package_v1",
+        "license": null,
+        "rights_status": "research_use_only",
+        "evidence_sha256": "93d74624050d905594315defefaec4465b0794650beb5f842f1b6c9b0e7b38e7"
+      },
+      "admission_state": "research"
+    },
+    {
       "entity_asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
       "revision": "m2_v7_world_contact_r5",
       "entity_class": "articulated_animal",
@@ -49,7 +109,40 @@
         "evidence_sha256": "ad5df61f4b955980f6ab3d6d00e44f31942cb31ce3d2f2a3c1a1f353c307e240"
       },
       "admission_state": "research"
+    },
+    {
+      "entity_asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+      "revision": "native_runtime_ue_v3",
+      "entity_class": "articulated_human",
+      "visual_asset": {
+        "uri": "artifact://legacy-spear/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb",
+        "sha256": "02c13940227bd724d03aa91861e6acefde5457f0d2df9f808d427e88a3e94059"
+      },
+      "realized_visual_attributes": {
+        "age_group": "adult",
+        "base_avatar_id": "rocketbox_adults_male_adult_01_original_ue_v1",
+        "sex_or_gender_label": "male"
+      },
+      "capabilities": {
+        "articulated": true,
+        "skeleton_revision": "rocketbox_human_bip01_native_v3",
+        "skeleton_sha256": null,
+        "action_ids": ["idle", "walk"]
+      },
+      "emitter_anchors": [
+        {"anchor_id": "body", "anchor_type": "body", "joint_id": "Bip01 Pelvis", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "head", "anchor_type": "head", "joint_id": "Bip01 Head", "local_position_m": [0.0, 0.0, 0.0]},
+        {"anchor_id": "mouth", "anchor_type": "mouth", "joint_id": "Bip01 MJaw", "local_position_m": [0.0, 0.0, 0.0]}
+      ],
+      "provenance": {
+        "source": "Microsoft Rocketbox male adult 01 plus AVEngine Habitat runtime preparation",
+        "source_revision": "native_runtime_ue_v3",
+        "license": "MIT",
+        "rights_status": "research_use_only",
+        "evidence_sha256": "7975afb2a02d97f5c6ab48528ba68e5d0c379f892194b8d0aa489adc54539f15"
+      },
+      "admission_state": "research"
     }
   ],
-  "registry_content_sha256": "d39fee4137e6f07af37b417c2aea2789cd119164164fa3c8845abd26e2abb1a0"
+  "registry_content_sha256": "80254a6c973d055aafbc44b52aa5f1c22a049107fd6b6d43f2432b8bb8b75016"
 }

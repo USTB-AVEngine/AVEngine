@@ -280,11 +280,13 @@ its scan illumination is baked, and HBAO is not dynamic-shadow evidence.
 
 ## M6: Feasibility Interfaces and Room Canary
 
-Status: determined by the verified release manifest; absent/invalid means
-`in_progress`. See [M6_STATUS.md](M6_STATUS.md),
-[M6_EXECUTION.md](M6_EXECUTION.md), and [M6_ROOM_MATRIX.md](M6_ROOM_MATRIX.md).
-`in_progress` is project state, not a verification status. Every executable
-check still reports only `pass`, `fail`, `blocked`, or `not_run`.
+Status: bounded `pass`. The controlled evidence, annotated tag, post-tag
+verification and attestation are complete; see
+[M6_FINAL_REPORT.md](../../release/M6_FINAL_REPORT.md),
+[M6_STATUS.md](M6_STATUS.md), [M6_EXECUTION.md](M6_EXECUTION.md), and
+[M6_ROOM_MATRIX.md](M6_ROOM_MATRIX.md). This does not promote any research room
+or asset into dataset admission, and the native layers explicitly left outside
+the controlled M6 run remain `not_run`.
 
 Deliverables: one current cross-repository release-manifest authority; a
 documented `trusted_research_workspace` path policy; Habitat-native bootstrap;
@@ -328,9 +330,10 @@ later read-only exporter.
 
 ## M6.x: Fixed SPEAR Apartment Source-Logic Canary
 
-Status: `pending`. This follow-on must not begin until M6 has a verified release
-manifest, annotated tag and post-tag attestation. Its presence in the roadmap
-does not claim that a `RoomCapsule` or any S0--S5 scenario is implemented.
+Status: bounded research-canary `pass`. S0--S5 executed in the fixed existing
+Apartment with one co-located/co-oriented camera-listener rig, 360-degree
+binaural mixtures, independent stems, Timeline/flags and clean plus diagnostic
+Topdown videos.
 
 Deliverables: one frozen Habitat-compatible SPEAR `apartment_0000`
 `RoomCapsule`; stable registered human, animal, rigid-object and source-endpoint
@@ -344,9 +347,12 @@ Exit criteria: the fixed room revision, visual/acoustic package,
 camera-listener, anchors and trajectories remain reproducible across scenarios;
 AudioPrograms activate zero, one or multiple named endpoints according to the
 declared timeline; source identity, direction, event state and existing flags
-remain consistent; and every unavailable scenario reports a precise
-`blocked`/`not_run` state. Automatic furnishing, natural-language QA and a
-large-scale dataset remain out of scope.
+remain consistent. Placement is deliberately source-center-only. The gate and
+Topdown consume the same live obstacle snapshot: Apartment baked furniture is
+represented by PathFinder, while separately loaded furnished scenes consume
+every live rigid collision OBB. This result does not claim full-body collision,
+material physical truth or dataset admission. Automatic furnishing,
+natural-language QA and a large-scale dataset remain out of scope.
 
 ## M7: Benchmark and Paper Release
 

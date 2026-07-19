@@ -1,0 +1,69 @@
+{
+  "schema": "avengine_m6_audio_program_v1",
+  "program_id": "m6x_s0_routing_sanity_v1",
+  "revision": "v1",
+  "mode": "one_active_of_n",
+  "timeline": {
+    "time_base_hz": 48000,
+    "ticks_per_frame": 3200,
+    "video_fps": 15,
+    "frame_count": 75,
+    "sample_rate_hz": 16000,
+    "ticks_per_sample": 3,
+    "sample_count": 80000
+  },
+  "candidate_source_endpoint_ids": [
+    "m6x_dog0_muzzle",
+    "m6x_human0_mouth"
+  ],
+  "events": [
+    {
+      "event_id": "s0_dog_bark_0",
+      "source_endpoint_id": "m6x_dog0_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 28800,
+      "end_tick_exclusive": 43200,
+      "start_sample": 9600,
+      "end_sample_exclusive": 14400,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.18,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "s0_dog_bark_1",
+      "source_endpoint_id": "m6x_dog0_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 96000,
+      "end_tick_exclusive": 110400,
+      "start_sample": 32000,
+      "end_sample_exclusive": 36800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.18,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "s0_dog_bark_2",
+      "source_endpoint_id": "m6x_dog0_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 168000,
+      "end_tick_exclusive": 182400,
+      "start_sample": 56000,
+      "end_sample_exclusive": 60800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.18,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    }
+  ],
+  "source_specific_stems": true,
+  "admission_state": "research",
+  "program_content_sha256": "6bfaf434d7e4d27cabb9566e77558604f85424b8b50ca72234df3d1c102d8390"
+}

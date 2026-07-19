@@ -180,6 +180,7 @@ def compose_annotated_frames(
     tracks: Sequence[SourceOverlayTrack],
     clip_id: str,
     room_id: str,
+    review_stage_label: str = "M5.1",
     listener_position_m: Sequence[float],
     listener_yaw_deg: float,
     aggregate_true_flags: Sequence[str] = (),
@@ -195,6 +196,9 @@ def compose_annotated_frames(
         raise M51ReviewError("main and Topdown frame counts differ")
     if not clip_id or not room_id:
         raise M51ReviewError("clip_id and room_id must be nonempty")
+    if not isinstance(review_stage_label, str) or not review_stage_label.strip():
+        raise M51ReviewError("review_stage_label must be nonempty")
+    stage_label = review_stage_label.strip()
     if isinstance(fps, bool) or not isinstance(fps, int) or fps <= 0:
         raise M51ReviewError("fps must be a positive integer")
     listener = np.asarray(listener_position_m, dtype=np.float64)
@@ -211,9 +215,7 @@ def compose_annotated_frames(
     ):
         raise M51ReviewError("aggregate_true_flags must be unique nonempty strings")
     diagnostics = (
-        None
-        if audio_diagnostic_by_frame is None
-        else tuple(audio_diagnostic_by_frame)
+        None if audio_diagnostic_by_frame is None else tuple(audio_diagnostic_by_frame)
     )
     if diagnostics is not None and (
         len(diagnostics) != main.shape[0]
@@ -261,9 +263,7 @@ def compose_annotated_frames(
                 )
 
         line_height = 19
-        box_height = line_height * (
-            3 + len(checked) + int(diagnostics is not None)
-        ) + 8
+        box_height = line_height * (3 + len(checked) + int(diagnostics is not None)) + 8
         _alpha_box(canvas, (0, 0, REVIEW_WIDTH - 1, box_height))
         draw = ImageDraw.Draw(canvas)
         gate = "PASS" if center_gate_pass else "FAIL"
@@ -277,7 +277,7 @@ def compose_annotated_frames(
         draw.text(
             (8, 4),
             (
-                f"M5.1 | {clip_id} | room={room_id} | "
+                f"{stage_label} | {clip_id} | room={room_id} | "
                 f"frame={frame_index:03d}/{main.shape[0] - 1:03d} "
                 f"t={frame_index / fps:05.2f}s | center-point={gate} min={clearance_text}"
             ),

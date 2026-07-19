@@ -4,6 +4,30 @@
   "revision": "v1",
   "sound_assets": [
     {
+      "sound_asset_id": "directional_chime_v1",
+      "revision": "v1",
+      "semantic_sound_class": "test_signal",
+      "taxonomy_path": ["synthetic", "directional", "chime"],
+      "instance_lineage_id": "m6x_directional_chime_v1",
+      "dry_audio": {
+        "uri": "repo://examples/m6x/assets/directional_chime_16k.wav",
+        "sha256": "a3447420c2ba761af94f945f69fe09ab4bb8060d56c57d7fbb7d6202c852fc27",
+        "sample_rate_hz": 16000,
+        "channel_count": 1,
+        "sample_count": 32000
+      },
+      "normalization_policy": {"mode": "preserve", "target_dbfs": null},
+      "allowed_transforms": ["crop", "gain", "zero_pad"],
+      "tags": ["canary", "directional", "synthetic"],
+      "provenance": {
+        "origin": "AVEngine deterministic sine-chime generator",
+        "license": "AVEngine-project-generated",
+        "rights_status": "licensed",
+        "rights_evidence_sha256": "a3447420c2ba761af94f945f69fe09ab4bb8060d56c57d7fbb7d6202c852fc27"
+      },
+      "admissibility": "research"
+    },
+    {
       "sound_asset_id": "dog_beagle_v2_scheduled_dry",
       "revision": "legacy_m5_1_v1",
       "semantic_sound_class": "animal_vocalization",
@@ -26,7 +50,31 @@
         "rights_evidence_sha256": "7b7d2455073d73e02ab055fc4399befc1b6a615b451166568a377287cc05a27b"
       },
       "admissibility": "research"
+    },
+    {
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "revision": "v1",
+      "semantic_sound_class": "human_speech",
+      "taxonomy_path": ["human", "voice", "speech"],
+      "instance_lineage_id": "libritts_1594_135914_000038_000001",
+      "dry_audio": {
+        "uri": "repo://examples/m6x/assets/human_speech_16k.wav",
+        "sha256": "e59d81b94066c9f15ef6ad61121d8aec0b10b3d5fbb1035f546c02d96bd11bda",
+        "sample_rate_hz": 16000,
+        "channel_count": 1,
+        "sample_count": 101437
+      },
+      "normalization_policy": {"mode": "preserve", "target_dbfs": null},
+      "allowed_transforms": ["crop", "gain", "zero_pad"],
+      "tags": ["human", "legacy_m5_1", "speech"],
+      "provenance": {
+        "origin": "LibriTTS deterministic 16 kHz AVEngine derivative",
+        "license": "CC-BY-4.0",
+        "rights_status": "licensed",
+        "rights_evidence_sha256": "70279f4c750c20909fd1e2ba9cdc8ab379b7229aa47ed25ead16aa15af21c385"
+      },
+      "admissibility": "research"
     }
   ],
-  "registry_content_sha256": "053fd1502fbd1018830853e837e09ce20783a16620673330cb172263f3deed70"
+  "registry_content_sha256": "95b91b0f3399c6242c5d9b4b5a792325accfcdc178598a77b9d3e5a8fdeb49aa"
 }

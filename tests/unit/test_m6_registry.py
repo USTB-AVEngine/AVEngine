@@ -37,7 +37,7 @@ def test_m6_registry_schemas_are_valid_draft_2020_12() -> None:
         Draft202012Validator.check_schema(load_json(schema_path(schema_name)))
 
 
-def test_checked_in_registries_validate_and_resolve_two_beagle_instances() -> None:
+def test_checked_in_registries_validate_and_resolve_legacy_beagle_instances() -> None:
     entities = load_entity_asset_registry(REGISTRIES / "entity_assets_v1.json")
     templates = load_animal_template_registry(REGISTRIES / "animal_templates_v1.json")
     endpoints = load_source_endpoint_registry(REGISTRIES / "source_endpoints_v1.json")
@@ -45,18 +45,23 @@ def test_checked_in_registries_validate_and_resolve_two_beagle_instances() -> No
 
     assert validate_entity_template_bindings(entities, templates) == []
     resolved = resolve_source_endpoint_bindings(endpoints, entities)
-    assert tuple(item.source_endpoint_id for item in resolved) == (
-        "beagle_0_muzzle",
-        "beagle_1_muzzle",
+    resolved_by_id = {item.source_endpoint_id: item for item in resolved}
+    assert tuple(
+        resolved_by_id[source_id].entity_instance_id
+        for source_id in ("beagle_0_muzzle", "beagle_1_muzzle")
+    ) == ("beagle_0", "beagle_1")
+    assert all(
+        resolved_by_id[source_id].emitter_anchor_id == "muzzle"
+        for source_id in ("beagle_0_muzzle", "beagle_1_muzzle")
     )
-    assert tuple(item.entity_instance_id for item in resolved) == (
-        "beagle_0",
-        "beagle_1",
-    )
-    assert all(item.emitter_anchor_id == "muzzle" for item in resolved)
     assert all(item.persistent_when_silent for item in resolved)
-    assert sounds["sound_assets"][0]["admissibility"] == "research"
-    assert sounds["sound_assets"][0]["provenance"]["rights_status"] == "unresolved"
+    dog_sound = next(
+        item
+        for item in sounds["sound_assets"]
+        if item["sound_asset_id"] == "dog_beagle_v2_scheduled_dry"
+    )
+    assert dog_sound["admissibility"] == "research"
+    assert dog_sound["provenance"]["rights_status"] == "unresolved"
 
 
 def test_beagle_appearance_domains_are_data_driven_and_breed_scoped() -> None:
@@ -141,7 +146,10 @@ def test_registry_hash_drift_fails_closed() -> None:
     errors = validate_animal_template_registry(templates)
     assert "registry_content_sha256 does not match canonical content" in errors
     rebound = bind_content_hash(templates)
-    assert "registry_content_sha256 does not match canonical content" not in validate_animal_template_registry(rebound)
+    assert (
+        "registry_content_sha256 does not match canonical content"
+        not in validate_animal_template_registry(rebound)
+    )
 
 
 def test_unregistered_anchor_binding_fails_closed() -> None:
@@ -152,4 +160,3 @@ def test_unregistered_anchor_binding_fails_closed() -> None:
     broken = bind_content_hash(broken)
     with pytest.raises(M6RegistryError, match="unregistered emitter anchor"):
         resolve_source_endpoint_bindings(broken, entities)
-

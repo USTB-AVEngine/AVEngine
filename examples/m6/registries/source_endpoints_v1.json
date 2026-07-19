@@ -36,7 +36,109 @@
       "persistent_when_silent": true,
       "admission_state": "research",
       "evidence_sha256": "76c5106d9f85735a0f559f5689af57f8fa42298107ac7f432699754cf004cfdc"
+    },
+    {
+      "source_endpoint_id": "m6x_dog0_muzzle",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "dog0",
+        "entity_asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+        "entity_asset_revision": "m2_v7_world_contact_r5",
+        "emitter_anchor_id": "muzzle"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": ["animal_vocalization"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "788a667537f7660bac5e128c38c2182453d1d4a9a4f8380343e7a9fa1947538c"
+    },
+    {
+      "source_endpoint_id": "m6x_human0_mouth",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "human0",
+        "entity_asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+        "entity_asset_revision": "native_runtime_ue_v3",
+        "emitter_anchor_id": "mouth"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": ["human_speech"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "02c13940227bd724d03aa91861e6acefde5457f0d2df9f808d427e88a3e94059"
+    },
+    {
+      "source_endpoint_id": "m6x_marker_front_speaker",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "marker_front",
+        "entity_asset_id": "legacy_apartment_source_marker_front_v1",
+        "entity_asset_revision": "m1_package_v1",
+        "emitter_anchor_id": "speaker"
+      },
+      "source_visibility_mode": "visible_entity",
+      "allowed_sound_class_ids": ["test_signal"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "a5cea9d5cd067afc1ccbd28bc0740256786cd53425e26a4ff707d2da76b8336c"
+    },
+    {
+      "source_endpoint_id": "m6x_marker_rear_speaker",
+      "revision": "v1",
+      "binding": {
+        "kind": "entity_anchor",
+        "entity_instance_id": "marker_rear",
+        "entity_asset_id": "legacy_apartment_source_marker_rear_v1",
+        "entity_asset_revision": "m1_package_v1",
+        "emitter_anchor_id": "speaker"
+      },
+      "source_visibility_mode": "offscreen_entity",
+      "allowed_sound_class_ids": ["test_signal"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "93d74624050d905594315defefaec4465b0794650beb5f842f1b6c9b0e7b38e7"
+    },
+    {
+      "source_endpoint_id": "m6x_world_los_speaker",
+      "revision": "v1",
+      "binding": {
+        "kind": "world_point",
+        "world_point_id": "spear_apartment_los_point",
+        "emitter_anchor_id": "speaker",
+        "coordinate_frame": "avengine_world_right_handed_y_up_m",
+        "position_m": [-1.501, 0.721, -1.04]
+      },
+      "source_visibility_mode": "environmental_region",
+      "allowed_sound_class_ids": ["test_signal"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "a3447420c2ba761af94f945f69fe09ab4bb8060d56c57d7fbb7d6202c852fc27"
+    },
+    {
+      "source_endpoint_id": "m6x_world_nlos_speaker",
+      "revision": "v1",
+      "binding": {
+        "kind": "world_point",
+        "world_point_id": "spear_apartment_nlos_point",
+        "emitter_anchor_id": "speaker",
+        "coordinate_frame": "avengine_world_right_handed_y_up_m",
+        "position_m": [-4.092, 0.721, 2.694]
+      },
+      "source_visibility_mode": "environmental_region",
+      "allowed_sound_class_ids": ["test_signal"],
+      "directivity_profile_id": "point_emitter_v1",
+      "persistent_when_silent": true,
+      "admission_state": "research",
+      "evidence_sha256": "a3447420c2ba761af94f945f69fe09ab4bb8060d56c57d7fbb7d6202c852fc27"
     }
   ],
-  "registry_content_sha256": "f21b7dad435934a7e7ab45c75bf571bc85fa5b89b7a3227c4ad85b06b87c7e8a"
+  "registry_content_sha256": "23544b98b1c8f333f7baaf8578704d50754fe9133e30d34e1befecf039663bb3"
 }

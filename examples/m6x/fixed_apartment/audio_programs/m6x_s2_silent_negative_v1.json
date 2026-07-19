@@ -1,0 +1,23 @@
+{
+  "schema": "avengine_m6_audio_program_v1",
+  "program_id": "m6x_s2_silent_negative_v1",
+  "revision": "v1",
+  "mode": "silent_negative",
+  "timeline": {
+    "time_base_hz": 48000,
+    "ticks_per_frame": 3200,
+    "video_fps": 15,
+    "frame_count": 75,
+    "sample_rate_hz": 16000,
+    "ticks_per_sample": 3,
+    "sample_count": 80000
+  },
+  "candidate_source_endpoint_ids": [
+    "m6x_dog0_muzzle",
+    "m6x_human0_mouth"
+  ],
+  "events": [],
+  "source_specific_stems": true,
+  "admission_state": "research",
+  "program_content_sha256": "49802e39bc9ad0705a16050dd7092faa1af4df82ca799595e643db6b58ac3de1"
+}

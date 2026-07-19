@@ -1,0 +1,190 @@
+{
+  "schema": "avengine_m6x_trajectory_template_set_v1",
+  "trajectory_template_set_id": "spear_apartment_0000_trajectories_v1",
+  "revision": "v1",
+  "room_capsule_ref": {
+    "room_capsule_id": "spear_apartment_0000_habitat_fixed_v1",
+    "revision": "v1"
+  },
+  "anchor_library_ref": {
+    "anchor_library_id": "spear_apartment_0000_anchor_library_v1",
+    "revision": "v1"
+  },
+  "frame_rate_hz": 15,
+  "frame_count": 270,
+  "templates": [
+    {
+      "template_id": "dog_master_motion_270",
+      "kind": "linear",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "dog_master_route",
+          "anchor_ids": [
+            "dog_front_right_start",
+            "dog_front_right_start",
+            "dog_front_right_end"
+          ],
+          "anchor_frame_indices": [
+            0,
+            195,
+            269
+          ],
+          "interpolation": "piecewise_linear"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "template_id": "human_master_motion_270",
+      "kind": "linear",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "human_master_route",
+          "anchor_ids": [
+            "human_front_left_start",
+            "human_front_left_start",
+            "human_front_left_end",
+            "human_front_left_end"
+          ],
+          "anchor_frame_indices": [
+            0,
+            75,
+            194,
+            269
+          ],
+          "interpolation": "piecewise_linear"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "template_id": "static_dog_front_right",
+      "kind": "static",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "static_dog_front_right_route",
+          "anchor_ids": [
+            "dog_front_right_start"
+          ],
+          "anchor_frame_indices": [
+            0
+          ],
+          "interpolation": "hold"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "template_id": "static_human_front_left",
+      "kind": "static",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "static_human_front_left_route",
+          "anchor_ids": [
+            "human_front_left_start"
+          ],
+          "anchor_frame_indices": [
+            0
+          ],
+          "interpolation": "hold"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "template_id": "static_marker_front",
+      "kind": "static",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "static_marker_front_route",
+          "anchor_ids": [
+            "marker_front"
+          ],
+          "anchor_frame_indices": [
+            0
+          ],
+          "interpolation": "hold"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "template_id": "static_marker_rear",
+      "kind": "static",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "static_marker_rear_route",
+          "anchor_ids": [
+            "marker_rear"
+          ],
+          "anchor_frame_indices": [
+            0
+          ],
+          "interpolation": "hold"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "template_id": "static_world_los",
+      "kind": "static",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "static_world_los_route",
+          "anchor_ids": [
+            "world_los"
+          ],
+          "anchor_frame_indices": [
+            0
+          ],
+          "interpolation": "hold"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    },
+    {
+      "template_id": "static_world_nlos",
+      "kind": "static",
+      "heading_policy": "path_tangent_keep_last_on_hold",
+      "routes": [
+        {
+          "route_id": "static_world_nlos_route",
+          "anchor_ids": [
+            "world_nlos"
+          ],
+          "anchor_frame_indices": [
+            0
+          ],
+          "interpolation": "hold"
+        }
+      ],
+      "execution_status": {
+        "state": "run"
+      }
+    }
+  ],
+  "execution_status": {
+    "state": "run"
+  }
+}

@@ -54,6 +54,9 @@ def test_compose_annotated_frames_is_deterministic_and_exact_shape() -> None:
     assert np.array_equal(first, second)
     assert np.count_nonzero(first) > 0
 
+    renamed = compose_annotated_frames(**kwargs, review_stage_label="M6.x")
+    assert not np.array_equal(first, renamed)
+
 
 def test_source_geometry_uses_habitat_forward_and_positive_right_azimuth() -> None:
     listener = (0.0, 0.0, 0.0)

@@ -26,7 +26,9 @@ def _inputs() -> tuple[dict, dict, dict]:
     return endpoints, sounds, program
 
 
-def test_one_active_of_n_compiles_exact_half_open_timeline_and_silent_endpoint() -> None:
+def test_one_active_of_n_compiles_exact_half_open_timeline_and_silent_endpoint() -> (
+    None
+):
     endpoints, sounds, _ = _inputs()
     program = load_audio_program(
         REGISTRIES / "one_active_of_n_program_v1.json",
@@ -44,15 +46,24 @@ def test_one_active_of_n_compiles_exact_half_open_timeline_and_silent_endpoint()
     event = compiled.events[0]
     assert (event.start_tick, event.end_tick_exclusive) == (19200, 33600)
     assert (event.start_sample, event.end_sample_exclusive) == (6400, 11200)
-    assert (event.source_start_sample, event.source_end_sample_exclusive) == (3200, 8000)
+    assert (event.source_start_sample, event.source_end_sample_exclusive) == (
+        3200,
+        8000,
+    )
     assert event.linear_gain == 0.18
     assert event.fade_samples == 80
     assert compiled.current_event_by_source(5) == {
         "beagle_0_muzzle": None,
         "beagle_1_muzzle": None,
     }
-    assert compiled.current_event_by_source(6)["beagle_0_muzzle"] == "m5_source0_simultaneous0"
-    assert compiled.current_event_by_source(10)["beagle_0_muzzle"] == "m5_source0_simultaneous0"
+    assert (
+        compiled.current_event_by_source(6)["beagle_0_muzzle"]
+        == "m5_source0_simultaneous0"
+    )
+    assert (
+        compiled.current_event_by_source(10)["beagle_0_muzzle"]
+        == "m5_source0_simultaneous0"
+    )
     assert compiled.current_event_by_source(11)["beagle_0_muzzle"] is None
 
 
@@ -88,11 +99,14 @@ def test_silent_negative_retains_both_registered_endpoint_capabilities() -> None
     program["mode"] = "silent_negative"
     program["events"] = []
     program = bind_audio_program_hash(program)
-    assert validate_audio_program(
-        program,
-        source_endpoint_registry=endpoints,
-        sound_asset_registry=sounds,
-    ) == []
+    assert (
+        validate_audio_program(
+            program,
+            source_endpoint_registry=endpoints,
+            sound_asset_registry=sounds,
+        )
+        == []
+    )
     compiled = compile_audio_program(
         program,
         source_endpoint_registry=endpoints,
@@ -135,7 +149,12 @@ def test_audio_program_rejects_non_authoritative_tick_or_sample_boundaries() -> 
 def test_audio_program_rejects_sound_class_not_supported_by_endpoint() -> None:
     endpoints, sounds, program = _inputs()
     sounds = deepcopy(sounds)
-    sounds["sound_assets"][0]["semantic_sound_class"] = "speech"
+    dog_sound = next(
+        item
+        for item in sounds["sound_assets"]
+        if item["sound_asset_id"] == "dog_beagle_v2_scheduled_dry"
+    )
+    dog_sound["semantic_sound_class"] = "speech"
     from avengine.m6.registry import bind_content_hash
 
     sounds = bind_content_hash(sounds)
@@ -165,32 +184,41 @@ def test_all_declared_audio_program_modes_have_enforced_semantics() -> None:
         )
     )
     simultaneous = bind_audio_program_hash(simultaneous)
-    assert validate_audio_program(
-        simultaneous,
-        source_endpoint_registry=endpoints,
-        sound_asset_registry=sounds,
-    ) == []
+    assert (
+        validate_audio_program(
+            simultaneous,
+            source_endpoint_registry=endpoints,
+            sound_asset_registry=sounds,
+        )
+        == []
+    )
 
     sequential = deepcopy(base)
     sequential["program_id"] = "beagle_sequential_sources_v1"
     sequential["mode"] = "sequential_sources"
     sequential["events"][1]["source_endpoint_id"] = "beagle_1_muzzle"
     sequential = bind_audio_program_hash(sequential)
-    assert validate_audio_program(
-        sequential,
-        source_endpoint_registry=endpoints,
-        sound_asset_registry=sounds,
-    ) == []
+    assert (
+        validate_audio_program(
+            sequential,
+            source_endpoint_registry=endpoints,
+            sound_asset_registry=sounds,
+        )
+        == []
+    )
 
     intermittent = deepcopy(base)
     intermittent["program_id"] = "beagle_intermittent_events_v1"
     intermittent["mode"] = "intermittent_events"
     intermittent = bind_audio_program_hash(intermittent)
-    assert validate_audio_program(
-        intermittent,
-        source_endpoint_registry=endpoints,
-        sound_asset_registry=sounds,
-    ) == []
+    assert (
+        validate_audio_program(
+            intermittent,
+            source_endpoint_registry=endpoints,
+            sound_asset_registry=sounds,
+        )
+        == []
+    )
 
 
 def test_counterfactual_route_swap_changes_only_declared_endpoint_routes() -> None:
@@ -209,11 +237,14 @@ def test_counterfactual_route_swap_changes_only_declared_endpoint_routes() -> No
         "allowed_changed_fields": ["events[*].source_endpoint_id"],
     }
     program = bind_audio_program_hash(program)
-    assert validate_audio_program(
-        program,
-        source_endpoint_registry=endpoints,
-        sound_asset_registry=sounds,
-    ) == []
+    assert (
+        validate_audio_program(
+            program,
+            source_endpoint_registry=endpoints,
+            sound_asset_registry=sounds,
+        )
+        == []
+    )
 
     variant_a = materialize_audio_program_variant(
         program,
@@ -232,13 +263,9 @@ def test_counterfactual_route_swap_changes_only_declared_endpoint_routes() -> No
     for event_a, event_b in zip(variant_a["events"], variant_b["events"]):
         assert event_b["source_endpoint_id"] == "beagle_1_muzzle"
         assert {
-            key: value
-            for key, value in event_a.items()
-            if key != "source_endpoint_id"
+            key: value for key, value in event_a.items() if key != "source_endpoint_id"
         } == {
-            key: value
-            for key, value in event_b.items()
-            if key != "source_endpoint_id"
+            key: value for key, value in event_b.items() if key != "source_endpoint_id"
         }
     assert compile_audio_program_variant(
         program,
@@ -248,7 +275,9 @@ def test_counterfactual_route_swap_changes_only_declared_endpoint_routes() -> No
     ).active_source_endpoint_ids == ("beagle_1_muzzle",)
 
 
-def test_audio_program_modes_fail_closed_when_their_required_pattern_is_absent() -> None:
+def test_audio_program_modes_fail_closed_when_their_required_pattern_is_absent() -> (
+    None
+):
     endpoints, sounds, base = _inputs()
     for mode, expected in (
         (

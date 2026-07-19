@@ -1,11 +1,14 @@
 # M6 Execution — Feasibility Interfaces and Room Canary
 
+> Historical pre-release execution snapshot. M6 was subsequently closed; the
+> final result is recorded in [M6_FINAL_REPORT.md](../../release/M6_FINAL_REPORT.md).
+
 This is the portable execution record for M6. It deliberately separates
 hermetic contract tests, native Habitat/RLR execution, room qualification,
 media readback and release verification. Running one layer never implies that
 another layer passed.
 
-The current milestone is not closed. The A3 implementation explicitly
+At the time of this snapshot, the milestone was not closed. The A3 implementation explicitly
 separates retained semantic materialization from native execution. Formal
 post-A3 evidence is pending; pre-A3 bundles are stale and cannot establish the
 new status scope. Closeout still requires a clean commit A, newly generated
