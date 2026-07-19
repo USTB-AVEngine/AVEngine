@@ -217,7 +217,7 @@ At bundle root, `inputs/input_index.json` records the small configuration
 snapshot, code commits and direct external assets; `FINAL_REPORT.md` states the
 bounded acoustic and placement claims.
 The local closeout run is retained at
-`tmp/m6x/fixed_apartment_canary_20260719_03/REVIEW_INDEX.html`.
+`tmp/m6x/fixed_apartment_canary_20260719_04/REVIEW_INDEX.html`.
 The bounded feasibility result and its acoustic claim boundary are summarized
 in [the M6.x final report](docs/roadmap/M6X_FINAL_REPORT.md).
 
@@ -229,8 +229,8 @@ python tools/m6x/build_fixed_apartment_canary.py \
   --runtime-root /data/jzy/code/habitat-sim-AVEngine \
   --human-runtime-glb /data/jzy/code/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb \
   --beagle-audio /data/jzy/code/AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav \
-  --capture-dir tmp/m6x/fixed_apartment_canary_20260719_03/shared/master_capture \
-  --acoustics-dir tmp/m6x/fixed_apartment_canary_20260719_03/shared/acoustics \
+  --capture-dir tmp/m6x/fixed_apartment_canary_20260719_04/shared/master_capture \
+  --acoustics-dir tmp/m6x/fixed_apartment_canary_20260719_04/shared/acoustics \
   --output tmp/m6x/fixed_apartment_rebuild_01
 ```
 
