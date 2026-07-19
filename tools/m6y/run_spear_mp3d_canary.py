@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,6 +36,7 @@ from avengine.optional_backends.spear_mp3d import (
     M5_1_FRAME_COUNT,
     MP3D_ROOM_ID,
     build_m5_1_mp3d_execution_plan,
+    render_color_fidelity_qa,
 )
 from avengine.optional_backends.spear_apartment import (
     apply_ue_component_frame_delta,
@@ -45,7 +47,9 @@ from avengine.optional_backends.spear_apartment import (
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_ROUTE = REPOSITORY / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
-DEFAULT_CAPTURE = REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/evidence.json"
+DEFAULT_CAPTURE = (
+    REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/evidence.json"
+)
 DEFAULT_FRAME_READBACK = (
     REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/frame_readback.json"
 )
@@ -62,6 +66,9 @@ DEFAULT_HABITAT_REVIEW = (
 DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/m6/rooms/room_registry.json"
 DEFAULT_ROOM_QUALIFICATION = (
     REPOSITORY / "examples/m6/rooms/qualification/mp3d_17DRP5sb8fy_raw.json"
+)
+DEFAULT_HABITAT_RGB = (
+    REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/arrays/rgb.npy"
 )
 CAMERA_BLUEPRINT = "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C"
 CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
@@ -109,12 +116,10 @@ def _file_record(path: Path) -> dict[str, Any]:
 
 def _default_old_paths(spear_root: Path) -> tuple[Path, Path]:
     import_result = (
-        spear_root
-        / "tmp/mp3d_ue_comparison_20260718_01/import/ue_import_result.json"
+        spear_root / "tmp/mp3d_ue_comparison_20260718_01/import/ue_import_result.json"
     )
     human_manifest = (
-        spear_root
-        / "tmp/rocketbox_native_ue_import_v3/"
+        spear_root / "tmp/rocketbox_native_ue_import_v3/"
         "rocketbox_male_adult_01_original_ue_v3/ue_import_manifest.json"
     )
     return import_result, human_manifest
@@ -137,6 +142,7 @@ def build_execution_plan(args: argparse.Namespace) -> dict[str, Any]:
         "room_registry": args.room_registry,
         "raw_room_qualification": args.room_qualification,
         "ue_import_manifest": import_path,
+        "ue_material_color_result": args.ue_material_color_result,
         "human_ue_manifest": human_path,
     }
     loaded: dict[str, Mapping[str, Any]] = {}
@@ -155,6 +161,7 @@ def build_execution_plan(args: argparse.Namespace) -> dict[str, Any]:
         room_registry=loaded["room_registry"],
         raw_room_qualification=loaded["raw_room_qualification"],
         ue_import_manifest=loaded["ue_import_manifest"],
+        ue_material_color_result=loaded["ue_material_color_result"],
         human_ue_manifest=loaded["human_ue_manifest"],
         output_gain=args.fixed_output_gain,
     )
@@ -215,7 +222,9 @@ def _actor_bounds_readback(actor: Any, frame_index: int) -> dict[str, Any]:
     }
 
 
-def _spawn_camera(game: Any, *, width: int, height: int, hfov: float) -> tuple[Any, Any]:
+def _spawn_camera(
+    game: Any, *, width: int, height: int, hfov: float
+) -> tuple[Any, Any]:
     camera_class = game.unreal_service.load_class(
         uclass="AActor", name=CAMERA_BLUEPRINT
     )
@@ -295,7 +304,9 @@ def _spawn_scene_meshes(game: Any, mesh_paths: Sequence[str]) -> list[Any]:
     return actors
 
 
-def _spawn_lighting(game: Any, spear_root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
+def _spawn_lighting(
+    game: Any, spear_root: Path, plan: Mapping[str, Any]
+) -> dict[str, Any]:
     examples = spear_root / "examples"
     sys.path.insert(0, str(examples))
     from render_in_gpurir_room import spawn_directional_light, spawn_sky
@@ -364,7 +375,9 @@ def _spawn_runtime_actors(
     result: dict[str, dict[str, Any]] = {}
     for declaration in plan["actors"]:
         actor_id = declaration["actor_id"]
-        expected_class = HUMAN_BP_CLASS_PATH if actor_id == "human0" else DOG_BP_CLASS_PATH
+        expected_class = (
+            HUMAN_BP_CLASS_PATH if actor_id == "human0" else DOG_BP_CLASS_PATH
+        )
         if declaration["blueprint_class_path"] != expected_class:
             raise RuntimeError(f"unexpected UE class for {actor_id}")
         state = first_states[actor_id]
@@ -401,9 +414,7 @@ def _spawn_runtime_actors(
         )
         visual_actor.SetActorEnableCollision(bNewActorEnableCollision=False)
         visual_actor.SetActorTickEnabled(bEnabled=True)
-        visual_actor.SetActorScale3D(
-            NewScale3D={"X": 1.0, "Y": 1.0, "Z": 1.0}
-        )
+        visual_actor.SetActorScale3D(NewScale3D={"X": 1.0, "Y": 1.0, "Z": 1.0})
         visual_root = visual_actor.K2_GetRootComponent()
         visual_root.SetMobility(NewMobility="Movable")
         attached = visual_root.K2_AttachToComponent(
@@ -466,9 +477,7 @@ def _apply_actor_state(
     observed_position = float(component.GetPosition())
     error = abs(observed_position - requested_position)
     if error > ANIMATION_TOLERANCE_SECONDS:
-        raise RuntimeError(
-            f"animation readback failed at frame {frame_index}: {error}"
-        )
+        raise RuntimeError(f"animation readback failed at frame {frame_index}: {error}")
     position = state["translation_ue_cm"]
     anchor = runtime["anchor"]
     anchor.K2_SetActorLocationAndRotation(
@@ -508,15 +517,11 @@ class _LuminanceAccumulator:
     def add_bgr(self, frame: np.ndarray) -> None:
         array = frame.astype(np.float64) / 255.0
         luminance = (
-            0.2126 * array[..., 2]
-            + 0.7152 * array[..., 1]
-            + 0.0722 * array[..., 0]
+            0.2126 * array[..., 2] + 0.7152 * array[..., 1] + 0.0722 * array[..., 0]
         )
         self.count += int(luminance.size)
         self.total += float(np.sum(luminance))
-        self.saturated += int(
-            np.count_nonzero(luminance >= self.saturation_threshold)
-        )
+        self.saturated += int(np.count_nonzero(luminance >= self.saturation_threshold))
         self.nonblack += int(np.count_nonzero(luminance >= self.nonblack_threshold))
         bins = np.minimum((luminance * 4095.0).astype(np.int64), 4095)
         self.histogram += np.bincount(bins.ravel(), minlength=4096)
@@ -580,9 +585,7 @@ def _root_gate(
                 )
             )
             rotation = observed["rotation_deg"]
-            yaws.append(
-                _wrap_angle_error(rotation[2], state["actor_yaw_ue_deg"])
-            )
+            yaws.append(_wrap_angle_error(rotation[2], state["actor_yaw_ue_deg"]))
             roll_pitch.append(max(abs(rotation[0]), abs(rotation[1])))
         maximum_position = max(positions)
         maximum_yaw = max(yaws)
@@ -911,14 +914,23 @@ def _cleanup_failed_constructor(*, executable: Path, temporary_directory: Path) 
             pass
 
 
-def _configure_instance(args: argparse.Namespace, plan: Mapping[str, Any]) -> tuple[Any, Path]:
+def _configure_instance(
+    args: argparse.Namespace, plan: Mapping[str, Any]
+) -> tuple[Any, Path]:
     spear_root = args.spear_root.resolve()
-    executable = (
-        spear_root
-        / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
-    )
-    if not executable.is_file():
-        raise RuntimeError(f"packaged SPEAR executable is missing: {executable}")
+    editor = args.unreal_editor.resolve()
+    project = args.ue_project.resolve()
+    if not editor.is_file() or not os.access(editor, os.X_OK):
+        raise RuntimeError(f"UnrealEditor is missing or not executable: {editor}")
+    if project.suffix != ".uproject" or not project.is_file():
+        raise RuntimeError(f"isolated SPEAR uproject is missing: {project}")
+    old_project = (
+        spear_root / "cpp/unreal_projects/SpearSim/SpearSim.uproject"
+    ).resolve()
+    if project == old_project or old_project.parent in project.parents:
+        raise RuntimeError(
+            "refusing to render MP3D through the old dirty SPEAR project"
+        )
     sys.path.insert(0, str(spear_root / "examples"))
     from render_in_apartment import parallel_instance_settings
 
@@ -929,12 +941,16 @@ def _configure_instance(args: argparse.Namespace, plan: Mapping[str, Any]) -> tu
     )
     config = spear.get_config(user_config_files=[])
     config.defrost()
-    config.SPEAR.LAUNCH_MODE = "game"
-    config.SPEAR.INSTANCE.GAME_EXECUTABLE = str(executable)
+    config.SPEAR.LAUNCH_MODE = "editor"
+    config.SPEAR.INSTANCE.EDITOR_EXECUTABLE = str(editor)
+    config.SPEAR.INSTANCE.EDITOR_UPROJECT = str(project)
+    config.SPEAR.INSTANCE.EDITOR_LAUNCH_MODE = "game"
     config.SPEAR.INSTANCE.INITIALIZE_CLIENT_MAX_TIME_SECONDS = (
         INITIALIZE_CLIENT_MAX_TIME_SECONDS
     )
-    config.SPEAR.INSTANCE.CLIENT_INTERNAL_TIMEOUT_SECONDS = CLIENT_INTERNAL_TIMEOUT_SECONDS
+    config.SPEAR.INSTANCE.CLIENT_INTERNAL_TIMEOUT_SECONDS = (
+        CLIENT_INTERNAL_TIMEOUT_SECONDS
+    )
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.OVERRIDE_GAME_DEFAULT_MAP = True
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = ENTRY_MAP
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / M5_1_FPS
@@ -952,16 +968,16 @@ def _configure_instance(args: argparse.Namespace, plan: Mapping[str, Any]) -> tu
         config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.graphicsadapter = settings[
             "graphics_adapter"
         ]
-    config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = (
-        "/etc/vulkan/icd.d/nvidia_icd.json"
-    )
+    vulkan_icd = os.environ.get("VK_ICD_FILENAMES", "/etc/vulkan/icd.d/nvidia_icd.json")
+    if Path(vulkan_icd).is_file():
+        config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = vulkan_icd
     config.freeze()
     spear.configure_system(config=config)
     try:
         instance = spear.Instance(config=config)
     except BaseException:
         _cleanup_failed_constructor(
-            executable=executable, temporary_directory=Path(settings["temp_dir"])
+            executable=editor, temporary_directory=Path(settings["temp_dir"])
         )
         raise
     return instance, spear_root
@@ -981,6 +997,28 @@ def run(args: argparse.Namespace) -> Path:
         print(f"SPEAR_MP3D_DRY_RUN_OK plan={plan_path}", flush=True)
         return plan_path
 
+    material_result = _load_json(
+        args.ue_material_color_result.resolve(), owner="UE material-color result"
+    )
+    result_project = material_result.get("project_file")
+    if (
+        not isinstance(result_project, str)
+        or Path(result_project).resolve() != args.ue_project.resolve()
+    ):
+        raise RuntimeError(
+            "MP3D material-color reload result does not belong to the selected "
+            "isolated UE project"
+        )
+    habitat_rgb = np.load(args.habitat_rgb_array.resolve(), mmap_mode="r")
+    if (
+        habitat_rgb.shape != (M5_1_FRAME_COUNT, 240, 320, 3)
+        or habitat_rgb.dtype != np.uint8
+    ):
+        raise RuntimeError(
+            f"unexpected Habitat MP3D RGB authority: shape={habitat_rgb.shape} "
+            f"dtype={habitat_rgb.dtype}"
+        )
+
     frames_root = output_root / "frames"
     frames_root.mkdir()
     instance, spear_root = _configure_instance(args, plan)
@@ -990,9 +1028,13 @@ def run(args: argparse.Namespace) -> Path:
     actor_bounds = {"human0": [], "dog0": []}
     camera_readbacks: list[dict[str, Any]] = []
     luminance = _LuminanceAccumulator(plan["exposure_and_lighting"])
+    ue_color_frames: list[np.ndarray] = []
+    habitat_color_frames: list[np.ndarray] = []
     lighting: dict[str, Any]
     smoke_index = args.smoke_frame_index
-    capture_indices = [smoke_index] if smoke_index is not None else list(range(M5_1_FRAME_COUNT))
+    capture_indices = (
+        [smoke_index] if smoke_index is not None else list(range(M5_1_FRAME_COUNT))
+    )
     try:
         with instance.begin_frame():
             room_actors = _spawn_scene_meshes(
@@ -1053,6 +1095,14 @@ def run(args: argparse.Namespace) -> Path:
                     raw, plan["exposure_and_lighting"]["fixed_output_gain"]
                 )
                 luminance.add_bgr(frame)
+                ue_color_frames.append(
+                    cv2.resize(
+                        frame[:, :, ::-1],
+                        (320, 240),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                )
+                habitat_color_frames.append(np.asarray(habitat_rgb[frame_index]).copy())
                 path = frames_root / f"frame_{output_index:04d}.png"
                 if not cv2.imwrite(str(path), frame):
                     raise RuntimeError(f"could not write frame: {path}")
@@ -1067,6 +1117,13 @@ def run(args: argparse.Namespace) -> Path:
     luminance_qa = luminance.result(plan["exposure_and_lighting"])
     if luminance_qa["status"] != "pass":
         raise RuntimeError(f"MP3D fixed-exposure QA failed: {luminance_qa}")
+    color_qa = render_color_fidelity_qa(
+        np.stack(ue_color_frames),
+        np.stack(habitat_color_frames),
+        plan["exposure_and_lighting"],
+    )
+    if color_qa["status"] != "pass":
+        raise RuntimeError(f"MP3D rendered color-fidelity QA failed: {color_qa}")
     captured_frame_plans = [plan["frames"][index] for index in capture_indices]
     bounds_gate = summarize_actor_bounds(
         expected_frames=captured_frame_plans,
@@ -1090,6 +1147,8 @@ def run(args: argparse.Namespace) -> Path:
             "frame_path": str((frames_root / "frame_0000.png").resolve()),
             "lighting": lighting,
             "luminance_qa": luminance_qa,
+            "color_fidelity_qa": color_qa,
+            "material_color_contract": plan["scene"]["material_color_contract"],
             "visual_bounds_readback": bounds_gate,
             "runtime_actor_hierarchy": runtime_hierarchy,
             "clock": plan["clock"],
@@ -1138,7 +1197,10 @@ def run(args: argparse.Namespace) -> Path:
     }
     source_audio_hash = _audio_packet_sha256(habitat_review)
     for name, record in media.items():
-        if name != "ue_visual_only" and record["audio_packet_sha256"] != source_audio_hash:
+        if (
+            name != "ue_visual_only"
+            and record["audio_packet_sha256"] != source_audio_hash
+        ):
             raise RuntimeError(f"{name} changed the authoritative binaural packets")
 
     evidence = {
@@ -1159,9 +1221,9 @@ def run(args: argparse.Namespace) -> Path:
             "frame_rate_hz": M5_1_FPS,
             "streaming_warmup_frames": plan["render"]["streaming_warmup_frames"],
             "camera_warmup_frames": plan["render"]["camera_warmup_frames"],
-            "auto_exposure_console_commands_requested": plan[
-                "exposure_and_lighting"
-            ]["console_commands"],
+            "auto_exposure_console_commands_requested": plan["exposure_and_lighting"][
+                "console_commands"
+            ],
             "fixed_output_gain": plan["exposure_and_lighting"]["fixed_output_gain"],
             "lighting": lighting,
         },
@@ -1172,6 +1234,7 @@ def run(args: argparse.Namespace) -> Path:
             "runtime_actor_hierarchy": runtime_hierarchy,
         },
         "exposure_qa": luminance_qa,
+        "color_fidelity_qa": color_qa,
         "media": media,
         "audio_authority": {
             "source_video": _file_record(habitat_review),
@@ -1185,9 +1248,11 @@ def run(args: argparse.Namespace) -> Path:
             "frame_readback": _file_record(args.frame_readback.resolve()),
             "navmesh_gate": _file_record(args.navmesh_gate.resolve()),
             "source_program": _file_record(args.source_program.resolve()),
-            "emitter_trajectories": _file_record(
-                args.emitter_trajectories.resolve()
+            "emitter_trajectories": _file_record(args.emitter_trajectories.resolve()),
+            "ue_material_color_result": _file_record(
+                args.ue_material_color_result.resolve()
             ),
+            "habitat_rgb_array": _file_record(args.habitat_rgb_array.resolve()),
         },
         "claim_boundary": plan["claim_boundary"],
     }
@@ -1196,8 +1261,7 @@ def run(args: argparse.Namespace) -> Path:
     if not args.keep_frames:
         shutil.rmtree(frames_root)
     print(
-        "SPEAR_MP3D_CANARY_OK "
-        f"video={media_paths['topdown']} evidence={evidence_path}",
+        f"SPEAR_MP3D_CANARY_OK video={media_paths['topdown']} evidence={evidence_path}",
         flush=True,
     )
     return evidence_path
@@ -1206,6 +1270,8 @@ def run(args: argparse.Namespace) -> Path:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--unreal-editor", type=Path)
+    parser.add_argument("--ue-project", type=Path)
     parser.add_argument("--route-manifest", type=Path, default=DEFAULT_ROUTE)
     parser.add_argument("--capture-evidence", type=Path, default=DEFAULT_CAPTURE)
     parser.add_argument("--frame-readback", type=Path, default=DEFAULT_FRAME_READBACK)
@@ -1218,11 +1284,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--room-qualification", type=Path, default=DEFAULT_ROOM_QUALIFICATION
     )
     parser.add_argument("--ue-import-manifest", type=Path)
+    parser.add_argument("--ue-material-color-result", type=Path, required=True)
     parser.add_argument("--human-ue-manifest", type=Path)
+    parser.add_argument("--habitat-rgb-array", type=Path, default=DEFAULT_HABITAT_RGB)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--rpc-port", type=int, default=39331)
     parser.add_argument("--graphics-adapter", type=int)
-    parser.add_argument("--fixed-output-gain", type=float, default=0.72)
+    parser.add_argument("--fixed-output-gain", type=float, default=1.0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--keep-frames", action="store_true")
     parser.add_argument(
@@ -1235,10 +1303,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--rpc-port must be in [1024,65535]")
     if args.graphics_adapter is not None and args.graphics_adapter < 0:
         parser.error("--graphics-adapter must be non-negative")
-    if args.smoke_frame_index is not None and not 0 <= args.smoke_frame_index < M5_1_FRAME_COUNT:
+    if (
+        args.smoke_frame_index is not None
+        and not 0 <= args.smoke_frame_index < M5_1_FRAME_COUNT
+    ):
         parser.error("--smoke-frame-index must be in [0,269]")
     if not 0.1 <= args.fixed_output_gain <= 1.0:
         parser.error("--fixed-output-gain must be in [0.1,1.0]")
+    if not args.dry_run and (args.unreal_editor is None or args.ue_project is None):
+        parser.error("--unreal-editor and --ue-project are required outside --dry-run")
     return args
 
 

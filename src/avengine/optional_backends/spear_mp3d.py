@@ -18,8 +18,11 @@ from avengine.optional_backends.spear_apartment import (
 
 EXECUTION_SCHEMA = "avengine_optional_spear_mp3d_execution_v1"
 IMPORT_SCHEMA = "avengine_mp3d_ue_import_result_v1"
+MATERIAL_COLOR_SCHEMA = "avengine_optional_spear_mp3d_material_color_v1"
 MP3D_ROOM_ID = "habitat_mp3d_example_17DRP5sb8fy"
 EXPECTED_SCENE_MESH_COUNT = 71
+EXPECTED_SCENE_MATERIAL_COUNT = 23
+EXPECTED_SCENE_TEXTURE_COUNT = 23
 
 # M5.1 predates the frozen five-second Timeline-v2 schema.  Its retained MP3D
 # review is an 18-second compatibility authority and must never be relabelled
@@ -62,13 +65,15 @@ class MP3DExecutionError(ValueError):
     """The MP3D UE plan cannot preserve the authoritative visual contract."""
 
 
-def fixed_exposure_profile(*, output_gain: float = 0.72) -> dict[str, Any]:
+def fixed_exposure_profile(*, output_gain: float = 1.0) -> dict[str, Any]:
     """Return a deterministic anti-overexposure profile for scanned textures.
 
     MP3D base-color textures already contain illumination from the Matterport
     scan.  The UE pass therefore uses a weak shadow key, disables temporal eye
-    adaptation, and applies one fixed output gain to every frame.  It does not
-    claim to reconstruct the original Matterport lights.
+    adaptation, and begins at a neutral display-domain gain of one.  It does
+    not claim to reconstruct the original Matterport lights.  Color-space
+    correctness is enforced separately: display-domain gain must never be
+    used to hide an sRGB/base-color import error.
     """
 
     if isinstance(output_gain, bool) or not isinstance(output_gain, (int, float)):
@@ -77,7 +82,7 @@ def fixed_exposure_profile(*, output_gain: float = 0.72) -> dict[str, Any]:
     if not math.isfinite(gain) or not 0.1 <= gain <= 1.0:
         raise MP3DExecutionError("output_gain must be in [0.1,1.0]")
     return {
-        "profile_id": "mp3d_baked_texture_fixed_exposure_v1",
+        "profile_id": "mp3d_srgb_basecolor_fixed_exposure_v2",
         "eye_adaptation": "disabled",
         "console_commands": [
             "r.DefaultFeature.AutoExposure 0",
@@ -104,10 +109,142 @@ def fixed_exposure_profile(*, output_gain: float = 0.72) -> dict[str, Any]:
                 "calibrated against packaged SPEAR smoke; rejects black frames"
             ),
         },
+        "color_qa": {
+            "chroma_threshold": 0.04,
+            "minimum_reference_mean_chroma": 0.03,
+            "minimum_ue_mean_chroma": 0.03,
+            "minimum_mean_chroma_ratio": 0.80,
+            "maximum_mean_chroma_ratio": 1.80,
+            "minimum_chromatic_fraction_ratio": 0.75,
+            "maximum_chromatic_fraction_ratio": 1.80,
+        },
         "claim_boundary": (
             "Review lighting for shadow readability over illumination-baked scan "
             "textures; not a reconstruction of Matterport capture lighting."
         ),
+    }
+
+
+def _validated_material_color_result(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Require a fresh-editor readback of MP3D base-color bindings.
+
+    UE 5.5 Interchange imported the MP3D JPEG atlases with ``sRGB=False`` in
+    the first comparison.  Merely counting Texture2D and material assets did
+    not detect that semantic error.  This validator therefore closes the
+    exact 23-texture/23-material base-color relation after a second editor
+    process has reloaded the saved assets.
+    """
+
+    base_color_textures = value.get("base_color_textures")
+    occlusion_textures = value.get("occlusion_textures")
+    bindings = value.get("material_bindings")
+    counts = value.get("counts")
+    if (
+        value.get("schema") != MATERIAL_COLOR_SCHEMA
+        or value.get("status") != "pass"
+        or value.get("operation") != "verify_only"
+        or value.get("fresh_editor_reload") is not True
+        or value.get("content_root")
+        != "/Game/MyAssets/Audioset/Scenes/mp3d_17DRP5sb8fy"
+        or not isinstance(counts, Mapping)
+        or counts.get("source_texture_count") != EXPECTED_SCENE_TEXTURE_COUNT
+        or counts.get("material_count") != EXPECTED_SCENE_MATERIAL_COUNT
+        or counts.get("base_color_binding_count") != EXPECTED_SCENE_MATERIAL_COUNT
+        or counts.get("base_color_texture_count") != EXPECTED_SCENE_TEXTURE_COUNT
+        or counts.get("base_color_srgb_true_count") != EXPECTED_SCENE_TEXTURE_COUNT
+        or counts.get("occlusion_binding_count") != EXPECTED_SCENE_MATERIAL_COUNT
+        or counts.get("occlusion_texture_count") != EXPECTED_SCENE_TEXTURE_COUNT
+        or counts.get("occlusion_srgb_false_count") != EXPECTED_SCENE_TEXTURE_COUNT
+        or counts.get("unexpected_texture_binding_count") != 0
+        or not isinstance(base_color_textures, list)
+        or len(base_color_textures) != EXPECTED_SCENE_TEXTURE_COUNT
+        or not isinstance(occlusion_textures, list)
+        or len(occlusion_textures) != EXPECTED_SCENE_TEXTURE_COUNT
+        or not isinstance(bindings, list)
+        or len(bindings) != EXPECTED_SCENE_MATERIAL_COUNT
+    ):
+        raise MP3DExecutionError(
+            "MP3D UE material-color result is not a fresh 23/23 sRGB readback"
+        )
+
+    base_color_paths: list[str] = []
+    for record in base_color_textures:
+        if (
+            not isinstance(record, Mapping)
+            or not isinstance(record.get("texture_path"), str)
+            or record.get("srgb") is not True
+            or record.get("semantic") != "base_color_srgb"
+        ):
+            raise MP3DExecutionError("MP3D UE base-color Texture2D is not sRGB")
+        base_color_paths.append(record["texture_path"])
+    if len(set(base_color_paths)) != EXPECTED_SCENE_TEXTURE_COUNT:
+        raise MP3DExecutionError("MP3D UE base-color Texture2D paths are not unique")
+
+    occlusion_paths: list[str] = []
+    for record in occlusion_textures:
+        if (
+            not isinstance(record, Mapping)
+            or not isinstance(record.get("texture_path"), str)
+            or record.get("srgb") is not False
+            or record.get("semantic") != "occlusion_linear_red_channel"
+        ):
+            raise MP3DExecutionError("MP3D UE occlusion Texture2D is not linear")
+        occlusion_paths.append(record["texture_path"])
+    if len(set(occlusion_paths)) != EXPECTED_SCENE_TEXTURE_COUNT or set(
+        occlusion_paths
+    ) & set(base_color_paths):
+        raise MP3DExecutionError("MP3D UE base-color/occlusion texture views overlap")
+
+    material_paths: list[str] = []
+    bound_base_color_paths: list[str] = []
+    bound_occlusion_paths: list[str] = []
+    for record in bindings:
+        if (
+            not isinstance(record, Mapping)
+            or not isinstance(record.get("material_path"), str)
+            or record.get("base_color_parameter_name") != "BaseColorTexture"
+            or not isinstance(record.get("base_color_texture_path"), str)
+            or record.get("occlusion_parameter_name") != "OcclusionTexture"
+            or not isinstance(record.get("occlusion_texture_path"), str)
+            or record.get("unexpected_bound_texture_parameters") != []
+        ):
+            raise MP3DExecutionError(
+                "MP3D UE BaseColorTexture/OcclusionTexture binding is incomplete"
+            )
+        material_paths.append(record["material_path"])
+        bound_base_color_paths.append(record["base_color_texture_path"])
+        bound_occlusion_paths.append(record["occlusion_texture_path"])
+    if (
+        len(set(material_paths)) != EXPECTED_SCENE_MATERIAL_COUNT
+        or set(bound_base_color_paths) != set(base_color_paths)
+        or set(bound_occlusion_paths) != set(occlusion_paths)
+    ):
+        raise MP3DExecutionError("MP3D UE material color-slot closure differs")
+
+    source = value.get("source_gltf_contract")
+    if (
+        not isinstance(source, Mapping)
+        or source.get("material_count") != EXPECTED_SCENE_MATERIAL_COUNT
+        or source.get("base_color_reference_count") != EXPECTED_SCENE_MATERIAL_COUNT
+        or source.get("occlusion_reference_count") != EXPECTED_SCENE_MATERIAL_COUNT
+        or source.get("shared_base_color_and_occlusion_texture_count")
+        != EXPECTED_SCENE_MATERIAL_COUNT
+        or source.get("other_texture_reference_count") != 0
+    ):
+        raise MP3DExecutionError("MP3D source glTF color-slot contract differs")
+
+    return {
+        "status": "pass",
+        "schema": MATERIAL_COLOR_SCHEMA,
+        "fresh_editor_reload": True,
+        "texture_count": EXPECTED_SCENE_TEXTURE_COUNT,
+        "material_count": EXPECTED_SCENE_MATERIAL_COUNT,
+        "base_color_binding_count": EXPECTED_SCENE_MATERIAL_COUNT,
+        "base_color_srgb_true_count": EXPECTED_SCENE_TEXTURE_COUNT,
+        "occlusion_binding_count": EXPECTED_SCENE_MATERIAL_COUNT,
+        "occlusion_srgb_false_count": EXPECTED_SCENE_TEXTURE_COUNT,
+        "source_slots_share_one_texture": True,
+        "ue_uses_distinct_color_space_views": True,
     }
 
 
@@ -123,7 +260,10 @@ def _validated_import_manifest(value: Mapping[str, Any]) -> list[str]:
         or not isinstance(meshes, list)
         or len(meshes) != EXPECTED_SCENE_MESH_COUNT
         or len(set(meshes)) != EXPECTED_SCENE_MESH_COUNT
-        or any(not isinstance(path, str) or not path.startswith("/Game/") for path in meshes)
+        or any(
+            not isinstance(path, str) or not path.startswith("/Game/")
+            for path in meshes
+        )
         or int(scene.get("material_count", 0)) <= 0
         or int(scene.get("texture_count", 0)) <= 0
     ):
@@ -135,7 +275,8 @@ def build_mp3d_execution_plan(
     *,
     visual_plan: Mapping[str, Any],
     ue_import_manifest: Mapping[str, Any],
-    output_gain: float = 0.72,
+    ue_material_color_result: Mapping[str, Any],
+    output_gain: float = 1.0,
 ) -> dict[str, Any]:
     """Bind a current Timeline-v2 visual plan to the imported MP3D scene."""
 
@@ -144,7 +285,10 @@ def build_mp3d_execution_plan(
     if visual_plan.get("backend_role") != BACKEND_ROLE:
         raise MP3DExecutionError("MP3D backend role must remain comparison_visual")
     authority = visual_plan.get("authority")
-    if not isinstance(authority, Mapping) or authority.get("backend_may_replan") is not False:
+    if (
+        not isinstance(authority, Mapping)
+        or authority.get("backend_may_replan") is not False
+    ):
         raise MP3DExecutionError("MP3D execution cannot grant UE replanning authority")
     room = visual_plan.get("room")
     if not isinstance(room, Mapping) or room.get("room_id") != MP3D_ROOM_ID:
@@ -162,8 +306,11 @@ def build_mp3d_execution_plan(
         or not isinstance(actors, list)
         or not actors
     ):
-        raise MP3DExecutionError("MP3D visual plan must retain the current 75-frame clock")
+        raise MP3DExecutionError(
+            "MP3D visual plan must retain the current 75-frame clock"
+        )
     mesh_paths = _validated_import_manifest(ue_import_manifest)
+    material_color = _validated_material_color_result(ue_material_color_result)
 
     return {
         "schema": EXECUTION_SCHEMA,
@@ -174,7 +321,11 @@ def build_mp3d_execution_plan(
             "static_mesh_object_paths": mesh_paths,
             "spawned_scene_mesh_actor_count": EXPECTED_SCENE_MESH_COUNT,
             "collision": "NoCollision",
-            "pbr_material_policy": "keep_imported_materials_and_textures",
+            "pbr_material_policy": (
+                "split each shared glTF image into an sRGB base-color view and "
+                "a linear occlusion view; preserve both source material slots"
+            ),
+            "material_color_contract": material_color,
         },
         "render": {
             "width": 1280,
@@ -197,7 +348,9 @@ def build_mp3d_execution_plan(
     }
 
 
-def luminance_exposure_qa(frames_rgb: np.ndarray, profile: Mapping[str, Any]) -> dict[str, Any]:
+def luminance_exposure_qa(
+    frames_rgb: np.ndarray, profile: Mapping[str, Any]
+) -> dict[str, Any]:
     """Measure highlight saturation after the fixed output transform."""
 
     array = np.asarray(frames_rgb)
@@ -216,9 +369,7 @@ def luminance_exposure_qa(frames_rgb: np.ndarray, profile: Mapping[str, Any]) ->
         raise MP3DExecutionError("fixed exposure profile is incomplete")
     graded = np.clip(rgb * gain, 0.0, 1.0)
     luminance = (
-        0.2126 * graded[..., 0]
-        + 0.7152 * graded[..., 1]
-        + 0.0722 * graded[..., 2]
+        0.2126 * graded[..., 0] + 0.7152 * graded[..., 1] + 0.0722 * graded[..., 2]
     )
     threshold = float(qa["luminance_saturation_threshold"])
     nonblack_threshold = float(qa["nonblack_luminance_threshold"])
@@ -258,6 +409,96 @@ def luminance_exposure_qa(frames_rgb: np.ndarray, profile: Mapping[str, Any]) ->
     }
 
 
+def render_color_fidelity_qa(
+    ue_frames_rgb: np.ndarray,
+    habitat_frames_rgb: np.ndarray,
+    profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Compare rendered channel chroma with Habitat's authoritative RGB.
+
+    The two renderers need not have the same spatial resolution.  This metric
+    intentionally compares aggregate color retention rather than pixelwise
+    appearance, because UE adds review shadows and renders different actor
+    assets.  It catches the observed sRGB-as-linear failure, while the direct
+    23/23 editor readback remains the primary material semantic gate.
+    """
+
+    def normalized(value: np.ndarray, *, owner: str) -> np.ndarray:
+        array = np.asarray(value)
+        if array.ndim == 3:
+            array = array[np.newaxis, ...]
+        if (
+            array.ndim != 4
+            or array.shape[-1] < 3
+            or array.shape[0] <= 0
+            or not np.issubdtype(array.dtype, np.number)
+            or not np.all(np.isfinite(array))
+        ):
+            raise MP3DExecutionError(f"{owner} must contain finite RGB frames")
+        rgb = array[..., :3].astype(np.float64)
+        if np.issubdtype(array.dtype, np.integer):
+            rgb /= float(np.iinfo(array.dtype).max)
+        if np.min(rgb) < 0.0 or np.max(rgb) > 1.0 + 1.0e-9:
+            raise MP3DExecutionError(f"{owner} must be normalized or integer RGB")
+        return np.clip(rgb, 0.0, 1.0)
+
+    ue = normalized(ue_frames_rgb, owner="ue_frames_rgb")
+    habitat = normalized(habitat_frames_rgb, owner="habitat_frames_rgb")
+    if ue.shape[0] != habitat.shape[0]:
+        raise MP3DExecutionError("UE and Habitat color QA frame counts differ")
+    config = profile.get("color_qa")
+    if not isinstance(config, Mapping):
+        raise MP3DExecutionError("fixed exposure profile lacks color_qa")
+
+    threshold = float(config["chroma_threshold"])
+
+    def metrics(array: np.ndarray) -> dict[str, float]:
+        chroma = np.max(array, axis=-1) - np.min(array, axis=-1)
+        return {
+            "mean_channel_chroma": float(np.mean(chroma)),
+            "chromatic_pixel_fraction": float(np.mean(chroma >= threshold)),
+        }
+
+    ue_metrics = metrics(ue)
+    habitat_metrics = metrics(habitat)
+    reference_chroma = habitat_metrics["mean_channel_chroma"]
+    reference_fraction = habitat_metrics["chromatic_pixel_fraction"]
+    mean_ratio = (
+        ue_metrics["mean_channel_chroma"] / reference_chroma
+        if reference_chroma > 0.0
+        else math.inf
+    )
+    fraction_ratio = (
+        ue_metrics["chromatic_pixel_fraction"] / reference_fraction
+        if reference_fraction > 0.0
+        else math.inf
+    )
+    passed = (
+        reference_chroma >= float(config["minimum_reference_mean_chroma"])
+        and ue_metrics["mean_channel_chroma"] >= float(config["minimum_ue_mean_chroma"])
+        and float(config["minimum_mean_chroma_ratio"])
+        <= mean_ratio
+        <= float(config["maximum_mean_chroma_ratio"])
+        and float(config["minimum_chromatic_fraction_ratio"])
+        <= fraction_ratio
+        <= float(config["maximum_chromatic_fraction_ratio"])
+    )
+    return {
+        "status": "pass" if passed else "fail",
+        "frame_count": int(ue.shape[0]),
+        "chroma_threshold": threshold,
+        "ue": ue_metrics,
+        "habitat_reference": habitat_metrics,
+        "mean_chroma_ratio_ue_to_habitat": mean_ratio,
+        "chromatic_fraction_ratio_ue_to_habitat": fraction_ratio,
+        "thresholds": dict(config),
+        "claim_boundary": (
+            "aggregate rendered color-retention QA; direct UE Texture2D sRGB and "
+            "BaseColorTexture reload readback is the material-semantic authority"
+        ),
+    }
+
+
 def _vector3(value: Any, *, owner: str) -> tuple[float, float, float]:
     if (
         isinstance(value, (str, bytes))
@@ -268,14 +509,10 @@ def _vector3(value: Any, *, owner: str) -> tuple[float, float, float]:
     result: list[float] = []
     for index, item in enumerate(value):
         if isinstance(item, bool) or not isinstance(item, (int, float)):
-            raise MP3DExecutionError(
-                f"{owner}[{index}] must be a finite number"
-            )
+            raise MP3DExecutionError(f"{owner}[{index}] must be a finite number")
         number = float(item)
         if not math.isfinite(number):
-            raise MP3DExecutionError(
-                f"{owner}[{index}] must be a finite number"
-            )
+            raise MP3DExecutionError(f"{owner}[{index}] must be a finite number")
         result.append(number)
     return tuple(result)  # type: ignore[return-value]
 
@@ -299,9 +536,7 @@ def _linear_route(
     return [
         [
             start_value[axis]
-            + (end_value[axis] - start_value[axis])
-            * frame_index
-            / (frame_count - 1)
+            + (end_value[axis] - start_value[axis]) * frame_index / (frame_count - 1)
             for axis in range(3)
         ]
         for frame_index in range(frame_count)
@@ -344,10 +579,8 @@ def _validate_m5_1_route(
         or route_manifest.get("route_id") != M5_1_ROUTE_ID
         or route_manifest.get("frame_count") != M5_1_FRAME_COUNT
         or route_manifest.get("frame_rate_hz") != M5_1_FPS
-        or route_manifest.get("center_navigation_semantics")
-        != "actor_root_center_only"
-        or route_manifest.get("path_generation")
-        != "linear_endpoint_interpolation_v1"
+        or route_manifest.get("center_navigation_semantics") != "actor_root_center_only"
+        or route_manifest.get("path_generation") != "linear_endpoint_interpolation_v1"
     ):
         raise MP3DExecutionError("M5.1 MP3D route contract changed")
     routes = route_manifest.get("routes")
@@ -364,9 +597,7 @@ def _validate_m5_1_route(
         raise MP3DExecutionError("M5.1 MP3D navmesh gate is not a retained pass")
     gate_pathfinder = navmesh_gate.get("pathfinder")
     gate_routes = (
-        gate_pathfinder.get("routes")
-        if isinstance(gate_pathfinder, Mapping)
-        else None
+        gate_pathfinder.get("routes") if isinstance(gate_pathfinder, Mapping) else None
     )
     if (
         not isinstance(gate_pathfinder, Mapping)
@@ -399,8 +630,7 @@ def _validate_m5_1_route(
             gate.get("all_frames_navigable") is not True
             or gate.get("navigable_frame_count") != M5_1_FRAME_COUNT
             or gate.get("frame_count") != M5_1_FRAME_COUNT
-            or gate.get("no_sliding_passed_segment_count")
-            != M5_1_FRAME_COUNT - 1
+            or gate.get("no_sliding_passed_segment_count") != M5_1_FRAME_COUNT - 1
             or not _close_vector(gate.get("start_m", ()), start)
             or not _close_vector(gate.get("end_m", ()), end)
         ):
@@ -432,8 +662,7 @@ def _validate_source_authority(
     ):
         raise MP3DExecutionError("MP3D source-program compatibility contract changed")
     source_ids = [
-        item.get("source_id") if isinstance(item, Mapping) else None
-        for item in sources
+        item.get("source_id") if isinstance(item, Mapping) else None for item in sources
     ]
     if source_ids != list(M5_1_SOURCE_TO_ACTOR):
         raise MP3DExecutionError("MP3D source-program source order changed")
@@ -445,10 +674,12 @@ def _validate_source_authority(
         for window in windows:
             if (
                 not isinstance(window, Mapping)
-                or not 0 <= int(window.get("start_frame", -1))
+                or not 0
+                <= int(window.get("start_frame", -1))
                 < int(window.get("end_frame_exclusive", -1))
                 <= M5_1_FRAME_COUNT
-                or not 0 <= int(window.get("start_sample", -1))
+                or not 0
+                <= int(window.get("start_sample", -1))
                 < int(window.get("end_sample_exclusive", -1))
                 <= M5_1_SAMPLE_COUNT
             ):
@@ -506,8 +737,9 @@ def build_m5_1_mp3d_execution_plan(
     room_registry: Mapping[str, Any],
     raw_room_qualification: Mapping[str, Any],
     ue_import_manifest: Mapping[str, Any],
+    ue_material_color_result: Mapping[str, Any],
     human_ue_manifest: Mapping[str, Any],
-    output_gain: float = 0.72,
+    output_gain: float = 1.0,
 ) -> dict[str, Any]:
     """Compile the retained 270-frame M5.1 MP3D comparison authority.
 
@@ -522,8 +754,7 @@ def build_m5_1_mp3d_execution_plan(
     if (
         raw_room_qualification.get("schema")
         != "avengine_m6_room_qualification_report_v1"
-        or raw_room_qualification.get("subject", {}).get("room_id")
-        != MP3D_ROOM_ID
+        or raw_room_qualification.get("subject", {}).get("room_id") != MP3D_ROOM_ID
         or raw_room_qualification.get("dataset_admission") is not False
         or raw_room_qualification.get("dimensions", {})
         .get("visual_runtime_status", {})
@@ -550,13 +781,12 @@ def build_m5_1_mp3d_execution_plan(
         not isinstance(camera, Mapping)
         or camera.get("horizontal_fov_deg") != M5_1_CAMERA_HFOV_DEG
         or camera.get("rotation_xyzw") != [0, 0, 0, 1]
-        or not _close_vector(
-            camera.get("position_m", ()), M5_1_CAMERA_HABITAT_M
-        )
+        or not _close_vector(camera.get("position_m", ()), M5_1_CAMERA_HABITAT_M)
     ):
         raise MP3DExecutionError("M5.1 MP3D camera authority changed")
 
     mesh_paths = _validated_import_manifest(ue_import_manifest)
+    material_color = _validated_material_color_result(ue_material_color_result)
     beagle = ue_import_manifest.get("m2_beagle")
     beagle_content = beagle.get("content") if isinstance(beagle, Mapping) else None
     dog_animations = (
@@ -566,9 +796,7 @@ def build_m5_1_mp3d_execution_plan(
     )
     human_content = human_ue_manifest.get("content")
     human_animations = (
-        human_content.get("animations")
-        if isinstance(human_content, Mapping)
-        else None
+        human_content.get("animations") if isinstance(human_content, Mapping) else None
     )
     if (
         not isinstance(beagle_content, Mapping)
@@ -576,8 +804,7 @@ def build_m5_1_mp3d_execution_plan(
         or not isinstance(dog_animations, Mapping)
         or not isinstance(dog_animations.get("Walking"), str)
         or not isinstance(human_content, Mapping)
-        or human_content.get("blueprint")
-        != HUMAN_BP_CLASS_PATH.rsplit(".", 1)[0]
+        or human_content.get("blueprint") != HUMAN_BP_CLASS_PATH.rsplit(".", 1)[0]
         or not isinstance(human_animations, Mapping)
         or not isinstance(human_animations.get("Walking"), str)
     ):
@@ -602,9 +829,7 @@ def build_m5_1_mp3d_execution_plan(
             "habitat_local_anatomical_forward_axis": [0.0, 0.0, 1.0],
             "ue_asset_local_anatomical_forward_axis": "+Y",
             "actor_yaw_ue_deg": -180.0,
-            "ue_component_frame_delta": component_frame_delta_for_asset(
-                HUMAN_ASSET_ID
-            ),
+            "ue_component_frame_delta": component_frame_delta_for_asset(HUMAN_ASSET_ID),
         },
         "dog0": {
             "actor_id": "dog0",
@@ -657,9 +882,9 @@ def build_m5_1_mp3d_execution_plan(
                 # continuous 45-state walk block.  The underlying Walking
                 # animation contains 25 samples, so the action sample resets
                 # when either the animation or the retained state block wraps.
-                walk_state_index = frame_index % actors[actor_id][
-                    "validated_walk_state_count"
-                ]
+                walk_state_index = (
+                    frame_index % actors[actor_id]["validated_walk_state_count"]
+                )
                 expected_sample_index = walk_state_index % sample_count
             if (
                 isinstance(sample_index, bool)
@@ -698,10 +923,7 @@ def build_m5_1_mp3d_execution_plan(
     exposure = fixed_exposure_profile(output_gain=output_gain)
     duration_seconds = M5_1_SAMPLE_COUNT / M5_1_SAMPLE_RATE_HZ
     route_distances = {
-        actor_id: sum(
-            math.dist(start, end)
-            for start, end in zip(points, points[1:])
-        )
+        actor_id: sum(math.dist(start, end) for start, end in zip(points, points[1:]))
         for actor_id, points in routes.items()
     }
     return {
@@ -758,7 +980,11 @@ def build_m5_1_mp3d_execution_plan(
             "static_mesh_object_paths": mesh_paths,
             "spawned_scene_mesh_actor_count": EXPECTED_SCENE_MESH_COUNT,
             "collision": "NoCollision",
-            "pbr_material_policy": "keep_imported_materials_and_textures",
+            "pbr_material_policy": (
+                "split each shared glTF image into an sRGB base-color view and "
+                "a linear occlusion view; preserve both source material slots"
+            ),
+            "material_color_contract": material_color,
         },
         "render": {
             "width": 1280,
@@ -802,14 +1028,18 @@ def build_m5_1_mp3d_execution_plan(
 
 __all__ = [
     "EXECUTION_SCHEMA",
+    "EXPECTED_SCENE_MATERIAL_COUNT",
     "EXPECTED_SCENE_MESH_COUNT",
+    "EXPECTED_SCENE_TEXTURE_COUNT",
     "M5_1_EXECUTION_SCHEMA",
     "M5_1_FRAME_COUNT",
     "IMPORT_SCHEMA",
+    "MATERIAL_COLOR_SCHEMA",
     "MP3DExecutionError",
     "MP3D_ROOM_ID",
     "build_m5_1_mp3d_execution_plan",
     "build_mp3d_execution_plan",
     "fixed_exposure_profile",
     "luminance_exposure_qa",
+    "render_color_fidelity_qa",
 ]

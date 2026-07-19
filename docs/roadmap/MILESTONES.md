@@ -369,16 +369,16 @@ state, navigation, source-center placement, source programs, binaural audio,
 Topdown, flags and metadata. The optional UE backend has the fixed role
 `comparison_visual` and may not replan actors or sources.
 
-Current evidence covers native SPEAR Apartment S0/S3/S4 at 75 frames per
-scenario and the retained 270-frame MP3D M5.1 route. Apartment uses its native
-UE map, outdoor view, materials and lighting. MP3D uses fixed exposure and weak
-shadow-review lighting over illumination-baked scan textures; it does not claim
-to recover Matterport capture lights. Its retained route moves each root only
-1.1 m in 18 seconds. ReplicaCAD has real editor import/reload and 270-frame
-runtime evidence over 171 tagged scene mesh actors and the five positive dataset
-point lights, all with shadows and no added review light. Its retained route
-moves each root only 1.2 m in 18 seconds. Neither compatibility pass claims a
-normal-speed episode.
+Current evidence covers native SPEAR Apartment S0/S3/S4, a fresh Habitat
+Apartment S0--S5 natural-light run and the retained 270-frame MP3D/ReplicaCAD
+M5.1 routes. MP3D now uses fresh-reloaded sRGB base-color views and separate
+linear AO views; aggregate color retention and fixed exposure pass without
+claiming recovered Matterport lights. ReplicaCAD keeps dataset lights 0/1/2
+inside the room and disables the two strongest positive lights outside its open
+stage shell; it moves/adds no lights. A real Habitat point-light comparison was
+darker than the maintained `no_lights + HBAO` view and remains research-only.
+The retained MP3D and ReplicaCAD roots still move only 1.1 m and 1.2 m over 18
+seconds, so neither compatibility pass claims a normal-speed episode.
 
 Exit criteria: each claimed room has real UE execution evidence and decodable
 review media; actor roots, headings and animation phase agree with the

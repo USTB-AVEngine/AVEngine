@@ -1,6 +1,6 @@
 {
   "schema": "avengine_m6x_review_visual_profile_v1",
-  "profile_id": "spear_apartment_habitat_review_720p_v2",
+  "profile_id": "spear_apartment_habitat_review_720p_natural_v3",
   "capture": {
     "resolution_hw": [720, 1280],
     "frame_rate_hz": 15,
@@ -16,35 +16,35 @@
     }
   },
   "lighting": {
-    "setup_id": "spear_apartment_window_key_fill_v1",
+    "setup_id": "spear_apartment_window_bounce_natural_v2",
     "hbao": true,
     "lights": [
       {
         "light_id": "window_directional_key",
         "type": "directional",
-        "direction": [0.38, -0.88, -0.28],
-        "color": [1.0, 0.95, 0.86],
-        "intensity": 1.8,
+        "direction": [0.32, -0.48, -0.816],
+        "color": [1.0, 0.98, 0.94],
+        "intensity": 1.35,
         "position_model": "global"
       },
       {
         "light_id": "soft_directional_fill",
         "type": "directional",
-        "direction": [-0.42, -0.72, 0.55],
-        "color": [0.72, 0.82, 1.0],
-        "intensity": 0.55,
+        "direction": [-0.72, -0.34, 0.60],
+        "color": [0.82, 0.90, 1.0],
+        "intensity": 0.65,
         "position_model": "global"
       },
       {
         "light_id": "interior_practical_fill",
         "type": "point",
-        "position": [0.0, 2.65, 1.9],
-        "color": [1.0, 0.84, 0.68],
-        "intensity": 1.25,
+        "position": [0.0, 2.45, 0.5],
+        "color": [1.0, 0.93, 0.84],
+        "intensity": 0.55,
         "position_model": "global"
       }
     ],
-    "claim_boundary": "Review lighting only. It is not a reconstruction of the original UE light transport, exposure, reflection captures, baked lighting, or Lumen."
+    "claim_boundary": "Review lighting only. Shallow window key and bounded neutral bounce approximate readable indoor illumination; this is not a reconstruction of UE light transport, exposure, reflection captures, baked lighting, or Lumen."
   },
   "exterior_proxy": {
     "enabled": true,

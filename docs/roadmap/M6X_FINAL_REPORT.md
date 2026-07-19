@@ -24,13 +24,18 @@ source-resolved episodes in the existing Habitat-compatible SPEAR
   clean video and a diagnostic main-view + Topdown video.
 - The refreshed review profile captures native `1280x720` RGB/depth/semantic,
   keeps clean video at that resolution, and only downscales the diagnostic
-  panel. A transient non-collidable, semantic-ID-0 proxy restores the fixed
-  Apartment window exterior from UE's stock `approaching_storm_4k` HDRI. Its
+  panel. Its `natural_v3` review lighting combines a shallow neutral window key,
+  cool-neutral bounce and weaker warm practical with HBAO. Compared at the same
+  frame, cabinet, ceiling and actor regions become more readable while the
+  formerly dominant orange floor is reduced; this is contrast redistribution,
+  not a global darkening filter. A transient non-collidable, semantic-ID-0
+  proxy restores the fixed Apartment window exterior from UE's stock
+  `approaching_storm_4k` HDRI. Its
   4096x2048 window panels use listener-direction equirectangular projection
   instead of stretched, hand-authored UV rectangles. They are
   visual-capture-only and never enter placement, Topdown, navmesh or RLR
-  geometry. This remains a fixed-camera approximation, not UE HDRIBackdrop or
-  Lumen parity.
+  geometry. This remains a fixed-camera approximation, not UE glass,
+  HDRIBackdrop, reflection-capture or Lumen parity.
 - The legacy red/blue source-marker meshes remain available to the independent
   native anchor/LOS qualification, but are removed from RGB/semantic capture.
   Their nonvisual logical endpoints remain in audio, Timeline and Topdown.
@@ -93,7 +98,11 @@ When this report is copied into a generated bundle, open the sibling
 Conda commands, prerequisites, retained-capture fast path and ReplicaCAD
 obstacle-review command.
 
+The current local natural-light closeout is
+`tmp/m6x/fixed_apartment_natural_lighting_20260720_01/REVIEW_INDEX.html`.
+
 Full repository verification (`SKBUILD_EDITABLE_SKIP=1`, repository `src` and
-root on `PYTHONPATH`, then `.venv/bin/pytest -q`): `1439 passed, 1 skipped`.
+root on `PYTHONPATH`, then the pinned Conda environment's
+`python -m pytest -q`): `1511 passed, 1 skipped`.
 The skip is the optional old-M6 retained-evidence readback and is not an M6.x
 failure.

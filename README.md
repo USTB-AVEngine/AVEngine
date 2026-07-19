@@ -189,11 +189,15 @@ current Habitat-native AVEngine as the sole authority for actor state,
 navigation, source centers, source logic, audio, Topdown, flags and metadata.
 SPEAR/UE may render native UE pixels but may not replan the episode. Real native
 Apartment S0/S3/S4 renders and a fixed-exposure 270-frame MP3D compatibility
-render pass their declared runtime/media gates. ReplicaCAD `apt_0` also passes
-real editor import/reload and a 270-frame UE runtime: all 171 tagged scene mesh
-actors and five positive dataset lights are read back, with no added review
-light. The retained MP3D and ReplicaCAD routes move each root only 1.1 m and
-1.2 m respectively over 18 seconds; both remain slow compatibility routes, not
+render pass their declared runtime/media gates. The MP3D import now separates
+the shared glTF image into an sRGB base-color view and a linear AO view; the
+former white/grey result was a color-space bug rather than an unavoidable scan
+property. ReplicaCAD `apt_0` also passes real editor import/reload and a
+270-frame UE runtime: all 171 tagged scene mesh actors are read back, while the
+three room-local source lights remain active and the two strongest lights
+outside the open stage shell are disabled. No light is moved or invented. The
+retained MP3D and ReplicaCAD routes move each root only 1.1 m and 1.2 m
+respectively over 18 seconds; both remain slow compatibility routes, not
 normal-speed results. These are bounded visual comparisons, not a second
 engine, material qualification or dataset admission. See
 [`M6Y_STATUS.md`](docs/roadmap/M6Y_STATUS.md) for current videos, claim
@@ -209,6 +213,11 @@ CRF 18; only the diagnostic main-view panel is downscaled and letterboxed to
 `640x480` beside Topdown. The compositor refuses to upscale a low-resolution
 capture. The profile also installs a Habitat directional key/fill setup and a
 transient exterior proxy made from UE's stock `approaching_storm_4k` HDRI.
+The current `natural_v3` lighting uses a shallow neutral window key, a
+cool-neutral room bounce and a weaker warm practical. It brightens the cabinet,
+ceiling and actors while reducing the former orange floor dominance; HBAO stays
+enabled. This is a room-specific review profile, not physically reconstructed
+illumination.
 Because the exported Apartment glass writes depth as a black surface, the proxy
 contains a distant inward sphere plus two finely subdivided, room-aligned
 panels immediately behind the visible window frames. Each panel vertex samples
@@ -280,8 +289,8 @@ source manifest, legacy flags and final status under `metadata/`.
 At bundle root, `inputs/input_index.json` records the small configuration
 snapshot, code commits and direct external assets; `FINAL_REPORT.md` states the
 bounded acoustic and placement claims.
-The refreshed local closeout run is retained at
-`tmp/m6x/fixed_apartment_canary_20260720_02/REVIEW_INDEX.html`.
+The refreshed natural-light closeout run is retained at
+`tmp/m6x/fixed_apartment_natural_lighting_20260720_01/REVIEW_INDEX.html`.
 The bounded feasibility result and its acoustic claim boundary are summarized
 in [the M6.x final report](docs/roadmap/M6X_FINAL_REPORT.md).
 
@@ -422,7 +431,7 @@ arbitrary generated episode is synchronized.
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
 | M6 | feasibility foundation: extensible registries, legacy-compatible flags, room interfaces, retained controlled-source materialization and one independent fail-closed fixture (`pass`; no dataset admission claim) |
 | M6.x | fixed SPEAR `apartment_0000` Habitat RoomCapsule, runtime-authoritative obstacles and executable source-logic S0--S5 binaural/Topdown canary (`pass`, bounded research canary; source-center placement only) |
-| M6.y | optional SPEAR/UE `comparison_visual`: native Apartment S0/S3/S4, fixed-exposure MP3D and imported ReplicaCAD runtime `pass` (bounded visual comparison; Habitat-native protocol/audio authority unchanged) |
+| M6.y | optional SPEAR/UE `comparison_visual`: native Apartment S0/S3/S4, corrected-sRGB MP3D and room-local-lit ReplicaCAD runtime `pass`; Habitat Apartment natural-light profile also rerun (`pass`, bounded visual comparison; Habitat-native protocol/audio authority unchanged) |
 | M7 | benchmark, ablations, paper and release audit |
 
 M1 loads an official Habitat room, a Blender custom room and an audited legacy

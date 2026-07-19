@@ -55,6 +55,10 @@ M5_1_TIME_BASE_HZ = 48_000
 M5_1_TICKS_PER_FRAME = 3_200
 M5_1_MAP_PATH = "/Game/AVEngine/Optional/ReplicaCAD/apt_0/Maps/apt_0_comparison"
 APT0_EXPECTED_LOGICAL_COUNTS = {"stage": 1, "rigid": 113, "articulated": 6}
+LIGHTING_PROFILE_SCHEMA = "avengine_replicacad_visual_lighting_profiles_v1"
+DATASET_LIGHTS_FAITHFUL_PROFILE_ID = "dataset_lights_faithful"
+ROOM_LOCAL_REVIEW_PROFILE_ID = "room_local_review"
+DATASET_LIGHT_LUMENS_PER_SCALED_UNIT = 250.0
 
 
 class ReplicaCADExecutionError(ValueError):
@@ -66,7 +70,10 @@ def _matrix_multiply(
 ) -> list[list[float]]:
     return [
         [
-            sum(float(left[row][inner]) * float(right[inner][column]) for inner in range(4))
+            sum(
+                float(left[row][inner]) * float(right[inner][column])
+                for inner in range(4)
+            )
             for column in range(4)
         ]
         for row in range(4)
@@ -88,10 +95,7 @@ def _habitat_transform_matrix(transform: Any) -> list[list[float]]:
     ]
     scale = (sx, sy, sz)
     return [
-        [
-            rotation[row][column] * scale[column]
-            for column in range(3)
-        ]
+        [rotation[row][column] * scale[column] for column in range(3)]
         + [float(translation[row])]
         for row in range(3)
     ] + [[0.0, 0.0, 0.0, 1.0]]
@@ -108,19 +112,25 @@ def _rotation_matrix_to_xyzw(rotation: Sequence[Sequence[float]]) -> list[float]
     else:
         index = max(range(3), key=lambda value: float(rotation[value][value]))
         if index == 0:
-            root = math.sqrt(1.0 + rotation[0][0] - rotation[1][1] - rotation[2][2]) * 2.0
+            root = (
+                math.sqrt(1.0 + rotation[0][0] - rotation[1][1] - rotation[2][2]) * 2.0
+            )
             w = (rotation[2][1] - rotation[1][2]) / root
             x = 0.25 * root
             y = (rotation[0][1] + rotation[1][0]) / root
             z = (rotation[0][2] + rotation[2][0]) / root
         elif index == 1:
-            root = math.sqrt(1.0 + rotation[1][1] - rotation[0][0] - rotation[2][2]) * 2.0
+            root = (
+                math.sqrt(1.0 + rotation[1][1] - rotation[0][0] - rotation[2][2]) * 2.0
+            )
             w = (rotation[0][2] - rotation[2][0]) / root
             x = (rotation[0][1] + rotation[1][0]) / root
             y = 0.25 * root
             z = (rotation[1][2] + rotation[2][1]) / root
         else:
-            root = math.sqrt(1.0 + rotation[2][2] - rotation[0][0] - rotation[1][1]) * 2.0
+            root = (
+                math.sqrt(1.0 + rotation[2][2] - rotation[0][0] - rotation[1][1]) * 2.0
+            )
             w = (rotation[1][0] - rotation[0][1]) / root
             x = (rotation[0][2] + rotation[2][0]) / root
             y = (rotation[1][2] + rotation[2][1]) / root
@@ -140,9 +150,7 @@ def _habitat_matrix_to_unreal_transform(
         [float(matrix[permutation[row]][permutation[column]]) for column in range(3)]
         for row in range(3)
     ]
-    translation = [
-        100.0 * float(matrix[permutation[row]][3]) for row in range(3)
-    ]
+    translation = [100.0 * float(matrix[permutation[row]][3]) for row in range(3)]
     scales = [
         math.sqrt(sum(linear[row][column] ** 2 for row in range(3)))
         for column in range(3)
@@ -154,9 +162,12 @@ def _habitat_matrix_to_unreal_transform(
         for row in range(3)
     ]
     determinant = (
-        rotation[0][0] * (rotation[1][1] * rotation[2][2] - rotation[1][2] * rotation[2][1])
-        - rotation[0][1] * (rotation[1][0] * rotation[2][2] - rotation[1][2] * rotation[2][0])
-        + rotation[0][2] * (rotation[1][0] * rotation[2][1] - rotation[1][1] * rotation[2][0])
+        rotation[0][0]
+        * (rotation[1][1] * rotation[2][2] - rotation[1][2] * rotation[2][1])
+        - rotation[0][1]
+        * (rotation[1][0] * rotation[2][2] - rotation[1][2] * rotation[2][0])
+        + rotation[0][2]
+        * (rotation[1][0] * rotation[2][1] - rotation[1][1] * rotation[2][0])
     )
     orthogonality_error = max(
         abs(
@@ -200,13 +211,17 @@ def _glb_document(path: Path) -> Mapping[str, Any]:
         or json_kind != 0x4E4F534A
         or 20 + json_length > len(payload)
     ):
-        raise ReplicaCADExecutionError(f"ReplicaCAD asset is not a complete GLB 2.0: {path}")
+        raise ReplicaCADExecutionError(
+            f"ReplicaCAD asset is not a complete GLB 2.0: {path}"
+        )
     try:
         document = json.loads(
             payload[20 : 20 + json_length].rstrip(b" \t\r\n\x00").decode("utf-8")
         )
     except (UnicodeError, json.JSONDecodeError) as exc:
-        raise ReplicaCADExecutionError(f"ReplicaCAD GLB JSON is invalid: {path}") from exc
+        raise ReplicaCADExecutionError(
+            f"ReplicaCAD GLB JSON is invalid: {path}"
+        ) from exc
     if not isinstance(document, Mapping):
         raise ReplicaCADExecutionError(f"ReplicaCAD GLB JSON root is invalid: {path}")
     return document
@@ -234,7 +249,8 @@ def _lighting_config_path(plan: ReplicaCADScenePlan) -> Path | None:
         / "configs"
         / relative.parent
         / f"{relative.name}.lighting_config.json",
-        plan.dataset_config_path.parent / f"{plan.default_lighting}.lighting_config.json",
+        plan.dataset_config_path.parent
+        / f"{plan.default_lighting}.lighting_config.json",
     )
     for candidate in candidates:
         if candidate.is_file():
@@ -274,7 +290,9 @@ def _load_lighting(plan: ReplicaCADScenePlan) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ReplicaCADExecutionError(f"cannot read ReplicaCAD lighting config: {path}") from exc
+        raise ReplicaCADExecutionError(
+            f"cannot read ReplicaCAD lighting config: {path}"
+        ) from exc
     lights = value.get("lights") if isinstance(value, Mapping) else None
     if not isinstance(lights, Mapping):
         raise ReplicaCADExecutionError("ReplicaCAD lighting config lacks lights")
@@ -294,17 +312,25 @@ def _load_lighting(plan: ReplicaCADScenePlan) -> dict[str, Any]:
                 f"ReplicaCAD light {light_id!r} is not a supported point light"
             )
         position = _finite_vector(
-            item.get("position"), owner=f"ReplicaCAD light {light_id} position", length=3
+            item.get("position"),
+            owner=f"ReplicaCAD light {light_id} position",
+            length=3,
         )
         color = _finite_vector(
             item.get("color"), owner=f"ReplicaCAD light {light_id} color", length=3
         )
         raw_intensity = item.get("intensity")
-        if isinstance(raw_intensity, bool) or not isinstance(raw_intensity, (int, float)):
-            raise ReplicaCADExecutionError(f"ReplicaCAD light {light_id} intensity is invalid")
+        if isinstance(raw_intensity, bool) or not isinstance(
+            raw_intensity, (int, float)
+        ):
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD light {light_id} intensity is invalid"
+            )
         raw = float(raw_intensity)
         if not math.isfinite(raw):
-            raise ReplicaCADExecutionError(f"ReplicaCAD light {light_id} intensity is invalid")
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD light {light_id} intensity is invalid"
+            )
         scale = positive_scale if raw >= 0.0 else negative_scale
         records.append(
             {
@@ -558,7 +584,9 @@ def validate_replicacad_editor_result(
     counts = request.get("counts")
     observed = result.get("counts")
     if not isinstance(counts, Mapping) or not isinstance(observed, Mapping):
-        raise ReplicaCADExecutionError("ReplicaCAD request/result count block is missing")
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD request/result count block is missing"
+        )
     required_pairs = {
         "imported_source_glb_count": "source_glb_count",
         "imported_static_mesh_asset_count": "expected_imported_static_mesh_asset_count",
@@ -591,7 +619,458 @@ def validate_replicacad_editor_result(
     return dict(result)
 
 
-def replicacad_fixed_exposure_profile(*, output_gain: float = 1.0) -> dict[str, Any]:
+def load_replicacad_lighting_profiles(path: str | Path) -> dict[str, Any]:
+    """Load the small, user-editable ReplicaCAD visual-lighting profile file."""
+
+    source = Path(path).resolve()
+    try:
+        value = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ReplicaCADExecutionError(
+            f"cannot read ReplicaCAD lighting profiles: {source}"
+        ) from exc
+    if (
+        not isinstance(value, Mapping)
+        or value.get("schema") != LIGHTING_PROFILE_SCHEMA
+        or value.get("room_id") != M5_1_ROOM_ID
+        or not isinstance(value.get("profiles"), Mapping)
+    ):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD lighting profile document is invalid"
+        )
+    bounds = value.get("stage_shell_bounds_habitat_m")
+    if not isinstance(bounds, Mapping):
+        raise ReplicaCADExecutionError("ReplicaCAD lighting profiles lack stage bounds")
+    minimum = _finite_vector(
+        bounds.get("minimum"), owner="ReplicaCAD stage-shell minimum", length=3
+    )
+    maximum = _finite_vector(
+        bounds.get("maximum"), owner="ReplicaCAD stage-shell maximum", length=3
+    )
+    if any(low >= high for low, high in zip(minimum, maximum)):
+        raise ReplicaCADExecutionError("ReplicaCAD stage-shell bounds are empty")
+    required = {DATASET_LIGHTS_FAITHFUL_PROFILE_ID, ROOM_LOCAL_REVIEW_PROFILE_ID}
+    if set(value["profiles"]) != required:
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD lighting profiles must define faithful and room-local modes"
+        )
+    return deepcopy(dict(value))
+
+
+def compile_replicacad_lighting_profile(
+    *,
+    execution_request: Mapping[str, Any],
+    profile_document: Mapping[str, Any],
+    profile_id: str,
+) -> dict[str, Any]:
+    """Resolve one profile against the actual signed ReplicaCAD light records.
+
+    ``room_local_review`` is deliberately a selection, not a light-layout
+    rewrite: positive source lights whose positions lie outside the imported
+    stage-shell AABB are disabled.  No light is moved and no new light is
+    invented.
+    """
+
+    if (
+        profile_document.get("schema") != LIGHTING_PROFILE_SCHEMA
+        or profile_document.get("room_id") != M5_1_ROOM_ID
+    ):
+        raise ReplicaCADExecutionError("ReplicaCAD lighting profile identity differs")
+    profiles = profile_document.get("profiles")
+    if not isinstance(profiles, Mapping) or profile_id not in profiles:
+        raise ReplicaCADExecutionError(
+            f"unknown ReplicaCAD lighting profile: {profile_id}"
+        )
+    raw_profile = profiles[profile_id]
+    if not isinstance(raw_profile, Mapping):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD selected lighting profile is invalid"
+        )
+    bounds = profile_document.get("stage_shell_bounds_habitat_m")
+    if not isinstance(bounds, Mapping):
+        raise ReplicaCADExecutionError("ReplicaCAD selected profile lacks stage bounds")
+    minimum = _finite_vector(
+        bounds.get("minimum"), owner="ReplicaCAD stage-shell minimum", length=3
+    )
+    maximum = _finite_vector(
+        bounds.get("maximum"), owner="ReplicaCAD stage-shell maximum", length=3
+    )
+    if any(low >= high for low, high in zip(minimum, maximum)):
+        raise ReplicaCADExecutionError("ReplicaCAD stage-shell bounds are empty")
+
+    lighting = execution_request.get("lighting")
+    source_lights = lighting.get("lights") if isinstance(lighting, Mapping) else None
+    if not isinstance(source_lights, Sequence) or isinstance(
+        source_lights, (str, bytes)
+    ):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD execution request lacks signed lights"
+        )
+    records: list[dict[str, Any]] = []
+    for index, raw in enumerate(source_lights):
+        if not isinstance(raw, Mapping):
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD source light {index} is invalid"
+            )
+        light_id = str(raw.get("light_id"))
+        habitat = _finite_vector(
+            raw.get("habitat_position_m"),
+            owner=f"ReplicaCAD source light {light_id} Habitat position",
+            length=3,
+        )
+        ue = _finite_vector(
+            raw.get("ue_position_cm"),
+            owner=f"ReplicaCAD source light {light_id} UE position",
+            length=3,
+        )
+        color = _finite_vector(
+            raw.get("color_rgb"),
+            owner=f"ReplicaCAD source light {light_id} color",
+            length=3,
+        )
+        scaled = raw.get("dataset_scaled_intensity")
+        if isinstance(scaled, bool) or not isinstance(scaled, (int, float)):
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD source light {light_id} scaled intensity is invalid"
+            )
+        scaled_value = float(scaled)
+        if not math.isfinite(scaled_value):
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD source light {light_id} scaled intensity is invalid"
+            )
+        inside = all(
+            low <= coordinate <= high
+            for coordinate, low, high in zip(habitat, minimum, maximum)
+        )
+        records.append(
+            {
+                "light_id": light_id,
+                "habitat_position_m": list(habitat),
+                "ue_position_cm": list(ue),
+                "color_rgb": list(color),
+                "dataset_scaled_intensity": scaled_value,
+                "expected_ue_intensity_lumens": (
+                    max(0.0, scaled_value) * DATASET_LIGHT_LUMENS_PER_SCALED_UNIT
+                ),
+                "inside_stage_shell_aabb": inside,
+            }
+        )
+    ids = [item["light_id"] for item in records]
+    if len(ids) != len(set(ids)) or set(ids) != {str(index) for index in range(7)}:
+        raise ReplicaCADExecutionError("ReplicaCAD signed light ID closure differs")
+    positive = [item for item in records if item["dataset_scaled_intensity"] >= 0.0]
+    negative = [item for item in records if item["dataset_scaled_intensity"] < 0.0]
+    if len(positive) != 5 or len(negative) != 2:
+        raise ReplicaCADExecutionError("ReplicaCAD signed light count differs")
+
+    selection = raw_profile.get("selection")
+    if selection == "all_positive_dataset_lights":
+        active = positive
+    elif selection == "positive_dataset_lights_inside_stage_shell_aabb":
+        active = [item for item in positive if item["inside_stage_shell_aabb"]]
+    else:
+        raise ReplicaCADExecutionError(
+            f"unsupported ReplicaCAD lighting selection: {selection!r}"
+        )
+    active_ids = [item["light_id"] for item in active]
+    excluded = [item for item in positive if item["light_id"] not in set(active_ids)]
+    excluded_ids = [item["light_id"] for item in excluded]
+    if active_ids != list(raw_profile.get("expected_active_light_ids", [])):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD selected active light IDs differ from profile expectation"
+        )
+    if excluded_ids != list(
+        raw_profile.get("expected_excluded_positive_light_ids", [])
+    ):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD excluded light IDs differ from profile expectation"
+        )
+    backend_scales: dict[str, float] = {}
+    for backend in ("ue", "habitat"):
+        field = f"{backend}_intensity_scale"
+        raw_intensity_scale = raw_profile.get(field)
+        if isinstance(raw_intensity_scale, bool) or not isinstance(
+            raw_intensity_scale, (int, float)
+        ):
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD {field} must be a positive finite number"
+            )
+        intensity_scale = float(raw_intensity_scale)
+        if not math.isfinite(intensity_scale) or intensity_scale <= 0.0:
+            raise ReplicaCADExecutionError(
+                f"ReplicaCAD {field} must be a positive finite number"
+            )
+        backend_scales[field] = intensity_scale
+    shadow_mode = raw_profile.get("stage_shadow_mode")
+    if shadow_mode not in {"source_import_default", "two_sided"}:
+        raise ReplicaCADExecutionError("ReplicaCAD stage shadow mode is invalid")
+    habitat_usage = str(raw_profile.get("habitat_usage", ""))
+    habitat_maintained_default = str(raw_profile.get("habitat_maintained_default", ""))
+    if (
+        habitat_usage != "research_comparison_only"
+        or habitat_maintained_default != "no_lights_plus_hbao"
+    ):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD Habitat lighting policy must retain no_lights plus HBAO"
+        )
+    return {
+        "schema": LIGHTING_PROFILE_SCHEMA,
+        "status": "pass",
+        "room_id": M5_1_ROOM_ID,
+        "profile_id": profile_id,
+        "selection": selection,
+        "stage_shell_bounds_habitat_m": {
+            "minimum": list(minimum),
+            "maximum": list(maximum),
+        },
+        "source_positive_lights": positive,
+        "source_negative_lights": negative,
+        "active_positive_light_ids": active_ids,
+        "excluded_positive_light_ids": excluded_ids,
+        **backend_scales,
+        "ue_source_intensities_scaled": (
+            abs(backend_scales["ue_intensity_scale"] - 1.0) > 1.0e-12
+        ),
+        "habitat_source_intensities_scaled": (
+            abs(backend_scales["habitat_intensity_scale"] - 1.0) > 1.0e-12
+        ),
+        "habitat_usage": habitat_usage,
+        "habitat_maintained_default": habitat_maintained_default,
+        "stage_shadow_mode": shadow_mode,
+        "source_lights_moved": False,
+        "review_light_added": False,
+        "claim_boundary": str(raw_profile.get("claim_boundary", "")),
+    }
+
+
+def apply_replicacad_lighting_profile_to_runtime_plan(
+    plan: Mapping[str, Any], lighting_profile: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return a runtime plan with one compiled visual-only light selection."""
+
+    if plan.get("schema") != M5_1_RUNTIME_SCHEMA:
+        raise ReplicaCADExecutionError("ReplicaCAD runtime plan identity differs")
+    if (
+        lighting_profile.get("schema") != LIGHTING_PROFILE_SCHEMA
+        or lighting_profile.get("status") != "pass"
+        or lighting_profile.get("room_id") != M5_1_ROOM_ID
+    ):
+        raise ReplicaCADExecutionError(
+            "compiled ReplicaCAD lighting profile is invalid"
+        )
+    active_ids = lighting_profile.get("active_positive_light_ids")
+    if not isinstance(active_ids, list) or not active_ids:
+        raise ReplicaCADExecutionError("ReplicaCAD lighting profile selects no lights")
+    updated = deepcopy(dict(plan))
+    updated["lighting_profile"] = deepcopy(dict(lighting_profile))
+    updated["scene"]["dataset_point_light_actor_count"] = 5
+    updated["scene"]["runtime_positive_point_light_count"] = len(active_ids)
+    updated["scene"]["stage_static_mesh_actor_count"] = 20
+    updated["exposure_and_lighting"] = replicacad_fixed_exposure_profile(
+        output_gain=float(plan["exposure_and_lighting"]["fixed_output_gain"]),
+        lighting_profile=lighting_profile,
+    )
+    updated["claim_boundary"] = (
+        f"{plan['claim_boundary']} Visual lighting profile "
+        f"{lighting_profile['profile_id']!r}: {lighting_profile['claim_boundary']}"
+    )
+    return updated
+
+
+def configure_replicacad_habitat_lighting_profile(
+    *,
+    configuration: Any,
+    habitat_sim: Any,
+    lighting_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Construct ReplicaCAD against Habitat's mutable default light key."""
+
+    if lighting_profile.get("schema") != LIGHTING_PROFILE_SCHEMA:
+        raise ReplicaCADExecutionError("Habitat lighting profile identity differs")
+    previous_key = str(configuration.sim_cfg.scene_light_setup)
+    configuration.sim_cfg.scene_light_setup = habitat_sim.gfx.DEFAULT_LIGHTING_KEY
+    configuration.sim_cfg.override_scene_light_defaults = True
+    configured_key = str(configuration.sim_cfg.scene_light_setup)
+    if (
+        configured_key != str(habitat_sim.gfx.DEFAULT_LIGHTING_KEY)
+        or bool(configuration.sim_cfg.override_scene_light_defaults) is not True
+    ):
+        raise ReplicaCADExecutionError(
+            "Habitat ReplicaCAD mutable lighting override did not read back"
+        )
+    return {
+        "schema": LIGHTING_PROFILE_SCHEMA,
+        "status": "pass",
+        "backend": "Habitat-Sim",
+        "profile_id": lighting_profile["profile_id"],
+        "previous_scene_light_setup_key": previous_key,
+        "configured_scene_light_setup_key": configured_key,
+        "override_scene_light_defaults": True,
+    }
+
+
+def _replicacad_habitat_profile_lights(
+    *, lighting_profile: Mapping[str, Any], habitat_sim: Any
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    records = lighting_profile.get("source_positive_lights", [])
+    by_id = {str(item["light_id"]): item for item in records}
+    active_ids = [str(value) for value in lighting_profile["active_positive_light_ids"]]
+    if set(active_ids) - set(by_id):
+        raise ReplicaCADExecutionError("Habitat active light IDs lack source records")
+    scale = float(lighting_profile["habitat_intensity_scale"])
+    lights: list[Any] = []
+    evidence: list[dict[str, Any]] = []
+    for light_id in active_ids:
+        record = by_id[light_id]
+        position = _finite_vector(
+            record.get("habitat_position_m"),
+            owner=f"Habitat source light {light_id} position",
+            length=3,
+        )
+        color = _finite_vector(
+            record.get("color_rgb"),
+            owner=f"Habitat source light {light_id} color",
+            length=3,
+        )
+        intensity = float(record["dataset_scaled_intensity"])
+        if not math.isfinite(intensity) or intensity < 0.0:
+            raise ReplicaCADExecutionError(
+                f"Habitat active light {light_id} intensity is invalid"
+            )
+        source_color = tuple(channel * intensity for channel in color)
+        profile_color = tuple(channel * scale for channel in source_color)
+        lights.append(
+            habitat_sim.gfx.LightInfo(
+                vector=(*position, 1.0),
+                color=profile_color,
+                model=habitat_sim.gfx.LightPositionModel.Global,
+            )
+        )
+        evidence.append(
+            {
+                "light_id": light_id,
+                "habitat_position_m": position,
+                "dataset_scaled_color_rgb": list(source_color),
+                "profile_color_rgb": list(profile_color),
+            }
+        )
+    return lights, evidence
+
+
+def apply_replicacad_habitat_lighting_profile(
+    *,
+    simulator: Any,
+    lighting_profile: Mapping[str, Any],
+    habitat_sim: Any,
+    scene_light_setup_key: str | None = None,
+    actor_light_setup_key: str = "avengine_m6y_replicacad_room_local_review",
+) -> dict[str, Any]:
+    """Realize the same source-ID selection and scale in Habitat-Sim."""
+
+    if lighting_profile.get("schema") != LIGHTING_PROFILE_SCHEMA:
+        raise ReplicaCADExecutionError("Habitat lighting profile identity differs")
+    records = lighting_profile.get("source_positive_lights", []) + lighting_profile.get(
+        "source_negative_lights", []
+    )
+    if {str(item["light_id"]) for item in records} != {
+        str(index) for index in range(7)
+    }:
+        raise ReplicaCADExecutionError("Habitat signed source-light closure differs")
+    configured_key = str(simulator.config.sim_cfg.scene_light_setup)
+    expected_mutable_key = str(habitat_sim.gfx.DEFAULT_LIGHTING_KEY)
+    if (
+        configured_key != expected_mutable_key
+        or bool(simulator.config.sim_cfg.override_scene_light_defaults) is not True
+    ):
+        raise ReplicaCADExecutionError(
+            "Habitat ReplicaCAD simulator lacks mutable lighting override"
+        )
+    if scene_light_setup_key is None:
+        scene_light_setup_key = configured_key
+    if str(scene_light_setup_key) != configured_key:
+        raise ReplicaCADExecutionError(
+            "Habitat ReplicaCAD scene lighting key differs from configured key"
+        )
+    active_ids = [str(value) for value in lighting_profile["active_positive_light_ids"]]
+    scale = float(lighting_profile["habitat_intensity_scale"])
+    selected, selected_records = _replicacad_habitat_profile_lights(
+        lighting_profile=lighting_profile, habitat_sim=habitat_sim
+    )
+    simulator.set_light_setup(selected, scene_light_setup_key)
+    simulator.set_light_setup(selected, actor_light_setup_key)
+    current = list(simulator.get_current_light_setup())
+    actor = list(simulator.get_light_setup(actor_light_setup_key))
+    if current != selected or actor != selected:
+        raise ReplicaCADExecutionError(
+            "Habitat room-local light setup did not read back on scene and actor keys"
+        )
+    return {
+        "schema": LIGHTING_PROFILE_SCHEMA,
+        "status": "pass",
+        "backend": "Habitat-Sim",
+        "profile_id": lighting_profile["profile_id"],
+        "scene_light_setup_key": scene_light_setup_key,
+        "actor_light_setup_key": actor_light_setup_key,
+        "source_light_count": len(records),
+        "active_light_ids": active_ids,
+        "active_light_count": len(selected),
+        "habitat_intensity_scale": scale,
+        "source_intensities_scaled": bool(
+            lighting_profile["habitat_source_intensities_scaled"]
+        ),
+        "habitat_usage": lighting_profile["habitat_usage"],
+        "habitat_maintained_default": lighting_profile["habitat_maintained_default"],
+        "excluded_positive_light_ids": list(
+            lighting_profile["excluded_positive_light_ids"]
+        ),
+        "lights": selected_records,
+        "source_lights_moved": False,
+        "review_light_added": False,
+    }
+
+
+def validate_replicacad_habitat_lighting_readback(
+    *,
+    simulator: Any,
+    lighting_profile: Mapping[str, Any],
+    habitat_sim: Any,
+    actor_light_setup_key: str,
+) -> dict[str, Any]:
+    """Read back the final scene and articulated-actor light setup keys."""
+
+    expected, _ = _replicacad_habitat_profile_lights(
+        lighting_profile=lighting_profile, habitat_sim=habitat_sim
+    )
+    current = list(simulator.get_current_light_setup())
+    actor = list(simulator.get_light_setup(actor_light_setup_key))
+    if current != expected or actor != expected:
+        raise ReplicaCADExecutionError(
+            "Habitat final scene/actor lighting differs from ReplicaCAD profile"
+        )
+    return {
+        "schema": LIGHTING_PROFILE_SCHEMA,
+        "status": "pass",
+        "backend": "Habitat-Sim",
+        "profile_id": lighting_profile["profile_id"],
+        "habitat_intensity_scale": float(lighting_profile["habitat_intensity_scale"]),
+        "source_intensities_scaled": bool(
+            lighting_profile["habitat_source_intensities_scaled"]
+        ),
+        "habitat_usage": lighting_profile["habitat_usage"],
+        "habitat_maintained_default": lighting_profile["habitat_maintained_default"],
+        "current_light_count": len(current),
+        "actor_light_count": len(actor),
+        "current_matches_profile": True,
+        "actor_setup_matches_profile": True,
+        "actor_light_setup_key": actor_light_setup_key,
+    }
+
+
+def replicacad_fixed_exposure_profile(
+    *,
+    output_gain: float = 1.0,
+    lighting_profile: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return the deterministic review exposure for imported ReplicaCAD PBR.
 
     ReplicaCAD declares seven signed Habitat lights.  The editor importer
@@ -606,8 +1085,35 @@ def replicacad_fixed_exposure_profile(*, output_gain: float = 1.0) -> dict[str, 
     gain = float(output_gain)
     if not math.isfinite(gain) or not 0.25 <= gain <= 2.0:
         raise ReplicaCADExecutionError("ReplicaCAD output_gain must be in [0.25,2.0]")
+    lighting_profile_id = DATASET_LIGHTS_FAITHFUL_PROFILE_ID
+    active_count = 5
+    excluded_ids: list[str] = []
+    shadow_mode = "source_import_default"
+    ue_intensity_scale = 1.0
+    habitat_intensity_scale = 1.0
+    source_intensities_scaled = False
+    if lighting_profile is not None:
+        if lighting_profile.get("schema") != LIGHTING_PROFILE_SCHEMA:
+            raise ReplicaCADExecutionError(
+                "ReplicaCAD fixed-exposure profile is invalid"
+            )
+        lighting_profile_id = str(lighting_profile.get("profile_id"))
+        active_ids = lighting_profile.get("active_positive_light_ids")
+        if not isinstance(active_ids, list) or not active_ids:
+            raise ReplicaCADExecutionError(
+                "ReplicaCAD lighting profile selects no lights"
+            )
+        active_count = len(active_ids)
+        excluded_ids = list(lighting_profile.get("excluded_positive_light_ids", []))
+        shadow_mode = str(lighting_profile.get("stage_shadow_mode"))
+        ue_intensity_scale = float(lighting_profile.get("ue_intensity_scale"))
+        habitat_intensity_scale = float(lighting_profile.get("habitat_intensity_scale"))
+        source_intensities_scaled = bool(
+            lighting_profile.get("ue_source_intensities_scaled")
+        )
     return {
-        "profile_id": "replicacad_dataset_point_lights_fixed_exposure_v1",
+        "profile_id": f"replicacad_{lighting_profile_id}_fixed_exposure_v1",
+        "lighting_profile_id": lighting_profile_id,
         "eye_adaptation": "disabled",
         "console_commands": [
             "r.DefaultFeature.AutoExposure 0",
@@ -615,7 +1121,12 @@ def replicacad_fixed_exposure_profile(*, output_gain: float = 1.0) -> dict[str, 
         ],
         "fixed_output_gain": gain,
         "dataset_declared_light_count": 7,
-        "runtime_positive_point_light_count": 5,
+        "runtime_positive_point_light_count": active_count,
+        "excluded_positive_light_ids": excluded_ids,
+        "ue_intensity_scale": ue_intensity_scale,
+        "habitat_intensity_scale": habitat_intensity_scale,
+        "source_intensities_scaled": source_intensities_scaled,
+        "stage_shadow_mode": shadow_mode,
         "recorded_negative_fill_count": 2,
         "review_light_added": False,
         "qa": {
@@ -629,9 +1140,9 @@ def replicacad_fixed_exposure_profile(*, output_gain: float = 1.0) -> dict[str, 
             "maximum_p95_luminance": 0.98,
         },
         "claim_boundary": (
-            "Five positive lights from ReplicaCAD's declared lighting setup are "
-            "rendered with shadows; the two signed negative fills remain recorded "
-            "but are not representable by UE point lights. No review light is added."
+            f"{active_count} positive lights from ReplicaCAD's declared lighting "
+            "setup are active; the two signed negative fills remain recorded but "
+            "are not representable by UE point lights. No review light is added."
         ),
     }
 
@@ -651,8 +1162,7 @@ def _m5_1_routes(route_manifest: Mapping[str, Any]) -> dict[str, list[list[float
         or route_manifest.get("room_id") != M5_1_ROOM_ID
         or route_manifest.get("frame_count") != M5_1_FRAME_COUNT
         or route_manifest.get("frame_rate_hz") != M5_1_FPS
-        or route_manifest.get("center_navigation_semantics")
-        != "actor_root_center_only"
+        or route_manifest.get("center_navigation_semantics") != "actor_root_center_only"
     ):
         raise ReplicaCADExecutionError("retained ReplicaCAD route authority changed")
     routes = route_manifest.get("routes")
@@ -671,8 +1181,7 @@ def _m5_1_routes(route_manifest: Mapping[str, Any]) -> dict[str, list[list[float
         )
         result[actor_id] = [
             [
-                start[axis]
-                + (end[axis] - start[axis]) * frame / (M5_1_FRAME_COUNT - 1)
+                start[axis] + (end[axis] - start[axis]) * frame / (M5_1_FRAME_COUNT - 1)
                 for axis in range(3)
             ]
             for frame in range(M5_1_FRAME_COUNT)
@@ -824,7 +1333,9 @@ def build_m5_1_replicacad_runtime_plan(
         or imported.get("lighting", {}).get("positive_dataset_light_count") != 5
         or reloaded.get("lighting", {}).get("positive_dataset_light_count") != 5
     ):
-        raise ReplicaCADExecutionError("ReplicaCAD editor import/reload evidence differs")
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD editor import/reload evidence differs"
+        )
 
     routes = _m5_1_routes(route_manifest)
     camera = capture_evidence.get("camera")
@@ -844,8 +1355,13 @@ def build_m5_1_replicacad_runtime_plan(
         or camera.get("horizontal_fov_deg") != 90
     ):
         raise ReplicaCADExecutionError("ReplicaCAD retained capture authority changed")
-    if isinstance(frame_readback, (str, bytes)) or len(frame_readback) != M5_1_FRAME_COUNT:
-        raise ReplicaCADExecutionError("ReplicaCAD capture readback must contain 270 frames")
+    if (
+        isinstance(frame_readback, (str, bytes))
+        or len(frame_readback) != M5_1_FRAME_COUNT
+    ):
+        raise ReplicaCADExecutionError(
+            "ReplicaCAD capture readback must contain 270 frames"
+        )
 
     source_logic = _validate_m5_1_source_authority(
         source_center_gate=source_center_gate,
@@ -878,7 +1394,9 @@ def build_m5_1_replicacad_runtime_plan(
             "validated_walk_state_count": 45,
             "animation_clip_start_seconds": 0.0,
             "actor_yaw_ue_deg": 90.0,
-            "ue_component_frame_delta": component_frame_delta_for_asset(BEAGLE_ASSET_ID),
+            "ue_component_frame_delta": component_frame_delta_for_asset(
+                BEAGLE_ASSET_ID
+            ),
         },
     }
 
@@ -1048,8 +1566,11 @@ def build_m5_1_replicacad_runtime_plan(
 
 __all__ = [
     "APT0_EXPECTED_LOGICAL_COUNTS",
+    "DATASET_LIGHTS_FAITHFUL_PROFILE_ID",
+    "DATASET_LIGHT_LUMENS_PER_SCALED_UNIT",
     "EDITOR_RESULT_SCHEMA",
     "EXECUTION_REQUEST_SCHEMA",
+    "LIGHTING_PROFILE_SCHEMA",
     "M5_1_CAPTURE_SCHEMA",
     "M5_1_FPS",
     "M5_1_FRAME_COUNT",
@@ -1057,10 +1578,17 @@ __all__ = [
     "M5_1_ROOM_ID",
     "M5_1_ROUTE_ID",
     "M5_1_RUNTIME_SCHEMA",
+    "ROOM_LOCAL_REVIEW_PROFILE_ID",
     "ReplicaCADExecutionError",
+    "configure_replicacad_habitat_lighting_profile",
+    "apply_replicacad_habitat_lighting_profile",
+    "apply_replicacad_lighting_profile_to_runtime_plan",
     "assert_apt0_execution_request",
     "build_replicacad_execution_request",
     "build_m5_1_replicacad_runtime_plan",
+    "compile_replicacad_lighting_profile",
+    "load_replicacad_lighting_profiles",
     "replicacad_fixed_exposure_profile",
+    "validate_replicacad_habitat_lighting_readback",
     "validate_replicacad_editor_result",
 ]

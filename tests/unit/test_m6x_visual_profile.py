@@ -22,9 +22,7 @@ from avengine.m6x.visual_profile import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE_PATH = ROOT / "examples/m6x/fixed_apartment/review_visual_profile.json"
-REQUEST_PATH = (
-    ROOT / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
-)
+REQUEST_PATH = ROOT / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
 
 
 def test_review_profile_freezes_native_720p_and_non_upscaling_diagnostic() -> None:
@@ -54,6 +52,31 @@ def test_review_lighting_has_normalized_directional_key_and_fill() -> None:
         assert np.linalg.norm(record["vector_xyzw"][:3]) == pytest.approx(1.0)
     assert records[-1]["type"] == "point"
     assert records[-1]["vector_xyzw"][3] == 1.0
+
+
+def test_review_lighting_uses_shallow_neutral_window_and_bounce_balance() -> None:
+    profile = load_review_visual_profile(PROFILE_PATH)
+    raw = {light["light_id"]: light for light in profile.raw["lighting"]["lights"]}
+    records = light_setup_records(profile)
+
+    key_direction = np.asarray(
+        next(
+            record["vector_xyzw"][:3]
+            for record in records
+            if record["light_id"] == "window_directional_key"
+        )
+    )
+    assert abs(key_direction[1]) < 0.55
+    assert (
+        raw["interior_practical_fill"]["intensity"]
+        < (raw["window_directional_key"]["intensity"])
+    )
+    total_rgb = np.sum(np.asarray([record["color_rgb"] for record in records]), axis=0)
+    assert float(np.max(total_rgb) / np.min(total_rgb)) < 1.05
+    assert profile.profile_id == "spear_apartment_habitat_review_720p_natural_v3"
+    assert profile.raw["lighting"]["setup_id"] == (
+        "spear_apartment_window_bounce_natural_v2"
+    )
 
 
 @dataclass(frozen=True)
@@ -184,7 +207,9 @@ def test_profile_rejects_capture_request_resolution_drift() -> None:
         )
 
 
-def test_retained_capture_visual_evidence_binds_profile_and_proxy(tmp_path: Path) -> None:
+def test_retained_capture_visual_evidence_binds_profile_and_proxy(
+    tmp_path: Path,
+) -> None:
     profile = load_review_visual_profile(PROFILE_PATH)
     proxy = tmp_path / "exterior.glb"
     proxy.write_bytes(b"prepared exterior")
@@ -209,9 +234,7 @@ def test_retained_capture_visual_evidence_binds_profile_and_proxy(tmp_path: Path
                 "removed_handle_prefixes": ["source_marker_"],
                 "removed_count": 2,
                 "remaining_matching_count": 0,
-                "logical_source_representation": (
-                    "topdown_timeline_and_audio_only"
-                ),
+                "logical_source_representation": ("topdown_timeline_and_audio_only"),
             },
             "exterior_proxy": {
                 "prepared_glb_sha256": sha256_file(proxy),
@@ -233,9 +256,7 @@ def test_retained_capture_visual_evidence_binds_profile_and_proxy(tmp_path: Path
     validate_realized_review_profile(
         evidence, profile=profile, exterior_proxy_glb_path=proxy
     )
-    evidence["review_visual_profile"]["exterior_proxy"][
-        "collidable_readback"
-    ] = True
+    evidence["review_visual_profile"]["exterior_proxy"]["collidable_readback"] = True
     with pytest.raises(M6XVisualProfileError, match="differs"):
         validate_realized_review_profile(
             evidence, profile=profile, exterior_proxy_glb_path=proxy

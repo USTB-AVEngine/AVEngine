@@ -20,9 +20,6 @@ import subprocess
 import sys
 from typing import Any, Mapping, Sequence
 
-import numpy as np
-
-
 REPOSITORY = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPOSITORY / "src"
 TOOLS_ROOT = Path(__file__).resolve().parent
@@ -35,12 +32,17 @@ from avengine.optional_backends.spear_apartment import (  # noqa: E402
     summarize_actor_bounds,
 )
 from avengine.optional_backends.spear_replicacad_execution import (  # noqa: E402
+    DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
     M5_1_FPS,
     M5_1_FRAME_COUNT,
     M5_1_MAP_PATH,
     M5_1_ROOM_ID,
     M5_1_RUNTIME_SCHEMA,
+    ROOM_LOCAL_REVIEW_PROFILE_ID,
+    apply_replicacad_lighting_profile_to_runtime_plan,
     build_m5_1_replicacad_runtime_plan,
+    compile_replicacad_lighting_profile,
+    load_replicacad_lighting_profiles,
 )
 from run_spear_mp3d_canary import (  # noqa: E402
     _LuminanceAccumulator,
@@ -61,7 +63,9 @@ from run_spear_mp3d_canary import (  # noqa: E402
 
 
 DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
-DEFAULT_ROUTE = REPOSITORY / "examples/m5_1/replicacad_articulated_review/route_manifest.json"
+DEFAULT_ROUTE = (
+    REPOSITORY / "examples/m5_1/replicacad_articulated_review/route_manifest.json"
+)
 DEFAULT_CAPTURE = REPOSITORY / "tmp/m5_1/replicacad_mixed_20260719_04/evidence.json"
 DEFAULT_FRAME_READBACK = (
     REPOSITORY / "tmp/m5_1/replicacad_mixed_20260719_04/frame_readback.json"
@@ -72,12 +76,12 @@ DEFAULT_SOURCE_CENTER_GATE = (
 )
 DEFAULT_DELIVERY = REPOSITORY / "tmp/m5_1/replicacad_delivery_20260719_03"
 DEFAULT_HABITAT_REVIEW = (
-    REPOSITORY
-    / "tmp/m6x/replicacad_obstacle_review_20260719_02/videos/"
+    REPOSITORY / "tmp/m6x/replicacad_obstacle_review_20260719_02/videos/"
     "replicacad_runtime_obstacles_diagnostic.mp4"
 )
-DEFAULT_REQUEST_ROOT = (
-    REPOSITORY / "tmp/m6y/replicacad_apt0_spear_request_20260720_02"
+DEFAULT_REQUEST_ROOT = REPOSITORY / "tmp/m6y/replicacad_apt0_spear_request_20260720_02"
+DEFAULT_LIGHTING_PROFILES = (
+    REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
 )
 EVIDENCE_SCHEMA = "avengine_optional_spear_replicacad_runtime_evidence_v1"
 SMOKE_SCHEMA = "avengine_optional_spear_replicacad_runtime_smoke_v1"
@@ -121,7 +125,7 @@ def build_execution_plan(args: argparse.Namespace) -> dict[str, Any]:
     for name, value in loaded.items():
         if name != "frame_readback" and not isinstance(value, Mapping):
             raise RuntimeError(f"ReplicaCAD {name} root must be an object")
-    return build_m5_1_replicacad_runtime_plan(
+    plan = build_m5_1_replicacad_runtime_plan(
         route_manifest=loaded["route_manifest"],
         capture_evidence=loaded["capture_evidence"],
         frame_readback=loaded["frame_readback"],
@@ -134,9 +138,166 @@ def build_execution_plan(args: argparse.Namespace) -> dict[str, Any]:
         editor_reload_result=loaded["editor_reload_result"],
         output_gain=args.fixed_output_gain,
     )
+    profile_document = load_replicacad_lighting_profiles(args.lighting_profiles)
+    lighting_profile = compile_replicacad_lighting_profile(
+        execution_request=loaded["execution_request"],
+        profile_document=profile_document,
+        profile_id=args.lighting_profile,
+    )
+    return apply_replicacad_lighting_profile_to_runtime_plan(plan, lighting_profile)
 
 
-def _scene_readback(game: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
+def _runtime_light_records(game: Any, plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    point_lights = game.unreal_service.find_actors_by_class(uclass="APointLight")
+    expected = plan["lighting_profile"]["source_positive_lights"]
+    if len(point_lights) != len(expected):
+        raise RuntimeError(
+            f"ReplicaCAD runtime point-light actor count {len(point_lights)} != "
+            f"{len(expected)}"
+        )
+    unmatched = {str(item["light_id"]): item for item in expected}
+    records: list[dict[str, Any]] = []
+    for actor in point_lights:
+        location = _actor_readback(actor, 0)["location_cm"]
+        distances = {
+            light_id: math.dist(location, item["ue_position_cm"])
+            for light_id, item in unmatched.items()
+        }
+        light_id = min(distances, key=distances.get)
+        if distances[light_id] > 0.1:
+            raise RuntimeError(
+                "ReplicaCAD runtime point light does not match a planned source position"
+            )
+        planned = unmatched.pop(light_id)
+        component = game.unreal_service.get_component_by_class(
+            actor=actor, uclass="UPointLightComponent"
+        )
+        records.append(
+            {
+                "light_id": light_id,
+                "actor": actor,
+                "component": component,
+                "location_cm": location,
+                "inside_stage_shell_aabb": planned["inside_stage_shell_aabb"],
+                "expected_ue_intensity_lumens": planned["expected_ue_intensity_lumens"],
+            }
+        )
+    if unmatched:
+        raise RuntimeError(
+            f"ReplicaCAD runtime lights were not matched: {sorted(unmatched)}"
+        )
+    return sorted(records, key=lambda item: int(item["light_id"]))
+
+
+def _apply_lighting_profile(game: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
+    profile = plan["lighting_profile"]
+    active_ids = set(profile["active_positive_light_ids"])
+    excluded_ids = set(profile["excluded_positive_light_ids"])
+    ue_intensity_scale = float(profile["ue_intensity_scale"])
+    records = _runtime_light_records(game, plan)
+    for item in records:
+        component = item["component"]
+        before = float(component.get_property_value(property_name="Intensity"))
+        expected = float(item["expected_ue_intensity_lumens"])
+        if abs(before - expected) > max(0.1, expected * 1.0e-4):
+            raise RuntimeError(
+                f"ReplicaCAD source light {item['light_id']} intensity differs before profile"
+            )
+        if item["light_id"] in excluded_ids:
+            component.SetIntensity(NewIntensity=0.0)
+        elif item["light_id"] in active_ids:
+            component.SetIntensity(NewIntensity=expected * ue_intensity_scale)
+        after = float(component.get_property_value(property_name="Intensity"))
+        active_expected = expected * ue_intensity_scale
+        if item["light_id"] in active_ids and abs(after - active_expected) > max(
+            0.1, active_expected * 1.0e-4
+        ):
+            raise RuntimeError(
+                f"ReplicaCAD active light {item['light_id']} scale did not read back"
+            )
+        if item["light_id"] in excluded_ids and abs(after) > 1.0e-6:
+            raise RuntimeError(
+                f"ReplicaCAD excluded light {item['light_id']} stayed active"
+            )
+        item["intensity_before_profile_lumens"] = before
+        item["intensity_after_profile_lumens"] = after
+        item["profile_active_expected_intensity_lumens"] = active_expected
+        item["active_after_profile"] = item["light_id"] in active_ids
+        item.pop("actor")
+        item.pop("component")
+
+    mesh_actors = game.unreal_service.find_actors_by_class(uclass="AStaticMeshActor")
+    stage_actors = [
+        actor
+        for actor in mesh_actors
+        if bool(actor.ActorHasTag(Tag="spawn_id=stage:000000"))
+    ]
+    if len(stage_actors) != int(plan["scene"]["stage_static_mesh_actor_count"]):
+        raise RuntimeError(
+            f"ReplicaCAD stage mesh count {len(stage_actors)} != "
+            f"{plan['scene']['stage_static_mesh_actor_count']}"
+        )
+    shadow_gate = {
+        "status": "observed",
+        "mode": profile["stage_shadow_mode"],
+        "stage_mesh_actor_count": len(stage_actors),
+        "runtime_shadow_mutation": False,
+        "semantics": (
+            "Retains the imported map's stage cast-shadow settings. Two-sided "
+            "shadow is not claimed because unsafe guessed-property RPC is forbidden."
+        ),
+    }
+
+    outside_active = [
+        item["light_id"]
+        for item in records
+        if item["active_after_profile"] and not item["inside_stage_shell_aabb"]
+    ]
+    excluded_nonzero = [
+        item["light_id"]
+        for item in records
+        if not item["active_after_profile"]
+        and abs(float(item["intensity_after_profile_lumens"])) > 1.0e-6
+    ]
+    leakage_status = (
+        "pass"
+        if profile["profile_id"] == DATASET_LIGHTS_FAITHFUL_PROFILE_ID
+        or (not outside_active and not excluded_nonzero)
+        else "fail"
+    )
+    leakage_gate = {
+        "status": leakage_status,
+        "semantics": (
+            "AABB-exterior positive source lights have zero runtime intensity; "
+            "this prevents their direct contribution but does not claim the source "
+            "stage shell is watertight"
+        ),
+        "outside_active_light_ids": outside_active,
+        "excluded_nonzero_light_ids": excluded_nonzero,
+        "known_open_stage_shell": True,
+    }
+    if leakage_status != "pass":
+        raise RuntimeError(
+            f"ReplicaCAD external-light leakage gate failed: {leakage_gate}"
+        )
+    return {
+        "status": "pass",
+        "profile_id": profile["profile_id"],
+        "source_lights_moved": False,
+        "review_light_added": False,
+        "ue_intensity_scale": ue_intensity_scale,
+        "source_intensities_scaled": bool(profile["ue_source_intensities_scaled"]),
+        "active_positive_light_ids": sorted(active_ids, key=int),
+        "excluded_positive_light_ids": sorted(excluded_ids, key=int),
+        "lights": records,
+        "stage_shadow_gate": shadow_gate,
+        "external_light_leakage_gate": leakage_gate,
+    }
+
+
+def _scene_readback(
+    game: Any, plan: Mapping[str, Any], lighting_application: Mapping[str, Any]
+) -> dict[str, Any]:
     mesh_actors = game.unreal_service.find_actors_by_class(uclass="AStaticMeshActor")
     point_lights = game.unreal_service.find_actors_by_class(uclass="APointLight")
     if len(mesh_actors) != plan["scene"]["static_mesh_actor_count"]:
@@ -144,18 +305,17 @@ def _scene_readback(game: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
             f"ReplicaCAD runtime mesh count {len(mesh_actors)} != "
             f"{plan['scene']['static_mesh_actor_count']}"
         )
-    if len(point_lights) != plan["scene"]["runtime_positive_point_light_count"]:
+    if len(point_lights) != plan["scene"]["dataset_point_light_actor_count"]:
         raise RuntimeError(
             f"ReplicaCAD runtime point-light count {len(point_lights)} != "
-            f"{plan['scene']['runtime_positive_point_light_count']}"
+            f"{plan['scene']['dataset_point_light_actor_count']}"
         )
     tagged_meshes = sum(
         bool(actor.ActorHasTag(Tag="avengine_comparison_visual"))
         for actor in mesh_actors
     )
     tagged_lights = sum(
-        bool(actor.ActorHasTag(Tag="avengine_dataset_light"))
-        for actor in point_lights
+        bool(actor.ActorHasTag(Tag="avengine_dataset_light")) for actor in point_lights
     )
     if tagged_meshes != len(mesh_actors) or tagged_lights != len(point_lights):
         raise RuntimeError(
@@ -181,23 +341,35 @@ def _scene_readback(game: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
-    if not all(item["intensity"] > 0.0 and item["cast_shadows"] for item in light_records):
+    if not all(
+        item["intensity"] >= 0.0 and item["cast_shadows"] for item in light_records
+    ):
         raise RuntimeError("ReplicaCAD runtime dataset-light readback failed")
+    active_count = sum(item["intensity"] > 1.0e-6 for item in light_records)
+    if active_count != plan["scene"]["runtime_positive_point_light_count"]:
+        raise RuntimeError(
+            f"ReplicaCAD active point-light count {active_count} != "
+            f"{plan['scene']['runtime_positive_point_light_count']}"
+        )
     return {
         "status": "pass",
         "map_path": plan["scene"]["map_path"],
         "static_mesh_actor_count": len(mesh_actors),
         "tagged_comparison_visual_actor_count": tagged_meshes,
         "positive_dataset_point_light_count": len(point_lights),
+        "active_positive_point_light_count": active_count,
         "tagged_dataset_light_count": tagged_lights,
         "declared_dataset_light_count": 7,
         "recorded_negative_fill_count": 2,
         "review_light_added": False,
+        "lighting_profile_application": dict(lighting_application),
         "lights": sorted(light_records, key=lambda item: item["intensity"]),
     }
 
 
-def _configure_instance(args: argparse.Namespace, plan: Mapping[str, Any]) -> tuple[Any, Path]:
+def _configure_instance(
+    args: argparse.Namespace, plan: Mapping[str, Any]
+) -> tuple[Any, Path]:
     spear_root = args.spear_root.resolve()
     editor = args.unreal_editor.resolve()
     project = args.ue_project.resolve()
@@ -209,7 +381,9 @@ def _configure_instance(args: argparse.Namespace, plan: Mapping[str, Any]) -> tu
         spear_root / "cpp/unreal_projects/SpearSim/SpearSim.uproject"
     ).resolve()
     if project == old_project or old_project.parent in project.parents:
-        raise RuntimeError("refusing to render ReplicaCAD through the old dirty SPEAR project")
+        raise RuntimeError(
+            "refusing to render ReplicaCAD through the old dirty SPEAR project"
+        )
     sys.path.insert(0, str(spear_root / "examples"))
     from render_in_apartment import parallel_instance_settings
 
@@ -227,7 +401,9 @@ def _configure_instance(args: argparse.Namespace, plan: Mapping[str, Any]) -> tu
     config.SPEAR.INSTANCE.INITIALIZE_CLIENT_MAX_TIME_SECONDS = (
         INITIALIZE_CLIENT_MAX_TIME_SECONDS
     )
-    config.SPEAR.INSTANCE.CLIENT_INTERNAL_TIMEOUT_SECONDS = CLIENT_INTERNAL_TIMEOUT_SECONDS
+    config.SPEAR.INSTANCE.CLIENT_INTERNAL_TIMEOUT_SECONDS = (
+        CLIENT_INTERNAL_TIMEOUT_SECONDS
+    )
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.OVERRIDE_GAME_DEFAULT_MAP = True
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = M5_1_MAP_PATH
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / M5_1_FPS
@@ -245,9 +421,7 @@ def _configure_instance(args: argparse.Namespace, plan: Mapping[str, Any]) -> tu
         config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.graphicsadapter = settings[
             "graphics_adapter"
         ]
-    vulkan_icd = os.environ.get(
-        "VK_ICD_FILENAMES", "/etc/vulkan/icd.d/nvidia_icd.json"
-    )
+    vulkan_icd = os.environ.get("VK_ICD_FILENAMES", "/etc/vulkan/icd.d/nvidia_icd.json")
     if Path(vulkan_icd).is_file():
         config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = vulkan_icd
     config.freeze()
@@ -268,59 +442,136 @@ def _encode_media(
     visual = output_root / "replicacad_spear_visual_only.mp4"
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-framerate", str(M5_1_FPS),
-            "-i", str(frames_root / "frame_%04d.png"),
-            "-frames:v", str(M5_1_FRAME_COUNT),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
-            "-movflags", "+faststart", str(visual),
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-framerate",
+            str(M5_1_FPS),
+            "-i",
+            str(frames_root / "frame_%04d.png"),
+            "-frames:v",
+            str(M5_1_FRAME_COUNT),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-crf",
+            "18",
+            "-movflags",
+            "+faststart",
+            str(visual),
         ],
         check=True,
     )
     clean = output_root / "replicacad_spear_clean_binaural.mp4"
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-i", str(visual), "-i", str(habitat_review),
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "copy", "-c:a", "copy", "-map_metadata", "-1",
-            "-movflags", "+faststart", str(clean),
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(visual),
+            "-i",
+            str(habitat_review),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "copy",
+            "-map_metadata",
+            "-1",
+            "-movflags",
+            "+faststart",
+            str(clean),
         ],
         check=True,
     )
     topdown = output_root / "replicacad_spear_topdown_binaural.mp4"
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-i", str(visual), "-i", str(habitat_review),
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(visual),
+            "-i",
+            str(habitat_review),
             "-filter_complex",
             (
                 "[0:v]scale=640:360:flags=lanczos,pad=640:480:0:60:black[ue];"
                 "[1:v]crop=640:480:640:0[top];[ue][top]hstack=inputs=2[out]"
             ),
-            "-map", "[out]", "-map", "1:a:0",
-            "-frames:v", str(M5_1_FRAME_COUNT), "-r", str(M5_1_FPS),
-            "-vsync", "cfr", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-crf", "20", "-c:a", "copy", "-map_metadata", "-1",
-            "-movflags", "+faststart", str(topdown),
+            "-map",
+            "[out]",
+            "-map",
+            "1:a:0",
+            "-frames:v",
+            str(M5_1_FRAME_COUNT),
+            "-r",
+            str(M5_1_FPS),
+            "-vsync",
+            "cfr",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-crf",
+            "20",
+            "-c:a",
+            "copy",
+            "-map_metadata",
+            "-1",
+            "-movflags",
+            "+faststart",
+            str(topdown),
         ],
         check=True,
     )
     triptych = output_root / "replicacad_spear_habitat_topdown_triptych_binaural.mp4"
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-i", str(visual), "-i", str(habitat_review),
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(visual),
+            "-i",
+            str(habitat_review),
             "-filter_complex",
             (
                 "[0:v]scale=640:360:flags=lanczos,pad=640:480:0:60:black[ue];"
                 "[1:v]setsar=1[hab];[ue][hab]hstack=inputs=2[out]"
             ),
-            "-map", "[out]", "-map", "1:a:0",
-            "-frames:v", str(M5_1_FRAME_COUNT), "-r", str(M5_1_FPS),
-            "-vsync", "cfr", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-crf", "20", "-c:a", "copy", "-map_metadata", "-1",
-            "-movflags", "+faststart", str(triptych),
+            "-map",
+            "[out]",
+            "-map",
+            "1:a:0",
+            "-frames:v",
+            str(M5_1_FRAME_COUNT),
+            "-r",
+            str(M5_1_FPS),
+            "-vsync",
+            "cfr",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-crf",
+            "20",
+            "-c:a",
+            "copy",
+            "-map_metadata",
+            "-1",
+            "-movflags",
+            "+faststart",
+            str(triptych),
         ],
         check=True,
     )
@@ -357,7 +608,8 @@ def run(args: argparse.Namespace) -> Path:
     scene_readback: dict[str, Any]
     try:
         with instance.begin_frame():
-            scene_readback = _scene_readback(game, plan)
+            lighting_application = _apply_lighting_profile(game, plan)
+            scene_readback = _scene_readback(game, plan, lighting_application)
             camera, capture = _spawn_camera(
                 game=game,
                 width=plan["render"]["width"],
@@ -401,9 +653,7 @@ def run(args: argparse.Namespace) -> Path:
                     actor_bounds[actor_id].append(
                         _actor_bounds_readback(runtime["visual_actor"], frame_index)
                     )
-                expected_shape = (
-                    plan["render"]["height"], plan["render"]["width"], 3
-                )
+                expected_shape = (plan["render"]["height"], plan["render"]["width"], 3)
                 if raw.shape != expected_shape:
                     raise RuntimeError(f"unexpected captured frame shape: {raw.shape}")
                 frame = _grade_frame(
@@ -497,7 +747,10 @@ def run(args: argparse.Namespace) -> Path:
     }
     source_audio_hash = _audio_packet_sha256(habitat_review)
     for name, record in media.items():
-        if name != "ue_visual_only" and record["audio_packet_sha256"] != source_audio_hash:
+        if (
+            name != "ue_visual_only"
+            and record["audio_packet_sha256"] != source_audio_hash
+        ):
             raise RuntimeError(f"{name} changed the authoritative binaural packets")
 
     input_paths = {
@@ -529,9 +782,9 @@ def run(args: argparse.Namespace) -> Path:
             "frame_rate_hz": M5_1_FPS,
             "streaming_warmup_frames": plan["render"]["streaming_warmup_frames"],
             "camera_warmup_frames": plan["render"]["camera_warmup_frames"],
-            "auto_exposure_console_commands_requested": plan[
-                "exposure_and_lighting"
-            ]["console_commands"],
+            "auto_exposure_console_commands_requested": plan["exposure_and_lighting"][
+                "console_commands"
+            ],
             "fixed_output_gain": plan["exposure_and_lighting"]["fixed_output_gain"],
             "scene_and_lighting_readback": scene_readback,
         },
@@ -576,28 +829,42 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--source-center-gate", type=Path, default=DEFAULT_SOURCE_CENTER_GATE
     )
     parser.add_argument(
-        "--source-program", type=Path,
+        "--source-program",
+        type=Path,
         default=DEFAULT_DELIVERY / "source_program_reuse.json",
     )
     parser.add_argument(
-        "--emitter-trajectories", type=Path,
+        "--emitter-trajectories",
+        type=Path,
         default=DEFAULT_DELIVERY / "actual_emitter_trajectories.json",
     )
     parser.add_argument(
-        "--source-actor-bindings", type=Path,
+        "--source-actor-bindings",
+        type=Path,
         default=DEFAULT_DELIVERY / "source_actor_bindings.json",
     )
     parser.add_argument(
-        "--execution-request", type=Path,
+        "--execution-request",
+        type=Path,
         default=DEFAULT_REQUEST_ROOT / "execution_request.json",
     )
     parser.add_argument(
-        "--editor-import-result", type=Path,
+        "--editor-import-result",
+        type=Path,
         default=DEFAULT_REQUEST_ROOT / "editor_import_result.json",
     )
     parser.add_argument(
-        "--editor-reload-result", type=Path,
+        "--editor-reload-result",
+        type=Path,
         default=DEFAULT_REQUEST_ROOT / "editor_reload_result.json",
+    )
+    parser.add_argument(
+        "--lighting-profiles", type=Path, default=DEFAULT_LIGHTING_PROFILES
+    )
+    parser.add_argument(
+        "--lighting-profile",
+        choices=(DATASET_LIGHTS_FAITHFUL_PROFILE_ID, ROOM_LOCAL_REVIEW_PROFILE_ID),
+        default=DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
     )
     parser.add_argument("--habitat-review", type=Path, default=DEFAULT_HABITAT_REVIEW)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -607,7 +874,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--keep-frames", action="store_true")
     parser.add_argument(
-        "--smoke-frame-index", type=int,
+        "--smoke-frame-index",
+        type=int,
         help="Render one selected authority frame; this is not formal evidence.",
     )
     args = parser.parse_args(argv)

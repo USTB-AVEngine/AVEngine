@@ -24,7 +24,7 @@ import os
 from pathlib import Path, PureWindowsPath
 import re
 import shutil
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 from uuid import uuid4
 
 import numpy as np
@@ -184,9 +184,7 @@ def load_replicacad_route_manifest(path: str | Path) -> dict[str, Any]:
         owner="minimum_center_separation_m",
     )
     if minimum_separation < 0.3:
-        raise ReplicaCADCaptureError(
-            "minimum_center_separation_m cannot be below 0.3"
-        )
+        raise ReplicaCADCaptureError("minimum_center_separation_m cannot be below 0.3")
     movement = route.get("movement_gate")
     if not isinstance(movement, dict):
         raise ReplicaCADCaptureError("ReplicaCAD route requires movement_gate")
@@ -290,12 +288,8 @@ def derive_replicacad_route_paths(
 
     try:
         routes = route["routes"]
-        human_start = _finite_point(
-            routes["human0"]["start_m"], owner="human0.start_m"
-        )
-        human_end = _finite_point(
-            routes["human0"]["end_m"], owner="human0.end_m"
-        )
+        human_start = _finite_point(routes["human0"]["start_m"], owner="human0.start_m")
+        human_end = _finite_point(routes["human0"]["end_m"], owner="human0.end_m")
         dog_start = _finite_point(routes["dog0"]["start_m"], owner="dog0.start_m")
         dog_end = _finite_point(routes["dog0"]["end_m"], owner="dog0.end_m")
     except (KeyError, TypeError) as exc:
@@ -374,9 +368,14 @@ def _assert_selected_closure(
     root: Path,
 ) -> dict[str, Path]:
     if room_inputs.room.get("room_id") != "replicacad_apt_0":
-        raise ReplicaCADCaptureError("ReplicaCAD review room_id must be replicacad_apt_0")
+        raise ReplicaCADCaptureError(
+            "ReplicaCAD review room_id must be replicacad_apt_0"
+        )
     scene = room_inputs.room.get("scene", {})
-    if scene.get("scene_id_kind") != "handle" or scene.get("scene_id") != REPLICACAD_SCENE_ID:
+    if (
+        scene.get("scene_id_kind") != "handle"
+        or scene.get("scene_id") != REPLICACAD_SCENE_ID
+    ):
         raise ReplicaCADCaptureError("ReplicaCAD review must select handle apt_0")
     roles = _resolved_role_paths(room_inputs, runtime)
     expected = {
@@ -395,9 +394,10 @@ def _assert_selected_closure(
                 f"ReplicaCAD role {role} does not resolve to selected apt_0 closure"
             )
     resolved_scene = _resolved_scene(room_inputs, runtime)
-    if Path(resolved_scene["dataset_config"]).resolve() != expected[
-        "scene_dataset_config"
-    ].resolve():
+    if (
+        Path(resolved_scene["dataset_config"]).resolve()
+        != expected["scene_dataset_config"].resolve()
+    ):
         raise ReplicaCADCaptureError("configured ReplicaCAD dataset differs")
     if resolved_scene["scene_id"] != REPLICACAD_SCENE_ID:
         raise ReplicaCADCaptureError("configured ReplicaCAD scene handle differs")
@@ -415,9 +415,7 @@ def _camera_floor_record(
     minimum_clearance_m: float,
 ) -> dict[str, Any]:
     camera = _finite_point(camera_position_m, owner="camera position")
-    floor_point = np.asarray(
-        [camera[0], route_floor_y_m, camera[2]], dtype=np.float64
-    )
+    floor_point = np.asarray([camera[0], route_floor_y_m, camera[2]], dtype=np.float64)
     navigable = bool(pathfinder.is_navigable(floor_point, maximum_snap_error_m))
     snapped = np.asarray(pathfinder.snap_point(floor_point), dtype=np.float64)
     if snapped.shape != (3,) or not np.all(np.isfinite(snapped)):
@@ -476,9 +474,9 @@ def _path_clearance_record(
             "minimum_clearance_m": float(np.min(values)),
             "maximum_clearance_m": float(np.max(values)),
             "required_minimum_clearance_m": minimum_clearance_m,
-            "failed_frame_indices": np.flatnonzero(
-                values < minimum_clearance_m
-            ).astype(int).tolist(),
+            "failed_frame_indices": np.flatnonzero(values < minimum_clearance_m)
+            .astype(int)
+            .tolist(),
             "clearance_sequence_sha256": canonical_json_sha256(values.tolist()),
         }
     return result
@@ -623,7 +621,9 @@ def _line_of_sight_record(
                 delta = target - camera
                 distance = float(np.linalg.norm(delta))
                 if distance <= 1.0e-9:
-                    raise ReplicaCADCaptureError("camera coincides with visibility anchor")
+                    raise ReplicaCADCaptureError(
+                        "camera coincides with visibility anchor"
+                    )
                 ray = habitat_sim.geo.Ray(
                     mn.Vector3(camera), mn.Vector3(delta / distance)
                 )
@@ -716,7 +716,9 @@ def validate_replicacad_paths_and_placement(
                 )
             stage = simulator.get_stage_initialization_template()
             stage_surface = (
-                Path(stage.render_asset_fullpath).resolve() if stage is not None else None
+                Path(stage.render_asset_fullpath).resolve()
+                if stage is not None
+                else None
             )
             current_scene = str(simulator.curr_scene_name)
             if current_scene != REPLICACAD_SCENE_ID:
@@ -731,9 +733,7 @@ def validate_replicacad_paths_and_placement(
             instance = load_json(closure["scene_instance"])
             lighting = load_json(closure["lighting_config"])
             expected_rigid = len(instance.get("object_instances", []))
-            expected_articulated = len(
-                instance.get("articulated_object_instances", [])
-            )
+            expected_articulated = len(instance.get("articulated_object_instances", []))
             actual_rigid = len(
                 simulator.get_rigid_object_manager().get_objects_by_handle_substring()
             )
@@ -810,16 +810,12 @@ def validate_replicacad_paths_and_placement(
                     ),
                 ),
             }
-            if path_records["human0"]["island_id"] != path_records["dog0"][
-                "island_id"
-            ]:
+            if path_records["human0"]["island_id"] != path_records["dog0"]["island_id"]:
                 raise ReplicaCADCaptureError(
                     "human and dog routes occupy different navmesh islands"
                 )
             placement = route["placement_gate"]
-            minimum_clearance = float(
-                placement["minimum_navmesh_clearance_m"]
-            )
+            minimum_clearance = float(placement["minimum_navmesh_clearance_m"])
             clearance = _path_clearance_record(
                 simulator.pathfinder,
                 paths,
@@ -938,9 +934,7 @@ def _repository_file_record(path: str | Path) -> dict[str, Any]:
     )
 
 
-def _portable_path_string(
-    value: str, roots: Sequence[tuple[str, Path]]
-) -> str:
+def _portable_path_string(value: str, roots: Sequence[tuple[str, Path]]) -> str:
     path = Path(value)
     if not path.is_absolute():
         return value
@@ -957,13 +951,10 @@ def _portable_path_string(
     )
 
 
-def _portableize_evidence_paths(
-    value: Any, roots: Sequence[tuple[str, Path]]
-) -> Any:
+def _portableize_evidence_paths(value: Any, roots: Sequence[tuple[str, Path]]) -> Any:
     if isinstance(value, dict):
         return {
-            key: _portableize_evidence_paths(item, roots)
-            for key, item in value.items()
+            key: _portableize_evidence_paths(item, roots) for key, item in value.items()
         }
     if isinstance(value, list):
         return [_portableize_evidence_paths(item, roots) for item in value]
@@ -1000,10 +991,7 @@ def _authenticated_absolute_file_record(
             f"{owner} must bind the freshly generated absolute file"
         )
     resolved = Path(raw).resolve()
-    if not any(
-        _contains_portable_root(resolved, root)
-        for _root_id, root in roots
-    ):
+    if not any(_contains_portable_root(resolved, root) for _root_id, root in roots):
         raise ReplicaCADCaptureError(f"{owner} escapes declared portable roots")
     if not resolved.is_file():
         raise ReplicaCADCaptureError(f"{owner} file is missing")
@@ -1058,9 +1046,7 @@ def _portableize_generated_human_runtime_documents(
     if manifest.get("schema") != "avengine_m5_1_rocketbox_human_runtime_v1":
         raise ReplicaCADCaptureError("generated human runtime manifest schema differs")
     manifest_content = dict(manifest)
-    declared_manifest_content = manifest_content.pop(
-        "manifest_content_sha256", None
-    )
+    declared_manifest_content = manifest_content.pop("manifest_content_sha256", None)
     if declared_manifest_content != canonical_json_sha256(manifest_content):
         raise ReplicaCADCaptureError(
             "generated human runtime manifest content hash differs before portability"
@@ -1168,9 +1154,7 @@ def _bind_capture_identity_and_emitter_anchors(
         )
     artifacts = evidence.get("array_artifacts")
     anchor_artifact = (
-        artifacts.get("anchor_positions_m")
-        if isinstance(artifacts, Mapping)
-        else None
+        artifacts.get("anchor_positions_m") if isinstance(artifacts, Mapping) else None
     )
     if (
         not isinstance(anchor_artifact, Mapping)
@@ -1218,9 +1202,7 @@ def _rebind_portable_human_runtime_references(
         raise ReplicaCADCaptureError("human runtime portability result is malformed")
     runtime = evidence.get("runtime")
     retained = (
-        runtime.get("human_package_manifest")
-        if isinstance(runtime, dict)
-        else None
+        runtime.get("human_package_manifest") if isinstance(runtime, dict) else None
     )
     if (
         not isinstance(retained, dict)
@@ -1253,9 +1235,7 @@ def _rebind_portable_human_runtime_references(
         raise ReplicaCADCaptureError(
             "human heading source differs before portable rebinding"
         )
-    source["path"] = (
-        "${AVENGINE_CAPTURE_ROOT}/" + str(manifest_file["path"])
-    )
+    source["path"] = "${AVENGINE_CAPTURE_ROOT}/" + str(manifest_file["path"])
     source["sha256"] = manifest_file["sha256"]
 
     def stale_reference_count(value: Any) -> int:
@@ -1317,13 +1297,9 @@ def _portable_mixed_capture(
     )
 
 
-def _semantic_visibility_summary(
-    record: Mapping[str, Any]
-) -> dict[str, Any]:
+def _semantic_visibility_summary(record: Mapping[str, Any]) -> dict[str, Any]:
     return {
-        key: value
-        for key, value in record.items()
-        if key != "per_frame_visible_pixels"
+        key: value for key, value in record.items() if key != "per_frame_visible_pixels"
     }
 
 
@@ -1464,9 +1440,7 @@ def _assert_portable_json_bundle(
                     or "\\" in relative
                     or ".." in Path(relative).parts
                 ):
-                    raise ReplicaCADCaptureError(
-                        f"{owner} has an unsafe relative_path"
-                    )
+                    raise ReplicaCADCaptureError(f"{owner} has an unsafe relative_path")
             for key, item in value.items():
                 inspect(item, owner=f"{owner}.{key}")
             return
@@ -1522,13 +1496,18 @@ def _readback_replicacad_capture_result(result: ReplicaCADCaptureResult) -> None
     }
     for name, expected in retained_arrays.items():
         record = arrays.get(name)
-        if not isinstance(record, Mapping) or record.get("readback_verified") is not True:
+        if (
+            not isinstance(record, Mapping)
+            or record.get("readback_verified") is not True
+        ):
             raise ReplicaCADCaptureError(f"{name} lacks a successful readback record")
         path = _verified_output_record_path(root, record, owner=f"{name} array")
         try:
             readback = np.load(path, mmap_mode="r", allow_pickle=False)
         except (OSError, ValueError) as exc:
-            raise ReplicaCADCaptureError(f"{name} array readback failed: {exc}") from exc
+            raise ReplicaCADCaptureError(
+                f"{name} array readback failed: {exc}"
+            ) from exc
         if (
             readback.shape != expected.shape
             or readback.dtype != expected.dtype
@@ -1567,9 +1546,7 @@ def _readback_replicacad_capture_result(result: ReplicaCADCaptureResult) -> None
         raise ReplicaCADCaptureError("ReplicaCAD gate readback is not 19/19")
     mixed_capture = gate.get("mixed_capture")
     capture_record = (
-        mixed_capture.get("evidence")
-        if isinstance(mixed_capture, Mapping)
-        else None
+        mixed_capture.get("evidence") if isinstance(mixed_capture, Mapping) else None
     )
     if not isinstance(capture_record, Mapping):
         raise ReplicaCADCaptureError("ReplicaCAD gate lacks capture evidence binding")
@@ -1584,9 +1561,7 @@ def _readback_replicacad_capture_result(result: ReplicaCADCaptureResult) -> None
     )
     contact_sheet = gate.get("contact_sheet")
     contact_record = (
-        contact_sheet.get("file")
-        if isinstance(contact_sheet, Mapping)
-        else None
+        contact_sheet.get("file") if isinstance(contact_sheet, Mapping) else None
     )
     if (
         not isinstance(contact_record, Mapping)
@@ -1617,6 +1592,9 @@ def _capture_replicacad_route_in_staging(
     output_dir: str | Path,
     replicacad_root: str | Path,
     runtime_root: str | Path | None = None,
+    review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
+    review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
+    review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
 ) -> ReplicaCADCaptureResult:
     """Build one complete ``apt_0`` capture in an unpublished directory."""
 
@@ -1653,6 +1631,9 @@ def _capture_replicacad_route_in_staging(
             require_legacy_camera=False,
             human_semantic_id=int(route["semantic_ids"]["human0"]),
             beagle_semantic_id=int(route["semantic_ids"]["dog0"]),
+            review_configuration_hook=review_configuration_hook,
+            review_scene_hook=review_scene_hook,
+            review_scene_readback_hook=review_scene_readback_hook,
         )
         capture = _portable_mixed_capture(
             capture,
@@ -1748,9 +1729,7 @@ def _capture_replicacad_route_in_staging(
                     root=capture.output_dir,
                     root_id="AVENGINE_CAPTURE_ROOT",
                 ),
-                "evidence_content_sha256": capture.evidence[
-                    "evidence_content_sha256"
-                ],
+                "evidence_content_sha256": capture.evidence["evidence_content_sha256"],
             },
             "semantic_visibility": {
                 actor_id: _semantic_visibility_summary(record)
@@ -1783,6 +1762,9 @@ def capture_replicacad_route(
     output_dir: str | Path,
     replicacad_root: str | Path,
     runtime_root: str | Path | None = None,
+    review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
+    review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
+    review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
 ) -> ReplicaCADCaptureResult:
     """Build, read back, then atomically publish one immutable capture."""
 
@@ -1804,9 +1786,7 @@ def capture_replicacad_route(
     except (FileExistsError, ValueError) as exc:
         raise ReplicaCADCaptureError(str(exc)) from exc
     staging = policy.resolve_output(
-        destination.with_name(
-            f".{destination.name}.staging-{uuid4().hex}"
-        ),
+        destination.with_name(f".{destination.name}.staging-{uuid4().hex}"),
         owner="ReplicaCAD capture staging directory",
     )
     try:
@@ -1820,6 +1800,9 @@ def capture_replicacad_route(
             output_dir=staging,
             replicacad_root=replicacad_root,
             runtime_root=runtime_root,
+            review_configuration_hook=review_configuration_hook,
+            review_scene_hook=review_scene_hook,
+            review_scene_readback_hook=review_scene_readback_hook,
         )
         if (
             staged.capture.output_dir.resolve() != staging

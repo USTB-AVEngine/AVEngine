@@ -23,12 +23,14 @@ from avengine.optional_backends.spear_mp3d import (
     M5_1_ROUTE_ID,
     M5_1_ROUTE_SCHEMA,
     M5_1_SOURCE_PROGRAM_SCHEMA,
+    MATERIAL_COLOR_SCHEMA,
     MP3DExecutionError,
     MP3D_ROOM_ID,
     build_m5_1_mp3d_execution_plan,
     build_mp3d_execution_plan,
     fixed_exposure_profile,
     luminance_exposure_qa,
+    render_color_fidelity_qa,
 )
 
 
@@ -105,10 +107,72 @@ def _import_manifest() -> dict:
         "status": "passed",
         "reload_verification": {"status": "passed"},
         "scene_content": {
-            "static_meshes": [f"/Game/AVEngine/MP3D/mesh_{index:03d}" for index in range(71)],
+            "static_meshes": [
+                f"/Game/AVEngine/MP3D/mesh_{index:03d}" for index in range(71)
+            ],
             "material_count": 23,
             "texture_count": 23,
         },
+    }
+
+
+def _material_color_result() -> dict:
+    base_color_textures = [
+        {
+            "source_texture_index": index,
+            "texture_path": f"/Game/AVEngine/MP3D/texture_{index:03d}_basecolor_srgb",
+            "srgb": True,
+            "semantic": "base_color_srgb",
+        }
+        for index in range(23)
+    ]
+    occlusion_textures = [
+        {
+            "source_texture_index": index,
+            "texture_path": f"/Game/AVEngine/MP3D/texture_{index:03d}",
+            "srgb": False,
+            "semantic": "occlusion_linear_red_channel",
+        }
+        for index in range(23)
+    ]
+    return {
+        "schema": MATERIAL_COLOR_SCHEMA,
+        "status": "pass",
+        "operation": "verify_only",
+        "fresh_editor_reload": True,
+        "content_root": "/Game/MyAssets/Audioset/Scenes/mp3d_17DRP5sb8fy",
+        "source_gltf_contract": {
+            "material_count": 23,
+            "base_color_reference_count": 23,
+            "occlusion_reference_count": 23,
+            "shared_base_color_and_occlusion_texture_count": 23,
+            "other_texture_reference_count": 0,
+        },
+        "counts": {
+            "source_texture_count": 23,
+            "material_count": 23,
+            "base_color_texture_count": 23,
+            "base_color_binding_count": 23,
+            "base_color_srgb_true_count": 23,
+            "occlusion_texture_count": 23,
+            "occlusion_binding_count": 23,
+            "occlusion_srgb_false_count": 23,
+            "unexpected_texture_binding_count": 0,
+        },
+        "base_color_textures": base_color_textures,
+        "occlusion_textures": occlusion_textures,
+        "material_bindings": [
+            {
+                "source_material_index": index,
+                "material_path": f"/Game/AVEngine/MP3D/material_{index:03d}",
+                "base_color_parameter_name": "BaseColorTexture",
+                "base_color_texture_path": base_color_textures[index]["texture_path"],
+                "occlusion_parameter_name": "OcclusionTexture",
+                "occlusion_texture_path": occlusion_textures[index]["texture_path"],
+                "unexpected_bound_texture_parameters": [],
+            }
+            for index in range(23)
+        ],
     }
 
 
@@ -278,6 +342,7 @@ def _m5_1_inputs() -> dict:
             },
         },
         "ue_import_manifest": imported,
+        "ue_material_color_result": _material_color_result(),
         "human_ue_manifest": {
             "content": {
                 "blueprint": HUMAN_BP_CLASS_PATH.rsplit(".", 1)[0],
@@ -289,7 +354,9 @@ def _m5_1_inputs() -> dict:
 
 def test_builds_timeline_v2_mp3d_execution_plan_with_fixed_exposure() -> None:
     plan = build_mp3d_execution_plan(
-        visual_plan=_visual_plan(), ue_import_manifest=_import_manifest()
+        visual_plan=_visual_plan(),
+        ue_import_manifest=_import_manifest(),
+        ue_material_color_result=_material_color_result(),
     )
 
     assert plan["schema"] == EXECUTION_SCHEMA
@@ -308,6 +375,9 @@ def test_builds_timeline_v2_mp3d_execution_plan_with_fixed_exposure() -> None:
     assert exposure["eye_adaptation"] == "disabled"
     assert "r.EyeAdaptationQuality 0" in exposure["console_commands"]
     assert exposure["directional_key"]["intensity_lux"] < 10.0
+    assert exposure["fixed_output_gain"] == 1.0
+    assert plan["scene"]["material_color_contract"]["base_color_srgb_true_count"] == 23
+    assert plan["scene"]["material_color_contract"]["occlusion_srgb_false_count"] == 23
     assert plan["frames"][7]["actor_states"][0]["translation_ue_cm"] == [7, 0, 0]
 
 
@@ -320,9 +390,7 @@ def test_fixed_gain_highlight_qa_rejects_no_temporal_or_per_frame_adaptation() -
     assert qa["saturated_fraction"] == 0.0
     assert qa["mean_luminance"] == pytest.approx((230 / 255) * 0.72)
 
-    uncorrected = luminance_exposure_qa(
-        bright, fixed_exposure_profile(output_gain=1.0)
-    )
+    uncorrected = luminance_exposure_qa(bright, fixed_exposure_profile(output_gain=1.0))
     assert uncorrected["status"] == "fail"
 
 
@@ -339,6 +407,26 @@ def test_fixed_exposure_rejects_black_frames_in_array_and_streaming_qa() -> None
     streaming_qa = streaming.result(profile)
     assert streaming_qa["status"] == "fail"
     assert streaming_qa["mean_luminance"] == 0.0
+
+
+def test_render_color_fidelity_qa_rejects_desaturated_ue_and_accepts_retention() -> (
+    None
+):
+    habitat = np.zeros((2, 24, 32, 3), dtype=np.uint8)
+    habitat[..., 0] = 150
+    habitat[..., 1] = 110
+    habitat[..., 2] = 80
+    desaturated = np.full_like(habitat, 115)
+    retained = habitat.copy()
+    profile = fixed_exposure_profile()
+
+    failed = render_color_fidelity_qa(desaturated, habitat, profile)
+    passed = render_color_fidelity_qa(retained, habitat, profile)
+
+    assert failed["status"] == "fail"
+    assert failed["mean_chroma_ratio_ue_to_habitat"] == 0.0
+    assert passed["status"] == "pass"
+    assert passed["mean_chroma_ratio_ue_to_habitat"] == pytest.approx(1.0)
 
 
 def test_builds_honest_m5_1_270_frame_compatibility_plan() -> None:
@@ -373,9 +461,7 @@ def test_builds_honest_m5_1_270_frame_compatibility_plan() -> None:
     assert route["retained_compatibility_route"] is True
     assert route["normal_speed_requirement_resolved"] is False
     assert route["duration_seconds"] == 18.0
-    assert route["distance_m_by_actor"] == pytest.approx(
-        {"human0": 1.1, "dog0": 1.1}
-    )
+    assert route["distance_m_by_actor"] == pytest.approx({"human0": 1.1, "dog0": 1.1})
     assert route["average_speed_m_s_by_actor"] == pytest.approx(
         {"human0": 1.1 / 18.0, "dog0": 1.1 / 18.0}
     )
@@ -406,9 +492,7 @@ def test_m5_1_compatibility_plan_fails_closed_on_authority_drift(
     if mutation == "nav_gate":
         inputs["navmesh_gate"]["gates"][5]["status"] = "fail"
     elif mutation == "emitter":
-        inputs["emitter_trajectories"]["sources"]["source1"][
-            "positions_m"
-        ].pop()
+        inputs["emitter_trajectories"]["sources"]["source1"]["positions_m"].pop()
     elif mutation == "room":
         inputs["room_registry"]["records"][0]["admission_state"] = "admitted"
     elif mutation == "dog_wrap":
@@ -517,6 +601,8 @@ def test_runner_dry_run_writes_validated_compatibility_plan(tmp_path: Path) -> N
             str(paths["raw_room_qualification"]),
             "--ue-import-manifest",
             str(paths["ue_import_manifest"]),
+            "--ue-material-color-result",
+            str(paths["ue_material_color_result"]),
             "--human-ue-manifest",
             str(paths["human_ue_manifest"]),
             "--output-dir",
@@ -613,5 +699,36 @@ def test_mp3d_execution_fails_closed_on_authority_or_import_drift(
         imported["scene_content"]["static_meshes"].pop()
     with pytest.raises(MP3DExecutionError, match=message):
         build_mp3d_execution_plan(
-            visual_plan=deepcopy(visual), ue_import_manifest=deepcopy(imported)
+            visual_plan=deepcopy(visual),
+            ue_import_manifest=deepcopy(imported),
+            ue_material_color_result=_material_color_result(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("base_srgb", "base-color Texture2D is not sRGB"),
+        ("occlusion_srgb", "occlusion Texture2D is not linear"),
+        ("binding", "material color-slot closure differs"),
+        ("fresh_reload", "fresh 23/23 sRGB readback"),
+    ],
+)
+def test_mp3d_material_color_contract_fails_closed(mutation: str, message: str) -> None:
+    color = _material_color_result()
+    if mutation == "base_srgb":
+        color["base_color_textures"][0]["srgb"] = False
+    elif mutation == "occlusion_srgb":
+        color["occlusion_textures"][0]["srgb"] = True
+    elif mutation == "binding":
+        color["material_bindings"][0]["occlusion_texture_path"] = color[
+            "occlusion_textures"
+        ][1]["texture_path"]
+    elif mutation == "fresh_reload":
+        color["fresh_editor_reload"] = False
+    with pytest.raises(MP3DExecutionError, match=message):
+        build_mp3d_execution_plan(
+            visual_plan=_visual_plan(),
+            ue_import_manifest=_import_manifest(),
+            ue_material_color_result=color,
         )

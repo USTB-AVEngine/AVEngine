@@ -1,0 +1,32 @@
+{
+  "schema": "avengine_replicacad_visual_lighting_profiles_v1",
+  "room_id": "replicacad_apt_0",
+  "stage_shell_bounds_habitat_m": {
+    "minimum": [-2.676597842143053, -0.08062697431158794, -4.834312781139696],
+    "maximum": [4.581953511384967, 3.044557791238642, 8.16458168256532]
+  },
+  "profiles": {
+    "dataset_lights_faithful": {
+      "selection": "all_positive_dataset_lights",
+      "ue_intensity_scale": 1.0,
+      "habitat_intensity_scale": 1.0,
+      "habitat_usage": "research_comparison_only",
+      "habitat_maintained_default": "no_lights_plus_hbao",
+      "expected_active_light_ids": ["0", "1", "2", "3", "4"],
+      "expected_excluded_positive_light_ids": [],
+      "stage_shadow_mode": "source_import_default",
+      "claim_boundary": "Retains all five positive lights declared by ReplicaCAD. This is source-light-layout fidelity, not a claim that the open stage shell produces natural indoor illumination in UE."
+    },
+    "room_local_review": {
+      "selection": "positive_dataset_lights_inside_stage_shell_aabb",
+      "ue_intensity_scale": 2.0,
+      "habitat_intensity_scale": 4.0,
+      "habitat_usage": "research_comparison_only",
+      "habitat_maintained_default": "no_lights_plus_hbao",
+      "expected_active_light_ids": ["0", "1", "2"],
+      "expected_excluded_positive_light_ids": ["3", "4"],
+      "stage_shadow_mode": "source_import_default",
+      "claim_boundary": "Visual-review profile only. It does not move or add lights: positive lights outside the imported stage-shell AABB are disabled. Source lights 0/1/2 use explicit backend-unit scales (UE 2.0, Habitat 4.0); these numbers are not treated as physically interchangeable units. The Habitat point-light realization remains a research comparison because the maintained Habitat review default is no_lights plus HBAO."
+    }
+  }
+}

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import runpy
 import struct
 import subprocess
@@ -21,6 +23,7 @@ from avengine.optional_backends.spear_replicacad import (
     UnrealTransform,
 )
 from avengine.optional_backends.spear_replicacad_execution import (
+    DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
     EDITOR_RESULT_SCHEMA,
     EXECUTION_REQUEST_SCHEMA,
     M5_1_CAPTURE_SCHEMA,
@@ -35,15 +38,44 @@ from avengine.optional_backends.spear_replicacad_execution import (
     M5_1_SOURCE_BINDING_SCHEMA,
     M5_1_SOURCE_GATE_SCHEMA,
     M5_1_SOURCE_PROGRAM_SCHEMA,
+    ROOM_LOCAL_REVIEW_PROFILE_ID,
     ReplicaCADExecutionError,
+    apply_replicacad_habitat_lighting_profile,
+    apply_replicacad_lighting_profile_to_runtime_plan,
     build_m5_1_replicacad_runtime_plan,
     build_replicacad_execution_request,
+    compile_replicacad_lighting_profile,
+    configure_replicacad_habitat_lighting_profile,
+    load_replicacad_lighting_profiles,
     replicacad_fixed_exposure_profile,
+    validate_replicacad_habitat_lighting_readback,
     validate_replicacad_editor_result,
 )
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def _apt0_signed_light_records() -> list[dict[str, object]]:
+    values = [
+        ("0", [-0.91, 2.3, 2.53], 2.9),
+        ("1", [-1.4, 2.3, -0.175], 2.9),
+        ("2", [-1.4, 2.3, -2.775], 2.9),
+        ("3", [6.928, 3.3, 6.849], 11.1),
+        ("4", [7.048, 3.3, 2.378], 18.3),
+        ("5", [1.65, 2.6, -2.03], -0.13),
+        ("6", [6.06, 2.6, -2.67], -0.27),
+    ]
+    return [
+        {
+            "light_id": light_id,
+            "habitat_position_m": position,
+            "ue_position_cm": [100 * position[0], 100 * position[2], 100 * position[1]],
+            "dataset_scaled_intensity": intensity,
+            "color_rgb": [0.93, 0.98, 1.0],
+        }
+        for light_id, position, intensity in values
+    ]
 
 
 def _glb(path: Path, *, meshes: int, materials: int = 1, textures: int = 1) -> Path:
@@ -282,6 +314,155 @@ def test_fixed_exposure_keeps_dataset_light_claim_explicit() -> None:
         replicacad_fixed_exposure_profile(output_gain=2.01)
 
 
+def test_room_local_profile_excludes_only_positive_lights_outside_stage_shell() -> None:
+    document = load_replicacad_lighting_profiles(
+        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+    )
+    request = {"lighting": {"lights": _apt0_signed_light_records()}}
+
+    faithful = compile_replicacad_lighting_profile(
+        execution_request=request,
+        profile_document=document,
+        profile_id=DATASET_LIGHTS_FAITHFUL_PROFILE_ID,
+    )
+    local = compile_replicacad_lighting_profile(
+        execution_request=request,
+        profile_document=document,
+        profile_id=ROOM_LOCAL_REVIEW_PROFILE_ID,
+    )
+
+    assert faithful["active_positive_light_ids"] == ["0", "1", "2", "3", "4"]
+    assert faithful["excluded_positive_light_ids"] == []
+    assert faithful["ue_intensity_scale"] == 1.0
+    assert faithful["habitat_intensity_scale"] == 1.0
+    assert faithful["ue_source_intensities_scaled"] is False
+    assert faithful["habitat_source_intensities_scaled"] is False
+    assert local["active_positive_light_ids"] == ["0", "1", "2"]
+    assert local["excluded_positive_light_ids"] == ["3", "4"]
+    assert local["ue_intensity_scale"] == 2.0
+    assert local["habitat_intensity_scale"] == 4.0
+    assert local["ue_source_intensities_scaled"] is True
+    assert local["habitat_source_intensities_scaled"] is True
+    assert local["habitat_usage"] == "research_comparison_only"
+    assert local["habitat_maintained_default"] == "no_lights_plus_hbao"
+    assert local["stage_shadow_mode"] == "source_import_default"
+    assert local["source_lights_moved"] is False
+    assert local["review_light_added"] is False
+    outside = {
+        item["light_id"]
+        for item in local["source_positive_lights"]
+        if not item["inside_stage_shell_aabb"]
+    }
+    assert outside == {"3", "4"}
+
+
+def test_room_local_profile_updates_runtime_counts_without_changing_authority() -> None:
+    inputs = _m5_1_runtime_inputs()
+    base = build_m5_1_replicacad_runtime_plan(**inputs)
+    document = load_replicacad_lighting_profiles(
+        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+    )
+    profile = compile_replicacad_lighting_profile(
+        execution_request=inputs["execution_request"],
+        profile_document=document,
+        profile_id=ROOM_LOCAL_REVIEW_PROFILE_ID,
+    )
+
+    plan = apply_replicacad_lighting_profile_to_runtime_plan(base, profile)
+
+    assert plan["authority"] == base["authority"]
+    assert plan["scene"]["dataset_point_light_actor_count"] == 5
+    assert plan["scene"]["runtime_positive_point_light_count"] == 3
+    assert plan["scene"]["stage_static_mesh_actor_count"] == 20
+    assert plan["exposure_and_lighting"]["lighting_profile_id"] == (
+        ROOM_LOCAL_REVIEW_PROFILE_ID
+    )
+    assert plan["exposure_and_lighting"]["excluded_positive_light_ids"] == ["3", "4"]
+    assert plan["exposure_and_lighting"]["ue_intensity_scale"] == 2.0
+    assert plan["exposure_and_lighting"]["habitat_intensity_scale"] == 4.0
+    assert plan["exposure_and_lighting"]["source_intensities_scaled"] is True
+
+
+@dataclass(frozen=True)
+class _FakeLightInfo:
+    vector: tuple[float, float, float, float]
+    color: tuple[float, float, float]
+    model: str
+
+
+class _FakeHabitatSimulator:
+    def __init__(self, configuration: SimpleNamespace) -> None:
+        self.config = configuration
+        self.current: list[_FakeLightInfo] = []
+        self.setups: dict[str, list[_FakeLightInfo]] = {}
+
+    def set_light_setup(self, setup: list[_FakeLightInfo], key: str) -> None:
+        copied = list(setup)
+        self.setups[str(key)] = copied
+        if str(key) == "default-light-key":
+            self.current = copied
+
+    def get_current_light_setup(self) -> list[_FakeLightInfo]:
+        return list(self.current)
+
+    def get_light_setup(self, key: str) -> list[_FakeLightInfo]:
+        return list(self.setups[str(key)])
+
+
+def test_habitat_room_local_profile_scales_same_three_source_lights() -> None:
+    document = load_replicacad_lighting_profiles(
+        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+    )
+    profile = compile_replicacad_lighting_profile(
+        execution_request={"lighting": {"lights": _apt0_signed_light_records()}},
+        profile_document=document,
+        profile_id=ROOM_LOCAL_REVIEW_PROFILE_ID,
+    )
+    fake_habitat = SimpleNamespace(
+        gfx=SimpleNamespace(
+            DEFAULT_LIGHTING_KEY="default-light-key",
+            LightInfo=_FakeLightInfo,
+            LightPositionModel=SimpleNamespace(Global="global"),
+        )
+    )
+    configuration = SimpleNamespace(
+        sim_cfg=SimpleNamespace(
+            scene_light_setup="lighting/frl_apartment_stage",
+            override_scene_light_defaults=False,
+        )
+    )
+    configured = configure_replicacad_habitat_lighting_profile(
+        configuration=configuration,
+        habitat_sim=fake_habitat,
+        lighting_profile=profile,
+    )
+    simulator = _FakeHabitatSimulator(configuration)
+    applied = apply_replicacad_habitat_lighting_profile(
+        simulator=simulator,
+        lighting_profile=profile,
+        habitat_sim=fake_habitat,
+        actor_light_setup_key="actor-key",
+    )
+    readback = validate_replicacad_habitat_lighting_readback(
+        simulator=simulator,
+        lighting_profile=profile,
+        habitat_sim=fake_habitat,
+        actor_light_setup_key="actor-key",
+    )
+
+    assert configured["override_scene_light_defaults"] is True
+    assert applied["active_light_ids"] == ["0", "1", "2"]
+    assert applied["habitat_intensity_scale"] == 4.0
+    assert applied["source_intensities_scaled"] is True
+    assert applied["habitat_usage"] == "research_comparison_only"
+    assert applied["habitat_maintained_default"] == "no_lights_plus_hbao"
+    assert simulator.current[0].color == pytest.approx(
+        (0.93 * 2.9 * 4.0, 0.98 * 2.9 * 4.0, 1.0 * 2.9 * 4.0)
+    )
+    assert readback["current_matches_profile"] is True
+    assert readback["actor_setup_matches_profile"] is True
+
+
 def _m5_1_runtime_inputs() -> dict[str, object]:
     spawn_ids = [f"spawn:{index:06d}" for index in range(120)]
     execution_request = {
@@ -299,7 +480,10 @@ def _m5_1_runtime_inputs() -> dict[str, object]:
             "expected_runtime_mesh_actor_count": 171,
             "articulated_visual_occurrence_count": 31,
         },
-        "lighting": {"default_lighting": "lighting/frl_apartment_stage"},
+        "lighting": {
+            "default_lighting": "lighting/frl_apartment_stage",
+            "lights": _apt0_signed_light_records(),
+        },
         "spawns": [{"spawn_id": value} for value in spawn_ids],
     }
     editor_result = {
@@ -351,9 +535,7 @@ def _m5_1_runtime_inputs() -> dict[str, object]:
         for actor_id, route in routes.items():
             position = [
                 float(start)
-                + (float(end) - float(start))
-                * frame_index
-                / (M5_1_FRAME_COUNT - 1)
+                + (float(end) - float(start)) * frame_index / (M5_1_FRAME_COUNT - 1)
                 for start, end in zip(route["start_m"], route["end_m"])
             ]
             positions[actor_id].append(position)
@@ -461,7 +643,9 @@ def _m5_1_runtime_inputs() -> dict[str, object]:
     }
 
 
-def test_m5_1_runtime_plan_closes_authority_clock_source_gate_and_editor_result() -> None:
+def test_m5_1_runtime_plan_closes_authority_clock_source_gate_and_editor_result() -> (
+    None
+):
     plan = build_m5_1_replicacad_runtime_plan(**_m5_1_runtime_inputs())
 
     assert plan["schema"] == M5_1_RUNTIME_SCHEMA
@@ -472,7 +656,9 @@ def test_m5_1_runtime_plan_closes_authority_clock_source_gate_and_editor_result(
     assert len(plan["frames"]) == 270
     assert plan["frames"][-1]["pts_ticks"] == 860_800
     assert plan["source_logic"]["source_center_gate"]["status"] == "pass"
-    assert plan["source_logic"]["source_center_gate"]["full_body_collision_claim"] is False
+    assert (
+        plan["source_logic"]["source_center_gate"]["full_body_collision_claim"] is False
+    )
     assert plan["scene"]["static_mesh_actor_count"] == 171
     assert plan["scene"]["pbr_material_count"] == 111
     assert plan["scene"]["runtime_positive_point_light_count"] == 5
@@ -482,7 +668,9 @@ def test_m5_1_runtime_plan_closes_authority_clock_source_gate_and_editor_result(
 def test_m5_1_runtime_plan_rejects_broken_editor_and_source_center_closure() -> None:
     inputs = _m5_1_runtime_inputs()
     inputs["editor_reload_result"]["counts"]["spawned_static_mesh_actor_count"] = 170
-    with pytest.raises(ReplicaCADExecutionError, match="spawned_static_mesh_actor_count"):
+    with pytest.raises(
+        ReplicaCADExecutionError, match="spawned_static_mesh_actor_count"
+    ):
         build_m5_1_replicacad_runtime_plan(**inputs)
 
     inputs = _m5_1_runtime_inputs()
@@ -502,9 +690,12 @@ def test_replicacad_runner_dry_run_compiles_without_unreal(tmp_path: Path) -> No
     command = [
         sys.executable,
         str(REPOSITORY / "tools/m6y/run_spear_replicacad_canary.py"),
-        "--unreal-editor", str(tmp_path / "not-needed-for-dry-run"),
-        "--ue-project", str(tmp_path / "not-needed-for-dry-run.uproject"),
-        "--output-dir", str(output),
+        "--unreal-editor",
+        str(tmp_path / "not-needed-for-dry-run"),
+        "--ue-project",
+        str(tmp_path / "not-needed-for-dry-run.uproject"),
+        "--output-dir",
+        str(output),
         "--dry-run",
     ]
     for name in inputs:
@@ -518,7 +709,9 @@ def test_replicacad_runner_dry_run_compiles_without_unreal(tmp_path: Path) -> No
     assert plan["authority"]["backend_may_replan"] is False
 
 
-def test_environment_probe_has_no_private_data_engine_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_environment_probe_has_no_private_data_engine_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("UNREAL_ENGINE_DIR", raising=False)
     monkeypatch.delenv("UE_ENGINE_DIR", raising=False)
     namespace = runpy.run_path(
