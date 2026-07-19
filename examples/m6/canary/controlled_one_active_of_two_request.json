@@ -82,7 +82,7 @@
   "release_manifest_ref": {
     "release_id": "avengine_m6_feasibility_v1",
     "repository_path": "release/avengine_release_manifest_v1.json",
-    "expected_tag": "avengine-m6-feasibility-v1"
+    "expected_tag": "avengine-m6-feasibility-v1.1"
   },
-  "request_content_sha256": "837569295e74864d43be8255dff47dc1e53de46ebf371c4990c6113b3d43b9b2"
+  "request_content_sha256": "e1565263dce8d0567d76b86e9fa3df0612e5bc97f2bd0581d94768f5020e1c79"
 }

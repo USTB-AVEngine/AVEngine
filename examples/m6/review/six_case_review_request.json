@@ -19,12 +19,12 @@
       "room_lineage_id": "avengine_procedural_two_zone",
       "visual": {
         "availability": "available",
-        "path": "tmp/m6/formal_controlled_v1/visual/primary_view.mp4",
+        "path": "tmp/m6/formal_controlled_v1_1/visual/primary_view.mp4",
         "start_seconds": 0
       },
       "audio": {
         "availability": "available",
-        "path": "tmp/m6/formal_controlled_v1/visual/primary_view.mp4",
+        "path": "tmp/m6/formal_controlled_v1_1/visual/primary_view.mp4",
         "start_seconds": 0,
         "channel_count": 2,
         "presentation_format": "binaural",
