@@ -61,6 +61,7 @@ from avengine.m2.habitat import (
     HabitatLinkJointBlock,
     bind_habitat_link_layout,
 )
+from avengine.runtime_lock import RuntimeLockError, resolve_runtime_profile
 
 
 EVIDENCE_SCHEMA = "avengine_m2_habitat_capture_evidence_v1"
@@ -102,8 +103,9 @@ def _git_value(repository: Path, *arguments: str) -> str | None:
 
 
 def _locked_runtime_commit(repository_root: Path) -> str | None:
-    lock_path = repository_root / "runtime.lock.yaml"
-    if not lock_path.is_file():
+    try:
+        lock_path = resolve_runtime_profile(repository_root, "m2")
+    except RuntimeLockError:
         return None
     match = re.search(
         r"^habitat_runtime:\s*$.*?^\s+fork_governance_commit:\s+([0-9a-f]{40})\s*$",
@@ -114,8 +116,9 @@ def _locked_runtime_commit(repository_root: Path) -> str | None:
 
 
 def _locked_native_binding_sha256(repository_root: Path) -> str | None:
-    lock_path = repository_root / "runtime.lock.yaml"
-    if not lock_path.is_file():
+    try:
+        lock_path = resolve_runtime_profile(repository_root, "m2")
+    except RuntimeLockError:
         return None
     match = re.search(
         r"^\s+required_m2_native_binding_sha256:\s+([0-9a-f]{64})\s*$",
@@ -147,7 +150,7 @@ def _runtime_identity(
         binary_origin_matches = True
     except ValueError:
         binary_origin_matches = False
-    lock_path = repository_root / "runtime.lock.yaml"
+    lock_path = resolve_runtime_profile(repository_root, "m2")
     return {
         "avengine_commit": avengine_commit,
         "avengine_worktree_dirty": avengine_status != "",

@@ -11,8 +11,13 @@ from avengine.contracts.json_io import file_record
 from avengine.m6.canary import (
     M6CanaryError,
     _artifact_errors,
+    _controlled_execution_contract,
     _load_registries,
+    _materialization_runtime_report,
+    _retained_materialization_claim_errors,
+    _retained_materialization_room_report,
     _runtime_checks,
+    _schema_errors,
     _spatial_format,
     _validate_entity_visual_authority,
     bind_controlled_canary_request_hash,
@@ -90,6 +95,126 @@ def test_run_rejects_non_commit_before_materialization(tmp_path: Path) -> None:
         )
 
 
+def test_retained_materialization_pass_never_promotes_native_episode(
+    tmp_path: Path,
+) -> None:
+    upstream = tmp_path / "upstream_m5_evidence.json"
+    upstream.write_text("{}\n", encoding="utf-8")
+    historical = load_json(
+        ROOT
+        / "examples"
+        / "m6"
+        / "rooms"
+        / "qualification"
+        / "blender_custom_two_zone.json"
+    )
+    runtime = _materialization_runtime_report(
+        [
+            {
+                "check_id": "retained_materialization_fixture",
+                "status": "pass",
+                "measured": {"native_rir_rerun": False},
+            }
+        ]
+    )
+    room_report = _retained_materialization_room_report(
+        historical_report=historical,
+        upstream_evidence=upstream,
+        materialization_status=runtime["overall_status"],
+    )
+    execution = _controlled_execution_contract()
+
+    assert runtime["overall_status"] == "pass"
+    assert {key: runtime[key] for key in execution} == execution
+    assert room_report["evidence_basis"] == (
+        "verified_retained_evidence_materialization"
+    )
+    episode = room_report["dimensions"]["episode_feasibility_status"]
+    assert episode["status"] == "not_run"
+    assert episode["blocker_code"] == "m6_current_native_episode_not_run"
+    assert "materialization semantic verifier status is pass" in episode["summary"]
+    assert "episode_feasibility_status=not_run" in room_report["admission_blockers"]
+
+    provenance = {
+        "derivation": {
+            "native_rir_rerun": False,
+            "current_native_episode_status": "not_run",
+            "semantic_materialization_verifier_status": "pass",
+        }
+    }
+    evidence = {**execution, "overall_status": "pass"}
+    assert (
+        _retained_materialization_claim_errors(
+            evidence=evidence,
+            provenance=provenance,
+            room_report=room_report,
+        )
+        == []
+    )
+
+    contradictory = deepcopy(room_report)
+    contradictory["evidence_basis"] = "current_execution"
+    contradictory["dimensions"]["episode_feasibility_status"] = {
+        "status": "pass",
+        "summary": "incorrectly promoted retained evidence",
+        "evidence_refs": ["evidence.json"],
+    }
+    contradiction_errors = _retained_materialization_claim_errors(
+        evidence=evidence,
+        provenance=provenance,
+        room_report=contradictory,
+    )
+    assert any("evidence basis" in error for error in contradiction_errors)
+    assert any("episode must remain not_run" in error for error in contradiction_errors)
+
+
+def test_controlled_evidence_schema_requires_explicit_non_native_scope() -> None:
+    artifact = {"path": "payload.json", "byte_size": 2, "sha256": "0" * 64}
+    evidence = {
+        "schema": "avengine_m6_canary_evidence_v1",
+        "run_id": "controlled_fixture",
+        "evidence_kind": "controlled_one_active_of_n",
+        **_controlled_execution_contract(),
+        "research_only": True,
+        "qualification_claim": False,
+        "dataset_admission": False,
+        "implementation_commit": "1" * 40,
+        "request": artifact,
+        "release_manifest_ref": artifact,
+        "upstream_evidence": {
+            "kind": "verified_m5_controlled_bundle",
+            "status": "pass",
+            "path": "upstream.json",
+            "sha256": "2" * 64,
+        },
+        "artifacts": {"payload.json": artifact},
+        "checks": [
+            {"check_id": "semantic_materialization", "status": "pass", "measured": {}}
+        ],
+        "overall_status": "pass",
+        "evidence_content_sha256": "3" * 64,
+    }
+    assert _schema_errors(evidence, "m6_canary_evidence_v1.schema.json") == []
+
+    missing_scope = deepcopy(evidence)
+    missing_scope.pop("status_scope")
+    assert any(
+        "status_scope" in error
+        for error in _schema_errors(
+            missing_scope, "m6_canary_evidence_v1.schema.json"
+        )
+    )
+
+    false_native_pass = deepcopy(evidence)
+    false_native_pass["native_execution"]["habitat_sim"] = "pass"
+    assert any(
+        "not_run" in error
+        for error in _schema_errors(
+            false_native_pass, "m6_canary_evidence_v1.schema.json"
+        )
+    )
+
+
 def test_artifact_closure_rejects_symlink_components(tmp_path: Path) -> None:
     target = tmp_path / "target.json"
     target.write_text("{}\n", encoding="utf-8")
@@ -103,6 +228,25 @@ def test_artifact_closure_rejects_symlink_components(tmp_path: Path) -> None:
     }
     errors = _artifact_errors(tmp_path, evidence)
     assert any("symlink" in item and "linked.json" in item for item in errors)
+
+
+def test_artifact_closure_rejects_undeclared_symlink_directory(
+    tmp_path: Path,
+) -> None:
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}\n", encoding="utf-8")
+    outside = tmp_path.parent / f"{tmp_path.name}_outside"
+    outside.mkdir()
+    (outside / "hidden.json").write_text("{}\n", encoding="utf-8")
+    linked_directory = tmp_path / "extra_directory"
+    linked_directory.symlink_to(outside, target_is_directory=True)
+    evidence = {
+        "artifacts": {
+            "payload.json": file_record(payload, relative_to=tmp_path),
+        }
+    }
+    errors = _artifact_errors(tmp_path, evidence)
+    assert any("symlink" in item and "extra_directory" in item for item in errors)
 
 
 def test_artifact_closure_does_not_ignore_nested_entry_filename(

@@ -19,9 +19,9 @@ from PIL import Image, ImageDraw, ImageFont
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m5_1.delivery import (
     M51DeliveryError,
-    SOURCE_ANCHOR_INDEX,
     event_overlay_state,
     semantic_centroid_track,
+    source_binding_entries,
 )
 from avengine.m5_1.orientation import (
     M51OrientationError,
@@ -33,9 +33,50 @@ from avengine.m5_1.review import SourceOverlayTrack
 
 MP3D_DELIVERY_SCHEMA = "avengine_m5_1_mp3d_delivery_v1"
 MP3D_PROGRAM_REUSE_SCHEMA = "avengine_m5_1_mp3d_source_program_reuse_v1"
-SOURCE_SEMANTIC_ID = {"source0": 62000, "source1": 62001}
 SOURCE_LABEL = {"source0": "HUMAN", "source1": "BEAGLE"}
 SOURCE_COLOR = {"source0": (42, 210, 220), "source1": (250, 120, 70)}
+MP3D_VISUAL_GATE_SCHEMA = "avengine_m5_1_mp3d_mixed_visual_gate_v1"
+REPLICACAD_VISUAL_GATE_SCHEMA = "avengine_m5_1_replicacad_mixed_visual_gate_v1"
+MP3D_REQUIRED_GATE_IDS = frozenset(
+    {
+        "declared_navmesh_real_pathfinder_load",
+        "human_center_navigable_every_frame",
+        "dog_center_navigable_every_frame",
+        "one_shared_navmesh_island",
+        "human_segments_no_sliding",
+        "dog_segments_no_sliding",
+        "actor_center_separation",
+        "captured_actor_roots_match_route_paths",
+        "human_actual_movement",
+        "dog_actual_movement",
+        "no_actor_semantic_id_baseline_collision",
+        "human_fixed_camera_visibility",
+        "dog_fixed_camera_visibility",
+        "contact_sheet_readback",
+    }
+)
+REPLICACAD_REQUIRED_GATE_IDS = frozenset(
+    {
+        "dataset_config_selected",
+        "scene_instance_selected",
+        "stage_surface_selected",
+        "scene_instance_object_counts_match",
+        "scene_lighting_count_matches",
+        "declared_navmesh_loaded",
+        "human_route_all_frames_navigable",
+        "dog_route_all_frames_navigable",
+        "routes_share_one_island",
+        "routes_no_sliding",
+        "actor_center_separation",
+        "actor_route_clearance",
+        "camera_listener_floor_placement",
+        "camera_actor_line_of_sight",
+        "semantic_ids_absent_before_actor_creation",
+        "human_semantic_visibility",
+        "dog_semantic_visibility",
+        "articulated_state_readback",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -151,6 +192,77 @@ def source_program_reuse_record(source_manifest: Mapping[str, Any]) -> dict[str,
     return record
 
 
+def validate_room_visual_gate(
+    gate_evidence: Mapping[str, Any],
+    route_manifest: Mapping[str, Any],
+    *,
+    room_family: str,
+) -> tuple[str, ...]:
+    """Require the exact schema and gate-ID set for one room family."""
+
+    if (
+        gate_evidence.get("status") != "pass"
+        or gate_evidence.get("qualification_claim") is not False
+        or gate_evidence.get("route_id") != route_manifest.get("route_id")
+    ):
+        raise M51DeliveryError(f"{room_family} visual gate identity/status differs")
+    if room_family == "mp3d":
+        if gate_evidence.get("schema") != MP3D_VISUAL_GATE_SCHEMA:
+            raise M51DeliveryError("MP3D visual gate schema differs")
+        raw_gates = gate_evidence.get("gates")
+        if not isinstance(raw_gates, list) or not all(
+            isinstance(item, Mapping) for item in raw_gates
+        ):
+            raise M51DeliveryError("MP3D visual gates must be an object array")
+        gate_ids = [str(item.get("gate_id")) for item in raw_gates]
+        if len(gate_ids) != len(set(gate_ids)) or set(gate_ids) != set(
+            MP3D_REQUIRED_GATE_IDS
+        ):
+            raise M51DeliveryError("MP3D visual gate IDs differ from the frozen 14")
+        if any(item.get("status") != "pass" for item in raw_gates):
+            raise M51DeliveryError("MP3D visual gate includes a non-pass item")
+        expected_count = len(MP3D_REQUIRED_GATE_IDS)
+    elif room_family == "replicacad":
+        if gate_evidence.get("schema") != REPLICACAD_VISUAL_GATE_SCHEMA:
+            raise M51DeliveryError("ReplicaCAD visual gate schema differs")
+        required = set(REPLICACAD_REQUIRED_GATE_IDS)
+        placement = route_manifest.get("placement_gate")
+        requires_rigid_clearance = isinstance(placement, Mapping) and placement.get(
+            "require_rigid_object_center_clearance"
+        ) is True
+        if requires_rigid_clearance:
+            required.add("actor_rigid_object_center_clearance")
+        raw_gates = gate_evidence.get("gates")
+        if not isinstance(raw_gates, Mapping) or set(raw_gates) != required:
+            raise M51DeliveryError(
+                "ReplicaCAD visual gate IDs differ from the route-required set"
+            )
+        if any(value is not True for value in raw_gates.values()):
+            raise M51DeliveryError("ReplicaCAD visual gate includes a non-pass item")
+        expected_count = len(required)
+        if gate_evidence.get("room_id") != route_manifest.get("room_id"):
+            raise M51DeliveryError("ReplicaCAD gate room_id differs from route")
+        request_id = gate_evidence.get("request_id")
+        if (
+            request_id != route_manifest.get("request_id")
+            if requires_rigid_clearance
+            else request_id is not None
+            and request_id != route_manifest.get("request_id")
+        ):
+            raise M51DeliveryError("ReplicaCAD gate request_id differs from route")
+        gate_ids = sorted(required, key=lambda value: value.encode("ascii"))
+    else:
+        raise M51DeliveryError(f"unsupported room family: {room_family}")
+    if (
+        gate_evidence.get("gate_count") != expected_count
+        or gate_evidence.get("passed_gate_count") != expected_count
+    ):
+        raise M51DeliveryError(
+            f"{room_family} visual gate is not the expected {expected_count}/{expected_count}"
+        )
+    return tuple(sorted(gate_ids, key=lambda value: value.encode("ascii")))
+
+
 def build_mp3d_overlay_tracks(
     source_manifest: Mapping[str, Any],
     *,
@@ -158,6 +270,7 @@ def build_mp3d_overlay_tracks(
     semantic_frames: Any,
     clearance_m: Mapping[str, Any],
     gate_evidence: Mapping[str, Any],
+    source_actor_bindings: Mapping[str, Any],
 ) -> tuple[SourceOverlayTrack, ...]:
     """Bind reusable source programs to MP3D capture and real navmesh facts."""
 
@@ -177,13 +290,15 @@ def build_mp3d_overlay_tracks(
     sources = source_manifest.get("sources")
     if not isinstance(sources, list):
         raise M51DeliveryError("source manifest sources must be an array")
+    bindings = source_binding_entries(source_actor_bindings)
     tracks: list[SourceOverlayTrack] = []
     for source in sources:
         if not isinstance(source, Mapping):
             raise M51DeliveryError("source manifest source must be an object")
         source_id = str(source.get("source_id"))
-        if source_id not in SOURCE_ANCHOR_INDEX:
+        if source_id not in bindings:
             raise M51DeliveryError(f"unexpected MP3D source ID: {source_id}")
+        binding = bindings[source_id]
         events, active = event_overlay_state(source, frame_count)
         taxonomy = (
             source.get("voice_taxonomy")
@@ -195,11 +310,21 @@ def build_mp3d_overlay_tracks(
         sound_class = str(
             taxonomy.get("vocalization_type", taxonomy.get("call_type", "unknown"))
         )
-        actor_id = "human0" if source_id == "source0" else "dog0"
+        actor_id = str(binding.get("actor_id"))
         clearance = np.asarray(clearance_m.get(actor_id), dtype=np.float64)
         if clearance.shape != (frame_count,) or not np.all(np.isfinite(clearance)) or np.any(clearance < 0.0):
             raise M51DeliveryError(f"{actor_id} navmesh clearance is invalid")
-        centroids = semantic_centroid_track(semantic, SOURCE_SEMANTIC_ID[source_id])
+        semantic_id = binding.get("semantic_id")
+        anchor_index = binding.get("emitter_anchor_index")
+        if (
+            isinstance(semantic_id, bool)
+            or not isinstance(semantic_id, int)
+            or isinstance(anchor_index, bool)
+            or not isinstance(anchor_index, int)
+            or not 0 <= anchor_index < anchors.shape[1]
+        ):
+            raise M51DeliveryError(f"{source_id} source/actor binding is invalid")
+        centroids = semantic_centroid_track(semantic, semantic_id)
         if not np.all(np.isfinite(centroids)):
             raise M51DeliveryError(f"{actor_id} is not semantically visible in every frame")
         tracks.append(
@@ -209,7 +334,7 @@ def build_mp3d_overlay_tracks(
                 asset_class=str(source["asset_class"]),
                 sound_class=sound_class,
                 color_rgb=SOURCE_COLOR[source_id],
-                positions_m=np.ascontiguousarray(anchors[:, SOURCE_ANCHOR_INDEX[source_id], :]),
+                positions_m=np.ascontiguousarray(anchors[:, anchor_index, :]),
                 current_event_by_frame=events,
                 active_by_frame=active,
                 true_flags=("center_navmesh_pass", "visible_all_frames"),
@@ -345,6 +470,7 @@ def render_mp3d_topdown_frames(
     camera_hfov_degrees: float,
     clearance_m: Mapping[str, Any],
     shared_island_id: int,
+    source_actor_bindings: Mapping[str, Any],
     size_wh: tuple[int, int] = (640, 480),
 ) -> np.ndarray:
     """Render real-navmesh complete/current paths as a QA-only panel.
@@ -363,6 +489,13 @@ def render_mp3d_topdown_frames(
         actor_id: np.asarray(actor_center_paths_m.get(actor_id), dtype=np.float64)
         for actor_id in ("human0", "dog0")
     }
+    bindings = source_binding_entries(source_actor_bindings)
+    source_id_by_actor = {
+        str(binding.get("actor_id")): source_id
+        for source_id, binding in bindings.items()
+    }
+    if set(source_id_by_actor) != set(paths):
+        raise M51DeliveryError("Topdown source/actor bindings differ from actor paths")
     if any(path.ndim != 2 or path.shape[1] != 3 or not np.all(np.isfinite(path)) for path in paths.values()):
         raise M51DeliveryError("actor center paths must be finite [frame,3]")
     frame_count = paths["human0"].shape[0]
@@ -482,7 +615,11 @@ def render_mp3d_topdown_frames(
             draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill=color, outline=(0, 0, 0, 255), width=2)
             draw.text(
                 (x + 10, y - 9),
-                "HUMAN" if actor_id == "human0" else "BEAGLE",
+                (
+                    f"HUMAN [{source_id_by_actor[actor_id]}]"
+                    if actor_id == "human0"
+                    else f"BEAGLE [{source_id_by_actor[actor_id]}]"
+                ),
                 fill=color,
                 font=_font(12),
                 stroke_width=2,
@@ -568,4 +705,5 @@ __all__ = [
     "load_real_mp3d_navmesh_qa",
     "render_mp3d_topdown_frames",
     "source_program_reuse_record",
+    "validate_room_visual_gate",
 ]

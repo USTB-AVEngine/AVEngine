@@ -1,6 +1,6 @@
 # M6 Status — Feasibility Interfaces and Room Canary
 
-Recorded: 2026-07-18 implementation snapshot, before release metadata commit.
+Recorded: 2026-07-19 implementation snapshot, before release metadata commit.
 Milestone closeout is determined only by the verified release manifest; this
 snapshot is **pending** when no such manifest/tag exists. A later tagged
 candidate may add `release/M6_FINAL_REPORT.md` without rewriting this pre-release
@@ -37,6 +37,15 @@ M6 establishes a task-neutral evidence foundation:
 - Room qualification is multidimensional; no overall `pass` may hide a
   `fail`, `blocked`, `not_run` or unqualified physical-truth claim.
 
+Hashes are evidence identities rather than feature locks. Git identifies
+checked-in code, schemas and configuration; explicit versions identify the
+toolchain. Content hashes are required only for result-changing bytes outside
+that Git identity, generated package closures, formal test receipts and release
+evidence. Leaf-file records may live inside one machine-readable directory
+manifest so its closure digest is meaningful, but they are not repeated as
+human-facing milestone locks. Temporary previews, logs and uncited
+intermediates are not release gates.
+
 ## Current implementation matrix
 
 The final column is deliberately conservative. A module being present does not
@@ -49,12 +58,12 @@ mean its native or release canary ran.
 | Release authority | Versioned manifest schema and verifier | current manifest/tag: `not_run` / pending | generate `release/avengine_release_manifest_v1.json`, verify it from clean worktrees, and bind an annotated tag |
 | Entity registry | Versioned entity asset records with stable IDs, hashes, anchors, provenance and admission state | targeted schema/unit evidence pending final aggregation | retain only evidence-backed assets and never infer admission from schema validity |
 | Animal templates | Versioned body-plan/morphotype records, morphology ranges and structured OOD rejection | bounded Beagle registry route implemented; broad-species qualification is not claimed | prove no silent generic-Dog fallback and preserve size/build/life-stage plus breed-scoped three-value coat domains |
-| Source/sound/program | Stable endpoints, independent dry sound assets and data-driven AudioProgram modes | contract/unit path implemented; controlled native canary remains the closeout gate | prove two endpoints exist while only the declared endpoint emits during specified windows; retain both stems and mixture |
+| Source/sound/program | Stable endpoints, independent dry sound assets and data-driven AudioProgram modes | contract/unit route and retained-evidence semantic materialization implemented; formal A3 bundle pending; native Habitat/RLR `not_run` | prove two endpoints exist while only the declared endpoint emits during specified windows; retain both stems and mixture |
 | Legacy flags | Stable registry/access API and provider adapter over M5.1 v1 | contract/unit path implemented; controlled-canary report pending | preserve all IDs, thresholds, `present`/`absent`/`not_evaluated`, and legacy clip aggregation |
-| Room provider | Portable providers, room registry, split qualification report and placement-feasibility evaluator | records and audited historical reports exist; current native attempts remain per-room | replace prose-only history with current hashed evidence where a new pass is claimed |
+| Room provider | Portable providers, room registry, split qualification report and placement-feasibility evaluator | six-case read-only attempt implemented; attempt-verifier `pass` means report/artifact consistency, not six qualified rooms | replace prose-only history with current evidence where a new native or qualification pass is claimed |
 | Negative fixture | Independent corrupted acoustic package and fail-closed evaluator | deterministic unit route implemented; final result must be retained | admission must remain false without treating MP3D as the permanent negative case |
 | Future exporter boundary | Immutable stable-ID/hash view and protocol only | interface implemented; no task exporter is supplied | remain read-only and simulator-independent; do not add QA or model-specific labels in M6 |
-| Controlled M6 canary | Required bundle layout and request/evidence schemas | `not_run` until an actual bundle and verifier result are retained | run the controlled room with 360° binaural, current timeline, per-source IR/stems, one active endpoint, flags and no QA text |
+| Controlled M6 materialization | Required bundle layout and request/evidence schemas | retained semantic-materialization semantics implemented; formal A3 evidence pending; native Habitat, native RLR and episode feasibility `not_run` | verify the retained M5 authority, deterministic one-active-of-N view, 360° binaural/FOA bytes, per-source IR/stems, flags and no QA text without promoting it to a native rerun |
 
 ## Registry and extension matrix
 
@@ -95,17 +104,21 @@ Required continuity:
 
 ## Room result matrix
 
+The attempt contains six report cases but only four visual room lineages.
+MP3D raw and derived share one MP3D scene, and the corrupted fixture is not a
+room.
+
 The detailed, provider-facing matrix and placement contract are in
 [M6_ROOM_MATRIX.md](M6_ROOM_MATRIX.md). The closeout snapshot must retain the
 following independent columns even when several share the same result:
 
 | Room / representation | Visual | Nav | Acoustic geometry | Material | Ray leakage | Physical truth | Episode feasibility | Admission |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `blender_custom_two_zone_v1` | historical `pass` | historical `pass` | historical `pass` | historical `pass` | historical `pass` | `controlled_profile` | M6 canary `not_run` until retained | false |
-| ReplicaCAD `apt_0` | current formal run `not_run` | current formal run `not_run` | `not_run` | `not_run` | `not_run` | unqualified | `not_run` | false |
+| `blender_custom_two_zone_v1` | historical `pass`; current native `not_run` | historical `pass`; current native `not_run` | historical `pass`; current native `not_run` | historical `pass`; current native `not_run` | historical `pass`; current native `not_run` | `controlled_profile` | retained M5 semantic materialization pending formal A3 verification; current native episode `not_run` | false |
+| ReplicaCAD `apt_0` | development v2 native review `pass` (270 frames); formal A3 layer pending | development nav/LOS/semantic/furnished rigid-object root-center placement 19/19 checks `pass`; formal A3 layer pending | research RLR load/render `pass`, but stage-surface-only topology `fail` after cleanup (10,629 duplicate triangles, 102 boundary edges, 8,097 nonmanifold edges) | `research_placeholder`; unqualified | `not_run` | unqualified | 18 s human/Beagle research episode and 90-keyframe two-source binaural render `pass`; both dry/stem buses active in declared event windows; not formal qualification | false |
 | Legacy Apartment real surface | historical `pass` | historical `pass` | historical gate `fail`/blocked | blocked/unqualified | `not_run` | unqualified | historical research review `pass` | false |
-| MP3D raw source | `pass` | `pass` | `fail`: known zero-area faces block raw upload | placeholder/blocked | `not_run` | unqualified | raw RLR `fail` | false |
-| MP3D declared proxy revision | inherited visual/nav only | inherited visual/nav only | solver-load research path exists; topology still `fail` | placeholder/blocked | `not_run` | unqualified | research-only | false |
+| MP3D raw source | historical `pass`; current native `not_run` | historical `pass`; current native `not_run` | `fail`: known zero-area faces block raw upload | placeholder/blocked | `not_run` | unqualified | historical raw RLR `fail`; current native `not_run` | false |
+| MP3D declared proxy revision | inherited historical visual only; current native `not_run` | inherited historical nav only; current native `not_run` | 13-file descriptor/package binding and declared derivation pass in development; topology `fail` (45 duplicate triangles, 8,339 boundary edges, 269 nonmanifold edges); current RLR upload `not_run` | coverage exists but qualification is blocked by `research_placeholder`; semantic mapping/readback incomplete | `not_run`; no scene-specific opening/enclosure checks | unqualified | current native episode and placement `not_run` | false |
 | Independent corrupted fixture | n/a | n/a | `fail` by design | `fail` by design | `fail`/`not_run` by design | none | false | false |
 
 This is an honest starting matrix, not the desired final shape. A new
@@ -113,6 +126,12 @@ qualified revision may be created only from current immutable evidence after
 all declared gates pass. The MP3D raw asset must remain unchanged; a legal
 derived proxy reports raw identity, derivation integrity, visual-to-acoustic
 spatial parity, solver loadability, topology, material and rays separately.
+
+The development review bundle also includes one six-case, four-lineage video.
+ReplicaCAD uses its real 18-second Habitat+Topdown+binaural clip; MP3D raw and
+derived deliberately share visual bytes; unavailable raw/corrupted audio is
+replaced by labelled stereo silence. This media is for human inspection and
+does not change any room qualification or release-layer status.
 
 Placement feasibility is an episode gate, not a repair of MP3D. It requires
 floor support below the feet/body center and four corners, horizontal clearance
@@ -146,8 +165,10 @@ coherent release state:
    binaries, schemas, environment, test layers, evidence bundles and tag;
 3. every registry/Room/AudioProgram contract and OOD/fail-closed behavior has
    current tests;
-4. the controlled one-active-of-N episode produces the required structured
-   bundle, 360° binaural audio, stems/RIR evidence and legacy-compatible flags;
+4. the controlled one-active-of-N retained-evidence materialization produces
+   and verifies the required structured bundle, 360° binaural audio, stems/RIR
+   bytes and legacy-compatible flags, while native Habitat/RLR execution stays
+   independently reported;
 5. custom, ReplicaCAD, Legacy Apartment and MP3D each have an honest current
    qualification attempt or an exact retained blocker;
 6. the independent corrupted fixture reliably prevents admission;
@@ -161,7 +182,8 @@ coherent release state:
 When the controlled canary, room attempts and release manifest are actually
 retained, the maximum defensible claim is that AVEngine has extensible
 Habitat-native entity/source/sound/room interfaces, preserves its source/event/
-flag semantics, validates deterministic controlled acoustics, attempts
+flag semantics, verifies deterministic M6 semantic materialization over
+independently verified retained M5 controlled acoustic evidence, attempts
 auditable qualification across structured, migrated and scanned rooms, and
 fails closed on a deliberately corrupted package.
 

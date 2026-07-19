@@ -7,8 +7,10 @@ pretending that a second native simulation happened.  The derived bundle keeps
 the authoritative dry bus, per-source RIR sequence, rendered stems, FOA mix,
 360-degree binaural mix, videos, timeline and legacy flag semantics auditable.
 
-The result is research evidence.  A passing canary never implies room or
-dataset admission.
+The result is research evidence.  Its pass status is scoped to semantic
+verification of the retained-evidence materialization; current native Habitat
+and RLR execution remain ``not_run``.  It never implies room or dataset
+admission.
 """
 
 from __future__ import annotations
@@ -85,6 +87,10 @@ RUNTIME_QA_SCHEMA = "avengine_m6_runtime_qa_report_v1"
 PROVENANCE_SCHEMA = "avengine_m6_provenance_manifest_v1"
 FINAL_STATUS_SCHEMA = "avengine_m6_final_status_v1"
 
+_CONTROLLED_EXECUTION_BASIS = "verified_retained_evidence_materialization"
+_CONTROLLED_STATUS_SCOPE = "semantic_materialization_verifier"
+_CURRENT_NATIVE_EPISODE_BLOCKER = "m6_current_native_episode_not_run"
+
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _LAYOUTS: Mapping[str, tuple[int, tuple[str, ...]]] = {
     "binaural": (2, ("left", "right")),
@@ -122,6 +128,19 @@ _RIR_PROJECTION_FIELDS = (
     "ir_sha256_by_frame_source",
     "upload_report",
 )
+
+
+def _controlled_execution_contract() -> dict[str, Any]:
+    """Return the explicit non-native scope of the controlled M6 materialization."""
+
+    return {
+        "execution_basis": _CONTROLLED_EXECUTION_BASIS,
+        "status_scope": _CONTROLLED_STATUS_SCOPE,
+        "native_execution": {
+            "habitat_sim": "not_run",
+            "rlr_audio_propagation": "not_run",
+        },
+    }
 
 
 class M6CanaryError(ValueError):
@@ -402,11 +421,17 @@ def _rir_projection(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _artifact_index(root: Path) -> dict[str, dict[str, Any]]:
-    return {
-        path.relative_to(root).as_posix(): file_record(path, relative_to=root)
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and path != root / "evidence.json"
-    }
+    result: dict[str, dict[str, Any]] = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise M6CanaryError(
+                f"controlled bundle staging contains symlink: "
+                f"{path.relative_to(root)}"
+            )
+        if path.is_file() and path != root / "evidence.json":
+            relative = path.relative_to(root).as_posix()
+            result[relative] = file_record(path, relative_to=root)
+    return result
 
 
 def _json_no_qa_pairs(value: Any) -> bool:
@@ -1052,27 +1077,37 @@ def _build_flag_report(
     )
 
 
-def _current_room_report(
+def _retained_materialization_room_report(
     *,
     historical_report: Mapping[str, Any],
     upstream_evidence: Path,
-    episode_status: str,
+    materialization_status: str,
 ) -> dict[str, Any]:
+    """Build a room report without promoting retained bytes to native execution."""
+
+    if materialization_status not in {"pass", "fail"}:
+        raise M6CanaryError(
+            "controlled materialization status must be either pass or fail"
+        )
     dimensions = deepcopy(historical_report["dimensions"])
     dimensions["episode_feasibility_status"] = {
-        "status": episode_status,
+        "status": "not_run",
         "summary": (
-            "The M6 one-active-of-two program materialized from independently "
-            "verified M5 RIR, dry-bus, stem, timeline, and visual evidence."
-            if episode_status == "pass"
-            else "The current M6 episode failed one or more runtime verification gates."
+            "No current native Habitat episode or native RLR RIR generation ran. "
+            "Separately, the controlled retained-evidence one-active-of-two "
+            f"materialization semantic verifier status is {materialization_status}."
         ),
-        "evidence_refs": ["qa/runtime_qa_report.json", "evidence.json"],
+        "evidence_refs": [
+            "qa/runtime_qa_report.json",
+            "provenance/provenance_manifest.json",
+            "evidence.json",
+        ],
+        "blocker_code": _CURRENT_NATIVE_EPISODE_BLOCKER,
     }
     return build_qualification_report(
         report_id="blender_custom_two_zone_m6_controlled_attempt_v1",
         subject=historical_report["subject"],
-        evidence_basis="current_execution",
+        evidence_basis=_CONTROLLED_EXECUTION_BASIS,
         evidence_artifacts=[
             {
                 "artifact_id": "verified_upstream_m5_evidence",
@@ -1089,12 +1124,60 @@ def _current_room_report(
                 "upstream://m5/evidence.json",
             ],
             "notes": (
-                f"Current episode evidence is {episode_status}. Placement remains "
-                "not_run, so this report does not create a qualified room revision."
+                "Controlled retained-evidence materialization semantic verifier "
+                f"status is {materialization_status}. Current native Habitat/RLR "
+                "episode execution is not_run, and placement remains not_run, so "
+                "this report does not create a qualified room revision."
             ),
         },
         promote_if_eligible=False,
     )
+
+
+def _retained_materialization_claim_errors(
+    *,
+    evidence: Mapping[str, Any],
+    provenance: Mapping[str, Any],
+    room_report: Mapping[str, Any],
+) -> list[str]:
+    """Reject any native-execution promotion of retained materialization bytes."""
+
+    errors: list[str] = []
+    expected_execution = _controlled_execution_contract()
+    for field, expected in expected_execution.items():
+        if evidence.get(field) != expected:
+            errors.append(
+                f"controlled evidence {field} differs from retained-materialization "
+                "scope"
+            )
+
+    derivation = provenance.get("derivation", {})
+    if derivation.get("native_rir_rerun") is not False:
+        errors.append("controlled provenance must record native_rir_rerun=false")
+    if derivation.get("current_native_episode_status") != "not_run":
+        errors.append(
+            "controlled provenance must record current native episode as not_run"
+        )
+    if (
+        derivation.get("semantic_materialization_verifier_status")
+        != evidence.get("overall_status")
+    ):
+        errors.append(
+            "controlled materialization verifier status differs from evidence status"
+        )
+
+    episode = room_report.get("dimensions", {}).get(
+        "episode_feasibility_status", {}
+    )
+    if room_report.get("evidence_basis") != _CONTROLLED_EXECUTION_BASIS:
+        errors.append(
+            "controlled room report must use retained-materialization evidence basis"
+        )
+    if episode.get("status") != "not_run":
+        errors.append("controlled current native episode must remain not_run")
+    if episode.get("blocker_code") != _CURRENT_NATIVE_EPISODE_BLOCKER:
+        errors.append("controlled current native episode blocker differs")
+    return errors
 
 
 def _runtime_checks(
@@ -1189,6 +1272,26 @@ def _runtime_checks(
     return checks
 
 
+def _materialization_runtime_report(
+    checks: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Bind semantic materialization QA without implying a native rerun."""
+
+    materialization_status = (
+        "pass" if all(item.get("status") == "pass" for item in checks) else "fail"
+    )
+    return _bind_document(
+        {
+            "schema": RUNTIME_QA_SCHEMA,
+            "qa_meaning": "quality_assurance_not_natural_language_question_answering",
+            **_controlled_execution_contract(),
+            "checks": deepcopy(list(checks)),
+            "overall_status": materialization_status,
+        },
+        "report_content_sha256",
+    )
+
+
 def _recompute_runtime_report(
     *,
     root: Path,
@@ -1271,21 +1374,7 @@ def _recompute_runtime_report(
         silent_endpoint_count=len(compiled.silent_source_endpoint_ids),
         event_count=len(compiled.events),
     )
-    return _bind_document(
-        {
-            "schema": RUNTIME_QA_SCHEMA,
-            "qa_meaning": (
-                "quality_assurance_not_natural_language_question_answering"
-            ),
-            "checks": checks,
-            "overall_status": (
-                "pass"
-                if all(item["status"] == "pass" for item in checks)
-                else "fail"
-            ),
-        },
-        "report_content_sha256",
-    )
+    return _materialization_runtime_report(checks)
 
 
 def run_controlled_canary(
@@ -1523,23 +1612,13 @@ def run_controlled_canary(
             silent_endpoint_count=len(compiled.silent_source_endpoint_ids),
             event_count=len(compiled.events),
         )
-        runtime_report = _bind_document(
-            {
-                "schema": RUNTIME_QA_SCHEMA,
-                "qa_meaning": "quality_assurance_not_natural_language_question_answering",
-                "checks": checks,
-                "overall_status": (
-                    "pass" if all(item["status"] == "pass" for item in checks) else "fail"
-                ),
-            },
-            "report_content_sha256",
-        )
+        runtime_report = _materialization_runtime_report(checks)
         write_json(staging / "qa" / "runtime_qa_report.json", runtime_report)
 
-        room_report = _current_room_report(
+        room_report = _retained_materialization_room_report(
             historical_report=historical_room_report,
             upstream_evidence=upstream_evidence,
-            episode_status=runtime_report["overall_status"],
+            materialization_status=runtime_report["overall_status"],
         )
         write_json(staging / "room_qualification_report.json", room_report)
 
@@ -1574,6 +1653,10 @@ def run_controlled_canary(
                 "derivation": {
                     "kind": "verified_retained_evidence_program_materialization_v1",
                     "native_rir_rerun": False,
+                    "current_native_episode_status": "not_run",
+                    "semantic_materialization_verifier_status": runtime_report[
+                        "overall_status"
+                    ],
                     "selected_upstream_variant": variant,
                     "selected_active_upstream_source_id": active_source,
                     "selected_upstream_source_id_for_silenced_endpoint": silent_source,
@@ -1604,6 +1687,7 @@ def run_controlled_canary(
                 "schema": FINAL_STATUS_SCHEMA,
                 "run_id": request["run_id"],
                 "controlled_canary_status": runtime_report["overall_status"],
+                **_controlled_execution_contract(),
                 "research_only": True,
                 "qualification_claim": False,
                 "qualified_room_revision_created": False,
@@ -1625,6 +1709,7 @@ def run_controlled_canary(
             "schema": EVIDENCE_SCHEMA,
             "run_id": request["run_id"],
             "evidence_kind": "controlled_one_active_of_n",
+            **_controlled_execution_contract(),
             "research_only": True,
             "qualification_claim": False,
             "dataset_admission": False,
@@ -1703,10 +1788,20 @@ def _artifact_errors(root: Path, evidence: Mapping[str, Any]) -> list[str]:
             errors.append(f"artifact byte size differs: {relative}")
         if sha256_file(candidate) != record.get("sha256"):
             errors.append(f"artifact SHA-256 differs: {relative}")
+    entries = list(root.rglob("*"))
+    symlinks = sorted(
+        path.relative_to(root).as_posix()
+        for path in entries
+        if path.is_symlink()
+    )
+    if symlinks:
+        errors.append(f"retained bundle contains symlinks: {symlinks}")
     actual = {
         path.relative_to(root).as_posix()
-        for path in root.rglob("*")
-        if path.is_file() and path != root / "evidence.json"
+        for path in entries
+        if not path.is_symlink()
+        and path.is_file()
+        and path != root / "evidence.json"
     }
     if actual != set(records):
         errors.append("artifact index is not an exact retained-file closure")
@@ -2034,15 +2129,15 @@ def verify_controlled_canary_evidence(
             document_errors.append(
                 "room manifest differs from implementation-commit room authority"
             )
-        expected_room_report = _current_room_report(
+        expected_room_report = _retained_materialization_room_report(
             historical_report=canonical_room_qualification,
             upstream_evidence=retained_upstream_path,
-            episode_status=expected_runtime_report["overall_status"],
+            materialization_status=expected_runtime_report["overall_status"],
         )
         if room_report != expected_room_report:
             document_errors.append(
                 "room qualification report differs from the committed qualification "
-                "input plus deterministic episode result"
+                "input plus deterministic retained-materialization result"
             )
         expected_entities, expected_sources = _build_entities_and_sources(
             request=request,
@@ -2122,6 +2217,10 @@ def verify_controlled_canary_evidence(
                         "verified_retained_evidence_program_materialization_v1"
                     ),
                     "native_rir_rerun": False,
+                    "current_native_episode_status": "not_run",
+                    "semantic_materialization_verifier_status": (
+                        expected_runtime_report["overall_status"]
+                    ),
                     "selected_upstream_variant": request["upstream_evidence"][
                         "episode_variant"
                     ],
@@ -2168,6 +2267,7 @@ def verify_controlled_canary_evidence(
                 "controlled_canary_status": expected_runtime_report[
                     "overall_status"
                 ],
+                **_controlled_execution_contract(),
                 "research_only": True,
                 "qualification_claim": False,
                 "qualified_room_revision_created": False,
@@ -2198,6 +2298,9 @@ def verify_controlled_canary_evidence(
             for key in (
                 "run_id",
                 "evidence_kind",
+                "execution_basis",
+                "status_scope",
+                "native_execution",
                 "research_only",
                 "qualification_claim",
                 "dataset_admission",
@@ -2205,6 +2308,7 @@ def verify_controlled_canary_evidence(
         } != {
             "run_id": request["run_id"],
             "evidence_kind": "controlled_one_active_of_n",
+            **_controlled_execution_contract(),
             "research_only": True,
             "qualification_claim": False,
             "dataset_admission": False,
@@ -2222,16 +2326,19 @@ def verify_controlled_canary_evidence(
             or any(item.get("status") != "pass" for item in evidence.get("checks", []))
         ):
             document_errors.append("runtime/evidence/final status closure differs or failed")
-        episode_status = room_report.get("dimensions", {}).get(
-            "episode_feasibility_status", {}
-        ).get("status")
+        document_errors.extend(
+            _retained_materialization_claim_errors(
+                evidence=evidence,
+                provenance=provenance,
+                room_report=room_report,
+            )
+        )
         if (
             (room_manifest.get("room_id"), room_manifest.get("revision"))
             != (request["room"]["room_id"], request["room"]["revision"])
             or room_report.get("report_id")
             != "blender_custom_two_zone_m6_controlled_attempt_v1"
             or room_report.get("dataset_admission") is not False
-            or episode_status != evidence.get("overall_status")
             or final.get("room_admission_blockers")
             != room_report.get("admission_blockers")
         ):

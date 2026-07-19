@@ -23,6 +23,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
 
+from avengine.release_receipt import verify_receipt_payload
 from avengine.security.path_policy import (
     WorkspacePathPolicy,
     write_bytes_no_clobber,
@@ -31,6 +32,8 @@ from avengine.security.path_policy import (
 
 RELEASE_MANIFEST_SCHEMA = "avengine_release_manifest_v1"
 RELEASE_BUILD_REQUEST_SCHEMA = "avengine_release_build_request_v1"
+RELEASE_ATTESTATION_SCHEMA = "avengine_release_attestation_v1"
+TEST_EXECUTION_RECEIPT_SCHEMA = "avengine_m6_test_execution_receipt_v1"
 SCHEMA_SET_ALGORITHM = "sha256_canonical_file_records_v1"
 TEST_LAYER_IDS = (
     "fast-unit",
@@ -41,10 +44,28 @@ TEST_LAYER_IDS = (
     "media-readback",
     "release-canary",
 )
+RELEASE_VERIFICATION_CHECK_IDS = (
+    "manifest_json",
+    "manifest_schema",
+    "schema_set",
+    "native_artifacts",
+    "evidence_bundles",
+    "m6_evidence",
+    "test_layers",
+    "environment",
+    "git_identity",
+)
 
 _HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _STABLE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+_PYTHON_EXECUTABLE_NAME = re.compile(r"^python(?:3(?:\.\d+)?)?$")
 _VERIFICATION_STATUSES = {"pass", "fail", "blocked", "not_run"}
+_EVIDENCE_STATUS_SCOPES = {
+    "artifact_integrity",
+    "controlled_canary_verifier",
+    "room_attempt_verifier",
+    "test_execution",
+}
 
 
 class ReleaseManifestError(ValueError):
@@ -61,6 +82,14 @@ def _repository_root() -> Path:
 
 def release_schema_path() -> Path:
     return _repository_root() / "schemas" / "avengine_release_manifest_v1.schema.json"
+
+
+def release_attestation_schema_path() -> Path:
+    return _repository_root() / "schemas" / "avengine_release_attestation_v1.schema.json"
+
+
+def test_execution_receipt_schema_path() -> Path:
+    return _repository_root() / "schemas" / "m6_test_execution_receipt_v1.schema.json"
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -193,7 +222,86 @@ def validate_release_manifest_document(
     for error in sorted(validator.iter_errors(dict(value)), key=lambda item: list(item.path)):
         location = ".".join(str(part) for part in error.path) or "$"
         errors.append(f"{location}: {error.message}")
+    # The manifest is itself supplied by metadata commit B, so its policy must
+    # not be able to self-authorize source or documentation changes outside the
+    # release metadata directory.  Keep this semantic check independent of the
+    # schema so callers cannot weaken the boundary with a custom schema path.
+    release = value.get("release")
+    if isinstance(release, Mapping):
+        manifest_path = release.get("manifest_path")
+        if isinstance(manifest_path, str) and not manifest_path.startswith("release/"):
+            errors.append(
+                "release.manifest_path must remain beneath release/: "
+                f"{manifest_path!r}"
+            )
+        policy = release.get("metadata_commit_policy")
+        if isinstance(policy, Mapping):
+            allowed = policy.get("allowed_changed_paths")
+            if isinstance(allowed, list):
+                for index, path in enumerate(allowed):
+                    if isinstance(path, str) and not path.startswith("release/"):
+                        errors.append(
+                            "release.metadata_commit_policy.allowed_changed_paths"
+                            f"[{index}] must remain beneath release/: {path!r}"
+                        )
+                if (
+                    isinstance(manifest_path, str)
+                    and all(isinstance(path, str) for path in allowed)
+                    and not any(
+                        path == manifest_path
+                        or (path.endswith("/") and manifest_path.startswith(path))
+                        for path in allowed
+                    )
+                ):
+                    errors.append(
+                        "release.metadata_commit_policy.allowed_changed_paths "
+                        "must allow release.manifest_path "
+                        f"{manifest_path!r}"
+                    )
     return errors
+
+
+def _validate_schema_document(
+    value: Mapping[str, Any], *, schema_path: Path, owner: str
+) -> list[str]:
+    try:
+        schema = load_json_strict(schema_path)
+    except ReleaseManifestError as exc:
+        return [f"{owner}: {error}" for error in exc.errors]
+    try:
+        Draft202012Validator.check_schema(schema)
+    except Exception as exc:  # pragma: no cover - jsonschema hierarchy varies
+        return [f"{owner} schema is invalid: {exc}"]
+    validator = Draft202012Validator(schema)
+    errors: list[str] = []
+    for error in sorted(validator.iter_errors(dict(value)), key=lambda item: list(item.path)):
+        location = ".".join(str(part) for part in error.path) or "$"
+        errors.append(f"{owner}.{location}: {error.message}")
+    return errors
+
+
+def validate_test_execution_receipt_document(
+    value: Mapping[str, Any], *, schema_path: str | Path | None = None
+) -> list[str]:
+    selected = (
+        test_execution_receipt_schema_path()
+        if schema_path is None
+        else Path(schema_path)
+    )
+    return _validate_schema_document(
+        value, schema_path=selected, owner="test execution receipt"
+    )
+
+
+def validate_release_attestation_document(
+    value: Mapping[str, Any], *, schema_path: str | Path | None = None
+) -> list[str]:
+    selected = (
+        release_attestation_schema_path() if schema_path is None else Path(schema_path)
+    )
+    return _validate_schema_document(
+        value, schema_path=selected, owner="release attestation"
+    )
 
 
 def load_release_manifest(
@@ -595,6 +703,45 @@ def _require_relative_path(value: Any, *, owner: str) -> str:
     return normalized
 
 
+def _resolve_repository_manifest_path(
+    value: str | Path,
+    *,
+    repository_root: Path,
+    owner: str,
+    strict: bool,
+) -> Path:
+    """Resolve a manifest while rejecting lexical symlink indirection."""
+
+    root = repository_root.resolve(strict=True)
+    raw = Path(value)
+    if ".." in raw.parts:
+        raise _build_request_error(owner, "must not contain a parent traversal")
+    candidate = raw if raw.is_absolute() else root / raw
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise _build_request_error(
+            owner, "must remain inside the AVEngine repository"
+        ) from exc
+    if not relative.parts:
+        raise _build_request_error(owner, "must name a file beneath the repository")
+
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise _build_request_error(
+                owner,
+                f"must not be or traverse a symlink: {relative.as_posix()}",
+            )
+    try:
+        resolved = candidate.resolve(strict=strict)
+        resolved.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise _build_request_error(owner, f"cannot resolve manifest path: {exc}") from exc
+    return resolved
+
+
 def _require_clean_worktree(root: Path, *, owner: str) -> None:
     dirty = _git(root, "status", "--porcelain", "--untracked-files=all")
     if dirty:
@@ -718,6 +865,375 @@ def _python_dependencies(specification: Any) -> list[dict[str, str]]:
             ) from exc
         records.append({"distribution": distribution, "version": version})
     return records
+
+
+def _test_execution_receipt_errors(
+    document: Mapping[str, Any],
+    *,
+    layer_id: str,
+    layer_status: str,
+    command: Sequence[str],
+    implementation_commit: str,
+    habitat_runtime_commit: str,
+    rlr_commit: str,
+) -> list[str]:
+    errors = verify_receipt_payload(document)
+    if errors:
+        return errors
+    expected = {
+        "test_layer_id": layer_id,
+        "status": layer_status,
+        "command": list(command),
+        "implementation_commit": implementation_commit,
+        "habitat_runtime_commit": habitat_runtime_commit,
+        "rlr_commit": rlr_commit,
+    }
+    for field, expected_value in expected.items():
+        if document[field] != expected_value:
+            errors.append(
+                f"test execution receipt {field} mismatch for {layer_id}: "
+                f"expected {expected_value!r}, got {document[field]!r}"
+            )
+
+    return errors
+
+
+def _load_and_validate_test_execution_receipt(
+    path: Path,
+    *,
+    layer_id: str,
+    layer_status: str,
+    command: Sequence[str],
+    implementation_commit: str,
+    habitat_runtime_commit: str,
+    rlr_commit: str,
+) -> None:
+    document = load_json_strict(path)
+    errors = _test_execution_receipt_errors(
+        document,
+        layer_id=layer_id,
+        layer_status=layer_status,
+        command=command,
+        implementation_commit=implementation_commit,
+        habitat_runtime_commit=habitat_runtime_commit,
+        rlr_commit=rlr_commit,
+    )
+    if errors:
+        raise ReleaseManifestError(errors)
+
+
+def _resolve_command_path(
+    raw: str, *, base: Path, executable: bool = False
+) -> Path:
+    candidate = Path(raw)
+    if executable and not candidate.is_absolute() and len(candidate.parts) == 1:
+        located = shutil.which(raw)
+        if located is None:
+            raise OSError(f"executable is not on PATH: {raw}")
+        candidate = Path(located)
+    elif not candidate.is_absolute():
+        candidate = base / candidate
+    return candidate.resolve(strict=True)
+
+
+def _parse_release_verify_command(
+    command: Sequence[str], *, avengine_root: Path
+) -> tuple[dict[str, Any], list[str]]:
+    """Parse the exact supported release verifier argv without argparse drift."""
+
+    errors: list[str] = []
+    tokens: list[str] = []
+    for index, value in enumerate(command):
+        if not isinstance(value, str) or not value:
+            errors.append(
+                f"planned release-canary command token {index} must be non-empty"
+            )
+        else:
+            tokens.append(value)
+    if errors:
+        return {}, errors
+    if len(tokens) < 3:
+        return {}, [
+            "planned release-canary command must be <python> "
+            "tools/release/build_manifest.py verify ..."
+        ]
+
+    parsed: dict[str, Any] = {"artifact_roots": {}}
+    try:
+        executable_path = _resolve_command_path(
+            tokens[0], base=avengine_root, executable=True
+        )
+        if _PYTHON_EXECUTABLE_NAME.fullmatch(executable_path.name) is None:
+            errors.append(
+                "planned release-canary command must use a Python executable"
+            )
+        parsed["executable"] = executable_path
+    except OSError as exc:
+        errors.append(f"planned release-canary Python cannot be resolved: {exc}")
+
+    expected_script = (
+        avengine_root / "tools" / "release" / "build_manifest.py"
+    ).resolve(strict=False)
+    try:
+        script_path = _resolve_command_path(tokens[1], base=avengine_root)
+        parsed["script"] = script_path
+        if script_path != expected_script:
+            errors.append(
+                "planned release-canary command must invoke "
+                "tools/release/build_manifest.py"
+            )
+    except OSError as exc:
+        errors.append(f"planned release-canary verifier script cannot be resolved: {exc}")
+
+    if tokens[2] != "verify":
+        errors.append(
+            "planned release-canary command must use verify as the subcommand"
+        )
+
+    required_flags = {
+        "--manifest": "manifest",
+        "--avengine-root": "avengine_root",
+        "--habitat-runtime-root": "habitat_runtime_root",
+        "--output": "output",
+    }
+    allowed_flags = set(required_flags) | {"--artifact-root"}
+    index = 3
+    seen: set[str] = set()
+    while index < len(tokens):
+        flag = tokens[index]
+        if "=" in flag:
+            errors.append(
+                f"planned release-canary command requires split-form flags; got {flag!r}"
+            )
+            index += 1
+            continue
+        if flag not in allowed_flags:
+            errors.append(
+                f"planned release-canary command contains unsupported token {flag!r}"
+            )
+            index += 1
+            continue
+        if index + 1 >= len(tokens) or not tokens[index + 1]:
+            errors.append(f"planned release-canary command lacks a value for {flag}")
+            index += 1
+            continue
+        value = tokens[index + 1]
+        if value.startswith("--"):
+            errors.append(f"planned release-canary command lacks a value for {flag}")
+            index += 1
+            continue
+        if flag == "--artifact-root":
+            root_id, separator, raw_path = value.partition("=")
+            declared = parsed["artifact_roots"]
+            if not separator or not root_id or not raw_path:
+                errors.append(
+                    "planned release-canary artifact roots must use ROOT_ID=/path"
+                )
+            elif root_id in declared:
+                errors.append(
+                    f"planned release-canary command duplicates artifact root {root_id}"
+                )
+            else:
+                declared[root_id] = raw_path
+        else:
+            if flag in seen:
+                errors.append(
+                    f"planned release-canary command requires exactly one {flag}"
+                )
+            else:
+                parsed[required_flags[flag]] = value
+                seen.add(flag)
+        index += 2
+
+    for flag, key in required_flags.items():
+        if key not in parsed:
+            errors.append(f"planned release-canary command requires exactly one {flag}")
+    return parsed, errors
+
+
+def _resolve_planned_argument(raw: str, *, avengine_root: Path, strict: bool) -> Path:
+    path = Path(raw)
+    if not path.is_absolute():
+        path = avengine_root / path
+    return path.resolve(strict=strict)
+
+
+def _planned_release_verify_command_errors(
+    command: Sequence[str],
+    *,
+    avengine_root: Path,
+    habitat_runtime_root: Path,
+    manifest_relative: str,
+    artifact_roots: Mapping[str, Path] | None = None,
+) -> list[str]:
+    parsed, errors = _parse_release_verify_command(
+        command, avengine_root=avengine_root
+    )
+    if errors:
+        return errors
+
+    try:
+        planned_manifest = _resolve_planned_argument(
+            parsed["manifest"], avengine_root=avengine_root, strict=False
+        )
+        expected_manifest = (avengine_root / manifest_relative).resolve(strict=False)
+        if planned_manifest != expected_manifest:
+            errors.append(
+                "planned release-canary --manifest differs from release.manifest_path"
+            )
+    except OSError:
+        errors.append("planned release-canary --manifest cannot be resolved")
+    try:
+        planned_avengine = _resolve_planned_argument(
+            parsed["avengine_root"], avengine_root=avengine_root, strict=True
+        )
+        if planned_avengine != avengine_root:
+            errors.append("planned release-canary --avengine-root differs from commit A")
+    except OSError:
+        errors.append("planned release-canary --avengine-root cannot be resolved")
+    try:
+        planned_habitat = _resolve_planned_argument(
+            parsed["habitat_runtime_root"],
+            avengine_root=avengine_root,
+            strict=True,
+        )
+        if planned_habitat != habitat_runtime_root:
+            errors.append(
+                "planned release-canary --habitat-runtime-root differs from pinned runtime"
+            )
+    except OSError:
+        errors.append(
+            "planned release-canary --habitat-runtime-root cannot be resolved"
+        )
+    planned_output = _resolve_planned_argument(
+        parsed["output"], avengine_root=avengine_root, strict=False
+    )
+    if planned_output == (avengine_root / manifest_relative).resolve(strict=False):
+        errors.append("planned release-canary --output cannot replace the manifest")
+
+    declared_artifact_roots = parsed["artifact_roots"]
+    expected_artifact_roots = dict(artifact_roots or {})
+    missing_roots = sorted(set(expected_artifact_roots) - set(declared_artifact_roots))
+    extra_roots = sorted(set(declared_artifact_roots) - set(expected_artifact_roots))
+    if missing_roots:
+        errors.append(
+            f"planned release-canary command lacks artifact roots: {missing_roots}"
+        )
+    if extra_roots:
+        errors.append(
+            f"planned release-canary command declares unused artifact roots: {extra_roots}"
+        )
+    for root_id in sorted(set(expected_artifact_roots) & set(declared_artifact_roots)):
+        try:
+            planned_root = _resolve_planned_argument(
+                declared_artifact_roots[root_id],
+                avengine_root=avengine_root,
+                strict=True,
+            )
+        except OSError:
+            errors.append(
+                f"planned release-canary artifact root {root_id} cannot be resolved"
+            )
+            continue
+        if planned_root != expected_artifact_roots[root_id].resolve(strict=True):
+            errors.append(
+                f"planned release-canary artifact root {root_id} differs from preparation"
+            )
+    return errors
+
+
+def _release_verify_command_identity(
+    parsed: Mapping[str, Any], *, avengine_root: Path
+) -> dict[str, Any]:
+    return {
+        "executable": str(parsed["executable"]),
+        "script": str(parsed["script"]),
+        "manifest": str(
+            _resolve_planned_argument(
+                parsed["manifest"], avengine_root=avengine_root, strict=False
+            )
+        ),
+        "avengine_root": str(
+            _resolve_planned_argument(
+                parsed["avengine_root"], avengine_root=avengine_root, strict=True
+            )
+        ),
+        "habitat_runtime_root": str(
+            _resolve_planned_argument(
+                parsed["habitat_runtime_root"],
+                avengine_root=avengine_root,
+                strict=True,
+            )
+        ),
+        "output": str(
+            _resolve_planned_argument(
+                parsed["output"], avengine_root=avengine_root, strict=False
+            )
+        ),
+        "artifact_roots": {
+            root_id: str(
+                _resolve_planned_argument(
+                    raw_path, avengine_root=avengine_root, strict=True
+                )
+            )
+            for root_id, raw_path in sorted(parsed["artifact_roots"].items())
+        },
+    }
+
+
+def _actual_release_verify_command_errors(
+    actual_command: Sequence[str],
+    *,
+    planned_command: Sequence[str],
+    avengine_root: Path,
+    habitat_runtime_root: Path,
+    manifest_relative: str,
+    output_path: Path,
+    artifact_roots: Mapping[str, Path] | None = None,
+) -> list[str]:
+    errors = _planned_release_verify_command_errors(
+        planned_command,
+        avengine_root=avengine_root,
+        habitat_runtime_root=habitat_runtime_root,
+        manifest_relative=manifest_relative,
+        artifact_roots=artifact_roots,
+    )
+    actual_errors = _planned_release_verify_command_errors(
+        actual_command,
+        avengine_root=avengine_root,
+        habitat_runtime_root=habitat_runtime_root,
+        manifest_relative=manifest_relative,
+        artifact_roots=artifact_roots,
+    )
+    errors.extend(
+        f"actual release verifier invocation: {error}" for error in actual_errors
+    )
+    if errors:
+        return errors
+    planned, planned_parse_errors = _parse_release_verify_command(
+        planned_command, avengine_root=avengine_root
+    )
+    actual, actual_parse_errors = _parse_release_verify_command(
+        actual_command, avengine_root=avengine_root
+    )
+    if planned_parse_errors or actual_parse_errors:
+        return [*planned_parse_errors, *actual_parse_errors]
+    planned_identity = _release_verify_command_identity(
+        planned, avengine_root=avengine_root
+    )
+    actual_identity = _release_verify_command_identity(
+        actual, avengine_root=avengine_root
+    )
+    if actual_identity != planned_identity:
+        errors.append(
+            "actual release verifier invocation differs from the command stored "
+            "in test_layers.release-canary"
+        )
+    if Path(actual_identity["output"]) != output_path.resolve(strict=False):
+        errors.append(
+            "actual release verifier --output differs from the attestation output"
+        )
+    return errors
 
 
 def _validate_controlled_canary_release_binding(
@@ -912,14 +1428,19 @@ def _expand_declared_evidence_closure(
         except ReleaseManifestError as exc:
             errors.extend(f"{record_owner}: {error}" for error in exc.errors)
 
-    retained_paths = [path for path in bundle_root.rglob("*") if path.is_file()]
+    retained_entries = list(bundle_root.rglob("*"))
     symlinks = sorted(
         path.relative_to(bundle_root).as_posix()
-        for path in retained_paths
+        for path in retained_entries
         if path.is_symlink()
     )
     if symlinks:
         errors.append(f"{owner}: retained closure contains symlinks: {symlinks}")
+    retained_paths = [
+        path
+        for path in retained_entries
+        if not path.is_symlink() and path.is_file()
+    ]
     actual_relative_files = {
         path.relative_to(bundle_root).as_posix()
         for path in retained_paths
@@ -1077,8 +1598,12 @@ def build_release_manifest(
     if existing_tag.returncode not in {0, 1}:
         raise _build_request_error("release.tag", "could not check existing Git tag")
     state = _require_string(release_request["state"], owner="release.state")
-    if state not in {"candidate", "released"}:
-        raise _build_request_error("release.state", "must be candidate or released")
+    if state != "candidate":
+        raise _build_request_error(
+            "release.state",
+            "must be candidate; post-tag release status belongs to the external "
+            "release attestation",
+        )
     milestone = _require_string(
         release_request["current_milestone"], owner="release.current_milestone"
     )
@@ -1288,7 +1813,9 @@ def build_release_manifest(
         owner = f"evidence_bundles[{bundle_index}]"
         bundle = _require_mapping(raw_bundle, owner=owner)
         _require_exact_keys(
-            bundle, owner=owner, required={"evidence_id", "status", "artifacts"}
+            bundle,
+            owner=owner,
+            required={"evidence_id", "status_scope", "status", "artifacts"},
         )
         evidence_id = _require_stable_id(
             bundle["evidence_id"], owner=f"{owner}.evidence_id"
@@ -1296,6 +1823,13 @@ def build_release_manifest(
         if evidence_id in bundle_ids:
             raise _build_request_error(f"{owner}.evidence_id", "is duplicated")
         bundle_ids.add(evidence_id)
+        status_scope = _require_string(
+            bundle["status_scope"], owner=f"{owner}.status_scope"
+        )
+        if status_scope not in _EVIDENCE_STATUS_SCOPES:
+            raise _build_request_error(
+                f"{owner}.status_scope", "is not a supported evidence status scope"
+            )
         status = _require_string(bundle["status"], owner=f"{owner}.status")
         if status not in _VERIFICATION_STATUSES:
             raise _build_request_error(
@@ -1324,6 +1858,7 @@ def build_release_manifest(
         evidence_bundles.append(
             {
                 "evidence_id": evidence_id,
+                "status_scope": status_scope,
                 "status": status,
                 "artifacts": records,
                 "bundle_sha256": canonical_file_record_set_sha256(records),
@@ -1395,6 +1930,20 @@ def build_release_manifest(
     bundle_status_by_id = {
         bundle["evidence_id"]: bundle["status"] for bundle in evidence_bundles
     }
+    bundle_scope_by_id = {
+        bundle["evidence_id"]: bundle["status_scope"] for bundle in evidence_bundles
+    }
+    if bundle_scope_by_id[controlled_id] != "controlled_canary_verifier":
+        raise _build_request_error(
+            "m6_evidence.controlled_canary_bundle_id",
+            "bundle status_scope must be controlled_canary_verifier",
+        )
+    if bundle_scope_by_id[room_id] != "room_attempt_verifier":
+        raise _build_request_error(
+            "m6_evidence.room_qualification_bundle_id",
+            "bundle status_scope must be room_attempt_verifier; pass describes "
+            "attempt verification, not room qualification",
+        )
     if bundle_status_by_id[controlled_id] != "pass":
         raise _build_request_error(
             "m6_evidence", "controlled-canary bundle must be pass"
@@ -1465,16 +2014,106 @@ def build_release_manifest(
         raise ReleaseManifestError(
             [f"test_layers inventory mismatch; missing={missing}, extra={extra}"]
         )
-    test_layers = json.loads(
-        json.dumps(layers_request, ensure_ascii=False, allow_nan=False)
-    )
+    test_layers: dict[str, dict[str, Any]] = {}
+    receipt_sources_by_layer: dict[str, list[Path]] = {}
+    for layer_id in TEST_LAYER_IDS:
+        owner = f"test_layers.{layer_id}"
+        raw_layer = _require_mapping(layers_request[layer_id], owner=owner)
+        _require_exact_keys(
+            raw_layer,
+            owner=owner,
+            required={
+                "status",
+                "command",
+                "evidence_bundle_ids",
+                "receipt_artifacts",
+            },
+            optional={"summary", "reason"},
+        )
+        layer_status = _require_string(
+            raw_layer["status"], owner=f"{owner}.status"
+        )
+        if layer_status not in _VERIFICATION_STATUSES:
+            raise _build_request_error(
+                f"{owner}.status", "is not a verification status"
+            )
+        if layer_id == "release-canary" and layer_status != "not_run":
+            raise _build_request_error(
+                f"{owner}.status",
+                "candidate preparation must leave the post-tag final attestation not_run",
+            )
+        raw_command = raw_layer["command"]
+        if not isinstance(raw_command, list):
+            raise _build_request_error(f"{owner}.command", "must be an array")
+        command = [
+            _require_string(value, owner=f"{owner}.command[{index}]")
+            for index, value in enumerate(raw_command)
+        ]
+        raw_references = raw_layer["evidence_bundle_ids"]
+        if not isinstance(raw_references, list):
+            raise _build_request_error(
+                f"{owner}.evidence_bundle_ids", "must be an array"
+            )
+        references = [
+            _require_stable_id(
+                value, owner=f"{owner}.evidence_bundle_ids[{index}]"
+            )
+            for index, value in enumerate(raw_references)
+        ]
+        if len(references) != len(set(references)):
+            raise _build_request_error(
+                f"{owner}.evidence_bundle_ids", "contains duplicate bundle IDs"
+            )
+        raw_receipts = raw_layer["receipt_artifacts"]
+        if not isinstance(raw_receipts, list):
+            raise _build_request_error(
+                f"{owner}.receipt_artifacts", "must be an array"
+            )
+        expected_receipt_count = 1 if layer_status in {"pass", "fail"} else 0
+        if len(raw_receipts) != expected_receipt_count:
+            raise _build_request_error(
+                f"{owner}.receipt_artifacts",
+                f"{layer_status} requires exactly {expected_receipt_count} receipt(s)",
+            )
+        receipts: list[dict[str, Any]] = []
+        receipt_sources: list[Path] = []
+        for index, receipt_spec in enumerate(raw_receipts):
+            receipt_path, receipt = _resolve_build_artifact(
+                receipt_spec,
+                roots=roots,
+                owner=f"{owner}.receipt_artifacts[{index}]",
+                forbidden_path=manifest_absolute,
+            )
+            receipt_sources.append(receipt_path)
+            receipts.append(receipt)
+        if len(
+            {(item["root_id"], item["path"]) for item in receipts}
+        ) != len(receipts):
+            raise _build_request_error(
+                f"{owner}.receipt_artifacts", "contains duplicate artifacts"
+            )
+        layer: dict[str, Any] = {
+            "status": layer_status,
+            "command": command,
+            "evidence_bundle_ids": references,
+            "receipt_artifacts": receipts,
+        }
+        for optional in ("summary", "reason"):
+            if optional in raw_layer:
+                layer[optional] = _require_string(
+                    raw_layer[optional], owner=f"{owner}.{optional}"
+                )
+        test_layers[layer_id] = layer
+        receipt_sources_by_layer[layer_id] = receipt_sources
+
     release_canary = _require_mapping(
         test_layers["release-canary"], owner="test_layers.release-canary"
     )
     release_canary_refs = release_canary.get("evidence_bundle_ids")
-    if release_canary.get("status") != "pass":
+    if release_canary.get("status") != "not_run":
         raise _build_request_error(
-            "test_layers.release-canary.status", "must be pass for manifest preparation"
+            "test_layers.release-canary.status",
+            "candidate preparation must leave the post-tag final attestation not_run",
         )
     if not isinstance(release_canary_refs, list) or not {
         controlled_id,
@@ -1484,17 +2123,33 @@ def build_release_manifest(
             "test_layers.release-canary.evidence_bundle_ids",
             "must reference both formal controlled-canary and room-attempt bundles",
         )
-    if state == "released":
-        nonpass = sorted(
-            layer_id
-            for layer_id, layer in test_layers.items()
-            if not isinstance(layer, Mapping) or layer.get("status") != "pass"
+    if not release_canary.get("command"):
+        raise _build_request_error(
+            "test_layers.release-canary.command",
+            "must retain the planned post-tag final verification command",
         )
-        if nonpass:
-            raise _build_request_error(
-                "release.state",
-                f"released requires every test layer to pass: {nonpass}",
-            )
+    planned_command_errors = _planned_release_verify_command_errors(
+        release_canary["command"],
+        avengine_root=root,
+        habitat_runtime_root=habitat_root,
+        manifest_relative=manifest_relative,
+        artifact_roots={
+            root_id: roots[root_id]
+            for root_id in {
+                record["root_id"]
+                for bundle in evidence_bundles
+                for record in bundle["artifacts"]
+            }
+            if root_id not in {"avengine", "habitat_runtime"}
+        },
+    )
+    if planned_command_errors:
+        raise ReleaseManifestError(planned_command_errors)
+    if release_canary.get("receipt_artifacts"):
+        raise _build_request_error(
+            "test_layers.release-canary.receipt_artifacts",
+            "candidate preparation cannot contain a post-tag final attestation receipt",
+        )
 
     environment_request = _require_mapping(request["environment"], owner="environment")
     _require_exact_keys(
@@ -1575,6 +2230,43 @@ def build_release_manifest(
                 f"{layer_id} references unknown evidence bundles: {missing}"
             )
             continue
+        referenced_artifacts = [
+            artifact
+            for bundle_id in references
+            for artifact in bundle_by_id[bundle_id]["artifacts"]
+        ]
+        test_execution_artifacts = [
+            artifact
+            for bundle_id in references
+            if bundle_by_id[bundle_id]["status_scope"] == "test_execution"
+            for artifact in bundle_by_id[bundle_id]["artifacts"]
+        ]
+        for receipt_index, receipt in enumerate(layer.get("receipt_artifacts", [])):
+            if receipt not in referenced_artifacts:
+                layer_errors.append(
+                    f"{layer_id} receipt artifact is not a member of a referenced "
+                    f"evidence bundle: {receipt['root_id']}:{receipt['path']}"
+                )
+            elif receipt not in test_execution_artifacts:
+                layer_errors.append(
+                    f"{layer_id} receipt artifact is not a member of a referenced "
+                    "test_execution evidence bundle"
+                )
+            else:
+                try:
+                    _load_and_validate_test_execution_receipt(
+                        receipt_sources_by_layer[layer_id][receipt_index],
+                        layer_id=layer_id,
+                        layer_status=layer["status"],
+                        command=layer["command"],
+                        implementation_commit=implementation_commit,
+                        habitat_runtime_commit=habitat_commit,
+                        rlr_commit=rlr_commit,
+                    )
+                except ReleaseManifestError as exc:
+                    layer_errors.extend(
+                        f"{layer_id} receipt: {error}" for error in exc.errors
+                    )
         statuses = [bundle_by_id[item]["status"] for item in references]
         if layer.get("status") == "pass" and any(
             status != "pass" for status in statuses
@@ -1614,7 +2306,12 @@ def prepare_release_manifest(
         habitat_runtime_root=habitat_root,
         artifact_roots=artifact_roots,
     )
-    destination = root / manifest["release"]["manifest_path"]
+    destination = _resolve_repository_manifest_path(
+        manifest["release"]["manifest_path"],
+        repository_root=root,
+        owner="release manifest output",
+        strict=False,
+    )
     payload = (
         json.dumps(
             manifest,
@@ -1646,9 +2343,28 @@ def verify_release_manifest(
 ) -> dict[str, Any]:
     """Recompute every portable hash and Git identity in one release manifest."""
 
-    source = Path(manifest_path)
     checks: list[dict[str, Any]] = []
     observed: dict[str, Any] = {}
+    try:
+        av_root = Path(avengine_root).resolve(strict=True)
+        habitat_root = Path(habitat_runtime_root).resolve(strict=True)
+        source = _resolve_repository_manifest_path(
+            manifest_path,
+            repository_root=av_root,
+            owner="release manifest input",
+            strict=True,
+        )
+        observed["manifest_file_record"] = build_file_record(
+            source, root=av_root, root_id="avengine"
+        )
+    except (OSError, ValueError, ReleaseManifestError) as exc:
+        _check(checks, "manifest_json", [f"unable to resolve manifest: {exc}"])
+        return {
+            "schema": "avengine_release_verification_v1",
+            "status": "fail",
+            "checks": checks,
+            "observed": observed,
+        }
     try:
         manifest = load_json_strict(source)
     except ReleaseManifestError as exc:
@@ -1673,8 +2389,6 @@ def verify_release_manifest(
             "observed": observed,
         }
 
-    av_root = Path(avengine_root)
-    habitat_root = Path(habitat_runtime_root)
     roots: dict[str, Path] = {
         "avengine": av_root,
         "habitat_runtime": habitat_root,
@@ -1766,9 +2480,19 @@ def verify_release_manifest(
     room_entry: Path | None = None
     if controlled_id == room_id:
         m6_errors.append("controlled and room evidence roles must be distinct")
-    for role, bundle_id, entry_record in (
-        ("controlled canary", controlled_id, controlled_entry_record),
-        ("room qualification", room_id, room_entry_record),
+    for role, bundle_id, entry_record, expected_scope in (
+        (
+            "controlled canary",
+            controlled_id,
+            controlled_entry_record,
+            "controlled_canary_verifier",
+        ),
+        (
+            "room qualification attempt",
+            room_id,
+            room_entry_record,
+            "room_attempt_verifier",
+        ),
     ):
         bundle = bundle_by_id.get(bundle_id)
         if bundle is None:
@@ -1776,6 +2500,11 @@ def verify_release_manifest(
             continue
         if bundle.get("status") != "pass":
             m6_errors.append(f"{role} bundle is not pass")
+        if bundle.get("status_scope") != expected_scope:
+            m6_errors.append(
+                f"{role} bundle status_scope must be {expected_scope}; pass "
+                "describes verifier success, not room or dataset qualification"
+            )
         if entry_record not in bundle.get("artifacts", []):
             m6_errors.append(f"{role} entry is not in its exact evidence closure")
         m6_errors.extend(_verify_file_records([entry_record], roots))
@@ -1830,11 +2559,116 @@ def verify_release_manifest(
                 f"{layer_id} references unknown evidence bundles: {missing}"
             )
             continue
+        receipts = layer["receipt_artifacts"]
+        expected_receipt_count = 1 if layer["status"] in {"pass", "fail"} else 0
+        if len(receipts) != expected_receipt_count:
+            layer_errors.append(
+                f"{layer_id} {layer['status']} requires exactly "
+                f"{expected_receipt_count} receipt(s)"
+            )
+        layer_errors.extend(
+            f"{layer_id} receipt: {error}"
+            for error in _verify_file_records(receipts, roots)
+        )
+        referenced_artifacts = [
+            artifact
+            for bundle_id in references
+            for artifact in bundle_by_id[bundle_id]["artifacts"]
+        ]
+        test_execution_artifacts = [
+            artifact
+            for bundle_id in references
+            if bundle_by_id[bundle_id]["status_scope"] == "test_execution"
+            for artifact in bundle_by_id[bundle_id]["artifacts"]
+        ]
+        for receipt in receipts:
+            if receipt not in referenced_artifacts:
+                layer_errors.append(
+                    f"{layer_id} receipt artifact is not a member of a referenced "
+                    f"evidence bundle: {receipt['root_id']}:{receipt['path']}"
+                )
+            elif receipt not in test_execution_artifacts:
+                layer_errors.append(
+                    f"{layer_id} receipt artifact is not a member of a referenced "
+                    "test_execution evidence bundle"
+                )
+            receipt_path, receipt_resolution_errors = _resolve_record(receipt, roots)
+            if receipt_resolution_errors:
+                continue
+            assert receipt_path is not None
+            try:
+                _load_and_validate_test_execution_receipt(
+                    receipt_path,
+                    layer_id=layer_id,
+                    layer_status=layer["status"],
+                    command=layer["command"],
+                    implementation_commit=manifest["repositories"]["avengine"][
+                        "implementation_commit"
+                    ],
+                    habitat_runtime_commit=manifest["repositories"][
+                        "habitat_runtime"
+                    ]["commit"],
+                    rlr_commit=manifest["repositories"]["habitat_runtime"][
+                        "rlr_commit"
+                    ],
+                )
+            except ReleaseManifestError as exc:
+                layer_errors.extend(
+                    f"{layer_id} receipt: {error}" for error in exc.errors
+                )
         statuses = [bundle_by_id[item]["status"] for item in references]
         if layer["status"] == "pass" and any(status != "pass" for status in statuses):
             layer_errors.append(f"{layer_id} pass references non-pass evidence")
         if layer["status"] == "fail" and "fail" not in statuses:
             layer_errors.append(f"{layer_id} fail lacks failed evidence")
+    release_state = manifest["release"]["state"]
+    release_canary = manifest["test_layers"]["release-canary"]
+    required_release_refs = {controlled_id, room_id}
+    if not required_release_refs.issubset(
+        set(release_canary["evidence_bundle_ids"])
+    ):
+        layer_errors.append(
+            "release-canary must reference both controlled-canary and "
+            "room-attempt verifier bundles"
+        )
+    if release_state != "candidate":
+        layer_errors.append(
+            "release manifest state must remain candidate; post-tag status belongs "
+            "to the external release attestation"
+        )
+    if release_canary["status"] != "not_run":
+        layer_errors.append(
+            "candidate release-canary must remain not_run until the post-tag "
+            "final attestation"
+        )
+    if release_canary["receipt_artifacts"]:
+        layer_errors.append(
+            "candidate release-canary cannot contain a post-tag final "
+            "attestation receipt"
+        )
+    if not release_canary["command"]:
+        layer_errors.append(
+            "candidate release-canary must retain its planned final verify command"
+        )
+    else:
+        layer_errors.extend(
+            _planned_release_verify_command_errors(
+                release_canary["command"],
+                avengine_root=av_root.resolve(strict=True),
+                habitat_runtime_root=habitat_root.resolve(strict=True),
+                manifest_relative=manifest["release"]["manifest_path"],
+                artifact_roots={
+                    root_id: roots[root_id]
+                    for root_id in {
+                        record["root_id"]
+                        for bundle in manifest["evidence_bundles"]
+                        for record in bundle["artifacts"]
+                    }
+                    if root_id not in {"avengine", "habitat_runtime"}
+                    and root_id in roots
+                },
+            )
+        )
     _check(checks, "test_layers", layer_errors)
 
     if verify_environment:
@@ -1861,6 +2695,352 @@ def verify_release_manifest(
         "status": status,
         "checks": checks,
         "observed": observed,
+    }
+
+
+def _successful_release_verification_errors(
+    report: Mapping[str, Any], *, manifest_record: Mapping[str, Any]
+) -> list[str]:
+    errors: list[str] = []
+    if report.get("schema") != "avengine_release_verification_v1":
+        errors.append("verification report has the wrong schema")
+    if report.get("status") != "pass":
+        errors.append("verification report must pass")
+    checks = report.get("checks")
+    if not isinstance(checks, list):
+        errors.append("verification report checks must be an array")
+    else:
+        check_ids = [
+            check.get("check_id") if isinstance(check, Mapping) else None
+            for check in checks
+        ]
+        if check_ids != list(RELEASE_VERIFICATION_CHECK_IDS):
+            errors.append(
+                "verification report must contain the complete ordered check set: "
+                f"{list(RELEASE_VERIFICATION_CHECK_IDS)}"
+            )
+        for check in checks:
+            if not isinstance(check, Mapping):
+                continue
+            if check.get("status") != "pass" or check.get("errors") != []:
+                errors.append(
+                    f"verification check {check.get('check_id')!r} did not pass cleanly"
+                )
+    observed = report.get("observed")
+    if not isinstance(observed, Mapping):
+        errors.append("verification report observed must be an object")
+    elif observed.get("manifest_file_record") != dict(manifest_record):
+        errors.append(
+            "verification report is not bound to the current manifest file record"
+        )
+    return errors
+
+
+def write_release_attestation(
+    output_path: str | Path,
+    *,
+    manifest_path: str | Path,
+    avengine_root: str | Path,
+    habitat_runtime_root: str | Path,
+    verification_command: Sequence[str],
+    artifact_roots: Mapping[str, str | Path] | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    """Run the full live verifier and publish its immutable post-tag result."""
+
+    root = Path(avengine_root).resolve(strict=True)
+    habitat_root = Path(habitat_runtime_root).resolve(strict=True)
+    source = _resolve_repository_manifest_path(
+        manifest_path,
+        repository_root=root,
+        owner="release attestation manifest",
+        strict=True,
+    )
+    manifest = load_release_manifest(source)
+    expected_manifest = (root / manifest["release"]["manifest_path"]).resolve(
+        strict=True
+    )
+    if source != expected_manifest:
+        raise _build_request_error(
+            "release attestation manifest",
+            "path differs from the candidate manifest's repository path",
+        )
+
+    raw_output = Path(output_path)
+    destination = raw_output if raw_output.is_absolute() else root / raw_output
+    destination = destination.resolve(strict=False)
+    try:
+        destination.relative_to(root)
+    except ValueError as exc:
+        raise _build_request_error(
+            "release attestation output", "must be inside the AVEngine repository"
+        ) from exc
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(
+            f"refusing to replace immutable evidence file: {destination}"
+        )
+
+    if any(
+        root_id in {"avengine", "habitat_runtime"}
+        for root_id in (artifact_roots or {})
+    ):
+        raise _build_request_error(
+            "release attestation artifact_roots",
+            "must not replace AVEngine or Habitat repository roots",
+        )
+    resolved_artifact_roots = {
+        root_id: Path(path).resolve(strict=True)
+        for root_id, path in (artifact_roots or {}).items()
+    }
+    command = [
+        _require_string(value, owner=f"verification_command[{index}]")
+        for index, value in enumerate(verification_command)
+    ]
+    command_errors = _actual_release_verify_command_errors(
+        command,
+        planned_command=manifest["test_layers"]["release-canary"]["command"],
+        avengine_root=root,
+        habitat_runtime_root=habitat_root,
+        manifest_relative=manifest["release"]["manifest_path"],
+        output_path=destination,
+        artifact_roots=resolved_artifact_roots,
+    )
+    if command_errors:
+        raise ReleaseManifestError(command_errors)
+
+    manifest_record_before = build_file_record(
+        source, root=root, root_id="avengine"
+    )
+    report = verify_release_manifest(
+        source,
+        avengine_root=root,
+        habitat_runtime_root=habitat_root,
+        artifact_roots=resolved_artifact_roots,
+    )
+    manifest_record_after = build_file_record(
+        source, root=root, root_id="avengine"
+    )
+    if manifest_record_after != manifest_record_before:
+        raise _build_request_error(
+            "release attestation manifest", "changed during live verification"
+        )
+    report_errors = _successful_release_verification_errors(
+        report, manifest_record=manifest_record_after
+    )
+    if report_errors:
+        raise ReleaseManifestError(report_errors)
+
+    observed = report["observed"]
+    tag_commit = observed.get("release_tag_commit")
+    metadata_commit = observed.get("avengine_metadata_commit")
+    if not isinstance(tag_commit, str) or _HEX_COMMIT.fullmatch(tag_commit) is None:
+        raise _build_request_error(
+            "release attestation release_tag_commit",
+            "successful report lacks a full post-tag commit",
+        )
+    if metadata_commit != tag_commit:
+        raise _build_request_error(
+            "release attestation release_tag_commit",
+            "tag commit differs from the verified metadata commit B",
+        )
+    implementation_commit = manifest["repositories"]["avengine"][
+        "implementation_commit"
+    ]
+    expected_observations = {
+        "avengine_metadata_parent": implementation_commit,
+        "avengine_metadata_parent_count": 1,
+        "habitat_runtime_commit": manifest["repositories"]["habitat_runtime"][
+            "commit"
+        ],
+        "rlr_commit": manifest["repositories"]["habitat_runtime"]["rlr_commit"],
+    }
+    for field, expected_value in expected_observations.items():
+        if observed.get(field) != expected_value:
+            raise _build_request_error(
+                f"release attestation verification_report.observed.{field}",
+                f"must equal {expected_value!r}",
+            )
+
+    attestation: dict[str, Any] = {
+        "schema": RELEASE_ATTESTATION_SCHEMA,
+        "status": "pass",
+        "release_id": manifest["release"]["release_id"],
+        "release_tag": manifest["release"]["tag"],
+        "release_tag_commit": tag_commit,
+        "implementation_commit": implementation_commit,
+        "manifest": manifest_record_after,
+        "verification_command": command,
+        "verification_report": report,
+    }
+    schema_errors = validate_release_attestation_document(attestation)
+    if schema_errors:
+        raise ReleaseManifestError(schema_errors)
+    payload = (
+        json.dumps(
+            attestation,
+            indent=2,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    policy = WorkspacePathPolicy.from_roots([root])
+    published = write_bytes_no_clobber(policy, destination, payload)
+    readback = load_json_strict(published)
+    if readback != attestation:
+        raise ReleaseManifestError(
+            ["release attestation readback differs from the published document"]
+        )
+    readback_errors = validate_release_attestation_document(readback)
+    if readback_errors:
+        raise ReleaseManifestError(readback_errors)
+    return published, readback
+
+
+def verify_release_attestation(
+    attestation_path: str | Path,
+    *,
+    avengine_root: str | Path,
+    habitat_runtime_root: str | Path,
+    artifact_roots: Mapping[str, str | Path] | None = None,
+) -> dict[str, Any]:
+    """Re-run the live verifier and compare it with one retained attestation."""
+
+    checks: list[dict[str, Any]] = []
+    root = Path(avengine_root).resolve(strict=True)
+    habitat_root = Path(habitat_runtime_root).resolve(strict=True)
+    raw_attestation = Path(attestation_path)
+    source = (
+        raw_attestation if raw_attestation.is_absolute() else root / raw_attestation
+    ).resolve(strict=True)
+    try:
+        source.relative_to(root)
+    except ValueError:
+        _check(checks, "attestation_path", ["attestation escapes AVEngine root"])
+        return {
+            "schema": "avengine_release_attestation_verification_v1",
+            "status": "fail",
+            "checks": checks,
+        }
+    _check(checks, "attestation_path", [])
+    try:
+        document = load_json_strict(source)
+    except ReleaseManifestError as exc:
+        _check(checks, "attestation_schema", exc.errors)
+        return {
+            "schema": "avengine_release_attestation_verification_v1",
+            "status": "fail",
+            "checks": checks,
+        }
+    _check(
+        checks,
+        "attestation_schema",
+        validate_release_attestation_document(document),
+    )
+    if checks[-1]["status"] != "pass":
+        return {
+            "schema": "avengine_release_attestation_verification_v1",
+            "status": "fail",
+            "checks": checks,
+        }
+
+    roots: dict[str, Path] = {
+        "avengine": root,
+        "habitat_runtime": habitat_root,
+    }
+    for root_id, path in (artifact_roots or {}).items():
+        if root_id in roots:
+            _check(
+                checks,
+                "artifact_roots",
+                [f"artifact root {root_id!r} replaces a repository root"],
+            )
+            return {
+                "schema": "avengine_release_attestation_verification_v1",
+                "status": "fail",
+                "checks": checks,
+            }
+        roots[root_id] = Path(path).resolve(strict=True)
+    manifest_record = document["manifest"]
+    manifest_errors = _verify_file_records([manifest_record], roots)
+    manifest_path_resolved, resolution_errors = _resolve_record(
+        manifest_record, roots
+    )
+    manifest_errors.extend(resolution_errors)
+    _check(checks, "manifest_file", manifest_errors)
+    if manifest_path_resolved is None:
+        return {
+            "schema": "avengine_release_attestation_verification_v1",
+            "status": "fail",
+            "checks": checks,
+        }
+    try:
+        manifest = load_release_manifest(manifest_path_resolved)
+    except ReleaseManifestError as exc:
+        _check(checks, "manifest_document", exc.errors)
+        return {
+            "schema": "avengine_release_attestation_verification_v1",
+            "status": "fail",
+            "checks": checks,
+        }
+    _check(checks, "manifest_document", [])
+
+    command_errors = _actual_release_verify_command_errors(
+        document["verification_command"],
+        planned_command=manifest["test_layers"]["release-canary"]["command"],
+        avengine_root=root,
+        habitat_runtime_root=habitat_root,
+        manifest_relative=manifest["release"]["manifest_path"],
+        output_path=source,
+        artifact_roots={
+            root_id: path
+            for root_id, path in roots.items()
+            if root_id not in {"avengine", "habitat_runtime"}
+        },
+    )
+    _check(checks, "verification_command", command_errors)
+
+    current_report = verify_release_manifest(
+        manifest_record["path"],
+        avengine_root=root,
+        habitat_runtime_root=habitat_root,
+        artifact_roots={
+            root_id: path
+            for root_id, path in roots.items()
+            if root_id not in {"avengine", "habitat_runtime"}
+        },
+    )
+    report_errors = _successful_release_verification_errors(
+        current_report, manifest_record=manifest_record
+    )
+    if current_report != document["verification_report"]:
+        report_errors.append(
+            "retained verification_report differs from a fresh full verification"
+        )
+    _check(checks, "fresh_verification", report_errors)
+
+    identity_errors: list[str] = []
+    expected = {
+        "release_id": manifest["release"]["release_id"],
+        "release_tag": manifest["release"]["tag"],
+        "implementation_commit": manifest["repositories"]["avengine"][
+            "implementation_commit"
+        ],
+        "release_tag_commit": current_report["observed"].get(
+            "release_tag_commit"
+        ),
+    }
+    for field, value in expected.items():
+        if document.get(field) != value:
+            identity_errors.append(
+                f"attestation {field} differs from fresh release verification"
+            )
+    _check(checks, "release_identity", identity_errors)
+    status = "pass" if all(item["status"] == "pass" for item in checks) else "fail"
+    return {
+        "schema": "avengine_release_attestation_verification_v1",
+        "status": status,
+        "checks": checks,
     }
 
 

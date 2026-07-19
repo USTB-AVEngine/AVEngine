@@ -4,8 +4,8 @@ This is the immutable-at-closure M0 snapshot; its M1 and M2 `not_run` rows
 record the state at that earlier gate. For current results, see
 [M1_STATUS.md](M1_STATUS.md) and [M2_STATUS.md](M2_STATUS.md).
 
-This document and root `runtime.lock.yaml` are historical evidence, not the
-current release authority. The sole current cross-repository authority is
+This document is historical evidence; root `runtime.lock.yaml` is now only the
+compatibility-profile index. Neither is the current release authority. The sole current cross-repository authority is
 `release/avengine_release_manifest_v1.json` once that candidate has been
 generated and verified; see [locks/README.md](../../locks/README.md). Until it
 exists, the current release state is pending rather than inferred from this
@@ -59,7 +59,7 @@ governance commit explicitly.
 | Full original test collection | `pass` | 776 tests collected; one torch-dependent test skipped |
 | Habitat test-scene acquisition | `pass` | official Meta v1.0 ZIP installed locally; archive SHA-256 `072c053c00d8e49132e48837eea38f8b6cd19e3079c40fd705ffef12347d7302` |
 | Official Hugging Face test-scene Git/LFS route | `pass` | initial 504/timeouts were transient; a later `ls-remote` and full shallow clone at `910c783fb954da8497ea5f811b843a76590ddddc` checked out all four LFS objects with `HF_ENDPOINT` unset and Git LFS 3.7.1 |
-| MP3D example, example objects, and Locobot inputs | `pass` | official packages declared by the pinned Habitat downloader installed locally; archive hashes are in the runtime lock |
+| MP3D example, example objects, and Locobot inputs | `pass` | official packages declared by the pinned Habitat downloader installed locally; exact external identities remain in the historical evidence/profile closure |
 | First complete original pytest run | `fail` | 27 failed, 421 passed, 329 skipped, 26410 warnings in 796.57s |
 | Six formerly asset-dependent example cases | `pass` | all passed targeted reruns after the three auxiliary packages were installed |
 | Remaining Greedy follower/binding cases | `fail` | 21 failed in 76.63s; `PyCapsule.__next__ returned NULL without setting an exception` in `GreedyGeodesicFollower.find_path()` |

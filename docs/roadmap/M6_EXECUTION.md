@@ -5,11 +5,12 @@ hermetic contract tests, native Habitat/RLR execution, room qualification,
 media readback and release verification. Running one layer never implies that
 another layer passed.
 
-The current milestone is not closed. The controlled M6 runner and verifier are
-implemented, but a review bundle generated before implementation commit A is
-not formal evidence. Closeout still requires a clean commit A, a newly generated
-bundle bound to A, retained output hashes, release metadata commit B and the
-annotated release tag.
+The current milestone is not closed. The A3 implementation explicitly
+separates retained semantic materialization from native execution. Formal
+post-A3 evidence is pending; pre-A3 bundles are stale and cannot establish the
+new status scope. Closeout still requires a clean commit A, newly generated
+bundles bound to A, release metadata commit B, the annotated release tag and a
+persisted post-tag verifier attestation.
 
 ## 1. Workspace and trust mode
 
@@ -23,8 +24,9 @@ export AVENGINE_EVIDENCE_ROOT="$(pwd)/tmp"
 
 # Optional room datasets. There are no private-server defaults.
 export AVENGINE_REPLICACAD_ROOT=/path/to/replica_cad
-export AVENGINE_MP3D_ROOT=/path/to/mp3d
-export AVENGINE_LEGACY_APARTMENT_ROOT=/path/to/legacy-apartment-assets
+export AVENGINE_MP3D_PROXY_V2_ROOT=/path/to/materialized/mp3d_proxy_v2
+export AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT=/path/to/legacy-apartment-export
+export AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT=/path/to/legacy-apartment-package
 ```
 
 The default threat model is `trusted_research_workspace`. Inputs and outputs
@@ -43,6 +45,12 @@ python3 scripts/load_paths.py --validate --layer native_habitat
 Only run the second command when the pinned runtime checkout is actually
 available. An absent optional dataset is `blocked` for that room layer, not a
 failure of the fast checkout.
+
+Hashes are used only at evidence boundaries. Git identifies checked-in code,
+schemas and configuration; versions identify the toolchain. External
+result-changing assets, generated package closures, formal execution receipts
+and release evidence retain content identities. Temporary previews, logs and
+uncited intermediates do not become release locks.
 
 ## 2. Fresh-checkout fast bootstrap
 
@@ -85,7 +93,13 @@ Run the M6-focused hermetic checks explicitly so their totals remain visible:
   tests/unit/test_m6_room_contracts.py \
   tests/unit/test_m6_room_providers.py \
   tests/unit/test_m6_room_qualification.py \
+  tests/unit/test_m6_room_attempts.py \
+  tests/unit/test_m6_canary.py \
   tests/unit/test_m6_release.py \
+  tests/unit/test_m6_release_builder.py \
+  tests/unit/test_m6_release_receipt.py \
+  tests/unit/test_m6_review.py \
+  tests/unit/test_runtime_lock.py \
   tests/unit/test_bootstrap_schema_validation.py
 ```
 
@@ -104,9 +118,15 @@ These tests must cover at least:
   missing;
 - independent room dimensions and placement feasibility;
 - raw MP3D identity versus declared derivation integrity;
+- retained materialization cannot promote native Habitat/RLR or episode status;
+- the MP3D descriptor, provider output and exact materialized package closure
+  must resolve to the same package; split roots and hash mismatches fail;
+- a room-attempt verifier `pass` describes bundle/report consistency, not room
+  qualification;
 - the corrupted fixture keeping admission false;
-- release-manifest schema, hashes, commits, environment, metadata-commit and
-  annotated-tag checks.
+- candidate release-canary remains `not_run` until a post-tag attestation;
+- release-manifest schema, required external artifact identities, structured
+  test receipts, commits, metadata-commit and annotated-tag checks.
 
 Passing these tests validates contract logic only. It does not render Habitat,
 upload an acoustic scene, propagate an RIR, run Blender or read back media.
@@ -124,9 +144,10 @@ The versioned AudioProgram vocabulary is:
   limited to the declared source-routing fields;
 - `silent_negative`: retain the candidate endpoints without any active event.
 
-Only `one_active_of_n` is executed by the required M6 controlled-room canary.
-The other five are versioned contract/validator surfaces for later episodes;
-their presence does not imply that each mode has a retained executable canary.
+Only `one_active_of_n` is materialized by the required M6 controlled-room
+evidence route; it is not a new native execution. The other five are versioned
+contract/validator surfaces for later episodes; their presence does not imply
+that each mode has a retained executable canary.
 
 ## 4. Room qualification attempts
 
@@ -155,6 +176,22 @@ Retain one report per representation. In particular, MP3D raw and derived
 revisions share scene lineage but must not share a synthetic overall result.
 The detailed expected matrix is [M6_ROOM_MATRIX.md](M6_ROOM_MATRIX.md).
 
+The current attempt runner must receive the same materialized proxy root that
+owns the derived manifest supplied as a candidate:
+
+```bash
+.venv/bin/python tools/m6/run_room_qualification_attempt.py run \
+  --output "$AVENGINE_EVIDENCE_ROOT/m6/room_qualification_formal" \
+  --mp3d-raw-package-manifest /path/to/mp3d_raw_package/manifest.json \
+  --mp3d-derived-package-manifest "$AVENGINE_MP3D_PROXY_V2_ROOT/manifest.json" \
+  --habitat-runtime-root "$AVENGINE_HABITAT_RUNTIME_ROOT" \
+  --mp3d-proxy-root "$AVENGINE_MP3D_PROXY_V2_ROOT"
+```
+
+`materialized_proxy_binding=pass` authenticates the committed descriptor,
+provider output manifest and complete package closure. It does not promote
+topology, materials, rays, solver loadability or episode feasibility.
+
 The independent negative fixture is reproducible without a dataset:
 
 ```bash
@@ -167,7 +204,7 @@ It must fail acoustic/material/ray dimensions as designed and keep
 `dataset_admission=false`, even if a surrounding visual shell is marked
 `pass`.
 
-## 5. Controlled one-active-of-N canary
+## 5. Controlled one-active-of-N retained materialization
 
 The closeout run belongs in `blender_custom_two_zone_v1` and must use one
 currently audited articulated entity setup, two stable named source endpoints,
@@ -176,6 +213,14 @@ exist throughout the episode, but the AudioProgram schedules dry audio on only
 the declared endpoint during its event windows. The inactive endpoint retains
 an independently identifiable zero/silent stem; it is not removed from the
 source registry.
+
+This command does not invoke Habitat-Sim or generate new native RLR RIRs. It
+independently verifies the retained M5 bundle and deterministically materializes
+the M6 `one_active_of_n` entity/source/program/flag view. Therefore
+`overall_status=pass` means semantic materialization verification only;
+`native_execution.habitat_sim`,
+`native_execution.rlr_audio_propagation`, and room
+`episode_feasibility_status` remain `not_run`.
 
 Run the formal canary only after all implementation, schema, test and ordinary
 documentation changes have been committed as clean implementation commit A.
@@ -189,18 +234,18 @@ IMPLEMENTATION_COMMIT="$(git rev-parse HEAD)"
 python -m avengine.cli m6 run-controlled-canary \
   --request examples/m6/canary/controlled_one_active_of_two_request.json \
   --upstream-evidence "$AVENGINE_EVIDENCE_ROOT/m5/formal/evidence.json" \
-  --output "$AVENGINE_EVIDENCE_ROOT/m6/controlled_formal" \
+  --output "$AVENGINE_EVIDENCE_ROOT/m6/formal_controlled_v1" \
   --implementation-commit "$IMPLEMENTATION_COMMIT"
 
 python -m avengine.cli m6 verify-controlled-canary \
-  "$AVENGINE_EVIDENCE_ROOT/m6/controlled_formal/evidence.json"
+  "$AVENGINE_EVIDENCE_ROOT/m6/formal_controlled_v1/evidence.json"
 ```
 
 The runner rejects a non-commit, a dirty/mismatched implementation state,
 missing or invalid upstream evidence, and an existing output directory. A
 schema/example/unit test or a pre-A review bundle is not a formal canary
-substitute. Record the two commands, commit A, verifier result and evidence
-hash in the release test-layer report.
+substitute. Record the two commands, commit A, verifier result and bundle
+identity in the release test-layer report.
 
 The no-clobber output must contain at least:
 
@@ -261,6 +306,34 @@ release-canary
 If a layer is unavailable, record `not_run` with the missing dependency. Do not
 copy a historical `pass` into a current release layer.
 
+### Six-case human-review media
+
+The review builder assembles six cases over four visual room lineages and is
+not a qualification aggregator. ReplicaCAD may use the current native
+human/Beagle/Topdown+binaural research clip; MP3D raw and derived must share
+the exact visual source; unavailable audio is replaced with labelled stereo
+silence rather than borrowed from another case.
+
+```bash
+.venv/bin/python tools/m6/build_six_case_review.py validate \
+  examples/m6/review/six_case_review_request.json
+
+.venv/bin/python tools/m6/build_six_case_review.py build \
+  examples/m6/review/six_case_review_request.json \
+  --repository-root . \
+  --output tmp/m6/six_case_review_<new_run>
+
+.venv/bin/python tools/m6/build_six_case_review.py verify \
+  tmp/m6/six_case_review_<new_run>/review_manifest.json \
+  --repository-root .
+```
+
+The post-hoc verifier reopens the copied request, every source-media binding,
+all six normalized H.264/AAC segments and the combined video.  It checks both
+file identity and FFprobe readback, including the exact shared visual binding
+for MP3D raw/derived. `research_only`, `unqualified`, `fail`, and `AUDIO
+UNAVAILABLE` labels are subject facts, not cosmetic warnings.
+
 ## 7. Release manifest verification
 
 The manifest is intentionally created after the implementation commit. The
@@ -268,34 +341,42 @@ metadata commit containing it must be a direct child that changes only its
 allowlisted release paths; the annotated tag points to that metadata commit.
 This avoids a self-referential manifest hash.
 
-Once `release/avengine_release_manifest_v1.json` exists, verify it without
-weakening Git, tag or environment checks:
+Manifest preparation creates an immutable `candidate` snapshot. Its
+`release-canary` remains `not_run`, retains the complete planned final verify
+command and has no post-tag receipt. Every other passed test layer must cite one
+structured execution receipt; human-facing documents need not repeat the leaf
+hashes already contained in their bundle manifest.
+
+Once `release/avengine_release_manifest_v1.json` exists and metadata commit B is
+tagged, run the verifier and persist its result as an external post-tag
+attestation. It cannot hash itself into commit B:
 
 ```bash
-.venv/bin/python - "$AVENGINE_HABITAT_RUNTIME_ROOT" <<'PY'
-import json
-import sys
-from avengine.release import verify_release_manifest
+.venv/bin/python tools/release/build_manifest.py verify \
+  --manifest release/avengine_release_manifest_v1.json \
+  --avengine-root . \
+  --habitat-runtime-root "$AVENGINE_HABITAT_RUNTIME_ROOT" \
+  --output "$AVENGINE_EVIDENCE_ROOT/m6/release_attestation.json"
 
-report = verify_release_manifest(
-    "release/avengine_release_manifest_v1.json",
-    avengine_root=".",
-    habitat_runtime_root=sys.argv[1],
-)
-print(json.dumps(report, indent=2, sort_keys=True))
-raise SystemExit(0 if report["status"] == "pass" else 1)
-PY
+.venv/bin/python tools/release/build_manifest.py verify-attestation \
+  --attestation "$AVENGINE_EVIDENCE_ROOT/m6/release_attestation.json" \
+  --avengine-root . \
+  --habitat-runtime-root "$AVENGINE_HABITAT_RUNTIME_ROOT"
 ```
 
-The manifest must bind the AVEngine implementation commit, Habitat fork,
-upstream Habitat, RLR, complete schema set, native binding and RLR binary,
-environment, every test layer, evidence bundle hashes and release tag. Root
-`runtime.lock.yaml` and `locks/m4_runtime_v1.json` remain historical inputs and
-must not be edited during this step.
+The candidate manifest must bind the AVEngine implementation commit, Habitat
+fork, upstream Habitat, RLR, required external artifacts, every test layer,
+evidence bundle identities and planned release tag. The post-tag attestation
+binds that manifest to actual tag B and the final verifier report. Root
+`runtime.lock.yaml` is only the Git-tracked compatibility index; the versioned
+files under `locks/` remain historical inputs and must not be rewritten during
+this step.
 
 ## 8. Closeout record
 
-After execution, update [M6_STATUS.md](M6_STATUS.md) with exact totals and
-evidence hashes. Preserve failed and unrun rows. M6 closes only when the
-controlled bundle, room attempts, negative fixture, fresh-checkout fast tests
-and unique release manifest form one coherent, clean, tagged state.
+Keep [M6_STATUS.md](M6_STATUS.md) as the pre-release implementation snapshot
+committed in A. After execution, record exact totals, authoritative
+receipt/bundle identities, and every failed or unrun row in the allowlisted
+`release/M6_FINAL_REPORT.md` created with metadata commit B. M6 closes only when
+the controlled bundle, room attempts, negative fixture, fresh-checkout fast
+tests and unique release manifest form one coherent, clean, tagged state.

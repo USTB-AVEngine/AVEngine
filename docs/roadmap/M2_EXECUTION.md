@@ -20,8 +20,9 @@ measurements.
 - Named outputs are immutable by policy. Hardened commands require a fresh
   destination that does not exist and never replace prior evidence.
 - Formal capture rejects dirty AVEngine/Habitat worktrees, a runtime commit or
-  native binding that differs from `runtime.lock.yaml`, and a binding imported
-  from a different runtime root.
+  native binding that differs from
+  [`locks/m2_runtime_v1.yaml`](../../locks/m2_runtime_v1.yaml), selected through
+  the root index, and a binding imported from a different runtime root.
 
 ## Environment
 

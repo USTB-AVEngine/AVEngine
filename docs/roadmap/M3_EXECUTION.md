@@ -32,9 +32,10 @@ room.
 
 ## Prerequisites
 
-Run against the Habitat fork commit pinned in `runtime.lock.yaml`, using the
-audio-enabled build that contains the M3 `RLRAcousticContext` binding. The
-commands below assume:
+Run against the Habitat fork commit in
+[`locks/m3_runtime_v1.yaml`](../../locks/m3_runtime_v1.yaml), selected through
+the root `runtime.lock.yaml` index, using the audio-enabled build that contains
+the M3 `RLRAcousticContext` binding. The commands below assume:
 
 ```bash
 export REPO=/data/jzy/code/AVEngine-habitat-native
@@ -55,9 +56,9 @@ Before a formal run:
 
 1. build and install the exact audio-enabled Habitat fork;
 2. run its focused native and Python acoustic-context tests;
-3. finalize `runtime.lock.yaml` with the selected runtime commit and native
-   binary hashes, then treat those exact bytes as immutable experiment input
-   for the full run;
+3. select a versioned historical runtime profile containing the runtime commit,
+   environment versions and one native-artifact bundle closure, then treat it
+   as immutable experiment input for the full run;
 4. start the M3 compiler/native evidence from a new, nonexistent ignored
    output directory;
 5. retain both repositories' clean status in the final evidence record.
@@ -135,8 +136,7 @@ self-hashes.
 ## 3. Execute and verify the native canary
 
 Run the canary against the independently verified compiler evidence and the
-runtime/version manifest pinned by the exact `runtime.lock.yaml` experiment
-input:
+runtime/version manifest selected by the indexed M3 experiment profile:
 
 ```bash
 "$HABPY" -m avengine.cli m3 run-canary \
@@ -214,18 +214,16 @@ worktree:
 Then record, from the retained evidence rather than memory:
 
 - AVEngine and Habitat fork commits;
-- runtime lock hash;
+- selected runtime profile identity;
 - Habitat binding and RLR library hashes;
 - compile and native evidence paths/hashes;
 - low/high medians, spreads, oriented effects and verifier result;
 - clean worktree and final test totals.
 
-After verification, record the formal outcome, measurements and evidence
-hashes in [M3_STATUS.md](M3_STATUS.md). Do not write run outcomes or evidence
-hashes back into `runtime.lock.yaml`: it remains the immutable experiment input
-and runtime/version manifest. The retained formal evidence binds its exact
-bytes at SHA-256
-`b39f2ffe6e8427852ac802622957186fab972e26f58b4ee4df9ada76bc9023ac`.
+After verification, record the formal outcome and measurements in
+[M3_STATUS.md](M3_STATUS.md). Keep exact external artifact identities inside
+the authoritative machine-readable evidence bundle. Do not copy run outcomes
+or leaf hashes into the root index or human-facing status prose.
 
 ## Resolve an M3.1 user material profile
 

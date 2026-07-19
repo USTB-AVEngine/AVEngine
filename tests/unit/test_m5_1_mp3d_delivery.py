@@ -3,18 +3,52 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from avengine.m5_1.mp3d_delivery import (
+    MP3D_REQUIRED_GATE_IDS,
     build_mp3d_overlay_tracks,
     listener_yaw_degrees,
     render_mp3d_topdown_frames,
     source_program_reuse_record,
+    validate_room_visual_gate,
 )
+from avengine.m5_1.delivery import M51DeliveryError, source_actor_binding_record
+from avengine.contracts.json_io import load_json
 from avengine.m5_1.source_contracts import load_source_manifest
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 SOURCE_MANIFEST = REPOSITORY / "examples/m5_1/legacy_apartment/source_manifest.json"
+ROUTE_MANIFEST = REPOSITORY / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
+
+
+def _mp3d_bindings(
+    human_semantic_id: int = 73000, dog_semantic_id: int = 73001
+) -> dict[str, object]:
+    source = load_source_manifest(SOURCE_MANIFEST)
+    route = load_json(ROUTE_MANIFEST)
+    route["semantic_ids"] = {
+        "human0": human_semantic_id,
+        "dog0": dog_semantic_id,
+    }
+    capture = {
+        "actors": [
+            {
+                "actor_id": "human0",
+                "actor_class": "human",
+                "emitter_link": "Bip01 MJaw",
+                "semantic_id": human_semantic_id,
+            },
+            {
+                "actor_id": "dog0",
+                "actor_class": "dog",
+                "emitter_link": "beagle Xtra Mouth",
+                "semantic_id": dog_semantic_id,
+            },
+        ]
+    }
+    return source_actor_binding_record(source, route, capture, room_family="mp3d")
 
 
 def test_program_reuse_explicitly_excludes_legacy_spatial_assertions() -> None:
@@ -50,8 +84,9 @@ def test_mp3d_tracks_use_capture_semantics_and_only_room_local_review_flags() ->
     anchors[:, 1] = (-4.6, 1.5, -3.0)
     anchors[:, 2] = (-3.7, 0.4, -3.0)
     semantic = np.zeros((270, 6, 8), dtype=np.uint32)
-    semantic[:, 1:3, 1:3] = 62000
-    semantic[:, 3:5, 5:7] = 62001
+    semantic[:, 1:3, 1:3] = 73000
+    semantic[:, 3:5, 5:7] = 73001
+    bindings = _mp3d_bindings()
     gate = {
         "status": "pass",
         "qualification_claim": False,
@@ -64,6 +99,7 @@ def test_mp3d_tracks_use_capture_semantics_and_only_room_local_review_flags() ->
         semantic_frames=semantic,
         clearance_m={"human0": np.full(270, 0.6), "dog0": np.full(270, 0.3)},
         gate_evidence=gate,
+        source_actor_bindings=bindings,
     )
     assert tuple(track.source_id for track in tracks) == ("source0", "source1")
     assert tracks[0].current_event_by_frame[75] == "event_human_speech_001"
@@ -72,6 +108,27 @@ def test_mp3d_tracks_use_capture_semantics_and_only_room_local_review_flags() ->
     assert "crosses_azimuth_zero" not in tracks[0].true_flags
     assert np.array_equal(tracks[0].main_marker_xy[0], [1.5, 1.5])
     assert np.array_equal(tracks[1].main_marker_xy[0], [5.5, 3.5])
+
+
+def test_mp3d_gate_requires_exact_frozen_schema_and_fourteen_ids() -> None:
+    route = load_json(ROUTE_MANIFEST)
+    gate = {
+        "schema": "avengine_m5_1_mp3d_mixed_visual_gate_v1",
+        "status": "pass",
+        "qualification_claim": False,
+        "route_id": route["route_id"],
+        "gate_count": 14,
+        "passed_gate_count": 14,
+        "gates": [
+            {"gate_id": gate_id, "status": "pass"}
+            for gate_id in sorted(MP3D_REQUIRED_GATE_IDS)
+        ],
+    }
+    assert len(validate_room_visual_gate(gate, route, room_family="mp3d")) == 14
+
+    gate["gates"][0]["gate_id"] = "invented_gate"
+    with pytest.raises(M51DeliveryError, match="frozen 14"):
+        validate_room_visual_gate(gate, route, room_family="mp3d")
 
 
 def test_real_navmesh_topdown_renderer_has_exact_review_shape_and_progress() -> None:
@@ -88,6 +145,7 @@ def test_real_navmesh_topdown_renderer_has_exact_review_shape_and_progress() -> 
         camera_hfov_degrees=90.0,
         clearance_m={"human0": np.full(3, 0.6), "dog0": np.full(3, 0.3)},
         shared_island_id=1,
+        source_actor_bindings=_mp3d_bindings(),
         size_wh=(640, 480),
     )
     first = render_mp3d_topdown_frames(**kwargs)

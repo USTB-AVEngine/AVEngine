@@ -20,9 +20,11 @@ does not prove audio propagation.
 
 ## Prerequisites
 
-Run with the Habitat runtime at the commit pinned in `runtime.lock.yaml` and
-with both the AVEngine and runtime worktrees clean; worktree cleanliness is a
-required evidence check. The commands below assume this local layout:
+Run with the Habitat runtime at the commit in
+[`locks/m1_runtime_v1.yaml`](../../locks/m1_runtime_v1.yaml), selected through
+the root `runtime.lock.yaml` index, and with both worktrees clean; worktree
+cleanliness is a required evidence check. The commands below assume this local
+layout:
 
 ```bash
 export REPO=/data/jzy/code/AVEngine-habitat-native
@@ -283,10 +285,10 @@ cross-process proof self-contained; deleting or changing that copy invalidates
 M1 passes only when all three `verify` commands and the exact three-room
 aggregate return `status: pass`.
 
-All tracked code, schemas, fixtures, documentation and `runtime.lock.yaml` must
-be committed before these formal captures. Do not commit or otherwise change a
-tracked file after capture: evidence binds the exact clean AVEngine HEAD and
-would correctly become stale after another commit.
+All tracked code, schemas, fixtures and configuration must be committed before
+these formal captures. Do not change a tracked file after capture: Git binds
+the exact clean AVEngine HEAD, while the evidence separately binds external
+result-changing inputs and the selected historical runtime profile.
 
 ## Status and artifact rules
 

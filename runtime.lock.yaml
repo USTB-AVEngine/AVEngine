@@ -1,116 +1,28 @@
-schema_version: 1
-status: m3_runtime_locked_pending_formal_canary
+schema_version: 2
+role: runtime_profile_index
+current_release_authority: release/avengine_release_manifest_v1.json
 
-avengine:
-  repository: git@github.com:Eastforward/AVEngine.git
-  branch: feature/m3-acoustic-scene
-  legacy_migration_base_commit: 92775d4d2050a3a9b277357eb83c9243468f4cd3
-  version: 0.1.0-alpha+unreleased
+# This tracked file is a lightweight compatibility index. Git identifies these
+# checked-in profiles; their content hashes are not repeated here.
+profiles:
+  m1:
+    lock_id: m1_visual_room_canary_20260716_v1
+    path: locks/m1_runtime_v1.yaml
+    scope: historical_m1_visual_canary
+  m2:
+    lock_id: m2_articulated_dog_canary_20260717_v1
+    path: locks/m2_runtime_v1.yaml
+    scope: historical_m2_articulated_canary
+  m3:
+    lock_id: m3_acoustic_material_canary_20260717_v1
+    path: locks/m3_runtime_v1.yaml
+    scope: historical_m3_acoustic_canary
+  m4:
+    lock_id: m4_native_audio_runtime_20260717_v1
+    path: locks/m4_runtime_v1.json
+    scope: historical_m4_named_audio_canary
 
-habitat_runtime:
-  repository: git@github.com:Eastforward/habitat-sim-AVEngine.git
-  branch: feature/m3-acoustic-scene
-  fork_governance_commit: 3a60c069514cd4d4987086c872deb0456ab831f1
-  source_baseline_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
-  upstream_repository: https://github.com/facebookresearch/habitat-sim.git
-  upstream_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
-  merge_base_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
-  ahead_of_upstream: 5
-  behind_upstream: 0
-  avengine_runtime_modifications:
-    - id: M2-SKIN-FRAME-01
-      path: src/esp/physics/bullet/BulletPhysicsManager.cpp
-      opt_in_config_key: user_defined.avengine_native_gltf_skin_frame
-      default_behavior: upstream
-      public_api_change: false
-    - id: M3-RLR-CONTEXT-01
-      path: src/esp/audio/RLRAcousticContext.cpp
-      build_option: BUILD_WITH_AUDIO
-      default_behavior: upstream_when_audio_disabled
-      public_api_change: true
-
-rlr:
-  repository: https://github.com/facebookresearch/rlr-audio-propagation
-  commit: 4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
-  license: CC-BY-NC-4.0
-
-runtime_test_environment:
-  conda_environment: avengine-habitat-runtime
-  python: "3.12.13"
-  git_lfs: "3.7.1"
-  jsonschema: "4.26.0"
-  required_m2_native_binding_sha256: 06079ce3a06053088e921a1852a98fba10a5409009f8502c44ed03f75dbd1211
-  required_m3_native_binding_sha256: 944f23e78af277301563874788020c4fe0bd993e93aa6dcd5516f237bbda196c
-  required_m3_rlr_library_sha256: 31e948eef4908d8cbb403b5f445d9d0eab59fc81b05a658538f8795984f9bfb4
-  required_m3_acoustic_test_binary_sha256: 5ce21258dd5fa8ca24ae9469bbcc32919ec0c48141f5949f2c486338a2b190b1
-
-runtime_test_assets:
-  habitat_test_scenes:
-    status: pass
-    preferred_huggingface_git_route: pass
-    preferred_huggingface_commit: 910c783fb954da8497ea5f811b843a76590ddddc
-    preferred_huggingface_git_observation: "initial 504/timeouts were transient; a later full shallow Git LFS clone passed with HF_ENDPOINT unset and Git LFS 3.7.1"
-    fallback_source: https://dl.fbaipublicfiles.com/habitat/habitat-test-scenes_v1.0.zip
-    fallback_archive_sha256: 072c053c00d8e49132e48837eea38f8b6cd19e3079c40fd705ffef12347d7302
-    local_test_only: true
-  auxiliary_example_assets:
-    status: pass
-    source_definition_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
-    packages:
-      - habitat_example_objects_0.2
-      - mp3d_example_scene_1.1
-      - locobot_merged_0.2
-    local_test_only: true
-
-verification:
-  repository_audit: pass
-  runtime_submodules_initialized: pass
-  habitat_clean_build: pass
-  habitat_import_with_quaternion_workaround: pass
-  habitat_direct_import: fail
-  rlr_shared_library_resolution: pass
-  habitat_core_unit_subset: pass
-  habitat_core_unit_subset_summary: "163 passed, 2 skipped (CUDA), 1 warning"
-  habitat_scene_dependent_selected_suite: pass
-  habitat_full_test_collection: pass
-  habitat_full_test_collection_summary: "776 tests collected, 1 torch-dependent test skipped"
-  habitat_test_scene_assets: pass
-  habitat_test_scene_huggingface_git_route: pass
-  habitat_auxiliary_example_assets: pass
-  habitat_full_test_suite: fail
-  habitat_full_test_suite_initial_summary: "27 failed, 421 passed, 329 skipped, 26410 warnings in 796.57s"
-  habitat_full_test_suite_post_asset_summary: "all 6 former asset-dependent failures passed targeted reruns; 21 GreedyGeodesicFollower.find_path cases remained failing"
-  habitat_greedy_follower_binding_cases: fail
-  habitat_greedy_follower_binding_summary: "21 failed, 1 warning in 76.63s; PyCapsule iterator returned NULL without setting an exception"
-  audio_sensor_canary: not_run
-  visual_canary: pass
-  visual_canary_summary: "three-room, one-view RGB/depth/semantic canary passed with a co-located listener pose anchor and at least two named source transforms; RLR audio was not run"
-  visual_canary_room_kinds:
-    habitat_native: pass
-    blender_custom: pass
-    legacy_ue_real_surface_export: pass
-  habitat_m2_opt_in_skin_frame_build: pass
-  habitat_m2_opt_in_skin_frame_probe: pass
-  habitat_upstream_skinned_articulated_object_regression: pass
-  habitat_upstream_skinned_articulated_object_regression_summary: "SimTest testArticulatedObjectSkinned cases 37/38 passed with 0 errors out of 62 checks; independent initial and posed golden-image comparisons were pixel-exact"
-  articulated_animal_review_only_capture: pass
-  articulated_animal_review_only_capture_summary: "the final v7/r5 research candidate executed 75 explicit states on review view0 with co-located RGB/depth/semantic; world time stayed 0.0 and the exact media were bound into admission evidence"
-  articulated_animal_world_contact_gate: pass
-  articulated_animal_world_contact_summary: "cadence-locked root speed 0.297 m/s over 0.8712 m; maximum four-paw world-space contact step 0.013894547981602673 m <= 0.015 m"
-  articulated_animal_human_visual_review: pass
-  articulated_animal_human_visual_review_summary: "the 2026-07-17 user decision accepted the rear-leg motion for the unchanged visual/action hashes; the admission artifact also binds the final review request, media, contact audit and source-license snapshot"
-  articulated_animal_canary: pass
-  articulated_animal_canary_summary: "canary_qualified v7/r5 package completed a clean 75-state formal Habitat capture on exactly view0 with co-located RGB/depth/semantic; zero physics steps and world time 0.0 -> 0.0; formal dataset registration remains unauthorized"
-  articulated_animal_formal_dataset_registration_authorized: false
-  articulated_animal_formal_capture_runtime_lock_sha256: 54001146c99c805ca979c0a4912861d579c1be76bccb5372164c835e600a4f49
-  articulated_animal_canary_evidence_content_sha256: a8bd355f70713feb029d5af9575ba48583277ce3d2d34d122117556268b2d9fb
-  articulated_animal_canary_evidence_file_sha256: 7644c985f93228a515f7f338dbd2791952c7bbb2295af5714fe9cbb73a8baaf3
-  habitat_m3_explicit_rlr_context_build: pass
-  habitat_m3_explicit_rlr_context_cpp_tests: pass
-  habitat_m3_explicit_rlr_context_cpp_test_summary: "RLRAcousticContextTest: 8 cases passed"
-  habitat_m3_explicit_rlr_context_python_tests: pass
-  habitat_m3_explicit_rlr_context_python_test_summary: "tests/test_avengine_acoustic_scene.py: 16 passed"
-  acoustic_material_canary: not_run
-  multi_source_canary: not_run
-  timeline_canary: not_run
-  end_to_end_dataset_canary: not_run
+identity_policy:
+  checked_in_files: git_commit
+  environment: explicit_versions
+  external_result_changing_bytes: one_authoritative_bundle_manifest

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/m6_test_execution_receipt_v1.schema.json",
+  "title": "AVEngine M6 self-derived test execution receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "receipt_id",
+    "test_layer_id",
+    "status",
+    "command",
+    "execution_cwd",
+    "exit_code",
+    "implementation_commit",
+    "habitat_runtime_commit",
+    "rlr_commit",
+    "captured_output",
+    "junit_xml",
+    "result_totals"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_m6_test_execution_receipt_v1"},
+    "receipt_id": {"$ref": "#/$defs/stableId"},
+    "test_layer_id": {
+      "enum": [
+        "fast-unit",
+        "slow-hermetic",
+        "native-habitat",
+        "rlr-audio",
+        "blender-assets",
+        "media-readback"
+      ]
+    },
+    "status": {"enum": ["pass", "fail"]},
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "execution_cwd": {"const": "."},
+    "exit_code": {"type": "integer"},
+    "implementation_commit": {"$ref": "#/$defs/gitCommit"},
+    "habitat_runtime_commit": {"$ref": "#/$defs/gitCommit"},
+    "rlr_commit": {"$ref": "#/$defs/gitCommit"},
+    "captured_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "stdout_base64", "stderr_base64"],
+      "properties": {
+        "encoding": {"const": "base64"},
+        "stdout_base64": {"$ref": "#/$defs/base64"},
+        "stderr_base64": {"$ref": "#/$defs/base64"}
+      }
+    },
+    "junit_xml": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared_path", "encoding", "raw_bytes_base64"],
+      "properties": {
+        "declared_path": {"$ref": "#/$defs/repositoryPath"},
+        "encoding": {"const": "base64"},
+        "raw_bytes_base64": {
+          "allOf": [
+            {"$ref": "#/$defs/base64"},
+            {"minLength": 4}
+          ]
+        }
+      }
+    },
+    "result_totals": {"$ref": "#/$defs/resultTotals"}
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "base64": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "resultTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executed", "passed", "failed", "skipped", "errors"],
+      "properties": {
+        "executed": {"type": "integer", "minimum": 1},
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0},
+        "errors": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

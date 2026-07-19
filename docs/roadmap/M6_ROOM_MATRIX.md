@@ -1,9 +1,13 @@
 # M6 Room Registry and Qualification Matrix
 
-This file records the implemented room-interface boundary. It does not promote
-historical ignored `tmp/` artifacts into portable release evidence. The checked-in
-reports use `evidence_basis = audited_historical`; a fresh native run must use
-`current_execution` and populate hash-bound `evidence_artifacts`.
+This file records the implemented room-interface boundary. Ignored local
+artifacts are not evidence merely because they exist. A generated-local package
+may participate in a formal attempt only when a committed descriptor and the
+release evidence bind its complete materialized closure. `current_execution`
+means a report was constructed by the current attempt; it does not imply native
+Habitat/RLR execution. Consult `execution_mode` and `native_execution` for the
+actual layer status. Controlled retained materialization uses
+`verified_retained_evidence_materialization`.
 
 ## Lineage boundary
 
@@ -16,6 +20,9 @@ reports use `evidence_basis = audited_historical`; a fresh native run must use
 
 The MP3D raw scan and derived acoustic proxy share the same scene lineage. They
 remain separate acoustic representations and have separate qualification reports.
+The six attempt cases are four room lineages plus one additional representation
+and one non-room fixture: four visual rooms, MP3D raw/derived as two
+representations of one room, and the independent corrupted fixture.
 
 ## Current honest matrix
 
@@ -28,16 +35,16 @@ inspection may report its own result without promoting a native layer.
 | Room / representation | Evidence basis | Visual | Nav | Acoustic geometry | Material | Rays | Physical truth | Episode | Placement | Admission |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `blender_custom_two_zone_v1` | audited historical M1/M3/M5; current M6 native `not_run` | historical pass; current native `not_run` | historical pass; current native `not_run` | historical controlled pass; current native `not_run` | historical controlled pass; current native `not_run` | historical controlled pass; current native `not_run` | historical `controlled_profile` | historical M5 pass; formal M6 commit-bound canary pending | current `not_run` | false |
-| ReplicaCAD `apt_0` target proxy | current read-only provider resolution; current native `not_run` | resource resolved; native `not_run` | navmesh resolved; native `not_run` | proxy generation/native load `not_run` | `not_run` | `not_run` | unqualified | native `not_run` | `not_run` | false |
+| ReplicaCAD `apt_0` target proxy | development v2 native research review; formal A3 qualification pending | 270-frame native visual review pass | nav/route/LOS/semantic/furnished rigid-object root-center checks 19/19 pass | research RLR upload/render pass with stage surface only; topology fail after cleanup (10,629 duplicate triangles, 102 boundary edges, 8,097 nonmanifold edges) | `research_placeholder`; unqualified | `not_run` | unqualified | 18 s human/Beagle two-source research episode pass; both source event windows are non-silent | development root-center placement checks pass; full articulated collision and formal qualification remain pending | false |
 | Legacy UE Apartment real surface | audited historical migration plus current read-only package inspection; current native `not_run` | historical pass; current native `not_run` | historical pass; current native `not_run` | current static topology/parity gate fail; native load `not_run` | current placeholder/unqualified; native readback `not_run` | current native `not_run` | unqualified | historical research pass; current native `not_run` | current `not_run` | false |
 | MP3D raw source | immutable raw-resource/hash inspection plus historical M5.1 research evidence; current native `not_run` | historical pass; current native `not_run` | historical pass; current native `not_run` | current diagnostic fail: 458 zero-area faces; raw native upload historically failed | historical placeholder; current native readback `not_run` | current native `not_run` | unqualified | historical raw RLR fail; current native `not_run` | current `not_run` | false |
-| MP3D declared proxy v2 | current declared-derivation inspection plus historical research runtime evidence; current native `not_run` | inherited historical visual pass only | inherited historical nav pass only | derivation integrity pass; topology fail; historical solver load pass; current native `not_run` | placeholder/blocked; semantic mapping and current readback incomplete | current native `not_run` | unqualified | historical research pass only; current native `not_run` | current `not_run` | false |
+| MP3D declared proxy v2 | current read-only descriptor/package-closure inspection plus historical research runtime evidence; current native `not_run` | inherited historical visual pass only | inherited historical nav pass only | 13-file binding and declared derivation integrity pass in development; topology fail with 45 duplicate triangles, 8,339 boundary edges and 269 nonmanifold edges; current RLR upload `not_run` | triangle coverage exists, but qualification is blocked by `research_placeholder`; semantic mapping/readback incomplete | `not_run`; no scene-specific opening/enclosure checks | unqualified | historical research only; current native `not_run` | current `not_run` | false |
 | Independent corrupted fixture | current hermetic fixture evaluation; no native claim | n/a | n/a | fail by design | fail by design | fail by design | none | false | n/a | false |
 
 No `pass` in one dimension implies a single overall room pass. Historical
-research execution, current read-only qualification and current native
-execution are separate claims. `dataset_admission` is a separate fail-closed
-decision and remains false for every row in this snapshot.
+research execution, development native review, current formal qualification
+and release-layer execution are separate claims. `dataset_admission` is a
+separate fail-closed decision and remains false for every row in this snapshot.
 
 ## Provider API
 
@@ -61,10 +68,12 @@ acoustic = provider.acoustic_representation(
 )
 ```
 
-All existing inputs are resolved through the central
-`WorkspacePathPolicy`. Missing external roots are `blocked`; declared generated
-packages are `not_run`; hash mismatch or root escape is `fail`. Providers never
-fall back to private `/data/...` defaults.
+All existing inputs are resolved through the central `WorkspacePathPolicy`.
+Repository-relative and environment-backed resources resolve to `pass` only
+when their declared content matches. Missing required external roots are
+`blocked`; an unmaterialized generated output is `not_run`; a present hash
+mismatch, descriptor/package split root, provider-binding mismatch or root
+escape is `fail`. Providers never fall back to private `/data/...` defaults.
 
 ## Placement-feasibility API
 
@@ -114,7 +123,7 @@ report = build_qualification_report(
 Promotion requires `promote_if_eligible=True` and every required dimension,
 placement check, and acoustic diagnostic to pass with admissible material truth.
 
-For all four checked-in audit reports, the main native execution still needs to
+For all five checked-in qualification reports, the main native execution still needs to
 replace the empty `evidence_artifacts` array with current immutable artifact paths
 and SHA-256 values. In particular:
 
@@ -142,5 +151,6 @@ assert result.report["dataset_admission"] is False
 ```
 
 The fixture contains a zero-area face, material-count mismatch, fallback material,
-source-hash mismatch, and failed ray expectation. It is not a fifth real room and
-cannot be cleaned into admission by the report aggregator.
+source-hash mismatch, and failed ray expectation. It is not a room lineage at
+all; it is the sixth qualification case used solely to prove fail-closed
+behavior and cannot be cleaned into admission by the report aggregator.

@@ -14,6 +14,9 @@ from avengine.m5_1.delivery import (
     event_overlay_state,
     executable_event_mappings,
     semantic_centroid_track,
+    source_actor_binding_record,
+    validate_retained_acoustic_binding,
+    verify_source_event_audio_activity,
 )
 from avengine.m5_1.dry_audio import DryAudioClipSpec
 from avengine.m5_1.source_contracts import load_source_manifest
@@ -90,6 +93,142 @@ def test_executable_events_preserve_manifest_slice_and_add_gain_fade() -> None:
     assert dog["dry_clip_start_sample"] == 3200
     assert dog["dry_clip_end_sample_exclusive"] == 8000
     assert dog["fade_samples"] == 80
+
+    with pytest.raises(M51DeliveryError, match="finite and positive"):
+        executable_event_mappings(
+            source,
+            gain_by_source={"source0": 0.0, "source1": 0.12},
+            fade_samples=80,
+        )
+
+
+def test_replica_binding_requires_explicit_anchor_and_uses_route_semantics() -> None:
+    source = load_source_manifest(SOURCE_MANIFEST)
+    route = {
+        "route_id": "route",
+        "room_id": "room",
+        "routes": {"human0": {}, "dog0": {}},
+        "semantic_ids": {"human0": 810, "dog0": 811},
+    }
+    actors = [
+        {
+            "actor_id": "human0",
+            "actor_class": "human",
+            "emitter_link": "Bip01 MJaw",
+            "emitter_anchor_id": "human0.mouth_emitter",
+            "emitter_anchor_index": 1,
+            "semantic_id": 810,
+        },
+        {
+            "actor_id": "dog0",
+            "actor_class": "dog",
+            "emitter_link": "beagle Xtra Mouth",
+            "emitter_anchor_id": "dog0.mouth_emitter",
+            "emitter_anchor_index": 2,
+            "semantic_id": 811,
+        },
+    ]
+    record = source_actor_binding_record(
+        source, route, {"actors": actors}, room_family="replicacad"
+    )
+    assert record["bindings"]["source0"]["actor_id"] == "human0"
+    assert record["bindings"]["source1"]["semantic_id"] == 811
+
+    missing_anchor = [dict(actor) for actor in actors]
+    missing_anchor[1].pop("emitter_anchor_index")
+    with pytest.raises(M51DeliveryError, match="lacks emitter_anchor_index"):
+        source_actor_binding_record(
+            source,
+            route,
+            {"actors": missing_anchor},
+            room_family="replicacad",
+        )
+
+
+def test_each_source_event_requires_nonzero_dry_bus_and_binaural_stem() -> None:
+    source = {
+        "sources": [
+            {
+                "source_id": "source0",
+                "event_windows": [
+                    {"event_id": "speech", "start_frame": 1, "end_frame_exclusive": 3}
+                ],
+            },
+            {
+                "source_id": "source1",
+                "event_windows": [
+                    {"event_id": "bark", "start_frame": 1, "end_frame_exclusive": 3}
+                ],
+            },
+        ]
+    }
+    clip = DryAudioClipSpec.from_values(
+        frame_count=4,
+        fps_numerator=2,
+        sample_rate_hz=4,
+    )
+    dry = {source_id: np.ones(8) for source_id in ("source0", "source1")}
+    stems = {
+        source_id: np.ones((2, 8)) for source_id in ("source0", "source1")
+    }
+    result = verify_source_event_audio_activity(
+        source, clip, dry_buses=dry, binaural_stems=stems
+    )
+    assert result["source0"]["events"][0]["dry_peak_absolute"] == 1.0
+
+    stems["source1"][:, 2:6] = 0.0
+    with pytest.raises(M51DeliveryError, match="binaural stem is silent"):
+        verify_source_event_audio_activity(
+            source, clip, dry_buses=dry, binaural_stems=stems
+        )
+
+
+def test_acoustic_binding_rejects_wrong_source_room_or_capture() -> None:
+    expected = {
+        "expected_room_id": "replicacad_apt_0",
+        "expected_route_id": "route-v2",
+        "expected_request_id": "request-v1",
+        "expected_capture_evidence_sha256": "a" * 64,
+        "expected_capture_content_sha256": "b" * 64,
+        "expected_source_manifest_sha256": "c" * 64,
+        "expected_source_binding_sha256": "d" * 64,
+    }
+    evidence = {
+        "source_room": {"room_id": "replicacad_apt_0"},
+        "capture_binding": {
+            "room_id": expected["expected_room_id"],
+            "route_id": expected["expected_route_id"],
+            "request_id": expected["expected_request_id"],
+            "capture_evidence_sha256": expected[
+                "expected_capture_evidence_sha256"
+            ],
+            "capture_content_sha256": expected[
+                "expected_capture_content_sha256"
+            ],
+            "source_manifest_sha256": expected[
+                "expected_source_manifest_sha256"
+            ],
+            "source_actor_binding_content_sha256": expected[
+                "expected_source_binding_sha256"
+            ],
+        },
+    }
+    validate_retained_acoustic_binding(evidence, **expected)
+
+    wrong_room = dict(evidence)
+    wrong_room["source_room"] = {"room_id": "habitat_mp3d_example_17DRP5sb8fy"}
+    with pytest.raises(M51DeliveryError, match="source_room"):
+        validate_retained_acoustic_binding(wrong_room, **expected)
+
+    wrong_capture = {
+        **evidence,
+        "capture_binding": {
+            **evidence["capture_binding"],
+            "capture_evidence_sha256": "e" * 64,
+        },
+    }
+    with pytest.raises(M51DeliveryError, match="capture/route/source"):
+        validate_retained_acoustic_binding(wrong_capture, **expected)
 
 
 def test_binaural_frame_diagnostics_and_actual_trajectory_are_hash_bound() -> None:

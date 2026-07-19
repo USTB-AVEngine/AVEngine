@@ -8,6 +8,9 @@
     "schema",
     "run_id",
     "evidence_kind",
+    "execution_basis",
+    "status_scope",
+    "native_execution",
     "research_only",
     "qualification_claim",
     "dataset_admission",
@@ -29,6 +32,33 @@
         "room_qualification_attempt",
         "corrupted_fixture_negative"
       ]
+    },
+    "execution_basis": {
+      "enum": [
+        "verified_retained_evidence_materialization",
+        "current_native_execution",
+        "read_only_qualification_attempt",
+        "contract_fixture_evaluation"
+      ]
+    },
+    "status_scope": {
+      "enum": [
+        "semantic_materialization_verifier",
+        "native_execution_verifier",
+        "qualification_attempt_verifier",
+        "contract_fixture_evaluator"
+      ]
+    },
+    "native_execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["habitat_sim", "rlr_audio_propagation"],
+      "properties": {
+        "habitat_sim": {"enum": ["pass", "fail", "blocked", "not_run"]},
+        "rlr_audio_propagation": {
+          "enum": ["pass", "fail", "blocked", "not_run"]
+        }
+      }
     },
     "research_only": {"type": "boolean"},
     "qualification_claim": {"type": "boolean"},
@@ -66,9 +96,47 @@
         }
       }
     },
-    "overall_status": {"enum": ["pass", "fail", "blocked", "not_run"]},
+    "overall_status": {
+      "description": "Status of the verifier named by status_scope; it is not an implicit native-execution status.",
+      "enum": ["pass", "fail", "blocked", "not_run"]
+    },
     "evidence_content_sha256": {"$ref": "#/$defs/sha256"}
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_kind": {"const": "controlled_one_active_of_n"}
+        },
+        "required": ["evidence_kind"]
+      },
+      "then": {
+        "properties": {
+          "execution_basis": {
+            "const": "verified_retained_evidence_materialization"
+          },
+          "status_scope": {
+            "const": "semantic_materialization_verifier"
+          },
+          "research_only": {
+            "const": true
+          },
+          "qualification_claim": {
+            "const": false
+          },
+          "dataset_admission": {
+            "const": false
+          },
+          "native_execution": {
+            "properties": {
+              "habitat_sim": {"const": "not_run"},
+              "rlr_audio_propagation": {"const": "not_run"}
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

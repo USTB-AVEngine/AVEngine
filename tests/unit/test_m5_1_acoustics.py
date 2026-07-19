@@ -9,11 +9,191 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from avengine.contracts.json_io import canonical_json_sha256, sha256_file
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    load_json,
+    sha256_file,
+    write_json,
+)
 from avengine.m3.runtime import CompiledAcousticScene, RuntimeContractError
 from avengine.m4.runtime import M4SimulationConfig
 from avengine.m5.acoustics import DynamicRIRSequence, validate_acoustic_keyframes
 from avengine.m5_1 import acoustics
+import tools.m5_1.render_review_acoustics as review_acoustics
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+LEGACY_ROUTE_PATH = (
+    REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/route_manifest.json"
+)
+LEGACY_REQUEST_PATH = (
+    REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/m1_capture_request.json"
+)
+LEGACY_SOURCE_PATH = (
+    REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/source_manifest.json"
+)
+MP3D_ROUTE_PATH = (
+    REPOSITORY_ROOT / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
+)
+
+
+def _legacy_capture_contract_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path]:
+    repository = tmp_path / "portable_repository"
+    repository.mkdir()
+    monkeypatch.setattr(review_acoustics, "REPOSITORY", repository)
+
+    route_path = repository / "route_manifest.json"
+    request_path = repository / "m1_capture_request.json"
+    room_path = repository / "room_manifest.json"
+    route = load_json(LEGACY_ROUTE_PATH)
+    request = load_json(LEGACY_REQUEST_PATH)
+    write_json(route_path, route)
+    write_json(request_path, request)
+    write_json(
+        room_path,
+        {
+            "schema": "avengine_room_package_v1",
+            "room_id": request["room_id"],
+        },
+    )
+
+    camera_transform = request["primary_camera_rig"]["world_from_rig"]
+    evidence: dict = {
+        "schema": "avengine_m5_1_human_beagle_capture_v1",
+        "status": "pass",
+        "qualification_claim": False,
+        "inputs": {
+            "route_provenance": {
+                "route_id": route["route_id"],
+                "route_manifest_path": str(route_path.resolve()),
+                "route_manifest_sha256": sha256_file(route_path),
+                "path_consumption": (
+                    "verbatim_manifest_routes_habitat_trajectory_m"
+                ),
+                "human_habitat_trajectory_sha256": route["routes"][
+                    "human_path"
+                ]["habitat_trajectory_sha256"],
+                "dog_habitat_trajectory_sha256": route["routes"]["dog_path"][
+                    "habitat_trajectory_sha256"
+                ],
+            },
+            "m1_request": {
+                "path": str(request_path.resolve()),
+                "sha256": sha256_file(request_path),
+            },
+            "room_manifest": {
+                "path": str(room_path.resolve()),
+                "sha256": sha256_file(room_path),
+            },
+        },
+        "actors": [
+            {
+                "actor_id": "human0",
+                "actor_class": "human",
+                "emitter_link": "Bip01 MJaw",
+                "semantic_id": 220,
+            },
+            {
+                "actor_id": "dog0",
+                "actor_class": "dog",
+                "emitter_link": "beagle Xtra Mouth",
+                "semantic_id": 221,
+            },
+        ],
+        "anchor_order": [
+            "human0.head",
+            "human0.mouth_emitter",
+            "dog0.mouth_emitter",
+        ],
+        "camera": {
+            "position_m": camera_transform["translation_m"],
+            "rotation_xyzw": camera_transform["rotation_xyzw"],
+            "horizontal_fov_deg": request["primary_camera_rig"][
+                "shared_calibration"
+            ]["hfov_degrees"],
+        },
+    }
+    evidence["evidence_content_sha256"] = canonical_json_sha256(evidence)
+    evidence_path = repository / "capture_evidence.json"
+    write_json(evidence_path, evidence)
+    return evidence_path, route_path
+
+
+def test_legacy_apartment_capture_contract_uses_narrow_frozen_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence_path, _route_path = _legacy_capture_contract_fixture(
+        tmp_path, monkeypatch
+    )
+    contract = review_acoustics._capture_contract(
+        load_json(evidence_path),
+        capture_evidence_path=evidence_path,
+        source_manifest_path=LEGACY_SOURCE_PATH,
+    )
+
+    assert contract["room_family"] == "legacy_apartment"
+    assert contract["room_id"] == "legacy_ue_apartment_0000_v1"
+    assert contract["route_id"] == "m5_1_legacy_apartment_human_dog_18s_v1"
+    assert contract["request_id"] == "m5_1_legacy_apartment_view0_v1"
+    bindings = contract["source_actor_bindings"]
+    assert bindings["room_family"] == "legacy_apartment"
+    assert {
+        source_id: (
+            binding["actor_id"],
+            binding["emitter_anchor_index"],
+            binding["semantic_id"],
+        )
+        for source_id, binding in bindings["bindings"].items()
+    } == {
+        "source0": ("human0", 1, 220),
+        "source1": ("dog0", 2, 221),
+    }
+
+
+def test_legacy_apartment_capture_contract_rejects_route_byte_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence_path, _route_path = _legacy_capture_contract_fixture(
+        tmp_path, monkeypatch
+    )
+    evidence = load_json(evidence_path)
+    evidence["inputs"]["route_provenance"]["route_manifest_sha256"] = "0" * 64
+    evidence.pop("evidence_content_sha256")
+    evidence["evidence_content_sha256"] = canonical_json_sha256(evidence)
+    write_json(evidence_path, evidence)
+
+    with pytest.raises(RuntimeError, match="route manifest bytes differ"):
+        review_acoustics._capture_contract(
+            evidence,
+            capture_evidence_path=evidence_path,
+            source_manifest_path=LEGACY_SOURCE_PATH,
+        )
+
+
+def test_legacy_route_locator_adapter_cannot_weaken_modern_mp3d_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence_path, route_path = _legacy_capture_contract_fixture(
+        tmp_path, monkeypatch
+    )
+    modern_route = load_json(MP3D_ROUTE_PATH)
+    write_json(route_path, modern_route)
+    evidence = load_json(evidence_path)
+    provenance = evidence["inputs"]["route_provenance"]
+    provenance["route_id"] = modern_route["route_id"]
+    provenance["route_manifest_sha256"] = sha256_file(route_path)
+    evidence.pop("evidence_content_sha256")
+    evidence["evidence_content_sha256"] = canonical_json_sha256(evidence)
+    write_json(evidence_path, evidence)
+
+    with pytest.raises(RuntimeError, match="structured route record"):
+        review_acoustics._capture_contract(
+            evidence,
+            capture_evidence_path=evidence_path,
+            source_manifest_path=LEGACY_SOURCE_PATH,
+        )
 
 
 def _legacy_trajectories(frame_count: int = 270) -> dict[str, np.ndarray]:

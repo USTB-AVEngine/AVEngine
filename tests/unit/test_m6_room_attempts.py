@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 from pathlib import Path
 import shutil
 import subprocess
 from types import SimpleNamespace
 
-from avengine.contracts.json_io import canonical_json_sha256, load_json, write_json
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    file_record,
+    load_json,
+    sha256_file,
+    write_json,
+)
 from avengine.m6.room_attempts import (
     ATTEMPT_CASE_IDS,
     _declared_derivation_assessment,
     _formal_registry_git_binding,
     _git_provenance_observation,
+    _proxy_descriptor_assessment,
     run_room_qualification_attempt,
     verify_room_qualification_attempt,
 )
@@ -77,7 +85,21 @@ def test_minimal_attempt_is_complete_honest_and_fail_closed(tmp_path: Path) -> N
     status, checks = verify_room_qualification_attempt(manifest_path)
     manifest = load_json(manifest_path)
 
-    assert status == "pass", checks
+    # A clean checkout promotes this same minimal fixture into formal scope,
+    # where the intentionally absent materialized MP3D proxy must fail closed.
+    # In an ordinary dirty development checkout it remains a valid diagnostic
+    # attempt.  Keep both outcomes explicit instead of depending on how the
+    # surrounding repository happened to be invoked by pytest.
+    if manifest["code_provenance"]["worktree_clean"]:
+        assert status == "fail", checks
+        binding_check = next(
+            check
+            for check in checks
+            if check["check_id"] == "mp3d_materialized_proxy_binding"
+        )
+        assert binding_check["status"] == "fail"
+    else:
+        assert status == "pass", checks
     assert manifest["case_ids"] == list(ATTEMPT_CASE_IDS)
     assert len(manifest["reports"]) == 6
     assert manifest["claims"] == {
@@ -94,6 +116,21 @@ def test_minimal_attempt_is_complete_honest_and_fail_closed(tmp_path: Path) -> N
     assert fixture["dimensions"]["acoustic_geometry_status"]["status"] == "fail"
     assert fixture["dimensions"]["material_binding_status"]["status"] == "fail"
     assert fixture["dimensions"]["ray_leakage_status"]["status"] == "fail"
+    derived_observation = load_json(
+        manifest_path.parent / "observations/mp3d_17DRP5sb8fy_derived.json"
+    )
+    derived_report = load_json(
+        manifest_path.parent / "reports/mp3d_17DRP5sb8fy_derived.json"
+    )
+    binding_status = derived_observation["materialized_proxy_binding"]["status"]
+    assert binding_status == "blocked"
+    assert (
+        derived_report["dimensions"]["acoustic_geometry_status"]["status"]
+        == binding_status
+    )
+    assert "not assessed" in derived_report["dimensions"][
+        "acoustic_geometry_status"
+    ]["summary"]
 
 
 def test_attempt_verifier_detects_report_tamper(tmp_path: Path) -> None:
@@ -153,6 +190,30 @@ def test_attempt_verifier_rejects_self_claimed_registry_rebind(
     assert any(
         "observation registry SHA-256 differs" in error
         for error in report_check["measured"]["errors"]
+    )
+
+
+def test_formal_attempt_requires_materialized_mp3d_proxy_binding(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _run_minimal(tmp_path)
+    manifest = load_json(manifest_path)
+    manifest["code_provenance"]["worktree_clean"] = True
+    _rewrite_manifest(manifest_path, manifest)
+
+    status, checks = verify_room_qualification_attempt(manifest_path)
+
+    assert status == "fail"
+    binding_check = next(
+        check
+        for check in checks
+        if check["check_id"] == "mp3d_materialized_proxy_binding"
+    )
+    assert binding_check["status"] == "fail"
+    assert binding_check["measured"]["exact_binding_pass"] is False
+    assert any(
+        "requires an exact materialized" in error
+        for error in binding_check["measured"]["errors"]
     )
 
 
@@ -329,3 +390,188 @@ def test_declared_derivation_is_not_misclassified_by_raw_byte_parity() -> None:
     assert result["status"] == "pass"
     assert result["legacy_byte_parity_status"] == "fail"
     assert all(result["checks"].values())
+
+
+def test_materialized_proxy_descriptor_binds_exact_package_closure(
+    tmp_path: Path,
+) -> None:
+    raw_manifest = tmp_path / "raw/manifest.json"
+    write_json(raw_manifest, {"schema": "raw_fixture"})
+    package_root = tmp_path / "proxy"
+    manifest = package_root / "manifest.json"
+    cleanup = {
+        "policy": "m3_research_remove_geometry_qa_degenerate_triangles_v1",
+        "record_content_sha256": "1" * 64,
+        "removed_triangle_count": 1,
+        "removed_triangle_indices_sha256": "2" * 64,
+        "removed_triangle_area_max_m2": 0.0,
+        "source_triangle_count": 3,
+        "derived_triangle_count": 2,
+        "source_arrays": {
+            "vertices": "3" * 64,
+            "triangles": "4" * 64,
+            "triangle_material_ids": "5" * 64,
+        },
+        "derived_arrays": {
+            "vertices": "6" * 64,
+            "triangles": "7" * 64,
+            "triangle_material_ids": "8" * 64,
+        },
+    }
+    write_json(
+        manifest,
+        {
+            "package_id": "proxy_fixture",
+            "package_content_sha256": "9" * 64,
+            "materials": {"material_semantics": "research_placeholder"},
+            "source_room": {
+                "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+                "geometry_asset_sha256": "a" * 64,
+            },
+        },
+    )
+    write_json(
+        package_root / "qa/geometry_report.json",
+        {"research_cleanup": cleanup},
+    )
+    records = [
+        file_record(path, relative_to=package_root)
+        for path in sorted(path for path in package_root.rglob("*") if path.is_file())
+    ]
+    descriptor = {
+        "schema": "avengine_m6_derived_acoustic_proxy_v1",
+        "proxy_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+        "revision": "fixture_v2",
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "representation_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+        "artifact_uri": "artifact://fixture/proxy",
+        "source": {
+            "resource_id": "mp3d_raw_visual_surface",
+            "representation_id": "mp3d_17DRP5sb8fy_raw_source_v1",
+            "sha256": "a" * 64,
+            "raw_package_manifest_sha256": sha256_file(raw_manifest),
+        },
+        "derivation": {
+            "producer": "fixture:derive",
+            **{
+                key: cleanup[key]
+                for key in (
+                    "policy",
+                    "record_content_sha256",
+                    "removed_triangle_count",
+                    "removed_triangle_indices_sha256",
+                    "removed_triangle_area_max_m2",
+                    "source_triangle_count",
+                    "derived_triangle_count",
+                )
+            },
+            "source_array_hashes": cleanup["source_arrays"],
+            "derived_array_hashes": cleanup["derived_arrays"],
+        },
+        "package": {
+            "resource_id": "mp3d_declared_proxy_v2",
+            "package_id": "proxy_fixture",
+            "package_content_sha256": "9" * 64,
+            "manifest": file_record(manifest, relative_to=package_root),
+            "artifacts": records,
+            "artifact_set_sha256": canonical_json_sha256(records),
+        },
+        "qualification_claim": False,
+        "dataset_admission": False,
+    }
+    descriptor["descriptor_content_sha256"] = canonical_json_sha256(descriptor)
+    descriptor_path = tmp_path / "descriptor.json"
+    write_json(descriptor_path, descriptor)
+    room_record = {
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "resources": [
+            {
+                "resource_id": "mp3d_proxy_v2_descriptor",
+                "resource_type": "derived_proxy_descriptor",
+            }
+        ],
+        "acoustic_representations": [
+            {
+                "representation_id": "mp3d_17DRP5sb8fy_raw_source_v1",
+                "role": "raw_source",
+                "resource_id": "mp3d_raw_visual_surface",
+            },
+            {
+                "representation_id": "mp3d_17DRP5sb8fy_acoustic_proxy_v2",
+                "role": "derived_proxy",
+                "resource_id": "mp3d_declared_proxy_v2",
+                "producer": "fixture:derive",
+                "derived_from": "mp3d_17DRP5sb8fy_raw_source_v1",
+                "input_resource_ids": [
+                    "mp3d_raw_visual_surface",
+                    "mp3d_proxy_v2_descriptor",
+                ],
+                "material_semantics": "research_placeholder",
+            },
+        ],
+    }
+
+    result = _proxy_descriptor_assessment(
+        descriptor_path,
+        manifest,
+        raw_manifest,
+        provider_manifest_path=manifest,
+        provider_manifest_status="pass",
+        provider_representation_status="pass",
+        room_record=room_record,
+    )
+    assert result["status"] == "pass", result
+    assert result["artifact_count"] == 2
+    assert result["same_materialized_manifest"] is True
+
+    other_manifest = tmp_path / "other-proxy/manifest.json"
+    write_json(other_manifest, load_json(manifest))
+    split_root = _proxy_descriptor_assessment(
+        descriptor_path,
+        manifest,
+        raw_manifest,
+        provider_manifest_path=other_manifest,
+        provider_manifest_status="pass",
+        provider_representation_status="pass",
+        room_record=room_record,
+    )
+    assert split_root["status"] == "fail"
+    assert any("different manifests" in error for error in split_root["errors"])
+
+    wrong_contract = deepcopy(room_record)
+    wrong_contract["acoustic_representations"][1]["producer"] = "wrong:producer"
+    contract_result = _proxy_descriptor_assessment(
+        descriptor_path,
+        manifest,
+        raw_manifest,
+        provider_manifest_path=manifest,
+        provider_manifest_status="pass",
+        provider_representation_status="pass",
+        room_record=wrong_contract,
+    )
+    assert contract_result["status"] == "fail"
+    assert any("producer differs" in error for error in contract_result["errors"])
+
+    (package_root / "qa/geometry_report.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    tampered = _proxy_descriptor_assessment(
+        descriptor_path,
+        manifest,
+        raw_manifest,
+    )
+    assert tampered["status"] == "fail"
+    assert any("closure differs" in error for error in tampered["errors"])
+
+
+def test_proxy_resolution_failure_is_not_downgraded_to_not_run() -> None:
+    result = _proxy_descriptor_assessment(
+        None,
+        None,
+        None,
+        descriptor_resolution_status="fail",
+        provider_manifest_status="fail",
+        provider_representation_status="fail",
+    )
+
+    assert result["status"] == "fail"

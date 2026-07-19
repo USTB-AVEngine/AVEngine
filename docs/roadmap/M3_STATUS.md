@@ -75,22 +75,18 @@ artifact.
 | Formal run date | `2026-07-17` |
 | AVEngine implementation commit | `7a952ba6794e249db732855eaa32a7d720dfa60a` |
 | Habitat fork commit | `3a60c069514cd4d4987086c872deb0456ab831f1` |
-| Runtime-lock experiment-input SHA-256 | `b39f2ffe6e8427852ac802622957186fab972e26f58b4ee4df9ada76bc9023ac` |
-| Habitat native binding SHA-256 | `944f23e78af277301563874788020c4fe0bd993e93aa6dcd5516f237bbda196c` |
-| RLR native library SHA-256 | `31e948eef4908d8cbb403b5f445d9d0eab59fc81b05a658538f8795984f9bfb4` |
+| Historical runtime profile | [`locks/m3_runtime_v1.yaml`](../../locks/m3_runtime_v1.yaml) via the root index |
+| Native artifact authority | `runtime/canary_evidence.json` native-binary bundle record |
 | Compile evidence | `tmp/m3/formal_20260717_01/compile/compile_evidence.json` |
-| Compile evidence file SHA-256 | `3e1f3394bd86b2e0e31fc0720861bf162be80ada891bd77bd7a1fb625572af3f` |
-| Compile evidence content SHA-256 | `8c465b70d3dd95db38dc5eaa23b741b72b76b99baf6f905a313f601ad240b7ea` |
 | Native evidence | `tmp/m3/formal_20260717_01/runtime/canary_evidence.json` |
-| Native evidence file SHA-256 | `512039e604be98877b9a09cbe2b8e7cc2c8602a29baa16c194733e0ddb67afce` |
-| Native evidence content SHA-256 | `0e05110949fdd01032ac6b07631b7cf1f4fc484deedc23b8a8df5fd2bee10c5d` |
 | Independent verifier | `pass`; 39/39 required native checks, including 11/11 nested compile-replay checks |
 | M3 formal-run regression suite at commit `7a952ba6794e249db732855eaa32a7d720dfa60a` | `870 passed in 104.36s (0:01:44)` |
 
-`runtime.lock.yaml` is the immutable experiment input and runtime/version
-manifest for this formal run. The evidence binds its exact bytes at the
-SHA-256 above. Current milestone outcomes are recorded in this document and
-[MILESTONES.md](MILESTONES.md), not written back into the lock.
+The indexed M3 profile preserves the immutable experiment input and runtime
+versions for this formal run. Its machine-readable evidence owns the exact
+external binary and bundle identities; this page does not duplicate them.
+Current milestone outcomes are recorded here and in
+[MILESTONES.md](MILESTONES.md), not written back into a lock.
 
 ## Formal measurements
 

@@ -169,7 +169,7 @@ class RoomProvider:
         input_ids = tuple(representation["input_resource_ids"])
         input_statuses = [resolutions[resource_id].status for resource_id in input_ids]
         input_status = _aggregate_status(input_statuses)
-        if input_status in {"fail", "blocked"}:
+        if input_status in {"fail", "blocked", "not_run"}:
             reasons = [
                 f"{resource_id}: {resolutions[resource_id].reason}"
                 for resource_id in input_ids
@@ -220,16 +220,27 @@ class RoomProvider:
                     f"{build_mode} mode requires an explicit producer",
                     input_ids,
                 )
-            if output_resolution is not None and output_resolution.status == "pass":
-                return AcousticRepresentationResolution(
-                    representation_id,
-                    "pass",
-                    output_resolution.path,
-                    build_mode,
-                    producer,
-                    None,
-                    input_ids,
-                )
+            if output_resolution is not None:
+                if output_resolution.status == "pass":
+                    return AcousticRepresentationResolution(
+                        representation_id,
+                        "pass",
+                        output_resolution.path,
+                        build_mode,
+                        producer,
+                        None,
+                        input_ids,
+                    )
+                if output_resolution.status in {"fail", "blocked"}:
+                    return AcousticRepresentationResolution(
+                        representation_id,
+                        output_resolution.status,
+                        None,
+                        build_mode,
+                        producer,
+                        output_resolution.reason,
+                        input_ids,
+                    )
             return AcousticRepresentationResolution(
                 representation_id,
                 "not_run",

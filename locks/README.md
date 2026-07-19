@@ -1,9 +1,20 @@
-# Historical Runtime Locks
+# Historical Runtime Profiles
 
-Files in this directory and root [`runtime.lock.yaml`](../runtime.lock.yaml)
-are immutable inputs or receipts for already-recorded milestone evidence. They
-answer which bytes an earlier M2/M3/M4/M5 result used; they are not a mutable
-description of the newest source tree.
+Root [`runtime.lock.yaml`](../runtime.lock.yaml) is a lightweight,
+Git-tracked compatibility index. It contains no test outcomes, native-binary
+hashes or duplicated evidence identities. M1--M4 consumers resolve one explicit
+milestone profile from that index:
+
+- [`m1_runtime_v1.yaml`](m1_runtime_v1.yaml)
+- [`m2_runtime_v1.yaml`](m2_runtime_v1.yaml)
+- [`m3_runtime_v1.yaml`](m3_runtime_v1.yaml)
+- [`m4_runtime_v1.json`](m4_runtime_v1.json)
+
+The M1--M3 files preserve the exact historical lock bytes used by already
+recorded evidence. Their old status/test fields are archival compatibility data,
+not current project status. Do not copy those fields into the root index,
+README prose or a new release manifest. M4 already used a dedicated bounded
+runtime profile.
 
 The only current cross-repository release authority is:
 
@@ -11,22 +22,25 @@ The only current cross-repository release authority is:
 release/avengine_release_manifest_v1.json
 ```
 
-If that file is absent or invalid, release state is pending. Its schema and
-verifier can exist before a release candidate, but neither constitutes a
-release. A valid manifest must bind the AVEngine implementation commit, Habitat fork commit,
-upstream Habitat commit, RLR commit, schema set, native binaries, environment,
-test-layer statuses, evidence bundles and annotated release tag.
+If that file is absent or invalid, release state is pending. A valid manifest
+binds current repository commits, environment versions and only those external
+result-changing bundles required by the release.
 
-Rules:
+Identity rules:
 
-- Do not edit a historical lock to match a newer commit or binary.
-- Do not use a historical `pass` as evidence for an unrun current test layer.
-- If a historical artifact is retained by a new release, reference its exact
-  hash from the release manifest and label its evidence basis explicitly.
-- If a runtime changes, create a new release manifest or a new versioned
-  historical lock; never rewrite the old record.
-- README and roadmap prose may explain evidence, but they never override the
-  machine-readable current manifest.
+- Git commits identify checked-in source, schemas, configuration and the
+  historical profile files themselves. Do not repeat their content hashes in
+  the root index or human-facing status pages.
+- Environment records use explicit tool/package versions.
+- External assets, generated closures, precompiled native artifacts and formal
+  evidence each expose one authoritative logical bundle identity. Leaf hashes
+  may remain inside that bundle's machine-readable closure but are not copied
+  into unrelated locks.
+- Do not use an archived `pass` as evidence for an unrun current test layer.
+- Do not rewrite a historical profile to match a newer commit or binary.
+  Current work belongs in the release manifest or a newly versioned profile.
+- README and roadmap prose may explain scope, but never override the current
+  manifest or promote historical evidence.
 
-The apparent mismatch between an old lock's milestone name and current code is
-therefore expected. It is provenance, not a feature flag or a runtime gate.
+The mismatch between an archived profile and current code is expected. These
+profiles are compatibility inputs, not feature flags or current runtime gates.
