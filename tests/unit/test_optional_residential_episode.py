@@ -120,7 +120,9 @@ def test_actor_yaw_tracks_opposite_motion_and_events_overlap() -> None:
         item["actor_id"]: item
         for item in result["visual_plan"]["frames"][0]["actor_states"]
     }
-    assert states["dog0"]["actor_yaw_ue_deg"] == pytest.approx(-90.0)
+    # The shared imported Beagle Blueprint faces actor-local -X, so its actor
+    # root is rotated 180 degrees from the source GLB's +X anatomical frame.
+    assert states["dog0"]["actor_yaw_ue_deg"] == pytest.approx(90.0)
     assert states["human0"]["actor_yaw_ue_deg"] == pytest.approx(0.0)
     assert any(
         dog and human

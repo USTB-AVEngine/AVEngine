@@ -42,6 +42,7 @@ ANIMATION_TOLERANCE_SECONDS = 1.0e-4
 COMPONENT_TRANSFORM_TOLERANCE = 1.0e-3
 BEAGLE_FLOOR_TOLERANCE_CM = 1.25
 BEAGLE_HORIZONTAL_TO_VERTICAL_MIN_RATIO = 1.05
+ANATOMICAL_FORWARD_TOLERANCE_DEGREES = 25.0
 COMPONENT_FRAME_DELTA_SCHEMA = "avengine_spear_component_frame_delta_v1"
 LIGHTING_PROFILE_SCHEMA = "avengine_optional_spear_apartment_lighting_profiles_v1"
 
@@ -87,8 +88,10 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
         "walking_animation": (
             f"/Game/MyAssets/Audioset/Meshes/gate_{BEAGLE_TAG}/Walking.Walking"
         ),
-        # The imported Beagle's anatomical forward is UE actor-local +X.
-        "ue_anatomical_forward_yaw_deg": 0.0,
+        # Runtime bone-basis readback shows that this imported Blueprint's
+        # nose points along UE actor-local -X after its asset-frame correction.
+        # This is independent of the source GLB's Habitat-local +X forward.
+        "ue_anatomical_forward_yaw_deg": 180.0,
         # The exact M2 GLB imports with Z-up interpreted as a standing local
         # mesh frame in UE.  This is an asset-local visual correction only:
         # it is added to (never replaces) the Blueprint component transform,
@@ -1039,6 +1042,117 @@ def summarize_actor_bounds(
     return summaries
 
 
+def summarize_anatomical_forward_readbacks(
+    *,
+    expected_frames: Sequence[Mapping[str, Any]],
+    visual_forward_readbacks: Mapping[str, Sequence[Mapping[str, Any]]],
+    tolerance_degrees: float = ANATOMICAL_FORWARD_TOLERANCE_DEGREES,
+) -> dict[str, Any]:
+    """Fail when a rendered skeleton faces away from its declared forward.
+
+    Root-yaw readback alone can only prove that UE accepted the requested
+    actor transform.  It cannot prove that an imported mesh's head is on the
+    declared side of that local frame.  The optional runtime therefore samples
+    a semantic skeletal basis and compares its world-space forward vector with
+    the authoritative per-frame anatomical forward from Timeline v2.
+    """
+
+    if not expected_frames:
+        raise SpearApartmentError("anatomical-forward readback needs frames")
+    if (
+        isinstance(tolerance_degrees, bool)
+        or not isinstance(tolerance_degrees, (int, float))
+        or not math.isfinite(float(tolerance_degrees))
+        or not 0.0 < float(tolerance_degrees) < 90.0
+    ):
+        raise SpearApartmentError(
+            "anatomical-forward tolerance must be finite and between 0 and 90"
+        )
+    expected_actor_ids = {
+        state["actor_id"] for state in expected_frames[0]["actor_states"]
+    }
+    if set(visual_forward_readbacks) != expected_actor_ids:
+        raise SpearApartmentError(
+            "anatomical-forward actor closure differs from Timeline"
+        )
+
+    summaries: dict[str, Any] = {}
+    for actor_id in sorted(expected_actor_ids):
+        records = visual_forward_readbacks[actor_id]
+        if not records:
+            raise SpearApartmentError(
+                f"{actor_id} has no anatomical-forward readback"
+            )
+        angular_errors = []
+        sampled_frames = []
+        basis_kinds = set()
+        bone_name_sets = []
+        for record in records:
+            frame_index = record.get("frame_index")
+            if (
+                isinstance(frame_index, bool)
+                or not isinstance(frame_index, int)
+                or not 0 <= frame_index < len(expected_frames)
+                or frame_index in sampled_frames
+            ):
+                raise SpearApartmentError(
+                    f"{actor_id} anatomical-forward frame indices are invalid"
+                )
+            state = next(
+                value
+                for value in expected_frames[frame_index]["actor_states"]
+                if value["actor_id"] == actor_id
+            )
+            expected = _finite_triplet(
+                state.get("anatomical_forward_ue_world"),
+                owner=f"{actor_id} expected anatomical forward",
+            )
+            observed = _finite_triplet(
+                record.get("forward_vector_ue"),
+                owner=f"{actor_id} observed anatomical forward",
+            )
+            expected_yaw = math.degrees(math.atan2(expected[1], expected[0]))
+            observed_yaw = math.degrees(math.atan2(observed[1], observed[0]))
+            if math.hypot(expected[0], expected[1]) < 1.0e-6 or math.hypot(
+                observed[0], observed[1]
+            ) < 1.0e-6:
+                raise SpearApartmentError(
+                    f"{actor_id} anatomical forward lacks a horizontal direction"
+                )
+            angular_errors.append(
+                abs(wrap_angle_difference_degrees(observed_yaw, expected_yaw))
+            )
+            sampled_frames.append(frame_index)
+            basis_kind = record.get("basis_kind")
+            if not isinstance(basis_kind, str) or not basis_kind:
+                raise SpearApartmentError(
+                    f"{actor_id} anatomical-forward basis kind is missing"
+                )
+            basis_kinds.add(basis_kind)
+            bone_names = record.get("bone_names")
+            if not isinstance(bone_names, Mapping) or not bone_names:
+                raise SpearApartmentError(
+                    f"{actor_id} anatomical-forward bone names are missing"
+                )
+            bone_name_sets.append(dict(bone_names))
+
+        maximum_error = max(angular_errors)
+        if maximum_error > float(tolerance_degrees):
+            raise SpearApartmentError(
+                f"{actor_id} rendered skeleton faces away from Timeline motion: "
+                f"maximum error {maximum_error:.3f} degrees"
+            )
+        summaries[actor_id] = {
+            "status": "pass",
+            "sampled_frame_indices": sampled_frames,
+            "maximum_angular_error_deg": maximum_error,
+            "tolerance_deg": float(tolerance_degrees),
+            "basis_kinds": sorted(basis_kinds),
+            "bone_names": bone_name_sets,
+        }
+    return summaries
+
+
 def _h264_encoder_arguments(
     video_encoder: str, *, encoder_gpu: int | None
 ) -> list[str]:
@@ -1180,6 +1294,7 @@ def detached_suite_copy(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
+    "ANATOMICAL_FORWARD_TOLERANCE_DEGREES",
     "ANIMATION_TOLERANCE_SECONDS",
     "BACKEND_ROLE",
     "CAMERA_WARMUP_FRAMES",
@@ -1220,5 +1335,6 @@ __all__ = [
     "read_ue_component_relative_transform",
     "summarize_root_readbacks",
     "summarize_actor_bounds",
+    "summarize_anatomical_forward_readbacks",
     "wrap_angle_difference_degrees",
 ]

@@ -401,18 +401,20 @@ PYTHONPATH=src /data/jzy/miniconda3/envs/spear-env/bin/python \
   --video-encoder h264_nvenc
 ```
 
-The retained accelerated run is
-`tmp/m7/apartment_four_motion_ue_nvenc_20260720_01`. It produced all four
-1280x720 RGB+binaural and 1280x480 RGB+Topdown+binaural outputs in 100.54
-seconds, versus 348.67 seconds with the software x264 path on the immediately
-preceding run (3.47x faster for the UE stage). Each UE capture itself took
-13.53--15.01 seconds; both H.264 encodes together fell to 2.46--3.12 seconds
-per sample. The receipt deliberately excludes the already completed
-Habitat/RLR stage. A fully fresh run of both current stages would still take
-about 826 seconds for four samples, so this result does not yet authorize the
-1,000-sample run. The remaining priority is to replace the redundant full
-Habitat RGB/semantic capture with an articulated-pose/emitter-anchor path,
-share the fixed-room qualification, and cache repeated RIR states.
+The retained accelerated and direction-corrected run is
+`tmp/m7/apartment_four_motion_ue_nvenc_forwardfix_20260720_02`. It produced all
+four 1280x720 RGB+binaural and 1280x480 RGB+Topdown+binaural outputs in 105.47
+seconds. The earlier 100.54-second NVENC run used the wrong Beagle UE-local
+forward declaration and is not visual review authority. The corrected runner
+now samples the rendered semantic skeleton at frames 0, 37 and 74 and compares
+its world-space anatomical forward with Timeline v2; the Beagle maximum error
+was 1.31 degrees in both moving directions. The receipt deliberately excludes
+the already completed Habitat/RLR stage. A fully fresh run of both current
+stages would still take about 831 seconds for four samples, so this result does
+not yet authorize the 1,000-sample run. The remaining priority is to replace
+the redundant full Habitat RGB/semantic capture with an
+articulated-pose/emitter-anchor path, share the fixed-room qualification, and
+cache repeated RIR states.
 
 The first part of that upstream optimization is now implemented as a generic
 asset/action/sample emitter-anchor profile. It does not contain dog-, cat- or

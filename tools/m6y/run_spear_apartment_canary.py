@@ -41,6 +41,7 @@ from avengine.optional_backends.spear_apartment import (
     build_topdown_visual_command,
     load_apartment_lighting_profile,
     summarize_actor_bounds,
+    summarize_anatomical_forward_readbacks,
     summarize_root_readbacks,
 )
 
@@ -61,6 +62,7 @@ REQUIRED_SAMPLE_OUTPUTS = (
 )
 INITIALIZE_CLIENT_MAX_TIME_SECONDS = 600.0
 CLIENT_INTERNAL_TIMEOUT_SECONDS = 60.0
+ANATOMICAL_FORWARD_SAMPLE_FRAMES = (0, FRAME_COUNT // 2, FRAME_COUNT - 1)
 
 
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -252,6 +254,33 @@ def _load_skeletal_component(game: Any, actor: Any, spear_root: Path) -> Any:
     if component is None:
         raise RuntimeError("spawned actor has no populated SkeletalMeshComponent")
     return component
+
+
+def _sample_anatomical_forward(
+    game: Any, actor: Any, frame_index: int
+) -> dict[str, Any]:
+    """Read the rendered skeleton's semantic forward inside an active frame."""
+
+    from rig_direction_check import sample_body_basis_in_frame
+
+    diagnostics: list[dict[str, Any]] = []
+    basis = sample_body_basis_in_frame(
+        actor,
+        unreal_service=game.unreal_service,
+        diagnostics=diagnostics,
+    )
+    if basis is None:
+        raise RuntimeError(
+            "could not derive rendered anatomical forward at frame "
+            f"{frame_index}: {diagnostics}"
+        )
+    return {
+        "frame_index": frame_index,
+        "basis_kind": basis["basis_kind"],
+        "forward_vector_ue": basis["forward_vector_ue"],
+        "forward_yaw_ue_deg": basis["forward_yaw_ue_deg"],
+        "bone_names": basis["bone_names"],
+    }
 
 
 def _spawn_runtime_actors(
@@ -584,6 +613,7 @@ def _resolve_bundle_path(
 def _render_scenario(
     *,
     instance: Any,
+    game: Any,
     camera: Any,
     capture: Any,
     runtimes: Mapping[str, dict[str, Any]],
@@ -621,6 +651,7 @@ def _render_scenario(
     actor_readbacks = {actor_id: [] for actor_id in runtimes}
     animation_readbacks = {actor_id: [] for actor_id in runtimes}
     actor_bounds = {actor_id: [] for actor_id in runtimes}
+    visual_forward_readbacks = {actor_id: [] for actor_id in runtimes}
     camera_readbacks = []
     for frame_index, frame in enumerate(plan["frames"]):
         with instance.begin_frame():
@@ -631,6 +662,14 @@ def _render_scenario(
                 )
                 actor_readbacks[actor_id].append(root_record)
                 animation_readbacks[actor_id].append(animation_record)
+                if frame_index in ANATOMICAL_FORWARD_SAMPLE_FRAMES:
+                    visual_forward_readbacks[actor_id].append(
+                        _sample_anatomical_forward(
+                            game,
+                            runtimes[actor_id]["visual_actor"],
+                            frame_index,
+                        )
+                    )
             _apply_camera(camera, camera_plan)
             camera_readbacks.append(_actor_readback(camera, frame_index))
         with instance.end_frame():
@@ -660,6 +699,7 @@ def _render_scenario(
             "camera_root": camera_readbacks,
             "animation_phase": animation_readbacks,
             "visual_bounds": actor_bounds,
+            "visual_anatomical_forward": visual_forward_readbacks,
         },
     )
 
@@ -685,6 +725,10 @@ def _render_scenario(
         expected_frames=plan["frames"],
         actor_declarations=plan["actors"],
         actor_bounds=actor_bounds,
+    )
+    anatomical_forward_gate = summarize_anatomical_forward_readbacks(
+        expected_frames=plan["frames"],
+        visual_forward_readbacks=visual_forward_readbacks,
     )
     phase_wall_seconds["runtime_readback_and_gate"] = _elapsed_seconds(phase_started)
 
@@ -795,6 +839,7 @@ def _render_scenario(
             actor_id: runtime["hierarchy"] for actor_id, runtime in runtimes.items()
         },
         "visual_bounds_readback": bounds_gate,
+        "visual_anatomical_forward_readback": anatomical_forward_gate,
         "media": media,
         "audio_authority": {
             "status": "pass",
@@ -1056,6 +1101,7 @@ def run(args: argparse.Namespace) -> Path:
             try:
                 record = _render_scenario(
                     instance=instance,
+                    game=game,
                     camera=camera,
                     capture=capture,
                     runtimes=runtimes,

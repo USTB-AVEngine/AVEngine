@@ -48,11 +48,17 @@ def _plan(scenario_id: str = "S3") -> dict:
                         "actor_id": "dog0",
                         "translation_ue_cm": [1.0, 2.0, 27.1],
                         "actor_yaw_ue_deg": -90.0,
+                        "anatomical_forward_ue_world": [0.0, -1.0, 0.0],
                     },
                     {
                         "actor_id": "human0",
                         "translation_ue_cm": [3.0 + frame_index, 4.0, 27.1],
                         "actor_yaw_ue_deg": -145.0,
+                        "anatomical_forward_ue_world": [
+                            0.573576436,
+                            -0.819152044,
+                            0.0,
+                        ],
                     },
                 ],
             }
@@ -456,7 +462,7 @@ def test_default_asset_forward_bindings_are_explicit() -> None:
         apartment.DEFAULT_ACTOR_BINDINGS[apartment.BEAGLE_ASSET_ID][
             "ue_anatomical_forward_yaw_deg"
         ]
-        == 0.0
+        == 180.0
     )
     assert (
         apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID][
@@ -622,4 +628,42 @@ def test_visual_bounds_gate_proves_beagle_floor_contact_and_horizontal_frame() -
             expected_frames=plan["frames"],
             actor_declarations=plan["actors"],
             actor_bounds=drifted,
+        )
+
+
+def test_anatomical_forward_gate_rejects_a_visually_reversed_skeleton() -> None:
+    plan = _plan()
+    readbacks = {
+        "dog0": [
+            {
+                "frame_index": frame_index,
+                "basis_kind": "prefixed_bip_quadruped_longitudinal_v1",
+                "forward_vector_ue": [0.0, -1.0, 0.0],
+                "bone_names": {"rear": "beagle Pelvis", "front": "beagle Spine2"},
+            }
+            for frame_index in (0, 37, 74)
+        ],
+        "human0": [
+            {
+                "frame_index": frame_index,
+                "basis_kind": "humanoid_semantic_v1",
+                "forward_vector_ue": [0.573576436, -0.819152044, 0.0],
+                "bone_names": {"pelvis": "Bip01 Pelvis", "spine": "Bip01 Spine2"},
+            }
+            for frame_index in (0, 37, 74)
+        ],
+    }
+    summary = apartment.summarize_anatomical_forward_readbacks(
+        expected_frames=plan["frames"],
+        visual_forward_readbacks=readbacks,
+    )
+    assert summary["dog0"]["status"] == "pass"
+    assert summary["dog0"]["maximum_angular_error_deg"] == pytest.approx(0.0)
+
+    reversed_readbacks = deepcopy(readbacks)
+    reversed_readbacks["dog0"][1]["forward_vector_ue"] = [0.0, 1.0, 0.0]
+    with pytest.raises(apartment.SpearApartmentError, match="faces away"):
+        apartment.summarize_anatomical_forward_readbacks(
+            expected_frames=plan["frames"],
+            visual_forward_readbacks=reversed_readbacks,
         )
