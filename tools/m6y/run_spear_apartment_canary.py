@@ -38,6 +38,7 @@ from avengine.optional_backends.spear_apartment import (
     build_native_apartment_suite,
     build_png_encode_command,
     build_topdown_binaural_command,
+    load_apartment_lighting_profile,
     summarize_actor_bounds,
     summarize_root_readbacks,
 )
@@ -46,9 +47,12 @@ from avengine.optional_backends.spear_apartment import (
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE = REPOSITORY / "tmp/m6x/fixed_apartment_canary_20260720_02"
 DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
+DEFAULT_LIGHTING_PROFILES = (
+    REPOSITORY / "examples/m6y/spear_apartment_lighting_profiles.json"
+)
 CAMERA_BLUEPRINT = "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C"
 CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
-EVIDENCE_SCHEMA = "avengine_optional_spear_apartment_runtime_evidence_v1"
+EVIDENCE_SCHEMA = "avengine_optional_spear_apartment_runtime_evidence_v2"
 INITIALIZE_CLIENT_MAX_TIME_SECONDS = 600.0
 CLIENT_INTERNAL_TIMEOUT_SECONDS = 60.0
 
@@ -146,6 +150,72 @@ def _spawn_camera(game: Any) -> tuple[Any, Any]:
     if abs(observed_fov - 105.0) > 1.0e-4:
         raise RuntimeError(f"camera HFOV readback {observed_fov} != 105")
     return camera, capture
+
+
+def _spawn_generated_lights(
+    game: Any, lighting_profile: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Spawn and read back the profile's visual-only soft point lights."""
+
+    records = []
+    for light in lighting_profile["generated_lights"]:
+        position = light["position_ue_cm"]
+        actor = game.unreal_service.spawn_actor(
+            uclass="APointLight",
+            location={"X": position[0], "Y": position[1], "Z": position[2]},
+        )
+        if actor is None:
+            raise RuntimeError(f"could not spawn generated light {light['light_id']}")
+        actor.K2_GetRootComponent().SetMobility(NewMobility="Movable")
+        component = game.unreal_service.get_component_by_class(
+            actor=actor, uclass="UPointLightComponent"
+        )
+        component.SetIntensity(NewIntensity=light["intensity_lumens"])
+        component.SetAttenuationRadius(NewRadius=light["attenuation_radius_cm"])
+        component.SetCastShadows(bNewValue=light["cast_shadows"])
+        component.set_property_value(
+            property_name="SourceRadius", property_value=light["source_radius_cm"]
+        )
+        component.set_property_value(
+            property_name="SoftSourceRadius",
+            property_value=light["soft_source_radius_cm"],
+        )
+        component.set_property_value(
+            property_name="bUseTemperature", property_value=True
+        )
+        component.set_property_value(
+            property_name="Temperature",
+            property_value=light["temperature_kelvin"],
+        )
+        record = {
+            **light,
+            "location_readback_cm": _struct_components(
+                actor.K2_GetActorLocation(as_dict=True), ("x", "y", "z")
+            ),
+            "intensity_readback_lumens": float(
+                component.get_property_value(property_name="Intensity")
+            ),
+            "attenuation_readback_cm": float(
+                component.get_property_value(property_name="AttenuationRadius")
+            ),
+            "temperature_readback_kelvin": float(
+                component.get_property_value(property_name="Temperature")
+            ),
+            "cast_shadows_readback": bool(
+                component.get_property_value(property_name="CastShadows")
+            ),
+        }
+        if max(
+            abs(record["location_readback_cm"][axis] - position[axis])
+            for axis in range(3)
+        ) > 1.0e-3:
+            raise RuntimeError(f"generated light {light['light_id']} moved")
+        if abs(
+            record["intensity_readback_lumens"] - light["intensity_lumens"]
+        ) > 1.0e-3:
+            raise RuntimeError(f"generated light {light['light_id']} intensity drifted")
+        records.append(record)
+    return records
 
 
 def _read_frame(capture: Any) -> Any:
@@ -820,8 +890,13 @@ def _cleanup_failed_constructor(
 def run(args: argparse.Namespace) -> Path:
     bundle_root = args.bundle_root.resolve()
     scenarios = tuple(args.scenario or ("S0", "S3", "S4"))
+    lighting_profile = load_apartment_lighting_profile(
+        args.lighting_profiles, args.lighting_profile
+    )
     suite = build_native_apartment_suite(
-        bundle_root, scenario_ids=scenarios
+        bundle_root,
+        scenario_ids=scenarios,
+        lighting_profile=lighting_profile,
     )
     _assert_suite_actor_binding_closure(suite)
 
@@ -839,10 +914,12 @@ def run(args: argparse.Namespace) -> Path:
     game = instance.get_game()
     scenario_records = []
     startup_evidence: dict[str, Any] = {}
+    light_records: list[dict[str, Any]] = []
     try:
         first = suite["scenarios"][0]
         with instance.begin_frame():
             camera, capture = _spawn_camera(game)
+            light_records = _spawn_generated_lights(game, lighting_profile)
             _apply_camera(camera, first["plan"]["camera"])
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
@@ -894,10 +971,13 @@ def run(args: argparse.Namespace) -> Path:
         "status": "pass",
         "backend_role": "comparison_visual",
         "native_map": NATIVE_APARTMENT_MAP,
+        "lighting_profile": lighting_profile,
+        "runtime_generated_lights": light_records,
         "native_scene_policy": {
             "map_geometry_mutated": False,
             "map_lighting_mutated": False,
-            "additional_lights_spawned": False,
+            "native_map_lighting_retained": True,
+            "additional_lights_spawned": bool(light_records),
             "additional_hdri_or_window_proxy_spawned": False,
             "actor_collision_enabled": False,
         },
@@ -926,6 +1006,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle-root", type=Path, default=DEFAULT_BUNDLE)
     parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument(
+        "--lighting-profiles", type=Path, default=DEFAULT_LIGHTING_PROFILES
+    )
+    parser.add_argument(
+        "--lighting-profile",
+        help="Profile id; omitted uses default_profile_id from the JSON file.",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
         "--scenario",

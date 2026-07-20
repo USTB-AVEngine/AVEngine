@@ -16,6 +16,8 @@
     "human0": 1.60
   },
   "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_live_v2",
+  "lighting_profile_id": "kujiale_native_plus_fixture_fill_v1",
+  "lighting_claim_boundary": "Native InteriorAgent rendering scope plus explicit visual-only movable fixture lights; not reconstructed physical lighting or acoustic truth.",
   "review_lights": [
     {
       "attenuation_radius_m": 4.5,

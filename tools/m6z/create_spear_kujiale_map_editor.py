@@ -36,8 +36,19 @@ level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 if not level_subsystem.new_level(map_path):
     raise RuntimeError(f"could not create level: {map_path}")
 
+usd_stage_actor_class = getattr(unreal, "UsdStageActor", None)
+if usd_stage_actor_class is None:
+    # UE 5.5's MinimalAPI USD class is not exposed as a generated Python
+    # attribute in every headless editor launch, but the native class remains
+    # loadable by its stable script path.
+    usd_stage_actor_class = unreal.load_class(
+        None, "/Script/USDStage.UsdStageActor"
+    )
+if usd_stage_actor_class is None:
+    raise RuntimeError("could not load /Script/USDStage.UsdStageActor")
+
 actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
-    unreal.UsdStageActor,
+    usd_stage_actor_class,
     unreal.Vector(0.0, 0.0, 0.0),
     unreal.Rotator(0.0, 0.0, 0.0),
 )

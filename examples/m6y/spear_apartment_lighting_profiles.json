@@ -1,0 +1,39 @@
+{
+  "schema": "avengine_optional_spear_apartment_lighting_profiles_v1",
+  "default_profile_id": "warm_indoor_fill",
+  "profiles": [
+    {
+      "profile_id": "native",
+      "label": "Unmodified native Apartment lighting",
+      "generated_lights": [],
+      "claim_boundary": "Native SPEAR Apartment map lighting, exterior and post-process only."
+    },
+    {
+      "profile_id": "warm_indoor_fill",
+      "label": "Native Apartment plus two soft warm indoor fill lights",
+      "generated_lights": [
+        {
+          "light_id": "kitchen_soft_fill",
+          "position_ue_cm": [-220.0, -45.0, 250.0],
+          "intensity_lumens": 450.0,
+          "attenuation_radius_cm": 500.0,
+          "temperature_kelvin": 4200.0,
+          "source_radius_cm": 15.0,
+          "soft_source_radius_cm": 75.0,
+          "cast_shadows": true
+        },
+        {
+          "light_id": "dining_soft_fill",
+          "position_ue_cm": [-105.0, -180.0, 250.0],
+          "intensity_lumens": 350.0,
+          "attenuation_radius_cm": 450.0,
+          "temperature_kelvin": 4000.0,
+          "source_radius_cm": 15.0,
+          "soft_source_radius_cm": 70.0,
+          "cast_shadows": true
+        }
+      ],
+      "claim_boundary": "Visual-only generated fill lights layered on the unchanged native map; not reconstructed physical lighting and not acoustic truth."
+    }
+  ]
+}

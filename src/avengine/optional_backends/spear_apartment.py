@@ -13,6 +13,7 @@ the small script in ``tools/m6y/run_spear_apartment_canary.py``.
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -42,6 +43,15 @@ COMPONENT_TRANSFORM_TOLERANCE = 1.0e-3
 BEAGLE_FLOOR_TOLERANCE_CM = 1.25
 BEAGLE_HORIZONTAL_TO_VERTICAL_MIN_RATIO = 1.05
 COMPONENT_FRAME_DELTA_SCHEMA = "avengine_spear_component_frame_delta_v1"
+LIGHTING_PROFILE_SCHEMA = "avengine_optional_spear_apartment_lighting_profiles_v1"
+
+
+NATIVE_LIGHTING_PROFILE: Mapping[str, Any] = {
+    "profile_id": "native",
+    "label": "Unmodified native Apartment lighting",
+    "generated_lights": [],
+    "claim_boundary": "native SPEAR map lighting and post-process only",
+}
 
 
 SCENARIO_DIRECTORIES: Mapping[str, tuple[str, str]] = {
@@ -113,6 +123,129 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
 
 class SpearApartmentError(ValueError):
     """The native Apartment comparison cannot preserve its authority boundary."""
+
+
+def _finite_scalar(value: Any, *, owner: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SpearApartmentError(f"{owner} must be finite")
+    result = float(value)
+    if not math.isfinite(result):
+        raise SpearApartmentError(f"{owner} must be finite")
+    return result
+
+
+def resolve_apartment_lighting_profile(
+    document: Mapping[str, Any], profile_id: str | None = None
+) -> dict[str, Any]:
+    """Resolve one small visual-only runtime-light preset from JSON data."""
+
+    if document.get("schema") != LIGHTING_PROFILE_SCHEMA:
+        raise SpearApartmentError(
+            f"lighting profile schema must be {LIGHTING_PROFILE_SCHEMA}"
+        )
+    selected_id = profile_id or document.get("default_profile_id")
+    if not isinstance(selected_id, str) or not selected_id.strip():
+        raise SpearApartmentError("lighting profile id must be non-empty")
+    raw_profiles = document.get("profiles")
+    if not isinstance(raw_profiles, list):
+        raise SpearApartmentError("lighting profiles must be a list")
+    matches = [
+        value
+        for value in raw_profiles
+        if isinstance(value, Mapping) and value.get("profile_id") == selected_id
+    ]
+    if len(matches) != 1:
+        raise SpearApartmentError(
+            f"lighting profile {selected_id!r} must resolve exactly once"
+        )
+    raw = matches[0]
+    label = raw.get("label")
+    claim = raw.get("claim_boundary")
+    if not isinstance(label, str) or not label.strip():
+        raise SpearApartmentError("lighting profile label must be non-empty")
+    if not isinstance(claim, str) or not claim.strip():
+        raise SpearApartmentError("lighting profile claim_boundary must be non-empty")
+    raw_lights = raw.get("generated_lights")
+    if not isinstance(raw_lights, list):
+        raise SpearApartmentError("generated_lights must be a list")
+    lights = []
+    light_ids: set[str] = set()
+    for index, light in enumerate(raw_lights):
+        if not isinstance(light, Mapping):
+            raise SpearApartmentError(f"generated_lights[{index}] must be an object")
+        light_id = light.get("light_id")
+        if not isinstance(light_id, str) or not light_id.strip() or light_id in light_ids:
+            raise SpearApartmentError("generated light ids must be non-empty and unique")
+        light_ids.add(light_id)
+        position = _finite_triplet(
+            light.get("position_ue_cm"), owner=f"generated light {light_id} position"
+        )
+        intensity = _finite_scalar(
+            light.get("intensity_lumens"), owner=f"generated light {light_id} intensity"
+        )
+        attenuation = _finite_scalar(
+            light.get("attenuation_radius_cm"),
+            owner=f"generated light {light_id} attenuation",
+        )
+        temperature = _finite_scalar(
+            light.get("temperature_kelvin"),
+            owner=f"generated light {light_id} temperature",
+        )
+        source_radius = _finite_scalar(
+            light.get("source_radius_cm", 0.0),
+            owner=f"generated light {light_id} source radius",
+        )
+        soft_radius = _finite_scalar(
+            light.get("soft_source_radius_cm", 0.0),
+            owner=f"generated light {light_id} soft source radius",
+        )
+        cast_shadows = light.get("cast_shadows", True)
+        if not isinstance(cast_shadows, bool):
+            raise SpearApartmentError(
+                f"generated light {light_id} cast_shadows must be boolean"
+            )
+        if (
+            intensity <= 0.0
+            or attenuation <= 0.0
+            or not 1000.0 <= temperature <= 20_000.0
+            or source_radius < 0.0
+            or soft_radius < source_radius
+        ):
+            raise SpearApartmentError(f"generated light {light_id} is not physical")
+        lights.append(
+            {
+                "light_id": light_id,
+                "light_type": "point",
+                "position_ue_cm": position,
+                "intensity_lumens": intensity,
+                "attenuation_radius_cm": attenuation,
+                "temperature_kelvin": temperature,
+                "source_radius_cm": source_radius,
+                "soft_source_radius_cm": soft_radius,
+                "cast_shadows": cast_shadows,
+            }
+        )
+    return {
+        "profile_id": selected_id,
+        "label": label.strip(),
+        "generated_lights": lights,
+        "claim_boundary": claim.strip(),
+    }
+
+
+def load_apartment_lighting_profile(
+    path: str | Path, profile_id: str | None = None
+) -> dict[str, Any]:
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise SpearApartmentError(f"lighting profile file is missing: {source}")
+    try:
+        document = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SpearApartmentError(f"could not read lighting profiles: {source}") from exc
+    if not isinstance(document, Mapping):
+        raise SpearApartmentError("lighting profile document must be an object")
+    return resolve_apartment_lighting_profile(document, profile_id)
 
 
 def _direct_file(path: Path, *, owner: str) -> Path:
@@ -447,6 +580,7 @@ def build_native_apartment_scenario(
     scenario_id: str,
     *,
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
 ) -> dict[str, Any]:
     """Compile one existing M6.x scenario into a native UE execution record."""
 
@@ -470,6 +604,10 @@ def build_native_apartment_scenario(
             asset_id, actor_bindings=actor_bindings
         )
     scenario_directory, variant_id = SCENARIO_DIRECTORIES[scenario_id]
+    lighting = deepcopy(dict(lighting_profile))
+    generated_lights = lighting.get("generated_lights")
+    if not isinstance(generated_lights, list):
+        raise SpearApartmentError("resolved lighting profile lacks generated_lights")
     return {
         "schema": SCENARIO_SCHEMA,
         "scenario_id": scenario_id,
@@ -479,7 +617,12 @@ def build_native_apartment_scenario(
         "native_scene": {
             "map": NATIVE_APARTMENT_MAP,
             "layout": "native_map_unchanged",
-            "lighting": "native_map_unchanged_no_added_lights",
+            "lighting": (
+                "native_map_unchanged_no_added_lights"
+                if not generated_lights
+                else "native_map_plus_generated_runtime_lights"
+            ),
+            "lighting_profile": lighting,
             "outdoor_view": "native_map_assets_and_postprocess",
         },
         "render": {
@@ -518,6 +661,7 @@ def build_native_apartment_suite(
     *,
     scenario_ids: Sequence[str] = ("S0", "S3", "S4"),
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
 ) -> dict[str, Any]:
     """Compile the requested native Apartment comparison scenarios."""
 
@@ -526,7 +670,10 @@ def build_native_apartment_suite(
         raise SpearApartmentError("scenario selection must be nonempty and unique")
     scenarios = [
         build_native_apartment_scenario(
-            bundle_root, scenario_id, actor_bindings=actor_bindings
+            bundle_root,
+            scenario_id,
+            actor_bindings=actor_bindings,
+            lighting_profile=lighting_profile,
         )
         for scenario_id in selected
     ]
@@ -534,6 +681,7 @@ def build_native_apartment_suite(
         "schema": SUITE_SCHEMA,
         "backend_role": BACKEND_ROLE,
         "native_map": NATIVE_APARTMENT_MAP,
+        "lighting_profile": deepcopy(dict(lighting_profile)),
         "authority": {
             "habitat_native": [
                 "Timeline_v2",
@@ -882,7 +1030,9 @@ __all__ = [
     "FPS",
     "FRAME_COUNT",
     "HEIGHT",
+    "LIGHTING_PROFILE_SCHEMA",
     "NATIVE_APARTMENT_MAP",
+    "NATIVE_LIGHTING_PROFILE",
     "SCENARIO_DIRECTORIES",
     "SCENARIO_SCHEMA",
     "STREAMING_WARMUP_FRAMES",
@@ -898,6 +1048,8 @@ __all__ = [
     "build_topdown_binaural_command",
     "component_frame_delta_for_asset",
     "detached_suite_copy",
+    "load_apartment_lighting_profile",
+    "resolve_apartment_lighting_profile",
     "scenario_input_paths",
     "read_ue_component_relative_transform",
     "summarize_root_readbacks",

@@ -127,6 +127,7 @@ def test_scenario_execution_keeps_native_map_and_habitat_authority(
         "map": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
         "layout": "native_map_unchanged",
         "lighting": "native_map_unchanged_no_added_lights",
+        "lighting_profile": dict(apartment.NATIVE_LIGHTING_PROFILE),
         "outdoor_view": "native_map_assets_and_postprocess",
     }
     assert record["render"] == {
@@ -153,6 +154,45 @@ def test_scenario_execution_keeps_native_map_and_habitat_authority(
     assert record["authoritative_inputs"] == {
         key: value.relative_to(tmp_path).as_posix() for key, value in paths.items()
     }
+
+
+def test_apartment_lighting_profiles_keep_native_map_and_validate_photometry() -> None:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "examples/m6y/spear_apartment_lighting_profiles.json"
+    )
+    profile = apartment.load_apartment_lighting_profile(path, "warm_indoor_fill")
+    assert profile["profile_id"] == "warm_indoor_fill"
+    assert len(profile["generated_lights"]) == 2
+    assert all(light["cast_shadows"] for light in profile["generated_lights"])
+
+    document = {
+        "schema": apartment.LIGHTING_PROFILE_SCHEMA,
+        "default_profile_id": "bad",
+        "profiles": [
+            {
+                "profile_id": "bad",
+                "label": "bad",
+                "claim_boundary": "test",
+                "generated_lights": [
+                    {
+                        "light_id": "x",
+                        "position_ue_cm": [0, 0, 250],
+                        "intensity_lumens": -1,
+                        "attenuation_radius_cm": 400,
+                        "temperature_kelvin": 4000,
+                    }
+                ],
+            }
+        ],
+    }
+    with pytest.raises(apartment.SpearApartmentError, match="not physical"):
+        apartment.resolve_apartment_lighting_profile(document)
+
+    document["profiles"][0]["generated_lights"][0]["intensity_lumens"] = 100
+    document["profiles"][0]["generated_lights"][0]["cast_shadows"] = "false"
+    with pytest.raises(apartment.SpearApartmentError, match="must be boolean"):
+        apartment.resolve_apartment_lighting_profile(document)
 
 
 @pytest.mark.parametrize(

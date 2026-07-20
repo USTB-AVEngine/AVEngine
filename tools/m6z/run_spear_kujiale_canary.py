@@ -156,6 +156,10 @@ def _configure_spear(args: argparse.Namespace, plan: dict[str, Any]) -> Any:
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.log = settings["log"]
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.renderoffscreen = None
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.graphicsadapter = args.graphics_adapter
+    # The persisted review map contains an AUsdStageActor which references the
+    # local derived scene adapter.  SPEAR's stock project does not enable the
+    # USD plugin by default, so make the dependency explicit for every run.
+    config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.enableplugins = "USDImporter"
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.execcmds = ",".join(
         [
             "r.EyeAdaptationQuality 0",

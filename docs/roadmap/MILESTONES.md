@@ -371,7 +371,10 @@ Topdown, flags and metadata. The optional UE backend has the fixed role
 
 Current evidence covers native SPEAR Apartment S0/S3/S4, a fresh Habitat
 Apartment S0--S5 natural-light run and the retained 270-frame MP3D/ReplicaCAD
-M5.1 routes. MP3D now uses fresh-reloaded sRGB base-color views and separate
+M5.1 routes. Apartment additionally exposes an editable JSON `native` control
+and `warm_indoor_fill` preset; a real S3 A/B run reads back the two generated
+soft lights without mutating the native map, exterior or post-process. MP3D now
+uses fresh-reloaded sRGB base-color views and separate
 linear AO views; aggregate color retention and fixed exposure pass without
 claiming recovered Matterport lights. ReplicaCAD keeps dataset lights 0/1/2
 inside the room and disables the two strongest positive lights outside its open
@@ -389,9 +392,11 @@ leaf-hash maintenance layer is part of this workstream.
 
 ## M6.z: Optional External Residential Scene Adapters
 
-Status: `pass` for the bounded InteriorAgent/Kujiale four-view visual proof and
-human+Beagle episode, plus a separately labelled 3D-FRONT official Toolbox
-five-object sample-proxy human+Beagle episode.
+Status: `pass` for the bounded InteriorAgent/Kujiale four-view visual proof,
+living-room human+Beagle episode, full-home material adapter and kitchen-zone
+episode, plus a separately labelled 3D-FRONT official Toolbox five-object
+sample-proxy human+Beagle episode. The bathroom follow-up is manual visual
+`fail`; bedroom and balcony dynamic episodes remain `not_run`.
 See [M6Z_STATUS.md](M6Z_STATUS.md) and the
 [backend matrix](../architecture/OPTIONAL_RESIDENTIAL_SCENE_BACKENDS.md).
 
@@ -403,7 +408,10 @@ one external reference, and reads back four 1280x720 frames plus explicit local
 review-light state. The shared source-episode compiler then produces exact
 75-frame human/Beagle Timeline state, simultaneous speech/barks, binaural
 audio, source-center qualification and Topdown diagnostics for both that real
-room and the bounded 3D-FRONT Toolbox sample proxy.
+room and the bounded 3D-FRONT Toolbox sample proxy. The full-home follow-up
+keeps all downloaded bytes outside Git, uses low-height descendant-triangle
+footprints for the center-only obstacle gate and refuses to promote a room when
+the final visual still shows obvious actor/fixture intersection.
 
 Exit criteria: external dataset bytes remain outside Git; the plan and
 material mapping are covered by dependency-free tests; the adapter and UE map

@@ -1,0 +1,71 @@
+{
+  "schema": "avengine_optional_residential_source_profile_v1",
+  "dataset_id": "spatialverse/InteriorAgent",
+  "scene_id": "kujiale_0020",
+  "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+  "lighting_profile_id": "kujiale_native_plus_fixture_fill_v1",
+  "lighting_claim_boundary": "Native InteriorAgent rendering scope plus two explicit visual-only movable kitchen soft fills; not reconstructed physical lighting or acoustic truth.",
+  "camera": {
+    "position_xyz_m": [-3.0, 5.5, 1.05],
+    "yaw_ue_deg": -100.0,
+    "horizontal_fov_deg": 105.0
+  },
+  "routes": {
+    "dog0": {
+      "waypoints_xyz_m": [
+        [-2.3, 4.05, 0.0],
+        [-2.3, 4.55, 0.0],
+        [-2.3, 4.05, 0.0],
+        [-2.3, 4.55, 0.0],
+        [-2.3, 4.05, 0.0],
+        [-2.3, 4.55, 0.0],
+        [-2.3, 4.05, 0.0],
+        [-2.3, 4.55, 0.0],
+        [-2.3, 4.05, 0.0],
+        [-2.3, 4.55, 0.0]
+      ]
+    },
+    "human0": {
+      "waypoints_xyz_m": [
+        [-3.35, 4.05, 0.064],
+        [-3.35, 4.55, 0.064],
+        [-3.35, 4.05, 0.064],
+        [-3.35, 4.55, 0.064],
+        [-3.35, 4.05, 0.064],
+        [-3.35, 4.55, 0.064],
+        [-3.35, 4.05, 0.064],
+        [-3.35, 4.55, 0.064],
+        [-3.35, 4.05, 0.064],
+        [-3.35, 4.55, 0.064]
+      ]
+    }
+  },
+  "source_center_margin_m": 0.03,
+  "emitter_heights_m": {"dog0": 0.45, "human0": 1.6},
+  "review_lights": [
+    {
+      "light_id": "kitchen_west_soft_fill",
+      "position_xyz_m": [-3.75, 4.1, 2.5],
+      "intensity_lumens": 450.0,
+      "attenuation_radius_m": 4.0,
+      "temperature_kelvin": 4000.0,
+      "source_radius_m": 0.4,
+      "soft_source_radius_m": 1.0
+    },
+    {
+      "light_id": "kitchen_east_soft_fill",
+      "position_xyz_m": [-2.25, 4.1, 2.5],
+      "intensity_lumens": 450.0,
+      "attenuation_radius_m": 4.0,
+      "temperature_kelvin": 4000.0,
+      "source_radius_m": 0.4,
+      "soft_source_radius_m": 1.0
+    }
+  ],
+  "acoustic_proxy": {
+    "label": "generic_shoebox_directional_preview",
+    "material_claim": "not_kujiale_material_truth",
+    "coordinate_translation_habitat_m": [0.0, 0.0, 0.6],
+    "rir_stride_frames": 3
+  }
+}

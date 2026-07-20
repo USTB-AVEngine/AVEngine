@@ -166,6 +166,43 @@ def _linear_route(start: Sequence[float], end: Sequence[float]) -> list[list[flo
     ]
 
 
+def _polyline_route(waypoints: Sequence[Sequence[float]]) -> list[list[float]]:
+    if (
+        isinstance(waypoints, (str, bytes))
+        or not isinstance(waypoints, Sequence)
+        or len(waypoints) < 2
+    ):
+        raise ResidentialEpisodeError("route waypoints require at least two points")
+    points = [
+        _vector(value, 3, owner=f"route waypoint {index}")
+        for index, value in enumerate(waypoints)
+    ]
+    lengths = [
+        math.sqrt(sum((b[axis] - a[axis]) ** 2 for axis in range(3)))
+        for a, b in zip(points, points[1:])
+    ]
+    if any(length <= 1.0e-9 for length in lengths):
+        raise ResidentialEpisodeError("consecutive route waypoints must differ")
+    total = sum(lengths)
+    route = []
+    segment = 0
+    elapsed_before = 0.0
+    for frame_index in range(FRAME_COUNT):
+        target = total * frame_index / (FRAME_COUNT - 1)
+        while segment < len(lengths) - 1 and target > elapsed_before + lengths[segment]:
+            elapsed_before += lengths[segment]
+            segment += 1
+        fraction = (target - elapsed_before) / lengths[segment]
+        route.append(
+            [
+                points[segment][axis]
+                + (points[segment + 1][axis] - points[segment][axis]) * fraction
+                for axis in range(3)
+            ]
+        )
+    return route
+
+
 def _point_on_segment(
     point: tuple[float, float], a: tuple[float, float], b: tuple[float, float]
 ) -> bool:
@@ -209,7 +246,12 @@ def point_in_polygon_xy(
 def classify_object_bounds(
     bounds_xyz_m: Sequence[Sequence[float]], *, floor_z_m: float = 0.0
 ) -> str:
-    """Classify carpets and overhead fixtures without treating them as blockers."""
+    """Classify geometry for the deliberately center-only route gate.
+
+    Floor coverings up to 10 cm are walkable.  Geometry whose lowest point is
+    above the 15 cm root slice is visible in Topdown but does not block the
+    source center.  This intentionally does not approximate an actor body.
+    """
 
     if (
         isinstance(bounds_xyz_m, (str, bytes))
@@ -224,9 +266,60 @@ def classify_object_bounds(
     floor = _finite(floor_z_m, owner="floor_z_m")
     if maximum[2] <= floor + 0.10:
         return "walkable_floor_covering"
-    if minimum[2] >= floor + 1.75:
+    if minimum[2] > floor + 0.15:
         return "elevated_object"
     return "ground_blocker"
+
+
+def object_footprint_rectangles_xy(
+    item: Mapping[str, Any], *, owner: str = "object"
+) -> list[list[list[float]]]:
+    """Return the center-gate rectangles for one ground-level object.
+
+    New InteriorAgent metadata may contain per-mesh XY footprints.  They avoid
+    treating an L-shaped cabinet (or a group of separated furniture parts) as
+    one solid parent AABB.  Older metadata remains valid and falls back to the
+    top-level bounds.
+    """
+
+    def bounds_rectangle() -> list[list[list[float]]]:
+        bounds = item.get("bounds_xyz_m")
+        if (
+            isinstance(bounds, (str, bytes))
+            or not isinstance(bounds, Sequence)
+            or len(bounds) != 2
+        ):
+            raise ResidentialEpisodeError(f"{owner}.bounds_xyz_m is invalid")
+        minimum = _vector(bounds[0], 3, owner=f"{owner} bounds minimum")
+        maximum = _vector(bounds[1], 3, owner=f"{owner} bounds maximum")
+        return [[[minimum[0], minimum[1]], [maximum[0], maximum[1]]]]
+
+    raw_parts = item.get("footprint_parts_xy_m")
+    if raw_parts is None:
+        return bounds_rectangle()
+    if isinstance(raw_parts, (str, bytes)) or not isinstance(raw_parts, Sequence):
+        raise ResidentialEpisodeError(f"{owner}.footprint_parts_xy_m must be a list")
+    # A failed or empty optional mesh slice must never make a declared ground
+    # blocker disappear.  The top-level AABB is conservative, but it is safer
+    # and explicit; successful extraction supplies the tighter rectangles.
+    if not raw_parts:
+        return bounds_rectangle()
+    rectangles: list[list[list[float]]] = []
+    for index, raw in enumerate(raw_parts):
+        if (
+            isinstance(raw, (str, bytes))
+            or not isinstance(raw, Sequence)
+            or len(raw) != 2
+        ):
+            raise ResidentialEpisodeError(
+                f"{owner}.footprint_parts_xy_m[{index}] is invalid"
+            )
+        minimum = _vector(raw[0], 2, owner=f"{owner} footprint {index} minimum")
+        maximum = _vector(raw[1], 2, owner=f"{owner} footprint {index} maximum")
+        if maximum[0] < minimum[0] or maximum[1] < minimum[1]:
+            raise ResidentialEpisodeError(f"{owner} footprint minimum exceeds maximum")
+        rectangles.append([list(minimum), list(maximum)])
+    return rectangles
 
 
 def _route_gate(
@@ -239,7 +332,7 @@ def _route_gate(
     margin = _finite(center_margin_m, owner="center_margin_m")
     if margin < 0.0:
         raise ResidentialEpisodeError("center_margin_m cannot be negative")
-    blockers: list[tuple[str, tuple[float, float, float], tuple[float, float, float]]] = []
+    blockers: list[tuple[str, tuple[float, float], tuple[float, float]]] = []
     for index, item in enumerate(objects):
         if not isinstance(item, Mapping):
             raise ResidentialEpisodeError(f"objects[{index}] must be a mapping")
@@ -247,9 +340,17 @@ def _route_gate(
         role = item.get("navigation_role") or classify_object_bounds(bounds)
         if role != "ground_blocker":
             continue
-        minimum = _vector(bounds[0], 3, owner=f"objects[{index}] minimum")
-        maximum = _vector(bounds[1], 3, owner=f"objects[{index}] maximum")
-        blockers.append((str(item.get("object_id", index)), minimum, maximum))
+        object_id = str(item.get("object_id", index))
+        for part_index, rectangle in enumerate(
+            object_footprint_rectangles_xy(item, owner=f"objects[{index}]")
+        ):
+            minimum = _vector(
+                rectangle[0], 2, owner=f"objects[{index}] part {part_index} minimum"
+            )
+            maximum = _vector(
+                rectangle[1], 2, owner=f"objects[{index}] part {part_index} maximum"
+            )
+            blockers.append((object_id, minimum, maximum))
 
     frames: list[dict[str, Any]] = []
     failed: list[int] = []
@@ -314,9 +415,11 @@ def _vocalizing(actor_id: str, sample_start: int, sample_end: int) -> bool:
 
 
 def _actor_speed(route: Sequence[Sequence[float]]) -> float:
-    a = _vector(route[0], 3, owner="route first")
-    b = _vector(route[-1], 3, owner="route last")
-    distance = math.sqrt(sum((b[index] - a[index]) ** 2 for index in range(3)))
+    points = [_vector(value, 3, owner="route point") for value in route]
+    distance = sum(
+        math.sqrt(sum((b[index] - a[index]) ** 2 for index in range(3)))
+        for a, b in zip(points, points[1:])
+    )
     return distance / ((FRAME_COUNT - 1) / FPS)
 
 
@@ -356,15 +459,33 @@ def build_residential_source_episode(
         raise ResidentialEpisodeError("camera HFOV must be in (0, 180)")
     listener_h = dataset_z_up_to_habitat(camera_xyz)
     listener_yaw_h = -90.0 - camera_yaw_ue
+    lighting_profile_id = _nonempty(
+        profile.get("lighting_profile_id", "explicit_review_lights"),
+        owner="lighting_profile_id",
+    )
+    lighting_claim = _nonempty(
+        profile.get(
+            "lighting_claim_boundary",
+            "generated visual review lights; not reconstructed physical lighting",
+        ),
+        owner="lighting_claim_boundary",
+    )
 
     actor_routes_xyz: dict[str, list[list[float]]] = {}
     for actor_id in ("dog0", "human0"):
         route = routes.get(actor_id)
         if not isinstance(route, Mapping):
             raise ResidentialEpisodeError(f"route {actor_id} is missing")
-        actor_routes_xyz[actor_id] = _linear_route(
-            route.get("start_xyz_m"), route.get("end_xyz_m")
-        )
+        if "waypoints_xyz_m" in route:
+            if "start_xyz_m" in route or "end_xyz_m" in route:
+                raise ResidentialEpisodeError(
+                    f"route {actor_id} cannot mix waypoints with start/end"
+                )
+            actor_routes_xyz[actor_id] = _polyline_route(route["waypoints_xyz_m"])
+        else:
+            actor_routes_xyz[actor_id] = _linear_route(
+                route.get("start_xyz_m"), route.get("end_xyz_m")
+            )
 
     margin = _finite(profile.get("source_center_margin_m", 0.03), owner="margin")
     gates = {
@@ -385,14 +506,24 @@ def build_residential_source_episode(
         actor_id: [dataset_z_up_to_habitat(point) for point in route]
         for actor_id, route in actor_routes_xyz.items()
     }
+    local_forward = {"dog0": "+X", "human0": "+Z"}
     rotations = {
-        "dog0": _yaw_quaternion_for_route(
-            actor_routes_h["dog0"][0], actor_routes_h["dog0"][-1], local_forward="+X"
-        ),
-        "human0": _yaw_quaternion_for_route(
-            actor_routes_h["human0"][0], actor_routes_h["human0"][-1], local_forward="+Z"
-        ),
+        actor_id: [
+            _yaw_quaternion_for_route(
+                route_h[frame_index],
+                route_h[frame_index + 1]
+                if frame_index + 1 < FRAME_COUNT
+                else route_h[frame_index - 1],
+                local_forward=local_forward[actor_id],
+            )
+            for frame_index in range(FRAME_COUNT)
+        ]
+        for actor_id, route_h in actor_routes_h.items()
     }
+    # The last frame uses the preceding segment but must retain its direction,
+    # not face backwards from the final point toward the previous point.
+    for actor_id in rotations:
+        rotations[actor_id][-1] = rotations[actor_id][-2]
     cycles_per_second = {"dog0": 1.5, "human0": 1.0}
     actors = [
         {
@@ -423,7 +554,7 @@ def build_residential_source_episode(
                 "actor_id": actor_id,
                 "root_transform": {
                     "translation_m": actor_routes_h[actor_id][frame_index],
-                    "rotation_xyzw": rotations[actor_id],
+                    "rotation_xyzw": rotations[actor_id][frame_index],
                     "scale": [1.0, 1.0, 1.0],
                 },
                 "action_id": "walk",
@@ -635,6 +766,12 @@ def build_residential_source_episode(
         "room_polygon_xy_m": deepcopy(list(polygon)),
         "objects": deepcopy(objects),
         "review_lights": deepcopy(profile.get("review_lights", [])),
+        "visual_lighting": {
+            "profile_id": lighting_profile_id,
+            "native_usd_rendering_scope_retained": True,
+            "generated_review_light_count": len(profile.get("review_lights", [])),
+            "claim_boundary": lighting_claim,
+        },
         "acoustic_proxy": deepcopy(profile.get("acoustic_proxy")),
         "timeline": timeline,
         "source_manifest": source_manifest,
@@ -664,5 +801,6 @@ __all__ = [
     "build_residential_source_episode",
     "classify_object_bounds",
     "dataset_z_up_to_habitat",
+    "object_footprint_rectangles_xy",
     "point_in_polygon_xy",
 ]

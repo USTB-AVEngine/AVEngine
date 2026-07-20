@@ -33,6 +33,7 @@ from avengine.optional_backends.residential_episode import (  # noqa: E402
     FPS,
     HUMAN_SOURCE_ID,
     build_residential_source_episode,
+    object_footprint_rectangles_xy,
 )
 
 
@@ -151,13 +152,23 @@ def _render_topdown_frames(episode: Mapping[str, Any], output: Path) -> Path:
         for item in episode["objects"]:
             role = item.get("navigation_role", "ground_blocker")
             style = ROLE_STYLE.get(role, ROLE_STYLE["ground_blocker"])
-            bounds = item["bounds_xyz_m"]
-            box = [transform.point(bounds[0][:2]), transform.point(bounds[1][:2])]
-            xyxy = (
-                min(box[0][0], box[1][0]), min(box[0][1], box[1][1]),
-                max(box[0][0], box[1][0]), max(box[0][1], box[1][1]),
-            )
-            draw.rectangle(xyxy, fill=(*style[0], 70), outline=(*style[1], 170), width=1)
+            if role == "ground_blocker":
+                rectangles = object_footprint_rectangles_xy(item)
+            else:
+                bounds = item["bounds_xyz_m"]
+                rectangles = [[bounds[0][:2], bounds[1][:2]]]
+            for rectangle in rectangles:
+                box = [transform.point(rectangle[0]), transform.point(rectangle[1])]
+                xyxy = (
+                    min(box[0][0], box[1][0]), min(box[0][1], box[1][1]),
+                    max(box[0][0], box[1][0]), max(box[0][1], box[1][1]),
+                )
+                draw.rectangle(
+                    xyxy,
+                    fill=(*style[0], 70),
+                    outline=(*style[1], 170),
+                    width=1,
+                )
 
         draw.polygon(fov_points, fill=(245, 220, 92, 38), outline=(245, 220, 92, 190))
         mic_radius = max(13, int(round(0.25 * transform.scale)))
@@ -186,7 +197,14 @@ def _render_topdown_frames(episode: Mapping[str, Any], output: Path) -> Path:
                 [current[0] - radius, current[1] - radius, current[0] + radius, current[1] + radius],
                 fill=(*color, 255), outline=(255, 255, 255, 245), width=2,
             )
-            delta = np.asarray(route[-1][:2]) - np.asarray(route[0][:2])
+            if frame_index + 1 < FRAME_COUNT:
+                delta = np.asarray(route[frame_index + 1][:2]) - np.asarray(
+                    route[frame_index][:2]
+                )
+            else:
+                delta = np.asarray(route[frame_index][:2]) - np.asarray(
+                    route[frame_index - 1][:2]
+                )
             _draw_arrow(draw, current, delta, color=color, length=25)
             label = f"{actor_id} / {'ACTIVE' if active else 'silent'}"
             draw.text((current[0] + 11, current[1] - 18), label, font=small_font, fill=(*color, 255))

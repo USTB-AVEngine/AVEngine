@@ -24,6 +24,7 @@ It is not a second AVEngine runtime and it does not change dataset admission.
 | Room/render | Status | What has been demonstrated | Claim boundary |
 | --- | --- | --- | --- |
 | Native SPEAR Apartment S0/S3/S4 | `pass` | Real UE execution at 1280x720, 15 fps and 75 frames per scenario; native Apartment map, materials, outdoor view and lighting; root/yaw, animation phase, Beagle floor/upright and media readback gates pass | UE supplies visual pixels only; the Habitat-native binaural stream and Topdown are reused unchanged |
+| SPEAR Apartment S3 lighting A/B | `pass` | Editable JSON resolves either untouched `native` or `warm_indoor_fill`; the warm run retains the native scene, adds two declared soft point lights, and reads back their UE positions, intensities, temperatures and shadow flags | The added lights are optional visual-review assistance, not recovered physical illumination or acoustic truth |
 | Habitat Apartment S0--S5 | `pass` | Fresh 1280x720 capture and all eight variants use the `natural_v3` shallow neutral window-key/bounce profile with HBAO; trajectory, semantic, Topdown and audio invariants remain unchanged | This improves the fixed-camera Habitat review, but its exterior remains a direction-projected panel rather than UE glass, HDRIBackdrop, reflection capture or Lumen |
 | MP3D `17DRP5sb8fy` | `pass` | Real 270-frame/18-second UE execution; 23/23 base-color bindings use fresh-reloaded sRGB texture views while 23/23 AO bindings retain linear views; exposure, aggregate color retention, root/yaw, animation and media gates pass | This is the retained M5.1 compatibility route, not the 75-frame Timeline-v2 clock; each root moves only 1.1 m/18 s, so it is not a normal-speed result; review lights do not reconstruct Matterport capture lighting, and remaining holes are scan geometry |
 | ReplicaCAD `apt_0` | `pass` | Real editor import/reload and 270-frame UE execution; 120 logical instances become 171 tagged runtime mesh actors; room-local lights 0/1/2 stay active while exterior lights 3/4 are zero; an optional route-center mode adds and reads back exactly one neutral ceiling fill in both UE and Habitat | This replays the retained M5.1 compatibility route, not Timeline v2; both roots travel only 1.2 m in 18 seconds; the generated fill is explicitly visual-only, not dataset-authored or acoustic truth |
@@ -33,6 +34,12 @@ overlapping sources because those are the three requested visual comparisons.
 The UE map is the native SPEAR package
 `/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000`; Habitat's temporary
 window/exterior proxy and debug source markers are not inserted into UE.
+The editable presets live in
+`examples/m6y/spear_apartment_lighting_profiles.json`. The default warm preset
+raises mean RGB by only about 4--6 levels on an 8-bit scale in the retained S3
+frames, so it fills the actors and route area without replacing the native
+fixtures, exterior or post-process. Passing `native` keeps a true no-added-light
+control.
 
 MP3D textures already contain illumination captured by the scan. The original
 glTF uses each of its 23 images for both base color and occlusion; the old UE
@@ -69,9 +76,10 @@ is counted and read back separately from the five positive dataset lights.
   point-light shadows and exposure are more coherent. Habitat remains useful
   for navigation and a research visual comparison.
 - SPEAR Apartment: the native UE map is the primary realism presentation.
-  Habitat remains the authoritative protocol/sensor/source-logic render and can
-  use one warm route-area point fill in addition to its directional review
-  lights.
+  Its optional JSON `warm_indoor_fill` adds two soft review lights while
+  preserving an untouched `native` control. Habitat remains the authoritative
+  protocol/sensor/source-logic render and can use one warm route-area point
+  fill in addition to its directional review lights.
 
 This routing changes only the visual presentation backend. Habitat-native
 Timeline/route state, source centers, binaural audio, Topdown, flags and
@@ -83,6 +91,7 @@ Generated results remain under ignored `tmp/` directories and are not Git
 content. The current evidence roots are:
 
 - `tmp/m6y/spear_apartment_native_suite_20260720_04/evidence.json`
+- `tmp/m6y/spear_apartment_warm_fill_20260720_01/evidence.json`
 - `tmp/m6x/fixed_apartment_natural_lighting_20260720_01/bundle_manifest.json`
 - `tmp/m6y/spear_mp3d_full_20260720_02/evidence.json`
 - `tmp/m6y/spear_replicacad_room_local_full_20260720_01/evidence.json`
@@ -105,6 +114,19 @@ The page embeds the Habitat Apartment natural-light S3 review, native UE
 Apartment media, corrected-color MP3D, and room-local-lit ReplicaCAD. It links
 the full S0--S5 Habitat page and each evidence document. The builder reports the
 status recorded by each real run rather than promoting it by convention.
+
+Run the Apartment fill profile (omit `--lighting-profile` to use the JSON
+default, or pass `native` for an untouched control):
+
+```bash
+PYTHONPATH=src python tools/m6y/run_spear_apartment_canary.py \
+  --bundle-root tmp/m6x/fixed_apartment_canary_20260720_02 \
+  --spear-root /path/to/legacy/AVEngine/external/SPEAR \
+  --lighting-profiles examples/m6y/spear_apartment_lighting_profiles.json \
+  --lighting-profile warm_indoor_fill \
+  --scenario S3 \
+  --output-dir tmp/m6y/spear_apartment_warm_fill_run_01
+```
 
 ## Closeout boundary
 

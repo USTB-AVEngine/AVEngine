@@ -208,6 +208,14 @@ engine, material qualification or dataset admission. See
 [`M6Y_STATUS.md`](docs/roadmap/M6Y_STATUS.md) for current videos, claim
 boundaries and the local review-page command.
 
+Apartment lighting is now an editable JSON runtime interface with two retained
+presets: untouched `native` and `warm_indoor_fill`. A real S3 A/B execution
+kept the native map, exterior and post-process unchanged, spawned only the two
+declared soft point lights, and read back their positions, intensities,
+temperatures and shadow settings. The fill is deliberately modest and remains
+visual-review assistance, not reconstructed physical lighting or acoustic
+truth.
+
 The recommended presentation routing is room-specific: use Habitat-Sim for
 MP3D so its scan-baked color and illumination are not re-lit as if they were a
 clean PBR room; use UE/SPEAR for ReplicaCAD because its PBR assets and local
@@ -221,10 +229,17 @@ The bounded **M6.z external residential-scene adapter** proves a real
 InteriorAgent/Kujiale `kujiale_0020` living room through UE/SPEAR. A local
 reference-only USD layer converts useful MDL inputs to USD PreviewSurface, and
 the four-view 1280x720 canary retains furnished PBR appearance, glass and local
-shadows. The follow-on 75-frame episode replays one moving human and one moving
-Beagle, simultaneous speech/barks, source-center gates, binaural audio and the
-AVEngine Topdown without allowing UE to replan. The same source contract also
-passes on a clearly labelled 3D-FRONT official Toolbox five-object sample
+shadows. A full-home derivative now covers all declared room scopes with 2,053
+meshes, 553 adapted materials, 170 textured materials and 13 glass materials.
+The follow-on 75-frame episode replays one moving human and one moving Beagle,
+simultaneous speech/barks, source-center gates, binaural audio and the AVEngine
+Topdown without allowing UE to replan. The living-room result remains the
+retained pass, and a kitchen-zone/open-plan human+Beagle result also passes its
+bounded runtime/media and manual visual review. The bathroom diagnostic is
+explicitly rejected after manual review exposed actor/fixture intersection;
+bedroom and balcony candidates remain `not_run` for dynamic admission because
+the available views are near-shell, occluded or black. The same source contract
+also passes on a clearly labelled 3D-FRONT official Toolbox five-object sample
 proxy. That proxy is not a complete 3D-FRONT house; full-house use still
 requires an authorized complete dataset. Downloaded data and generated media
 stay outside Git. InteriorNet remains a rendered evaluation source. See
@@ -459,8 +474,8 @@ arbitrary generated episode is synchronized.
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
 | M6 | feasibility foundation: extensible registries, legacy-compatible flags, room interfaces, retained controlled-source materialization and one independent fail-closed fixture (`pass`; no dataset admission claim) |
 | M6.x | fixed SPEAR `apartment_0000` Habitat RoomCapsule, runtime-authoritative obstacles and executable source-logic S0--S5 binaural/Topdown canary (`pass`, bounded research canary; source-center placement only) |
-| M6.y | optional SPEAR/UE `comparison_visual`: native Apartment S0/S3/S4, corrected-sRGB MP3D and room-local-lit ReplicaCAD runtime `pass`; Habitat Apartment natural-light profile also rerun (`pass`, bounded visual comparison; Habitat-native protocol/audio authority unchanged) |
-| M6.z | optional external residential scenes: real InteriorAgent/Kujiale four-view plus human+Beagle episode (`pass`); 3D-FRONT official Toolbox five-object sample-proxy human+Beagle episode (`pass`, not a full house); InteriorNet evaluation-only |
+| M6.y | optional SPEAR/UE `comparison_visual`: native Apartment S0/S3/S4, corrected-sRGB MP3D and room-local-lit ReplicaCAD runtime `pass`; Apartment JSON `native`/`warm_indoor_fill` A/B and Habitat Apartment natural-light profile also rerun (`pass`, bounded visual comparison; Habitat-native protocol/audio authority unchanged) |
+| M6.z | optional external residential scenes: real InteriorAgent/Kujiale living-room human+Beagle (`pass`), full-home material adapter (`pass`) and kitchen-zone episode (`pass`, bounded); bathroom manual visual `fail`, bedroom/balcony dynamic review `not_run`; 3D-FRONT official Toolbox five-object sample-proxy human+Beagle (`pass`, not a full house); InteriorNet evaluation-only |
 | M7 | benchmark, ablations, paper and release audit |
 
 M1 loads an official Habitat room, a Blender custom room and an audited legacy

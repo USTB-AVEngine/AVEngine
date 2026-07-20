@@ -288,6 +288,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "scene": episode["scene"],
         "stage_actor_count": stage_actor_count,
         "runtime_review_lights": light_records,
+        "visual_lighting": episode["visual_lighting"],
         "root_readback": root_gate,
         "animation_phase_readback": animation_gate,
         "visual_bounds_readback": bounds_gate,
