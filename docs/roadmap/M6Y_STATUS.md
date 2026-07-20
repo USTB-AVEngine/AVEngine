@@ -31,6 +31,11 @@ It is not a second AVEngine runtime and it does not change dataset admission.
 
 The Apartment pass covers exactly S0 routing sanity, S3 moving source and S4
 overlapping sources because those are the three requested visual comparisons.
+Every requested scenario now treats the clean RGB+binaural video and the
+RGB+Topdown+binaural video as required outputs, uses one identical copied audio
+stream for both, and writes a machine-readable `timing.json`. That timing covers
+the optional UE visual pass and media finalization; it does not pretend to
+include the reused Habitat/RLR audio-generation cost.
 The UE map is the native SPEAR package
 `/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000`; Habitat's temporary
 window/exterior proxy and debug source markers are not inserted into UE.

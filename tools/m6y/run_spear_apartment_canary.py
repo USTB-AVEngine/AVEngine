@@ -16,11 +16,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any, Mapping, Sequence
 
 from avengine.optional_backends.spear_apartment import (
@@ -37,7 +37,7 @@ from avengine.optional_backends.spear_apartment import (
     build_clean_binaural_mux_command,
     build_native_apartment_suite,
     build_png_encode_command,
-    build_topdown_binaural_command,
+    build_topdown_visual_command,
     load_apartment_lighting_profile,
     summarize_actor_bounds,
     summarize_root_readbacks,
@@ -53,6 +53,11 @@ DEFAULT_LIGHTING_PROFILES = (
 CAMERA_BLUEPRINT = "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C"
 CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
 EVIDENCE_SCHEMA = "avengine_optional_spear_apartment_runtime_evidence_v2"
+TIMING_SCHEMA = "avengine_apartment_runtime_timing_v1"
+REQUIRED_SAMPLE_OUTPUTS = (
+    "ue_clean_binaural.mp4",
+    "ue_topdown_binaural.mp4",
+)
 INITIALIZE_CLIENT_MAX_TIME_SECONDS = 600.0
 CLIENT_INTERNAL_TIMEOUT_SECONDS = 60.0
 
@@ -63,6 +68,15 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
         json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _elapsed_seconds(started_at: float) -> float:
+    """Return a JSON-safe monotonic wall-clock duration."""
+
+    elapsed = time.perf_counter() - started_at
+    if not math.isfinite(elapsed) or elapsed < 0.0:
+        raise RuntimeError(f"invalid wall-clock duration: {elapsed}")
+    return elapsed
 
 
 def _struct_components(value: Any, names: Sequence[str]) -> list[float]:
@@ -497,6 +511,7 @@ def _probe_media(
     return {
         "status": "pass",
         "path": path.name,
+        "size_bytes": path.stat().st_size,
         "width": expected_width,
         "height": expected_height,
         "frame_count": FRAME_COUNT,
@@ -574,6 +589,8 @@ def _render_scenario(
 ) -> dict[str, Any]:
     import cv2
 
+    scenario_started = time.perf_counter()
+    phase_wall_seconds: dict[str, float] = {}
     scenario_id = scenario["scenario_id"]
     scenario_root = output_root / scenario_id
     scenario_root.mkdir()
@@ -583,6 +600,7 @@ def _render_scenario(
     camera_plan = plan["camera"]
 
     # A short view-specific warmup follows the one suite-wide streaming warmup.
+    phase_started = time.perf_counter()
     with instance.begin_frame():
         for state in plan["frames"][0]["actor_states"]:
             _apply_actor_state(runtimes[state["actor_id"]], state, 0)
@@ -590,7 +608,9 @@ def _render_scenario(
     with instance.end_frame():
         pass
     instance.step(num_frames=CAMERA_WARMUP_FRAMES)
+    phase_wall_seconds["camera_warmup"] = _elapsed_seconds(phase_started)
 
+    phase_started = time.perf_counter()
     actor_readbacks = {actor_id: [] for actor_id in runtimes}
     animation_readbacks = {actor_id: [] for actor_id in runtimes}
     actor_bounds = {actor_id: [] for actor_id in runtimes}
@@ -623,7 +643,11 @@ def _render_scenario(
                 f"{frame_index:02d}/{FRAME_COUNT - 1}",
                 flush=True,
             )
+    phase_wall_seconds["visual_capture_and_png_write"] = _elapsed_seconds(
+        phase_started
+    )
 
+    phase_started = time.perf_counter()
     _write_json(
         scenario_root / "runtime_readbacks.json",
         {
@@ -657,7 +681,11 @@ def _render_scenario(
         actor_declarations=plan["actors"],
         actor_bounds=actor_bounds,
     )
+    phase_wall_seconds["runtime_readback_and_gate"] = _elapsed_seconds(
+        phase_started
+    )
 
+    phase_started = time.perf_counter()
     ue_video = scenario_root / "ue_visual_only.mp4"
     subprocess.run(
         build_png_encode_command(
@@ -665,6 +693,8 @@ def _render_scenario(
         ),
         check=True,
     )
+    phase_wall_seconds["rgb_video_encode"] = _elapsed_seconds(phase_started)
+
     authoritative_clean = _resolve_bundle_path(
         bundle_root, scenario, "authoritative_clean_binaural"
     )
@@ -672,6 +702,7 @@ def _render_scenario(
         bundle_root, scenario, "authoritative_diagnostic_topdown"
     )
     clean_video = scenario_root / "ue_clean_binaural.mp4"
+    phase_started = time.perf_counter()
     subprocess.run(
         build_clean_binaural_mux_command(
             ue_video_path=ue_video,
@@ -680,15 +711,36 @@ def _render_scenario(
         ),
         check=True,
     )
-    topdown_video = scenario_root / "ue_topdown_binaural.mp4"
+    phase_wall_seconds["rgb_binaural_mux"] = _elapsed_seconds(phase_started)
+
+    topdown_visual = scenario_root / "ue_topdown_visual_only.mp4"
+    phase_started = time.perf_counter()
     subprocess.run(
-        build_topdown_binaural_command(
+        build_topdown_visual_command(
             ue_video_path=ue_video,
             authoritative_diagnostic_path=authoritative_diagnostic,
+            output_path=topdown_visual,
+        ),
+        check=True,
+    )
+    phase_wall_seconds["rgb_topdown_video_compose"] = _elapsed_seconds(
+        phase_started
+    )
+
+    topdown_video = scenario_root / "ue_topdown_binaural.mp4"
+    phase_started = time.perf_counter()
+    subprocess.run(
+        build_clean_binaural_mux_command(
+            ue_video_path=topdown_visual,
+            authoritative_clean_path=authoritative_clean,
             output_path=topdown_video,
         ),
         check=True,
     )
+    phase_wall_seconds["topdown_binaural_mux"] = _elapsed_seconds(phase_started)
+    topdown_visual.unlink()
+
+    phase_started = time.perf_counter()
     media = {
         "ue_visual_only": _probe_media(
             ue_video,
@@ -711,15 +763,19 @@ def _render_scenario(
     }
     expected_audio_hashes = {
         "ue_clean_binaural": _audio_packet_sha256(authoritative_clean),
-        "ue_topdown_binaural": _audio_packet_sha256(authoritative_diagnostic),
+        "ue_topdown_binaural": _audio_packet_sha256(authoritative_clean),
     }
     for media_id, expected_hash in expected_audio_hashes.items():
         if media[media_id]["audio_packet_sha256"] != expected_hash:
             raise RuntimeError(
                 f"{media_id} did not preserve the authoritative audio packets"
             )
+    phase_wall_seconds["media_readback"] = _elapsed_seconds(phase_started)
+
+    phase_started = time.perf_counter()
     if not keep_frames:
         shutil.rmtree(frames_root)
+    phase_wall_seconds["frame_cleanup"] = _elapsed_seconds(phase_started)
     record = {
         "status": "pass",
         "scenario_id": scenario_id,
@@ -745,6 +801,13 @@ def _render_scenario(
             "audio": "copied from Habitat-native scenario",
             "topdown": "right panel copied from Habitat-native diagnostic",
             "source_logic_flags_metadata": "unchanged Habitat-native inputs",
+        },
+        "timing": {
+            "schema": TIMING_SCHEMA,
+            "clock": "time.perf_counter",
+            "scope": "scenario render after actor setup and before actor teardown",
+            "phase_wall_seconds": phase_wall_seconds,
+            "render_total_wall_seconds": _elapsed_seconds(scenario_started),
         },
     }
     _write_json(scenario_root / "evidence.json", record)
@@ -888,6 +951,9 @@ def _cleanup_failed_constructor(
 
 
 def run(args: argparse.Namespace) -> Path:
+    run_started = time.perf_counter()
+    phase_wall_seconds: dict[str, float] = {}
+    phase_started = time.perf_counter()
     bundle_root = args.bundle_root.resolve()
     scenarios = tuple(args.scenario or ("S0", "S3", "S4"))
     lighting_profile = load_apartment_lighting_profile(
@@ -898,6 +964,7 @@ def run(args: argparse.Namespace) -> Path:
         scenario_ids=scenarios,
         lighting_profile=lighting_profile,
     )
+    phase_wall_seconds["plan_compile"] = _elapsed_seconds(phase_started)
     _assert_suite_actor_binding_closure(suite)
 
     output_root = args.output_dir.resolve()
@@ -907,15 +974,30 @@ def run(args: argparse.Namespace) -> Path:
     plan_path = output_root / "suite_execution_plan.json"
     _write_json(plan_path, suite)
     if args.dry_run:
+        timing_path = output_root / "timing.json"
+        _write_json(
+            timing_path,
+            {
+                "schema": TIMING_SCHEMA,
+                "status": "dry_run",
+                "clock": "time.perf_counter",
+                "phase_wall_seconds": phase_wall_seconds,
+                "run_total_wall_seconds": _elapsed_seconds(run_started),
+            },
+        )
         print(f"SPEAR_APARTMENT_DRY_RUN_OK plan={plan_path}", flush=True)
         return plan_path
 
+    phase_started = time.perf_counter()
     instance, spear_root = _configure_instance(args)
+    phase_wall_seconds["runtime_initialize"] = _elapsed_seconds(phase_started)
     game = instance.get_game()
     scenario_records = []
     startup_evidence: dict[str, Any] = {}
     light_records: list[dict[str, Any]] = []
+    runtime_close_seconds = 0.0
     try:
+        phase_started = time.perf_counter()
         first = suite["scenarios"][0]
         with instance.begin_frame():
             camera, capture = _spawn_camera(game)
@@ -926,10 +1008,17 @@ def run(args: argparse.Namespace) -> Path:
             )
         with instance.end_frame():
             pass
+        phase_wall_seconds["shared_scene_setup"] = _elapsed_seconds(phase_started)
         # One suite-wide native texture/virtual-texture warmup.  The camera is
         # already at the authoritative listener pose before this begins.
+        phase_started = time.perf_counter()
         instance.step(num_frames=STREAMING_WARMUP_FRAMES)
+        phase_wall_seconds["shared_streaming_warmup"] = _elapsed_seconds(
+            phase_started
+        )
         for scenario in suite["scenarios"]:
+            episode_started = time.perf_counter()
+            phase_started = time.perf_counter()
             with instance.begin_frame():
                 runtimes = _spawn_runtime_actors(game, scenario, spear_root)
                 _apply_camera(camera, scenario["plan"]["camera"])
@@ -937,6 +1026,7 @@ def run(args: argparse.Namespace) -> Path:
                     _apply_actor_state(runtimes[state["actor_id"]], state, 0)
             with instance.end_frame():
                 pass
+            actor_setup_seconds = _elapsed_seconds(phase_started)
             startup_evidence[scenario["scenario_id"]] = {
                 actor_id: {
                     "asset_local_frame": runtime["component_frame_correction"],
@@ -948,23 +1038,65 @@ def run(args: argparse.Namespace) -> Path:
                 output_root / "component_frame_startup_evidence.json",
                 startup_evidence,
             )
+            record: dict[str, Any] | None = None
+            actor_teardown_seconds = 0.0
             try:
-                scenario_records.append(
-                    _render_scenario(
-                        instance=instance,
-                        camera=camera,
-                        capture=capture,
-                        runtimes=runtimes,
-                        scenario=scenario,
-                        bundle_root=bundle_root,
-                        output_root=output_root,
-                        keep_frames=args.keep_frames,
-                    )
+                record = _render_scenario(
+                    instance=instance,
+                    camera=camera,
+                    capture=capture,
+                    runtimes=runtimes,
+                    scenario=scenario,
+                    bundle_root=bundle_root,
+                    output_root=output_root,
+                    keep_frames=args.keep_frames,
                 )
             finally:
+                phase_started = time.perf_counter()
                 _destroy_runtime_actors(instance, runtimes)
+                actor_teardown_seconds = _elapsed_seconds(phase_started)
+            if record is None:
+                raise RuntimeError("scenario render returned no evidence")
+            record["timing"]["actor_setup_wall_seconds"] = actor_setup_seconds
+            record["timing"][
+                "actor_teardown_wall_seconds"
+            ] = actor_teardown_seconds
+            record["timing"]["episode_total_wall_seconds"] = _elapsed_seconds(
+                episode_started
+            )
+            _write_json(
+                output_root / scenario["scenario_id"] / "evidence.json", record
+            )
+            scenario_records.append(record)
     finally:
+        phase_started = time.perf_counter()
         instance.close(force=True)
+        runtime_close_seconds = _elapsed_seconds(phase_started)
+    phase_wall_seconds["runtime_close"] = runtime_close_seconds
+
+    timing = {
+        "schema": TIMING_SCHEMA,
+        "status": "pass",
+        "clock": "time.perf_counter",
+        "measurement_scope": (
+            "plan compilation, one native runtime launch, shared warmup, all "
+            "requested episodes, media encoding/readback, and runtime close"
+        ),
+        "excluded_reused_costs": [
+            (
+                "Habitat/RLR binaural rendering and source metadata assembly "
+                "already present in bundle_root"
+            )
+        ],
+        "required_sample_outputs": list(REQUIRED_SAMPLE_OUTPUTS),
+        "phase_wall_seconds": phase_wall_seconds,
+        "scenario_timings": {
+            record["scenario_id"]: record["timing"] for record in scenario_records
+        },
+        "run_total_wall_seconds": _elapsed_seconds(run_started),
+    }
+    timing_path = output_root / "timing.json"
+    _write_json(timing_path, timing)
 
     evidence = {
         "schema": EVIDENCE_SCHEMA,
@@ -991,12 +1123,13 @@ def run(args: argparse.Namespace) -> Path:
         },
         "authority": suite["authority"],
         "scenarios": scenario_records,
+        "timing": timing,
     }
     evidence_path = output_root / "evidence.json"
     _write_json(evidence_path, evidence)
     print(
         "SPEAR_APARTMENT_CANARY_OK "
-        f"output={output_root} evidence={evidence_path}",
+        f"output={output_root} evidence={evidence_path} timing={timing_path}",
         flush=True,
     )
     return evidence_path

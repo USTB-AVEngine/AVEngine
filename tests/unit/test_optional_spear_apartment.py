@@ -282,7 +282,7 @@ def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:
     assert clean[clean.index("-c:a") + 1] == "copy"
     assert "-shortest" not in clean
 
-    topdown = apartment.build_topdown_binaural_command(
+    topdown = apartment.build_topdown_visual_command(
         ue_video_path="ue.mp4",
         authoritative_diagnostic_path="habitat_diag.mp4",
         output_path="topdown.mp4",
@@ -290,7 +290,7 @@ def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:
     graph = topdown[topdown.index("-filter_complex") + 1]
     assert "crop=640:480:640:0[topdown]" in graph
     assert "[ue][topdown]hstack" in graph
-    assert topdown[topdown.index("-c:a") + 1] == "copy"
+    assert "-an" in topdown
     assert "-shortest" not in topdown
 
 
@@ -370,7 +370,18 @@ def test_media_probe_requires_full_packet_identical_binaural_copy(
         expected_height=48,
         expect_audio=True,
     )
+    assert probe["size_bytes"] == copied.stat().st_size
     assert probe["audio_packet_sha256"] == _RUNNER._audio_packet_sha256(source)
+
+
+def test_runtime_timing_contract_requires_rgb_and_topdown_outputs() -> None:
+    assert _RUNNER.TIMING_SCHEMA == "avengine_apartment_runtime_timing_v1"
+    assert _RUNNER.REQUIRED_SAMPLE_OUTPUTS == (
+        "ue_clean_binaural.mp4",
+        "ue_topdown_binaural.mp4",
+    )
+    started = _RUNNER.time.perf_counter()
+    assert _RUNNER._elapsed_seconds(started) >= 0.0
 
 
 def test_default_asset_forward_bindings_are_explicit() -> None:

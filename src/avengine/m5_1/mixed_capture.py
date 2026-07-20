@@ -1,6 +1,6 @@
-"""Fixed-state Habitat capture for the M5.1 Rocketbox-human + Beagle route.
+"""Fixed-state Habitat capture for Rocketbox-human + Beagle routes.
 
-The public path entrypoint consumes two 270-point actor trajectories.  It
+The public path entrypoint consumes two equal-length actor trajectories.  It
 derives each actor's idle/walk state from its authored root trajectory, samples
 the action loops declared by that actor's runtime package, writes both
 articulated states explicitly for every frame, and makes exactly one
@@ -70,7 +70,6 @@ from avengine.m5_1.human_runtime import (
     prepare_rocketbox_habitat_runtime,
 )
 from avengine.m5_1.legacy_route import (
-    FRAME_COUNT,
     FRAME_RATE_HZ,
     assert_valid_route_manifest,
 )
@@ -103,7 +102,7 @@ class MixedCaptureError(RuntimeError):
 
 @dataclass(frozen=True)
 class MixedCaptureResult:
-    """Retained arrays and evidence for one 270-frame mixed capture."""
+    """Retained arrays and evidence for one mixed articulated capture."""
 
     output_dir: Path
     rgb: np.ndarray
@@ -132,9 +131,14 @@ def _points(value: Any, *, owner: str) -> np.ndarray:
     try:
         array = np.asarray(value, dtype=np.float64)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise MixedCaptureError(f"{owner} must be a finite [270,3] array") from exc
-    if array.shape != (FRAME_COUNT, 3) or not np.all(np.isfinite(array)):
-        raise MixedCaptureError(f"{owner} must be a finite [270,3] array")
+        raise MixedCaptureError(f"{owner} must be a finite [N,3] array") from exc
+    if (
+        array.ndim != 2
+        or array.shape[0] < 2
+        or array.shape[1] != 3
+        or not np.all(np.isfinite(array))
+    ):
+        raise MixedCaptureError(f"{owner} must be a finite [N,3] array with N >= 2")
     return np.ascontiguousarray(array)
 
 
@@ -183,7 +187,7 @@ def locomotion_schedule_from_root_trajectory(
         np.linalg.norm(np.diff(points[:, (0, 2)], axis=0), axis=1)
         * frame_rate_hz
     )
-    frame_speeds = np.empty(FRAME_COUNT, dtype=np.float64)
+    frame_speeds = np.empty(points.shape[0], dtype=np.float64)
     frame_speeds[0] = segment_speeds[0]
     frame_speeds[-1] = segment_speeds[-1]
     frame_speeds[1:-1] = np.maximum(segment_speeds[:-1], segment_speeds[1:])
@@ -365,7 +369,9 @@ def trajectory_world_matrices(
     local_basis = np.stack((local_right, up, -local_forward), axis=1)
     if not math.isclose(float(np.linalg.det(local_basis)), 1.0, abs_tol=1.0e-12):
         raise MixedCaptureError("local anatomical frame is not a proper rotation")
-    matrices = np.repeat(np.eye(4, dtype=np.float64)[None, :, :], FRAME_COUNT, axis=0)
+    matrices = np.repeat(
+        np.eye(4, dtype=np.float64)[None, :, :], points.shape[0], axis=0
+    )
     for index, forward in enumerate(tangents):
         right = np.cross(forward, up)
         right /= np.linalg.norm(right)
@@ -391,9 +397,10 @@ def _actor_heading_evidence(
 
     points = _points(points_m, owner=f"{actor_id} root path")
     matrices = np.asarray(actor_world_matrices, dtype=np.float64)
-    if matrices.shape != (FRAME_COUNT, 4, 4) or not np.all(np.isfinite(matrices)):
+    frame_count = points.shape[0]
+    if matrices.shape != (frame_count, 4, 4) or not np.all(np.isfinite(matrices)):
         raise MixedCaptureError(
-            f"{actor_id} actor_world_matrices must be finite [270,4,4]"
+            f"{actor_id} actor_world_matrices must be finite [{frame_count},4,4]"
         )
     local_forward = _horizontal_unit_axis(
         local_forward_axis, owner=f"{actor_id} local anatomical forward axis"
@@ -430,7 +437,7 @@ def _actor_heading_evidence(
             "heading_error_degrees": float(errors_deg[index]),
             "passed": bool(passed[index]),
         }
-        for index in range(FRAME_COUNT)
+        for index in range(frame_count)
     ]
     stationary_heading = bool(
         np.allclose(
@@ -902,6 +909,11 @@ def capture_human_beagle_paths(
         raise MixedCaptureError("human and Beagle semantic IDs must be distinct nonnegative integers")
     human_points = _points(human_root_path_m, owner="human root path")
     beagle_points = _points(beagle_root_path_m, owner="Beagle root path")
+    if human_points.shape != beagle_points.shape:
+        raise MixedCaptureError(
+            "human and Beagle root paths must have the same frame count"
+        )
+    frame_count = int(human_points.shape[0])
     output = Path(output_dir).resolve()
     if output.exists() or output.is_symlink():
         raise MixedCaptureError(f"refusing to replace capture output: {output}")
@@ -1161,7 +1173,7 @@ def capture_human_beagle_paths(
             )
             initial_world_time = float(simulator.get_world_time())
 
-            for frame_index in range(FRAME_COUNT):
+            for frame_index in range(frame_count):
                 human_locomotion_state = human_locomotion[frame_index]
                 human_action = human_actions[human_locomotion_state.action_id]
                 human_sample_index = human_locomotion_state.action_sample_index
@@ -1439,7 +1451,7 @@ def capture_human_beagle_paths(
             "status": "pass",
             "research_only": True,
             "qualification_claim": False,
-            "frame_count": FRAME_COUNT,
+            "frame_count": frame_count,
             "frame_rate_hz": FRAME_RATE_HZ,
             "time_base_hz": TIME_BASE_HZ,
             "physics_steps": 0,

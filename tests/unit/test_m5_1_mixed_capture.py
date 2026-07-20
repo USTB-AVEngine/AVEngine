@@ -270,6 +270,22 @@ def test_locomotion_schedule_hysteresis_ignores_subthreshold_root_jitter() -> No
     assert {state.action_id for state in moving_schedule} == {"walk"}
 
 
+def test_path_helpers_support_one_five_second_episode() -> None:
+    points = np.zeros((75, 3), dtype=np.float64)
+    points[:, 0] = np.linspace(0.0, 1.0, 75)
+    schedule = locomotion_schedule_from_root_trajectory(
+        points,
+        action_sample_counts={"idle": 25, "walk": 16},
+    )
+    matrices = trajectory_world_matrices(
+        points,
+        local_forward_axis=(0.0, 0.0, 1.0),
+    )
+    assert len(schedule) == 75
+    assert {state.action_id for state in schedule} == {"walk"}
+    assert matrices.shape == (75, 4, 4)
+
+
 def test_render_evidence_requires_only_actions_selected_by_the_route() -> None:
     stationary = np.zeros((270, 3), dtype=np.float64)
     idle_schedule = locomotion_schedule_from_root_trajectory(

@@ -208,6 +208,14 @@ engine, material qualification or dataset admission. See
 [`M6Y_STATUS.md`](docs/roadmap/M6Y_STATUS.md) for current videos, claim
 boundaries and the local review-page command.
 
+Each Apartment episode now requires both `ue_clean_binaural.mp4` (RGB plus
+binaural audio) and `ue_topdown_binaural.mp4` (RGB plus the diagnostic Topdown
+and the same audio packets). The runner writes `timing.json` with launch,
+warmup, capture, RGB encode, Topdown compose, mux, media-readback and total wall
+times. For the optional UE comparison runner this receipt explicitly excludes
+the Habitat/RLR audio generation already present in its input bundle; an
+end-to-end dataset benchmark must time that upstream work separately.
+
 Apartment lighting is now an editable JSON runtime interface with two retained
 presets: untouched `native` and `warm_indoor_fill`. A real S3 A/B execution
 kept the native map, exterior and post-process unchanged, spawned only the two
@@ -336,6 +344,43 @@ The refreshed natural-light closeout run is retained at
 `tmp/m6x/fixed_apartment_natural_lighting_20260720_01/REVIEW_INDEX.html`.
 The bounded feasibility result and its acoustic claim boundary are summarized
 in [the M6.x final report](docs/roadmap/M6X_FINAL_REPORT.md).
+
+### Run the Apartment four-motion throughput pilot
+
+The lightweight training-pipeline pilot covers the four requested motion
+cases: static/static, human-moving/dog-static, both-moving, and
+human-static/dog-moving. Every case is an independent 5-second, 75-frame sample
+at 15 fps with one human and one Beagle. Both named sources have scheduled
+events in every sample and share an overlapping event window. Each sample
+retains a 1280x720 clean RGB+binaural MP4, a 1280x480 annotated
+RGB+Topdown+binaural MP4, the authoritative 16 kHz stereo mixture and stems,
+Timeline v2, source manifest, AudioProgram, flags, and motion metadata.
+
+The runner captures one continuous 300-frame master so the room and actors are
+loaded once, then slices four exact 75-frame samples. It does not copy the
+Apartment scene per sample. By default, dense RGB/semantic master arrays and
+the shared RIR grid are deleted after the final media and labels pass readback;
+`--keep-dense-master` retains them only when capture debugging is needed.
+
+```bash
+cd /data/jzy/code/AVEngine-habitat-native
+/data/jzy/miniconda3/bin/conda run -n avengine-habitat-runtime \
+  python tools/m6x/run_apartment_four_motion_pilot.py \
+  --output tmp/m7/apartment_four_motion_pilot_run_01
+```
+
+The completed local pilot at
+`tmp/m7/apartment_four_motion_pilot_20260720_01/REVIEW_INDEX.html` took
+725.69 seconds for all four fresh samples. Habitat capture took 370.12 seconds,
+RLR took 185.19 seconds, room/source-center preflight and qualification took
+99.75 seconds, and four final audio/video/label renders took 70.08 seconds.
+That is 19.84 samples/hour and a naive serial projection of 50.40 hours for
+1,000 samples. The projection is deliberately not a production promise: the
+room preflight can be shared across the full run, and the current implementation
+still writes about 2.03 GB of dense intermediates before deleting them. Do not
+start the 800/100/100 generation yet; first add streaming finalization and an
+RIR cache for repeated static source/listener poses, then rerun a larger
+throughput benchmark.
 
 The earlier `_04` closeout capture is a historical `320x240` baseline, and
 `_06` predates the hidden test markers, direction-projected exterior and normal

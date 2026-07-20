@@ -309,11 +309,41 @@ def _anchor_positions(anchor_library: Mapping[str, Any]) -> dict[str, np.ndarray
     }
 
 
-def _static_path(point: Sequence[float]) -> np.ndarray:
+def _static_path(
+    point: Sequence[float], *, frame_count: int = MASTER_FRAME_COUNT
+) -> np.ndarray:
     value = np.asarray(point, dtype=np.float64)
     if value.shape != (3,) or not np.all(np.isfinite(value)):
         raise CaptureAdapterError("static source position is invalid")
-    return np.ascontiguousarray(np.repeat(value[None, :], MASTER_FRAME_COUNT, axis=0))
+    if (
+        isinstance(frame_count, bool)
+        or not isinstance(frame_count, int)
+        or frame_count < 2
+    ):
+        raise CaptureAdapterError("static source frame_count must be an integer >= 2")
+    return np.ascontiguousarray(np.repeat(value[None, :], frame_count, axis=0))
+
+
+def _actor_path_frame_count(actor_root_paths: Mapping[str, np.ndarray]) -> int:
+    frame_counts = {
+        int(np.asarray(path).shape[0])
+        for path in actor_root_paths.values()
+        if np.asarray(path).ndim == 2 and np.asarray(path).shape[1:] == (3,)
+    }
+    if len(frame_counts) != 1:
+        raise CaptureAdapterError(
+            "captured actor root paths must share one [frame,3] shape"
+        )
+    frame_count = next(iter(frame_counts))
+    if frame_count < 2 or any(
+        np.asarray(path).shape != (frame_count, 3)
+        or not np.all(np.isfinite(np.asarray(path, dtype=np.float64)))
+        for path in actor_root_paths.values()
+    ):
+        raise CaptureAdapterError(
+            "captured actor root paths must be finite and contain at least two frames"
+        )
+    return frame_count
 
 
 @dataclass(frozen=True)
@@ -642,6 +672,7 @@ class HumanBeagleCaptureAdapter:
         actor_root_paths: Mapping[str, np.ndarray],
     ) -> dict[str, np.ndarray]:
         anchors = _anchor_positions(anchor_library)
+        frame_count = _actor_path_frame_count(actor_root_paths)
         result: dict[str, np.ndarray] = {}
         for source in self.source_bindings:
             if source.capture_anchor_id is not None:
@@ -656,7 +687,7 @@ class HumanBeagleCaptureAdapter:
             elif source.room_anchor_id is not None:
                 try:
                     result[source.source_endpoint_id] = _static_path(
-                        anchors[source.room_anchor_id]
+                        anchors[source.room_anchor_id], frame_count=frame_count
                     )
                 except KeyError as exc:
                     raise CaptureAdapterError(
@@ -674,6 +705,14 @@ class HumanBeagleCaptureAdapter:
         capture: CaptureData,
     ) -> dict[str, np.ndarray]:
         anchors = _anchor_positions(anchor_library)
+        if (
+            capture.anchor_positions_m.ndim != 3
+            or capture.anchor_positions_m.shape[0] < 2
+        ):
+            raise CaptureAdapterError(
+                "capture anchor positions must be a [frame,anchor,3] array"
+            )
+        frame_count = int(capture.anchor_positions_m.shape[0])
         anchor_order = capture.evidence.get("anchor_order")
         if (
             not isinstance(anchor_order, list)
@@ -701,7 +740,7 @@ class HumanBeagleCaptureAdapter:
             elif source.room_anchor_id is not None:
                 try:
                     result[source.source_endpoint_id] = _static_path(
-                        anchors[source.room_anchor_id]
+                        anchors[source.room_anchor_id], frame_count=frame_count
                     )
                 except KeyError as exc:
                     raise CaptureAdapterError(
@@ -843,8 +882,16 @@ class HumanBeagleCaptureAdapter:
             errors.append(f"schema must be {self.capture_schema!r}")
         if evidence.get("status") != "pass":
             errors.append("status must be 'pass'")
-        if evidence.get("frame_count") != MASTER_FRAME_COUNT:
-            errors.append(f"frame_count must be {MASTER_FRAME_COUNT}")
+        declared_frame_count = evidence.get("frame_count")
+        if (
+            isinstance(declared_frame_count, bool)
+            or not isinstance(declared_frame_count, int)
+            or declared_frame_count < 2
+        ):
+            errors.append("frame_count must be an integer >= 2")
+            frame_count = len(records)
+        else:
+            frame_count = declared_frame_count
         if evidence.get("frame_rate_hz") != FRAME_RATE_HZ:
             errors.append(f"frame_rate_hz must be {FRAME_RATE_HZ}")
         if evidence.get("time_base_hz") != TIME_BASE_HZ:
@@ -899,8 +946,8 @@ class HumanBeagleCaptureAdapter:
                     )
 
         ticks_per_frame = TIME_BASE_HZ // FRAME_RATE_HZ
-        if len(records) != MASTER_FRAME_COUNT:
-            errors.append(f"frame_readback must contain {MASTER_FRAME_COUNT} records")
+        if len(records) != frame_count:
+            errors.append(f"frame_readback must contain {frame_count} records")
         elif any(
             not isinstance(record, Mapping)
             or record.get("frame_index") != index
@@ -919,7 +966,7 @@ class HumanBeagleCaptureAdapter:
             errors.append(
                 f"locomotion.policy_id must be {LOCOMOTION_POLICY_ID!r}"
             )
-        if len(records) == MASTER_FRAME_COUNT:
+        if len(records) == frame_count:
             for actor in self.actor_bindings:
                 paths = (
                     actor.action_id_record_path,
@@ -987,20 +1034,17 @@ class HumanBeagleCaptureAdapter:
         """Close retained action records against retained actor-root matrices."""
 
         matrices = np.asarray(capture.actor_world_matrices, dtype=np.float64)
+        frame_count = len(capture.records)
         if (
             matrices.ndim != 4
-            or matrices.shape[0] != MASTER_FRAME_COUNT
+            or frame_count < 2
+            or matrices.shape[0] != frame_count
             or matrices.shape[2:] != (4, 4)
             or not np.all(np.isfinite(matrices))
         ):
             raise CaptureAdapterError(
                 "capture locomotion closure requires finite actor_world_matrices"
             )
-        if len(capture.records) != MASTER_FRAME_COUNT:
-            raise CaptureAdapterError(
-                f"capture locomotion closure requires {MASTER_FRAME_COUNT} records"
-            )
-
         ticks_per_frame = TIME_BASE_HZ // FRAME_RATE_HZ
         errors: list[str] = []
         for actor in self.actor_bindings:
@@ -1169,14 +1213,15 @@ class HumanBeagleCaptureAdapter:
         """
 
         matrices = np.asarray(capture.actor_world_matrices, dtype=np.float64)
+        frame_count = int(matrices.shape[0]) if matrices.ndim == 4 else -1
         if (
             matrices.ndim != 4
-            or matrices.shape[0] != MASTER_FRAME_COUNT
+            or frame_count < 2
             or matrices.shape[2:] != (4, 4)
         ):
             raise CaptureAdapterError(
                 "capture orientation closure requires actor_world_matrices "
-                f"with shape ({MASTER_FRAME_COUNT}, actor_count, 4, 4)"
+                "with shape (frame_count>=2, actor_count, 4, 4)"
             )
 
         errors: list[str] = []
@@ -1210,7 +1255,7 @@ class HumanBeagleCaptureAdapter:
                 )
                 continue
             if (
-                route.shape != (MASTER_FRAME_COUNT, 3)
+                route.shape != (frame_count, 3)
                 or not np.all(np.isfinite(route))
             ):
                 errors.append(
@@ -1344,6 +1389,7 @@ class HumanBeagleCaptureAdapter:
             room_manifest_path=room_manifest_path,
             m1_request_path=m1_request_path,
         )
+        frame_count = _actor_path_frame_count(actor_root_paths)
         rgb = np.load(required["rgb"], allow_pickle=False)
         semantic = np.load(required["semantic"], allow_pickle=False)
         actor = np.load(required["actor"], allow_pickle=False)
@@ -1355,13 +1401,14 @@ class HumanBeagleCaptureAdapter:
         calibration = request["primary_camera_rig"]["shared_calibration"]
         capture_height, capture_width = calibration["resolution_hw"]
         if (
-            rgb.shape
-            != (MASTER_FRAME_COUNT, capture_height, capture_width, 3)
+            evidence.get("frame_count") != frame_count
+            or rgb.shape
+            != (frame_count, capture_height, capture_width, 3)
             or rgb.dtype != np.uint8
             or semantic.shape
-            != (MASTER_FRAME_COUNT, capture_height, capture_width)
-            or actor.shape != (MASTER_FRAME_COUNT, captured_actor_count, 4, 4)
-            or anchors.shape != (MASTER_FRAME_COUNT, len(self.capture_anchor_order), 3)
+            != (frame_count, capture_height, capture_width)
+            or actor.shape != (frame_count, captured_actor_count, 4, 4)
+            or anchors.shape != (frame_count, len(self.capture_anchor_order), 3)
         ):
             raise CaptureAdapterError(
                 "capture arrays/evidence differ from the adapter contract"
@@ -1497,6 +1544,11 @@ class HumanBeagleCaptureAdapter:
             m1_request_path=m1_request_path,
         )
         self.validate_capture_locomotion(capture)
+        self.validate_capture_orientation(
+            capture,
+            actor_root_paths=actor_root_paths,
+            actor_fallback_forwards_xz=actor_fallback_forwards_xz,
+        )
         return capture
 
 

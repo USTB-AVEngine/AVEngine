@@ -962,13 +962,13 @@ def build_clean_binaural_mux_command(
     ]
 
 
-def build_topdown_binaural_command(
+def build_topdown_visual_command(
     *,
     ue_video_path: str | Path,
     authoritative_diagnostic_path: str | Path,
     output_path: str | Path,
 ) -> list[str]:
-    """Pair UE main pixels with the unchanged authoritative Topdown panel."""
+    """Pair UE main pixels with only the authoritative Topdown visual panel."""
 
     filter_graph = (
         "[0:v]scale=640:360:flags=lanczos,"
@@ -991,8 +991,6 @@ def build_topdown_binaural_command(
         filter_graph,
         "-map",
         "[video]",
-        "-map",
-        "1:a:0",
         "-frames:v",
         str(FRAME_COUNT),
         "-c:v",
@@ -1003,8 +1001,7 @@ def build_topdown_binaural_command(
         "18",
         "-pix_fmt",
         "yuv420p",
-        "-c:a",
-        "copy",
+        "-an",
         "-movflags",
         "+faststart",
         str(output_path),
@@ -1045,7 +1042,7 @@ __all__ = [
     "build_native_apartment_scenario",
     "build_native_apartment_suite",
     "build_png_encode_command",
-    "build_topdown_binaural_command",
+    "build_topdown_visual_command",
     "component_frame_delta_for_asset",
     "detached_suite_copy",
     "load_apartment_lighting_profile",
