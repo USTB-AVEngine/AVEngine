@@ -414,6 +414,43 @@ def test_runtime_component_delta_is_added_to_authored_blueprint_transform() -> N
     assert result["target"] == "attached_visual_actor_root_component"
 
 
+def test_runtime_component_delta_accepts_equivalent_gimbal_rotator_readback() -> None:
+    class GimbalComponent:
+        def __init__(self) -> None:
+            self.location = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+            self.rotation = {"Roll": 0.0, "Pitch": 0.0, "Yaw": 0.0}
+
+        def get_property_value(self, *, property_name: str):
+            if property_name == "RelativeLocation":
+                return dict(self.location)
+            if property_name == "RelativeRotation":
+                return dict(self.rotation)
+            raise AssertionError(property_name)
+
+        def K2_AddRelativeLocation(self, *, DeltaLocation, **_):
+            for axis in ("X", "Y", "Z"):
+                self.location[axis] += DeltaLocation[axis]
+
+        def K2_AddRelativeRotation(self, *, DeltaRotation, **_):
+            assert DeltaRotation == {"Roll": 0.0, "Pitch": 90.0, "Yaw": 0.0}
+            # UE may report the same +90 degree pitch as this Euler triplet.
+            self.rotation = {"Roll": 180.0, "Pitch": 90.0, "Yaw": 180.0}
+
+    declaration = {
+        "actor_id": "dog0",
+        "asset_id": apartment.BEAGLE_ASSET_ID,
+        "ue_component_frame_delta": apartment.DEFAULT_ACTOR_BINDINGS[
+            apartment.BEAGLE_ASSET_ID
+        ]["ue_component_frame_delta"],
+    }
+    result = apartment.apply_ue_component_frame_delta(
+        GimbalComponent(), declaration
+    )
+    assert result["euler_component_rotation_delta_error_deg"] == pytest.approx(180.0)
+    assert result["quaternion_equivalence_rotation_error_deg"] == pytest.approx(0.0)
+    assert result["maximum_rotation_delta_error_deg"] == pytest.approx(0.0)
+
+
 def test_visual_bounds_gate_proves_beagle_floor_contact_and_horizontal_frame() -> None:
     plan = _plan()
     records = {"dog0": [], "human0": []}

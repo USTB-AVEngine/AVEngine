@@ -217,6 +217,20 @@ navigation, sensor and source-logic reference and has an optional warm indoor
 route-area fill for review. These choices do not split Timeline, audio,
 Topdown, flags or navigation authority across engines.
 
+The bounded **M6.z external residential-scene adapter** proves a real
+InteriorAgent/Kujiale `kujiale_0020` living room through UE/SPEAR. A local
+reference-only USD layer converts useful MDL inputs to USD PreviewSurface, and
+the four-view 1280x720 canary retains furnished PBR appearance, glass and local
+shadows. The follow-on 75-frame episode replays one moving human and one moving
+Beagle, simultaneous speech/barks, source-center gates, binaural audio and the
+AVEngine Topdown without allowing UE to replan. The same source contract also
+passes on a clearly labelled 3D-FRONT official Toolbox five-object sample
+proxy. That proxy is not a complete 3D-FRONT house; full-house use still
+requires an authorized complete dataset. Downloaded data and generated media
+stay outside Git. InteriorNet remains a rendered evaluation source. See
+[`M6Z_STATUS.md`](docs/roadmap/M6Z_STATUS.md) and the
+[`optional residential scene backend matrix`](docs/architecture/OPTIONAL_RESIDENTIAL_SCENE_BACKENDS.md).
+
 ### Run the fixed Apartment S0--S5 canary
 
 Use the Habitat/RLR Conda environment; `.venv` is not required.
@@ -446,6 +460,7 @@ arbitrary generated episode is synchronized.
 | M6 | feasibility foundation: extensible registries, legacy-compatible flags, room interfaces, retained controlled-source materialization and one independent fail-closed fixture (`pass`; no dataset admission claim) |
 | M6.x | fixed SPEAR `apartment_0000` Habitat RoomCapsule, runtime-authoritative obstacles and executable source-logic S0--S5 binaural/Topdown canary (`pass`, bounded research canary; source-center placement only) |
 | M6.y | optional SPEAR/UE `comparison_visual`: native Apartment S0/S3/S4, corrected-sRGB MP3D and room-local-lit ReplicaCAD runtime `pass`; Habitat Apartment natural-light profile also rerun (`pass`, bounded visual comparison; Habitat-native protocol/audio authority unchanged) |
+| M6.z | optional external residential scenes: real InteriorAgent/Kujiale four-view plus human+Beagle episode (`pass`); 3D-FRONT official Toolbox five-object sample-proxy human+Beagle episode (`pass`, not a full house); InteriorNet evaluation-only |
 | M7 | benchmark, ablations, paper and release audit |
 
 M1 loads an official Habitat room, a Blender custom room and an audited legacy

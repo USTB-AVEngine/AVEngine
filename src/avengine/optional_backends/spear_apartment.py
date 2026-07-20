@@ -243,6 +243,35 @@ def read_ue_component_relative_transform(component: Any) -> dict[str, list[float
     }
 
 
+def _rotator_quaternion_xyzw(rotation_deg: Sequence[float]) -> tuple[float, ...]:
+    """Convert UE-style Roll/Pitch/Yaw degrees to an equivalent quaternion.
+
+    Rotators at +/-90 degree pitch have multiple valid Euler representations;
+    comparing their three reported components independently can therefore
+    report a false 180 degree error for the same physical orientation.
+    """
+
+    roll, pitch, yaw = (math.radians(float(value)) / 2.0 for value in rotation_deg)
+    sr, cr = math.sin(roll), math.cos(roll)
+    sp, cp = math.sin(pitch), math.cos(pitch)
+    sy, cy = math.sin(yaw), math.cos(yaw)
+    return (
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    )
+
+
+def _rotator_equivalence_error_degrees(
+    expected_deg: Sequence[float], observed_deg: Sequence[float]
+) -> float:
+    expected = _rotator_quaternion_xyzw(expected_deg)
+    observed = _rotator_quaternion_xyzw(observed_deg)
+    dot = abs(sum(left * right for left, right in zip(expected, observed, strict=True)))
+    return math.degrees(2.0 * math.acos(min(1.0, max(-1.0, dot))))
+
+
 def apply_ue_component_frame_delta(
     component: Any, declaration: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -293,7 +322,7 @@ def apply_ue_component_frame_delta(
         )
         for axis in range(3)
     )
-    rotation_error = max(
+    component_rotation_error = max(
         abs(
             (
                 after["rotation_deg"][axis]
@@ -306,6 +335,13 @@ def apply_ue_component_frame_delta(
         )
         for axis in range(3)
     )
+    expected_rotation = [
+        before["rotation_deg"][axis] + rotation[axis] for axis in range(3)
+    ]
+    quaternion_rotation_error = _rotator_equivalence_error_degrees(
+        expected_rotation, after["rotation_deg"]
+    )
+    rotation_error = min(component_rotation_error, quaternion_rotation_error)
     if (
         translation_error > COMPONENT_TRANSFORM_TOLERANCE
         or rotation_error > COMPONENT_TRANSFORM_TOLERANCE
@@ -323,6 +359,8 @@ def apply_ue_component_frame_delta(
         "blueprint_relative_after": after,
         "maximum_translation_delta_error_cm": translation_error,
         "maximum_rotation_delta_error_deg": rotation_error,
+        "euler_component_rotation_delta_error_deg": component_rotation_error,
+        "quaternion_equivalence_rotation_error_deg": quaternion_rotation_error,
         "timeline_anchor_mutated": False,
         "target": "attached_visual_actor_root_component",
     }

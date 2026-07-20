@@ -1,0 +1,52 @@
+{
+  "acoustic_proxy": {
+    "coordinate_translation_habitat_m": [0.0, 0.0, 0.0],
+    "label": "generic_shoebox_directional_preview",
+    "material_claim": "not_3d_front_material_truth",
+    "rir_stride_frames": 3
+  },
+  "camera": {
+    "horizontal_fov_deg": 42.103449,
+    "position_xyz_m": [0.0, 0.0, 1.17],
+    "yaw_ue_deg": 0.0
+  },
+  "dataset_id": "3D-FRONT-FUTURE/official-toolbox-sample",
+  "emitter_heights_m": {
+    "dog0": 0.45,
+    "human0": 1.60
+  },
+  "map_path": "/Game/AVEngine/Optional/ThreeDFront/official_toolbox_sample_proxy_v2/Maps/review",
+  "review_lights": [
+    {
+      "attenuation_radius_m": 5.0,
+      "intensity_lumens": 1700.0,
+      "light_id": "proxy_room_key",
+      "position_xyz_m": [2.5, -1.7, 2.4],
+      "soft_source_radius_m": 0.35,
+      "source_radius_m": 0.18,
+      "temperature_kelvin": 4100.0
+    },
+    {
+      "attenuation_radius_m": 5.5,
+      "intensity_lumens": 2100.0,
+      "light_id": "proxy_room_fill",
+      "position_xyz_m": [5.5, 1.4, 2.6],
+      "soft_source_radius_m": 0.40,
+      "source_radius_m": 0.20,
+      "temperature_kelvin": 4600.0
+    }
+  ],
+  "routes": {
+    "dog0": {
+      "end_xyz_m": [3.4, -1.0, 0.0],
+      "start_xyz_m": [5.0, 1.8, 0.0]
+    },
+    "human0": {
+      "end_xyz_m": [4.2, 1.2, 0.064],
+      "start_xyz_m": [2.0, -1.2, 0.064]
+    }
+  },
+  "scene_id": "3d_front_official_toolbox_sample_proxy",
+  "schema": "avengine_optional_residential_source_profile_v1",
+  "source_center_margin_m": 0.03
+}

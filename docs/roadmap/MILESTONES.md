@@ -387,6 +387,36 @@ unavailable room is reported as pending or blocked rather than inferred from a
 plan. Placement stays source-center-only. No new release-manifest, symlink or
 leaf-hash maintenance layer is part of this workstream.
 
+## M6.z: Optional External Residential Scene Adapters
+
+Status: `pass` for the bounded InteriorAgent/Kujiale four-view visual proof and
+human+Beagle episode, plus a separately labelled 3D-FRONT official Toolbox
+five-object sample-proxy human+Beagle episode.
+See [M6Z_STATUS.md](M6Z_STATUS.md) and the
+[backend matrix](../architecture/OPTIONAL_RESIDENTIAL_SCENE_BACKENDS.md).
+
+Purpose: establish a small, maintainable path for an authorized external
+residential scene to supply UE/SPEAR comparison pixels without becoming a
+second AVEngine runtime. The first real canary adapts selected
+`kujiale_0020` USD scopes and useful MDL inputs, creates a UE map containing
+one external reference, and reads back four 1280x720 frames plus explicit local
+review-light state. The shared source-episode compiler then produces exact
+75-frame human/Beagle Timeline state, simultaneous speech/barks, binaural
+audio, source-center qualification and Topdown diagnostics for both that real
+room and the bounded 3D-FRONT Toolbox sample proxy.
+
+Exit criteria: external dataset bytes remain outside Git; the plan and
+material mapping are covered by dependency-free tests; the adapter and UE map
+do not embed or redistribute downloaded data; the real SPEAR runs produce
+decodable non-empty frames and readable evidence; both episode renders contain
+exactly 75 decodable frames and two-channel 16 kHz audio; actor roots,
+deterministic animation phases and dog floor contact read back; and the
+documentation keeps Timeline, navigation, audio, Topdown, flags and metadata
+under Habitat-native authority. The 3D-FRONT result does not claim a complete
+house, physical light reconstruction, room qualification or dataset admission.
+InteriorNet remains an evaluation-data candidate, while full 3D-FRONT use
+awaits separately authorized complete data.
+
 ## M7: Benchmark and Paper Release
 
 Deliverables: Dynamic Articulated Source Attribution task, splits, loaders,
