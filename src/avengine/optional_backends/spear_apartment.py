@@ -61,6 +61,14 @@ SCENARIO_DIRECTORIES: Mapping[str, tuple[str, str]] = {
 }
 
 
+MOTION_PILOT_DIRECTORIES: Mapping[str, str] = {
+    "P0": "00_static_static",
+    "P1": "01_human_moving_dog_static",
+    "P2": "02_both_moving",
+    "P3": "03_human_static_dog_moving",
+}
+
+
 BEAGLE_ASSET_ID = "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
 HUMAN_ASSET_ID = "rocketbox_human_male_adult_01_m5_1_candidate"
 
@@ -74,12 +82,10 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
             f"gate_{BEAGLE_TAG}/BP_gate_{BEAGLE_TAG}.BP_gate_{BEAGLE_TAG}_C"
         ),
         "idle_animation": (
-            "/Game/MyAssets/Audioset/Meshes/"
-            f"gate_{BEAGLE_TAG}/Idle.Idle"
+            f"/Game/MyAssets/Audioset/Meshes/gate_{BEAGLE_TAG}/Idle.Idle"
         ),
         "walking_animation": (
-            "/Game/MyAssets/Audioset/Meshes/"
-            f"gate_{BEAGLE_TAG}/Walking.Walking"
+            f"/Game/MyAssets/Audioset/Meshes/gate_{BEAGLE_TAG}/Walking.Walking"
         ),
         # The imported Beagle's anatomical forward is UE actor-local +X.
         "ue_anatomical_forward_yaw_deg": 0.0,
@@ -105,8 +111,7 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
             f"gate_{HUMAN_TAG}/Standing_Idle.Standing_Idle"
         ),
         "walking_animation": (
-            "/Game/MyAssets/Audioset/Meshes/"
-            f"gate_{HUMAN_TAG}/Walking.Walking"
+            f"/Game/MyAssets/Audioset/Meshes/gate_{HUMAN_TAG}/Walking.Walking"
         ),
         # Rocketbox walking/idle clips face UE actor-local +Y.
         "ue_anatomical_forward_yaw_deg": 90.0,
@@ -174,8 +179,14 @@ def resolve_apartment_lighting_profile(
         if not isinstance(light, Mapping):
             raise SpearApartmentError(f"generated_lights[{index}] must be an object")
         light_id = light.get("light_id")
-        if not isinstance(light_id, str) or not light_id.strip() or light_id in light_ids:
-            raise SpearApartmentError("generated light ids must be non-empty and unique")
+        if (
+            not isinstance(light_id, str)
+            or not light_id.strip()
+            or light_id in light_ids
+        ):
+            raise SpearApartmentError(
+                "generated light ids must be non-empty and unique"
+            )
         light_ids.add(light_id)
         position = _finite_triplet(
             light.get("position_ue_cm"), owner=f"generated light {light_id} position"
@@ -242,7 +253,9 @@ def load_apartment_lighting_profile(
     try:
         document = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise SpearApartmentError(f"could not read lighting profiles: {source}") from exc
+        raise SpearApartmentError(
+            f"could not read lighting profiles: {source}"
+        ) from exc
     if not isinstance(document, Mapping):
         raise SpearApartmentError("lighting profile document must be an object")
     return resolve_apartment_lighting_profile(document, profile_id)
@@ -336,7 +349,9 @@ def component_frame_delta_for_asset(
     return _component_frame_delta(binding, asset_id=asset_id)
 
 
-def _unreal_struct_triplet(value: Any, names: Sequence[str], *, owner: str) -> list[float]:
+def _unreal_struct_triplet(
+    value: Any, names: Sequence[str], *, owner: str
+) -> list[float]:
     expected = [name.casefold() for name in names]
     current = value
     for _ in range(3):
@@ -344,9 +359,7 @@ def _unreal_struct_triplet(value: Any, names: Sequence[str], *, owner: str) -> l
             break
         lowered = {str(key).casefold(): item for key, item in current.items()}
         if all(name in lowered for name in expected):
-            return _finite_triplet(
-                [lowered[name] for name in expected], owner=owner
-            )
+            return _finite_triplet([lowered[name] for name in expected], owner=owner)
         if "returnvalue" in lowered and isinstance(lowered["returnvalue"], Mapping):
             current = lowered["returnvalue"]
             continue
@@ -499,9 +512,7 @@ def apply_ue_component_frame_delta(
     }
 
 
-def scenario_input_paths(
-    bundle_root: str | Path, scenario_id: str
-) -> dict[str, Path]:
+def scenario_input_paths(bundle_root: str | Path, scenario_id: str) -> dict[str, Path]:
     """Resolve one S0/S3/S4 input closure inside an existing M6.x bundle."""
 
     root = Path(bundle_root).resolve()
@@ -539,11 +550,53 @@ def scenario_input_paths(
     }
 
 
+def motion_pilot_input_paths(
+    bundle_root: str | Path, scenario_id: str
+) -> dict[str, Path]:
+    """Resolve one P0--P3 input closure from a four-motion pilot bundle."""
+
+    root = Path(bundle_root).resolve()
+    if not root.is_dir():
+        raise SpearApartmentError(f"bundle root is missing: {root}")
+    try:
+        episode_directory = MOTION_PILOT_DIRECTORIES[scenario_id]
+    except KeyError as exc:
+        raise SpearApartmentError(
+            f"unsupported Apartment motion-pilot scenario: {scenario_id!r}"
+        ) from exc
+    episode = root / "episodes" / episode_directory
+    metadata = episode / "metadata"
+    videos = episode / "videos"
+    return {
+        "timeline": _direct_file(metadata / "timeline.json", owner="Timeline"),
+        "source_manifest": _direct_file(
+            metadata / "source_manifest.json", owner="source manifest"
+        ),
+        "flags": _direct_file(metadata / "flags.json", owner="flag report"),
+        "room_capsule": _direct_file(
+            root / "room/room_capsule.json", owner="RoomCapsule"
+        ),
+        "qualification": _direct_file(
+            root / "room/qualification.json", owner="room qualification"
+        ),
+        "authoritative_clean_binaural": _direct_file(
+            videos / "clean_binaural.mp4", owner="clean binaural review"
+        ),
+        "authoritative_diagnostic_topdown": _direct_file(
+            videos / "diagnostic_topdown_binaural.mp4",
+            owner="diagnostic Topdown review",
+        ),
+    }
+
+
 def _validate_native_plan(plan: Mapping[str, Any], *, scenario_id: str) -> None:
     if plan.get("schema") != PLAN_SCHEMA or plan.get("backend_role") != BACKEND_ROLE:
         raise SpearApartmentError("input did not compile to a comparison-visual plan")
     authority = plan.get("authority")
-    if not isinstance(authority, Mapping) or authority.get("backend_may_replan") is not False:
+    if (
+        not isinstance(authority, Mapping)
+        or authority.get("backend_may_replan") is not False
+    ):
         raise SpearApartmentError("SPEAR backend must not replan authoritative state")
     if plan.get("source_logic", {}).get("scenario_id") != scenario_id:
         raise SpearApartmentError(
@@ -567,25 +620,28 @@ def _validate_native_plan(plan: Mapping[str, Any], *, scenario_id: str) -> None:
     if not isinstance(camera, Mapping):
         raise SpearApartmentError("compiled plan has no camera")
     if camera.get("horizontal_fov_deg") != 105.0:
-        raise SpearApartmentError("native comparison requires the frozen 105 degree HFOV")
+        raise SpearApartmentError(
+            "native comparison requires the frozen 105 degree HFOV"
+        )
     if len(plan.get("frames", ())) != FRAME_COUNT:
         raise SpearApartmentError("native comparison requires exactly 75 frames")
     actor_ids = [actor.get("actor_id") for actor in plan.get("actors", ())]
     if actor_ids != ["dog0", "human0"]:
-        raise SpearApartmentError("native Apartment S0/S3/S4 actor closure changed")
+        raise SpearApartmentError("native Apartment human/Beagle actor closure changed")
 
 
-def build_native_apartment_scenario(
-    bundle_root: str | Path,
-    scenario_id: str,
+def _build_native_apartment_scenario_from_paths(
     *,
-    actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
-    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+    root: Path,
+    scenario_id: str,
+    scenario_directory: str,
+    variant_id: str,
+    paths: Mapping[str, Path],
+    actor_bindings: Mapping[str, Mapping[str, Any]],
+    lighting_profile: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Compile one existing M6.x scenario into a native UE execution record."""
+    """Compile a resolved Apartment input closure into one UE execution record."""
 
-    root = Path(bundle_root).resolve()
-    paths = scenario_input_paths(root, scenario_id)
     plan = build_spear_visual_plan_from_files(
         timeline_path=paths["timeline"],
         source_manifest_path=paths["source_manifest"],
@@ -595,15 +651,11 @@ def build_native_apartment_scenario(
         actor_bindings=actor_bindings,
     )
     _validate_native_plan(plan, scenario_id=scenario_id)
-    # The generic visual compiler owns actor-root/yaw semantics.  Apartment's
-    # imported-asset frame deltas are deliberately attached afterwards so
-    # they cannot leak into or modify those authoritative root transforms.
     for actor in plan["actors"]:
         asset_id = actor["asset_id"]
         actor["ue_component_frame_delta"] = component_frame_delta_for_asset(
             asset_id, actor_bindings=actor_bindings
         )
-    scenario_directory, variant_id = SCENARIO_DIRECTORIES[scenario_id]
     lighting = deepcopy(dict(lighting_profile))
     generated_lights = lighting.get("generated_lights")
     if not isinstance(generated_lights, list):
@@ -656,6 +708,52 @@ def build_native_apartment_scenario(
     }
 
 
+def build_native_apartment_scenario(
+    bundle_root: str | Path,
+    scenario_id: str,
+    *,
+    actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+) -> dict[str, Any]:
+    """Compile one existing M6.x scenario into a native UE execution record."""
+
+    root = Path(bundle_root).resolve()
+    paths = scenario_input_paths(root, scenario_id)
+    scenario_directory, variant_id = SCENARIO_DIRECTORIES[scenario_id]
+    return _build_native_apartment_scenario_from_paths(
+        root=root,
+        scenario_id=scenario_id,
+        scenario_directory=scenario_directory,
+        variant_id=variant_id,
+        paths=paths,
+        actor_bindings=actor_bindings,
+        lighting_profile=lighting_profile,
+    )
+
+
+def build_native_apartment_motion_pilot_scenario(
+    bundle_root: str | Path,
+    scenario_id: str,
+    *,
+    actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+) -> dict[str, Any]:
+    """Compile one existing four-motion pilot episode for native UE pixels."""
+
+    root = Path(bundle_root).resolve()
+    paths = motion_pilot_input_paths(root, scenario_id)
+    episode_directory = MOTION_PILOT_DIRECTORIES[scenario_id]
+    return _build_native_apartment_scenario_from_paths(
+        root=root,
+        scenario_id=scenario_id,
+        scenario_directory=episode_directory,
+        variant_id="A",
+        paths=paths,
+        actor_bindings=actor_bindings,
+        lighting_profile=lighting_profile,
+    )
+
+
 def build_native_apartment_suite(
     bundle_root: str | Path,
     *,
@@ -697,7 +795,50 @@ def build_native_apartment_suite(
     }
 
 
-def animation_position_seconds(action_phase: float, animation_length_seconds: float) -> float:
+def build_native_apartment_motion_pilot_suite(
+    bundle_root: str | Path,
+    *,
+    scenario_ids: Sequence[str] = ("P0", "P1", "P2", "P3"),
+    actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+) -> dict[str, Any]:
+    """Compile the requested four-motion pilot episodes for one UE launch."""
+
+    selected = tuple(scenario_ids)
+    if not selected or len(selected) != len(set(selected)):
+        raise SpearApartmentError("scenario selection must be nonempty and unique")
+    scenarios = [
+        build_native_apartment_motion_pilot_scenario(
+            bundle_root,
+            scenario_id,
+            actor_bindings=actor_bindings,
+            lighting_profile=lighting_profile,
+        )
+        for scenario_id in selected
+    ]
+    return {
+        "schema": SUITE_SCHEMA,
+        "backend_role": BACKEND_ROLE,
+        "native_map": NATIVE_APARTMENT_MAP,
+        "lighting_profile": deepcopy(dict(lighting_profile)),
+        "authority": {
+            "habitat_native": [
+                "Timeline_v2",
+                "source logic",
+                "source-center qualification",
+                "binaural audio",
+                "Topdown",
+                "flags and metadata",
+            ],
+            "spear_unreal": ["final RGB pixels"],
+        },
+        "scenarios": scenarios,
+    }
+
+
+def animation_position_seconds(
+    action_phase: float, animation_length_seconds: float
+) -> float:
     """Convert Timeline's normalized phase to a stopped UE animation position."""
 
     phase = float(action_phase)
@@ -779,15 +920,15 @@ def summarize_root_readbacks(
             raise SpearApartmentError("camera readback frame order changed")
         camera_position_errors.append(
             max(
-                abs(float(record["location_cm"][axis]) - float(camera_position_cm[axis]))
+                abs(
+                    float(record["location_cm"][axis]) - float(camera_position_cm[axis])
+                )
                 for axis in range(3)
             )
         )
         camera_yaw_errors.append(
             abs(
-                wrap_angle_difference_degrees(
-                    record["rotation_deg"][2], camera_yaw_deg
-                )
+                wrap_angle_difference_degrees(record["rotation_deg"][2], camera_yaw_deg)
             )
         )
     maximum_camera_position = max(camera_position_errors)
@@ -898,8 +1039,40 @@ def summarize_actor_bounds(
     return summaries
 
 
+def _h264_encoder_arguments(
+    video_encoder: str, *, encoder_gpu: int | None
+) -> list[str]:
+    if video_encoder == "libx264":
+        return ["-c:v", "libx264", "-preset", "medium", "-crf", "18"]
+    if video_encoder == "h264_nvenc":
+        if encoder_gpu is not None and (
+            isinstance(encoder_gpu, bool)
+            or not isinstance(encoder_gpu, int)
+            or encoder_gpu < 0
+        ):
+            raise SpearApartmentError("NVENC GPU index must be non-negative")
+        arguments = [
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p5",
+            "-cq",
+            "18",
+            "-b:v",
+            "0",
+        ]
+        if encoder_gpu is not None:
+            arguments.extend(("-gpu", str(encoder_gpu)))
+        return arguments
+    raise SpearApartmentError(f"unsupported Apartment H.264 encoder: {video_encoder!r}")
+
+
 def build_png_encode_command(
-    *, frames_pattern: str | Path, output_path: str | Path
+    *,
+    frames_pattern: str | Path,
+    output_path: str | Path,
+    video_encoder: str = "libx264",
+    encoder_gpu: int | None = None,
 ) -> list[str]:
     return [
         "ffmpeg",
@@ -915,12 +1088,7 @@ def build_png_encode_command(
         "-frames:v",
         str(FRAME_COUNT),
         "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "18",
+        *_h264_encoder_arguments(video_encoder, encoder_gpu=encoder_gpu),
         "-pix_fmt",
         "yuv420p",
         "-movflags",
@@ -967,6 +1135,8 @@ def build_topdown_visual_command(
     ue_video_path: str | Path,
     authoritative_diagnostic_path: str | Path,
     output_path: str | Path,
+    video_encoder: str = "libx264",
+    encoder_gpu: int | None = None,
 ) -> list[str]:
     """Pair UE main pixels with only the authoritative Topdown visual panel."""
 
@@ -993,12 +1163,7 @@ def build_topdown_visual_command(
         "[video]",
         "-frames:v",
         str(FRAME_COUNT),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "18",
+        *_h264_encoder_arguments(video_encoder, encoder_gpu=encoder_gpu),
         "-pix_fmt",
         "yuv420p",
         "-an",
@@ -1030,6 +1195,7 @@ __all__ = [
     "LIGHTING_PROFILE_SCHEMA",
     "NATIVE_APARTMENT_MAP",
     "NATIVE_LIGHTING_PROFILE",
+    "MOTION_PILOT_DIRECTORIES",
     "SCENARIO_DIRECTORIES",
     "SCENARIO_SCHEMA",
     "STREAMING_WARMUP_FRAMES",
@@ -1041,6 +1207,8 @@ __all__ = [
     "build_clean_binaural_mux_command",
     "build_native_apartment_scenario",
     "build_native_apartment_suite",
+    "build_native_apartment_motion_pilot_scenario",
+    "build_native_apartment_motion_pilot_suite",
     "build_png_encode_command",
     "build_topdown_visual_command",
     "component_frame_delta_for_asset",
@@ -1048,6 +1216,7 @@ __all__ = [
     "load_apartment_lighting_profile",
     "resolve_apartment_lighting_profile",
     "scenario_input_paths",
+    "motion_pilot_input_paths",
     "read_ue_component_relative_transform",
     "summarize_root_readbacks",
     "summarize_actor_bounds",

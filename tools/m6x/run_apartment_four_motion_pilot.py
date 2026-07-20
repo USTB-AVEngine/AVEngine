@@ -35,6 +35,11 @@ from avengine.m5_1.acoustics import (
 )
 from avengine.m6.audio_program import materialize_audio_program_variant
 from avengine.m6x.apartment import listener_orientation_wxyz, qualify_fixed_apartment
+from avengine.m6x.articulated_anchor_profile import (
+    AnchorProfileSpec,
+    compile_articulated_anchor_profile,
+    materialize_articulated_anchor_paths,
+)
 from avengine.m6x.canary import (
     FPS,
     RIR_STRIDE_FRAMES,
@@ -176,7 +181,9 @@ def run(args: argparse.Namespace) -> Path:
             sound_asset_registry=values["sounds"],
         )
         if tuple(program["candidate_source_endpoint_ids"]) != SOURCE_IDS:
-            raise RuntimeError("the four-motion pilot requires canonical human/dog sources")
+            raise RuntimeError(
+                "the four-motion pilot requires canonical human/dog sources"
+            )
         matrix_metadata = motion_matrix_record(master)
         for episode in matrix_metadata["episodes"]:
             episode["route_statistics"] = _episode_route_statistics(
@@ -191,7 +198,9 @@ def run(args: argparse.Namespace) -> Path:
         provisional_all = HUMAN_BEAGLE_CAPTURE_ADAPTER.provisional_source_paths(
             values["anchors"], actor_root_paths
         )
-        provisional = {source_id: provisional_all[source_id] for source_id in SOURCE_IDS}
+        provisional = {
+            source_id: provisional_all[source_id] for source_id in SOURCE_IDS
+        }
         preflight = qualify_fixed_apartment(
             room_manifest_path=paths["room_manifest"],
             m1_request_path=paths["m1_request"],
@@ -239,6 +248,72 @@ def run(args: argparse.Namespace) -> Path:
             values["anchors"], capture
         )
         source_paths = {source_id: actual_all[source_id] for source_id in SOURCE_IDS}
+        anchor_profile = compile_articulated_anchor_profile(
+            actor_world_matrices=capture.actor_world_matrices,
+            frame_records=capture.records,
+            specs=(
+                AnchorProfileSpec(
+                    source_endpoint_id="m6x_human0_mouth",
+                    actor_id="human0",
+                    asset_id=HUMAN_BEAGLE_CAPTURE_ADAPTER.actor_binding(
+                        "human0"
+                    ).asset_id,
+                    record_key="human",
+                    anchor_id="mouth",
+                    anchor_record_key="mouth_emitter_anchor_m",
+                    capture_matrix_index=0,
+                    local_anatomical_forward_axis=(0.0, 0.0, 1.0),
+                    action_sample_counts=capture.evidence["runtime"][
+                        "human_action_sample_counts"
+                    ],
+                ),
+                AnchorProfileSpec(
+                    source_endpoint_id="m6x_dog0_muzzle",
+                    actor_id="dog0",
+                    asset_id=HUMAN_BEAGLE_CAPTURE_ADAPTER.actor_binding(
+                        "dog0"
+                    ).asset_id,
+                    record_key="beagle",
+                    anchor_id="muzzle",
+                    anchor_record_key="mouth_emitter_anchor_m",
+                    capture_matrix_index=1,
+                    local_anatomical_forward_axis=(1.0, 0.0, 0.0),
+                    action_sample_counts=capture.evidence["runtime"][
+                        "beagle_action_sample_counts"
+                    ],
+                ),
+            ),
+        )
+        profiled_paths = materialize_articulated_anchor_paths(
+            anchor_profile,
+            actor_root_paths=actor_root_paths,
+            actor_fallback_forwards_xz=actor_forwards,
+        )
+        profile_errors = {
+            source_id: float(
+                np.max(
+                    np.linalg.norm(
+                        profiled_paths[source_id] - source_paths[source_id], axis=1
+                    )
+                )
+            )
+            for source_id in SOURCE_IDS
+        }
+        if max(profile_errors.values()) > 2.0e-5:
+            raise RuntimeError(
+                f"articulated anchor profile reconstruction failed: {profile_errors}"
+            )
+        write_json(staging / "shared/articulated_anchor_profile.json", anchor_profile)
+        write_json(
+            staging / "shared/articulated_anchor_profile_verification.json",
+            {
+                "schema": "avengine_articulated_anchor_profile_verification_v1",
+                "status": "pass",
+                "visual_observation_calls_for_reuse": 0,
+                "maximum_reconstruction_error_m": profile_errors,
+                "maximum_allowed_error_m": 2.0e-5,
+            },
+        )
         qualification = qualify_fixed_apartment(
             room_manifest_path=paths["room_manifest"],
             m1_request_path=paths["m1_request"],
@@ -250,17 +325,22 @@ def run(args: argparse.Namespace) -> Path:
         if qualification.record["status"] != "pass":
             raise RuntimeError("captured human/dog source-center qualification failed")
         write_json(staging / "room/qualification.json", qualification.record)
+        shutil.copy2(
+            paths["config_root"] / "room_capsule.json",
+            staging / "room/room_capsule.json",
+        )
         listener_position = qualification.record["listener"]["position_m"]
         listener_yaw = float(qualification.record["listener"]["yaw_deg"])
         listener_orientation = listener_orientation_wxyz(listener_yaw)
         overview = render_runtime_topdown_frames(
             qualification.obstacle_map,
-            {source_id: trajectory[:1] for source_id, trajectory in source_paths.items()},
+            {
+                source_id: trajectory[:1]
+                for source_id, trajectory in source_paths.items()
+            },
             listener_position_m=listener_position,
             listener_yaw_deg=listener_yaw,
-            camera_hfov_degrees=qualification.record["listener"][
-                "camera_hfov_degrees"
-            ],
+            camera_hfov_degrees=qualification.record["listener"]["camera_hfov_degrees"],
             source_labels={
                 "m6x_dog0_muzzle": "Beagle",
                 "m6x_human0_mouth": "Human",
@@ -311,8 +391,12 @@ def run(args: argparse.Namespace) -> Path:
         )
         acoustics_root = staging / "shared/acoustics"
         acoustics_root.mkdir(parents=True)
-        np.save(acoustics_root / "samples.npy", master_sequence.samples, allow_pickle=False)
-        np.save(acoustics_root / "lengths.npy", master_sequence.lengths, allow_pickle=False)
+        np.save(
+            acoustics_root / "samples.npy", master_sequence.samples, allow_pickle=False
+        )
+        np.save(
+            acoustics_root / "lengths.npy", master_sequence.lengths, allow_pickle=False
+        )
         write_json(acoustics_root / "metadata.json", master_sequence.metadata)
         write_json(
             acoustics_root / "trajectory.json",
@@ -342,7 +426,9 @@ def run(args: argparse.Namespace) -> Path:
                 "dog0": episode.dog_motion,
             }
             for binding in scenario["source_bindings"]:
-                binding["trajectory_template_id"] = "apartment_four_motion_master_300_v1"
+                binding["trajectory_template_id"] = (
+                    "apartment_four_motion_master_300_v1"
+                )
                 binding["trajectory_route_id"] = episode.episode_id
 
             phase_started = time.perf_counter()
@@ -377,9 +463,7 @@ def run(args: argparse.Namespace) -> Path:
                     capture.rgb[episode.start_frame : episode.end_frame_exclusive]
                 ),
                 semantic=np.ascontiguousarray(
-                    capture.semantic[
-                        episode.start_frame : episode.end_frame_exclusive
-                    ]
+                    capture.semantic[episode.start_frame : episode.end_frame_exclusive]
                 ),
                 grid=grid,
                 sequence=sequence,
@@ -396,7 +480,8 @@ def run(args: argparse.Namespace) -> Path:
                 asset_bindings=bindings,
                 rir_metadata_path=rir_metadata_path,
                 rir_bundle_uri=(
-                    "bundle://" + rir_metadata_path.parent.relative_to(staging).as_posix()
+                    "bundle://"
+                    + rir_metadata_path.parent.relative_to(staging).as_posix()
                 ),
                 visual_profile=visual_profile,
             )
@@ -481,7 +566,9 @@ def run(args: argparse.Namespace) -> Path:
                         "discard dense reusable master arrays after rendering"
                     ),
                 },
-                "input_paths": {key: str(value) for key, value in sorted(paths.items())},
+                "input_paths": {
+                    key: str(value) for key, value in sorted(paths.items())
+                },
             },
         )
         phase_wall_seconds["review_index_and_manifest"] = _elapsed(phase_started)
@@ -519,8 +606,7 @@ def run(args: argparse.Namespace) -> Path:
 
         total_seconds = _elapsed(run_started)
         episode_render_total = sum(
-            value["episode_pipeline_wall_seconds"]
-            for value in episode_timings.values()
+            value["episode_pipeline_wall_seconds"] for value in episode_timings.values()
         )
         timing = {
             "schema": TIMING_SCHEMA,
@@ -655,8 +741,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--acoustic-package-manifest",
         type=Path,
-        default=REPOSITORY
-        / "tmp/m3/root_ue_package_current_20260718_02/manifest.json",
+        default=REPOSITORY / "tmp/m3/root_ue_package_current_20260718_02/manifest.json",
     )
     parser.add_argument(
         "--m4-request",
@@ -677,8 +762,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--exterior-proxy-glb",
         type=Path,
-        default=REPOSITORY
-        / "tmp/m6x/assets/approaching_storm_4k_exterior_v3/"
+        default=REPOSITORY / "tmp/m6x/assets/approaching_storm_4k_exterior_v3/"
         "approaching_storm_4k_exterior.glb",
     )
     parser.add_argument("--output", required=True, type=Path)

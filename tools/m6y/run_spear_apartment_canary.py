@@ -35,6 +35,7 @@ from avengine.optional_backends.spear_apartment import (
     animation_position_seconds,
     apply_ue_component_frame_delta,
     build_clean_binaural_mux_command,
+    build_native_apartment_motion_pilot_suite,
     build_native_apartment_suite,
     build_png_encode_command,
     build_topdown_visual_command,
@@ -219,14 +220,18 @@ def _spawn_generated_lights(
                 component.get_property_value(property_name="CastShadows")
             ),
         }
-        if max(
-            abs(record["location_readback_cm"][axis] - position[axis])
-            for axis in range(3)
-        ) > 1.0e-3:
+        if (
+            max(
+                abs(record["location_readback_cm"][axis] - position[axis])
+                for axis in range(3)
+            )
+            > 1.0e-3
+        ):
             raise RuntimeError(f"generated light {light['light_id']} moved")
-        if abs(
-            record["intensity_readback_lumens"] - light["intensity_lumens"]
-        ) > 1.0e-3:
+        if (
+            abs(record["intensity_readback_lumens"] - light["intensity_lumens"])
+            > 1.0e-3
+        ):
             raise RuntimeError(f"generated light {light['light_id']} intensity drifted")
         records.append(record)
     return records
@@ -303,9 +308,7 @@ def _spawn_runtime_actors(
         )
         visual_actor.SetActorEnableCollision(bNewActorEnableCollision=False)
         visual_actor.SetActorTickEnabled(bEnabled=True)
-        visual_actor.SetActorScale3D(
-            NewScale3D={"X": 1.0, "Y": 1.0, "Z": 1.0}
-        )
+        visual_actor.SetActorScale3D(NewScale3D={"X": 1.0, "Y": 1.0, "Z": 1.0})
         visual_root = visual_actor.K2_GetRootComponent()
         visual_root.SetMobility(NewMobility="Movable")
         attached = visual_root.K2_AttachToComponent(
@@ -336,12 +339,12 @@ def _spawn_runtime_actors(
             "walk": declaration["walking_animation"],
         }
         animations = {
-            path: game.unreal_service.load_object(
-                uclass="UAnimationAsset", name=path
-            )
+            path: game.unreal_service.load_object(uclass="UAnimationAsset", name=path)
             for path in animation_paths.values()
         }
-        lengths = {path: float(asset.GetPlayLength()) for path, asset in animations.items()}
+        lengths = {
+            path: float(asset.GetPlayLength()) for path, asset in animations.items()
+        }
         if any(not math.isfinite(value) or value <= 0.0 for value in lengths.values()):
             raise RuntimeError(f"{actor_id} has an invalid UE animation length")
         runtimes[actor_id] = {
@@ -483,10 +486,14 @@ def _probe_media(
     )
     payload = json.loads(result.stdout)
     video = [
-        value for value in payload.get("streams", ()) if value.get("codec_type") == "video"
+        value
+        for value in payload.get("streams", ())
+        if value.get("codec_type") == "video"
     ]
     audio = [
-        value for value in payload.get("streams", ()) if value.get("codec_type") == "audio"
+        value
+        for value in payload.get("streams", ())
+        if value.get("codec_type") == "audio"
     ]
     if len(video) != 1 or len(audio) != int(expect_audio):
         raise RuntimeError(f"media stream closure failed for {path}")
@@ -526,9 +533,7 @@ def _probe_media(
             if expect_audio
             else None
         ),
-        "audio_packet_sha256": (
-            _audio_packet_sha256(path) if expect_audio else None
-        ),
+        "audio_packet_sha256": (_audio_packet_sha256(path) if expect_audio else None),
     }
 
 
@@ -586,6 +591,8 @@ def _render_scenario(
     bundle_root: Path,
     output_root: Path,
     keep_frames: bool,
+    video_encoder: str,
+    encoder_gpu: int | None,
 ) -> dict[str, Any]:
     import cv2
 
@@ -643,9 +650,7 @@ def _render_scenario(
                 f"{frame_index:02d}/{FRAME_COUNT - 1}",
                 flush=True,
             )
-    phase_wall_seconds["visual_capture_and_png_write"] = _elapsed_seconds(
-        phase_started
-    )
+    phase_wall_seconds["visual_capture_and_png_write"] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
     _write_json(
@@ -681,15 +686,16 @@ def _render_scenario(
         actor_declarations=plan["actors"],
         actor_bounds=actor_bounds,
     )
-    phase_wall_seconds["runtime_readback_and_gate"] = _elapsed_seconds(
-        phase_started
-    )
+    phase_wall_seconds["runtime_readback_and_gate"] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
     ue_video = scenario_root / "ue_visual_only.mp4"
     subprocess.run(
         build_png_encode_command(
-            frames_pattern=frames_root / "frame_%04d.png", output_path=ue_video
+            frames_pattern=frames_root / "frame_%04d.png",
+            output_path=ue_video,
+            video_encoder=video_encoder,
+            encoder_gpu=encoder_gpu,
         ),
         check=True,
     )
@@ -720,12 +726,12 @@ def _render_scenario(
             ue_video_path=ue_video,
             authoritative_diagnostic_path=authoritative_diagnostic,
             output_path=topdown_visual,
+            video_encoder=video_encoder,
+            encoder_gpu=encoder_gpu,
         ),
         check=True,
     )
-    phase_wall_seconds["rgb_topdown_video_compose"] = _elapsed_seconds(
-        phase_started
-    )
+    phase_wall_seconds["rgb_topdown_video_compose"] = _elapsed_seconds(phase_started)
 
     topdown_video = scenario_root / "ue_topdown_binaural.mp4"
     phase_started = time.perf_counter()
@@ -807,6 +813,8 @@ def _render_scenario(
             "clock": "time.perf_counter",
             "scope": "scenario render after actor setup and before actor teardown",
             "phase_wall_seconds": phase_wall_seconds,
+            "video_encoder": video_encoder,
+            "encoder_gpu": encoder_gpu,
             "render_total_wall_seconds": _elapsed_seconds(scenario_started),
         },
     }
@@ -814,7 +822,9 @@ def _render_scenario(
     return record
 
 
-def _destroy_runtime_actors(instance: Any, runtimes: Mapping[str, dict[str, Any]]) -> None:
+def _destroy_runtime_actors(
+    instance: Any, runtimes: Mapping[str, dict[str, Any]]
+) -> None:
     """Destroy one scenario's actors in child-before-parent order.
 
     UE's single-node animation instance is mutable state owned by the spawned
@@ -873,9 +883,7 @@ def _configure_instance(args: argparse.Namespace) -> tuple[Any, Path]:
         CLIENT_INTERNAL_TIMEOUT_SECONDS
     )
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.OVERRIDE_GAME_DEFAULT_MAP = True
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = (
-        NATIVE_APARTMENT_MAP
-    )
+    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = NATIVE_APARTMENT_MAP
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / FPS
     config.SP_SERVICES.RPC_SERVICE.RPC_SERVER_PORT = settings["rpc_port"]
     config.SPEAR.INSTANCE.TEMP_DIR = settings["temp_dir"]
@@ -888,9 +896,7 @@ def _configure_instance(args: argparse.Namespace) -> tuple[Any, Path]:
         config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.graphicsadapter = settings[
             "graphics_adapter"
         ]
-    config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = (
-        "/etc/vulkan/icd.d/nvidia_icd.json"
-    )
+    config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = "/etc/vulkan/icd.d/nvidia_icd.json"
     config.freeze()
     spear.configure_system(config=config)
     try:
@@ -908,9 +914,7 @@ def _configure_instance(args: argparse.Namespace) -> tuple[Any, Path]:
     return instance, spear_root
 
 
-def _cleanup_failed_constructor(
-    *, executable: Path, temporary_directory: Path
-) -> None:
+def _cleanup_failed_constructor(*, executable: Path, temporary_directory: Path) -> None:
     try:
         import psutil
     except ImportError:
@@ -955,17 +959,28 @@ def run(args: argparse.Namespace) -> Path:
     phase_wall_seconds: dict[str, float] = {}
     phase_started = time.perf_counter()
     bundle_root = args.bundle_root.resolve()
-    scenarios = tuple(args.scenario or ("S0", "S3", "S4"))
+    default_scenarios = (
+        ("P0", "P1", "P2", "P3")
+        if args.input_layout == "motion-pilot"
+        else ("S0", "S3", "S4")
+    )
+    scenarios = tuple(args.scenario or default_scenarios)
     lighting_profile = load_apartment_lighting_profile(
         args.lighting_profiles, args.lighting_profile
     )
-    suite = build_native_apartment_suite(
-        bundle_root,
-        scenario_ids=scenarios,
-        lighting_profile=lighting_profile,
+    suite_builder = (
+        build_native_apartment_motion_pilot_suite
+        if args.input_layout == "motion-pilot"
+        else build_native_apartment_suite
+    )
+    suite = suite_builder(
+        bundle_root, scenario_ids=scenarios, lighting_profile=lighting_profile
     )
     phase_wall_seconds["plan_compile"] = _elapsed_seconds(phase_started)
     _assert_suite_actor_binding_closure(suite)
+    encoder_gpu = args.encoder_gpu
+    if args.video_encoder == "h264_nvenc" and encoder_gpu is None:
+        encoder_gpu = args.graphics_adapter
 
     output_root = args.output_dir.resolve()
     if output_root.exists() or output_root.is_symlink():
@@ -1013,9 +1028,7 @@ def run(args: argparse.Namespace) -> Path:
         # already at the authoritative listener pose before this begins.
         phase_started = time.perf_counter()
         instance.step(num_frames=STREAMING_WARMUP_FRAMES)
-        phase_wall_seconds["shared_streaming_warmup"] = _elapsed_seconds(
-            phase_started
-        )
+        phase_wall_seconds["shared_streaming_warmup"] = _elapsed_seconds(phase_started)
         for scenario in suite["scenarios"]:
             episode_started = time.perf_counter()
             phase_started = time.perf_counter()
@@ -1050,6 +1063,8 @@ def run(args: argparse.Namespace) -> Path:
                     bundle_root=bundle_root,
                     output_root=output_root,
                     keep_frames=args.keep_frames,
+                    video_encoder=args.video_encoder,
+                    encoder_gpu=encoder_gpu,
                 )
             finally:
                 phase_started = time.perf_counter()
@@ -1058,15 +1073,11 @@ def run(args: argparse.Namespace) -> Path:
             if record is None:
                 raise RuntimeError("scenario render returned no evidence")
             record["timing"]["actor_setup_wall_seconds"] = actor_setup_seconds
-            record["timing"][
-                "actor_teardown_wall_seconds"
-            ] = actor_teardown_seconds
+            record["timing"]["actor_teardown_wall_seconds"] = actor_teardown_seconds
             record["timing"]["episode_total_wall_seconds"] = _elapsed_seconds(
                 episode_started
             )
-            _write_json(
-                output_root / scenario["scenario_id"] / "evidence.json", record
-            )
+            _write_json(output_root / scenario["scenario_id"] / "evidence.json", record)
             scenario_records.append(record)
     finally:
         phase_started = time.perf_counter()
@@ -1089,6 +1100,8 @@ def run(args: argparse.Namespace) -> Path:
             )
         ],
         "required_sample_outputs": list(REQUIRED_SAMPLE_OUTPUTS),
+        "video_encoder": args.video_encoder,
+        "encoder_gpu": encoder_gpu,
         "phase_wall_seconds": phase_wall_seconds,
         "scenario_timings": {
             record["scenario_id"]: record["timing"] for record in scenario_records
@@ -1138,6 +1151,12 @@ def run(args: argparse.Namespace) -> Path:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle-root", type=Path, default=DEFAULT_BUNDLE)
+    parser.add_argument(
+        "--input-layout",
+        choices=("m6x-canary", "motion-pilot"),
+        default="m6x-canary",
+        help="Input bundle layout; motion-pilot consumes the four P0--P3 episodes.",
+    )
     parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
     parser.add_argument(
         "--lighting-profiles", type=Path, default=DEFAULT_LIGHTING_PROFILES
@@ -1150,11 +1169,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--scenario",
         action="append",
-        choices=("S0", "S3", "S4"),
-        help="Repeat to render a subset; default is S0, S3, and S4.",
+        choices=("S0", "S3", "S4", "P0", "P1", "P2", "P3"),
+        help="Repeat to render a subset; defaults depend on --input-layout.",
     )
     parser.add_argument("--rpc-port", type=int, default=39311)
     parser.add_argument("--graphics-adapter", type=int)
+    parser.add_argument(
+        "--video-encoder",
+        choices=("libx264", "h264_nvenc"),
+        default="libx264",
+        help="H.264 encoder; h264_nvenc greatly reduces batch finalization time.",
+    )
+    parser.add_argument(
+        "--encoder-gpu",
+        type=int,
+        help="NVENC GPU index; defaults to --graphics-adapter when available.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--keep-frames", action="store_true")
     args = parser.parse_args(argv)
@@ -1162,6 +1192,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--rpc-port must be in [1024,65535]")
     if args.graphics_adapter is not None and args.graphics_adapter < 0:
         parser.error("--graphics-adapter must be non-negative")
+    if args.encoder_gpu is not None and args.encoder_gpu < 0:
+        parser.error("--encoder-gpu must be non-negative")
+    selected = set(args.scenario or ())
+    allowed = (
+        {"P0", "P1", "P2", "P3"}
+        if args.input_layout == "motion-pilot"
+        else {"S0", "S3", "S4"}
+    )
+    if selected - allowed:
+        parser.error("--scenario values do not match --input-layout")
     return args
 
 

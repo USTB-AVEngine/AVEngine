@@ -351,10 +351,12 @@ The lightweight training-pipeline pilot covers the four requested motion
 cases: static/static, human-moving/dog-static, both-moving, and
 human-static/dog-moving. Every case is an independent 5-second, 75-frame sample
 at 15 fps with one human and one Beagle. Both named sources have scheduled
-events in every sample and share an overlapping event window. Each sample
-retains a 1280x720 clean RGB+binaural MP4, a 1280x480 annotated
-RGB+Topdown+binaural MP4, the authoritative 16 kHz stereo mixture and stems,
-Timeline v2, source manifest, AudioProgram, flags, and motion metadata.
+events in every sample and share an overlapping event window. The
+Habitat-native stage owns the trajectories, source-center gate, Topdown,
+16 kHz stereo binaural mixture/stems, Timeline v2, source manifest,
+AudioProgram, flags and motion metadata. For Apartment, the final RGB is then
+rendered by the native UE/SPEAR map; Habitat RGB is only an upstream diagnostic
+in this first pilot and must not be treated as the intended dataset visual.
 
 The runner captures one continuous 300-frame master so the room and actors are
 loaded once, then slices four exact 75-frame samples. It does not copy the
@@ -369,7 +371,7 @@ cd /data/jzy/code/AVEngine-habitat-native
   --output tmp/m7/apartment_four_motion_pilot_run_01
 ```
 
-The completed local pilot at
+The completed Habitat/RLR pilot at
 `tmp/m7/apartment_four_motion_pilot_20260720_01/REVIEW_INDEX.html` took
 725.69 seconds for all four fresh samples. Habitat capture took 370.12 seconds,
 RLR took 185.19 seconds, room/source-center preflight and qualification took
@@ -381,6 +383,58 @@ still writes about 2.03 GB of dense intermediates before deleting them. Do not
 start the 800/100/100 generation yet; first add streaming finalization and an
 RIR cache for repeated static source/listener poses, then rerun a larger
 throughput benchmark.
+
+Compile those exact P0--P3 records into one native UE launch. `spear-env` is
+used only for the optional UE runtime; the Habitat/RLR stage continues to use
+`avengine-habitat-runtime`. NVENC changes H.264 encoding speed, not the
+1280x720 resolution, 75-frame clock, UE pixels, Timeline or copied binaural
+audio packets:
+
+```bash
+cd /data/jzy/code/AVEngine-habitat-native
+PYTHONPATH=src /data/jzy/miniconda3/envs/spear-env/bin/python \
+  tools/m6y/run_spear_apartment_canary.py \
+  --input-layout motion-pilot \
+  --bundle-root tmp/m7/apartment_four_motion_pilot_20260720_01 \
+  --output-dir tmp/m7/apartment_four_motion_ue_run_01 \
+  --graphics-adapter 3 \
+  --video-encoder h264_nvenc
+```
+
+The retained accelerated run is
+`tmp/m7/apartment_four_motion_ue_nvenc_20260720_01`. It produced all four
+1280x720 RGB+binaural and 1280x480 RGB+Topdown+binaural outputs in 100.54
+seconds, versus 348.67 seconds with the software x264 path on the immediately
+preceding run (3.47x faster for the UE stage). Each UE capture itself took
+13.53--15.01 seconds; both H.264 encodes together fell to 2.46--3.12 seconds
+per sample. The receipt deliberately excludes the already completed
+Habitat/RLR stage. A fully fresh run of both current stages would still take
+about 826 seconds for four samples, so this result does not yet authorize the
+1,000-sample run. The remaining priority is to replace the redundant full
+Habitat RGB/semantic capture with an articulated-pose/emitter-anchor path,
+share the fixed-room qualification, and cache repeated RIR states.
+
+The first part of that upstream optimization is now implemented as a generic
+asset/action/sample emitter-anchor profile. It does not contain dog-, cat- or
+bird-specific motion code: each admitted articulated asset supplies its own
+validated action samples and emitter anchor, after which new root routes use
+the same profile-driven transform. Build the profile retained beside this
+pilot and benchmark pose/anchor materialization without Habitat visual calls:
+
+```bash
+PYTHONPATH=src /data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python \
+  tools/m6x/build_four_motion_anchor_profile.py
+```
+
+On the retained four-motion capture, reconstructed human-mouth and
+Beagle-muzzle positions differ from the native Habitat link readback by at
+most `0.000000791 m` and `0.000000506 m`, respectively. Rebuilding both source
+paths for 1,000 300-frame masters (equivalent to 4,000 five-second samples)
+took 36.16 seconds, or about 0.009 seconds per sample, with zero RGB/semantic
+observations. Future fresh pilots automatically retain and verify this compact
+profile. This closes the emitter-position algorithm, but the production
+runner still needs its metadata/audio-only path before the old 370-second
+visual capture can be removed end to end.
 
 The earlier `_04` closeout capture is a historical `320x240` baseline, and
 `_06` predates the hidden test markers, direction-projected exterior and normal

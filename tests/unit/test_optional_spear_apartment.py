@@ -86,7 +86,9 @@ def _plan(scenario_id: str = "S3") -> dict:
 
 def _make_input_tree(root: Path, scenario_id: str = "S3") -> dict[str, Path]:
     scenario_directory, variant_id = apartment.SCENARIO_DIRECTORIES[scenario_id]
-    metadata = root / "scenarios" / scenario_directory / "variants" / variant_id / "metadata"
+    metadata = (
+        root / "scenarios" / scenario_directory / "variants" / variant_id / "metadata"
+    )
     videos = metadata.parent / "videos"
     metadata.mkdir(parents=True)
     videos.mkdir()
@@ -105,12 +107,59 @@ def _make_input_tree(root: Path, scenario_id: str = "S3") -> dict[str, Path]:
     return values
 
 
+def _make_motion_pilot_input_tree(
+    root: Path, scenario_id: str = "P0"
+) -> dict[str, Path]:
+    episode_directory = apartment.MOTION_PILOT_DIRECTORIES[scenario_id]
+    metadata = root / "episodes" / episode_directory / "metadata"
+    videos = metadata.parent / "videos"
+    metadata.mkdir(parents=True)
+    videos.mkdir()
+    values = {
+        "timeline": metadata / "timeline.json",
+        "source_manifest": metadata / "source_manifest.json",
+        "flags": metadata / "flags.json",
+        "room_capsule": root / "room/room_capsule.json",
+        "qualification": root / "room/qualification.json",
+        "authoritative_clean_binaural": videos / "clean_binaural.mp4",
+        "authoritative_diagnostic_topdown": videos / "diagnostic_topdown_binaural.mp4",
+    }
+    for path in values.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"{}\n")
+    return values
+
+
 def test_scenario_path_discovery_is_bounded_to_s0_s3_s4(tmp_path: Path) -> None:
     expected = _make_input_tree(tmp_path, "S3")
     observed = apartment.scenario_input_paths(tmp_path, "S3")
     assert observed == {key: value.resolve() for key, value in expected.items()}
     with pytest.raises(apartment.SpearApartmentError, match="unsupported"):
         apartment.scenario_input_paths(tmp_path, "S2")
+
+
+def test_motion_pilot_path_discovery_and_suite_use_p0_to_p3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected = _make_motion_pilot_input_tree(tmp_path, "P0")
+    observed = apartment.motion_pilot_input_paths(tmp_path, "P0")
+    assert observed == {key: value.resolve() for key, value in expected.items()}
+    with pytest.raises(apartment.SpearApartmentError, match="unsupported"):
+        apartment.motion_pilot_input_paths(tmp_path, "S0")
+
+    monkeypatch.setattr(
+        apartment,
+        "build_spear_visual_plan_from_files",
+        lambda **_: _plan("P0"),
+    )
+    suite = apartment.build_native_apartment_motion_pilot_suite(
+        tmp_path, scenario_ids=("P0",)
+    )
+    scenario = suite["scenarios"][0]
+    assert scenario["scenario_id"] == "P0"
+    assert scenario["scenario_directory"] == "00_static_static"
+    assert scenario["variant_id"] == "A"
+    assert suite["authority"]["spear_unreal"] == ["final RGB pixels"]
 
 
 def test_scenario_execution_keeps_native_map_and_habitat_authority(
@@ -293,6 +342,24 @@ def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:
     assert "-an" in topdown
     assert "-shortest" not in topdown
 
+    nvenc = apartment.build_topdown_visual_command(
+        ue_video_path="ue.mp4",
+        authoritative_diagnostic_path="habitat_diag.mp4",
+        output_path="topdown.mp4",
+        video_encoder="h264_nvenc",
+        encoder_gpu=3,
+    )
+    assert nvenc[nvenc.index("-c:v") + 1] == "h264_nvenc"
+    assert nvenc[nvenc.index("-gpu") + 1] == "3"
+    assert nvenc[nvenc.index("-preset") + 1] == "p5"
+
+    with pytest.raises(apartment.SpearApartmentError, match="unsupported"):
+        apartment.build_png_encode_command(
+            frames_pattern="frame_%04d.png",
+            output_path="bad.mp4",
+            video_encoder="unknown",
+        )
+
 
 @pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -385,15 +452,22 @@ def test_runtime_timing_contract_requires_rgb_and_topdown_outputs() -> None:
 
 
 def test_default_asset_forward_bindings_are_explicit() -> None:
-    assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.BEAGLE_ASSET_ID][
-        "ue_anatomical_forward_yaw_deg"
-    ] == 0.0
-    assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID][
-        "ue_anatomical_forward_yaw_deg"
-    ] == 90.0
-    assert "Standing_Idle" in apartment.DEFAULT_ACTOR_BINDINGS[
-        apartment.HUMAN_ASSET_ID
-    ]["idle_animation"]
+    assert (
+        apartment.DEFAULT_ACTOR_BINDINGS[apartment.BEAGLE_ASSET_ID][
+            "ue_anatomical_forward_yaw_deg"
+        ]
+        == 0.0
+    )
+    assert (
+        apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID][
+            "ue_anatomical_forward_yaw_deg"
+        ]
+        == 90.0
+    )
+    assert (
+        "Standing_Idle"
+        in apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID]["idle_animation"]
+    )
     assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.BEAGLE_ASSET_ID][
         "ue_component_frame_delta"
     ]["rotation_deg"] == [0.0, 90.0, 0.0]
@@ -415,9 +489,9 @@ def test_component_frame_delta_must_preserve_blueprint_transform(
         lambda **_: _plan("S3"),
     )
     bindings = deepcopy(apartment.DEFAULT_ACTOR_BINDINGS)
-    bindings[apartment.BEAGLE_ASSET_ID]["ue_component_frame_delta"][
-        "composition"
-    ] = "replace_blueprint_transform"
+    bindings[apartment.BEAGLE_ASSET_ID]["ue_component_frame_delta"]["composition"] = (
+        "replace_blueprint_transform"
+    )
     with pytest.raises(apartment.SpearApartmentError, match="may not replace"):
         apartment.build_native_apartment_scenario(
             tmp_path, "S3", actor_bindings=bindings
@@ -494,9 +568,7 @@ def test_runtime_component_delta_accepts_equivalent_gimbal_rotator_readback() ->
             apartment.BEAGLE_ASSET_ID
         ]["ue_component_frame_delta"],
     }
-    result = apartment.apply_ue_component_frame_delta(
-        GimbalComponent(), declaration
-    )
+    result = apartment.apply_ue_component_frame_delta(GimbalComponent(), declaration)
     assert result["euler_component_rotation_delta_error_deg"] == pytest.approx(180.0)
     assert result["quaternion_equivalence_rotation_error_deg"] == pytest.approx(0.0)
     assert result["maximum_rotation_delta_error_deg"] == pytest.approx(0.0)
@@ -512,14 +584,26 @@ def test_visual_bounds_gate_proves_beagle_floor_contact_and_horizontal_frame() -
             {
                 "frame_index": frame_index,
                 "minimum_cm": [dog_root[0] - 35.0, dog_root[1] - 25.0, dog_root[2]],
-                "maximum_cm": [dog_root[0] + 35.0, dog_root[1] + 25.0, dog_root[2] + 50.0],
+                "maximum_cm": [
+                    dog_root[0] + 35.0,
+                    dog_root[1] + 25.0,
+                    dog_root[2] + 50.0,
+                ],
             }
         )
         records["human0"].append(
             {
                 "frame_index": frame_index,
-                "minimum_cm": [human_root[0] - 20.0, human_root[1] - 20.0, human_root[2]],
-                "maximum_cm": [human_root[0] + 20.0, human_root[1] + 20.0, human_root[2] + 175.0],
+                "minimum_cm": [
+                    human_root[0] - 20.0,
+                    human_root[1] - 20.0,
+                    human_root[2],
+                ],
+                "maximum_cm": [
+                    human_root[0] + 20.0,
+                    human_root[1] + 20.0,
+                    human_root[2] + 175.0,
+                ],
             }
         )
     summary = apartment.summarize_actor_bounds(
