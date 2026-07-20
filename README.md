@@ -438,6 +438,102 @@ profile. This closes the emitter-position algorithm, but the production
 runner still needs its metadata/audio-only path before the old 370-second
 visual capture can be removed end to end.
 
+### Precompute the Apartment feasible region and trajectory bank
+
+The room-scale precompute path separates geometry work from event/audio
+variants. `RoomFeasibilityCompiler` rasterizes the complete declared
+source-center feasible region at an explicit emitter height. It uses the live
+Habitat navmesh plus loaded blocking OBBs, applies the configured raster
+clearance, labels connected regions and emits deterministic sampling nodes.
+`TrajectoryBankBuilder` then samples a finite route library from that region;
+continuous possible paths are infinite and are never mislabeled as an
+enumerable "all paths" set.
+
+The default Apartment run creates 200 independent five-second trajectories:
+50 each for static/static, human-moving/dog-static,
+human-static/dog-moving and both-moving. Moving paths are 3.5--5.5 m, or about
+0.7--1.1 m/s over the five-second episode. The retained articulated anchor
+profile reconstructs human-mouth and Beagle-muzzle positions without RGB or
+semantic calls. There is no lip/viseme or mouth-opening animation dependency;
+Walk/Idle root and emitter-anchor state remains fixed for a chosen trajectory,
+so dry sound files and event windows can be replaced without rerendering the
+visual route.
+
+```bash
+PYTHONPATH=src conda run -n avengine-habitat-runtime \
+  python tools/m6x/compile_apartment_feasibility_bank.py \
+  --output tmp/m7/apartment_feasibility_bank_run_01
+```
+
+The retained run is
+`tmp/m7/apartment_feasibility_bank_200_20260721_06`. It contains the compact
+region arrays, JSON/NPZ trajectory bank, a planned-not-run RIR job list and
+`topdown_feasible_region_and_all_trajectories.png`. That Topdown overlays the
+complete 0.02 m-margin raster region, 881 sampling nodes, baked-navmesh
+obstacles, the fixed listener/FOV and all 400 human/dog source paths. The
+intersection contains 126,486 feasible pixels (approximately 50.69 m2) in one
+connected component. All 200 trajectories passed the existing live Habitat
+source-center gate; no body-volume claim is made. The geodesic raster coverage
+audit places 93.48% of the feasible area within 0.25 m of a retained source
+path, 99.12% within 0.50 m and 99.989% within 1.00 m. Its p95 and maximum gaps
+are 0.283 m and 1.033 m, so the declared 90%-within-0.50-m / 1.50-m-maximum
+gate passes.
+
+The current-code precompute took 30.15 seconds: 6.13 seconds for room
+load/region compilation, 15.84 seconds for route sampling plus one aggregate
+native gate, 2.52 seconds for geodesic coverage QA, 0.50 seconds for the
+Topdown and 0.73 seconds for serialization/RIR planning.
+The RIR plan contains 10,000 requested source/keyframe states and 9,198 unique
+jobs after exact reuse. Native RLR is deliberately not executed by this
+command. Once those jobs are rendered against a fixed acoustic room/listener
+profile, five event variants per trajectory produce 1,000 training samples
+without recomputing room navigation, visual frames or RIRs. Dataset splits
+must remain grouped by trajectory ID so variants of the same visual route do
+not cross train/validation/test boundaries.
+
+The same interfaces support an optional room that has no Habitat navmesh.
+For InteriorAgent/Kujiale, first extract only the declared living-room polygon,
+object bounds and descendant-mesh navigation footprints in an environment with
+Pixar USD, then compile the raster bank in the normal AVEngine environment:
+
+```bash
+/path/to/python-with-pixar-usd \
+  tools/m6z/extract_interioragent_scene_metadata.py \
+  --source /path/to/kujiale_0020.usda \
+  --rooms /path/to/kujiale_0020/rooms.json \
+  --room-scope livingroom_491 \
+  --scene-id kujiale_0020 \
+  --output tmp/m7/kujiale_0020_inputs/scene_metadata.json
+
+PYTHONPATH=src conda run -n avengine-habitat-runtime \
+  python tools/m6x/compile_kujiale_feasibility_bank.py \
+  --scene-metadata tmp/m7/kujiale_0020_inputs/scene_metadata.json \
+  --output tmp/m7/kujiale_0020_feasibility_bank_run_01
+```
+
+The retained `kujiale_0020_livingroom_491` result is
+`tmp/m7/kujiale_0020_livingroom_feasibility_bank_200_20260721_10`. Its
+authority is explicitly the room polygon plus USD-derived furniture
+footprints, not a Habitat navmesh. The 0.05 m raster matches the footprint
+extraction resolution and applies the profile's 0.03 m source-center margin.
+The corrected metadata contains 18 ground objects and 62 elevated objects;
+16 ground objects intersect at least one declared 0.45/1.60 m emitter height,
+while the low cabinet and coffee table clear both heights. Those objects expand
+to 210 review/obstacle footprint parts. Rugs or other floor coverings remain
+walkable; chandeliers, books and other elevated items remain visible without
+becoming floor blockers.
+
+The retained intersection contains 17,820 cells (approximately 44.55 m2) over
+six connected components. Every component has a retained trajectory. Coverage
+is 77.39% within 0.25 m, 96.31% within 0.50 m and 100% within 1.00 m; p95 and
+maximum gaps are 0.454 m and 0.907 m. The 200-episode compile takes 8.10 seconds
+total, including 5.66 seconds for route-bank generation/aggregate authority
+QA, 1.27 seconds for coverage and 0.51 seconds for Topdown. Reversed route and
+cross-case reuse keep distinct episode combinations without repeating A* for
+every case. The planned 10,000 source/keyframe RIR uses collapse to 1,073
+unique jobs. No native RLR, visual rendering, scene copy or mouth-animation
+work is performed by this precompute.
+
 The earlier `_04` closeout capture is a historical `320x240` baseline, and
 `_06` predates the hidden test markers, direction-projected exterior and normal
 S3 route. Neither satisfies the current visual/trajectory readback. A fresh run

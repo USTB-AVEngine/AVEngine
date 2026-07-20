@@ -402,6 +402,11 @@ class RuntimeObstacleMap:
     floor_height_m: float
     meters_per_pixel: float
     rigid_obstacles: tuple[Mapping[str, Any], ...]
+    authority: str = "live_habitat_declared_navmesh_plus_loaded_rigid_collision_obbs"
+    claim_boundary: str = (
+        "source-center placement and Topdown only; no body-volume claim"
+    )
+    rigid_obstacles_baked_into_navmesh: bool = False
     # Runtime-only authority reference.  It is intentionally absent from the
     # JSON summary, but lets the gate reject a different or subsequently
     # reloaded PathFinder instead of silently mixing two room geometries.
@@ -417,12 +422,8 @@ class RuntimeObstacleMap:
             role_counts[str(role)] += 1
         return {
             "schema": OBSTACLE_MAP_SCHEMA,
-            "authority": (
-                "live_habitat_declared_navmesh_plus_loaded_rigid_collision_obbs"
-            ),
-            "claim_boundary": (
-                "source-center placement and Topdown only; no body-volume claim"
-            ),
+            "authority": self.authority,
+            "claim_boundary": self.claim_boundary,
             "floor_height_m": self.floor_height_m,
             "meters_per_pixel": self.meters_per_pixel,
             "bounds_m": [list(item) for item in self.bounds_m],
@@ -433,6 +434,9 @@ class RuntimeObstacleMap:
             "blocking_rigid_obstacle_count": sum(
                 int(item.get("blocks_source_center", True) is not False)
                 for item in self.rigid_obstacles
+            ),
+            "rigid_obstacles_baked_into_navmesh": (
+                self.rigid_obstacles_baked_into_navmesh
             ),
             "rigid_obstacles": [dict(item) for item in self.rigid_obstacles],
         }
@@ -514,8 +518,8 @@ def _assert_pathfinder_matches_snapshot(
         raise M6XGeometryError("obstacle_map must be a RuntimeObstacleMap")
     if obstacle_map._pathfinder is None:
         raise M6XGeometryError(
-            "source-center gate requires a live RuntimeObstacleMap built by "
-            "build_runtime_obstacle_map"
+            "source-center gate requires a RuntimeObstacleMap retaining its "
+            "PathFinder-compatible authority"
         )
     if pathfinder is not obstacle_map._pathfinder:
         raise M6XGeometryError(
@@ -662,29 +666,30 @@ def evaluate_source_center_gate(
             blocking_rigid_clearance = math.inf
             inside_loaded_rigid = False
             inside_blocking_rigid = False
-            for obstacle in obstacle_map.rigid_obstacles:
-                clearance, inside = point_to_world_obb_clearance(point, obstacle)
-                identity = {
-                    "object_id": obstacle.get("object_id"),
-                    "handle": obstacle.get("handle"),
-                    "obstacle_role": obstacle.get(
-                        "obstacle_role", UNKNOWN_OBSTACLE_ROLE
-                    ),
-                }
-                if clearance < loaded_rigid_clearance or (
-                    math.isclose(clearance, loaded_rigid_clearance) and inside
-                ):
-                    loaded_rigid_clearance = clearance
-                    inside_loaded_rigid = inside
-                    nearest_loaded_rigid = identity
-                if obstacle.get("blocks_source_center", True) is False:
-                    continue
-                if clearance < blocking_rigid_clearance or (
-                    math.isclose(blocking_rigid_clearance, clearance) and inside
-                ):
-                    blocking_rigid_clearance = clearance
-                    inside_blocking_rigid = inside
-                    nearest_blocking_rigid = identity
+            if not obstacle_map.rigid_obstacles_baked_into_navmesh:
+                for obstacle in obstacle_map.rigid_obstacles:
+                    clearance, inside = point_to_world_obb_clearance(point, obstacle)
+                    identity = {
+                        "object_id": obstacle.get("object_id"),
+                        "handle": obstacle.get("handle"),
+                        "obstacle_role": obstacle.get(
+                            "obstacle_role", UNKNOWN_OBSTACLE_ROLE
+                        ),
+                    }
+                    if clearance < loaded_rigid_clearance or (
+                        math.isclose(clearance, loaded_rigid_clearance) and inside
+                    ):
+                        loaded_rigid_clearance = clearance
+                        inside_loaded_rigid = inside
+                        nearest_loaded_rigid = identity
+                    if obstacle.get("blocks_source_center", True) is False:
+                        continue
+                    if clearance < blocking_rigid_clearance or (
+                        math.isclose(blocking_rigid_clearance, clearance) and inside
+                    ):
+                        blocking_rigid_clearance = clearance
+                        inside_blocking_rigid = inside
+                        nearest_blocking_rigid = identity
             rigid_pass = not inside_blocking_rigid and (
                 math.isinf(blocking_rigid_clearance)
                 or blocking_rigid_clearance >= min_rigid
@@ -756,9 +761,9 @@ def evaluate_source_center_gate(
         "status": "fail" if failed_sources else "pass",
         "authority": obstacle_map.summary(),
         "semantics": (
-            "source_center_xz_vs_loaded_navmesh_and_source_center_xyz_vs_"
-            "blocking_loaded_rigid_collision_obb; confirmed_walkable_floor_"
-            "coverings_are_inventory_only"
+            "source_center_xz_vs_retained_navigation_authority; blocking rigid "
+            "footprints are either baked into that authority or checked as "
+            "separate source-center_xyz collision OBBs"
         ),
         "full_body_collision_claim": False,
         "pathfinder_snapshot_match": True,

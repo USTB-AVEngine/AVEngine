@@ -173,6 +173,9 @@ def test_center_gate_rejects_obstacle_but_ignores_rug_and_chandelier() -> None:
     assert classify_object_bounds([[-1, -1, 0.5], [1, 1, 1.0]]) == (
         "elevated_object"
     )
+    assert classify_object_bounds([[-0.1, -0.1, 0.12], [0.1, 0.1, 0.21]]) == (
+        "elevated_object"
+    )
 
 
 def test_mesh_part_footprints_do_not_fill_empty_parent_aabb() -> None:

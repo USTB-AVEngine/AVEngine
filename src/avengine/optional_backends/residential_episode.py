@@ -248,9 +248,10 @@ def classify_object_bounds(
 ) -> str:
     """Classify geometry for the deliberately center-only route gate.
 
-    Floor coverings up to 10 cm are walkable.  Geometry whose lowest point is
-    above the 15 cm root slice is visible in Topdown but does not block the
-    source center.  This intentionally does not approximate an actor body.
+    Floor coverings up to 10 cm are walkable.  Small loose objects that float
+    above the floor band, plus all geometry whose lowest point is above the
+    15 cm root slice, remain visible in Topdown but do not become floor
+    blockers.  This intentionally does not approximate an actor body.
     """
 
     if (
@@ -266,6 +267,8 @@ def classify_object_bounds(
     floor = _finite(floor_z_m, owner="floor_z_m")
     if maximum[2] <= floor + 0.10:
         return "walkable_floor_covering"
+    if minimum[2] > floor + 0.05 and maximum[2] - minimum[2] <= 0.20:
+        return "elevated_object"
     if minimum[2] > floor + 0.15:
         return "elevated_object"
     return "ground_blocker"
