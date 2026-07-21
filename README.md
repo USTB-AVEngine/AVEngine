@@ -348,11 +348,12 @@ in [the M6.x final report](docs/roadmap/M6X_FINAL_REPORT.md).
 ### Run the Apartment four-motion throughput pilot
 
 The lightweight training-pipeline pilot covers the four requested motion
-cases: static/static, human-moving/dog-static, both-moving, and
-human-static/dog-moving. Every case is an independent 5-second, 75-frame sample
-at 15 fps with one human and one Beagle. Both named sources have scheduled
-events in every sample and share an overlapping event window. The
-Habitat-native stage owns the trajectories, source-center gate, Topdown,
+cases: static/static, source1-moving/source2-static, both-moving, and
+source1-static/source2-moving. Every case is an independent 5-second, 75-frame
+sample at 15 fps. In this visual canary only, source1 is bound to a person and
+source2 to a Beagle; those bindings are not trajectory types. Both source slots
+have scheduled events in every sample and share an overlapping event window.
+The Habitat-native stage owns the trajectories, source-center gate, Topdown,
 16 kHz stereo binaural mixture/stems, Timeline v2, source manifest,
 AudioProgram, flags and motion metadata. For Apartment, the final RGB is then
 rendered by the native UE/SPEAR map; Habitat RGB is only an upstream diagnostic
@@ -450,14 +451,15 @@ continuous possible paths are infinite and are never mislabeled as an
 enumerable "all paths" set.
 
 The default Apartment run creates 200 independent five-second trajectories:
-50 each for static/static, human-moving/dog-static,
-human-static/dog-moving and both-moving. Moving paths are 3.5--5.5 m, or about
+50 each for static/static, source1-moving/source2-static,
+source1-static/source2-moving and both-moving. The path contract contains only
+`source1` and `source2`; a person and Beagle are optional example visual
+bindings rather than trajectory types. Moving paths are 3.5--5.5 m, or about
 0.7--1.1 m/s over the five-second episode. The retained articulated anchor
-profile reconstructs human-mouth and Beagle-muzzle positions without RGB or
-semantic calls. There is no lip/viseme or mouth-opening animation dependency;
-Walk/Idle root and emitter-anchor state remains fixed for a chosen trajectory,
-so dry sound files and event windows can be replaced without rerendering the
-visual route.
+profile materializes the example bindings without RGB or semantic calls.
+There is no lip/viseme or mouth-opening animation dependency. Dry sound files,
+event classes and event windows can be replaced while retaining the same
+source-slot path, visual route and acoustic response.
 
 ```bash
 PYTHONPATH=src conda run -n avengine-habitat-runtime \
@@ -466,23 +468,26 @@ PYTHONPATH=src conda run -n avengine-habitat-runtime \
 ```
 
 The retained run is
-`tmp/m7/apartment_feasibility_bank_200_20260721_06`. It contains the compact
+`tmp/m7/apartment_source_slots_diverse_20260721_03`. It contains the compact
 region arrays, JSON/NPZ trajectory bank, a planned-not-run RIR job list and
 `topdown_feasible_region_and_all_trajectories.png`. That Topdown overlays the
 complete 0.02 m-margin raster region, 881 sampling nodes, baked-navmesh
-obstacles, the fixed listener/FOV and all 400 human/dog source paths. The
-intersection contains 126,486 feasible pixels (approximately 50.69 m2) in one
-connected component. All 200 trajectories passed the existing live Habitat
-source-center gate; no body-volume claim is made. The geodesic raster coverage
-audit places 93.48% of the feasible area within 0.25 m of a retained source
-path, 99.12% within 0.50 m and 99.989% within 1.00 m. Its p95 and maximum gaps
-are 0.283 m and 1.033 m, so the declared 90%-within-0.50-m / 1.50-m-maximum
-gate passes.
+obstacles, the fixed listener/FOV and all 400 source-slot paths. Each source
+slot has 100 moving-path uses and 100 distinct undirected path geometries; a
+different binding or other-slot position cannot make a repeated path unique.
+The intersection contains 126,486 feasible pixels (approximately 50.69 m2) in
+one connected component. All 200 trajectories passed the existing live
+Habitat source-center gate; no body-volume claim is made. The geodesic raster
+coverage audit places 93.48% of the feasible area within 0.25 m of a retained
+source path, 99.12% within 0.50 m and 99.989% within 1.00 m. Its p95 and
+maximum gaps are 0.283 m and 1.033 m, so the declared 90%-within-0.50-m /
+1.50-m-maximum gate passes.
 
-The current-code precompute took 30.15 seconds: 6.13 seconds for room
-load/region compilation, 15.84 seconds for route sampling plus one aggregate
-native gate, 2.52 seconds for geodesic coverage QA, 0.50 seconds for the
-Topdown and 0.73 seconds for serialization/RIR planning.
+The retained run took 28.69 seconds total: 6.01 seconds for room load/region
+compilation, 17.57 seconds for route sampling plus one aggregate native gate,
+2.69 seconds for coverage and diversity QA, 0.59 seconds for Topdown and 0.72
+seconds for serialization/RIR planning. Native module import and renderer
+initialization should still be amortized by a persistent batch worker.
 The RIR plan contains 10,000 requested source/keyframe states and 9,198 unique
 jobs after exact reuse. Native RLR is deliberately not executed by this
 command. Once those jobs are rendered against a fixed acoustic room/listener
@@ -512,7 +517,7 @@ PYTHONPATH=src conda run -n avengine-habitat-runtime \
 ```
 
 The retained `kujiale_0020_livingroom_491` result is
-`tmp/m7/kujiale_0020_livingroom_feasibility_bank_200_20260721_10`. Its
+`tmp/m7/kujiale_0020_source_slots_diverse_20260721_02`. Its
 authority is explicitly the room polygon plus USD-derived furniture
 footprints, not a Habitat navmesh. The 0.05 m raster matches the footprint
 extraction resolution and applies the profile's 0.03 m source-center margin.
@@ -525,14 +530,26 @@ becoming floor blockers.
 
 The retained intersection contains 17,820 cells (approximately 44.55 m2) over
 six connected components. Every component has a retained trajectory. Coverage
-is 77.39% within 0.25 m, 96.31% within 0.50 m and 100% within 1.00 m; p95 and
-maximum gaps are 0.454 m and 0.907 m. The 200-episode compile takes 8.10 seconds
-total, including 5.66 seconds for route-bank generation/aggregate authority
-QA, 1.27 seconds for coverage and 0.51 seconds for Topdown. Reversed route and
-cross-case reuse keep distinct episode combinations without repeating A* for
-every case. The planned 10,000 source/keyframe RIR uses collapse to 1,073
-unique jobs. No native RLR, visual rendering, scene copy or mouth-animation
-work is performed by this precompute.
+is 98.10% within 0.25 m, 99.94% within 0.50 m and 100% within 1.00 m; p95 and
+maximum gaps are 0.171 m and 0.612 m. Both source slots have 100 moving-path
+uses and 100 distinct undirected geometries, with 90--92% distinct starts and
+ends. The 200-episode compile takes 7.24 seconds total, including 4.75 seconds
+for route-bank generation/aggregate authority QA, 1.23 seconds for coverage
+and diversity QA and 0.53 seconds for Topdown. The planned 10,000
+source/keyframe RIR uses collapse to 5,149 unique jobs. No native RLR, visual
+rendering, scene copy or mouth-animation work is performed by this precompute.
+
+RLR Audio Propagation is the simulation backend; a room impulse response
+(RIR) is the reusable data it produces for a fixed room/material, listener and
+source state. Therefore the durable cache is an RLR-produced RIR cache, not a
+cache of the RLR program itself. `rir_job_plan.json` is only a deduplicated work
+list and explicitly remains `planned_not_run`. For the current omnidirectional
+point-source profile, slot identity and dry waveform are not cache-key fields;
+the same acoustic state can serve either source slot. Once a native executor
+has materialized those RIRs, dry audio, event timing, gain and labels can change
+without rerunning RLR. A changed room/material profile, listener pose, source
+trajectory outside the cached states or result-changing propagation profile
+requires new RIR entries.
 
 The earlier `_04` closeout capture is a historical `320x240` baseline, and
 `_06` predates the hidden test markers, direction-projected exterior and normal

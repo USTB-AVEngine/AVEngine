@@ -18,6 +18,7 @@ from avengine.m6x.geometry import (
 )
 from avengine.m6x.room_feasibility import (
     MOTION_CASES,
+    SOURCE_SLOTS,
     FeasibleRegionIndex,
     TrajectoryBank,
     TrajectoryCoverage,
@@ -31,9 +32,9 @@ class FeasibilityTopdownError(ValueError):
     """The feasibility bank cannot be rendered unambiguously."""
 
 
-_ACTOR_COLORS = {
-    "human0": (32, 212, 235, 42),
-    "dog0": (255, 132, 61, 42),
+_SOURCE_COLORS = {
+    "source1": (32, 212, 235, 42),
+    "source2": (255, 132, 61, 42),
 }
 
 _OBSTACLE_COLORS = {
@@ -57,10 +58,9 @@ def _font(size: int) -> ImageFont.ImageFont:
 
 
 def render_feasibility_topdown(
-    region_by_actor: Mapping[str, FeasibleRegionIndex],
+    region_by_source: Mapping[str, FeasibleRegionIndex],
     trajectory_bank: TrajectoryBank,
     *,
-    source_to_actor: Mapping[str, str],
     trajectory_coverage: TrajectoryCoverage | None = None,
     listener_position_m: Sequence[float],
     listener_yaw_deg: Real,
@@ -71,20 +71,16 @@ def render_feasibility_topdown(
 ) -> np.ndarray:
     """Draw the complete raster region, sample nodes, and every bank path."""
 
-    if set(region_by_actor) != {"human0", "dog0"}:
+    if set(region_by_source) != set(SOURCE_SLOTS):
         raise FeasibilityTopdownError(
-            "region_by_actor must contain exactly human0 and dog0"
+            "region_by_source must contain exactly source1 and source2"
         )
-    human_region = region_by_actor["human0"]
-    dog_region = region_by_actor["dog0"]
-    if human_region.obstacle_map is not dog_region.obstacle_map:
+    source1_region = region_by_source["source1"]
+    source2_region = region_by_source["source2"]
+    if source1_region.obstacle_map is not source2_region.obstacle_map:
         raise FeasibilityTopdownError("regions do not share one obstacle map")
-    if human_region.feasible_mask.shape != dog_region.feasible_mask.shape:
+    if source1_region.feasible_mask.shape != source2_region.feasible_mask.shape:
         raise FeasibilityTopdownError("region mask shapes differ")
-    if set(source_to_actor.values()) != {"human0", "dog0"}:
-        raise FeasibilityTopdownError("source_to_actor must cover human0 and dog0")
-    if any(actor_id not in _ACTOR_COLORS for actor_id in source_to_actor.values()):
-        raise FeasibilityTopdownError("source_to_actor contains an unknown actor")
     if not isinstance(room_label, str) or not room_label.strip():
         raise FeasibilityTopdownError("room_label must be a nonempty string")
     listener = np.asarray(listener_position_m, dtype=np.float64)
@@ -109,7 +105,7 @@ def render_feasibility_topdown(
     if width < 800 or height < 600:
         raise FeasibilityTopdownError("overview must be at least 800x600")
 
-    obstacle_map = human_region.obstacle_map
+    obstacle_map = source1_region.obstacle_map
     authority_label = navigation_authority_label
     if authority_label is None:
         authority_label = (
@@ -122,9 +118,11 @@ def render_feasibility_topdown(
             "navigation_authority_label must be a nonempty string"
         )
     navmesh = np.asarray(obstacle_map.binary_navmesh, dtype=np.bool_)
-    feasible = human_region.feasible_mask & dog_region.feasible_mask
+    feasible = source1_region.feasible_mask & source2_region.feasible_mask
     if not np.any(feasible):
-        raise FeasibilityTopdownError("human/dog feasible-region intersection is empty")
+        raise FeasibilityTopdownError(
+            "source-slot feasible-region intersection is empty"
+        )
     rgb = np.empty((*navmesh.shape, 3), dtype=np.uint8)
     rgb[:] = (32, 38, 46)
     rgb[navmesh] = (110, 122, 132)
@@ -195,12 +193,12 @@ def render_feasibility_topdown(
         draw.line((*polygon, polygon[0]), fill=outline, width=2, joint="curve")
 
     # Sampling nodes are the finite candidate set used for route endpoints.
-    sample_pixels = human_region.sample_pixels_rc
+    sample_pixels = source1_region.sample_pixels_rc
     sample_pixels = sample_pixels[
-        dog_region.feasible_mask[sample_pixels[:, 0], sample_pixels[:, 1]]
+        source2_region.feasible_mask[sample_pixels[:, 0], sample_pixels[:, 1]]
     ]
     for row, col in sample_pixels:
-        point = human_region.pixel_to_world((int(row), int(col)))
+        point = source1_region.pixel_to_world((int(row), int(col)))
         x, y = point_xz(point[[0, 2]])
         draw.ellipse((x - 1.5, y - 1.5, x + 1.5, y + 1.5), fill=(31, 108, 49, 145))
 
@@ -209,9 +207,8 @@ def render_feasibility_topdown(
     first_by_case: dict[str, Any] = {}
     for episode in trajectory_bank.episodes:
         first_by_case.setdefault(episode.motion_case, episode)
-        for source_id, path in episode.source_center_paths_m.items():
-            actor_id = source_to_actor[source_id]
-            color = _ACTOR_COLORS[actor_id]
+        for source_slot, path in episode.source_center_paths_m.items():
+            color = _SOURCE_COLORS[source_slot]
             projected = [point_xz(point[[0, 2]]) for point in np.asarray(path)]
             if np.allclose(path[:, (0, 2)], path[0, (0, 2)], atol=1.0e-12):
                 x, y = projected[0]
@@ -222,9 +219,8 @@ def render_feasibility_topdown(
         episode = first_by_case.get(motion_case)
         if episode is None:
             continue
-        for source_id, path in episode.source_center_paths_m.items():
-            actor_id = source_to_actor[source_id]
-            base = _ACTOR_COLORS[actor_id]
+        for source_slot, path in episode.source_center_paths_m.items():
+            base = _SOURCE_COLORS[source_slot]
             projected = [point_xz(point[[0, 2]]) for point in np.asarray(path)]
             if len(projected) > 1:
                 draw.line(projected, fill=(*base[:3], 230), width=5, joint="curve")
@@ -290,7 +286,7 @@ def render_feasibility_topdown(
     )
 
     feasible_pixels = int(np.count_nonzero(feasible))
-    pixel_area = human_region.pixel_size_x_m * human_region.pixel_size_z_m
+    pixel_area = source1_region.pixel_size_x_m * source1_region.pixel_size_z_m
     counts = {
         motion_case: sum(
             episode.motion_case == motion_case for episode in trajectory_bank.episodes
@@ -309,7 +305,7 @@ def render_feasibility_topdown(
         (
             f"feasible={feasible_pixels * pixel_area:.2f} m² / "
             f"{feasible_pixels} pixels | samples={len(sample_pixels)} | "
-            f"components={len(human_region.components)} | "
+            f"components={len(source1_region.components)} | "
             f"trajectories={len(trajectory_bank.episodes)} x 2 sources"
         ),
         fill=(235, 235, 235, 255),
@@ -342,7 +338,7 @@ def render_feasibility_topdown(
         (24, 151),
         (
             "COVERAGE: GREEN<=0.25m | LIME<=0.50m | AMBER<=1.00m | RED>1.00m "
-            "| CYAN=human | ORANGE=dog | YELLOW=listener/FOV"
+            "| CYAN=source1 | ORANGE=source2 | YELLOW=listener/FOV"
         ),
         fill=(225, 235, 225, 255),
         font=_font(16),
@@ -365,7 +361,7 @@ def render_feasibility_topdown(
         (24, height - footer_height + 43),
         (
             f"QA ONLY — source centers; authority: {authority_label.strip()}; "
-            "no human/dog body-volume collision claim."
+            "no source-carrier body-volume collision claim."
         ),
         fill=(255, 211, 94, 255),
         font=_font(16),

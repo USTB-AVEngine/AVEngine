@@ -38,6 +38,7 @@ from avengine.m6x.room_feasibility import (
     TrajectoryBankBuilder,
     build_rir_job_plan,
     evaluate_trajectory_coverage,
+    evaluate_trajectory_diversity,
 )
 from avengine.optional_backends.residential_episode import (
     DOG_SOURCE_ID,
@@ -50,7 +51,7 @@ from avengine.optional_backends.residential_episode import (
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-OUTPUT_SCHEMA = "avengine_kujiale_feasibility_bank_delivery_v1"
+OUTPUT_SCHEMA = "avengine_kujiale_feasibility_bank_delivery_v2"
 TIMING_SCHEMA = "avengine_kujiale_feasibility_bank_timing_v1"
 AUTHORITY = "kujiale_room_polygon_plus_usd_descendant_mesh_blocking_footprints"
 CLAIM_BOUNDARY = (
@@ -237,7 +238,12 @@ def run(args: argparse.Namespace) -> Path:
         if not isinstance(polygon_xy, list) or len(polygon_xy) < 3:
             raise RuntimeError("scene metadata lacks a room polygon")
         floor_height = _finite(metadata.get("floor_z_m", 0.0), owner="floor_z_m")
-        emitter_heights = _emitter_heights(profile)
+        visual_emitter_heights = _emitter_heights(profile)
+        slot_to_visual_entity = {"source1": "human0", "source2": "dog0"}
+        emitter_heights = {
+            source_slot: visual_emitter_heights[visual_entity]
+            for source_slot, visual_entity in slot_to_visual_entity.items()
+        }
         clearance = (
             _finite(args.minimum_clearance_m, owner="minimum_clearance_m")
             if args.minimum_clearance_m is not None
@@ -269,30 +275,24 @@ def run(args: argparse.Namespace) -> Path:
                 minimum_rigid_clearance_m=0.0,
                 sample_spacing_m=args.sample_spacing_m,
             )
-            for actor_id in ("human0", "dog0")
+            for actor_id in ("source1", "source2")
         }
         phase_seconds["input_and_feasible_region_compile"] = _elapsed(phase_started)
-
-        source_to_actor = {
-            HUMAN_SOURCE_ID: "human0",
-            DOG_SOURCE_ID: "dog0",
-        }
 
         def source_materializer(
             roots: Mapping[str, np.ndarray],
         ) -> dict[str, np.ndarray]:
             return {
-                HUMAN_SOURCE_ID: np.asarray(roots["human0"], dtype=np.float64)
-                + np.asarray([0.0, emitter_heights["human0"], 0.0]),
-                DOG_SOURCE_ID: np.asarray(roots["dog0"], dtype=np.float64)
-                + np.asarray([0.0, emitter_heights["dog0"], 0.0]),
+                source_slot: np.asarray(roots[source_slot], dtype=np.float64)
+                + np.asarray([0.0, emitter_heights[source_slot], 0.0])
+                for source_slot in ("source1", "source2")
             }
 
         phase_started = time.perf_counter()
         bank = TrajectoryBankBuilder(
             pathfinder=pathfinder,
             obstacle_map=obstacle_map,
-            region_by_actor=regions,
+            region_by_source=regions,
             shortest_path_factory=RasterShortestPath,
             source_path_materializer=source_materializer,
         ).build(
@@ -306,7 +306,6 @@ def run(args: argparse.Namespace) -> Path:
             maximum_floor_snap_xz_m=args.maximum_floor_snap_xz_m,
             episode_attempts=args.episode_attempts,
             path_attempts=args.path_attempts,
-            reuse_reversed_moving_paths=True,
         )
         phase_seconds["trajectory_bank_generation_and_authority_gate"] = _elapsed(
             phase_started
@@ -317,6 +316,10 @@ def run(args: argparse.Namespace) -> Path:
         if coverage.record["status"] != "pass":
             write_json(staging / "FAILED_COVERAGE.json", coverage.record)
             raise RuntimeError("trajectory bank does not broadly cover the room")
+        diversity = evaluate_trajectory_diversity(bank)
+        if diversity["status"] != "pass":
+            write_json(staging / "FAILED_DIVERSITY.json", diversity)
+            raise RuntimeError("trajectory bank does not meet source-slot diversity")
         phase_seconds["trajectory_coverage_audit"] = _elapsed(phase_started)
 
         camera = profile.get("camera")
@@ -333,7 +336,6 @@ def run(args: argparse.Namespace) -> Path:
         overview = render_feasibility_topdown(
             regions,
             bank,
-            source_to_actor=source_to_actor,
             trajectory_coverage=coverage,
             listener_position_m=listener,
             listener_yaw_deg=listener_yaw,
@@ -357,36 +359,37 @@ def run(args: argparse.Namespace) -> Path:
                 "declared_object_role_counts": metadata.get("object_role_counts"),
                 "minimum_clearance_m": clearance,
                 "emitter_heights_m": emitter_heights,
-                "human0": regions["human0"].summary(),
-                "dog0": regions["dog0"].summary(),
+                "source1": regions["source1"].summary(),
+                "source2": regions["source2"].summary(),
                 "intersection_feasible_pixel_count": int(
                     np.count_nonzero(
-                        regions["human0"].feasible_mask & regions["dog0"].feasible_mask
+                        regions["source1"].feasible_mask
+                        & regions["source2"].feasible_mask
                     )
                 ),
             },
         )
-        _save_region_npz(staging / "feasible_region_human0.npz", regions["human0"])
-        _save_region_npz(staging / "feasible_region_dog0.npz", regions["dog0"])
+        _save_region_npz(staging / "feasible_region_source1.npz", regions["source1"])
+        _save_region_npz(staging / "feasible_region_source2.npz", regions["source2"])
         write_json(staging / "trajectory_coverage.json", coverage.record)
+        write_json(staging / "trajectory_diversity.json", diversity)
         np.savez_compressed(
             staging / "trajectory_coverage.npz",
             distance_to_trajectory_m=coverage.distance_to_trajectory_m,
             trajectory_seed_mask=coverage.trajectory_seed_mask,
         )
         write_json(staging / "trajectory_bank.json", bank.record(include_paths=True))
-        actor_order = ("human0", "dog0")
-        source_order = tuple(sorted(source_to_actor))
+        source_order = ("source1", "source2")
         np.savez_compressed(
             staging / "trajectory_bank.npz",
-            actor_ids=np.asarray(actor_order),
-            source_endpoint_ids=np.asarray(source_order),
+            source_slot_ids=np.asarray(source_order),
             motion_cases=np.asarray([episode.motion_case for episode in bank.episodes]),
             episode_ids=np.asarray([episode.episode_id for episode in bank.episodes]),
-            actor_root_paths_m=np.stack(
+            source_root_paths_m=np.stack(
                 [
                     np.stack(
-                        [episode.actor_root_paths_m[key] for key in actor_order], axis=0
+                        [episode.source_root_paths_m[key] for key in source_order],
+                        axis=0,
                     )
                     for episode in bank.episodes
                 ],
@@ -426,7 +429,18 @@ def run(args: argparse.Namespace) -> Path:
             "visual_render_calls": 0,
             "native_rlr_calls": 0,
             "scene_asset_copies": 0,
-            "source_to_actor": source_to_actor,
+            "source_slots": list(source_order),
+            "example_visual_bindings": {
+                "source1": {
+                    "visual_entity_id": "human0",
+                    "legacy_endpoint_id": HUMAN_SOURCE_ID,
+                },
+                "source2": {
+                    "visual_entity_id": "dog0",
+                    "legacy_endpoint_id": DOG_SOURCE_ID,
+                },
+            },
+            "dry_audio_is_replaceable_without_replanning_paths": True,
             "episode_count": len(bank.episodes),
             "event_variants_per_trajectory_for_1000_samples": (
                 1000 / len(bank.episodes)
@@ -437,6 +451,7 @@ def run(args: argparse.Namespace) -> Path:
                 "trajectory_bank_json": "trajectory_bank.json",
                 "trajectory_bank_arrays": "trajectory_bank.npz",
                 "trajectory_coverage": "trajectory_coverage.json",
+                "trajectory_diversity": "trajectory_diversity.json",
                 "rir_job_plan": "rir_job_plan.json",
                 "timing": "timing.json",
             },
@@ -459,6 +474,7 @@ def run(args: argparse.Namespace) -> Path:
                     "maximum_gap_m",
                 )
             },
+            "diversity_summary": diversity,
         }
         write_json(staging / "delivery.json", delivery)
         write_json(

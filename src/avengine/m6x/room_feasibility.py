@@ -3,8 +3,8 @@
 The complete output of this module is a rasterized feasible region.  Possible
 continuous trajectories inside that region are infinite, so the trajectory
 bank is deliberately a finite deterministic sample.  Every sampled path is
-closed again through the live Habitat source-center gate; no body/capsule
-volume is inferred.
+closed again through the retained room's source-center authority; no
+body/capsule volume is inferred.
 """
 
 from __future__ import annotations
@@ -26,13 +26,15 @@ from avengine.m6x.geometry import (
 
 
 FEASIBLE_REGION_SCHEMA = "avengine_room_feasible_region_v1"
-TRAJECTORY_BANK_SCHEMA = "avengine_room_trajectory_bank_v1"
-RIR_JOB_PLAN_SCHEMA = "avengine_room_rir_job_plan_v1"
+TRAJECTORY_BANK_SCHEMA = "avengine_room_trajectory_bank_v2"
+RIR_JOB_PLAN_SCHEMA = "avengine_room_rir_job_plan_v2"
 TRAJECTORY_COVERAGE_SCHEMA = "avengine_room_trajectory_coverage_v1"
+TRAJECTORY_DIVERSITY_SCHEMA = "avengine_room_trajectory_diversity_v1"
+SOURCE_SLOTS = ("source1", "source2")
 MOTION_CASES = (
     "static_static",
-    "human_moving_dog_static",
-    "human_static_dog_moving",
+    "source1_moving_source2_static",
+    "source1_static_source2_moving",
     "both_moving",
 )
 
@@ -353,7 +355,7 @@ class RoomFeasibilityCompiler:
 class TrajectoryEpisode:
     episode_id: str
     motion_case: str
-    actor_root_paths_m: Mapping[str, np.ndarray]
+    source_root_paths_m: Mapping[str, np.ndarray]
     source_center_paths_m: Mapping[str, np.ndarray]
     statistics: Mapping[str, Any]
 
@@ -374,9 +376,9 @@ class TrajectoryBank:
                 "statistics": dict(episode.statistics),
             }
             if include_paths:
-                value["actor_root_paths_m"] = {
+                value["source_root_paths_m"] = {
                     key: np.asarray(path, dtype=np.float64).tolist()
-                    for key, path in sorted(episode.actor_root_paths_m.items())
+                    for key, path in sorted(episode.source_root_paths_m.items())
                 }
                 value["source_center_paths_m"] = {
                     key: np.asarray(path, dtype=np.float64).tolist()
@@ -391,8 +393,12 @@ class TrajectoryBank:
         }
         return {
             "schema": TRAJECTORY_BANK_SCHEMA,
-            "semantics": "finite deterministic sample from the complete feasible region",
+            "semantics": (
+                "source-slot trajectories are independent of the dry audio and "
+                "optional visual entity bound to each slot"
+            ),
             "claim_boundary": "source center only; no body-volume collision claim",
+            "source_slots": list(SOURCE_SLOTS),
             "frame_count": self.frame_count,
             "frame_rate_hz": self.frame_rate_hz,
             "seconds_per_episode": self.frame_count / self.frame_rate_hz,
@@ -468,7 +474,7 @@ def _path_seed_pixels(
 
 
 def evaluate_trajectory_coverage(
-    region_by_actor: Mapping[str, FeasibleRegionIndex],
+    region_by_source: Mapping[str, FeasibleRegionIndex],
     bank: TrajectoryBank,
     *,
     thresholds_m: Sequence[float] = (0.25, 0.50, 1.00),
@@ -482,16 +488,16 @@ def evaluate_trajectory_coverage(
     cover an otherwise nearby cell.
     """
 
-    if set(region_by_actor) != {"human0", "dog0"}:
+    if set(region_by_source) != set(SOURCE_SLOTS):
         raise RoomFeasibilityError(
-            "region_by_actor must contain exactly human0 and dog0"
+            "region_by_source must contain exactly source1 and source2"
         )
-    human_region = region_by_actor["human0"]
-    dog_region = region_by_actor["dog0"]
-    if human_region.obstacle_map is not dog_region.obstacle_map:
+    source1_region = region_by_source["source1"]
+    source2_region = region_by_source["source2"]
+    if source1_region.obstacle_map is not source2_region.obstacle_map:
         raise RoomFeasibilityError("coverage regions must share one obstacle map")
     feasible = np.asarray(
-        human_region.feasible_mask & dog_region.feasible_mask, dtype=np.bool_
+        source1_region.feasible_mask & source2_region.feasible_mask, dtype=np.bool_
     )
     if not np.any(feasible):
         raise RoomFeasibilityError("coverage region intersection is empty")
@@ -524,7 +530,7 @@ def evaluate_trajectory_coverage(
     for episode in bank.episodes:
         for path in episode.source_center_paths_m.values():
             path_seeds, projected = _path_seed_pixels(
-                human_region,
+                source1_region,
                 feasible,
                 np.asarray(path, dtype=np.float64),
             )
@@ -541,8 +547,8 @@ def evaluate_trajectory_coverage(
         distances[row, col] = 0.0
         seed_mask[row, col] = True
         heapq.heappush(queue, (0.0, row, col))
-    pixel_x = human_region.pixel_size_x_m
-    pixel_z = human_region.pixel_size_z_m
+    pixel_x = source1_region.pixel_size_x_m
+    pixel_z = source1_region.pixel_size_z_m
     neighbours = tuple(
         (
             row_delta,
@@ -641,36 +647,37 @@ def evaluate_trajectory_coverage(
 
 
 class TrajectoryBankBuilder:
-    """Sample four motion classes and close paths with the retained room authority."""
+    """Sample two source slots without binding paths to an entity or dry sound."""
 
     def __init__(
         self,
         *,
         pathfinder: Any,
         obstacle_map: RuntimeObstacleMap,
-        region_by_actor: Mapping[str, FeasibleRegionIndex],
+        region_by_source: Mapping[str, FeasibleRegionIndex],
         shortest_path_factory: Callable[[], Any],
         source_path_materializer: Callable[
             [Mapping[str, np.ndarray]], Mapping[str, np.ndarray]
         ]
         | None = None,
     ) -> None:
-        if set(region_by_actor) != {"human0", "dog0"}:
+        if set(region_by_source) != set(SOURCE_SLOTS):
             raise RoomFeasibilityError(
-                "region_by_actor must contain exactly human0 and dog0"
+                "region_by_source must contain exactly source1 and source2"
             )
         if any(
-            index.obstacle_map is not obstacle_map for index in region_by_actor.values()
+            index.obstacle_map is not obstacle_map
+            for index in region_by_source.values()
         ):
             raise RoomFeasibilityError("all region indexes must share one obstacle map")
         self.pathfinder = pathfinder
         self.obstacle_map = obstacle_map
-        self.region_by_actor = dict(region_by_actor)
+        self.region_by_source = dict(region_by_source)
         self.shortest_path_factory = shortest_path_factory
         self.source_path_materializer = source_path_materializer
-        # Offset the two actors so a static/static candidate does not place
+        # Offset the two slots so a static/static candidate does not place
         # both source centers in the same tiny component by construction.
-        self._static_component_cursor = {"human0": 0, "dog0": 1}
+        self._static_component_cursor = {"source1": 0, "source2": 1}
 
     @staticmethod
     def _resample_polyline(points_m: np.ndarray, frame_count: int) -> np.ndarray:
@@ -688,14 +695,14 @@ class TrajectoryBankBuilder:
         return np.ascontiguousarray(result)
 
     def _static_path(
-        self, actor_id: str, rng: np.random.Generator, frame_count: int
+        self, source_slot: str, rng: np.random.Generator, frame_count: int
     ) -> np.ndarray:
-        index = self.region_by_actor[actor_id]
+        index = self.region_by_source[source_slot]
         pixels = index.sample_pixels_rc
         labels = index.component_labels[pixels[:, 0], pixels[:, 1]]
         component_ids = tuple(sorted(set(int(value) for value in labels)))
-        cursor = self._static_component_cursor[actor_id]
-        self._static_component_cursor[actor_id] = cursor + 1
+        cursor = self._static_component_cursor[source_slot]
+        self._static_component_cursor[source_slot] = cursor + 1
         mandatory_component_attempts = 2 * len(component_ids)
         if cursor < mandatory_component_attempts:
             # Seed every disconnected feasible component once.  Remaining
@@ -713,7 +720,7 @@ class TrajectoryBankBuilder:
 
     def _moving_path(
         self,
-        actor_id: str,
+        source_slot: str,
         rng: np.random.Generator,
         *,
         frame_count: int,
@@ -721,7 +728,7 @@ class TrajectoryBankBuilder:
         maximum_distance_m: float,
         path_attempts: int,
     ) -> tuple[np.ndarray, float]:
-        index = self.region_by_actor[actor_id]
+        index = self.region_by_source[source_slot]
         pixels = index.sample_pixels_rc
         labels = index.component_labels[pixels[:, 0], pixels[:, 1]]
         eligible_components = tuple(
@@ -774,7 +781,7 @@ class TrajectoryBankBuilder:
             return self._resample_polyline(points, frame_count), distance
         raise RoomFeasibilityError(
             f"could not sample a {minimum_distance_m:g}-{maximum_distance_m:g} m "
-            f"path for {actor_id} after {path_attempts} attempts"
+            f"path for {source_slot} after {path_attempts} attempts"
         )
 
     def _fast_candidate_gate(
@@ -845,7 +852,6 @@ class TrajectoryBankBuilder:
         maximum_floor_snap_xz_m: float = 0.03,
         episode_attempts: int = 250,
         path_attempts: int = 250,
-        reuse_reversed_moving_paths: bool = False,
     ) -> TrajectoryBank:
         count = _positive_int(
             episodes_per_motion_case, owner="episodes per motion case"
@@ -870,89 +876,33 @@ class TrajectoryBankBuilder:
         )
         attempts = _positive_int(episode_attempts, owner="episode attempts")
         per_path_attempts = _positive_int(path_attempts, owner="path attempts")
-        if not isinstance(reuse_reversed_moving_paths, bool):
-            raise RoomFeasibilityError("reuse_reversed_moving_paths must be boolean")
         rng = np.random.default_rng(seed)
         episodes: list[TrajectoryEpisode] = []
         signatures: set[tuple[Any, ...]] = set()
-        source_ids: tuple[str, ...] | None = None
         nav_clearance_threshold = min(
-            index.minimum_navmesh_clearance_m for index in self.region_by_actor.values()
+            index.minimum_navmesh_clearance_m
+            for index in self.region_by_source.values()
         )
         rigid_clearance_threshold = min(
-            index.minimum_rigid_clearance_m for index in self.region_by_actor.values()
+            index.minimum_rigid_clearance_m for index in self.region_by_source.values()
         )
-        moving_libraries: dict[str, list[tuple[np.ndarray, float]]] = {
-            "human0": [],
-            "dog0": [],
+        accepted_moving_geometries: dict[str, set[bytes]] = {
+            source_slot: set() for source_slot in SOURCE_SLOTS
         }
-        moving_pending: dict[str, list[tuple[np.ndarray, float]]] = {
-            "human0": [],
-            "dog0": [],
-        }
-        moving_cursor = {"human0": 0, "dog0": count // 2}
-        moving_cursor_step = {"human0": 1, "dog0": 11}
-        both_pair_cursor = 0
 
-        def moving_path(actor_id: str) -> tuple[np.ndarray, float]:
-            if not reuse_reversed_moving_paths:
-                return self._moving_path(
-                    actor_id,
-                    rng,
-                    frame_count=frames,
-                    minimum_distance_m=minimum_distance,
-                    maximum_distance_m=maximum_distance,
-                    path_attempts=per_path_attempts,
-                )
-            if moving_pending[actor_id]:
-                return moving_pending[actor_id].pop()
-            library = moving_libraries[actor_id]
-            if len(library) < count:
-                path, distance = self._moving_path(
-                    actor_id,
-                    rng,
-                    frame_count=frames,
-                    minimum_distance_m=minimum_distance,
-                    maximum_distance_m=maximum_distance,
-                    path_attempts=per_path_attempts,
-                )
-                forward = (path, distance)
-                reverse = (np.ascontiguousarray(path[::-1]), distance)
-                library.extend((forward, reverse))
-                moving_pending[actor_id].append(reverse)
-                return forward
-            cursor = moving_cursor[actor_id]
-            moving_cursor[actor_id] = cursor + moving_cursor_step[actor_id]
-            path, distance = library[cursor % len(library)]
-            return np.ascontiguousarray(path.copy()), distance
-
-        if reuse_reversed_moving_paths:
-            target_library_size = 2 * count
-            for actor_id in ("human0", "dog0"):
-                library = moving_libraries[actor_id]
-                while len(library) < target_library_size:
-                    path, distance = self._moving_path(
-                        actor_id,
-                        rng,
-                        frame_count=frames,
-                        minimum_distance_m=minimum_distance,
-                        maximum_distance_m=maximum_distance,
-                        path_attempts=per_path_attempts,
-                    )
-                    library.extend(
-                        (
-                            (path, distance),
-                            (np.ascontiguousarray(path[::-1]), distance),
-                        )
-                    )
+        def moving_geometry_signature(path: np.ndarray) -> bytes:
+            points = np.round(np.asarray(path)[:, (0, 2)], decimals=6)
+            forward = points.tobytes()
+            reverse = np.ascontiguousarray(points[::-1]).tobytes()
+            return min(forward, reverse)
 
         for motion_case in MOTION_CASES:
-            human_moving = motion_case in {
-                "human_moving_dog_static",
+            source1_moving = motion_case in {
+                "source1_moving_source2_static",
                 "both_moving",
             }
-            dog_moving = motion_case in {
-                "human_static_dog_moving",
+            source2_moving = motion_case in {
+                "source1_static_source2_moving",
                 "both_moving",
             }
             accepted = 0
@@ -960,41 +910,49 @@ class TrajectoryBankBuilder:
                 if accepted >= count:
                     break
                 try:
-                    if (
-                        reuse_reversed_moving_paths
-                        and human_moving
-                        and dog_moving
-                        and moving_libraries["human0"]
-                        and moving_libraries["dog0"]
-                    ):
-                        human_library = moving_libraries["human0"]
-                        dog_library = moving_libraries["dog0"]
-                        human_index = both_pair_cursor % len(human_library)
-                        pairing_round = both_pair_cursor // len(human_library)
-                        dog_index = (
-                            count // 2 + 37 * human_index + pairing_round
-                        ) % len(dog_library)
-                        human_path, human_distance = human_library[human_index]
-                        dog_path, dog_distance = dog_library[dog_index]
-                        human_path = np.ascontiguousarray(human_path.copy())
-                        dog_path = np.ascontiguousarray(dog_path.copy())
-                        both_pair_cursor += 1
-                    else:
-                        human_path, human_distance = (
-                            moving_path("human0")
-                            if human_moving
-                            else (self._static_path("human0", rng, frames), 0.0)
+                    source1_path, source1_distance = (
+                        self._moving_path(
+                            "source1",
+                            rng,
+                            frame_count=frames,
+                            minimum_distance_m=minimum_distance,
+                            maximum_distance_m=maximum_distance,
+                            path_attempts=per_path_attempts,
                         )
-                        dog_path, dog_distance = (
-                            moving_path("dog0")
-                            if dog_moving
-                            else (self._static_path("dog0", rng, frames), 0.0)
+                        if source1_moving
+                        else (self._static_path("source1", rng, frames), 0.0)
+                    )
+                    source2_path, source2_distance = (
+                        self._moving_path(
+                            "source2",
+                            rng,
+                            frame_count=frames,
+                            minimum_distance_m=minimum_distance,
+                            maximum_distance_m=maximum_distance,
+                            path_attempts=per_path_attempts,
                         )
+                        if source2_moving
+                        else (self._static_path("source2", rng, frames), 0.0)
+                    )
                 except RoomFeasibilityError:
                     continue
+                moving_candidates = {
+                    "source1": (source1_moving, source1_path),
+                    "source2": (source2_moving, source2_path),
+                }
+                candidate_moving_signatures = {
+                    source_slot: moving_geometry_signature(path)
+                    for source_slot, (is_moving, path) in moving_candidates.items()
+                    if is_moving
+                }
+                if any(
+                    signature in accepted_moving_geometries[source_slot]
+                    for source_slot, signature in candidate_moving_signatures.items()
+                ):
+                    continue
                 roots = {
-                    "human0": human_path,
-                    "dog0": dog_path,
+                    "source1": source1_path,
+                    "source2": source2_path,
                 }
                 materialized = (
                     self.source_path_materializer(roots)
@@ -1006,20 +964,15 @@ class TrajectoryBankBuilder:
                     for key, path in sorted(materialized.items())
                 }
                 if (
-                    len(sources) != 2
+                    set(sources) != set(SOURCE_SLOTS)
                     or any(path.shape != (frames, 3) for path in sources.values())
                     or any(not np.all(np.isfinite(path)) for path in sources.values())
                 ):
                     raise RoomFeasibilityError(
-                        "source_path_materializer must return two finite [frame,3] paths"
+                        "source_path_materializer must return finite source1/source2 "
+                        "[frame,3] paths"
                     )
-                if source_ids is None:
-                    source_ids = tuple(sources)
-                elif tuple(sources) != source_ids:
-                    raise RoomFeasibilityError(
-                        "source_path_materializer changed source IDs between episodes"
-                    )
-                pair = tuple(sources.values())
+                pair = tuple(sources[source_slot] for source_slot in SOURCE_SLOTS)
                 pair_distances = np.linalg.norm(
                     pair[0][:, (0, 2)] - pair[1][:, (0, 2)], axis=1
                 )
@@ -1027,8 +980,8 @@ class TrajectoryBankBuilder:
                     continue
                 signature = (
                     motion_case,
-                    *np.round(human_path[[0, -1]][:, (0, 2)].reshape(-1), 4),
-                    *np.round(dog_path[[0, -1]][:, (0, 2)].reshape(-1), 4),
+                    *np.round(source1_path[[0, -1]][:, (0, 2)].reshape(-1), 4),
+                    *np.round(source2_path[[0, -1]][:, (0, 2)].reshape(-1), 4),
                 )
                 if signature in signatures:
                     continue
@@ -1043,15 +996,15 @@ class TrajectoryBankBuilder:
                 episode_id = f"{motion_case}_{accepted:03d}"
                 duration = frames / fps
                 statistics = {
-                    "human0": {
-                        "motion": "moving" if human_moving else "static",
-                        "geodesic_distance_m": human_distance,
-                        "mean_speed_m_s": human_distance / duration,
+                    "source1": {
+                        "motion": "moving" if source1_moving else "static",
+                        "geodesic_distance_m": source1_distance,
+                        "mean_speed_m_s": source1_distance / duration,
                     },
-                    "dog0": {
-                        "motion": "moving" if dog_moving else "static",
-                        "geodesic_distance_m": dog_distance,
-                        "mean_speed_m_s": dog_distance / duration,
+                    "source2": {
+                        "motion": "moving" if source2_moving else "static",
+                        "geodesic_distance_m": source2_distance,
+                        "mean_speed_m_s": source2_distance / duration,
                     },
                     "minimum_source_pair_xz_separation_m": float(
                         np.min(pair_distances)
@@ -1063,7 +1016,7 @@ class TrajectoryBankBuilder:
                     TrajectoryEpisode(
                         episode_id=episode_id,
                         motion_case=motion_case,
-                        actor_root_paths_m={
+                        source_root_paths_m={
                             key: np.ascontiguousarray(path)
                             for key, path in roots.items()
                         },
@@ -1071,6 +1024,11 @@ class TrajectoryBankBuilder:
                         statistics=statistics,
                     )
                 )
+                for (
+                    source_slot,
+                    moving_signature,
+                ) in candidate_moving_signatures.items():
+                    accepted_moving_geometries[source_slot].add(moving_signature)
                 signatures.add(signature)
                 accepted += 1
             if accepted != count:
@@ -1078,8 +1036,8 @@ class TrajectoryBankBuilder:
                     f"generated only {accepted}/{count} {motion_case} episodes"
                 )
 
-        # One aggregate call retains the original strict snapshot and point
-        # authority without rescanning the same 702x592 room for every route.
+        # One aggregate call retains the strict snapshot and point authority
+        # without rescanning the complete room for every route.
         aggregate_paths = {
             f"{episode.episode_id}::{source_id}": path
             for episode in episodes
@@ -1103,6 +1061,105 @@ class TrajectoryBankBuilder:
             frame_rate_hz=fps,
             seed=seed,
         )
+
+
+def evaluate_trajectory_diversity(
+    bank: TrajectoryBank,
+    *,
+    minimum_unique_undirected_fraction: float = 0.95,
+    minimum_unique_start_fraction: float = 0.70,
+    minimum_unique_end_fraction: float = 0.70,
+) -> dict[str, Any]:
+    """Gate independent source-slot paths instead of episode combinations."""
+
+    gates = {
+        "minimum_unique_undirected_fraction": _finite_number(
+            minimum_unique_undirected_fraction,
+            owner="minimum unique undirected fraction",
+            minimum=0.0,
+        ),
+        "minimum_unique_start_fraction": _finite_number(
+            minimum_unique_start_fraction,
+            owner="minimum unique start fraction",
+            minimum=0.0,
+        ),
+        "minimum_unique_end_fraction": _finite_number(
+            minimum_unique_end_fraction,
+            owner="minimum unique end fraction",
+            minimum=0.0,
+        ),
+    }
+    if any(value > 1.0 for value in gates.values()):
+        raise RoomFeasibilityError("trajectory diversity fractions cannot exceed one")
+
+    source_records: dict[str, Any] = {}
+    for source_slot in SOURCE_SLOTS:
+        moving_paths = []
+        for episode in bank.episodes:
+            path = np.asarray(
+                episode.source_root_paths_m[source_slot], dtype=np.float64
+            )
+            path_length = float(
+                np.linalg.norm(np.diff(path[:, (0, 2)], axis=0), axis=1).sum()
+            )
+            if path_length > 1.0e-8:
+                moving_paths.append(path)
+        directional_signatures: set[bytes] = set()
+        undirected_signatures: set[bytes] = set()
+        starts: set[tuple[float, float]] = set()
+        ends: set[tuple[float, float]] = set()
+        straightness: list[float] = []
+        for path in moving_paths:
+            points = np.round(path[:, (0, 2)], decimals=6)
+            forward = points.tobytes()
+            reverse = np.ascontiguousarray(points[::-1]).tobytes()
+            directional_signatures.add(forward)
+            undirected_signatures.add(min(forward, reverse))
+            starts.add(tuple(float(value) for value in points[0]))
+            ends.add(tuple(float(value) for value in points[-1]))
+            length = float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+            chord = float(np.linalg.norm(points[-1] - points[0]))
+            straightness.append(chord / length if length > 1.0e-8 else 1.0)
+        use_count = len(moving_paths)
+        denominator = max(use_count, 1)
+        record = {
+            "moving_path_use_count": use_count,
+            "unique_directional_path_count": len(directional_signatures),
+            "unique_undirected_path_count": len(undirected_signatures),
+            "unique_start_count": len(starts),
+            "unique_end_count": len(ends),
+            "unique_undirected_fraction": len(undirected_signatures) / denominator,
+            "unique_start_fraction": len(starts) / denominator,
+            "unique_end_fraction": len(ends) / denominator,
+            "median_straightness": (
+                float(np.median(straightness)) if straightness else None
+            ),
+        }
+        record["status"] = (
+            "pass"
+            if use_count > 0
+            and record["unique_undirected_fraction"]
+            >= gates["minimum_unique_undirected_fraction"]
+            and record["unique_start_fraction"]
+            >= gates["minimum_unique_start_fraction"]
+            and record["unique_end_fraction"] >= gates["minimum_unique_end_fraction"]
+            else "fail"
+        )
+        source_records[source_slot] = record
+    return {
+        "schema": TRAJECTORY_DIVERSITY_SCHEMA,
+        "status": (
+            "pass"
+            if all(record["status"] == "pass" for record in source_records.values())
+            else "fail"
+        ),
+        "semantics": (
+            "path uniqueness is measured per source slot; visual/audio bindings "
+            "and the other slot cannot make a repeated path unique"
+        ),
+        "gate": gates,
+        "sources": source_records,
+    }
 
 
 def build_rir_job_plan(
@@ -1130,16 +1187,19 @@ def build_rir_job_plan(
     jobs_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
     use_count = 0
     for episode in bank.episodes:
-        for source_id, path in sorted(episode.source_center_paths_m.items()):
+        for source_slot, path in sorted(episode.source_center_paths_m.items()):
             points = np.asarray(path, dtype=np.float64)
             for frame_index in range(0, bank.frame_count, stride):
                 point = points[frame_index]
-                key = (source_id, *tuple(float(value) for value in point))
+                # RLR's current point-source propagation depends on the source
+                # state, not on which logical slot or dry waveform uses it.
+                # Keep slot identity on the use record so one RIR can serve
+                # either source when their acoustic state is identical.
+                key = tuple(float(value) for value in point)
                 job = jobs_by_key.get(key)
                 if job is None:
                     job = {
                         "job_id": f"rir_{len(jobs_by_key):06d}",
-                        "source_endpoint_id": source_id,
                         "source_position_m": point.tolist(),
                         "uses": [],
                     }
@@ -1147,6 +1207,7 @@ def build_rir_job_plan(
                 job["uses"].append(
                     {
                         "episode_id": episode.episode_id,
+                        "source_slot_id": source_slot,
                         "frame_index": frame_index,
                     }
                 )
@@ -1156,8 +1217,14 @@ def build_rir_job_plan(
         "schema": RIR_JOB_PLAN_SCHEMA,
         "status": "planned_not_run",
         "claim_boundary": (
-            "exact source/listener pose deduplication only; native RLR has not run"
+            "RLR execution plan for dry-audio-independent RIR outputs; native RLR "
+            "has not run"
         ),
+        "producer_backend": "RLR Audio Propagation",
+        "cache_artifact": "room impulse response (RIR)",
+        "source_acoustic_profile": "omnidirectional_point_source_v1",
+        "slot_identity_affects_cache_key": False,
+        "dry_audio_independent": True,
         "listener_position_m": listener.tolist(),
         "listener_orientation_wxyz": orientation.tolist(),
         "stride_frames": stride,
@@ -1176,10 +1243,13 @@ __all__ = [
     "RoomFeasibilityError",
     "TRAJECTORY_BANK_SCHEMA",
     "TRAJECTORY_COVERAGE_SCHEMA",
+    "TRAJECTORY_DIVERSITY_SCHEMA",
     "TrajectoryBank",
     "TrajectoryBankBuilder",
     "TrajectoryCoverage",
     "TrajectoryEpisode",
     "build_rir_job_plan",
     "evaluate_trajectory_coverage",
+    "evaluate_trajectory_diversity",
+    "SOURCE_SLOTS",
 ]

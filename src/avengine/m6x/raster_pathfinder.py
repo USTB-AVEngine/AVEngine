@@ -227,7 +227,11 @@ class RasterPathfinder:
         value = _point(point, owner="snap point")
         pixel = self._pixel_for_point(value)
         if pixel is not None and self._binary[pixel]:
-            return self._point_for_pixel(*pixel)
+            # A retained raster cell represents a continuous navigable square,
+            # not only its center.  Preserve an in-cell x/z position so a
+            # resampled diagonal path is not spuriously rejected by a
+            # sub-pixel snap-distance gate.
+            return np.asarray([value[0], self._floor, value[2]], dtype=np.float64)
         target_col = (value[0] - self._bounds[0, 0]) / self._pixel_x - 0.5
         target_row = (value[2] - self._bounds[0, 2]) / self._pixel_z - 0.5
         deltas = np.stack(

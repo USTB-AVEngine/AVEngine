@@ -13,9 +13,12 @@ from avengine.m6x.raster_pathfinder import (
 from avengine.m6x.room_feasibility import (
     MOTION_CASES,
     RoomFeasibilityCompiler,
+    TrajectoryBank,
     TrajectoryBankBuilder,
+    TrajectoryEpisode,
     build_rir_job_plan,
     evaluate_trajectory_coverage,
+    evaluate_trajectory_diversity,
 )
 
 
@@ -117,12 +120,12 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
     obstacle_map = _obstacle_map(pathfinder, with_blocker=False)
     compiler = RoomFeasibilityCompiler(obstacle_map)
     regions = {
-        "human0": compiler.compile(
+        "source1": compiler.compile(
             source_center_height_m=1.8,
             minimum_navmesh_clearance_m=0.0,
             sample_spacing_m=0.5,
         ),
-        "dog0": compiler.compile(
+        "source2": compiler.compile(
             source_center_height_m=0.7,
             minimum_navmesh_clearance_m=0.0,
             sample_spacing_m=0.5,
@@ -131,15 +134,15 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
 
     def materialize(roots):
         return {
-            "human_source": roots["human0"] + np.asarray((0.0, 1.6, 0.0)),
-            "dog_source": roots["dog0"] + np.asarray((0.0, 0.4, 0.0)),
+            "source1": roots["source1"] + np.asarray((0.0, 1.6, 0.0)),
+            "source2": roots["source2"] + np.asarray((0.0, 0.4, 0.0)),
         }
 
     def build():
         return TrajectoryBankBuilder(
             pathfinder=pathfinder,
             obstacle_map=obstacle_map,
-            region_by_actor=regions,
+            region_by_source=regions,
             shortest_path_factory=SimpleNamespace,
             source_path_materializer=materialize,
         ).build(
@@ -156,16 +159,30 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
     second = build()
     assert [episode.motion_case for episode in first.episodes] == list(MOTION_CASES)
     assert first.record() == second.record()
+    assert first.record()["source_slots"] == ["source1", "source2"]
+    assert all(
+        set(episode.source_center_paths_m) == {"source1", "source2"}
+        for episode in first.episodes
+    )
     for episode in first.episodes:
-        human_distance = episode.statistics["human0"]["geodesic_distance_m"]
-        dog_distance = episode.statistics["dog0"]["geodesic_distance_m"]
-        assert (human_distance > 0.0) == (
-            "human_moving" in episode.motion_case
+        source1_distance = episode.statistics["source1"]["geodesic_distance_m"]
+        source2_distance = episode.statistics["source2"]["geodesic_distance_m"]
+        assert (source1_distance > 0.0) == (
+            "source1_moving" in episode.motion_case
             or episode.motion_case == "both_moving"
         )
-        assert (dog_distance > 0.0) == (
-            "dog_moving" in episode.motion_case or episode.motion_case == "both_moving"
+        assert (source2_distance > 0.0) == (
+            "source2_moving" in episode.motion_case
+            or episode.motion_case == "both_moving"
         )
+    assert (
+        evaluate_trajectory_diversity(
+            first,
+            minimum_unique_start_fraction=0.0,
+            minimum_unique_end_fraction=0.0,
+        )["status"]
+        == "pass"
+    )
 
     plan = build_rir_job_plan(
         first,
@@ -174,6 +191,11 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
         stride_frames=3,
     )
     assert plan["status"] == "planned_not_run"
+    assert plan["producer_backend"] == "RLR Audio Propagation"
+    assert plan["cache_artifact"] == "room impulse response (RIR)"
+    assert plan["dry_audio_independent"] is True
+    assert plan["slot_identity_affects_cache_key"] is False
+    assert all("source_slot_id" in use for job in plan["jobs"] for use in job["uses"])
     assert plan["requested_pair_state_count"] == 4 * 2 * 5
     assert plan["unique_rir_job_count"] < plan["requested_pair_state_count"]
 
@@ -189,7 +211,7 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
     assert np.all(
         np.isfinite(
             coverage.distance_to_trajectory_m[
-                regions["human0"].feasible_mask & regions["dog0"].feasible_mask
+                regions["source1"].feasible_mask & regions["source2"].feasible_mask
             ]
         )
     )
@@ -197,7 +219,6 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
     overview = render_feasibility_topdown(
         regions,
         first,
-        source_to_actor={"human_source": "human0", "dog_source": "dog0"},
         trajectory_coverage=coverage,
         listener_position_m=(1.0, 1.5, 1.0),
         listener_yaw_deg=0.0,
@@ -256,22 +277,58 @@ def test_polygon_raster_pathfinder_routes_around_declared_footprint() -> None:
     assert len(region.components) == 1
 
 
-def test_reversed_route_library_avoids_repeating_shortest_path_queries() -> None:
+def test_rir_cache_key_is_independent_of_slot_and_dry_audio_identity() -> None:
+    point_path = np.asarray([[1.0, 1.2, 2.0]], dtype=np.float64)
+    bank = TrajectoryBank(
+        episodes=(
+            TrajectoryEpisode(
+                episode_id="shared_state",
+                motion_case="static_static",
+                source_root_paths_m={
+                    "source1": point_path.copy(),
+                    "source2": point_path.copy(),
+                },
+                source_center_paths_m={
+                    "source1": point_path.copy(),
+                    "source2": point_path.copy(),
+                },
+                statistics={},
+            ),
+        ),
+        frame_count=1,
+        frame_rate_hz=1,
+        seed=1,
+    )
+    plan = build_rir_job_plan(
+        bank,
+        listener_position_m=(0.0, 1.5, 0.0),
+        listener_orientation_wxyz=(1.0, 0.0, 0.0, 0.0),
+        stride_frames=1,
+    )
+    assert plan["requested_pair_state_count"] == 2
+    assert plan["unique_rir_job_count"] == 1
+    assert {use["source_slot_id"] for use in plan["jobs"][0]["uses"]} == {
+        "source1",
+        "source2",
+    }
+
+
+def test_moving_paths_are_unique_per_source_slot() -> None:
     pathfinder = _PathFinder()
     obstacle_map = _obstacle_map(pathfinder, with_blocker=False)
     compiler = RoomFeasibilityCompiler(obstacle_map)
     regions = {
-        actor_id: compiler.compile(
+        source_slot: compiler.compile(
             source_center_height_m=height,
             minimum_navmesh_clearance_m=0.0,
             sample_spacing_m=0.5,
         )
-        for actor_id, height in (("human0", 1.6), ("dog0", 0.45))
+        for source_slot, height in (("source1", 1.6), ("source2", 0.45))
     }
     bank = TrajectoryBankBuilder(
         pathfinder=pathfinder,
         obstacle_map=obstacle_map,
-        region_by_actor=regions,
+        region_by_source=regions,
         shortest_path_factory=SimpleNamespace,
     ).build(
         episodes_per_motion_case=2,
@@ -281,9 +338,27 @@ def test_reversed_route_library_avoids_repeating_shortest_path_queries() -> None
         minimum_route_distance_m=1.0,
         maximum_route_distance_m=5.0,
         minimum_pair_separation_m=0.0,
-        reuse_reversed_moving_paths=True,
     )
     assert len(bank.episodes) == 8
-    # Each actor needs two independent routes in its four-entry
-    # forward/reverse library.  Later motion cases reuse those entries.
-    assert pathfinder.find_path_calls == 4
+    diversity = evaluate_trajectory_diversity(
+        bank,
+        minimum_unique_start_fraction=0.0,
+        minimum_unique_end_fraction=0.0,
+    )
+    assert diversity["status"] == "pass"
+    assert diversity["sources"]["source1"]["unique_undirected_path_count"] == 4
+    assert diversity["sources"]["source2"]["unique_undirected_path_count"] == 4
+    assert pathfinder.find_path_calls >= 8
+
+
+def test_raster_snap_preserves_continuous_position_inside_navigable_cell() -> None:
+    pathfinder, _obstacle_map_value = build_polygon_raster_obstacle_map(
+        polygon_xz_m=[[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]],
+        rigid_obstacles=[],
+        floor_height_m=0.2,
+        meters_per_pixel=0.05,
+        padding_m=0.05,
+    )
+    point = np.asarray([0.033, 1.7, 0.041], dtype=np.float64)
+    snapped = pathfinder.snap_point(point)
+    assert np.allclose(snapped, [point[0], 0.2, point[2]])

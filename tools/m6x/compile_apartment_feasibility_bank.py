@@ -2,10 +2,10 @@
 """Compile Apartment feasibility, a four-case trajectory bank, and Topdown QA.
 
 This is intentionally an audio/trajectory planning step.  It does not render
-RGB, semantic observations, UE frames, dry events, or native RLR.  The retained
-articulated anchor profile reconstructs exact human-mouth and Beagle-muzzle
-paths without any visual call, after which the existing Habitat source-center
-gate closes every sampled trajectory.
+RGB, semantic observations, UE frames, dry events, or native RLR.  The reusable
+contract contains source1/source2; an articulated person and Beagle are only
+example visual-anchor bindings used to close this canary through Habitat's
+source-center gate.
 """
 
 from __future__ import annotations
@@ -37,11 +37,12 @@ from avengine.m6x.room_feasibility import (
     TrajectoryBankBuilder,
     build_rir_job_plan,
     evaluate_trajectory_coverage,
+    evaluate_trajectory_diversity,
 )
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-OUTPUT_SCHEMA = "avengine_apartment_feasibility_bank_delivery_v1"
+OUTPUT_SCHEMA = "avengine_apartment_feasibility_bank_delivery_v2"
 TIMING_SCHEMA = "avengine_apartment_feasibility_bank_timing_v1"
 
 
@@ -106,12 +107,16 @@ def run(args: argparse.Namespace) -> Path:
     hfov = float(
         inputs.request["primary_camera_rig"]["shared_calibration"]["hfov_degrees"]
     )
-    source_to_actor = {
+    endpoint_to_actor = {
         str(actor["source_endpoint_id"]): str(actor["actor_id"])
         for actor in anchor_profile["actors"]
     }
-    if set(source_to_actor.values()) != {"human0", "dog0"}:
+    if set(endpoint_to_actor.values()) != {"human0", "dog0"}:
         raise RuntimeError("anchor profile does not describe human0 and dog0")
+    slot_to_actor = {"source1": "human0", "source2": "dog0"}
+    actor_to_endpoint = {
+        actor_id: endpoint_id for endpoint_id, actor_id in endpoint_to_actor.items()
+    }
     fallbacks = HUMAN_BEAGLE_CAPTURE_ADAPTER.materialize_actor_fallback_forwards_xz(
         trajectory_templates, anchor_library
     )
@@ -144,7 +149,7 @@ def run(args: argparse.Namespace) -> Path:
                 excluded_handle_prefixes=("source_marker_",),
             )
             compiler = RoomFeasibilityCompiler(obstacle_map)
-            human_region = compiler.compile(
+            source1_region = compiler.compile(
                 source_center_height_m=_profile_actor_height_m(
                     anchor_profile, "human0", floor_height
                 ),
@@ -152,7 +157,7 @@ def run(args: argparse.Namespace) -> Path:
                 minimum_rigid_clearance_m=args.minimum_rigid_clearance_m,
                 sample_spacing_m=args.sample_spacing_m,
             )
-            dog_region = compiler.compile(
+            source2_region = compiler.compile(
                 source_center_height_m=_profile_actor_height_m(
                     anchor_profile, "dog0", floor_height
                 ),
@@ -160,7 +165,7 @@ def run(args: argparse.Namespace) -> Path:
                 minimum_rigid_clearance_m=args.minimum_rigid_clearance_m,
                 sample_spacing_m=args.sample_spacing_m,
             )
-            regions = {"human0": human_region, "dog0": dog_region}
+            regions = {"source1": source1_region, "source2": source2_region}
             phase_seconds["room_load_and_feasible_region_compile"] = _elapsed(
                 phase_started
             )
@@ -168,17 +173,24 @@ def run(args: argparse.Namespace) -> Path:
             def source_materializer(
                 roots: dict[str, np.ndarray],
             ) -> dict[str, np.ndarray]:
-                return materialize_articulated_anchor_paths(
+                by_endpoint = materialize_articulated_anchor_paths(
                     anchor_profile,
-                    actor_root_paths=roots,
+                    actor_root_paths={
+                        actor_id: roots[source_slot]
+                        for source_slot, actor_id in slot_to_actor.items()
+                    },
                     actor_fallback_forwards_xz=fallbacks,
                 )
+                return {
+                    source_slot: by_endpoint[actor_to_endpoint[actor_id]]
+                    for source_slot, actor_id in slot_to_actor.items()
+                }
 
             phase_started = time.perf_counter()
             builder = TrajectoryBankBuilder(
                 pathfinder=simulator.pathfinder,
                 obstacle_map=obstacle_map,
-                region_by_actor=regions,
+                region_by_source=regions,
                 shortest_path_factory=habitat_sim.ShortestPath,
                 source_path_materializer=source_materializer,
             )
@@ -200,13 +212,17 @@ def run(args: argparse.Namespace) -> Path:
             coverage = evaluate_trajectory_coverage(regions, bank)
             if coverage.record["status"] != "pass":
                 raise RuntimeError("trajectory bank does not broadly cover the room")
+            diversity = evaluate_trajectory_diversity(bank)
+            if diversity["status"] != "pass":
+                raise RuntimeError(
+                    "trajectory bank does not meet source-slot diversity"
+                )
             phase_seconds["trajectory_coverage_audit"] = _elapsed(phase_started)
 
             phase_started = time.perf_counter()
             overview = render_feasibility_topdown(
                 regions,
                 bank,
-                source_to_actor=source_to_actor,
                 trajectory_coverage=coverage,
                 listener_position_m=listener_position,
                 listener_yaw_deg=listener_yaw,
@@ -229,36 +245,35 @@ def run(args: argparse.Namespace) -> Path:
                 "schema": "avengine_room_feasible_region_set_v1",
                 "room_id": inputs.room["room_id"],
                 "obstacle_authority": obstacle_map.summary(),
-                "human0": human_region.summary(),
-                "dog0": dog_region.summary(),
+                "source1": source1_region.summary(),
+                "source2": source2_region.summary(),
                 "intersection_feasible_pixel_count": int(
                     np.count_nonzero(
-                        human_region.feasible_mask & dog_region.feasible_mask
+                        source1_region.feasible_mask & source2_region.feasible_mask
                     )
                 ),
             },
         )
-        _save_region_npz(staging / "feasible_region_human0.npz", human_region)
-        _save_region_npz(staging / "feasible_region_dog0.npz", dog_region)
+        _save_region_npz(staging / "feasible_region_source1.npz", source1_region)
+        _save_region_npz(staging / "feasible_region_source2.npz", source2_region)
         write_json(staging / "trajectory_coverage.json", coverage.record)
+        write_json(staging / "trajectory_diversity.json", diversity)
         np.savez_compressed(
             staging / "trajectory_coverage.npz",
             distance_to_trajectory_m=coverage.distance_to_trajectory_m,
             trajectory_seed_mask=coverage.trajectory_seed_mask,
         )
         write_json(staging / "trajectory_bank.json", bank.record(include_paths=True))
-        actor_order = ("human0", "dog0")
-        source_order = tuple(sorted(source_to_actor))
+        source_order = ("source1", "source2")
         np.savez_compressed(
             staging / "trajectory_bank.npz",
-            actor_ids=np.asarray(actor_order),
-            source_endpoint_ids=np.asarray(source_order),
+            source_slot_ids=np.asarray(source_order),
             motion_cases=np.asarray([episode.motion_case for episode in bank.episodes]),
             episode_ids=np.asarray([episode.episode_id for episode in bank.episodes]),
-            actor_root_paths_m=np.stack(
+            source_root_paths_m=np.stack(
                 [
                     np.stack(
-                        [episode.actor_root_paths_m[key] for key in actor_order],
+                        [episode.source_root_paths_m[key] for key in source_order],
                         axis=0,
                     )
                     for episode in bank.episodes
@@ -297,7 +312,15 @@ def run(args: argparse.Namespace) -> Path:
             "visual_render_calls": 0,
             "native_rlr_calls": 0,
             "scene_asset_copies": 0,
-            "source_to_actor": source_to_actor,
+            "source_slots": list(source_order),
+            "example_visual_bindings": {
+                source_slot: {
+                    "actor_id": actor_id,
+                    "source_endpoint_id": actor_to_endpoint[actor_id],
+                }
+                for source_slot, actor_id in slot_to_actor.items()
+            },
+            "dry_audio_is_replaceable_without_replanning_paths": True,
             "episode_count": len(bank.episodes),
             "event_variants_per_trajectory_for_1000_samples": (
                 1000 / len(bank.episodes)
@@ -308,6 +331,7 @@ def run(args: argparse.Namespace) -> Path:
                 "trajectory_bank_json": "trajectory_bank.json",
                 "trajectory_bank_arrays": "trajectory_bank.npz",
                 "trajectory_coverage": "trajectory_coverage.json",
+                "trajectory_diversity": "trajectory_diversity.json",
                 "rir_job_plan": "rir_job_plan.json",
                 "timing": "timing.json",
             },
@@ -330,6 +354,7 @@ def run(args: argparse.Namespace) -> Path:
                     "maximum_gap_m",
                 )
             },
+            "diversity_summary": diversity,
         }
         write_json(staging / "delivery.json", delivery)
         write_json(
