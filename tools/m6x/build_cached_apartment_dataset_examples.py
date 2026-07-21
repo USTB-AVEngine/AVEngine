@@ -25,6 +25,7 @@ from avengine.contracts.json_io import load_json, sha256_file, write_json
 from avengine.m4.audio import read_float32_wav, write_float32_wav
 from avengine.m5.audio import M5_AUDIO_SAMPLE_COUNT, render_dynamic_stems_and_mix
 from avengine.m5_1.mixed_capture import trajectory_world_matrices
+from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
 from avengine.m5_1.review import encode_annotated_review
 from avengine.m6x.capture_adapter import _matrix_quaternion_xyzw
 from avengine.m6x.geometry import RuntimeObstacleMap
@@ -62,7 +63,7 @@ SOURCE_BINDINGS: Mapping[str, Mapping[str, Any]] = {
     },
 }
 
-SELECTIONS = (
+FOUR_MOTION_SELECTIONS = (
     ("P0", "00_static_static", "static_static_017"),
     (
         "P1",
@@ -76,6 +77,18 @@ SELECTIONS = (
         "source1_static_source2_moving_010",
     ),
 )
+
+SPATIAL_SHOWCASE_SELECTIONS = (
+    ("P0", "00_static_static", "both_moving_017"),
+    ("P1", "01_human_moving_dog_static", "both_moving_032"),
+    ("P2", "02_both_moving", "both_moving_042"),
+    ("P3", "03_human_static_dog_moving", "both_moving_049"),
+)
+
+SELECTION_PROFILES = {
+    "four_motion": FOUR_MOTION_SELECTIONS,
+    "spatial_showcase": SPATIAL_SHOWCASE_SELECTIONS,
+}
 
 
 def _font(size: int) -> ImageFont.ImageFont:
@@ -124,7 +137,7 @@ def _timeline(
     root_paths: Mapping[str, np.ndarray],
     motion_by_slot: Mapping[str, str],
     listener_position_m: np.ndarray,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     actors = deepcopy(template["actors"])
     bindings_by_actor = {
         value["actor_id"]: (slot, value) for slot, value in SOURCE_BINDINGS.items()
@@ -139,6 +152,17 @@ def _timeline(
             local_forward_axis=binding["local_forward_axis"],
             fallback_forward_xz=_fallback_toward_listener(root, listener_position_m),
         )
+
+    headings_by_slot = {}
+    for slot, binding in SOURCE_BINDINGS.items():
+        actor_id = binding["actor_id"]
+        local_forward = np.asarray(binding["local_forward_axis"], dtype=np.float64)
+        world_forward = np.einsum(
+            "nij,j->ni", matrices[actor_id][:, :3, :3], local_forward
+        )
+        headings = world_forward[:, (0, 2)]
+        headings /= np.linalg.norm(headings, axis=1)[:, None]
+        headings_by_slot[slot] = np.ascontiguousarray(headings)
 
     frames = []
     for frame_index in range(FRAME_COUNT):
@@ -183,7 +207,7 @@ def _timeline(
                 "view_pose_hashes": {},
             }
         )
-    return {
+    timeline = {
         "schema": "avengine_authoritative_timeline_v2",
         "time_base_hz": TIME_BASE_HZ,
         "duration_ticks": FRAME_COUNT * TICKS_PER_FRAME,
@@ -223,6 +247,40 @@ def _timeline(
         ],
         "frames": frames,
     }
+    return timeline, headings_by_slot
+
+
+def _spatial_metrics(
+    center_paths: Mapping[str, np.ndarray],
+    *,
+    listener_position_m: np.ndarray,
+    listener_yaw_deg: float,
+    camera_hfov_degrees: float,
+) -> dict[str, Any]:
+    basis = habitat_basis_from_yaw_degrees(listener_yaw_deg)
+    right = np.asarray(basis.right_xyz, dtype=np.float64)
+    forward = np.asarray(basis.forward_xyz, dtype=np.float64)
+    half_fov = camera_hfov_degrees * 0.5
+    result = {}
+    for slot, path in center_paths.items():
+        delta = np.asarray(path, dtype=np.float64) - listener_position_m
+        azimuth = np.degrees(np.arctan2(delta @ right, delta @ forward))
+        distance = np.linalg.norm(delta, axis=1)
+        in_fov = np.abs(azimuth) <= half_fov
+        result[slot] = {
+            "azimuth_degrees_by_frame": azimuth.tolist(),
+            "distance_m_by_frame": distance.tolist(),
+            "start_azimuth_degrees": float(azimuth[0]),
+            "end_azimuth_degrees": float(azimuth[-1]),
+            "minimum_azimuth_degrees": float(np.min(azimuth)),
+            "maximum_azimuth_degrees": float(np.max(azimuth)),
+            "minimum_distance_m": float(np.min(distance)),
+            "maximum_distance_m": float(np.max(distance)),
+            "camera_fov_transition_frames": (
+                np.flatnonzero(in_fov[1:] != in_fov[:-1]) + 1
+            ).tolist(),
+        }
+    return result
 
 
 def _source_manifest(
@@ -318,6 +376,7 @@ def _info_frames(
     episode_id: str,
     motion_case: str,
     activities: Mapping[str, np.ndarray],
+    spatial_metrics: Mapping[str, Mapping[str, Any]],
     topdown: np.ndarray,
 ) -> np.ndarray:
     frames = []
@@ -346,14 +405,28 @@ def _info_frames(
         y = 112
         for line in lines:
             draw.text((24, y), line, font=body_font, fill=(220, 229, 238))
-            y += 36
+            y += 32
+        source1_azimuth = spatial_metrics["source1"]["azimuth_degrees_by_frame"]
+        source2_azimuth = spatial_metrics["source2"]["azimuth_degrees_by_frame"]
+        draw.text(
+            (24, 344),
+            f"Human azimuth: {source1_azimuth[frame_index]:+6.1f} deg",
+            font=body_font,
+            fill=(42, 210, 220),
+        )
+        draw.text(
+            (24, 374),
+            f"Dog azimuth:   {source2_azimuth[frame_index]:+6.1f} deg",
+            font=body_font,
+            fill=(250, 120, 70),
+        )
         human = "ACTIVE" if activities["source1"][frame_index] else "silent"
         dog = "ACTIVE" if activities["source2"][frame_index] else "silent"
         draw.text(
-            (24, 382), f"Human speech: {human}", font=body_font, fill=(42, 210, 220)
-        )
-        draw.text(
-            (24, 414), f"Dog bark:      {dog}", font=body_font, fill=(250, 120, 70)
+            (24, 414),
+            f"speech={human}   bark={dog}",
+            font=body_font,
+            fill=(225, 230, 238),
         )
         draw.text(
             (500, 442),
@@ -440,7 +513,8 @@ def run(args: argparse.Namespace) -> Path:
     old_pilot = args.audio_template_bundle.resolve()
     bank_record = load_json(bank_root / "trajectory_bank.json")
     episodes = {value["episode_id"]: value for value in bank_record["episodes"]}
-    selected = {episode_id: episodes[episode_id] for _, _, episode_id in SELECTIONS}
+    selections = SELECTION_PROFILES[args.selection_profile]
+    selected = {episode_id: episodes[episode_id] for _, _, episode_id in selections}
     arrays = np.load(bank_root / "trajectory_bank.npz", allow_pickle=False)
     episode_indices = {
         str(value): index for index, value in enumerate(arrays["episode_ids"])
@@ -508,7 +582,7 @@ def run(args: argparse.Namespace) -> Path:
     )
 
     rows = []
-    for scenario_id, directory, episode_id in SELECTIONS:
+    for scenario_id, directory, episode_id in selections:
         episode_started = time.perf_counter()
         index = episode_indices[episode_id]
         root_paths = {
@@ -602,7 +676,7 @@ def run(args: argparse.Namespace) -> Path:
             },
         )
 
-        timeline = _timeline(
+        timeline, source_headings = _timeline(
             template=template,
             root_paths=root_paths,
             motion_by_slot=motion_by_slot,
@@ -671,6 +745,14 @@ def run(args: argparse.Namespace) -> Path:
             },
         )
 
+        spatial_metrics = _spatial_metrics(
+            center_paths,
+            listener_position_m=np.asarray(listener["position_m"], dtype=np.float64),
+            listener_yaw_deg=float(listener["yaw_deg"]),
+            camera_hfov_degrees=float(listener["camera_hfov_degrees"]),
+        )
+        write_json(metadata_root / "spatial_route_metrics.json", spatial_metrics)
+
         topdown = render_runtime_topdown_frames(
             obstacle_map,
             center_paths,
@@ -678,6 +760,7 @@ def run(args: argparse.Namespace) -> Path:
             listener_yaw_deg=listener["yaw_deg"],
             camera_hfov_degrees=listener["camera_hfov_degrees"],
             source_activity_by_frame=activities,
+            source_heading_xz_by_frame=source_headings,
             source_labels={"source1": "Human", "source2": "Beagle"},
             source_colors={"source1": (42, 210, 220), "source2": (250, 120, 70)},
             size_wh=(640, 480),
@@ -687,6 +770,7 @@ def run(args: argparse.Namespace) -> Path:
             episode_id=episode_id,
             motion_case=selected[episode_id]["motion_case"],
             activities=activities,
+            spatial_metrics=spatial_metrics,
             topdown=topdown,
         )
         videos = episode_root / "videos"
@@ -718,6 +802,7 @@ def run(args: argparse.Namespace) -> Path:
                 ),
                 "diagnostic_video_sha256": sha256_file(diagnostic),
                 "media_probe": media_probe,
+                "spatial_route_metrics": spatial_metrics,
                 "build_wall_seconds": time.perf_counter() - episode_started,
             }
         )
@@ -727,6 +812,7 @@ def run(args: argparse.Namespace) -> Path:
         {
             "schema": SCHEMA,
             "status": "pass",
+            "selection_profile": args.selection_profile,
             "room_id": room_capsule["room_registry_ref"]["room_id"],
             "frame_contract": {
                 "seconds": 5,
@@ -781,6 +867,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--audio-template-bundle",
         type=Path,
         default=REPOSITORY / "tmp/m7/apartment_four_motion_pilot_20260720_01",
+    )
+    parser.add_argument(
+        "--selection-profile",
+        choices=tuple(SELECTION_PROFILES),
+        default="four_motion",
+        help=(
+            "four_motion preserves the original matrix; spatial_showcase uses "
+            "four both-moving routes with wide listener-relative azimuth changes"
+        ),
     )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)

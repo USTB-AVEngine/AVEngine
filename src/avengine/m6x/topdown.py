@@ -56,6 +56,8 @@ _OBSTACLE_ROLE_STYLES: Mapping[
     UNKNOWN_OBSTACLE_ROLE: ((181, 67, 73, 94), (244, 102, 110, 235)),
 }
 
+_MINIMUM_INFERRED_HEADING_DISPLACEMENT_M = 0.03
+
 
 def _font(size: int) -> ImageFont.ImageFont:
     for path in (
@@ -138,6 +140,42 @@ def _source_activity(
     return result
 
 
+def _source_headings(
+    value: Mapping[str, Any] | None,
+    *,
+    source_ids: Sequence[str],
+    frame_count: int,
+) -> dict[str, np.ndarray] | None:
+    """Validate explicit world-XZ source orientation vectors.
+
+    These vectors describe entity/emitter orientation, not displacement of an
+    articulated mouth or muzzle anchor.  That distinction keeps an idle
+    source's arrow stable even when its animated anchor has tiny pose motion.
+    """
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) != set(source_ids):
+        raise M6XTopdownError(
+            "source_heading_xz_by_frame keys must equal the trajectory source IDs"
+        )
+    result: dict[str, np.ndarray] = {}
+    for source_id in source_ids:
+        try:
+            headings = np.asarray(value[source_id], dtype=np.float64)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise M6XTopdownError(
+                f"{source_id} headings must be finite [frame,2]"
+            ) from exc
+        if headings.shape != (frame_count, 2) or not np.all(np.isfinite(headings)):
+            raise M6XTopdownError(f"{source_id} headings must be finite [frame,2]")
+        norms = np.linalg.norm(headings, axis=1)
+        if np.any(norms <= 1.0e-12):
+            raise M6XTopdownError(f"{source_id} headings must be nonzero")
+        result[source_id] = np.ascontiguousarray(headings / norms[:, None])
+    return result
+
+
 def _source_label_map(
     value: Mapping[str, Any] | None, *, source_ids: Sequence[str]
 ) -> dict[str, str]:
@@ -208,6 +246,15 @@ def _validate_obstacle_map(value: Any) -> tuple[np.ndarray, np.ndarray]:
 def _nearest_motion_heading_xz(
     points: np.ndarray, frame_index: int
 ) -> np.ndarray | None:
+    horizontal = points[:, (0, 2)]
+    if (
+        float(np.max(np.linalg.norm(horizontal - horizontal[0], axis=1)))
+        < _MINIMUM_INFERRED_HEADING_DISPLACEMENT_M
+    ):
+        # Animated mouth/muzzle anchors can wobble by millimetres while the
+        # entity root is idle.  Without an explicit authored heading, drawing
+        # an arrow from that wobble is more misleading than drawing no arrow.
+        return None
     for radius in range(1, points.shape[0]):
         left = max(0, frame_index - radius)
         right = min(points.shape[0] - 1, frame_index + radius)
@@ -390,6 +437,7 @@ def _validate_common(
     listener_yaw_deg: Real,
     camera_hfov_degrees: Real,
     source_activity_by_frame: Mapping[str, Any] | None,
+    source_heading_xz_by_frame: Mapping[str, Any] | None,
     source_labels: Mapping[str, Any] | None,
     source_colors: Mapping[str, Any] | None,
     size_wh: tuple[int, int],
@@ -400,6 +448,7 @@ def _validate_common(
     np.ndarray,
     float,
     float,
+    dict[str, np.ndarray] | None,
     dict[str, np.ndarray] | None,
     dict[str, str],
     dict[str, tuple[int, int, int, int]],
@@ -433,6 +482,11 @@ def _validate_common(
         source_ids=source_ids,
         frame_count=frame_count,
     )
+    headings = _source_headings(
+        source_heading_xz_by_frame,
+        source_ids=source_ids,
+        frame_count=frame_count,
+    )
     labels = _source_label_map(source_labels, source_ids=source_ids)
     colors = _source_color_map(source_colors, source_ids=source_ids)
     prepared = _PreparedTopdown(
@@ -451,6 +505,7 @@ def _validate_common(
         float(listener_yaw_deg),
         float(camera_hfov_degrees),
         activity,
+        headings,
         labels,
         colors,
         prepared,
@@ -465,6 +520,7 @@ def _render_prepared_frame(
     frame_count: int,
     camera_hfov_degrees: float,
     activity: Mapping[str, np.ndarray] | None,
+    headings: Mapping[str, np.ndarray] | None,
     labels: Mapping[str, str],
     colors: Mapping[str, tuple[int, int, int, int]],
 ) -> np.ndarray:
@@ -507,7 +563,11 @@ def _render_prepared_frame(
             outline=outline,
             width=2,
         )
-        heading = _nearest_motion_heading_xz(points, frame_index)
+        heading = (
+            headings[source_id][frame_index]
+            if headings is not None
+            else _nearest_motion_heading_xz(points, frame_index)
+        )
         if heading is not None:
             endpoint = prepared.panel_point_xz(points[frame_index, (0, 2)] + heading)
             delta = np.asarray(endpoint) - np.asarray((x, y))
@@ -610,6 +670,7 @@ def render_runtime_topdown_frame(
     listener_yaw_deg: Real,
     camera_hfov_degrees: Real,
     source_activity_by_frame: Mapping[str, Any] | None = None,
+    source_heading_xz_by_frame: Mapping[str, Any] | None = None,
     source_labels: Mapping[str, Any] | None = None,
     source_colors: Mapping[str, Any] | None = None,
     size_wh: tuple[int, int] = (640, 480),
@@ -619,6 +680,8 @@ def render_runtime_topdown_frame(
 
     ``source_activity_by_frame`` is optional visual metadata.  It changes the
     dot/label styling only and never controls acoustic rendering or audibility.
+    ``source_heading_xz_by_frame`` is the preferred arrow authority; small
+    anchor-only displacement is never treated as entity orientation.
     """
 
     (
@@ -628,6 +691,7 @@ def render_runtime_topdown_frame(
         _listener_yaw,
         hfov,
         activity,
+        headings,
         labels,
         colors,
         prepared,
@@ -638,6 +702,7 @@ def render_runtime_topdown_frame(
         listener_yaw_deg=listener_yaw_deg,
         camera_hfov_degrees=camera_hfov_degrees,
         source_activity_by_frame=source_activity_by_frame,
+        source_heading_xz_by_frame=source_heading_xz_by_frame,
         source_labels=source_labels,
         source_colors=source_colors,
         size_wh=size_wh,
@@ -650,6 +715,7 @@ def render_runtime_topdown_frame(
         frame_count=frame_count,
         camera_hfov_degrees=hfov,
         activity=activity,
+        headings=headings,
         labels=labels,
         colors=colors,
     )
@@ -663,12 +729,17 @@ def render_runtime_topdown_frames(
     listener_yaw_deg: Real,
     camera_hfov_degrees: Real,
     source_activity_by_frame: Mapping[str, Any] | None = None,
+    source_heading_xz_by_frame: Mapping[str, Any] | None = None,
     source_labels: Mapping[str, Any] | None = None,
     source_colors: Mapping[str, Any] | None = None,
     size_wh: tuple[int, int] = (640, 480),
     rigid_label_limit: int = 16,
 ) -> np.ndarray:
-    """Render every source-center frame while reusing one room base image."""
+    """Render every source-center frame while reusing one room base image.
+
+    Explicit source headings keep idle articulated anchors from turning their
+    pose wobble into a false changing orientation arrow.
+    """
 
     (
         paths,
@@ -677,6 +748,7 @@ def render_runtime_topdown_frames(
         _listener_yaw,
         hfov,
         activity,
+        headings,
         labels,
         colors,
         prepared,
@@ -687,6 +759,7 @@ def render_runtime_topdown_frames(
         listener_yaw_deg=listener_yaw_deg,
         camera_hfov_degrees=camera_hfov_degrees,
         source_activity_by_frame=source_activity_by_frame,
+        source_heading_xz_by_frame=source_heading_xz_by_frame,
         source_labels=source_labels,
         source_colors=source_colors,
         size_wh=size_wh,
@@ -702,6 +775,7 @@ def render_runtime_topdown_frames(
                     frame_count=frame_count,
                     camera_hfov_degrees=hfov,
                     activity=activity,
+                    headings=headings,
                     labels=labels,
                     colors=colors,
                 )

@@ -143,6 +143,64 @@ def test_renders_all_frames_and_current_source_points_move() -> None:
     assert not np.array_equal(frames[1], frames[2])
 
 
+def test_explicit_entity_heading_stays_constant_despite_idle_anchor_wobble(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    line_calls: list[tuple[float, float, float, float]] = []
+    original_line = ImageDraw.ImageDraw.line
+
+    def recording_line(self, xy, *args, **kwargs):
+        if (
+            kwargs.get("width") == 2
+            and len(xy) == 4
+            and all(isinstance(value, (int, float, np.number)) for value in xy)
+        ):
+            line_calls.append(tuple(float(value) for value in xy))
+        return original_line(self, xy, *args, **kwargs)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, "line", recording_line)
+    render_runtime_topdown_frames(
+        _obstacle_map(),
+        {
+            "source_idle": [
+                [1.000, 1.5, 1.000],
+                [1.006, 1.5, 0.997],
+                [0.996, 1.5, 1.004],
+            ]
+        },
+        listener_position_m=(2.0, 1.47, 3.0),
+        listener_yaw_deg=0.0,
+        camera_hfov_degrees=90.0,
+        source_heading_xz_by_frame={"source_idle": [[1.0, 0.0]] * 3},
+        size_wh=(320, 240),
+        rigid_label_limit=0,
+    )
+    assert len(line_calls) == 3
+    directions = []
+    for x0, y0, x1, y1 in line_calls:
+        direction = np.asarray((x1 - x0, y1 - y0), dtype=np.float64)
+        directions.append(direction / np.linalg.norm(direction))
+    assert np.allclose(directions, directions[0], rtol=0.0, atol=1.0e-12)
+
+    line_calls.clear()
+    render_runtime_topdown_frames(
+        _obstacle_map(),
+        {
+            "source_idle": [
+                [1.000, 1.5, 1.000],
+                [1.006, 1.5, 0.997],
+                [0.996, 1.5, 1.004],
+            ]
+        },
+        listener_position_m=(2.0, 1.47, 3.0),
+        listener_yaw_deg=0.0,
+        camera_hfov_degrees=90.0,
+        size_wh=(320, 240),
+        rigid_label_limit=0,
+    )
+    assert line_calls == []
+
+
 def test_rejects_ambiguous_frames_activity_and_obstacle_footprints() -> None:
     with pytest.raises(M6XTopdownError, match="frame counts differ"):
         render_runtime_topdown_frames(
@@ -174,6 +232,19 @@ def test_rejects_ambiguous_frames_activity_and_obstacle_footprints() -> None:
             listener_yaw_deg=0.0,
             camera_hfov_degrees=90.0,
             source_colors={"source_human": (42, 210, 220)},
+        )
+
+    with pytest.raises(M6XTopdownError, match="headings"):
+        render_runtime_topdown_frames(
+            _obstacle_map(),
+            _paths(),
+            listener_position_m=(1.0, 1.0, 1.0),
+            listener_yaw_deg=0.0,
+            camera_hfov_degrees=90.0,
+            source_heading_xz_by_frame={
+                "source_human": [[1.0, 0.0]] * 3,
+                "source_dog": [[0.0, 0.0]] * 3,
+            },
         )
 
     invalid = RuntimeObstacleMap(
