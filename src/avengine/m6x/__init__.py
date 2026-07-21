@@ -1,5 +1,16 @@
 """Fixed-room M6.x contracts and executable canary support."""
 
+from avengine.m6x.asset_emitter import (
+    ASSET_EMITTER_BINDING_REPORT_SCHEMA,
+    ASSET_EMITTER_BINDING_SET_SCHEMA,
+    AssetEmitterBinding,
+    AssetEmitterBindingError,
+    BoundEmitterPaths,
+    bind_asset_emitters_to_bank,
+    materialize_asset_emitter_paths,
+    validate_asset_emitter_binding_set,
+)
+
 from avengine.m6x.capture_adapter import (
     FixedApartmentCaptureAdapter,
     HUMAN_BEAGLE_CAPTURE_ADAPTER,
@@ -51,6 +62,11 @@ from avengine.m6x.rir_cache import (
 
 __all__ = [
     "ANCHOR_LIBRARY_SCHEMA",
+    "ASSET_EMITTER_BINDING_REPORT_SCHEMA",
+    "ASSET_EMITTER_BINDING_SET_SCHEMA",
+    "AssetEmitterBinding",
+    "AssetEmitterBindingError",
+    "BoundEmitterPaths",
     "CachedRIREpisode",
     "FixedApartmentCaptureAdapter",
     "FeasibleRegionIndex",
@@ -74,6 +90,7 @@ __all__ = [
     "TrajectoryBankBuilder",
     "TrajectoryCoverage",
     "build_rir_job_plan",
+    "bind_asset_emitters_to_bank",
     "build_polygon_raster_obstacle_map",
     "evaluate_trajectory_coverage",
     "evaluate_trajectory_diversity",
@@ -82,8 +99,10 @@ __all__ = [
     "load_room_capsule",
     "load_scenario_suite",
     "load_trajectory_template_set",
+    "materialize_asset_emitter_paths",
     "render_rir_cache",
     "validate_anchor_library",
+    "validate_asset_emitter_binding_set",
     "validate_room_capsule",
     "validate_scenario_suite",
     "validate_trajectory_template_set",

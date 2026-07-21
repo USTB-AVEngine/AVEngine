@@ -459,7 +459,10 @@ bindings rather than trajectory types. Moving paths are 3.5--5.5 m, or about
 profile materializes the example bindings without RGB or semantic calls.
 There is no lip/viseme or mouth-opening animation dependency. Dry sound files,
 event classes and event windows can be replaced while retaining the same
-source-slot path, visual route and acoustic response.
+source-slot path, visual route and acoustic response. Binding a different
+visual asset preserves the root route but does not silently reuse the old
+asset's mouth height; it materializes that asset's emitter point and computes
+or reuses the matching RIR instead.
 
 ```bash
 PYTHONPATH=src conda run -n avengine-habitat-runtime \
@@ -550,6 +553,58 @@ has materialized those RIRs, dry audio, event timing, gain and labels can change
 without rerunning RLR. A changed room/material profile, listener pose, source
 trajectory outside the cached states or result-changing propagation profile
 requires new RIR entries.
+
+### Bind concrete assets before on-demand RIR generation
+
+The reusable path bank stops at the `source1`/`source2` actor roots. A concrete
+dataset item supplies one deliberately small record per bound asset:
+
+```json
+{
+  "asset_id": "quaternius_domestic_cat_generic_diagnostic_v1",
+  "semantic_anchor_id": "muzzle",
+  "emitter_offset_m": [0.312, 0.252, 0.0],
+  "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+  "offset_space": "final_scaled_asset_root"
+}
+```
+
+`emitter_offset_m` is three numbers in the final scaled asset-root frame. It
+is asset-specific rather than inferred from the broad `small` / `medium` /
+`large` appearance label: a large cat and a large dog are therefore never
+forced to share one mouth height. The runtime aligns the asset root with the
+path, transforms this constant offset to world space and sends those points to
+RLR. It does not inspect bone names, advance mouth animation or infer a
+species-wide proportion. A static root produces a static emitter point.
+
+The example scenario set binds a human, Beagle and domestic cat across two
+five-second routes:
+
+```bash
+PYTHONPATH=src python tools/m6x/build_asset_bound_rir_plan.py \
+  --trajectory-bank tmp/m7/apartment_source_slots_diverse_20260721_03/trajectory_bank.json \
+  --scenario-set examples/m6x/asset_emitter_scenarios_human_small_animals.json \
+  --template-rir-plan tmp/m7/apartment_source_slots_diverse_20260721_03/rir_job_plan.json \
+  --navmesh tmp/m1/legacy_apartment_package/visual/navmeshes/legacy_apartment_0000.navmesh \
+  --floor-height-m 0.271 \
+  --output tmp/m7/apartment_asset_bound_rir_plan_run_01
+```
+
+That binding/planning step performs no visual or native RLR calls. It applies
+the concrete offsets and then checks the resulting points against the declared
+Apartment navmesh before planning acoustics. The retained local canary took
+1.387 seconds including that gate and planned 100 RIRs: 25 acoustic keyframes
+for each of two sources in each of two episodes. All four paths passed the
+2 cm navmesh-clearance gate; the smallest observed clearance was 0.099 m. The
+concrete world emitter heights were 2.010 m for the human, 0.807 m for the
+Beagle and 0.652 m for the cat in the Apartment coordinate frame. One native
+32-thread, 64-slot RLR process then propagated all 100 RIRs in 4.103 seconds.
+Its cold scene/context setup took 35.801 seconds and end-to-end cache
+generation plus readback took 47.796 seconds. This small canary reinforces the
+batching policy: load a room once, then compute asset-bound RIRs on demand in
+the persistent worker. Dry clips and event timing remain replaceable after
+that cache entry exists. Rooms with separately loaded rigid obstacles still
+run the normal room-runtime center gate in addition to this navmesh check.
 
 Materialize a plan with one persistent native context and one scene upload.
 The acoustic package is mandatory because the trajectory plan alone does not
