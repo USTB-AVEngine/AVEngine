@@ -232,6 +232,7 @@ def time_varying_convolve(
     *,
     rir_lengths: Sequence[int] | None = None,
     output_sample_count: int = M5_AUDIO_SAMPLE_COUNT,
+    partition_weights: Any | None = None,
 ) -> DynamicStemResult:
     """Render one named source through a deterministic sequence of RIRs."""
 
@@ -259,7 +260,25 @@ def time_varying_convolve(
         lengths = lengths.astype(np.int64, copy=False)
         if np.any(lengths < 1) or np.any(lengths > rirs.shape[2]):
             raise AudioContractError("rir_lengths lies outside the padded RIR extent")
-    weights = raised_cosine_partition(keys, output_sample_count)
+    if partition_weights is None:
+        weights = raised_cosine_partition(keys, output_sample_count)
+    else:
+        weights = np.asarray(partition_weights)
+        if (
+            weights.shape != (len(keys), output_sample_count)
+            or weights.dtype.kind not in "f"
+            or not np.all(np.isfinite(weights))
+            or np.any(weights < 0.0)
+        ):
+            raise AudioContractError(
+                "partition_weights must be finite [keyframe, sample] float weights"
+            )
+        weights = np.ascontiguousarray(weights, dtype=np.float64)
+        error = float(np.max(np.abs(weights.sum(axis=0) - 1.0)))
+        if error > 2.0e-15:
+            raise AudioContractError(
+                f"partition_weights do not sum to one: {error:.9g}"
+            )
     maximum_ir = int(np.max(lengths))
     full = np.zeros(
         (rirs.shape[1], output_sample_count + maximum_ir - 1), dtype=np.float64
@@ -297,6 +316,7 @@ def render_dynamic_stems_and_mix(
     source_ids: Sequence[str],
     keyframe_samples: Sequence[int],
     output_sample_count: int = M5_AUDIO_SAMPLE_COUNT,
+    partition_weights: Any | None = None,
 ) -> tuple[dict[str, DynamicStemResult], np.ndarray]:
     """Render ``[K,S,C,L]`` RIRs into named episode stems and one mixture."""
 
@@ -319,6 +339,7 @@ def render_dynamic_stems_and_mix(
             keyframe_samples,
             rir_lengths=lengths[:, source_index],
             output_sample_count=output_sample_count,
+            partition_weights=partition_weights,
         )
     mixture = sum_stems_canonical(
         {source_id: stems[source_id].episode for source_id in canonical}

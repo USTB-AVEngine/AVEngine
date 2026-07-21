@@ -12,6 +12,8 @@ from avengine.m7.asset_bound_audio import (
     prepare_dry_audio,
     render_asset_bound_binaural,
 )
+from avengine.m5.audio import raised_cosine_partition
+from tools.m7.render_asset_bound_binaural_batch import variant_start_samples
 
 
 def _write_pcm16(path: Path, samples: np.ndarray, sample_rate_hz: int) -> None:
@@ -82,6 +84,28 @@ def test_renders_two_active_sources_as_exact_binaural_stem_sum() -> None:
     assert mixture[:, 0] == pytest.approx((0.28125, 0.25))
 
 
+def test_renders_with_a_reused_precomputed_partition() -> None:
+    dry = {
+        "source1": np.full(80_000, 0.25, dtype=np.float64),
+        "source2": np.full(80_000, 0.125, dtype=np.float64),
+    }
+    rirs = np.zeros((1, 2, 2, 1), dtype=np.float64)
+    rirs[:, 0, :, 0] = (1.0, 0.5)
+    rirs[:, 1, :, 0] = (0.25, 1.0)
+    partition = raised_cosine_partition((0,), 80_000)
+
+    _stems, mixture = render_asset_bound_binaural(
+        dry,
+        rir_samples=rirs,
+        rir_lengths=np.ones((1, 2), dtype=np.uint32),
+        source_ids=("source1", "source2"),
+        keyframe_samples=(0,),
+        partition_weights=partition,
+    )
+
+    assert mixture[:, 0] == pytest.approx((0.28125, 0.25))
+
+
 def test_persisted_float32_mixture_is_the_exact_float32_stem_sum() -> None:
     class _Stem:
         def __init__(self, value: float) -> None:
@@ -94,3 +118,24 @@ def test_persisted_float32_mixture_is_the_exact_float32_stem_sum() -> None:
 
     assert mixture.dtype == np.float32
     assert np.array_equal(mixture, stored["source1"] + stored["source2"])
+
+
+def test_batch_variants_use_distinct_full_duration_source_windows() -> None:
+    starts = variant_start_samples(
+        source_sample_rate_hz=16_000,
+        source_sample_count=11 * 16_000,
+        variant_count=10,
+    )
+
+    assert starts[0] == 0
+    assert starts[-1] == 6 * 16_000
+    assert len(set(starts)) == 10
+
+
+def test_batch_variants_refuse_to_loop_a_short_source() -> None:
+    with pytest.raises(AssetBoundAudioError, match="shorter than one five-second"):
+        variant_start_samples(
+            source_sample_rate_hz=16_000,
+            source_sample_count=79_999,
+            variant_count=1,
+        )

@@ -643,6 +643,76 @@ about 10--11 seconds on the current machine, with `native_rlr_calls: 0` and
 `visual_render_calls: 0`; that time is dry-audio preparation, dynamic
 convolution, WAVE serialization and readback only.
 
+### Select asset-feasible routes and batch 1,000 binaural mixtures
+
+A generic root route is not automatically valid for every later asset.  A
+forward muzzle offset rotates with the root heading, so an otherwise legal
+root can place a concrete emitter too close to a wall.  Before a large RIR
+run, evaluate every pairing against the real source-center gate and select
+only passing finite routes.  The selector never repairs or silently snaps a
+path; it applies each concrete offset, rejects failures, then samples the
+declared motion cases deterministically and evenly.
+
+```bash
+PYTHONPATH=src python tools/m6x/select_asset_bound_trajectories.py \
+  --trajectory-bank tmp/m7/apartment_source_slots_diverse_20260721_03/trajectory_bank.json \
+  --scenario-templates examples/m7/human_small_animal_asset_pair_templates.json \
+  --template-rir-plan tmp/m7/apartment_source_slots_diverse_20260721_03/rir_job_plan.json \
+  --navmesh tmp/m1/legacy_apartment_package/visual/navmeshes/legacy_apartment_0000.navmesh \
+  --floor-height-m 0.271 \
+  --episodes-per-pair 50 \
+  --output tmp/m7/apartment_asset_feasible_selection_run_01
+
+PYTHONPATH=src python tools/m6x/build_asset_bound_rir_plan.py \
+  --trajectory-bank tmp/m7/apartment_source_slots_diverse_20260721_03/trajectory_bank.json \
+  --scenario-set tmp/m7/apartment_asset_feasible_selection_run_01/selected_scenarios.json \
+  --template-rir-plan tmp/m7/apartment_source_slots_diverse_20260721_03/rir_job_plan.json \
+  --navmesh tmp/m1/legacy_apartment_package/visual/navmeshes/legacy_apartment_0000.navmesh \
+  --floor-height-m 0.271 \
+  --output tmp/m7/apartment_asset_bound_plan_run_01
+```
+
+The retained Apartment human+cat / Beagle+cat selection considered 400
+route/pair candidates, passed 232 and retained 100 balanced routes.  The
+resulting plan contains 2,142 unique source/listener RIR jobs.  Its native
+32-thread, 64-slot binaural cache took 125.91 seconds end to end (67.65
+seconds native propagation) and retains 338 MB; the cache is shared, not
+copied into every sample.
+
+After that cache exists, batch assembly requires explicit recordings for every
+bound asset.  `ASSET_ID=...` is intentionally part of every CLI declaration:
+this prevents a cat binding from accidentally being rendered with a dog clip.
+The default delivery writes only final two-channel mixtures, their WAVE
+sidecars and compact shared labels; `--retain-stems` is available when source
+separation is needed.  It writes no scene copy and no 1,000-way video render.
+
+```bash
+PYTHONPATH=src python tools/m7/render_asset_bound_binaural_batch.py \
+  --plan-root tmp/m7/apartment_asset_bound_plan_run_01 \
+  --rir-cache tmp/m7/apartment_asset_bound_rir_cache_run_01 \
+  --asset-audio HUMAN_ASSET_ID=PATH_TO_HUMAN_PCM16_WAV \
+  --asset-audio DOG_ASSET_ID=PATH_TO_DOG_PCM16_WAV \
+  --asset-audio CAT_ASSET_ID=PATH_TO_CAT_PCM16_WAV \
+  --asset-channel-policy HUMAN_ASSET_ID=require_mono \
+  --asset-channel-policy DOG_ASSET_ID=equal_weight_downmix \
+  --asset-channel-policy CAT_ASSET_ID=equal_weight_downmix \
+  --asset-linear-gain HUMAN_ASSET_ID=0.10 \
+  --asset-linear-gain DOG_ASSET_ID=0.10 \
+  --asset-linear-gain CAT_ASSET_ID=0.10 \
+  --variants-per-episode 10 \
+  --output tmp/m7/asset_bound_binaural_batch_run_01
+```
+
+The retained first full batch contains 100 routes x 10 distinct non-looped
+dry-audio starts: 1,000 five-second, 16 kHz, two-channel native-HRTF binaural
+mixtures in 621 MB.  It made zero native RLR or visual calls.  A persistent
+cache session verifies a shard once and keeps the 338 MB RIR payload resident;
+the corresponding 100-route x 1-variant native run measured 25.86 seconds
+(12.87 seconds first shard load, 12.14 seconds convolution and 0.61 seconds
+WAVE write/readback).  Scaling that measured session path to ten variants is
+approximately 140 seconds; this is a throughput estimate, not a dataset
+admission or a claim about future rooms/assets.
+
 Materialize a plan with one persistent native context and one scene upload.
 The acoustic package is mandatory because the trajectory plan alone does not
 identify room geometry or materials. The output is resumable; a completed

@@ -11,6 +11,7 @@ from avengine.m4.runtime import M4SimulationConfig
 from avengine.m6x.rir_cache import (
     RIRBatchResult,
     RIRCacheError,
+    RIRCacheSession,
     load_cached_rir_episode,
     render_rir_cache,
     validate_rir_job_plan,
@@ -295,3 +296,16 @@ def test_cached_episode_reopens_exact_source_frame_grid(tmp_path: Path) -> None:
     assert episode.samples[:, 1, 0, 0].tolist() == [2.0, 4.0]
     assert episode.evidence["status"] == "pass"
     assert len(episode.evidence["jobs"]) == 4
+
+    shared_shards = {}
+    session = RIRCacheSession(
+        cache_root=output,
+        plan_path=plan_path,
+        frame_count=75,
+        frame_rate_hz=15,
+        shared_shard_cache=shared_shards,
+    )
+    first_from_resident_cache = session.load_episode("example_episode")
+    second_from_resident_cache = session.load_episode("example_episode")
+    assert len(shared_shards) == 2
+    assert np.array_equal(first_from_resident_cache.samples, second_from_resident_cache.samples)

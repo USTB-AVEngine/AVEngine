@@ -199,6 +199,7 @@ def render_asset_bound_binaural(
     rir_lengths: Any,
     source_ids: Sequence[str],
     keyframe_samples: Sequence[int],
+    partition_weights: Any | None = None,
 ) -> tuple[dict[str, DynamicStemResult], np.ndarray]:
     """Render independent source buses through a completed binaural RIR grid."""
 
@@ -224,6 +225,7 @@ def render_asset_bound_binaural(
         rir_lengths,
         source_ids=canonical,
         keyframe_samples=keyframe_samples,
+        partition_weights=partition_weights,
     )
     expected = sum(stems[source_id].episode for source_id in canonical)
     if not np.array_equal(mixture, expected):
