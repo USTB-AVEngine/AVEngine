@@ -606,6 +606,43 @@ the persistent worker. Dry clips and event timing remain replaceable after
 that cache entry exists. Rooms with separately loaded rigid obstacles still
 run the normal room-runtime center gate in addition to this navmesh check.
 
+### Assemble real human/small-animal audio from an asset-bound cache
+
+Once an asset-bound RIR plan has been rendered, changing dry recordings does
+not call RLR or replan a route. The M7 research canary accepts exactly one
+explicit recording for each source slot and writes two 5-second binaural stems
+plus their file-level exact float32 sum:
+
+```bash
+PYTHONPATH=src python tools/m7/render_asset_bound_binaural_canary.py \
+  --plan-root tmp/m7/apartment_asset_bound_rir_canary_plan \
+  --rir-cache tmp/m7/apartment_asset_bound_rir_canary_cache \
+  --episode-id human_cat_both_moving_014 \
+  --source-audio source1=PATH_TO_HUMAN_PCM16_WAV \
+  --source-audio source2=PATH_TO_CAT_PCM16_WAV \
+  --channel-policy source1=require_mono \
+  --channel-policy source2=equal_weight_downmix \
+  --linear-gain source1=0.10 \
+  --linear-gain source2=0.10 \
+  --source-start-sample source1=0 \
+  --source-start-sample source2=0 \
+  --output tmp/m7/human_cat_asset_bound_binaural
+```
+
+Inputs are uncompressed PCM16 WAVE. Mono recordings declare
+`require_mono`; a stereo field recording must explicitly request
+`equal_weight_downmix`. The canary then uses the already fixed linear
+resampling rule to produce a 5-second, 16 kHz mono dry bus per slot. It does
+not normalize, limit, loop, choose a channel implicitly, or make either
+source silent. Before writing the mixture, it quantizes each independent stem
+to float32 once and sums those stored stems in canonical source-slot order;
+therefore reopening the three WAV files verifies
+`mixture == source1_stem + source2_stem` byte-for-sample at float32 precision.
+The retained human+cat and small-dog+cat cache-only canaries both complete in
+about 10--11 seconds on the current machine, with `native_rlr_calls: 0` and
+`visual_render_calls: 0`; that time is dry-audio preparation, dynamic
+convolution, WAVE serialization and readback only.
+
 Materialize a plan with one persistent native context and one scene upload.
 The acoustic package is mandatory because the trajectory plan alone does not
 identify room geometry or materials. The output is resumable; a completed
