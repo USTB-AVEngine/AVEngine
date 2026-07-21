@@ -40,15 +40,18 @@ from avengine.m6x.raster_pathfinder import (
     build_polygon_raster_obstacle_map,
 )
 from avengine.m6x.rir_cache import (
+    CachedRIREpisode,
     RIRBatchResult,
     RIRCacheError,
     RIRCacheResult,
     render_rir_cache,
+    load_cached_rir_episode,
     validate_rir_job_plan,
 )
 
 __all__ = [
     "ANCHOR_LIBRARY_SCHEMA",
+    "CachedRIREpisode",
     "FixedApartmentCaptureAdapter",
     "FeasibleRegionIndex",
     "HUMAN_BEAGLE_CAPTURE_ADAPTER",
@@ -75,6 +78,7 @@ __all__ = [
     "evaluate_trajectory_coverage",
     "evaluate_trajectory_diversity",
     "load_anchor_library",
+    "load_cached_rir_episode",
     "load_room_capsule",
     "load_scenario_suite",
     "load_trajectory_template_set",

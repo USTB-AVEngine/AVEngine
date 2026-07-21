@@ -35,7 +35,7 @@ from avengine.m4.runtime import (
     _native_layout,
     simulation_with_layout,
 )
-from avengine.m6x.room_feasibility import RIR_JOB_PLAN_SCHEMA
+from avengine.m6x.room_feasibility import RIR_JOB_PLAN_SCHEMA, SOURCE_SLOTS
 
 
 RIR_CACHE_REQUEST_SCHEMA = "avengine_rlr_rir_cache_request_v1"
@@ -65,6 +65,22 @@ class RIRBatchResult:
 class RIRCacheResult:
     output: Path
     receipt: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class CachedRIREpisode:
+    """One episode's source-slot RIR grid reopened from a retained cache."""
+
+    samples: np.ndarray
+    lengths: np.ndarray
+    source_slot_ids: tuple[str, ...]
+    visual_frame_indices: tuple[int, ...]
+    keyframe_samples: tuple[int, ...]
+    sample_rate_hz: int
+    layout_type: str
+    layout_id: str
+    channel_labels: tuple[str, ...]
+    evidence: Mapping[str, Any]
 
 
 def _finite_vector(value: Any, length: int, *, owner: str) -> tuple[float, ...]:
@@ -906,7 +922,223 @@ def render_rir_cache(
     return RIRCacheResult(output=output, receipt=receipt)
 
 
+def load_cached_rir_episode(
+    *,
+    cache_root: str | Path,
+    plan_path: str | Path,
+    episode_id: str,
+    frame_count: int,
+    frame_rate_hz: int,
+) -> CachedRIREpisode:
+    """Reopen the exact cached RIR grid used by one trajectory-bank episode."""
+
+    root = Path(cache_root).resolve()
+    plan_source = Path(plan_path).resolve()
+    if not root.is_dir() or not plan_source.is_file():
+        raise RIRCacheError("cached episode requires a cache root and RIR plan")
+    if not isinstance(episode_id, str) or not episode_id:
+        raise RIRCacheError("cached episode_id must be nonempty")
+    frames = _positive_int(frame_count, owner="cached episode frame count")
+    fps = _positive_int(frame_rate_hz, owner="cached episode frame rate")
+
+    request = load_json(root / "request.json")
+    receipt = load_json(root / "receipt.json")
+    index = load_json(root / "index.json")
+    plan = load_json(plan_source)
+    jobs = validate_rir_job_plan(plan)
+    plan_sha256 = sha256_file(plan_source)
+    if (
+        request.get("schema") != RIR_CACHE_REQUEST_SCHEMA
+        or request.get("plan", {}).get("sha256") != plan_sha256
+        or request.get("plan", {}).get("full_job_count") != len(jobs)
+        or receipt.get("schema") != RIR_CACHE_RECEIPT_SCHEMA
+        or receipt.get("status") != "pass"
+        or receipt.get("full_plan_complete") is not True
+        or receipt.get("request_identity_sha256")
+        != request.get("request_identity_sha256")
+        or index.get("schema") != RIR_CACHE_INDEX_SCHEMA
+        or index.get("status") != "pass"
+        or index.get("full_plan_complete") is not True
+        or index.get("request_identity_sha256")
+        != request.get("request_identity_sha256")
+    ):
+        raise RIRCacheError("RIR cache request/receipt/index closure is invalid")
+
+    output = request.get("output")
+    if not isinstance(output, Mapping):
+        raise RIRCacheError("RIR cache output contract is missing")
+    layout_type = output.get("layout_type")
+    layout_id = output.get("layout_id")
+    channel_count = output.get("channel_count")
+    expected_labels = (
+        ("left", "right")
+        if layout_type == "binaural"
+        else ("W", "Y", "Z", "X")
+        if layout_type == "ambisonics"
+        else ()
+    )
+    sample_rate_hz = receipt.get("sample_rate_hz")
+    if (
+        not expected_labels
+        or not isinstance(layout_id, str)
+        or channel_count != len(expected_labels)
+        or isinstance(sample_rate_hz, bool)
+        or not isinstance(sample_rate_hz, int)
+        or sample_rate_hz < 1
+    ):
+        raise RIRCacheError("RIR cache audio contract is invalid")
+
+    raw_entries = index.get("entries")
+    if not isinstance(raw_entries, list) or len(raw_entries) != len(jobs):
+        raise RIRCacheError("RIR cache index does not close over the full plan")
+    entries_by_id: dict[str, Mapping[str, Any]] = {}
+    for entry in raw_entries:
+        if not isinstance(entry, Mapping):
+            raise RIRCacheError("RIR cache index contains a malformed entry")
+        job_id = entry.get("job_id")
+        if not isinstance(job_id, str) or job_id in entries_by_id:
+            raise RIRCacheError("RIR cache index job IDs are invalid")
+        entries_by_id[job_id] = entry
+    if set(entries_by_id) != {job["job_id"] for job in jobs}:
+        raise RIRCacheError("RIR cache index job IDs differ from the plan")
+
+    jobs_by_use: dict[tuple[str, int], dict[str, Any]] = {}
+    for job in jobs:
+        for use in job["uses"]:
+            if use["episode_id"] != episode_id:
+                continue
+            key = (str(use["source_slot_id"]), int(use["frame_index"]))
+            if key in jobs_by_use:
+                raise RIRCacheError("episode use resolves to multiple RIR jobs")
+            jobs_by_use[key] = job
+    if not jobs_by_use:
+        raise RIRCacheError(f"episode {episode_id!r} has no planned RIR jobs")
+    source_slots = tuple(SOURCE_SLOTS)
+    frame_sets = {
+        source_slot: {
+            frame_index for slot, frame_index in jobs_by_use if slot == source_slot
+        }
+        for source_slot in source_slots
+    }
+    if (
+        any(not values for values in frame_sets.values())
+        or len({tuple(sorted(values)) for values in frame_sets.values()}) != 1
+    ):
+        raise RIRCacheError("episode source slots do not share one RIR keyframe grid")
+    visual_frames = tuple(sorted(frame_sets[source_slots[0]]))
+    if visual_frames[0] != 0 or any(
+        value < 0 or value >= frames for value in visual_frames
+    ):
+        raise RIRCacheError("episode RIR visual-frame grid is outside the clip")
+    keyframe_samples = tuple(
+        int(round(value * sample_rate_hz / fps)) for value in visual_frames
+    )
+    if keyframe_samples[0] != 0 or any(
+        right <= left for left, right in zip(keyframe_samples, keyframe_samples[1:])
+    ):
+        raise RIRCacheError("episode RIR sample grid is invalid")
+
+    rows: list[list[np.ndarray]] = []
+    lengths = np.empty((len(visual_frames), len(source_slots)), dtype="<u4")
+    retained_shards: dict[Path, dict[str, Any]] = {}
+    evidence_jobs: list[dict[str, Any]] = []
+    for frame_ordinal, visual_frame in enumerate(visual_frames):
+        frame_values: list[np.ndarray] = []
+        for source_ordinal, source_slot in enumerate(source_slots):
+            job = jobs_by_use[(source_slot, visual_frame)]
+            entry = entries_by_id[job["job_id"]]
+            shard_relative = entry.get("shard")
+            row = entry.get("row")
+            if (
+                not isinstance(shard_relative, str)
+                or Path(shard_relative).is_absolute()
+                or isinstance(row, bool)
+                or not isinstance(row, int)
+                or row < 0
+            ):
+                raise RIRCacheError("RIR cache episode index reference is invalid")
+            shard_path = (root / shard_relative).resolve()
+            try:
+                shard_path.relative_to(root)
+            except ValueError as exc:
+                raise RIRCacheError("RIR cache shard escapes the cache root") from exc
+            retained = retained_shards.get(shard_path)
+            if retained is None:
+                retained = _read_shard(shard_path)
+                retained_shards[shard_path] = retained
+            if row >= len(retained["job_ids"]):
+                raise RIRCacheError("RIR cache episode row is outside its shard")
+            length = int(retained["lengths"][row])
+            samples = np.ascontiguousarray(retained["samples"][row, :, :length])
+            if (
+                str(retained["job_ids"][row]) != job["job_id"]
+                or int(retained["job_indices"][row]) != int(entry.get("job_index"))
+                or length != int(entry.get("sample_count"))
+                or str(retained["ir_sha256"][row]) != entry.get("ir_sha256")
+                or not np.array_equal(
+                    retained["source_positions_m"][row],
+                    np.asarray(job["source_position_m"], dtype="<f8"),
+                )
+                or samples.shape[0] != channel_count
+                or str(retained["layout_id"]) != layout_id
+                or int(retained["sample_rate_hz"]) != sample_rate_hz
+                or not np.array_equal(
+                    retained["channel_labels"], np.asarray(expected_labels)
+                )
+            ):
+                raise RIRCacheError("RIR cache episode entry differs from plan/shard")
+            frame_values.append(samples)
+            lengths[frame_ordinal, source_ordinal] = length
+            evidence_jobs.append(
+                {
+                    "job_id": job["job_id"],
+                    "source_slot_id": source_slot,
+                    "visual_frame_index": visual_frame,
+                    "ir_sha256": entry["ir_sha256"],
+                    "source_position_m": list(job["source_position_m"]),
+                }
+            )
+        rows.append(frame_values)
+
+    maximum_length = max(value.shape[1] for row in rows for value in row)
+    samples = np.zeros(
+        (len(visual_frames), len(source_slots), channel_count, maximum_length),
+        dtype="<f4",
+    )
+    for frame_ordinal, frame_values in enumerate(rows):
+        for source_ordinal, value in enumerate(frame_values):
+            samples[frame_ordinal, source_ordinal, :, : value.shape[1]] = value
+    evidence = {
+        "schema": "avengine_cached_rir_episode_v1",
+        "status": "pass",
+        "episode_id": episode_id,
+        "cache_request_identity_sha256": request["request_identity_sha256"],
+        "plan_sha256": plan_sha256,
+        "source_slot_ids": list(source_slots),
+        "visual_frame_indices": list(visual_frames),
+        "keyframe_samples": list(keyframe_samples),
+        "layout_type": layout_type,
+        "layout_id": layout_id,
+        "channel_labels": list(expected_labels),
+        "sample_rate_hz": sample_rate_hz,
+        "jobs": evidence_jobs,
+    }
+    return CachedRIREpisode(
+        samples=np.ascontiguousarray(samples),
+        lengths=np.ascontiguousarray(lengths),
+        source_slot_ids=source_slots,
+        visual_frame_indices=visual_frames,
+        keyframe_samples=keyframe_samples,
+        sample_rate_hz=sample_rate_hz,
+        layout_type=str(layout_type),
+        layout_id=layout_id,
+        channel_labels=expected_labels,
+        evidence=evidence,
+    )
+
+
 __all__ = [
+    "CachedRIREpisode",
     "RIRBatchResult",
     "RIRCacheError",
     "RIRCacheResult",
@@ -915,5 +1147,6 @@ __all__ = [
     "RIR_CACHE_REQUEST_SCHEMA",
     "RIR_CACHE_TIMING_SCHEMA",
     "render_rir_cache",
+    "load_cached_rir_episode",
     "validate_rir_job_plan",
 ]

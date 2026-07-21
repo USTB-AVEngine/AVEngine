@@ -11,6 +11,7 @@ from avengine.m4.runtime import M4SimulationConfig
 from avengine.m6x.rir_cache import (
     RIRBatchResult,
     RIRCacheError,
+    load_cached_rir_episode,
     render_rir_cache,
     validate_rir_job_plan,
 )
@@ -36,6 +37,39 @@ def _plan(job_count: int = 3) -> dict[str, object]:
         }
         for index in range(job_count)
     ]
+    return {
+        "schema": "avengine_room_rir_job_plan_v2",
+        "status": "planned_not_run",
+        "listener_position_m": [0.0, 1.5, 0.0],
+        "listener_orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+        "unique_rir_job_count": len(jobs),
+        "jobs": jobs,
+    }
+
+
+def _episode_plan() -> dict[str, object]:
+    jobs = []
+    ordinal = 0
+    for frame_index in (0, 3):
+        for source_ordinal, source_slot in enumerate(("source1", "source2")):
+            jobs.append(
+                {
+                    "job_id": f"rir_{ordinal:06d}",
+                    "source_position_m": [
+                        float(ordinal + 1),
+                        1.0 + source_ordinal,
+                        2.0,
+                    ],
+                    "uses": [
+                        {
+                            "episode_id": "example_episode",
+                            "source_slot_id": source_slot,
+                            "frame_index": frame_index,
+                        }
+                    ],
+                }
+            )
+            ordinal += 1
     return {
         "schema": "avengine_room_rir_job_plan_v2",
         "status": "planned_not_run",
@@ -223,3 +257,41 @@ def test_rir_plan_rejects_duplicate_positions_and_cache_request_mismatch(
             batch_size=1,
             renderer_factory=_FakeRenderer,
         )
+
+
+def test_cached_episode_reopens_exact_source_frame_grid(tmp_path: Path) -> None:
+    plan_path = _write_json(tmp_path / "plan.json", _episode_plan())
+    simulation_path = _write_json(
+        tmp_path / "simulation.json", {"simulation": _simulation().to_dict()}
+    )
+    hrtf = tmp_path / "fixture.sofa"
+    hrtf.write_bytes(b"fixture")
+    output = tmp_path / "cache"
+    render_rir_cache(
+        plan_path=plan_path,
+        scene=_scene(tmp_path),
+        simulation_request_path=simulation_path,
+        simulation=_simulation(),
+        output=output,
+        layout_type="binaural",
+        hrtf_file_path=hrtf,
+        batch_size=2,
+        renderer_factory=_FakeRenderer,
+    )
+
+    episode = load_cached_rir_episode(
+        cache_root=output,
+        plan_path=plan_path,
+        episode_id="example_episode",
+        frame_count=75,
+        frame_rate_hz=15,
+    )
+    assert episode.source_slot_ids == ("source1", "source2")
+    assert episode.visual_frame_indices == (0, 3)
+    assert episode.keyframe_samples == (0, 3200)
+    assert episode.samples.shape == (2, 2, 2, 9)
+    assert episode.lengths.tolist() == [[8, 9], [8, 9]]
+    assert episode.samples[:, 0, 0, 0].tolist() == [1.0, 3.0]
+    assert episode.samples[:, 1, 0, 0].tolist() == [2.0, 4.0]
+    assert episode.evidence["status"] == "pass"
+    assert len(episode.evidence["jobs"]) == 4
