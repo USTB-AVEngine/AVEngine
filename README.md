@@ -551,6 +551,62 @@ without rerunning RLR. A changed room/material profile, listener pose, source
 trajectory outside the cached states or result-changing propagation profile
 requires new RIR entries.
 
+Materialize a plan with one persistent native context and one scene upload.
+The acoustic package is mandatory because the trajectory plan alone does not
+identify room geometry or materials. The output is resumable; a completed
+shard is read back and hash-checked instead of being simulated again.
+
+```bash
+SKBUILD_EDITABLE_SKIP=/path/to/habitat-sim-build PYTHONPATH=src \
+python tools/m6x/render_rir_cache.py \
+  --rir-job-plan tmp/m7/apartment_source_slots_diverse_20260721_03/rir_job_plan.json \
+  --acoustic-package-manifest tmp/m3/root_ue_package_current_20260718_02/manifest.json \
+  --output tmp/m7/apartment_rir_cache_run_01 \
+  --thread-count 32 \
+  --batch-size 64 \
+  --uncompressed
+```
+
+The final retained Apartment cache is
+`tmp/m7/apartment_rir_cache_t32_b64_full_20260721_02`. It rendered and
+independently reopened all 9,198 two-channel 16 kHz binaural RIRs in 144
+shards and retains 1.51 GB of uncompressed payload. An uninterrupted full run
+of the same native configuration measured 32.87 seconds for scene/context
+setup, 268.74 seconds for native propagation, 6.77 seconds for serialization
+and 333.54 seconds end to end including index/hash readback. Native propagation
+sustained 34.23 RIRs/second and the whole run sustained 27.58 RIRs/second. The
+final `_02` cache also completed a real interrupted-process resume and a later
+zero-render full hash readback. This is a research-only cache for the exact
+supplied Apartment acoustic package; its current material assumptions are not
+physical room truth.
+
+This cache asks RLR for native binaural output directly; it does not retain a
+four-channel FOA intermediate. The two ears receive sources from the full
+360-degree acoustic scene, independent of camera visibility. ILD/ITD normally
+make left/right strong, while front/back relies mainly on the fixed MIT KEMAR
+ear-pinna spectral cues. Those cues are useful but do not mathematically
+eliminate the static-head front/back ambiguity. A separately retained FOA
+cache would be required for later HRTF replacement or head-rotation decoding.
+
+The current RLR backend is CPU-only. Its public context configuration exposes
+`thread_count` but no CUDA/OptiX/OpenCL device, and the installed
+`libRLRAudioPropagation.so` has no corresponding GPU dependency. A GPU backend
+would therefore be a separate solver path rather than an acceleration switch
+for this cache command. On this machine, 1/8/16/32 CPU threads produced
+2.23/11.71/16.16/19.70 RIRs/second for the same 8-source benchmark; batching
+64 source positions raised the full-run propagation rate to 34.23 RIRs/second.
+
+RLR's stochastic ray sampling is not byte-identical across fresh solver runs,
+and its current context API exposes no random-seed control. AVEngine therefore
+does not claim that deleting and regenerating a cache reproduces identical RIR
+hashes. It does guarantee that the retained cache binds the exact scene,
+material profile, listener, source positions, simulation settings and HRTF;
+checks every native endpoint receipt, array shape, sample rate, finite/nonzero
+payload and per-RIR hash; and then reuses those fixed bytes for later dry-audio
+convolution and event variants. Kujiale should not use the Apartment package:
+its full native cache remains pending until a Kujiale-specific acoustic scene
+package exists.
+
 The earlier `_04` closeout capture is a historical `320x240` baseline, and
 `_06` predates the hidden test markers, direction-projected exterior and normal
 S3 route. Neither satisfies the current visual/trajectory readback. A fresh run

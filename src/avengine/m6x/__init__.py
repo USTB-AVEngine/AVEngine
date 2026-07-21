@@ -39,6 +39,13 @@ from avengine.m6x.raster_pathfinder import (
     RasterShortestPath,
     build_polygon_raster_obstacle_map,
 )
+from avengine.m6x.rir_cache import (
+    RIRBatchResult,
+    RIRCacheError,
+    RIRCacheResult,
+    render_rir_cache,
+    validate_rir_job_plan,
+)
 
 __all__ = [
     "ANCHOR_LIBRARY_SCHEMA",
@@ -51,6 +58,9 @@ __all__ = [
     "RasterPathfinder",
     "RasterPathfinderError",
     "RasterShortestPath",
+    "RIRBatchResult",
+    "RIRCacheError",
+    "RIRCacheResult",
     "RoomFeasibilityCompiler",
     "RoomFeasibilityError",
     "SCENARIO_CONTRACT",
@@ -68,8 +78,10 @@ __all__ = [
     "load_room_capsule",
     "load_scenario_suite",
     "load_trajectory_template_set",
+    "render_rir_cache",
     "validate_anchor_library",
     "validate_room_capsule",
     "validate_scenario_suite",
     "validate_trajectory_template_set",
+    "validate_rir_job_plan",
 ]
