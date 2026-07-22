@@ -59,6 +59,13 @@ one-factor-at-a-time evidence, and the required separate OFAT study remains
 `not_run`. Cat, horse and Golden Retriever probes do not grant new-species
 admission.
 
+An optional offline M2.1 coat-preparation route now records the reviewed
+real-reference workflow for changing a breed-specific coat while preserving an
+already accepted mesh, UV, skin, skeleton and actions. It uses fixed four-view
+geometry evidence plus a separate real-photo appearance board and never enters
+default Habitat runtime imports. See
+[`REAL_REFERENCE_ANIMAL_COAT_WORKFLOW.md`](docs/assets/REAL_REFERENCE_ANIMAL_COAT_WORKFLOW.md).
+
 **M3 explicit acoustic-scene/material activation is `pass` for its fixed,
 controlled canary.** It replaces implicit/AABB acoustics with hash-bound
 surface geometry, exact per-triangle material assignment and a modern RLR
