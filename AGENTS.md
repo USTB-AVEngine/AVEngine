@@ -39,6 +39,15 @@ under `docs/legacy/` and are never default authority.
 - Animal appearance remains breed-scoped: size is small/medium/large,
   body_build is slim/standard/stocky, life_stage is explicit, and each breed
   owns three valid coat profiles rather than sharing incorrect color names.
+- A new species, breed or materially different morphotype is a new source
+  asset, never an instance-level recolour or reshape of an existing animal.
+  Reuse the build procedure and a compatible motion family, but never reuse
+  another breed's mesh, silhouette, joint locations or skin weights as shape
+  authority. Quaternius may donate motion only after the new target-native mesh
+  and rig exist. Stop after the breed-specific canonical 2D image for project-
+  owner review before Pixel3D; four visible limbs do not excuse a wrong-breed
+  silhouette. Follow
+  `docs/assets/GENERATED_ANIMAL_ASSET_AND_INSTANCE_CONTRACT.md`.
 - Real visual geometry, acoustic proxy geometry, material assumptions,
   navigation and episode feasibility are separate facts. A single pass must
   never hide fail, blocked or not_run dimensions.

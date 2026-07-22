@@ -27,6 +27,14 @@ Production throughput becomes stable and auditable, but a template bank and
 bounded fitting are required. Target-native unknown topology remains an
 explicit research route.
 
+That research route must still preserve the source-asset/instance boundary. A
+new species, breed or materially different morphotype is an independent
+`research_candidate` source asset, not an instance-level recolour or reshape of
+an accepted animal. It may reuse compiler mechanics and a compatible motion
+family, but not another breed's mesh, silhouette, joints or skin weights as
+shape authority. The operational contract is
+[`GENERATED_ANIMAL_ASSET_AND_INSTANCE_CONTRACT.md`](../assets/GENERATED_ANIMAL_ASSET_AND_INSTANCE_CONTRACT.md).
+
 ## Validation plan
 
 Build dog morphotype canaries and require geometry, skeleton, deformation,

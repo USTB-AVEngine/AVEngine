@@ -66,6 +66,13 @@ geometry evidence plus a separate real-photo appearance board and never enters
 default Habitat runtime imports. See
 [`REAL_REFERENCE_ANIMAL_COAT_WORKFLOW.md`](docs/assets/REAL_REFERENCE_ANIMAL_COAT_WORKFLOW.md).
 
+New species, breeds and materially different morphotypes follow the separate
+[`generated-animal asset and instance contract`](docs/assets/GENERATED_ANIMAL_ASSET_AND_INSTANCE_CONTRACT.md):
+each one receives its own breed-correct canonical image, Pixel3D mesh,
+target-native rig and asset identity. It is never implemented as a recoloured
+or reshaped instance of another breed; only the compiler steps and compatible
+motion family may be reused.
+
 **M3 explicit acoustic-scene/material activation is `pass` for its fixed,
 controlled canary.** It replaces implicit/AABB acoustics with hash-bound
 surface geometry, exact per-triangle material assignment and a modern RLR

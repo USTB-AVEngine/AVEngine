@@ -7,6 +7,12 @@ geometry, UVs, skin, skeleton and actions are runtime authority. Generative
 models may change breed-scoped appearance, but they may not silently replace
 topology or animation.
 
+This workflow starts only after a source asset already represents the requested
+breed and morphotype. A new breed or materially different body shape is not a
+coat edit of another breed; it must follow the
+[`generated animal asset and instance contract`](GENERATED_ANIMAL_ASSET_AND_INSTANCE_CONTRACT.md)
+and create its own mesh, rig and source-asset identity first.
+
 The reusable coat route validated on a Blue Abyssinian is:
 
 ```text
