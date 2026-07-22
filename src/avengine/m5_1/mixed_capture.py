@@ -49,6 +49,7 @@ from avengine.m2.habitat_capture import (
     _runtime_snapshot as dog_runtime_snapshot,
     _validate_observation_arrays,
     compile_frame_applications,
+    load_research_review_inputs,
     load_runtime_asset_bundle,
     quaternion_xyzw_to_matrix,
 )
@@ -891,11 +892,25 @@ def capture_human_beagle_paths(
     beagle_semantic_id: int = BEAGLE_SEMANTIC_ID,
     human_fallback_forward_xz: Any | None = None,
     beagle_fallback_forward_xz: Any | None = None,
+    human_asset_id: str = "rocketbox_human_male_adult_01_m5_1_candidate",
+    secondary_actor_id: str = "dog0",
+    secondary_actor_class: str = "dog",
+    secondary_record_key: str = "beagle",
+    secondary_emitter_link_name: str = BEAGLE_MOUTH_LINK_NAME,
+    secondary_research_candidate: bool = False,
+    research_capture_schema: str = MIXED_CAPTURE_SCHEMA,
     review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
 ) -> MixedCaptureResult:
-    """Capture two articulated actors with root-speed-selected locomotion."""
+    """Capture a human and one M2 articulated animal on explicit root paths.
+
+    The historical public name is retained for the M5.1 Beagle route.  The
+    secondary runtime is deliberately parameterized, however: a research
+    preview may bind another M2 animal package only when it declares its own
+    actor identity, semantic class, record key and emitter-link name.  This
+    prevents a Cat render from being silently labelled as a Beagle.
+    """
 
     if (
         isinstance(human_semantic_id, bool)
@@ -906,7 +921,28 @@ def capture_human_beagle_paths(
         or beagle_semantic_id < 0
         or human_semantic_id == beagle_semantic_id
     ):
-        raise MixedCaptureError("human and Beagle semantic IDs must be distinct nonnegative integers")
+        raise MixedCaptureError("human and secondary semantic IDs must be distinct nonnegative integers")
+    if (
+        not isinstance(human_asset_id, str)
+        or not human_asset_id
+        or not isinstance(secondary_actor_id, str)
+        or not secondary_actor_id
+        or secondary_actor_id == "human0"
+        or not isinstance(secondary_actor_class, str)
+        or not secondary_actor_class
+        or not isinstance(secondary_record_key, str)
+        or not secondary_record_key
+        or not secondary_record_key.isidentifier()
+        or secondary_record_key == "human"
+        or not isinstance(secondary_emitter_link_name, str)
+        or not secondary_emitter_link_name
+        or not isinstance(secondary_research_candidate, bool)
+        or not isinstance(research_capture_schema, str)
+        or not research_capture_schema
+    ):
+        raise MixedCaptureError(
+            "human/secondary actor identity fields and research capture schema must be valid"
+        )
     human_points = _points(human_root_path_m, owner="human root path")
     beagle_points = _points(beagle_root_path_m, owner="Beagle root path")
     if human_points.shape != beagle_points.shape:
@@ -926,8 +962,12 @@ def capture_human_beagle_paths(
         room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
         if require_legacy_camera:
             _validate_legacy_camera(room_inputs)
-        m2_inputs = load_m2_inputs(
-            beagle_animal_manifest_path, beagle_m2_request_path
+        m2_inputs = (
+            load_research_review_inputs(
+                beagle_animal_manifest_path, beagle_m2_request_path
+            )
+            if secondary_research_candidate
+            else load_m2_inputs(beagle_animal_manifest_path, beagle_m2_request_path)
         )
         beagle_bundle = load_runtime_asset_bundle(m2_inputs)
         human_forward_axis, human_forward_source = (
@@ -959,7 +999,7 @@ def capture_human_beagle_paths(
                 fallback_forward_xz=human_fallback_forward_xz,
             ),
             _actor_heading_evidence(
-                actor_id="dog0",
+                actor_id=secondary_actor_id,
                 points_m=beagle_points,
                 actor_world_matrices=beagle_world,
                 local_forward_axis=beagle_forward_axis,
@@ -1154,13 +1194,13 @@ def capture_human_beagle_paths(
             )
             beagle_render_evidence = _actor_render_creation_evidence(
                 beagle,
-                actor_id="dog0",
+                actor_id=secondary_actor_id,
                 requested_shader_type=M5_1_ACTOR_SHADER_TYPE,
                 light_setup_key=M5_1_LIGHT_SETUP_KEY,
             )
             human_head_link = _link_id_by_name(human, HEAD_LINK_NAME)
             human_mouth_link = _link_id_by_name(human, MOUTH_LINK_NAME)
-            beagle_mouth_link = _link_id_by_name(beagle, BEAGLE_MOUTH_LINK_NAME)
+            beagle_mouth_link = _link_id_by_name(beagle, secondary_emitter_link_name)
             sensors = [
                 simulator.sensors[modality_to_uuid[modality]]
                 for modality in FORMAL_MODALITIES
@@ -1359,7 +1399,7 @@ def capture_human_beagle_paths(
                                 "state_sha256": human_before["sha256"],
                             },
                         },
-                        "beagle": {
+                        secondary_record_key: {
                             "action_id": beagle_locomotion_state.action_id,
                             "source_action_name": beagle_action.source_action_name,
                             "action_time_ticks": (
@@ -1411,7 +1451,7 @@ def capture_human_beagle_paths(
         visibility_array = np.asarray(visibility, dtype=np.int64)
         for actor_id, schedule, pose_hashes in (
             ("human0", human_locomotion, human_pose_hashes),
-            ("dog0", beagle_locomotion, beagle_state_hashes),
+            (secondary_actor_id, beagle_locomotion, beagle_state_hashes),
         ):
             _validate_used_action_render_evidence(
                 actor_id=actor_id,
@@ -1447,7 +1487,7 @@ def capture_human_beagle_paths(
         _write_json(records_path, records)
         retained_rig = room_inputs.request["primary_camera_rig"]
         evidence: dict[str, Any] = {
-            "schema": MIXED_CAPTURE_SCHEMA,
+            "schema": research_capture_schema,
             "status": "pass",
             "research_only": True,
             "qualification_claim": False,
@@ -1482,6 +1522,7 @@ def capture_human_beagle_paths(
                 {
                     "actor_id": "human0",
                     "actor_class": "human",
+                    "asset_id": human_asset_id,
                     "semantic_id": human_semantic_id,
                     "actions": ["idle", "walk"],
                     "action_selection": LOCOMOTION_POLICY_ID,
@@ -1492,13 +1533,14 @@ def capture_human_beagle_paths(
                     "rendering": human_render_evidence,
                 },
                 {
-                    "actor_id": "dog0",
-                    "actor_class": "dog",
+                    "actor_id": secondary_actor_id,
+                    "actor_class": secondary_actor_class,
+                    "asset_id": m2_inputs.asset["asset_id"],
                     "semantic_id": beagle_semantic_id,
                     "actions": ["idle", "walk"],
                     "action_selection": LOCOMOTION_POLICY_ID,
                     "state_source": "asset_role_bound_action_clips",
-                    "emitter_link": BEAGLE_MOUTH_LINK_NAME,
+                    "emitter_link": secondary_emitter_link_name,
                     "local_anatomical_forward_axis": list(beagle_forward_axis),
                     "rendering": beagle_render_evidence,
                 },
@@ -1510,14 +1552,14 @@ def capture_human_beagle_paths(
                 "source": "authored_actor_root_trajectories",
                 "actors": {
                     "human0": _locomotion_schedule_summary(human_locomotion),
-                    "dog0": _locomotion_schedule_summary(beagle_locomotion),
+                    secondary_actor_id: _locomotion_schedule_summary(beagle_locomotion),
                 },
             },
             "heading_alignment": {
                 "schema": HEADING_ALIGNMENT_SCHEMA,
                 "status": "pass",
                 "gate": {
-                    "required_actor_ids": ["human0", "dog0"],
+                    "required_actor_ids": ["human0", secondary_actor_id],
                     "all_actors_all_frames_passed": True,
                 },
                 "actors": heading_records,
@@ -1535,11 +1577,11 @@ def capture_human_beagle_paths(
                     "path": str(Path(human_runtime_glb_path).resolve()),
                     "sha256": sha256_file(human_runtime_glb_path),
                 },
-                "beagle_manifest": {
+                f"{secondary_record_key}_manifest": {
                     "path": str(Path(beagle_animal_manifest_path).resolve()),
                     "sha256": sha256_file(beagle_animal_manifest_path),
                 },
-                "beagle_m2_request": {
+                f"{secondary_record_key}_m2_request": {
                     "path": str(Path(beagle_m2_request_path).resolve()),
                     "sha256": sha256_file(beagle_m2_request_path),
                 },
@@ -1557,16 +1599,16 @@ def capture_human_beagle_paths(
                     action_id: len(values)
                     for action_id, values in sorted(human_pose_hashes.items())
                 },
-                "beagle_declared_state_count": len(beagle_states),
-                "beagle_action_sample_counts": {
+                f"{secondary_record_key}_declared_state_count": len(beagle_states),
+                f"{secondary_record_key}_action_sample_counts": {
                     action_id: action.sample_count
                     for action_id, action in sorted(beagle_actions.items())
                 },
-                "beagle_distinct_state_count_by_action": {
+                f"{secondary_record_key}_distinct_state_count_by_action": {
                     action_id: len(values)
                     for action_id, values in sorted(beagle_state_hashes.items())
                 },
-                "beagle_validated_source_request_sha256": sha256_file(
+                f"{secondary_record_key}_validated_source_request_sha256": sha256_file(
                     beagle_m2_request_path
                 ),
             },
@@ -1574,11 +1616,11 @@ def capture_human_beagle_paths(
                 "maximum_errors": maximum_errors,
                 "semantic_visible_frame_count": {
                     "human0": int(np.count_nonzero(visibility_array[:, 0] > 0)),
-                    "dog0": int(np.count_nonzero(visibility_array[:, 1] > 0)),
+                    secondary_actor_id: int(np.count_nonzero(visibility_array[:, 1] > 0)),
                 },
                 "semantic_maximum_visible_pixels": {
                     "human0": int(np.max(visibility_array[:, 0])),
-                    "dog0": int(np.max(visibility_array[:, 1])),
+                    secondary_actor_id: int(np.max(visibility_array[:, 1])),
                 },
                 "frame_records": file_record(records_path, relative_to=output),
             },
@@ -1586,7 +1628,7 @@ def capture_human_beagle_paths(
             "anchor_order": [
                 "human0.head",
                 "human0.mouth_emitter",
-                "dog0.mouth_emitter",
+                f"{secondary_actor_id}.mouth_emitter",
             ],
             "claim_boundary": (
                 "M5.1 fixed-state mixed visual research canary; no asset, room, "
