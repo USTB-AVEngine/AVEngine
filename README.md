@@ -72,6 +72,11 @@ each one receives its own breed-correct canonical image, Pixel3D mesh,
 target-native rig and asset identity. It is never implemented as a recoloured
 or reshaped instance of another breed; only the compiler steps and compatible
 motion family may be reused.
+The first project-owner-accepted research cross-check of that route, including
+four-foot support-plane leveling and six-view Idle/Walking review, is the
+[`Border Collie target-native record`](docs/assets/BORDER_COLLIE_TARGET_NATIVE_CROSSCHECK_20260723.md).
+Its Walking motion retains a documented automatic deformation outlier and is
+therefore accepted for research canaries, not claimed as a formal release.
 
 **M3 explicit acoustic-scene/material activation is `pass` for its fixed,
 controlled canary.** It replaces implicit/AABB acoustics with hash-bound

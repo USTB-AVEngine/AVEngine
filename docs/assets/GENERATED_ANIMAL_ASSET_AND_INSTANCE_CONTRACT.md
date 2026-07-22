@@ -82,13 +82,21 @@ Before generating anything, answer these questions in order:
 7. **Create the target-native rig.** TokenRig or an equivalent tool must infer
    this mesh's own skeleton and weights. Audit semantic joint placement before
    retargeting.
-8. **Retarget motion only.** Transfer compatible Idle/Walking motion by semantic
+8. **Normalize the target rest frame.** Use the reviewed anatomical front to
+   make heading cardinal, then fit one support plane through the lower endpoints
+   of the four semantically identified foot chains. Rigidly rotate the complete
+   mesh-and-rig hierarchy so that plane faces world up and translate its lowest
+   reviewed foot to ground height. This stage may correct only the asset frame;
+   it must not move individual feet, flatten the animal's back, alter topology,
+   replace joints or change skin weights. Reject non-planar foot evidence or a
+   support tilt above the reviewed bound instead of forcing a result.
+9. **Retarget motion only.** Transfer compatible Idle/Walking motion by semantic
    joints. Correct coordinate/yaw conventions explicitly; never import the
    donor's shape or skin.
-9. **Review complete animation cycles.** Check side/front/rear videos for travel
+10. **Review complete animation cycles.** Check side/front/rear videos for travel
    direction, hind-leg orientation, joint folding, foot contact, sliding and
    tail deformation.
-10. **Register only after acceptance.** The candidate becomes a reusable source
+11. **Register only after acceptance.** The candidate becomes a reusable source
     asset only after its required geometry, deformation and runtime gates pass.
     Instance-level coat/size/build/life-stage generation comes afterwards.
 
@@ -121,6 +129,7 @@ real breed references
   -> Pixel3D new mesh
   -> topology QA/repair
   -> TokenRig target-native skeleton and weights
+  -> reviewed heading and four-foot support-plane normalization
   -> compatible motion retarget
   -> geometry/deformation/runtime QA and review video
 ```
@@ -156,3 +165,11 @@ not masquerade as an instance of an accepted template.
 A successful research candidate does not silently reverse ADR-0006. Promotion
 of target-native generation to the production default requires the complete
 evidence in ADR-0006's validation plan and an explicit reviewed ADR update.
+
+The first accepted research cross-check of the complete target-native route is
+recorded in
+[`BORDER_COLLIE_TARGET_NATIVE_CROSSCHECK_20260723.md`](BORDER_COLLIE_TARGET_NATIVE_CROSSCHECK_20260723.md).
+The reusable SPEAR-side post-TokenRig execution entry is
+`tools/run_target_native_generated_quadruped_review.py`; it enforces heading,
+rig audit, support-plane leveling, motion retarget, rotation-invariant
+Walk/Idle deformation audit and six-view media readback in that order.
