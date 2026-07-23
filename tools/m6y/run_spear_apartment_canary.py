@@ -257,18 +257,53 @@ def _load_skeletal_component(game: Any, actor: Any, spear_root: Path) -> Any:
 
 
 def _sample_anatomical_forward(
-    game: Any, actor: Any, frame_index: int
+    game: Any,
+    actor: Any,
+    frame_index: int,
+    *,
+    explicit_quadruped_bones: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Read the rendered skeleton's semantic forward inside an active frame."""
 
-    from rig_direction_check import sample_body_basis_in_frame
+    from rig_direction_check import (
+        quadruped_basis_from_positions,
+        sample_body_basis_in_frame,
+        sample_body_bone_position_in_frame,
+    )
 
     diagnostics: list[dict[str, Any]] = []
-    basis = sample_body_basis_in_frame(
-        actor,
-        unreal_service=game.unreal_service,
-        diagnostics=diagnostics,
-    )
+    if explicit_quadruped_bones is None:
+        basis = sample_body_basis_in_frame(
+            actor,
+            unreal_service=game.unreal_service,
+            diagnostics=diagnostics,
+        )
+    else:
+        required = {"rear", "front", "body", "left_foot", "right_foot"}
+        if set(explicit_quadruped_bones) != required:
+            raise RuntimeError(
+                "explicit quadruped basis must define exactly " f"{sorted(required)}"
+            )
+        positions = {}
+        for role, bone_name in explicit_quadruped_bones.items():
+            position = sample_body_bone_position_in_frame(
+                actor,
+                bone_name,
+                unreal_service=game.unreal_service,
+                diagnostics=diagnostics,
+            )
+            if position is None:
+                basis = None
+                break
+            positions[role] = position
+        else:
+            basis = quadruped_basis_from_positions(**positions)
+            basis["basis_kind"] = "asset_bound_generated_quadruped_longitudinal_v1"
+            basis["bone_names"] = dict(explicit_quadruped_bones)
+            basis["positions_ue_cm"] = {
+                role: [float(value) for value in position]
+                for role, position in positions.items()
+            }
     if basis is None:
         raise RuntimeError(
             "could not derive rendered anatomical forward at frame "
@@ -386,6 +421,9 @@ def _spawn_runtime_actors(
             "lengths": lengths,
             "current_animation": None,
             "component_frame_correction": component_frame_correction,
+            "anatomical_basis_bones": declaration.get(
+                "ue_anatomical_basis_bones"
+            ),
             "hierarchy": {
                 "status": "pass",
                 "timeline_root_owner": "hidden_anchor_actor",
@@ -406,6 +444,7 @@ def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
             value["idle_animation"],
             value["walking_animation"],
             value["ue_component_frame_delta"],
+            value.get("ue_anatomical_basis_bones"),
         )
         for value in declarations
     ]
@@ -418,6 +457,7 @@ def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
                 value["idle_animation"],
                 value["walking_animation"],
                 value["ue_component_frame_delta"],
+                value.get("ue_anatomical_basis_bones"),
             )
             for value in scenario["plan"]["actors"]
         ]
@@ -668,6 +708,9 @@ def _render_scenario(
                             game,
                             runtimes[actor_id]["visual_actor"],
                             frame_index,
+                            explicit_quadruped_bones=runtimes[actor_id].get(
+                                "anatomical_basis_bones"
+                            ),
                         )
                     )
             _apply_camera(camera, camera_plan)

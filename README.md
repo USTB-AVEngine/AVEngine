@@ -483,6 +483,15 @@ visual asset preserves the root route but does not silently reuse the old
 asset's mouth height; it materializes that asset's emitter point and computes
 or reuses the matching RIR instead.
 
+Actor roots are grounded on the room profile's authored floor height after
+pathfinding. A Habitat navmesh may be baked slightly above that floor; its X/Z
+result remains the navigation authority, but its elevated Y coordinate is not
+copied into the rendered actor root. Emitter centers are then obtained by
+transforming each concrete asset's own mouth/muzzle offset from that grounded
+root. This prevents a valid route from making a zero-based generated mesh
+float above the Apartment floor while keeping visual and RIR source positions
+identical.
+
 ```bash
 PYTHONPATH=src conda run -n avengine-habitat-runtime \
   python tools/m6x/compile_apartment_feasibility_bank.py \
@@ -731,6 +740,37 @@ the corresponding 100-route x 1-variant native run measured 25.86 seconds
 WAVE write/readback).  Scaling that measured session path to ten variants is
 approximately 140 seconds; this is a throughput estimate, not a dataset
 admission or a claim about future rooms/assets.
+
+A later grounded generated-asset cross-check binds a target-native Border
+Collie, human and cat across both `source1` and `source2`. Its selected 100
+routes retain 28 static/static and 24 of each moving case. The concrete
+asset-bound plan contains 2,445 unique RIR jobs for 5,000 source/keyframe uses.
+One 32-thread, 64-slot native RLR run measured 70.36 seconds of propagation
+and 159.25 seconds end to end during concurrent shared-disk load; the cache is
+reused rather than copied into samples. The corresponding 1,000-mixture run
+made zero RLR and zero visual calls, took 321.97 seconds under the same disk
+contention, and passed artifact readback for all 1,000 two-channel WAV files,
+all 100 route/cache closures and all 5,000 source positions. These are
+observed research timings, not a promise for uncontended storage.
+
+For a four-video review subset, the cache-bound example builder now selects a
+declared source-binding profile instead of hard-coding Beagle as the second
+shape. `human_border_collie_grounded` produces static/static,
+human-moving/dog-static, both-moving and human-static/dog-moving five-second
+episodes with the generated Border Collie asset ID, its own muzzle height,
+Idle/Walking choice and fixed idle heading. The optional SPEAR runner then
+uses those exact roots, copied binaural packets and Topdown panels while UE is
+responsible only for final RGB pixels.
+
+The first native UE/SPEAR cross-check of that profile passed all four motion
+cases in one runtime session. It produced 75-frame, five-second RGB+binaural
+and RGB+Topdown+binaural MP4s for every case in 110.49 seconds total (about
+22.4--23.5 seconds per episode after shared startup). Runtime readback verified
+exact actor/camera roots, Idle/Walking phase, asset-specific generated-rig
+anatomical forward, coarse visual grounding and byte-identical authoritative
+audio packets. Anonymous TokenRig bone indices are stored only on the concrete
+asset binding from its semantic rig manifest; they are not assumed to mean the
+same thing for a future generated animal.
 
 Materialize a plan with one persistent native context and one scene upload.
 The acoustic package is mandatory because the trajectory plan alone does not

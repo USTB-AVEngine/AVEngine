@@ -716,6 +716,13 @@ class TrajectoryBankBuilder:
             pixel = pixels[int(rng.integers(len(pixels)))]
         point = index.pixel_to_world(pixel, height_m=self.obstacle_map.floor_height_m)
         snapped = np.asarray(self.pathfinder.snap_point(point), dtype=np.float64)
+        # Habitat navmeshes may be baked above the authored floor (the SPEAR
+        # Apartment navmesh surface is 0.129 m above its declared floor).  A
+        # source-slot root is the grounded visual-asset root, not an agent
+        # navmesh-surface sample.  Preserve the gated X/Z while pinning Y to
+        # the room's explicit floor so a grounded GLB and its emitter offset
+        # remain spatially consistent.
+        snapped[1] = self.obstacle_map.floor_height_m
         return np.ascontiguousarray(np.repeat(snapped[None, :], frame_count, axis=0))
 
     def _moving_path(
@@ -778,7 +785,9 @@ class TrajectoryBankBuilder:
             ):
                 continue
             points = np.asarray(query.points, dtype=np.float64)
-            return self._resample_polyline(points, frame_count), distance
+            resampled = self._resample_polyline(points, frame_count)
+            resampled[:, 1] = self.obstacle_map.floor_height_m
+            return np.ascontiguousarray(resampled), distance
         raise RoomFeasibilityError(
             f"could not sample a {minimum_distance_m:g}-{maximum_distance_m:g} m "
             f"path for {source_slot} after {path_attempts} attempts"

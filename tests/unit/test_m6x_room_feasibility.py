@@ -61,6 +61,15 @@ class _PathFinder:
         return True
 
 
+class _ElevatedNavmeshPathFinder(_PathFinder):
+    """Model a navmesh baked above the authored room floor."""
+
+    def snap_point(self, point):
+        value = super().snap_point(point)
+        value[1] = 0.4
+        return value
+
+
 def _obstacle_map(pathfinder: _PathFinder, *, with_blocker: bool) -> RuntimeObstacleMap:
     obstacles = ()
     if with_blocker:
@@ -228,6 +237,39 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
     assert overview.shape == (800, 1000, 3)
     assert overview.dtype == np.uint8
     assert overview.flags.c_contiguous
+
+
+def test_trajectory_roots_use_authored_floor_not_elevated_navmesh_surface() -> None:
+    pathfinder = _ElevatedNavmeshPathFinder()
+    obstacle_map = _obstacle_map(pathfinder, with_blocker=False)
+    compiler = RoomFeasibilityCompiler(obstacle_map)
+    regions = {
+        source_slot: compiler.compile(
+            source_center_height_m=height,
+            minimum_navmesh_clearance_m=0.0,
+            sample_spacing_m=0.5,
+        )
+        for source_slot, height in (("source1", 1.8), ("source2", 0.7))
+    }
+    bank = TrajectoryBankBuilder(
+        pathfinder=pathfinder,
+        obstacle_map=obstacle_map,
+        region_by_source=regions,
+        shortest_path_factory=SimpleNamespace,
+    ).build(
+        episodes_per_motion_case=1,
+        frame_count=15,
+        frame_rate_hz=15,
+        seed=31,
+        minimum_route_distance_m=1.0,
+        maximum_route_distance_m=5.0,
+        minimum_pair_separation_m=0.1,
+    )
+    assert all(
+        np.allclose(path[:, 1], obstacle_map.floor_height_m)
+        for episode in bank.episodes
+        for path in episode.source_root_paths_m.values()
+    )
 
 
 def test_polygon_raster_pathfinder_routes_around_declared_footprint() -> None:

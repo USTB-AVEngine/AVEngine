@@ -483,6 +483,65 @@ def test_default_asset_forward_bindings_are_explicit() -> None:
     assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID][
         "ue_component_frame_delta"
     ]["translation_cm"] == [0.0, 0.0, 0.0]
+    border_collie = apartment.DEFAULT_ACTOR_BINDINGS[
+        apartment.BORDER_COLLIE_ASSET_ID
+    ]
+    assert border_collie["ue_anatomical_forward_yaw_deg"] == 0.0
+    assert border_collie["ue_component_frame_delta"]["rotation_deg"] == [
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert border_collie["ue_component_frame_delta"]["translation_cm"] == [
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert border_collie["ue_anatomical_basis_bones"] == {
+        "rear": "bone_0",
+        "front": "bone_4",
+        "body": "bone_0",
+        "left_foot": "bone_67",
+        "right_foot": "bone_56",
+    }
+    assert apartment.anatomical_basis_bones_for_asset(
+        apartment.BORDER_COLLIE_ASSET_ID
+    ) == border_collie["ue_anatomical_basis_bones"]
+    assert (
+        apartment.anatomical_basis_bones_for_asset(apartment.HUMAN_ASSET_ID)
+        is None
+    )
+
+
+def test_generated_anatomical_basis_mapping_is_exact_and_asset_local() -> None:
+    bindings = deepcopy(apartment.DEFAULT_ACTOR_BINDINGS)
+    bindings[apartment.BORDER_COLLIE_ASSET_ID]["ue_anatomical_basis_bones"].pop(
+        "front"
+    )
+    with pytest.raises(apartment.SpearApartmentError, match="define exactly"):
+        apartment.anatomical_basis_bones_for_asset(
+            apartment.BORDER_COLLIE_ASSET_ID, actor_bindings=bindings
+        )
+
+
+def test_generated_anatomical_basis_mapping_reaches_runtime_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_input_tree(tmp_path, "S3")
+    plan = _plan("S3")
+    plan["actors"][0]["asset_id"] = apartment.BORDER_COLLIE_ASSET_ID
+    monkeypatch.setattr(
+        apartment,
+        "build_spear_visual_plan_from_files",
+        lambda **_: deepcopy(plan),
+    )
+    record = apartment.build_native_apartment_scenario(tmp_path, "S3")
+    dog = next(
+        value
+        for value in record["plan"]["actors"]
+        if value["actor_id"] == "dog0"
+    )
+    assert dog["ue_anatomical_basis_bones"]["front"] == "bone_4"
 
 
 def test_component_frame_delta_must_preserve_blueprint_transform(
@@ -621,8 +680,17 @@ def test_visual_bounds_gate_proves_beagle_floor_contact_and_horizontal_frame() -
     assert summary["dog0"]["maximum_floor_error_cm"] == 0.0
     assert summary["human0"]["status"] == "observed"
 
+    border_collie_plan = deepcopy(plan)
+    border_collie_plan["actors"][0]["asset_id"] = apartment.BORDER_COLLIE_ASSET_ID
+    border_collie_summary = apartment.summarize_actor_bounds(
+        expected_frames=border_collie_plan["frames"],
+        actor_declarations=border_collie_plan["actors"],
+        actor_bounds=records,
+    )
+    assert border_collie_summary["dog0"]["status"] == "pass"
+
     drifted = deepcopy(records)
-    drifted["dog0"][4]["minimum_cm"][2] -= 2.0
+    drifted["dog0"][4]["minimum_cm"][2] -= 6.0
     with pytest.raises(apartment.SpearApartmentError, match="actor-root floor"):
         apartment.summarize_actor_bounds(
             expected_frames=plan["frames"],

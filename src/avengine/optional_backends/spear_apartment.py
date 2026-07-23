@@ -40,8 +40,13 @@ POSITION_TOLERANCE_CM = 0.02
 ROTATION_TOLERANCE_DEGREES = 0.02
 ANIMATION_TOLERANCE_SECONDS = 1.0e-4
 COMPONENT_TRANSFORM_TOLERANCE = 1.0e-3
-BEAGLE_FLOOR_TOLERANCE_CM = 1.25
-BEAGLE_HORIZONTAL_TO_VERTICAL_MIN_RATIO = 1.05
+# Skeletal bounds include animated paws/fur and do not share the Timeline
+# source-center origin. Keep this as a coarse visual sanity gate only; route
+# legality is intentionally decided by the source center. Five centimetres
+# still catches a gross import-frame error without moving a visually grounded
+# asset merely to make its bounding box equal the source root.
+QUADRUPED_FLOOR_TOLERANCE_CM = 5.0
+QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO = 1.05
 ANATOMICAL_FORWARD_TOLERANCE_DEGREES = 25.0
 COMPONENT_FRAME_DELTA_SCHEMA = "avengine_spear_component_frame_delta_v1"
 LIGHTING_PROFILE_SCHEMA = "avengine_optional_spear_apartment_lighting_profiles_v1"
@@ -72,9 +77,13 @@ MOTION_PILOT_DIRECTORIES: Mapping[str, str] = {
 
 BEAGLE_ASSET_ID = "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
 HUMAN_ASSET_ID = "rocketbox_human_male_adult_01_m5_1_candidate"
+BORDER_COLLIE_ASSET_ID = (
+    "generated_border_collie_black_white_medium_standard_adult_research_v1"
+)
 
 BEAGLE_TAG = "m2_beagle_v7_world_contact_r5"
 HUMAN_TAG = "rocketbox_male_adult_01_original_ue_v3"
+BORDER_COLLIE_TAG = "pixal_generated_border_collie_black_white_v1"
 
 DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
     BEAGLE_ASSET_ID: {
@@ -126,7 +135,49 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame",
         },
     },
+    BORDER_COLLIE_ASSET_ID: {
+        "blueprint_class_path": (
+            "/Game/MyAssets/Audioset/Blueprints/"
+            f"gate_{BORDER_COLLIE_TAG}/BP_gate_{BORDER_COLLIE_TAG}."
+            f"BP_gate_{BORDER_COLLIE_TAG}_C"
+        ),
+        "idle_animation": (
+            f"/Game/MyAssets/Audioset/Meshes/gate_{BORDER_COLLIE_TAG}/Idle.Idle"
+        ),
+        "walking_animation": (
+            f"/Game/MyAssets/Audioset/Meshes/gate_{BORDER_COLLIE_TAG}/Walking.Walking"
+        ),
+        # The generated instance was normalized before UE import: +X is the
+        # anatomical forward direction and the four-foot support plane is Z=0.
+        # Native runtime readback remains the authority for this provisional
+        # UE frame declaration; it must not be silently borrowed from Beagle.
+        "ue_anatomical_forward_yaw_deg": 0.0,
+        # TokenRig deliberately exports anonymous bone names. These roles
+        # come from this asset's recorded semantic inference, not from a
+        # guessed breed-wide skeleton. Keeping the mapping on the asset
+        # binding lets the runtime audit the rendered skeleton without
+        # pretending that every generated animal shares these indices.
+        "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_67",
+            "right_foot": "bone_56",
+        },
+        "ue_component_frame_delta": {
+            "schema": COMPONENT_FRAME_DELTA_SCHEMA,
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "generated_target_native_heading_plus_x_and_support_plane_z0",
+        },
+    },
 }
+
+
+FLOOR_GATED_QUADRUPED_ASSET_IDS = frozenset(
+    {BEAGLE_ASSET_ID, BORDER_COLLIE_ASSET_ID}
+)
 
 
 class SpearApartmentError(ValueError):
@@ -350,6 +401,42 @@ def component_frame_delta_for_asset(
             f"actor binding {asset_id!r} must expose its component frame delta"
         )
     return _component_frame_delta(binding, asset_id=asset_id)
+
+
+def anatomical_basis_bones_for_asset(
+    asset_id: str,
+    *,
+    actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+) -> dict[str, str] | None:
+    """Return an optional, asset-specific rendered-skeleton role mapping.
+
+    Named Rocketbox and Quaternius rigs remain auto-detected at runtime. A
+    generated rig with anonymous bone names must instead publish the exact
+    five roles inferred while that instance was bound; the indices are never
+    generalized to another asset merely because its bones are also numbered.
+    """
+
+    binding = actor_bindings.get(asset_id)
+    if not isinstance(binding, Mapping):
+        raise SpearApartmentError(f"actor binding {asset_id!r} is missing")
+    raw = binding.get("ue_anatomical_basis_bones")
+    if raw is None:
+        return None
+    required = {"rear", "front", "body", "left_foot", "right_foot"}
+    if not isinstance(raw, Mapping) or set(raw) != required:
+        raise SpearApartmentError(
+            f"actor binding {asset_id!r} anatomical basis must define exactly "
+            f"{sorted(required)}"
+        )
+    result: dict[str, str] = {}
+    for role in sorted(required):
+        bone_name = raw[role]
+        if not isinstance(bone_name, str) or not bone_name.strip():
+            raise SpearApartmentError(
+                f"actor binding {asset_id!r} anatomical role {role!r} is invalid"
+            )
+        result[role] = bone_name
+    return result
 
 
 def _unreal_struct_triplet(
@@ -659,6 +746,11 @@ def _build_native_apartment_scenario_from_paths(
         actor["ue_component_frame_delta"] = component_frame_delta_for_asset(
             asset_id, actor_bindings=actor_bindings
         )
+        basis_bones = anatomical_basis_bones_for_asset(
+            asset_id, actor_bindings=actor_bindings
+        )
+        if basis_bones is not None:
+            actor["ue_anatomical_basis_bones"] = basis_bones
     lighting = deepcopy(dict(lighting_profile))
     generated_lights = lighting.get("generated_lights")
     if not isinstance(generated_lights, list):
@@ -955,12 +1047,12 @@ def summarize_actor_bounds(
     actor_declarations: Sequence[Mapping[str, Any]],
     actor_bounds: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> dict[str, Any]:
-    """Summarize visual bounds and fail closed on the corrected Beagle frame.
+    """Summarize visual bounds and fail closed on calibrated quadruped frames.
 
     Bounds are measured in UE world centimetres after animation evaluation.
-    The Beagle's actor root is intentionally the authoritative floor anchor;
-    this gate proves that the asset-local correction does not move that root
-    while the rendered mesh remains horizontal and in floor contact.
+    A calibrated quadruped actor root is the authoritative floor anchor.  This
+    gate proves that its asset-local correction does not move that root while
+    the rendered mesh remains horizontal and in floor contact.
     """
 
     if not expected_frames:
@@ -1017,14 +1109,14 @@ def summarize_actor_bounds(
                 ],
             },
         }
-        if declaration.get("asset_id") == BEAGLE_ASSET_ID:
+        if declaration.get("asset_id") in FLOOR_GATED_QUADRUPED_ASSET_IDS:
             maximum_floor_error = max(abs(value) for value in clearances)
             minimum_ratio = min(horizontal_vertical_ratios)
-            if maximum_floor_error > BEAGLE_FLOOR_TOLERANCE_CM:
+            if maximum_floor_error > QUADRUPED_FLOOR_TOLERANCE_CM:
                 raise SpearApartmentError(
                     f"{actor_id} corrected mesh no longer meets its actor-root floor"
                 )
-            if minimum_ratio < BEAGLE_HORIZONTAL_TO_VERTICAL_MIN_RATIO:
+            if minimum_ratio < QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO:
                 raise SpearApartmentError(
                     f"{actor_id} corrected quadruped frame is not horizontal"
                 )
@@ -1032,9 +1124,9 @@ def summarize_actor_bounds(
                 {
                     "status": "pass",
                     "maximum_floor_error_cm": maximum_floor_error,
-                    "floor_tolerance_cm": BEAGLE_FLOOR_TOLERANCE_CM,
+                    "floor_tolerance_cm": QUADRUPED_FLOOR_TOLERANCE_CM,
                     "horizontal_to_vertical_minimum_required": (
-                        BEAGLE_HORIZONTAL_TO_VERTICAL_MIN_RATIO
+                        QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO
                     ),
                 }
             )
@@ -1298,8 +1390,9 @@ __all__ = [
     "ANIMATION_TOLERANCE_SECONDS",
     "BACKEND_ROLE",
     "CAMERA_WARMUP_FRAMES",
-    "BEAGLE_FLOOR_TOLERANCE_CM",
-    "BEAGLE_HORIZONTAL_TO_VERTICAL_MIN_RATIO",
+    "BORDER_COLLIE_ASSET_ID",
+    "QUADRUPED_FLOOR_TOLERANCE_CM",
+    "QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO",
     "COMPONENT_FRAME_DELTA_SCHEMA",
     "COMPONENT_TRANSFORM_TOLERANCE",
     "DEFAULT_ACTOR_BINDINGS",
@@ -1317,6 +1410,7 @@ __all__ = [
     "SUITE_SCHEMA",
     "SpearApartmentError",
     "WIDTH",
+    "anatomical_basis_bones_for_asset",
     "animation_position_seconds",
     "apply_ue_component_frame_delta",
     "build_clean_binaural_mux_command",

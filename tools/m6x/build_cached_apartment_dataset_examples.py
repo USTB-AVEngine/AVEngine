@@ -44,23 +44,51 @@ REVIEW_GAIN_DB = 12.0
 REVIEW_GAIN = 10.0 ** (REVIEW_GAIN_DB / 20.0)
 SCHEMA = "avengine_cached_apartment_dataset_examples_v1"
 
-SOURCE_BINDINGS: Mapping[str, Mapping[str, Any]] = {
+HUMAN_BEAGLE_BINDINGS: Mapping[str, Mapping[str, Any]] = {
     "source1": {
         "actor_id": "human0",
+        "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+        "asset_revision": "native_runtime_ue_v3",
         "endpoint_id": "m6x_human0_mouth",
         "dry_name": "m6x_human0_mouth.wav",
         "semantic_class": "human_speech",
+        "display_label": "Human",
         "local_forward_axis": (0.0, 0.0, 1.0),
         "walk_phase_period_frames": 16,
     },
     "source2": {
         "actor_id": "dog0",
+        "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+        "asset_revision": "m2_v7_world_contact_r5",
         "endpoint_id": "m6x_dog0_muzzle",
         "dry_name": "m6x_dog0_muzzle.wav",
         "semantic_class": "animal_vocalization",
+        "display_label": "Beagle",
         "local_forward_axis": (1.0, 0.0, 0.0),
         "walk_phase_period_frames": 25,
     },
+}
+
+
+HUMAN_BORDER_COLLIE_BINDINGS: Mapping[str, Mapping[str, Any]] = {
+    "source1": dict(HUMAN_BEAGLE_BINDINGS["source1"]),
+    "source2": {
+        **HUMAN_BEAGLE_BINDINGS["source2"],
+        "asset_id": (
+            "generated_border_collie_black_white_medium_standard_adult_research_v1"
+        ),
+        "asset_revision": "generated_target_native_grounded_v1",
+        "asset_evidence_sha256": (
+            "2da7ace9052dfe5512188cee40ad373789f6ca647d84009f79b41996c76ba7a4"
+        ),
+        "display_label": "Border Collie",
+    },
+}
+
+
+SOURCE_BINDING_PROFILES: Mapping[str, Mapping[str, Mapping[str, Any]]] = {
+    "human_beagle": HUMAN_BEAGLE_BINDINGS,
+    "human_border_collie": HUMAN_BORDER_COLLIE_BINDINGS,
 }
 
 FOUR_MOTION_SELECTIONS = (
@@ -85,9 +113,37 @@ SPATIAL_SHOWCASE_SELECTIONS = (
     ("P3", "03_human_static_dog_moving", "both_moving_049"),
 )
 
+
+HUMAN_BORDER_COLLIE_GROUNDED_SELECTIONS = (
+    ("P0", "00_static_static", "human_border_collie__static_static_019"),
+    (
+        "P1",
+        "01_human_moving_dog_static",
+        "human_border_collie__source1_moving_source2_static_009",
+    ),
+    (
+        "P2",
+        "02_both_moving",
+        "human_border_collie__both_moving_032",
+    ),
+    (
+        "P3",
+        "03_human_static_dog_moving",
+        "human_border_collie__source1_static_source2_moving_029",
+    ),
+)
+
 SELECTION_PROFILES = {
     "four_motion": FOUR_MOTION_SELECTIONS,
     "spatial_showcase": SPATIAL_SHOWCASE_SELECTIONS,
+    "human_border_collie_grounded": HUMAN_BORDER_COLLIE_GROUNDED_SELECTIONS,
+}
+
+
+SELECTION_SOURCE_BINDING_PROFILE = {
+    "four_motion": "human_beagle",
+    "spatial_showcase": "human_beagle",
+    "human_border_collie_grounded": "human_border_collie",
 }
 
 
@@ -134,18 +190,28 @@ def _fallback_toward_listener(
 def _timeline(
     *,
     template: Mapping[str, Any],
+    source_bindings: Mapping[str, Mapping[str, Any]],
     root_paths: Mapping[str, np.ndarray],
     motion_by_slot: Mapping[str, str],
     listener_position_m: np.ndarray,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     actors = deepcopy(template["actors"])
     bindings_by_actor = {
-        value["actor_id"]: (slot, value) for slot, value in SOURCE_BINDINGS.items()
+        value["actor_id"]: (slot, value) for slot, value in source_bindings.items()
     }
     matrices: dict[str, np.ndarray] = {}
     for actor in actors:
         actor_id = actor["actor_id"]
         slot, binding = bindings_by_actor[actor_id]
+        actor["asset_id"] = binding["asset_id"]
+        if actor_id == "dog0" and binding["asset_id"] != HUMAN_BEAGLE_BINDINGS[
+            "source2"
+        ]["asset_id"]:
+            actor["template_id"] = "generated_border_collie_target_native_v1"
+            actor["body_plan_id"] = "quadruped_canine"
+            actor["habitat_local_anatomical_forward_axis"] = list(
+                binding["local_forward_axis"]
+            )
         root = root_paths[slot]
         matrices[actor_id] = trajectory_world_matrices(
             root,
@@ -154,7 +220,7 @@ def _timeline(
         )
 
     headings_by_slot = {}
-    for slot, binding in SOURCE_BINDINGS.items():
+    for slot, binding in source_bindings.items():
         actor_id = binding["actor_id"]
         local_forward = np.asarray(binding["local_forward_axis"], dtype=np.float64)
         world_forward = np.einsum(
@@ -290,12 +356,23 @@ def _source_manifest(
     episode_directory: str,
     episode_id: str,
     center_paths: Mapping[str, np.ndarray],
+    source_bindings: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     endpoint_templates = template["source_manifest_sources"]
     sources = []
-    for slot, binding in SOURCE_BINDINGS.items():
+    for slot, binding in source_bindings.items():
         endpoint_id = binding["endpoint_id"]
         source = deepcopy(endpoint_templates[endpoint_id])
+        endpoint = source.get("endpoint")
+        endpoint_binding = (
+            endpoint.get("binding") if isinstance(endpoint, Mapping) else None
+        )
+        if not isinstance(endpoint_binding, dict):
+            raise RuntimeError(f"source template {endpoint_id} has no mutable binding")
+        endpoint_binding["entity_asset_id"] = binding["asset_id"]
+        endpoint_binding["entity_asset_revision"] = binding["asset_revision"]
+        if "asset_evidence_sha256" in binding:
+            endpoint["evidence_sha256"] = binding["asset_evidence_sha256"]
         source["activation"] = "active"
         source["source_slot_id"] = slot
         source["trajectory"] = {
@@ -328,8 +405,8 @@ def _source_manifest(
             "pair_specific": True,
             "source_slot_order": ["source1", "source2"],
             "source_ids": [
-                SOURCE_BINDINGS["source1"]["endpoint_id"],
-                SOURCE_BINDINGS["source2"]["endpoint_id"],
+                source_bindings["source1"]["endpoint_id"],
+                source_bindings["source2"]["endpoint_id"],
             ],
             "uri": (
                 f"bundle://episodes/{episode_directory}/metadata/cache_binding.json"
@@ -378,6 +455,7 @@ def _info_frames(
     activities: Mapping[str, np.ndarray],
     spatial_metrics: Mapping[str, Mapping[str, Any]],
     topdown: np.ndarray,
+    source_bindings: Mapping[str, Mapping[str, Any]],
 ) -> np.ndarray:
     frames = []
     title_font = _font(24)
@@ -393,10 +471,12 @@ def _info_frames(
             fill=(255, 255, 255),
         )
         draw.text((24, 63), episode_id, font=small_font, fill=(178, 193, 210))
+        source1_label = str(source_bindings["source1"]["display_label"])
+        source2_label = str(source_bindings["source2"]["display_label"])
         lines = (
             "CACHE-BOUND DATASET PREVIEW",
-            "source1 -> human0 -> speech",
-            "source2 -> dog0 -> bark",
+            f"source1 -> {source1_label} -> speech",
+            f"source2 -> {source2_label} -> bark",
             "native RLR HRTF binaural: Left / Right",
             "25 RIR keyframes x 2 sources = 50 jobs",
             "audio is 360 deg; camera FOV does not mute it",
@@ -410,13 +490,13 @@ def _info_frames(
         source2_azimuth = spatial_metrics["source2"]["azimuth_degrees_by_frame"]
         draw.text(
             (24, 344),
-            f"Human azimuth: {source1_azimuth[frame_index]:+6.1f} deg",
+            f"{source1_label} azimuth: {source1_azimuth[frame_index]:+6.1f} deg",
             font=body_font,
             fill=(42, 210, 220),
         )
         draw.text(
             (24, 374),
-            f"Dog azimuth:   {source2_azimuth[frame_index]:+6.1f} deg",
+            f"{source2_label} azimuth: {source2_azimuth[frame_index]:+6.1f} deg",
             font=body_font,
             fill=(250, 120, 70),
         )
@@ -444,9 +524,10 @@ def _qualification(
     listener: Mapping[str, Any],
     obstacle_authority: Mapping[str, Any],
     selected: Mapping[str, Mapping[str, Any]],
+    source_bindings: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     source_records = {}
-    for slot, binding in SOURCE_BINDINGS.items():
+    for slot, binding in source_bindings.items():
         source_records[binding["endpoint_id"]] = {
             "status": "pass",
             "failed_frame_indices": [],
@@ -509,11 +590,18 @@ def run(args: argparse.Namespace) -> Path:
     staging.mkdir(parents=True)
 
     bank_root = args.trajectory_bank.resolve()
+    feasible_root = (
+        args.feasible_region_root.resolve()
+        if args.feasible_region_root is not None
+        else bank_root
+    )
     cache_root = args.rir_cache.resolve()
     old_pilot = args.audio_template_bundle.resolve()
     bank_record = load_json(bank_root / "trajectory_bank.json")
     episodes = {value["episode_id"]: value for value in bank_record["episodes"]}
     selections = SELECTION_PROFILES[args.selection_profile]
+    source_binding_profile = SELECTION_SOURCE_BINDING_PROFILE[args.selection_profile]
+    source_bindings = SOURCE_BINDING_PROFILES[source_binding_profile]
     selected = {episode_id: episodes[episode_id] for _, _, episode_id in selections}
     arrays = np.load(bank_root / "trajectory_bank.npz", allow_pickle=False)
     episode_indices = {
@@ -539,15 +627,15 @@ def run(args: argparse.Namespace) -> Path:
     dry_root = template_episode / "audio/dry"
     dry_by_slot = {
         slot: read_float32_wav(dry_root / binding["dry_name"]).samples[0]
-        for slot, binding in SOURCE_BINDINGS.items()
+        for slot, binding in source_bindings.items()
     }
     activities = {
         slot: _activity_by_frame(value) for slot, value in dry_by_slot.items()
     }
 
-    feasible_record = load_json(bank_root / "feasible_region.json")
+    feasible_record = load_json(feasible_root / "feasible_region.json")
     obstacle_record = feasible_record["obstacle_authority"]
-    navmesh = np.load(bank_root / "feasible_region_source1.npz", allow_pickle=False)[
+    navmesh = np.load(feasible_root / "feasible_region_source1.npz", allow_pickle=False)[
         "navmesh_mask"
     ]
     obstacle_map = RuntimeObstacleMap(
@@ -578,6 +666,7 @@ def run(args: argparse.Namespace) -> Path:
             listener=listener,
             obstacle_authority=obstacle_record,
             selected=selected,
+            source_bindings=source_bindings,
         ),
     )
 
@@ -639,7 +728,7 @@ def run(args: argparse.Namespace) -> Path:
 
         episode_root = staging / "episodes" / directory
         audio_root = episode_root / "audio/binaural"
-        for slot, binding in SOURCE_BINDINGS.items():
+        for slot, binding in source_bindings.items():
             write_float32_wav(
                 audio_root / f"{binding['endpoint_id']}_stem.wav",
                 stems[slot].episode,
@@ -678,6 +767,7 @@ def run(args: argparse.Namespace) -> Path:
 
         timeline, source_headings = _timeline(
             template=template,
+            source_bindings=source_bindings,
             root_paths=root_paths,
             motion_by_slot=motion_by_slot,
             listener_position_m=np.asarray(listener["position_m"], dtype=np.float64),
@@ -688,13 +778,14 @@ def run(args: argparse.Namespace) -> Path:
             episode_directory=directory,
             episode_id=episode_id,
             center_paths=center_paths,
+            source_bindings=source_bindings,
         )
         metadata_root = episode_root / "metadata"
         write_json(metadata_root / "timeline.json", timeline)
         write_json(metadata_root / "source_manifest.json", manifest)
         write_json(
             metadata_root / "flags.json",
-            _flags([value["endpoint_id"] for value in SOURCE_BINDINGS.values()]),
+            _flags([value["endpoint_id"] for value in source_bindings.values()]),
         )
         binding = {
             "schema": "avengine_cached_apartment_episode_binding_v1",
@@ -710,7 +801,7 @@ def run(args: argparse.Namespace) -> Path:
                     "semantic_sound_class": value["semantic_class"],
                     "dry_audio": value["dry_name"],
                 }
-                for slot, value in SOURCE_BINDINGS.items()
+                for slot, value in source_bindings.items()
             ],
             "rir_cache": cached.evidence,
             "verification": {
@@ -761,7 +852,10 @@ def run(args: argparse.Namespace) -> Path:
             camera_hfov_degrees=listener["camera_hfov_degrees"],
             source_activity_by_frame=activities,
             source_heading_xz_by_frame=source_headings,
-            source_labels={"source1": "Human", "source2": "Beagle"},
+            source_labels={
+                slot: str(binding["display_label"])
+                for slot, binding in source_bindings.items()
+            },
             source_colors={"source1": (42, 210, 220), "source2": (250, 120, 70)},
             size_wh=(640, 480),
         )
@@ -772,6 +866,7 @@ def run(args: argparse.Namespace) -> Path:
             activities=activities,
             spatial_metrics=spatial_metrics,
             topdown=topdown,
+            source_bindings=source_bindings,
         )
         videos = episode_root / "videos"
         videos.mkdir(parents=True, exist_ok=True)
@@ -829,7 +924,8 @@ def run(args: argparse.Namespace) -> Path:
                 "dataset_gain": "raw_no_normalization_no_limiting",
                 "review_video_fixed_gain_db": REVIEW_GAIN_DB,
             },
-            "source_bindings": SOURCE_BINDINGS,
+            "source_binding_profile": source_binding_profile,
+            "source_bindings": source_bindings,
             "inputs": {
                 "trajectory_bank": str(bank_root),
                 "trajectory_bank_sha256": sha256_file(
@@ -837,6 +933,7 @@ def run(args: argparse.Namespace) -> Path:
                 ),
                 "rir_job_plan_sha256": sha256_file(bank_root / "rir_job_plan.json"),
                 "rir_cache": str(cache_root),
+                "feasible_region_root": str(feasible_root),
                 "rir_cache_request_identity_sha256": load_json(
                     cache_root / "request.json"
                 )["request_identity_sha256"],
@@ -864,6 +961,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=REPOSITORY / "tmp/m7/apartment_rir_cache_t32_b64_full_20260721_02",
     )
     parser.add_argument(
+        "--feasible-region-root",
+        type=Path,
+        help=(
+            "Optional obstacle/topdown authority when the selected asset-bound "
+            "trajectory plan is stored separately from the source-slot bank."
+        ),
+    )
+    parser.add_argument(
         "--audio-template-bundle",
         type=Path,
         default=REPOSITORY / "tmp/m7/apartment_four_motion_pilot_20260720_01",
@@ -874,7 +979,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="four_motion",
         help=(
             "four_motion preserves the original matrix; spatial_showcase uses "
-            "four both-moving routes with wide listener-relative azimuth changes"
+            "four both-moving routes with wide listener-relative azimuth changes; "
+            "human_border_collie_grounded uses the generated target-native asset "
+            "on four authored-floor routes"
         ),
     )
     parser.add_argument("--output", type=Path, required=True)
