@@ -36,6 +36,7 @@ from avengine.optional_backends.spear_apartment import (
     WIDTH,
     animation_position_seconds,
     apply_ue_component_frame_delta,
+    asset_bound_bundle_episode_ids,
     build_clean_binaural_mux_command,
     build_native_apartment_motion_pilot_suite,
     build_native_apartment_asset_bound_suite,
@@ -43,6 +44,7 @@ from avengine.optional_backends.spear_apartment import (
     build_png_encode_command,
     build_rawvideo_encode_command,
     build_topdown_visual_command,
+    contiguous_episode_shard,
     load_apartment_lighting_profile,
     summarize_actor_bounds,
     summarize_anatomical_forward_readbacks,
@@ -69,6 +71,12 @@ REQUIRED_SAMPLE_OUTPUTS = (
 INITIALIZE_CLIENT_MAX_TIME_SECONDS = 600.0
 CLIENT_INTERNAL_TIMEOUT_SECONDS = 60.0
 ANATOMICAL_FORWARD_SAMPLE_FRAMES = (0, FRAME_COUNT // 2, FRAME_COUNT - 1)
+MEDIA_EXPECTATIONS = {
+    "ue_visual_only": (WIDTH, HEIGHT, False),
+    "ue_topdown_visual_only": (1280, 480, False),
+    "ue_clean_binaural": (WIDTH, HEIGHT, True),
+    "ue_topdown_binaural": (1280, 480, True),
+}
 
 
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -680,6 +688,46 @@ def _audio_packet_sha256(path: Path) -> str:
     return lines[0][len(prefix) :].lower()
 
 
+def _load_resumable_scenario_record(
+    *,
+    output_root: Path,
+    scenario: Mapping[str, Any],
+    video_encoder: str,
+) -> dict[str, Any] | None:
+    """Reopen one completed scenario before a requested batch resume."""
+
+    scenario_id = str(scenario["scenario_id"])
+    scenario_root = output_root / scenario_id
+    evidence_path = scenario_root / "evidence.json"
+    if not evidence_path.is_file():
+        if scenario_root.exists():
+            shutil.rmtree(scenario_root)
+        return None
+    value = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(value, dict)
+        or value.get("status") != "pass"
+        or value.get("scenario_id") != scenario_id
+        or value.get("timing", {}).get("video_encoder") != video_encoder
+    ):
+        raise RuntimeError(f"resumable scenario evidence is invalid: {scenario_id}")
+    media = value.get("media")
+    if not isinstance(media, Mapping):
+        raise RuntimeError(f"resumable scenario media is invalid: {scenario_id}")
+    for media_id, (width, height, expect_audio) in MEDIA_EXPECTATIONS.items():
+        observed = _probe_media(
+            scenario_root / f"{media_id}.mp4",
+            expected_width=width,
+            expected_height=height,
+            expect_audio=expect_audio,
+        )
+        if observed != media.get(media_id):
+            raise RuntimeError(
+                f"resumable scenario media changed: {scenario_id}/{media_id}"
+            )
+    return value
+
+
 def _resolve_bundle_path(
     bundle_root: Path, scenario: Mapping[str, Any], key: str
 ) -> Path:
@@ -1154,11 +1202,29 @@ def run(args: argparse.Namespace) -> Path:
         default_scenarios = ("S0", "S3", "S4")
     else:
         default_scenarios = None
-    scenarios = (
-        tuple(args.scenario)
-        if args.scenario
-        else default_scenarios
-    )
+    execution_partition: dict[str, Any] | None = None
+    if args.shard_count is not None:
+        all_episode_ids = asset_bound_bundle_episode_ids(bundle_root)
+        scenarios = contiguous_episode_shard(
+            all_episode_ids,
+            shard_count=args.shard_count,
+            shard_index=args.shard_index,
+        )
+        execution_partition = {
+            "kind": "contiguous_manifest_episode_ids",
+            "shard_count": args.shard_count,
+            "shard_index": args.shard_index,
+            "total_episode_count": len(all_episode_ids),
+            "selected_episode_count": len(scenarios),
+            "first_episode_id": scenarios[0],
+            "last_episode_id": scenarios[-1],
+        }
+    else:
+        scenarios = (
+            tuple(args.scenario)
+            if args.scenario
+            else default_scenarios
+        )
     lighting_profile = load_apartment_lighting_profile(
         args.lighting_profiles, args.lighting_profile
     )
@@ -1170,6 +1236,8 @@ def run(args: argparse.Namespace) -> Path:
     suite = suite_builder(
         bundle_root, scenario_ids=scenarios, lighting_profile=lighting_profile
     )
+    if execution_partition is not None:
+        suite["execution_partition"] = execution_partition
     phase_wall_seconds["plan_compile"] = _elapsed_seconds(phase_started)
     _assert_suite_actor_binding_closure(suite)
     encoder_gpu = args.encoder_gpu
@@ -1177,10 +1245,22 @@ def run(args: argparse.Namespace) -> Path:
         encoder_gpu = args.graphics_adapter
 
     output_root = args.output_dir.resolve()
-    if output_root.exists() or output_root.is_symlink():
-        raise FileExistsError(f"refusing to replace output: {output_root}")
-    output_root.mkdir(parents=True)
+    if output_root.is_symlink():
+        raise FileExistsError(f"refusing symlink output: {output_root}")
+    if output_root.exists():
+        if not args.resume:
+            raise FileExistsError(f"refusing to replace output: {output_root}")
+        if not output_root.is_dir():
+            raise FileExistsError(f"resume output is not a directory: {output_root}")
+    else:
+        output_root.mkdir(parents=True)
     plan_path = output_root / "suite_execution_plan.json"
+    if args.resume and plan_path.is_file():
+        retained_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        if retained_plan != suite:
+            raise RuntimeError(
+                "resume suite differs from the retained execution plan"
+            )
     _write_json(plan_path, suite)
     if args.dry_run:
         timing_path = output_root / "timing.json"
@@ -1197,17 +1277,48 @@ def run(args: argparse.Namespace) -> Path:
         print(f"SPEAR_APARTMENT_DRY_RUN_OK plan={plan_path}", flush=True)
         return plan_path
 
+    resumed_records: dict[str, dict[str, Any]] = {}
+    pending_scenarios = []
+    if args.resume:
+        for scenario in suite["scenarios"]:
+            record = _load_resumable_scenario_record(
+                output_root=output_root,
+                scenario=scenario,
+                video_encoder=args.video_encoder,
+            )
+            if record is None:
+                pending_scenarios.append(scenario)
+            else:
+                resumed_records[str(scenario["scenario_id"])] = record
+    else:
+        pending_scenarios = list(suite["scenarios"])
+    if not pending_scenarios:
+        evidence_path = output_root / "evidence.json"
+        if not evidence_path.is_file():
+            raise RuntimeError("resume found no pending scenarios but lacks evidence")
+        print(
+            "SPEAR_APARTMENT_RESUME_ALREADY_COMPLETE "
+            f"output={output_root} evidence={evidence_path}",
+            flush=True,
+        )
+        return evidence_path
+
     phase_started = time.perf_counter()
     instance, spear_root = _configure_instance(args)
     phase_wall_seconds["runtime_initialize"] = _elapsed_seconds(phase_started)
     game = instance.get_game()
-    scenario_records = []
-    startup_evidence: dict[str, Any] = {}
+    scenario_records = list(resumed_records.values())
+    startup_evidence_path = output_root / "component_frame_startup_evidence.json"
+    startup_evidence: dict[str, Any] = (
+        json.loads(startup_evidence_path.read_text(encoding="utf-8"))
+        if args.resume and startup_evidence_path.is_file()
+        else {}
+    )
     light_records: list[dict[str, Any]] = []
     runtime_close_seconds = 0.0
     try:
         phase_started = time.perf_counter()
-        first = suite["scenarios"][0]
+        first = pending_scenarios[0]
         with instance.begin_frame():
             camera, capture = _spawn_camera(game)
             light_records = _spawn_generated_lights(game, lighting_profile)
@@ -1223,7 +1334,7 @@ def run(args: argparse.Namespace) -> Path:
         phase_started = time.perf_counter()
         instance.step(num_frames=STREAMING_WARMUP_FRAMES)
         phase_wall_seconds["shared_streaming_warmup"] = _elapsed_seconds(phase_started)
-        for scenario in suite["scenarios"]:
+        for scenario in pending_scenarios:
             episode_started = time.perf_counter()
             phase_started = time.perf_counter()
             with instance.begin_frame():
@@ -1242,7 +1353,7 @@ def run(args: argparse.Namespace) -> Path:
                 for actor_id, runtime in runtimes.items()
             }
             _write_json(
-                output_root / "component_frame_startup_evidence.json",
+                startup_evidence_path,
                 startup_evidence,
             )
             record: dict[str, Any] | None = None
@@ -1279,6 +1390,17 @@ def run(args: argparse.Namespace) -> Path:
         instance.close(force=True)
         runtime_close_seconds = _elapsed_seconds(phase_started)
     phase_wall_seconds["runtime_close"] = runtime_close_seconds
+    records_by_id = {
+        str(record["scenario_id"]): record for record in scenario_records
+    }
+    expected_scenario_ids = [
+        str(scenario["scenario_id"]) for scenario in suite["scenarios"]
+    ]
+    if set(records_by_id) != set(expected_scenario_ids):
+        raise RuntimeError("resumed and rendered scenario evidence is incomplete")
+    scenario_records = [
+        records_by_id[scenario_id] for scenario_id in expected_scenario_ids
+    ]
 
     timing = {
         "schema": TIMING_SCHEMA,
@@ -1297,6 +1419,9 @@ def run(args: argparse.Namespace) -> Path:
         "required_sample_outputs": list(REQUIRED_SAMPLE_OUTPUTS),
         "video_encoder": args.video_encoder,
         "encoder_gpu": encoder_gpu,
+        "resumed_scenario_count": len(resumed_records),
+        "rendered_scenario_count": len(pending_scenarios),
+        "execution_partition": execution_partition,
         "phase_wall_seconds": phase_wall_seconds,
         "scenario_timings": {
             record["scenario_id"]: record["timing"] for record in scenario_records
@@ -1328,6 +1453,7 @@ def run(args: argparse.Namespace) -> Path:
             "frame_rate_hz": FPS,
             "streaming_warmup_frames": STREAMING_WARMUP_FRAMES,
             "camera_warmup_frames_per_scenario": CAMERA_WARMUP_FRAMES,
+            "execution_partition": execution_partition,
         },
         "authority": suite["authority"],
         "scenarios": scenario_records,
@@ -1369,6 +1495,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="append",
         help="Repeat to render a subset; defaults depend on --input-layout.",
     )
+    parser.add_argument(
+        "--shard-count",
+        type=int,
+        help=(
+            "Split asset-bound manifest episode_ids into this many exact, "
+            "balanced contiguous shards."
+        ),
+    )
+    parser.add_argument(
+        "--shard-index",
+        type=int,
+        help="Zero-based exact shard to render; requires --shard-count.",
+    )
     parser.add_argument("--rpc-port", type=int, default=39311)
     parser.add_argument("--graphics-adapter", type=int)
     parser.add_argument(
@@ -1382,6 +1521,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         help="NVENC GPU index; defaults to --graphics-adapter when available.",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Reopen passing per-scenario evidence in an existing output and "
+            "render only missing scenarios."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--keep-frames", action="store_true")
     args = parser.parse_args(argv)
@@ -1391,6 +1538,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--graphics-adapter must be non-negative")
     if args.encoder_gpu is not None and args.encoder_gpu < 0:
         parser.error("--encoder-gpu must be non-negative")
+    if args.resume and args.dry_run:
+        parser.error("--resume cannot be combined with --dry-run")
+    if (args.shard_count is None) != (args.shard_index is None):
+        parser.error("--shard-count and --shard-index must be provided together")
+    if args.shard_count is not None:
+        if args.input_layout != "asset-bound-batch":
+            parser.error("exact sharding requires --input-layout asset-bound-batch")
+        if args.scenario:
+            parser.error("exact sharding cannot be combined with --scenario")
+        if args.shard_count < 1:
+            parser.error("--shard-count must be positive")
+        if not 0 <= args.shard_index < args.shard_count:
+            parser.error("--shard-index must be in [0, --shard-count)")
     selected = set(args.scenario or ())
     allowed = {
         "motion-pilot": {"P0", "P1", "P2", "P3"},

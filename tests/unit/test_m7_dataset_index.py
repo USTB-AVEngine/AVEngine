@@ -55,3 +55,44 @@ def test_split_distribution_preserves_every_asset_pair_and_motion():
             "motion_3",
         }
         assert len(split["ordered_asset_pair_counts"]) == 4
+
+
+def test_split_supports_one_audio_variant_for_each_of_1000_visual_episodes():
+    episodes = []
+    for pair_index in range(4):
+        for motion_index in range(4):
+            for ordinal in range(62):
+                episodes.append(
+                    {
+                        "episode_id": (
+                            f"pair{pair_index}_motion{motion_index}_{ordinal:03d}"
+                        ),
+                        "motion_case": f"motion_{motion_index}",
+                        "asset_ids_by_source_slot": {
+                            "source1": f"asset_{pair_index}_source1",
+                            "source2": f"asset_{pair_index}_source2",
+                        },
+                    }
+                )
+    for index in range(8):
+        episodes.append(
+            {
+                "episode_id": f"remainder_{index:02d}",
+                "motion_case": f"motion_{index % 4}",
+                "asset_ids_by_source_slot": {
+                    "source1": f"asset_{index % 4}_source1",
+                    "source2": f"asset_{index % 4}_source2",
+                },
+            }
+        )
+    assignments = assign_episode_splits(
+        episodes,
+        train_count=800,
+        validation_count=100,
+        test_count=100,
+    )
+    assert len(assignments) == 1000
+    assert {
+        split: tuple(assignments.values()).count(split)
+        for split in ("train", "validation", "test")
+    } == {"train": 800, "validation": 100, "test": 100}

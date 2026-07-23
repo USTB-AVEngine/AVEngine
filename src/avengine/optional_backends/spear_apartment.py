@@ -1046,15 +1046,7 @@ def build_native_apartment_asset_bound_suite(
 
     root = Path(bundle_root).resolve()
     if scenario_ids is None:
-        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-        raw_ids = manifest.get("episode_ids")
-        if not isinstance(raw_ids, list) or not all(
-            isinstance(value, str) and value for value in raw_ids
-        ):
-            raise SpearApartmentError(
-                "asset-bound bundle manifest lacks ordered episode_ids"
-            )
-        selected = tuple(raw_ids)
+        selected = asset_bound_bundle_episode_ids(root)
     else:
         selected = tuple(scenario_ids)
     if not selected or len(selected) != len(set(selected)):
@@ -1086,6 +1078,63 @@ def build_native_apartment_asset_bound_suite(
         },
         "scenarios": scenarios,
     }
+
+
+def asset_bound_bundle_episode_ids(bundle_root: str | Path) -> tuple[str, ...]:
+    """Read the complete, ordered episode declaration from an M7 visual bundle."""
+
+    root = Path(bundle_root).resolve()
+    manifest_path = root / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SpearApartmentError(
+            f"could not read asset-bound bundle manifest: {manifest_path}"
+        ) from exc
+    raw_ids = manifest.get("episode_ids")
+    if (
+        manifest.get("status") != "pass"
+        or not isinstance(raw_ids, list)
+        or not raw_ids
+        or any(not isinstance(value, str) or not value for value in raw_ids)
+        or len(raw_ids) != len(set(raw_ids))
+        or manifest.get("episode_count") != len(raw_ids)
+    ):
+        raise SpearApartmentError(
+            "asset-bound bundle manifest has an invalid episode declaration"
+        )
+    return tuple(raw_ids)
+
+
+def contiguous_episode_shard(
+    episode_ids: Sequence[str],
+    *,
+    shard_count: int,
+    shard_index: int,
+) -> tuple[str, ...]:
+    """Return one balanced, contiguous and non-overlapping episode partition."""
+
+    values = tuple(episode_ids)
+    if not values or len(values) != len(set(values)):
+        raise SpearApartmentError("episode IDs must be nonempty and unique")
+    if (
+        isinstance(shard_count, bool)
+        or not isinstance(shard_count, int)
+        or not 1 <= shard_count <= len(values)
+    ):
+        raise SpearApartmentError(
+            "shard_count must be between one and the episode count"
+        )
+    if (
+        isinstance(shard_index, bool)
+        or not isinstance(shard_index, int)
+        or not 0 <= shard_index < shard_count
+    ):
+        raise SpearApartmentError("shard_index must be in [0, shard_count)")
+    base_size, remainder = divmod(len(values), shard_count)
+    start = shard_index * base_size + min(shard_index, remainder)
+    size = base_size + int(shard_index < remainder)
+    return values[start : start + size]
 
 
 def animation_position_seconds(
@@ -1577,7 +1626,7 @@ def build_topdown_visual_command(
     filter_graph = (
         "[0:v]scale=640:360:flags=lanczos,"
         "pad=640:480:0:60:color=black[ue];"
-        "[1:v]crop=640:480:640:0[topdown];"
+        "[1:v]crop=640:480:iw-640:0[topdown];"
         "[ue][topdown]hstack=inputs=2[video]"
     )
     return [

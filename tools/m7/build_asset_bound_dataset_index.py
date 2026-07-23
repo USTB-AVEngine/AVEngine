@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Index 100 visual episodes and 1,000 audio variants without copying media."""
+"""Index 1,000 samples without copying visual, audio, or room media."""
 
 from __future__ import annotations
 
@@ -27,11 +27,11 @@ def _visual_episodes(bundle_root: Path) -> list[dict[str, Any]]:
     values = manifest.get("episodes")
     if (
         manifest.get("status") != "pass"
-        or manifest.get("episode_count") != 100
         or not isinstance(values, list)
-        or len(values) != 100
+        or not values
+        or manifest.get("episode_count") != len(values)
     ):
-        raise ApartmentDatasetIndexError("visual input bundle is not the 100-route bank")
+        raise ApartmentDatasetIndexError("visual input bundle is invalid")
     result = []
     for value in values:
         if not isinstance(value, Mapping):
@@ -81,7 +81,9 @@ def build_index(
 
     episodes = _visual_episodes(visual_bundle_root)
     episode_ids = {value["episode_id"] for value in episodes}
-    if len(episode_ids) != 100 or not all(isinstance(value, str) for value in episode_ids):
+    if len(episode_ids) != len(episodes) or not all(
+        isinstance(value, str) for value in episode_ids
+    ):
         raise ApartmentDatasetIndexError("visual episode IDs are invalid")
     render_evidence = _render_evidence(ue_render_root)
     if set(render_evidence) != episode_ids:
@@ -100,7 +102,34 @@ def build_index(
     if verification.get("status") != "pass":
         raise ApartmentDatasetIndexError("audio batch verification did not pass")
 
-    assignments = assign_episode_splits(episodes, seed=SPLIT_SEED)
+    delivery = load_json(audio_batch_root / "delivery.json")
+    variants_per_episode = delivery.get("variants_per_episode")
+    if (
+        delivery.get("status") != "pass"
+        or isinstance(variants_per_episode, bool)
+        or not isinstance(variants_per_episode, int)
+        or variants_per_episode < 1
+        or delivery.get("episode_count") != len(episodes)
+        or len(episodes) * variants_per_episode != 1_000
+        or any(
+            count % variants_per_episode
+            for count in SPLIT_SAMPLE_COUNTS.values()
+        )
+    ):
+        raise ApartmentDatasetIndexError(
+            "audio episode/variant layout cannot form the 1,000-item split"
+        )
+    episode_split_counts = {
+        split: count // variants_per_episode
+        for split, count in SPLIT_SAMPLE_COUNTS.items()
+    }
+    assignments = assign_episode_splits(
+        episodes,
+        train_count=episode_split_counts["train"],
+        validation_count=episode_split_counts["validation"],
+        test_count=episode_split_counts["test"],
+        seed=SPLIT_SEED,
+    )
     by_episode: dict[str, list[Mapping[str, Any]]] = {
         episode_id: [] for episode_id in episode_ids
     }
@@ -112,10 +141,13 @@ def build_index(
             raise ApartmentDatasetIndexError("audio sample has no visual episode")
         by_episode[str(episode_id)].append(sample)
     if any(
-        sorted(value.get("variant_index") for value in rows) != list(range(10))
+        sorted(value.get("variant_index") for value in rows)
+        != list(range(variants_per_episode))
         for rows in by_episode.values()
     ):
-        raise ApartmentDatasetIndexError("each visual episode needs variants 0..9")
+        raise ApartmentDatasetIndexError(
+            "each visual episode lacks its declared audio variants"
+        )
 
     staging.mkdir(parents=True)
     try:
@@ -124,6 +156,7 @@ def build_index(
         for episode in sorted(episodes, key=lambda value: str(value["episode_id"])):
             episode_id = str(episode["episode_id"])
             split = assignments[episode_id]
+            visual_assets = episode["asset_ids_by_source_slot"]
             scenario_evidence = render_evidence[episode_id]
             media = scenario_evidence.get("media")
             if not isinstance(media, Mapping):
@@ -161,13 +194,17 @@ def build_index(
                     "rgb_path": media_paths["rgb"],
                     "topdown_path": media_paths["topdown"],
                     "label_paths": labels,
-                    "audio_variant_reuse_count": 10,
+                    "audio_variant_reuse_count": variants_per_episode,
                 }
             )
             for sample in sorted(
                 by_episode[episode_id],
                 key=lambda value: int(value["variant_index"]),
             ):
+                if sample.get("asset_ids_by_source_slot") != visual_assets:
+                    raise ApartmentDatasetIndexError(
+                        "visual and audio asset bindings differ"
+                    )
                 mixture = sample.get("audio", {}).get("mixture", {})
                 audio_path = audio_batch_root / "audio" / "binaural" / str(
                     mixture.get("path")
@@ -209,14 +246,14 @@ def build_index(
                 "qualification_claim": False,
                 "room_id": "apartment_0000",
                 "sample_count": 1000,
-                "visual_episode_count": 100,
-                "audio_variants_per_visual_episode": 10,
+                "visual_episode_count": len(episodes),
+                "audio_variants_per_visual_episode": variants_per_episode,
                 "split_unit": "visual_episode",
                 "split_seed": SPLIT_SEED,
                 "split_sample_counts": sample_split_counts,
                 "scene_copy_count": 0,
                 "media_storage_policy": (
-                    "one_rgb_and_topdown_pair_per_episode_plus_10_separate_binaural_wavs"
+                    "one_rgb_and_topdown_pair_per_episode_plus_declared_binaural_variants"
                 ),
                 "roots": {
                     "audio_batch_root": str(audio_batch_root),

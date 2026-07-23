@@ -103,6 +103,7 @@ def select_scenarios(
     seed: int,
     maximum_floor_snap_xz_m: float,
     minimum_navmesh_clearance_m: float,
+    minimum_pair_separation_m: float = 0.30,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return the selected scenario request and its compact selection report.
 
@@ -112,8 +113,16 @@ def select_scenarios(
     """
 
     quotas = _quotas(episodes_per_pair)
+    if (
+        not np.isfinite(minimum_pair_separation_m)
+        or minimum_pair_separation_m < 0.0
+    ):
+        raise RuntimeError(
+            "minimum-pair-separation-m must be finite and nonnegative"
+        )
     candidate_episodes: list[TrajectoryEpisode] = []
     candidate_map: dict[str, tuple[str, TrajectoryEpisode, dict[str, Any]]] = {}
+    candidate_pair_separation_m: dict[str, float] = {}
     for pair_id, binding_set in templates:
         bindings = validate_asset_emitter_binding_set(binding_set)
         bound, _report = bind_asset_emitters_to_bank(
@@ -133,6 +142,15 @@ def select_scenarios(
                 )
             )
             candidate_map[candidate_id] = (pair_id, source, binding_set)
+            candidate_pair_separation_m[candidate_id] = float(
+                np.min(
+                    np.linalg.norm(
+                        source.source_center_paths_m["source1"][:, (0, 2)]
+                        - source.source_center_paths_m["source2"][:, (0, 2)],
+                        axis=1,
+                    )
+                )
+            )
     candidate_bank = TrajectoryBank(
         episodes=tuple(candidate_episodes),
         frame_count=bank.frame_count,
@@ -151,6 +169,8 @@ def select_scenarios(
         for candidate_id in candidate_map
         if candidate_gate["sources"][f"{candidate_id}::source1"]["status"] == "pass"
         and candidate_gate["sources"][f"{candidate_id}::source2"]["status"] == "pass"
+        and candidate_pair_separation_m[candidate_id]
+        >= minimum_pair_separation_m
     }
     rng = np.random.default_rng(seed)
     selected: list[dict[str, Any]] = []
@@ -214,6 +234,13 @@ def select_scenarios(
         "candidate_gate_status": candidate_gate["status"],
         "candidate_passing_scenario_count": len(passed_ids),
         "selected_scenario_count": len(selected),
+        "minimum_pair_separation_m": minimum_pair_separation_m,
+        "minimum_selected_pair_separation_m": min(
+            candidate_pair_separation_m[
+                str(value["output_episode_id"])
+            ]
+            for value in selected
+        ),
         "per_pair": per_pair_report,
         "candidate_gate": candidate_gate,
     }
@@ -240,6 +267,7 @@ def run(args: argparse.Namespace) -> Path:
         seed=args.seed,
         maximum_floor_snap_xz_m=float(args.maximum_floor_snap_xz_m),
         minimum_navmesh_clearance_m=float(args.minimum_navmesh_clearance_m),
+        minimum_pair_separation_m=float(args.minimum_pair_separation_m),
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     staging.mkdir()
@@ -287,6 +315,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20_260_721)
     parser.add_argument("--maximum-floor-snap-xz-m", type=float, default=0.03)
     parser.add_argument("--minimum-navmesh-clearance-m", type=float, default=0.02)
+    parser.add_argument("--minimum-pair-separation-m", type=float, default=0.30)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)
 

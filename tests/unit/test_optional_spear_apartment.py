@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -343,7 +344,7 @@ def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:
         output_path="topdown.mp4",
     )
     graph = topdown[topdown.index("-filter_complex") + 1]
-    assert "crop=640:480:640:0[topdown]" in graph
+    assert "crop=640:480:iw-640:0[topdown]" in graph
     assert "[ue][topdown]hstack" in graph
     assert "-an" in topdown
     assert "-shortest" not in topdown
@@ -382,6 +383,220 @@ def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:
             frames_pattern="frame_%04d.png",
             output_path="bad.mp4",
             video_encoder="unknown",
+        )
+
+
+def test_resume_reopens_complete_scenario_and_discards_only_incomplete_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scenario = {"scenario_id": "episode_0001"}
+    scenario_root = tmp_path / "episode_0001"
+    scenario_root.mkdir()
+    media = {
+        media_id: {"status": "pass", "path": f"{media_id}.mp4"}
+        for media_id in _RUNNER.MEDIA_EXPECTATIONS
+    }
+    (scenario_root / "evidence.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "scenario_id": "episode_0001",
+                "timing": {"video_encoder": "h264_nvenc"},
+                "media": media,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_probe(path: Path, **_kwargs: object) -> dict:
+        return media[path.stem]
+
+    monkeypatch.setattr(_RUNNER, "_probe_media", fake_probe)
+    reopened = _RUNNER._load_resumable_scenario_record(
+        output_root=tmp_path,
+        scenario=scenario,
+        video_encoder="h264_nvenc",
+    )
+    assert reopened is not None
+    assert reopened["scenario_id"] == "episode_0001"
+
+    incomplete = tmp_path / "episode_0002"
+    incomplete.mkdir()
+    (incomplete / "partial.mp4").touch()
+    assert (
+        _RUNNER._load_resumable_scenario_record(
+            output_root=tmp_path,
+            scenario={"scenario_id": "episode_0002"},
+            video_encoder="h264_nvenc",
+        )
+        is None
+    )
+    assert not incomplete.exists()
+
+
+def test_resume_requires_the_same_retained_execution_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    output = tmp_path / "output"
+    bundle.mkdir()
+    output.mkdir()
+    retained = {"scenarios": [{"scenario_id": "old"}]}
+    (output / "suite_execution_plan.json").write_text(
+        json.dumps(retained), encoding="utf-8"
+    )
+    current = {"scenarios": [{"scenario_id": "new"}]}
+    monkeypatch.setattr(
+        _RUNNER, "load_apartment_lighting_profile", lambda *_args: {}
+    )
+    monkeypatch.setattr(
+        _RUNNER, "build_native_apartment_asset_bound_suite", lambda *_args, **_kwargs: current
+    )
+    monkeypatch.setattr(
+        _RUNNER, "_assert_suite_actor_binding_closure", lambda _suite: None
+    )
+    args = _RUNNER.parse_args(
+        [
+            "--bundle-root",
+            str(bundle),
+            "--input-layout",
+            "asset-bound-batch",
+            "--output-dir",
+            str(output),
+            "--resume",
+        ]
+    )
+    with pytest.raises(
+        RuntimeError, match="differs from the retained execution plan"
+    ):
+        _RUNNER.run(args)
+    assert json.loads(
+        (output / "suite_execution_plan.json").read_text(encoding="utf-8")
+    ) == retained
+
+
+def test_exact_episode_shards_are_balanced_disjoint_and_exhaustive(
+    tmp_path: Path,
+) -> None:
+    episode_ids = tuple(f"episode_{index:04d}" for index in range(7))
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "episode_count": len(episode_ids),
+                "episode_ids": list(episode_ids),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    declared = apartment.asset_bound_bundle_episode_ids(tmp_path)
+    shards = [
+        apartment.contiguous_episode_shard(
+            declared, shard_count=3, shard_index=index
+        )
+        for index in range(3)
+    ]
+
+    assert [len(shard) for shard in shards] == [3, 2, 2]
+    assert tuple(value for shard in shards for value in shard) == episode_ids
+    assert set(shards[0]).isdisjoint(shards[1])
+    assert set(shards[0]).isdisjoint(shards[2])
+    assert set(shards[1]).isdisjoint(shards[2])
+
+
+def test_runner_dry_run_records_only_its_exact_manifest_shard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    output = tmp_path / "output"
+    bundle.mkdir()
+    episode_ids = [f"episode_{index:04d}" for index in range(5)]
+    (bundle / "manifest.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "episode_count": len(episode_ids),
+                "episode_ids": episode_ids,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        _RUNNER, "load_apartment_lighting_profile", lambda *_args: {}
+    )
+
+    def fake_suite(
+        _bundle: Path,
+        *,
+        scenario_ids: tuple[str, ...],
+        lighting_profile: dict,
+    ) -> dict:
+        assert lighting_profile == {}
+        return {
+            "scenarios": [
+                {"scenario_id": scenario_id} for scenario_id in scenario_ids
+            ]
+        }
+
+    monkeypatch.setattr(
+        _RUNNER, "build_native_apartment_asset_bound_suite", fake_suite
+    )
+    monkeypatch.setattr(
+        _RUNNER, "_assert_suite_actor_binding_closure", lambda _suite: None
+    )
+    args = _RUNNER.parse_args(
+        [
+            "--bundle-root",
+            str(bundle),
+            "--input-layout",
+            "asset-bound-batch",
+            "--output-dir",
+            str(output),
+            "--shard-count",
+            "2",
+            "--shard-index",
+            "1",
+            "--dry-run",
+        ]
+    )
+
+    plan_path = _RUNNER.run(args)
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+
+    assert [value["scenario_id"] for value in plan["scenarios"]] == episode_ids[3:]
+    assert plan["execution_partition"] == {
+        "kind": "contiguous_manifest_episode_ids",
+        "shard_count": 2,
+        "shard_index": 1,
+        "total_episode_count": 5,
+        "selected_episode_count": 2,
+        "first_episode_id": "episode_0003",
+        "last_episode_id": "episode_0004",
+    }
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--shard-count", "2"],
+        ["--shard-index", "0"],
+        ["--shard-count", "2", "--shard-index", "2"],
+        ["--shard-count", "2", "--shard-index", "0", "--scenario", "x"],
+    ],
+)
+def test_runner_rejects_incomplete_or_overlapping_shard_selection(
+    tmp_path: Path, argv: list[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        _RUNNER.parse_args(
+            [
+                "--input-layout",
+                "asset-bound-batch",
+                "--output-dir",
+                str(tmp_path / "output"),
+                *argv,
+            ]
         )
 
 

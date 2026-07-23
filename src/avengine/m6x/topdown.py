@@ -397,6 +397,10 @@ class _PreparedTopdown:
         self.right_ray_delta = self.panel_direction(
             right_ray_xz, pixel_length=wedge_length
         )
+        self.projected_paths = {
+            source_id: tuple(self.panel_point(point) for point in points)
+            for source_id, points in paths.items()
+        }
         self.base = base
 
     def panel_point_xz(self, point_xz: Sequence[float]) -> tuple[float, float]:
@@ -548,7 +552,7 @@ def _render_prepared_frame(
     for source_id in paths:
         points = paths[source_id]
         color = colors[source_id]
-        projected = [prepared.panel_point(point) for point in points]
+        projected = prepared.projected_paths[source_id]
         if len(projected) > 1:
             draw.line(projected, fill=(*color[:3], 72), width=3)
             if frame_index > 0:

@@ -699,20 +699,34 @@ only passing finite routes.  The selector never repairs or silently snaps a
 path; it applies each concrete offset, rejects failures, then samples the
 declared motion cases deterministically and evenly.
 
+A finite pool of single-source paths can also be recombined before concrete
+asset binding. Path A paired with B and path A paired with C are distinct
+two-source episodes; paths do not need to be consumed once. The recombiner
+still rejects repeated ordered pairs and enforces a provisional root-pair
+separation. Its output must subsequently pass the concrete emitter/navmesh
+gate because animal-specific mouth offsets can change validity.
+
 ```bash
+PYTHONPATH=src python tools/m7/recombine_source_trajectory_bank.py \
+  --trajectory-bank tmp/m7/apartment_source_slots_run_01/trajectory_bank.json \
+  --episodes-per-motion-case 1000 \
+  --minimum-pair-separation-m 0.30 \
+  --output tmp/m7/apartment_source_path_combinations_run_01
+
 PYTHONPATH=src python tools/m6x/select_asset_bound_trajectories.py \
-  --trajectory-bank tmp/m7/apartment_source_slots_diverse_20260721_03/trajectory_bank.json \
+  --trajectory-bank tmp/m7/apartment_source_path_combinations_run_01/trajectory_bank.json \
   --scenario-templates examples/m7/human_small_animal_asset_pair_templates.json \
-  --template-rir-plan tmp/m7/apartment_source_slots_diverse_20260721_03/rir_job_plan.json \
+  --template-rir-plan tmp/m7/apartment_source_slots_run_01/rir_job_plan.json \
   --navmesh tmp/m1/legacy_apartment_package/visual/navmeshes/legacy_apartment_0000.navmesh \
   --floor-height-m 0.271 \
-  --episodes-per-pair 50 \
+  --episodes-per-pair 250 \
+  --minimum-pair-separation-m 0.30 \
   --output tmp/m7/apartment_asset_feasible_selection_run_01
 
 PYTHONPATH=src python tools/m6x/build_asset_bound_rir_plan.py \
-  --trajectory-bank tmp/m7/apartment_source_slots_diverse_20260721_03/trajectory_bank.json \
+  --trajectory-bank tmp/m7/apartment_source_path_combinations_run_01/trajectory_bank.json \
   --scenario-set tmp/m7/apartment_asset_feasible_selection_run_01/selected_scenarios.json \
-  --template-rir-plan tmp/m7/apartment_source_slots_diverse_20260721_03/rir_job_plan.json \
+  --template-rir-plan tmp/m7/apartment_source_slots_run_01/rir_job_plan.json \
   --navmesh tmp/m1/legacy_apartment_package/visual/navmeshes/legacy_apartment_0000.navmesh \
   --floor-height-m 0.271 \
   --output tmp/m7/apartment_asset_bound_plan_run_01
@@ -773,6 +787,18 @@ passed artifact readback for all 1,000 two-channel WAV files, all 100
 route/cache closures and all 5,000 source positions. These are observed
 research timings, not a promise for future rooms or storage load.
 
+The expanded 1,000-visual-episode closure starts from 400 reusable
+single-source components and retains 4,000 unique ordered two-source
+combinations, 1,000 per motion case. All 400 components are used between 8
+and 32 times. Concrete Border-Collie/cat/human binding passed 9,617 candidate
+episodes and selected 1,000: 250 for each ordered asset pair, with a measured
+minimum source-center separation of 0.309 m. Its plan contains 9,047 unique
+RIRs for 50,000 source/keyframe uses, so 40,953 uses are cache reuses. Native
+32-thread RLR propagation took 243.16 seconds and the complete cache run took
+346.43 seconds. The one-audio-realization-per-visual-episode batch then wrote
+and reopened all 1,000 five-second binaural WAVs in 388.24 seconds with zero
+new RLR or visual calls.
+
 For a four-video review subset, the cache-bound example builder now selects a
 declared source-binding profile instead of hard-coding Beagle as the second
 shape. `human_border_collie_grounded` produces static/static,
@@ -794,11 +820,12 @@ same thing for a future generated animal.
 
 ### Build one visual bank for 1,000 Apartment training items
 
-The 1,000-item closure does not render the same scene 1,000 times. It first
-materializes 100 unique five-second route bundles, renders one UE RGB and
-Topdown pair for each, then binds ten separately mixed binaural WAV variants
-to that visual episode. Apartment geometry is loaded once by the persistent
-UE runner and is never copied into an episode directory.
+The indexer supports any exact episode/variant layout that totals 1,000
+samples and divides into 800/100/100. The lightweight historical baseline
+uses 100 visual episodes x 10 audio variants. The owner-requested expanded
+closure uses 1,000 selected two-source visual episodes x 1 audio realization.
+In both layouts, Apartment geometry is loaded once by the persistent UE
+runner and is never copied into an episode directory.
 
 ```bash
 PYTHONPATH=src python tools/m7/build_asset_bound_apartment_ue_bundle.py \
@@ -818,7 +845,45 @@ python tools/m6y/run_spear_apartment_canary.py \
   --output-dir tmp/m7/apartment_asset_bound_ue_render_run_01 \
   --graphics-adapter 3 \
   --video-encoder h264_nvenc \
-  --encoder-gpu 3
+  --encoder-gpu 3 \
+  --resume
+
+# For two independent GPUs, first retain the complete merge authority:
+PYTHONPATH=/path/to/SPEAR/python:src \
+python tools/m6y/run_spear_apartment_canary.py \
+  --bundle-root tmp/m7/apartment_asset_bound_ue_bundle_run_01 \
+  --input-layout asset-bound-batch \
+  --output-dir tmp/m7/apartment_asset_bound_ue_full_plan \
+  --video-encoder h264_nvenc --dry-run
+
+# Then partition before either UE process starts:
+nohup setsid env PYTHONPATH=/path/to/SPEAR/python:src \
+python tools/m6y/run_spear_apartment_canary.py \
+  --bundle-root tmp/m7/apartment_asset_bound_ue_bundle_run_01 \
+  --input-layout asset-bound-batch \
+  --output-dir tmp/m7/apartment_asset_bound_ue_shard_00 \
+  --graphics-adapter 3 --encoder-gpu 3 --rpc-port 39343 \
+  --video-encoder h264_nvenc --shard-count 2 --shard-index 0 \
+  > tmp/m7/apartment_asset_bound_ue_shard_00.log 2>&1 < /dev/null &
+
+nohup setsid env PYTHONPATH=/path/to/SPEAR/python:src \
+python tools/m6y/run_spear_apartment_canary.py \
+  --bundle-root tmp/m7/apartment_asset_bound_ue_bundle_run_01 \
+  --input-layout asset-bound-batch \
+  --output-dir tmp/m7/apartment_asset_bound_ue_shard_01 \
+  --graphics-adapter 2 --encoder-gpu 2 --rpc-port 39344 \
+  --video-encoder h264_nvenc --shard-count 2 --shard-index 1 \
+  > tmp/m7/apartment_asset_bound_ue_shard_01.log 2>&1 < /dev/null &
+
+# After both exact shards finish:
+PYTHONPATH=src python tools/m7/merge_spear_apartment_render_shards.py \
+  --visual-bundle-root tmp/m7/apartment_asset_bound_ue_bundle_run_01 \
+  --full-suite-plan tmp/m7/apartment_asset_bound_ue_full_plan/suite_execution_plan.json \
+  --shard-root tmp/m7/apartment_asset_bound_ue_shard_00 \
+  --shard-root tmp/m7/apartment_asset_bound_ue_shard_01 \
+  --video-encoder h264_nvenc \
+  --verify-workers 8 \
+  --output tmp/m7/apartment_asset_bound_ue_render_run_01
 
 PYTHONPATH=src python tools/m7/build_asset_bound_dataset_index.py \
   --audio-batch-root tmp/m7/asset_bound_binaural_batch_run_01 \
@@ -833,6 +898,27 @@ fell from 105.13 seconds with the original sequential builder to 14.00 seconds
 with four workers. The full 100-episode, eight-worker input bundle took 268.96
 seconds, retained 46 MB and reported `scene_copy_count: 0`.
 
+For the expanded closure, source paths are projected to the Topdown panel once
+per episode instead of once per frame. The builder writes only the 640x480
+Topdown panel that UE later consumes; the discarded text panel is no longer
+encoded. Each episode is atomically finalized and can be verified and resumed
+from the fixed staging directory after interruption. The retained 1,000
+episode input bundle used eight workers, copied no scene geometry, retained
+334 MB and completed in 1,156.78 seconds (19.28 minutes).
+
+SPEAR render shards own different RPC ports, GPU adapters and output roots;
+they never write one episode concurrently. `--shard-count` and
+`--shard-index` split the manifest order before UE starts; each retained shard
+plan therefore contains only its own IDs and can be resumed independently.
+Do not launch a full plan and attempt to stop it after an observed directory
+count. The merger requires the complete
+suite plan, rejects changed or missing scenarios, reopens all four media files
+for every selected episode and hardlinks the verified files into one atomic
+output. Duplicate shard results are reported explicitly and the first declared
+shard wins; media bytes and room data are not copied. Independent FFprobe and
+audio-packet readbacks are parallelized across `--verify-workers`; this uses
+CPU/process concurrency only after both UE runtimes have closed.
+
 The corresponding retained native SPEAR/UE render completed all 100 visual
 episodes in one persistent runtime session in 1,337.51 seconds (22.29
 minutes). Per-episode wall time was 13.17 seconds on average and 13.10 seconds
@@ -842,12 +928,23 @@ at the median, with a 12.43--14.29 second range. Runtime evidence passed all
 outputs. The rendered bank retained 258 MB. These are observed timings on the
 current machine and storage load, not a fixed performance guarantee.
 
-The final index splits at the visual-episode level, not at the audio-variant
-level. Eighty trajectories and all their variants become 800 training items;
-ten trajectories each become 100 validation and 100 test items. The
+The measured per-episode bottleneck is final UE production, not trajectory
+selection or RIR lookup. In the retained native run, visual capture plus raw
+encoding averaged 8.33 seconds (about 63%); Topdown composition 1.50 seconds,
+four-file media readback 1.48 seconds, camera/asset warmup 1.31 seconds,
+audio muxing 0.26 seconds and runtime gates 0.03 seconds. More CPU workers
+therefore accelerate input Topdown preparation and final shard verification,
+but cannot parallelize one UE world's frame loop. Independent SPEAR processes
+on different available GPU adapters are the supported way to reduce that wall
+clock, followed by the verified hardlink merge above.
+
+The final index splits at the complete two-source visual-episode level, not at
+the component-path or audio-variant level. For 100x10, 80/10/10 visual
+episodes form the 800/100/100 item split. For 1000x1, the visual episode split
+itself is 800/100/100. Reusing component path A in A+B and A+C is allowed, but
+the same complete RGB/Topdown episode cannot cross split boundaries. The
 deterministic stratifier covers every motion case and ordered asset pair in
-all three splits, preventing one RGB/Topdown trajectory from leaking across
-train, validation and test.
+all three splits.
 
 Materialize a plan with one persistent native context and one scene upload.
 The acoustic package is mandatory because the trajectory plan alone does not

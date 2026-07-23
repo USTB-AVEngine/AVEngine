@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-import numpy as np
+import importlib.util
+import json
+import os
+from pathlib import Path
 
+import numpy as np
+import pytest
+
+from avengine.contracts.json_io import sha256_file
 from avengine.m7.apartment_visual_bundle import (
     BORDER_COLLIE_ASSET_ID,
     CAT_ASSET_ID,
@@ -10,6 +17,15 @@ from avengine.m7.apartment_visual_bundle import (
     build_source_manifest,
     build_timeline,
 )
+
+_BUILDER_SPEC = importlib.util.spec_from_file_location(
+    "build_asset_bound_apartment_ue_bundle",
+    Path(__file__).resolve().parents[2]
+    / "tools/m7/build_asset_bound_apartment_ue_bundle.py",
+)
+assert _BUILDER_SPEC is not None and _BUILDER_SPEC.loader is not None
+_BUILDER = importlib.util.module_from_spec(_BUILDER_SPEC)
+_BUILDER_SPEC.loader.exec_module(_BUILDER)
 
 
 def _episode() -> dict:
@@ -96,3 +112,77 @@ def test_binding_report_requires_supported_exact_assets() -> None:
     }
     result = binding_assets_by_episode(report)
     assert result[_episode()["episode_id"]]["source2"]["asset_id"] == CAT_ASSET_ID
+
+
+def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
+    tmp_path: Path,
+) -> None:
+    episode_id = "episode_0001"
+    root = tmp_path / "episodes" / episode_id
+    metadata = root / "metadata"
+    videos = root / "videos"
+    metadata.mkdir(parents=True)
+    videos.mkdir()
+    diagnostic = videos / "diagnostic_topdown_binaural.mp4"
+    diagnostic.write_bytes(b"completed diagnostic media")
+    os.link(diagnostic, videos / "clean_binaural.mp4")
+    for name in (
+        "timeline.json",
+        "source_manifest.json",
+        "flags.json",
+        "batch_binding.json",
+    ):
+        (metadata / name).write_text("{}", encoding="utf-8")
+    row = {
+        "episode_ordinal": 0,
+        "episode_id": episode_id,
+        "v00_sample_id": "sample_0001",
+    }
+    (metadata / "build_record.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "diagnostic_sha256": sha256_file(diagnostic),
+                "row": row,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    reopened = _BUILDER._load_completed_episode(
+        staging=tmp_path,
+        episode_id=episode_id,
+        ordinal=17,
+        sample={"sample_id": "sample_0001"},
+    )
+    assert reopened == {
+        "episode_ordinal": 17,
+        "episode_id": episode_id,
+        "v00_sample_id": "sample_0001",
+    }
+
+    diagnostic.write_bytes(b"changed media")
+    with pytest.raises(RuntimeError, match="completed episode changed"):
+        _BUILDER._load_completed_episode(
+            staging=tmp_path,
+            episode_id=episode_id,
+            ordinal=17,
+            sample={"sample_id": "sample_0001"},
+        )
+
+
+def test_ue_input_rejects_visual_and_audio_asset_binding_mismatch() -> None:
+    sample = {
+        "asset_ids_by_source_slot": {
+            "source1": BORDER_COLLIE_ASSET_ID,
+            "source2": "wrong_cat",
+        }
+    }
+    with pytest.raises(
+        RuntimeError, match="visual and audio asset bindings differ"
+    ):
+        _BUILDER._assert_sample_asset_alignment(
+            episode_id=_episode()["episode_id"],
+            episode_bindings=_bindings(),
+            sample=sample,
+        )

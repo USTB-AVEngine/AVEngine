@@ -49,11 +49,16 @@ Apartment training-data route. Do not replace them with an easier canary:
   Do not silently fall back to Habitat RGB for the final Apartment dataset.
   Actor slots remain generic `source1` and `source2`, regardless of whether an
   episode binds a human, dog or cat.
-- Render each unique visual trajectory once and bind its dry-audio variants
-  through the dataset index. Train/validation/test splitting happens at the
-  visual-episode level, never at the audio-variant level, so the same RGB and
-  Topdown trajectory cannot leak across splits. The current 1,000-item closure
-  uses 100 visual episodes x 10 audio variants and an 800/100/100 sample split.
+- Render each selected two-source visual episode once and bind its dry-audio
+  variants through the dataset index. A finite single-source path is reusable:
+  pairing path A with B and pairing A with C are different valid episodes, so
+  the path pool does not need 2,000 one-use paths. The ordered two-source
+  combination and concrete asset bindings identify the visual episode.
+  Train/validation/test splitting happens at that visual-episode level, never
+  at the audio-variant level, so one exact RGB and Topdown episode cannot leak
+  across splits. The completed lightweight baseline used 100 visual episodes
+  x 10 audio variants. The current owner-requested 1,000-item closure uses
+  1,000 visual episodes x 1 audio realization and an 800/100/100 sample split.
 - The current owner-approved generative route uses FLUX without Qwen. Do not
   use low-VRAM modes, CPU offload or sequential model offload; load the model
   directly into available GPU memory. This does not relax output anatomy or

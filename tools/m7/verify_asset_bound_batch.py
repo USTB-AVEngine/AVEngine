@@ -53,7 +53,13 @@ def _finite_paths(value: Any, *, owner: str) -> np.ndarray:
 
 def _bank(plan_root: Path) -> tuple[dict[str, int], np.ndarray, Mapping[str, Any]]:
     record = _json(plan_root / "trajectory_bank.json")
-    if record.get("episode_count") != 100 or record.get("frame_count") != FRAME_COUNT:
+    episode_count = record.get("episode_count")
+    if (
+        isinstance(episode_count, bool)
+        or not isinstance(episode_count, int)
+        or episode_count < 1
+        or record.get("frame_count") != FRAME_COUNT
+    ):
         raise BatchVerificationError("trajectory bank count or frame count differs")
     arrays = np.load(plan_root / "trajectory_bank.npz", allow_pickle=False)
     source_slots = tuple(str(value) for value in arrays["source_slot_ids"])
@@ -64,6 +70,8 @@ def _bank(plan_root: Path) -> tuple[dict[str, int], np.ndarray, Mapping[str, Any
         raise BatchVerificationError("trajectory bank arrays differ from M7 layout")
     if len(episode_ids) != len(set(episode_ids)) or not np.all(np.isfinite(centers)):
         raise BatchVerificationError("trajectory bank episode IDs or centers are invalid")
+    if len(episode_ids) != episode_count:
+        raise BatchVerificationError("trajectory bank record and arrays differ")
     return {item: index for index, item in enumerate(episode_ids)}, centers, record
 
 
@@ -149,8 +157,8 @@ def _binding_assets(plan_root: Path) -> dict[str, dict[str, str]]:
                 raise BatchVerificationError("asset-emitter binding has an invalid asset")
             assets[slot] = asset
         result[row["output_episode_id"]] = assets
-    if len(result) != 100:
-        raise BatchVerificationError("asset-emitter binding count differs")
+    if not result:
+        raise BatchVerificationError("asset-emitter binding report is empty")
     return result
 
 
@@ -236,16 +244,25 @@ def _verify_batch(
     delivery = _json(batch_root / "delivery.json")
     samples_record = _json(batch_root / "samples.json")
     samples = samples_record.get("samples")
+    episode_count = delivery.get("episode_count")
+    variants_per_episode = delivery.get("variants_per_episode")
     if (
         delivery.get("status") != "pass"
         or delivery.get("sample_count") != 1000
-        or delivery.get("episode_count") != 100
-        or delivery.get("variants_per_episode") != 10
+        or isinstance(episode_count, bool)
+        or not isinstance(episode_count, int)
+        or episode_count != len(expected_assets)
+        or isinstance(variants_per_episode, bool)
+        or not isinstance(variants_per_episode, int)
+        or variants_per_episode < 1
+        or episode_count * variants_per_episode != 1000
         or delivery.get("both_sources_active") is not True
         or not isinstance(samples, list)
         or len(samples) != 1000
     ):
-        raise BatchVerificationError("batch delivery summary differs from 100x10 M7 contract")
+        raise BatchVerificationError(
+            "batch delivery summary differs from the 1,000-item M7 contract"
+        )
     audio_root = batch_root / "audio" / "binaural"
     sample_ids: set[str] = set()
     variants: defaultdict[str, set[int]] = defaultdict(set)
@@ -267,7 +284,7 @@ def _verify_batch(
             or episode_id not in expected_assets
             or isinstance(variant, bool)
             or not isinstance(variant, int)
-            or not 0 <= variant < 10
+            or not 0 <= variant < variants_per_episode
             or not isinstance(assets, Mapping)
             or dict(assets) != dict(expected_assets[episode_id])
             or row.get("both_sources_active") is not True
@@ -306,12 +323,16 @@ def _verify_batch(
         sample_ids.add(sample_id)
         variants[episode_id].add(variant)
         maximum_peak = max(maximum_peak, float(np.max(np.abs(rendered.samples))))
-    if set(variants) != set(expected_assets) or any(value != set(range(10)) for value in variants.values()):
-        raise BatchVerificationError("each selected route must have exactly variants v00..v09")
+    if set(variants) != set(expected_assets) or any(
+        value != set(range(variants_per_episode)) for value in variants.values()
+    ):
+        raise BatchVerificationError(
+            "each selected route must have every declared variant exactly once"
+        )
     return {
         "sample_count": len(sample_ids),
         "episode_count": len(variants),
-        "variants_per_episode": 10,
+        "variants_per_episode": variants_per_episode,
         "maximum_readback_peak_absolute": maximum_peak,
     }
 

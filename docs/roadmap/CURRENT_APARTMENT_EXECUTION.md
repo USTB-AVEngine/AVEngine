@@ -74,15 +74,40 @@ closure. Scene data must be shared rather than copied once per example.
   variants form 800 training samples; 10 routes each form 100 validation and
   100 test samples. Ordered asset pairs and all four motion cases are present
   in every split, and no visual route crosses split boundaries.
+- The owner-requested expansion reuses 400 single-source path components to
+  form 4,000 unique ordered two-source combinations. Path A may legally appear
+  in both A+B and A+C; the exact two-source episode remains the split unit.
+- Concrete asset binding selected 1,000 visual episodes from 9,617 passing
+  candidates: 250 per ordered Border-Collie/cat/human pairing. The four motion
+  cases are 252/252/248/248 and the minimum concrete source-center separation
+  is 0.309 m.
+- The expanded plan has 9,047 unique RIR jobs for 50,000 source/keyframe uses.
+  Native propagation took 243.16 seconds and the complete cache run took
+  346.43 seconds. The 1,000 x 1 audio batch took 388.24 seconds with zero new
+  RLR or visual calls and passed all 1,000 WAV readbacks.
+- The expanded 1,000-episode UE input bundle uses a 640x480 Topdown-only
+  intermediate, copies no room geometry, retains 334 MB and took 1,156.78
+  seconds with eight workers. Episode builds and the subsequent UE renderer
+  are independently resumable.
+- The expanded UE closure and 1,000 x 1 training index are complete. All
+  1,000 unique episodes, 4,000 retained UE media records and 6,000 indexed
+  RGB/Topdown/audio/label references passed readback; the split is
+  800/100/100 at visual-episode level.
+- The first background conversion mistakenly resumed one full 1,000-episode
+  plan and tried to stop it at a directory count. It produced redundant work;
+  the verified merger removed the overlap from the final 1,000-episode index.
+  The runner now partitions the manifest before UE starts through exact
+  `--shard-count` / `--shard-index` arguments. Future shards must use those
+  fixed, disjoint plans and may resume only their own plan.
 
 ## Exact next actions
 
-1. Review only the owned source and documentation changes.
-2. Run the focused unit/style checks.
-3. Commit and push Habitat-native work to
+1. Review the owned source/documentation changes and run focused unit/style
+   checks.
+2. Commit and push Habitat-native work to
    `feature/habitat-native-avengine`; keep generated cat UAssets and import
    tooling in the SPEAR feature branch.
-4. Treat the present Abyssinian as a replaceable canary. A later
+3. Treat the present Abyssinian as a replaceable canary. A later
    owner-selected cat must bring its own generated mesh, emitter measurement,
    UE binding, floor correction and forward/animation gates; the existing
    `source1`/`source2`, route, acoustic and index machinery remains unchanged.
