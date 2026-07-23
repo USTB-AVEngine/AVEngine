@@ -4,6 +4,53 @@ Read this file before doing any work in `/data/jzy/code/AVEngine`.
 If you discover an important path convention, environment requirement, or
 pipeline trap while working, update this file in the same change.
 
+## Workspace output storage
+
+- Repository `tmp` paths are compatibility symlinks whose physical data lives
+  under `/data/datasets/avengine_workspaces/`. Keep tools and stored evidence
+  using the existing repository-relative `tmp/...` paths so historical
+  manifests remain readable. Never replace one of these symlinks with a
+  physical output directory inside the repository.
+- This rule also applies to output `tmp` paths in the checked-out SPEAR,
+  Hunyuan3D and SkinTokens workspaces. Git-internal paths such as
+  `.git/lfs/tmp` are not project outputs and must not be moved.
+
+## Active generated-animal / Apartment decisions
+
+- A new species, breed or materially different morphotype must keep its own
+  FLUX -> Pixel3D target geometry through topology/PBR repair, TokenRig,
+  heading normalization, four-foot leveling and animation binding. Quaternius
+  or another library animal may donate motion, but must never replace the
+  generated animal's mesh, silhouette, joint placement or skin weights.
+- The current accepted Apartment canary baselines are the Border Collie
+  `generated_border_collie_black_white_medium_standard_adult_research_v1` and
+  the Abyssinian
+  `generated_abyssinian_ruddy_medium_standard_adult_research_v1`. The accepted
+  Abyssinian runtime GLB is:
+  `/data/jzy/code/AVEngine/external/SPEAR/tmp/new_animal_assets/animal_generated_mesh_rig_v2_20260722_01/flux_base_abyssinian/tokenrig_seed42/retarget_v5_spike_yaw180_matched_amp0p40/animated_walk_idle.glb`.
+  Do not use the Quaternius template Cat as its substitute in this canary.
+  The Abyssinian is not the permanently required final cat: a later
+  owner-selected cat may replace or join it after that cat keeps its own
+  generated geometry and passes the same rig, animation and runtime gates.
+  Never hard-code Apartment source slots to one cat breed.
+- The current Border Collie Apartment baseline GLB is:
+  `/data/jzy/code/AVEngine/external/SPEAR/tmp/new_animal_assets/border_collie_instance_attributes_v1_20260723_01/ofat_v5_grounded_emitter_20260723_01/baseline/instance.glb`.
+- Current Apartment authority is split deliberately: Habitat-native owns
+  trajectories, source centers, binaural audio, Topdown and labels; SPEAR/UE
+  `apartment_0000` owns final RGB. Source slots are `source1`/`source2`, not
+  hard-coded human/dog roles.
+- Breed coat variants must be FLUX reference-guided appearance edits, not RGB
+  recolouring. For the current route, do not use Qwen and do not use
+  low-VRAM/CPU/sequential offload modes; place the selected FLUX model directly
+  on available GPU memory.
+- A UE editor import is not yet usable by the standalone SPEAR runtime. Batch
+  all compatible new assets, then cook/package once. `tools/run_uat.py` can
+  expose only the first of multiple `--cook-dirs` to the final Cook
+  commandlet, so pass one common parent such as
+  `Content/MyAssets/Audioset`. Omitting UE's `-iterate`/incremental-cook flag
+  deletes the existing cooked sandbox and triggers a full cook; do not pay
+  that cost once per animal.
+
 ## Workspace Layout
 
 - AVEngine monorepo root: `/data/jzy/code/AVEngine`

@@ -16,5 +16,5 @@ __pycache__/
 .vscode/
 *.swp
 
-# any tmp/ inside AVEngine (mirrors SPEAR convention)
-tmp/
+# Workspace tmp is an external-storage symlink (or a local directory).
+/tmp
