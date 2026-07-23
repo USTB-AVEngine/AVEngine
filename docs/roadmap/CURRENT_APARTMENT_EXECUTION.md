@@ -93,6 +93,61 @@ closure. Scene data must be shared rather than copied once per example.
   1,000 unique episodes, 4,000 retained UE media records and 6,000 indexed
   RGB/Topdown/audio/label references passed readback; the split is
   800/100/100 at visual-episode level.
+- A deterministic audio-only adapter has now executed 26 test mixtures through
+  the existing `v4_3_new_IPD_Enhancer` Progressive Refinement `last.pt`.
+  It reads no visual media, crops each five-second native-HRTF binaural sample
+  to the model's fixed four-second input, and queries both source slots. Strict
+  checkpoint loading and all 52 forward contracts passed. After one cold
+  batch, warm inference averaged 0.0500 seconds per target query (20.00
+  queries/second). This is compatibility evidence, not a performance pass:
+  v4 folds AVEngine's full circle into 180 degrees, the folded mean absolute
+  error was 53.01 degrees, and only 4.87 percent of frames changed predicted
+  bins between the two target queries. Current delivered mixtures do not
+  retain wet stems, so separation SI-SNR was correctly left `not_run`.
+- `v72_S2L` is a structurally simple two-channel candidate for retraining but
+  has no local checkpoint. `v77_4ch_S2L` consumes four physical tetrahedral
+  microphone channels rather than native-HRTF binaural audio and is not the
+  first compatibility baseline for this delivery.
+- The owner selected the v4_3 architecture for the first retraining path, but
+  explicitly rejected reuse of its localization checkpoint. The experiment is
+  isolated under `models/v4_3_binaural360_selective/` on branch
+  `feature/v43-binaural360-model`; no v4-specific model code remains in
+  production `src/avengine/`, general `tools/` or general unit-test paths. The
+  required Progressive Refinement architecture is copied into that directory;
+  the runner does not import implementation code from the Spatial checkout.
+- The isolated runner consumed one complete five-second, 16 kHz native-HRTF
+  binaural mixture twice with distinct `dog barking` and `cat meowing` text
+  queries. It used all 80,000 samples, 75 output frames and 360 circular
+  one-degree bins. The localization/separation network was randomly
+  initialized; no old localization checkpoint was accepted or loaded. Frozen
+  pretrained LAION CLAP was retained only as the text encoder.
+- The real CUDA smoke passed forward, circular DoA/cardinality loss, backward
+  and parameter update. One two-query update took 0.40 seconds after model
+  load, changed the 360-degree head by `0.00100044`, propagated gradients to
+  6,972,122 parameters and peaked at 2.15 GB allocated GPU memory. This is an
+  execution-contract pass only: one update is not convergence evidence and
+  its localization error must not be reported as model quality. The
+  authoritative self-contained smoke record is
+  `tmp/m7/v43_model_subdir_train_smoke_20260723_03/results.json`.
+- The formal model path now follows the useful part of the old v4 data
+  contract without copying its per-sample file overhead. A resumable builder
+  converted all 1,000 five-second WAV mixtures, two native-360 label tracks,
+  split codes and captions into one 612 MB HDF5 file. Full readback yielded
+  1,600/200/200 train/validation/test text queries. The first conversion took
+  347.76 seconds under shared-disk contention; formal training preloads it to
+  host RAM and avoids reopening WAV files across epochs.
+- Mid-epoch checkpoint/resume has executed on real CUDA. Deterministic
+  CUDA/cuDNN settings made a one-step-plus-resume run bit-identical to an
+  uninterrupted two-step run across all 351 saved model tensors. Checkpoints
+  exclude the frozen CLAP weights and are approximately 81 MB.
+- One complete 800/100/100 epoch passed 200 training batches, validation,
+  best-checkpoint reload and held-out test. Training took 72.56 seconds after
+  model/data initialization. This remains an execution pass rather than a
+  quality pass: after one epoch the test circular mean error was 69.77 degrees
+  and the two text queries almost always predicted the same direction. Longer
+  training and a deliberate selective-objective review are still required.
+  The result is
+  `tmp/m7/v43_formal_h5_epoch1_20260723_01/training_summary.json`.
 - The first background conversion mistakenly resumed one full 1,000-episode
   plan and tried to stop it at a directory count. It produced redundant work;
   the verified merger removed the overlap from the final 1,000-episode index.
@@ -102,11 +157,13 @@ closure. Scene data must be shared rather than copied once per example.
 
 ## Exact next actions
 
-1. Review the owned source/documentation changes and run focused unit/style
-   checks.
-2. Commit and push Habitat-native work to
-   `feature/habitat-native-avengine`; keep generated cat UAssets and import
-   tooling in the SPEAR feature branch.
+1. Review the isolated v4_3 objective and choose the first real training
+   schedule. The one-epoch execution canary is not selective-quality evidence;
+   compare longer text-only training against a held-out target-query
+   difference metric before claiming that text guidance works.
+2. Review and commit the isolated experiment on
+   `feature/v43-binaural360-model`; do not merge it into
+   `feature/habitat-native-avengine` until the training interface is reviewed.
 3. Treat the present Abyssinian as a replaceable canary. A later
    owner-selected cat must bring its own generated mesh, emitter measurement,
    UE binding, floor correction and forward/animation gates; the existing

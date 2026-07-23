@@ -73,6 +73,12 @@ Apartment training-data route. Do not replace them with an easier canary:
 ## Repository boundaries
 
 - Do not copy Habitat-Sim source into this repository.
+- The owner-approved v4_3 model experiment is isolated under
+  `models/v4_3_binaural360_selective/` on its dedicated feature branch. All
+  v4-specific architecture code, adaptation, losses, training, evaluation and
+  tests must remain below that directory. It must not import implementation
+  code from the sibling Spatial checkout. Production `src/avengine/` and
+  general `tools/` code must not import the experiment.
 - Runtime C++/binding changes belong in the sibling runtime fork and must keep
   upstream behavior as the default unless a reviewed AVEngine opt-in is used.
 - Generated media, native evidence and large assets belong under ignored
