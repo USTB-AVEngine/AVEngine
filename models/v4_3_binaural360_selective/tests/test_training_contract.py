@@ -102,3 +102,16 @@ def test_formal_runner_has_no_old_localization_checkpoint_cli():
     source = (Path(__file__).parents[1] / "train.py").read_text(encoding="utf-8")
     assert "--checkpoint" not in source
     assert "old_localization_checkpoint" not in source
+
+
+def test_training_uses_only_the_selected_cuda_rng():
+    root = Path(__file__).parents[1]
+    source = (root / "train.py").read_text(encoding="utf-8")
+    smoke = (root / "run_training_smoke.py").read_text(encoding="utf-8")
+    for forbidden in (
+        "manual_seed_all",
+        "get_rng_state_all",
+        "set_rng_state_all",
+    ):
+        assert forbidden not in source
+        assert forbidden not in smoke

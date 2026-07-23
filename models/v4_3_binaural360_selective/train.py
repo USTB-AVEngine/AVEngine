@@ -313,6 +313,7 @@ def _model_state_without_clap(model: Any) -> dict[str, Any]:
 def _checkpoint_payload(
     *,
     torch: Any,
+    device: Any,
     model: Any,
     optimizer: Any,
     run_identity: Mapping[str, Any],
@@ -339,7 +340,7 @@ def _checkpoint_payload(
         "partial_epoch_loss_sum": partial_epoch_loss_sum,
         "partial_epoch_loss_count": partial_epoch_loss_count,
         "torch_rng_state": torch.get_rng_state(),
-        "cuda_rng_state_all": torch.cuda.get_rng_state_all(),
+        "cuda_rng_state": torch.cuda.get_rng_state(device),
     }
 
 
@@ -390,14 +391,24 @@ def _load_checkpoint(
         )
     optimizer.load_state_dict(payload["optimizer_state"])
     torch.set_rng_state(payload["torch_rng_state"].cpu())
-    torch.cuda.set_rng_state_all(
-        [state.cpu() for state in payload["cuda_rng_state_all"]]
-    )
+    cuda_rng_state = payload.get("cuda_rng_state")
+    if cuda_rng_state is None:
+        legacy_states = payload.get("cuda_rng_state_all")
+        if (
+            not isinstance(legacy_states, Sequence)
+            or device.index is None
+            or device.index >= len(legacy_states)
+        ):
+            raise LegacyV4AudioError("resume checkpoint lacks CUDA RNG state")
+        cuda_rng_state = legacy_states[device.index]
+    torch.cuda.set_rng_state(cuda_rng_state.cpu(), device)
     return payload
 
 
 def _summary(
     *,
+    torch: Any,
+    device: Any,
     status: str,
     run_identity: Mapping[str, Any],
     model_audit: Mapping[str, Any],
@@ -436,6 +447,10 @@ def _summary(
         "timing_seconds": {
             "data_preparation": data_preparation_seconds,
             "model_load": model_load_seconds,
+        },
+        "gpu_memory_bytes": {
+            "peak_allocated": int(torch.cuda.max_memory_allocated(device)),
+            "peak_reserved": int(torch.cuda.max_memory_reserved(device)),
         },
     }
 
@@ -502,6 +517,7 @@ def main() -> int:
         device=device,
         queries_by_split=queries_by_split,
     )
+    torch.cuda.reset_peak_memory_stats(device)
     trainable = [
         parameter for parameter in model.parameters() if parameter.requires_grad
     ]
@@ -617,6 +633,7 @@ def main() -> int:
                     path=latest_path,
                     payload=_checkpoint_payload(
                         torch=torch,
+                        device=device,
                         model=model,
                         optimizer=optimizer,
                         run_identity=run_identity,
@@ -654,6 +671,7 @@ def main() -> int:
                         path=latest_path,
                         payload=_checkpoint_payload(
                             torch=torch,
+                            device=device,
                             model=model,
                             optimizer=optimizer,
                             run_identity=run_identity,
@@ -668,6 +686,8 @@ def main() -> int:
                         ),
                     )
                     summary = _summary(
+                        torch=torch,
+                        device=device,
                         status="stopped_after_requested_global_steps",
                         run_identity=run_identity,
                         model_audit=model_audit,
@@ -719,6 +739,7 @@ def main() -> int:
                 path=best_path,
                 payload=_checkpoint_payload(
                     torch=torch,
+                    device=device,
                     model=model,
                     optimizer=optimizer,
                     run_identity=run_identity,
@@ -741,6 +762,7 @@ def main() -> int:
             path=latest_path,
             payload=_checkpoint_payload(
                 torch=torch,
+                device=device,
                 model=model,
                 optimizer=optimizer,
                 run_identity=run_identity,
@@ -755,6 +777,8 @@ def main() -> int:
             ),
         )
         summary = _summary(
+            torch=torch,
+            device=device,
             status=(
                 "stopped_after_requested_global_steps"
                 if stop_requested
@@ -797,6 +821,8 @@ def main() -> int:
         batch_size=args.validation_batch_size,
     )
     summary = _summary(
+        torch=torch,
+        device=device,
         status="pass",
         run_identity=run_identity,
         model_audit=model_audit,

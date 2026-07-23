@@ -246,8 +246,9 @@ def _load_model(
     from avengine_v43.model import TPEech_Progressive_Refinement
 
     started = time.perf_counter()
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    torch.random.default_generator.manual_seed(seed)
+    torch.cuda.set_device(device)
+    torch.cuda.manual_seed(seed)
     torch.use_deterministic_algorithms(True)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
