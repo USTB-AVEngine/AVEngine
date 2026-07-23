@@ -605,6 +605,24 @@ path, transforms this constant offset to world space and sends those points to
 RLR. It does not inspect bone names, advance mouth animation or infer a
 species-wide proportion. A static root produces a static emitter point.
 
+For a normalized generated quadruped, measure that simple fixed offset from
+the concrete accepted GLB rather than copying a cat/dog template value:
+
+```bash
+cd ../AVEngine/external/SPEAR
+blender -b \
+  --python tools/blender_measure_generated_animal_emitter.py -- \
+  --input-glb PATH_TO_ACCEPTED_POSITIVE_X_GROUNDED_ANIMAL.glb \
+  --output PATH_TO_EMITTER_MEASUREMENT.json
+```
+
+The tool selects the forward portion of head-weighted rest-mesh vertices,
+projects the result onto the sagittal plane and records a canonical
+`+X forward, +Y up, +Z left` offset. It does not require mouth animation.
+Every later owner-selected cat/dog runs the measurement on its own generated
+asset; the current Abyssinian is only the Apartment canary baseline, not a
+permanent hard-coded cat.
+
 The example scenario set binds a human, Beagle and domestic cat across two
 five-second routes:
 
@@ -741,17 +759,19 @@ WAVE write/readback).  Scaling that measured session path to ten variants is
 approximately 140 seconds; this is a throughput estimate, not a dataset
 admission or a claim about future rooms/assets.
 
-A later grounded generated-asset cross-check binds a target-native Border
-Collie, human and cat across both `source1` and `source2`. Its selected 100
-routes retain 28 static/static and 24 of each moving case. The concrete
-asset-bound plan contains 2,445 unique RIR jobs for 5,000 source/keyframe uses.
-One 32-thread, 64-slot native RLR run measured 70.36 seconds of propagation
-and 159.25 seconds end to end during concurrent shared-disk load; the cache is
-reused rather than copied into samples. The corresponding 1,000-mixture run
-made zero RLR and zero visual calls, took 321.97 seconds under the same disk
-contention, and passed artifact readback for all 1,000 two-channel WAV files,
-all 100 route/cache closures and all 5,000 source positions. These are
-observed research timings, not a promise for uncontended storage.
+The current grounded generated-asset cross-check binds a target-native Border
+Collie, human and generated Abyssinian across both `source1` and `source2`.
+The Abyssinian is only this canary's current concrete cat; a later
+owner-selected cat supplies its own generated mesh, emitter and UE binding
+without changing source-slot logic. The selected 100 routes retain 28
+static/static and 24 of each moving case. Their concrete plan contains 2,346
+unique RIR jobs for 5,000 source/keyframe uses. One 32-thread, 64-slot native
+RLR run measured 71.74 seconds of propagation and 152.52 seconds end to end;
+the cache is reused rather than copied into samples. The corresponding 1,000
+mixture run made zero RLR and zero visual calls, took 142.26 seconds, and
+passed artifact readback for all 1,000 two-channel WAV files, all 100
+route/cache closures and all 5,000 source positions. These are observed
+research timings, not a promise for future rooms or storage load.
 
 For a four-video review subset, the cache-bound example builder now selects a
 declared source-binding profile instead of hard-coding Beagle as the second
@@ -771,6 +791,63 @@ anatomical forward, coarse visual grounding and byte-identical authoritative
 audio packets. Anonymous TokenRig bone indices are stored only on the concrete
 asset binding from its semantic rig manifest; they are not assumed to mean the
 same thing for a future generated animal.
+
+### Build one visual bank for 1,000 Apartment training items
+
+The 1,000-item closure does not render the same scene 1,000 times. It first
+materializes 100 unique five-second route bundles, renders one UE RGB and
+Topdown pair for each, then binds ten separately mixed binaural WAV variants
+to that visual episode. Apartment geometry is loaded once by the persistent
+UE runner and is never copied into an episode directory.
+
+```bash
+PYTHONPATH=src python tools/m7/build_asset_bound_apartment_ue_bundle.py \
+  --plan-root tmp/m7/apartment_asset_bound_plan_run_01 \
+  --feasibility-root tmp/m7/apartment_source_slots_grounded_run_01 \
+  --batch-root tmp/m7/asset_bound_binaural_batch_run_01 \
+  --room-template-bundle tmp/m7/apartment_room_template_run_01 \
+  --video-encoder h264_nvenc \
+  --encoder-gpu 3 \
+  --workers 8 \
+  --output tmp/m7/apartment_asset_bound_ue_bundle_run_01
+
+PYTHONPATH=/path/to/SPEAR/python:src \
+python tools/m6y/run_spear_apartment_canary.py \
+  --bundle-root tmp/m7/apartment_asset_bound_ue_bundle_run_01 \
+  --input-layout asset-bound-batch \
+  --output-dir tmp/m7/apartment_asset_bound_ue_render_run_01 \
+  --graphics-adapter 3 \
+  --video-encoder h264_nvenc \
+  --encoder-gpu 3
+
+PYTHONPATH=src python tools/m7/build_asset_bound_dataset_index.py \
+  --audio-batch-root tmp/m7/asset_bound_binaural_batch_run_01 \
+  --visual-bundle-root tmp/m7/apartment_asset_bound_ue_bundle_run_01 \
+  --ue-render-root tmp/m7/apartment_asset_bound_ue_render_run_01 \
+  --output tmp/m7/apartment_training_index_run_01
+```
+
+`--workers` parallelizes only independent Topdown/FFmpeg input preparation;
+the UE world remains sequential and persistent. A retained four-episode probe
+fell from 105.13 seconds with the original sequential builder to 14.00 seconds
+with four workers. The full 100-episode, eight-worker input bundle took 268.96
+seconds, retained 46 MB and reported `scene_copy_count: 0`.
+
+The corresponding retained native SPEAR/UE render completed all 100 visual
+episodes in one persistent runtime session in 1,337.51 seconds (22.29
+minutes). Per-episode wall time was 13.17 seconds on average and 13.10 seconds
+at the median, with a 12.43--14.29 second range. Runtime evidence passed all
+100 episodes and all 400 media readbacks: each route has five-second,
+75-frame RGB-only, RGB+binaural, RGB+Topdown-only and RGB+Topdown+binaural
+outputs. The rendered bank retained 258 MB. These are observed timings on the
+current machine and storage load, not a fixed performance guarantee.
+
+The final index splits at the visual-episode level, not at the audio-variant
+level. Eighty trajectories and all their variants become 800 training items;
+ten trajectories each become 100 validation and 100 test items. The
+deterministic stratifier covers every motion case and ordered asset pair in
+all three splits, preventing one RGB/Topdown trajectory from leaking across
+train, validation and test.
 
 Materialize a plan with one persistent native context and one scene upload.
 The acoustic package is mandatory because the trajectory plan alone does not

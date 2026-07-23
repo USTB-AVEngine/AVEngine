@@ -30,6 +30,7 @@ FRAME_COUNT = 75
 DEFAULT_BODY_PLAN_FORWARD_AXES: Mapping[str, tuple[float, float, float]] = {
     "biped_human": (0.0, 0.0, 1.0),
     "quadruped_canine": (1.0, 0.0, 0.0),
+    "quadruped_mammal_felid_v1": (1.0, 0.0, 0.0),
     "rigid_object": (1.0, 0.0, 0.0),
     "environmental_source": (1.0, 0.0, 0.0),
 }

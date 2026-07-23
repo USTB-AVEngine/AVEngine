@@ -63,9 +63,9 @@
         "bindings": [
           {
             "source_slot_id": "source1",
-            "asset_id": "quaternius_domestic_cat_generic_diagnostic_v1",
+            "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
             "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.312, 0.252, 0.0],
+            "emitter_offset_m": [0.38869346364905827, 0.16641961991328985, 0.0],
             "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
             "offset_space": "final_scaled_asset_root"
           },
@@ -96,9 +96,9 @@
           },
           {
             "source_slot_id": "source2",
-            "asset_id": "quaternius_domestic_cat_generic_diagnostic_v1",
+            "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
             "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.312, 0.252, 0.0],
+            "emitter_offset_m": [0.38869346364905827, 0.16641961991328985, 0.0],
             "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
             "offset_space": "final_scaled_asset_root"
           }

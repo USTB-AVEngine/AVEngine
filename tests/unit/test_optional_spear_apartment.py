@@ -359,6 +359,24 @@ def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:
     assert nvenc[nvenc.index("-gpu") + 1] == "3"
     assert nvenc[nvenc.index("-preset") + 1] == "p5"
 
+    raw = apartment.build_rawvideo_encode_command(
+        output_path="raw.mp4",
+        video_encoder="h264_nvenc",
+        encoder_gpu=3,
+    )
+    assert raw[raw.index("-f") + 1] == "rawvideo"
+    assert raw[raw.index("-pixel_format") + 1] == "bgr24"
+    assert raw[raw.index("-video_size") + 1] == "1280x720"
+    assert raw[raw.index("-framerate") + 1] == "15"
+    assert raw[raw.index("-i") + 1] == "pipe:0"
+    assert raw[raw.index("-frames:v") + 1] == "75"
+    assert raw[raw.index("-gpu") + 1] == "3"
+
+    with pytest.raises(apartment.SpearApartmentError, match="pixel_format"):
+        apartment.build_rawvideo_encode_command(
+            output_path="bad.mp4", pixel_format="rgba"
+        )
+
     with pytest.raises(apartment.SpearApartmentError, match="unsupported"):
         apartment.build_png_encode_command(
             frames_pattern="frame_%04d.png",
@@ -450,6 +468,8 @@ def test_media_probe_requires_full_packet_identical_binaural_copy(
 def test_runtime_timing_contract_requires_rgb_and_topdown_outputs() -> None:
     assert _RUNNER.TIMING_SCHEMA == "avengine_apartment_runtime_timing_v1"
     assert _RUNNER.REQUIRED_SAMPLE_OUTPUTS == (
+        "ue_visual_only.mp4",
+        "ue_topdown_visual_only.mp4",
         "ue_clean_binaural.mp4",
         "ue_topdown_binaural.mp4",
     )
@@ -507,6 +527,23 @@ def test_default_asset_forward_bindings_are_explicit() -> None:
     assert apartment.anatomical_basis_bones_for_asset(
         apartment.BORDER_COLLIE_ASSET_ID
     ) == border_collie["ue_anatomical_basis_bones"]
+    cat = apartment.DEFAULT_ACTOR_BINDINGS[apartment.CAT_ASSET_ID]
+    assert cat["ue_anatomical_forward_yaw_deg"] == 0.0
+    assert cat["ue_anatomical_basis_bones"] == {
+        "rear": "bone_0",
+        "front": "bone_4",
+        "body": "bone_0",
+        "left_foot": "bone_9",
+        "right_foot": "bone_14",
+    }
+    assert cat["ue_component_frame_delta"]["translation_cm"] == [
+        0.0,
+        0.0,
+        42.25,
+    ]
+    assert apartment.anatomical_basis_bones_for_asset(
+        apartment.CAT_ASSET_ID
+    ) == cat["ue_anatomical_basis_bones"]
     assert (
         apartment.anatomical_basis_bones_for_asset(apartment.HUMAN_ASSET_ID)
         is None
@@ -734,4 +771,16 @@ def test_anatomical_forward_gate_rejects_a_visually_reversed_skeleton() -> None:
         apartment.summarize_anatomical_forward_readbacks(
             expected_frames=plan["frames"],
             visual_forward_readbacks=reversed_readbacks,
+        )
+
+    tilted_readbacks = deepcopy(readbacks)
+    tilted_readbacks["dog0"][1]["forward_vector_ue"] = [
+        0.0,
+        -0.1,
+        0.994987437,
+    ]
+    with pytest.raises(apartment.SpearApartmentError, match="not horizontal"):
+        apartment.summarize_anatomical_forward_readbacks(
+            expected_frames=plan["frames"],
+            visual_forward_readbacks=tilted_readbacks,
         )

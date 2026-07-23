@@ -23,6 +23,8 @@ import sys
 import time
 from typing import Any, Mapping, Sequence
 
+import numpy as np
+
 from avengine.optional_backends.spear_apartment import (
     ANIMATION_TOLERANCE_SECONDS,
     CAMERA_WARMUP_FRAMES,
@@ -36,8 +38,10 @@ from avengine.optional_backends.spear_apartment import (
     apply_ue_component_frame_delta,
     build_clean_binaural_mux_command,
     build_native_apartment_motion_pilot_suite,
+    build_native_apartment_asset_bound_suite,
     build_native_apartment_suite,
     build_png_encode_command,
+    build_rawvideo_encode_command,
     build_topdown_visual_command,
     load_apartment_lighting_profile,
     summarize_actor_bounds,
@@ -57,6 +61,8 @@ CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
 EVIDENCE_SCHEMA = "avengine_optional_spear_apartment_runtime_evidence_v2"
 TIMING_SCHEMA = "avengine_apartment_runtime_timing_v1"
 REQUIRED_SAMPLE_OUTPUTS = (
+    "ue_visual_only.mp4",
+    "ue_topdown_visual_only.mp4",
     "ue_clean_binaural.mp4",
     "ue_topdown_binaural.mp4",
 )
@@ -266,7 +272,6 @@ def _sample_anatomical_forward(
     """Read the rendered skeleton's semantic forward inside an active frame."""
 
     from rig_direction_check import (
-        quadruped_basis_from_positions,
         sample_body_basis_in_frame,
         sample_body_bone_position_in_frame,
     )
@@ -297,8 +302,49 @@ def _sample_anatomical_forward(
                 break
             positions[role] = position
         else:
-            basis = quadruped_basis_from_positions(**positions)
-            basis["basis_kind"] = "asset_bound_generated_quadruped_longitudinal_v1"
+            # UE world Z is authoritative up. Project the package-declared
+            # torso-to-muzzle vector onto the floor plane instead of deriving
+            # up from a morphology-dependent AABB or paw/body proportions.
+            # This works for both compact cats and longer generated dogs.
+            rear = np.asarray(positions["rear"], dtype=np.float64)
+            front = np.asarray(positions["front"], dtype=np.float64)
+            raw_forward = front - rear
+            forward_xy = raw_forward[:2]
+            forward_xy_norm = float(np.linalg.norm(forward_xy))
+            if forward_xy_norm <= 1.0e-6:
+                raise RuntimeError(
+                    "explicit quadruped torso-to-muzzle direction has no "
+                    "horizontal component"
+                )
+            forward = np.asarray(
+                [forward_xy[0] / forward_xy_norm, forward_xy[1] / forward_xy_norm, 0.0],
+                dtype=np.float64,
+            )
+            left_foot = np.asarray(positions["left_foot"], dtype=np.float64)
+            right_foot = np.asarray(positions["right_foot"], dtype=np.float64)
+            paw_delta_xy = (right_foot - left_foot)[:2]
+            paw_delta_norm = float(np.linalg.norm(paw_delta_xy))
+            paw_alignment = None
+            if paw_delta_norm > 1.0e-6:
+                right = np.asarray([-forward[1], forward[0]], dtype=np.float64)
+                paw_alignment = float(
+                    np.dot(right, paw_delta_xy / paw_delta_norm)
+                )
+            feet_center_z = 0.5 * (left_foot[2] + right_foot[2])
+            basis = {
+                "basis_kind": "asset_bound_quadruped_world_z_head_projection_v1",
+                "up_vector_ue": [0.0, 0.0, 1.0],
+                "right_vector_ue": [-float(forward[1]), float(forward[0]), 0.0],
+                "forward_vector_ue": forward.tolist(),
+                "forward_yaw_ue_deg": float(
+                    np.degrees(np.arctan2(forward[1], forward[0]))
+                ),
+                "raw_torso_to_muzzle_vector_ue_cm": raw_forward.tolist(),
+                "body_height_above_paired_paws_cm": float(
+                    positions["body"][2] - feet_center_z
+                ),
+                "anatomical_right_alignment": paw_alignment,
+            }
             basis["bone_names"] = dict(explicit_quadruped_bones)
             basis["positions_ue_cm"] = {
                 role: [float(value) for value in position]
@@ -309,13 +355,16 @@ def _sample_anatomical_forward(
             "could not derive rendered anatomical forward at frame "
             f"{frame_index}: {diagnostics}"
         )
-    return {
+    record = {
         "frame_index": frame_index,
         "basis_kind": basis["basis_kind"],
         "forward_vector_ue": basis["forward_vector_ue"],
         "forward_yaw_ue_deg": basis["forward_yaw_ue_deg"],
         "bone_names": basis["bone_names"],
     }
+    if "positions_ue_cm" in basis:
+        record["positions_ue_cm"] = basis["positions_ue_cm"]
+    return record
 
 
 def _spawn_runtime_actors(
@@ -435,34 +484,28 @@ def _spawn_runtime_actors(
 
 
 def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
-    declarations = suite["scenarios"][0]["plan"]["actors"]
-    reference = [
-        (
-            value["actor_id"],
-            value["asset_id"],
-            value["blueprint_class_path"],
-            value["idle_animation"],
-            value["walking_animation"],
-            value["ue_component_frame_delta"],
-            value.get("ue_anatomical_basis_bones"),
-        )
-        for value in declarations
-    ]
-    for scenario in suite["scenarios"][1:]:
-        current = [
-            (
-                value["actor_id"],
-                value["asset_id"],
+    reference_actor_ids: tuple[str, ...] | None = None
+    binding_by_asset: dict[str, tuple[Any, ...]] = {}
+    for scenario in suite["scenarios"]:
+        declarations = scenario["plan"]["actors"]
+        actor_ids = tuple(value["actor_id"] for value in declarations)
+        if reference_actor_ids is None:
+            reference_actor_ids = actor_ids
+        elif actor_ids != reference_actor_ids:
+            raise RuntimeError("Apartment UE actor-slot closure differs")
+        for value in declarations:
+            binding = (
                 value["blueprint_class_path"],
                 value["idle_animation"],
                 value["walking_animation"],
                 value["ue_component_frame_delta"],
                 value.get("ue_anatomical_basis_bones"),
             )
-            for value in scenario["plan"]["actors"]
-        ]
-        if current != reference:
-            raise RuntimeError("S0/S3/S4 UE actor binding closure differs")
+            previous = binding_by_asset.setdefault(value["asset_id"], binding)
+            if previous != binding:
+                raise RuntimeError(
+                    f"UE binding changes for asset {value['asset_id']!r}"
+                )
 
 
 def _apply_camera(camera: Any, camera_plan: Mapping[str, Any]) -> None:
@@ -672,7 +715,9 @@ def _render_scenario(
     scenario_root = output_root / scenario_id
     scenario_root.mkdir()
     frames_root = scenario_root / "frames"
-    frames_root.mkdir()
+    if keep_frames:
+        frames_root.mkdir()
+    ue_video = scenario_root / "ue_visual_only.mp4"
     plan = scenario["plan"]
     camera_plan = plan["camera"]
 
@@ -688,51 +733,95 @@ def _render_scenario(
     phase_wall_seconds["camera_warmup"] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
+    rawvideo_process = None
+    if not keep_frames:
+        rawvideo_process = subprocess.Popen(
+            build_rawvideo_encode_command(
+                output_path=ue_video,
+                video_encoder=video_encoder,
+                encoder_gpu=encoder_gpu,
+            ),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
     actor_readbacks = {actor_id: [] for actor_id in runtimes}
     animation_readbacks = {actor_id: [] for actor_id in runtimes}
     actor_bounds = {actor_id: [] for actor_id in runtimes}
     visual_forward_readbacks = {actor_id: [] for actor_id in runtimes}
     camera_readbacks = []
-    for frame_index, frame in enumerate(plan["frames"]):
-        with instance.begin_frame():
-            for state in frame["actor_states"]:
-                actor_id = state["actor_id"]
-                root_record, animation_record = _apply_actor_state(
-                    runtimes[actor_id], state, frame_index
-                )
-                actor_readbacks[actor_id].append(root_record)
-                animation_readbacks[actor_id].append(animation_record)
-                if frame_index in ANATOMICAL_FORWARD_SAMPLE_FRAMES:
-                    visual_forward_readbacks[actor_id].append(
-                        _sample_anatomical_forward(
-                            game,
-                            runtimes[actor_id]["visual_actor"],
-                            frame_index,
-                            explicit_quadruped_bones=runtimes[actor_id].get(
-                                "anatomical_basis_bones"
-                            ),
-                        )
+    try:
+        for frame_index, frame in enumerate(plan["frames"]):
+            with instance.begin_frame():
+                for state in frame["actor_states"]:
+                    actor_id = state["actor_id"]
+                    root_record, animation_record = _apply_actor_state(
+                        runtimes[actor_id], state, frame_index
                     )
-            _apply_camera(camera, camera_plan)
-            camera_readbacks.append(_actor_readback(camera, frame_index))
-        with instance.end_frame():
-            image = _read_frame(capture).copy()
-            for actor_id, runtime in runtimes.items():
-                actor_bounds[actor_id].append(
-                    _actor_bounds_readback(runtime["visual_actor"], frame_index)
+                    actor_readbacks[actor_id].append(root_record)
+                    animation_readbacks[actor_id].append(animation_record)
+                    if frame_index in ANATOMICAL_FORWARD_SAMPLE_FRAMES:
+                        visual_forward_readbacks[actor_id].append(
+                            _sample_anatomical_forward(
+                                game,
+                                runtimes[actor_id]["visual_actor"],
+                                frame_index,
+                                explicit_quadruped_bones=runtimes[actor_id].get(
+                                    "anatomical_basis_bones"
+                                ),
+                            )
+                        )
+                _apply_camera(camera, camera_plan)
+                camera_readbacks.append(_actor_readback(camera, frame_index))
+            with instance.end_frame():
+                image = _read_frame(capture).copy()
+                for actor_id, runtime in runtimes.items():
+                    actor_bounds[actor_id].append(
+                        _actor_bounds_readback(runtime["visual_actor"], frame_index)
+                    )
+                if image.shape[:2] != (HEIGHT, WIDTH):
+                    raise RuntimeError(
+                        f"unexpected UE frame shape: {image.shape}"
+                    )
+                if keep_frames:
+                    frame_path = frames_root / f"frame_{frame_index:04d}.png"
+                    if not cv2.imwrite(str(frame_path), image):
+                        raise RuntimeError(f"could not write UE frame: {frame_path}")
+                else:
+                    if rawvideo_process is None or rawvideo_process.stdin is None:
+                        raise RuntimeError("rawvideo encoder stdin is unavailable")
+                    rawvideo_process.stdin.write(image.tobytes(order="C"))
+            if frame_index % FPS == 0:
+                print(
+                    f"[spear-apartment:{scenario_id}] frame "
+                    f"{frame_index:02d}/{FRAME_COUNT - 1}",
+                    flush=True,
                 )
-            frame_path = frames_root / f"frame_{frame_index:04d}.png"
-            if image.shape[:2] != (HEIGHT, WIDTH) or not cv2.imwrite(
-                str(frame_path), image
-            ):
-                raise RuntimeError(f"could not write UE frame: {frame_path}")
-        if frame_index % FPS == 0:
-            print(
-                f"[spear-apartment:{scenario_id}] frame "
-                f"{frame_index:02d}/{FRAME_COUNT - 1}",
-                flush=True,
+        if rawvideo_process is not None:
+            assert rawvideo_process.stdin is not None
+            rawvideo_process.stdin.close()
+            stderr = (
+                b""
+                if rawvideo_process.stderr is None
+                else rawvideo_process.stderr.read()
             )
-    phase_wall_seconds["visual_capture_and_png_write"] = _elapsed_seconds(phase_started)
+            return_code = rawvideo_process.wait()
+            if return_code != 0:
+                raise RuntimeError(
+                    "rawvideo FFmpeg encode failed: "
+                    + stderr.decode("utf-8", errors="replace").strip()
+                )
+    except BaseException:
+        if rawvideo_process is not None and rawvideo_process.poll() is None:
+            rawvideo_process.kill()
+            rawvideo_process.wait()
+        raise
+    capture_phase = (
+        "visual_capture_and_png_write"
+        if keep_frames
+        else "visual_capture_and_rawvideo_encode"
+    )
+    phase_wall_seconds[capture_phase] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
     _write_json(
@@ -776,16 +865,16 @@ def _render_scenario(
     phase_wall_seconds["runtime_readback_and_gate"] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
-    ue_video = scenario_root / "ue_visual_only.mp4"
-    subprocess.run(
-        build_png_encode_command(
-            frames_pattern=frames_root / "frame_%04d.png",
-            output_path=ue_video,
-            video_encoder=video_encoder,
-            encoder_gpu=encoder_gpu,
-        ),
-        check=True,
-    )
+    if keep_frames:
+        subprocess.run(
+            build_png_encode_command(
+                frames_pattern=frames_root / "frame_%04d.png",
+                output_path=ue_video,
+                video_encoder=video_encoder,
+                encoder_gpu=encoder_gpu,
+            ),
+            check=True,
+        )
     phase_wall_seconds["rgb_video_encode"] = _elapsed_seconds(phase_started)
 
     authoritative_clean = _resolve_bundle_path(
@@ -831,14 +920,18 @@ def _render_scenario(
         check=True,
     )
     phase_wall_seconds["topdown_binaural_mux"] = _elapsed_seconds(phase_started)
-    topdown_visual.unlink()
-
     phase_started = time.perf_counter()
     media = {
         "ue_visual_only": _probe_media(
             ue_video,
             expected_width=WIDTH,
             expected_height=HEIGHT,
+            expect_audio=False,
+        ),
+        "ue_topdown_visual_only": _probe_media(
+            topdown_visual,
+            expected_width=1280,
+            expected_height=480,
             expect_audio=False,
         ),
         "ue_clean_binaural": _probe_media(
@@ -866,7 +959,10 @@ def _render_scenario(
     phase_wall_seconds["media_readback"] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
-    if not keep_frames:
+    if keep_frames:
+        # ``--keep-frames`` is a diagnostic request, so retain the PNGs.
+        pass
+    elif frames_root.exists():
         shutil.rmtree(frames_root)
     phase_wall_seconds["frame_cleanup"] = _elapsed_seconds(phase_started)
     record = {
@@ -903,6 +999,11 @@ def _render_scenario(
             "phase_wall_seconds": phase_wall_seconds,
             "video_encoder": video_encoder,
             "encoder_gpu": encoder_gpu,
+            "frame_transport": (
+                "png_sequence_then_encode"
+                if keep_frames
+                else "raw_bgr24_ffmpeg_pipe"
+            ),
             "render_total_wall_seconds": _elapsed_seconds(scenario_started),
         },
     }
@@ -1047,20 +1148,25 @@ def run(args: argparse.Namespace) -> Path:
     phase_wall_seconds: dict[str, float] = {}
     phase_started = time.perf_counter()
     bundle_root = args.bundle_root.resolve()
-    default_scenarios = (
-        ("P0", "P1", "P2", "P3")
-        if args.input_layout == "motion-pilot"
-        else ("S0", "S3", "S4")
+    if args.input_layout == "motion-pilot":
+        default_scenarios: tuple[str, ...] | None = ("P0", "P1", "P2", "P3")
+    elif args.input_layout == "m6x-canary":
+        default_scenarios = ("S0", "S3", "S4")
+    else:
+        default_scenarios = None
+    scenarios = (
+        tuple(args.scenario)
+        if args.scenario
+        else default_scenarios
     )
-    scenarios = tuple(args.scenario or default_scenarios)
     lighting_profile = load_apartment_lighting_profile(
         args.lighting_profiles, args.lighting_profile
     )
-    suite_builder = (
-        build_native_apartment_motion_pilot_suite
-        if args.input_layout == "motion-pilot"
-        else build_native_apartment_suite
-    )
+    suite_builder = {
+        "motion-pilot": build_native_apartment_motion_pilot_suite,
+        "m6x-canary": build_native_apartment_suite,
+        "asset-bound-batch": build_native_apartment_asset_bound_suite,
+    }[args.input_layout]
     suite = suite_builder(
         bundle_root, scenario_ids=scenarios, lighting_profile=lighting_profile
     )
@@ -1242,9 +1348,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bundle-root", type=Path, default=DEFAULT_BUNDLE)
     parser.add_argument(
         "--input-layout",
-        choices=("m6x-canary", "motion-pilot"),
+        choices=("m6x-canary", "motion-pilot", "asset-bound-batch"),
         default="m6x-canary",
-        help="Input bundle layout; motion-pilot consumes the four P0--P3 episodes.",
+        help=(
+            "Input bundle layout; motion-pilot consumes P0--P3, while "
+            "asset-bound-batch consumes generic source1/source2 episode IDs."
+        ),
     )
     parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
     parser.add_argument(
@@ -1258,7 +1367,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--scenario",
         action="append",
-        choices=("S0", "S3", "S4", "P0", "P1", "P2", "P3"),
         help="Repeat to render a subset; defaults depend on --input-layout.",
     )
     parser.add_argument("--rpc-port", type=int, default=39311)
@@ -1284,12 +1392,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if args.encoder_gpu is not None and args.encoder_gpu < 0:
         parser.error("--encoder-gpu must be non-negative")
     selected = set(args.scenario or ())
-    allowed = (
-        {"P0", "P1", "P2", "P3"}
-        if args.input_layout == "motion-pilot"
-        else {"S0", "S3", "S4"}
-    )
-    if selected - allowed:
+    allowed = {
+        "motion-pilot": {"P0", "P1", "P2", "P3"},
+        "m6x-canary": {"S0", "S3", "S4"},
+    }.get(args.input_layout)
+    if allowed is not None and selected - allowed:
         parser.error("--scenario values do not match --input-layout")
     return args
 

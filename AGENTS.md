@@ -13,6 +13,52 @@ Read `README.md`, `docs/architecture/SYSTEM_OVERVIEW.md`,
 before changing architecture. Historical SPEAR/UE instructions are archived
 under `docs/legacy/` and are never default authority.
 
+For the active Apartment dataset work, also read
+`docs/roadmap/CURRENT_APARTMENT_EXECUTION.md`. `AGENTS.md` contains durable
+owner decisions; that file contains the current checkpoint, unfinished work
+and the exact next action. Update the checkpoint whenever a meaningful stage
+finishes or the owner changes direction.
+
+## Current Apartment and generated-animal invariants
+
+These rules are project-owner decisions for the active Habitat-native
+Apartment training-data route. Do not replace them with an easier canary:
+
+- A species template or motion donor is never the final instance mesh.
+  Quaternius may donate animation and may be used for diagnostics, but a
+  FLUX/Pixel3D animal must render its own Pixel3D geometry, topology/PBR repair,
+  TokenRig skinning and reviewed animation. Never substitute the Quaternius
+  Cat, Beagle or another breed's silhouette merely because its UE import is
+  already available.
+- The accepted generated assets for the current Apartment canary baseline are
+  `generated_border_collie_black_white_medium_standard_adult_research_v1` and
+  `generated_abyssinian_ruddy_medium_standard_adult_research_v1`. The latter
+  must replace the historical
+  `quaternius_domestic_cat_generic_diagnostic_v1` in this baseline before
+  rendering. This is not a permanent restriction to an Abyssinian: `source1`
+  and `source2` must accept any later owner-selected cat that has its own
+  generated mesh and passes the same asset/runtime checks. Do not hard-code
+  downstream dataset logic to either current breed.
+- A materially different breed is a new source asset with its own generated
+  mesh. `size`, `body_build`, `life_stage` and breed-valid coat variants are
+  instance attributes only after that breed-specific base exists. Coat
+  variants use FLUX reference-guided appearance editing; RGB multiplication is
+  not a coat generator.
+- For `apartment_0000`, Habitat-native owns the route, Timeline, source
+  centers, binaural audio, Topdown and labels; SPEAR/UE owns final RGB pixels.
+  Do not silently fall back to Habitat RGB for the final Apartment dataset.
+  Actor slots remain generic `source1` and `source2`, regardless of whether an
+  episode binds a human, dog or cat.
+- Render each unique visual trajectory once and bind its dry-audio variants
+  through the dataset index. Train/validation/test splitting happens at the
+  visual-episode level, never at the audio-variant level, so the same RGB and
+  Topdown trajectory cannot leak across splits. The current 1,000-item closure
+  uses 100 visual episodes x 10 audio variants and an 800/100/100 sample split.
+- The current owner-approved generative route uses FLUX without Qwen. Do not
+  use low-VRAM modes, CPU offload or sequential model offload; load the model
+  directly into available GPU memory. This does not relax output anatomy or
+  reference-image review.
+
 ## Repository boundaries
 
 - Do not copy Habitat-Sim source into this repository.

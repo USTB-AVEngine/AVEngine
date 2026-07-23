@@ -46,7 +46,6 @@ COMPONENT_TRANSFORM_TOLERANCE = 1.0e-3
 # still catches a gross import-frame error without moving a visually grounded
 # asset merely to make its bounding box equal the source root.
 QUADRUPED_FLOOR_TOLERANCE_CM = 5.0
-QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO = 1.05
 ANATOMICAL_FORWARD_TOLERANCE_DEGREES = 25.0
 COMPONENT_FRAME_DELTA_SCHEMA = "avengine_spear_component_frame_delta_v1"
 LIGHTING_PROFILE_SCHEMA = "avengine_optional_spear_apartment_lighting_profiles_v1"
@@ -80,10 +79,12 @@ HUMAN_ASSET_ID = "rocketbox_human_male_adult_01_m5_1_candidate"
 BORDER_COLLIE_ASSET_ID = (
     "generated_border_collie_black_white_medium_standard_adult_research_v1"
 )
+CAT_ASSET_ID = "generated_abyssinian_ruddy_medium_standard_adult_research_v1"
 
 BEAGLE_TAG = "m2_beagle_v7_world_contact_r5"
 HUMAN_TAG = "rocketbox_male_adult_01_original_ue_v3"
 BORDER_COLLIE_TAG = "pixal_generated_border_collie_black_white_v1"
+CAT_TAG = "pixal_generated_abyssinian_ruddy_v1"
 
 DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
     BEAGLE_ASSET_ID: {
@@ -150,7 +151,8 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
         # The generated instance was normalized before UE import: +X is the
         # anatomical forward direction and the four-foot support plane is Z=0.
         # Native runtime readback remains the authority for this provisional
-        # UE frame declaration; it must not be silently borrowed from Beagle.
+        # UE frame declaration; it must not be silently borrowed from Beagle
+        # or another generated animal.
         "ue_anatomical_forward_yaw_deg": 0.0,
         # TokenRig deliberately exports anonymous bone names. These roles
         # come from this asset's recorded semantic inference, not from a
@@ -172,11 +174,47 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
             "reason": "generated_target_native_heading_plus_x_and_support_plane_z0",
         },
     },
+    CAT_ASSET_ID: {
+        "blueprint_class_path": (
+            "/Game/MyAssets/Audioset/Blueprints/"
+            f"gate_{CAT_TAG}/BP_gate_{CAT_TAG}.BP_gate_{CAT_TAG}_C"
+        ),
+        "idle_animation": (
+            f"/Game/MyAssets/Audioset/Meshes/gate_{CAT_TAG}/Idle.Idle"
+        ),
+        "walking_animation": (
+            f"/Game/MyAssets/Audioset/Meshes/gate_{CAT_TAG}/Walking.Walking"
+        ),
+        "ue_anatomical_forward_yaw_deg": 0.0,
+        # These anonymous TokenRig roles come from this exact generated cat's
+        # recorded semantic inference. bone_0 -> bone_4 is the rear-to-front
+        # axial segment; bone_9/bone_14 are its positive/negative-side front
+        # foot leaves. Never reuse these indices for another generated cat.
+        "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_9",
+            "right_foot": "bone_14",
+        },
+        "ue_component_frame_delta": {
+            "schema": COMPONENT_FRAME_DELTA_SCHEMA,
+            "rotation_deg": [0.0, 0.0, 0.0],
+            # The accepted GLB has a Z=0 support plane, but UE Interchange
+            # imports this exact skinned hierarchy with its visual bounds
+            # 42.25 cm below the Timeline actor root.  This asset-local
+            # correction comes from native UE bounds readback over all 75
+            # walking frames; it is not reusable for another generated cat.
+            "translation_cm": [0.0, 0.0, 42.25],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "generated_abyssinian_native_UE_bounds_floor_calibration",
+        },
+    },
 }
 
 
 FLOOR_GATED_QUADRUPED_ASSET_IDS = frozenset(
-    {BEAGLE_ASSET_ID, BORDER_COLLIE_ASSET_ID}
+    {BEAGLE_ASSET_ID, BORDER_COLLIE_ASSET_ID, CAT_ASSET_ID}
 )
 
 
@@ -679,6 +717,45 @@ def motion_pilot_input_paths(
     }
 
 
+def asset_bound_episode_input_paths(
+    bundle_root: str | Path, episode_id: str
+) -> dict[str, Path]:
+    """Resolve one generic source1/source2 episode from an M7 UE input bundle."""
+
+    root = Path(bundle_root).resolve()
+    if not root.is_dir():
+        raise SpearApartmentError(f"bundle root is missing: {root}")
+    if (
+        not isinstance(episode_id, str)
+        or not episode_id
+        or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for character in episode_id)
+    ):
+        raise SpearApartmentError(f"invalid asset-bound episode ID: {episode_id!r}")
+    episode = root / "episodes" / episode_id
+    metadata = episode / "metadata"
+    videos = episode / "videos"
+    return {
+        "timeline": _direct_file(metadata / "timeline.json", owner="Timeline"),
+        "source_manifest": _direct_file(
+            metadata / "source_manifest.json", owner="source manifest"
+        ),
+        "flags": _direct_file(metadata / "flags.json", owner="flag report"),
+        "room_capsule": _direct_file(
+            root / "room/room_capsule.json", owner="RoomCapsule"
+        ),
+        "qualification": _direct_file(
+            root / "room/qualification.json", owner="room qualification"
+        ),
+        "authoritative_clean_binaural": _direct_file(
+            videos / "clean_binaural.mp4", owner="clean binaural review"
+        ),
+        "authoritative_diagnostic_topdown": _direct_file(
+            videos / "diagnostic_topdown_binaural.mp4",
+            owner="diagnostic Topdown review",
+        ),
+    }
+
+
 def _validate_native_plan(plan: Mapping[str, Any], *, scenario_id: str) -> None:
     if plan.get("schema") != PLAN_SCHEMA or plan.get("backend_role") != BACKEND_ROLE:
         raise SpearApartmentError("input did not compile to a comparison-visual plan")
@@ -716,8 +793,13 @@ def _validate_native_plan(plan: Mapping[str, Any], *, scenario_id: str) -> None:
     if len(plan.get("frames", ())) != FRAME_COUNT:
         raise SpearApartmentError("native comparison requires exactly 75 frames")
     actor_ids = [actor.get("actor_id") for actor in plan.get("actors", ())]
-    if actor_ids != ["dog0", "human0"]:
-        raise SpearApartmentError("native Apartment human/Beagle actor closure changed")
+    if actor_ids not in (
+        ["dog0", "human0"],
+        ["source1_actor", "source2_actor"],
+    ):
+        raise SpearApartmentError(
+            "native Apartment actor closure must be the legacy pair or ordered source slots"
+        )
 
 
 def _build_native_apartment_scenario_from_paths(
@@ -849,6 +931,28 @@ def build_native_apartment_motion_pilot_scenario(
     )
 
 
+def build_native_apartment_asset_bound_scenario(
+    bundle_root: str | Path,
+    episode_id: str,
+    *,
+    actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+) -> dict[str, Any]:
+    """Compile one generic M7 source1/source2 episode for native UE pixels."""
+
+    root = Path(bundle_root).resolve()
+    paths = asset_bound_episode_input_paths(root, episode_id)
+    return _build_native_apartment_scenario_from_paths(
+        root=root,
+        scenario_id=episode_id,
+        scenario_directory=episode_id,
+        variant_id="A",
+        paths=paths,
+        actor_bindings=actor_bindings,
+        lighting_profile=lighting_profile,
+    )
+
+
 def build_native_apartment_suite(
     bundle_root: str | Path,
     *,
@@ -920,6 +1024,59 @@ def build_native_apartment_motion_pilot_suite(
             "habitat_native": [
                 "Timeline_v2",
                 "source logic",
+                "source-center qualification",
+                "binaural audio",
+                "Topdown",
+                "flags and metadata",
+            ],
+            "spear_unreal": ["final RGB pixels"],
+        },
+        "scenarios": scenarios,
+    }
+
+
+def build_native_apartment_asset_bound_suite(
+    bundle_root: str | Path,
+    *,
+    scenario_ids: Sequence[str] | None = None,
+    actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
+    lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+) -> dict[str, Any]:
+    """Compile selected M7 episodes, or the bundle manifest's full order."""
+
+    root = Path(bundle_root).resolve()
+    if scenario_ids is None:
+        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+        raw_ids = manifest.get("episode_ids")
+        if not isinstance(raw_ids, list) or not all(
+            isinstance(value, str) and value for value in raw_ids
+        ):
+            raise SpearApartmentError(
+                "asset-bound bundle manifest lacks ordered episode_ids"
+            )
+        selected = tuple(raw_ids)
+    else:
+        selected = tuple(scenario_ids)
+    if not selected or len(selected) != len(set(selected)):
+        raise SpearApartmentError("scenario selection must be nonempty and unique")
+    scenarios = [
+        build_native_apartment_asset_bound_scenario(
+            root,
+            episode_id,
+            actor_bindings=actor_bindings,
+            lighting_profile=lighting_profile,
+        )
+        for episode_id in selected
+    ]
+    return {
+        "schema": SUITE_SCHEMA,
+        "backend_role": BACKEND_ROLE,
+        "native_map": NATIVE_APARTMENT_MAP,
+        "lighting_profile": deepcopy(dict(lighting_profile)),
+        "authority": {
+            "habitat_native": [
+                "Timeline_v2",
+                "source1/source2 asset binding",
                 "source-center qualification",
                 "binaural audio",
                 "Topdown",
@@ -1052,7 +1209,9 @@ def summarize_actor_bounds(
     Bounds are measured in UE world centimetres after animation evaluation.
     A calibrated quadruped actor root is the authoritative floor anchor.  This
     gate proves that its asset-local correction does not move that root while
-    the rendered mesh remains horizontal and in floor contact.
+    the rendered mesh remains in floor contact. Bounds aspect ratio is retained
+    only as a descriptive observation: it is not rotation-invariant and a
+    compact cat may legitimately be taller than its horizontal AABB span.
     """
 
     if not expected_frames:
@@ -1111,22 +1270,17 @@ def summarize_actor_bounds(
         }
         if declaration.get("asset_id") in FLOOR_GATED_QUADRUPED_ASSET_IDS:
             maximum_floor_error = max(abs(value) for value in clearances)
-            minimum_ratio = min(horizontal_vertical_ratios)
             if maximum_floor_error > QUADRUPED_FLOOR_TOLERANCE_CM:
                 raise SpearApartmentError(
                     f"{actor_id} corrected mesh no longer meets its actor-root floor"
-                )
-            if minimum_ratio < QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO:
-                raise SpearApartmentError(
-                    f"{actor_id} corrected quadruped frame is not horizontal"
                 )
             summary.update(
                 {
                     "status": "pass",
                     "maximum_floor_error_cm": maximum_floor_error,
                     "floor_tolerance_cm": QUADRUPED_FLOOR_TOLERANCE_CM,
-                    "horizontal_to_vertical_minimum_required": (
-                        QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO
+                    "horizontal_to_vertical_span_ratio_role": (
+                        "descriptive_only_not_an_orientation_gate"
                     ),
                 }
             )
@@ -1176,6 +1330,7 @@ def summarize_anatomical_forward_readbacks(
                 f"{actor_id} has no anatomical-forward readback"
             )
         angular_errors = []
+        vertical_fractions = []
         sampled_frames = []
         basis_kinds = set()
         bone_name_sets = []
@@ -1203,6 +1358,11 @@ def summarize_anatomical_forward_readbacks(
                 record.get("forward_vector_ue"),
                 owner=f"{actor_id} observed anatomical forward",
             )
+            observed_norm = math.sqrt(sum(value * value for value in observed))
+            if observed_norm < 1.0e-6:
+                raise SpearApartmentError(
+                    f"{actor_id} anatomical forward has zero length"
+                )
             expected_yaw = math.degrees(math.atan2(expected[1], expected[0]))
             observed_yaw = math.degrees(math.atan2(observed[1], observed[0]))
             if math.hypot(expected[0], expected[1]) < 1.0e-6 or math.hypot(
@@ -1211,6 +1371,16 @@ def summarize_anatomical_forward_readbacks(
                 raise SpearApartmentError(
                     f"{actor_id} anatomical forward lacks a horizontal direction"
                 )
+            vertical_fraction = abs(observed[2]) / observed_norm
+            maximum_vertical_fraction = math.sin(
+                math.radians(float(tolerance_degrees))
+            )
+            if vertical_fraction > maximum_vertical_fraction:
+                raise SpearApartmentError(
+                    f"{actor_id} anatomical forward is not horizontal: "
+                    f"vertical fraction {vertical_fraction:.6f}"
+                )
+            vertical_fractions.append(vertical_fraction)
             angular_errors.append(
                 abs(wrap_angle_difference_degrees(observed_yaw, expected_yaw))
             )
@@ -1238,6 +1408,10 @@ def summarize_anatomical_forward_readbacks(
             "status": "pass",
             "sampled_frame_indices": sampled_frames,
             "maximum_angular_error_deg": maximum_error,
+            "maximum_abs_vertical_fraction": max(vertical_fractions),
+            "maximum_abs_vertical_fraction_allowed": math.sin(
+                math.radians(float(tolerance_degrees))
+            ),
             "tolerance_deg": float(tolerance_degrees),
             "basis_kinds": sorted(basis_kinds),
             "bone_names": bone_name_sets,
@@ -1293,6 +1467,60 @@ def build_png_encode_command(
         str(frames_pattern),
         "-frames:v",
         str(FRAME_COUNT),
+        "-an",
+        *_h264_encoder_arguments(video_encoder, encoder_gpu=encoder_gpu),
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+
+
+def build_rawvideo_encode_command(
+    *,
+    output_path: str | Path,
+    video_encoder: str = "libx264",
+    encoder_gpu: int | None = None,
+    width: int = WIDTH,
+    height: int = HEIGHT,
+    frame_rate_hz: int = FPS,
+    frame_count: int = FRAME_COUNT,
+    pixel_format: str = "bgr24",
+) -> list[str]:
+    """Encode captured UE frames directly from stdin without a PNG round trip."""
+
+    for name, value in (
+        ("width", width),
+        ("height", height),
+        ("frame_rate_hz", frame_rate_hz),
+        ("frame_count", frame_count),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise SpearApartmentError(f"rawvideo {name} must be a positive integer")
+    if pixel_format not in {"bgr24", "rgb24"}:
+        raise SpearApartmentError(
+            "rawvideo pixel_format must be bgr24 or rgb24"
+        )
+    return [
+        "ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        pixel_format,
+        "-video_size",
+        f"{width}x{height}",
+        "-framerate",
+        str(frame_rate_hz),
+        "-i",
+        "pipe:0",
+        "-frames:v",
+        str(frame_count),
         "-an",
         *_h264_encoder_arguments(video_encoder, encoder_gpu=encoder_gpu),
         "-pix_fmt",
@@ -1392,7 +1620,6 @@ __all__ = [
     "CAMERA_WARMUP_FRAMES",
     "BORDER_COLLIE_ASSET_ID",
     "QUADRUPED_FLOOR_TOLERANCE_CM",
-    "QUADRUPED_HORIZONTAL_TO_VERTICAL_MIN_RATIO",
     "COMPONENT_FRAME_DELTA_SCHEMA",
     "COMPONENT_TRANSFORM_TOLERANCE",
     "DEFAULT_ACTOR_BINDINGS",
@@ -1418,7 +1645,10 @@ __all__ = [
     "build_native_apartment_suite",
     "build_native_apartment_motion_pilot_scenario",
     "build_native_apartment_motion_pilot_suite",
+    "build_native_apartment_asset_bound_scenario",
+    "build_native_apartment_asset_bound_suite",
     "build_png_encode_command",
+    "build_rawvideo_encode_command",
     "build_topdown_visual_command",
     "component_frame_delta_for_asset",
     "detached_suite_copy",
