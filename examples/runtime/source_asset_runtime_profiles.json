@@ -1,0 +1,361 @@
+{
+  "schema": "avengine_source_asset_runtime_registry_v1",
+  "registry_id": "avengine_source_asset_runtime_profiles_v1",
+  "revision": "20260724_v2",
+  "aliases": {
+    "current_generated_cat": {
+      "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1"
+    },
+    "current_generated_dog": {
+      "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1"
+    },
+    "legacy_beagle": {
+      "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "revision": "m2_v7_world_contact_r5"
+    },
+    "legacy_human": {
+      "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+      "revision": "native_runtime_ue_v3"
+    },
+    "runtime_interface_labrador": {
+      "asset_id": "generated_labrador_yellow_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1"
+    }
+  },
+  "assets": [
+    {
+      "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1",
+      "display_label": "Abyssinian",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "cat",
+        "breed_id": "abyssinian"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "cat_abyssinian_coat_v1",
+          "value": "ruddy"
+        }
+      },
+      "geometry": {
+        "mesh_authority": "generated_pixel3d_target_native",
+        "source_mesh_uri": "artifact://generated-animal/abyssinian-ruddy-v1/animated_walk_idle.glb",
+        "rig_authority": "target_native_tokenrig_seed42"
+      },
+      "timeline": {
+        "template_id": "generated_abyssinian_target_native_v1",
+        "body_plan_id": "quadruped_mammal_felid_v1",
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [0.38869346364905827, 0.16641961991328985, 0.0],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_pixal_generated_abyssinian_ruddy_v1/BP_gate_pixal_generated_abyssinian_ruddy_v1.BP_gate_pixal_generated_abyssinian_ruddy_v1_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_abyssinian_ruddy_v1/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_abyssinian_ruddy_v1/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 0.0,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_9",
+            "right_foot": "bone_14"
+          },
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 42.25],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "generated_abyssinian_native_UE_bounds_floor_calibration"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1",
+      "display_label": "Border Collie",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "dog",
+        "breed_id": "border_collie"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "dog_border_collie_coat_v1",
+          "value": "black_white"
+        }
+      },
+      "geometry": {
+        "mesh_authority": "generated_pixel3d_target_native",
+        "source_mesh_uri": "artifact://generated-animal/border-collie-black-white-v1/border_collie_animated.glb",
+        "rig_authority": "target_native_tokenrig_seed42_v2"
+      },
+      "timeline": {
+        "template_id": "generated_border_collie_target_native_v1",
+        "body_plan_id": "quadruped_canine",
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [0.40465284499021825, 0.6465226403698251, 0.0],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_pixal_generated_border_collie_black_white_v1/BP_gate_pixal_generated_border_collie_black_white_v1.BP_gate_pixal_generated_border_collie_black_white_v1_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_border_collie_black_white_v1/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_border_collie_black_white_v1/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 0.0,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_67",
+            "right_foot": "bone_56"
+          },
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "generated_target_native_heading_plus_x_and_support_plane_z0"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_labrador_yellow_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1",
+      "display_label": "Labrador Retriever",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "dog",
+        "breed_id": "labrador_retriever"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "dog_labrador_retriever_coat_v1",
+          "value": "yellow"
+        }
+      },
+      "geometry": {
+        "mesh_authority": "generated_pixel3d_target_native",
+        "source_mesh_uri": "artifact://generated-animal/labrador-yellow-v1/animated_walk_idle.glb",
+        "rig_authority": "target_native_tokenrig_seed42"
+      },
+      "timeline": {
+        "template_id": "generated_labrador_target_native_v1",
+        "body_plan_id": "quadruped_canine",
+        "local_anatomical_forward_axis": [
+          1,
+          0,
+          0
+        ],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [
+            0.454,
+            0.585,
+            0
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_pixal_generated_labrador_yellow_v1/BP_gate_pixal_generated_labrador_yellow_v1.BP_gate_pixal_generated_labrador_yellow_v1_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_labrador_yellow_v1/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_labrador_yellow_v1/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 0,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_14",
+            "right_foot": "bone_9"
+          },
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ],
+            "translation_cm": [
+              0,
+              0,
+              30.49469292163849
+            ],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "generated_labrador_native_rest_mesh_support_plane_calibration"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "revision": "m2_v7_world_contact_r5",
+      "display_label": "Beagle",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "dog",
+        "breed_id": "beagle"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "dog_beagle_tricolor_v1",
+          "value": "standard_tricolor"
+        }
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/visual.glb",
+        "rig_authority": "rocketbox_beagle_skeleton_m2_v4"
+      },
+      "timeline": {
+        "template_id": "rocketbox_dog_beagle_01",
+        "body_plan_id": "quadruped_canine",
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [0.34, 0.61, 0.0],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_m2_beagle_v7_world_contact_r5/BP_gate_m2_beagle_v7_world_contact_r5.BP_gate_m2_beagle_v7_world_contact_r5_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_m2_beagle_v7_world_contact_r5/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_m2_beagle_v7_world_contact_r5/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 180.0,
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 90.0, 0.0],
+            "translation_cm": [0.0, 0.0, 33.64],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "exact_M2_GLTF_to_UE_asset_local_axis_and_floor_calibration"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+      "revision": "native_runtime_ue_v3",
+      "display_label": "Human",
+      "entity_class": "articulated_human",
+      "identity": {
+        "species_id": "human",
+        "breed_id": null
+      },
+      "realized_attributes": {
+        "life_stage": "adult",
+        "sex_or_gender_label": "male"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://legacy-spear/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb",
+        "rig_authority": "rocketbox_human_bip01_native_v3"
+      },
+      "timeline": {
+        "template_id": "rocketbox_human_male_adult_01",
+        "body_plan_id": "biped_human",
+        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "walk_phase_period_frames": 16,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "mouth",
+      "emitter_anchors": [
+        {
+          "anchor_id": "mouth",
+          "anchor_type": "mouth",
+          "offset_m": [0.0, 1.61, 0.0],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_male_adult_01_original_ue_v3/BP_gate_rocketbox_male_adult_01_original_ue_v3.BP_gate_rocketbox_male_adult_01_original_ue_v3_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_original_ue_v3/Standing_Idle.Standing_Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_original_ue_v3/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 90.0,
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
+          },
+          "floor_contact_gate": false
+        }
+      },
+      "admission_state": "research"
+    }
+  ]
+}

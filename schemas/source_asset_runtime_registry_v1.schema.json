@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/source_asset_runtime_registry_v1.schema.json",
+  "title": "AVEngine Source Asset Runtime Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "registry_id", "revision", "aliases", "assets"],
+  "properties": {
+    "schema": {"const": "avengine_source_asset_runtime_registry_v1"},
+    "registry_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "aliases": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/asset_ref"}
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/asset"}
+    }
+  },
+  "$defs": {
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "nonempty_string": {"type": "string", "minLength": 1},
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "asset_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "revision"],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["species_id", "breed_id"],
+      "properties": {
+        "species_id": {"$ref": "#/$defs/stable_id"},
+        "breed_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/stable_id"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "coat_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "value"],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/stable_id"},
+        "value": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "realized_attributes": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "size": {"enum": ["small", "medium", "large"]},
+        "body_build": {"enum": ["slim", "standard", "stocky"]},
+        "life_stage": {"$ref": "#/$defs/stable_id"},
+        "coat_profile": {"$ref": "#/$defs/coat_profile"}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mesh_authority", "source_mesh_uri", "rig_authority"],
+      "properties": {
+        "mesh_authority": {
+          "enum": [
+            "generated_pixel3d_target_native",
+            "audited_library_asset",
+            "rigid_or_environmental_asset"
+          ]
+        },
+        "source_mesh_uri": {"$ref": "#/$defs/nonempty_string"},
+        "rig_authority": {"$ref": "#/$defs/nonempty_string"}
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_id",
+        "body_plan_id",
+        "local_anatomical_forward_axis",
+        "walk_phase_period_frames",
+        "idle_action_id",
+        "walking_action_id"
+      ],
+      "properties": {
+        "template_id": {"$ref": "#/$defs/stable_id"},
+        "body_plan_id": {"$ref": "#/$defs/stable_id"},
+        "local_anatomical_forward_axis": {"$ref": "#/$defs/vec3"},
+        "walk_phase_period_frames": {"type": "integer", "minimum": 1},
+        "idle_action_id": {"$ref": "#/$defs/stable_id"},
+        "walking_action_id": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "emitter_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor_id",
+        "anchor_type",
+        "offset_m",
+        "offset_space"
+      ],
+      "properties": {
+        "anchor_id": {"$ref": "#/$defs/stable_id"},
+        "anchor_type": {
+          "enum": [
+            "mouth",
+            "muzzle",
+            "head",
+            "body",
+            "object_speaker",
+            "environmental_point"
+          ]
+        },
+        "offset_m": {"$ref": "#/$defs/vec3"},
+        "offset_space": {"const": "final_scaled_asset_root"}
+      }
+    },
+    "component_frame_delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "rotation_deg",
+        "translation_cm",
+        "composition",
+        "reason"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_spear_component_frame_delta_v1"},
+        "rotation_deg": {"$ref": "#/$defs/vec3"},
+        "translation_cm": {"$ref": "#/$defs/vec3"},
+        "composition": {
+          "const": "add_relative_preserving_blueprint_transform"
+        },
+        "reason": {"$ref": "#/$defs/nonempty_string"}
+      }
+    },
+    "anatomical_basis_bones": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rear", "front", "body", "left_foot", "right_foot"],
+      "properties": {
+        "rear": {"$ref": "#/$defs/nonempty_string"},
+        "front": {"$ref": "#/$defs/nonempty_string"},
+        "body": {"$ref": "#/$defs/nonempty_string"},
+        "left_foot": {"$ref": "#/$defs/nonempty_string"},
+        "right_foot": {"$ref": "#/$defs/nonempty_string"}
+      }
+    },
+    "spear_unreal_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blueprint_class_path",
+        "skeletal_mesh_binding",
+        "skeletal_mesh_path",
+        "idle_animation",
+        "walking_animation",
+        "ue_anatomical_forward_yaw_deg",
+        "ue_component_frame_delta",
+        "floor_contact_gate"
+      ],
+      "properties": {
+        "blueprint_class_path": {"$ref": "#/$defs/nonempty_string"},
+        "skeletal_mesh_binding": {
+          "enum": ["blueprint_component", "explicit_path"]
+        },
+        "skeletal_mesh_path": {
+          "oneOf": [
+            {"$ref": "#/$defs/nonempty_string"},
+            {"type": "null"}
+          ]
+        },
+        "idle_animation": {"$ref": "#/$defs/nonempty_string"},
+        "walking_animation": {"$ref": "#/$defs/nonempty_string"},
+        "ue_anatomical_forward_yaw_deg": {"type": "number"},
+        "ue_anatomical_basis_bones": {
+          "$ref": "#/$defs/anatomical_basis_bones"
+        },
+        "ue_component_frame_delta": {
+          "$ref": "#/$defs/component_frame_delta"
+        },
+        "floor_contact_gate": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "skeletal_mesh_binding": {"const": "blueprint_component"}
+            }
+          },
+          "then": {
+            "properties": {
+              "skeletal_mesh_path": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "skeletal_mesh_binding": {"const": "explicit_path"}
+            }
+          },
+          "then": {
+            "properties": {
+              "skeletal_mesh_path": {"$ref": "#/$defs/nonempty_string"}
+            }
+          }
+        }
+      ]
+    },
+    "runtime_backends": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "spear_unreal": {"$ref": "#/$defs/spear_unreal_binding"}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "revision",
+        "display_label",
+        "entity_class",
+        "identity",
+        "realized_attributes",
+        "geometry",
+        "timeline",
+        "default_emitter_anchor_id",
+        "emitter_anchors",
+        "runtime_backends",
+        "admission_state"
+      ],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "display_label": {"$ref": "#/$defs/nonempty_string"},
+        "entity_class": {
+          "enum": [
+            "articulated_human",
+            "articulated_animal",
+            "rigid_object",
+            "environmental_emitter"
+          ]
+        },
+        "identity": {"$ref": "#/$defs/identity"},
+        "realized_attributes": {"$ref": "#/$defs/realized_attributes"},
+        "geometry": {"$ref": "#/$defs/geometry"},
+        "timeline": {"$ref": "#/$defs/timeline"},
+        "default_emitter_anchor_id": {"$ref": "#/$defs/stable_id"},
+        "emitter_anchors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/emitter_anchor"}
+        },
+        "runtime_backends": {"$ref": "#/$defs/runtime_backends"},
+        "admission_state": {
+          "enum": ["research", "qualified", "formal", "unavailable", "rejected"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "entity_class": {"const": "articulated_animal"}
+            }
+          },
+          "then": {
+            "properties": {
+              "identity": {
+                "properties": {
+                  "breed_id": {"$ref": "#/$defs/stable_id"}
+                }
+              },
+              "realized_attributes": {
+                "required": [
+                  "size",
+                  "body_build",
+                  "life_stage",
+                  "coat_profile"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

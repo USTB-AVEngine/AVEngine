@@ -7,6 +7,7 @@ from PIL import ImageDraw
 from avengine.m6x.geometry import RuntimeObstacleMap
 from avengine.m6x.topdown import (
     M6XTopdownError,
+    _interior_navmesh_exclusions,
     render_runtime_topdown_frame,
     render_runtime_topdown_frames,
 )
@@ -82,6 +83,24 @@ def _paths() -> dict[str, list[list[float]]]:
             [2.9, 0.7, 1.1],
         ],
     }
+
+
+def test_baked_navmesh_holes_are_separate_from_room_exterior() -> None:
+    navmesh = np.ones((12, 12), dtype=np.uint8)
+    navmesh[0, :] = 0
+    navmesh[-1, :] = 0
+    navmesh[:, 0] = 0
+    navmesh[:, -1] = 0
+    navmesh[1:6, 3] = 0
+    navmesh[7:10, 7:10] = 0
+
+    interior, component_count = _interior_navmesh_exclusions(navmesh)
+
+    assert component_count == 1
+    assert int(np.count_nonzero(interior)) == 9
+    assert np.all(interior[7:10, 7:10])
+    assert not np.any(interior[1:6, 3])
+    assert not np.any(interior[[0, -1], :])
 
 
 def test_draws_navmesh_rigid_obb_listener_fov_and_multiple_source_centers() -> None:

@@ -1,7 +1,9 @@
-import json
 from pathlib import Path
 
+from avengine.contracts.json_io import load_json
 from avengine.m6x.asset_emitter import validate_asset_emitter_binding_set
+from avengine.runtime_profiles import load_default_source_asset_runtime_registry
+from tools.m6x.select_asset_bound_trajectories import _pair_templates
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,14 +16,17 @@ CAT = "generated_abyssinian_ruddy_medium_standard_adult_research_v1"
 
 
 def test_generated_asset_pair_templates_prove_ordered_slot_replacement():
-    value = json.loads(TEMPLATES.read_text(encoding="utf-8"))
-    assert value["schema"] == "avengine_asset_emitter_scenario_set_v1"
+    value = load_json(TEMPLATES)
+    templates = _pair_templates(
+        value,
+        source_registry=load_default_source_asset_runtime_registry(),
+    )
     pairs = set()
     border_collie_offsets = set()
     cat_offsets = set()
     slots_by_asset = {HUMAN: set(), BORDER_COLLIE: set(), CAT: set()}
-    for scenario in value["scenarios"]:
-        bindings = validate_asset_emitter_binding_set(scenario["binding_set"])
+    for _pair_id, binding_set in templates:
+        bindings = validate_asset_emitter_binding_set(binding_set)
         pair = tuple(bindings[slot].asset_id for slot in ("source1", "source2"))
         pairs.add(pair)
         for slot, binding in bindings.items():

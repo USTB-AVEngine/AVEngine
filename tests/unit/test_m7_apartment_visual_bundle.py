@@ -96,6 +96,21 @@ def test_source_manifest_and_flags_close_over_generic_endpoint_ids() -> None:
         "source2_emitter",
     ]
     assert manifest["sources"][1]["endpoint"]["binding"]["entity_asset_id"] == CAT_ASSET_ID
+    assert manifest["sources"][1]["visible_asset"] == {
+        "asset_id": CAT_ASSET_ID,
+        "revision": "pixel3d_tokenrig_ue_v1",
+        "display_label": "Abyssinian",
+        "identity": {"species_id": "cat", "breed_id": "abyssinian"},
+        "realized_attributes": {
+            "size": "medium",
+            "body_build": "standard",
+            "life_stage": "adult",
+            "coat_profile": {
+                "profile_id": "cat_abyssinian_coat_v1",
+                "value": "ruddy",
+            },
+        },
+    }
     flags = build_flags()
     assert set(flags["source_flags"]) == {"source1_emitter", "source2_emitter"}
 

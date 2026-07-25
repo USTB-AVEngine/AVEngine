@@ -24,17 +24,43 @@ from avengine.optional_backends.spear_visual import (
     PLAN_SCHEMA,
     build_spear_visual_plan_from_files,
 )
+from avengine.runtime_profiles import (
+    load_default_room_runtime_profile_registry,
+    load_default_source_asset_runtime_registry,
+    resolve_room_runtime_profile,
+    resolve_source_asset_alias,
+    spear_actor_bindings,
+)
 
 
 SUITE_SCHEMA = "avengine_optional_spear_apartment_suite_v1"
 SCENARIO_SCHEMA = "avengine_optional_spear_apartment_scenario_v1"
-NATIVE_APARTMENT_MAP = "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000"
-NATIVE_APARTMENT_SCENE_ID = "apartment_0000"
-WIDTH = 1280
-HEIGHT = 720
-FPS = 15
-STREAMING_WARMUP_FRAMES = 120
-CAMERA_WARMUP_FRAMES = 40
+
+DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY = (
+    load_default_source_asset_runtime_registry()
+)
+DEFAULT_ROOM_RUNTIME_PROFILE_REGISTRY = (
+    load_default_room_runtime_profile_registry()
+)
+DEFAULT_ROOM_RUNTIME_PROFILE: Mapping[str, Any] = resolve_room_runtime_profile(
+    DEFAULT_ROOM_RUNTIME_PROFILE_REGISTRY
+)
+
+# Backward-compatible names are views of editable JSON, not implementation
+# authority. New rooms and sources are selected by passing their profile data.
+NATIVE_APARTMENT_MAP = str(DEFAULT_ROOM_RUNTIME_PROFILE["scene"]["map_path"])
+NATIVE_APARTMENT_SCENE_ID = str(
+    DEFAULT_ROOM_RUNTIME_PROFILE["scene"]["scene_id"]
+)
+WIDTH = int(DEFAULT_ROOM_RUNTIME_PROFILE["render"]["width"])
+HEIGHT = int(DEFAULT_ROOM_RUNTIME_PROFILE["render"]["height"])
+FPS = int(DEFAULT_ROOM_RUNTIME_PROFILE["render"]["frame_rate_hz"])
+STREAMING_WARMUP_FRAMES = int(
+    DEFAULT_ROOM_RUNTIME_PROFILE["render"]["streaming_warmup_frames"]
+)
+CAMERA_WARMUP_FRAMES = int(
+    DEFAULT_ROOM_RUNTIME_PROFILE["render"]["camera_warmup_frames"]
+)
 DURATION_SECONDS = FRAME_COUNT / FPS
 POSITION_TOLERANCE_CM = 0.02
 ROTATION_TOLERANCE_DEGREES = 0.02
@@ -74,152 +100,85 @@ MOTION_PILOT_DIRECTORIES: Mapping[str, str] = {
 }
 
 
-BEAGLE_ASSET_ID = "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
-HUMAN_ASSET_ID = "rocketbox_human_male_adult_01_m5_1_candidate"
-BORDER_COLLIE_ASSET_ID = (
-    "generated_border_collie_black_white_medium_standard_adult_research_v1"
+BEAGLE_ASSET_ID = str(
+    resolve_source_asset_alias(
+        DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY, "legacy_beagle"
+    )["asset_id"]
 )
-CAT_ASSET_ID = "generated_abyssinian_ruddy_medium_standard_adult_research_v1"
-
-BEAGLE_TAG = "m2_beagle_v7_world_contact_r5"
-HUMAN_TAG = "rocketbox_male_adult_01_original_ue_v3"
-BORDER_COLLIE_TAG = "pixal_generated_border_collie_black_white_v1"
-CAT_TAG = "pixal_generated_abyssinian_ruddy_v1"
-
-DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = {
-    BEAGLE_ASSET_ID: {
-        "blueprint_class_path": (
-            "/Game/MyAssets/Audioset/Blueprints/"
-            f"gate_{BEAGLE_TAG}/BP_gate_{BEAGLE_TAG}.BP_gate_{BEAGLE_TAG}_C"
-        ),
-        "idle_animation": (
-            f"/Game/MyAssets/Audioset/Meshes/gate_{BEAGLE_TAG}/Idle.Idle"
-        ),
-        "walking_animation": (
-            f"/Game/MyAssets/Audioset/Meshes/gate_{BEAGLE_TAG}/Walking.Walking"
-        ),
-        # Runtime bone-basis readback shows that this imported Blueprint's
-        # nose points along UE actor-local -X after its asset-frame correction.
-        # This is independent of the source GLB's Habitat-local +X forward.
-        "ue_anatomical_forward_yaw_deg": 180.0,
-        # The exact M2 GLB imports with Z-up interpreted as a standing local
-        # mesh frame in UE.  This is an asset-local visual correction only:
-        # it is added to (never replaces) the Blueprint component transform,
-        # while the authoritative Timeline actor root remains untouched.
-        "ue_component_frame_delta": {
-            "schema": COMPONENT_FRAME_DELTA_SCHEMA,
-            "rotation_deg": [0.0, 90.0, 0.0],
-            "translation_cm": [0.0, 0.0, 33.64],
-            "composition": "add_relative_preserving_blueprint_transform",
-            "reason": "exact_M2_GLTF_to_UE_asset_local_axis_and_floor_calibration",
-        },
-    },
-    HUMAN_ASSET_ID: {
-        "blueprint_class_path": (
-            "/Game/MyAssets/Audioset/Blueprints/"
-            f"gate_{HUMAN_TAG}/BP_gate_{HUMAN_TAG}.BP_gate_{HUMAN_TAG}_C"
-        ),
-        "idle_animation": (
-            "/Game/MyAssets/Audioset/Meshes/"
-            f"gate_{HUMAN_TAG}/Standing_Idle.Standing_Idle"
-        ),
-        "walking_animation": (
-            f"/Game/MyAssets/Audioset/Meshes/gate_{HUMAN_TAG}/Walking.Walking"
-        ),
-        # Rocketbox walking/idle clips face UE actor-local +Y.
-        "ue_anatomical_forward_yaw_deg": 90.0,
-        "ue_component_frame_delta": {
-            "schema": COMPONENT_FRAME_DELTA_SCHEMA,
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
-            "composition": "add_relative_preserving_blueprint_transform",
-            "reason": "identity_delta_native_Rocketbox_UE_asset_frame",
-        },
-    },
-    BORDER_COLLIE_ASSET_ID: {
-        "blueprint_class_path": (
-            "/Game/MyAssets/Audioset/Blueprints/"
-            f"gate_{BORDER_COLLIE_TAG}/BP_gate_{BORDER_COLLIE_TAG}."
-            f"BP_gate_{BORDER_COLLIE_TAG}_C"
-        ),
-        "idle_animation": (
-            f"/Game/MyAssets/Audioset/Meshes/gate_{BORDER_COLLIE_TAG}/Idle.Idle"
-        ),
-        "walking_animation": (
-            f"/Game/MyAssets/Audioset/Meshes/gate_{BORDER_COLLIE_TAG}/Walking.Walking"
-        ),
-        # The generated instance was normalized before UE import: +X is the
-        # anatomical forward direction and the four-foot support plane is Z=0.
-        # Native runtime readback remains the authority for this provisional
-        # UE frame declaration; it must not be silently borrowed from Beagle
-        # or another generated animal.
-        "ue_anatomical_forward_yaw_deg": 0.0,
-        # TokenRig deliberately exports anonymous bone names. These roles
-        # come from this asset's recorded semantic inference, not from a
-        # guessed breed-wide skeleton. Keeping the mapping on the asset
-        # binding lets the runtime audit the rendered skeleton without
-        # pretending that every generated animal shares these indices.
-        "ue_anatomical_basis_bones": {
-            "rear": "bone_0",
-            "front": "bone_4",
-            "body": "bone_0",
-            "left_foot": "bone_67",
-            "right_foot": "bone_56",
-        },
-        "ue_component_frame_delta": {
-            "schema": COMPONENT_FRAME_DELTA_SCHEMA,
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
-            "composition": "add_relative_preserving_blueprint_transform",
-            "reason": "generated_target_native_heading_plus_x_and_support_plane_z0",
-        },
-    },
-    CAT_ASSET_ID: {
-        "blueprint_class_path": (
-            "/Game/MyAssets/Audioset/Blueprints/"
-            f"gate_{CAT_TAG}/BP_gate_{CAT_TAG}.BP_gate_{CAT_TAG}_C"
-        ),
-        "idle_animation": (
-            f"/Game/MyAssets/Audioset/Meshes/gate_{CAT_TAG}/Idle.Idle"
-        ),
-        "walking_animation": (
-            f"/Game/MyAssets/Audioset/Meshes/gate_{CAT_TAG}/Walking.Walking"
-        ),
-        "ue_anatomical_forward_yaw_deg": 0.0,
-        # These anonymous TokenRig roles come from this exact generated cat's
-        # recorded semantic inference. bone_0 -> bone_4 is the rear-to-front
-        # axial segment; bone_9/bone_14 are its positive/negative-side front
-        # foot leaves. Never reuse these indices for another generated cat.
-        "ue_anatomical_basis_bones": {
-            "rear": "bone_0",
-            "front": "bone_4",
-            "body": "bone_0",
-            "left_foot": "bone_9",
-            "right_foot": "bone_14",
-        },
-        "ue_component_frame_delta": {
-            "schema": COMPONENT_FRAME_DELTA_SCHEMA,
-            "rotation_deg": [0.0, 0.0, 0.0],
-            # The accepted GLB has a Z=0 support plane, but UE Interchange
-            # imports this exact skinned hierarchy with its visual bounds
-            # 42.25 cm below the Timeline actor root.  This asset-local
-            # correction comes from native UE bounds readback over all 75
-            # walking frames; it is not reusable for another generated cat.
-            "translation_cm": [0.0, 0.0, 42.25],
-            "composition": "add_relative_preserving_blueprint_transform",
-            "reason": "generated_abyssinian_native_UE_bounds_floor_calibration",
-        },
-    },
-}
-
-
-FLOOR_GATED_QUADRUPED_ASSET_IDS = frozenset(
-    {BEAGLE_ASSET_ID, BORDER_COLLIE_ASSET_ID, CAT_ASSET_ID}
+HUMAN_ASSET_ID = str(
+    resolve_source_asset_alias(
+        DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY, "legacy_human"
+    )["asset_id"]
+)
+BORDER_COLLIE_ASSET_ID = str(
+    resolve_source_asset_alias(
+        DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY, "current_generated_dog"
+    )["asset_id"]
+)
+CAT_ASSET_ID = str(
+    resolve_source_asset_alias(
+        DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY, "current_generated_cat"
+    )["asset_id"]
+)
+DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = spear_actor_bindings(
+    DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY
 )
 
 
 class SpearApartmentError(ValueError):
     """The native Apartment comparison cannot preserve its authority boundary."""
+
+
+def _validated_room_runtime_profile(
+    profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate the subset owned by the SPEAR Apartment adapter.
+
+    Room identity and scene selection are data-driven. The adapter still owns
+    one fixed five-second camera/render transport, so a room using a different
+    transport must register a different adapter instead of silently changing
+    this one.
+    """
+
+    if not isinstance(profile, Mapping):
+        raise SpearApartmentError("room runtime profile must be a mapping")
+    if (
+        profile.get("backend_id") != "spear_unreal"
+        or profile.get("adapter_id") != "spear_apartment_v1"
+    ):
+        raise SpearApartmentError(
+            "room runtime profile is not compatible with spear_apartment_v1"
+        )
+    room_ref = profile.get("room_ref")
+    scene = profile.get("scene")
+    render = profile.get("render")
+    if not all(isinstance(value, Mapping) for value in (room_ref, scene, render)):
+        raise SpearApartmentError("room runtime profile is incomplete")
+    expected_render = {
+        "width": WIDTH,
+        "height": HEIGHT,
+        "frame_count": FRAME_COUNT,
+        "frame_rate_hz": FPS,
+        "horizontal_fov_deg": 105.0,
+        "streaming_warmup_frames": STREAMING_WARMUP_FRAMES,
+        "camera_warmup_frames": CAMERA_WARMUP_FRAMES,
+    }
+    if dict(render) != expected_render:
+        raise SpearApartmentError(
+            "spear_apartment_v1 room profile changed its fixed render transport"
+        )
+    for owner, value in (
+        ("profile_id", profile.get("profile_id")),
+        ("room_id", room_ref.get("room_id")),
+        ("room revision", room_ref.get("revision")),
+        ("scene_id", scene.get("scene_id")),
+        ("map_path", scene.get("map_path")),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise SpearApartmentError(f"room runtime profile {owner} is invalid")
+    if not str(scene["map_path"]).startswith("/Game/"):
+        raise SpearApartmentError("room runtime map path must start with /Game/")
+    return deepcopy(dict(profile))
 
 
 def _finite_scalar(value: Any, *, owner: str) -> float:
@@ -756,7 +715,12 @@ def asset_bound_episode_input_paths(
     }
 
 
-def _validate_native_plan(plan: Mapping[str, Any], *, scenario_id: str) -> None:
+def _validate_native_plan(
+    plan: Mapping[str, Any],
+    *,
+    scenario_id: str,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
+) -> None:
     if plan.get("schema") != PLAN_SCHEMA or plan.get("backend_role") != BACKEND_ROLE:
         raise SpearApartmentError("input did not compile to a comparison-visual plan")
     authority = plan.get("authority")
@@ -769,12 +733,23 @@ def _validate_native_plan(plan: Mapping[str, Any], *, scenario_id: str) -> None:
         raise SpearApartmentError(
             f"scenario directory {scenario_id!r} disagrees with source manifest"
         )
+    room_profile = _validated_room_runtime_profile(room_runtime_profile)
     provenance = plan.get("room", {}).get("source_scene_provenance")
     if not isinstance(provenance, Mapping) or (
         provenance.get("provider") != "SPEAR_Unreal"
-        or provenance.get("scene_id") != NATIVE_APARTMENT_SCENE_ID
+        or provenance.get("scene_id") != room_profile["scene"]["scene_id"]
     ):
-        raise SpearApartmentError("RoomCapsule is not the native SPEAR Apartment")
+        raise SpearApartmentError(
+            "RoomCapsule is not the native scene selected by the SPEAR room profile"
+        )
+    plan_room_id = plan.get("room", {}).get("room_id")
+    if (
+        plan_room_id is not None
+        and plan_room_id != room_profile["room_ref"]["room_id"]
+    ):
+        raise SpearApartmentError(
+            "RoomCapsule room_id does not match the selected room profile"
+        )
     render = plan.get("render")
     if render != {
         "frame_count": FRAME_COUNT,
@@ -811,6 +786,7 @@ def _build_native_apartment_scenario_from_paths(
     paths: Mapping[str, Path],
     actor_bindings: Mapping[str, Mapping[str, Any]],
     lighting_profile: Mapping[str, Any],
+    room_runtime_profile: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Compile a resolved Apartment input closure into one UE execution record."""
 
@@ -822,12 +798,26 @@ def _build_native_apartment_scenario_from_paths(
         qualification_path=paths["qualification"],
         actor_bindings=actor_bindings,
     )
-    _validate_native_plan(plan, scenario_id=scenario_id)
+    room_profile = _validated_room_runtime_profile(room_runtime_profile)
+    _validate_native_plan(
+        plan,
+        scenario_id=scenario_id,
+        room_runtime_profile=room_profile,
+    )
     for actor in plan["actors"]:
         asset_id = actor["asset_id"]
+        raw_binding = actor_bindings.get(asset_id)
+        if not isinstance(raw_binding, Mapping):
+            raise SpearApartmentError(f"actor binding {asset_id!r} is missing")
         actor["ue_component_frame_delta"] = component_frame_delta_for_asset(
             asset_id, actor_bindings=actor_bindings
         )
+        actor["floor_contact_gate"] = bool(
+            raw_binding.get("floor_contact_gate", False)
+        )
+        actor["skeletal_mesh_binding"] = raw_binding["skeletal_mesh_binding"]
+        actor["skeletal_mesh_path"] = raw_binding.get("skeletal_mesh_path")
+        actor["asset_revision"] = raw_binding.get("asset_revision")
         basis_bones = anatomical_basis_bones_for_asset(
             asset_id, actor_bindings=actor_bindings
         )
@@ -844,15 +834,17 @@ def _build_native_apartment_scenario_from_paths(
         "variant_id": variant_id,
         "backend_role": BACKEND_ROLE,
         "native_scene": {
-            "map": NATIVE_APARTMENT_MAP,
-            "layout": "native_map_unchanged",
+            "room_runtime_profile_id": room_profile["profile_id"],
+            "room_ref": deepcopy(dict(room_profile["room_ref"])),
+            "map": room_profile["scene"]["map_path"],
+            "layout": room_profile["scene"]["layout_policy"],
             "lighting": (
                 "native_map_unchanged_no_added_lights"
                 if not generated_lights
                 else "native_map_plus_generated_runtime_lights"
             ),
             "lighting_profile": lighting,
-            "outdoor_view": "native_map_assets_and_postprocess",
+            "outdoor_view": room_profile["scene"]["outdoor_view_policy"],
         },
         "render": {
             "width": WIDTH,
@@ -891,6 +883,7 @@ def build_native_apartment_scenario(
     *,
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
     lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> dict[str, Any]:
     """Compile one existing M6.x scenario into a native UE execution record."""
 
@@ -905,6 +898,7 @@ def build_native_apartment_scenario(
         paths=paths,
         actor_bindings=actor_bindings,
         lighting_profile=lighting_profile,
+        room_runtime_profile=room_runtime_profile,
     )
 
 
@@ -914,6 +908,7 @@ def build_native_apartment_motion_pilot_scenario(
     *,
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
     lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> dict[str, Any]:
     """Compile one existing four-motion pilot episode for native UE pixels."""
 
@@ -928,6 +923,7 @@ def build_native_apartment_motion_pilot_scenario(
         paths=paths,
         actor_bindings=actor_bindings,
         lighting_profile=lighting_profile,
+        room_runtime_profile=room_runtime_profile,
     )
 
 
@@ -937,6 +933,7 @@ def build_native_apartment_asset_bound_scenario(
     *,
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
     lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> dict[str, Any]:
     """Compile one generic M7 source1/source2 episode for native UE pixels."""
 
@@ -950,6 +947,7 @@ def build_native_apartment_asset_bound_scenario(
         paths=paths,
         actor_bindings=actor_bindings,
         lighting_profile=lighting_profile,
+        room_runtime_profile=room_runtime_profile,
     )
 
 
@@ -959,6 +957,7 @@ def build_native_apartment_suite(
     scenario_ids: Sequence[str] = ("S0", "S3", "S4"),
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
     lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> dict[str, Any]:
     """Compile the requested native Apartment comparison scenarios."""
 
@@ -971,13 +970,15 @@ def build_native_apartment_suite(
             scenario_id,
             actor_bindings=actor_bindings,
             lighting_profile=lighting_profile,
+            room_runtime_profile=room_runtime_profile,
         )
         for scenario_id in selected
     ]
     return {
         "schema": SUITE_SCHEMA,
         "backend_role": BACKEND_ROLE,
-        "native_map": NATIVE_APARTMENT_MAP,
+        "room_runtime_profile": deepcopy(dict(room_runtime_profile)),
+        "native_map": room_runtime_profile["scene"]["map_path"],
         "lighting_profile": deepcopy(dict(lighting_profile)),
         "authority": {
             "habitat_native": [
@@ -1000,6 +1001,7 @@ def build_native_apartment_motion_pilot_suite(
     scenario_ids: Sequence[str] = ("P0", "P1", "P2", "P3"),
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
     lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> dict[str, Any]:
     """Compile the requested four-motion pilot episodes for one UE launch."""
 
@@ -1012,13 +1014,15 @@ def build_native_apartment_motion_pilot_suite(
             scenario_id,
             actor_bindings=actor_bindings,
             lighting_profile=lighting_profile,
+            room_runtime_profile=room_runtime_profile,
         )
         for scenario_id in selected
     ]
     return {
         "schema": SUITE_SCHEMA,
         "backend_role": BACKEND_ROLE,
-        "native_map": NATIVE_APARTMENT_MAP,
+        "room_runtime_profile": deepcopy(dict(room_runtime_profile)),
+        "native_map": room_runtime_profile["scene"]["map_path"],
         "lighting_profile": deepcopy(dict(lighting_profile)),
         "authority": {
             "habitat_native": [
@@ -1041,6 +1045,7 @@ def build_native_apartment_asset_bound_suite(
     scenario_ids: Sequence[str] | None = None,
     actor_bindings: Mapping[str, Mapping[str, Any]] = DEFAULT_ACTOR_BINDINGS,
     lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> dict[str, Any]:
     """Compile selected M7 episodes, or the bundle manifest's full order."""
 
@@ -1057,13 +1062,15 @@ def build_native_apartment_asset_bound_suite(
             episode_id,
             actor_bindings=actor_bindings,
             lighting_profile=lighting_profile,
+            room_runtime_profile=room_runtime_profile,
         )
         for episode_id in selected
     ]
     return {
         "schema": SUITE_SCHEMA,
         "backend_role": BACKEND_ROLE,
-        "native_map": NATIVE_APARTMENT_MAP,
+        "room_runtime_profile": deepcopy(dict(room_runtime_profile)),
+        "native_map": room_runtime_profile["scene"]["map_path"],
         "lighting_profile": deepcopy(dict(lighting_profile)),
         "authority": {
             "habitat_native": [
@@ -1317,7 +1324,17 @@ def summarize_actor_bounds(
                 ],
             },
         }
-        if declaration.get("asset_id") in FLOOR_GATED_QUADRUPED_ASSET_IDS:
+        floor_contact_gate = declaration.get("floor_contact_gate")
+        if floor_contact_gate is None:
+            default_binding = DEFAULT_ACTOR_BINDINGS.get(
+                declaration.get("asset_id")
+            )
+            floor_contact_gate = (
+                default_binding.get("floor_contact_gate")
+                if isinstance(default_binding, Mapping)
+                else False
+            )
+        if floor_contact_gate is True:
             maximum_floor_error = max(abs(value) for value in clearances)
             if maximum_floor_error > QUADRUPED_FLOOR_TOLERANCE_CM:
                 raise SpearApartmentError(

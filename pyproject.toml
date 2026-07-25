@@ -25,6 +25,7 @@ where = ["src"]
 
 [tool.setuptools.data-files]
 "share/avengine/schemas" = ["schemas/*.json"]
+"share/avengine/runtime_profiles" = ["examples/runtime/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
