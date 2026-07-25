@@ -78,12 +78,13 @@ class AssetEmitterBinding:
 
     source_slot_id: str
     asset_id: str
+    asset_revision: str | None
     semantic_anchor_id: str
     emitter_offset_m: tuple[float, float, float]
     local_anatomical_forward_axis: tuple[float, float, float]
 
     def record(self) -> dict[str, Any]:
-        return {
+        result = {
             "source_slot_id": self.source_slot_id,
             "asset_id": self.asset_id,
             "semantic_anchor_id": self.semantic_anchor_id,
@@ -91,6 +92,9 @@ class AssetEmitterBinding:
             "local_anatomical_forward_axis": list(self.local_anatomical_forward_axis),
             "offset_space": "final_scaled_asset_root",
         }
+        if self.asset_revision is not None:
+            result["asset_revision"] = self.asset_revision
+        return result
 
 
 @dataclass(frozen=True)
@@ -154,6 +158,14 @@ def validate_asset_emitter_binding_set(
             source_slot_id=source_slot,
             asset_id=_nonempty(
                 raw.get("asset_id"), owner=f"bindings[{index}].asset_id"
+            ),
+            asset_revision=(
+                _nonempty(
+                    raw.get("asset_revision"),
+                    owner=f"bindings[{index}].asset_revision",
+                )
+                if raw.get("asset_revision") is not None
+                else None
             ),
             semantic_anchor_id=_nonempty(
                 raw.get("semantic_anchor_id"),

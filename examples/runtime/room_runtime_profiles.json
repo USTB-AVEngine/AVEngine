@@ -1,0 +1,40 @@
+{
+  "schema": "avengine_room_runtime_profile_registry_v1",
+  "registry_id": "avengine_room_runtime_profiles_v1",
+  "revision": "20260724_v1",
+  "default_profile_id": "spear_apartment_0000",
+  "profiles": [
+    {
+      "profile_id": "spear_apartment_0000",
+      "revision": "native_map_v1",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "legacy_ue_apartment_0000_v1",
+        "revision": "real_surface_export_pending_portable_package_v1"
+      },
+      "backend_id": "spear_unreal",
+      "adapter_id": "spear_apartment_v1",
+      "scene": {
+        "scene_id": "apartment_0000",
+        "map_path": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
+        "layout_policy": "native_map_unchanged",
+        "outdoor_view_policy": "native_map_assets_and_postprocess"
+      },
+      "render": {
+        "width": 1280,
+        "height": 720,
+        "frame_count": 75,
+        "frame_rate_hz": 15,
+        "horizontal_fov_deg": 105.0,
+        "streaming_warmup_frames": 120,
+        "camera_warmup_frames": 40
+      },
+      "default_lighting_profile_id": "native",
+      "supported_input_layouts": [
+        "m6x-canary",
+        "motion-pilot",
+        "asset-bound-batch"
+      ]
+    }
+  ]
+}

@@ -50,6 +50,12 @@ Apartment training-data route. Do not replace them with an easier canary:
   instance attributes only after that breed-specific base exists. Coat
   variants use FLUX reference-guided appearance editing; RGB multiplication is
   not a coat generator.
+- Every new target-native quadruped must pass the shared post-TokenRig runner:
+  reviewed heading, four-semantic-foot support-plane leveling, then motion
+  retarget and multi-view animation QA. A lowest-point floor shift, per-frame
+  foot grounding or UE component Z correction is not support-plane leveling
+  and cannot substitute for it. Do not register a newly generated animal from
+  a direct retarget output that bypassed this stage.
 - For `apartment_0000`, Habitat-native owns the route, Timeline, source
   centers, binaural audio, Topdown and labels; SPEAR/UE owns final RGB pixels.
   Do not silently fall back to Habitat RGB for the final Apartment dataset.
@@ -65,6 +71,13 @@ Apartment training-data route. Do not replace them with an easier canary:
   across splits. The completed lightweight baseline used 100 visual episodes
   x 10 audio variants. The current owner-requested 1,000-item closure uses
   1,000 visual episodes x 1 audio realization and an 800/100/100 sample split.
+- Room identity/resources, visible source-asset runtime data and dry sound
+  assets are three independent selections. New runtime-capable animals belong
+  in `examples/runtime/source_asset_runtime_profiles.json`; room/backend scene
+  choices belong in `examples/runtime/room_runtime_profiles.json`. Production
+  Python must not grow a breed list, per-animal muzzle/floor constants or a
+  room-map switch. `source1` and `source2` resolve exact registered assets, and
+  dry sound continues to resolve through the independent sound registry.
 - The current owner-approved generative route uses FLUX without Qwen. Do not
   use low-VRAM modes, CPU offload or sequential model offload; load the model
   directly into available GPU memory. This does not relax output anatomy or

@@ -31,7 +31,6 @@ from avengine.optional_backends.spear_apartment import (
     FPS,
     FRAME_COUNT,
     HEIGHT,
-    NATIVE_APARTMENT_MAP,
     STREAMING_WARMUP_FRAMES,
     WIDTH,
     animation_position_seconds,
@@ -50,6 +49,14 @@ from avengine.optional_backends.spear_apartment import (
     summarize_anatomical_forward_readbacks,
     summarize_root_readbacks,
 )
+from avengine.runtime_profiles import (
+    default_room_runtime_profile_registry_path,
+    default_source_asset_runtime_registry_path,
+    load_room_runtime_profile_registry,
+    load_source_asset_runtime_registry,
+    resolve_room_runtime_profile,
+    spear_actor_bindings,
+)
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -58,6 +65,10 @@ DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_LIGHTING_PROFILES = (
     REPOSITORY / "examples/m6y/spear_apartment_lighting_profiles.json"
 )
+DEFAULT_SOURCE_ASSET_RUNTIME_PROFILES = (
+    default_source_asset_runtime_registry_path()
+)
+DEFAULT_ROOM_RUNTIME_PROFILES = default_room_runtime_profile_registry_path()
 CAMERA_BLUEPRINT = "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C"
 CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
 EVIDENCE_SCHEMA = "avengine_optional_spear_apartment_runtime_evidence_v2"
@@ -77,6 +88,9 @@ MEDIA_EXPECTATIONS = {
     "ue_clean_binaural": (WIDTH, HEIGHT, True),
     "ue_topdown_binaural": (1280, 480, True),
 }
+CAPTURE_WARMUP_REQUIRED_STABLE_TRANSITIONS = 4
+CAPTURE_WARMUP_MEAN_ABS_CHANGE_THRESHOLD = 0.8
+CAPTURE_WARMUP_MAXIMUM_FRAMES = max(120, CAMERA_WARMUP_FRAMES * 3)
 
 
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -508,6 +522,10 @@ def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
                 value["walking_animation"],
                 value["ue_component_frame_delta"],
                 value.get("ue_anatomical_basis_bones"),
+                value.get("skeletal_mesh_binding"),
+                value.get("skeletal_mesh_path"),
+                value.get("asset_revision"),
+                value.get("floor_contact_gate"),
             )
             previous = binding_by_asset.setdefault(value["asset_id"], binding)
             if previous != binding:
@@ -576,6 +594,113 @@ def _apply_actor_state(
         "observed_position_seconds": observed_seconds,
         "absolute_error_seconds": animation_error,
     }
+
+
+def _capture_warmup_until_stable(
+    *,
+    instance: Any,
+    camera: Any,
+    capture: Any,
+    runtimes: Mapping[str, dict[str, Any]],
+    actor_states: Sequence[Mapping[str, Any]],
+    camera_plan: Mapping[str, Any],
+    minimum_frames: int = CAMERA_WARMUP_FRAMES,
+    maximum_frames: int = CAPTURE_WARMUP_MAXIMUM_FRAMES,
+    stable_transitions: int = CAPTURE_WARMUP_REQUIRED_STABLE_TRANSITIONS,
+    mean_abs_change_threshold: float = CAPTURE_WARMUP_MEAN_ABS_CHANGE_THRESHOLD,
+) -> dict[str, Any]:
+    """Discard real SceneCapture frames until the final view is stable.
+
+    Merely stepping a headless UE world does not prove that streamed texture
+    and virtual-texture pages needed by the SceneCapture view are resident.
+    This warmup drives the same readback path as formal frame capture while
+    repeatedly restoring the authoritative frame-zero actor/camera state.
+    """
+
+    if (
+        isinstance(minimum_frames, bool)
+        or not isinstance(minimum_frames, int)
+        or minimum_frames < 1
+        or isinstance(maximum_frames, bool)
+        or not isinstance(maximum_frames, int)
+        or maximum_frames < minimum_frames + stable_transitions
+        or isinstance(stable_transitions, bool)
+        or not isinstance(stable_transitions, int)
+        or stable_transitions < 1
+        or not math.isfinite(mean_abs_change_threshold)
+        or mean_abs_change_threshold < 0.0
+    ):
+        raise RuntimeError("capture warmup configuration is invalid")
+
+    previous: np.ndarray | None = None
+    first: np.ndarray | None = None
+    changes: list[float] = []
+    stable_count = 0
+    discarded_frames = 0
+    for warmup_index in range(maximum_frames):
+        with instance.begin_frame():
+            for state in actor_states:
+                _apply_actor_state(
+                    runtimes[str(state["actor_id"])],
+                    state,
+                    -1,
+                )
+            _apply_camera(camera, camera_plan)
+        with instance.end_frame():
+            current = np.asarray(_read_frame(capture), dtype=np.uint8).copy()
+        if current.shape != (HEIGHT, WIDTH, 3):
+            raise RuntimeError(
+                f"unexpected UE warmup frame shape: {current.shape}"
+            )
+        if first is None:
+            first = current.copy()
+        if previous is not None:
+            change = float(
+                np.mean(
+                    np.abs(
+                        current.astype(np.int16)
+                        - previous.astype(np.int16)
+                    )
+                )
+            )
+            if not math.isfinite(change):
+                raise RuntimeError("capture warmup produced a non-finite change")
+            changes.append(change)
+            if change <= mean_abs_change_threshold:
+                stable_count += 1
+            else:
+                stable_count = 0
+        previous = current
+        discarded_frames = warmup_index + 1
+        if (
+            discarded_frames >= minimum_frames
+            and stable_count >= stable_transitions
+        ):
+            assert first is not None
+            first_to_last = float(
+                np.mean(
+                    np.abs(
+                        current.astype(np.int16)
+                        - first.astype(np.int16)
+                    )
+                )
+            )
+            return {
+                "status": "pass",
+                "mode": "discarded_scene_capture_readbacks",
+                "discarded_frame_count": discarded_frames,
+                "minimum_frame_count": minimum_frames,
+                "maximum_frame_count": maximum_frames,
+                "required_stable_transitions": stable_transitions,
+                "mean_abs_change_threshold": mean_abs_change_threshold,
+                "final_mean_abs_change": changes[-1],
+                "maximum_mean_abs_change": max(changes),
+                "first_to_last_mean_abs_change": first_to_last,
+            }
+    raise RuntimeError(
+        "SceneCapture textures did not stabilize before formal frame zero: "
+        f"last changes={changes[-stable_transitions:]}"
+    )
 
 
 def _probe_media(
@@ -769,15 +894,18 @@ def _render_scenario(
     plan = scenario["plan"]
     camera_plan = plan["camera"]
 
-    # A short view-specific warmup follows the one suite-wide streaming warmup.
+    # A view-specific warmup follows the suite-wide world step.  It must drive
+    # actual SceneCapture readbacks: otherwise the first kept frames can be
+    # the ones that request the floor's streamed/virtual-texture pages.
     phase_started = time.perf_counter()
-    with instance.begin_frame():
-        for state in plan["frames"][0]["actor_states"]:
-            _apply_actor_state(runtimes[state["actor_id"]], state, 0)
-        _apply_camera(camera, camera_plan)
-    with instance.end_frame():
-        pass
-    instance.step(num_frames=CAMERA_WARMUP_FRAMES)
+    capture_warmup = _capture_warmup_until_stable(
+        instance=instance,
+        camera=camera,
+        capture=capture,
+        runtimes=runtimes,
+        actor_states=plan["frames"][0]["actor_states"],
+        camera_plan=camera_plan,
+    )
     phase_wall_seconds["camera_warmup"] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
@@ -1027,6 +1155,7 @@ def _render_scenario(
         },
         "visual_bounds_readback": bounds_gate,
         "visual_anatomical_forward_readback": anatomical_forward_gate,
+        "capture_warmup": capture_warmup,
         "media": media,
         "audio_authority": {
             "status": "pass",
@@ -1079,7 +1208,9 @@ def _destroy_runtime_actors(
         pass
 
 
-def _configure_instance(args: argparse.Namespace) -> tuple[Any, Path]:
+def _configure_instance(
+    args: argparse.Namespace, *, native_map: str
+) -> tuple[Any, Path]:
     spear_root = args.spear_root.resolve()
     executable = (
         spear_root
@@ -1091,12 +1222,7 @@ def _configure_instance(args: argparse.Namespace) -> tuple[Any, Path]:
     if not examples.is_dir():
         raise RuntimeError(f"SPEAR examples directory is missing: {examples}")
     sys.path.insert(0, str(examples))
-    from render_in_apartment import APARTMENT_MAP, parallel_instance_settings
-
-    if APARTMENT_MAP != NATIVE_APARTMENT_MAP:
-        raise RuntimeError(
-            f"SPEAR Apartment map changed: {APARTMENT_MAP} != {NATIVE_APARTMENT_MAP}"
-        )
+    from render_in_apartment import parallel_instance_settings
     import spear
 
     settings = parallel_instance_settings(
@@ -1120,7 +1246,7 @@ def _configure_instance(args: argparse.Namespace) -> tuple[Any, Path]:
         CLIENT_INTERNAL_TIMEOUT_SECONDS
     )
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.OVERRIDE_GAME_DEFAULT_MAP = True
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = NATIVE_APARTMENT_MAP
+    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = native_map
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / FPS
     config.SP_SERVICES.RPC_SERVICE.RPC_SERVER_PORT = settings["rpc_port"]
     config.SPEAR.INSTANCE.TEMP_DIR = settings["temp_dir"]
@@ -1225,8 +1351,25 @@ def run(args: argparse.Namespace) -> Path:
             if args.scenario
             else default_scenarios
         )
+    source_registry = load_source_asset_runtime_registry(
+        args.source_asset_registry
+    )
+    actor_bindings = spear_actor_bindings(source_registry)
+    room_registry = load_room_runtime_profile_registry(
+        args.room_runtime_profiles
+    )
+    room_runtime_profile = resolve_room_runtime_profile(
+        room_registry, args.room_profile
+    )
+    if args.input_layout not in room_runtime_profile["supported_input_layouts"]:
+        raise RuntimeError(
+            f"room profile {room_runtime_profile['profile_id']!r} does not "
+            f"support input layout {args.input_layout!r}"
+        )
     lighting_profile = load_apartment_lighting_profile(
-        args.lighting_profiles, args.lighting_profile
+        args.lighting_profiles,
+        args.lighting_profile
+        or room_runtime_profile["default_lighting_profile_id"],
     )
     suite_builder = {
         "motion-pilot": build_native_apartment_motion_pilot_suite,
@@ -1234,8 +1377,23 @@ def run(args: argparse.Namespace) -> Path:
         "asset-bound-batch": build_native_apartment_asset_bound_suite,
     }[args.input_layout]
     suite = suite_builder(
-        bundle_root, scenario_ids=scenarios, lighting_profile=lighting_profile
+        bundle_root,
+        scenario_ids=scenarios,
+        actor_bindings=actor_bindings,
+        lighting_profile=lighting_profile,
+        room_runtime_profile=room_runtime_profile,
     )
+    suite["source_asset_runtime_registry"] = {
+        "registry_id": source_registry["registry_id"],
+        "revision": source_registry["revision"],
+        "path": str(args.source_asset_registry.resolve()),
+    }
+    suite["room_runtime_profile_registry"] = {
+        "registry_id": room_registry["registry_id"],
+        "revision": room_registry["revision"],
+        "path": str(args.room_runtime_profiles.resolve()),
+        "selected_profile_id": room_runtime_profile["profile_id"],
+    }
     if execution_partition is not None:
         suite["execution_partition"] = execution_partition
     phase_wall_seconds["plan_compile"] = _elapsed_seconds(phase_started)
@@ -1304,7 +1462,9 @@ def run(args: argparse.Namespace) -> Path:
         return evidence_path
 
     phase_started = time.perf_counter()
-    instance, spear_root = _configure_instance(args)
+    instance, spear_root = _configure_instance(
+        args, native_map=str(suite["native_map"])
+    )
     phase_wall_seconds["runtime_initialize"] = _elapsed_seconds(phase_started)
     game = instance.get_game()
     scenario_records = list(resumed_records.values())
@@ -1435,7 +1595,11 @@ def run(args: argparse.Namespace) -> Path:
         "schema": EVIDENCE_SCHEMA,
         "status": "pass",
         "backend_role": "comparison_visual",
-        "native_map": NATIVE_APARTMENT_MAP,
+        "native_map": suite["native_map"],
+        "room_runtime_profile": suite["room_runtime_profile"],
+        "source_asset_runtime_registry": suite[
+            "source_asset_runtime_registry"
+        ],
         "lighting_profile": lighting_profile,
         "runtime_generated_lights": light_records,
         "native_scene_policy": {
@@ -1488,6 +1652,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--lighting-profile",
         help="Profile id; omitted uses default_profile_id from the JSON file.",
+    )
+    parser.add_argument(
+        "--source-asset-registry",
+        type=Path,
+        default=DEFAULT_SOURCE_ASSET_RUNTIME_PROFILES,
+        help=(
+            "Selects the available source assets and their emitter, animation "
+            "and UE bindings."
+        ),
+    )
+    parser.add_argument(
+        "--room-runtime-profiles",
+        type=Path,
+        default=DEFAULT_ROOM_RUNTIME_PROFILES,
+        help="Registry containing independently selectable room runtime profiles.",
+    )
+    parser.add_argument(
+        "--room-profile",
+        help="Room runtime profile ID; omitted uses the registry default.",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(

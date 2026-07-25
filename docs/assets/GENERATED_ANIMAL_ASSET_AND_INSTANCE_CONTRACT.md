@@ -90,6 +90,12 @@ Before generating anything, answer these questions in order:
    it must not move individual feet, flatten the animal's back, alter topology,
    replace joints or change skin weights. Reject non-planar foot evidence or a
    support tilt above the reviewed bound instead of forcing a result.
+   For target-native quadrupeds this is a mandatory pre-animation stage of
+   `tools/run_target_native_generated_quadruped_review.py`. Directly retargeting
+   the post-TokenRig GLB is diagnostic-only and cannot create a registrable
+   runtime asset. Per-frame minimum-foot grounding and a later UE Z translation
+   solve vertical contact only; neither proves that the four-foot support plane
+   is horizontal.
 9. **Retarget motion only.** Transfer compatible Idle/Walking motion by semantic
    joints. Correct coordinate/yaw conventions explicitly; never import the
    donor's shape or skin.

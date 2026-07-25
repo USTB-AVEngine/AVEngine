@@ -29,6 +29,11 @@ from avengine.m7.apartment_visual_bundle import (
 from avengine.optional_backends.spear_apartment import (
     build_rawvideo_encode_command,
 )
+from avengine.runtime_profiles import (
+    default_source_asset_runtime_registry_path,
+    load_source_asset_runtime_registry,
+    source_timeline_profiles,
+)
 
 
 SCHEMA = "avengine_m7_asset_bound_apartment_ue_input_bundle_v1"
@@ -173,6 +178,7 @@ def _build_episode(
     episode_id: str,
     episode: Mapping[str, Any],
     episode_bindings: Mapping[str, Mapping[str, Any]],
+    source_profiles: Mapping[str, Mapping[str, Any]],
     listener: Mapping[str, Any],
     obstacle_map: RuntimeObstacleMap,
     sample: Mapping[str, Any],
@@ -194,11 +200,13 @@ def _build_episode(
         episode=episode,
         bindings=episode_bindings,
         listener_position_m=listener["position_m"],
+        source_profiles=source_profiles,
     )
     manifest = build_source_manifest(
         episode_id=episode_id,
         episode=episode,
         bindings=episode_bindings,
+        source_profiles=source_profiles,
     )
     episodes_root = staging / "episodes"
     episodes_root.mkdir(exist_ok=True)
@@ -232,7 +240,13 @@ def _build_episode(
             camera_hfov_degrees=listener["camera_hfov_degrees"],
             source_activity_by_frame=activity,
             source_heading_xz_by_frame=headings,
-            source_labels={slot: slot for slot in SOURCE_SLOTS},
+            source_labels={
+                slot: (
+                    f"{slot}: "
+                    f"{source_profiles[episode_bindings[slot]['asset_id']]['display_label']}"
+                )
+                for slot in SOURCE_SLOTS
+            },
             source_colors={
                 "source1": (42, 210, 220),
                 "source2": (250, 120, 70),
@@ -340,6 +354,7 @@ def build_bundle(
     feasibility_root: Path,
     batch_root: Path,
     room_template_bundle: Path,
+    source_asset_registry: Path | None,
     episode_ids: Sequence[str] | None,
     video_encoder: str,
     encoder_gpu: int | None,
@@ -352,6 +367,11 @@ def build_bundle(
     feasibility_root = feasibility_root.resolve()
     batch_root = batch_root.resolve()
     room_template_bundle = room_template_bundle.resolve()
+    source_asset_registry = (
+        default_source_asset_runtime_registry_path()
+        if source_asset_registry is None
+        else source_asset_registry.resolve()
+    )
     output = output.resolve()
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"refusing to replace output: {output}")
@@ -379,8 +399,11 @@ def build_bundle(
         for value in raw_episodes
         if isinstance(value, Mapping) and isinstance(value.get("episode_id"), str)
     }
+    source_registry = load_source_asset_runtime_registry(source_asset_registry)
+    source_profiles = source_timeline_profiles(source_registry)
     bindings = binding_assets_by_episode(
-        load_json(plan_root / "asset_emitter_binding_report.json")
+        load_json(plan_root / "asset_emitter_binding_report.json"),
+        source_profiles=source_profiles,
     )
     if set(episodes) != set(bindings):
         raise RuntimeError("trajectory bank and asset binding episode sets differ")
@@ -448,6 +471,7 @@ def build_bundle(
                     "episode_id": episode_id,
                     "episode": episodes[episode_id],
                     "episode_bindings": bindings[episode_id],
+                    "source_profiles": source_profiles,
                     "listener": listener,
                     "obstacle_map": obstacle_map,
                     "sample": samples[episode_id],
@@ -489,6 +513,18 @@ def build_bundle(
                 "diagnostic_encoder_gpu": encoder_gpu,
                 "diagnostic_topdown_layout": "topdown_only_640x480",
                 "episode_workers": workers,
+                "source_asset_runtime_registry": {
+                    "path": str(source_asset_registry),
+                    "registry_id": source_registry["registry_id"],
+                    "revision": source_registry["revision"],
+                    "selected_asset_ids": sorted(
+                        {
+                            binding["asset_id"]
+                            for episode_id in selected
+                            for binding in bindings[episode_id].values()
+                        }
+                    ),
+                },
                 "resumed_episode_count": len(completed_rows),
                 "new_episode_count": len(new_rows),
                 "episodes": episode_rows,
@@ -497,6 +533,7 @@ def build_bundle(
                     "batch_root": str(batch_root),
                     "feasibility_root": str(feasibility_root),
                     "room_template_bundle": str(room_template_bundle),
+                    "source_asset_registry": str(source_asset_registry),
                 },
                 "build_wall_seconds": time.perf_counter() - started,
             },
@@ -531,6 +568,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--feasibility-root", type=Path, required=True)
     parser.add_argument("--batch-root", type=Path, required=True)
     parser.add_argument("--room-template-bundle", type=Path, required=True)
+    parser.add_argument(
+        "--source-asset-registry",
+        type=Path,
+        default=default_source_asset_runtime_registry_path(),
+        help=(
+            "Source asset runtime registry; changing it selects available "
+            "animal/human geometry, emitter and Timeline profiles."
+        ),
+    )
     parser.add_argument("--episode-id", action="append")
     parser.add_argument(
         "--video-encoder", choices=("libx264", "h264_nvenc"), default="libx264"
@@ -553,6 +599,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         feasibility_root=args.feasibility_root,
         batch_root=args.batch_root,
         room_template_bundle=args.room_template_bundle,
+        source_asset_registry=args.source_asset_registry,
         episode_ids=args.episode_id,
         video_encoder=args.video_encoder,
         encoder_gpu=args.encoder_gpu,

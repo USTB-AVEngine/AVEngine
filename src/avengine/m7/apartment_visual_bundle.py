@@ -11,6 +11,11 @@ from avengine.m5_1.mixed_capture import trajectory_world_matrices
 from avengine.optional_backends.spear_replicacad_execution import (
     _rotation_matrix_to_xyzw,
 )
+from avengine.runtime_profiles import (
+    load_default_source_asset_runtime_registry,
+    resolve_source_asset_alias,
+    source_timeline_profiles,
+)
 
 
 FRAME_COUNT = 75
@@ -19,35 +24,30 @@ SAMPLE_RATE_HZ = 16_000
 SAMPLE_COUNT = 80_000
 TICKS_PER_FRAME = 3_200
 
-HUMAN_ASSET_ID = "rocketbox_human_male_adult_01_m5_1_candidate"
-BORDER_COLLIE_ASSET_ID = (
-    "generated_border_collie_black_white_medium_standard_adult_research_v1"
+DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY = (
+    load_default_source_asset_runtime_registry()
 )
-CAT_ASSET_ID = "generated_abyssinian_ruddy_medium_standard_adult_research_v1"
+ASSET_VISUAL_PROFILES: Mapping[str, Mapping[str, Any]] = (
+    source_timeline_profiles(DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY)
+)
 
-ASSET_VISUAL_PROFILES: Mapping[str, Mapping[str, Any]] = {
-    HUMAN_ASSET_ID: {
-        "template_id": "rocketbox_human_male_adult_01",
-        "body_plan_id": "biped_human",
-        "local_anatomical_forward_axis": (0.0, 0.0, 1.0),
-        "walk_phase_period_frames": 16,
-        "display_label": "Human",
-    },
-    BORDER_COLLIE_ASSET_ID: {
-        "template_id": "generated_border_collie_target_native_v1",
-        "body_plan_id": "quadruped_canine",
-        "local_anatomical_forward_axis": (1.0, 0.0, 0.0),
-        "walk_phase_period_frames": 25,
-        "display_label": "Border Collie",
-    },
-    CAT_ASSET_ID: {
-        "template_id": "generated_abyssinian_target_native_v1",
-        "body_plan_id": "quadruped_mammal_felid_v1",
-        "local_anatomical_forward_axis": (1.0, 0.0, 0.0),
-        "walk_phase_period_frames": 25,
-        "display_label": "Abyssinian",
-    },
-}
+# Compatibility names are resolved from editable registry aliases. They do not
+# define the supported asset set and may be changed without editing Python.
+HUMAN_ASSET_ID = str(
+    resolve_source_asset_alias(
+        DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY, "legacy_human"
+    )["asset_id"]
+)
+BORDER_COLLIE_ASSET_ID = str(
+    resolve_source_asset_alias(
+        DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY, "current_generated_dog"
+    )["asset_id"]
+)
+CAT_ASSET_ID = str(
+    resolve_source_asset_alias(
+        DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY, "current_generated_cat"
+    )["asset_id"]
+)
 
 
 class ApartmentVisualBundleError(ValueError):
@@ -56,6 +56,8 @@ class ApartmentVisualBundleError(ValueError):
 
 def binding_assets_by_episode(
     report: Mapping[str, Any],
+    *,
+    source_profiles: Mapping[str, Mapping[str, Any]] = ASSET_VISUAL_PROFILES,
 ) -> dict[str, dict[str, Mapping[str, Any]]]:
     """Return exact source-slot binding records keyed by output episode ID."""
 
@@ -81,10 +83,19 @@ def binding_assets_by_episode(
             if (
                 slot not in {"source1", "source2"}
                 or slot in by_slot
-                or asset_id not in ASSET_VISUAL_PROFILES
+                or asset_id not in source_profiles
             ):
                 raise ApartmentVisualBundleError(
                     f"episode {episode_id!r} has an unsupported source binding"
+                )
+            declared_revision = binding.get("asset_revision")
+            if (
+                declared_revision is not None
+                and declared_revision != source_profiles[asset_id]["revision"]
+            ):
+                raise ApartmentVisualBundleError(
+                    f"episode {episode_id!r} source asset revision differs "
+                    "from the selected runtime registry"
                 )
             by_slot[slot] = deepcopy(dict(binding))
         if set(by_slot) != {"source1", "source2"} or episode_id in result:
@@ -124,6 +135,7 @@ def build_timeline(
     episode: Mapping[str, Any],
     bindings: Mapping[str, Mapping[str, Any]],
     listener_position_m: Sequence[float],
+    source_profiles: Mapping[str, Mapping[str, Any]] = ASSET_VISUAL_PROFILES,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Build one exact 75-frame two-actor Timeline and explicit headings."""
 
@@ -136,7 +148,12 @@ def build_timeline(
     headings: dict[str, np.ndarray] = {}
     for slot in ("source1", "source2"):
         asset_id = bindings[slot]["asset_id"]
-        profile = ASSET_VISUAL_PROFILES[asset_id]
+        try:
+            profile = source_profiles[asset_id]
+        except KeyError as error:
+            raise ApartmentVisualBundleError(
+                f"{slot} selects unregistered source asset {asset_id!r}"
+            ) from error
         actor_id = f"{slot}_actor"
         actors.append(
             {
@@ -165,7 +182,7 @@ def build_timeline(
         actor_states = []
         for slot in ("source1", "source2"):
             asset_id = bindings[slot]["asset_id"]
-            profile = ASSET_VISUAL_PROFILES[asset_id]
+            profile = source_profiles[asset_id]
             slot_stats = statistics.get(slot)
             motion = slot_stats.get("motion") if isinstance(slot_stats, Mapping) else None
             if motion not in {"static", "moving"}:
@@ -175,7 +192,11 @@ def build_timeline(
             actor_states.append(
                 {
                     "actor_id": f"{slot}_actor",
-                    "action_id": "walk" if moving else "idle",
+                    "action_id": (
+                        profile["walking_action_id"]
+                        if moving
+                        else profile["idle_action_id"]
+                    ),
                     "action_phase": (frame_index % period) / period if moving else 0.0,
                     "action_time_ticks": frame_index * TICKS_PER_FRAME,
                     "contacts": {},
@@ -243,6 +264,7 @@ def build_source_manifest(
     episode_id: str,
     episode: Mapping[str, Any],
     bindings: Mapping[str, Mapping[str, Any]],
+    source_profiles: Mapping[str, Mapping[str, Any]] = ASSET_VISUAL_PROFILES,
 ) -> dict[str, Any]:
     centers = episode.get("source_center_paths_m")
     if not isinstance(centers, Mapping) or set(centers) != {"source1", "source2"}:
@@ -253,12 +275,27 @@ def build_source_manifest(
         if points.shape != (FRAME_COUNT, 3) or not np.all(np.isfinite(points)):
             raise ApartmentVisualBundleError(f"{slot} centers must be finite [75,3]")
         asset_id = bindings[slot]["asset_id"]
+        try:
+            profile = source_profiles[asset_id]
+        except KeyError as error:
+            raise ApartmentVisualBundleError(
+                f"{slot} selects unregistered source asset {asset_id!r}"
+            ) from error
         endpoint_id = f"{slot}_emitter"
         sources.append(
             {
                 "source_endpoint_id": endpoint_id,
                 "source_slot_id": slot,
                 "activation": "active",
+                "visible_asset": {
+                    "asset_id": asset_id,
+                    "revision": profile["revision"],
+                    "display_label": profile["display_label"],
+                    "identity": deepcopy(dict(profile["identity"])),
+                    "realized_attributes": deepcopy(
+                        dict(profile["realized_attributes"])
+                    ),
+                },
                 "endpoint": {
                     "source_endpoint_id": endpoint_id,
                     "revision": "m7_asset_bound_v1",
@@ -270,7 +307,7 @@ def build_source_manifest(
                         "kind": "entity_anchor",
                         "entity_instance_id": f"{slot}_actor",
                         "entity_asset_id": asset_id,
-                        "entity_asset_revision": "asset_bound_research_v1",
+                        "entity_asset_revision": profile["revision"],
                         "emitter_anchor_id": bindings[slot]["semantic_anchor_id"],
                     },
                 },
@@ -370,6 +407,7 @@ def build_qualification(
 __all__ = [
     "ASSET_VISUAL_PROFILES",
     "ApartmentVisualBundleError",
+    "DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY",
     "binding_assets_by_episode",
     "build_flags",
     "build_qualification",

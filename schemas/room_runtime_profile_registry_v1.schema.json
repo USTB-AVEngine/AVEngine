@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/room_runtime_profile_registry_v1.schema.json",
+  "title": "AVEngine Room Runtime Profile Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "registry_id",
+    "revision",
+    "default_profile_id",
+    "profiles"
+  ],
+  "properties": {
+    "schema": {"const": "avengine_room_runtime_profile_registry_v1"},
+    "registry_id": {"$ref": "#/$defs/stable_id"},
+    "revision": {"$ref": "#/$defs/stable_id"},
+    "default_profile_id": {"$ref": "#/$defs/stable_id"},
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/profile"}
+    }
+  },
+  "$defs": {
+    "stable_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "nonempty_string": {"type": "string", "minLength": 1},
+    "room_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "room_id", "revision"],
+      "properties": {
+        "registry_id": {"$ref": "#/$defs/stable_id"},
+        "room_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scene_id",
+        "map_path",
+        "layout_policy",
+        "outdoor_view_policy"
+      ],
+      "properties": {
+        "scene_id": {"$ref": "#/$defs/stable_id"},
+        "map_path": {"$ref": "#/$defs/nonempty_string"},
+        "layout_policy": {"$ref": "#/$defs/stable_id"},
+        "outdoor_view_policy": {"$ref": "#/$defs/stable_id"}
+      }
+    },
+    "render": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "frame_count",
+        "frame_rate_hz",
+        "horizontal_fov_deg",
+        "streaming_warmup_frames",
+        "camera_warmup_frames"
+      ],
+      "properties": {
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "frame_count": {"type": "integer", "minimum": 1},
+        "frame_rate_hz": {"type": "integer", "minimum": 1},
+        "horizontal_fov_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 180
+        },
+        "streaming_warmup_frames": {"type": "integer", "minimum": 0},
+        "camera_warmup_frames": {"type": "integer", "minimum": 0}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "revision",
+        "room_ref",
+        "backend_id",
+        "adapter_id",
+        "scene",
+        "render",
+        "default_lighting_profile_id",
+        "supported_input_layouts"
+      ],
+      "properties": {
+        "profile_id": {"$ref": "#/$defs/stable_id"},
+        "revision": {"$ref": "#/$defs/stable_id"},
+        "room_ref": {"$ref": "#/$defs/room_ref"},
+        "backend_id": {"$ref": "#/$defs/stable_id"},
+        "adapter_id": {"$ref": "#/$defs/stable_id"},
+        "scene": {"$ref": "#/$defs/scene"},
+        "render": {"$ref": "#/$defs/render"},
+        "default_lighting_profile_id": {"$ref": "#/$defs/stable_id"},
+        "supported_input_layouts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/stable_id"}
+        }
+      }
+    }
+  }
+}

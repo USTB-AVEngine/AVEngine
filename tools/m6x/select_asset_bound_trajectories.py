@@ -28,6 +28,11 @@ from avengine.m6x.asset_emitter import (
     validate_asset_emitter_binding_set,
 )
 from avengine.m6x.room_feasibility import MOTION_CASES, TrajectoryBank, TrajectoryEpisode
+from avengine.runtime_profiles import (
+    build_asset_emitter_binding,
+    default_source_asset_runtime_registry_path,
+    load_source_asset_runtime_registry,
+)
 from tools.m6x.build_asset_bound_rir_plan import (
     SCENARIO_SET_SCHEMA,
     _evaluate_navmesh_center_gate,
@@ -43,7 +48,53 @@ def _canonical_json(value: Mapping[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
-def _pair_templates(scenario_set: Mapping[str, Any]) -> tuple[tuple[str, dict[str, Any]], ...]:
+def _binding_set_from_asset_selection(
+    selection: Any,
+    *,
+    source_registry: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(selection, Mapping) or set(selection) != {
+        "source1",
+        "source2",
+    }:
+        raise RuntimeError(
+            "asset_selection must contain exactly source1 and source2"
+        )
+    bindings = []
+    for slot in ("source1", "source2"):
+        value = selection[slot]
+        if isinstance(value, str):
+            asset_id = value
+            revision = None
+            anchor_id = None
+        elif isinstance(value, Mapping):
+            asset_id = value.get("asset_id")
+            revision = value.get("revision")
+            anchor_id = value.get("anchor_id")
+        else:
+            raise RuntimeError(f"asset_selection.{slot} is invalid")
+        if not isinstance(asset_id, str) or not asset_id:
+            raise RuntimeError(f"asset_selection.{slot}.asset_id is invalid")
+        bindings.append(
+            build_asset_emitter_binding(
+                source_registry,
+                source_slot_id=slot,
+                asset_id=asset_id,
+                revision=revision,
+                anchor_id=anchor_id,
+            )
+        )
+    return {
+        "schema": "avengine_asset_emitter_binding_set_v1",
+        "bindings": bindings,
+    }
+
+
+def _pair_templates(
+    scenario_set: Mapping[str, Any],
+    *,
+    source_registry: Mapping[str, Any] | None = None,
+) -> tuple[tuple[str, dict[str, Any]], ...]:
     if scenario_set.get("schema") != SCENARIO_SET_SCHEMA:
         raise RuntimeError(f"scenario schema must be {SCENARIO_SET_SCHEMA}")
     raw_scenarios = scenario_set.get("scenarios")
@@ -54,6 +105,21 @@ def _pair_templates(scenario_set: Mapping[str, Any]) -> tuple[tuple[str, dict[st
         if not isinstance(raw, Mapping):
             raise RuntimeError(f"scenarios[{index}] must be an object")
         binding_set = raw.get("binding_set")
+        asset_selection = raw.get("asset_selection")
+        if binding_set is not None and asset_selection is not None:
+            raise RuntimeError(
+                "one template scenario cannot define both binding_set and "
+                "asset_selection"
+            )
+        if binding_set is None and asset_selection is not None:
+            if source_registry is None:
+                raise RuntimeError(
+                    "asset_selection requires a source asset runtime registry"
+                )
+            binding_set = _binding_set_from_asset_selection(
+                asset_selection,
+                source_registry=source_registry,
+            )
         source_episode_id = raw.get("trajectory_episode_id")
         output_episode_id = raw.get("output_episode_id")
         if (
@@ -63,7 +129,8 @@ def _pair_templates(scenario_set: Mapping[str, Any]) -> tuple[tuple[str, dict[st
             or not output_episode_id.endswith(f"_{source_episode_id}")
         ):
             raise RuntimeError(
-                "each template scenario needs binding_set and an output ID ending "
+                "each template scenario needs binding_set or asset_selection "
+                "and an output ID ending "
                 "with _<trajectory_episode_id>"
             )
         # Validation also refuses an underspecified or slot-ambiguous pairing.
@@ -255,7 +322,13 @@ def run(args: argparse.Namespace) -> Path:
         raise RuntimeError(f"refusing to replace output or staging: {output}")
     bank = _load_bank(args.trajectory_bank.resolve())
     scenario_set = load_json(args.scenario_templates.resolve())
-    templates = _pair_templates(scenario_set)
+    source_registry = load_source_asset_runtime_registry(
+        args.source_asset_registry.resolve()
+    )
+    templates = _pair_templates(
+        scenario_set,
+        source_registry=source_registry,
+    )
     listener, _orientation, _stride = _load_listener(args.template_rir_plan.resolve())
     scenarios, report = select_scenarios(
         bank=bank,
@@ -290,6 +363,11 @@ def run(args: argparse.Namespace) -> Path:
                 "schema": OUTPUT_SCHEMA,
                 "status": "pass",
                 "selected_scenario_count": report["selected_scenario_count"],
+                "source_asset_runtime_registry": {
+                    "path": str(args.source_asset_registry.resolve()),
+                    "registry_id": source_registry["registry_id"],
+                    "revision": source_registry["revision"],
+                },
                 "outputs": {
                     "selected_scenarios": "selected_scenarios.json",
                     "selection_report": "selection_report.json",
@@ -308,6 +386,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trajectory-bank", type=Path, required=True)
     parser.add_argument("--scenario-templates", type=Path, required=True)
+    parser.add_argument(
+        "--source-asset-registry",
+        type=Path,
+        default=default_source_asset_runtime_registry_path(),
+        help=(
+            "Resolves asset_selection entries into measured emitter and "
+            "anatomical-forward bindings."
+        ),
+    )
     parser.add_argument("--template-rir-plan", type=Path, required=True)
     parser.add_argument("--navmesh", type=Path, required=True)
     parser.add_argument("--floor-height-m", type=float, required=True)

@@ -4,6 +4,7 @@ import numpy as np
 
 from avengine.m6x.asset_emitter import ASSET_EMITTER_BINDING_SET_SCHEMA
 from avengine.m6x.room_feasibility import MOTION_CASES, TrajectoryBank, TrajectoryEpisode
+from avengine.runtime_profiles import load_default_source_asset_runtime_registry
 from tools.m6x import select_asset_bound_trajectories as selection
 
 
@@ -90,3 +91,37 @@ def test_selects_balanced_asset_bound_scenarios_without_repairing_paths(
     assert report["per_pair"]["pair_a"]["motion_case_quotas"] == {
         motion_case: 1 for motion_case in MOTION_CASES
     }
+
+
+def test_pair_template_can_select_assets_without_copying_runtime_offsets() -> None:
+    scenario_set = {
+        "schema": "avengine_asset_emitter_scenario_set_v1",
+        "scenarios": [
+            {
+                "trajectory_episode_id": "static_static_000",
+                "output_episode_id": "human_cat_static_static_000",
+                "asset_selection": {
+                    "source1": "rocketbox_human_male_adult_01_m5_1_candidate",
+                    "source2": (
+                        "generated_abyssinian_ruddy_medium_standard_"
+                        "adult_research_v1"
+                    ),
+                },
+            }
+        ],
+    }
+    templates = selection._pair_templates(
+        scenario_set,
+        source_registry=load_default_source_asset_runtime_registry(),
+    )
+    assert len(templates) == 1
+    pair_id, binding_set = templates[0]
+    assert pair_id == "human_cat"
+    bindings = binding_set["bindings"]
+    assert bindings[0]["semantic_anchor_id"] == "mouth"
+    assert bindings[1]["semantic_anchor_id"] == "muzzle"
+    assert bindings[1]["emitter_offset_m"] == [
+        0.38869346364905827,
+        0.16641961991328985,
+        0.0,
+    ]

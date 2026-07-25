@@ -2,107 +2,39 @@
   "schema": "avengine_asset_emitter_scenario_set_v1",
   "selection": {
     "purpose": "prove that human, generated Border Collie, and cat assets are replaceable across source1/source2 before Apartment batch generation",
-    "note": "These four placeholder route IDs establish stable ordered-pair names only; select_asset_bound_trajectories evaluates every route in the supplied bank. The Border Collie offset is the measured medium/standard/adult black-white instance emitter, not a dog-species default."
+    "note": "These four placeholder route IDs establish stable ordered-pair names only; select_asset_bound_trajectories evaluates every route in the supplied bank. Exact revisions, emitter anchors and anatomical forward axes resolve from the independently selected source-asset runtime registry."
   },
   "scenarios": [
     {
       "trajectory_episode_id": "static_static_000",
       "output_episode_id": "human_border_collie_static_static_000",
-      "binding_set": {
-        "schema": "avengine_asset_emitter_binding_set_v1",
-        "bindings": [
-          {
-            "source_slot_id": "source1",
-            "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
-            "semantic_anchor_id": "mouth",
-            "emitter_offset_m": [0.0, 1.61, 0.0],
-            "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
-            "offset_space": "final_scaled_asset_root"
-          },
-          {
-            "source_slot_id": "source2",
-            "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
-            "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.40465284499021825, 0.6465226403698251, 0.0],
-            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
-            "offset_space": "final_scaled_asset_root"
-          }
-        ]
+      "asset_selection": {
+        "source1": "rocketbox_human_male_adult_01_m5_1_candidate",
+        "source2": "generated_border_collie_black_white_medium_standard_adult_research_v1"
       }
     },
     {
       "trajectory_episode_id": "static_static_001",
       "output_episode_id": "border_collie_human_static_static_001",
-      "binding_set": {
-        "schema": "avengine_asset_emitter_binding_set_v1",
-        "bindings": [
-          {
-            "source_slot_id": "source1",
-            "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
-            "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.40465284499021825, 0.6465226403698251, 0.0],
-            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
-            "offset_space": "final_scaled_asset_root"
-          },
-          {
-            "source_slot_id": "source2",
-            "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
-            "semantic_anchor_id": "mouth",
-            "emitter_offset_m": [0.0, 1.61, 0.0],
-            "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
-            "offset_space": "final_scaled_asset_root"
-          }
-        ]
+      "asset_selection": {
+        "source1": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "source2": "rocketbox_human_male_adult_01_m5_1_candidate"
       }
     },
     {
       "trajectory_episode_id": "static_static_000",
       "output_episode_id": "cat_border_collie_static_static_000",
-      "binding_set": {
-        "schema": "avengine_asset_emitter_binding_set_v1",
-        "bindings": [
-          {
-            "source_slot_id": "source1",
-            "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
-            "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.38869346364905827, 0.16641961991328985, 0.0],
-            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
-            "offset_space": "final_scaled_asset_root"
-          },
-          {
-            "source_slot_id": "source2",
-            "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
-            "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.40465284499021825, 0.6465226403698251, 0.0],
-            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
-            "offset_space": "final_scaled_asset_root"
-          }
-        ]
+      "asset_selection": {
+        "source1": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+        "source2": "generated_border_collie_black_white_medium_standard_adult_research_v1"
       }
     },
     {
       "trajectory_episode_id": "static_static_001",
       "output_episode_id": "border_collie_cat_static_static_001",
-      "binding_set": {
-        "schema": "avengine_asset_emitter_binding_set_v1",
-        "bindings": [
-          {
-            "source_slot_id": "source1",
-            "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
-            "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.40465284499021825, 0.6465226403698251, 0.0],
-            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
-            "offset_space": "final_scaled_asset_root"
-          },
-          {
-            "source_slot_id": "source2",
-            "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
-            "semantic_anchor_id": "muzzle",
-            "emitter_offset_m": [0.38869346364905827, 0.16641961991328985, 0.0],
-            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
-            "offset_space": "final_scaled_asset_root"
-          }
-        ]
+      "asset_selection": {
+        "source1": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "source2": "generated_abyssinian_ruddy_medium_standard_adult_research_v1"
       }
     }
   ]

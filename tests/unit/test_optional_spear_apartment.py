@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 import importlib.util
 import json
@@ -7,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import numpy as np
 import pytest
 
 import avengine.optional_backends.spear_apartment as apartment
@@ -185,6 +187,12 @@ def test_scenario_execution_keeps_native_map_and_habitat_authority(
         "lighting": "native_map_unchanged_no_added_lights",
         "lighting_profile": dict(apartment.NATIVE_LIGHTING_PROFILE),
         "outdoor_view": "native_map_assets_and_postprocess",
+        "room_runtime_profile_id": "spear_apartment_0000",
+        "room_ref": {
+            "registry_id": "avengine_m6_representative_rooms_v1",
+            "room_id": "legacy_ue_apartment_0000_v1",
+            "revision": "real_surface_export_pending_portable_package_v1",
+        },
     }
     assert record["render"] == {
         "width": 1280,
@@ -530,10 +538,16 @@ def test_runner_dry_run_records_only_its_exact_manifest_shard(
         _bundle: Path,
         *,
         scenario_ids: tuple[str, ...],
+        actor_bindings: dict,
         lighting_profile: dict,
+        room_runtime_profile: dict,
     ) -> dict:
         assert lighting_profile == {}
+        assert actor_bindings
+        assert room_runtime_profile["profile_id"] == "spear_apartment_0000"
         return {
+            "native_map": room_runtime_profile["scene"]["map_path"],
+            "room_runtime_profile": room_runtime_profile,
             "scenarios": [
                 {"scenario_id": scenario_id} for scenario_id in scenario_ids
             ]
@@ -690,6 +704,59 @@ def test_runtime_timing_contract_requires_rgb_and_topdown_outputs() -> None:
     )
     started = _RUNNER.time.perf_counter()
     assert _RUNNER._elapsed_seconds(started) >= 0.0
+
+
+def test_scene_capture_warmup_discards_streaming_transition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = [24] * 35 + [32, 48, 72, 96, 120] + [120] * 12
+
+    class FakeInstance:
+        @staticmethod
+        def begin_frame():
+            return nullcontext()
+
+        @staticmethod
+        def end_frame():
+            return nullcontext()
+
+    class FakeCapture:
+        def __init__(self) -> None:
+            self.index = 0
+
+        def read_pixels(self) -> dict:
+            value = values[min(self.index, len(values) - 1)]
+            self.index += 1
+            return {
+                "arrays": {
+                    "data": np.full(
+                        (apartment.HEIGHT, apartment.WIDTH, 3),
+                        value,
+                        dtype=np.uint8,
+                    )
+                }
+            }
+
+    monkeypatch.setattr(_RUNNER, "_apply_actor_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(_RUNNER, "_apply_camera", lambda *_args, **_kwargs: None)
+    result = _RUNNER._capture_warmup_until_stable(
+        instance=FakeInstance(),
+        camera=object(),
+        capture=FakeCapture(),
+        runtimes={"source1_actor": {}},
+        actor_states=({"actor_id": "source1_actor"},),
+        camera_plan={},
+        minimum_frames=40,
+        maximum_frames=60,
+        stable_transitions=4,
+        mean_abs_change_threshold=0.1,
+    )
+
+    assert result["status"] == "pass"
+    assert result["mode"] == "discarded_scene_capture_readbacks"
+    assert result["discarded_frame_count"] == 44
+    assert result["maximum_mean_abs_change"] == pytest.approx(24.0)
+    assert result["first_to_last_mean_abs_change"] == pytest.approx(96.0)
 
 
 def test_default_asset_forward_bindings_are_explicit() -> None:

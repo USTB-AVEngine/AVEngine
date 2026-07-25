@@ -9,6 +9,7 @@ points only; they must not be read as articulated-body collision volumes.
 
 from __future__ import annotations
 
+from functools import lru_cache
 import math
 from numbers import Real
 from typing import Any, Mapping, Sequence
@@ -29,7 +30,7 @@ from avengine.m6x.geometry import (
 )
 
 
-TOPDOWN_SCHEMA = "avengine_m6x_runtime_obstacle_topdown_v2"
+TOPDOWN_SCHEMA = "avengine_m6x_runtime_obstacle_topdown_v3"
 
 
 class M6XTopdownError(ValueError):
@@ -57,6 +58,7 @@ _OBSTACLE_ROLE_STYLES: Mapping[
 }
 
 _MINIMUM_INFERRED_HEADING_DISPLACEMENT_M = 0.03
+_NAVMESH_INTERIOR_BLOCKER_COLOR = np.asarray((196, 113, 52), dtype=np.uint8)
 
 
 def _font(size: int) -> ImageFont.ImageFont:
@@ -243,6 +245,68 @@ def _validate_obstacle_map(value: Any) -> tuple[np.ndarray, np.ndarray]:
     return np.ascontiguousarray(navmesh), bounds
 
 
+@lru_cache(maxsize=16)
+def _cached_interior_navmesh_exclusions(
+    shape: tuple[int, int], packed_navmesh: bytes
+) -> tuple[bytes, int]:
+    navmesh = np.frombuffer(packed_navmesh, dtype=np.uint8).reshape(shape)
+    blocked = np.asarray(navmesh == 0, dtype=np.bool_)
+
+    def grow(seed: np.ndarray, allowed: np.ndarray) -> np.ndarray:
+        current = seed
+        while True:
+            expanded = current.copy()
+            expanded[1:] |= current[:-1]
+            expanded[:-1] |= current[1:]
+            expanded[:, 1:] |= current[:, :-1]
+            expanded[:, :-1] |= current[:, 1:]
+            expanded &= allowed
+            if np.array_equal(expanded, current):
+                return current
+            current = expanded
+
+    exterior_seed = np.zeros(blocked.shape, dtype=np.bool_)
+    exterior_seed[0, :] = blocked[0, :]
+    exterior_seed[-1, :] = blocked[-1, :]
+    exterior_seed[:, 0] |= blocked[:, 0]
+    exterior_seed[:, -1] |= blocked[:, -1]
+    exterior = grow(exterior_seed, blocked)
+    interior = np.ascontiguousarray(blocked & ~exterior)
+
+    remaining = interior.copy()
+    component_count = 0
+    while np.any(remaining):
+        component_count += 1
+        seed = np.zeros(remaining.shape, dtype=np.bool_)
+        row, column = np.argwhere(remaining)[0]
+        seed[row, column] = True
+        component = grow(seed, remaining)
+        remaining &= ~component
+    return interior.tobytes(), component_count
+
+
+def _interior_navmesh_exclusions(navmesh: np.ndarray) -> tuple[np.ndarray, int]:
+    """Return non-navigable regions enclosed by the navigable floor.
+
+    Apartment furniture is part of the baked stage mesh, so Habitat exposes
+    its center-point exclusion through NavMesh holes rather than separate
+    rigid-object OBBs.  Treat only non-navigable pixels disconnected from the
+    image border as baked floor blockers.  Border-connected pixels remain the
+    room exterior/wall background, while rugs and elevated objects remain
+    walkable unless an explicit rigid-object role says otherwise.
+    """
+
+    binary = np.ascontiguousarray(navmesh, dtype=np.uint8)
+    mask_bytes, component_count = _cached_interior_navmesh_exclusions(
+        tuple(int(value) for value in binary.shape),
+        binary.tobytes(),
+    )
+    return (
+        np.frombuffer(mask_bytes, dtype=np.bool_).reshape(binary.shape).copy(),
+        component_count,
+    )
+
+
 def _nearest_motion_heading_xz(
     points: np.ndarray, frame_index: int
 ) -> np.ndarray | None:
@@ -283,6 +347,10 @@ class _PreparedTopdown:
         self.listener = listener
         self.width, self.height = size_wh
         self.rigid_label_limit = rigid_label_limit
+        (
+            self.baked_navmesh_blocker_mask,
+            self.baked_navmesh_blocker_count,
+        ) = _interior_navmesh_exclusions(navmesh)
 
         # Keep one uniform pixel scale so the room and OBB footprints are not
         # stretched and the visual FOV wedge remains geometrically meaningful.
@@ -306,6 +374,9 @@ class _PreparedTopdown:
             np.asarray((209, 219, 225), dtype=np.uint8),
             np.asarray((43, 50, 59), dtype=np.uint8),
         ).astype(np.uint8)
+        rgb_map[self.baked_navmesh_blocker_mask] = (
+            _NAVMESH_INTERIOR_BLOCKER_COLOR
+        )
         base = Image.new("RGBA", (self.width, self.height), (27, 31, 37, 255))
         map_image = Image.fromarray(rgb_map, mode="RGB").resize(
             (draw_w, draw_h), Image.Resampling.NEAREST
@@ -635,6 +706,7 @@ def _render_prepared_frame(
         (
             f"LIVE ROOM OBSTACLES | frame {frame_index:03d}/{frame_count - 1:03d} | "
             f"sources={len(paths)} | "
+            f"nav blocks={prepared.baked_navmesh_blocker_count} | "
             f"rigid OBBs={len(prepared.obstacle_map.rigid_obstacles)}"
         ),
         fill=(255, 255, 255, 255),
@@ -642,7 +714,7 @@ def _render_prepared_frame(
     )
     draw.text(
         (8, 25),
-        "OBB: ORANGE=BLOCK | TEAL=RUG/MAT | BLUE=ELEVATED | RED=UNKNOWN",
+        "ORANGE=NAV/OBB BLOCK | TEAL=RUG/MAT | BLUE=ELEVATED | RED=UNKNOWN",
         fill=(230, 230, 230, 255),
         font=_font(11),
     )
