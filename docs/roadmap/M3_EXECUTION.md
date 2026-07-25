@@ -319,6 +319,54 @@ the complete scan mesh is closed. Material coefficients retain
 `research_placeholder` semantics until a separate real-RIR or measurement
 calibration is completed.
 
+## Compile a composed external USD room
+
+Pixar USD is an optional authoring dependency, not a Habitat runtime
+dependency. Run the extractor in an environment that provides `pxr`; it opens
+the composed stage, follows references, keeps authored-visible
+`/Root/Meshes` prims, bakes world transforms and writes one NPZ snapshot. It
+does not alter the source stage or repair holes:
+
+```bash
+export USD_PYTHON=/path/to/python-with-pxr
+export USD_STAGE=/path/to/kujiale_0020_full_home_ue.usda
+export USD_SNAPSHOT="$REPO/tmp/m3/kujiale_0020_usd_snapshot_<RUN_ID>"
+
+"$USD_PYTHON" "$REPO/tools/m3/extract_usd_acoustic_snapshot.py" \
+  --source "$USD_STAGE" \
+  --output "$USD_SNAPSHOT" \
+  --room-id kujiale_0020_full_home_v1 \
+  --transform-profile kujiale_z_up_y_back_to_habitat \
+  --interior-origin X0 Y0 Z0 \
+  --interior-origin X1 Y1 Z1 \
+  --source-revision "<reviewed source revision>" \
+  --dataset-id "spatialverse/InteriorAgent kujiale_0020" \
+  --source-license "<reviewed dataset license>"
+```
+
+Use actual free-space listener/source points, not an arbitrary visual camera
+position. Then return to the normal Habitat environment and compile the
+snapshot through the same semantic rules and Acoustic Scene Package:
+
+```bash
+"$HABPY" -m avengine.cli m3 compile-usd-snapshot-semantic \
+  --room "$USD_SNAPSHOT/room_manifest.json" \
+  --rules "$REPO/examples/m3/semantic_materials/residential_material_rules.json" \
+  --seed 917 \
+  --probe-directions 16 \
+  --output "$REPO/tmp/m3/kujiale_0020_usd_semantic_<RUN_ID>"
+
+"$HABPY" -m avengine.cli m3 validate-package \
+  "$REPO/tmp/m3/kujiale_0020_usd_semantic_<RUN_ID>/manifest.json"
+```
+
+Inspect `extraction_report.json`, `semantic_material_coverage.json`,
+`qa/geometry_report.json` and `qa/ray_leakage.json`. The automatic report
+marks a probe invalid if any sampled surface is closer than 5 cm; a
+zero-escape result from such a point is not usable enclosure evidence. A
+structurally valid package may still contain a failing topology report, and
+neither package validation nor sparse rays establish physical material truth.
+
 ## Inspect an existing acoustic package for mesh leakage
 
 Use reviewed canonical interior points from a camera/listener, NavMesh route or

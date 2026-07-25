@@ -41,6 +41,7 @@ from avengine.m3.compiler import (
     compile_custom_acoustic_scene,
     compile_explicit_glb_research_scene,
     compile_mp3d_semantic_research_scene,
+    compile_usd_snapshot_semantic_research_scene,
     propose_visual_slot_research_materials,
 )
 from avengine.m3.contracts import (
@@ -500,6 +501,33 @@ def _m3_compile_mp3d_semantic(args: argparse.Namespace) -> int:
     try:
         output = _require_ignored_or_external_output(args.output)
         manifest, coverage = compile_mp3d_semantic_research_scene(
+            room_manifest=args.room,
+            material_rules=args.rules,
+            output=output,
+            seed=args.seed,
+            package_id=args.package_id,
+            probe_origins=args.probe_origin,
+            probe_direction_count=args.probe_directions,
+            environment=_m3_environment(args.runtime_root),
+        )
+    except (AcousticSceneCompileError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "research_candidate",
+            "manifest": str(manifest),
+            "semantic_material_coverage": str(coverage),
+            "qualification_claim": False,
+        }
+    )
+    return 0
+
+
+def _m3_compile_usd_snapshot_semantic(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        manifest, coverage = compile_usd_snapshot_semantic_research_scene(
             room_manifest=args.room,
             material_rules=args.rules,
             output=output,
@@ -991,6 +1019,35 @@ def build_parser() -> argparse.ArgumentParser:
     m3_semantic.add_argument("--output", required=True)
     m3_semantic.add_argument("--package-id")
     m3_semantic.set_defaults(handler=_m3_compile_mp3d_semantic)
+
+    m3_usd_semantic = m3_commands.add_parser(
+        "compile-usd-snapshot-semantic",
+        help=(
+            "Compile an externally expanded USD acoustic snapshot into a "
+            "research RLR package"
+        ),
+    )
+    m3_usd_semantic.add_argument("--room", required=True)
+    m3_usd_semantic.add_argument("--rules", required=True)
+    m3_usd_semantic.add_argument("--seed", type=int, default=917)
+    m3_usd_semantic.add_argument("--runtime-root")
+    m3_usd_semantic.add_argument(
+        "--probe-origin",
+        nargs=3,
+        type=float,
+        action="append",
+        metavar=("X", "Y", "Z"),
+        help=(
+            "Canonical interior point for automatic enclosure probes; may be "
+            "repeated. Defaults to reviewed origins stored in the snapshot."
+        ),
+    )
+    m3_usd_semantic.add_argument("--probe-directions", type=int, default=32)
+    m3_usd_semantic.add_argument("--output", required=True)
+    m3_usd_semantic.add_argument("--package-id")
+    m3_usd_semantic.set_defaults(
+        handler=_m3_compile_usd_snapshot_semantic
+    )
 
     m3_leakage = m3_commands.add_parser(
         "inspect-mesh-leakage",

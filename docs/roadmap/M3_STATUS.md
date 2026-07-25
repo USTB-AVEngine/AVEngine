@@ -58,7 +58,9 @@ Status: `research_candidate`; implemented and exercised on the MP3D
   as unqualified research placeholders.
 - Adds deterministic interior spherical-ray diagnostics alongside exact-weld
   topology QA. Escaped rays are reported for review rather than automatically
-  classified as invalid openings or silently patched.
+  classified as invalid openings or silently patched. Probe points also report
+  a 5 cm minimum sampled-surface clearance so a point inside or immediately
+  against furniture cannot obtain a misleading zero-escape result.
 
 The retained local sample is
 `tmp/m3/mp3d_semantic_soundspaces_20260725_02`. It compiled 3,016,249 semantic
@@ -81,6 +83,7 @@ older real-room acoustic packages without modifying them:
 | MP3D `17DRP5sb8fy` semantic package | 2 × 16 | 0 / 32 | 31,525 boundary edges | included in the 667.13 s compile |
 | ReplicaCAD `apt_0` acoustic proxy | 3 × 64 | 50 / 192 (26.04%) | 102 boundary, 8,097 nonmanifold, 10,629 duplicate faces | 5.26 s |
 | legacy SPEAR Apartment `apartment_0000` | 4 × 64 | 0 / 256 | 20,734 boundary, 7 nonmanifold, 1 duplicate face | 1,127.52 s |
+| InteriorAgent/Kujiale `kujiale_0020` composed visual USD | 4 × 16 | 0 / 64 | 141,038 boundary, 1,492 nonmanifold, 590 duplicate and 257 degenerate faces | 286.73 s final package compile |
 
 Every ReplicaCAD escape was in the upper spherical sector. This is consistent
 with missing or incomplete overhead enclosure in that acoustic proxy and is
@@ -92,11 +95,54 @@ global closure.
 The retained reports are
 `tmp/m3/leakage_diagnostics_20260725_01/replicacad_apt_0.json` and
 `tmp/m3/leakage_diagnostics_20260725_01/legacy_ue_apartment_0000.json`.
-Kujiale was not assigned a false result: its retained episodes use
-`generic_shoebox_directional_preview` with
-`material_claim: not_kujiale_material_truth`, and no Acoustic Scene Package
-exists for the actual Kujiale visual mesh. A real Kujiale diagnostic therefore
-requires compiling that USD/UE geometry into the acoustic package first.
+
+### Real Kujiale USD acoustic package
+
+The optional USD extractor now composes the actual full-home
+`kujiale_0020_full_home_ue.usda`, follows its referenced meshes, excludes 229
+authored-hidden meshes, bakes every visible world transform and preserves the
+semantic object category plus USD material-slot identity. It does not install
+Pixar USD into the normal Habitat environment: an optional `pxr` environment
+writes one NPZ snapshot, and the core compiler strictly validates that
+snapshot before emitting the standard M3 Acoustic Scene Package.
+
+The corrected retained snapshot and package are:
+
+- `tmp/m3/kujiale_0020_usd_snapshot_20260725_02`;
+- `tmp/m3/kujiale_0020_usd_semantic_20260725_03`.
+
+The snapshot contains 1,036,781 vertices, 1,891,369 triangles, 1,824 visible
+mesh partitions and 314 acoustic surface identities. Extraction took 43.43
+seconds with a 310,688 KB maximum RSS after the source data was resident in
+the filesystem cache. Package compilation took 157.59 seconds with an 803,528
+KB maximum RSS in the preceding equivalent run. The final compiler-identity
+replay took 286.73 seconds with a 797,684 KB maximum RSS. The independent
+package validator passed, and its geometry/leakage measurements exactly match
+the preceding run.
+
+The final four probes cover reviewed living-room, kitchen, bathroom and bedroom
+points. All 64 sampled directions hit geometry, and each point passed the 5 cm
+clearance diagnostic; the minimum sampled first-hit distances were
+0.988/0.507/0.178/0.178 m respectively. An earlier kitchen attempt reused the
+visual camera point inside the range-hood geometry. Its millimetre-scale hits
+were rejected rather than reported as enclosure evidence, and the final package
+uses a reviewed free-space kitchen point.
+
+This is not a global closure or physical-acoustics pass. Exact-weld topology
+still reports 141,038 boundary edges, 1,492 nonmanifold edges, 590 duplicate
+faces and 257 degenerate triangles, so geometry QA remains `fail`. Of the 314
+surface identities, 93 resolve by semantic category, 28 by name/material hint
+and 193 through plausible defaults; 29 semantic categories remain explicitly
+unknown to the ruleset. No hole repair was performed. The coefficients remain
+`research_placeholder`, and native RLR RIR generation, EDT calibration and
+physical material qualification are still `not_run`.
+
+The previously retained Kujiale listening videos still used
+`generic_shoebox_directional_preview` and are not retroactively relabelled.
+Future Kujiale RIR/cache work may use this real package, but must generate new
+native evidence. Apartment remains the current usable acoustic baseline:
+0/256 sampled escapes with its existing topology caveat, and none of its
+geometry, material assignments or retained RIR cache was changed here.
 
 The CPU Möller–Trumbore reference checks every triangle for every ray. It is
 appropriate as an auditable baseline and for small meshes, but the Apartment

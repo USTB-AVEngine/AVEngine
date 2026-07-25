@@ -84,6 +84,18 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
             "/tmp/semantic",
         ]
     )
+    usd_semantic = parser.parse_args(
+        [
+            "m3",
+            "compile-usd-snapshot-semantic",
+            "--room",
+            "room.json",
+            "--rules",
+            "rules.json",
+            "--output",
+            "/tmp/usd-semantic",
+        ]
+    )
     leakage = parser.parse_args(
         [
             "m3",
@@ -117,6 +129,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     assert proposed.m3_command == "propose-visual-slots"
     assert compiled.m3_command == "compile-explicit-research"
     assert semantic.m3_command == "compile-mp3d-semantic"
+    assert usd_semantic.m3_command == "compile-usd-snapshot-semantic"
     assert leakage.m3_command == "inspect-mesh-leakage"
     assert canary.m3_command == "run-canary"
     assert verified.m3_command == "verify-canary"

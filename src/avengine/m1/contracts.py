@@ -27,6 +27,7 @@ ROOM_KINDS = {
     "habitat_native",
     "blender_custom",
     "legacy_ue_real_surface_export",
+    "external_usd_real_surface",
 }
 MODALITIES = {"rgb", "depth", "semantic"}
 IDENTITY_TRANSFORM = {
@@ -1081,7 +1082,11 @@ def validate_room_manifest(room: dict[str, Any]) -> list[str]:
         errors.append(
             "geometry_representation must be 'real_surface_mesh' or 'debug_aabb_proxy'"
         )
-    if room_kind in {"blender_custom", "legacy_ue_real_surface_export"}:
+    if room_kind in {
+        "blender_custom",
+        "legacy_ue_real_surface_export",
+        "external_usd_real_surface",
+    }:
         if representation != "real_surface_mesh":
             errors.append(f"{room_kind} cannot use a debug AABB proxy")
 

@@ -29,7 +29,8 @@
       "enum": [
         "habitat_native",
         "blender_custom",
-        "legacy_ue_real_surface_export"
+        "legacy_ue_real_surface_export",
+        "external_usd_real_surface"
       ]
     },
     "source_room": {

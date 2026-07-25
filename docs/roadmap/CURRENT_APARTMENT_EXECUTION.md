@@ -165,9 +165,16 @@ closure. Scene data must be shared rather than copied once per example.
   20,734 boundary edges; this is sampled enclosure evidence, not proof of a
   globally closed mesh. The CPU reference took 1,127.52 seconds, so batch room
   qualification needs a reusable BVH/RLR ray accelerator. ReplicaCAD escaped
-  through 50/192 rays, all upward. Kujiale remains untested against its actual
-  geometry because its retained audio uses an explicitly non-Kujiale generic
-  shoebox proxy rather than an Acoustic Scene Package for the visual USD.
+  through 50/192 rays, all upward.
+- The actual composed `kujiale_0020` full-home USD is now compiled into a
+  separate M3 Acoustic Scene Package rather than an Apartment or shoebox
+  proxy. Its corrected living-room/kitchen/bathroom/bedroom probe set observed
+  0/64 escaped rays and all four points passed the 5 cm clearance diagnostic,
+  but topology still fails with 141,038 boundary edges and 1,492 nonmanifold
+  edges. Its material assignments remain uncalibrated research candidates,
+  and the old Kujiale videos still contain their labelled shoebox-preview
+  audio. This work did not modify the Apartment package or its retained RIR
+  cache; Apartment remains the current usable baseline.
 
 ## Exact next actions
 

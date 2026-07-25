@@ -48,6 +48,10 @@ from avengine.m3.semantic_materials import (
     SemanticSurfaceIdentity,
     compile_semantic_material_documents,
 )
+from avengine.m3.usd_snapshot import (
+    UsdAcousticSnapshotError,
+    load_usd_acoustic_snapshot,
+)
 
 
 COMPILER_VERSION = "1"
@@ -178,6 +182,7 @@ def _compiler_identity() -> tuple[str, dict[str, str]]:
             "qa.py",
             "semantic.py",
             "semantic_materials.py",
+            "usd_snapshot.py",
         )
     }
     return canonical_json_sha256(components), components
@@ -1123,6 +1128,182 @@ def compile_mp3d_semantic_research_scene(
             raise AcousticSceneCompileError(
                 "semantic compiler input changed during compilation: "
                 + ", ".join(changed)
+            )
+        os.rename(package_directory, destination)
+        shutil.rmtree(staging)
+        return destination / manifest_path.name, destination / report_path.name
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def compile_usd_snapshot_semantic_research_scene(
+    *,
+    room_manifest: str | Path,
+    material_rules: str | Path,
+    output: str | Path,
+    seed: int,
+    package_id: str | None = None,
+    probe_origins: Sequence[Sequence[float]] | None = None,
+    probe_direction_count: int = 32,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[Path, Path]:
+    """Compile a strictly extracted USD snapshot into the existing M3 package.
+
+    USD composition remains an optional offline authoring step.  This function
+    consumes one exact NPZ snapshot, resolves its object/material identities
+    through the shared residential rules, and emits the same Acoustic Scene
+    Package used by GLB and MP3D.  The result remains a research candidate.
+    """
+
+    room_path, room_bytes, room, room_sha256 = _snapshot_json(room_manifest)
+    rules_path, _rules_bytes, rules, rules_sha256 = _snapshot_json(material_rules)
+    room_errors = validate_room_manifest(room)
+    if room_errors:
+        raise AcousticSceneCompileError("invalid source room: " + "; ".join(room_errors))
+    if room.get("room_kind") != "external_usd_real_surface":
+        raise AcousticSceneCompileError(
+            "USD snapshot compilation requires "
+            "room_kind='external_usd_real_surface'"
+        )
+    effective_environment = dict(os.environ if environment is None else environment)
+    effective_environment.setdefault(
+        "AVENGINE_REPOSITORY_ROOT", str(Path(__file__).resolve().parents[3])
+    )
+    snapshot_path = _source_geometry_path(
+        room_path,
+        room,
+        environment=effective_environment,
+    )
+    try:
+        loaded = load_usd_acoustic_snapshot(snapshot_path)
+        if loaded.metadata.get("room_id") != room["room_id"]:
+            raise AcousticSceneCompileError(
+                "USD snapshot room_id differs from its room manifest"
+            )
+        source_to_canonical = copy.deepcopy(
+            loaded.metadata["source_to_canonical"]
+        )
+        compiled = compile_semantic_material_documents(
+            room_id=room["room_id"],
+            surfaces=loaded.surfaces,
+            rules=rules,
+            seed=seed,
+            source_to_canonical=source_to_canonical,
+        )
+    except (
+        OSError,
+        SemanticMaterialRuleError,
+        UsdAcousticSnapshotError,
+        ValueError,
+    ) as exc:
+        if isinstance(exc, AcousticSceneCompileError):
+            raise
+        raise AcousticSceneCompileError(
+            f"unable to compile USD snapshot semantic materials: {exc}"
+        ) from exc
+    mapping_errors = validate_mapping_document(
+        compiled.mapping, room_id=room["room_id"]
+    )
+    database_errors = validate_material_database_document(compiled.database)
+    if mapping_errors or database_errors:
+        raise AcousticSceneCompileError(
+            "generated USD semantic material documents are invalid: "
+            + "; ".join([*mapping_errors, *database_errors])
+        )
+    if probe_origins is None:
+        raw_origins = loaded.metadata.get("reviewed_interior_origins_m", [])
+        effective_probe_origins = [
+            [float(value) for value in origin] for origin in raw_origins
+        ]
+    else:
+        effective_probe_origins = [
+            [float(value) for value in origin] for origin in probe_origins
+        ]
+    if not effective_probe_origins:
+        raise AcousticSceneCompileError(
+            "USD snapshot compilation requires reviewed interior probe origins"
+        )
+
+    destination = Path(output).resolve()
+    staging = _staging_directory(destination)
+    package_directory = staging / "package"
+    generated_inputs = staging / "generated_inputs"
+    generated_inputs.mkdir()
+    mapping_path = generated_inputs / "mapping.json"
+    database_path = generated_inputs / "materials_research.json"
+    write_json(mapping_path, compiled.mapping)
+    write_json(database_path, compiled.database)
+    mapping_bytes = mapping_path.read_bytes()
+    database_bytes = database_path.read_bytes()
+    mapping_sha256 = sha256_file(mapping_path)
+    database_sha256 = sha256_file(database_path)
+    try:
+        manifest_path = _build_explicit_glb_package(
+            room_path=room_path,
+            room_bytes=room_bytes,
+            room=room,
+            room_sha256=room_sha256,
+            mapping_path=mapping_path,
+            mapping_bytes=mapping_bytes,
+            mapping=compiled.mapping,
+            mapping_sha256=mapping_sha256,
+            database_path=database_path,
+            database_bytes=database_bytes,
+            database=compiled.database,
+            database_sha256=database_sha256,
+            output=package_directory,
+            package_id=package_id
+            or f"{room['room_id']}_usd_semantic_seed{seed}_research_v1",
+            environment=effective_environment,
+            expected_room_kind="external_usd_real_surface",
+            package_mode="research_candidate",
+            source_scene=loaded.scene,
+            source_geometry_path=snapshot_path,
+            automatic_leakage_origins=effective_probe_origins,
+            automatic_leakage_direction_count=probe_direction_count,
+        )
+        report = copy.deepcopy(compiled.report)
+        resolution_counts: dict[str, int] = {}
+        for decision in report["decisions"]:
+            resolution = decision["resolution"]
+            resolution_counts[resolution] = resolution_counts.get(resolution, 0) + 1
+        report.update(
+            {
+                "source_kind": "composed_usd_acoustic_snapshot",
+                "source_stage": loaded.metadata.get("source_stage"),
+                "source_stage_sha256": loaded.metadata.get("source_stage_sha256"),
+                "snapshot_path": str(snapshot_path),
+                "snapshot_sha256": loaded.scene.source_sha256,
+                "source_mesh_prim_count": loaded.metadata.get(
+                    "source_mesh_prim_count"
+                ),
+                "visible_mesh_prim_count": loaded.metadata.get(
+                    "visible_mesh_prim_count"
+                ),
+                "hidden_mesh_prim_count": loaded.metadata.get(
+                    "hidden_mesh_prim_count"
+                ),
+                "compiled_object_partition_count": len(loaded.scene.objects),
+                "compiled_vertex_count": int(len(loaded.scene.vertices)),
+                "compiled_triangle_count": int(len(loaded.scene.triangles)),
+                "surface_identity_count": len(loaded.surfaces),
+                "semantic_category_triangle_counts": (
+                    loaded.scene.category_triangle_counts
+                ),
+                "resolution_counts": dict(sorted(resolution_counts.items())),
+                "automatic_leakage_probe_origins_m": effective_probe_origins,
+                "automatic_leakage_direction_count": probe_direction_count,
+                "geometry_claim": loaded.metadata.get("geometry_claim"),
+                "physical_material_claim": False,
+                "hole_repair": "not_performed",
+            }
+        )
+        report_path = package_directory / "semantic_material_coverage.json"
+        write_json(report_path, report)
+        if sha256_file(rules_path) != rules_sha256:
+            raise AcousticSceneCompileError(
+                "semantic material rules changed during USD snapshot compilation"
             )
         os.rename(package_directory, destination)
         shutil.rmtree(staging)

@@ -27,7 +27,8 @@
       "enum": [
         "habitat_native",
         "blender_custom",
-        "legacy_ue_real_surface_export"
+        "legacy_ue_real_surface_export",
+        "external_usd_real_surface"
       ]
     },
     "geometry_representation": {
@@ -145,7 +146,11 @@
       "if": {
         "properties": {
           "room_kind": {
-            "enum": ["blender_custom", "legacy_ue_real_surface_export"]
+            "enum": [
+              "blender_custom",
+              "legacy_ue_real_surface_export",
+              "external_usd_real_surface"
+            ]
           }
         }
       },

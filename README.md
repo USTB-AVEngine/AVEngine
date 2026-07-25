@@ -105,8 +105,11 @@ slots for ReplicaCAD or UE adapters, using the fixed precedence
 candidate set`. Candidate choice and small band-coefficient perturbations are
 deterministic by seed. It emits the existing M3 mapping/database and RLR
 package, plus an unknown-category coverage report and automatic interior-ray
-enclosure diagnostic. This is a `research_candidate`, not calibrated physical
-material truth.
+enclosure diagnostic. An optional Pixar-USD authoring step now expands the
+actual composed InteriorAgent/Kujiale visual USD into a strictly validated
+snapshot and the same Acoustic Scene Package without making USD a core runtime
+dependency. This is a `research_candidate`, not calibrated physical material
+truth.
 
 The **M4 named multi-source RLR implementation** now provides one-context,
 all-pair propagation for at least two stable source IDs and exactly one
@@ -1043,9 +1046,9 @@ hashes. It does guarantee that the retained cache binds the exact scene,
 material profile, listener, source positions, simulation settings and HRTF;
 checks every native endpoint receipt, array shape, sample rate, finite/nonzero
 payload and per-RIR hash; and then reuses those fixed bytes for later dry-audio
-convolution and event variants. Kujiale should not use the Apartment package:
-its full native cache remains pending until a Kujiale-specific acoustic scene
-package exists.
+convolution and event variants. Kujiale must not use the Apartment package:
+its real-USD Acoustic Scene Package now exists, but a native Kujiale RIR cache
+and physical material calibration remain pending.
 
 The earlier `_04` closeout capture is a historical `320x240` baseline, and
 `_06` predates the hidden test markers, direction-projected exterior and normal
@@ -1179,7 +1182,7 @@ arbitrary generated episode is synchronized.
 | M2.1 | appearance L9 and cross-species two-room diagnostics — research-only evidence (`pass`) |
 | M3 | explicit acoustic scene and synthetic material-activation canary (`pass`) |
 | M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
-| M3.2 | semantic material compiler and mesh enclosure diagnostics (`research_candidate`; MP3D end-to-end, physical calibration open) |
+| M3.2 | semantic material compiler, optional composed-USD snapshot compiler and mesh enclosure diagnostics (`research_candidate`; MP3D and real Kujiale USD packages complete, physical calibration open) |
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |

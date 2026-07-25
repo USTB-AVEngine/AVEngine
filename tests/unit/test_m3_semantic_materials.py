@@ -321,6 +321,41 @@ def test_automatic_leakage_probe_distinguishes_closed_and_open_mesh() -> None:
     assert closed["status"] == "diagnostic_complete"
     assert closed["escaped_ray_count"] == 0
     assert closed["escape_fraction"] == 0.0
+    assert closed["probe_clearance_status"] == "pass"
     assert opened["escaped_ray_count"] == 1
     assert opened["escape_fraction"] == 1 / 6
     assert opened["origins"][0]["escaped_direction_indices"] == [2]
+
+
+def test_automatic_leakage_probe_flags_origin_against_geometry() -> None:
+    vertices, triangles = _cube_mesh(open_top=False)
+    report = automatic_mesh_leakage_report(
+        vertices,
+        triangles,
+        origins=[[0.99, 0.0, 0.0]],
+        directions=np.asarray(
+            [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]], dtype=np.float64
+        ),
+        minimum_probe_clearance_m=0.05,
+    )
+
+    assert report["escaped_ray_count"] == 0
+    assert report["probe_clearance_status"] == "fail"
+    assert report["invalid_probe_clearance_origin_count"] == 1
+    assert abs(
+        report["origins"][0]["minimum_first_hit_distance_m"] - 0.01
+    ) < 1e-9
+
+
+def test_automatic_leakage_probe_does_not_pass_unmeasured_clearance() -> None:
+    vertices, triangles = _cube_mesh(open_top=False)
+    report = automatic_mesh_leakage_report(
+        vertices,
+        triangles,
+        origins=[[2.0, 0.0, 0.0]],
+        directions=np.asarray([[1.0, 0.0, 0.0]], dtype=np.float64),
+    )
+
+    assert report["escaped_ray_count"] == 1
+    assert report["probe_clearance_status"] == "not_measured"
+    assert report["unmeasured_probe_clearance_origin_count"] == 1

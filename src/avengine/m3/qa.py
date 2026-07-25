@@ -504,6 +504,7 @@ def automatic_mesh_leakage_report(
     direction_count: int = 32,
     directions: np.ndarray | None = None,
     maximum_distance_m: float | None = None,
+    minimum_probe_clearance_m: float = 0.05,
 ) -> dict[str, Any]:
     """Probe whether rays from declared interior points escape the surface mesh.
 
@@ -544,13 +545,21 @@ def automatic_mesh_leakage_report(
     )
     if not math.isfinite(maximum_distance) or maximum_distance <= 0:
         raise ValueError("automatic leakage maximum distance must be positive")
+    probe_clearance = float(minimum_probe_clearance_m)
+    if not math.isfinite(probe_clearance) or probe_clearance < 0:
+        raise ValueError(
+            "automatic leakage minimum probe clearance must be non-negative"
+        )
 
     origin_reports: list[dict[str, Any]] = []
     total_hits = 0
     hit_distances: list[float] = []
+    invalid_clearance_origin_count = 0
+    unmeasured_clearance_origin_count = 0
     for origin_index, origin in enumerate(raw_origins):
         escaped: list[int] = []
         hits: list[dict[str, Any]] = []
+        origin_hit_distances: list[float] = []
         for direction_index, direction in enumerate(unit_directions):
             hit, distance, triangle_index = _trace_first_hit(
                 vertices,
@@ -565,6 +574,7 @@ def automatic_mesh_leakage_report(
             assert distance is not None
             total_hits += 1
             hit_distances.append(distance)
+            origin_hit_distances.append(distance)
             hits.append(
                 {
                     "direction_index": direction_index,
@@ -573,6 +583,17 @@ def automatic_mesh_leakage_report(
                 }
             )
         ray_count = len(unit_directions)
+        minimum_hit_distance = (
+            min(origin_hit_distances) if origin_hit_distances else None
+        )
+        if minimum_hit_distance is None:
+            clearance_status = "not_measured"
+            unmeasured_clearance_origin_count += 1
+        elif minimum_hit_distance < probe_clearance:
+            clearance_status = "fail"
+            invalid_clearance_origin_count += 1
+        else:
+            clearance_status = "pass"
         origin_reports.append(
             {
                 "origin_index": origin_index,
@@ -582,6 +603,9 @@ def automatic_mesh_leakage_report(
                 "escaped_ray_count": len(escaped),
                 "escape_fraction": len(escaped) / ray_count,
                 "escaped_direction_indices": escaped,
+                "minimum_first_hit_distance_m": minimum_hit_distance,
+                "minimum_probe_clearance_m": probe_clearance,
+                "probe_clearance_status": clearance_status,
                 "hits": hits,
             }
         )
@@ -602,13 +626,30 @@ def automatic_mesh_leakage_report(
         "admission_claim": False,
         "interpretation": (
             "Escaped rays identify open directions from reviewed interior probes. "
-            "They may be scan holes or legitimate openings and require review."
+            "They may be scan holes or legitimate openings and require review. "
+            "Probe clearance fails when a sampled surface is closer than the "
+            "declared minimum, which commonly indicates a point inside or "
+            "immediately against scene geometry."
         ),
         "backend": "compiler_cpu_reference_moller_trumbore",
         "direction_source": direction_source,
         "directions": unit_directions.astype(float).tolist(),
         "maximum_distance_m": maximum_distance,
+        "minimum_probe_clearance_m": probe_clearance,
         "origin_count": len(raw_origins),
+        "invalid_probe_clearance_origin_count": invalid_clearance_origin_count,
+        "unmeasured_probe_clearance_origin_count": (
+            unmeasured_clearance_origin_count
+        ),
+        "probe_clearance_status": (
+            "fail"
+            if invalid_clearance_origin_count
+            else (
+                "not_measured"
+                if unmeasured_clearance_origin_count
+                else "pass"
+            )
+        ),
         "ray_count": total_rays,
         "hit_ray_count": total_hits,
         "escaped_ray_count": escaped_rays,

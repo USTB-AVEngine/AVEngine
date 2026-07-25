@@ -11,6 +11,7 @@ from avengine.m3.compiler import (
     compile_canary_request,
     compile_custom_acoustic_scene,
     compile_explicit_glb_research_scene,
+    compile_usd_snapshot_semantic_research_scene,
     propose_visual_slot_research_materials,
 )
 from avengine.m3.contracts import (
@@ -44,6 +45,7 @@ __all__ = [
     "compile_canary_request",
     "compile_custom_acoustic_scene",
     "compile_explicit_glb_research_scene",
+    "compile_usd_snapshot_semantic_research_scene",
     "calibrate_broadband_edt_seconds",
     "load_and_validate_acoustic_scene_package",
     "load_and_validate_package",
