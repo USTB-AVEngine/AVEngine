@@ -181,19 +181,23 @@ coefficients, a universal room RT60, or any M4 multi-source claim.
 ## M3.2: Semantic Material and Mesh Diagnostics
 
 Status: implemented `research_candidate` extension; MP3D semantic compilation
-and independent package validation pass, while physical calibration remains
-open.
+and composed real-USD Kujiale compilation independently validate, while
+physical calibration remains open.
 
 Deliverables: strict MP3D semantic PLY/`.house` parser; generic semantic,
 object-name and material-slot resolver; one editable residential material-rule
 file; deterministic plausible candidate randomization; unknown-category
-coverage; and automatic interior-ray enclosure diagnostics. The output is the
+coverage; optional composed-USD extraction into a dependency-free validated
+snapshot; and automatic interior-ray enclosure diagnostics. The output is the
 existing M3 mapping/database and Acoustic Scene Package consumed by RLR.
 
-Current boundary: the MP3D sample compiles end-to-end. ReplicaCAD and SPEAR/UE
-can use the same resolver inputs, but each room still needs its actual
-object/material-slot inventory and explicit overrides reviewed. Boundary edges
-and escaped rays remain diagnostics rather than automatic mesh repair.
+Current boundary: the MP3D sample compiles end-to-end. The actual composed
+`kujiale_0020` full-home USD also compiles without a shoebox or AABB proxy; its
+four corrected room probes observe 0/64 escaped rays, but topology still fails
+and 29 semantic categories remain unknown to the rule file. ReplicaCAD and
+other SPEAR/UE rooms can use the same resolver inputs, but each room still
+needs its actual inventory and explicit overrides reviewed. Boundary edges and
+escaped rays remain diagnostics rather than automatic mesh repair.
 Representative material priors do not become measured physical coefficients
 without retained real RIRs, multi-anchor decay evaluation and calibration.
 

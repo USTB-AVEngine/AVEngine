@@ -178,11 +178,16 @@ closure. Scene data must be shared rather than copied once per example.
 
 ## Exact next actions
 
-1. Push the reviewed common-interface commit on
-   `feature/habitat-native-avengine` after project-owner confirmation.
-2. Keep the isolated v4_3 experiment on its dedicated feature branch until its
+1. Use the completed 1,000-episode Apartment closure for the first real
+   train/validation/test model run; freeze the exact model-facing index and
+   metrics without regenerating the already verified RGB/Topdown/audio bank.
+2. Generate a bounded native RLR RIR/cache canary from the new real-USD
+   Kujiale Acoustic Scene Package before replacing any old shoebox-preview
+   audio. Keep geometry topology failure and uncalibrated material state
+   visible in that result.
+3. Keep the isolated v4_3 experiment on its dedicated feature branch until its
    training interface and next generalization experiment are reviewed.
-3. Reconcile the Abyssinian generation request's `slim` body-build label with
+4. Reconcile the Abyssinian generation request's `slim` body-build label with
    the current runtime baseline's `standard` research label before promoting
    that exact attribute provenance. A later owner-selected cat must still
    bring its own generated Mesh and runtime profile.
