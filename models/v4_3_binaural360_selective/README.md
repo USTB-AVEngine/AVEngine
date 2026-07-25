@@ -38,6 +38,9 @@ but a successful execution is not by itself a convergence or accuracy claim.
   text-only query path and real GPU update.
 - `train.py`: fixed 800/100/100 training, validation, best-checkpoint test and
   exact mid-epoch resume.
+- `visualize_inference.py`: deterministic test-sample inference and a
+  1920x480 RGB+Topdown+GT/predicted-DoA review video with the original
+  binaural track preserved.
 - `tests/`: model-experiment tests.
 
 Generated results and checkpoints stay under the repository's externalized
@@ -116,3 +119,46 @@ The one-epoch test mean circular error was 69.77 degrees and the two text
 queries produced almost identical predictions. It therefore proves that the
 pipeline runs, checkpoints and evaluates, but it does **not** yet prove useful
 selective localization quality.
+
+## Visualize one real test episode
+
+The visualization runner refuses non-test samples, verifies that the HDF5
+query, dataset-index episode and source video agree, runs both text queries
+against the same binaural mixture and writes both numeric tracks and a muxed
+review video:
+
+```bash
+PYTHONPATH=. python \
+  visualize_inference.py \
+  --dataset-h5 ../../tmp/m7/v43_apartment_1000_training_cache_20260723_01.h5 \
+  --dataset-index ../../tmp/m7/apartment_generated_assets_training_index_unique1000_visual_20260723_01/dataset_index.json \
+  --checkpoint ../../tmp/m7/v43_binaural360_training_100ep_b56_20260724_01/best.pt \
+  --clap-checkpoint /home/Models/laion_clap/630k-audioset-best.pt \
+  --sample-id border_collie_human__recombined_both_moving_0124__v00 \
+  --source-video ../../tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/border_collie_human__recombined_both_moving_0124/ue_topdown_binaural.mp4 \
+  --output-root ../../tmp/m7/v43_binaural360_inference_visualization_20260724_01 \
+  --device cuda:3
+```
+
+In each compass and trajectory plot, solid lines with filled markers are
+ground truth; dashed lines with open markers are predictions. Source/query
+identity also has a fixed blue/orange encoding. The panel uses the native
+AVEngine convention: front 0 degrees, right +90, rear 180 and left 270/-90.
+
+Executed test-split evidence is under
+`tmp/m7/v43_binaural360_inference_visualization_20260724_01/`. The reviewed
+episode is the both-moving Border Collie plus human sample
+`border_collie_human__recombined_both_moving_0124__v00`. With the epoch-90
+best checkpoint, the dog query has 5.09-degree mean / 3.65-degree median
+circular error, while the human query has 17.10-degree mean / 1.89-degree
+median error. The latter mismatch is concentrated in a small number of large
+errors, including a visible final-frame front/rear failure. The two text
+queries differ on all 75 frames and target-cardinality accuracy is 100% for
+this example. These are per-example diagnostic results, not aggregate model
+qualification.
+
+Use `ue_topdown_binaural_with_doa_prediction_v2.mp4` for human review. It is
+1920x480, 75 frames at 15 fps, exactly five seconds, and preserves the
+original AAC two-channel audio packet stream. `inference.json` contains the
+complete GT/prediction/error tracks; `render_manifest_v2.json` records final
+video readback and visual encoding.
