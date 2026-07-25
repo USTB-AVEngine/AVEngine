@@ -34,6 +34,17 @@ Room manifest + source GLB
     -> AVEngine metric recomputation and evidence verification
 ```
 
+The research semantic branch replaces the first three authoring inputs with:
+
+```text
+MP3D semantic PLY + .house labels
+  or ReplicaCAD object/category/material names
+  or UE Actor/material-slot names
+    + one semantic residential rule file + deterministic seed
+    -> explicit M3 mapping/database + per-triangle IDs
+    -> the same Acoustic Scene Package and RLR ingestion path
+```
+
 Each arrow is fail-closed. A valid JSON document, a successful native call, or
 an exported OBJ is never sufficient by itself.
 
@@ -72,6 +83,14 @@ skinning, morph targets, and unsupported component layouts do not receive a
 silent approximation. Door/window clear rays and solid-wall control rays are
 evaluated against the emitted canonical triangles.
 
+The MP3D semantic route strictly accepts the dataset's binary little-endian
+triangle PLY layout. Each face `object_id` is resolved through the `.house`
+`O` record and then the canonical `C` category label. Triangles are grouped
+into auditable category ranges before the same source-to-canonical transform
+and package compiler run. Unsupported PLY layouts, non-triangle faces,
+out-of-range indices and conflicting `.house` records fail instead of receiving
+an inferred label.
+
 ## Acoustic material contract
 
 Visual PBR slots are identifiers, not measurements of acoustic behavior.
@@ -108,6 +127,41 @@ walls, ceiling or door frame.
 Visual-slot proposals are always research inputs. They use
 `mapping_source_kind: visual_material_slot_proposal`, have no physical
 qualification claim, and cannot be promoted merely by compiling successfully.
+
+### Semantic material proposals
+
+The SoundSpaces-style resolver consumes
+[`residential_material_rules.json`](../../examples/m3/semantic_materials/residential_material_rules.json)
+and applies:
+
+```text
+explicit room/object override
+  > material-slot or object-name hint
+  > semantic category candidate set
+  > plausible default candidate set
+```
+
+Selection from a candidate set and bounded coefficient jitter are deterministic
+for the declared seed. Jitter is clipped to valid coefficient ranges; it is not
+an unconstrained draw from `[0, 1]`. Every resolved semantic surface receives
+an explicit M3 material key and RLR label, while default-resolved categories
+remain visible in `semantic_material_coverage.json`.
+
+The generic resolver accepts `semantic_category`, `object_name`,
+`material_slot` and exact `identity_key` inputs. MP3D supplies the first from
+its semantic mesh; ReplicaCAD adapters can supply object category/material
+names; SPEAR Apartment and Kujiale adapters can supply UE Actor/material-slot
+names and exact overrides. All three routes compile to the existing M3
+mapping/database documents rather than creating a new acoustic format.
+
+### Mesh enclosure diagnostics
+
+Topology QA reports exact-weld boundary and nonmanifold edges. The automatic
+enclosure probe additionally emits deterministic spherical rays from declared
+interior/navigation points and records first hits, escaped directions and
+escape fraction. The probe is diagnostic: an escaped ray may be a scan hole or
+a valid door/window. AVEngine does not silently seal the visual mesh, and this
+report alone cannot qualify a room as physically calibrated.
 
 ### M3.1 user-controlled material profiles
 

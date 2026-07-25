@@ -97,6 +97,17 @@ broadband EDT calibration core is implemented for caller-supplied evaluations;
 native target-decay calibration evidence remains `not_run`, and no RT60 or
 physical-material truth is inferred.
 
+The post-gate **semantic material compiler** now parses MP3D
+`semantic.ply + .house` face labels and resolves them through one editable
+residential rule file. The same resolver accepts object names and material
+slots for ReplicaCAD or UE adapters, using the fixed precedence
+`explicit override > name/slot hint > semantic category > plausible default
+candidate set`. Candidate choice and small band-coefficient perturbations are
+deterministic by seed. It emits the existing M3 mapping/database and RLR
+package, plus an unknown-category coverage report and automatic interior-ray
+enclosure diagnostic. This is a `research_candidate`, not calibrated physical
+material truth.
+
 The **M4 named multi-source RLR implementation** now provides one-context,
 all-pair propagation for at least two stable source IDs and exactly one
 camera-co-located listener. It retains independent per-source FOA and binaural
@@ -1168,6 +1179,7 @@ arbitrary generated episode is synchronized.
 | M2.1 | appearance L9 and cross-species two-room diagnostics — research-only evidence (`pass`) |
 | M3 | explicit acoustic scene and synthetic material-activation canary (`pass`) |
 | M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
+| M3.2 | semantic material compiler and mesh enclosure diagnostics (`research_candidate`; MP3D end-to-end, physical calibration open) |
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |
@@ -1279,19 +1291,29 @@ formal promotion has occurred, and `qualification_claim` is false. See
 still do not promote an appearance or species.
 
 M3 keeps visual and acoustic material semantics separate. The compiler expands
-the source GLB to canonical surface triangles, requires exact source-slot
-mappings with complete per-triangle coverage, emits a versioned RLR database
-and independently replays the hash-bound source inputs. The Habitat fork owns
-only the strict modern RLR context/ingestion bridge; RLR remains the propagation
-algorithm. AVEngine owns the explicit package, adapter inputs and evidence.
+the source GLB, or an MP3D semantic PLY paired with its `.house` descriptor, to
+canonical surface triangles with complete per-triangle coverage. It emits the
+same versioned RLR database and Acoustic Scene Package in both cases. The
+Habitat fork owns only the strict modern RLR context/ingestion bridge; RLR
+remains the propagation algorithm. AVEngine owns the explicit package, adapter
+inputs and evidence.
 
 The controlled custom-room low/high pair is a synthetic activation experiment:
 all geometry, object partitions, material IDs and non-absorption fields are
 frozen, while every high absorption coefficient is greater than its low
 counterpart. A passing formal run proves that those coefficients affect RLR
 repeatably, not that they are physical measurements for the modeled surfaces.
-MP3D and UE visual-material-slot mappings remain research proposals without
-physical qualification or admission.
+MP3D semantic mappings and UE/ReplicaCAD material-slot mappings remain research
+proposals without physical qualification or admission. Semantic resolution is
+more plausible than a uniform coefficient, but it is not a measurement.
+
+The editable semantic rule file is
+[`residential_material_rules.json`](examples/m3/semantic_materials/residential_material_rules.json).
+It contains the material candidates, band coefficients, name hints and exact
+room overrides in one place. Unknown semantic categories are listed in
+`semantic_material_coverage.json`; they are never silently described as known
+physical material. Candidate selection is stable for the same room, rule file
+and seed.
 
 Detailed formal measurements and the single authoritative profile/evidence
 locations are recorded in [`M3_STATUS.md`](docs/roadmap/M3_STATUS.md); leaf

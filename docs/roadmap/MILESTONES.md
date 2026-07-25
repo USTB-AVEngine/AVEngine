@@ -135,9 +135,9 @@ The controlled custom-room high/low pair is a synthetic material-activation
 test. `package_mode: production` invokes the strict compiler path, but
 `material_semantics: controlled_canary` and
 `qualification_claim: synthetic_activation_test_only` prohibit treating its
-coefficients as physical room-material truth. MP3D and UE visual-slot mappings
-remain `research_candidate` proposals without physical qualification or
-admission.
+coefficients as physical room-material truth. MP3D semantic and UE visual-slot
+mappings remain `research_candidate` proposals without physical qualification
+or admission.
 
 Exit criteria: every production triangle is assigned; no unintended fallback
 is used; openings/geometry survive; production uses no AABB room proxy; exact
@@ -177,6 +177,25 @@ AVEngine-owned measurement support is broadband EDT.
 
 Non-goals: visual-to-physical material inference, measured real-room
 coefficients, a universal room RT60, or any M4 multi-source claim.
+
+## M3.2: Semantic Material and Mesh Diagnostics
+
+Status: implemented `research_candidate` extension; MP3D semantic compilation
+and independent package validation pass, while physical calibration remains
+open.
+
+Deliverables: strict MP3D semantic PLY/`.house` parser; generic semantic,
+object-name and material-slot resolver; one editable residential material-rule
+file; deterministic plausible candidate randomization; unknown-category
+coverage; and automatic interior-ray enclosure diagnostics. The output is the
+existing M3 mapping/database and Acoustic Scene Package consumed by RLR.
+
+Current boundary: the MP3D sample compiles end-to-end. ReplicaCAD and SPEAR/UE
+can use the same resolver inputs, but each room still needs its actual
+object/material-slot inventory and explicit overrides reviewed. Boundary edges
+and escaped rays remain diagnostics rather than automatic mesh repair.
+Representative material priors do not become measured physical coefficients
+without retained real RIRs, multi-anchor decay evaluation and calibration.
 
 ## M4: Multi-Source RLR
 

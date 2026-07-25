@@ -41,6 +41,36 @@ does not establish real floor, wall, ceiling or door-frame coefficients.
   native binaries and recomputes results instead of trusting recorded pass
   booleans.
 
+## Post-gate semantic material extension
+
+Status: `research_candidate`; implemented and exercised on the MP3D
+`17DRP5sb8fy` sample. This does not alter the formal controlled-canary `pass`.
+
+- Strictly parses MP3D binary semantic PLY faces and resolves `object_id`
+  through the paired `.house` object/category records.
+- Uses one editable residential rules file with deterministic plausible
+  candidate selection, bounded absorption/scattering jitter, name/material-slot
+  hints and exact room/object overrides.
+- Exposes the same generic surface identity fields for future ReplicaCAD and
+  SPEAR/UE adapters; it emits the existing M3 mapping/database and RLR package,
+  not a second material format.
+- Reports unknown categories separately and retains all resolved assignments
+  as unqualified research placeholders.
+- Adds deterministic interior spherical-ray diagnostics alongside exact-weld
+  topology QA. Escaped rays are reported for review rather than automatically
+  classified as invalid openings or silently patched.
+
+The retained local sample is
+`tmp/m3/mp3d_semantic_soundspaces_20260725_02`. It compiled 3,016,249 semantic
+triangles into 31 used categories. The only default-resolved label was
+`unknown_object` (8,118 triangles). The independent package validator passed.
+Topology remained `fail` with 31,525 global boundary edges, as expected for a
+scanned semantic mesh; the two-point, 16-direction-per-point enclosure probe
+observed 0/32 escaped rays. Sparse probe success does not erase the topology
+holes or establish physical closure. The complete baseline compile took
+667.13 seconds and peaked at approximately 1.14 GB; it is a once-per-room
+preprocessing cost, not a per-episode or per-audio cost.
+
 ## Controlled canary contract
 
 The tracked request is

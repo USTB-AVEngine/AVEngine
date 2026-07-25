@@ -1,0 +1,439 @@
+{
+  "schema": "avengine_m3_semantic_material_rules_v1",
+  "ruleset_id": "soundspaces_style_residential_v1",
+  "bands_hz": [
+    125.0,
+    250.0,
+    500.0,
+    1000.0,
+    2000.0,
+    4000.0
+  ],
+  "coefficient_jitter_std": 0.03,
+  "coefficient_jitter_fields": [
+    "absorption",
+    "scattering"
+  ],
+  "default_candidates": [
+    {
+      "material": "generic_hard_surface",
+      "weight": 0.6
+    },
+    {
+      "material": "generic_furniture",
+      "weight": 0.4
+    }
+  ],
+  "materials": {
+    "carpet": {
+      "name": "Residential carpet",
+      "absorption": [0.02, 0.06, 0.14, 0.37, 0.60, 0.65],
+      "scattering": [0.10, 0.12, 0.16, 0.22, 0.30, 0.34],
+      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative tabulated residential carpet range; requires room calibration",
+      "confidence": 0.55
+    },
+    "carpet_heavy": {
+      "name": "Heavy carpet",
+      "absorption": [0.08, 0.24, 0.57, 0.69, 0.71, 0.73],
+      "scattering": [0.12, 0.16, 0.22, 0.30, 0.36, 0.40],
+      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative tabulated heavy-carpet range; requires room calibration",
+      "confidence": 0.55
+    },
+    "wood_floor": {
+      "name": "Finished wood floor",
+      "absorption": [0.15, 0.11, 0.10, 0.07, 0.06, 0.07],
+      "scattering": [0.05, 0.06, 0.08, 0.10, 0.12, 0.14],
+      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative finished-wood absorption range; requires room calibration",
+      "confidence": 0.55
+    },
+    "wood_thin": {
+      "name": "Thin wood panel",
+      "absorption": [0.28, 0.22, 0.17, 0.09, 0.10, 0.11],
+      "scattering": [0.06, 0.08, 0.10, 0.12, 0.15, 0.18],
+      "transmission": [0.08, 0.06, 0.04, 0.03, 0.02, 0.02],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative lightweight wood-panel range; requires room calibration",
+      "confidence": 0.45
+    },
+    "wood_thick": {
+      "name": "Thick wood",
+      "absorption": [0.14, 0.10, 0.08, 0.07, 0.07, 0.08],
+      "scattering": [0.08, 0.10, 0.13, 0.16, 0.20, 0.24],
+      "transmission": [0.02, 0.02, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative dense-wood range; requires room calibration",
+      "confidence": 0.50
+    },
+    "ceramic_tile": {
+      "name": "Ceramic tile",
+      "absorption": [0.01, 0.01, 0.01, 0.02, 0.02, 0.02],
+      "scattering": [0.02, 0.03, 0.04, 0.05, 0.06, 0.07],
+      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative hard ceramic-tile range; requires room calibration",
+      "confidence": 0.55
+    },
+    "concrete": {
+      "name": "Smooth concrete",
+      "absorption": [0.01, 0.01, 0.02, 0.02, 0.02, 0.03],
+      "scattering": [0.04, 0.05, 0.07, 0.09, 0.12, 0.15],
+      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative smooth-concrete range; requires room calibration",
+      "confidence": 0.55
+    },
+    "gypsum_board": {
+      "name": "Gypsum board",
+      "absorption": [0.29, 0.10, 0.05, 0.04, 0.07, 0.09],
+      "scattering": [0.04, 0.05, 0.06, 0.08, 0.10, 0.12],
+      "transmission": [0.02, 0.02, 0.02, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative gypsum-board range; requires room calibration",
+      "confidence": 0.55
+    },
+    "plaster": {
+      "name": "Plaster",
+      "absorption": [0.14, 0.10, 0.06, 0.05, 0.04, 0.03],
+      "scattering": [0.04, 0.05, 0.07, 0.08, 0.10, 0.12],
+      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative plaster range; requires room calibration",
+      "confidence": 0.50
+    },
+    "painted_brick": {
+      "name": "Painted brick",
+      "absorption": [0.01, 0.01, 0.02, 0.02, 0.02, 0.03],
+      "scattering": [0.08, 0.10, 0.13, 0.16, 0.20, 0.24],
+      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative painted masonry range; requires room calibration",
+      "confidence": 0.45
+    },
+    "glass": {
+      "name": "Window glass",
+      "absorption": [0.18, 0.06, 0.04, 0.03, 0.02, 0.02],
+      "scattering": [0.01, 0.01, 0.02, 0.02, 0.03, 0.03],
+      "transmission": [0.10, 0.08, 0.06, 0.04, 0.03, 0.03],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative residential glazing range; requires room calibration",
+      "confidence": 0.45
+    },
+    "fabric": {
+      "name": "Heavy fabric",
+      "absorption": [0.07, 0.31, 0.49, 0.75, 0.70, 0.60],
+      "scattering": [0.10, 0.14, 0.20, 0.26, 0.32, 0.36],
+      "transmission": [0.02, 0.02, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative heavy-fabric range; requires room calibration",
+      "confidence": 0.50
+    },
+    "upholstered": {
+      "name": "Upholstered furniture",
+      "absorption": [0.12, 0.24, 0.48, 0.69, 0.74, 0.78],
+      "scattering": [0.14, 0.18, 0.24, 0.30, 0.36, 0.40],
+      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative upholstered-furniture range; requires room calibration",
+      "confidence": 0.50
+    },
+    "steel": {
+      "name": "Steel",
+      "absorption": [0.10, 0.05, 0.04, 0.04, 0.04, 0.05],
+      "scattering": [0.03, 0.04, 0.05, 0.06, 0.08, 0.10],
+      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative rigid-metal range; requires room calibration",
+      "confidence": 0.45
+    },
+    "ceramic": {
+      "name": "Sanitary ceramic",
+      "absorption": [0.01, 0.01, 0.02, 0.02, 0.02, 0.03],
+      "scattering": [0.04, 0.05, 0.07, 0.09, 0.12, 0.14],
+      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative sanitary-ceramic range; requires room calibration",
+      "confidence": 0.50
+    },
+    "ceiling_tile": {
+      "name": "Acoustic ceiling tile",
+      "absorption": [0.15, 0.35, 0.55, 0.70, 0.75, 0.75],
+      "scattering": [0.08, 0.10, 0.14, 0.18, 0.22, 0.25],
+      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Representative acoustic ceiling-tile range; requires room calibration",
+      "confidence": 0.45
+    },
+    "generic_hard_surface": {
+      "name": "Unknown hard residential surface",
+      "absorption": [0.08, 0.07, 0.07, 0.06, 0.07, 0.08],
+      "scattering": [0.06, 0.08, 0.10, 0.13, 0.16, 0.20],
+      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Conservative unknown hard-surface research prior",
+      "confidence": 0.20
+    },
+    "generic_furniture": {
+      "name": "Unknown residential furniture",
+      "absorption": [0.10, 0.16, 0.24, 0.32, 0.38, 0.42],
+      "scattering": [0.14, 0.18, 0.24, 0.30, 0.36, 0.40],
+      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "density": 1.225,
+      "speed": 343.0,
+      "source": "Conservative unknown furniture research prior",
+      "confidence": 0.20
+    }
+  },
+  "categories": {
+    "floor": {
+      "candidates": [
+        {"material": "wood_floor", "weight": 0.40},
+        {"material": "carpet", "weight": 0.30},
+        {"material": "ceramic_tile", "weight": 0.20},
+        {"material": "concrete", "weight": 0.10}
+      ]
+    },
+    "wall": {
+      "candidates": [
+        {"material": "gypsum_board", "weight": 0.45},
+        {"material": "plaster", "weight": 0.35},
+        {"material": "painted_brick", "weight": 0.20}
+      ]
+    },
+    "ceiling": {
+      "candidates": [
+        {"material": "gypsum_board", "weight": 0.55},
+        {"material": "plaster", "weight": 0.30},
+        {"material": "ceiling_tile", "weight": 0.15}
+      ]
+    },
+    "window": {"candidates": [{"material": "glass", "weight": 1.0}]},
+    "mirror": {"candidates": [{"material": "glass", "weight": 1.0}]},
+    "door": {
+      "candidates": [
+        {"material": "wood_thin", "weight": 0.55},
+        {"material": "wood_thick", "weight": 0.35},
+        {"material": "glass", "weight": 0.10}
+      ]
+    },
+    "curtain": {"candidates": [{"material": "fabric", "weight": 1.0}]},
+    "blinds": {
+      "candidates": [
+        {"material": "fabric", "weight": 0.55},
+        {"material": "wood_thin", "weight": 0.30},
+        {"material": "steel", "weight": 0.15}
+      ]
+    },
+    "sofa": {"candidates": [{"material": "upholstered", "weight": 1.0}]},
+    "seating": {
+      "candidates": [
+        {"material": "upholstered", "weight": 0.65},
+        {"material": "wood_thick", "weight": 0.35}
+      ]
+    },
+    "cushion": {"candidates": [{"material": "upholstered", "weight": 1.0}]},
+    "bed": {"candidates": [{"material": "upholstered", "weight": 1.0}]},
+    "towel": {"candidates": [{"material": "fabric", "weight": 1.0}]},
+    "clothes": {"candidates": [{"material": "fabric", "weight": 1.0}]},
+    "chair": {
+      "candidates": [
+        {"material": "wood_thick", "weight": 0.55},
+        {"material": "upholstered", "weight": 0.30},
+        {"material": "steel", "weight": 0.15}
+      ]
+    },
+    "stool": {
+      "candidates": [
+        {"material": "wood_thick", "weight": 0.60},
+        {"material": "steel", "weight": 0.25},
+        {"material": "upholstered", "weight": 0.15}
+      ]
+    },
+    "table": {
+      "candidates": [
+        {"material": "wood_thick", "weight": 0.65},
+        {"material": "glass", "weight": 0.20},
+        {"material": "steel", "weight": 0.15}
+      ]
+    },
+    "cabinet": {"candidates": [{"material": "wood_thick", "weight": 1.0}]},
+    "shelving": {"candidates": [{"material": "wood_thick", "weight": 1.0}]},
+    "chest_of_drawers": {"candidates": [{"material": "wood_thick", "weight": 1.0}]},
+    "counter": {
+      "candidates": [
+        {"material": "wood_thick", "weight": 0.45},
+        {"material": "ceramic_tile", "weight": 0.35},
+        {"material": "concrete", "weight": 0.20}
+      ]
+    },
+    "sink": {
+      "candidates": [
+        {"material": "steel", "weight": 0.60},
+        {"material": "ceramic", "weight": 0.40}
+      ]
+    },
+    "bathtub": {"candidates": [{"material": "ceramic", "weight": 1.0}]},
+    "toilet": {"candidates": [{"material": "ceramic", "weight": 1.0}]},
+    "shower": {
+      "candidates": [
+        {"material": "glass", "weight": 0.55},
+        {"material": "ceramic_tile", "weight": 0.45}
+      ]
+    },
+    "appliances": {
+      "candidates": [
+        {"material": "steel", "weight": 0.70},
+        {"material": "generic_hard_surface", "weight": 0.30}
+      ]
+    },
+    "tv_monitor": {
+      "candidates": [
+        {"material": "glass", "weight": 0.60},
+        {"material": "generic_hard_surface", "weight": 0.40}
+      ]
+    },
+    "picture": {
+      "candidates": [
+        {"material": "glass", "weight": 0.45},
+        {"material": "wood_thin", "weight": 0.35},
+        {"material": "fabric", "weight": 0.20}
+      ]
+    },
+    "board_panel": {"candidates": [{"material": "wood_thin", "weight": 1.0}]},
+    "beam": {
+      "candidates": [
+        {"material": "wood_thick", "weight": 0.55},
+        {"material": "concrete", "weight": 0.45}
+      ]
+    },
+    "column": {
+      "candidates": [
+        {"material": "concrete", "weight": 0.70},
+        {"material": "plaster", "weight": 0.30}
+      ]
+    },
+    "railing": {
+      "candidates": [
+        {"material": "wood_thick", "weight": 0.50},
+        {"material": "steel", "weight": 0.50}
+      ]
+    },
+    "stairs": {
+      "candidates": [
+        {"material": "wood_floor", "weight": 0.45},
+        {"material": "concrete", "weight": 0.35},
+        {"material": "carpet", "weight": 0.20}
+      ]
+    },
+    "fireplace": {
+      "candidates": [
+        {"material": "painted_brick", "weight": 0.65},
+        {"material": "concrete", "weight": 0.35}
+      ]
+    },
+    "furniture": {
+      "candidates": [
+        {"material": "wood_thick", "weight": 0.50},
+        {"material": "upholstered", "weight": 0.35},
+        {"material": "steel", "weight": 0.15}
+      ]
+    },
+    "gym_equipment": {
+      "candidates": [
+        {"material": "steel", "weight": 0.55},
+        {"material": "upholstered", "weight": 0.45}
+      ]
+    },
+    "lighting": {
+      "candidates": [
+        {"material": "glass", "weight": 0.55},
+        {"material": "steel", "weight": 0.45}
+      ]
+    },
+    "plant": {
+      "candidates": [
+        {"material": "generic_furniture", "weight": 0.55},
+        {"material": "ceramic", "weight": 0.45}
+      ]
+    },
+    "void": {"candidates": [{"material": "generic_hard_surface", "weight": 1.0}]},
+    "misc": {
+      "candidates": [
+        {"material": "generic_hard_surface", "weight": 0.50},
+        {"material": "generic_furniture", "weight": 0.50}
+      ]
+    },
+    "objects": {
+      "candidates": [
+        {"material": "generic_hard_surface", "weight": 0.45},
+        {"material": "generic_furniture", "weight": 0.55}
+      ]
+    }
+  },
+  "name_hints": [
+    {
+      "contains": ["rug", "doormat", "floor_mat"],
+      "candidates": [{"material": "carpet_heavy", "weight": 1.0}]
+    },
+    {
+      "contains": ["window", "glass", "mirror"],
+      "candidates": [{"material": "glass", "weight": 1.0}]
+    },
+    {
+      "contains": ["curtain", "drape"],
+      "candidates": [{"material": "fabric", "weight": 1.0}]
+    },
+    {
+      "contains": ["sofa", "couch", "cushion"],
+      "candidates": [{"material": "upholstered", "weight": 1.0}]
+    },
+    {
+      "contains": ["steel", "metal"],
+      "candidates": [{"material": "steel", "weight": 1.0}]
+    }
+  ],
+  "explicit_overrides": {
+    "apartment/rug_01": "carpet_heavy",
+    "kujiale/kitchen_floor": "ceramic_tile"
+  }
+}

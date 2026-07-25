@@ -282,3 +282,39 @@ always a `research_candidate` with `qualification_claim: false`:
 
 These commands identify source slots and geometry problems; they do not infer
 physical coefficients, waive failed QA, or admit the room.
+
+## Compile MP3D semantic materials
+
+This research command uses the semantic PLY and `.house` assets already
+declared by the room manifest. It selects only plausible category candidates
+from one editable rule file and compiles the result into the same M3/RLR
+package:
+
+```bash
+"$HABPY" -m avengine.cli m3 compile-mp3d-semantic \
+  --room "$REPO/examples/m1/rooms/habitat_mp3d_example/room_manifest.json" \
+  --rules "$REPO/examples/m3/semantic_materials/residential_material_rules.json" \
+  --seed 917 \
+  --runtime-root "$RUNTIME" \
+  --probe-directions 32 \
+  --output "$REPO/tmp/m3/mp3d_semantic_<RUN_ID>"
+
+"$HABPY" -m avengine.cli m3 validate-package \
+  "$REPO/tmp/m3/mp3d_semantic_<RUN_ID>/manifest.json"
+```
+
+If `--probe-origin X Y Z` is omitted, up to two canonical points are taken
+from the room's declared connectivity anchors. Repeat the option to use
+reviewed listener/navigation points. Inspect:
+
+- `semantic_material_coverage.json` for every category decision and unknown
+  label;
+- `qa/geometry_report.json` for exact-weld boundary/nonmanifold topology;
+- `qa/ray_leakage.json` for automatic escaped-ray directions and declared
+  opening/control rays.
+
+The automatic enclosure probe is diagnostic. A topology boundary or escaped
+ray is not silently filled, while a no-escape sparse probe does not prove that
+the complete scan mesh is closed. Material coefficients retain
+`research_placeholder` semantics until a separate real-RIR or measurement
+calibration is completed.

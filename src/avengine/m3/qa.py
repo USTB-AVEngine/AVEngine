@@ -32,13 +32,12 @@ def _welded_indices(vertices: np.ndarray) -> np.ndarray:
     # Exact float32 equality is intentional: compilation already canonicalizes
     # to stable float32 bytes, and QA must not hide authoring gaps behind an
     # undocumented tolerance.
-    lookup: dict[bytes, int] = {}
-    result = np.empty(len(vertices), dtype=np.uint32)
-    for index, vertex in enumerate(np.ascontiguousarray(vertices, dtype="<f4")):
-        key = vertex.tobytes()
-        welded = lookup.setdefault(key, len(lookup))
-        result[index] = welded
-    return result
+    contiguous = np.ascontiguousarray(vertices, dtype="<f4")
+    byte_rows = contiguous.view(np.dtype((np.void, contiguous.dtype.itemsize * 3)))
+    _unique, inverse = np.unique(byte_rows.reshape(-1), return_inverse=True)
+    if len(_unique) > np.iinfo(np.uint32).max:
+        raise ValueError("welded vertex index exceeds uint32")
+    return np.ascontiguousarray(inverse, dtype=np.uint32)
 
 
 def geometry_report(
@@ -486,10 +485,146 @@ def _trace_first_hit(
     return True, first_distance, first_triangle
 
 
+def _fibonacci_sphere_directions(count: int) -> np.ndarray:
+    if count < 1:
+        raise ValueError("direction count must be positive")
+    indices = np.arange(count, dtype=np.float64)
+    golden_angle = math.pi * (3.0 - math.sqrt(5.0))
+    y = 1.0 - 2.0 * ((indices + 0.5) / count)
+    radius = np.sqrt(np.maximum(0.0, 1.0 - y * y))
+    angle = indices * golden_angle
+    return np.column_stack((np.cos(angle) * radius, y, np.sin(angle) * radius))
+
+
+def automatic_mesh_leakage_report(
+    vertices: np.ndarray,
+    triangles: np.ndarray,
+    *,
+    origins: Sequence[Sequence[float]],
+    direction_count: int = 32,
+    directions: np.ndarray | None = None,
+    maximum_distance_m: float | None = None,
+) -> dict[str, Any]:
+    """Probe whether rays from declared interior points escape the surface mesh.
+
+    This is a functional enclosure diagnostic.  It deliberately does not label
+    every escape as a defect because valid doors, windows and intentionally open
+    scene boundaries require human or dataset-specific interpretation.
+    """
+
+    raw_origins = np.asarray(origins, dtype=np.float64)
+    if raw_origins.ndim != 2 or raw_origins.shape[1] != 3 or not len(raw_origins):
+        raise ValueError("automatic leakage origins must have shape (N, 3)")
+    if not np.isfinite(raw_origins).all():
+        raise ValueError("automatic leakage origins must be finite")
+    if directions is None:
+        unit_directions = _fibonacci_sphere_directions(direction_count)
+        direction_source = "deterministic_fibonacci_sphere"
+    else:
+        unit_directions = np.asarray(directions, dtype=np.float64)
+        if (
+            unit_directions.ndim != 2
+            or unit_directions.shape[1] != 3
+            or not len(unit_directions)
+            or not np.isfinite(unit_directions).all()
+        ):
+            raise ValueError("automatic leakage directions must have shape (N, 3)")
+        norms = np.linalg.norm(unit_directions, axis=1)
+        if np.any(norms <= 1e-12):
+            raise ValueError("automatic leakage directions must be non-zero")
+        unit_directions = unit_directions / norms[:, None]
+        direction_source = "caller_supplied"
+    bounds_min = vertices.min(axis=0).astype(np.float64)
+    bounds_max = vertices.max(axis=0).astype(np.float64)
+    diagonal = float(np.linalg.norm(bounds_max - bounds_min))
+    maximum_distance = (
+        float(maximum_distance_m)
+        if maximum_distance_m is not None
+        else max(diagonal * 1.05, 1.0)
+    )
+    if not math.isfinite(maximum_distance) or maximum_distance <= 0:
+        raise ValueError("automatic leakage maximum distance must be positive")
+
+    origin_reports: list[dict[str, Any]] = []
+    total_hits = 0
+    hit_distances: list[float] = []
+    for origin_index, origin in enumerate(raw_origins):
+        escaped: list[int] = []
+        hits: list[dict[str, Any]] = []
+        for direction_index, direction in enumerate(unit_directions):
+            hit, distance, triangle_index = _trace_first_hit(
+                vertices,
+                triangles,
+                origin,
+                direction,
+                maximum_distance,
+            )
+            if not hit:
+                escaped.append(direction_index)
+                continue
+            assert distance is not None
+            total_hits += 1
+            hit_distances.append(distance)
+            hits.append(
+                {
+                    "direction_index": direction_index,
+                    "first_hit_distance_m": distance,
+                    "triangle_index": triangle_index,
+                }
+            )
+        ray_count = len(unit_directions)
+        origin_reports.append(
+            {
+                "origin_index": origin_index,
+                "origin_m": origin.astype(float).tolist(),
+                "ray_count": ray_count,
+                "hit_ray_count": ray_count - len(escaped),
+                "escaped_ray_count": len(escaped),
+                "escape_fraction": len(escaped) / ray_count,
+                "escaped_direction_indices": escaped,
+                "hits": hits,
+            }
+        )
+    total_rays = len(raw_origins) * len(unit_directions)
+    escaped_rays = total_rays - total_hits
+    distance_summary = {
+        "minimum_m": min(hit_distances) if hit_distances else None,
+        "maximum_m": max(hit_distances) if hit_distances else None,
+        "mean_m": (
+            float(np.mean(np.asarray(hit_distances, dtype=np.float64)))
+            if hit_distances
+            else None
+        ),
+    }
+    return {
+        "schema": "avengine_m3_automatic_mesh_leakage_diagnostic_v1",
+        "status": "diagnostic_complete",
+        "admission_claim": False,
+        "interpretation": (
+            "Escaped rays identify open directions from reviewed interior probes. "
+            "They may be scan holes or legitimate openings and require review."
+        ),
+        "backend": "compiler_cpu_reference_moller_trumbore",
+        "direction_source": direction_source,
+        "directions": unit_directions.astype(float).tolist(),
+        "maximum_distance_m": maximum_distance,
+        "origin_count": len(raw_origins),
+        "ray_count": total_rays,
+        "hit_ray_count": total_hits,
+        "escaped_ray_count": escaped_rays,
+        "escape_fraction": escaped_rays / total_rays,
+        "first_hit_distance_summary": distance_summary,
+        "origins": origin_reports,
+    }
+
+
 def ray_leakage_report(
     vertices: np.ndarray,
     triangles: np.ndarray,
     ray_checks: Sequence[Mapping[str, Any]],
+    *,
+    automatic_origins: Sequence[Sequence[float]] | None = None,
+    automatic_direction_count: int = 32,
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     for declaration in ray_checks:
@@ -520,6 +655,24 @@ def ray_leakage_report(
         status = "not_run"
     else:
         status = "pass" if all(check["status"] == "pass" for check in checks) else "fail"
+    has_automatic_origins = (
+        automatic_origins is not None and len(automatic_origins) > 0
+    )
+    automatic = (
+        automatic_mesh_leakage_report(
+            vertices,
+            triangles,
+            origins=automatic_origins,
+            direction_count=automatic_direction_count,
+        )
+        if has_automatic_origins
+        else {
+            "schema": "avengine_m3_automatic_mesh_leakage_diagnostic_v1",
+            "status": "not_run",
+            "admission_claim": False,
+            "reason": "no interior probe origins were supplied",
+        }
+    )
     return {
         "schema": "avengine_m3_ray_leakage_v1",
         "status": status,
@@ -531,6 +684,7 @@ def ray_leakage_report(
         ),
         "declared_check_count": len(checks),
         "checks": checks,
+        "automatic_enclosure_probe": automatic,
     }
 
 

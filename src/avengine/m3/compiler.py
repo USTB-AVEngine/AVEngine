@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -7,7 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -40,6 +41,12 @@ from avengine.m3.qa import (
     material_coverage_report,
     ray_leakage_report,
     write_debug_obj,
+)
+from avengine.m3.semantic import ExpandedSemanticScene, load_mp3d_semantic_scene
+from avengine.m3.semantic_materials import (
+    SemanticMaterialRuleError,
+    SemanticSurfaceIdentity,
+    compile_semantic_material_documents,
 )
 
 
@@ -76,6 +83,29 @@ def _source_geometry_path(
     if len(matches) != 1:
         raise AcousticSceneCompileError(
             "room must declare exactly one render_surface_mesh asset"
+        )
+    return resolve_declared_path(
+        matches[0]["path"],
+        manifest_dir=room_path.parent,
+        environment=environment,
+    )
+
+
+def _source_asset_path(
+    room_path: Path,
+    room: Mapping[str, Any],
+    *,
+    role: str,
+    environment: Mapping[str, str] | None = None,
+) -> Path:
+    matches = [
+        asset
+        for asset in room.get("assets", [])
+        if isinstance(asset, Mapping) and asset.get("role") == role
+    ]
+    if len(matches) != 1:
+        raise AcousticSceneCompileError(
+            f"room must declare exactly one {role} asset"
         )
     return resolve_declared_path(
         matches[0]["path"],
@@ -140,7 +170,15 @@ def _compiler_identity() -> tuple[str, dict[str, str]]:
     module_directory = Path(__file__).resolve().parent
     components = {
         name: sha256_file(module_directory / name)
-        for name in ("compiler.py", "contracts.py", "gltf.py", "materials.py", "qa.py")
+        for name in (
+            "compiler.py",
+            "contracts.py",
+            "gltf.py",
+            "materials.py",
+            "qa.py",
+            "semantic.py",
+            "semantic_materials.py",
+        )
     }
     return canonical_json_sha256(components), components
 
@@ -178,6 +216,10 @@ def _build_explicit_glb_package(
     expected_room_kind: str | None,
     package_mode: str,
     expected_material_semantics: str | None = None,
+    source_scene: ExpandedGltfScene | ExpandedSemanticScene | None = None,
+    source_geometry_path: Path | None = None,
+    automatic_leakage_origins: Sequence[Sequence[float]] | None = None,
+    automatic_leakage_direction_count: int = 32,
 ) -> Path:
     room_errors = validate_room_manifest(room)
     if room_errors:
@@ -213,10 +255,18 @@ def _build_explicit_glb_package(
     except MaterialContractError as exc:
         raise AcousticSceneCompileError(str(exc)) from exc
 
-    geometry_path = _source_geometry_path(room_path, room, environment=environment)
-    scene = extract_triangle_scene(geometry_path)
+    geometry_path = (
+        source_geometry_path
+        if source_geometry_path is not None
+        else _source_geometry_path(room_path, room, environment=environment)
+    )
+    scene = source_scene if source_scene is not None else extract_triangle_scene(
+        geometry_path
+    )
     vertices, triangles = _apply_source_to_canonical(scene, mapping)
-    used_source_materials = set(scene.triangle_source_material_names)
+    used_source_materials = {
+        str(item["source_material_name"]) for item in scene.objects
+    }
     declared_source_materials = set(compiled_materials.source_material_to_id)
     if used_source_materials != declared_source_materials:
         raise AcousticSceneCompileError(
@@ -224,15 +274,24 @@ def _build_explicit_glb_package(
             f"missing={sorted(used_source_materials - declared_source_materials)}, "
             f"unused={sorted(declared_source_materials - used_source_materials)}"
         )
-    material_ids = np.asarray(
-        [
-            compiled_materials.source_material_to_id[source_name]
-            for source_name in scene.triangle_source_material_names
-        ],
-        dtype="<u4",
+    material_ids = np.full(
+        len(triangles), np.iinfo(np.uint32).max, dtype="<u4"
     )
-    if len(material_ids) != len(triangles):
-        raise AcousticSceneCompileError("per-triangle material assignment length mismatch")
+    for item in scene.objects:
+        start = int(item["triangle_offset"])
+        stop = start + int(item["triangle_count"])
+        source_name = str(item["source_material_name"])
+        if start < 0 or stop > len(material_ids):
+            raise AcousticSceneCompileError(
+                f"source object {item['object_id']} has an invalid triangle range"
+            )
+        material_ids[start:stop] = compiled_materials.source_material_to_id[
+            source_name
+        ]
+    if np.any(material_ids == np.iinfo(np.uint32).max):
+        raise AcousticSceneCompileError(
+            "source object ranges do not assign every triangle material"
+        )
 
     output.mkdir(parents=True, exist_ok=False)
     acoustic = output / "acoustic"
@@ -299,7 +358,13 @@ def _build_explicit_glb_package(
             else None
         ),
     )
-    leakage_qa = ray_leakage_report(vertices, triangles, room["ray_checks"])
+    leakage_qa = ray_leakage_report(
+        vertices,
+        triangles,
+        room["ray_checks"],
+        automatic_origins=automatic_leakage_origins,
+        automatic_direction_count=automatic_leakage_direction_count,
+    )
     qa_values = {
         "geometry_report": geometry_qa,
         "material_coverage": coverage_qa,
@@ -875,6 +940,193 @@ def propose_visual_slot_research_materials(
             destination / database_path.name,
             destination / report_path.name,
         )
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def _default_semantic_probe_origins(
+    room: Mapping[str, Any],
+) -> list[list[float]]:
+    origins: list[list[float]] = []
+    for pair in room.get("connectivity_pairs", []):
+        if not isinstance(pair, Mapping):
+            continue
+        for field in ("start_m", "end_m"):
+            value = pair.get(field)
+            if (
+                isinstance(value, list)
+                and len(value) == 3
+                and all(
+                    not isinstance(item, bool) and isinstance(item, (int, float))
+                    for item in value
+                )
+            ):
+                candidate = [float(item) for item in value]
+                if candidate not in origins:
+                    origins.append(candidate)
+            if len(origins) >= 2:
+                return origins
+    return origins
+
+
+def compile_mp3d_semantic_research_scene(
+    *,
+    room_manifest: str | Path,
+    material_rules: str | Path,
+    output: str | Path,
+    seed: int,
+    package_id: str | None = None,
+    probe_origins: Sequence[Sequence[float]] | None = None,
+    probe_direction_count: int = 32,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[Path, Path]:
+    """Compile MP3D semantic PLY labels into the existing M3/RLR package.
+
+    Candidate material selection is deterministic for ``seed`` and remains a
+    research proposal until a separate physical calibration reviews the room.
+    """
+
+    room_path, room_bytes, room, room_sha256 = _snapshot_json(room_manifest)
+    rules_path, _rules_bytes, rules, rules_sha256 = _snapshot_json(material_rules)
+    room_errors = validate_room_manifest(room)
+    if room_errors:
+        raise AcousticSceneCompileError("invalid source room: " + "; ".join(room_errors))
+    if room.get("room_kind") != "habitat_native":
+        raise AcousticSceneCompileError(
+            "MP3D semantic compilation requires room_kind='habitat_native'"
+        )
+    effective_environment = dict(os.environ if environment is None else environment)
+    effective_environment.setdefault(
+        "AVENGINE_REPOSITORY_ROOT", str(Path(__file__).resolve().parents[3])
+    )
+    semantic_path = _source_asset_path(
+        room_path,
+        room,
+        role="semantic_surface_mesh",
+        environment=effective_environment,
+    )
+    descriptor_path = _source_asset_path(
+        room_path,
+        room,
+        role="semantic_descriptor",
+        environment=effective_environment,
+    )
+    try:
+        scene = load_mp3d_semantic_scene(semantic_path, descriptor_path)
+        matrix, transform_source = _KNOWN_SOURCE_TRANSFORMS[
+            "mp3d_z_up_y_front_to_habitat"
+        ]
+        surfaces = [
+            SemanticSurfaceIdentity(
+                source_material_name=category,
+                semantic_category=category,
+                identity_key=f"{room['room_id']}/{category}",
+                object_name=category,
+            )
+            for category in scene.semantic_categories
+        ]
+        compiled = compile_semantic_material_documents(
+            room_id=room["room_id"],
+            surfaces=surfaces,
+            rules=rules,
+            seed=seed,
+            source_to_canonical={
+                "matrix_row_major": matrix,
+                "source": transform_source,
+                "reviewed": True,
+            },
+        )
+    except (OSError, SemanticMaterialRuleError, ValueError) as exc:
+        raise AcousticSceneCompileError(
+            f"unable to compile MP3D semantic materials: {exc}"
+        ) from exc
+    mapping_errors = validate_mapping_document(
+        compiled.mapping, room_id=room["room_id"]
+    )
+    database_errors = validate_material_database_document(compiled.database)
+    if mapping_errors or database_errors:
+        raise AcousticSceneCompileError(
+            "generated semantic material documents are invalid: "
+            + "; ".join([*mapping_errors, *database_errors])
+        )
+    effective_probe_origins = (
+        [list(map(float, origin)) for origin in probe_origins]
+        if probe_origins is not None
+        else _default_semantic_probe_origins(room)
+    )
+
+    destination = Path(output).resolve()
+    staging = _staging_directory(destination)
+    package_directory = staging / "package"
+    generated_inputs = staging / "generated_inputs"
+    generated_inputs.mkdir()
+    mapping_path = generated_inputs / "mapping.json"
+    database_path = generated_inputs / "materials_research.json"
+    write_json(mapping_path, compiled.mapping)
+    write_json(database_path, compiled.database)
+    mapping_bytes = mapping_path.read_bytes()
+    database_bytes = database_path.read_bytes()
+    mapping_sha256 = sha256_file(mapping_path)
+    database_sha256 = sha256_file(database_path)
+    descriptor_sha256 = sha256_file(descriptor_path)
+    try:
+        manifest_path = _build_explicit_glb_package(
+            room_path=room_path,
+            room_bytes=room_bytes,
+            room=room,
+            room_sha256=room_sha256,
+            mapping_path=mapping_path,
+            mapping_bytes=mapping_bytes,
+            mapping=compiled.mapping,
+            mapping_sha256=mapping_sha256,
+            database_path=database_path,
+            database_bytes=database_bytes,
+            database=compiled.database,
+            database_sha256=database_sha256,
+            output=package_directory,
+            package_id=package_id
+            or f"{room['room_id']}_semantic_seed{seed}_research_v1",
+            environment=effective_environment,
+            expected_room_kind=None,
+            package_mode="research_candidate",
+            source_scene=scene,
+            source_geometry_path=semantic_path,
+            automatic_leakage_origins=effective_probe_origins,
+            automatic_leakage_direction_count=probe_direction_count,
+        )
+        report = copy.deepcopy(compiled.report)
+        report.update(
+            {
+                "source_kind": "mp3d_semantic_ply_house",
+                "semantic_mesh_path": str(semantic_path),
+                "semantic_mesh_sha256": scene.source_sha256,
+                "semantic_descriptor_path": str(descriptor_path),
+                "semantic_descriptor_sha256": scene.descriptor_sha256,
+                "source_vertex_count": scene.source_vertex_count,
+                "source_triangle_count": scene.source_triangle_count,
+                "compiled_vertex_count": int(len(scene.vertices)),
+                "compiled_triangle_count": int(len(scene.triangles)),
+                "category_triangle_counts": scene.category_triangle_counts,
+                "automatic_leakage_probe_origins_m": effective_probe_origins,
+                "automatic_leakage_direction_count": probe_direction_count,
+            }
+        )
+        report_path = package_directory / "semantic_material_coverage.json"
+        write_json(report_path, report)
+        changed = []
+        if sha256_file(rules_path) != rules_sha256:
+            changed.append(str(rules_path))
+        if sha256_file(descriptor_path) != descriptor_sha256:
+            changed.append(str(descriptor_path))
+        if changed:
+            raise AcousticSceneCompileError(
+                "semantic compiler input changed during compilation: "
+                + ", ".join(changed)
+            )
+        os.rename(package_directory, destination)
+        shutil.rmtree(staging)
+        return destination / manifest_path.name, destination / report_path.name
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise

@@ -151,6 +151,14 @@ closure. Scene data must be shared rather than copied once per example.
   The runner now partitions the manifest before UE starts through exact
   `--shard-count` / `--shard-index` arguments. Future shards must use those
   fixed, disjoint plans and may resume only their own plan.
+- The common M3 layer now includes a SoundSpaces-style semantic material
+  resolver with exact override, UE/ReplicaCAD name/material-slot hint,
+  semantic-category and plausible-default precedence. MP3D semantic
+  PLY/`.house` compilation, unknown-category coverage and interior-ray mesh
+  diagnostics are end-to-end. Apartment/Kujiale can feed their Actor and
+  material-slot identities through this generic resolver, but their exact
+  scene inventories still require review before any generated coefficients
+  are called physically calibrated.
 
 ## Exact next actions
 
