@@ -318,3 +318,31 @@ ray is not silently filled, while a no-escape sparse probe does not prove that
 the complete scan mesh is closed. Material coefficients retain
 `research_placeholder` semantics until a separate real-RIR or measurement
 calibration is completed.
+
+## Inspect an existing acoustic package for mesh leakage
+
+Use reviewed canonical interior points from a camera/listener, NavMesh route or
+validated source anchor. This command validates the existing package first and
+writes a separate report; it never edits or recompiles the package:
+
+```bash
+"$HABPY" -m avengine.cli m3 inspect-mesh-leakage \
+  --package "$REPO/tmp/m3/<PACKAGE>/manifest.json" \
+  --origin X0 Y0 Z0 \
+  --origin X1 Y1 Z1 \
+  --directions 64 \
+  --output "$REPO/tmp/m3/leakage_diagnostics_<RUN_ID>/<ROOM>.json"
+```
+
+The report includes per-origin escaped direction indices, escape fraction,
+first-hit distances and the package's existing boundary/nonmanifold topology
+context. A zero escape fraction is scoped only to the supplied origins and
+directions. A large escape fraction concentrated above the probes commonly
+indicates a missing ceiling, while horizontal escapes may be doors, windows,
+scan holes or an intentionally open scene boundary.
+
+The current backend is the auditable CPU reference and scales as
+`probe_count × direction_count × triangle_count`. The measured 782,306-face
+Apartment package required 1,127.52 seconds for four origins × 64 directions.
+Use this command for bounded QA; batch room qualification should add a reusable
+BVH or the pinned RLR/Habitat ray accelerator before increasing coverage.

@@ -43,9 +43,14 @@ from avengine.m3.compiler import (
     compile_mp3d_semantic_research_scene,
     propose_visual_slot_research_materials,
 )
-from avengine.m3.contracts import read_immutable_file_snapshot, validate_package
+from avengine.m3.contracts import (
+    load_and_validate_acoustic_scene_package,
+    read_immutable_file_snapshot,
+    validate_package,
+)
 from avengine.m3.evidence import verify_compile_evidence
 from avengine.m3.materials import MaterialContractError, resolve_material_profile
+from avengine.m3.qa import automatic_mesh_leakage_report
 from avengine.m3.runtime import RuntimeUnavailableError
 from avengine.m4.canary import M4CanaryError, run_m4_canary
 from avengine.m4.contracts import (
@@ -518,6 +523,55 @@ def _m3_compile_mp3d_semantic(args: argparse.Namespace) -> int:
     return 0
 
 
+def _m3_inspect_mesh_leakage(args: argparse.Namespace) -> int:
+    try:
+        package = load_and_validate_acoustic_scene_package(args.package)
+        report = automatic_mesh_leakage_report(
+            package.vertices,
+            package.triangles,
+            origins=args.origin,
+            direction_count=args.directions,
+            maximum_distance_m=args.maximum_distance,
+        )
+        report["source_package"] = {
+            "manifest": str(package.manifest_path),
+            "package_id": package.manifest["package_id"],
+            "room_id": package.manifest["source_room"]["room_id"],
+            "vertex_count": package.vertex_count,
+            "triangle_count": package.triangle_count,
+        }
+        topology = package.qa_reports["geometry_report"]["topology"]
+        report["topology_context"] = {
+            "geometry_status": package.qa_reports["geometry_report"]["status"],
+            "boundary_edge_count_after_exact_weld": topology[
+                "boundary_edge_count_after_exact_weld"
+            ],
+            "nonmanifold_edge_count_after_exact_weld": topology[
+                "nonmanifold_edge_count_after_exact_weld"
+            ],
+            "degenerate_triangle_count": topology["degenerate_triangle_count"],
+            "duplicate_triangle_count": topology["duplicate_triangle_count"],
+        }
+        output = _require_ignored_or_external_output(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if output.exists() or output.is_symlink():
+            raise FileExistsError(f"refusing to replace existing output: {output}")
+        write_json(output, report)
+    except (OSError, ValueError, KeyError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": report["status"],
+            "report": str(output),
+            "room_id": report["source_package"]["room_id"],
+            "escape_fraction": report["escape_fraction"],
+            "escaped_ray_count": report["escaped_ray_count"],
+        }
+    )
+    return 0
+
+
 def _m3_resolve_materials(args: argparse.Namespace) -> int:
     """Materialize one deterministic global/per-material profile bundle."""
 
@@ -937,6 +991,25 @@ def build_parser() -> argparse.ArgumentParser:
     m3_semantic.add_argument("--output", required=True)
     m3_semantic.add_argument("--package-id")
     m3_semantic.set_defaults(handler=_m3_compile_mp3d_semantic)
+
+    m3_leakage = m3_commands.add_parser(
+        "inspect-mesh-leakage",
+        help="Run automatic interior-ray leakage diagnostics on an existing package",
+    )
+    m3_leakage.add_argument("--package", required=True)
+    m3_leakage.add_argument(
+        "--origin",
+        nargs=3,
+        type=float,
+        action="append",
+        required=True,
+        metavar=("X", "Y", "Z"),
+        help="Reviewed canonical interior point; repeat for multiple room zones",
+    )
+    m3_leakage.add_argument("--directions", type=int, default=32)
+    m3_leakage.add_argument("--maximum-distance", type=float)
+    m3_leakage.add_argument("--output", required=True)
+    m3_leakage.set_defaults(handler=_m3_inspect_mesh_leakage)
 
     m3_resolve = m3_commands.add_parser(
         "resolve-materials",

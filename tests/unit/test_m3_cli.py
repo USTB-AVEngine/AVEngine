@@ -84,6 +84,20 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
             "/tmp/semantic",
         ]
     )
+    leakage = parser.parse_args(
+        [
+            "m3",
+            "inspect-mesh-leakage",
+            "--package",
+            "manifest.json",
+            "--origin",
+            "0",
+            "1",
+            "0",
+            "--output",
+            "/tmp/leakage.json",
+        ]
+    )
     canary = parser.parse_args(
         [
             "m3",
@@ -103,6 +117,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     assert proposed.m3_command == "propose-visual-slots"
     assert compiled.m3_command == "compile-explicit-research"
     assert semantic.m3_command == "compile-mp3d-semantic"
+    assert leakage.m3_command == "inspect-mesh-leakage"
     assert canary.m3_command == "run-canary"
     assert verified.m3_command == "verify-canary"
 
@@ -195,6 +210,32 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
         == 0
     )
     assert main(["m3", "validate-package", str(package / "manifest.json")]) == 0
+    leakage = tmp_path / "leakage.json"
+    assert (
+        main(
+            [
+                "m3",
+                "inspect-mesh-leakage",
+                "--package",
+                str(package / "manifest.json"),
+                "--origin",
+                "-2.5",
+                "1.55",
+                "0.0",
+                "--directions",
+                "8",
+                "--output",
+                str(leakage),
+            ]
+        )
+        == 0
+    )
+    leakage_report = load_json(leakage)
+    assert leakage_report["status"] == "diagnostic_complete"
+    assert leakage_report["source_package"]["room_id"] == (
+        "blender_custom_two_zone_v1"
+    )
+    assert leakage_report["ray_count"] == 8
     assert '"status": "pass"' in capsys.readouterr().out
 
 

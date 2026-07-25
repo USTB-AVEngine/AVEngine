@@ -71,6 +71,39 @@ holes or establish physical closure. The complete baseline compile took
 667.13 seconds and peaked at approximately 1.14 GB; it is a once-per-room
 preprocessing cost, not a per-episode or per-audio cost.
 
+### Cross-room mesh leakage diagnostics
+
+The generic `inspect-mesh-leakage` command was subsequently run against two
+older real-room acoustic packages without modifying them:
+
+| Room/package | Interior probes × directions | Escaped rays | Topology context | CPU reference time |
+| --- | ---: | ---: | --- | ---: |
+| MP3D `17DRP5sb8fy` semantic package | 2 × 16 | 0 / 32 | 31,525 boundary edges | included in the 667.13 s compile |
+| ReplicaCAD `apt_0` acoustic proxy | 3 × 64 | 50 / 192 (26.04%) | 102 boundary, 8,097 nonmanifold, 10,629 duplicate faces | 5.26 s |
+| legacy SPEAR Apartment `apartment_0000` | 4 × 64 | 0 / 256 | 20,734 boundary, 7 nonmanifold, 1 duplicate face | 1,127.52 s |
+
+Every ReplicaCAD escape was in the upper spherical sector. This is consistent
+with missing or incomplete overhead enclosure in that acoustic proxy and is
+not a small isolated scan-hole result. Apartment's zero escaped rays mean the
+sampled directions from four reviewed NavMesh/LOS points all reached a
+surface; they do not override its 20,734 topology boundary edges or prove
+global closure.
+
+The retained reports are
+`tmp/m3/leakage_diagnostics_20260725_01/replicacad_apt_0.json` and
+`tmp/m3/leakage_diagnostics_20260725_01/legacy_ue_apartment_0000.json`.
+Kujiale was not assigned a false result: its retained episodes use
+`generic_shoebox_directional_preview` with
+`material_claim: not_kujiale_material_truth`, and no Acoustic Scene Package
+exists for the actual Kujiale visual mesh. A real Kujiale diagnostic therefore
+requires compiling that USD/UE geometry into the acoustic package first.
+
+The CPU Möller–Trumbore reference checks every triangle for every ray. It is
+appropriate as an auditable baseline and for small meshes, but the Apartment
+measurement shows that dense multi-room use requires a reusable BVH or the
+RLR/Habitat acceleration structure. This performance limitation does not
+change the reported intersections.
+
 ## Controlled canary contract
 
 The tracked request is

@@ -159,6 +159,15 @@ closure. Scene data must be shared rather than copied once per example.
   material-slot identities through this generic resolver, but their exact
   scene inventories still require review before any generated coefficients
   are called physically calibrated.
+- The new generic mesh-leakage command checked four reviewed Apartment
+  camera/source/NavMesh points with 64 spherical directions each. All 256 rays
+  hit the existing 782,306-face acoustic mesh, while topology still reports
+  20,734 boundary edges; this is sampled enclosure evidence, not proof of a
+  globally closed mesh. The CPU reference took 1,127.52 seconds, so batch room
+  qualification needs a reusable BVH/RLR ray accelerator. ReplicaCAD escaped
+  through 50/192 rays, all upward. Kujiale remains untested against its actual
+  geometry because its retained audio uses an explicitly non-Kujiale generic
+  shoebox proxy rather than an Acoustic Scene Package for the visual USD.
 
 ## Exact next actions
 
