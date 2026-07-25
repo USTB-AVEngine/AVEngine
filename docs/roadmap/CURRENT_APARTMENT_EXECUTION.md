@@ -1,6 +1,6 @@
 # Current Apartment execution
 
-Last updated: 2026-07-23
+Last updated: 2026-07-25
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
@@ -93,6 +93,58 @@ closure. Scene data must be shared rather than copied once per example.
   1,000 unique episodes, 4,000 retained UE media records and 6,000 indexed
   RGB/Topdown/audio/label references passed readback; the split is
   800/100/100 at visual-episode level.
+- Source assets and rooms now have separate runtime profile registries.
+  Apartment Timeline construction, concrete-emitter selection and SPEAR/UE
+  plan compilation resolve assets by exact ID/revision instead of Python breed
+  constants. The current Border Collie, Abyssinian, Beagle and human values
+  moved to `examples/runtime/source_asset_runtime_profiles.json`; the native
+  Apartment map/room reference moved to
+  `examples/runtime/room_runtime_profiles.json`. Pair templates can name only
+  `source1`/`source2` assets and inherit their measured emitter, forward,
+  animation, floor and UE bindings.
+- The camera/listener request path has passed two real Habitat-native probes at
+  distinct Apartment positions and yaw angles. Both requests retained one
+  co-located listener and rendered the same-view RGB/depth/semantic sensors
+  after live NavMesh floor snapping. The retained receipts are
+  `tmp/runtime_interface_probe_20260724_01/habitat_native_camera_a_retry1/receipt.json`
+  and
+  `tmp/runtime_interface_probe_20260724_01/habitat_native_camera_b/receipt.json`;
+  the views are visibly different rather than duplicated camera output.
+- A new independently generated yellow Labrador cross-check now exercises the
+  same source registry without adding breed constants to Python. Its own
+  FLUX -> Pixel3D -> TokenRig Mesh, Skeleton, Idle/Walking actions, textures
+  and Blueprint were imported and cooked into the standalone UE package.
+  Concrete-emitter route selection retained 913 of 1,000 candidates; one
+  human+Labrador moving/moving episode then passed native RIR/binaural
+  assembly and a real 75-frame SPEAR Apartment render. Runtime readback
+  measured at most 7.28 degrees anatomical-forward error and 2.35 cm floor
+  error for the Labrador, with exact camera/root/animation-phase gates and
+  matching two-channel audio packets. The review video and evidence are under
+  `tmp/runtime_interface_probe_20260724_01/labrador_ue_native_retry1/`.
+- The Labrador review exposed two presentation defects rather than a route or
+  audio regression. Apartment furniture is baked into the stage/NavMesh and
+  therefore produced no independent rigid OBBs; Topdown v3 now distinguishes
+  four NavMesh-internal center-point exclusion components from the
+  border-connected room exterior and draws those baked blockers in orange.
+  The old UE recorder also stepped the world without reading SceneCapture
+  pixels, so its first retained frames triggered the floor's streamed texture
+  pages. The recorder now discards real frame-zero SceneCapture readbacks
+  until the view is stable. A native 75-frame, 15 fps, five-second rerun
+  discarded 40 warmup frames, reached a final mean absolute frame change of
+  0.369 against a 0.8 threshold, retained the detailed wood floor from formal
+  frame zero and passed all four RGB/Topdown/binaural media readbacks. Evidence
+  is under
+  `tmp/runtime_interface_probe_20260724_01/labrador_ue_native_topdown_v3_warmcapture_20260725_01/`.
+- That Labrador output is diagnostic evidence for the generic Topdown and
+  SceneCapture warmup fixes only. It does not supersede or close a requested
+  two-human Apartment review. The corrected review reuses the exact original
+  blue-shirt male plus Female Adult 02 spec and both authored trajectories,
+  contains no dog actor, renders UE/SPEAR RGB after 40 discarded real
+  SceneCapture readbacks, and pairs those pixels with the current Topdown v3.
+  Both humanoid direction and floor-contact gates pass; the original
+  five-second, 16 kHz, two-channel technical-review placeholder audio remains
+  bound without replacement. The retained result is
+  `/data/jzy/code/AVEngine/external/SPEAR/tmp/human_color_and_new_woman_20260725_01/clips/blue_shirt_male_and_female02_dual_walk_warmcapture_topdown_v3_02/`.
 - The first background conversion mistakenly resumed one full 1,000-episode
   plan and tried to stop it at a directory count. It produced redundant work;
   the verified merger removed the overlap from the final 1,000-episode index.
@@ -102,15 +154,14 @@ closure. Scene data must be shared rather than copied once per example.
 
 ## Exact next actions
 
-1. Review the owned source/documentation changes and run focused unit/style
-   checks.
-2. Commit and push Habitat-native work to
-   `feature/habitat-native-avengine`; keep generated cat UAssets and import
-   tooling in the SPEAR feature branch.
-3. Treat the present Abyssinian as a replaceable canary. A later
-   owner-selected cat must bring its own generated mesh, emitter measurement,
-   UE binding, floor correction and forward/animation gates; the existing
-   `source1`/`source2`, route, acoustic and index machinery remains unchanged.
+1. Push the reviewed common-interface commit on
+   `feature/habitat-native-avengine` after project-owner confirmation.
+2. Keep the isolated v4_3 experiment on its dedicated feature branch until its
+   training interface and next generalization experiment are reviewed.
+3. Reconcile the Abyssinian generation request's `slim` body-build label with
+   the current runtime baseline's `standard` research label before promoting
+   that exact attribute provenance. A later owner-selected cat must still
+   bring its own generated Mesh and runtime profile.
 
 ## Current execution constraints
 

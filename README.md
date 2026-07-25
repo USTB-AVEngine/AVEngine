@@ -460,6 +460,40 @@ visual capture can be removed end to end.
 
 ### Precompute the Apartment feasible region and trajectory bank
 
+Room and visible-source selection are now configuration-driven. The default
+source registry records each human/animal's identity, realized appearance,
+Pixel3D or library Mesh authority, emitter anchor, Timeline body plan and UE
+runtime binding. The separate room runtime registry references an exact M6
+room revision and selects its backend scene. Pairing files may contain only
+`source1`/`source2` asset IDs; measured muzzle height, forward axis, actions
+and UE correction are resolved from the registry rather than copied into
+Python. Dry audio remains a separate sound-asset choice. See
+[runtime room and source-asset selection](docs/architecture/RUNTIME_ASSET_SELECTION.md).
+The same interface keeps camera and listener selection upstream: use
+`tools/m1/build_camera_pose_request.py` to choose an arbitrary room position
+and yaw, then `tools/m1/probe_camera_pose_native.py` to check the NavMesh floor,
+eye height and real RGB/depth/semantic readback before a full run. A new
+listener pose requires new RIR/binaural output; it is never a UE-only visual
+override.
+
+The retained interface cross-check uses two distinct Apartment camera
+positions/yaws and a separately generated yellow Labrador. Both camera probes
+pass real co-located RGB/depth/semantic and listener checks. The Labrador's own
+FLUX -> Pixel3D -> TokenRig Mesh, Skeleton, Idle/Walking actions, material and
+textures are present in the standalone UE package; a real human+Labrador
+moving/moving render passes exact root/camera/animation readback, anatomical
+forward, floor contact, 75-frame media and two-channel audio gates. The
+retained evidence is under
+`tmp/runtime_interface_probe_20260724_01/`; it demonstrates the extension
+interface, not formal breed or dataset admission.
+
+That Labrador clip is only a generic Topdown/SceneCapture diagnostic and must
+not replace a requested two-human review. The corrected blue-shirt male plus
+Female Adult 02 rerun preserves the original two trajectories and technical
+placeholder audio, contains no dog, starts after real SceneCapture warmup and
+uses Topdown v3. Its retained review is under
+`/data/jzy/code/AVEngine/external/SPEAR/tmp/human_color_and_new_woman_20260725_01/clips/blue_shirt_male_and_female02_dual_walk_warmcapture_topdown_v3_02/`.
+
 The room-scale precompute path separates geometry work from event/audio
 variants. `RoomFeasibilityCompiler` rasterizes the complete declared
 source-center feasible region at an explicit emitter height. It uses the live
