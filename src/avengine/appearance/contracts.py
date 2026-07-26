@@ -61,6 +61,11 @@ LABRADOR_COAT_VALUES = (
     "standard_yellow",
     "dark_yellow",
 )
+SHIBA_INU_COAT_VALUES = (
+    "light_red",
+    "standard_red",
+    "dark_red",
+)
 
 # Reviewed coat vocabularies are registered by their complete taxonomic and
 # profile identity.  A namespaced-looking ``profile_id`` is not registration:
@@ -89,6 +94,11 @@ COAT_PROFILE_DOMAINS: Mapping[tuple[str, str, str], tuple[str, str, str]] = (
                 "labrador_retriever",
                 "dog_labrador_retriever_coat_v1",
             ): LABRADOR_COAT_VALUES,
+            (
+                "dog",
+                "shiba_inu",
+                "dog_shiba_inu_coat_v1",
+            ): SHIBA_INU_COAT_VALUES,
         }
     )
 )
@@ -149,6 +159,19 @@ COAT_PROFILE_REALIZATION_RULES: Mapping[
                 "dark_level": "dark_yellow",
                 "baseline_level": "standard_yellow",
                 "preserve_pattern": "solid_yellow",
+            }
+        ),
+        (
+            "dog",
+            "shiba_inu",
+            "dog_shiba_inu_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_red",
+                "neutral_level": "standard_red",
+                "dark_level": "dark_red",
+                "baseline_level": "standard_red",
+                "preserve_pattern": "urajiro",
             }
         ),
     }
