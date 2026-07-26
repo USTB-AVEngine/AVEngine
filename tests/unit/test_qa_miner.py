@@ -60,7 +60,12 @@ def _registry() -> dict:
     }
 
 
-def _fact_table(*, cat_x_start: float = 1.0, cat_z: float = 1.0) -> dict:
+def _fact_table(
+    *,
+    cat_x_start: float = 1.0,
+    cat_z: float = 1.0,
+    declared_events_by_slot: dict | None = None,
+) -> dict:
     """Static dog on the left-front; cat walking +X on the given z plane."""
 
     dog_root = [-2.0, 0.5, -2.0]
@@ -127,6 +132,7 @@ def _fact_table(*, cat_x_start: float = 1.0, cat_z: float = 1.0) -> dict:
         provenance_inputs=[
             {"role": "trajectory_bank", "path": "/x/bank.json", "sha256": SHA_B}
         ],
+        declared_events_by_slot=declared_events_by_slot,
     )
 
 
