@@ -32,6 +32,17 @@
     "claim_boundary": {"type": "string", "minLength": 1},
     "episode_id": {"type": "string", "minLength": 1},
     "motion_case": {"type": "string", "minLength": 1},
+    "counterfactual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "twin_of", "visual_bytes_identical", "rir_cache_reused"],
+      "properties": {
+        "kind": {"const": "axis1_route_swap"},
+        "twin_of": {"type": "string", "minLength": 1},
+        "visual_bytes_identical": {"const": true},
+        "rir_cache_reused": {"const": true}
+      }
+    },
     "room": {
       "type": "object",
       "additionalProperties": false,
@@ -208,6 +219,7 @@
           "window_authority": {
             "const": "asset_bound_batch_continuous_v1"
           },
+          "voice_asset_id": {"type": "string", "minLength": 1},
           "dry_variant": {
             "type": "object",
             "additionalProperties": false,
