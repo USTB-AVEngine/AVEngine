@@ -11,6 +11,7 @@ from avengine.m3.compiler import (
     compile_canary_request,
     compile_custom_acoustic_scene,
     compile_explicit_glb_research_scene,
+    compile_visual_slot_semantic_research_scene,
     propose_visual_slot_research_materials,
 )
 from avengine.m3.contracts import (
@@ -358,3 +359,58 @@ def test_compile_evidence_reuses_one_snapshot_per_file(
     assert result.evidence_snapshot is not None
     assert read_counts
     assert set(read_counts.values()) == {1}
+
+
+def test_visual_slot_semantic_compile_is_deterministic_research_candidate(
+    tmp_path: Path,
+) -> None:
+    rules = (
+        REPOSITORY_ROOT
+        / "examples/m3/semantic_materials/residential_material_rules.json"
+    )
+    manifest_path, coverage_path = compile_visual_slot_semantic_research_scene(
+        room_manifest=ROOM,
+        material_rules=rules,
+        output=tmp_path / "package_a",
+        seed=917,
+        transform_profile="identity_y_up",
+        transform_reviewed=True,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+
+    assert manifest["package_mode"] == "research_candidate"
+    assert coverage["source_kind"] == "visual_material_slots"
+    assert coverage["physical_material_claim"] is False
+    assert coverage["qualification_claim"] is False
+    assert coverage["source_material_slot_count"] > 0
+    assert coverage["source_to_canonical_reviewed"] is True
+    for decision in coverage["decisions"]:
+        assert decision["semantic_category"] == "unknown"
+        assert decision["resolution"] in {
+            "explicit_override",
+            "name_hint",
+            "default_candidate",
+        }
+    total = sum(coverage["resolution_counts"].values())
+    assert total == coverage["source_material_slot_count"]
+
+    # The strict production loader must replay the generated package.
+    load_and_validate_acoustic_scene_package(manifest_path)
+
+    # Same seed and inputs must reproduce identical material decisions.
+    manifest_path_b, coverage_path_b = compile_visual_slot_semantic_research_scene(
+        room_manifest=ROOM,
+        material_rules=rules,
+        output=tmp_path / "package_b",
+        seed=917,
+        transform_profile="identity_y_up",
+        transform_reviewed=True,
+    )
+    coverage_b = json.loads(coverage_path_b.read_text(encoding="utf-8"))
+    assert coverage_b["decisions"] == coverage["decisions"]
+    manifest_b = json.loads(manifest_path_b.read_text(encoding="utf-8"))
+    assert (
+        manifest_b["materials"]["source_database"]["sha256"]
+        == manifest["materials"]["source_database"]["sha256"]
+    )

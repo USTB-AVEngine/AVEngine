@@ -1311,3 +1311,157 @@ def compile_usd_snapshot_semantic_research_scene(
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+
+
+def compile_visual_slot_semantic_research_scene(
+    *,
+    room_manifest: str | Path,
+    material_rules: str | Path,
+    output: str | Path,
+    seed: int,
+    transform_profile: str,
+    transform_reviewed: bool = False,
+    package_id: str | None = None,
+    probe_origins: Sequence[Sequence[float]] | None = None,
+    probe_direction_count: int = 32,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[Path, Path]:
+    """Resolve visual material-slot names through semantic rules into an M3 package.
+
+    Visual slots carry no reviewed semantic category, so every surface resolves
+    through explicit overrides, name hints or the declared default candidates.
+    The result is the same uncalibrated research proposal contract as the MP3D
+    and USD semantic routes; it never claims physical material truth.
+    """
+
+    if transform_profile not in _KNOWN_SOURCE_TRANSFORMS:
+        raise AcousticSceneCompileError(
+            f"unknown transform profile {transform_profile!r}; expected one of "
+            f"{sorted(_KNOWN_SOURCE_TRANSFORMS)}"
+        )
+    room_path, room_bytes, room, room_sha256 = _snapshot_json(room_manifest)
+    rules_path, _rules_bytes, rules, rules_sha256 = _snapshot_json(material_rules)
+    room_errors = validate_room_manifest(room)
+    if room_errors:
+        raise AcousticSceneCompileError("invalid source room: " + "; ".join(room_errors))
+    effective_environment = dict(os.environ if environment is None else environment)
+    effective_environment.setdefault(
+        "AVENGINE_REPOSITORY_ROOT", str(Path(__file__).resolve().parents[3])
+    )
+    geometry_path = _source_geometry_path(
+        room_path, room, environment=effective_environment
+    )
+    try:
+        scene = extract_triangle_scene(geometry_path)
+        material_names = sorted(set(scene.triangle_source_material_names))
+        matrix, transform_source = _KNOWN_SOURCE_TRANSFORMS[transform_profile]
+        surfaces = [
+            SemanticSurfaceIdentity(
+                source_material_name=name,
+                semantic_category="",
+                identity_key=f"{room['room_id']}/{name}",
+                material_slot=name,
+            )
+            for name in material_names
+        ]
+        compiled = compile_semantic_material_documents(
+            room_id=room["room_id"],
+            surfaces=surfaces,
+            rules=rules,
+            seed=seed,
+            source_to_canonical={
+                "matrix_row_major": matrix,
+                "source": transform_source,
+                "reviewed": bool(transform_reviewed),
+            },
+        )
+    except (OSError, SemanticMaterialRuleError, ValueError) as exc:
+        raise AcousticSceneCompileError(
+            f"unable to compile visual-slot semantic materials: {exc}"
+        ) from exc
+    mapping_errors = validate_mapping_document(
+        compiled.mapping, room_id=room["room_id"]
+    )
+    database_errors = validate_material_database_document(compiled.database)
+    if mapping_errors or database_errors:
+        raise AcousticSceneCompileError(
+            "generated semantic material documents are invalid: "
+            + "; ".join([*mapping_errors, *database_errors])
+        )
+    effective_probe_origins = (
+        [list(map(float, origin)) for origin in probe_origins]
+        if probe_origins is not None
+        else _default_semantic_probe_origins(room)
+    )
+
+    destination = Path(output).resolve()
+    staging = _staging_directory(destination)
+    package_directory = staging / "package"
+    generated_inputs = staging / "generated_inputs"
+    generated_inputs.mkdir()
+    mapping_path = generated_inputs / "mapping.json"
+    database_path = generated_inputs / "materials_research.json"
+    write_json(mapping_path, compiled.mapping)
+    write_json(database_path, compiled.database)
+    mapping_bytes = mapping_path.read_bytes()
+    database_bytes = database_path.read_bytes()
+    mapping_sha256 = sha256_file(mapping_path)
+    database_sha256 = sha256_file(database_path)
+    try:
+        manifest_path = _build_explicit_glb_package(
+            room_path=room_path,
+            room_bytes=room_bytes,
+            room=room,
+            room_sha256=room_sha256,
+            mapping_path=mapping_path,
+            mapping_bytes=mapping_bytes,
+            mapping=compiled.mapping,
+            mapping_sha256=mapping_sha256,
+            database_path=database_path,
+            database_bytes=database_bytes,
+            database=compiled.database,
+            database_sha256=database_sha256,
+            output=package_directory,
+            package_id=package_id
+            or f"{room['room_id']}_visual_slot_semantic_seed{seed}_research_v1",
+            environment=effective_environment,
+            expected_room_kind=None,
+            package_mode="research_candidate",
+            source_scene=scene,
+            source_geometry_path=geometry_path,
+            automatic_leakage_origins=effective_probe_origins,
+            automatic_leakage_direction_count=probe_direction_count,
+        )
+        report = copy.deepcopy(compiled.report)
+        resolution_counts: dict[str, int] = {}
+        for decision in report.get("decisions", []):
+            key = str(decision.get("resolution"))
+            resolution_counts[key] = resolution_counts.get(key, 0) + 1
+        report.update(
+            {
+                "source_kind": "visual_material_slots",
+                "source_geometry_sha256": scene.source_sha256,
+                "source_material_slot_count": len(material_names),
+                "source_material_names": material_names,
+                "transform_profile": transform_profile,
+                "source_to_canonical_reviewed": bool(transform_reviewed),
+                "compiled_vertex_count": int(len(scene.vertices)),
+                "compiled_triangle_count": int(len(scene.triangles)),
+                "resolution_counts": dict(sorted(resolution_counts.items())),
+                "automatic_leakage_probe_origins_m": effective_probe_origins,
+                "automatic_leakage_direction_count": probe_direction_count,
+                "physical_material_claim": False,
+            }
+        )
+        report_path = package_directory / "semantic_material_coverage.json"
+        write_json(report_path, report)
+        if sha256_file(rules_path) != rules_sha256:
+            raise AcousticSceneCompileError(
+                "semantic material rules changed during visual-slot compilation"
+            )
+        os.rename(package_directory, destination)
+        shutil.rmtree(staging)
+        return destination / manifest_path.name, destination / report_path.name
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
