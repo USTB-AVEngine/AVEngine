@@ -166,6 +166,15 @@ def main(argv: list[str] | None = None) -> int:
         default=REPOSITORY / "schemas/avengine_qa_fact_table_v1.schema.json",
     )
     parser.add_argument("--limit", type=int, help="Compile only the first N episodes")
+    parser.add_argument(
+        "--intermittent-batch",
+        type=Path,
+        help=(
+            "Intermittent audio batch directory; compiles fact tables for its "
+            "episode subset with declared multi-window sound events bound to "
+            "the gated mixtures"
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -281,11 +290,51 @@ def main(argv: list[str] | None = None) -> int:
         )
     }
 
+    intermittent_by_episode: dict[str, Mapping[str, Any]] | None = None
+    intermittent_dry_library: Mapping[str, Any] | None = None
+    if args.intermittent_batch is not None:
+        intermittent_root = args.intermittent_batch.resolve()
+        intermittent_manifest = load_json(
+            intermittent_root / "intermittent_batch_manifest.json"
+        )
+        _require(
+            intermittent_manifest.get("schema")
+            == "avengine_qa_intermittent_audio_batch_v1",
+            "intermittent batch manifest has an unexpected schema",
+        )
+        intermittent_by_episode = {
+            sample["episode_id"]: sample
+            for sample in intermittent_manifest["samples"]
+        }
+        unknown = sorted(set(intermittent_by_episode) - set(episodes_by_id))
+        _require(
+            not unknown,
+            f"intermittent batch references unknown episodes: {unknown[:3]}",
+        )
+        intermittent_dry_library = {
+            "assets": intermittent_manifest["dry_audio_variants"]
+        }
+        provenance_inputs.append(
+            _provenance_record(
+                "intermittent_batch_manifest",
+                intermittent_root / "intermittent_batch_manifest.json",
+            )
+        )
+
     output = args.output.resolve()
     facts_dir = output / "facts"
     facts_dir.mkdir(parents=True, exist_ok=True)
 
-    selected = bank_episodes if args.limit is None else bank_episodes[: args.limit]
+    if intermittent_by_episode is not None:
+        selected = [
+            episode
+            for episode in bank_episodes
+            if episode["episode_id"] in intermittent_by_episode
+        ]
+    else:
+        selected = bank_episodes
+    if args.limit is not None:
+        selected = selected[: args.limit]
     entries: list[dict[str, Any]] = []
     azimuth_values: list[np.ndarray] = []
     distance_values: list[np.ndarray] = []
@@ -298,7 +347,25 @@ def main(argv: list[str] | None = None) -> int:
 
     for ordinal, bank_episode in enumerate(selected):
         episode_id = bank_episode["episode_id"]
-        sample = samples_by_episode[episode_id]
+        declared_events_by_slot = None
+        if intermittent_by_episode is not None:
+            gated_sample = intermittent_by_episode[episode_id]
+            sample = {
+                "episode_id": episode_id,
+                "asset_ids_by_source_slot": gated_sample["asset_ids_by_source_slot"],
+                "dry_variant_ids_by_source_slot": {
+                    slot: {"asset_id": asset_id, "variant_index": 0}
+                    for slot, asset_id in gated_sample[
+                        "asset_ids_by_source_slot"
+                    ].items()
+                },
+                "audio": gated_sample["audio"],
+            }
+            episode_dry_library = intermittent_dry_library
+            declared_events_by_slot = gated_sample["events_by_source_slot"]
+        else:
+            sample = samples_by_episode[episode_id]
+            episode_dry_library = dry_library
         try:
             fact_table = compile_episode_fact_table(
                 bank_header=bank_header,
@@ -306,13 +373,14 @@ def main(argv: list[str] | None = None) -> int:
                 listener_position_m=plan["listener_position_m"],
                 listener_orientation_wxyz=plan["listener_orientation_wxyz"],
                 sample_entry=sample,
-                dry_variants_by_slot=_resolve_dry_variants(sample, dry_library),
+                dry_variants_by_slot=_resolve_dry_variants(sample, episode_dry_library),
                 registry=registry,
                 anchors=anchors,
                 room=room,
                 camera=camera,
                 rir_cache_request_identity_sha256=cache_identity_by_episode[episode_id],
                 provenance_inputs=provenance_inputs,
+                declared_events_by_slot=declared_events_by_slot,
             )
         except QAFactTableError as error:
             raise FactTableBatchError(f"{episode_id}: {error}") from error
@@ -380,8 +448,21 @@ def main(argv: list[str] | None = None) -> int:
             "frozen inputs"
         ),
         "episode_count": len(entries),
-        "episode_total_available": len(bank_episodes),
-        "complete": args.limit is None or len(entries) == len(bank_episodes),
+        "episode_total_available": (
+            len(intermittent_by_episode)
+            if intermittent_by_episode is not None
+            else len(bank_episodes)
+        ),
+        "realization": (
+            "intermittent_declared_windows"
+            if intermittent_by_episode is not None
+            else "continuous"
+        ),
+        "complete": len(entries) == (
+            len(intermittent_by_episode)
+            if intermittent_by_episode is not None
+            else len(bank_episodes)
+        ),
         "plan_position_checks": plan_position_checks,
         "motion_case_counts": motion_case_counts,
         "species_pair_counts": species_pair_counts,
@@ -423,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "fact_table_schema": "avengine_qa_fact_table_v1",
         "episode_count": len(entries),
+        "realization": stats["realization"],
         "complete": stats["complete"],
         "inputs": provenance_inputs,
         "episodes": entries,

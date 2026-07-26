@@ -304,7 +304,7 @@ def _track_summary(track: Mapping[str, list[float]], moving: list[bool]) -> dict
     }
 
 
-def _sound_event(
+def _sound_events_for_slot(
     *,
     slot_id: str,
     asset: Mapping[str, Any],
@@ -312,7 +312,8 @@ def _sound_event(
     frame_count: int,
     ticks_per_frame: int,
     audio_sample_count: int,
-) -> dict[str, Any]:
+    declared_events: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
     record = dry_variant.get("record")
     if not isinstance(record, Mapping):
         raise QAFactTableError(f"{slot_id}: dry variant is missing its record")
@@ -322,22 +323,13 @@ def _sound_event(
     identity = asset.get("identity")
     if not isinstance(identity, Mapping) or not identity.get("species_id"):
         raise QAFactTableError(f"{slot_id}: registry asset lacks identity.species_id")
-    return {
-        "event_id": f"{slot_id}_event_000",
+    shared = {
         "source_slot_id": slot_id,
         "asset_id": asset.get("asset_id"),
         "sound_class": {
             "species_id": identity["species_id"],
             "display_label": asset.get("display_label"),
         },
-        "start_frame": 0,
-        "end_frame": frame_count,
-        "start_tick": 0,
-        "end_tick": frame_count * ticks_per_frame,
-        "start_sample": 0,
-        "end_sample": audio_sample_count,
-        "active_full_window": True,
-        "window_authority": "asset_bound_batch_continuous_v1",
         "dry_variant": {
             "variant_index": dry_variant.get("variant_index"),
             "input_path": source_input.get("path"),
@@ -345,6 +337,69 @@ def _sound_event(
             "linear_gain": record.get("linear_gain"),
         },
     }
+    if declared_events is None:
+        return [
+            {
+                "event_id": f"{slot_id}_event_000",
+                **shared,
+                "start_frame": 0,
+                "end_frame": frame_count,
+                "start_tick": 0,
+                "end_tick": frame_count * ticks_per_frame,
+                "start_sample": 0,
+                "end_sample": audio_sample_count,
+                "active_full_window": True,
+                "window_authority": "asset_bound_batch_continuous_v1",
+            }
+        ]
+
+    events: list[dict[str, Any]] = []
+    previous_end = -1
+    for declared in declared_events:
+        start_sample = declared.get("start_sample")
+        end_sample = declared.get("end_sample_exclusive")
+        start_tick = declared.get("start_tick")
+        end_tick = declared.get("end_tick_exclusive")
+        if (
+            not isinstance(start_sample, int)
+            or not isinstance(end_sample, int)
+            or not 0 <= start_sample < end_sample <= audio_sample_count
+        ):
+            raise QAFactTableError(f"{slot_id}: declared event window is out of range")
+        if start_sample <= previous_end:
+            raise QAFactTableError(
+                f"{slot_id}: declared event windows must be strictly ordered"
+            )
+        previous_end = end_sample
+        tick_ratio = (frame_count * ticks_per_frame) // audio_sample_count
+        if (
+            start_tick != start_sample * tick_ratio
+            or end_tick != end_sample * tick_ratio
+        ):
+            raise QAFactTableError(
+                f"{slot_id}: declared event ticks disagree with sample indices"
+            )
+        start_frame = start_tick // ticks_per_frame
+        end_frame = -(-end_tick // ticks_per_frame)
+        events.append(
+            {
+                "event_id": declared["event_id"],
+                **shared,
+                "start_frame": int(start_frame),
+                "end_frame": int(end_frame),
+                "start_tick": int(start_tick),
+                "end_tick": int(end_tick),
+                "start_sample": int(start_sample),
+                "end_sample": int(end_sample),
+                "active_full_window": False,
+                "window_authority": "declared_intermittent_program_v1",
+                "fade_samples": declared.get("fade_samples"),
+                "gating": declared.get("gating"),
+            }
+        )
+    if not events:
+        raise QAFactTableError(f"{slot_id}: declared event list may not be empty")
+    return events
 
 
 def _instance_entry(
@@ -431,6 +486,7 @@ def compile_episode_fact_table(
     camera: Mapping[str, Any],
     rir_cache_request_identity_sha256: str,
     provenance_inputs: Sequence[Mapping[str, Any]],
+    declared_events_by_slot: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Compile one episode's fact table from already-frozen artifacts."""
 
@@ -541,14 +597,22 @@ def compile_episode_fact_table(
                 registry=registry,
             )
         )
-        sound_events.append(
-            _sound_event(
+        declared_events = None
+        if declared_events_by_slot is not None:
+            declared_events = declared_events_by_slot.get(slot_id)
+            if declared_events is None:
+                raise QAFactTableError(
+                    f"declared events are missing for slot {slot_id!r}"
+                )
+        sound_events.extend(
+            _sound_events_for_slot(
                 slot_id=slot_id,
                 asset=asset,
                 dry_variant=dry_variant,
                 frame_count=frame_count,
                 ticks_per_frame=ticks_per_frame,
                 audio_sample_count=audio_sample_count,
+                declared_events=declared_events,
             )
         )
 

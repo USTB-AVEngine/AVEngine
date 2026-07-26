@@ -217,9 +217,14 @@
           "end_sample": {"type": "integer", "minimum": 1},
           "active_full_window": {"type": "boolean"},
           "window_authority": {
-            "const": "asset_bound_batch_continuous_v1"
+            "enum": [
+              "asset_bound_batch_continuous_v1",
+              "declared_intermittent_program_v1"
+            ]
           },
           "voice_asset_id": {"type": "string", "minLength": 1},
+          "fade_samples": {"type": "integer", "minimum": 0},
+          "gating": {"type": "string", "minLength": 1},
           "dry_variant": {
             "type": "object",
             "additionalProperties": false,
