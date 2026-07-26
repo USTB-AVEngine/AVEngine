@@ -66,6 +66,16 @@ SHIBA_INU_COAT_VALUES = (
     "standard_red",
     "dark_red",
 )
+PEMBROKE_WELSH_CORGI_COAT_VALUES = (
+    "light_red_white",
+    "standard_red_white",
+    "dark_red_white",
+)
+BRITISH_SHORTHAIR_COAT_VALUES = (
+    "light_blue",
+    "standard_blue",
+    "dark_blue",
+)
 
 # Reviewed coat vocabularies are registered by their complete taxonomic and
 # profile identity.  A namespaced-looking ``profile_id`` is not registration:
@@ -99,6 +109,16 @@ COAT_PROFILE_DOMAINS: Mapping[tuple[str, str, str], tuple[str, str, str]] = (
                 "shiba_inu",
                 "dog_shiba_inu_coat_v1",
             ): SHIBA_INU_COAT_VALUES,
+            (
+                "dog",
+                "pembroke_welsh_corgi",
+                "dog_pembroke_welsh_corgi_coat_v1",
+            ): PEMBROKE_WELSH_CORGI_COAT_VALUES,
+            (
+                "cat",
+                "british_shorthair",
+                "cat_british_shorthair_coat_v1",
+            ): BRITISH_SHORTHAIR_COAT_VALUES,
         }
     )
 )
@@ -172,6 +192,32 @@ COAT_PROFILE_REALIZATION_RULES: Mapping[
                 "dark_level": "dark_red",
                 "baseline_level": "standard_red",
                 "preserve_pattern": "urajiro",
+            }
+        ),
+        (
+            "dog",
+            "pembroke_welsh_corgi",
+            "dog_pembroke_welsh_corgi_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_red_white",
+                "neutral_level": "standard_red_white",
+                "dark_level": "dark_red_white",
+                "baseline_level": "standard_red_white",
+                "preserve_pattern": "white_marked",
+            }
+        ),
+        (
+            "cat",
+            "british_shorthair",
+            "cat_british_shorthair_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_blue",
+                "neutral_level": "standard_blue",
+                "dark_level": "dark_blue",
+                "baseline_level": "standard_blue",
+                "preserve_pattern": "solid",
             }
         ),
     }
