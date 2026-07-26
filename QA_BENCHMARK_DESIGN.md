@@ -2,7 +2,8 @@
 
 > 本文档为 goal 模式自足文档：新会话仅凭本文档 + 仓库即可继续工作。
 > 状态：owner 评审中的设计草案 v2（2026-07-27）。
-> 修订：v2 吸收 owner 反馈——语音用现成剪辑+已知转写（不做 TTS）；
+> 修订：v2 吸收 owner 反馈——语音只用带官方转写的现成语料
+> （LibriSpeech/LibriTTS 等；TTS 与 ASR 均暂不考虑）；
 > 明确复用既有轨迹生成与属性 flag 机制；补背景/流程图/TODO/全题型例子。
 
 ---
@@ -144,15 +145,17 @@ flowchart TD
 `tools/m7/render_asset_bound_binaural_batch.py` 增加 program-gated 变体
 路径；**RIR 缓存完全复用**（缓存键与干声无关）。M6.x S3 已有移动间歇原型。
 
-### 4.2 语音：现成剪辑 + 已知转写（owner 决定，不做 TTS）
+### 4.2 语音：带官方转写的现成语料（owner 决定：TTS 暂不考虑，ASR 亦不用）
 
-内容题（"说'过来'的人在哪侧"）用**现成语音剪辑**，转写已知即可：
-- 首选带官方转写的语料（现有 sound registry 中 LibriTTS 人声本身自带
-  文本，CC-BY-4.0）；omniaudio 库内剪辑可用 ASR 转写 + 人工抽检确认。
-- sound registry 增加字段：`content_transcript`（必填 for speech）、
-  `transcript_source`（`corpus_official` / `asr_verified`）、
-  `speaker_persona`、`language`。转写不可靠的剪辑不入内容题池
-  （fail-closed：无 `corpus_official` 或未过人工抽检的不发内容题）。
+内容题（"说'过来'的人在哪侧"）的语音一律取自**自带官方转写的语料**
+（LibriSpeech / LibriTTS 等；现有 sound registry 中的 LibriTTS 人声
+本身就带文本，CC-BY-4.0）：
+- sound registry 增加字段：`content_transcript`（speech 必填）、
+  `transcript_source`（v1 只允许 `corpus_official`）、
+  `speaker_persona`、`language`。
+- fail-closed：无官方转写的剪辑不发内容题（可继续用于非内容题）。
+  TTS 与 ASR 转写路线明确推迟，未来若需要再作为
+  `transcript_source` 的新枚举值扩展。
 - 脚本化因果链（"喊话后狗靠近"）不依赖语音合成：episode 是编排的，
   把喊话事件窗结束 tick 与狗的轨迹转向 tick 按声明延迟对齐即可，
   时序真值精确到 tick。诚实边界：编排相关性，非动物行为学，写进数据卡。
@@ -333,7 +336,7 @@ sound_events 窗比较，归入本组。）
   - [ ] 干扰对配对模板（复用 S2 静默可见源机制）；未合并前先跨品种干扰
 - [ ] **P3 扩展场景**
   - [ ] 语音内容字段（`content_transcript` 等）入 sound registry schema
-        + 内容题（现成剪辑+官方转写，无 TTS）
+        + 内容题（LibriSpeech/LibriTTS 等官方转写语料；TTS/ASR 均不做）
   - [ ] 三源计划扩展（slot schema `source1..sourceN`，v1 填 3，100–200 条）
   - [ ] MP3D episode 银行（source-agnostic 可行性编译器 + Habitat 批量
         runner 均已就位，缺 MP3D 轨迹银行编译配置）
@@ -357,4 +360,4 @@ sound_events 窗比较，归入本组。）
 4. 轴 3 归属：留 NeurIPS 方法篇（假定），还是进 CVPR 第四支柱？
 5. 方法组件选型：推理链 vs 认证对微调（建议双小样择优）。
 6. 人物属性题 v1 降级为"哪个人"级别（假定），还是投入人类外观变体？
-7. ~~TTS 还是现成音频~~ 已定：现成剪辑 + 已知转写（§4.2）。
+7. ~~TTS 还是现成音频~~ 已定：只用带官方转写的现成语料（LibriSpeech/LibriTTS 等），TTS 与 ASR 暂不考虑（§4.2）。
