@@ -209,6 +209,83 @@ closure. Scene data must be shared rather than copied once per example.
   establish real-room acoustic truth, dataset admission or real-world
   generalization.
 
+### Checkpoint 20260726: acoustic material fidelity closure (branch cc-acoustic-material-fidelity)
+
+- The residential semantic material ruleset is now
+  `soundspaces_style_residential_v2`
+  (`examples/m3/semantic_materials/residential_material_rules.json`, SHA-256
+  `bf37a39d69aa8888c95cd0cc6ab963b4735f11a4d820079204575ba03212f953`): 20
+  materials (adds indoor foliage and stacked paper), 70 categories (adds the
+  29 Kujiale residential categories that previously fell to defaults), 19
+  ordered name hints for visual material-slot names, and room-scoped explicit
+  overrides for the legacy apartment structural slots. Structural tokens
+  (wall/floor/ceiling) deliberately stay out of the global name hints so
+  reviewed semantic categories keep precedence-correct resolution.
+- A third semantic adapter, `compile_visual_slot_semantic_research_scene`
+  (CLI `avengine m3 compile-visual-slots-semantic`), resolves UE visual
+  material-slot names through the same resolver, leakage probes and
+  research-candidate contract as the MP3D and USD routes.
+- The legacy apartment now has a differentiated-material research package
+  `legacy_ue_apartment_0000_visual_slot_semantic_seed917_research_v1`
+  (`tmp/m3/legacy_ue_apartment_visual_slot_semantic_20260726_01`,
+  package-content SHA-256
+  `e7f0264388d2d139a69098118ebb4f773d449b14a92f93f635a58c169178535a`,
+  manifest SHA-256
+  `0585e11b23431e4ddd232a71a21b30518913ae4b33e372736d6747c3a6b6f49e`):
+  48 visual slots resolve as 44 name hints + 3 explicit overrides + 1 honest
+  default (`MI_Props`), replacing the previous uniform 0.2/0.05 neutral
+  placeholder slots. The four reviewed interior probes observe 0/256 escaped
+  rays with probe clearance `pass`.
+- The Kujiale full-home USD snapshot recompiled under rules v2
+  (`kujiale_0020_full_home_v1_usd_semantic_seed917_research_v1`,
+  `tmp/m3/kujiale_0020_usd_semantic_rules_v2_20260726_01`, package-content
+  SHA-256
+  `49a9571ef84ed21ea945accf0be761d5f1b8c209ef1a6f1a5d4a593c96cf8560`):
+  resolution moves from 93 semantic / 28 name-hint / 193 default to
+  150 semantic / 164 name-hint / 0 default with zero unknown categories.
+- A room-agnostic native simulation profile
+  (`examples/runtime/rir_cache_simulation_request_v2.json`, SHA-256
+  `f3c74d9bfa67fb3cb757589f6760c21ac909575f2b4f7d9768d3277c1e8b0a22`)
+  supersedes reuse of the historical M4 canary request for production caches:
+  indirect ray depth 100 -> 200 (RLR default), direct SH order 1 -> 3
+  (adapter default), transmission off -> on (matches the SoundSpaces 2.0
+  training configuration). Rendering deliberately stays at 16 kHz as the
+  declared dataset bandwidth bound.
+- Both apartment caches were re-rendered on the frozen job plans with the new
+  package and profile; no trajectory, plan or visual artifact was
+  regenerated. The generic 9,198-job cache
+  (`tmp/m7/apartment_rir_cache_semantic_v2_t32_b64_full_20260726_01`, request
+  identity
+  `70371734bf2c4e44b60575b5d5d08900afb9b714ad085495d8187e47b9e8d0e9`)
+  passed 9,198/9,198 in 325.81 propagation seconds across 144 shards
+  (2,273,498,429 bytes). The training-bank 9,047-job cache
+  (`tmp/m7/apartment_generated_assets_rir_cache_unique1000_semantic_v2_20260726_01`,
+  request identity
+  `0ba0bcc7bb4e88d5607267c8d258da00b22136a7e5f71ad1a6339f328d4917c3`)
+  passed 9,047/9,047 in 307.49 propagation seconds across 142 shards.
+- A matched-job diagnostic (`tools/m7/compare_rir_cache_metrics.py`, 256
+  seeded pairs, zero skips) decomposes the acoustic change: materials alone
+  move mean EDT 0.378 s -> 0.600 s, DRR -1.96 dB -> -2.82 dB and late energy
+  x2.7; the propagation-profile upgrade adds only +0.012 s EDT and
+  -0.26 dB DRR on top. The uniform placeholder was therefore the dominant
+  realism gap, and the re-rendered room sits in a plausible furnished
+  residential EDT range instead of a uniformly damped one.
+- The 1,000-episode audio bank was re-assembled on the new training cache
+  with the exact retained dry-audio declarations and `variants_per_episode=1`
+  (`tmp/m7/apartment_generated_assets_1000_unique_visual_binaural_semantic_v2_20260726_01`);
+  the artifact-level verifier
+  (`tmp/m7/apartment_semantic_v2_batch_verification_20260726_01.json`)
+  reports `pass` for all 1,000 samples. The frozen visual bank, trajectory
+  bank and dataset index are untouched; this audio realization is a parallel
+  alternative to the placeholder-material bank, and switching any model
+  training to it is a separate owner decision.
+- Claim boundary: every coefficient remains `research_placeholder`
+  (representative octave-band priors, jittered, uncalibrated). This closure
+  improves internal material differentiation and propagation-parameter parity
+  with the SoundSpaces 2.0 reference configuration; it does not establish
+  physical room-material truth, does not run the M3.1 EDT calibration, and
+  does not change dataset admission for any room or asset.
+
 ## Exact next actions
 
 1. Freeze and reuse the verified Apartment and Kujiale engine-side
