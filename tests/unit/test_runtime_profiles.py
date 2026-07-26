@@ -165,3 +165,31 @@ def test_room_registry_can_describe_a_future_adapter_without_weakening_current_r
     rooms["profiles"].append(future)
 
     assert validate_room_runtime_profile_registry(rooms) == []
+
+
+def test_habitat_native_mp3d_profile_matches_apartment_75_frame_contract():
+    rooms = load_default_room_runtime_profile_registry()
+    by_id = {profile["profile_id"]: profile for profile in rooms["profiles"]}
+    apartment = by_id["spear_apartment_0000"]
+    mp3d = by_id["habitat_mp3d_17DRP5sb8fy"]
+
+    assert mp3d["backend_id"] == "habitat_native"
+    assert mp3d["room_ref"]["room_id"] == "habitat_mp3d_example_17DRP5sb8fy"
+    assert mp3d["scene"]["map_path"].endswith("room_manifest.json")
+    # The dataset render contract (resolution, 75 frames, 15 Hz, HFOV) is
+    # shared across backends; only warmup handling is backend-specific.
+    for field in ("width", "height", "frame_count", "frame_rate_hz", "horizontal_fov_deg"):
+        assert mp3d["render"][field] == apartment["render"][field]
+    assert mp3d["render"]["streaming_warmup_frames"] == 0
+    assert mp3d["render"]["camera_warmup_frames"] == 0
+    assert "m5_1-mixed-route" in mp3d["supported_input_layouts"]
+
+
+def test_habitat_native_profile_rejects_ue_map_paths():
+    rooms = deepcopy(load_default_room_runtime_profile_registry())
+    by_id = {profile["profile_id"]: profile for profile in rooms["profiles"]}
+    by_id["habitat_mp3d_17DRP5sb8fy"]["scene"]["map_path"] = (
+        "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000"
+    )
+    errors = validate_room_runtime_profile_registry(rooms)
+    assert any("habitat_native map_path" in error for error in errors)

@@ -1,7 +1,7 @@
 {
   "schema": "avengine_room_runtime_profile_registry_v1",
   "registry_id": "avengine_room_runtime_profiles_v1",
-  "revision": "20260724_v1",
+  "revision": "20260726_v3",
   "default_profile_id": "spear_apartment_0000",
   "profiles": [
     {
@@ -34,6 +34,36 @@
         "m6x-canary",
         "motion-pilot",
         "asset-bound-batch"
+      ]
+    },
+    {
+      "profile_id": "habitat_mp3d_17DRP5sb8fy",
+      "revision": "native_scan_v1",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "revision": "raw_v1_plus_declared_proxy_v2_research"
+      },
+      "backend_id": "habitat_native",
+      "adapter_id": "habitat_mp3d_mixed_route_v1",
+      "scene": {
+        "scene_id": "habitat_mp3d_17DRP5sb8fy",
+        "map_path": "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json",
+        "layout_policy": "native_scan_unchanged",
+        "outdoor_view_policy": "scan_baked_lighting_no_proxy"
+      },
+      "render": {
+        "width": 1280,
+        "height": 720,
+        "frame_count": 75,
+        "frame_rate_hz": 15,
+        "horizontal_fov_deg": 105.0,
+        "streaming_warmup_frames": 0,
+        "camera_warmup_frames": 0
+      },
+      "default_lighting_profile_id": "scan_baked",
+      "supported_input_layouts": [
+        "m5_1-mixed-route"
       ]
     }
   ]

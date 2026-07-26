@@ -195,6 +195,17 @@ def validate_room_runtime_profile_registry(value: Any) -> list[str]:
                 errors.append(
                     f"profiles[{index}]: SPEAR/UE map_path must start with /Game/"
                 )
+        if profile.get("backend_id") == "habitat_native":
+            map_path = profile.get("scene", {}).get("map_path")
+            if (
+                not isinstance(map_path, str)
+                or map_path.startswith("/Game/")
+                or not map_path.endswith(".json")
+            ):
+                errors.append(
+                    f"profiles[{index}]: habitat_native map_path must reference "
+                    "a room manifest JSON, not a UE map"
+                )
     if len(profile_ids) != len(set(profile_ids)):
         errors.append("room runtime profile IDs must be unique")
     if value.get("default_profile_id") not in profile_ids:

@@ -286,6 +286,48 @@ closure. Scene data must be shared rather than copied once per example.
   physical room-material truth, does not run the M3.1 EDT calibration, and
   does not change dataset admission for any room or asset.
 
+### Checkpoint 20260726b: Habitat-native room route (MP3D second-room enablement)
+
+- MP3D semantic packages recompiled under rules v2 for both room-manifest
+  identities (m1 example and m2 articulated review; the latter is
+  `tmp/m3/mp3d_semantic_rules_v2_articulated_20260726_01`): 31 surfaces
+  resolve as 16 name-hint / 14 semantic / 1 default (`unknown_object`), with
+  no RLR-incompatible triangles (the cleanup deriver correctly refuses a
+  no-op). The scan probes 0/32 escaped rays.
+- Accepted design decision (owner choice, option a): because the MP3D and
+  USD adapters place semantic category strings inside name fields, ordered
+  name hints intercept some category-labeled surfaces under the fixed
+  `explicit > name hint > semantic category` precedence. Hint candidate sets
+  were aligned with the same-named categories, so 11 of the 14 changed MP3D
+  decisions keep the identical material and the remainder move within the
+  plausible candidate domain; the resolution label and its 0.75 confidence
+  cap are accepted as-is and recorded here instead of altering the
+  documented precedence contract.
+- The room runtime profile registry (revision `20260726_v3`) gains its first
+  `habitat_native` profile `habitat_mp3d_17DRP5sb8fy`, sharing the exact
+  dataset render contract with `spear_apartment_0000`
+  (1280x720, 75 frames, 15 Hz, HFOV 105) with zero warmup frames; the
+  registry validator now rejects habitat_native profiles whose map path is a
+  UE `/Game/` map instead of a room manifest.
+- `tools/m7/run_habitat_room_batch.py` is the Habitat-native counterpart of
+  the SPEAR batch runner: registry-selected habitat_native rooms, fixed
+  disjoint `--shard-count/--shard-index` selection, resumable execution that
+  only skips episodes whose retained gate evidence independently reads back
+  as `pass`, and a hash-bound batch manifest that stays
+  `research_candidate`. Its first real batch
+  (`tmp/m7/habitat_mp3d_batch_review_20260726_01`) rendered the retained
+  M5.1 mixed route through the native runtime with 14/14 gates passing and
+  270 frames, and the resume path was exercised against that retained
+  evidence. Episodes whose route length differs from the 75-frame profile
+  contract are explicitly marked `review_only`.
+- Owner-review media: three frozen apartment visual episodes were paired
+  with old-versus-new audio (byte-identical video stream, only the audio
+  realization differs) under
+  `tmp/review/apartment_acoustic_ab_20260726/`, and the MP3D route is being
+  delivered as the annotated binaural listening video on the rules-v2
+  package with the v2 simulation profile. These are review artifacts, not
+  dataset media.
+
 ## Exact next actions
 
 1. Freeze and reuse the verified Apartment and Kujiale engine-side

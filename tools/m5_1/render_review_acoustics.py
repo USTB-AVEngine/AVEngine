@@ -89,6 +89,16 @@ def _portable_file_record(path: Path, *, hrtf_root: Path | None = None) -> dict[
             root_id="AVENGINE_REPOSITORY_ROOT",
         )
     except RuntimeError:
+        evidence_root = os.environ.get("AVENGINE_EVIDENCE_ROOT")
+        if evidence_root:
+            try:
+                return _root_relative_file_record(
+                    resolved,
+                    root=Path(evidence_root),
+                    root_id="AVENGINE_EVIDENCE_ROOT",
+                )
+            except RuntimeError:
+                pass
         if hrtf_root is not None:
             return _root_relative_file_record(
                 resolved,
