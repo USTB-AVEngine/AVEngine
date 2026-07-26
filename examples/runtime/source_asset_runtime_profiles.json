@@ -1,7 +1,7 @@
 {
   "schema": "avengine_source_asset_runtime_registry_v1",
   "registry_id": "avengine_source_asset_runtime_profiles_v1",
-  "revision": "20260726_v3",
+  "revision": "20260727_v4",
   "aliases": {
     "current_generated_cat": {
       "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
@@ -251,6 +251,94 @@
             ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "generated_labrador_native_rest_mesh_support_plane_calibration"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_shiba_inu_red_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1",
+      "display_label": "Shiba Inu",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "dog",
+        "breed_id": "shiba_inu"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "dog_shiba_inu_coat_v1",
+          "value": "standard_red"
+        }
+      },
+      "generation_request_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult"
+      },
+      "geometry": {
+        "mesh_authority": "generated_pixel3d_target_native",
+        "source_mesh_uri": "artifact://generated-animal/shiba-inu-red-v1/animated_walk_idle.glb",
+        "rig_authority": "target_native_tokenrig_seed42"
+      },
+      "timeline": {
+        "template_id": "generated_shiba_inu_target_native_v1",
+        "body_plan_id": "quadruped_canine",
+        "local_anatomical_forward_axis": [
+          1,
+          0,
+          0
+        ],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [
+            0.3727,
+            0.4866,
+            0
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_pixal_generated_shiba_inu_red_v1/BP_gate_pixal_generated_shiba_inu_red_v1.BP_gate_pixal_generated_shiba_inu_red_v1_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_shiba_inu_red_v1/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_generated_shiba_inu_red_v1/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 0,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_9",
+            "right_foot": "bone_12"
+          },
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [
+              0,
+              0,
+              0
+            ],
+            "translation_cm": [
+              0,
+              0,
+              0
+            ],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "generated_shiba_mesh_foot_bottom_leveling_rest_residual_minus_0p12cm_orbit_walking_readback_plus_1p18cm_scale1_20260727"
           },
           "floor_contact_gate": true
         }
