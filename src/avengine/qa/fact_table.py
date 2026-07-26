@@ -28,6 +28,7 @@ AZIMUTH_CONVENTION = "avengine_native_full_circle_front0_right_plus90"
 EMITTER_OFFSET_TOLERANCE_M = 1.0e-6
 HEADING_MIN_HORIZONTAL_OFFSET_M = 1.0e-6
 _UNIT_QUATERNION_TOLERANCE = 1.0e-9
+FRUSTUM_AUTHORITY = "center_point_pinhole_frustum_no_occlusion_v1"
 
 CLAIM_BOUNDARY = (
     "Aggregated research facts for QA mining; joins frozen trajectory, "
@@ -122,6 +123,67 @@ def listener_local_spherical_track(
         "azimuth_deg": [float(value) for value in azimuth],
         "elevation_deg": [float(value) for value in elevation],
         "distance_m": [float(value) for value in distance],
+    }
+
+
+def center_frustum_track(
+    source_positions_m: Any,
+    listener_position_m: Any,
+    listener_orientation_wxyz: Any,
+    *,
+    hfov_degrees: float,
+    resolution_hw: tuple[int, int],
+) -> dict[str, Any]:
+    """Exact pinhole frustum test for instance centre points.
+
+    This is the geometric judgment behind off-screen certificates: a centre
+    outside the frustum is definitely not visible. It says nothing about
+    occlusion, so it never certifies that an instance IS visible; pixel
+    truth arrives with the P1 amodal/modal semantic passes.
+    """
+
+    if not isinstance(hfov_degrees, (int, float)) or not 0.0 < hfov_degrees < 180.0:
+        raise QAFactTableError("hfov_degrees must be in (0, 180)")
+    height, width = resolution_hw
+    if not isinstance(height, int) or not isinstance(width, int) or height <= 0 or width <= 0:
+        raise QAFactTableError("resolution_hw must be positive integers")
+    sources = _as_float_array(source_positions_m, name="source positions")
+    listener = np.asarray(listener_position_m, dtype=np.float64)
+    quaternion = _unit_quaternion_wxyz(listener_orientation_wxyz)
+    local = _rotate_by_inverse_quaternion(sources - listener[None, :], quaternion)
+
+    tan_half_h = math.tan(math.radians(float(hfov_degrees)) / 2.0)
+    tan_half_v = tan_half_h * (height / width)
+    depth = -local[:, 2]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        horizontal = np.abs(local[:, 0]) <= tan_half_h * depth
+        vertical = np.abs(local[:, 1]) <= tan_half_v * depth
+    in_frustum = (depth > 0.0) & horizontal & vertical
+
+    events: list[dict[str, Any]] = []
+    flags = [bool(value) for value in in_frustum]
+    azimuth = np.degrees(np.arctan2(local[:, 0], -local[:, 2]))
+    for index in range(1, len(flags)):
+        if flags[index] == flags[index - 1]:
+            continue
+        kind = "entry" if flags[index] else "exit"
+        # Judge the side on the outside frame adjacent to the transition:
+        # "entered from the left" means it was outside on the left just before.
+        outside_index = index - 1 if flags[index] else index
+        events.append(
+            {
+                "kind": kind,
+                "frame": index,
+                "side": "right" if float(local[outside_index, 0]) > 0.0 else "left",
+                "azimuth_deg_at_event": float(azimuth[index]),
+            }
+        )
+    return {
+        "in_frustum": flags,
+        "in_frustum_frame_count": int(np.count_nonzero(in_frustum)),
+        "always_outside_frustum": not any(flags),
+        "always_inside_frustum": all(flags),
+        "events": events,
     }
 
 
@@ -366,10 +428,22 @@ def compile_episode_fact_table(
     registry: Mapping[str, Any],
     anchors: Sequence[Mapping[str, Any]],
     room: Mapping[str, Any],
+    camera: Mapping[str, Any],
     rir_cache_request_identity_sha256: str,
     provenance_inputs: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Compile one episode's fact table from already-frozen artifacts."""
+
+    if not isinstance(camera, Mapping):
+        raise QAFactTableError("camera must declare hfov_degrees and resolution_hw")
+    camera_hfov = camera.get("hfov_degrees")
+    camera_resolution = camera.get("resolution_hw")
+    if (
+        not isinstance(camera_resolution, Sequence)
+        or len(camera_resolution) != 2
+        or not all(isinstance(value, int) for value in camera_resolution)
+    ):
+        raise QAFactTableError("camera resolution_hw must be two integers")
 
     episode_id = bank_episode.get("episode_id")
     if not isinstance(episode_id, str) or not episode_id:
@@ -436,6 +510,7 @@ def compile_episode_fact_table(
     sound_events: list[dict[str, Any]] = []
     instance_tracks: dict[str, dict[str, Any]] = {}
     emitters_by_slot: dict[str, np.ndarray] = {}
+    frustum_by_slot: dict[str, dict[str, Any]] = {}
     for slot_id in slots:
         if slot_id not in center_paths or slot_id not in root_paths:
             raise QAFactTableError(f"bank episode lacks paths for slot {slot_id!r}")
@@ -491,7 +566,15 @@ def compile_episode_fact_table(
                 else None
             ),
         )
+        frustum = center_frustum_track(
+            emitter,
+            listener_point,
+            quaternion,
+            hfov_degrees=camera_hfov,
+            resolution_hw=(camera_resolution[0], camera_resolution[1]),
+        )
         emitters_by_slot[slot_id] = emitter
+        frustum_by_slot[slot_id] = frustum
         instance_tracks[slot_id] = {
             "root_position_m": [[float(v) for v in row] for row in root],
             "emitter_position_m": [[float(v) for v in row] for row in emitter],
@@ -583,12 +666,32 @@ def compile_episode_fact_table(
             "anchor_distances": anchor_relations,
         },
         "visibility": {
-            "status": "not_computed",
-            "reason": "modal/amodal semantic passes land in P1",
+            "status": "computed_center_point_v0",
+            "authority": FRUSTUM_AUTHORITY,
+            "hfov_degrees": float(camera_hfov),
+            "resolution_hw": [int(camera_resolution[0]), int(camera_resolution[1])],
+            "per_instance": {
+                slot_id: {
+                    "in_frustum": frustum["in_frustum"],
+                    "in_frustum_frame_count": frustum["in_frustum_frame_count"],
+                    "always_outside_frustum": frustum["always_outside_frustum"],
+                    "always_inside_frustum": frustum["always_inside_frustum"],
+                }
+                for slot_id, frustum in frustum_by_slot.items()
+            },
+            "pixel_truth": "pending_P1_amodal_modal_pass",
         },
         "frame_events": {
-            "status": "not_computed",
-            "reason": "frustum edge detection lands in P1",
+            "status": "computed_center_point_v0",
+            "authority": FRUSTUM_AUTHORITY,
+            "events": sorted(
+                (
+                    {"instance_id": slot_id, **event}
+                    for slot_id, frustum in frustum_by_slot.items()
+                    for event in frustum["events"]
+                ),
+                key=lambda event: (event["frame"], event["instance_id"]),
+            ),
         },
         "flags": {
             "status": "not_evaluated",

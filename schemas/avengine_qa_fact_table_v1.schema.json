@@ -358,8 +358,89 @@
         }
       }
     },
-    "visibility": {"$ref": "#/$defs/deferredBlock"},
-    "frame_events": {"$ref": "#/$defs/deferredBlock"},
+    "visibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "authority",
+        "hfov_degrees",
+        "resolution_hw",
+        "per_instance",
+        "pixel_truth"
+      ],
+      "properties": {
+        "status": {"const": "computed_center_point_v0"},
+        "authority": {
+          "const": "center_point_pinhole_frustum_no_occlusion_v1"
+        },
+        "hfov_degrees": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180},
+        "resolution_hw": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "per_instance": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "in_frustum",
+              "in_frustum_frame_count",
+              "always_outside_frustum",
+              "always_inside_frustum"
+            ],
+            "properties": {
+              "in_frustum": {
+                "type": "array",
+                "minItems": 75,
+                "maxItems": 75,
+                "items": {"type": "boolean"}
+              },
+              "in_frustum_frame_count": {"type": "integer", "minimum": 0, "maximum": 75},
+              "always_outside_frustum": {"type": "boolean"},
+              "always_inside_frustum": {"type": "boolean"}
+            }
+          }
+        },
+        "pixel_truth": {"const": "pending_P1_amodal_modal_pass"}
+      }
+    },
+    "frame_events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "authority", "events"],
+      "properties": {
+        "status": {"const": "computed_center_point_v0"},
+        "authority": {
+          "const": "center_point_pinhole_frustum_no_occlusion_v1"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "instance_id",
+              "kind",
+              "frame",
+              "side",
+              "azimuth_deg_at_event"
+            ],
+            "properties": {
+              "instance_id": {"type": "string", "minLength": 1},
+              "kind": {"enum": ["entry", "exit"]},
+              "frame": {"type": "integer", "minimum": 1, "maximum": 74},
+              "side": {"enum": ["left", "right"]},
+              "azimuth_deg_at_event": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
     "flags": {
       "type": "object",
       "additionalProperties": false,
@@ -437,15 +518,6 @@
         "minItems": 3,
         "maxItems": 3,
         "items": {"type": "number"}
-      }
-    },
-    "deferredBlock": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["status", "reason"],
-      "properties": {
-        "status": {"const": "not_computed"},
-        "reason": {"type": "string", "minLength": 1}
       }
     }
   }

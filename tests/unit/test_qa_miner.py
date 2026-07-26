@@ -122,6 +122,7 @@ def _fact_table(*, cat_x_start: float = 1.0, cat_z: float = 1.0) -> dict:
             }
         ],
         room={"room_capsule_id": "test_room", "revision": "v1"},
+        camera={"hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
         rir_cache_request_identity_sha256=SHA_C,
         provenance_inputs=[
             {"role": "trajectory_bank", "path": "/x/bank.json", "sha256": SHA_B}

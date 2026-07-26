@@ -9,6 +9,7 @@ import pytest
 
 from avengine.qa.fact_table import (
     QAFactTableError,
+    center_frustum_track,
     compile_episode_fact_table,
     listener_local_spherical_track,
 )
@@ -146,6 +147,7 @@ def _compile(**overrides) -> dict:
         registry=_registry(),
         anchors=_anchors(),
         room={"room_capsule_id": "test_room", "revision": "v1"},
+        camera={"hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
         rir_cache_request_identity_sha256=SHA_C,
         provenance_inputs=[
             {"role": "trajectory_bank", "path": "/x/bank.json", "sha256": SHA_B}
@@ -249,6 +251,47 @@ def test_human_style_vertical_emitter_offset_yields_null_facing() -> None:
     ]
     fact_table = _compile(registry=registry, bank_episode=episode)
     assert fact_table["tracks"]["instances"]["source1"]["facing_yaw_deg"] is None
+
+
+def test_center_frustum_track_geometry_and_events() -> None:
+    # hfov 90 deg and a square sensor: both half-tangents are exactly 1.
+    listener = [0.0, 0.0, 0.0]
+    points = [
+        [-3.0, 0.0, -2.0],  # outside left (|x| > depth)
+        [-1.5, 0.0, -2.0],  # inside
+        [0.0, 0.0, -2.0],  # inside, dead ahead
+        [2.5, 0.0, -2.0],  # outside right
+        [0.0, 0.0, 2.0],  # behind
+        [0.0, 2.5, -2.0],  # above the vertical frustum
+    ]
+    track = center_frustum_track(
+        points,
+        listener,
+        IDENTITY_WXYZ,
+        hfov_degrees=90.0,
+        resolution_hw=(100, 100),
+    )
+    assert track["in_frustum"] == [False, True, True, False, False, False]
+    assert track["in_frustum_frame_count"] == 2
+    assert not track["always_outside_frustum"]
+    events = track["events"]
+    assert [(event["kind"], event["frame"], event["side"]) for event in events] == [
+        ("entry", 1, "left"),
+        ("exit", 3, "right"),
+    ]
+
+
+def test_compiled_fact_table_reports_center_point_visibility() -> None:
+    fact_table = _compile()
+    visibility = fact_table["visibility"]
+    assert visibility["status"] == "computed_center_point_v0"
+    assert visibility["hfov_degrees"] == pytest.approx(105.0)
+    # Static dog dead ahead is inside; both instances have full tracks.
+    assert visibility["per_instance"]["source1"]["always_inside_frustum"]
+    assert len(visibility["per_instance"]["source2"]["in_frustum"]) == FRAME_COUNT
+    # Cat sits behind the identity-facing camera (z = +1): never in frustum.
+    assert visibility["per_instance"]["source2"]["always_outside_frustum"]
+    assert fact_table["frame_events"]["events"] == []
 
 
 def test_rejects_wrong_frame_count() -> None:
