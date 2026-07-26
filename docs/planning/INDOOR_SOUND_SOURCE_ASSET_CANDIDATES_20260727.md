@@ -28,11 +28,46 @@ curated mesh libraries may be used subject to rights review.
 
 ## Tier 1 — first wave (low risk, high benchmark value)
 
+### T1-A 动物品种名册（articulated，硬化路线；每品种=契约下独立资产）
+
+犬（四足供体直接兼容；AudioSet: Dog/Bark/Growl/Whimper/Howl/Pant；
+事件类 dog_bark/dog_growl/dog_whine/dog_howl）：
+
+| 品种 | 状态/风险（morphotype checklist） |
+|---|---|
+| 柴犬 Shiba | ✅ 已出货（2026-07-26） |
+| 柯基 Corgi | 排队中——短腿=中风险，checklist 预测力实验 |
+| 金毛 Golden Retriever | 低-中风险（长毛）；有模板线历史对照价值 |
+| 拉布拉多 Labrador（硬化重制） | 低风险；替换被弃用的前契约版 |
+| 边牧 Border Collie（硬化重制） | 低-中风险；替换前契约版 |
+| 哈士奇 Husky | 低风险；面部 mask 花纹好做毛色变体 |
+| 德牧 German Shepherd | 低风险 |
+| 比格 Beagle（生成版） | 低风险；可与 Rocketbox 模板版对照 |
+| 吉娃娃 Chihuahua | 低风险（小体型，物理档差异大——size 轴价值） |
+| 法斗 French Bulldog | 低-中风险（扁脸重建待验证） |
+| 贵宾 Poodle | 中风险（卷毛重建） |
+| 博美 Pomeranian | 中风险（蓬毛，柴犬毛壳经验适用） |
+| 杰克罗素梗 Jack Russell | 低风险 |
+| 腊肠 Dachshund | 中-高风险（极端比例，Corgi 之后的加压项） |
+
+猫（同供体家族；AudioSet: Cat/Meow/Purr/Hiss/Caterwaul；
+事件类 cat_meow/cat_purr/cat_hiss）：
+
+| 品种 | 状态/风险 |
+|---|---|
+| 英短 British Shorthair | 排队中——复活测试（历史失败品种） |
+| 暹罗 Siamese | 低风险（短毛、历史 research 视频先例） |
+| 美短/虎斑 American Shorthair (Tabby) | 低风险；历史 2D 双尾教训已进硬门 |
+| 斯芬克斯 Sphynx | 低风险（无毛=重建最友好），外观辨识度高 |
+| 俄蓝 Russian Blue | 低风险 |
+| 布偶 Ragdoll | 中风险（长毛） |
+| 缅因 Maine Coon | 中风险（长毛+大体型） |
+
+### T1-B 人类与静物
+
 | # | AudioSet class(es) | 声学事件类建议 | 3D 形态 | 备注 |
 |---|---|---|---|---|
 | 1 | Speech (male/female) | human_speech | articulated（Rocketbox 现有） | 已在注册表（LibriTTS CC-BY） |
-| 2 | Dog / Bark, Growl, Whimper | dog_bark, dog_growl | articulated（硬化路线，柴犬已出货） | 现役 |
-| 3 | Cat / Meow, Purr, Hiss | cat_meow, cat_purr, cat_hiss | articulated（英短复活测试排队中） | 替代 Abyssinian |
 | 4 | Telephone / Telephone bell ringing / Ringtone | phone_ring, phone_vibrate | static（桌面电话/手机） | 小体积、事件清晰 |
 | 5 | Alarm clock | alarm_beep, alarm_bell | static | 床头场景自然 |
 | 6 | Doorbell | doorbell_chime | static（墙面模块） | **天然画外声源**（门外→入画叙事） |
@@ -63,6 +98,9 @@ curated mesh libraries may be used subject to rights review.
 | 26 | Sewing machine | sewing_whir | static | 低频出现但室内合理 |
 | 27 | Refrigerator hum | fridge_hum | static | 极低显著度，弱信号/底噪层 |
 | 28 | Laughter / Cough / Sneeze / Clapping | human_laugh, human_cough, human_clap | articulated（现有人形+事件动画） | 复用 Rocketbox，加事件类即可 |
+| 28a | Rabbit（thump/咀嚼） | rabbit_thump | articulated | 跳跃步态≠步行供体——需动作家族决策或取坐姿+ subtle idle |
+| 28b | Ferret | ferret_dook | articulated | 细长脊柱，供体距离中风险 |
+| 28c | Hamster / Guinea pig（squeak） | rodent_squeak | articulated 或笼内半静态 | 小体积+笼遮挡，声显著度低但室内合理 |
 
 ## Tier 3 — 难/后排（明确风险再决定）
 
