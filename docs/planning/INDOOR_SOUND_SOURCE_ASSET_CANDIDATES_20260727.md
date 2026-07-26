@@ -120,9 +120,19 @@ curated mesh libraries may be used subject to rights review.
 - **播放悖论对**（T2#16）：电视播狗叫 vs 真狗叫——反捷径的高级题型。
 - **静默可见干扰**：任意静物摆多台只响一台，S2 场景直接扩展。
 
+## 干声可得性审计（2026-07-27 已完成，本地 22k 子集）
+
+详见 `audioset_local_subset_dry_audit_20260727.json`。结论：T1 几乎全覆盖
+（每标签约 60 条上限，子集按 60/标签采样构建）；"干净标签"（≤2 共现标
+签）池最充裕的是 door(180)、clock(121)、fan/AC(101)、cat(79)、phone(71)。
+**仅四类本地为零、需全量抓取**：洗衣机/洗碗机、音乐盒、鸣笛水壶、
+水龙头（Water tap 无命中，仅 Sink/Bathtub 有）。每条注册前仍需
+SNR/试听复核 + 逐条 YouTube 权利来源记录。
+
 ## 下一步
 
 1. Owner 圈定第一波清单（建议 T1 全量 15 项起步）。
-2. 对圈定项跑 AudioSet 干声可得性审计（本地 22k 子集命中率 + 需全量抓取的类；复用 `2-create_dataset_audioset.py`）。
+2. ~~对圈定项跑 AudioSet 干声可得性审计~~（已完成，见上节；缺口类用
+   `2-create_dataset_audioset.py` 全量抓取）。
 3. 静物 3D 路线选型：FLUX->Pixal3D 免绑定支线 vs 版权可用的现成网格库（逐项 rights 记录）。
 4. 声音注册表扩表（每项 dry_audio + rights + acoustic_profile），外观注册表按三独立选择规则并行扩。
