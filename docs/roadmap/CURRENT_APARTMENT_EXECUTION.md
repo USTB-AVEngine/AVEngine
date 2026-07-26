@@ -209,6 +209,33 @@ closure. Scene data must be shared rather than copied once per example.
   establish real-room acoustic truth, dataset admission or real-world
   generalization.
 
+- 20260726, branch `feature/instance-attr-generalization` (this repo) plus
+  branch `feature/asset-pipeline-hardening` (legacy SPEAR tools repo),
+  pending owner review; no frozen artifact was regenerated:
+  - The three generated coat profiles (`cat_abyssinian_coat_v1`,
+    `dog_border_collie_coat_v1`, `dog_labrador_retriever_coat_v1`) are now
+    registered in the fail-closed appearance contract with beagle-pattern
+    three-level domains, and `validate_source_asset_runtime_registry`
+    cross-checks every runtime-registry coat against that contract, so an
+    unregistered profile or out-of-domain value fails closed for any future
+    asset. Registry revision `20260724_v2` -> `20260726_v3`; coat values
+    moved to neutral-level names (`standard_ruddy`, `standard_black_white`,
+    `standard_yellow`).
+  - The Abyssinian `slim`/`standard` collision is resolved by an explicit
+    provenance split: optional `generation_request_attributes` records the
+    sampled breed morphology of the generation request (Abyssinian `slim`,
+    verified from the retained instance request), while
+    `realized_attributes.body_build` remains the neutral instance-variation
+    baseline. Full fast-unit suite passed (1,610 passed, 1 skipped).
+  - SPEAR-side generation tooling gained a single-point forward declaration
+    contract (self-hashed, donor-constant motion basis; per-asset
+    motion-basis yaw / side-chain flips are now contract errors), a
+    deterministic PCA + head-end-vote forward estimator, a fail-closed
+    stance-drift gait-direction audit, a `--preview-only` cheap triage mode
+    after retarget, and a historical human-decision calibration collector
+    that any future visual pre-screener must be scored against before it may
+    triage review media.
+
 ## Exact next actions
 
 1. Freeze and reuse the verified Apartment and Kujiale engine-side
@@ -220,10 +247,17 @@ closure. Scene data must be shared rather than copied once per example.
 3. Keep the owner-private v4.3 test experiment and its `locate` environment
    outside the public AVEngine runtime. Its dedicated private feature branch is
    permanently independent and must not be merged into this branch.
-4. Reconcile the Abyssinian generation request's `slim` body-build label with
-   the current runtime baseline's `standard` research label before promoting
-   that exact attribute provenance. A later owner-selected cat must still
-   bring its own generated Mesh and runtime profile.
+4. Review and, if accepted, merge the
+   `feature/instance-attr-generalization` provenance split that reconciles
+   the Abyssinian `slim` generation request with the `standard` runtime
+   baseline (both values are now explicit registry fields instead of one
+   contested label). A later owner-selected cat must still bring its own
+   generated Mesh and runtime profile.
+5. Derive each asset's UE component vertical correction from its retained
+   support-plane leveling evidence instead of the current per-asset manual
+   measurements (Abyssinian +42.25 cm, Labrador +30.4947 cm, Border Collie
+   0). Until then, every new asset must record how its UE Z delta was
+   measured; a silently copied delta from another asset is a defect.
 
 ## Current execution constraints
 
