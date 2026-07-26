@@ -1,21 +1,23 @@
 """Fail-closed research-only cleanup for RLR-incompatible acoustic surfaces.
 
-Some scanned-room exports contain primitives made entirely from repeated
-vertex indices.  RLR rejects those zero-area triangles before simulation.  A
-research review may derive a new package that removes only triangles already
-classified as degenerate by the M3 geometry-QA scale rule.  The source package
-is never edited, production packages are rejected, and every removal remains
-hash-bound in the derived package's failing compiler-parity report.
+Some scanned-room exports contain repeated-index or near-zero-area triangles.
+RLR rejects them before simulation. A research review may derive a new package
+that removes only triangles rejected by either the M3 geometry-QA scale rule
+or the pinned native RLR cross-product rule. The source package is never
+edited, production packages are rejected, and every removal remains hash-bound
+in the derived package's failing compiler-parity report.
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+import math
 import os
 from pathlib import Path
 import shutil
 from typing import Any, Mapping, Sequence
+from uuid import uuid4
 
 import numpy as np
 
@@ -35,9 +37,15 @@ from avengine.m3.qa import (
     triangle_areas,
     write_debug_obj,
 )
+from avengine.security.path_policy import (
+    WorkspacePathPolicy,
+    atomic_publish_directory,
+)
 
 
-CLEANUP_POLICY = "m3_research_remove_geometry_qa_degenerate_triangles_v1"
+CLEANUP_POLICY = "m3_research_remove_rlr_incompatible_triangles_v2"
+DERIVED_PACKAGE_SUFFIX = "rlr_incompatible_filter_v2"
+RLR_MIN_CROSS_NORM_SQUARED = 1.0e-20
 
 
 class ResearchCleanupError(RuntimeError):
@@ -53,6 +61,14 @@ class FilteredResearchGeometry:
     material_ids: np.ndarray
     objects: tuple[dict[str, Any], ...]
     record: Mapping[str, Any]
+
+
+def _derived_package_id(source_package_id: str) -> str:
+    """Keep the derived identity version aligned with the cleanup policy."""
+
+    if not isinstance(source_package_id, str) or not source_package_id:
+        raise ResearchCleanupError("source package_id must be non-empty")
+    return f"{source_package_id}_{DERIVED_PACKAGE_SUFFIX}"
 
 
 def _npy_record(path: Path, *, root: Path, array: np.ndarray) -> dict[str, Any]:
@@ -79,12 +95,12 @@ def filter_research_geometry(
     material_ids: Any,
     objects: Sequence[Mapping[str, Any]],
 ) -> FilteredResearchGeometry:
-    """Remove only M3-QA-degenerate faces and empty object vertex ranges.
+    """Remove only M3-QA- or native-RLR-incompatible faces and empty objects.
 
     Vertex ranges for objects retaining at least one triangle are preserved
     byte-for-byte.  A vertex range is removed only when every triangle in that
-    object is degenerate.  This minimizes changes while maintaining the M3
-    package's contiguous per-object index contract.
+    object is rejected by at least one pinned rule.  This minimizes changes
+    while maintaining the M3 package's contiguous per-object index contract.
     """
 
     source_vertices = np.ascontiguousarray(vertices, dtype="<f4")
@@ -106,11 +122,25 @@ def filter_research_geometry(
     bounds_min = source_vertices.min(axis=0).astype(np.float64)
     bounds_max = source_vertices.max(axis=0).astype(np.float64)
     diagonal = float(np.linalg.norm(bounds_max - bounds_min))
-    area_threshold = max(1.0e-14, diagonal * diagonal * 1.0e-14)
-    keep = np.asarray(areas > area_threshold, dtype=np.bool_)
+    qa_area_threshold = max(1.0e-14, diagonal * diagonal * 1.0e-14)
+    # Match RLRAcousticContext.cpp exactly: coordinate differences are first
+    # evaluated as float, products are promoted to double, then squared cross
+    # magnitude is compared to 1e-20. Do not infer this from rounded area.
+    points_f32 = source_vertices[source_triangles]
+    ab_f32 = points_f32[:, 1] - points_f32[:, 0]
+    ac_f32 = points_f32[:, 2] - points_f32[:, 0]
+    ab = ab_f32.astype(np.float64)
+    ac = ac_f32.astype(np.float64)
+    cross = np.cross(ab, ac)
+    cross_norm_squared = np.einsum("ij,ij->i", cross, cross)
+    rlr_compatible = cross_norm_squared > RLR_MIN_CROSS_NORM_SQUARED
+    keep = np.asarray(
+        (areas > qa_area_threshold) & rlr_compatible,
+        dtype=np.bool_,
+    )
     removed_indices = np.flatnonzero(~keep)
     if removed_indices.size == 0:
-        raise ResearchCleanupError("source package has no QA-degenerate triangles")
+        raise ResearchCleanupError("source package has no RLR-incompatible triangles")
 
     expected_vertex = 0
     expected_triangle = 0
@@ -166,7 +196,9 @@ def filter_research_geometry(
                     "vertex_count": vertex_count,
                     "triangle_offset": triangle_offset,
                     "triangle_count": triangle_count,
-                    "reason": "all_triangles_geometry_qa_degenerate",
+                    "reason": (
+                        "all_triangles_geometry_qa_or_native_rlr_incompatible"
+                    ),
                 }
             )
         else:
@@ -197,7 +229,20 @@ def filter_research_geometry(
     output_triangles = np.ascontiguousarray(np.concatenate(triangle_chunks), dtype="<u4")
     output_material_ids = np.ascontiguousarray(np.concatenate(material_chunks), dtype="<u4")
     remaining_areas = triangle_areas(output_vertices, output_triangles)
-    if np.any(remaining_areas <= area_threshold):
+    remaining_points = output_vertices[output_triangles]
+    remaining_ab = (remaining_points[:, 1] - remaining_points[:, 0]).astype(
+        np.float64
+    )
+    remaining_ac = (remaining_points[:, 2] - remaining_points[:, 0]).astype(
+        np.float64
+    )
+    remaining_cross = np.cross(remaining_ab, remaining_ac)
+    remaining_cross_norm_squared = np.einsum(
+        "ij,ij->i", remaining_cross, remaining_cross
+    )
+    if np.any(remaining_areas <= qa_area_threshold) or np.any(
+        remaining_cross_norm_squared <= RLR_MIN_CROSS_NORM_SQUARED
+    ):
         raise ResearchCleanupError("derived geometry still contains degenerate triangles")
     if set(np.unique(output_material_ids)) != set(np.unique(source_material_ids)):
         raise ResearchCleanupError(
@@ -209,7 +254,11 @@ def filter_research_geometry(
         "policy": CLEANUP_POLICY,
         "research_only": True,
         "qualification_claim": False,
-        "area_threshold_m2_inclusive": area_threshold,
+        "qa_area_threshold_m2_inclusive": qa_area_threshold,
+        "rlr_cross_norm_squared_threshold_inclusive": RLR_MIN_CROSS_NORM_SQUARED,
+        "rlr_equivalent_area_threshold_m2_inclusive": (
+            0.5 * math.sqrt(RLR_MIN_CROSS_NORM_SQUARED)
+        ),
         "source_vertex_count": int(len(source_vertices)),
         "source_triangle_count": int(len(source_triangles)),
         "derived_vertex_count": int(len(output_vertices)),
@@ -221,6 +270,9 @@ def filter_research_geometry(
         "removed_triangle_area_min_m2": float(np.min(areas[removed_indices])),
         "removed_triangle_area_max_m2": float(np.max(areas[removed_indices])),
         "minimum_retained_triangle_area_m2": float(np.min(remaining_areas)),
+        "minimum_retained_cross_norm_squared": float(
+            np.min(remaining_cross_norm_squared)
+        ),
         "removed_by_object": removed_by_object,
         "removed_objects": removed_objects,
         "source_arrays": {
@@ -301,10 +353,23 @@ def derive_rlr_compatible_research_package(
     """Create one atomic, internally valid, research-only derived package."""
 
     source_manifest = Path(source_manifest_path).resolve()
-    output = Path(output_dir).resolve()
-    staging = output.with_name(f".{output.name}.staging")
-    if os.path.lexists(output) or os.path.lexists(staging):
-        raise ResearchCleanupError(f"refusing to replace cleanup output: {output}")
+    unresolved = Path(output_dir).expanduser()
+    if not unresolved.is_absolute():
+        unresolved = Path.cwd() / unresolved
+    if os.path.lexists(unresolved):
+        raise ResearchCleanupError(f"refusing to replace cleanup output: {unresolved}")
+    unresolved.parent.mkdir(parents=True, exist_ok=True)
+    output_parent = unresolved.parent.resolve(strict=True)
+    output = output_parent / unresolved.name
+    policy = WorkspacePathPolicy.from_roots([output_parent])
+    try:
+        output = policy.resolve_output(output, owner="research cleanup package")
+        staging = policy.resolve_output(
+            output.with_name(f".{output.name}.staging-{uuid4().hex}"),
+            owner="research cleanup staging directory",
+        )
+    except (FileExistsError, ValueError) as exc:
+        raise ResearchCleanupError(str(exc)) from exc
     validated = load_and_validate_acoustic_scene_package(source_manifest)
     manifest = validated.manifest
     if (
@@ -404,7 +469,7 @@ def derive_rlr_compatible_research_package(
             qa_paths[name] = path
 
         derived = deepcopy(manifest)
-        derived["package_id"] = f"{manifest['package_id']}_rlr_degenerate_filter_v1"
+        derived["package_id"] = _derived_package_id(manifest["package_id"])
         derived["source_room"]["source_revision"] = (
             f"{manifest['source_room']['source_revision']}; derived research-only "
             f"by {CLEANUP_POLICY} from source package "
@@ -451,15 +516,16 @@ def derive_rlr_compatible_research_package(
         output_manifest = staging / "manifest.json"
         write_json(output_manifest, derived)
         load_and_validate_acoustic_scene_package(output_manifest)
-        os.replace(staging, output)
+        published = atomic_publish_directory(policy, staging, output)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    return output / "manifest.json"
+    return published / "manifest.json"
 
 
 __all__ = [
     "CLEANUP_POLICY",
+    "DERIVED_PACKAGE_SUFFIX",
     "FilteredResearchGeometry",
     "ResearchCleanupError",
     "derive_rlr_compatible_research_package",

@@ -21,3 +21,17 @@ __all__ = [
     "prepare_dry_audio",
     "render_asset_bound_binaural",
 ]
+
+from .room_evaluation import (
+    RoomEvaluationError,
+    RoomEvaluationPlan,
+    build_room_evaluation_plan,
+    validate_episode_id,
+)
+
+__all__ += [
+    "RoomEvaluationError",
+    "RoomEvaluationPlan",
+    "build_room_evaluation_plan",
+    "validate_episode_id",
+]

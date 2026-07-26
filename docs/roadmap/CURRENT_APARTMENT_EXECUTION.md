@@ -1,6 +1,6 @@
 # Current Apartment execution
 
-Last updated: 2026-07-25
+Last updated: 2026-07-26
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
@@ -171,22 +171,55 @@ closure. Scene data must be shared rather than copied once per example.
   proxy. Its corrected living-room/kitchen/bathroom/bedroom probe set observed
   0/64 escaped rays and all four points passed the 5 cm clearance diagnostic,
   but topology still fails with 141,038 boundary edges and 1,492 nonmanifold
-  edges. Its material assignments remain uncalibrated research candidates,
+  edges. Its material assignments remain `research_placeholder`,
   and the old Kujiale videos still contain their labelled shoebox-preview
   audio. This work did not modify the Apartment package or its retained RIR
   cache; Apartment remains the current usable baseline.
+- The public engine-side Kujiale balanced-360 closure is complete without
+  regenerating the Apartment 1,000-example bank. The retained plan
+  `tmp/m7/kujiale_0020_zero_shot_balanced360_plan_100_20260726_01` contains
+  100 generic two-source episodes, 25 per motion case, all six ordered sound
+  pairs within every motion case, and front/right/rear/left frame fractions of
+  25.173%/25.487%/22.613%/26.727%. The observed minimum listener/source XZ
+  distance is 0.353553 m.
+- The matching real-USD research cache
+  `tmp/m7/kujiale_0020_real_usd_rir_cache_balanced360_2587_20260726_02`
+  is bound to cleanup package
+  `tmp/m3/kujiale_0020_usd_semantic_rlr_cleanup_20260726_03`, whose package ID
+  ends in `rlr_incompatible_filter_v2`, package-content SHA-256 is
+  `d041a8c511a957f4fd52a9e8c646332ea1158d24ab5e671fcd276c5903f44190`
+  and manifest SHA-256 is
+  `e9d23bc1247f22ffb4d8959e116c751a44aa4fe52c2f3f870c0fd407ad646cc0`.
+  Cache request identity
+  `7cc5b8c015ca4b3043660802585f9a2628c7a1c6e85956e7dbf5f1ca0e478330`
+  passed 2,587/2,587 native RIRs for all 5,000 source/keyframe uses in 41
+  retained shards (312,098,114 bytes) using the CPU-only RLR backend with 32
+  configured threads.
+- The cache-only output
+  `tmp/m7/kujiale_0020_zero_shot_balanced360_binaural_100_20260726_02`
+  contains 100 five-second, 16 kHz, two-channel mixtures plus 200 nonzero
+  persisted stems. Full readback proved every mixture is the exact float32
+  `source1 + source2` stem sum; the maximum mixture peak is
+  `0.05897637456655502` and the minimum stem peak is
+  `3.6796163840335794e-06`. Assembly took 98.9181 seconds with no native RLR
+  or visual render calls. Its passing output closure binds all 100 samples,
+  300 WAVE files, 300 sidecars and the producer/runtime identity.
+- This closure remains research-only: the Kujiale topology failure is still
+  open, materials are not physically calibrated, and none of these artifacts
+  establish real-room acoustic truth, dataset admission or real-world
+  generalization.
 
 ## Exact next actions
 
-1. Use the completed 1,000-episode Apartment closure for the first real
-   train/validation/test model run; freeze the exact model-facing index and
-   metrics without regenerating the already verified RGB/Topdown/audio bank.
-2. Generate a bounded native RLR RIR/cache canary from the new real-USD
-   Kujiale Acoustic Scene Package before replacing any old shoebox-preview
-   audio. Keep geometry topology failure and uncalibrated material state
-   visible in that result.
-3. Keep the isolated v4_3 experiment on its dedicated feature branch until its
-   training interface and next generalization experiment are reviewed.
+1. Freeze and reuse the verified Apartment and Kujiale engine-side
+   plan/RIR/cache/mixture artifacts; do not regenerate the Apartment 1,000
+   RGB/Topdown/audio bank for downstream experiments.
+2. Treat Kujiale topology repair and physical material calibration as separate
+   future work. Until both pass, preserve the `research_placeholder` and
+   research-only claim boundary in every derived artifact.
+3. Keep the owner-private v4.3 test experiment and its `locate` environment
+   outside the public AVEngine runtime. Its dedicated private feature branch is
+   permanently independent and must not be merged into this branch.
 4. Reconcile the Abyssinian generation request's `slim` body-build label with
    the current runtime baseline's `standard` research label before promoting
    that exact attribute provenance. A later owner-selected cat must still

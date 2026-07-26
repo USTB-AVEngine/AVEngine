@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m3.runtime import CompiledAcousticScene
 from avengine.m4.runtime import M4SimulationConfig
 from avengine.m6x.rir_cache import (
@@ -111,13 +112,19 @@ def _simulation() -> M4SimulationConfig:
 
 
 def _scene(tmp_path: Path) -> CompiledAcousticScene:
-    manifest = _write_json(tmp_path / "manifest.json", {"schema": "fixture"})
+    manifest_value = {
+        "schema": "fixture",
+        "package_id": "fixture",
+    }
+    package_content_sha256 = canonical_json_sha256(manifest_value)
+    manifest_value["package_content_sha256"] = package_content_sha256
+    manifest = _write_json(tmp_path / "manifest.json", manifest_value)
     return CompiledAcousticScene(
         manifest_path=manifest,
-        manifest_sha256="11" * 32,
-        manifest={},
+        manifest_sha256=sha256_file(manifest),
+        manifest=manifest_value,
         package_id="fixture",
-        package_content_sha256="22" * 32,
+        package_content_sha256=package_content_sha256,
         material_database_path=tmp_path / "materials.json",
         material_database_bytes=b"{}",
         material_database_sha256="33" * 32,
@@ -309,3 +316,101 @@ def test_cached_episode_reopens_exact_source_frame_grid(tmp_path: Path) -> None:
     second_from_resident_cache = session.load_episode("example_episode")
     assert len(shared_shards) == 2
     assert np.array_equal(first_from_resident_cache.samples, second_from_resident_cache.samples)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "cross_document_identity",
+        "scene_package_id",
+        "scene_manifest_sha256",
+        "scene_manifest_path",
+        "simulation_request_sha256",
+        "simulation_request_path",
+        "hrtf_sha256",
+        "hrtf_path",
+        "plan_path",
+        "receipt_full_job_count",
+        "receipt_selected_job_count",
+        "index_selected_job_count",
+    ),
+)
+def test_cache_session_rejects_tampered_request_identity_and_external_inputs(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    plan_path = _write_json(tmp_path / "plan.json", _episode_plan())
+    simulation_path = _write_json(
+        tmp_path / "simulation.json", {"simulation": _simulation().to_dict()}
+    )
+    hrtf = tmp_path / "fixture.sofa"
+    hrtf.write_bytes(b"fixture")
+    output = tmp_path / "cache"
+    render_rir_cache(
+        plan_path=plan_path,
+        scene=_scene(tmp_path),
+        simulation_request_path=simulation_path,
+        simulation=_simulation(),
+        output=output,
+        layout_type="binaural",
+        hrtf_file_path=hrtf,
+        batch_size=2,
+        renderer_factory=_FakeRenderer,
+    )
+    request_path = output / "request.json"
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    if mutation == "cross_document_identity":
+        forged = "aa" * 32
+        request["request_identity_sha256"] = forged
+        for name in ("receipt.json", "index.json"):
+            path = output / name
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["request_identity_sha256"] = forged
+            _write_json(path, value)
+    elif mutation == "scene_package_id":
+        request["acoustic_scene"]["package_id"] = "forged_package"
+    elif mutation == "scene_manifest_sha256":
+        request["acoustic_scene"]["manifest_sha256"] = "aa" * 32
+    elif mutation == "scene_manifest_path":
+        request["acoustic_scene"]["manifest_path"] = str(
+            tmp_path / "missing_manifest.json"
+        )
+    elif mutation == "simulation_request_sha256":
+        request["simulation"]["request_sha256"] = "aa" * 32
+    elif mutation == "simulation_request_path":
+        request["simulation"]["request_path"] = str(
+            tmp_path / "missing_simulation.json"
+        )
+    elif mutation == "hrtf_sha256":
+        request["output"]["hrtf_sha256"] = "aa" * 32
+    elif mutation == "hrtf_path":
+        request["output"]["hrtf_path"] = str(tmp_path / "missing.sofa")
+    elif mutation == "plan_path":
+        copied_plan = tmp_path / "copied_plan.json"
+        copied_plan.write_bytes(plan_path.read_bytes())
+        request["plan"]["path"] = str(copied_plan)
+    elif mutation in {
+        "receipt_full_job_count",
+        "receipt_selected_job_count",
+        "index_selected_job_count",
+    }:
+        file_name, field = {
+            "receipt_full_job_count": ("receipt.json", "full_plan_job_count"),
+            "receipt_selected_job_count": ("receipt.json", "selected_job_count"),
+            "index_selected_job_count": ("index.json", "selected_job_count"),
+        }[mutation]
+        path = output / file_name
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value[field] -= 1
+        _write_json(path, value)
+    else:  # pragma: no cover - parametrization is exhaustive.
+        raise AssertionError(mutation)
+    _write_json(request_path, request)
+
+    with pytest.raises(RIRCacheError):
+        RIRCacheSession(
+            cache_root=output,
+            plan_path=plan_path,
+            frame_count=75,
+            frame_rate_hz=15,
+        )

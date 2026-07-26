@@ -1046,9 +1046,40 @@ hashes. It does guarantee that the retained cache binds the exact scene,
 material profile, listener, source positions, simulation settings and HRTF;
 checks every native endpoint receipt, array shape, sample rate, finite/nonzero
 payload and per-RIR hash; and then reuses those fixed bytes for later dry-audio
-convolution and event variants. Kujiale must not use the Apartment package:
-its real-USD Acoustic Scene Package now exists, but a native Kujiale RIR cache
-and physical material calibration remain pending.
+convolution and event variants. Kujiale does not reuse the Apartment package.
+The retained balanced-360 engine closure is
+`tmp/m7/kujiale_0020_zero_shot_balanced360_plan_100_20260726_01`: 100 generic
+`source1`/`source2` episodes, 25 in each motion case, with front/right/rear/left
+frame fractions of 25.173%/25.487%/22.613%/26.727% and a 0.353553 m observed
+minimum listener/source XZ distance. Its real-USD research cache is
+derived from
+`tmp/m3/kujiale_0020_usd_semantic_rlr_cleanup_20260726_03`, whose package ID
+ends in `rlr_incompatible_filter_v2`, package-content SHA-256 is
+`d041a8c511a957f4fd52a9e8c646332ea1158d24ab5e671fcd276c5903f44190`
+and manifest SHA-256 is
+`e9d23bc1247f22ffb4d8959e116c751a44aa4fe52c2f3f870c0fd407ad646cc0`.
+The matching cache is
+`tmp/m7/kujiale_0020_real_usd_rir_cache_balanced360_2587_20260726_02`;
+its request identity is
+`7cc5b8c015ca4b3043660802585f9a2628c7a1c6e85956e7dbf5f1ca0e478330`.
+All 2,587/2,587 native RIRs cover all 5,000 uses in 41 retained shards
+(312,098,114 bytes) from the CPU-only RLR backend configured for 32 threads.
+
+The cache-only audio assembly is
+`tmp/m7/kujiale_0020_zero_shot_balanced360_binaural_100_20260726_02`.
+All 100 five-second, 16 kHz, two-channel mixtures and all 200 nonzero
+`source1`/`source2` stems passed authenticated float32 WAVE readback. Each
+delivered mixture is the exact persisted float32 sum of its two delivered
+stems, the maximum observed mixture peak is `0.05897637456655502` against a
+0.95 gate and the minimum observed stem peak is
+`3.6796163840335794e-06`. Assembly took 98.9181 seconds with
+`native_rlr_calls == 0` and `visual_render_calls == 0`; its passing output
+closure binds all 100 samples, 300 WAVE files, 300 sidecars and the
+producer/runtime identity. This is a public engine dataset/evidence contract,
+not a model result. The `kujiale_0020` package still fails topology review, its
+material assignments remain `research_placeholder`, and this closure makes no
+physical-calibration, real-room acoustic-truth, dataset-admission or
+real-world-generalization claim.
 
 The earlier `_04` closeout capture is a historical `320x240` baseline, and
 `_06` predates the hidden test markers, direction-projected exterior and normal
@@ -1103,6 +1134,11 @@ with its actual 3-D OBB rather than being flattened into a floor blocker.
 | --- | --- |
 | `Eastforward/AVEngine` (this repository) | asset/room/episode packages, integer timeline, CLI, registries, QA, provenance, dataset admission, benchmark and paper artifacts |
 | `Eastforward/habitat-sim-AVEngine` | isolated Habitat runtime extensions: articulated playback, explicit acoustic ingestion, modern RLR adapter, runtime tests |
+
+This public repository owns the generic room plan, RIR-cache and binaural
+mixture contracts. Owner-private model experiments, their environments,
+checkpoints and evaluation results remain outside this repository and must not
+be merged into this branch.
 
 Legacy UE/SPEAR + gpuRIR material remains migration evidence and an optional
 comparison route. It is no longer the primary architecture or setup path.
@@ -1182,7 +1218,7 @@ arbitrary generated episode is synchronized.
 | M2.1 | appearance L9 and cross-species two-room diagnostics — research-only evidence (`pass`) |
 | M3 | explicit acoustic scene and synthetic material-activation canary (`pass`) |
 | M3.1 | global/per-material acoustic profiles (`pass`); native target-decay calibration evidence (`not_run`) |
-| M3.2 | semantic material compiler, optional composed-USD snapshot compiler and mesh enclosure diagnostics (`research_candidate`; MP3D and real Kujiale USD packages complete, physical calibration open) |
+| M3.2 | semantic material compiler, optional composed-USD snapshot compiler and mesh enclosure diagnostics (`research_candidate`; MP3D and real Kujiale USD packages complete; Kujiale materials remain `research_placeholder`, topology and physical calibration open) |
 | M4 | modern named multi-source/listener RLR, per-source FOA/binaural WAV stems and canary mixtures (`pass`, bounded software/source-pose gate) |
 | M5 | exact timeline, visual-invariant counterfactual pair and 2ch binaural video mux/readback (`pass`, bounded research canary) |
 | M5.1 | corrected anatomical heading, room-bound PBR/HBAO, mixed human/Beagle real-room and legacy 18-second comparison, same-room MP3D UE/Habitat visual triptych, listener-basis Topdown and detailed source/event/flag metadata (`pass`, bounded research review; no dataset admission) |

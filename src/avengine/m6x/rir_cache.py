@@ -465,6 +465,217 @@ def _verify_shard_request(
             raise RIRCacheError(f"retained shard signal padding is invalid: {path}")
 
 
+def _declared_sha256(value: Any, *, owner: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise RIRCacheError(f"{owner} SHA-256 is malformed")
+    return value
+
+
+def _request_section(value: Mapping[str, Any], name: str) -> Mapping[str, Any]:
+    section = value.get(name)
+    if not isinstance(section, Mapping):
+        raise RIRCacheError(f"RIR cache request {name} section is invalid")
+    return section
+
+
+def _request_identity_payload(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Reconstruct the exact canonical subset used by the v1 producer."""
+
+    plan = _request_section(value, "plan")
+    scene = _request_section(value, "acoustic_scene")
+    simulation = _request_section(value, "simulation")
+    output = _request_section(value, "output")
+    runtime = _request_section(value, "runtime_policy")
+    plan_sha256 = _declared_sha256(plan.get("sha256"), owner="RIR plan")
+    scene_sha256 = _declared_sha256(
+        scene.get("package_content_sha256"),
+        owner="acoustic package content",
+    )
+    effective_simulation = simulation.get("effective")
+    if not isinstance(effective_simulation, Mapping) or not effective_simulation:
+        raise RIRCacheError("RIR cache effective simulation is invalid")
+    hrtf_sha256 = output.get("hrtf_sha256")
+    if hrtf_sha256 is not None:
+        hrtf_sha256 = _declared_sha256(hrtf_sha256, owner="HRTF")
+    layout_type = output.get("layout_type")
+    if layout_type not in {"binaural", "ambisonics"}:
+        raise RIRCacheError("RIR cache request layout type is invalid")
+    batch_size = _positive_int(
+        runtime.get("native_batch_size"),
+        owner="RIR cache native batch size",
+    )
+    job_offset = plan.get("selected_job_offset")
+    if isinstance(job_offset, bool) or not isinstance(job_offset, int) or job_offset < 0:
+        raise RIRCacheError("RIR cache selected job offset is invalid")
+    job_count = _positive_int(
+        plan.get("selected_job_count"),
+        owner="RIR cache selected job count",
+    )
+    translation = _finite_vector(
+        runtime.get("coordinate_translation_m"),
+        3,
+        owner="RIR cache coordinate translation",
+    )
+    radii: dict[str, float | int] = {}
+    for name in ("source_radius_m", "listener_radius_m"):
+        radius = runtime.get(name)
+        if (
+            isinstance(radius, bool)
+            or not isinstance(radius, (int, float))
+            or not math.isfinite(float(radius))
+            or float(radius) < 0.0
+        ):
+            raise RIRCacheError(f"RIR cache {name} is invalid")
+        radii[name] = radius
+    compressed = output.get("compressed_npz_shards")
+    if not isinstance(compressed, bool):
+        raise RIRCacheError("RIR cache compression policy is invalid")
+    return {
+        "plan_sha256": plan_sha256,
+        "scene_sha256": scene_sha256,
+        "simulation": dict(effective_simulation),
+        "hrtf_sha256": hrtf_sha256,
+        "layout_type": layout_type,
+        "batch_size": batch_size,
+        "job_offset": job_offset,
+        "job_count": job_count,
+        "translation_m": list(translation),
+        "source_radius_m": radii["source_radius_m"],
+        "listener_radius_m": radii["listener_radius_m"],
+        "compressed": compressed,
+    }
+
+
+def _verify_request_identity(value: Mapping[str, Any]) -> str:
+    declared = _declared_sha256(
+        value.get("request_identity_sha256"),
+        owner="RIR cache request identity",
+    )
+    recomputed = canonical_json_sha256(_request_identity_payload(value))
+    if recomputed != declared:
+        raise RIRCacheError(
+            "RIR cache request identity differs from its canonical request fields"
+        )
+    return recomputed
+
+
+def _verified_external_file(
+    raw_path: Any,
+    expected_sha256: Any,
+    *,
+    owner: str,
+) -> dict[str, Any]:
+    if not isinstance(raw_path, str) or not raw_path or not Path(raw_path).is_absolute():
+        raise RIRCacheError(f"{owner} path must be absolute")
+    expected = _declared_sha256(expected_sha256, owner=owner)
+    try:
+        path = Path(raw_path).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise RIRCacheError(f"{owner} path cannot be resolved: {raw_path}") from exc
+    if not path.is_file():
+        raise RIRCacheError(f"{owner} is not a regular file: {path}")
+    actual = sha256_file(path)
+    if actual != expected:
+        raise RIRCacheError(f"{owner} file SHA-256 differs from the cache request")
+    return {
+        "declared_path": raw_path,
+        "resolved_path": str(path),
+        "byte_size": path.stat().st_size,
+        "sha256": actual,
+    }
+
+
+def _verify_request_external_inputs(
+    value: Mapping[str, Any],
+    *,
+    expected_plan_path: Path,
+) -> dict[str, Any]:
+    """Authenticate every request-declared external input still available."""
+
+    plan = _request_section(value, "plan")
+    plan_record = _verified_external_file(
+        plan.get("path"),
+        plan.get("sha256"),
+        owner="RIR plan",
+    )
+    if Path(plan_record["resolved_path"]) != expected_plan_path.resolve(strict=True):
+        raise RIRCacheError("RIR cache request plan path differs from the selected plan")
+
+    scene = _request_section(value, "acoustic_scene")
+    scene_record = _verified_external_file(
+        scene.get("manifest_path"),
+        scene.get("manifest_sha256"),
+        owner="acoustic package manifest",
+    )
+    package_id = scene.get("package_id")
+    package_content_sha256 = _declared_sha256(
+        scene.get("package_content_sha256"),
+        owner="acoustic package content",
+    )
+    if not isinstance(package_id, str) or not package_id:
+        raise RIRCacheError("RIR cache acoustic package_id is invalid")
+    try:
+        manifest = load_json(Path(scene_record["resolved_path"]))
+    except (OSError, ValueError, TypeError) as exc:
+        raise RIRCacheError("RIR cache acoustic package manifest is unreadable") from exc
+    manifest_content = manifest.get("package_content_sha256")
+    recomputed_content = canonical_json_sha256(
+        {
+            key: item
+            for key, item in manifest.items()
+            if key != "package_content_sha256"
+        }
+    )
+    if (
+        manifest.get("package_id") != package_id
+        or manifest_content != package_content_sha256
+        or recomputed_content != package_content_sha256
+    ):
+        raise RIRCacheError(
+            "RIR cache acoustic scene identity differs from its actual manifest"
+        )
+    scene_record.update(
+        {
+            "package_id": package_id,
+            "package_content_sha256": package_content_sha256,
+            "manifest_content_identity_verified": True,
+        }
+    )
+
+    simulation = _request_section(value, "simulation")
+    simulation_record = _verified_external_file(
+        simulation.get("request_path"),
+        simulation.get("request_sha256"),
+        owner="RIR simulation request",
+    )
+
+    output = _request_section(value, "output")
+    layout_type = output.get("layout_type")
+    hrtf_path = output.get("hrtf_path")
+    hrtf_sha256 = output.get("hrtf_sha256")
+    if layout_type == "binaural":
+        hrtf_record: Mapping[str, Any] | None = _verified_external_file(
+            hrtf_path,
+            hrtf_sha256,
+            owner="binaural HRTF",
+        )
+    elif layout_type == "ambisonics" and hrtf_path is None and hrtf_sha256 is None:
+        hrtf_record = None
+    else:
+        raise RIRCacheError("RIR cache HRTF declaration differs from its layout")
+    return {
+        "status": "pass",
+        "plan": plan_record,
+        "acoustic_scene": scene_record,
+        "simulation_request": simulation_record,
+        "hrtf": hrtf_record,
+    }
+
+
 def _request_record(
     *,
     plan_path: Path,
@@ -488,7 +699,7 @@ def _request_record(
         layout_type=layout_type,
         channel_count=channel_count,
     )
-    return {
+    request = {
         "schema": RIR_CACHE_REQUEST_SCHEMA,
         "plan": {
             "path": str(plan_path),
@@ -528,25 +739,13 @@ def _request_record(
             "compute_device": "CPU",
             "gpu_acceleration": False,
         },
-        "request_identity_sha256": canonical_json_sha256(
-            {
-                "plan_sha256": sha256_file(plan_path),
-                "scene_sha256": scene.package_content_sha256,
-                "simulation": effective_simulation.to_dict(),
-                "hrtf_sha256": (
-                    sha256_file(hrtf_file_path) if hrtf_file_path else None
-                ),
-                "layout_type": layout_type,
-                "batch_size": batch_size,
-                "job_offset": job_offset,
-                "job_count": job_count,
-                "translation_m": list(translation_m),
-                "source_radius_m": source_radius_m,
-                "listener_radius_m": listener_radius_m,
-                "compressed": compressed,
-            }
-        ),
     }
+    request["request_identity_sha256"] = canonical_json_sha256(
+        _request_identity_payload(request)
+    )
+    _verify_request_identity(request)
+    _verify_request_external_inputs(request, expected_plan_path=plan_path)
+    return request
 
 
 def render_rir_cache(
@@ -951,18 +1150,29 @@ class RIRCacheSession:
         index = load_json(self.root / "index.json")
         jobs = validate_rir_job_plan(load_json(plan_source))
         self.plan_sha256 = sha256_file(plan_source)
+        request_identity = _verify_request_identity(request)
+        self.external_input_identity = _verify_request_external_inputs(
+            request,
+            expected_plan_path=plan_source,
+        )
+        request_plan = request.get("plan", {})
         if (
             request.get("schema") != RIR_CACHE_REQUEST_SCHEMA
-            or request.get("plan", {}).get("sha256") != self.plan_sha256
-            or request.get("plan", {}).get("full_job_count") != len(jobs)
+            or request_plan.get("sha256") != self.plan_sha256
+            or request_plan.get("full_job_count") != len(jobs)
+            or request_plan.get("selected_job_offset") != 0
+            or request_plan.get("selected_job_count") != len(jobs)
             or receipt.get("schema") != RIR_CACHE_RECEIPT_SCHEMA
             or receipt.get("status") != "pass"
             or receipt.get("full_plan_complete") is not True
-            or receipt.get("request_identity_sha256") != request.get("request_identity_sha256")
+            or receipt.get("full_plan_job_count") != len(jobs)
+            or receipt.get("selected_job_count") != len(jobs)
+            or receipt.get("request_identity_sha256") != request_identity
             or index.get("schema") != RIR_CACHE_INDEX_SCHEMA
             or index.get("status") != "pass"
             or index.get("full_plan_complete") is not True
-            or index.get("request_identity_sha256") != request.get("request_identity_sha256")
+            or index.get("selected_job_count") != len(jobs)
+            or index.get("request_identity_sha256") != request_identity
         ):
             raise RIRCacheError("RIR cache request/receipt/index closure is invalid")
         output = request.get("output")
@@ -1005,7 +1215,8 @@ class RIRCacheSession:
                 if key in by_use:
                     raise RIRCacheError("episode use resolves to multiple RIR jobs")
                 by_use[key] = job
-        self.request_identity_sha256 = request["request_identity_sha256"]
+        self.request_identity_sha256 = request_identity
+        self.acoustic_scene_identity = self.external_input_identity["acoustic_scene"]
         self.retained_shards = (
             shared_shard_cache if shared_shard_cache is not None else {}
         )
