@@ -154,6 +154,13 @@ def main(argv: list[str] | None = None) -> int:
         default=REPOSITORY / "examples/m6x/fixed_apartment/room_capsule.json",
     )
     parser.add_argument(
+        "--m1-request",
+        type=Path,
+        default=REPOSITORY
+        / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json",
+        help="Camera calibration authority; must agree with the RIR plan listener",
+    )
+    parser.add_argument(
         "--schema",
         type=Path,
         default=REPOSITORY / "schemas/avengine_qa_fact_table_v1.schema.json",
@@ -184,8 +191,35 @@ def main(argv: list[str] | None = None) -> int:
     registry = load_json(args.registry)
     anchor_library = load_json(args.anchor_library)
     room_capsule = load_json(args.room_capsule)
+    m1_request = load_json(args.m1_request)
     schema_document = load_json(args.schema)
     validator = jsonschema.Draft202012Validator(schema_document)
+
+    camera_rig = m1_request["primary_camera_rig"]
+    calibration = camera_rig["shared_calibration"]
+    world_from_rig = camera_rig["world_from_rig"]
+    rig_translation = np.asarray(world_from_rig["translation_m"], dtype=np.float64)
+    rig_xyzw = np.asarray(world_from_rig["rotation_xyzw"], dtype=np.float64)
+    plan_position = np.asarray(plan["listener_position_m"], dtype=np.float64)
+    plan_wxyz = np.asarray(plan["listener_orientation_wxyz"], dtype=np.float64)
+    _require(
+        bool(np.all(np.abs(rig_translation - plan_position) <= 1.0e-9)),
+        "M1 camera rig translation disagrees with the RIR plan listener position",
+    )
+    rig_wxyz = np.asarray(
+        [rig_xyzw[3], rig_xyzw[0], rig_xyzw[1], rig_xyzw[2]], dtype=np.float64
+    )
+    _require(
+        bool(
+            np.all(np.abs(rig_wxyz - plan_wxyz) <= 1.0e-9)
+            or np.all(np.abs(rig_wxyz + plan_wxyz) <= 1.0e-9)
+        ),
+        "M1 camera rig rotation disagrees with the RIR plan listener orientation",
+    )
+    camera = {
+        "hfov_degrees": float(calibration["hfov_degrees"]),
+        "resolution_hw": [int(value) for value in calibration["resolution_hw"]],
+    }
 
     _require(
         delivery.get("schema") == DELIVERY_SCHEMA and delivery.get("status") == "pass",
@@ -230,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
         _provenance_record("source_asset_runtime_registry", args.registry.resolve()),
         _provenance_record("anchor_library", args.anchor_library.resolve()),
         _provenance_record("room_capsule", args.room_capsule.resolve()),
+        _provenance_record("m1_capture_request", args.m1_request.resolve()),
     ]
     room = {
         "room_capsule_id": room_capsule["room_capsule_id"],
@@ -275,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
                 registry=registry,
                 anchors=anchors,
                 room=room,
+                camera=camera,
                 rir_cache_request_identity_sha256=cache_identity_by_episode[episode_id],
                 provenance_inputs=provenance_inputs,
             )
