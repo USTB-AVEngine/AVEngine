@@ -107,7 +107,7 @@ def test_source_manifest_and_flags_close_over_generic_endpoint_ids() -> None:
             "life_stage": "adult",
             "coat_profile": {
                 "profile_id": "cat_abyssinian_coat_v1",
-                "value": "ruddy",
+                "value": "standard_ruddy",
             },
         },
     }

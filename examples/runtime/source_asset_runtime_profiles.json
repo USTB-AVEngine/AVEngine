@@ -1,7 +1,7 @@
 {
   "schema": "avengine_source_asset_runtime_registry_v1",
   "registry_id": "avengine_source_asset_runtime_profiles_v1",
-  "revision": "20260724_v2",
+  "revision": "20260726_v3",
   "aliases": {
     "current_generated_cat": {
       "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
@@ -40,8 +40,13 @@
         "life_stage": "adult",
         "coat_profile": {
           "profile_id": "cat_abyssinian_coat_v1",
-          "value": "ruddy"
+          "value": "standard_ruddy"
         }
+      },
+      "generation_request_attributes": {
+        "size": "medium",
+        "body_build": "slim",
+        "life_stage": "adult"
       },
       "geometry": {
         "mesh_authority": "generated_pixel3d_target_native",
@@ -107,8 +112,13 @@
         "life_stage": "adult",
         "coat_profile": {
           "profile_id": "dog_border_collie_coat_v1",
-          "value": "black_white"
+          "value": "standard_black_white"
         }
+      },
+      "generation_request_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult"
       },
       "geometry": {
         "mesh_authority": "generated_pixel3d_target_native",
@@ -174,8 +184,13 @@
         "life_stage": "adult",
         "coat_profile": {
           "profile_id": "dog_labrador_retriever_coat_v1",
-          "value": "yellow"
+          "value": "standard_yellow"
         }
+      },
+      "generation_request_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult"
       },
       "geometry": {
         "mesh_authority": "generated_pixel3d_target_native",

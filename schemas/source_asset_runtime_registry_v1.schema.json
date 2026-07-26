@@ -78,6 +78,16 @@
         "coat_profile": {"$ref": "#/$defs/coat_profile"}
       }
     },
+    "generation_request_attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "body_build", "life_stage"],
+      "properties": {
+        "size": {"enum": ["small", "medium", "large"]},
+        "body_build": {"enum": ["slim", "standard", "stocky"]},
+        "life_stage": {"enum": ["young", "adult", "senior"]}
+      }
+    },
     "geometry": {
       "type": "object",
       "additionalProperties": false,
@@ -272,6 +282,9 @@
         },
         "identity": {"$ref": "#/$defs/identity"},
         "realized_attributes": {"$ref": "#/$defs/realized_attributes"},
+        "generation_request_attributes": {
+          "$ref": "#/$defs/generation_request_attributes"
+        },
         "geometry": {"$ref": "#/$defs/geometry"},
         "timeline": {"$ref": "#/$defs/timeline"},
         "default_emitter_anchor_id": {"$ref": "#/$defs/stable_id"},
