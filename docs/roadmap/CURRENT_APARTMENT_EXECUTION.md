@@ -333,7 +333,11 @@ closure. Scene data must be shared rather than copied once per example.
 - The source work is `cc-instance-attr-generalization` in this repository
   plus `cc-asset-pipeline-hardening` in the legacy SPEAR tools repository.
   The native-side source has been integrated here without regenerating any
-  frozen artifact:
+  frozen artifact.  On the isolated
+  `cc-native-asset-integration-validation` branch, the combined targeted
+  suite passed 144/144 and the complete suite passed 1,662 tests with one
+  retained-evidence canary skipped; `feature/habitat-native-avengine` itself
+  was not moved:
   - The three generated coat profiles (`cat_abyssinian_coat_v1`,
     `dog_border_collie_coat_v1`, `dog_labrador_retriever_coat_v1`) are now
     registered in the fail-closed appearance contract with beagle-pattern
