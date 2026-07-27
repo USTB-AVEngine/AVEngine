@@ -46,6 +46,36 @@ BEAGLE_COAT_VALUES = (
     "standard_tricolor",
     "dark_tricolor",
 )
+ABYSSINIAN_COAT_VALUES = (
+    "light_ruddy",
+    "standard_ruddy",
+    "dark_ruddy",
+)
+BORDER_COLLIE_COAT_VALUES = (
+    "light_black_white",
+    "standard_black_white",
+    "dark_black_white",
+)
+LABRADOR_COAT_VALUES = (
+    "light_yellow",
+    "standard_yellow",
+    "dark_yellow",
+)
+SHIBA_INU_COAT_VALUES = (
+    "light_red",
+    "standard_red",
+    "dark_red",
+)
+PEMBROKE_WELSH_CORGI_COAT_VALUES = (
+    "light_red_white",
+    "standard_red_white",
+    "dark_red_white",
+)
+BRITISH_SHORTHAIR_COAT_VALUES = (
+    "light_blue",
+    "standard_blue",
+    "dark_blue",
+)
 
 # Reviewed coat vocabularies are registered by their complete taxonomic and
 # profile identity.  A namespaced-looking ``profile_id`` is not registration:
@@ -59,6 +89,36 @@ COAT_PROFILE_DOMAINS: Mapping[tuple[str, str, str], tuple[str, str, str]] = (
                 "beagle",
                 "dog_beagle_tricolor_v1",
             ): BEAGLE_COAT_VALUES,
+            (
+                "cat",
+                "abyssinian",
+                "cat_abyssinian_coat_v1",
+            ): ABYSSINIAN_COAT_VALUES,
+            (
+                "dog",
+                "border_collie",
+                "dog_border_collie_coat_v1",
+            ): BORDER_COLLIE_COAT_VALUES,
+            (
+                "dog",
+                "labrador_retriever",
+                "dog_labrador_retriever_coat_v1",
+            ): LABRADOR_COAT_VALUES,
+            (
+                "dog",
+                "shiba_inu",
+                "dog_shiba_inu_coat_v1",
+            ): SHIBA_INU_COAT_VALUES,
+            (
+                "dog",
+                "pembroke_welsh_corgi",
+                "dog_pembroke_welsh_corgi_coat_v1",
+            ): PEMBROKE_WELSH_CORGI_COAT_VALUES,
+            (
+                "cat",
+                "british_shorthair",
+                "cat_british_shorthair_coat_v1",
+            ): BRITISH_SHORTHAIR_COAT_VALUES,
         }
     )
 )
@@ -80,6 +140,84 @@ COAT_PROFILE_REALIZATION_RULES: Mapping[
                 "dark_level": "dark_tricolor",
                 "baseline_level": "standard_tricolor",
                 "preserve_pattern": "tricolor",
+            }
+        ),
+        (
+            "cat",
+            "abyssinian",
+            "cat_abyssinian_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_ruddy",
+                "neutral_level": "standard_ruddy",
+                "dark_level": "dark_ruddy",
+                "baseline_level": "standard_ruddy",
+                "preserve_pattern": "ticked",
+            }
+        ),
+        (
+            "dog",
+            "border_collie",
+            "dog_border_collie_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_black_white",
+                "neutral_level": "standard_black_white",
+                "dark_level": "dark_black_white",
+                "baseline_level": "standard_black_white",
+                "preserve_pattern": "black_white",
+            }
+        ),
+        (
+            "dog",
+            "labrador_retriever",
+            "dog_labrador_retriever_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_yellow",
+                "neutral_level": "standard_yellow",
+                "dark_level": "dark_yellow",
+                "baseline_level": "standard_yellow",
+                "preserve_pattern": "solid_yellow",
+            }
+        ),
+        (
+            "dog",
+            "shiba_inu",
+            "dog_shiba_inu_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_red",
+                "neutral_level": "standard_red",
+                "dark_level": "dark_red",
+                "baseline_level": "standard_red",
+                "preserve_pattern": "urajiro",
+            }
+        ),
+        (
+            "dog",
+            "pembroke_welsh_corgi",
+            "dog_pembroke_welsh_corgi_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_red_white",
+                "neutral_level": "standard_red_white",
+                "dark_level": "dark_red_white",
+                "baseline_level": "standard_red_white",
+                "preserve_pattern": "white_marked",
+            }
+        ),
+        (
+            "cat",
+            "british_shorthair",
+            "cat_british_shorthair_coat_v1",
+        ): MappingProxyType(
+            {
+                "light_level": "light_blue",
+                "neutral_level": "standard_blue",
+                "dark_level": "dark_blue",
+                "baseline_level": "standard_blue",
+                "preserve_pattern": "solid",
             }
         ),
     }

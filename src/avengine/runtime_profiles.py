@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
 
+from avengine.appearance.contracts import CANONICAL_DOMAINS, COAT_PROFILE_DOMAINS
 from avengine.contracts.json_io import load_json
 
 
@@ -146,6 +147,39 @@ def validate_source_asset_runtime_registry(value: Any) -> list[str]:
             errors.append(f"{prefix}: emitter anchor IDs must be unique")
         if record.get("default_emitter_anchor_id") not in anchor_ids:
             errors.append(f"{prefix}: default emitter anchor does not resolve")
+
+        identity = record.get("identity")
+        attributes = record.get("realized_attributes")
+        if isinstance(identity, Mapping) and isinstance(attributes, Mapping):
+            coat = attributes.get("coat_profile")
+            if isinstance(coat, Mapping):
+                registry_key = (
+                    str(identity.get("species_id")),
+                    str(identity.get("breed_id")),
+                    str(coat.get("profile_id")),
+                )
+                domain = COAT_PROFILE_DOMAINS.get(registry_key)
+                if domain is None:
+                    errors.append(
+                        f"{prefix}: coat profile {registry_key!r} is not "
+                        "registered in the appearance contract; a "
+                        "namespaced-looking profile_id is not registration"
+                    )
+                elif coat.get("value") not in domain:
+                    errors.append(
+                        f"{prefix}: coat value {coat.get('value')!r} is outside "
+                        f"the registered domain {domain}"
+                    )
+
+        generation = record.get("generation_request_attributes")
+        if generation is not None and isinstance(generation, Mapping):
+            for axis in ("size", "body_build", "life_stage"):
+                sampled = generation.get(axis)
+                if sampled is not None and sampled not in CANONICAL_DOMAINS[axis]:
+                    errors.append(
+                        f"{prefix}: generation_request_attributes.{axis} "
+                        f"{sampled!r} is outside the canonical domain"
+                    )
 
         timeline = record.get("timeline")
         if isinstance(timeline, Mapping):

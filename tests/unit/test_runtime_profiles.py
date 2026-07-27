@@ -48,7 +48,7 @@ def test_source_alias_resolves_timeline_emitter_and_ue_from_one_asset_record():
     )
 
     assert cat["identity"] == {"species_id": "cat", "breed_id": "abyssinian"}
-    assert cat["realized_attributes"]["coat_profile"]["value"] == "ruddy"
+    assert cat["realized_attributes"]["coat_profile"]["value"] == "standard_ruddy"
     assert cat["geometry"]["mesh_authority"] == "generated_pixel3d_target_native"
     assert timeline["body_plan_id"] == "quadruped_mammal_felid_v1"
     assert ue["walking_animation"].endswith("/Walking.Walking")
@@ -84,8 +84,13 @@ def test_new_labrador_is_an_independent_generated_runtime_asset():
         "life_stage": "adult",
         "coat_profile": {
             "profile_id": "dog_labrador_retriever_coat_v1",
-            "value": "yellow",
+            "value": "standard_yellow",
         },
+    }
+    assert labrador["generation_request_attributes"] == {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
     }
     assert labrador["geometry"]["mesh_authority"] == (
         "generated_pixel3d_target_native"
@@ -193,3 +198,52 @@ def test_habitat_native_profile_rejects_ue_map_paths():
     )
     errors = validate_room_runtime_profile_registry(rooms)
     assert any("habitat_native map_path" in error for error in errors)
+
+
+def test_unregistered_coat_profile_fails_closed():
+    registry = load_default_source_asset_runtime_registry()
+    broken = deepcopy(registry)
+    cat = next(
+        record
+        for record in broken["assets"]
+        if record["identity"] == {"species_id": "cat", "breed_id": "abyssinian"}
+    )
+    cat["realized_attributes"]["coat_profile"]["profile_id"] = (
+        "cat_abyssinian_unreviewed_coat_v9"
+    )
+    errors = validate_source_asset_runtime_registry(broken)
+    assert any("not registered in the appearance contract" in error for error in errors)
+
+
+def test_coat_value_outside_registered_domain_fails_closed():
+    registry = load_default_source_asset_runtime_registry()
+    broken = deepcopy(registry)
+    cat = next(
+        record
+        for record in broken["assets"]
+        if record["identity"] == {"species_id": "cat", "breed_id": "abyssinian"}
+    )
+    cat["realized_attributes"]["coat_profile"]["value"] = "blue"
+    errors = validate_source_asset_runtime_registry(broken)
+    assert any("outside the registered domain" in error for error in errors)
+
+
+def test_generation_request_provenance_is_separate_from_instance_baseline():
+    registry = load_default_source_asset_runtime_registry()
+    cat = resolve_source_asset_alias(registry, "current_generated_cat")
+
+    # The Abyssinian breed base mesh was generated from a `slim` request
+    # (breed-accurate morphology) while the instance-variation baseline is the
+    # neutral `standard` level of this asset's own realizer domain.  Both are
+    # recorded explicitly instead of colliding in one field.
+    assert cat["generation_request_attributes"]["body_build"] == "slim"
+    assert cat["realized_attributes"]["body_build"] == "standard"
+
+    broken = deepcopy(registry)
+    target = next(
+        record
+        for record in broken["assets"]
+        if record["identity"] == {"species_id": "cat", "breed_id": "abyssinian"}
+    )
+    target["generation_request_attributes"]["body_build"] = "athletic"
+    assert validate_source_asset_runtime_registry(broken) != []

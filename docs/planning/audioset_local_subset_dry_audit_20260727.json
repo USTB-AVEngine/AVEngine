@@ -1,0 +1,32 @@
+{
+  "schema": "cc_audioset_local_subset_dry_audit_v1",
+  "date": "2026-07-27",
+  "source_csv": "/data/datasets/omniaudio/audioset_out.csv",
+  "total_clips": 22159,
+  "method": "label-membership hit count over the labels column; 'clean' = clip carries <=2 total labels (first-cut dry-separability proxy; per-clip SNR/audition review still required before registration)",
+  "t1_hit_counts": {
+    "dog": {"any": 336, "clean": 32, "labels": {"Dog": 273, "Bark": 60, "Growling": 61, "Whimper (dog)": 60, "Howl": 60, "Bow-wow": 60}},
+    "cat": {"any": 267, "clean": 79, "labels": {"Cat": 122, "Meow": 60, "Purr": 60, "Hiss": 95, "Caterwaul": 60}},
+    "phone": {"any": 151, "clean": 71, "labels": {"Telephone": 60, "Telephone bell ringing": 60, "Ringtone": 60}},
+    "alarm_clock": {"any": 62, "clean": 47, "labels": {"Alarm clock": 62}},
+    "doorbell": {"any": 110, "clean": 63, "labels": {"Doorbell": 60, "Ding-dong": 60}},
+    "door": {"any": 281, "clean": 180, "labels": {"Door": 61, "Knock": 60, "Slam": 61, "Squeak": 60, "Creak": 60}},
+    "microwave": {"any": 60, "clean": 52, "labels": {"Microwave oven": 60}},
+    "kettle_boiling": {"any": 60, "clean": 39, "labels": {"Boiling": 60}},
+    "vacuum": {"any": 60, "clean": 59, "labels": {"Vacuum cleaner": 60}},
+    "washer": {"any": 0, "clean": 0, "labels": {}},
+    "fan_ac": {"any": 120, "clean": 101, "labels": {"Mechanical fan": 60, "Air conditioning": 60}},
+    "clock": {"any": 143, "clean": 121, "labels": {"Clock": 60, "Tick": 60, "Tick-tock": 60}},
+    "tap_sink": {"any": 122, "clean": 38, "labels": {"Sink (filling or washing)": 66, "Bathtub (filling or washing)": 60}},
+    "music_box": {"any": 0, "clean": 0, "labels": {}},
+    "speech": {"any": 5735, "clean": 2474, "labels": {"Speech": 5735}}
+  },
+  "full_crawl_required": [
+    "Washing machine",
+    "Dishwasher",
+    "Music box",
+    "Whistling kettle / Kettle whistle",
+    "Water tap, faucet"
+  ],
+  "notes": "Subset appears built with ~60-clips-per-label sampling, so per-label ceilings are 60; the owner's crawl script /data/jzy/code/Spatial/2-create_dataset_audioset.py covers the missing classes. Rights posture per repo policy: per-clip YouTube provenance recorded at registration."
+}
