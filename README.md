@@ -666,7 +666,10 @@ blender -b \
 
 The tool selects the forward portion of head-weighted rest-mesh vertices,
 projects the result onto the sagittal plane and records a canonical
-`+X forward, +Y up, +Z left` offset. It does not require mouth animation.
+`+X forward, +Y up, +Z right` offset. This is right-handed
+(`forward × up = right`). It does not require mouth animation. Historical
+v1 emitter sidecars used an incorrect `+Z left` label; their sagittal-plane
+`z=0` values remain numerically valid, but that label must not be propagated.
 Every later owner-selected cat/dog runs the measurement on its own generated
 asset; the current Abyssinian is only the Apartment canary baseline, not a
 permanent hard-coded cat.
