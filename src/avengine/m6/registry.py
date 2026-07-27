@@ -21,6 +21,9 @@ from avengine.contracts.json_io import canonical_json_sha256, load_json
 
 
 ENTITY_ASSET_REGISTRY_SCHEMA = "avengine_m6_entity_asset_registry_v1"
+STATIC_OBJECT_MARKER_VISUAL_APPROVAL_SCHEMA = (
+    "avengine_m6_static_object_marker_visual_approval_v1"
+)
 ANIMAL_TEMPLATE_REGISTRY_SCHEMA = "avengine_m6_animal_template_registry_v1"
 SOURCE_ENDPOINT_REGISTRY_SCHEMA = "avengine_m6_source_endpoint_registry_v1"
 SOUND_ASSET_REGISTRY_SCHEMA = "avengine_m6_sound_asset_registry_v1"
@@ -29,6 +32,9 @@ AUDIO_PROGRAM_SCHEMA = "avengine_m6_audio_program_v1"
 
 SCHEMA_FILES = {
     ENTITY_ASSET_REGISTRY_SCHEMA: "m6_entity_asset_registry_v1.schema.json",
+    STATIC_OBJECT_MARKER_VISUAL_APPROVAL_SCHEMA: (
+        "m6_static_object_marker_visual_approval_v1.schema.json"
+    ),
     ANIMAL_TEMPLATE_REGISTRY_SCHEMA: "m6_animal_template_registry_v1.schema.json",
     SOURCE_ENDPOINT_REGISTRY_SCHEMA: "m6_source_endpoint_registry_v1.schema.json",
     SOUND_ASSET_REGISTRY_SCHEMA: "m6_sound_asset_registry_v1.schema.json",

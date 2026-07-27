@@ -35,6 +35,72 @@
         "sha256": {"$ref": "#/$defs/sha256"}
       }
     },
+    "evidence_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "size_bytes"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "emitter_marker_glb",
+            "marker_visual_approval",
+            "spear_static_admission_batch",
+            "spear_static_admission_job_receipt",
+            "spear_static_emitter_stage_receipt",
+            "spear_static_finalization_stage_receipt",
+            "spear_static_watertight_stage_receipt",
+            "visual_asset_glb"
+          ]
+        },
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "static_object_admission_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "pipeline",
+        "status",
+        "identity",
+        "coordinate_system_id",
+        "emitter_anchor_id",
+        "artifacts",
+        "formal_dataset_registration_authorized",
+        "evidence_content_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "avengine_m6_static_object_admission_evidence_v1"
+        },
+        "pipeline": {"const": "spear_flux2_pixal3d_static_v1"},
+        "status": {"const": "passed_research_registration"},
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["instance_id", "request_sha256", "profile_sha256"],
+          "properties": {
+            "instance_id": {"$ref": "#/$defs/stable_id"},
+            "request_sha256": {"$ref": "#/$defs/sha256"},
+            "profile_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "coordinate_system_id": {
+          "const": "avengine_local_x_forward_y_up_z_right_m"
+        },
+        "emitter_anchor_id": {"$ref": "#/$defs/stable_id"},
+        "artifacts": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/evidence_artifact"}
+        },
+        "formal_dataset_registration_authorized": {"const": false},
+        "evidence_content_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
     "anchor": {
       "type": "object",
       "additionalProperties": false,
@@ -117,6 +183,9 @@
           "minItems": 1,
           "items": {"$ref": "#/$defs/anchor"}
         },
+        "admission_evidence": {
+          "$ref": "#/$defs/static_object_admission_evidence"
+        },
         "provenance": {"$ref": "#/$defs/provenance"},
         "admission_state": {"enum": ["formal", "research", "unavailable", "rejected"]}
       },
@@ -124,6 +193,51 @@
         {
           "if": {"properties": {"entity_class": {"const": "articulated_animal"}}},
           "then": {"required": ["animal_template_ref"]}
+        },
+        {
+          "if": {"required": ["admission_evidence"]},
+          "then": {
+            "properties": {
+              "entity_class": {"const": "rigid_object"},
+              "admission_state": {"const": "research"},
+              "realized_visual_attributes": {
+                "required": [
+                  "source_instance_id",
+                  "formal_dataset_registration_authorized"
+                ],
+                "properties": {
+                  "source_instance_id": {"$ref": "#/$defs/stable_id"},
+                  "formal_dataset_registration_authorized": {"const": false}
+                }
+              },
+              "capabilities": {
+                "required": [
+                  "articulated",
+                  "skeleton_revision",
+                  "skeleton_sha256",
+                  "action_ids"
+                ],
+                "properties": {
+                  "articulated": {"const": false},
+                  "skeleton_revision": {"type": "null"},
+                  "skeleton_sha256": {"type": "null"},
+                  "action_ids": {"maxItems": 0}
+                }
+              },
+              "emitter_anchors": {
+                "minItems": 1,
+                "maxItems": 1,
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "anchor_type": {"const": "object_speaker"},
+                    "joint_id": {"type": "null"}
+                  },
+                  "required": ["anchor_type", "joint_id"]
+                }
+              }
+            }
+          }
         }
       ]
     }
