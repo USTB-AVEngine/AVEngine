@@ -171,6 +171,120 @@ def test_motion_pilot_path_discovery_and_suite_use_p0_to_p3(
     assert suite["authority"]["spear_unreal"] == ["final RGB pixels"]
 
 
+def _exact_binding_case(tmp_path: Path) -> tuple[dict, dict, Path]:
+    asset_id = "pixel3d_cat"
+    revision = "v1"
+    actions = {"idle": "/Game/Test/Idle.Idle", "walk": "/Game/Test/Walk.Walk"}
+    spear = {
+        "actor_scale": 0.875,
+        "skeletal_mesh_path": "/Game/Test/SK_Cat.SK_Cat",
+        "animation_paths_by_action_id": actions,
+    }
+    exact = {
+        "schema": apartment.EXACT_ASSET_BOUND_RUNTIME_BINDING_SCHEMA,
+        "source_slot_id": "source2",
+        "asset_id": asset_id,
+        "asset_revision": revision,
+        "actor_scale": 0.875,
+        "emitter": {},
+        "timeline": {
+            "template_id": "cat_v1",
+            "body_plan_id": "quadruped_felid_v1",
+            "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+            "animation_paths_by_action_id": actions,
+        },
+        "spear_unreal": spear,
+        "asset_bound_lineage": {},
+    }
+    batch = {
+        "schema": apartment.ASSET_BOUND_EPISODE_BINDING_SCHEMA,
+        "status": "pass",
+        "episode_id": "episode_0001",
+        "asset_ids_by_source_slot": {
+            "source1": "legacy_dog",
+            "source2": asset_id,
+        },
+        "runtime_bindings_by_source_slot": {"source2": exact},
+    }
+    path = tmp_path / "batch_binding.json"
+    path.write_text(json.dumps(batch), encoding="utf-8")
+    plan = {
+        "actors": [
+            {
+                "actor_id": "source2_actor",
+                "asset_id": asset_id,
+                "template_id": "cat_v1",
+                "body_plan_id": "quadruped_felid_v1",
+                "habitat_local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+            }
+        ]
+    }
+    return plan, {asset_id: {**deepcopy(spear), "asset_revision": revision}}, path
+
+
+def test_exact_asset_bound_snapshot_attaches_to_compiled_actor(tmp_path: Path) -> None:
+    plan, bindings, batch_path = _exact_binding_case(tmp_path)
+
+    apartment._attach_exact_asset_bound_runtime_bindings(
+        plan=plan,
+        scenario_id="episode_0001",
+        batch_binding_path=batch_path,
+        actor_bindings=bindings,
+    )
+
+    actor = plan["actors"][0]
+    assert actor["actor_scale"] == pytest.approx(0.875)
+    assert actor["animation_paths_by_action_id"]["walk"].endswith("Walk.Walk")
+    mesh = actor["exact_runtime_binding"]["spear_unreal"]["skeletal_mesh_path"]
+    assert mesh.endswith("SK_Cat.SK_Cat")
+
+
+def test_legacy_asset_bound_batch_binding_remains_compatible(tmp_path: Path) -> None:
+    plan, bindings, batch_path = _exact_binding_case(tmp_path)
+    batch = json.loads(batch_path.read_text(encoding="utf-8"))
+    batch.pop("runtime_bindings_by_source_slot")
+    batch_path.write_text(json.dumps(batch), encoding="utf-8")
+
+    apartment._attach_exact_asset_bound_runtime_bindings(
+        plan=plan,
+        scenario_id="episode_0001",
+        batch_binding_path=batch_path,
+        actor_bindings=bindings,
+    )
+
+    assert "exact_runtime_binding" not in plan["actors"][0]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            lambda exact: exact["spear_unreal"].update(actor_scale=1.0),
+            "SPEAR/UE binding differs",
+        ),
+        (
+            lambda exact: exact["timeline"].update(template_id="wrong"),
+            "compiled inputs",
+        ),
+    ],
+)
+def test_exact_asset_bound_snapshot_mismatch_fails_closed(
+    tmp_path: Path, mutation, message: str
+) -> None:
+    plan, bindings, batch_path = _exact_binding_case(tmp_path)
+    batch = json.loads(batch_path.read_text(encoding="utf-8"))
+    mutation(batch["runtime_bindings_by_source_slot"]["source2"])
+    batch_path.write_text(json.dumps(batch), encoding="utf-8")
+
+    with pytest.raises(apartment.SpearApartmentError, match=message):
+        apartment._attach_exact_asset_bound_runtime_bindings(
+            plan=plan,
+            scenario_id="episode_0001",
+            batch_binding_path=batch_path,
+            actor_bindings=bindings,
+        )
+
+
 def test_scenario_execution_keeps_native_map_and_habitat_authority(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

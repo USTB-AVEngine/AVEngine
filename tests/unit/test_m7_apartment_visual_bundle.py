@@ -129,6 +129,92 @@ def test_binding_report_requires_supported_exact_assets() -> None:
     assert result[_episode()["episode_id"]]["source2"]["asset_id"] == CAT_ASSET_ID
 
 
+def _runtime_emitter_binding(slot: str, asset_id: str) -> dict:
+    return {
+        "source_slot_id": slot,
+        "asset_id": asset_id,
+        "asset_revision": "runtime_v1",
+        "semantic_anchor_id": "muzzle",
+        "emitter_offset_m": [0.4, 0.3, 0.0],
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "offset_space": "final_scaled_asset_root",
+    }
+
+
+def test_exact_runtime_snapshot_reuses_emitter_binding_and_keeps_legacy_asset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bindings = {
+        "source1": _runtime_emitter_binding("source1", "legacy_human"),
+        "source2": _runtime_emitter_binding("source2", "exact_animal"),
+    }
+
+    def resolve(_registry, asset_id, _revision):
+        return (
+            {"asset_bound_lineage": {"schema": "lineage"}}
+            if asset_id == "exact_animal"
+            else {}
+        )
+
+    def exact(_registry, **kwargs):
+        emitter = dict(bindings[kwargs["source_slot_id"]])
+        return {
+            "schema": "avengine_exact_asset_bound_runtime_binding_v1",
+            "source_slot_id": kwargs["source_slot_id"],
+            "asset_id": kwargs["asset_id"],
+            "asset_revision": kwargs["revision"],
+            "emitter": emitter,
+            "actor_scale": 0.875,
+        }
+
+    monkeypatch.setattr(
+        _BUILDER, "resolve_source_asset_runtime_profile", resolve
+    )
+    monkeypatch.setattr(
+        _BUILDER, "build_exact_asset_bound_runtime_binding", exact
+    )
+
+    result = _BUILDER._resolve_exact_episode_runtime_bindings(
+        episode_bindings=bindings,
+        source_registry={"registry_id": "fixture"},
+    )
+
+    assert set(result) == {"source2"}
+    assert result["source2"]["actor_scale"] == pytest.approx(0.875)
+    assert result["source2"]["emitter"] == bindings["source2"]
+
+
+def test_exact_runtime_snapshot_rejects_emitter_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bindings = {
+        slot: _runtime_emitter_binding(slot, f"exact_{slot}")
+        for slot in ("source1", "source2")
+    }
+    monkeypatch.setattr(
+        _BUILDER,
+        "resolve_source_asset_runtime_profile",
+        lambda *_args, **_kwargs: {
+            "asset_bound_lineage": {"schema": "lineage"}
+        },
+    )
+
+    def drifted(_registry, **kwargs):
+        emitter = dict(bindings[kwargs["source_slot_id"]])
+        emitter["emitter_offset_m"] = [9.0, 9.0, 9.0]
+        return {"emitter": emitter}
+
+    monkeypatch.setattr(
+        _BUILDER, "build_exact_asset_bound_runtime_binding", drifted
+    )
+
+    with pytest.raises(RuntimeError, match="emitter_offset_m"):
+        _BUILDER._resolve_exact_episode_runtime_bindings(
+            episode_bindings=bindings,
+            source_registry={"registry_id": "fixture"},
+        )
+
+
 def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
     tmp_path: Path,
 ) -> None:
@@ -169,6 +255,7 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
         episode_id=episode_id,
         ordinal=17,
         sample={"sample_id": "sample_0001"},
+        runtime_bindings_by_source_slot={},
     )
     assert reopened == {
         "episode_ordinal": 17,
@@ -183,6 +270,7 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
             episode_id=episode_id,
             ordinal=17,
             sample={"sample_id": "sample_0001"},
+            runtime_bindings_by_source_slot={},
         )
 
 

@@ -75,6 +75,9 @@ QUADRUPED_FLOOR_TOLERANCE_CM = 5.0
 ANATOMICAL_FORWARD_TOLERANCE_DEGREES = 25.0
 COMPONENT_FRAME_DELTA_SCHEMA = "avengine_spear_component_frame_delta_v1"
 LIGHTING_PROFILE_SCHEMA = "avengine_optional_spear_apartment_lighting_profiles_v1"
+ASSET_BOUND_EPISODE_BINDING_SCHEMA = "avengine_m7_asset_bound_apartment_episode_binding_v1"
+EXACT_ASSET_BOUND_RUNTIME_BINDING_SCHEMA = "avengine_exact_asset_bound_runtime_binding_v1"
+_ASSET_BOUND_SOURCE_SLOTS = ("source1", "source2")
 
 
 NATIVE_LIGHTING_PROFILE: Mapping[str, Any] = {
@@ -699,6 +702,9 @@ def asset_bound_episode_input_paths(
             metadata / "source_manifest.json", owner="source manifest"
         ),
         "flags": _direct_file(metadata / "flags.json", owner="flag report"),
+        "batch_binding": _direct_file(
+            metadata / "batch_binding.json", owner="asset-bound batch binding"
+        ),
         "room_capsule": _direct_file(
             root / "room/room_capsule.json", owner="RoomCapsule"
         ),
@@ -713,6 +719,128 @@ def asset_bound_episode_input_paths(
             owner="diagnostic Topdown review",
         ),
     }
+
+
+def _attach_exact_asset_bound_runtime_bindings(
+    *,
+    plan: dict[str, Any],
+    scenario_id: str,
+    batch_binding_path: Path,
+    actor_bindings: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """Attach exact snapshots when present; keep legacy batch bindings valid."""
+
+    try:
+        batch = json.loads(batch_binding_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SpearApartmentError("could not read asset-bound batch binding") from exc
+    if (
+        not isinstance(batch, Mapping)
+        or batch.get("schema") != ASSET_BOUND_EPISODE_BINDING_SCHEMA
+        or batch.get("status") != "pass"
+        or batch.get("episode_id") != scenario_id
+    ):
+        raise SpearApartmentError(
+            "asset-bound batch binding identity/status is invalid"
+        )
+    selected_assets = batch.get("asset_ids_by_source_slot")
+    if not isinstance(selected_assets, Mapping) or set(selected_assets) != set(
+        _ASSET_BOUND_SOURCE_SLOTS
+    ):
+        raise SpearApartmentError(
+            "asset-bound batch binding must select source1/source2 assets"
+        )
+    exact_by_slot = batch.get("runtime_bindings_by_source_slot")
+    if exact_by_slot is None:
+        return
+    if not isinstance(exact_by_slot, Mapping) or not set(exact_by_slot) <= set(
+        _ASSET_BOUND_SOURCE_SLOTS
+    ):
+        raise SpearApartmentError(
+            "runtime_bindings_by_source_slot contains an invalid source slot"
+        )
+
+    actors = {
+        actor.get("actor_id"): actor
+        for actor in plan.get("actors", ())
+        if isinstance(actor, dict)
+    }
+    for slot, exact in exact_by_slot.items():
+        if not isinstance(exact, Mapping):
+            raise SpearApartmentError(f"{slot} exact runtime snapshot is incomplete")
+        actor_id = f"{slot}_actor"
+        asset_id = selected_assets.get(slot)
+        actor = actors.get(actor_id)
+        raw_binding = actor_bindings.get(str(asset_id))
+        timeline = exact.get("timeline")
+        spear = exact.get("spear_unreal")
+        values = (
+            actor,
+            raw_binding,
+            timeline,
+            spear,
+            exact.get("emitter"),
+            exact.get("asset_bound_lineage"),
+        )
+        if not all(isinstance(value, Mapping) for value in values):
+            raise SpearApartmentError(f"{slot} exact runtime snapshot is incomplete")
+        assert isinstance(actor, dict)
+        assert isinstance(raw_binding, Mapping)
+        assert isinstance(timeline, Mapping)
+        assert isinstance(spear, Mapping)
+        revision = exact.get("asset_revision")
+        if (
+            not isinstance(revision, str)
+            or (
+                exact.get("schema"),
+                exact.get("source_slot_id"),
+                exact.get("asset_id"),
+            )
+            != (EXACT_ASSET_BOUND_RUNTIME_BINDING_SCHEMA, slot, asset_id)
+            or (actor.get("asset_id"), raw_binding.get("asset_revision"))
+            != (asset_id, revision)
+            or (
+                timeline.get("template_id"),
+                timeline.get("body_plan_id"),
+                timeline.get("local_anatomical_forward_axis"),
+            )
+            != (
+                actor.get("template_id"),
+                actor.get("body_plan_id"),
+                actor.get("habitat_local_anatomical_forward_axis"),
+            )
+        ):
+            raise SpearApartmentError(
+                f"{slot} exact runtime snapshot differs from compiled inputs"
+            )
+
+        runtime_binding = {
+            key: value
+            for key, value in raw_binding.items()
+            if key != "asset_revision"
+        }
+        if dict(spear) != runtime_binding:
+            raise SpearApartmentError(
+                f"{slot} exact SPEAR/UE binding differs from actor bindings"
+            )
+        actor_scale = exact.get("actor_scale")
+        action_paths = timeline.get("animation_paths_by_action_id")
+        if (
+            isinstance(actor_scale, bool)
+            or not isinstance(actor_scale, (int, float))
+            or not math.isfinite(float(actor_scale))
+            or float(actor_scale) <= 0.0
+            or spear.get("actor_scale") != actor_scale
+            or not isinstance(action_paths, Mapping)
+            or dict(action_paths) != spear.get("animation_paths_by_action_id")
+        ):
+            raise SpearApartmentError(
+                f"{slot} exact scale/action binding is invalid"
+            )
+
+        actor["actor_scale"] = float(actor_scale)
+        actor["animation_paths_by_action_id"] = deepcopy(dict(action_paths))
+        actor["exact_runtime_binding"] = deepcopy(dict(exact))
 
 
 def _validate_native_plan(
@@ -823,6 +951,13 @@ def _build_native_apartment_scenario_from_paths(
         )
         if basis_bones is not None:
             actor["ue_anatomical_basis_bones"] = basis_bones
+    if "batch_binding" in paths:
+        _attach_exact_asset_bound_runtime_bindings(
+            plan=plan,
+            scenario_id=scenario_id,
+            batch_binding_path=paths["batch_binding"],
+            actor_bindings=actor_bindings,
+        )
     lighting = deepcopy(dict(lighting_profile))
     generated_lights = lighting.get("generated_lights")
     if not isinstance(generated_lights, list):
