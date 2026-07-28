@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import math
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 from typing import Any, Mapping, Sequence
 
@@ -112,6 +112,121 @@ def _finite_vector(value: Any, *, length: int, owner: str) -> tuple[float, ...]:
     return tuple(result)
 
 
+def _validate_local_basis(
+    value: Mapping[str, Any],
+    *,
+    owner: str,
+    expected_forward: Sequence[float] | None = None,
+) -> list[str]:
+    """Validate one explicit right-handed orthonormal asset-local basis."""
+
+    errors: list[str] = []
+    axes: dict[str, tuple[float, ...]] = {}
+    for field in ("forward_axis", "up_axis", "right_axis"):
+        try:
+            axis = _finite_vector(
+                value.get(field),
+                length=3,
+                owner=f"{owner}.{field}",
+            )
+        except RuntimeProfileError as error:
+            errors.extend(error.errors)
+            continue
+        norm = math.sqrt(sum(component * component for component in axis))
+        if not math.isclose(norm, 1.0, rel_tol=0.0, abs_tol=1.0e-9):
+            errors.append(f"{owner}.{field} must be unit length")
+        axes[field] = axis
+    if len(axes) != 3:
+        return errors
+
+    forward = axes["forward_axis"]
+    up = axes["up_axis"]
+    right = axes["right_axis"]
+    for left_name, left, right_name, other in (
+        ("forward_axis", forward, "up_axis", up),
+        ("forward_axis", forward, "right_axis", right),
+        ("up_axis", up, "right_axis", right),
+    ):
+        dot = sum(a * b for a, b in zip(left, other, strict=True))
+        if not math.isclose(dot, 0.0, rel_tol=0.0, abs_tol=1.0e-9):
+            errors.append(
+                f"{owner}.{left_name} and {right_name} must be orthogonal"
+            )
+
+    forward_cross_up = (
+        forward[1] * up[2] - forward[2] * up[1],
+        forward[2] * up[0] - forward[0] * up[2],
+        forward[0] * up[1] - forward[1] * up[0],
+    )
+    if any(
+        not math.isclose(observed, expected, rel_tol=0.0, abs_tol=1.0e-9)
+        for observed, expected in zip(forward_cross_up, right, strict=True)
+    ):
+        errors.append(f"{owner} must satisfy forward cross up equals right")
+
+    if expected_forward is not None:
+        try:
+            declared_forward = _finite_vector(
+                expected_forward,
+                length=3,
+                owner=f"{owner}.expected_forward",
+            )
+        except RuntimeProfileError as error:
+            errors.extend(error.errors)
+        else:
+            if any(
+                not math.isclose(observed, expected, rel_tol=0.0, abs_tol=1.0e-9)
+                for observed, expected in zip(
+                    forward, declared_forward, strict=True
+                )
+            ):
+                errors.append(
+                    f"{owner}.forward_axis must match the Timeline "
+                    "local anatomical forward axis"
+                )
+    return errors
+
+
+def _asset_bound_artifacts(lineage: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Return every exact external artifact referenced by one lineage block."""
+
+    result: list[Mapping[str, Any]] = []
+    source_asset = lineage.get("source_asset_v2")
+    if isinstance(source_asset, Mapping):
+        for field in ("record", "registry"):
+            artifact = source_asset.get(field)
+            if isinstance(artifact, Mapping):
+                result.append(artifact)
+    geometry = lineage.get("geometry")
+    if isinstance(geometry, Mapping):
+        for field in (
+            "raw_pixel3d_glb",
+            "tokenrig_input_glb",
+            "runtime_glb",
+            "repair_evidence",
+        ):
+            artifact = geometry.get(field)
+            if isinstance(artifact, Mapping):
+                result.append(artifact)
+    for field in (
+        "tokenrig_animation_closure",
+        "ue_asset_bound_import_evidence",
+        "ue_runtime_readback_evidence",
+        "emitter_measurement_evidence",
+    ):
+        artifact = lineage.get(field)
+        if isinstance(artifact, Mapping):
+            result.append(artifact)
+    admission = lineage.get("admission")
+    if isinstance(admission, Mapping):
+        result.extend(
+            artifact
+            for artifact in admission.get("evidence", ())
+            if isinstance(artifact, Mapping)
+        )
+    return result
+
+
 def validate_source_asset_runtime_registry(value: Any) -> list[str]:
     """Validate schema plus cross-record source/runtime invariants."""
 
@@ -182,6 +297,7 @@ def validate_source_asset_runtime_registry(value: Any) -> list[str]:
                     )
 
         timeline = record.get("timeline")
+        timeline_forward: tuple[float, ...] | None = None
         if isinstance(timeline, Mapping):
             try:
                 axis = _finite_vector(
@@ -192,6 +308,7 @@ def validate_source_asset_runtime_registry(value: Any) -> list[str]:
             except RuntimeProfileError as error:
                 errors.extend(error.errors)
             else:
+                timeline_forward = axis
                 norm = math.sqrt(sum(component * component for component in axis))
                 if not math.isclose(norm, 1.0, rel_tol=0.0, abs_tol=1.0e-9):
                     errors.append(
@@ -200,6 +317,206 @@ def validate_source_asset_runtime_registry(value: Any) -> list[str]:
                 if math.hypot(axis[0], axis[2]) <= 1.0e-12:
                     errors.append(
                         f"{prefix}: local anatomical forward axis must be horizontal"
+                    )
+
+            idle_action_id = timeline.get("idle_action_id")
+            walking_action_id = timeline.get("walking_action_id")
+            if idle_action_id == walking_action_id:
+                errors.append(
+                    f"{prefix}: Idle and Walking action IDs must be distinct"
+                )
+
+        anchors_by_id = {
+            str(anchor.get("anchor_id")): anchor
+            for anchor in anchors
+            if isinstance(anchor, Mapping)
+        }
+        for anchor_id, anchor in anchors_by_id.items():
+            basis = anchor.get("local_basis")
+            if isinstance(basis, Mapping):
+                errors.extend(
+                    _validate_local_basis(
+                        basis,
+                        owner=f"{prefix}.emitter_anchors[{anchor_id}].local_basis",
+                        expected_forward=timeline_forward,
+                    )
+                )
+
+        spear = record.get("runtime_backends", {}).get("spear_unreal")
+        if isinstance(spear, Mapping):
+            actor_scale = spear.get("actor_scale")
+            if actor_scale is not None and (
+                isinstance(actor_scale, bool)
+                or not isinstance(actor_scale, (int, float))
+                or not math.isfinite(float(actor_scale))
+                or float(actor_scale) <= 0.0
+            ):
+                errors.append(
+                    f"{prefix}.runtime_backends.spear_unreal.actor_scale "
+                    "must be a positive finite number"
+                )
+
+            action_paths = spear.get("animation_paths_by_action_id")
+            if isinstance(action_paths, Mapping) and isinstance(timeline, Mapping):
+                expected_action_paths = {
+                    str(timeline.get("idle_action_id")): spear.get(
+                        "idle_animation"
+                    ),
+                    str(timeline.get("walking_action_id")): spear.get(
+                        "walking_animation"
+                    ),
+                }
+                if dict(action_paths) != expected_action_paths:
+                    errors.append(
+                        f"{prefix}: animation_paths_by_action_id must exactly "
+                        "bind the Timeline Idle and Walking action IDs"
+                    )
+
+        lineage = record.get("asset_bound_lineage")
+        admission_state = record.get("admission_state")
+        if admission_state == "formal" and not isinstance(lineage, Mapping):
+            errors.append(
+                f"{prefix}: formal admission requires exact asset-bound lineage"
+            )
+        if not isinstance(lineage, Mapping):
+            continue
+
+        if record.get("geometry", {}).get("mesh_authority") != (
+            "generated_pixel3d_target_native"
+        ):
+            errors.append(
+                f"{prefix}: SPEAR source_asset_v2 lineage is only valid for "
+                "generated Pixel3D target-native geometry"
+            )
+        if lineage.get("runtime_asset_id") != record.get("asset_id"):
+            errors.append(
+                f"{prefix}: asset-bound lineage runtime_asset_id does not match"
+            )
+        if lineage.get("runtime_revision") != record.get("revision"):
+            errors.append(
+                f"{prefix}: asset-bound lineage runtime_revision does not match"
+            )
+
+        geometry_lineage = lineage.get("geometry")
+        if isinstance(geometry_lineage, Mapping):
+            lineage_kind = geometry_lineage.get("lineage_kind")
+            raw = geometry_lineage.get("raw_pixel3d_glb")
+            tokenrig_input = geometry_lineage.get("tokenrig_input_glb")
+            if geometry_lineage.get("runtime_mesh_uri") != record.get(
+                "geometry", {}
+            ).get("source_mesh_uri"):
+                errors.append(
+                    f"{prefix}: asset-bound runtime_mesh_uri does not match "
+                    "geometry.source_mesh_uri"
+                )
+            if isinstance(raw, Mapping) and isinstance(tokenrig_input, Mapping):
+                same_bytes = raw.get("sha256") == tokenrig_input.get("sha256")
+                if (
+                    lineage_kind == "unchanged_pixel3d_geometry"
+                    and not same_bytes
+                ):
+                    errors.append(
+                        f"{prefix}: unchanged Pixel3D geometry must retain the "
+                        "raw GLB SHA-256"
+                    )
+                if (
+                    lineage_kind == "bounded_same_pixel3d_mesh_repair"
+                    and same_bytes
+                ):
+                    errors.append(
+                        f"{prefix}: bounded repair must bind a byte-distinct "
+                        "TokenRig input GLB"
+                    )
+
+        if not isinstance(spear, Mapping):
+            errors.append(
+                f"{prefix}: exact asset-bound lineage requires a SPEAR/UE binding"
+            )
+        else:
+            if (
+                isinstance(spear.get("actor_scale"), bool)
+                or not isinstance(spear.get("actor_scale"), (int, float))
+                or not math.isfinite(float(spear["actor_scale"]))
+                or float(spear["actor_scale"]) <= 0.0
+            ):
+                errors.append(
+                    f"{prefix}: exact asset-bound lineage requires positive "
+                    "finite SPEAR/UE actor_scale"
+                )
+            for field in (
+                "blueprint_class_path",
+                "skeletal_mesh_path",
+                "idle_animation",
+                "walking_animation",
+            ):
+                path = spear.get(field)
+                if not isinstance(path, str) or not path.startswith("/Game/"):
+                    errors.append(
+                        f"{prefix}: exact asset-bound {field} must be an "
+                        "explicit /Game/ object path"
+                    )
+            if not isinstance(
+                spear.get("animation_paths_by_action_id"), Mapping
+            ):
+                errors.append(
+                    f"{prefix}: exact asset-bound lineage requires "
+                    "animation_paths_by_action_id"
+                )
+
+        missing_basis = [
+            anchor_id
+            for anchor_id, anchor in anchors_by_id.items()
+            if not isinstance(anchor.get("local_basis"), Mapping)
+        ]
+        if missing_basis:
+            errors.append(
+                f"{prefix}: exact asset-bound emitter anchors lack local basis: "
+                f"{sorted(missing_basis)}"
+            )
+
+        source_asset_v2 = lineage.get("source_asset_v2")
+        admission = lineage.get("admission")
+        expected_source_states = {
+            "research": "research_candidate",
+            "qualified": "research_candidate",
+            "formal": "formal_dataset_asset",
+            "unavailable": "technical_spike_only",
+            "rejected": "rejected",
+        }
+        if (
+            isinstance(source_asset_v2, Mapping)
+            and source_asset_v2.get("state_classification")
+            != expected_source_states.get(str(admission_state))
+        ):
+            errors.append(
+                f"{prefix}: source_asset_v2 state_classification does not "
+                "match runtime admission_state"
+            )
+        if isinstance(admission, Mapping):
+            if admission.get("state") != admission_state:
+                errors.append(
+                    f"{prefix}: asset-bound admission state does not match"
+                )
+            formal_authorized = admission.get(
+                "formal_dataset_registration_authorized"
+            )
+            if formal_authorized is not (admission_state == "formal"):
+                errors.append(
+                    f"{prefix}: formal dataset registration authorization "
+                    "must be true exactly for formal admission"
+                )
+
+        if admission_state == "formal":
+            for artifact in _asset_bound_artifacts(lineage):
+                path = PurePosixPath(str(artifact.get("path", "")))
+                if (
+                    path.is_absolute()
+                    or ".." in path.parts
+                    or "tmp" in {part.lower() for part in path.parts}
+                ):
+                    errors.append(
+                        f"{prefix}: formal lineage artifacts must use immutable "
+                        "relative non-tmp paths"
                     )
 
     for alias, reference in value.get("aliases", {}).items():
@@ -375,7 +692,7 @@ def build_asset_emitter_binding(
             f"asset {asset_id!r} has no unique emitter anchor {selected_anchor_id!r}"
         )
     anchor = matches[0]
-    return {
+    binding = {
         "source_slot_id": source_slot_id,
         "asset_id": asset_id,
         "asset_revision": record["revision"],
@@ -385,6 +702,71 @@ def build_asset_emitter_binding(
             list(record["timeline"]["local_anatomical_forward_axis"])
         ),
         "offset_space": anchor["offset_space"],
+    }
+    if isinstance(anchor.get("local_basis"), Mapping):
+        binding["local_basis"] = deepcopy(dict(anchor["local_basis"]))
+    return binding
+
+
+def build_exact_asset_bound_runtime_binding(
+    registry: Mapping[str, Any],
+    *,
+    source_slot_id: str,
+    asset_id: str,
+    anchor_id: str | None = None,
+    revision: str | None = None,
+) -> dict[str, Any]:
+    """Materialize one complete exact Pixel3D/SPEAR/UE runtime binding.
+
+    Historical research profiles may omit the exact closure and continue to
+    resolve through the legacy helpers.  This helper deliberately fails closed
+    unless scale, Mesh/action object paths, emitter basis, source_asset_v2
+    lineage and admission evidence are all present.
+    """
+
+    record = resolve_source_asset_runtime_profile(registry, asset_id, revision)
+    lineage = record.get("asset_bound_lineage")
+    if not isinstance(lineage, Mapping):
+        raise RuntimeProfileError(
+            f"source asset {asset_id!r} has no exact asset-bound lineage"
+        )
+    spear = record.get("runtime_backends", {}).get("spear_unreal")
+    if not isinstance(spear, Mapping):
+        raise RuntimeProfileError(
+            f"source asset {asset_id!r} has no exact SPEAR/UE binding"
+        )
+    emitter = build_asset_emitter_binding(
+        registry,
+        source_slot_id=source_slot_id,
+        asset_id=asset_id,
+        anchor_id=anchor_id,
+        revision=revision,
+    )
+    if not isinstance(emitter.get("local_basis"), Mapping):
+        raise RuntimeProfileError(
+            f"source asset {asset_id!r} emitter has no exact local basis"
+        )
+    timeline = record["timeline"]
+    return {
+        "schema": "avengine_exact_asset_bound_runtime_binding_v1",
+        "source_slot_id": source_slot_id,
+        "asset_id": asset_id,
+        "asset_revision": record["revision"],
+        "actor_scale": float(spear["actor_scale"]),
+        "emitter": emitter,
+        "timeline": {
+            "template_id": timeline["template_id"],
+            "body_plan_id": timeline["body_plan_id"],
+            "local_anatomical_forward_axis": deepcopy(
+                list(timeline["local_anatomical_forward_axis"])
+            ),
+            "animation_paths_by_action_id": deepcopy(
+                dict(spear["animation_paths_by_action_id"])
+            ),
+        },
+        "spear_unreal": deepcopy(dict(spear)),
+        "asset_bound_lineage": deepcopy(dict(lineage)),
+        "admission_state": record["admission_state"],
     }
 
 
@@ -445,6 +827,7 @@ __all__ = [
     "SOURCE_ASSET_RUNTIME_REGISTRY_SCHEMA",
     "RuntimeProfileError",
     "build_asset_emitter_binding",
+    "build_exact_asset_bound_runtime_binding",
     "default_room_runtime_profile_registry_path",
     "default_source_asset_runtime_registry_path",
     "load_default_room_runtime_profile_registry",

@@ -36,6 +36,23 @@ authorize substituting a template Mesh for a generated breed. A new breed
 still follows the complete generated-asset workflow before it receives a
 runtime record.
 
+New generated assets use the optional exact `asset_bound_lineage` closure
+before formal admission or exact-bound loading. That closure binds the
+SPEAR `source_asset_v2` record and registry, raw Pixel3D GLB, unchanged or
+bounded-same-Pixel3D repair, TokenRig/animation closure, UE asset-bound import
+and runtime readback, emitter measurement and admission evidence by path,
+size and SHA-256. Its geometry enum intentionally has no template-replacement
+mode: Rocketbox or Quaternius may donate compatible motion, never geometry.
+
+An exact binding also declares a positive `actor_scale`, a complete
+right-handed emitter-local basis (`forward x up = right`), an explicit
+SkeletalMesh object path and an action-ID-to-UE-animation map that exactly
+matches Timeline Idle/Walking IDs. With
+`skeletal_mesh_binding: blueprint_component`, the Mesh path is the expected
+runtime readback identity rather than an instruction to overwrite the
+Blueprint component. Historical research records may omit this closure and
+continue to load through the legacy helpers; `formal` cannot.
+
 Pair selection can now name only assets:
 
 ```json
@@ -146,8 +163,9 @@ the selected runner is responsible for rejecting profiles it cannot execute.
 
 1. Complete and review the source-specific Mesh, rig, actions, heading,
    support-plane, emitter and UE runtime gates.
-2. Add one source runtime record. Do not copy another breed's skeleton roles,
-   floor correction or muzzle offset.
+2. Add one source runtime record with its exact asset-bound lineage. Do not
+   copy another breed's skeleton roles, scale, floor correction or muzzle
+   offset.
 3. Add the desired ordered pairing using `asset_selection`.
 4. Run registry/unit tests and an exact UE dry run.
 5. Run native UE readback before using the asset in a generated dataset.

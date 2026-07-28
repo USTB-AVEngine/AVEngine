@@ -25,6 +25,21 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
     },
     "nonempty_string": {"type": "string", "minLength": 1},
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root_id", "path", "sha256", "size_bytes"],
+      "properties": {
+        "root_id": {"$ref": "#/$defs/stable_id"},
+        "path": {"$ref": "#/$defs/nonempty_string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
     "vec3": {
       "type": "array",
       "minItems": 3,
@@ -35,6 +50,24 @@
         {"type": "number"}
       ],
       "items": false
+    },
+    "local_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "forward_axis",
+        "up_axis",
+        "right_axis",
+        "handedness"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_asset_local_basis_v1"},
+        "forward_axis": {"$ref": "#/$defs/vec3"},
+        "up_axis": {"$ref": "#/$defs/vec3"},
+        "right_axis": {"$ref": "#/$defs/vec3"},
+        "handedness": {"const": "forward_cross_up_equals_right"}
+      }
     },
     "asset_ref": {
       "type": "object",
@@ -146,7 +179,8 @@
           ]
         },
         "offset_m": {"$ref": "#/$defs/vec3"},
-        "offset_space": {"const": "final_scaled_asset_root"}
+        "offset_space": {"const": "final_scaled_asset_root"},
+        "local_basis": {"$ref": "#/$defs/local_basis"}
       }
     },
     "component_frame_delta": {
@@ -205,8 +239,18 @@
             {"type": "null"}
           ]
         },
+        "actor_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "idle_animation": {"$ref": "#/$defs/nonempty_string"},
         "walking_animation": {"$ref": "#/$defs/nonempty_string"},
+        "animation_paths_by_action_id": {
+          "type": "object",
+          "minProperties": 2,
+          "propertyNames": {"$ref": "#/$defs/stable_id"},
+          "additionalProperties": {"$ref": "#/$defs/nonempty_string"}
+        },
         "ue_anatomical_forward_yaw_deg": {"type": "number"},
         "ue_anatomical_basis_bones": {
           "$ref": "#/$defs/anatomical_basis_bones"
@@ -217,18 +261,6 @@
         "floor_contact_gate": {"type": "boolean"}
       },
       "allOf": [
-        {
-          "if": {
-            "properties": {
-              "skeletal_mesh_binding": {"const": "blueprint_component"}
-            }
-          },
-          "then": {
-            "properties": {
-              "skeletal_mesh_path": {"type": "null"}
-            }
-          }
-        },
         {
           "if": {
             "properties": {
@@ -249,6 +281,153 @@
       "minProperties": 1,
       "properties": {
         "spear_unreal": {"$ref": "#/$defs/spear_unreal_binding"}
+      }
+    },
+    "source_asset_v2_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "asset_id",
+        "profile_schema_id",
+        "profile_sha256",
+        "request_sha256",
+        "lineage_group_id",
+        "state_classification",
+        "record",
+        "registry"
+      ],
+      "properties": {
+        "schema": {"const": "source_asset_v2"},
+        "asset_id": {"$ref": "#/$defs/stable_id"},
+        "profile_schema_id": {"$ref": "#/$defs/stable_id"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "request_sha256": {"$ref": "#/$defs/sha256"},
+        "lineage_group_id": {"$ref": "#/$defs/stable_id"},
+        "state_classification": {
+          "enum": [
+            "formal_dataset_asset",
+            "research_candidate",
+            "technical_spike_only",
+            "rejected"
+          ]
+        },
+        "record": {"$ref": "#/$defs/artifact_ref"},
+        "registry": {"$ref": "#/$defs/artifact_ref"}
+      }
+    },
+    "pixel3d_geometry_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lineage_kind",
+        "raw_pixel3d_glb",
+        "tokenrig_input_glb",
+        "runtime_mesh_uri",
+        "runtime_glb",
+        "repair_evidence"
+      ],
+      "properties": {
+        "lineage_kind": {
+          "enum": [
+            "unchanged_pixel3d_geometry",
+            "bounded_same_pixel3d_mesh_repair"
+          ]
+        },
+        "raw_pixel3d_glb": {"$ref": "#/$defs/artifact_ref"},
+        "tokenrig_input_glb": {"$ref": "#/$defs/artifact_ref"},
+        "runtime_mesh_uri": {"$ref": "#/$defs/nonempty_string"},
+        "runtime_glb": {"$ref": "#/$defs/artifact_ref"},
+        "repair_evidence": {
+          "oneOf": [
+            {"$ref": "#/$defs/artifact_ref"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "lineage_kind": {"const": "unchanged_pixel3d_geometry"}
+            }
+          },
+          "then": {
+            "properties": {
+              "repair_evidence": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "lineage_kind": {
+                "const": "bounded_same_pixel3d_mesh_repair"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "repair_evidence": {"$ref": "#/$defs/artifact_ref"}
+            }
+          }
+        }
+      ]
+    },
+    "asset_admission_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "formal_dataset_registration_authorized",
+        "evidence"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "research",
+            "qualified",
+            "formal",
+            "unavailable",
+            "rejected"
+          ]
+        },
+        "formal_dataset_registration_authorized": {"type": "boolean"},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/artifact_ref"}
+        }
+      }
+    },
+    "asset_bound_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "runtime_asset_id",
+        "runtime_revision",
+        "source_asset_v2",
+        "geometry",
+        "tokenrig_animation_closure",
+        "ue_asset_bound_import_evidence",
+        "ue_runtime_readback_evidence",
+        "emitter_measurement_evidence",
+        "admission"
+      ],
+      "properties": {
+        "schema": {
+          "const": "avengine_spear_source_asset_v2_runtime_lineage_v1"
+        },
+        "runtime_asset_id": {"$ref": "#/$defs/stable_id"},
+        "runtime_revision": {"$ref": "#/$defs/stable_id"},
+        "source_asset_v2": {"$ref": "#/$defs/source_asset_v2_binding"},
+        "geometry": {"$ref": "#/$defs/pixel3d_geometry_lineage"},
+        "tokenrig_animation_closure": {"$ref": "#/$defs/artifact_ref"},
+        "ue_asset_bound_import_evidence": {"$ref": "#/$defs/artifact_ref"},
+        "ue_runtime_readback_evidence": {"$ref": "#/$defs/artifact_ref"},
+        "emitter_measurement_evidence": {"$ref": "#/$defs/artifact_ref"},
+        "admission": {"$ref": "#/$defs/asset_admission_binding"}
       }
     },
     "asset": {
@@ -294,6 +473,7 @@
           "items": {"$ref": "#/$defs/emitter_anchor"}
         },
         "runtime_backends": {"$ref": "#/$defs/runtime_backends"},
+        "asset_bound_lineage": {"$ref": "#/$defs/asset_bound_lineage"},
         "admission_state": {
           "enum": ["research", "qualified", "formal", "unavailable", "rejected"]
         }
@@ -321,6 +501,16 @@
                 ]
               }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "admission_state": {"const": "formal"}
+            }
+          },
+          "then": {
+            "required": ["asset_bound_lineage"]
           }
         }
       ]
