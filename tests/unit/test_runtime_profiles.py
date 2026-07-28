@@ -14,6 +14,7 @@ from avengine.runtime_profiles import (
     load_default_source_asset_runtime_registry,
     resolve_room_runtime_profile,
     resolve_source_asset_alias,
+    resolve_source_asset_runtime_profile,
     source_timeline_profiles,
     spear_actor_bindings,
     validate_room_runtime_links,
@@ -140,27 +141,37 @@ def test_source_alias_resolves_timeline_emitter_and_ue_from_one_asset_record():
         registry, source_slot_id="source2", asset_id=asset_id
     )
 
-    assert cat["identity"] == {"species_id": "cat", "breed_id": "abyssinian"}
-    assert cat["realized_attributes"]["coat_profile"]["value"] == "standard_ruddy"
+    assert cat["identity"] == {
+        "species_id": "cat",
+        "breed_id": "british_shorthair",
+    }
+    assert cat["realized_attributes"]["coat_profile"]["value"] == "standard_blue"
     assert cat["geometry"]["mesh_authority"] == "generated_pixel3d_target_native"
     assert timeline["body_plan_id"] == "quadruped_mammal_felid_v1"
     assert ue["walking_animation"].endswith("/Walking.Walking")
-    assert ue["skeletal_mesh_binding"] == "blueprint_component"
-    assert ue["skeletal_mesh_path"] is None
+    assert ue["skeletal_mesh_binding"] == "explicit_path"
+    assert ue["skeletal_mesh_path"].endswith(
+        "target_animated_repaired_low_slice_edge_average_residual_continuation"
+        ".target_animated_repaired_low_slice_edge_average_residual_continuation"
+    )
     assert ue["floor_contact_gate"] is True
     assert emitter["asset_revision"] == cat["revision"]
     assert emitter["semantic_anchor_id"] == "muzzle"
     assert emitter["emitter_offset_m"] == [
-        0.38869346364905827,
-        0.16641961991328985,
+        0.2503672200051257,
+        0.23847342533548063,
         0.0,
     ]
 
 
-def test_new_labrador_is_an_independent_generated_runtime_asset():
+def test_retired_labrador_record_remains_an_independent_runtime_asset():
     registry = load_default_source_asset_runtime_registry()
-    labrador = resolve_source_asset_alias(registry, "runtime_interface_labrador")
-    border_collie = resolve_source_asset_alias(registry, "current_generated_dog")
+    labrador = resolve_source_asset_runtime_profile(
+        registry,
+        "generated_labrador_yellow_medium_standard_adult_research_v1",
+        "pixel3d_tokenrig_ue_v1",
+    )
+    current_dog = resolve_source_asset_alias(registry, "current_generated_dog")
     asset_id = labrador["asset_id"]
     ue = spear_actor_bindings(registry)[asset_id]
     emitter = build_asset_emitter_binding(
@@ -189,10 +200,10 @@ def test_new_labrador_is_an_independent_generated_runtime_asset():
         "generated_pixel3d_target_native"
     )
     assert labrador["geometry"]["source_mesh_uri"] != (
-        border_collie["geometry"]["source_mesh_uri"]
+        current_dog["geometry"]["source_mesh_uri"]
     )
     assert ue["blueprint_class_path"] != (
-        spear_actor_bindings(registry)[border_collie["asset_id"]][
+        spear_actor_bindings(registry)[current_dog["asset_id"]][
             "blueprint_class_path"
         ]
     )
@@ -295,7 +306,11 @@ def test_coat_value_outside_registered_domain_fails_closed():
 
 def test_generation_request_provenance_is_separate_from_instance_baseline():
     registry = load_default_source_asset_runtime_registry()
-    cat = resolve_source_asset_alias(registry, "current_generated_cat")
+    cat = resolve_source_asset_runtime_profile(
+        registry,
+        "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+        "pixel3d_tokenrig_ue_v1",
+    )
 
     # The Abyssinian breed base mesh was generated from a `slim` request
     # (breed-accurate morphology) while the instance-variation baseline is the

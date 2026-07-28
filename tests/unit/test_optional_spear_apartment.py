@@ -22,6 +22,9 @@ assert _RUNNER_SPEC is not None and _RUNNER_SPEC.loader is not None
 _RUNNER = importlib.util.module_from_spec(_RUNNER_SPEC)
 _RUNNER_SPEC.loader.exec_module(_RUNNER)
 
+CURRENT_GENERATED_DOG_ASSET_ID = apartment.BORDER_COLLIE_ASSET_ID
+CURRENT_GENERATED_CAT_ASSET_ID = apartment.CAT_ASSET_ID
+
 
 def _plan(scenario_id: str = "S3") -> dict:
     actors = [
@@ -899,46 +902,46 @@ def test_default_asset_forward_bindings_are_explicit() -> None:
     assert apartment.DEFAULT_ACTOR_BINDINGS[apartment.HUMAN_ASSET_ID][
         "ue_component_frame_delta"
     ]["translation_cm"] == [0.0, 0.0, 0.0]
-    border_collie = apartment.DEFAULT_ACTOR_BINDINGS[
-        apartment.BORDER_COLLIE_ASSET_ID
+    current_dog = apartment.DEFAULT_ACTOR_BINDINGS[
+        CURRENT_GENERATED_DOG_ASSET_ID
     ]
-    assert border_collie["ue_anatomical_forward_yaw_deg"] == 0.0
-    assert border_collie["ue_component_frame_delta"]["rotation_deg"] == [
-        0.0,
-        0.0,
-        0.0,
-    ]
-    assert border_collie["ue_component_frame_delta"]["translation_cm"] == [
+    assert current_dog["ue_anatomical_forward_yaw_deg"] == 0.0
+    assert current_dog["ue_component_frame_delta"]["rotation_deg"] == [
         0.0,
         0.0,
         0.0,
     ]
-    assert border_collie["ue_anatomical_basis_bones"] == {
+    assert current_dog["ue_component_frame_delta"]["translation_cm"] == [
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert current_dog["ue_anatomical_basis_bones"] == {
         "rear": "bone_0",
-        "front": "bone_4",
+        "front": "bone_5",
         "body": "bone_0",
-        "left_foot": "bone_67",
-        "right_foot": "bone_56",
+        "left_foot": "bone_19",
+        "right_foot": "bone_23",
     }
     assert apartment.anatomical_basis_bones_for_asset(
-        apartment.BORDER_COLLIE_ASSET_ID
-    ) == border_collie["ue_anatomical_basis_bones"]
-    cat = apartment.DEFAULT_ACTOR_BINDINGS[apartment.CAT_ASSET_ID]
+        CURRENT_GENERATED_DOG_ASSET_ID
+    ) == current_dog["ue_anatomical_basis_bones"]
+    cat = apartment.DEFAULT_ACTOR_BINDINGS[CURRENT_GENERATED_CAT_ASSET_ID]
     assert cat["ue_anatomical_forward_yaw_deg"] == 0.0
     assert cat["ue_anatomical_basis_bones"] == {
         "rear": "bone_0",
-        "front": "bone_4",
+        "front": "bone_3",
         "body": "bone_0",
-        "left_foot": "bone_9",
-        "right_foot": "bone_14",
+        "left_foot": "bone_21",
+        "right_foot": "bone_26",
     }
     assert cat["ue_component_frame_delta"]["translation_cm"] == [
         0.0,
         0.0,
-        42.25,
+        0.0,
     ]
     assert apartment.anatomical_basis_bones_for_asset(
-        apartment.CAT_ASSET_ID
+        CURRENT_GENERATED_CAT_ASSET_ID
     ) == cat["ue_anatomical_basis_bones"]
     assert (
         apartment.anatomical_basis_bones_for_asset(apartment.HUMAN_ASSET_ID)
@@ -948,12 +951,12 @@ def test_default_asset_forward_bindings_are_explicit() -> None:
 
 def test_generated_anatomical_basis_mapping_is_exact_and_asset_local() -> None:
     bindings = deepcopy(apartment.DEFAULT_ACTOR_BINDINGS)
-    bindings[apartment.BORDER_COLLIE_ASSET_ID]["ue_anatomical_basis_bones"].pop(
+    bindings[CURRENT_GENERATED_DOG_ASSET_ID]["ue_anatomical_basis_bones"].pop(
         "front"
     )
     with pytest.raises(apartment.SpearApartmentError, match="define exactly"):
         apartment.anatomical_basis_bones_for_asset(
-            apartment.BORDER_COLLIE_ASSET_ID, actor_bindings=bindings
+            CURRENT_GENERATED_DOG_ASSET_ID, actor_bindings=bindings
         )
 
 
@@ -962,7 +965,7 @@ def test_generated_anatomical_basis_mapping_reaches_runtime_plan(
 ) -> None:
     _make_input_tree(tmp_path, "S3")
     plan = _plan("S3")
-    plan["actors"][0]["asset_id"] = apartment.BORDER_COLLIE_ASSET_ID
+    plan["actors"][0]["asset_id"] = CURRENT_GENERATED_DOG_ASSET_ID
     monkeypatch.setattr(
         apartment,
         "build_spear_visual_plan_from_files",
@@ -974,7 +977,7 @@ def test_generated_anatomical_basis_mapping_reaches_runtime_plan(
         for value in record["plan"]["actors"]
         if value["actor_id"] == "dog0"
     )
-    assert dog["ue_anatomical_basis_bones"]["front"] == "bone_4"
+    assert dog["ue_anatomical_basis_bones"]["front"] == "bone_5"
 
 
 def test_component_frame_delta_must_preserve_blueprint_transform(
@@ -1113,14 +1116,14 @@ def test_visual_bounds_gate_proves_beagle_floor_contact_and_horizontal_frame() -
     assert summary["dog0"]["maximum_floor_error_cm"] == 0.0
     assert summary["human0"]["status"] == "observed"
 
-    border_collie_plan = deepcopy(plan)
-    border_collie_plan["actors"][0]["asset_id"] = apartment.BORDER_COLLIE_ASSET_ID
-    border_collie_summary = apartment.summarize_actor_bounds(
-        expected_frames=border_collie_plan["frames"],
-        actor_declarations=border_collie_plan["actors"],
+    current_dog_plan = deepcopy(plan)
+    current_dog_plan["actors"][0]["asset_id"] = CURRENT_GENERATED_DOG_ASSET_ID
+    current_dog_summary = apartment.summarize_actor_bounds(
+        expected_frames=current_dog_plan["frames"],
+        actor_declarations=current_dog_plan["actors"],
         actor_bounds=records,
     )
-    assert border_collie_summary["dog0"]["status"] == "pass"
+    assert current_dog_summary["dog0"]["status"] == "pass"
 
     drifted = deepcopy(records)
     drifted["dog0"][4]["minimum_cm"][2] -= 6.0
