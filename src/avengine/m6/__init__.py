@@ -48,6 +48,13 @@ from avengine.m6.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )
+from avengine.m6.static_objects import (
+    StaticObjectRegistrationError,
+    publish_static_object_entity_registry,
+    resolve_static_object_emitter_world,
+    validate_static_object_admission,
+    verify_static_object_entity_registry,
+)
 
 __all__ = [
     "AnimalTemplateSelection",
@@ -58,6 +65,7 @@ __all__ = [
     "M6CanaryError",
     "ReadOnlyEvidenceBundle",
     "TaskExporter",
+    "StaticObjectRegistrationError",
     "aggregate_legacy_status",
     "bind_audio_program_hash",
     "bind_controlled_canary_request_hash",
@@ -74,6 +82,8 @@ __all__ = [
     "load_source_endpoint_registry",
     "materialize_audio_program_variant",
     "provider_assessment",
+    "publish_static_object_entity_registry",
+    "resolve_static_object_emitter_world",
     "resolve_source_endpoint_bindings",
     "run_controlled_canary",
     "select_animal_template",
@@ -85,5 +95,7 @@ __all__ = [
     "validate_legacy_flag_registry",
     "validate_sound_asset_registry",
     "validate_source_endpoint_registry",
+    "validate_static_object_admission",
     "verify_controlled_canary_evidence",
+    "verify_static_object_entity_registry",
 ]

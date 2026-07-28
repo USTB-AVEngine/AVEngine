@@ -50,6 +50,7 @@ from avengine.optional_backends.spear_apartment import (
     summarize_root_readbacks,
 )
 from avengine.runtime_profiles import (
+    build_exact_asset_bound_runtime_binding,
     default_room_runtime_profile_registry_path,
     default_source_asset_runtime_registry_path,
     load_room_runtime_profile_registry,
@@ -284,6 +285,20 @@ def _load_skeletal_component(game: Any, actor: Any, spear_root: Path) -> Any:
     return component
 
 
+def _skeletal_mesh_handle(component: Any) -> tuple[int, str]:
+    try:
+        value = component.GetSkeletalMeshAsset(as_handle=True)
+        method = "GetSkeletalMeshAsset"
+    except Exception:
+        value = 0
+    if not value:
+        value = component.get_property_value(property_name="SkeletalMesh", as_handle=True)
+        method = "SkeletalMesh_property"
+    if isinstance(value, bool) or int(value) <= 0:
+        raise RuntimeError("skeletal mesh readback returned an invalid handle")
+    return int(value), method
+
+
 def _sample_anatomical_forward(
     game: Any,
     actor: Any,
@@ -443,7 +458,25 @@ def _spawn_runtime_actors(
         )
         visual_actor.SetActorEnableCollision(bNewActorEnableCollision=False)
         visual_actor.SetActorTickEnabled(bEnabled=True)
-        visual_actor.SetActorScale3D(NewScale3D={"X": 1.0, "Y": 1.0, "Z": 1.0})
+        exact_runtime_binding = declaration.get("exact_runtime_binding")
+        if exact_runtime_binding is not None and not isinstance(
+            exact_runtime_binding, Mapping
+        ):
+            raise RuntimeError(f"{actor_id} exact runtime binding is invalid")
+        actor_scale = 1.0
+        if exact_runtime_binding is not None:
+            raw_scale = declaration.get("actor_scale")
+            if (
+                isinstance(raw_scale, bool)
+                or not isinstance(raw_scale, (int, float))
+                or not math.isfinite(float(raw_scale))
+                or float(raw_scale) <= 0.0
+            ):
+                raise RuntimeError(f"{actor_id} exact actor_scale is invalid")
+            actor_scale = float(raw_scale)
+        visual_actor.SetActorScale3D(
+            NewScale3D={"X": actor_scale, "Y": actor_scale, "Z": actor_scale}
+        )
         visual_root = visual_actor.K2_GetRootComponent()
         visual_root.SetMobility(NewMobility="Movable")
         attached = visual_root.K2_AttachToComponent(
@@ -464,15 +497,62 @@ def _spawn_runtime_actors(
         component_frame_correction = apply_ue_component_frame_delta(
             visual_root, declaration
         )
+        observed_scale = _struct_components(
+            visual_actor.GetActorScale3D(as_dict=True), ("x", "y", "z")
+        )
+        scale_error = max(abs(value - actor_scale) for value in observed_scale)
+        if scale_error > 1.0e-6:
+            raise RuntimeError(
+                f"{actor_id} actor scale readback {observed_scale} != {actor_scale}"
+            )
+        scale_readback = {
+            "status": "pass",
+            "authority": (
+                "declaration.actor_scale"
+                if exact_runtime_binding is not None
+                else "legacy_unity_scale"
+            ),
+            "requested_uniform_scale": actor_scale,
+            "observed_scale_xyz": observed_scale,
+            "maximum_absolute_error": scale_error,
+        }
+        skeletal_mesh_readback = None
+        if exact_runtime_binding is not None:
+            skeletal_mesh_path = declaration.get("skeletal_mesh_path")
+            if not isinstance(skeletal_mesh_path, str) or not skeletal_mesh_path:
+                raise RuntimeError(f"{actor_id} exact skeletal mesh path is invalid")
+            expected_mesh_handle = int(
+                game.unreal_service.load_object(
+                    uclass="USkeletalMesh",
+                    name=skeletal_mesh_path,
+                    as_handle=True,
+                )
+            )
+            observed_mesh_handle, readback_method = _skeletal_mesh_handle(component)
+            if observed_mesh_handle != expected_mesh_handle:
+                raise RuntimeError(
+                    f"{actor_id} spawned Blueprint uses the wrong SkeletalMesh"
+                )
+            skeletal_mesh_readback = {
+                "status": "pass",
+                "expected_path": skeletal_mesh_path,
+                "expected_handle": expected_mesh_handle,
+                "observed_handle": observed_mesh_handle,
+                "readback_method": readback_method,
+            }
         component.SetComponentTickEnabled(bEnabled=True)
         component.SetCastShadow(NewCastShadow=True)
         component.set_property_value(
             property_name="GlobalAnimRateScale", property_value=1.0
         )
-        animation_paths = {
-            "idle": declaration["idle_animation"],
-            "walk": declaration["walking_animation"],
-        }
+        animation_paths = (
+            dict(declaration["animation_paths_by_action_id"])
+            if exact_runtime_binding is not None
+            else {
+                "idle": declaration["idle_animation"],
+                "walk": declaration["walking_animation"],
+            }
+        )
         animations = {
             path: game.unreal_service.load_object(uclass="UAnimationAsset", name=path)
             for path in animation_paths.values()
@@ -492,6 +572,10 @@ def _spawn_runtime_actors(
             "lengths": lengths,
             "current_animation": None,
             "component_frame_correction": component_frame_correction,
+            "actor_scale_readback": scale_readback,
+            "skeletal_mesh_readback": skeletal_mesh_readback,
+            "animation_paths_by_action_id": animation_paths,
+            "exact_runtime_binding": exact_runtime_binding,
             "anatomical_basis_bones": declaration.get(
                 "ue_anatomical_basis_bones"
             ),
@@ -507,7 +591,7 @@ def _spawn_runtime_actors(
 
 def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
     reference_actor_ids: tuple[str, ...] | None = None
-    binding_by_asset: dict[str, tuple[Any, ...]] = {}
+    binding_by_asset: dict[tuple[str, str | None], tuple[Any, ...]] = {}
     for scenario in suite["scenarios"]:
         declarations = scenario["plan"]["actors"]
         actor_ids = tuple(value["actor_id"] for value in declarations)
@@ -516,6 +600,10 @@ def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
         elif actor_ids != reference_actor_ids:
             raise RuntimeError("Apartment UE actor-slot closure differs")
         for value in declarations:
+            exact = value.get("exact_runtime_binding")
+            source_slot = (
+                str(exact.get("source_slot_id")) if isinstance(exact, Mapping) else None
+            )
             binding = (
                 value["blueprint_class_path"],
                 value["idle_animation"],
@@ -526,8 +614,13 @@ def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
                 value.get("skeletal_mesh_path"),
                 value.get("asset_revision"),
                 value.get("floor_contact_gate"),
+                value.get("actor_scale"),
+                value.get("animation_paths_by_action_id"),
+                exact,
             )
-            previous = binding_by_asset.setdefault(value["asset_id"], binding)
+            previous = binding_by_asset.setdefault(
+                (value["asset_id"], source_slot), binding
+            )
             if previous != binding:
                 raise RuntimeError(
                     f"UE binding changes for asset {value['asset_id']!r}"
@@ -554,6 +647,13 @@ def _apply_actor_state(
     anchor = runtime["anchor"]
     component = runtime["component"]
     animation_path = state["ue_animation"]
+    action_id = state["action_id"]
+    if runtime["exact_runtime_binding"] is not None and (
+        runtime["animation_paths_by_action_id"].get(action_id) != animation_path
+    ):
+        raise RuntimeError(
+            f"action {action_id!r} does not use its declared animation path"
+        )
     if animation_path not in runtime["animations"]:
         raise RuntimeError(f"unloaded animation requested: {animation_path}")
     if runtime["current_animation"] != animation_path:
@@ -1396,6 +1496,38 @@ def run(args: argparse.Namespace) -> Path:
     }
     if execution_partition is not None:
         suite["execution_partition"] = execution_partition
+    exact_registry_bindings: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for scenario in suite["scenarios"]:
+        plan = scenario.get("plan")
+        if not isinstance(plan, Mapping):
+            continue
+        for declaration in plan.get("actors", ()):
+            snapshot = declaration.get("exact_runtime_binding")
+            if snapshot is None:
+                continue
+            emitter = snapshot.get("emitter") if isinstance(snapshot, Mapping) else None
+            if not isinstance(emitter, Mapping):
+                raise RuntimeError("suite exact runtime snapshot is invalid")
+            key = (
+                str(snapshot.get("source_slot_id")),
+                str(declaration.get("asset_id")),
+                str(declaration.get("asset_revision")),
+                str(emitter.get("semantic_anchor_id")),
+            )
+            rebuilt = exact_registry_bindings.get(key)
+            if rebuilt is None:
+                rebuilt = build_exact_asset_bound_runtime_binding(
+                    source_registry,
+                    source_slot_id=key[0],
+                    asset_id=key[1],
+                    revision=key[2],
+                    anchor_id=key[3],
+                )
+                exact_registry_bindings[key] = rebuilt
+            if rebuilt != snapshot:
+                raise RuntimeError(
+                    "suite exact runtime snapshot differs from the selected registry"
+                )
     phase_wall_seconds["plan_compile"] = _elapsed_seconds(phase_started)
     _assert_suite_actor_binding_closure(suite)
     encoder_gpu = args.encoder_gpu
@@ -1509,6 +1641,15 @@ def run(args: argparse.Namespace) -> Path:
                 actor_id: {
                     "asset_local_frame": runtime["component_frame_correction"],
                     "runtime_hierarchy": runtime["hierarchy"],
+                    "actor_scale": runtime["actor_scale_readback"],
+                    "skeletal_mesh": runtime["skeletal_mesh_readback"],
+                    "animation_paths_by_action_id": runtime[
+                        "animation_paths_by_action_id"
+                    ],
+                    "exact_runtime_binding": runtime["exact_runtime_binding"],
+                    "registry_exact_snapshot_full_equality": (
+                        runtime["exact_runtime_binding"] is not None
+                    ),
                 }
                 for actor_id, runtime in runtimes.items()
             }

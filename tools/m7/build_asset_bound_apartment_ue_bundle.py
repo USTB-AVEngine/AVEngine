@@ -30,8 +30,10 @@ from avengine.optional_backends.spear_apartment import (
     build_rawvideo_encode_command,
 )
 from avengine.runtime_profiles import (
+    build_exact_asset_bound_runtime_binding,
     default_source_asset_runtime_registry_path,
     load_source_asset_runtime_registry,
+    resolve_source_asset_runtime_profile,
     source_timeline_profiles,
 )
 
@@ -88,6 +90,55 @@ def _assert_sample_asset_alignment(
         raise RuntimeError(
             f"visual and audio asset bindings differ for {episode_id}"
         )
+
+
+def _resolve_exact_episode_runtime_bindings(
+    *,
+    episode_bindings: Mapping[str, Mapping[str, Any]],
+    source_registry: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Freeze exact runtime closures for generated assets already carrying one."""
+
+    result: dict[str, dict[str, Any]] = {}
+    emitter_fields = (
+        "source_slot_id",
+        "asset_id",
+        "asset_revision",
+        "semantic_anchor_id",
+        "emitter_offset_m",
+        "local_anatomical_forward_axis",
+        "offset_space",
+    )
+    for slot in SOURCE_SLOTS:
+        binding = episode_bindings[slot]
+        asset_id = binding["asset_id"]
+        record = resolve_source_asset_runtime_profile(
+            source_registry,
+            asset_id,
+            binding.get("asset_revision"),
+        )
+        if not isinstance(record.get("asset_bound_lineage"), Mapping):
+            continue
+        exact = build_exact_asset_bound_runtime_binding(
+            source_registry,
+            source_slot_id=slot,
+            asset_id=asset_id,
+            revision=binding.get("asset_revision"),
+            anchor_id=binding.get("semantic_anchor_id"),
+        )
+        emitter = exact["emitter"]
+        mismatches = [
+            field
+            for field in emitter_fields
+            if binding.get(field) != emitter.get(field)
+        ]
+        if mismatches:
+            raise RuntimeError(
+                f"exact runtime emitter binding differs for {slot}: "
+                f"{', '.join(mismatches)}"
+            )
+        result[slot] = exact
+    return result
 
 
 def _encode_diagnostic(
@@ -187,6 +238,7 @@ def _build_episode(
     video_encoder: str,
     encoder_gpu: int | None,
     variants_per_episode: int,
+    runtime_bindings_by_source_slot: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Build one independent episode directory for sequential or process use."""
 
@@ -280,6 +332,9 @@ def _build_episode(
                 "v00_mixture": dict(mixture),
                 "asset_ids_by_source_slot": sample["asset_ids_by_source_slot"],
                 "source_center_gate_status": "pass",
+                "runtime_bindings_by_source_slot": dict(
+                    runtime_bindings_by_source_slot
+                ),
             },
         )
         row = {
@@ -312,6 +367,7 @@ def _load_completed_episode(
     episode_id: str,
     ordinal: int,
     sample: Mapping[str, Any],
+    runtime_bindings_by_source_slot: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any] | None:
     episode_root = staging / "episodes" / episode_id
     record_path = episode_root / "metadata/build_record.json"
@@ -323,6 +379,10 @@ def _load_completed_episode(
     row = record.get("row")
     diagnostic = episode_root / "videos/diagnostic_topdown_binaural.mp4"
     clean = episode_root / "videos/clean_binaural.mp4"
+    batch_binding_path = episode_root / "metadata/batch_binding.json"
+    batch_binding = (
+        load_json(batch_binding_path) if batch_binding_path.is_file() else {}
+    )
     if (
         record.get("status") != "pass"
         or not isinstance(row, Mapping)
@@ -332,6 +392,8 @@ def _load_completed_episode(
         or not clean.is_file()
         or diagnostic.stat().st_ino != clean.stat().st_ino
         or sha256_file(diagnostic) != record.get("diagnostic_sha256")
+        or batch_binding.get("runtime_bindings_by_source_slot", {})
+        != dict(runtime_bindings_by_source_slot)
         or any(
             not (episode_root / relative).is_file()
             for relative in (
@@ -405,6 +467,13 @@ def build_bundle(
         load_json(plan_root / "asset_emitter_binding_report.json"),
         source_profiles=source_profiles,
     )
+    exact_runtime_bindings = {
+        episode_id: _resolve_exact_episode_runtime_bindings(
+            episode_bindings=episode_bindings,
+            source_registry=source_registry,
+        )
+        for episode_id, episode_bindings in bindings.items()
+    }
     if set(episodes) != set(bindings):
         raise RuntimeError("trajectory bank and asset binding episode sets differ")
     selected = tuple(episode_ids) if episode_ids is not None else tuple(sorted(episodes))
@@ -458,6 +527,9 @@ def build_bundle(
                     episode_id=episode_id,
                     ordinal=ordinal,
                     sample=samples[episode_id],
+                    runtime_bindings_by_source_slot=exact_runtime_bindings[
+                        episode_id
+                    ],
                 )
                 if resume
                 else None
@@ -480,6 +552,9 @@ def build_bundle(
                     "video_encoder": video_encoder,
                     "encoder_gpu": encoder_gpu,
                     "variants_per_episode": variants_per_episode,
+                    "runtime_bindings_by_source_slot": exact_runtime_bindings[
+                        episode_id
+                    ],
                 }
             )
         if workers == 1:

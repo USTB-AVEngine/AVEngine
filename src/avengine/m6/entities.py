@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from avengine.contracts.json_io import canonical_json_sha256
 from avengine.m6.registry import (
     ANIMAL_TEMPLATE_REGISTRY_SCHEMA,
     ENTITY_ASSET_REGISTRY_SCHEMA,
@@ -22,6 +23,16 @@ SIZE_VALUES = ("small", "medium", "large")
 BODY_BUILD_VALUES = ("slim", "standard", "stocky")
 LIFE_STAGE_VALUES = ("young", "adult", "senior")
 TEMPLATE_STATES = ("formal", "research", "unavailable", "rejected")
+STATIC_OBJECT_EVIDENCE_KINDS = (
+    "emitter_marker_glb",
+    "marker_visual_approval",
+    "spear_static_admission_batch",
+    "spear_static_admission_job_receipt",
+    "spear_static_emitter_stage_receipt",
+    "spear_static_finalization_stage_receipt",
+    "spear_static_watertight_stage_receipt",
+    "visual_asset_glb",
+)
 
 
 def _canonical_ids(items: Any, field: str, owner: str) -> list[str]:
@@ -52,9 +63,150 @@ def validate_entity_asset_registry(value: Any) -> list[str]:
             continue
         owner = f"entities[{index}]"
         errors.extend(_canonical_ids(entity.get("emitter_anchors"), "anchor_id", f"{owner}.emitter_anchors"))
-        action_ids = entity.get("capabilities", {}).get("action_ids", [])
+        raw_capabilities = entity.get("capabilities")
+        action_ids = (
+            raw_capabilities.get("action_ids", [])
+            if isinstance(raw_capabilities, Mapping)
+            else []
+        )
         if isinstance(action_ids, list) and action_ids != sorted(set(action_ids)):
             errors.append(f"{owner}.capabilities.action_ids must be unique and canonical")
+        admission_evidence = entity.get("admission_evidence")
+        if isinstance(admission_evidence, Mapping):
+            artifacts = admission_evidence.get("artifacts")
+            kinds = (
+                [item.get("kind") for item in artifacts if isinstance(item, Mapping)]
+                if isinstance(artifacts, list)
+                else []
+            )
+            if tuple(kinds) != STATIC_OBJECT_EVIDENCE_KINDS:
+                errors.append(
+                    f"{owner}.admission_evidence.artifacts must contain the "
+                    "canonical static-object evidence closure"
+                )
+            payload = {
+                key: item
+                for key, item in admission_evidence.items()
+                if key != "evidence_content_sha256"
+            }
+            evidence_hash = admission_evidence.get("evidence_content_sha256")
+            if evidence_hash != canonical_json_sha256(payload):
+                errors.append(
+                    f"{owner}.admission_evidence.evidence_content_sha256 "
+                    "does not match canonical content"
+                )
+            provenance = entity.get("provenance")
+            if (
+                isinstance(provenance, Mapping)
+                and provenance.get("evidence_sha256") != evidence_hash
+            ):
+                errors.append(
+                    f"{owner}.provenance.evidence_sha256 does not bind "
+                    "admission_evidence"
+                )
+            entity_id = entity.get("entity_asset_id")
+            identity = admission_evidence.get("identity")
+            if (
+                not isinstance(identity, Mapping)
+                or identity.get("instance_id") != entity_id
+            ):
+                errors.append(
+                    f"{owner}.admission_evidence.identity.instance_id must "
+                    "match entity_asset_id"
+                )
+            if (
+                admission_evidence.get(
+                    "formal_dataset_registration_authorized"
+                )
+                is not False
+            ):
+                errors.append(
+                    f"{owner}.admission_evidence cannot claim formal "
+                    "dataset registration"
+                )
+            if (
+                entity.get("entity_class") != "rigid_object"
+                or entity.get("admission_state") != "research"
+            ):
+                errors.append(
+                    f"{owner} static admission evidence is valid only for a "
+                    "research rigid_object"
+                )
+            capabilities = entity.get("capabilities")
+            if not isinstance(capabilities, Mapping) or any(
+                capabilities.get(field) != expected
+                for field, expected in (
+                    ("articulated", False),
+                    ("skeleton_revision", None),
+                    ("skeleton_sha256", None),
+                    ("action_ids", []),
+                )
+            ):
+                errors.append(
+                    f"{owner}.capabilities must be exactly joint-free rigid "
+                    "static capabilities"
+                )
+            anchors = entity.get("emitter_anchors")
+            if not isinstance(anchors, list) or len(anchors) != 1:
+                errors.append(
+                    f"{owner}.emitter_anchors must contain exactly one "
+                    "static object_speaker"
+                )
+            else:
+                anchor = anchors[0]
+                if (
+                    not isinstance(anchor, Mapping)
+                    or anchor.get("anchor_type") != "object_speaker"
+                    or anchor.get("joint_id") is not None
+                    or anchor.get("anchor_id")
+                    != admission_evidence.get("emitter_anchor_id")
+                ):
+                    errors.append(
+                        f"{owner}.emitter_anchors[0] must be the joint-free "
+                        "speaker named by admission_evidence"
+                    )
+            attributes = entity.get("realized_visual_attributes")
+            if (
+                not isinstance(attributes, Mapping)
+                or attributes.get("source_instance_id") != entity_id
+                or attributes.get(
+                    "formal_dataset_registration_authorized"
+                )
+                is not False
+            ):
+                errors.append(
+                    f"{owner}.realized_visual_attributes must bind the "
+                    "research instance and keep formal authorization false"
+                )
+            visual = entity.get("visual_asset")
+            visual_records = (
+                [
+                    item
+                    for item in artifacts
+                    if isinstance(item, Mapping)
+                    and item.get("kind") == "visual_asset_glb"
+                ]
+                if isinstance(artifacts, list)
+                else []
+            )
+            if (
+                not isinstance(visual, Mapping)
+                or len(visual_records) != 1
+                or visual_records[0].get("path") != visual.get("uri")
+                or visual_records[0].get("sha256") != visual.get("sha256")
+            ):
+                errors.append(
+                    f"{owner}.visual_asset must match the authenticated "
+                    "visual_asset_glb evidence record"
+                )
+            if (
+                not isinstance(evidence_hash, str)
+                or entity.get("revision") != f"spear_static_{evidence_hash}"
+            ):
+                errors.append(
+                    f"{owner}.revision must bind the complete static "
+                    "admission-evidence hash"
+                )
         if entity.get("entity_class") == "articulated_animal":
             attributes = entity.get("realized_visual_attributes", {})
             for field, allowed in (
@@ -343,4 +495,3 @@ def validate_entity_template_bindings(
         if coat["profile_id"] != template_coat["profile_id"] or coat["value"] not in template_coat["values"]:
             errors.append(f"entities[{index}] coat profile is outside its breed template")
     return errors
-

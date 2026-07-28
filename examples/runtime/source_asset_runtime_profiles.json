@@ -1,14 +1,14 @@
 {
   "schema": "avengine_source_asset_runtime_registry_v1",
   "registry_id": "avengine_source_asset_runtime_profiles_v1",
-  "revision": "20260727_v4",
+  "revision": "20260729_v5",
   "aliases": {
     "current_generated_cat": {
-      "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+      "asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1"
     },
     "current_generated_dog": {
-      "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+      "asset_id": "generated_pembroke_welsh_corgi_red_white_medium_standard_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1"
     },
     "legacy_beagle": {
@@ -18,10 +18,6 @@
     "legacy_human": {
       "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
       "revision": "native_runtime_ue_v3"
-    },
-    "runtime_interface_labrador": {
-      "asset_id": "generated_labrador_yellow_medium_standard_adult_research_v1",
-      "revision": "pixel3d_tokenrig_ue_v1"
     }
   },
   "assets": [
@@ -341,6 +337,523 @@
             "reason": "generated_shiba_mesh_foot_bottom_leveling_rest_residual_minus_0p12cm_orbit_walking_readback_plus_1p18cm_scale1_20260727"
           },
           "floor_contact_gate": true
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_pembroke_welsh_corgi_red_white_medium_standard_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1",
+      "display_label": "Pembroke Welsh Corgi",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "dog",
+        "breed_id": "pembroke_welsh_corgi"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "dog_pembroke_welsh_corgi_coat_v1",
+          "value": "standard_red_white"
+        }
+      },
+      "generation_request_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult"
+      },
+      "geometry": {
+        "mesh_authority": "generated_pixel3d_target_native",
+        "source_mesh_uri": "artifact://generated-animal/pembroke-welsh-corgi-red-white-v1/animated_walk_idle.glb",
+        "rig_authority": "quadruped_dog_v1"
+      },
+      "timeline": {
+        "template_id": "generated_pembroke_welsh_corgi_target_native_v1",
+        "body_plan_id": "quadruped_canine",
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [0.2540588796012138, 0.30917552322485176, 0.0],
+          "offset_space": "final_scaled_asset_root",
+          "local_basis": {
+            "schema": "avengine_asset_local_basis_v1",
+            "forward_axis": [1.0, 0.0, 0.0],
+            "up_axis": [0.0, 1.0, 0.0],
+            "right_axis": [0.0, 0.0, 1.0],
+            "handedness": "forward_cross_up_equals_right"
+          }
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/BP_gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf.BP_gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf_C",
+          "skeletal_mesh_binding": "explicit_path",
+          "skeletal_mesh_path": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/target_animated_repaired_low_slice_edge_average.target_animated_repaired_low_slice_edge_average",
+          "actor_scale": 0.667321,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/Walking.Walking",
+          "animation_paths_by_action_id": {
+            "idle": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/Idle.Idle",
+            "walk": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/Walking.Walking"
+          },
+          "ue_anatomical_forward_yaw_deg": 0.0,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_5",
+            "body": "bone_0",
+            "left_foot": "bone_19",
+            "right_foot": "bone_23"
+          },
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "asset_bound_lineage": {
+        "schema": "avengine_spear_source_asset_v2_runtime_lineage_v1",
+        "runtime_asset_id": "generated_pembroke_welsh_corgi_red_white_medium_standard_adult_research_v1",
+        "runtime_revision": "pixel3d_tokenrig_ue_v1",
+        "source_asset_v2": {
+          "schema": "source_asset_v2",
+          "asset_id": "dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf",
+          "profile_schema_id": "dog_pembroke_welsh_corgi_imagegen_research_v13",
+          "profile_sha256": "1b2b5190d62881bf2f9f780923c9a2bdef7b565dedea37e44746e30501e00875",
+          "request_sha256": "938f4bae6c684855d92281befd20d9e2b3f131be99a053801ab0190096b50419",
+          "lineage_group_id": "dog_pembroke_welsh_corgi_direct_pixel3d_v1",
+          "state_classification": "research_candidate",
+          "record": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/source_assets/dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf.json",
+            "sha256": "ed852b97b5bd38fae3764d45ebeb242efed17c800f73ace04f005cc880e6ac0e",
+            "size_bytes": 34180
+          },
+          "registry": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/registry_manifest.json",
+            "sha256": "6edce281043b0614d8e030e00f77285906c6c58bf5fed1382f4c24919781a6ed",
+            "size_bytes": 11009
+          }
+        },
+        "geometry": {
+          "lineage_kind": "unchanged_pixel3d_geometry",
+          "raw_pixel3d_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/pembroke_welsh_corgi_20260728_13_imagegen_upper_limb_corridors_v1/pixel3d_checkpoint_v1/raw/dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/pixal_raw_1024.glb",
+            "sha256": "d443c11dc962876e45a82130856f7ea3cddd4f9054ecf8ba9319fc8155adc45d",
+            "size_bytes": 38517020
+          },
+          "tokenrig_input_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/pembroke_welsh_corgi_20260728_13_imagegen_upper_limb_corridors_v1/bounded_oriented_repair_v1_20260728/repaired.glb",
+            "sha256": "d443c11dc962876e45a82130856f7ea3cddd4f9054ecf8ba9319fc8155adc45d",
+            "size_bytes": 38517020
+          },
+          "runtime_mesh_uri": "artifact://generated-animal/pembroke-welsh-corgi-red-white-v1/animated_walk_idle.glb",
+          "runtime_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/pembroke_welsh_corgi_20260728_13_imagegen_upper_limb_corridors_v1/review_run_bounded_production_proxy_workspace_identity_v2_20260728_codex1/04_motion/target_animated_repaired_low_slice_edge_average.glb",
+            "sha256": "4b6ce3b6ce87346ad43679e4cfed977b0f82db805b28dca985afe9cccfc21bd3",
+            "size_bytes": 7689576
+          },
+          "repair_evidence": null
+        },
+        "tokenrig_animation_closure": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/pembroke_welsh_corgi_20260728_13_imagegen_upper_limb_corridors_v1/animation_decision_bounded_proxy_workspace_identity_owner_approved_20260728_codex1/decision_freeze_receipt.json",
+          "sha256": "019132fb467dbe65285032684cf628a51df0b61ffcdf113d7e314d32b1a459ef",
+          "size_bytes": 4330
+        },
+        "ue_asset_bound_import_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/pembroke_welsh_corgi_20260728_13_imagegen_upper_limb_corridors_v1/ue_import_result_bounded_production_proxy_v1_20260728_codex1.json",
+          "sha256": "0fca685a1e507ac01db2fca56baaad38990eaa9084beb3e45b6c525d1c49d579",
+          "size_bytes": 4849
+        },
+        "ue_runtime_readback_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/pembroke_welsh_corgi_20260728_13_imagegen_upper_limb_corridors_v1/apartment_specs_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/clips/pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf/registry/pixal_dog_pembroke_welsh_corgi_imagegen_v13_a111752aaccf.json",
+          "sha256": "4ab944c4a1f30748096bd4f303a56d73458223292550f50282e2eb422921b0da",
+          "size_bytes": 7927
+        },
+        "emitter_measurement_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/pembroke_welsh_corgi_20260728_13_imagegen_upper_limb_corridors_v1/emitter_measurement_bounded_production_proxy_workspace_identity_v2_20260729_codex1.json",
+          "sha256": "b1a0deae2f0961dbbe5b9c68436e6c16e2529dbe824d5b3d1d3bb45053c0335f",
+          "size_bytes": 1097
+        },
+        "admission": {
+          "state": "research",
+          "formal_dataset_registration_authorized": false,
+          "evidence": [
+            {
+              "root_id": "spear_repo",
+              "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/registry_manifest.json",
+              "sha256": "6edce281043b0614d8e030e00f77285906c6c58bf5fed1382f4c24919781a6ed",
+              "size_bytes": 11009
+            }
+          ]
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
+      "revision": "pixel3d_tokenrig_ue_v1",
+      "display_label": "British Shorthair",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "cat",
+        "breed_id": "british_shorthair"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "stocky",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "cat_british_shorthair_coat_v1",
+          "value": "standard_blue"
+        }
+      },
+      "generation_request_attributes": {
+        "size": "medium",
+        "body_build": "stocky",
+        "life_stage": "adult"
+      },
+      "geometry": {
+        "mesh_authority": "generated_pixel3d_target_native",
+        "source_mesh_uri": "artifact://generated-animal/british-shorthair-blue-v1/animated_walk_idle.glb",
+        "rig_authority": "quadruped_cat_v1"
+      },
+      "timeline": {
+        "template_id": "generated_british_shorthair_target_native_v1",
+        "body_plan_id": "quadruped_mammal_felid_v1",
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [0.2503672200051257, 0.23847342533548063, 0.0],
+          "offset_space": "final_scaled_asset_root",
+          "local_basis": {
+            "schema": "avengine_asset_local_basis_v1",
+            "forward_axis": [1.0, 0.0, 0.0],
+            "up_axis": [0.0, 1.0, 0.0],
+            "right_axis": [0.0, 0.0, 1.0],
+            "handedness": "forward_cross_up_equals_right"
+          }
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_pixal_cat_british_shorthair_shadow_cleanup_v1/BP_gate_pixal_cat_british_shorthair_shadow_cleanup_v1.BP_gate_pixal_cat_british_shorthair_shadow_cleanup_v1_C",
+          "skeletal_mesh_binding": "explicit_path",
+          "skeletal_mesh_path": "/Game/MyAssets/Audioset/Meshes/gate_pixal_cat_british_shorthair_shadow_cleanup_v1/target_animated_repaired_low_slice_edge_average_residual_continuation.target_animated_repaired_low_slice_edge_average_residual_continuation",
+          "actor_scale": 0.612234,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_cat_british_shorthair_shadow_cleanup_v1/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_cat_british_shorthair_shadow_cleanup_v1/Walking.Walking",
+          "animation_paths_by_action_id": {
+            "idle": "/Game/MyAssets/Audioset/Meshes/gate_pixal_cat_british_shorthair_shadow_cleanup_v1/Idle.Idle",
+            "walk": "/Game/MyAssets/Audioset/Meshes/gate_pixal_cat_british_shorthair_shadow_cleanup_v1/Walking.Walking"
+          },
+          "ue_anatomical_forward_yaw_deg": 0.0,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_3",
+            "body": "bone_0",
+            "left_foot": "bone_21",
+            "right_foot": "bone_26"
+          },
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "asset_bound_lineage": {
+        "schema": "avengine_spear_source_asset_v2_runtime_lineage_v1",
+        "runtime_asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
+        "runtime_revision": "pixel3d_tokenrig_ue_v1",
+        "source_asset_v2": {
+          "schema": "source_asset_v2",
+          "asset_id": "cat_british_shorthair_shadow_cleanup_v1",
+          "profile_schema_id": "cat_british_shorthair_four_limb_rest_side_shadow_cleanup_v1",
+          "profile_sha256": "a00818988fffb3fc539ba82de44fd5d9b7dfe3c64278b8adbfe825b061dc9f6b",
+          "request_sha256": "22e916d103ac229422d1d365629d0580ae2de96056d32b0d90c92d9a3aef3cc2",
+          "lineage_group_id": "cat_british_shorthair_direct_pixel3d_v1",
+          "state_classification": "research_candidate",
+          "record": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/source_assets/cat_british_shorthair_shadow_cleanup_v1.json",
+            "sha256": "6383a560b07945ff0d93c1d583b3fc24becfcca30905693fb543c16bbdb09bf9",
+            "size_bytes": 32758
+          },
+          "registry": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/registry_manifest.json",
+            "sha256": "6edce281043b0614d8e030e00f77285906c6c58bf5fed1382f4c24919781a6ed",
+            "size_bytes": 11009
+          }
+        },
+        "geometry": {
+          "lineage_kind": "bounded_same_pixel3d_mesh_repair",
+          "raw_pixel3d_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/british_shorthair_20260727_02/pixal_shadow_cleaned_rerun_v1_20260728/raw/cat_british_shorthair_shadow_cleanup_v1/pixal_raw_1024.glb",
+            "sha256": "0cb13ff33c7c99d089da9d3e6f6b5de7447a29eaff4726173583eaa5df45fca0",
+            "size_bytes": 40227740
+          },
+          "tokenrig_input_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/british_shorthair_20260727_02/bounded_oriented_repair_v1_20260728/repaired.glb",
+            "sha256": "a2bf37153a20099ca785f20cfc8a0fa4667180bf96c63a0bf70de1459429791b",
+            "size_bytes": 40227740
+          },
+          "runtime_mesh_uri": "artifact://generated-animal/british-shorthair-blue-v1/animated_walk_idle.glb",
+          "runtime_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/british_shorthair_20260727_02/review_run_cat_bounded_production_proxy_workspace_identity_v4_20260728_codex1/04_motion/target_animated_repaired_low_slice_edge_average_residual_continuation.glb",
+            "sha256": "8cd0e7564f5badfe9ee22ccdc8db7020eef96fdfdc87b6c89f5ed26817bd584b",
+            "size_bytes": 7974740
+          },
+          "repair_evidence": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/british_shorthair_20260727_02/bounded_oriented_repair_v1_20260728/repair_manifest.json",
+            "sha256": "a9b937dddeba8fa6bba34d62b1aae33c7e40a9bb4cf13bf8663baf36240498ff",
+            "size_bytes": 7215
+          }
+        },
+        "tokenrig_animation_closure": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/british_shorthair_20260727_02/animation_decision_bounded_production_proxy_workspace_identity_physical_provenance_owner_approved_v5_20260729_codex1/decision_freeze_receipt.json",
+          "sha256": "7ba8382b4e3d3ccca873fb7fe77adfd992c8a388251ba0309adcb8e3de741758",
+          "size_bytes": 4195
+        },
+        "ue_asset_bound_import_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/british_shorthair_20260727_02/ue_import_result_bounded_production_proxy_workspace_identity_physical_provenance_v5_20260729_codex1.json",
+          "sha256": "223f4104ad5b11f63056fd35bd79f1e51aa9c3b79d257825550b556991dc876c",
+          "size_bytes": 4796
+        },
+        "ue_runtime_readback_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/british_shorthair_20260727_02/apartment_specs_scale_calibrated_physical_provenance_rig_direction_semantics_v5_20260729_codex1/clips/pixal_cat_british_shorthair_shadow_cleanup_v1/registry/pixal_cat_british_shorthair_shadow_cleanup_v1.json",
+          "sha256": "4112b4c367b9cb710476df884ecee9ee40dc08ea2ba6c1d0ea71f98217453e22",
+          "size_bytes": 7528
+        },
+        "emitter_measurement_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/british_shorthair_20260727_02/emitter_measurement_bounded_production_proxy_workspace_identity_v4_20260729_codex1.json",
+          "sha256": "09681e300a09d950d380bfd8e0979b1350a505a42d82080791ea846ef75e2103",
+          "size_bytes": 1087
+        },
+        "admission": {
+          "state": "research",
+          "formal_dataset_registration_authorized": false,
+          "evidence": [
+            {
+              "root_id": "spear_repo",
+              "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/registry_manifest.json",
+              "sha256": "6edce281043b0614d8e030e00f77285906c6c58bf5fed1382f4c24919781a6ed",
+              "size_bytes": 11009
+            }
+          ]
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_shiba_inu_red_medium_standard_adult_research_v2",
+      "revision": "pixel3d_tokenrig_ue_v2",
+      "display_label": "Shiba Inu v2",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "dog",
+        "breed_id": "shiba_inu"
+      },
+      "realized_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult",
+        "coat_profile": {
+          "profile_id": "dog_shiba_inu_coat_v1",
+          "value": "standard_red"
+        }
+      },
+      "generation_request_attributes": {
+        "size": "medium",
+        "body_build": "standard",
+        "life_stage": "adult"
+      },
+      "geometry": {
+        "mesh_authority": "generated_pixel3d_target_native",
+        "source_mesh_uri": "artifact://generated-animal/shiba-inu-red-v2/animated_walk_idle.glb",
+        "rig_authority": "quadruped_dog_v1"
+      },
+      "timeline": {
+        "template_id": "generated_shiba_inu_target_native_v2",
+        "body_plan_id": "quadruped_canine",
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [0.24717403409658225, 0.3450888046163496, 0.0],
+          "offset_space": "final_scaled_asset_root",
+          "local_basis": {
+            "schema": "avengine_asset_local_basis_v1",
+            "forward_axis": [1.0, 0.0, 0.0],
+            "up_axis": [0.0, 1.0, 0.0],
+            "right_axis": [0.0, 0.0, 1.0],
+            "handedness": "forward_cross_up_equals_right"
+          }
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c/BP_gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c.BP_gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c_C",
+          "skeletal_mesh_binding": "explicit_path",
+          "skeletal_mesh_path": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c/target_animated_repaired_low_slice_edge_average_residual.target_animated_repaired_low_slice_edge_average_residual",
+          "actor_scale": 0.672741,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c/Idle.Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c/Walking.Walking",
+          "animation_paths_by_action_id": {
+            "idle": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c/Idle.Idle",
+            "walk": "/Game/MyAssets/Audioset/Meshes/gate_pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c/Walking.Walking"
+          },
+          "ue_anatomical_forward_yaw_deg": 0.0,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_2",
+            "body": "bone_0",
+            "left_foot": "bone_18",
+            "right_foot": "bone_22"
+          },
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
+          },
+          "floor_contact_gate": true
+        }
+      },
+      "asset_bound_lineage": {
+        "schema": "avengine_spear_source_asset_v2_runtime_lineage_v1",
+        "runtime_asset_id": "generated_shiba_inu_red_medium_standard_adult_research_v2",
+        "runtime_revision": "pixel3d_tokenrig_ue_v2",
+        "source_asset_v2": {
+          "schema": "source_asset_v2",
+          "asset_id": "dog_shiba_inu_imagegen_v2_33ba9c51358c",
+          "profile_schema_id": "dog_shiba_inu_imagegen_research_v2",
+          "profile_sha256": "18b54bcd95a092e78a68e20ca9b841da5d1d234658c340664261cd3de08290c6",
+          "request_sha256": "4d3fa1e722a7f94a22a04713a65c000bd915ef3ce8856e083b5936e07618115f",
+          "lineage_group_id": "dog_shiba_inu_direct_pixel3d_v1",
+          "state_classification": "research_candidate",
+          "record": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/source_assets/dog_shiba_inu_imagegen_v2_33ba9c51358c.json",
+            "sha256": "9b8f391d2bc80cca0fd50c6187330cc9b9aabc5305286383c6b81ea29939e425",
+            "size_bytes": 32798
+          },
+          "registry": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/registry_manifest.json",
+            "sha256": "6edce281043b0614d8e030e00f77285906c6c58bf5fed1382f4c24919781a6ed",
+            "size_bytes": 11009
+          }
+        },
+        "geometry": {
+          "lineage_kind": "bounded_same_pixel3d_mesh_repair",
+          "raw_pixel3d_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/pixel3d_checkpoint_v1/raw/dog_shiba_inu_imagegen_v2_33ba9c51358c/pixal_raw_1024.glb",
+            "sha256": "950c7d762d3718bc88d2695f8c66ca81f9110d993ec79e669637586f6f22f1d2",
+            "size_bytes": 40174500
+          },
+          "tokenrig_input_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/bounded_oriented_repair_v1_20260728/repaired.glb",
+            "sha256": "313d7c5ec07832e5c0c92dae1b0a3e5ed501915df42c33f148fcf4e4f21e9f43",
+            "size_bytes": 40174500
+          },
+          "runtime_mesh_uri": "artifact://generated-animal/shiba-inu-red-v2/animated_walk_idle.glb",
+          "runtime_glb": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/review_run_bounded_production_proxy_workspace_identity_v2_20260728_codex1/04_motion/target_animated_repaired_low_slice_edge_average_residual.glb",
+            "sha256": "11627d925d312542ba141a7e938ee9c95d294f6d25de08b2cf19465b2304b8bc",
+            "size_bytes": 12488612
+          },
+          "repair_evidence": {
+            "root_id": "spear_repo",
+            "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/bounded_oriented_repair_v1_20260728/repair_manifest.json",
+            "sha256": "e43ec8b218acde1eec064ce537aa1bb24e25a4ef61bbbea29701c590342d577e",
+            "size_bytes": 7297
+          }
+        },
+        "tokenrig_animation_closure": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/animation_decision_bounded_production_proxy_workspace_identity_v2_owner_approved_20260729_codex1/decision_freeze_receipt.json",
+          "sha256": "f85f1ab269ef7104e1a0917107a46d01018e2e61274a2fb359a1ff9a993f0876",
+          "size_bytes": 4270
+        },
+        "ue_asset_bound_import_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/ue_import_result_bounded_production_proxy_workspace_identity_v2_20260729_codex1.json",
+          "sha256": "d8dcdbc52dee1c0df92c32ebf4fe4d0a0b21a3eee4f59dea70ac7ac83be8f6e9",
+          "size_bytes": 4638
+        },
+        "ue_runtime_readback_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/apartment_specs_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/clips/pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c/registry/pixal_dog_shiba_inu_imagegen_v2_33ba9c51358c.json",
+          "sha256": "126244a4abef678ca07c41574c3c246eed1547c5457f42b0c8c38962ea804496",
+          "size_bytes": 7559
+        },
+        "emitter_measurement_evidence": {
+          "root_id": "spear_repo",
+          "path": "tmp/new_animal_assets/shiba_inu_20260728_02_imagegen_four_limb_open_tail_v1/emitter_measurement_bounded_production_proxy_workspace_identity_v2_20260729_codex1.json",
+          "sha256": "3686199dcf4e9e406c58f721e0292f8b7b65ca2910634d531ba0dba200adcd81",
+          "size_bytes": 1096
+        },
+        "admission": {
+          "state": "research",
+          "formal_dataset_registration_authorized": false,
+          "evidence": [
+            {
+              "root_id": "spear_repo",
+              "path": "tmp/new_animal_assets/controlled_animal_apartment_source_registry_corgi_british_shiba_scale_calibrated_rig_direction_semantics_v5_20260729_codex1/registry_manifest.json",
+              "sha256": "6edce281043b0614d8e030e00f77285906c6c58bf5fed1382f4c24919781a6ed",
+              "size_bytes": 11009
+            }
+          ]
         }
       },
       "admission_state": "research"

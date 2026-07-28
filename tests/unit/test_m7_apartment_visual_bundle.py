@@ -27,6 +27,9 @@ assert _BUILDER_SPEC is not None and _BUILDER_SPEC.loader is not None
 _BUILDER = importlib.util.module_from_spec(_BUILDER_SPEC)
 _BUILDER_SPEC.loader.exec_module(_BUILDER)
 
+CURRENT_GENERATED_DOG_ASSET_ID = BORDER_COLLIE_ASSET_ID
+CURRENT_GENERATED_CAT_ASSET_ID = CAT_ASSET_ID
+
 
 def _episode() -> dict:
     source1 = np.column_stack(
@@ -36,7 +39,7 @@ def _episode() -> dict:
         (np.full(75, 1.0), np.full(75, 0.27), np.linspace(2.0, 0.0, 75))
     )
     return {
-        "episode_id": "border_collie_cat__both_moving_000",
+        "episode_id": "current_dog_current_cat__both_moving_000",
         "motion_case": "both_moving",
         "source_root_paths_m": {
             "source1": source1.tolist(),
@@ -57,12 +60,12 @@ def _bindings() -> dict:
     return {
         "source1": {
             "source_slot_id": "source1",
-            "asset_id": BORDER_COLLIE_ASSET_ID,
+            "asset_id": CURRENT_GENERATED_DOG_ASSET_ID,
             "semantic_anchor_id": "muzzle",
         },
         "source2": {
             "source_slot_id": "source2",
-            "asset_id": CAT_ASSET_ID,
+            "asset_id": CURRENT_GENERATED_CAT_ASSET_ID,
             "semantic_anchor_id": "muzzle",
         },
     }
@@ -77,8 +80,8 @@ def test_generic_timeline_keeps_source_slots_and_asset_shapes_distinct() -> None
         "source2_actor",
     ]
     assert [actor["asset_id"] for actor in timeline["actors"]] == [
-        BORDER_COLLIE_ASSET_ID,
-        CAT_ASSET_ID,
+        CURRENT_GENERATED_DOG_ASSET_ID,
+        CURRENT_GENERATED_CAT_ASSET_ID,
     ]
     assert len(timeline["frames"]) == 75
     assert all(len(frame["actor_states"]) == 2 for frame in timeline["frames"])
@@ -95,19 +98,22 @@ def test_source_manifest_and_flags_close_over_generic_endpoint_ids() -> None:
         "source1_emitter",
         "source2_emitter",
     ]
-    assert manifest["sources"][1]["endpoint"]["binding"]["entity_asset_id"] == CAT_ASSET_ID
+    assert (
+        manifest["sources"][1]["endpoint"]["binding"]["entity_asset_id"]
+        == CURRENT_GENERATED_CAT_ASSET_ID
+    )
     assert manifest["sources"][1]["visible_asset"] == {
-        "asset_id": CAT_ASSET_ID,
+        "asset_id": CURRENT_GENERATED_CAT_ASSET_ID,
         "revision": "pixel3d_tokenrig_ue_v1",
-        "display_label": "Abyssinian",
-        "identity": {"species_id": "cat", "breed_id": "abyssinian"},
+        "display_label": "British Shorthair",
+        "identity": {"species_id": "cat", "breed_id": "british_shorthair"},
         "realized_attributes": {
             "size": "medium",
-            "body_build": "standard",
+            "body_build": "stocky",
             "life_stage": "adult",
             "coat_profile": {
-                "profile_id": "cat_abyssinian_coat_v1",
-                "value": "standard_ruddy",
+                "profile_id": "cat_british_shorthair_coat_v1",
+                "value": "standard_blue",
             },
         },
     }
@@ -126,7 +132,96 @@ def test_binding_report_requires_supported_exact_assets() -> None:
         ],
     }
     result = binding_assets_by_episode(report)
-    assert result[_episode()["episode_id"]]["source2"]["asset_id"] == CAT_ASSET_ID
+    assert (
+        result[_episode()["episode_id"]]["source2"]["asset_id"]
+        == CURRENT_GENERATED_CAT_ASSET_ID
+    )
+
+
+def _runtime_emitter_binding(slot: str, asset_id: str) -> dict:
+    return {
+        "source_slot_id": slot,
+        "asset_id": asset_id,
+        "asset_revision": "runtime_v1",
+        "semantic_anchor_id": "muzzle",
+        "emitter_offset_m": [0.4, 0.3, 0.0],
+        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "offset_space": "final_scaled_asset_root",
+    }
+
+
+def test_exact_runtime_snapshot_reuses_emitter_binding_and_keeps_legacy_asset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bindings = {
+        "source1": _runtime_emitter_binding("source1", "legacy_human"),
+        "source2": _runtime_emitter_binding("source2", "exact_animal"),
+    }
+
+    def resolve(_registry, asset_id, _revision):
+        return (
+            {"asset_bound_lineage": {"schema": "lineage"}}
+            if asset_id == "exact_animal"
+            else {}
+        )
+
+    def exact(_registry, **kwargs):
+        emitter = dict(bindings[kwargs["source_slot_id"]])
+        return {
+            "schema": "avengine_exact_asset_bound_runtime_binding_v1",
+            "source_slot_id": kwargs["source_slot_id"],
+            "asset_id": kwargs["asset_id"],
+            "asset_revision": kwargs["revision"],
+            "emitter": emitter,
+            "actor_scale": 0.875,
+        }
+
+    monkeypatch.setattr(
+        _BUILDER, "resolve_source_asset_runtime_profile", resolve
+    )
+    monkeypatch.setattr(
+        _BUILDER, "build_exact_asset_bound_runtime_binding", exact
+    )
+
+    result = _BUILDER._resolve_exact_episode_runtime_bindings(
+        episode_bindings=bindings,
+        source_registry={"registry_id": "fixture"},
+    )
+
+    assert set(result) == {"source2"}
+    assert result["source2"]["actor_scale"] == pytest.approx(0.875)
+    assert result["source2"]["emitter"] == bindings["source2"]
+
+
+def test_exact_runtime_snapshot_rejects_emitter_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bindings = {
+        slot: _runtime_emitter_binding(slot, f"exact_{slot}")
+        for slot in ("source1", "source2")
+    }
+    monkeypatch.setattr(
+        _BUILDER,
+        "resolve_source_asset_runtime_profile",
+        lambda *_args, **_kwargs: {
+            "asset_bound_lineage": {"schema": "lineage"}
+        },
+    )
+
+    def drifted(_registry, **kwargs):
+        emitter = dict(bindings[kwargs["source_slot_id"]])
+        emitter["emitter_offset_m"] = [9.0, 9.0, 9.0]
+        return {"emitter": emitter}
+
+    monkeypatch.setattr(
+        _BUILDER, "build_exact_asset_bound_runtime_binding", drifted
+    )
+
+    with pytest.raises(RuntimeError, match="emitter_offset_m"):
+        _BUILDER._resolve_exact_episode_runtime_bindings(
+            episode_bindings=bindings,
+            source_registry={"registry_id": "fixture"},
+        )
 
 
 def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
@@ -169,6 +264,7 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
         episode_id=episode_id,
         ordinal=17,
         sample={"sample_id": "sample_0001"},
+        runtime_bindings_by_source_slot={},
     )
     assert reopened == {
         "episode_ordinal": 17,
@@ -183,13 +279,14 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
             episode_id=episode_id,
             ordinal=17,
             sample={"sample_id": "sample_0001"},
+            runtime_bindings_by_source_slot={},
         )
 
 
 def test_ue_input_rejects_visual_and_audio_asset_binding_mismatch() -> None:
     sample = {
         "asset_ids_by_source_slot": {
-            "source1": BORDER_COLLIE_ASSET_ID,
+            "source1": CURRENT_GENERATED_DOG_ASSET_ID,
             "source2": "wrong_cat",
         }
     }
