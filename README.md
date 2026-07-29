@@ -122,8 +122,3 @@ See [LICENSE](LICENSE), [CITATION.cff](CITATION.cff),
 is all-rights-reserved until an explicit open-source license is selected.
 Habitat, RLR, models, rooms, sounds and generated assets retain their own
 terms; RLR's current route is non-commercial.
-
-## Contact
-
-Ziyang Ji ([Eastforward](https://github.com/Eastforward)) — research
-collaboration welcome; request permission before reuse or redistribution.
