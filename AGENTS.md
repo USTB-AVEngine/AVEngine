@@ -18,6 +18,9 @@ Repository `tmp` is a compatibility symlink whose physical data lives under
 repository-relative `tmp/...` paths so existing manifests remain readable.
 Never replace the symlink with a physical output directory inside this
 repository. Git-internal paths such as `.git/lfs/tmp` are not project outputs.
+Apply the same output-storage rule to checked-out SPEAR, Hunyuan3D and
+SkinTokens workspaces: keep their project `tmp/...` compatibility paths, and
+do not move Git-internal temporary paths.
 
 For the active Apartment dataset work, also read
 `docs/roadmap/CURRENT_APARTMENT_EXECUTION.md`. `AGENTS.md` contains durable

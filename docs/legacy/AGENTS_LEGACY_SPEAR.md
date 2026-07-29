@@ -1113,6 +1113,11 @@ out of commits and remove them if they appear.
   manifest must report 80 bones, three non-null material slots, both exact
   animations, and a passed second-commandlet reload before the packaged runtime
   may render the actor. Re-cook/package SpearSim after changing imported assets.
+- Batch compatible assets before cooking. `tools/run_uat.py` exposes only the
+  first of multiple `--cook-dirs` to the final Cook commandlet, so pass one
+  common parent such as `Content/MyAssets/Audioset`. Without UE's
+  `-iterate`/incremental-cook flag, the existing cooked sandbox is replaced by
+  a full cook; do not incur that cost once per asset.
 - A packaged humanoid Blueprint can expose an empty inherited
   `USkeletalMeshComponent` before the populated imported component. Do not use
   SPEAR's singular `get_component_by_class()` for animation playback or bone
@@ -1451,6 +1456,22 @@ Apartment UE render frame:
 - Apartment camera yaw in UE is `-scene_yaw`.
 - Use the helper transforms in `tools/spike_rlr/run_render_pass_apartment.py`
   instead of re-deriving this ad hoc.
+
+MP3D Habitat-to-UE comparison frame:
+
+- Matterport's raw MP3D GLB coordinates are Z-up. Habitat loads a raw point
+  `S = (x, y, z)` as `H = (x, z, -y)`; preserve that sign when preparing an
+  exact same-room comparison.
+- UE Interchange's default GLB conversion assumes a Y-up source. Importing a
+  raw MP3D GLB directly therefore lays this room on its side. Canonicalize all
+  geometric POSITION/NORMAL/TANGENT accessors to `H = (x, z, -y)` before UE
+  import; UE then maps the Habitat-canonical point to centimeters as
+  `U = (100 * H.x, 100 * H.z, 100 * H.y)`.
+- A uniform `Roll=-90` on every raw imported room mesh is mathematically
+  equivalent, but do not mix that workaround with a canonicalized GLB. Bind a
+  comparison to source/prepared hashes, canonical bounds, imported asset
+  counts, and a second-editor reload readback so an apparently upright but
+  differently transformed room cannot pass silently.
 
 RLR/Habitat audio frame:
 
