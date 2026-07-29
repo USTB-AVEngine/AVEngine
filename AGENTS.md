@@ -21,6 +21,12 @@ repository. Git-internal paths such as `.git/lfs/tmp` are not project outputs.
 Apply the same output-storage rule to checked-out SPEAR, Hunyuan3D and
 SkinTokens workspaces: keep their project `tmp/...` compatibility paths, and
 do not move Git-internal temporary paths.
+Invoke tools and report artifacts through those repository `tmp/...` paths,
+but normalize logical and resolved paths consistently inside any hash-bound
+lineage contract. If a producer stores resolved absolute file descriptors,
+every producer and consumer in that contract must resolve the `tmp` parent
+symlink before comparing path, SHA or size. A raw-string mismatch between a
+repository path and its external-storage target is not an asset mutation.
 
 For the active Apartment dataset work, also read
 `docs/roadmap/CURRENT_APARTMENT_EXECUTION.md`. `AGENTS.md` contains durable
