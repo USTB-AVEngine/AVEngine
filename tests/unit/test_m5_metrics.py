@@ -9,6 +9,7 @@ from avengine.m5.metrics import (
     M5MetricsError,
     estimate_itd_gcc_phat,
     listener_local_azimuth_deg,
+    listener_local_source_geometry,
     measure_binaural_mixture_diagnostic,
     measure_binaural_rir_frame_cues,
     measure_binaural_rir_sequence_cues,
@@ -89,6 +90,34 @@ def test_listener_local_azimuth_uses_negative_z_forward_and_positive_right() -> 
     assert listener_local_azimuth_deg(
         [-2.0, 0.0, 0.0], listener, [half, 0.0, half, 0.0]
     ) == pytest.approx(0.0, abs=1.0e-12)
+
+
+def test_listener_local_geometry_tracks_motion_rotation_distance_and_elevation() -> None:
+    identity = [1.0, 0.0, 0.0, 0.0]
+    geometry = listener_local_source_geometry(
+        [2.0, 2.0, -2.0],
+        [0.0, 0.0, 0.0],
+        identity,
+    )
+    assert geometry["coordinate_frame"] == "listener_x_right_y_up_negative_z_forward"
+    assert geometry["unit_direction_xyz"] == pytest.approx(
+        [1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0), -1.0 / math.sqrt(3.0)]
+    )
+    assert geometry["distance_m"] == pytest.approx(math.sqrt(12.0))
+    assert geometry["azimuth_deg"] == pytest.approx(45.0)
+    assert geometry["elevation_deg"] == pytest.approx(
+        math.degrees(math.atan2(2.0, math.sqrt(8.0)))
+    )
+
+    half = math.sqrt(0.5)
+    rotated = listener_local_source_geometry(
+        [-2.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [half, 0.0, half, 0.0],
+    )
+    assert rotated["unit_direction_xyz"] == pytest.approx([0.0, 0.0, -1.0])
+    assert rotated["azimuth_deg"] == pytest.approx(0.0, abs=1.0e-12)
+    assert rotated["elevation_deg"] == pytest.approx(0.0)
 
 
 def test_listener_local_azimuth_fails_closed_on_invalid_pose() -> None:

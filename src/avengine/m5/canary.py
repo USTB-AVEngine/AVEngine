@@ -22,6 +22,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
+from avengine.contracts.transforms import normalized_quaternion_xyzw
 from avengine.m3.runtime import load_compiled_acoustic_scene
 from avengine.m4.audio import read_float32_wav, write_float32_wav
 from avengine.m4.runtime import M4SimulationConfig
@@ -40,7 +41,7 @@ from avengine.m5.audio import (
     render_dynamic_stems_and_mix,
 )
 from avengine.m5.metrics import (
-    listener_local_azimuth_deg,
+    listener_local_source_geometry,
     measure_binaural_mixture_diagnostic,
     measure_binaural_rir_sequence_cues,
     measure_binaural_wet_stem_cues,
@@ -118,18 +119,45 @@ def _named_emitter_path_sha256(source_id: str, positions_m: np.ndarray) -> str:
     )
 
 
+def _listener_pose_at_frame(
+    visual: TwoActorVisualResult,
+    frame_index: int,
+) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+    trajectory = visual.sensor_rig_trajectory
+    if trajectory is None:
+        return visual.listener_position_m, visual.listener_orientation_wxyz
+    try:
+        frame = trajectory["frames"][frame_index]
+        transform = frame["world_from_rig"]
+        position = tuple(float(value) for value in transform["translation_m"])
+        x, y, z, w = normalized_quaternion_xyzw(transform["rotation_xyzw"])
+    except (IndexError, KeyError, TypeError, ValueError) as exc:
+        raise M5CanaryError(
+            f"sensor-rig trajectory frame {frame_index} is malformed"
+        ) from exc
+    return position, (float(w), float(x), float(y), float(z))
+
+
 def _visual_timeline_frames(
     visual: TwoActorVisualResult,
     m2_request: Mapping[str, Any],
     m1_request: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     offsets = np.asarray(visual.metadata["actor_offsets_m"], dtype=np.float64)
-    camera_hash = canonical_json_sha256(
-        {
-            "view_id": "view0",
-            "primary_camera_rig": m1_request["primary_camera_rig"],
-        }
-    )
+    if visual.sensor_rig_trajectory is None:
+        camera_hashes = [
+            canonical_json_sha256(
+                {
+                    "view_id": "view0",
+                    "primary_camera_rig": m1_request["primary_camera_rig"],
+                }
+            )
+        ] * 75
+    else:
+        camera_hashes = [
+            str(frame["pose_hash"])
+            for frame in visual.sensor_rig_trajectory["frames"]
+        ]
     result: list[dict[str, Any]] = []
     states = m2_request["states"]
     if len(states) != 75:
@@ -167,29 +195,36 @@ def _visual_timeline_frames(
         result.append(
             {
                 "actor_states": actor_states,
-                "view_pose_hashes": {"view0": camera_hash},
+                "view_pose_hashes": {"view0": camera_hashes[frame_index]},
             }
         )
     return result
 
 
 def _acoustic_keyframes(visual: TwoActorVisualResult) -> tuple[AcousticKeyframe, ...]:
-    return tuple(
-        AcousticKeyframe(
-            tick=3_200 * frame_index,
-            sample_index=(3_200 * frame_index + 1) // 3,
-            source_positions_m={
-                source_id: tuple(
-                    float(value)
-                    for value in visual.source_positions_m[frame_index, source_index]
-                )
-                for source_index, source_id in enumerate(visual.source_ids)
-            },
-            listener_position_m=visual.listener_position_m,
-            listener_orientation_wxyz=visual.listener_orientation_wxyz,
+    result: list[AcousticKeyframe] = []
+    for frame_index in range(75):
+        listener_position, listener_orientation = _listener_pose_at_frame(
+            visual, frame_index
         )
-        for frame_index in range(75)
-    )
+        result.append(
+            AcousticKeyframe(
+                tick=3_200 * frame_index,
+                sample_index=(3_200 * frame_index + 1) // 3,
+                source_positions_m={
+                    source_id: tuple(
+                        float(value)
+                        for value in visual.source_positions_m[
+                            frame_index, source_index
+                        ]
+                    )
+                    for source_index, source_id in enumerate(visual.source_ids)
+                },
+                listener_position_m=listener_position,
+                listener_orientation_wxyz=listener_orientation,
+            )
+        )
+    return tuple(result)
 
 
 def _write_rir_sequence(
@@ -271,16 +306,28 @@ def _spatial_metrics(
         rir_report = measure_binaural_rir_sequence_cues(
             binaural.samples[:, source_index], binaural.sample_rate_hz
         )
-        azimuths = [
-            listener_local_azimuth_deg(
-                visual.source_positions_m[frame_index, source_index],
-                visual.listener_position_m,
-                visual.listener_orientation_wxyz,
+        geometries = []
+        for frame_index in range(75):
+            listener_position, listener_orientation = _listener_pose_at_frame(
+                visual, frame_index
             )
-            for frame_index in range(75)
-        ]
-        for frame, azimuth in zip(rir_report["frames"], azimuths, strict=True):
-            frame["listener_local_azimuth_deg"] = azimuth
+            geometries.append(
+                listener_local_source_geometry(
+                    visual.source_positions_m[frame_index, source_index],
+                    listener_position,
+                    listener_orientation,
+                )
+            )
+        azimuths = [float(item["azimuth_deg"]) for item in geometries]
+        for frame, geometry in zip(
+            rir_report["frames"], geometries, strict=True
+        ):
+            frame["listener_local_azimuth_deg"] = geometry["azimuth_deg"]
+            frame["listener_local_elevation_deg"] = geometry["elevation_deg"]
+            frame["listener_local_unit_direction_xyz"] = geometry[
+                "unit_direction_xyz"
+            ]
+            frame["source_listener_distance_m"] = geometry["distance_m"]
         lateral_frames.extend(rir_report["frames"])
         lateral_azimuths.extend(azimuths)
         wet_report = measure_binaural_wet_stem_cues(
@@ -840,6 +887,191 @@ def _spatial_metric_errors(root: Path, evidence: Mapping[str, Any]) -> list[str]
     return errors
 
 
+def _sensor_rig_evidence_errors(
+    root: Path, evidence: Mapping[str, Any]
+) -> list[str]:
+    """Cross-bind a declared moving rig to visual, Timeline and RLR evidence."""
+
+    visual = evidence.get("visual")
+    metadata = visual.get("metadata") if isinstance(visual, Mapping) else None
+    declaration = (
+        metadata.get("sensor_rig_trajectory")
+        if isinstance(metadata, Mapping)
+        else None
+    )
+    inputs = evidence.get("inputs")
+    input_record = (
+        inputs.get("sensor_rig_trajectory")
+        if isinstance(inputs, Mapping)
+        else None
+    )
+    sidecar_path = root / "trajectory" / "sensor_rig_trajectory.json"
+    presences = (
+        declaration is not None,
+        input_record is not None,
+        sidecar_path.is_file(),
+    )
+    if not any(presences):
+        return []
+    presence_errors: list[str] = []
+    if declaration is None:
+        presence_errors.append("visual sensor-rig trajectory declaration is absent")
+    elif not isinstance(declaration, Mapping):
+        presence_errors.append("visual sensor-rig trajectory declaration is malformed")
+    if not isinstance(input_record, Mapping):
+        presence_errors.append("sensor-rig input record is absent or malformed")
+    if not sidecar_path.is_file():
+        presence_errors.append("retained sensor-rig sidecar is absent")
+    if presence_errors:
+        return presence_errors
+
+    errors: list[str] = []
+    try:
+        from avengine.sensor_rig_trajectory import validate_sensor_rig_trajectory
+
+        trajectory = load_json(sidecar_path)
+        validation_errors = validate_sensor_rig_trajectory(trajectory)
+        if validation_errors:
+            return [
+                "sensor-rig trajectory validation failed: "
+                + "; ".join(validation_errors)
+            ]
+        if (
+            declaration.get("trajectory_id") != trajectory["trajectory_id"]
+            or declaration.get("schema") != trajectory["schema"]
+            or declaration.get("content_sha256")
+            != canonical_json_sha256(trajectory)
+        ):
+            errors.append("visual metadata does not bind the sensor-rig sidecar")
+        input_path = _confined_bundle_path(
+            root,
+            input_record.get("path"),
+            owner="inputs.sensor_rig_trajectory.path",
+        )
+        if load_json(input_path) != trajectory:
+            errors.append("sensor-rig input differs from the retained sidecar")
+
+        positions = np.asarray(
+            [
+                frame["world_from_rig"]["translation_m"]
+                for frame in trajectory["frames"]
+            ],
+            dtype=np.float64,
+        )
+        orientations = np.asarray(
+            [
+                (
+                    frame["world_from_rig"]["rotation_xyzw"][3],
+                    frame["world_from_rig"]["rotation_xyzw"][0],
+                    frame["world_from_rig"]["rotation_xyzw"][1],
+                    frame["world_from_rig"]["rotation_xyzw"][2],
+                )
+                for frame in trajectory["frames"]
+            ],
+            dtype=np.float64,
+        )
+        declared_moving = bool(
+            np.any(np.abs(positions - positions[0]) > 1.0e-12)
+            or np.any(np.abs(orientations - orientations[0]) > 1.0e-12)
+        )
+        if declaration.get("moving") is not declared_moving:
+            errors.append("visual metadata moving flag differs from the rig sidecar")
+
+        retained_positions = np.load(
+            root / "visual" / "arrays" / "listener_positions_m.npy",
+            allow_pickle=False,
+        )
+        retained_orientations = np.load(
+            root / "visual" / "arrays" / "listener_orientations_wxyz.npy",
+            allow_pickle=False,
+        )
+        if (
+            retained_positions.shape != (75, 3)
+            or retained_positions.dtype != np.dtype("<f8")
+            or not np.all(np.isfinite(retained_positions))
+            or not np.array_equal(retained_positions, positions)
+        ):
+            errors.append("listener position array differs from the rig sidecar")
+        if (
+            retained_orientations.shape != (75, 4)
+            or retained_orientations.dtype != np.dtype("<f8")
+            or not np.all(np.isfinite(retained_orientations))
+            or not np.array_equal(retained_orientations, orientations)
+        ):
+            errors.append("listener orientation array differs from the rig sidecar")
+
+        frame_records = load_json(root / "visual" / "frame_records.json").get(
+            "frames"
+        )
+        if not isinstance(frame_records, list) or len(frame_records) != len(
+            trajectory["frames"]
+        ):
+            errors.append("visual frame-record count differs from sensor rig")
+        else:
+            for frame, record in zip(
+                trajectory["frames"], frame_records, strict=True
+            ):
+                if (
+                    record.get("frame_index") != frame["frame_index"]
+                    or record.get("pts_ticks") != frame["pts_ticks"]
+                    or record.get("world_from_rig") != frame["world_from_rig"]
+                    or record.get("view_pose_hash") != frame["pose_hash"]
+                ):
+                    errors.append(
+                        "visual frame record differs from sensor rig at "
+                        f"frame {frame['frame_index']}"
+                    )
+                    break
+
+        acoustic = load_json(root / "trajectory" / "emitter_path.json")
+        keyframes = acoustic.get("keyframes")
+        if not isinstance(keyframes, list) or len(keyframes) != len(
+            trajectory["frames"]
+        ):
+            errors.append("acoustic trajectory frame count differs from sensor rig")
+        else:
+            for frame, keyframe, position, orientation in zip(
+                trajectory["frames"],
+                keyframes,
+                positions,
+                orientations,
+                strict=True,
+            ):
+                if (
+                    keyframe.get("tick") != frame["pts_ticks"]
+                    or keyframe.get("listener_position_m") != position.tolist()
+                    or keyframe.get("listener_orientation_wxyz")
+                    != orientation.tolist()
+                ):
+                    errors.append(
+                        "acoustic listener pose differs from sensor rig at "
+                        f"frame {frame['frame_index']}"
+                    )
+                    break
+
+        expected_hashes = [
+            frame["pose_hash"] for frame in trajectory["frames"]
+        ]
+        for variant in ("A", "B"):
+            timeline = load_json(root / "episodes" / variant / "timeline.json")
+            frames = timeline.get("frames")
+            observed_hashes = (
+                [
+                    frame.get("view_pose_hashes", {}).get("view0")
+                    for frame in frames
+                ]
+                if isinstance(frames, list)
+                else None
+            )
+            if observed_hashes != expected_hashes:
+                errors.append(
+                    f"episode {variant} Timeline view poses differ from sensor rig"
+                )
+    except Exception as exc:
+        errors.append(f"sensor-rig evidence readback failed: {exc}")
+    return errors
+
+
 def run_m5_canary(
     *,
     request_path: str | Path,
@@ -855,11 +1087,22 @@ def run_m5_canary(
     hrtf_license_path: str | Path,
     beagle_dry_path: str | Path,
     golden_dry_path: str | Path,
+    sensor_rig_trajectory_path: str | Path | None = None,
 ) -> Path:
     """Run and atomically publish the complete M5 two-dog counterfactual."""
 
     request_file = Path(request_path).resolve()
     request = load_json(request_file)
+    sensor_rig_trajectory_file = (
+        None
+        if sensor_rig_trajectory_path is None
+        else Path(sensor_rig_trajectory_path).resolve()
+    )
+    sensor_rig_trajectory = (
+        None
+        if sensor_rig_trajectory_file is None
+        else load_json(sensor_rig_trajectory_file)
+    )
     request_errors = validate_episode_request(request)
     if request_errors:
         raise M5CanaryError("; ".join(request_errors))
@@ -901,6 +1144,7 @@ def run_m5_canary(
             source_ids=tuple(source["source_id"] for source in sources),
             semantic_ids=tuple(int(actor["semantic_id"]) for actor in actors),
             emitter_link_names=tuple(source["emitter_link"] for source in sources),
+            sensor_rig_trajectory=sensor_rig_trajectory,
         )
         declared_paths = {
             item["source_id"]: item["emitter_path_sha256"]
@@ -916,6 +1160,9 @@ def run_m5_canary(
             raise M5CanaryError("captured muzzle path hash differs from the M5 request")
 
         arrays_dir = staging / "visual" / "arrays"
+        listener_poses = [
+            _listener_pose_at_frame(visual, frame_index) for frame_index in range(75)
+        ]
         visual_arrays = {
             "rgb": _save_npy(arrays_dir / "rgb.npy", visual.rgb),
             "depth": _save_npy(arrays_dir / "depth.npy", visual.depth),
@@ -925,6 +1172,14 @@ def run_m5_canary(
             ),
             "source_positions_m": _save_npy(
                 arrays_dir / "source_positions_m.npy", visual.source_positions_m
+            ),
+            "listener_positions_m": _save_npy(
+                arrays_dir / "listener_positions_m.npy",
+                np.asarray([pose[0] for pose in listener_poses], dtype=np.float64),
+            ),
+            "listener_orientations_wxyz": _save_npy(
+                arrays_dir / "listener_orientations_wxyz.npy",
+                np.asarray([pose[1] for pose in listener_poses], dtype=np.float64),
             ),
             "topdown_rgb": _save_npy(
                 arrays_dir / "topdown_rgb.npy", visual.topdown_rgb
@@ -961,6 +1216,11 @@ def run_m5_canary(
         trajectory = trajectory_record(keyframes, visual.source_ids)
         trajectory["trajectory_content_sha256"] = canonical_json_sha256(trajectory)
         write_json(staging / "trajectory" / "emitter_path.json", trajectory)
+        if visual.sensor_rig_trajectory is not None:
+            write_json(
+                staging / "trajectory" / "sensor_rig_trajectory.json",
+                visual.sensor_rig_trajectory,
+            )
         scene = load_compiled_acoustic_scene(acoustic_package_manifest_path)
         m4_request = load_json(m4_request_path)
         simulation = M4SimulationConfig.from_mapping(m4_request["simulation"])
@@ -1001,6 +1261,8 @@ def run_m5_canary(
             "beagle_dry": Path(beagle_dry_path).resolve(),
             "golden_dry": Path(golden_dry_path).resolve(),
         }
+        if sensor_rig_trajectory_file is not None:
+            input_sources["sensor_rig_trajectory"] = sensor_rig_trajectory_file
         copied_inputs: dict[str, Any] = {}
         for role, source in input_sources.items():
             if not source.is_file():
@@ -1405,6 +1667,20 @@ def verify_m5_canary_evidence(
         "source_positions_m.npy": (75, 2, 3),
         "topdown_rgb.npy": (75, 240, 240, 3),
     }
+    visual = evidence.get("visual")
+    visual_metadata = (
+        visual.get("metadata") if isinstance(visual, Mapping) else None
+    )
+    if (
+        isinstance(visual_metadata, Mapping)
+        and visual_metadata.get("sensor_rig_trajectory") is not None
+    ):
+        array_expectations.update(
+            {
+                "listener_positions_m.npy": (75, 3),
+                "listener_orientations_wxyz.npy": (75, 4),
+            }
+        )
     array_errors: list[str] = []
     for name, expected_shape in array_expectations.items():
         try:
@@ -1416,6 +1692,9 @@ def verify_m5_canary_evidence(
         except (OSError, ValueError) as exc:
             array_errors.append(f"{name}: {exc}")
     add("visual_array_readback", not array_errors, array_errors)
+
+    sensor_rig_errors = _sensor_rig_evidence_errors(root, evidence)
+    add("sensor_rig_evidence_binding", not sensor_rig_errors, sensor_rig_errors)
 
     rir, trajectory, rir_errors = _rir_authority(root, evidence)
     add("dynamic_rir_authority", not rir_errors, rir_errors)

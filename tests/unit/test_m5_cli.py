@@ -47,6 +47,8 @@ def test_m5_parser_exposes_validate_run_and_verify() -> None:
             "beagle.wav",
             "--golden-dry",
             "golden.wav",
+            "--sensor-rig-trajectory",
+            "rig.json",
             "--output",
             "/tmp/m5-output",
         ]
@@ -55,6 +57,7 @@ def test_m5_parser_exposes_validate_run_and_verify() -> None:
     assert validate.m5_command == "validate-request"
     assert run.m5_command == "run-canary"
     assert run.hrtf == "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
+    assert run.sensor_rig_trajectory == "rig.json"
     assert verify.m5_command == "verify-canary"
 
 
@@ -115,6 +118,8 @@ def test_m5_run_canary_mock_forwards_explicit_inputs(
         "beagle.wav",
         "--golden-dry",
         "golden.wav",
+        "--sensor-rig-trajectory",
+        "rig.json",
         "--output",
         str(output),
     ]
@@ -122,6 +127,7 @@ def test_m5_run_canary_mock_forwards_explicit_inputs(
     assert calls["run"]["output_directory"] == output.resolve()
     assert calls["run"]["runtime_root"] == "/runtime"
     assert calls["run"]["beagle_dry_path"] == "beagle.wav"
+    assert calls["run"]["sensor_rig_trajectory_path"] == "rig.json"
     assert calls["verify"] == evidence
     assert _output(capsys) == {
         "canary_evidence": str(evidence),

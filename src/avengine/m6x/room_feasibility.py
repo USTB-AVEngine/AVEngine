@@ -23,6 +23,10 @@ from avengine.m6x.geometry import (
     evaluate_source_center_gate,
     point_to_world_obb_clearance,
 )
+from avengine.m6x.trajectory import (
+    M6XTrajectoryError,
+    resample_polyline_by_arc_length,
+)
 
 
 FEASIBLE_REGION_SCHEMA = "avengine_room_feasible_region_v1"
@@ -681,18 +685,14 @@ class TrajectoryBankBuilder:
 
     @staticmethod
     def _resample_polyline(points_m: np.ndarray, frame_count: int) -> np.ndarray:
-        points = np.asarray(points_m, dtype=np.float64)
-        if points.ndim != 2 or points.shape[0] < 2 or points.shape[1] != 3:
-            raise RoomFeasibilityError("shortest path returned an invalid polyline")
-        segment_lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
-        cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
-        if cumulative[-1] <= 1.0e-9:
-            raise RoomFeasibilityError("shortest path has zero length")
-        targets = np.linspace(0.0, cumulative[-1], frame_count)
-        result = np.empty((frame_count, 3), dtype=np.float64)
-        for axis in range(3):
-            result[:, axis] = np.interp(targets, cumulative, points[:, axis])
-        return np.ascontiguousarray(result)
+        try:
+            return resample_polyline_by_arc_length(
+                points_m,
+                frame_count,
+                owner="shortest path",
+            )
+        except M6XTrajectoryError as exc:
+            raise RoomFeasibilityError(str(exc)) from exc
 
     def _static_path(
         self, source_slot: str, rng: np.random.Generator, frame_count: int

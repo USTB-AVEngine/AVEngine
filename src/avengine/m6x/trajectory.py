@@ -13,6 +13,45 @@ class M6XTrajectoryError(ValueError):
     """A sparse trajectory cannot be materialized deterministically."""
 
 
+def resample_polyline_by_arc_length(
+    points_m: Any,
+    sample_count: int,
+    *,
+    owner: str = "polyline",
+) -> np.ndarray:
+    """Return ``sample_count`` uniformly spaced samples along one 3D polyline.
+
+    This is the shared deterministic materializer used by both the existing
+    source-route planner and versioned sensor-rig trajectories.  It performs
+    no navigation claim: callers that label a path geodesic must bind their
+    independent Pathfinder evidence before calling it.
+    """
+
+    if (
+        isinstance(sample_count, bool)
+        or not isinstance(sample_count, int)
+        or sample_count < 1
+    ):
+        raise M6XTrajectoryError("sample_count must be a positive integer")
+    try:
+        points = np.asarray(points_m, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise M6XTrajectoryError(f"{owner} returned an invalid polyline") from exc
+    if points.ndim != 2 or points.shape[0] < 2 or points.shape[1] != 3:
+        raise M6XTrajectoryError(f"{owner} returned an invalid polyline")
+    if not np.all(np.isfinite(points)):
+        raise M6XTrajectoryError(f"{owner} returned an invalid polyline")
+    segment_lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+    if cumulative[-1] <= 1.0e-9:
+        raise M6XTrajectoryError(f"{owner} has zero length")
+    targets = np.linspace(0.0, cumulative[-1], sample_count)
+    result = np.empty((sample_count, 3), dtype=np.float64)
+    for axis in range(3):
+        result[:, axis] = np.interp(targets, cumulative, points[:, axis])
+    return np.ascontiguousarray(result)
+
+
 def _anchor_index(anchor_library: Mapping[str, Any]) -> dict[str, np.ndarray]:
     try:
         anchors = anchor_library["anchors"]
@@ -204,5 +243,6 @@ __all__ = [
     "M6XTrajectoryError",
     "materialize_route",
     "materialize_template_route",
+    "resample_polyline_by_arc_length",
     "template_route_first_anchor_yaw_degrees",
 ]

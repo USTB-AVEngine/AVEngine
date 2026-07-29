@@ -73,17 +73,17 @@ def _unit_quaternion_wxyz(value: Any, *, owner: str) -> np.ndarray:
     return result
 
 
-def listener_local_azimuth_deg(
+def listener_local_source_geometry(
     source_position_m: Any,
     listener_position_m: Any,
     listener_orientation_wxyz: Any,
-) -> float:
-    """Return listener-local azimuth in degrees, positive toward the right.
+) -> dict[str, Any]:
+    """Return exact listener-local direction, distance, azimuth and elevation.
 
     ``listener_orientation_wxyz`` is ``world_from_listener``.  AVEngine's
-    listener-local forward axis is ``-Z`` and right is ``+X``.  The returned
-    range is ``[-180, 180]``; front is 0, right is +90, and left is -90.
-    Elevation and distance do not affect the result.
+    listener-local frame is right handed: right is ``+X``, up is ``+Y`` and
+    forward is ``-Z``.  Azimuth is positive toward the right in
+    ``[-180, 180]`` and elevation is positive upward in ``[-90, 90]``.
     """
 
     source = _finite_vector3(source_position_m, owner="source_position_m")
@@ -107,10 +107,36 @@ def listener_local_azimuth_deg(
     local = world_direction + 2.0 * (w * uv + uuv)
     azimuth = math.degrees(math.atan2(float(local[0]), -float(local[2])))
     if math.isclose(azimuth, 0.0, rel_tol=0.0, abs_tol=1.0e-15):
-        return 0.0
+        azimuth = 0.0
     if azimuth > 180.0:
         azimuth -= 360.0
-    return float(azimuth)
+    horizontal_distance = math.hypot(float(local[0]), float(local[2]))
+    elevation = math.degrees(math.atan2(float(local[1]), horizontal_distance))
+    if math.isclose(elevation, 0.0, rel_tol=0.0, abs_tol=1.0e-15):
+        elevation = 0.0
+    return {
+        "coordinate_frame": "listener_x_right_y_up_negative_z_forward",
+        "unit_direction_xyz": (local / distance).tolist(),
+        "distance_m": distance,
+        "azimuth_deg": float(azimuth),
+        "elevation_deg": float(elevation),
+    }
+
+
+def listener_local_azimuth_deg(
+    source_position_m: Any,
+    listener_position_m: Any,
+    listener_orientation_wxyz: Any,
+) -> float:
+    """Return listener-local azimuth in degrees, positive toward the right."""
+
+    return float(
+        listener_local_source_geometry(
+            source_position_m,
+            listener_position_m,
+            listener_orientation_wxyz,
+        )["azimuth_deg"]
+    )
 
 
 def _positive_sample_rate(value: Any) -> int:
@@ -1207,6 +1233,7 @@ __all__ = [
     "M5MetricsError",
     "estimate_itd_gcc_phat",
     "listener_local_azimuth_deg",
+    "listener_local_source_geometry",
     "measure_binaural_mixture_diagnostic",
     "measure_binaural_rir_frame_cues",
     "measure_binaural_rir_sequence_cues",

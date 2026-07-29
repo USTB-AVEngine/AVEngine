@@ -833,6 +833,7 @@ def _m5_run_canary(args: argparse.Namespace) -> int:
             hrtf_license_path=args.hrtf_license,
             beagle_dry_path=args.beagle_dry,
             golden_dry_path=args.golden_dry,
+            sensor_rig_trajectory_path=args.sensor_rig_trajectory,
         )
         status, checks = verify_m5_canary_evidence(evidence)
     except RuntimeUnavailableError as error:
@@ -1206,6 +1207,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m5_run.add_argument("--beagle-dry", required=True)
     m5_run.add_argument("--golden-dry", required=True)
+    m5_run.add_argument(
+        "--sensor-rig-trajectory",
+        help="Optional SensorRigTrajectory v1 sidecar for a moving camera/listener",
+    )
     m5_run.add_argument("--output", required=True)
     m5_run.set_defaults(handler=_m5_run_canary)
 

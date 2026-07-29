@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
@@ -11,11 +12,12 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from avengine.contracts.json_io import canonical_json_bytes, canonical_json_sha256
-from avengine.contracts.transforms import normalized_quaternion_xyzw
+from avengine.contracts.transforms import normalized_quaternion_xyzw, transform_error
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import (
     _make_configuration,
     _resolved_assets,
+    _state_snapshot,
     discover_runtime_root,
 )
 from avengine.m2.contracts import (
@@ -50,6 +52,7 @@ class TwoActorVisualResult:
     topdown_rgb: np.ndarray
     records: tuple[Mapping[str, Any], ...]
     metadata: Mapping[str, Any]
+    sensor_rig_trajectory: Mapping[str, Any] | None = None
 
 
 def _sequence_hash(value: np.ndarray, *, role: str) -> str:
@@ -205,10 +208,10 @@ def _node_world_position(articulated_object: Any, link_id: int) -> np.ndarray:
 def _panel_bounds(
     raw_bounds: tuple[np.ndarray, np.ndarray] | None,
     actor_positions: np.ndarray,
-    listener_position: Sequence[float],
+    listener_positions: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     points = np.concatenate(
-        [actor_positions.reshape(-1, 3), np.asarray(listener_position)[None, :]], axis=0
+        [actor_positions.reshape(-1, 3), listener_positions.reshape(-1, 3)], axis=0
     )
     low = np.min(points, axis=0)
     high = np.max(points, axis=0)
@@ -233,11 +236,16 @@ def _topdown_panels(
     navmesh_bounds: tuple[np.ndarray, np.ndarray] | None,
     actor_positions: np.ndarray,
     source_positions: np.ndarray,
-    listener_position: Sequence[float],
+    listener_positions: np.ndarray,
     panel_size: int = 240,
 ) -> np.ndarray:
+    listeners = np.asarray(listener_positions, dtype=np.float64)
+    if listeners.shape != (actor_positions.shape[0], 3) or not np.all(
+        np.isfinite(listeners)
+    ):
+        raise HabitatCaptureError("listener_positions must be finite [frame,3]")
     focus_low, focus_high = _panel_bounds(
-        navmesh_bounds, actor_positions, listener_position
+        navmesh_bounds, actor_positions, listeners
     )
 
     def project(position: Sequence[float]) -> tuple[float, float]:
@@ -277,11 +285,14 @@ def _topdown_panels(
 
     result: list[np.ndarray] = []
     colors = ((250, 96, 96), (82, 190, 255))
-    listener_xy = project(listener_position)
     for frame_index in range(actor_positions.shape[0]):
         image = base.copy()
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, panel_size - 1, panel_size - 1), outline=(230, 230, 230))
+        listener_trail = [project(value) for value in listeners[: frame_index + 1]]
+        if len(listener_trail) > 1:
+            draw.line(listener_trail, fill=(255, 215, 60), width=2)
+        listener_xy = listener_trail[-1]
         draw.ellipse(
             (
                 listener_xy[0] - 5,
@@ -344,6 +355,7 @@ def capture_two_actor_fixed_states(
     actor_ids: tuple[str, str] = ("actor0", "actor1"),
     source_ids: tuple[str, str] = ("source0", "source1"),
     semantic_ids: tuple[int, int] = (210, 211),
+    sensor_rig_trajectory: Mapping[str, Any] | None = None,
     emitter_link_names: tuple[str, str] = (
         "beagle Xtra Mouth",
         "beagle Xtra Mouth",
@@ -383,6 +395,7 @@ def capture_two_actor_fixed_states(
     import quaternion as qt
     import habitat_sim
     import magnum as mn
+    from habitat_sim.utils.common import quat_to_coeffs
 
     configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
         _make_configuration(room_inputs, runtime, Path("/tmp/avengine-m5-visual"))
@@ -396,9 +409,44 @@ def capture_two_actor_fixed_states(
     navmesh_array: np.ndarray | None = None
     navmesh_bounds: tuple[np.ndarray, np.ndarray] | None = None
     rig = room_inputs.request["primary_camera_rig"]
-    listener_position = tuple(float(v) for v in rig["world_from_rig"]["translation_m"])
-    x, y, z, w = normalized_quaternion_xyzw(rig["world_from_rig"]["rotation_xyzw"])
+    default_view_pose_hash = canonical_json_sha256(
+        {"view_id": "view0", "primary_camera_rig": rig}
+    )
+    if sensor_rig_trajectory is None:
+        rig_frames = tuple(
+            {
+                "frame_index": index,
+                "pts_ticks": 3_200 * index,
+                "world_from_rig": rig["world_from_rig"],
+                "pose_hash": default_view_pose_hash,
+            }
+            for index in range(len(frames))
+        )
+        retained_rig_trajectory = None
+    else:
+        from avengine.sensor_rig_trajectory import validate_sensor_rig_trajectory
+
+        trajectory_errors = validate_sensor_rig_trajectory(sensor_rig_trajectory)
+        if trajectory_errors:
+            raise HabitatCaptureError(
+                "sensor-rig trajectory is invalid: " + "; ".join(trajectory_errors)
+            )
+        rig_frames = tuple(sensor_rig_trajectory["frames"])
+        if len(rig_frames) != len(frames):
+            raise HabitatCaptureError(
+                "sensor-rig trajectory and visual state frame counts differ"
+            )
+        retained_rig_trajectory = deepcopy(dict(sensor_rig_trajectory))
+    first_world_from_rig = rig_frames[0]["world_from_rig"]
+    listener_position = tuple(
+        float(v) for v in first_world_from_rig["translation_m"]
+    )
+    x, y, z, w = normalized_quaternion_xyzw(
+        first_world_from_rig["rotation_xyzw"]
+    )
     listener_orientation = (float(w), float(x), float(y), float(z))
+    listener_positions: list[np.ndarray] = []
+    listener_orientations: list[np.ndarray] = []
 
     with habitat_sim.Simulator(configuration) as simulator:
         navmesh_path = resolved_scene.get("navmesh")
@@ -417,7 +465,7 @@ def capture_two_actor_fixed_states(
         camera_state = habitat_sim.AgentState()
         camera_state.position = np.asarray(listener_position, dtype=np.float64)
         camera_state.rotation = qt.quaternion(w, x, y, z)
-        simulator.initialize_agent(0, camera_state)
+        agent = simulator.initialize_agent(0, camera_state)
 
         actors: list[Any] = []
         bindings: list[Any] = []
@@ -449,8 +497,54 @@ def capture_two_actor_fixed_states(
             simulator.sensors[modality_to_uuid[modality]]
             for modality in FORMAL_MODALITIES
         ]
+        all_sensor_uuids = sorted([*modality_to_uuid.values(), _listener_uuid])
         initial_time = float(simulator.get_world_time())
         for frame in frames:
+            rig_frame = rig_frames[frame.frame_index]
+            if (
+                rig_frame["frame_index"] != frame.frame_index
+                or rig_frame["pts_ticks"] != frame.pts_ticks
+            ):
+                raise HabitatCaptureError(
+                    "sensor-rig trajectory differs from the visual frame clock"
+                )
+            world_from_rig = rig_frame["world_from_rig"]
+            frame_position = np.asarray(
+                world_from_rig["translation_m"], dtype=np.float64
+            )
+            qx, qy, qz, qw = normalized_quaternion_xyzw(
+                world_from_rig["rotation_xyzw"]
+            )
+            camera_state = habitat_sim.AgentState()
+            camera_state.position = frame_position
+            camera_state.rotation = qt.quaternion(qw, qx, qy, qz)
+            agent.set_state(
+                camera_state,
+                reset_sensors=False,
+                infer_sensor_states=True,
+            )
+            rig_snapshot = _state_snapshot(
+                simulator,
+                agent,
+                all_sensor_uuids,
+                quat_to_coeffs,
+            )
+            pose_errors = [
+                transform_error(world_from_rig, rig_snapshot["agent"]),
+                *[
+                    transform_error(world_from_rig, sensor_pose)
+                    for sensor_pose in rig_snapshot["sensors"].values()
+                ],
+            ]
+            maximum_pose_error = max(pose_errors)
+            if maximum_pose_error > 2.0e-6:
+                raise HabitatCaptureError(
+                    f"M5 frame {frame.frame_index} camera/listener readback failed"
+                )
+            listener_positions.append(frame_position.copy())
+            listener_orientations.append(
+                np.asarray([qw, qx, qy, qz], dtype=np.float64)
+            )
             frame_actor_matrices: list[np.ndarray] = []
             before: list[Mapping[str, Any]] = []
             expected_joints: list[np.ndarray] = []
@@ -531,6 +625,9 @@ def capture_two_actor_fixed_states(
                     "source_ids": list(source_ids),
                     "semantic_visibility_pixels": visibility,
                     "muzzle_positions_m": frame_sources.tolist(),
+                    "world_from_rig": deepcopy(world_from_rig),
+                    "view_pose_hash": rig_frame["pose_hash"],
+                    "camera_listener_readback_max_error": maximum_pose_error,
                     "base_m2_applied_state_hash": frame.declared_applied_state_hash,
                     "m5_instance_state_sha256": canonical_json_sha256(
                         {
@@ -552,12 +649,18 @@ def capture_two_actor_fixed_states(
     semantic = np.ascontiguousarray(np.stack(semantic_frames, axis=0))
     actor_matrix_array = np.ascontiguousarray(np.stack(actor_matrices, axis=0))
     source_position_array = np.ascontiguousarray(np.stack(source_positions, axis=0))
+    listener_position_array = np.ascontiguousarray(
+        np.stack(listener_positions, axis=0)
+    )
+    listener_orientation_array = np.ascontiguousarray(
+        np.stack(listener_orientations, axis=0)
+    )
     topdown = _topdown_panels(
         navmesh=navmesh_array,
         navmesh_bounds=navmesh_bounds,
         actor_positions=actor_matrix_array[:, :, :3, 3],
         source_positions=source_position_array,
-        listener_position=listener_position,
+        listener_positions=listener_position_array,
     )
     metadata = {
         "schema": "avengine_m5_two_actor_visual_capture_v1",
@@ -584,7 +687,37 @@ def capture_two_actor_fixed_states(
             "source_positions_m": _sequence_hash(
                 source_position_array, role="source_positions_m"
             ),
+            "listener_positions_m": _sequence_hash(
+                listener_position_array, role="listener_positions_m"
+            ),
+            "listener_orientations_wxyz": _sequence_hash(
+                listener_orientation_array, role="listener_orientations_wxyz"
+            ),
         },
+        "sensor_rig_trajectory": (
+            None
+            if retained_rig_trajectory is None
+            else {
+                "trajectory_id": retained_rig_trajectory["trajectory_id"],
+                "schema": retained_rig_trajectory["schema"],
+                "content_sha256": canonical_json_sha256(retained_rig_trajectory),
+                "moving": bool(
+                    np.any(
+                        np.abs(
+                            listener_position_array - listener_position_array[0]
+                        )
+                        > 1.0e-12
+                    )
+                    or np.any(
+                        np.abs(
+                            listener_orientation_array
+                            - listener_orientation_array[0]
+                        )
+                        > 1.0e-12
+                    )
+                ),
+            }
+        ),
     }
     return TwoActorVisualResult(
         rgb=rgb,
@@ -600,6 +733,7 @@ def capture_two_actor_fixed_states(
         topdown_rgb=topdown,
         records=tuple(records),
         metadata=metadata,
+        sensor_rig_trajectory=retained_rig_trajectory,
     )
 
 

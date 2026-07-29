@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 import wave
 
 import numpy as np
@@ -17,6 +18,7 @@ from avengine.m5.audio import (
     render_dynamic_stems_and_mix,
 )
 import avengine.m5.canary as canary
+from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 
 _TEST_CLIP_START = 0
@@ -24,6 +26,148 @@ _TEST_CLIP_END = 256
 _TEST_FADE_SAMPLES = 80
 _TEST_LINEAR_GAIN = 0.18
 _TEST_WINDOWS = ((256, 512), (768, 1_024), (1_280, 1_536))
+
+
+def test_acoustic_keyframes_follow_the_sensor_rig_listener_pose() -> None:
+    rig = materialize_sensor_rig_trajectory(
+        trajectory_id="m5_rotate_listener",
+        program={
+            "kind": "ROTATE_IN_PLACE",
+            "position_m": [0.0, 1.55, 0.0],
+            "start_yaw_deg": 0.0,
+            "end_yaw_deg": 90.0,
+            "yaw_interpolation": "SHORTEST_ARC",
+        },
+    )
+    visual = SimpleNamespace(
+        source_ids=("source0", "source1"),
+        source_positions_m=np.repeat(
+            np.asarray([[[0.0, 1.55, -2.0], [2.0, 1.55, 0.0]]]),
+            75,
+            axis=0,
+        ),
+        listener_position_m=(0.0, 1.55, 0.0),
+        listener_orientation_wxyz=(1.0, 0.0, 0.0, 0.0),
+        sensor_rig_trajectory=rig,
+    )
+    keyframes = canary._acoustic_keyframes(visual)
+    assert len(keyframes) == 75
+    assert keyframes[0].listener_position_m == (0.0, 1.55, 0.0)
+    assert keyframes[0].listener_orientation_wxyz == pytest.approx(
+        (1.0, 0.0, 0.0, 0.0)
+    )
+    assert keyframes[-1].listener_orientation_wxyz != pytest.approx(
+        keyframes[0].listener_orientation_wxyz
+    )
+
+
+def test_sensor_rig_evidence_binds_visual_timeline_and_acoustics(
+    tmp_path: Path,
+) -> None:
+    rig = materialize_sensor_rig_trajectory(
+        trajectory_id="m5_evidence_rotate_listener",
+        program={
+            "kind": "ROTATE_IN_PLACE",
+            "position_m": [0.0, 1.55, 0.0],
+            "start_yaw_deg": 0.0,
+            "end_yaw_deg": 90.0,
+            "yaw_interpolation": "SHORTEST_ARC",
+        },
+    )
+    (tmp_path / "trajectory").mkdir()
+    (tmp_path / "visual" / "arrays").mkdir(parents=True)
+    (tmp_path / "inputs").mkdir()
+    for variant in ("A", "B"):
+        (tmp_path / "episodes" / variant).mkdir(parents=True)
+
+    write_json(tmp_path / "trajectory" / "sensor_rig_trajectory.json", rig)
+    write_json(tmp_path / "inputs" / "sensor_rig_trajectory.json", rig)
+    positions = np.asarray(
+        [frame["world_from_rig"]["translation_m"] for frame in rig["frames"]],
+        dtype=np.float64,
+    )
+    orientations = np.asarray(
+        [
+            [
+                frame["world_from_rig"]["rotation_xyzw"][3],
+                *frame["world_from_rig"]["rotation_xyzw"][:3],
+            ]
+            for frame in rig["frames"]
+        ],
+        dtype=np.float64,
+    )
+    np.save(tmp_path / "visual" / "arrays" / "listener_positions_m.npy", positions)
+    np.save(
+        tmp_path / "visual" / "arrays" / "listener_orientations_wxyz.npy",
+        orientations,
+    )
+    write_json(
+        tmp_path / "visual" / "frame_records.json",
+        {
+            "frames": [
+                {
+                    "frame_index": frame["frame_index"],
+                    "pts_ticks": frame["pts_ticks"],
+                    "world_from_rig": frame["world_from_rig"],
+                    "view_pose_hash": frame["pose_hash"],
+                }
+                for frame in rig["frames"]
+            ]
+        },
+    )
+    write_json(
+        tmp_path / "trajectory" / "emitter_path.json",
+        {
+            "keyframes": [
+                {
+                    "tick": frame["pts_ticks"],
+                    "listener_position_m": positions[index].tolist(),
+                    "listener_orientation_wxyz": orientations[index].tolist(),
+                }
+                for index, frame in enumerate(rig["frames"])
+            ]
+        },
+    )
+    timeline = {
+        "frames": [
+            {"view_pose_hashes": {"view0": frame["pose_hash"]}}
+            for frame in rig["frames"]
+        ]
+    }
+    for variant in ("A", "B"):
+        write_json(tmp_path / "episodes" / variant / "timeline.json", timeline)
+    evidence = {
+        "inputs": {
+            "sensor_rig_trajectory": {
+                "path": "inputs/sensor_rig_trajectory.json"
+            }
+        },
+        "visual": {
+            "metadata": {
+                "sensor_rig_trajectory": {
+                    "trajectory_id": rig["trajectory_id"],
+                    "schema": rig["schema"],
+                    "content_sha256": canonical_json_sha256(rig),
+                    "moving": True,
+                }
+            }
+        }
+    }
+
+    assert canary._sensor_rig_evidence_errors(tmp_path, evidence) == []
+
+    declaration = evidence["visual"]["metadata"]["sensor_rig_trajectory"]
+    evidence["visual"]["metadata"]["sensor_rig_trajectory"] = None
+    assert canary._sensor_rig_evidence_errors(tmp_path, evidence) == [
+        "visual sensor-rig trajectory declaration is absent"
+    ]
+    evidence["visual"]["metadata"]["sensor_rig_trajectory"] = declaration
+
+    timeline["frames"][12]["view_pose_hashes"]["view0"] = "0" * 64
+    write_json(tmp_path / "episodes" / "B" / "timeline.json", timeline)
+    assert canary._sensor_rig_evidence_errors(tmp_path, evidence) == [
+        "episode B Timeline view poses differ from sensor rig"
+    ]
 
 
 def _write_pcm16(path: Path, frequency_hz: float) -> None:
