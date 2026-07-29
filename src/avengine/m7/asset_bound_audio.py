@@ -47,6 +47,50 @@ class PreparedDryAudio:
     record: Mapping[str, Any]
 
 
+def bind_endpoint_buses_to_source_slots(
+    endpoint_buses: Mapping[str, Any],
+    *,
+    endpoint_to_source_slot: Mapping[str, str],
+    source_slots: Sequence[str],
+) -> dict[str, np.ndarray]:
+    """Bind validated M6 endpoint buses to the concrete M7 RIR source slots.
+
+    AudioProgram endpoint identity and asset-bound RIR slot identity are
+    intentionally different contracts.  The bridge between them must be an
+    explicit bijection; positional or lexical inference is not permitted.
+    """
+
+    canonical_slots = canonical_source_ids(source_slots)
+    if tuple(source_slots) != canonical_slots:
+        raise AssetBoundAudioError("source slots must already be canonical")
+    if set(endpoint_to_source_slot) != set(endpoint_buses):
+        raise AssetBoundAudioError(
+            "endpoint-to-slot mapping keys must exactly match AudioProgram endpoints"
+        )
+    mapped_slots = tuple(endpoint_to_source_slot.values())
+    if (
+        len(mapped_slots) != len(set(mapped_slots))
+        or set(mapped_slots) != set(canonical_slots)
+    ):
+        raise AssetBoundAudioError(
+            "endpoint-to-slot mapping must be a bijection over the RIR source slots"
+        )
+    result: dict[str, np.ndarray] = {}
+    for endpoint_id, slot in endpoint_to_source_slot.items():
+        bus = np.asarray(endpoint_buses[endpoint_id])
+        if bus.shape != (M5_AUDIO_SAMPLE_COUNT,) or bus.dtype.kind not in "iuf":
+            raise AssetBoundAudioError(
+                f"AudioProgram endpoint {endpoint_id!r} has an invalid dry bus"
+            )
+        bus = np.ascontiguousarray(bus, dtype=np.float64)
+        if not np.all(np.isfinite(bus)):
+            raise AssetBoundAudioError(
+                f"AudioProgram endpoint {endpoint_id!r} dry bus is not finite"
+            )
+        result[slot] = bus
+    return {slot: result[slot] for slot in canonical_slots}
+
+
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -267,6 +311,7 @@ __all__ = [
     "ASSET_BOUND_AUDIO_SCHEMA",
     "AssetBoundAudioError",
     "PreparedDryAudio",
+    "bind_endpoint_buses_to_source_slots",
     "float32_stems_and_exact_mix",
     "prepare_dry_audio",
     "render_asset_bound_binaural",

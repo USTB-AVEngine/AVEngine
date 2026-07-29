@@ -1,6 +1,6 @@
 # Current Apartment execution
 
-Last updated: 2026-07-26
+Last updated: 2026-07-29
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
@@ -361,6 +361,33 @@ closure. Scene data must be shared rather than copied once per example.
     after retarget, and a historical human-decision calibration collector
     that any future visual pre-screener must be scored against before it may
     triage review media.
+
+### Checkpoint 20260729a: M6 AudioProgram integrated into M7
+
+- Branch `feature/m7-m6-audio-program-integration` adds one opt-in M7 route
+  from a validated M6 AudioProgram through the existing M5.1 dry-bus
+  assembler, explicit endpoint-to-RIR-slot binding, cached dynamic binaural
+  rendering, Timeline/source-manifest projection and the existing Apartment
+  UE runner. No sit, chair binding or new action system is included.
+- The current visual contract is deliberately one AudioProgram instance per
+  episode. It fails closed on multiple program variants and reconstructs
+  counterfactual B from its canonical base. The renderer forms the persisted
+  float32 mixture through the existing exact source1 + source2 sum path;
+  retaining source stems is optional. Human speech and animal vocalization
+  drive mouth activity; other sound classes remain ordinary audio events.
+- The focused M6/M7 suite passes 72 tests. The fresh Shiba + human S4
+  artifact-level canary and verifier are under
+  `tmp/m7/m6_audio_program_integration_canary_20260729_03`; its rebuilt UE
+  input and dry-run plan are under
+  `tmp/m7/m6_audio_program_integration_bundle_20260729_03` and
+  `tmp/m7/m6_audio_program_integration_ue_dryrun_20260729_03`.
+  The unchanged runtime path already passed a real native UE readback under
+  `tmp/m7/m6_audio_program_integration_ue_20260729_01`.
+- Legacy asset-audio delivery remains a separate compatible path; the
+  one-episode regression at
+  `tmp/m7/m7_legacy_audio_regression_20260729_01` is byte-identical to its
+  prior delivery manifests and mixture WAV. All new evidence remains
+  research-only and does not authorize formal dataset registration.
 
 ## Exact next actions
 

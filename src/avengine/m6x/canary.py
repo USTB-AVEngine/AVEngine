@@ -41,16 +41,15 @@ from avengine.m5_1.acoustics import (
     research_review_trajectory_record,
 )
 from avengine.m5_1.delivery import binaural_frame_diagnostics
-from avengine.m5_1.dry_audio import DryAudioClipSpec, assemble_dry_audio_buses
 from avengine.m5_1.review import (
     SourceOverlayTrack,
     encode_annotated_review,
 )
 from avengine.m6.audio_program import (
     compile_audio_program,
-    materialize_audio_program_variant,
     validate_audio_program,
 )
+from avengine.m6.audio_render import assemble_audio_program_dry_buses
 from avengine.m6.flags import evaluate_legacy_flags
 from avengine.m6.entities import validate_entity_asset_registry
 from avengine.m6.sources import (
@@ -682,30 +681,6 @@ def _asset_bindings(
     return result
 
 
-def _dry_event_mappings(
-    program: Mapping[str, Any], sounds: Mapping[str, Any]
-) -> list[dict[str, Any]]:
-    sound_records = _sound_index(sounds)
-    result: list[dict[str, Any]] = []
-    for event in program["events"]:
-        dry = sound_records[event["sound_asset_id"]]["dry_audio"]
-        result.append(
-            {
-                "event_id": event["event_id"],
-                "source_id": event["source_endpoint_id"],
-                "start_sample": event["start_sample"],
-                "end_sample_exclusive": event["end_sample_exclusive"],
-                "dry_asset_id": event["sound_asset_id"],
-                "dry_asset_sha256": dry["sha256"],
-                "dry_clip_start_sample": event["source_start_sample"],
-                "dry_clip_end_sample_exclusive": event["source_end_sample_exclusive"],
-                "linear_gain": event["linear_gain"],
-                "fade_samples": event["fade_samples"],
-            }
-        )
-    return result
-
-
 def _write_audio(
     path: Path,
     samples: np.ndarray,
@@ -1086,6 +1061,7 @@ def _render_variant(
     variant_root: Path,
     scenario: Mapping[str, Any],
     variant_id: str,
+    program_variant_id: str,
     program: Mapping[str, Any],
     capture: CaptureData,
     window_start: int,
@@ -1107,23 +1083,22 @@ def _render_variant(
     capture_adapter: FixedApartmentCaptureAdapter = HUMAN_BEAGLE_CAPTURE_ADAPTER,
     visual_profile: ReviewVisualProfile,
 ) -> dict[str, Any]:
-    source_ids = tuple(program["candidate_source_endpoint_ids"])
-    clip = DryAudioClipSpec.from_values(
-        frame_count=FRAME_COUNT,
-        fps_numerator=FPS,
-        sample_rate_hz=SAMPLE_RATE_HZ,
-    )
-    dry = assemble_dry_audio_buses(
-        _dry_event_mappings(program, sounds),
-        source_ids=source_ids,
-        clip=clip,
+    audio_program = assemble_audio_program_dry_buses(
+        program,
+        program_variant_id,
+        source_endpoint_registry=endpoints,
+        sound_asset_registry=sounds,
         asset_bindings=asset_bindings,
     )
+    program = audio_program.materialized_program
+    compiled = audio_program.compiled_program
+    dry = audio_program.dry_audio
+    source_ids = compiled.candidate_source_endpoint_ids
+    clip = dry.clip
     rendered_stems, _rendered_mixture = render_research_review_binaural_audio(
         dry.buses, sequence, grid=grid
     )
     stems, mixture = _float32_stems_and_exact_mixture(rendered_stems, source_ids)
-    compiled = compile_audio_program(program)
     silent_variant = not compiled.active_source_endpoint_ids
     if silent_variant:
         if any(np.any(bus) for bus in dry.buses.values()) or np.any(mixture):
@@ -1756,17 +1731,13 @@ def run_fixed_apartment_canary(
             base_program = values["programs"][
                 (reference["program_id"], reference["revision"])
             ]
-            render_programs: list[tuple[str, Mapping[str, Any]]] = []
+            render_programs: list[tuple[str, Mapping[str, Any], str]] = []
             for variant_id in scenario["audio_variants"]:
                 render_programs.append(
                     (
                         variant_id,
-                        materialize_audio_program_variant(
-                            base_program,
-                            variant_id,
-                            source_endpoint_registry=values["endpoints"],
-                            sound_asset_registry=values["sounds"],
-                        ),
+                        base_program,
+                        variant_id,
                     )
                 )
             if scenario["scenario_id"] == "S2":
@@ -1777,6 +1748,7 @@ def run_fixed_apartment_canary(
                         values["programs"][
                             (silent_ref["program_id"], silent_ref["revision"])
                         ],
+                        "A",
                     )
                 )
             scenario_name = f"{scenario['scenario_id']}_{scenario['purpose']}"
@@ -1790,7 +1762,7 @@ def run_fixed_apartment_canary(
             rir_bundle_uri = (
                 "bundle://" + rir_metadata_path.parent.relative_to(staging).as_posix()
             )
-            for variant_id, program in render_programs:
+            for variant_id, program, program_variant_id in render_programs:
                 variant_root = (
                     scenario_root
                     / "variants"
@@ -1801,6 +1773,7 @@ def run_fixed_apartment_canary(
                         variant_root=variant_root,
                         scenario=scenario,
                         variant_id=variant_id,
+                        program_variant_id=program_variant_id,
                         program=program,
                         capture=capture,
                         window_start=start,

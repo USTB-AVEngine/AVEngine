@@ -8,6 +8,11 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.m5_1.mixed_capture import trajectory_world_matrices
+from avengine.m6.audio_program import (
+    AudioProgramError,
+    CompiledAudioProgram,
+    compile_audio_program,
+)
 from avengine.optional_backends.spear_replicacad_execution import (
     _rotation_matrix_to_xyzw,
 )
@@ -23,6 +28,10 @@ FRAME_RATE_HZ = 15
 SAMPLE_RATE_HZ = 16_000
 SAMPLE_COUNT = 80_000
 TICKS_PER_FRAME = 3_200
+SOURCE_SLOTS = ("source1", "source2")
+VOCAL_SOUND_CLASSES = frozenset(
+    {"animal_vocalization", "human_speech"}
+)
 
 DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY = (
     load_default_source_asset_runtime_registry()
@@ -52,6 +61,137 @@ CAT_ASSET_ID = str(
 
 class ApartmentVisualBundleError(ValueError):
     """An asset-bound route cannot become an exact two-actor Timeline."""
+
+
+def _compile_program_projection(
+    materialized_audio_program: Mapping[str, Any],
+    endpoint_to_source_slot: Mapping[str, str],
+) -> tuple[CompiledAudioProgram, dict[str, str]]:
+    if not isinstance(materialized_audio_program, Mapping):
+        raise ApartmentVisualBundleError(
+            "materialized_audio_program must be an M6 AudioProgram object"
+        )
+    timeline = materialized_audio_program.get("timeline")
+    frame_count = (
+        timeline.get("frame_count") if isinstance(timeline, Mapping) else None
+    )
+    sample_count = (
+        timeline.get("sample_count") if isinstance(timeline, Mapping) else None
+    )
+    if frame_count != FRAME_COUNT or sample_count != SAMPLE_COUNT:
+        raise ApartmentVisualBundleError(
+            "materialized_audio_program must use exactly 75 frames and 80000 samples"
+        )
+    try:
+        compiled = compile_audio_program(materialized_audio_program)
+    except AudioProgramError as error:
+        raise ApartmentVisualBundleError(
+            f"materialized_audio_program is invalid: {error}"
+        ) from error
+
+    if len(compiled.candidate_source_endpoint_ids) != len(SOURCE_SLOTS):
+        raise ApartmentVisualBundleError(
+            "materialized_audio_program must declare exactly two candidate endpoints"
+        )
+    if not isinstance(endpoint_to_source_slot, Mapping):
+        raise ApartmentVisualBundleError(
+            "endpoint_to_source_slot must be an endpoint-to-source-slot mapping"
+        )
+    mapping = dict(endpoint_to_source_slot)
+    candidates = set(compiled.candidate_source_endpoint_ids)
+    mapped_slots = list(mapping.values())
+    if (
+        set(mapping) != candidates
+        or any(slot not in SOURCE_SLOTS for slot in mapped_slots)
+        or len(set(mapped_slots)) != len(mapping)
+        or set(mapped_slots) != set(SOURCE_SLOTS)
+    ):
+        raise ApartmentVisualBundleError(
+            "endpoint_to_source_slot must be a bijection from the two program "
+            "candidate endpoints onto source1/source2"
+        )
+    return compiled, mapping
+
+
+def _optional_program_projection(
+    materialized_audio_program: Mapping[str, Any] | None,
+    endpoint_to_source_slot: Mapping[str, str] | None,
+) -> tuple[CompiledAudioProgram, dict[str, str]] | None:
+    if materialized_audio_program is None and endpoint_to_source_slot is None:
+        return None
+    if materialized_audio_program is None or endpoint_to_source_slot is None:
+        raise ApartmentVisualBundleError(
+            "materialized_audio_program and endpoint_to_source_slot must be "
+            "provided together"
+        )
+    return _compile_program_projection(
+        materialized_audio_program, endpoint_to_source_slot
+    )
+
+
+def _source_activity_by_frame(
+    compiled: CompiledAudioProgram,
+    endpoint_to_source_slot: Mapping[str, str],
+    *,
+    active_event_ids: frozenset[str] | None = None,
+) -> dict[str, np.ndarray]:
+    activity = {
+        slot: np.zeros(FRAME_COUNT, dtype=np.bool_) for slot in SOURCE_SLOTS
+    }
+    for frame_index in range(FRAME_COUNT):
+        current = compiled.current_event_by_source(frame_index)
+        for endpoint_id in compiled.candidate_source_endpoint_ids:
+            slot = endpoint_to_source_slot[endpoint_id]
+            event = current[endpoint_id]
+            activity[slot][frame_index] = (
+                event is not None
+                and (
+                    active_event_ids is None
+                    or event in active_event_ids
+                )
+            )
+    return activity
+
+
+def _program_event_semantics(
+    program_projection: tuple[CompiledAudioProgram, dict[str, str]] | None,
+    semantic_sound_class_by_event_id: Mapping[str, str] | None,
+) -> dict[str, str]:
+    if program_projection is None:
+        if semantic_sound_class_by_event_id is not None:
+            raise ApartmentVisualBundleError(
+                "event sound semantics require a materialized AudioProgram"
+            )
+        return {}
+    if not isinstance(semantic_sound_class_by_event_id, Mapping):
+        raise ApartmentVisualBundleError(
+            "AudioProgram visual projection requires event sound semantics"
+        )
+    semantics = dict(semantic_sound_class_by_event_id)
+    event_ids = {event.event_id for event in program_projection[0].events}
+    if (
+        set(semantics) != event_ids
+        or any(
+            not isinstance(sound_class, str) or not sound_class
+            for sound_class in semantics.values()
+        )
+    ):
+        raise ApartmentVisualBundleError(
+            "event sound semantics must exactly cover the AudioProgram events"
+        )
+    return semantics
+
+
+def program_source_activity_by_frame(
+    materialized_audio_program: Mapping[str, Any],
+    endpoint_to_source_slot: Mapping[str, str],
+) -> dict[str, np.ndarray]:
+    """Project M6 event windows to source-slot activity at each frame start."""
+
+    compiled, mapping = _compile_program_projection(
+        materialized_audio_program, endpoint_to_source_slot
+    )
+    return _source_activity_by_frame(compiled, mapping)
 
 
 def binding_assets_by_episode(
@@ -136,9 +276,31 @@ def build_timeline(
     bindings: Mapping[str, Mapping[str, Any]],
     listener_position_m: Sequence[float],
     source_profiles: Mapping[str, Mapping[str, Any]] = ASSET_VISUAL_PROFILES,
+    materialized_audio_program: Mapping[str, Any] | None = None,
+    endpoint_to_source_slot: Mapping[str, str] | None = None,
+    semantic_sound_class_by_event_id: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Build one exact 75-frame two-actor Timeline and explicit headings."""
 
+    program_projection = _optional_program_projection(
+        materialized_audio_program, endpoint_to_source_slot
+    )
+    event_semantics = _program_event_semantics(
+        program_projection,
+        semantic_sound_class_by_event_id,
+    )
+    program_activity = (
+        None
+        if program_projection is None
+        else _source_activity_by_frame(
+            *program_projection,
+            active_event_ids=frozenset(
+                event_id
+                for event_id, sound_class in event_semantics.items()
+                if sound_class in VOCAL_SOUND_CLASSES
+            ),
+        )
+    )
     root_paths = _root_paths(episode)
     statistics = episode.get("statistics")
     if not isinstance(statistics, Mapping):
@@ -200,7 +362,14 @@ def build_timeline(
                     "action_phase": (frame_index % period) / period if moving else 0.0,
                     "action_time_ticks": frame_index * TICKS_PER_FRAME,
                     "contacts": {},
-                    "mouth_state": {"open_ratio": 0.0, "vocalizing": False},
+                    "mouth_state": {
+                        "open_ratio": 0.0,
+                        "vocalizing": (
+                            False
+                            if program_activity is None
+                            else bool(program_activity[slot][frame_index])
+                        ),
+                    },
                     "root_transform": {
                         "translation_m": root_paths[slot][frame_index].tolist(),
                         "rotation_xyzw": _rotation_matrix_to_xyzw(
@@ -222,6 +391,42 @@ def build_timeline(
                 "view_pose_hashes": {},
             }
         )
+    audio_events = (
+        [
+            {
+                "event_id": f"{slot}_full_duration_vocalization",
+                "actor_id": f"{slot}_actor",
+                "emitter_bone": bindings[slot]["semantic_anchor_id"],
+                "event_type": "vocalization",
+                "start_sample": 0,
+                "end_sample": SAMPLE_COUNT,
+                "semantic_sync_required": False,
+            }
+            for slot in SOURCE_SLOTS
+        ]
+        if program_projection is None
+        else [
+            {
+                "event_id": event.event_id,
+                "actor_id": (
+                    f"{program_projection[1][event.source_endpoint_id]}_actor"
+                ),
+                "emitter_bone": bindings[
+                    program_projection[1][event.source_endpoint_id]
+                ]["semantic_anchor_id"],
+                "event_type": (
+                    "vocalization"
+                    if event_semantics[event.event_id]
+                    in VOCAL_SOUND_CLASSES
+                    else "other"
+                ),
+                "start_sample": event.start_sample,
+                "end_sample": event.end_sample_exclusive,
+                "semantic_sync_required": True,
+            }
+            for event in program_projection[0].events
+        ]
+    )
     return (
         {
             "schema": "avengine_authoritative_timeline_v2",
@@ -241,18 +446,7 @@ def build_timeline(
                 "ticks_per_sample": 3,
             },
             "actors": actors,
-            "audio_events": [
-                {
-                    "event_id": f"{slot}_full_duration_vocalization",
-                    "actor_id": f"{slot}_actor",
-                    "emitter_bone": bindings[slot]["semantic_anchor_id"],
-                    "event_type": "vocalization",
-                    "start_sample": 0,
-                    "end_sample": SAMPLE_COUNT,
-                    "semantic_sync_required": False,
-                }
-                for slot in ("source1", "source2")
-            ],
+            "audio_events": audio_events,
             "frames": frames,
         },
         headings,
@@ -265,7 +459,38 @@ def build_source_manifest(
     episode: Mapping[str, Any],
     bindings: Mapping[str, Mapping[str, Any]],
     source_profiles: Mapping[str, Mapping[str, Any]] = ASSET_VISUAL_PROFILES,
+    materialized_audio_program: Mapping[str, Any] | None = None,
+    endpoint_to_source_slot: Mapping[str, str] | None = None,
+    audio_program_variant_id: str | None = None,
+    semantic_sound_class_by_event_id: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    program_projection = _optional_program_projection(
+        materialized_audio_program, endpoint_to_source_slot
+    )
+    event_semantics = _program_event_semantics(
+        program_projection,
+        semantic_sound_class_by_event_id,
+    )
+    if program_projection is None:
+        if audio_program_variant_id is not None:
+            raise ApartmentVisualBundleError(
+                "audio_program_variant_id requires a materialized AudioProgram"
+            )
+        manifest_variant_id = "A"
+    elif audio_program_variant_id not in {"A", "B"}:
+        raise ApartmentVisualBundleError(
+            "AudioProgram visual projection requires variant A or B"
+        )
+    else:
+        manifest_variant_id = audio_program_variant_id
+    slot_to_program_endpoint = (
+        {}
+        if program_projection is None
+        else {
+            slot: endpoint_id
+            for endpoint_id, slot in program_projection[1].items()
+        }
+    )
     centers = episode.get("source_center_paths_m")
     if not isinstance(centers, Mapping) or set(centers) != {"source1", "source2"}:
         raise ApartmentVisualBundleError("episode source centers are incomplete")
@@ -282,11 +507,18 @@ def build_source_manifest(
                 f"{slot} selects unregistered source asset {asset_id!r}"
             ) from error
         endpoint_id = f"{slot}_emitter"
+        program_endpoint_id = slot_to_program_endpoint.get(slot)
         sources.append(
             {
                 "source_endpoint_id": endpoint_id,
                 "source_slot_id": slot,
-                "activation": "active",
+                "activation": (
+                    "active"
+                    if program_projection is None
+                    or program_endpoint_id
+                    in program_projection[0].active_source_endpoint_ids
+                    else "persistent_silent"
+                ),
                 "visible_asset": {
                     "asset_id": asset_id,
                     "revision": profile["revision"],
@@ -318,20 +550,13 @@ def build_source_manifest(
                 },
             }
         )
-    return {
-        "schema": "avengine_m7_asset_bound_apartment_source_manifest_v1",
-        "scenario_id": episode_id,
-        "variant_id": "A",
-        "purpose": "two_replaceable_sources_both_active",
-        "listener": {
-            "listener_id": "listener0",
-            "camera_listener_colocated": True,
-            "camera_listener_cooriented": True,
-            "audio_visibility_policy": "360_degree_no_camera_fov_cutoff",
-        },
-        "room_policy": "fixed_scene_instance_no_furniture_mutation",
-        "sources": sources,
-        "events": [
+    purpose = (
+        "two_replaceable_sources_both_active"
+        if program_projection is None
+        else f"two_replaceable_sources_{program_projection[0].mode}"
+    )
+    events = (
+        [
             {
                 "event_id": f"{slot}_full_duration_vocalization",
                 "source_endpoint_id": f"{slot}_emitter",
@@ -340,8 +565,41 @@ def build_source_manifest(
                 "start_tick": 0,
                 "end_tick_exclusive": SAMPLE_COUNT * 3,
             }
-            for slot in ("source1", "source2")
-        ],
+            for slot in SOURCE_SLOTS
+        ]
+        if program_projection is None
+        else [
+            {
+                **deepcopy(dict(event)),
+                "source_endpoint_id": (
+                    f"{program_projection[1][event['source_endpoint_id']]}_emitter"
+                ),
+                "audio_program_source_endpoint_id": event["source_endpoint_id"],
+                "semantic_sound_class": event_semantics[event["event_id"]],
+                "event_type": (
+                    "vocalization"
+                    if event_semantics[event["event_id"]]
+                    in VOCAL_SOUND_CLASSES
+                    else "other"
+                ),
+            }
+            for event in materialized_audio_program["events"]
+        ]
+    )
+    result = {
+        "schema": "avengine_m7_asset_bound_apartment_source_manifest_v1",
+        "scenario_id": episode_id,
+        "variant_id": manifest_variant_id,
+        "purpose": purpose,
+        "listener": {
+            "listener_id": "listener0",
+            "camera_listener_colocated": True,
+            "camera_listener_cooriented": True,
+            "audio_visibility_policy": "360_degree_no_camera_fov_cutoff",
+        },
+        "room_policy": "fixed_scene_instance_no_furniture_mutation",
+        "sources": sources,
+        "events": events,
         "stem_policy": {
             "independent_binaural_stem_per_candidate_source": True,
             "mixture_is_exact_stem_sum": True,
@@ -349,6 +607,18 @@ def build_source_manifest(
             "limiting": False,
         },
     }
+    if program_projection is not None:
+        result["audio_program"] = {
+            "program_id": program_projection[0].program_id,
+            "revision": program_projection[0].revision,
+            "mode": program_projection[0].mode,
+            "variant_id": manifest_variant_id,
+            "program_content_sha256": materialized_audio_program[
+                "program_content_sha256"
+            ],
+            "endpoint_to_source_slot": deepcopy(dict(program_projection[1])),
+        }
+    return result
 
 
 def build_flags() -> dict[str, Any]:
@@ -413,4 +683,5 @@ __all__ = [
     "build_qualification",
     "build_source_manifest",
     "build_timeline",
+    "program_source_activity_by_frame",
 ]

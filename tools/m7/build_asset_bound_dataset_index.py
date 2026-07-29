@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import os
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Mapping, Sequence
 
-from avengine.contracts.json_io import load_json, write_json
+from avengine.contracts.json_io import load_json, sha256_file, write_json
 from avengine.m7.dataset_index import (
     ApartmentDatasetIndexError,
     assign_episode_splits,
@@ -20,6 +22,14 @@ from avengine.m7.dataset_index import (
 SCHEMA = "avengine_m7_apartment_training_index_v1"
 SPLIT_SEED = "avengine-apartment-split-v1"
 SPLIT_SAMPLE_COUNTS = {"train": 800, "validation": 100, "test": 100}
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_AUDIO_PROGRAM_SAMPLE_FIELDS = frozenset(
+    {
+        "audio_program_binding",
+        "audio_program_instance_path",
+        "audio_program_instance_sha256",
+    }
+)
 
 
 def _visual_episodes(bundle_root: Path) -> list[dict[str, Any]]:
@@ -62,6 +72,70 @@ def _render_evidence(render_root: Path) -> dict[str, Mapping[str, Any]]:
     return result
 
 
+def _audio_program_index_fields(
+    sample: Mapping[str, Any],
+    *,
+    audio_batch_root: Path,
+) -> tuple[dict[str, Any], str | None]:
+    """Return optional verified AudioProgram fields and its label path."""
+
+    present = _AUDIO_PROGRAM_SAMPLE_FIELDS.intersection(sample)
+    if not present:
+        return {}, None
+    if present != _AUDIO_PROGRAM_SAMPLE_FIELDS:
+        missing = sorted(_AUDIO_PROGRAM_SAMPLE_FIELDS - present)
+        raise ApartmentDatasetIndexError(
+            f"audio sample has an incomplete AudioProgram binding; missing={missing}"
+        )
+    binding = sample.get("audio_program_binding")
+    raw_path = sample.get("audio_program_instance_path")
+    declared_sha256 = sample.get("audio_program_instance_sha256")
+    if (
+        not isinstance(binding, Mapping)
+        or not isinstance(raw_path, str)
+        or not raw_path
+        or Path(raw_path).is_absolute()
+        or not isinstance(declared_sha256, str)
+        or _SHA256_RE.fullmatch(declared_sha256) is None
+    ):
+        raise ApartmentDatasetIndexError(
+            "audio sample AudioProgram index fields are invalid"
+        )
+    root = audio_batch_root.resolve()
+    resolved = (root / raw_path).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ApartmentDatasetIndexError(
+            "audio_program_instance_path escapes the audio batch"
+        ) from exc
+    if not resolved.is_file() or sha256_file(resolved) != declared_sha256:
+        raise ApartmentDatasetIndexError(
+            "audio sample AudioProgram instance file or hash differs"
+        )
+    instance = load_json(resolved)
+    program = instance.get("materialized_audio_program")
+    if (
+        instance.get("schema") != "avengine_m7_m6_audio_program_instance_v1"
+        or instance.get("status") != "pass"
+        or instance.get("audio_program_binding") != binding
+        or not isinstance(program, Mapping)
+        or program.get("program_content_sha256")
+        != binding.get("materialized_program_content_sha256")
+    ):
+        raise ApartmentDatasetIndexError(
+            "audio sample AudioProgram instance content differs"
+        )
+    return (
+        {
+            "audio_program_binding": deepcopy(dict(binding)),
+            "audio_program_instance_path": raw_path,
+            "audio_program_instance_sha256": declared_sha256,
+        },
+        raw_path,
+    )
+
+
 def build_index(
     *,
     audio_batch_root: Path,
@@ -101,7 +175,21 @@ def build_index(
     verification = load_json(audio_batch_root / "verification.json")
     if verification.get("status") != "pass":
         raise ApartmentDatasetIndexError("audio batch verification did not pass")
-
+    program_states: list[bool] = []
+    for sample in samples:
+        if not isinstance(sample, Mapping):
+            raise ApartmentDatasetIndexError("audio sample is invalid")
+        present = _AUDIO_PROGRAM_SAMPLE_FIELDS.intersection(sample)
+        if present and present != _AUDIO_PROGRAM_SAMPLE_FIELDS:
+            raise ApartmentDatasetIndexError(
+                "audio sample has an incomplete AudioProgram binding"
+            )
+        program_states.append(bool(present))
+    has_audio_program_samples = any(program_states)
+    if has_audio_program_samples and not all(program_states):
+        raise ApartmentDatasetIndexError(
+            "legacy and AudioProgram samples may not be mixed"
+        )
     delivery = load_json(audio_batch_root / "delivery.json")
     variants_per_episode = delivery.get("variants_per_episode")
     if (
@@ -111,6 +199,10 @@ def build_index(
         or variants_per_episode < 1
         or delivery.get("episode_count") != len(episodes)
         or len(episodes) * variants_per_episode != 1_000
+        or (
+            has_audio_program_samples
+            and variants_per_episode != 1
+        )
         or any(
             count % variants_per_episode
             for count in SPLIT_SAMPLE_COUNTS.values()
@@ -211,25 +303,44 @@ def build_index(
                 )
                 if not audio_path.is_file():
                     raise ApartmentDatasetIndexError("indexed audio file is missing")
-                rows.append(
-                    {
-                        "sample_id": sample["sample_id"],
-                        "split": split,
-                        "episode_id": episode_id,
-                        "variant_index": sample["variant_index"],
-                        "motion_case": episode["motion_case"],
-                        "asset_ids_by_source_slot": sample[
-                            "asset_ids_by_source_slot"
-                        ],
-                        "both_sources_active": sample["both_sources_active"],
-                        "audio_path": f"audio/binaural/{mixture['path']}",
-                        "audio_sample_rate_hz": sample["audio"]["sample_rate_hz"],
-                        "audio_channel_count": sample["audio"]["channel_count"],
-                        "rgb_episode_path": media_paths["rgb"],
-                        "topdown_episode_path": media_paths["topdown"],
-                        "label_paths": labels,
-                    }
+                audio_program_fields, audio_program_label = (
+                    _audio_program_index_fields(
+                        sample,
+                        audio_batch_root=audio_batch_root,
+                    )
                 )
+                sample_labels = dict(labels)
+                label_path_roots = {
+                    "timeline": "visual_bundle_root",
+                    "source_manifest": "visual_bundle_root",
+                    "flags": "visual_bundle_root",
+                }
+                if audio_program_label is not None:
+                    sample_labels["audio_program_instance"] = audio_program_label
+                    label_path_roots[
+                        "audio_program_instance"
+                    ] = "audio_batch_root"
+                row = {
+                    "sample_id": sample["sample_id"],
+                    "split": split,
+                    "episode_id": episode_id,
+                    "variant_index": sample["variant_index"],
+                    "motion_case": episode["motion_case"],
+                    "asset_ids_by_source_slot": sample[
+                        "asset_ids_by_source_slot"
+                    ],
+                    "both_sources_active": sample["both_sources_active"],
+                    "audio_path": f"audio/binaural/{mixture['path']}",
+                    "audio_sample_rate_hz": sample["audio"]["sample_rate_hz"],
+                    "audio_channel_count": sample["audio"]["channel_count"],
+                    "rgb_episode_path": media_paths["rgb"],
+                    "topdown_episode_path": media_paths["topdown"],
+                    "label_paths": sample_labels,
+                    **audio_program_fields,
+                }
+                if audio_program_label is not None:
+                    row["label_path_roots"] = label_path_roots
+                rows.append(row)
 
         sample_split_counts = {
             split: sum(value["split"] == split for value in rows)

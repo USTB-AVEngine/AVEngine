@@ -8,6 +8,7 @@ import pytest
 
 from avengine.m7.asset_bound_audio import (
     AssetBoundAudioError,
+    bind_endpoint_buses_to_source_slots,
     float32_stems_and_exact_mix,
     prepare_dry_audio,
     render_asset_bound_binaural,
@@ -118,6 +119,36 @@ def test_persisted_float32_mixture_is_the_exact_float32_stem_sum() -> None:
 
     assert mixture.dtype == np.float32
     assert np.array_equal(mixture, stored["source1"] + stored["source2"])
+
+
+def test_audio_program_endpoint_buses_require_an_explicit_slot_bijection() -> None:
+    endpoint_buses = {
+        "dog_muzzle": np.full(80_000, 0.25),
+        "human_mouth": np.full(80_000, 0.125),
+    }
+
+    bound = bind_endpoint_buses_to_source_slots(
+        endpoint_buses,
+        endpoint_to_source_slot={
+            "human_mouth": "source1",
+            "dog_muzzle": "source2",
+        },
+        source_slots=("source1", "source2"),
+    )
+
+    assert tuple(bound) == ("source1", "source2")
+    assert np.array_equal(bound["source1"], endpoint_buses["human_mouth"])
+    assert np.array_equal(bound["source2"], endpoint_buses["dog_muzzle"])
+
+    with pytest.raises(AssetBoundAudioError, match="bijection"):
+        bind_endpoint_buses_to_source_slots(
+            endpoint_buses,
+            endpoint_to_source_slot={
+                "human_mouth": "source1",
+                "dog_muzzle": "source1",
+            },
+            source_slots=("source1", "source2"),
+        )
 
 
 def test_batch_variants_use_distinct_full_duration_source_windows() -> None:

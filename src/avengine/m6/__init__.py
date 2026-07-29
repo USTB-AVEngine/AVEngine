@@ -10,6 +10,10 @@ from avengine.m6.audio_program import (
     materialize_audio_program_variant,
     validate_audio_program,
 )
+from avengine.m6.audio_render import (
+    AudioProgramDryAssembly,
+    assemble_audio_program_dry_buses,
+)
 from avengine.m6.canary import (
     M6CanaryError,
     bind_controlled_canary_request_hash,
@@ -58,6 +62,7 @@ from avengine.m6.static_objects import (
 
 __all__ = [
     "AnimalTemplateSelection",
+    "AudioProgramDryAssembly",
     "AudioProgramError",
     "CompiledAudioProgram",
     "EvidenceArtifactRef",
@@ -67,6 +72,7 @@ __all__ = [
     "TaskExporter",
     "StaticObjectRegistrationError",
     "aggregate_legacy_status",
+    "assemble_audio_program_dry_buses",
     "bind_audio_program_hash",
     "bind_controlled_canary_request_hash",
     "compile_audio_program",

@@ -15,12 +15,22 @@ import argparse
 from collections import Counter, defaultdict
 import json
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from avengine.contracts.json_io import sha256_file, write_json
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    sha256_file,
+    write_json,
+)
 from avengine.m4.audio import read_float32_wav
+from avengine.m6.audio_program import (
+    AudioProgramError,
+    materialize_audio_program_variant,
+    validate_audio_program,
+)
 
 
 FRAME_COUNT = 75
@@ -28,6 +38,14 @@ SOURCE_SLOTS = ("source1", "source2")
 SAMPLE_RATE_HZ = 16_000
 SAMPLE_COUNT = 80_000
 SCHEMA = "avengine_m7_asset_bound_batch_correctness_report_v1"
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_AUDIO_PROGRAM_SAMPLE_FIELDS = frozenset(
+    {
+        "audio_program_binding",
+        "audio_program_instance_path",
+        "audio_program_instance_sha256",
+    }
+)
 
 
 class BatchVerificationError(RuntimeError):
@@ -42,6 +60,261 @@ def _json(path: Path) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise BatchVerificationError(f"JSON object required: {path}")
     return value
+
+
+def _program_sample_fields(value: Mapping[str, Any]) -> set[str]:
+    return _AUDIO_PROGRAM_SAMPLE_FIELDS.intersection(value)
+
+
+def _batch_relative_file(
+    batch_root: Path,
+    raw_path: Any,
+    *,
+    owner: str,
+) -> Path:
+    if (
+        not isinstance(raw_path, str)
+        or not raw_path
+        or Path(raw_path).is_absolute()
+    ):
+        raise BatchVerificationError(f"{owner} must be a relative path")
+    root = batch_root.resolve()
+    resolved = (root / raw_path).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise BatchVerificationError(f"{owner} escapes the batch root") from exc
+    if not resolved.is_file():
+        raise BatchVerificationError(f"{owner} is not a regular file")
+    return resolved
+
+
+def _audio_program_instance(
+    *,
+    batch_root: Path,
+    sample: Mapping[str, Any],
+    sample_id: str,
+    asset_ids_by_source_slot: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Validate one optional M6 AudioProgram instance bound to an M7 sample."""
+
+    present = _program_sample_fields(sample)
+    if not present:
+        return None
+    if present != _AUDIO_PROGRAM_SAMPLE_FIELDS:
+        missing = sorted(_AUDIO_PROGRAM_SAMPLE_FIELDS - present)
+        raise BatchVerificationError(
+            f"sample {sample_id} has an incomplete AudioProgram binding; "
+            f"missing={missing}"
+        )
+
+    binding = sample.get("audio_program_binding")
+    if not isinstance(binding, Mapping):
+        raise BatchVerificationError(
+            f"sample {sample_id} audio_program_binding must be an object"
+        )
+    program_ref = binding.get("audio_program_ref")
+    variant_id = binding.get("variant_id")
+    materialized_hash = binding.get("materialized_program_content_sha256")
+    assembly_hash = binding.get("dry_audio_assembly_content_sha256")
+    endpoint_to_slot = binding.get("source_endpoint_to_source_slot")
+    if not isinstance(program_ref, Mapping):
+        raise BatchVerificationError(
+            f"sample {sample_id} AudioProgram reference must be an object"
+        )
+    program_id = program_ref.get("program_id")
+    revision = program_ref.get("revision")
+    canonical_program_hash = program_ref.get("program_content_sha256")
+    if (
+        not isinstance(program_id, str)
+        or not program_id
+        or not isinstance(revision, str)
+        or not revision
+        or not isinstance(canonical_program_hash, str)
+        or _SHA256_RE.fullmatch(canonical_program_hash) is None
+        or variant_id not in {"A", "B"}
+        or not isinstance(materialized_hash, str)
+        or _SHA256_RE.fullmatch(materialized_hash) is None
+        or not isinstance(assembly_hash, str)
+        or _SHA256_RE.fullmatch(assembly_hash) is None
+        or not isinstance(endpoint_to_slot, Mapping)
+        or not endpoint_to_slot
+        or any(
+            not isinstance(endpoint_id, str)
+            or not endpoint_id
+            or source_slot not in SOURCE_SLOTS
+            for endpoint_id, source_slot in endpoint_to_slot.items()
+        )
+        or len(endpoint_to_slot) != len(SOURCE_SLOTS)
+        or set(endpoint_to_slot.values()) != set(SOURCE_SLOTS)
+        or set(asset_ids_by_source_slot) != set(SOURCE_SLOTS)
+    ):
+        raise BatchVerificationError(
+            f"sample {sample_id} AudioProgram binding fields are invalid"
+        )
+
+    instance_path = _batch_relative_file(
+        batch_root,
+        sample.get("audio_program_instance_path"),
+        owner=f"sample {sample_id} audio_program_instance_path",
+    )
+    instance_sha256 = sample.get("audio_program_instance_sha256")
+    if (
+        not isinstance(instance_sha256, str)
+        or _SHA256_RE.fullmatch(instance_sha256) is None
+        or sha256_file(instance_path) != instance_sha256
+    ):
+        raise BatchVerificationError(
+            f"sample {sample_id} AudioProgram instance hash differs"
+        )
+    instance = _json(instance_path)
+    if (
+        instance.get("schema") != "avengine_m7_m6_audio_program_instance_v1"
+        or instance.get("status") != "pass"
+        or instance.get("audio_program_binding") != binding
+    ):
+        raise BatchVerificationError(
+            f"sample {sample_id} AudioProgram instance binding differs"
+        )
+
+    program = instance.get("materialized_audio_program")
+    base_program = instance.get("base_audio_program")
+    if not isinstance(program, Mapping) or not isinstance(base_program, Mapping):
+        raise BatchVerificationError(
+            f"sample {sample_id} base or materialized AudioProgram is missing"
+        )
+    base_errors = validate_audio_program(base_program)
+    program_errors = validate_audio_program(program)
+    if base_errors or program_errors:
+        first_error = (base_errors or program_errors)[0]
+        raise BatchVerificationError(
+            f"sample {sample_id} AudioProgram is invalid: {first_error}"
+        )
+    if (
+        base_program.get("program_id") != program_id
+        or base_program.get("revision") != revision
+        or base_program.get("program_content_sha256") != canonical_program_hash
+        or program.get("program_id") != program_id
+        or program.get("revision") != revision
+        or program.get("program_content_sha256") != materialized_hash
+        or set(program.get("candidate_source_endpoint_ids", ()))
+        != set(endpoint_to_slot)
+    ):
+        raise BatchVerificationError(
+            f"sample {sample_id} materialized AudioProgram differs from its binding"
+        )
+    try:
+        expected_materialized = materialize_audio_program_variant(
+            base_program,
+            variant_id,
+        )
+    except AudioProgramError as error:
+        raise BatchVerificationError(
+            f"sample {sample_id} AudioProgram variant is invalid: {error}"
+        ) from error
+    if expected_materialized != program:
+        raise BatchVerificationError(
+            f"sample {sample_id} materialized AudioProgram differs from its base variant"
+        )
+    mode = program.get("mode")
+
+    assembly = instance.get("dry_audio_assembly")
+    if not isinstance(assembly, Mapping):
+        raise BatchVerificationError(
+            f"sample {sample_id} dry audio assembly is missing"
+        )
+    declared_assembly_hash = assembly.get("assembly_content_sha256")
+    expected_assembly_hash = canonical_json_sha256(
+        {
+            key: value
+            for key, value in assembly.items()
+            if key != "assembly_content_sha256"
+        }
+    )
+    source_ids = assembly.get("source_ids")
+    if (
+        declared_assembly_hash != assembly_hash
+        or expected_assembly_hash != assembly_hash
+        or not isinstance(source_ids, list)
+        or len(source_ids) != len(endpoint_to_slot)
+        or set(source_ids) != set(endpoint_to_slot)
+    ):
+        raise BatchVerificationError(
+            f"sample {sample_id} dry audio assembly differs from its binding"
+        )
+
+    intervals = {source_slot: [] for source_slot in SOURCE_SLOTS}
+    for event in program["events"]:
+        intervals[endpoint_to_slot[event["source_endpoint_id"]]].append(
+            (event["start_sample"], event["end_sample_exclusive"])
+        )
+    simultaneous_active_sample_count = sum(
+        max(0, min(left_end, right_end) - max(left_start, right_start))
+        for left_start, left_end in intervals["source1"]
+        for right_start, right_end in intervals["source2"]
+    )
+    expected_both_sources_active = simultaneous_active_sample_count > 0
+    activity_summary = instance.get("source_activity_summary")
+    if activity_summary is not None:
+        if (
+            not isinstance(activity_summary, Mapping)
+            or activity_summary.get("both_sources_active")
+            is not expected_both_sources_active
+            or activity_summary.get("simultaneous_active_sample_count")
+            != simultaneous_active_sample_count
+        ):
+            raise BatchVerificationError(
+                f"sample {sample_id} source activity summary differs from AudioProgram"
+            )
+    if (
+        "source_activity_summary" in sample
+        and sample.get("source_activity_summary") != activity_summary
+    ):
+        raise BatchVerificationError(
+            f"sample {sample_id} source activity summary differs from its instance"
+        )
+    sound_semantics = instance.get("sound_asset_semantics")
+    used_sound_ids = {
+        event["sound_asset_id"] for event in program["events"]
+    }
+    if (
+        not isinstance(sound_semantics, Mapping)
+        or set(sound_semantics) != used_sound_ids
+        or any(
+            not isinstance(sound_class, str) or not sound_class
+            for sound_class in sound_semantics.values()
+        )
+    ):
+        raise BatchVerificationError(
+            f"sample {sample_id} AudioProgram sound semantics are invalid"
+        )
+    mapped_events = instance.get("mapped_events")
+    if mapped_events != [
+        {
+            **dict(event),
+            "source_slot_id": endpoint_to_slot[event["source_endpoint_id"]],
+            "semantic_sound_class": sound_semantics[event["sound_asset_id"]],
+        }
+        for event in program["events"]
+    ]:
+        raise BatchVerificationError(
+            f"sample {sample_id} mapped AudioProgram events differ"
+        )
+    if sample.get("both_sources_active") is not expected_both_sources_active:
+        raise BatchVerificationError(
+            f"sample {sample_id} both_sources_active differs from AudioProgram events"
+        )
+    active_slots = {
+        endpoint_to_slot[event["source_endpoint_id"]] for event in program["events"]
+    }
+    return {
+        "program_id": program_id,
+        "revision": revision,
+        "variant_id": variant_id,
+        "mode": mode,
+        "active_source_slots": sorted(active_slots),
+        "both_sources_active": expected_both_sources_active,
+    }
 
 
 def _finite_paths(value: Any, *, owner: str) -> np.ndarray:
@@ -240,34 +513,55 @@ def _verify_batch(
     batch_root: Path,
     *,
     expected_assets: Mapping[str, Mapping[str, str]],
+    expected_sample_count: int = 1_000,
 ) -> dict[str, Any]:
+    if (
+        isinstance(expected_sample_count, bool)
+        or not isinstance(expected_sample_count, int)
+        or expected_sample_count < 1
+    ):
+        raise BatchVerificationError(
+            "expected_sample_count must be a positive integer"
+        )
     delivery = _json(batch_root / "delivery.json")
     samples_record = _json(batch_root / "samples.json")
     samples = samples_record.get("samples")
     episode_count = delivery.get("episode_count")
     variants_per_episode = delivery.get("variants_per_episode")
+    has_audio_program_samples = isinstance(samples, list) and any(
+        isinstance(row, Mapping) and bool(_program_sample_fields(row))
+        for row in samples
+    )
     if (
         delivery.get("status") != "pass"
-        or delivery.get("sample_count") != 1000
+        or delivery.get("sample_count") != expected_sample_count
+        or samples_record.get("status") != "pass"
+        or samples_record.get("sample_count") != expected_sample_count
         or isinstance(episode_count, bool)
         or not isinstance(episode_count, int)
         or episode_count != len(expected_assets)
         or isinstance(variants_per_episode, bool)
         or not isinstance(variants_per_episode, int)
         or variants_per_episode < 1
-        or episode_count * variants_per_episode != 1000
-        or delivery.get("both_sources_active") is not True
+        or episode_count * variants_per_episode != expected_sample_count
+        or (
+            not has_audio_program_samples
+            and delivery.get("both_sources_active") is not True
+        )
         or not isinstance(samples, list)
-        or len(samples) != 1000
+        or len(samples) != expected_sample_count
     ):
         raise BatchVerificationError(
-            "batch delivery summary differs from the 1,000-item M7 contract"
+            "batch delivery summary differs from the expected M7 sample count"
         )
     audio_root = batch_root / "audio" / "binaural"
     sample_ids: set[str] = set()
     variants: defaultdict[str, set[int]] = defaultdict(set)
     assets_by_episode: dict[str, Mapping[str, str]] = {}
     maximum_peak = 0.0
+    audio_program_sample_count = 0
+    audio_program_mode_counts: Counter[str] = Counter()
+    sample_activity_flags: list[bool] = []
     for row in samples:
         if not isinstance(row, Mapping):
             raise BatchVerificationError("sample record is not an object")
@@ -287,10 +581,24 @@ def _verify_batch(
             or not 0 <= variant < variants_per_episode
             or not isinstance(assets, Mapping)
             or dict(assets) != dict(expected_assets[episode_id])
-            or row.get("both_sources_active") is not True
             or not isinstance(audio, Mapping)
         ):
             raise BatchVerificationError("sample identity/binding differs from the plan")
+        program_instance = _audio_program_instance(
+            batch_root=batch_root,
+            sample=row,
+            sample_id=sample_id,
+            asset_ids_by_source_slot=assets,
+        )
+        if program_instance is None:
+            if row.get("both_sources_active") is not True:
+                raise BatchVerificationError(
+                    "legacy sample must keep both_sources_active=true"
+                )
+        else:
+            audio_program_sample_count += 1
+            audio_program_mode_counts[str(program_instance["mode"])] += 1
+        sample_activity_flags.append(bool(row["both_sources_active"]))
         if assets_by_episode.setdefault(episode_id, assets) != assets:
             raise BatchVerificationError("one episode has inconsistent asset bindings")
         mixture = audio.get("mixture")
@@ -308,8 +616,6 @@ def _verify_batch(
             raise BatchVerificationError("sample audio contract is invalid")
         wav = audio_root / str(mixture["path"])
         sidecar = audio_root / str(mixture["sidecar_path"])
-        if not wav.is_file() or not sidecar.is_file():
-            raise BatchVerificationError(f"sample media is missing: {sample_id}")
         if sha256_file(wav) != mixture["audio_sha256"]:
             raise BatchVerificationError(f"sample WAV hash differs: {sample_id}")
         if (
@@ -329,12 +635,32 @@ def _verify_batch(
         raise BatchVerificationError(
             "each selected route must have every declared variant exactly once"
         )
-    return {
+    if has_audio_program_samples and delivery.get("both_sources_active") is not all(
+        sample_activity_flags
+    ):
+        raise BatchVerificationError(
+            "batch both_sources_active summary differs from its samples"
+        )
+    if has_audio_program_samples and audio_program_sample_count != len(samples):
+        raise BatchVerificationError(
+            "legacy and AudioProgram-bound samples may not be mixed in one batch"
+        )
+    if has_audio_program_samples and variants_per_episode != 1:
+        raise BatchVerificationError(
+            "AudioProgram batches require one program instance per visual episode"
+        )
+    result = {
         "sample_count": len(sample_ids),
         "episode_count": len(variants),
         "variants_per_episode": variants_per_episode,
         "maximum_readback_peak_absolute": maximum_peak,
     }
+    if audio_program_sample_count:
+        result["audio_program_instance_sample_count"] = audio_program_sample_count
+        result["audio_program_mode_counts"] = dict(
+            sorted(audio_program_mode_counts.items())
+        )
+    return result
 
 
 def _compare_reference(batch_root: Path, reference_root: Path) -> Mapping[str, Any]:
@@ -371,6 +697,7 @@ def verify(
     batch_root: Path,
     output: Path,
     reference_batch_root: Path | None = None,
+    expected_sample_count: int = 1_000,
 ) -> Path:
     """Write one pass report after inspecting every batch audio artifact."""
 
@@ -385,7 +712,11 @@ def verify(
     assets = _binding_assets(plan_root)
     if set(assets) != set(indices):
         raise BatchVerificationError("bound asset episode IDs differ from the selected bank")
-    batch = _verify_batch(batch_root, expected_assets=assets)
+    batch = _verify_batch(
+        batch_root,
+        expected_assets=assets,
+        expected_sample_count=expected_sample_count,
+    )
     episode_cache = _assert_episode_cache_index(
         plan_root=plan_root,
         batch_root=batch_root,
@@ -427,6 +758,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--reference-batch-root", type=Path)
+    parser.add_argument("--expected-sample-count", type=int, default=1_000)
     return parser
 
 
@@ -437,6 +769,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         batch_root=args.batch_root,
         output=args.output,
         reference_batch_root=args.reference_batch_root,
+        expected_sample_count=args.expected_sample_count,
     )
     print(report)
     return 0
