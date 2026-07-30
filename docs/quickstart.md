@@ -6,9 +6,7 @@
 
 开始前先阅读顶层 [`README.md`](../README.md)、
 [`功能与使用指南`](usage_guideline.md) 和
-[`仓库职责边界`](architecture/REPOSITORY_BOUNDARIES.md)。参加当前四人
-协作时还必须阅读
-[`生活化任务与可变场景四人协作计划`](planning/LIFELIKE_ENGINE_FOUR_PERSON_PLAN_20260730.md)。
+[`仓库职责边界`](architecture/REPOSITORY_BOUNDARIES.md)。
 
 ## 强制隔离规则
 
@@ -387,10 +385,10 @@ fi
 4. PR 目标分支；
 5. 改动范围与最低验收。
 
-协作者不能自行猜测基线或 PR 目标。没有联合集成计划的普通任务默认从
-最新 `upstream/main` 建分支；当前四人协作必须以
-[`生活化任务与可变场景四人协作计划`](planning/LIFELIKE_ENGINE_FOUR_PERSON_PLAN_20260730.md)
-指定的 integration 分支为基线和 PR 目标，不能直接面向 `main`。
+协作者不能自行猜测基线或 PR 目标。没有联合集成目标的普通任务默认从
+最新 `upstream/main` 建分支；联合开发任务必须以负责人明确给出的
+integration 分支为基线和 PR 目标，不能自行改投 `main`。本轮联合开发
+使用 `upstream/integration/lifelike-engine-v1`。
 
 先设置只对应当前任务的分支名和负责人提供的基线：
 
@@ -444,7 +442,7 @@ git push -u origin "${AVENGINE_GIT_BRANCH}"
 禁止使用 `git add -A` 代替范围检查。提交前应查看 staged diff，并确认
 没有其他人的文件或生成产物。
 
-然后按任务负责人给出的目标创建 Pull Request。当前四人协作使用：
+然后按任务负责人给出的目标创建 Pull Request。本轮联合开发使用：
 
 ```text
 base: Eastforward/AVEngine:integration/lifelike-engine-v1

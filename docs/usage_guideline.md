@@ -10,8 +10,7 @@
 个人安装和协作规则见
 [`同服务器协作与个人环境构建`](quickstart.md)。当前执行状态以
 [`CURRENT_APARTMENT_EXECUTION.md`](roadmap/CURRENT_APARTMENT_EXECUTION.md)
-为准；当前四人开发范围见
-[`生活化任务与可变场景四人协作计划`](planning/LIFELIKE_ENGINE_FOUR_PERSON_PLAN_20260730.md)。
+为准。
 本文不复制本机临时产物的哈希或把研究验证写成正式数据集发布。
 
 ## 总体定位
@@ -252,7 +251,7 @@ LOS/NLOS 顺序声。
 AudioProgram 自动组合起来的通用生活场景编译层。`navmesh_follow`
 虽然已经出现在轨迹 schema 中，固定 M6.x materializer 仍会拒绝执行；
 自动 Camera/Listener 候选点、停走、区域游走和家具布局变体也属于当前
-四人计划中的待实现能力。开发者应扩展现有 ScenarioSuite、
+待实现能力。开发者应扩展现有 ScenarioSuite、
 TrajectoryBank、SensorRigTrajectory 和房间注册合同，不得另建平行的
 时间线、声音调度或 M7 runner。
 
