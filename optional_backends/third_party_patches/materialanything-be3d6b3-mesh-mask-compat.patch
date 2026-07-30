@@ -1,0 +1,39 @@
+diff --git a/scripts/blender_process_glb.py b/scripts/blender_process_glb.py
+index 43dc5cd..668e44d 100644
+--- a/scripts/blender_process_glb.py
++++ b/scripts/blender_process_glb.py
+@@ -30,7 +30,7 @@ def normalize(vector):
+ def center_and_rescale():
+     all_verts = []
+     for object in bpy.context.scene.objects:
+-        if object.name not in ["Camera", "Light"] and object.data is not None:
++        if object.type == "MESH":  # PATCH: skip Armature/Camera/Light (orig crashed on .vertices)
+             vertices = object.data.vertices
+             verts = [object.matrix_world @ vert.co for vert in vertices]
+             np_verts = np.array([vert.to_tuple() for vert in verts])
+@@ -42,7 +42,7 @@ def center_and_rescale():
+     scale_factor = 1 / bounds.max()
+ 
+     for object in bpy.context.scene.objects:
+-        if object.name not in ["Camera", "Light"] and object.data is not None:
++        if object.type == "MESH":  # PATCH: skip non-mesh
+             for vert in object.data.vertices:
+                 non_inverted_new_position = (object.matrix_world @ vert.co - Vector((mean_position[0], mean_position[1], mean_position[2])))
+                 non_inverted_new_position = Vector((scale_factor, scale_factor, scale_factor)) * non_inverted_new_position
+diff --git a/scripts/generate_texture_pbr_3d.py b/scripts/generate_texture_pbr_3d.py
+index c0e4f61..9ae9a64 100644
+--- a/scripts/generate_texture_pbr_3d.py
++++ b/scripts/generate_texture_pbr_3d.py
+@@ -504,9 +504,9 @@ if __name__ == "__main__":
+ 
+         all_mask_image = Image.fromarray((np.array(all_mask_tensor[0].cpu().numpy()) * 255).astype(np.uint8))
+         init_all_mask = Image.new('RGB', (1024, 1024), color=(0, 0, 0))
+-        init_all_mask, _, _ = backproject_from_image(
+-            mesh, faces, new_verts_uvs, cameras, 
+-            all_mask_image.convert('RGB'), all_mask_image, all_mask_image, init_all_mask, torch.zeros_like(exist_mask), 
++        init_all_mask, project_mask_image, _ = backproject_from_image(
++            mesh, faces, new_verts_uvs, cameras,
++            all_mask_image.convert('RGB'), all_mask_image, all_mask_image, init_all_mask, torch.zeros_like(exist_mask),
+             args.image_size * args.render_simple_factor, args.uv_size, args.fragment_k,
+             DEVICE, blending_weights=1.0
+         )

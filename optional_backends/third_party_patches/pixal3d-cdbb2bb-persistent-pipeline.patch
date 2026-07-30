@@ -1,0 +1,19 @@
+diff --git a/inference.py b/inference.py
+index 4fe1c44..7d4696b 100644
+--- a/inference.py
++++ b/inference.py
+@@ -182,9 +182,13 @@ def run_inference(
+     manual_fov: float = -1.0,
+     low_vram: bool = False,
+     resolution: int = -1,
++    pipeline=None,
+ ):
+     # Load models
+-    pipeline = init_pipeline(model_path, low_vram=low_vram)
++    if pipeline is None:
++        pipeline = init_pipeline(model_path, low_vram=low_vram)
++    else:
++        print("[Pipeline] Reusing caller-provided persistent pipeline.")
+ 
+     # Preprocess image first — rembg loads to GPU for this call, then offloads.
+     # MoGe is loaded afterwards so both never occupy VRAM at the same time.

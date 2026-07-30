@@ -1,0 +1,83 @@
+schema: avengine_optional_third_party_patch_manifest_v1
+version: 1
+recorded_at: "2026-07-30"
+default_install: false
+说明: >-
+  三份补丁均按固定上游 commit 保存。保存、语法检查或 git apply 检查均不
+  等于端到端通过、数据准入或许可证批准。
+
+patches:
+  - id: pixal3d_persistent_pipeline_cdbb2bb_v1
+    component: Pixal3D
+    upstream_url: https://github.com/TencentARC/Pixal3D.git
+    base_commit: cdbb2bbffbf4e6f298b5f2af3d1d76a8d823d2af
+    patch_file: pixal3d-cdbb2bb-persistent-pipeline.patch
+    diff_sha256: 4d66f1d251c62806149530800f830b89d074fde42ed134e63d77f7f736677c5b
+    current_status: candidate_pending_fork_and_native_canary
+    用途: 为 run_inference 增加可选的调用方常驻 pipeline，避免批任务重复加载模型。
+    许可证边界: >-
+      源码标为 MIT；保留上游 LICENSE、NOTICE，并单独审计模型和嵌套依赖。
+      本补丁不携带或授权任何权重与输出。
+    tests:
+      source_diff_exact_match: pass
+      git_diff_check: pass
+      python_syntax: pass
+      git_apply_check_at_base: pass
+      persistent_two_job_gpu_canary: not_run
+      说明: 本次收口未运行真实 GPU 双任务 GLB 回读。
+
+  - id: hunyuan3d_2_1_local_only_compat_82920d6_v1
+    component: Hunyuan3D-2.1
+    upstream_url: https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git
+    base_commit: 82920d643c0dc2f7bfd7255f45f62d386edfe60c
+    patch_file: hunyuan3d-2.1-82920d6-local-only-compat.patch
+    diff_sha256: 062f706b58d37170cedb8a59f6b8e48579212842ea9de75a59f7adb8690515c6
+    current_status: research_unvalidated_blocked
+    用途: >-
+      保存离线本地模型约束、路径检查、无 bpy 时的 trimesh 转换回退，以及
+      trimesh 简化接口兼容尝试。
+    许可证边界: >-
+      Tencent Hunyuan 3D 2.1 Community License 具有地域、使用和分发限制；
+      分发修改需附当前许可证、Notice 和显著修改声明。代码、权重及衍生发布
+      内容继续保持 release hold。
+    tests:
+      source_diff_exact_match: pass
+      git_diff_check: pass
+      python_syntax: pass
+      git_apply_check_at_base: pass
+      existing_local_model_layout_smoke: fail
+      shape_and_paint_gpu_canary: not_run
+      说明: >-
+        loader 会拒绝既有 runner 的相对模型名及当前权重符号链接，所以该补丁
+        只作原样保存，不得默认应用。
+
+  - id: materialanything_mesh_mask_compat_be3d6b3_v1
+    component: MaterialAnything
+    upstream_url: https://github.com/3DTopia/MaterialAnything.git
+    base_commit: be3d6b32a195f968540abc2ee106dc02d4b07479
+    patch_file: materialanything-be3d6b3-mesh-mask-compat.patch
+    diff_sha256: 15da065cab44d03666b52ba9116cea54d47062c77d85fa0d24d309243b6f4a3e
+    current_status: candidate_pending_blender_and_pbr_canary
+    用途: >-
+      Blender 预处理仅遍历 Mesh，并保存当前 backprojection 返回的
+      project_mask_image，避免 Armature 属性错误和未定义或陈旧 mask。
+    许可证边界: >-
+      源码标为 MIT；模型、ControlNet 及其他嵌套组件继续按各自条款处理。
+      本补丁不携带或授权任何权重与输出。
+    tests:
+      source_diff_exact_match: pass
+      git_diff_check: pass
+      python_syntax: pass
+      git_apply_check_at_base: pass
+      blender_mesh_armature_canary: not_run
+      low_resolution_pbr_canary: not_run
+      说明: 本次收口未运行 Blender 或真实 PBR 推理。
+
+excluded_content:
+  policy: never_commit
+  内容:
+    - 模型权重与 checkpoint
+    - Hugging Face snapshot 及其符号链接
+    - Conda、venv、编译扩展和缓存
+    - 输入图片、下载图片、GLB、OBJ、纹理、视频和网页图库
+    - tmp、outputs、demo 及其他生成结果

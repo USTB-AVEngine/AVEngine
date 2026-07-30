@@ -1,0 +1,265 @@
+diff --git a/hy3dpaint/DifferentiableRenderer/mesh_utils.py b/hy3dpaint/DifferentiableRenderer/mesh_utils.py
+index 5b3e831..f87acf4 100644
+--- a/hy3dpaint/DifferentiableRenderer/mesh_utils.py
++++ b/hy3dpaint/DifferentiableRenderer/mesh_utils.py
+@@ -14,7 +14,10 @@
+ 
+ import os
+ import cv2
+-import bpy
++try:
++    import bpy  # PATCH: optional — only convert_obj_to_glb uses it (trimesh fallback below)
++except ImportError:
++    bpy = None
+ import math
+ import numpy as np
+ from io import StringIO
+@@ -265,6 +268,15 @@ def convert_obj_to_glb(
+     merge_vertices: bool = False,
+ ) -> bool:
+     """Convert OBJ file to GLB format using Blender."""
++    if bpy is None:  # PATCH: trimesh fallback when bpy unavailable
++        try:
++            import trimesh
++            m = trimesh.load(obj_path, force='scene')
++            m.export(glb_path)
++            return True
++        except Exception as e:
++            print(f"[convert_obj_to_glb] trimesh fallback fail: {e}")
++            return False
+     try:
+         _setup_blender_scene()
+         _clear_scene_objects()
+diff --git a/hy3dpaint/utils/multiview_utils.py b/hy3dpaint/utils/multiview_utils.py
+index 03f0557..d932a0c 100644
+--- a/hy3dpaint/utils/multiview_utils.py
++++ b/hy3dpaint/utils/multiview_utils.py
+@@ -18,12 +18,38 @@ import random
+ import numpy as np
+ from PIL import Image
+ from typing import List
+-import huggingface_hub
+ from omegaconf import OmegaConf
+ from diffusers import DiffusionPipeline
+ from diffusers import EulerAncestralDiscreteScheduler, DDIMScheduler, UniPCMultistepScheduler
+ 
+ 
++def _resolve_local_multiview_model(model_root):
++    if not isinstance(model_root, (str, os.PathLike)):
++        raise ValueError("multiview_pretrained_path must be an absolute model root")
++    model_root = os.fspath(model_root)
++    if not os.path.isabs(model_root):
++        raise ValueError("multiview_pretrained_path must be an absolute model root")
++    model_root = os.path.abspath(model_root)
++    if not os.path.isdir(model_root) or os.path.realpath(model_root) != model_root:
++        raise ValueError("multiview model root must be a real local directory")
++
++    model_path = os.path.abspath(
++        os.path.join(model_root, "hunyuan3d-paintpbr-v2-1")
++    )
++    if os.path.commonpath((model_root, model_path)) != model_root:
++        raise ValueError("multiview model path escaped the configured model root")
++    if not os.path.isdir(model_path) or os.path.realpath(model_path) != model_path:
++        raise ValueError("local multiview paint model directory is missing or symlinked")
++    model_index = os.path.join(model_path, "model_index.json")
++    if (
++        not os.path.isfile(model_index)
++        or os.path.realpath(model_index) != model_index
++        or os.path.getsize(model_index) <= 0
++    ):
++        raise ValueError("local multiview model_index.json is missing or invalid")
++    return model_path
++
++
+ class multiviewDiffusionNet:
+     def __init__(self, config) -> None:
+         self.device = config.device
+@@ -34,16 +60,12 @@ class multiviewDiffusionNet:
+         self.cfg = cfg
+         self.mode = self.cfg.model.params.stable_diffusion_config.custom_pipeline[2:]
+ 
+-        model_path = huggingface_hub.snapshot_download(
+-            repo_id=config.multiview_pretrained_path,
+-            allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
+-        )
+-
+-        model_path = os.path.join(model_path, "hunyuan3d-paintpbr-v2-1")
++        model_path = _resolve_local_multiview_model(config.multiview_pretrained_path)
+         pipeline = DiffusionPipeline.from_pretrained(
+             model_path,
+-            custom_pipeline=custom_pipeline, 
+-            torch_dtype=torch.float16
++            custom_pipeline=custom_pipeline,
++            torch_dtype=torch.float16,
++            local_files_only=True,
+         )
+ 
+         pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config, timestep_spacing="trailing")
+diff --git a/hy3dpaint/utils/simplify_mesh_utils.py b/hy3dpaint/utils/simplify_mesh_utils.py
+index 7d3f10a..19e5b80 100644
+--- a/hy3dpaint/utils/simplify_mesh_utils.py
++++ b/hy3dpaint/utils/simplify_mesh_utils.py
+@@ -33,5 +33,10 @@ def mesh_simplify_trimesh(inputpath, outputpath, target_count=40000):
+     face_num = courent.faces.shape[0]
+ 
+     if face_num > target_count:
+-        courent = courent.simplify_quadric_decimation(target_count)
++        # Newer trimesh's simplify_quadric_decimation requires percentage instead of count.
++        target_reduction = 1.0 - (target_count / face_num)
++        try:
++            courent = courent.simplify_quadric_decimation(target_count)
++        except ValueError:
++            courent = courent.simplify_quadric_decimation(percent=target_reduction)
+     courent.export(outputpath)
+diff --git a/hy3dshape/hy3dshape/pipelines.py b/hy3dshape/hy3dshape/pipelines.py
+index 71de472..1489a63 100644
+--- a/hy3dshape/hy3dshape/pipelines.py
++++ b/hy3dshape/hy3dshape/pipelines.py
+@@ -201,13 +201,17 @@ class Hunyuan3DDiTPipeline:
+         use_safetensors=False,
+         variant='fp16',
+         subfolder='hunyuan3d-dit-v2-1',
++        local_files_only=True,
+         **kwargs,
+     ):
++        if local_files_only is not True:
++            raise ValueError("from_pretrained requires local_files_only=True")
+         kwargs['from_pretrained_kwargs'] = dict(
+             model_path=model_path,
+             subfolder=subfolder,
+             use_safetensors=use_safetensors,
+             variant=variant,
++            local_files_only=local_files_only,
+             dtype=dtype,
+             device=device,
+         )
+@@ -215,7 +219,8 @@ class Hunyuan3DDiTPipeline:
+             model_path,
+             subfolder=subfolder,
+             use_safetensors=use_safetensors,
+-            variant=variant
++            variant=variant,
++            local_files_only=local_files_only,
+         )
+         return cls.from_single_file(
+             ckpt_path,
+diff --git a/hy3dshape/hy3dshape/utils/utils.py b/hy3dshape/hy3dshape/utils/utils.py
+index c88f6bb..0bd6a24 100644
+--- a/hy3dshape/hy3dshape/utils/utils.py
++++ b/hy3dshape/hy3dshape/utils/utils.py
+@@ -14,6 +14,7 @@
+ 
+ import logging
+ import os
++import stat
+ from functools import wraps
+ 
+ import torch
+@@ -91,38 +92,78 @@ def smart_load_model(
+     subfolder,
+     use_safetensors,
+     variant,
++    local_files_only=True,
+ ):
+-    original_model_path = model_path
+-    # try local path
+-    base_dir = os.environ.get('HY3DGEN_MODELS', '~/.cache/hy3dgen')
+-    model_fld = os.path.expanduser(os.path.join(base_dir, model_path))
+-    model_path = os.path.expanduser(os.path.join(base_dir, model_path, subfolder))
+-    logger.info(f'Try to load model from local path: {model_path}')
+-    if not os.path.exists(model_path):
+-        logger.info('Model path not exists, try to download from huggingface')
+-        try:
+-            from huggingface_hub import snapshot_download
+-            # 只下载指定子目录
+-            path = snapshot_download(
+-                repo_id=original_model_path,
+-                allow_patterns=[f"{subfolder}/*"],  # 关键修改：模式匹配子文件夹
+-                local_dir=model_fld 
+-            )
+-            model_path = os.path.join(path, subfolder)  # 保持路径拼接逻辑不变
+-        except ImportError:
+-            logger.warning(
+-                "You need to install HuggingFace Hub to load models from the hub."
+-            )
+-            raise RuntimeError(f"Model path {model_path} not found")
+-        except Exception as e:
+-            raise e
+-
+-    if not os.path.exists(model_path):
+-        raise FileNotFoundError(f"Model path {original_model_path} not found")
++    if local_files_only is not True:
++        raise ValueError("smart_load_model requires local_files_only=True")
++    if not isinstance(model_path, (str, os.PathLike)):
++        raise ValueError("model_path must be an absolute real local directory")
++    model_path = os.fspath(model_path)
++    if not isinstance(model_path, str) or not os.path.isabs(model_path):
++        raise ValueError("model_path must be an absolute real local directory")
++
++    model_root = os.path.abspath(model_path)
++    if os.path.realpath(model_root) != model_root:
++        raise ValueError("model_path must not contain symlinks")
++    if not os.path.exists(model_root):
++        raise FileNotFoundError(f"Local model path not found: {model_root}")
++    if not stat.S_ISDIR(os.lstat(model_root).st_mode):
++        raise ValueError("model_path must be a real local directory")
++
++    if not isinstance(subfolder, (str, os.PathLike)):
++        raise ValueError("subfolder must be a contained relative model directory")
++    subfolder = os.fspath(subfolder)
++    if not isinstance(subfolder, str) or not subfolder or os.path.isabs(subfolder):
++        raise ValueError("subfolder must be a contained relative model directory")
++    normalized_subfolder = os.path.normpath(subfolder)
++    subfolder_parts = normalized_subfolder.split(os.sep)
++    if normalized_subfolder != subfolder or any(
++        part in ("", ".", "..") for part in subfolder_parts
++    ):
++        raise ValueError("subfolder must not escape the local model root")
++
++    model_root_parts = os.path.normpath(model_root).split(os.sep)
++    if model_root_parts[-len(subfolder_parts):] == subfolder_parts:
++        local_model_path = model_root
++    else:
++        local_model_path = os.path.abspath(
++            os.path.join(model_root, normalized_subfolder)
++        )
++        if os.path.commonpath((model_root, local_model_path)) != model_root:
++            raise ValueError("subfolder escaped the local model root")
++
++    if os.path.realpath(local_model_path) != local_model_path:
++        raise ValueError("local model subfolder must not contain symlinks")
++    if not os.path.exists(local_model_path):
++        raise FileNotFoundError(f"Local model subfolder not found: {local_model_path}")
++    if not stat.S_ISDIR(os.lstat(local_model_path).st_mode):
++        raise ValueError("local model subfolder must be a real directory")
+ 
+     extension = 'ckpt' if not use_safetensors else 'safetensors'
++    if variant is not None and (
++        not isinstance(variant, str)
++        or not variant
++        or os.sep in variant
++        or (os.altsep is not None and os.altsep in variant)
++    ):
++        raise ValueError("variant must be a local checkpoint filename component")
+     variant = '' if variant is None else f'.{variant}'
+     ckpt_name = f'model{variant}.{extension}'
+-    config_path = os.path.join(model_path, 'config.yaml')
+-    ckpt_path = os.path.join(model_path, ckpt_name)
++    config_path = os.path.abspath(os.path.join(local_model_path, 'config.yaml'))
++    ckpt_path = os.path.abspath(os.path.join(local_model_path, ckpt_name))
++    for path, description in (
++        (config_path, "shape model config"),
++        (ckpt_path, "shape model checkpoint"),
++    ):
++        if os.path.commonpath((local_model_path, path)) != local_model_path:
++            raise ValueError(f"{description} escaped the local model directory")
++        if os.path.realpath(path) != path:
++            raise ValueError(f"{description} must not be a symlink")
++        if not os.path.exists(path):
++            raise FileNotFoundError(f"Missing local {description}: {path}")
++        file_stat = os.lstat(path)
++        if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size <= 0:
++            raise ValueError(f"{description} must be a non-empty regular file")
++
++    logger.info(f'Load model from local path: {local_model_path}')
+     return config_path, ckpt_path
