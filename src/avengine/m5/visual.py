@@ -12,7 +12,11 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from avengine.contracts.json_io import canonical_json_bytes, canonical_json_sha256
-from avengine.contracts.transforms import normalized_quaternion_xyzw, transform_error
+from avengine.contracts.transforms import (
+    normalized_quaternion_xyzw,
+    rotate_vector_xyzw,
+    transform_error,
+)
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import (
     _make_configuration,
@@ -237,6 +241,8 @@ def _topdown_panels(
     actor_positions: np.ndarray,
     source_positions: np.ndarray,
     listener_positions: np.ndarray,
+    listener_orientations_wxyz: np.ndarray | None = None,
+    actor_labels: Sequence[str] = ("Dog 0", "Dog 1"),
     panel_size: int = 240,
 ) -> np.ndarray:
     listeners = np.asarray(listener_positions, dtype=np.float64)
@@ -244,6 +250,32 @@ def _topdown_panels(
         np.isfinite(listeners)
     ):
         raise HabitatCaptureError("listener_positions must be finite [frame,3]")
+    labels = tuple(actor_labels)
+    if len(labels) != actor_positions.shape[1] or any(
+        not isinstance(label, str) or not label.strip() for label in labels
+    ):
+        raise HabitatCaptureError(
+            "actor_labels must contain one nonempty label per actor"
+        )
+    listener_forwards: np.ndarray | None = None
+    if listener_orientations_wxyz is not None:
+        orientations = np.asarray(listener_orientations_wxyz, dtype=np.float64)
+        if orientations.shape != (actor_positions.shape[0], 4) or not np.all(
+            np.isfinite(orientations)
+        ):
+            raise HabitatCaptureError(
+                "listener_orientations_wxyz must be finite [frame,4]"
+            )
+        listener_forwards = np.stack(
+            [
+                rotate_vector_xyzw(
+                    (orientation[1], orientation[2], orientation[3], orientation[0]),
+                    (0.0, 0.0, -1.0),
+                )
+                for orientation in orientations
+            ],
+            axis=0,
+        )
     focus_low, focus_high = _panel_bounds(
         navmesh_bounds, actor_positions, listeners
     )
@@ -306,7 +338,23 @@ def _topdown_panels(
         draw.text(
             (listener_xy[0] + 7, listener_xy[1] - 8), "Listener", fill=(255, 245, 180)
         )
-        for actor_index, color in enumerate(colors):
+        if listener_forwards is not None:
+            forward = listener_forwards[frame_index]
+            forward_xy = project(
+                listeners[frame_index] + 0.35 * forward
+            )
+            draw.line(
+                (listener_xy[0], listener_xy[1], forward_xy[0], forward_xy[1]),
+                fill=(20, 20, 20),
+                width=3,
+            )
+            draw.text(
+                (forward_xy[0] + 2, forward_xy[1] - 8),
+                "F",
+                fill=(255, 255, 255),
+            )
+        for actor_index in range(actor_positions.shape[1]):
+            color = colors[actor_index % len(colors)]
             trail = [
                 project(value)
                 for value in source_positions[: frame_index + 1, actor_index]
@@ -336,7 +384,9 @@ def _topdown_panels(
                 outline=color,
             )
             draw.text(
-                (actor_xy[0] + 8, actor_xy[1] - 8), f"Dog {actor_index}", fill=color
+                (actor_xy[0] + 8, actor_xy[1] - 8),
+                labels[actor_index],
+                fill=color,
             )
         draw.rectangle((4, 4, 136, 22), fill=(0, 0, 0))
         draw.text((8, 7), f"TOPDOWN  {frame_index:02d}/74", fill=(255, 255, 255))
@@ -661,6 +711,7 @@ def capture_two_actor_fixed_states(
         actor_positions=actor_matrix_array[:, :, :3, 3],
         source_positions=source_position_array,
         listener_positions=listener_position_array,
+        listener_orientations_wxyz=listener_orientation_array,
     )
     metadata = {
         "schema": "avengine_m5_two_actor_visual_capture_v1",

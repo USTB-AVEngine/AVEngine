@@ -47,3 +47,28 @@ def test_topdown_panel_tracks_a_moving_listener() -> None:
     )
     assert panels.shape == (75, 240, 240, 3)
     assert not np.array_equal(panels[0], panels[-1])
+
+
+def test_topdown_panel_accepts_source_labels_and_listener_orientation() -> None:
+    frame_count = 75
+    sources = np.zeros((frame_count, 1, 3), dtype=np.float64)
+    listeners = np.repeat(
+        np.asarray([[-1.0, 1.55, 0.0]], dtype=np.float64),
+        frame_count,
+        axis=0,
+    )
+    orientations = np.zeros((frame_count, 4), dtype=np.float64)
+    orientations[:, 0] = 1.0
+
+    panels = _topdown_panels(
+        navmesh=None,
+        navmesh_bounds=None,
+        actor_positions=sources,
+        source_positions=sources,
+        listener_positions=listeners,
+        listener_orientations_wxyz=orientations,
+        actor_labels=("Source 0",),
+    )
+
+    assert panels.shape == (75, 240, 240, 3)
+    assert panels.dtype == np.uint8
