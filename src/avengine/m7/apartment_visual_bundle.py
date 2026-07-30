@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.contracts.json_io import canonical_json_sha256
 from avengine.m5_1.mixed_capture import trajectory_world_matrices
 from avengine.m6.audio_program import (
     AudioProgramError,
@@ -21,6 +22,11 @@ from avengine.runtime_profiles import (
     resolve_source_asset_alias,
     source_timeline_profiles,
 )
+from avengine.m7.sensor_rig import (
+    M7SensorRigError,
+    resolve_m7_sensor_rig_trajectory,
+)
+from avengine.sensor_rig_trajectory import validate_sensor_rig_trajectory
 
 
 FRAME_COUNT = 75
@@ -275,13 +281,27 @@ def build_timeline(
     episode: Mapping[str, Any],
     bindings: Mapping[str, Mapping[str, Any]],
     listener_position_m: Sequence[float],
+    listener_yaw_deg: float = 0.0,
+    sensor_rig_trajectory: Mapping[str, Any] | None = None,
     source_profiles: Mapping[str, Mapping[str, Any]] = ASSET_VISUAL_PROFILES,
     materialized_audio_program: Mapping[str, Any] | None = None,
     endpoint_to_source_slot: Mapping[str, str] | None = None,
     semantic_sound_class_by_event_id: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
-    """Build one exact 75-frame two-actor Timeline and explicit headings."""
+    """Build one exact Timeline with frame-bound rig poses and actor headings."""
 
+    try:
+        rig_trajectory = resolve_m7_sensor_rig_trajectory(
+            sensor_rig_trajectory=sensor_rig_trajectory,
+            listener_position_m=listener_position_m,
+            listener_yaw_deg=listener_yaw_deg,
+        )
+    except M7SensorRigError as error:
+        raise ApartmentVisualBundleError(str(error)) from error
+    rig_frames = rig_trajectory["frames"]
+    effective_listener_position = rig_frames[0]["world_from_rig"][
+        "translation_m"
+    ]
     program_projection = _optional_program_projection(
         materialized_audio_program, endpoint_to_source_slot
     )
@@ -330,7 +350,7 @@ def build_timeline(
             root_paths[slot],
             local_forward_axis=axis,
             fallback_forward_xz=_fallback_forward(
-                root_paths[slot], listener_position_m
+                root_paths[slot], effective_listener_position
             ),
         )
         matrices[slot] = matrix
@@ -388,7 +408,9 @@ def build_timeline(
                     round((frame_index + 1) * SAMPLE_RATE_HZ / FRAME_RATE_HZ)
                 ),
                 "actor_states": actor_states,
-                "view_pose_hashes": {},
+                "view_pose_hashes": {
+                    "view0": rig_frames[frame_index]["pose_hash"]
+                },
             }
         )
     audio_events = (
@@ -463,6 +485,7 @@ def build_source_manifest(
     endpoint_to_source_slot: Mapping[str, str] | None = None,
     audio_program_variant_id: str | None = None,
     semantic_sound_class_by_event_id: Mapping[str, str] | None = None,
+    sensor_rig_trajectory: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     program_projection = _optional_program_projection(
         materialized_audio_program, endpoint_to_source_slot
@@ -586,17 +609,34 @@ def build_source_manifest(
             for event in materialized_audio_program["events"]
         ]
     )
+    listener = {
+        "listener_id": "listener0",
+        "camera_listener_colocated": True,
+        "camera_listener_cooriented": True,
+        "audio_visibility_policy": "360_degree_no_camera_fov_cutoff",
+    }
+    if sensor_rig_trajectory is not None:
+        trajectory_errors = validate_sensor_rig_trajectory(
+            sensor_rig_trajectory
+        )
+        if trajectory_errors:
+            raise ApartmentVisualBundleError(
+                "sensor_rig_trajectory is invalid: "
+                + "; ".join(trajectory_errors)
+            )
+        listener["sensor_rig_trajectory"] = {
+            "trajectory_id": sensor_rig_trajectory["trajectory_id"],
+            "content_sha256": canonical_json_sha256(
+                sensor_rig_trajectory
+            ),
+            "relative_path": "metadata/sensor_rig_trajectory.json",
+        }
     result = {
         "schema": "avengine_m7_asset_bound_apartment_source_manifest_v1",
         "scenario_id": episode_id,
         "variant_id": manifest_variant_id,
         "purpose": purpose,
-        "listener": {
-            "listener_id": "listener0",
-            "camera_listener_colocated": True,
-            "camera_listener_cooriented": True,
-            "audio_visibility_policy": "360_degree_no_camera_fov_cutoff",
-        },
+        "listener": listener,
         "room_policy": "fixed_scene_instance_no_furniture_mutation",
         "sources": sources,
         "events": events,
@@ -684,4 +724,5 @@ __all__ = [
     "build_source_manifest",
     "build_timeline",
     "program_source_activity_by_frame",
+    "resolve_m7_sensor_rig_trajectory",
 ]

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from avengine.contracts.json_io import sha256_file
+from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m6.audio_program import (
     bind_audio_program_hash,
     materialize_audio_program_variant,
@@ -23,7 +23,9 @@ from avengine.m7.apartment_visual_bundle import (
     build_source_manifest,
     build_timeline,
     program_source_activity_by_frame,
+    resolve_m7_sensor_rig_trajectory,
 )
+from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 _BUILDER_SPEC = importlib.util.spec_from_file_location(
     "build_asset_bound_apartment_ue_bundle",
@@ -146,6 +148,16 @@ def test_generic_timeline_keeps_source_slots_and_asset_shapes_distinct() -> None
     ]
     assert len(timeline["frames"]) == 75
     assert all(len(frame["actor_states"]) == 2 for frame in timeline["frames"])
+    assert all(
+        set(frame["view_pose_hashes"]) == {"view0"}
+        for frame in timeline["frames"]
+    )
+    assert len(
+        {
+            frame["view_pose_hashes"]["view0"]
+            for frame in timeline["frames"]
+        }
+    ) == 1
     assert headings["source1"].shape == (75, 2)
     assert headings["source2"].shape == (75, 2)
     np.testing.assert_allclose(np.linalg.norm(headings["source1"], axis=1), 1.0)
@@ -174,6 +186,74 @@ def test_generic_timeline_keeps_source_slots_and_asset_shapes_distinct() -> None
         for frame in timeline["frames"]
         for state in frame["actor_states"]
     )
+
+
+def test_timeline_binds_complete_moving_sensor_rig_per_frame() -> None:
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="m7_rotate_review_v1",
+        program={
+            "kind": "ROTATE_IN_PLACE",
+            "position_m": [-0.7, 1.47, 0.65],
+            "start_yaw_deg": -45.0,
+            "end_yaw_deg": 45.0,
+            "yaw_interpolation": "SHORTEST_ARC",
+        },
+    )
+
+    timeline, _ = build_timeline(
+        episode=_episode(),
+        bindings=_bindings(),
+        listener_position_m=(99.0, 99.0, 99.0),
+        listener_yaw_deg=12.0,
+        sensor_rig_trajectory=trajectory,
+    )
+
+    assert [
+        frame["view_pose_hashes"]["view0"]
+        for frame in timeline["frames"]
+    ] == [frame["pose_hash"] for frame in trajectory["frames"]]
+    assert (
+        timeline["frames"][0]["view_pose_hashes"]["view0"]
+        != timeline["frames"][-1]["view_pose_hashes"]["view0"]
+    )
+
+
+def test_fixed_listener_fallback_materializes_a_complete_hold() -> None:
+    trajectory = resolve_m7_sensor_rig_trajectory(
+        sensor_rig_trajectory=None,
+        listener_position_m=(-0.7, 1.47, 0.65),
+        listener_yaw_deg=55.0,
+    )
+
+    assert trajectory["schema"] == "avengine_sensor_rig_trajectory_v1"
+    assert trajectory["program"] == {
+        "kind": "HOLD",
+        "position_m": [-0.7, 1.47, 0.65],
+        "yaw_deg": 55.0,
+    }
+    assert len(trajectory["frames"]) == 75
+    assert len({frame["pose_hash"] for frame in trajectory["frames"]}) == 1
+
+
+def test_m7_rejects_a_tampered_sensor_rig_sidecar() -> None:
+    trajectory = resolve_m7_sensor_rig_trajectory(
+        sensor_rig_trajectory=None,
+        listener_position_m=(-0.7, 1.47, 0.65),
+        listener_yaw_deg=55.0,
+    )
+    trajectory["frames"][12]["pose_hash"] = "0" * 64
+
+    with pytest.raises(
+        ApartmentVisualBundleError,
+        match="pose_hash does not bind world_from_rig",
+    ):
+        build_timeline(
+            episode=_episode(),
+            bindings=_bindings(),
+            listener_position_m=(-0.7, 1.47, 0.65),
+            listener_yaw_deg=55.0,
+            sensor_rig_trajectory=trajectory,
+        )
 
 
 def test_source_manifest_and_flags_close_over_generic_endpoint_ids() -> None:
@@ -210,6 +290,26 @@ def test_source_manifest_and_flags_close_over_generic_endpoint_ids() -> None:
         "active",
         "active",
     ]
+
+
+def test_source_manifest_hash_binds_the_retained_sensor_rig_sidecar() -> None:
+    trajectory = resolve_m7_sensor_rig_trajectory(
+        sensor_rig_trajectory=None,
+        listener_position_m=(-0.7, 1.47, 0.65),
+        listener_yaw_deg=55.0,
+    )
+    manifest = build_source_manifest(
+        episode_id=_episode()["episode_id"],
+        episode=_episode(),
+        bindings=_bindings(),
+        sensor_rig_trajectory=trajectory,
+    )
+
+    assert manifest["listener"]["sensor_rig_trajectory"] == {
+        "trajectory_id": trajectory["trajectory_id"],
+        "content_sha256": canonical_json_sha256(trajectory),
+        "relative_path": "metadata/sensor_rig_trajectory.json",
+    }
 
 
 def test_materialized_program_drives_all_visual_audio_labels() -> None:
@@ -501,13 +601,26 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
     diagnostic = videos / "diagnostic_topdown_binaural.mp4"
     diagnostic.write_bytes(b"completed diagnostic media")
     os.link(diagnostic, videos / "clean_binaural.mp4")
+    trajectory = resolve_m7_sensor_rig_trajectory(
+        sensor_rig_trajectory=None,
+        listener_position_m=(0.0, 1.5, 0.0),
+        listener_yaw_deg=0.0,
+    )
+    sensor_rig_binding = _BUILDER.m7_sensor_rig_binding(trajectory)
     for name in (
         "timeline.json",
         "source_manifest.json",
         "flags.json",
-        "batch_binding.json",
     ):
         (metadata / name).write_text("{}", encoding="utf-8")
+    sensor_rig_path = metadata / "sensor_rig_trajectory.json"
+    sensor_rig_path.write_text(
+        json.dumps(trajectory), encoding="utf-8"
+    )
+    (metadata / "batch_binding.json").write_text(
+        json.dumps({"sensor_rig_trajectory": sensor_rig_binding}),
+        encoding="utf-8",
+    )
     row = {
         "episode_ordinal": 0,
         "episode_id": episode_id,
@@ -518,6 +631,9 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
             {
                 "status": "pass",
                 "diagnostic_sha256": sha256_file(diagnostic),
+                "sensor_rig_trajectory_file_sha256": sha256_file(
+                    sensor_rig_path
+                ),
                 "row": row,
             }
         ),
@@ -531,6 +647,7 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
         sample={"sample_id": "sample_0001"},
         batch_root=tmp_path,
         runtime_bindings_by_source_slot={},
+        sensor_rig_binding=sensor_rig_binding,
     )
     assert reopened == {
         "episode_ordinal": 17,
@@ -547,6 +664,7 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
             sample={"sample_id": "sample_0001"},
             batch_root=tmp_path,
             runtime_bindings_by_source_slot={},
+            sensor_rig_binding=sensor_rig_binding,
         )
 
 

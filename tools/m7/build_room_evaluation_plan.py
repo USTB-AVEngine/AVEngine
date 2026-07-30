@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sound-class", action="append", dest="sound_classes")
     parser.add_argument("--listener-position-m", type=float, nargs=3)
     parser.add_argument("--listener-orientation-wxyz", type=float, nargs=4)
+    parser.add_argument("--sensor-rig-trajectory", type=Path)
     parser.add_argument("--minimum-listener-source-distance-m", type=float, default=0.0)
     parser.add_argument("--balance-azimuth-regions", action="store_true")
     parser.add_argument("--minimum-azimuth-region-fraction", type=float, default=0.0)
@@ -36,17 +37,52 @@ def main() -> int:
     args = parse_args()
     trajectory_bank = load_json(args.trajectory_bank.resolve())
     template = load_json(args.template_rir_plan.resolve())
+    sensor_rig_path = getattr(args, "sensor_rig_trajectory", None)
+    sensor_rig_trajectory = (
+        load_json(sensor_rig_path.resolve())
+        if sensor_rig_path is not None
+        else None
+    )
+    first_rig_pose = (
+        sensor_rig_trajectory["frames"][0]["world_from_rig"]
+        if sensor_rig_trajectory is not None
+        and isinstance(sensor_rig_trajectory.get("frames"), list)
+        and sensor_rig_trajectory["frames"]
+        else None
+    )
+    first_rotation_xyzw = (
+        first_rig_pose.get("rotation_xyzw")
+        if isinstance(first_rig_pose, dict)
+        else None
+    )
     sound_classes = args.sound_classes or None
     kwargs = {
         "listener_position_m": args.listener_position_m
+        or (
+            first_rig_pose.get("translation_m")
+            if isinstance(first_rig_pose, dict)
+            else None
+        )
         or template.get("listener_position_m"),
         "listener_orientation_wxyz": args.listener_orientation_wxyz
+        or (
+            [
+                first_rotation_xyzw[3],
+                first_rotation_xyzw[0],
+                first_rotation_xyzw[1],
+                first_rotation_xyzw[2],
+            ]
+            if isinstance(first_rotation_xyzw, list)
+            and len(first_rotation_xyzw) == 4
+            else None
+        )
         or template.get("listener_orientation_wxyz"),
         "stride_frames": template.get("stride_frames"),
         "episode_count": args.episode_count,
         "minimum_listener_source_distance_m": args.minimum_listener_source_distance_m,
         "balance_azimuth_regions": args.balance_azimuth_regions,
         "minimum_azimuth_region_fraction": args.minimum_azimuth_region_fraction,
+        "sensor_rig_trajectory": sensor_rig_trajectory,
     }
     if sound_classes is not None:
         kwargs["sound_classes"] = sound_classes
@@ -73,6 +109,11 @@ def main() -> int:
         write_json(staging / "rir_job_plan.json", plan.rir_job_plan)
         write_json(staging / "sound_assignments.json", plan.sound_assignments)
         write_json(staging / "delivery.json", plan.summary)
+        if sensor_rig_trajectory is not None:
+            write_json(
+                staging / "sensor_rig_trajectory.json",
+                sensor_rig_trajectory,
+            )
         output = atomic_publish_directory(policy, staging, output)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

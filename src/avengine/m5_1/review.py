@@ -183,6 +183,8 @@ def compose_annotated_frames(
     review_stage_label: str = "M5.1",
     listener_position_m: Sequence[float],
     listener_yaw_deg: float,
+    listener_positions_m_by_frame: Sequence[Sequence[float]] | None = None,
+    listener_yaws_deg_by_frame: Sequence[float] | None = None,
     aggregate_true_flags: Sequence[str] = (),
     audio_diagnostic_by_frame: Sequence[str] | None = None,
     center_gate_pass: bool,
@@ -206,6 +208,48 @@ def compose_annotated_frames(
         raise M51ReviewError("listener_position_m must be finite [3]")
     if not math.isfinite(float(listener_yaw_deg)):
         raise M51ReviewError("listener_yaw_deg must be finite")
+    dynamic_listener = (
+        listener_positions_m_by_frame is not None
+        or listener_yaws_deg_by_frame is not None
+    )
+    if dynamic_listener and (
+        listener_positions_m_by_frame is None
+        or listener_yaws_deg_by_frame is None
+    ):
+        raise M51ReviewError(
+            "per-frame listener positions and yaws must be provided together"
+        )
+    if dynamic_listener:
+        try:
+            listener_positions = np.asarray(
+                listener_positions_m_by_frame, dtype=np.float64
+            )
+            listener_yaws = np.asarray(
+                listener_yaws_deg_by_frame, dtype=np.float64
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise M51ReviewError(
+                "per-frame listener poses must contain finite numbers"
+            ) from exc
+        if listener_positions.shape != (main.shape[0], 3) or not np.all(
+            np.isfinite(listener_positions)
+        ):
+            raise M51ReviewError(
+                "listener_positions_m_by_frame must be finite [frame,3]"
+            )
+        if listener_yaws.shape != (main.shape[0],) or not np.all(
+            np.isfinite(listener_yaws)
+        ):
+            raise M51ReviewError(
+                "listener_yaws_deg_by_frame must be finite [frame]"
+            )
+    else:
+        listener_positions = np.repeat(
+            listener[None, :], main.shape[0], axis=0
+        )
+        listener_yaws = np.full(
+            main.shape[0], float(listener_yaw_deg), dtype=np.float64
+        )
     if len(tracks) < 1 or len({track.source_id for track in tracks}) != len(tracks):
         raise M51ReviewError("tracks must contain unique source IDs")
     checked = tuple(_validated_track(track, main.shape[0]) for track in tracks)
@@ -288,7 +332,9 @@ def compose_annotated_frames(
             event = track.current_event_by_frame[frame_index] or "none"
             active = "ACTIVE" if track.active_by_frame[frame_index] else "silent"
             distance, azimuth = _source_geometry(
-                track.positions_m[frame_index], listener, listener_yaw_deg
+                track.positions_m[frame_index],
+                listener_positions[frame_index],
+                float(listener_yaws[frame_index]),
             )
             source_flags = ",".join(track.true_flags) if track.true_flags else "none"
             line = (

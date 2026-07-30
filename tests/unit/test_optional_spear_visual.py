@@ -6,6 +6,7 @@ import math
 
 import pytest
 
+from avengine.contracts.json_io import canonical_json_sha256
 from avengine.optional_backends.spear_visual import (
     BACKEND_ROLE,
     SpearVisualPlanError,
@@ -14,6 +15,10 @@ from avengine.optional_backends.spear_visual import (
     build_spear_visual_plan_from_files,
     camera_ue_yaw_degrees,
     habitat_point_to_apartment_ue_cm,
+)
+from avengine.sensor_rig_trajectory import (
+    compute_sensor_rig_pose_hash,
+    materialize_sensor_rig_trajectory,
 )
 
 
@@ -192,7 +197,11 @@ def _inputs() -> tuple[dict, dict, dict, dict, dict, dict]:
     return timeline, source_manifest, flags, room_capsule, qualification, bindings
 
 
-def _build(values: tuple[dict, dict, dict, dict, dict, dict]) -> dict:
+def _build(
+    values: tuple[dict, dict, dict, dict, dict, dict],
+    *,
+    sensor_rig_trajectory: dict | None = None,
+) -> dict:
     timeline, source_manifest, flags, room_capsule, qualification, bindings = values
     return build_spear_visual_plan(
         timeline=timeline,
@@ -201,6 +210,7 @@ def _build(values: tuple[dict, dict, dict, dict, dict, dict]) -> dict:
         room_capsule=room_capsule,
         qualification=qualification,
         actor_bindings=bindings,
+        sensor_rig_trajectory=sensor_rig_trajectory,
     )
 
 
@@ -232,6 +242,7 @@ def test_plan_preserves_timeline_state_and_room_authority() -> None:
         "room_identity_and_layout": "RoomCapsule",
         "source_logic": "source_manifest_and_flags",
         "source_center_placement": "room_qualification",
+        "camera_listener_state": "room_qualification_static_compatibility",
         "backend_may_replan": False,
     }
     assert plan["room"]["room_capsule_id"] == "apartment_fixed_v1"
@@ -239,7 +250,15 @@ def test_plan_preserves_timeline_state_and_room_authority() -> None:
         [-70.0, 65.0, 147.1]
     )
     assert plan["camera"]["ue_yaw_deg"] == -145.0
+    assert plan["camera"]["default_pose_scope"] == "frame_zero_compatibility_only"
     assert len(plan["frames"]) == 75
+    camera_states = [frame["camera_state"] for frame in plan["frames"]]
+    assert len({state["pose_hash"] for state in camera_states}) == 1
+    assert all(
+        state["pose_hash"]
+        == compute_sensor_rig_pose_hash(state["world_from_rig"])
+        for state in camera_states
+    )
     first = plan["frames"][0]["actor_states"]
     assert [state["actor_id"] for state in first] == ["dog0", "human0"]
     assert first[0]["action_id"] == "idle"
@@ -250,6 +269,110 @@ def test_plan_preserves_timeline_state_and_room_authority() -> None:
     assert first[0]["actor_yaw_ue_deg"] == pytest.approx(-90.0)
     assert first[1]["ue_animation"] == "Walking"
     assert first[1]["actor_yaw_ue_deg"] == pytest.approx(-180.0)
+
+
+def test_explicit_sensor_rig_trajectory_drives_every_camera_frame() -> None:
+    values = _inputs()
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="spear_dynamic_camera_test_v1",
+        program={
+            "kind": "WAYPOINT_ROUTE",
+            "waypoints": [
+                {
+                    "frame_index": 0,
+                    "position_m": [-0.7, 1.471, 0.65],
+                    "yaw_deg": 55.0,
+                },
+                {
+                    "frame_index": 74,
+                    "position_m": [0.8, 1.471, -1.25],
+                    "yaw_deg": -35.0,
+                },
+            ],
+            "interpolation": "LINEAR_POSITION_SHORTEST_YAW",
+        },
+    )
+    for timeline_frame, trajectory_frame in zip(
+        values[0]["frames"], trajectory["frames"]
+    ):
+        timeline_frame["view_pose_hashes"] = {
+            "view0": trajectory_frame["pose_hash"]
+        }
+
+    plan = _build(values, sensor_rig_trajectory=trajectory)
+
+    assert plan["authority"]["camera_listener_state"] == "SensorRigTrajectory_v1"
+    assert plan["camera"]["trajectory_id"] == "spear_dynamic_camera_test_v1"
+    assert plan["camera"]["timeline_pose_hash_crosscheck"] is True
+    states = [frame["camera_state"] for frame in plan["frames"]]
+    assert states[0]["habitat_position_m"] == [-0.7, 1.471, 0.65]
+    assert states[-1]["habitat_position_m"] == [0.8, 1.471, -1.25]
+    assert states[0]["ue_position_cm"] == pytest.approx([-70.0, 65.0, 147.1])
+    assert states[-1]["ue_position_cm"] == pytest.approx([80.0, -125.0, 147.1])
+    assert states[0]["ue_yaw_deg"] == pytest.approx(-145.0)
+    assert states[-1]["ue_yaw_deg"] == pytest.approx(-55.0)
+    assert len({state["pose_hash"] for state in states}) == 75
+    assert all(
+        state["pose_hash"]
+        == compute_sensor_rig_pose_hash(state["world_from_rig"])
+        for state in states
+    )
+
+
+def test_explicit_sensor_rig_trajectory_requires_matching_timeline_hash() -> None:
+    values = _inputs()
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="spear_hash_mismatch_test_v1",
+        program={
+            "kind": "ROTATE_IN_PLACE",
+            "position_m": [-0.7, 1.471, 0.65],
+            "start_yaw_deg": 55.0,
+            "end_yaw_deg": -35.0,
+            "yaw_interpolation": "SHORTEST_ARC",
+        },
+    )
+    for timeline_frame, trajectory_frame in zip(
+        values[0]["frames"], trajectory["frames"]
+    ):
+        timeline_frame["view_pose_hashes"] = {
+            "view0": trajectory_frame["pose_hash"]
+        }
+    values[0]["frames"][37]["view_pose_hashes"]["view0"] = "f" * 64
+
+    with pytest.raises(SpearVisualPlanError, match="frame 37.*differs"):
+        _build(values, sensor_rig_trajectory=trajectory)
+
+
+def test_declared_sensor_rig_sidecar_reference_is_required_and_hash_bound() -> None:
+    values = _inputs()
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="spear_manifest_bound_test_v1",
+        program={
+            "kind": "HOLD",
+            "position_m": [-0.7, 1.471, 0.65],
+            "yaw_deg": 55.0,
+        },
+    )
+    for timeline_frame, trajectory_frame in zip(
+        values[0]["frames"], trajectory["frames"]
+    ):
+        timeline_frame["view_pose_hashes"] = {
+            "view0": trajectory_frame["pose_hash"]
+        }
+    values[1]["listener"]["sensor_rig_trajectory"] = {
+        "trajectory_id": trajectory["trajectory_id"],
+        "content_sha256": canonical_json_sha256(trajectory),
+        "relative_path": "metadata/sensor_rig_trajectory.json",
+    }
+
+    plan = _build(values, sensor_rig_trajectory=trajectory)
+    assert plan["camera"]["trajectory_id"] == trajectory["trajectory_id"]
+
+    with pytest.raises(SpearVisualPlanError, match="no sidecar"):
+        _build(values)
+    values[1]["listener"]["sensor_rig_trajectory"]["content_sha256"] = "0" * 64
+    with pytest.raises(SpearVisualPlanError, match="reference differs"):
+        _build(values, sensor_rig_trajectory=trajectory)
 
 
 def test_plan_preserves_authoritative_not_evaluated_flag_state() -> None:
@@ -279,6 +402,51 @@ def test_file_loader_emits_no_host_paths(tmp_path) -> None:
         **paths,
         actor_bindings=values[5],
     )
+    assert str(tmp_path) not in json.dumps(plan, sort_keys=True)
+
+
+def test_file_loader_accepts_sensor_rig_trajectory_sidecar(tmp_path) -> None:
+    values = _inputs()
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="spear_file_loader_dynamic_v1",
+        program={
+            "kind": "POLYLINE_MOVE",
+            "path_points_m": [[-0.7, 1.471, 0.65], [0.0, 1.471, -0.5]],
+            "position_interpolation": "ARC_LENGTH",
+            "heading_policy": "FIXED_YAW",
+            "initial_yaw_deg": 55.0,
+        },
+    )
+    for timeline_frame, trajectory_frame in zip(
+        values[0]["frames"], trajectory["frames"]
+    ):
+        timeline_frame["view_pose_hashes"] = {
+            "view0": trajectory_frame["pose_hash"]
+        }
+    names = (
+        "timeline",
+        "source_manifest",
+        "flags",
+        "room_capsule",
+        "qualification",
+    )
+    paths = {}
+    for name, value in zip(names, values[:5]):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(value), encoding="utf-8")
+        paths[f"{name}_path"] = path
+    trajectory_path = tmp_path / "sensor_rig_trajectory.json"
+    trajectory_path.write_text(json.dumps(trajectory), encoding="utf-8")
+
+    plan = build_spear_visual_plan_from_files(
+        **paths,
+        actor_bindings=values[5],
+        sensor_rig_trajectory_path=trajectory_path,
+    )
+
+    assert plan["frames"][-1]["camera_state"]["pose_hash"] == trajectory[
+        "frames"
+    ][-1]["pose_hash"]
     assert str(tmp_path) not in json.dumps(plan, sort_keys=True)
 
 

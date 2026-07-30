@@ -14,7 +14,11 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from avengine.contracts.json_io import load_json, sha256_file, write_json
+from avengine.contracts.json_io import (
+    load_json,
+    sha256_file,
+    write_json,
+)
 from avengine.m6x.geometry import RuntimeObstacleMap
 from avengine.m6x.topdown import render_runtime_topdown_frames
 from avengine.m7.apartment_visual_bundle import (
@@ -26,6 +30,13 @@ from avengine.m7.apartment_visual_bundle import (
     build_source_manifest,
     build_timeline,
     program_source_activity_by_frame,
+    resolve_m7_sensor_rig_trajectory,
+)
+from avengine.m7.sensor_rig import (
+    m7_sensor_rig_binding,
+    m7_sensor_rig_pose_series,
+    validate_m7_rir_listener_alignment,
+    validate_m7_visual_listener_alignment,
 )
 from avengine.optional_backends.spear_apartment import (
     build_rawvideo_encode_command,
@@ -113,6 +124,26 @@ def _assert_sample_asset_alignment(
         raise RuntimeError(
             f"visual and audio asset bindings differ for {episode_id}"
         )
+
+
+def _assert_rir_listener_alignment(
+    *,
+    plan_root: Path,
+    sensor_rig_trajectory: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fail closed if the RIR plan did not use this frame's listener pose."""
+
+    plan_path = plan_root / "rir_job_plan.json"
+    plan = load_json(plan_path)
+    alignment = validate_m7_rir_listener_alignment(
+        rir_job_plan=plan,
+        sensor_rig_trajectory=sensor_rig_trajectory,
+    )
+    return {
+        **m7_sensor_rig_binding(sensor_rig_trajectory),
+        **alignment,
+        "rir_job_plan_sha256": sha256_file(plan_path),
+    }
 
 
 def _sample_audio_program_projection(
@@ -347,6 +378,8 @@ def _build_episode(
     encoder_gpu: int | None,
     variants_per_episode: int,
     runtime_bindings_by_source_slot: Mapping[str, Mapping[str, Any]],
+    sensor_rig_trajectory: Mapping[str, Any],
+    sensor_rig_rir_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Build one independent episode directory for sequential or process use."""
 
@@ -363,10 +396,23 @@ def _build_episode(
         audio_program_variant_id,
         event_sound_classes,
     ) = _sample_audio_program_projection(sample=sample, batch_root=batch_root)
+    rig_binding = m7_sensor_rig_binding(sensor_rig_trajectory)
+    sample_rig_binding = sample.get("sensor_rig_trajectory")
+    if rig_binding["dynamic"] and sample_rig_binding != rig_binding:
+        raise RuntimeError(
+            f"dynamic visual SensorRigTrajectory lacks matching audio binding: {episode_id}"
+        )
+    if sample_rig_binding is not None and sample_rig_binding != rig_binding:
+        raise RuntimeError(
+            f"visual and audio SensorRigTrajectory bindings differ: {episode_id}"
+        )
+    rig_poses = m7_sensor_rig_pose_series(sensor_rig_trajectory)
     timeline, headings = build_timeline(
         episode=episode,
         bindings=episode_bindings,
         listener_position_m=listener["position_m"],
+        listener_yaw_deg=listener["yaw_deg"],
+        sensor_rig_trajectory=sensor_rig_trajectory,
         source_profiles=source_profiles,
         materialized_audio_program=materialized_audio_program,
         endpoint_to_source_slot=endpoint_to_source_slot,
@@ -381,7 +427,19 @@ def _build_episode(
         endpoint_to_source_slot=endpoint_to_source_slot,
         audio_program_variant_id=audio_program_variant_id,
         semantic_sound_class_by_event_id=event_sound_classes,
+        sensor_rig_trajectory=sensor_rig_trajectory,
     )
+    visual_rig_alignment = validate_m7_visual_listener_alignment(
+        timeline=timeline,
+        source_manifest=manifest,
+        sensor_rig_trajectory=sensor_rig_trajectory,
+        listener_positions_m_by_frame=rig_poses.positions_m,
+        listener_yaws_deg_by_frame=rig_poses.yaws_deg,
+    )
+    sensor_rig_modal_alignment = {
+        **visual_rig_alignment,
+        "rir_listener_binding": dict(sensor_rig_rir_binding),
+    }
     episodes_root = staging / "episodes"
     episodes_root.mkdir(exist_ok=True)
     final_episode_root = episodes_root / episode_id
@@ -396,6 +454,10 @@ def _build_episode(
         write_json(metadata / "timeline.json", timeline)
         write_json(metadata / "source_manifest.json", manifest)
         write_json(metadata / "flags.json", build_flags())
+        write_json(
+            metadata / "sensor_rig_trajectory.json",
+            sensor_rig_trajectory,
+        )
         centers = {
             slot: np.asarray(
                 episode["source_center_paths_m"][slot], dtype=np.float64
@@ -418,6 +480,8 @@ def _build_episode(
             centers,
             listener_position_m=listener["position_m"],
             listener_yaw_deg=listener["yaw_deg"],
+            listener_positions_m_by_frame=rig_poses.positions_m,
+            listener_yaws_deg_by_frame=rig_poses.yaws_deg,
             camera_hfov_degrees=listener["camera_hfov_degrees"],
             source_activity_by_frame=activity,
             source_heading_xz_by_frame=headings,
@@ -462,6 +526,9 @@ def _build_episode(
             "runtime_bindings_by_source_slot": dict(
                 runtime_bindings_by_source_slot
             ),
+            "sensor_rig_trajectory": rig_binding,
+            "rir_listener_binding": dict(sensor_rig_rir_binding),
+            "sensor_rig_modal_alignment": sensor_rig_modal_alignment,
         }
         if program_instance is not None:
             batch_binding.update(
@@ -482,6 +549,8 @@ def _build_episode(
             "motion_case": episode["motion_case"],
             "asset_ids_by_source_slot": sample["asset_ids_by_source_slot"],
             "v00_sample_id": sample["sample_id"],
+            "sensor_rig_trajectory": rig_binding,
+            "sensor_rig_modal_alignment": sensor_rig_modal_alignment,
             "build_wall_seconds": time.perf_counter() - episode_started,
         }
         write_json(
@@ -490,6 +559,10 @@ def _build_episode(
                 "schema": "avengine_m7_apartment_ue_input_episode_build_v1",
                 "status": "pass",
                 "diagnostic_sha256": sha256_file(diagnostic),
+                "sensor_rig_trajectory_file_sha256": sha256_file(
+                    metadata / "sensor_rig_trajectory.json"
+                ),
+                "sensor_rig_modal_alignment": sensor_rig_modal_alignment,
                 "row": row,
             },
         )
@@ -508,6 +581,7 @@ def _load_completed_episode(
     sample: Mapping[str, Any],
     batch_root: Path,
     runtime_bindings_by_source_slot: Mapping[str, Mapping[str, Any]],
+    sensor_rig_binding: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     episode_root = staging / "episodes" / episode_id
     record_path = episode_root / "metadata/build_record.json"
@@ -558,6 +632,8 @@ def _load_completed_episode(
         or sha256_file(diagnostic) != record.get("diagnostic_sha256")
         or batch_binding.get("runtime_bindings_by_source_slot", {})
         != dict(runtime_bindings_by_source_slot)
+        or batch_binding.get("sensor_rig_trajectory")
+        != dict(sensor_rig_binding)
         or program_binding_differs
         or any(
             not (episode_root / relative).is_file()
@@ -566,8 +642,13 @@ def _load_completed_episode(
                 "metadata/source_manifest.json",
                 "metadata/flags.json",
                 "metadata/batch_binding.json",
+                "metadata/sensor_rig_trajectory.json",
             )
         )
+        or sha256_file(
+            episode_root / "metadata/sensor_rig_trajectory.json"
+        )
+        != record.get("sensor_rig_trajectory_file_sha256")
     ):
         raise RuntimeError(f"completed episode changed: {episode_id}")
     result = dict(row)
@@ -587,6 +668,7 @@ def build_bundle(
     encoder_gpu: int | None,
     workers: int,
     resume: bool,
+    sensor_rig_trajectory_path: Path | None = None,
     output: Path,
 ) -> Path:
     started = time.perf_counter()
@@ -672,6 +754,45 @@ def build_bundle(
         room_template_bundle / "room/qualification.json"
     )
     listener = qualification_template["listener"]
+    default_sensor_rig_path = plan_root / "sensor_rig_trajectory.json"
+    selected_sensor_rig_path = (
+        sensor_rig_trajectory_path.resolve()
+        if sensor_rig_trajectory_path is not None
+        else (
+            default_sensor_rig_path
+            if default_sensor_rig_path.is_file()
+            else None
+        )
+    )
+    raw_sensor_rig_trajectory = (
+        load_json(selected_sensor_rig_path)
+        if selected_sensor_rig_path is not None
+        else None
+    )
+    sensor_rig_trajectory = resolve_m7_sensor_rig_trajectory(
+        sensor_rig_trajectory=raw_sensor_rig_trajectory,
+        listener_position_m=listener["position_m"],
+        listener_yaw_deg=listener["yaw_deg"],
+    )
+    sensor_rig_binding = m7_sensor_rig_binding(sensor_rig_trajectory)
+    plan_delivery_path = plan_root / "delivery.json"
+    if plan_delivery_path.is_file():
+        plan_delivery = load_json(plan_delivery_path)
+        declared_rig = plan_delivery.get("sensor_rig_trajectory")
+        if declared_rig is not None and (
+            not isinstance(declared_rig, Mapping)
+            or declared_rig.get("trajectory_id")
+            != sensor_rig_binding["trajectory_id"]
+            or declared_rig.get("content_sha256")
+            != sensor_rig_binding["content_sha256"]
+        ):
+            raise RuntimeError(
+                "plan delivery SensorRigTrajectory binding differs from sidecar"
+            )
+    sensor_rig_rir_binding = _assert_rir_listener_alignment(
+        plan_root=plan_root,
+        sensor_rig_trajectory=sensor_rig_trajectory,
+    )
     obstacle_map = _obstacle_map(feasibility_root)
     staging.mkdir(parents=True, exist_ok=resume)
     try:
@@ -706,6 +827,7 @@ def build_bundle(
                     runtime_bindings_by_source_slot=exact_runtime_bindings[
                         episode_id
                     ],
+                    sensor_rig_binding=sensor_rig_binding,
                 )
                 if resume
                 else None
@@ -731,6 +853,8 @@ def build_bundle(
                     "runtime_bindings_by_source_slot": exact_runtime_bindings[
                         episode_id
                     ],
+                    "sensor_rig_trajectory": sensor_rig_trajectory,
+                    "sensor_rig_rir_binding": sensor_rig_rir_binding,
                 }
             )
         if workers == 1:
@@ -764,6 +888,20 @@ def build_bundle(
                 "diagnostic_encoder_gpu": encoder_gpu,
                 "diagnostic_topdown_layout": "topdown_only_640x480",
                 "episode_workers": workers,
+                "sensor_rig_trajectory": {
+                    **sensor_rig_binding,
+                    "source_path": (
+                        str(selected_sensor_rig_path)
+                        if selected_sensor_rig_path is not None
+                        else None
+                    ),
+                    "fallback_policy": (
+                        None
+                        if selected_sensor_rig_path is not None
+                        else "qualification_listener_materialized_as_hold"
+                    ),
+                    "rir_listener_binding": sensor_rig_rir_binding,
+                },
                 "source_asset_runtime_registry": {
                     "path": str(source_asset_registry),
                     "registry_id": source_registry["registry_id"],
@@ -785,6 +923,11 @@ def build_bundle(
                     "feasibility_root": str(feasibility_root),
                     "room_template_bundle": str(room_template_bundle),
                     "source_asset_registry": str(source_asset_registry),
+                    "sensor_rig_trajectory": (
+                        str(selected_sensor_rig_path)
+                        if selected_sensor_rig_path is not None
+                        else None
+                    ),
                 },
                 "build_wall_seconds": time.perf_counter() - started,
             },
@@ -834,6 +977,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--encoder-gpu", type=int)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--sensor-rig-trajectory", type=Path)
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -856,6 +1000,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         encoder_gpu=args.encoder_gpu,
         workers=args.workers,
         resume=args.resume,
+        sensor_rig_trajectory_path=args.sensor_rig_trajectory,
         output=args.output,
     )
     print(f"ASSET_BOUND_APARTMENT_UE_BUNDLE_OK output={output}", flush=True)

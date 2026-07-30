@@ -35,7 +35,11 @@ from avengine.m4.runtime import (
     _native_layout,
     simulation_with_layout,
 )
-from avengine.m6x.room_feasibility import RIR_JOB_PLAN_SCHEMA, SOURCE_SLOTS
+from avengine.m6x.room_feasibility import (
+    RIR_JOB_PLAN_SCHEMA,
+    SOURCE_SLOTS,
+    rir_acoustic_state_sha256,
+)
 
 
 RIR_CACHE_REQUEST_SCHEMA = "avengine_rlr_rir_cache_request_v1"
@@ -104,32 +108,66 @@ def _positive_int(value: Any, *, owner: str) -> int:
     return value
 
 
-def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
-    """Validate the source-agnostic plan consumed by native RLR."""
-
-    if not isinstance(value, Mapping) or value.get("schema") != RIR_JOB_PLAN_SCHEMA:
-        raise RIRCacheError(f"RIR plan schema must be {RIR_JOB_PLAN_SCHEMA}")
-    if value.get("status") != "planned_not_run":
-        raise RIRCacheError("RIR plan must have status planned_not_run")
-    _finite_vector(value.get("listener_position_m"), 3, owner="listener position")
-    orientation = _finite_vector(
-        value.get("listener_orientation_wxyz"),
-        4,
-        owner="listener orientation",
-    )
+def _unit_orientation(value: Any, *, owner: str) -> tuple[float, ...]:
+    orientation = _finite_vector(value, 4, owner=owner)
     if not math.isclose(
         math.sqrt(sum(component * component for component in orientation)),
         1.0,
         rel_tol=0.0,
         abs_tol=1.0e-6,
     ):
-        raise RIRCacheError("listener orientation must be unit normalized")
+        raise RIRCacheError(f"{owner} must be unit normalized")
+    return orientation
+
+
+def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Validate and normalize the source/Listener states consumed by RLR.
+
+    Historical fixed-listener v2 plans stored one pose at the plan root.  They
+    remain readable and are normalized into an explicit repeated pose on every
+    returned job.  New plans already carry those fields per job and may vary
+    the Listener pose by episode/frame.
+    """
+
+    if not isinstance(value, Mapping) or value.get("schema") != RIR_JOB_PLAN_SCHEMA:
+        raise RIRCacheError(f"RIR plan schema must be {RIR_JOB_PLAN_SCHEMA}")
+    if value.get("status") != "planned_not_run":
+        raise RIRCacheError("RIR plan must have status planned_not_run")
+    pose_mode = value.get("listener_pose_mode")
+    legacy_fixed = pose_mode is None
+    if pose_mode not in {None, "fixed", "per_episode_frame"}:
+        raise RIRCacheError("RIR plan listener_pose_mode is invalid")
+    fixed_listener: tuple[float, ...] | None = None
+    fixed_orientation: tuple[float, ...] | None = None
+    if legacy_fixed or pose_mode == "fixed":
+        fixed_listener = _finite_vector(
+            value.get("listener_position_m"), 3, owner="listener position"
+        )
+        fixed_orientation = _unit_orientation(
+            value.get("listener_orientation_wxyz"),
+            owner="listener orientation",
+        )
+    elif (
+        value.get("listener_position_m") is not None
+        or value.get("listener_orientation_wxyz") is not None
+    ):
+        raise RIRCacheError(
+            "per-episode Listener plans cannot declare one fixed top-level pose"
+        )
+    if not legacy_fixed and value.get("cache_key_fields") != [
+        "source_position_m",
+        "listener_position_m",
+        "listener_orientation_wxyz",
+    ]:
+        raise RIRCacheError("RIR plan cache key fields do not bind Listener pose")
+
     raw_jobs = value.get("jobs")
     if not isinstance(raw_jobs, list) or not raw_jobs:
         raise RIRCacheError("RIR plan jobs must be a nonempty list")
     jobs: list[dict[str, Any]] = []
     ids: set[str] = set()
-    positions: set[tuple[float, float, float]] = set()
+    acoustic_states: set[tuple[float, ...]] = set()
+    all_uses: set[tuple[str, str, int]] = set()
     for index, raw in enumerate(raw_jobs):
         if not isinstance(raw, Mapping):
             raise RIRCacheError(f"RIR job {index} must be an object")
@@ -143,11 +181,55 @@ def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...
             3,
             owner=f"RIR job {job_id} source position",
         )
-        if position in positions:
-            raise RIRCacheError("RIR plan contains duplicate acoustic positions")
+        raw_listener = raw.get("listener_position_m")
+        raw_orientation = raw.get("listener_orientation_wxyz")
+        if raw_listener is None and raw_orientation is None and fixed_listener is not None:
+            listener = fixed_listener
+            orientation = fixed_orientation
+        elif raw_listener is None or raw_orientation is None:
+            raise RIRCacheError(
+                f"RIR job {job_id} must bind both Listener position and orientation"
+            )
+        else:
+            listener = _finite_vector(
+                raw_listener,
+                3,
+                owner=f"RIR job {job_id} listener position",
+            )
+            orientation = _unit_orientation(
+                raw_orientation,
+                owner=f"RIR job {job_id} listener orientation",
+            )
+        assert orientation is not None
+        if (legacy_fixed or pose_mode == "fixed") and (
+            listener != fixed_listener or orientation != fixed_orientation
+        ):
+            raise RIRCacheError(
+                f"RIR job {job_id} Listener pose differs from fixed plan pose"
+            )
+        state_key = (*position, *listener, *orientation)
+        if state_key in acoustic_states:
+            raise RIRCacheError(
+                "RIR plan contains duplicate acoustic positions and Listener poses"
+            )
+        state_sha256 = rir_acoustic_state_sha256(
+            position,
+            listener,
+            orientation,
+        )
+        declared_state_sha256 = raw.get("acoustic_state_sha256")
+        if declared_state_sha256 is not None and declared_state_sha256 != state_sha256:
+            raise RIRCacheError(
+                f"RIR job {job_id} acoustic-state SHA-256 differs from its pose"
+            )
+        if not legacy_fixed and declared_state_sha256 is None:
+            raise RIRCacheError(
+                f"RIR job {job_id} lacks an acoustic-state SHA-256"
+            )
         uses = raw.get("uses")
         if not isinstance(uses, list) or not uses:
             raise RIRCacheError(f"RIR job {job_id} has no uses")
+        normalized_uses: list[dict[str, Any]] = []
         for use in uses:
             if (
                 not isinstance(use, Mapping)
@@ -158,15 +240,29 @@ def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...
                 or int(use["frame_index"]) < 0
             ):
                 raise RIRCacheError(f"RIR job {job_id} contains an invalid use")
+            use_key = (
+                str(use["episode_id"]),
+                str(use["source_slot_id"]),
+                int(use["frame_index"]),
+            )
+            if use_key in all_uses:
+                raise RIRCacheError(
+                    "RIR plan maps one episode/source/frame use more than once"
+                )
+            all_uses.add(use_key)
+            normalized_uses.append(dict(use))
         jobs.append(
             {
                 "job_id": job_id,
+                "acoustic_state_sha256": state_sha256,
                 "source_position_m": list(position),
-                "uses": [dict(use) for use in uses],
+                "listener_position_m": list(listener),
+                "listener_orientation_wxyz": list(orientation),
+                "uses": normalized_uses,
             }
         )
         ids.add(job_id)
-        positions.add(position)
+        acoustic_states.add(state_key)
     if value.get("unique_rir_job_count") != len(jobs):
         raise RIRCacheError("RIR plan unique job count differs from jobs")
     return tuple(jobs)
@@ -177,7 +273,7 @@ def _rss_bytes() -> int:
 
 
 class _NativeRIRBatchRenderer:
-    """One scene upload and fixed native source slots reused across all batches."""
+    """One scene upload and fixed native endpoint slots reused across batches."""
 
     def __init__(
         self,
@@ -258,6 +354,14 @@ class _NativeRIRBatchRenderer:
             listener_radius_m,
             hrtf_file_path,
         )
+        self.current_listener_position_m = _finite_vector(
+            listener_position_m, 3, owner="initial listener position"
+        )
+        self.current_listener_orientation_wxyz = _unit_orientation(
+            listener_orientation_wxyz,
+            owner="initial listener orientation",
+        )
+        self.listener_pose_update_count = 0
         self.setup_report = {
             "runtime": runtime_report,
             "configuration_readback": config_readback,
@@ -272,16 +376,54 @@ class _NativeRIRBatchRenderer:
                 "temporal_coherence": False,
                 "compute_device": "CPU",
                 "configured_thread_count": self.selected.thread_count,
+                "listener_pose_policy": "update_before_each_changed_pose_batch",
             },
         }
 
-    def render(self, positions_m: Sequence[Sequence[float]]) -> RIRBatchResult:
+    def render(
+        self,
+        positions_m: Sequence[Sequence[float]],
+        *,
+        listener_position_m: Sequence[float] | None = None,
+        listener_orientation_wxyz: Sequence[float] | None = None,
+    ) -> RIRBatchResult:
         if not positions_m or len(positions_m) > self.batch_size:
             raise RIRCacheError("batch position count is outside native slot capacity")
         requested = [
             _finite_vector(value, 3, owner="batch source position")
             for value in positions_m
         ]
+        if (listener_position_m is None) != (listener_orientation_wxyz is None):
+            raise RIRCacheError(
+                "batch Listener position and orientation must be supplied together"
+            )
+        requested_listener = (
+            self.current_listener_position_m
+            if listener_position_m is None
+            else _finite_vector(
+                listener_position_m, 3, owner="batch listener position"
+            )
+        )
+        requested_orientation = (
+            self.current_listener_orientation_wxyz
+            if listener_orientation_wxyz is None
+            else _unit_orientation(
+                listener_orientation_wxyz,
+                owner="batch listener orientation",
+            )
+        )
+        if (
+            requested_listener != self.current_listener_position_m
+            or requested_orientation != self.current_listener_orientation_wxyz
+        ):
+            self.context.set_listener_pose(
+                self.listener_id,
+                requested_listener,
+                requested_orientation,
+            )
+            self.current_listener_position_m = requested_listener
+            self.current_listener_orientation_wxyz = requested_orientation
+            self.listener_pose_update_count += 1
         padded = requested + [requested[-1]] * (self.batch_size - len(requested))
         for source_id, position in zip(self.source_ids, padded, strict=True):
             self.context.set_source_position(source_id, position)
@@ -342,6 +484,31 @@ class _NativeRIRBatchRenderer:
                 or receipt.native_realized is not True
             ):
                 raise RIRCacheError("native source receipt differs from cache request")
+        listener_receipts = list(self.context.listener_registration_receipts())
+        if len(listener_receipts) != 1:
+            raise RIRCacheError("native listener receipt count differs from request")
+        listener_receipt = listener_receipts[0]
+        expected_listener = np.asarray(
+            requested_listener, dtype=np.float32
+        ).astype(np.float64)
+        expected_orientation = np.asarray(
+            requested_orientation, dtype=np.float32
+        ).astype(np.float64)
+        observed_listener = np.asarray(
+            listener_receipt.position, dtype=np.float64
+        )
+        observed_orientation = np.asarray(
+            listener_receipt.orientation_wxyz, dtype=np.float64
+        )
+        if (
+            str(listener_receipt.listener_id) != self.listener_id
+            or observed_listener.shape != (3,)
+            or observed_orientation.shape != (4,)
+            or not np.array_equal(observed_listener, expected_listener)
+            or not np.array_equal(observed_orientation, expected_orientation)
+            or listener_receipt.native_realized is not True
+        ):
+            raise RIRCacheError("native Listener receipt differs from cache request")
         efficiency = float(self.context.indirect_ray_efficiency())
         if not math.isfinite(efficiency) or not 0.0 <= efficiency <= 1.0:
             raise RIRCacheError("native indirect ray efficiency is invalid")
@@ -383,9 +550,21 @@ def _read_shard(path: Path) -> dict[str, Any]:
             "simulate_process_cpu_seconds",
             "indirect_ray_efficiency",
         }
-        if set(value.files) != required:
+        listener_pose_fields = {
+            "listener_positions_m",
+            "listener_orientations_wxyz",
+            "acoustic_state_sha256",
+        }
+        observed_fields = set(value.files)
+        if frozenset(observed_fields) not in {
+            frozenset(required),
+            frozenset(required | listener_pose_fields),
+        }:
             raise RIRCacheError(f"RIR shard fields differ from contract: {path}")
-        result = {key: np.asarray(value[key]).copy() for key in required}
+        result = {
+            key: np.asarray(value[key]).copy()
+            for key in observed_fields
+        }
     count = len(result["job_indices"])
     samples = result["samples"]
     if (
@@ -401,6 +580,20 @@ def _read_shard(path: Path) -> dict[str, Any]:
         or not np.all(np.isfinite(samples))
     ):
         raise RIRCacheError(f"RIR shard arrays are inconsistent: {path}")
+    if "listener_positions_m" in result and (
+        result["listener_positions_m"].shape != (count, 3)
+        or result["listener_orientations_wxyz"].shape != (count, 4)
+        or result["acoustic_state_sha256"].shape != (count,)
+        or not np.all(np.isfinite(result["listener_positions_m"]))
+        or not np.all(np.isfinite(result["listener_orientations_wxyz"]))
+        or not np.allclose(
+            np.linalg.norm(result["listener_orientations_wxyz"], axis=1),
+            1.0,
+            rtol=0.0,
+            atol=1.0e-6,
+        )
+    ):
+        raise RIRCacheError(f"RIR shard Listener-pose arrays are inconsistent: {path}")
     for row in range(count):
         length = int(result["lengths"][row])
         digest = hashlib.sha256(
@@ -418,6 +611,9 @@ def _verify_shard_request(
     expected_job_indices: np.ndarray,
     expected_job_ids: Sequence[str],
     expected_source_positions_m: Sequence[Sequence[float]],
+    expected_listener_positions_m: Sequence[Sequence[float]] | None,
+    expected_listener_orientations_wxyz: Sequence[Sequence[float]] | None,
+    expected_acoustic_state_sha256: Sequence[str] | None,
     sample_rate_hz: int,
     layout_id: str,
     channel_labels: Sequence[str],
@@ -435,6 +631,37 @@ def _verify_shard_request(
         raise RIRCacheError(
             f"retained shard source positions differ from request: {path}"
         )
+    expected_pose_values = (
+        expected_listener_positions_m,
+        expected_listener_orientations_wxyz,
+        expected_acoustic_state_sha256,
+    )
+    if any(value is None for value in expected_pose_values) and not all(
+        value is None for value in expected_pose_values
+    ):
+        raise RIRCacheError("expected Listener-pose shard fields are incomplete")
+    if expected_listener_positions_m is not None:
+        if "listener_positions_m" not in retained:
+            raise RIRCacheError(
+                f"retained shard lacks Listener-pose binding: {path}"
+            )
+        if (
+            not np.array_equal(
+                retained["listener_positions_m"],
+                np.asarray(expected_listener_positions_m, dtype="<f8"),
+            )
+            or not np.array_equal(
+                retained["listener_orientations_wxyz"],
+                np.asarray(expected_listener_orientations_wxyz, dtype="<f8"),
+            )
+            or not np.array_equal(
+                retained["acoustic_state_sha256"],
+                np.asarray(tuple(expected_acoustic_state_sha256)),
+            )
+        ):
+            raise RIRCacheError(
+                f"retained shard Listener pose differs from request: {path}"
+            )
     if (
         retained["sample_rate_hz"].shape != ()
         or int(retained["sample_rate_hz"]) != sample_rate_hz
@@ -534,7 +761,7 @@ def _request_identity_payload(value: Mapping[str, Any]) -> dict[str, Any]:
     compressed = output.get("compressed_npz_shards")
     if not isinstance(compressed, bool):
         raise RIRCacheError("RIR cache compression policy is invalid")
-    return {
+    payload = {
         "plan_sha256": plan_sha256,
         "scene_sha256": scene_sha256,
         "simulation": dict(effective_simulation),
@@ -548,6 +775,22 @@ def _request_identity_payload(value: Mapping[str, Any]) -> dict[str, Any]:
         "listener_radius_m": radii["listener_radius_m"],
         "compressed": compressed,
     }
+    selected_states_sha256 = plan.get("selected_acoustic_states_sha256")
+    state_binding = plan.get("acoustic_state_binding")
+    if selected_states_sha256 is None and state_binding is None:
+        return payload
+    if state_binding != "source_listener_pose_per_job_v1":
+        raise RIRCacheError("RIR cache request acoustic-state binding is invalid")
+    listener_update_policy = runtime.get("listener_pose_update_policy")
+    if listener_update_policy != "set_listener_pose_on_change_v1":
+        raise RIRCacheError("RIR cache request Listener update policy is invalid")
+    payload["acoustic_state_binding"] = state_binding
+    payload["selected_acoustic_states_sha256"] = _declared_sha256(
+        selected_states_sha256,
+        owner="selected RIR acoustic states",
+    )
+    payload["listener_pose_update_policy"] = listener_update_policy
+    return payload
 
 
 def _verify_request_identity(value: Mapping[str, Any]) -> str:
@@ -689,6 +932,7 @@ def _request_record(
     job_offset: int,
     job_count: int,
     full_plan_job_count: int,
+    selected_jobs: Sequence[Mapping[str, Any]],
     translation_m: Sequence[float],
     source_radius_m: float,
     listener_radius_m: float,
@@ -707,6 +951,10 @@ def _request_record(
             "full_job_count": full_plan_job_count,
             "selected_job_offset": job_offset,
             "selected_job_count": job_count,
+            "acoustic_state_binding": "source_listener_pose_per_job_v1",
+            "selected_acoustic_states_sha256": canonical_json_sha256(
+                [job["acoustic_state_sha256"] for job in selected_jobs]
+            ),
         },
         "acoustic_scene": {
             "manifest_path": str(scene.manifest_path),
@@ -735,6 +983,7 @@ def _request_record(
             "source_radius_m": source_radius_m,
             "listener_radius_m": listener_radius_m,
             "persistent_context": True,
+            "listener_pose_update_policy": "set_listener_pose_on_change_v1",
             "scene_upload_count": 1,
             "compute_device": "CPU",
             "gpu_acceleration": False,
@@ -820,6 +1069,7 @@ def render_rir_cache(
         job_offset=job_offset,
         job_count=len(selected_jobs),
         full_plan_job_count=len(jobs),
+        selected_jobs=selected_jobs,
         translation_m=translation,
         source_radius_m=float(source_radius_m),
         listener_radius_m=float(listener_radius_m),
@@ -847,36 +1097,62 @@ def render_rir_cache(
     shards_root.mkdir(exist_ok=True)
 
     translation_array = np.asarray(translation, dtype=np.float64)
-    translated_listener = (
-        np.asarray(plan["listener_position_m"], dtype=np.float64) + translation_array
-    ).tolist()
-    listener_orientation = plan["listener_orientation_wxyz"]
     expected_sample_rate_hz = int(round(simulation.sample_rate_hz))
     expected_layout_id = request["output"]["layout_id"]
     expected_channel_labels = (
         ("left", "right") if layout_type == "binaural" else ("W", "Y", "Z", "X")
     )
-    batch_ranges = [
-        (start, min(start + native_batch_size, len(selected_jobs)))
-        for start in range(0, len(selected_jobs), native_batch_size)
-    ]
+    jobs_by_listener_pose: dict[
+        tuple[float, ...], list[tuple[int, Mapping[str, Any]]]
+    ] = {}
+    for selected_index, job in enumerate(selected_jobs):
+        listener_key = (
+            *tuple(float(value) for value in job["listener_position_m"]),
+            *tuple(float(value) for value in job["listener_orientation_wxyz"]),
+        )
+        jobs_by_listener_pose.setdefault(listener_key, []).append(
+            (job_offset + selected_index, job)
+        )
+    batch_specs: list[dict[str, Any]] = []
+    for listener_key, indexed_jobs in jobs_by_listener_pose.items():
+        for start in range(0, len(indexed_jobs), native_batch_size):
+            chunk = indexed_jobs[start : start + native_batch_size]
+            batch_specs.append(
+                {
+                    "absolute_job_indices": [item[0] for item in chunk],
+                    "jobs": [item[1] for item in chunk],
+                    "listener_position_m": (
+                        np.asarray(listener_key[:3], dtype=np.float64)
+                        + translation_array
+                    ).tolist(),
+                    "listener_orientation_wxyz": list(listener_key[3:]),
+                }
+            )
     renderer: Any | None = None
     setup_report: dict[str, Any] | None = None
     batch_records: list[dict[str, Any]] = []
     new_job_count = 0
+    completed_job_count = 0
     try:
-        for batch_index, (start, end) in enumerate(batch_ranges):
+        for batch_index, batch_spec in enumerate(batch_specs):
             shard_path = shards_root / f"shard_{batch_index:06d}.npz"
-            absolute_indices = np.arange(
-                job_offset + start, job_offset + end, dtype="<u4"
+            absolute_indices = np.asarray(
+                batch_spec["absolute_job_indices"], dtype="<u4"
             )
-            batch_jobs = selected_jobs[start:end]
+            batch_jobs = batch_spec["jobs"]
+            listener_position = batch_spec["listener_position_m"]
+            listener_orientation = batch_spec["listener_orientation_wxyz"]
             positions = [
                 (
                     np.asarray(job["source_position_m"], dtype=np.float64)
                     + translation_array
                 ).tolist()
                 for job in batch_jobs
+            ]
+            listener_positions = [listener_position] * len(batch_jobs)
+            listener_orientations = [listener_orientation] * len(batch_jobs)
+            acoustic_state_sha256 = [
+                str(job["acoustic_state_sha256"]) for job in batch_jobs
             ]
             if shard_path.is_file():
                 retained = _read_shard(shard_path)
@@ -886,6 +1162,9 @@ def render_rir_cache(
                     expected_job_indices=absolute_indices,
                     expected_job_ids=[job["job_id"] for job in batch_jobs],
                     expected_source_positions_m=positions,
+                    expected_listener_positions_m=listener_positions,
+                    expected_listener_orientations_wxyz=listener_orientations,
+                    expected_acoustic_state_sha256=acoustic_state_sha256,
                     sample_rate_hz=expected_sample_rate_hz,
                     layout_id=expected_layout_id,
                     channel_labels=expected_channel_labels,
@@ -904,6 +1183,7 @@ def render_rir_cache(
                         "resumed": True,
                     }
                 )
+                completed_job_count += len(batch_jobs)
                 continue
             if renderer is None:
                 initial = positions + [positions[-1]] * (
@@ -914,7 +1194,7 @@ def render_rir_cache(
                     simulation,
                     batch_size=native_batch_size,
                     initial_positions_m=initial,
-                    listener_position_m=translated_listener,
+                    listener_position_m=listener_position,
                     listener_orientation_wxyz=listener_orientation,
                     layout_type=layout_type,
                     channel_count=channel_count,
@@ -923,7 +1203,18 @@ def render_rir_cache(
                     listener_radius_m=float(listener_radius_m),
                 )
                 setup_report = dict(renderer.setup_report)
-            result: RIRBatchResult = renderer.render(positions)
+            if plan.get("listener_pose_mode") in {None, "fixed"}:
+                # Preserve the historical fixed-listener renderer protocol:
+                # the constructor owns the one pose and render() only receives
+                # source positions.  Per-frame plans require the pose-aware
+                # protocol below and fail rather than silently staying fixed.
+                result: RIRBatchResult = renderer.render(positions)
+            else:
+                result = renderer.render(
+                    positions,
+                    listener_position_m=listener_position,
+                    listener_orientation_wxyz=listener_orientation,
+                )
             maximum_length = max(samples.shape[1] for samples in result.samples)
             padded = np.zeros(
                 (len(result.samples), channel_count, maximum_length), dtype="<f4"
@@ -943,6 +1234,13 @@ def render_rir_cache(
                     "job_indices": absolute_indices,
                     "job_ids": np.asarray([job["job_id"] for job in batch_jobs]),
                     "source_positions_m": np.asarray(positions, dtype="<f8"),
+                    "listener_positions_m": np.asarray(
+                        listener_positions, dtype="<f8"
+                    ),
+                    "listener_orientations_wxyz": np.asarray(
+                        listener_orientations, dtype="<f8"
+                    ),
+                    "acoustic_state_sha256": np.asarray(acoustic_state_sha256),
                     "lengths": lengths,
                     "samples": padded,
                     "ir_sha256": np.asarray(hashes),
@@ -962,6 +1260,7 @@ def render_rir_cache(
             )
             serialization_seconds = time.perf_counter() - serialize_start
             new_job_count += len(batch_jobs)
+            completed_job_count += len(batch_jobs)
             batch_records.append(
                 {
                     "batch_index": batch_index,
@@ -978,14 +1277,14 @@ def render_rir_cache(
                     "schema": RIR_CACHE_RECEIPT_SCHEMA,
                     "status": "research_only",
                     "completed_batch_count": batch_index + 1,
-                    "batch_count": len(batch_ranges),
-                    "completed_job_count": end,
+                    "batch_count": len(batch_specs),
+                    "completed_job_count": completed_job_count,
                     "selected_job_count": len(selected_jobs),
                 },
             )
             print(
                 "RIR_CACHE_BATCH_OK "
-                f"batch={batch_index + 1}/{len(batch_ranges)} "
+                f"batch={batch_index + 1}/{len(batch_specs)} "
                 f"jobs={len(batch_jobs)} wall={result.wall_seconds:.3f}s",
                 flush=True,
             )
@@ -997,20 +1296,22 @@ def render_rir_cache(
                 "status": "fail",
                 "completed_batch_count": sum(
                     (shards_root / f"shard_{index:06d}.npz").is_file()
-                    for index in range(len(batch_ranges))
+                    for index in range(len(batch_specs))
                 ),
-                "batch_count": len(batch_ranges),
+                "batch_count": len(batch_specs),
             },
         )
         raise
 
     index_entries: list[dict[str, Any]] = []
     all_batch_records: list[dict[str, Any]] = []
-    for batch_index, (start, end) in enumerate(batch_ranges):
+    for batch_index, batch_spec in enumerate(batch_specs):
         shard_path = shards_root / f"shard_{batch_index:06d}.npz"
         retained = _read_shard(shard_path)
-        batch_jobs = selected_jobs[start:end]
-        expected_indices = np.arange(job_offset + start, job_offset + end, dtype="<u4")
+        batch_jobs = batch_spec["jobs"]
+        expected_indices = np.asarray(
+            batch_spec["absolute_job_indices"], dtype="<u4"
+        )
         expected_positions = [
             (
                 np.asarray(job["source_position_m"], dtype=np.float64)
@@ -1018,12 +1319,24 @@ def render_rir_cache(
             ).tolist()
             for job in batch_jobs
         ]
+        expected_listener_positions = [
+            batch_spec["listener_position_m"]
+        ] * len(batch_jobs)
+        expected_listener_orientations = [
+            batch_spec["listener_orientation_wxyz"]
+        ] * len(batch_jobs)
+        expected_acoustic_states = [
+            str(job["acoustic_state_sha256"]) for job in batch_jobs
+        ]
         _verify_shard_request(
             retained,
             path=shard_path,
             expected_job_indices=expected_indices,
             expected_job_ids=[job["job_id"] for job in batch_jobs],
             expected_source_positions_m=expected_positions,
+            expected_listener_positions_m=expected_listener_positions,
+            expected_listener_orientations_wxyz=expected_listener_orientations,
+            expected_acoustic_state_sha256=expected_acoustic_states,
             sample_rate_hz=expected_sample_rate_hz,
             layout_id=expected_layout_id,
             channel_labels=expected_channel_labels,
@@ -1032,24 +1345,35 @@ def render_rir_cache(
             index_entries.append(
                 {
                     "job_id": job["job_id"],
-                    "job_index": job_offset + start + row,
+                    "job_index": int(expected_indices[row]),
                     "shard": shard_path.relative_to(output).as_posix(),
                     "row": row,
                     "sample_count": int(retained["lengths"][row]),
                     "ir_sha256": str(retained["ir_sha256"][row]),
                     "source_position_m": retained["source_positions_m"][row].tolist(),
+                    "listener_position_m": retained[
+                        "listener_positions_m"
+                    ][row].tolist(),
+                    "listener_orientation_wxyz": retained[
+                        "listener_orientations_wxyz"
+                    ][row].tolist(),
+                    "acoustic_state_sha256": str(
+                        retained["acoustic_state_sha256"][row]
+                    ),
                 }
             )
         matching = next(
             record for record in batch_records if record["batch_index"] == batch_index
         )
         all_batch_records.append(matching)
+    index_entries.sort(key=lambda entry: int(entry["job_index"]))
     write_json(
         output / "index.json",
         {
             "schema": RIR_CACHE_INDEX_SCHEMA,
             "status": "pass",
             "request_identity_sha256": request["request_identity_sha256"],
+            "acoustic_state_binding": "source_listener_pose_per_job_v1",
             "full_plan_complete": len(selected_jobs) == len(jobs) and job_offset == 0,
             "selected_job_count": len(selected_jobs),
             "entries": index_entries,
@@ -1092,7 +1416,7 @@ def render_rir_cache(
         "full_plan_complete": len(selected_jobs) == len(jobs) and job_offset == 0,
         "full_plan_job_count": len(jobs),
         "selected_job_count": len(selected_jobs),
-        "retained_shard_count": len(batch_ranges),
+        "retained_shard_count": len(batch_specs),
         "retained_shard_bytes": total_bytes,
         "sample_rate_hz": int(round(simulation.sample_rate_hz)),
         "layout_type": layout_type,
@@ -1101,6 +1425,8 @@ def render_rir_cache(
         "producer_backend": "RLR Audio Propagation",
         "cache_artifact": "room impulse response (RIR)",
         "dry_audio_independent": True,
+        "acoustic_state_binding": "source_listener_pose_per_job_v1",
+        "listener_pose_update_policy": "set_listener_pose_on_change_v1",
         "retained_payload_hash_verified": True,
         "rerun_byte_identity_claim": False,
         "native_random_seed_control": "unavailable_in_current_RLR_API",
@@ -1156,6 +1482,27 @@ class RIRCacheSession:
             expected_plan_path=plan_source,
         )
         request_plan = request.get("plan", {})
+        self.listener_pose_bound = (
+            request_plan.get("acoustic_state_binding")
+            == "source_listener_pose_per_job_v1"
+        )
+        if self.listener_pose_bound:
+            expected_states_sha256 = canonical_json_sha256(
+                [job["acoustic_state_sha256"] for job in jobs]
+            )
+            if (
+                request_plan.get("selected_acoustic_states_sha256")
+                != expected_states_sha256
+                or receipt.get("acoustic_state_binding")
+                != "source_listener_pose_per_job_v1"
+                or receipt.get("listener_pose_update_policy")
+                != "set_listener_pose_on_change_v1"
+                or index.get("acoustic_state_binding")
+                != "source_listener_pose_per_job_v1"
+            ):
+                raise RIRCacheError(
+                    "RIR cache Listener-pose binding differs across closure"
+                )
         if (
             request.get("schema") != RIR_CACHE_REQUEST_SCHEMA
             or request_plan.get("sha256") != self.plan_sha256
@@ -1193,9 +1540,21 @@ class RIRCacheSession:
             or not isinstance(self.sample_rate_hz, int) or self.sample_rate_hz < 1
         ):
             raise RIRCacheError("RIR cache audio contract is invalid")
+        runtime_policy = request.get("runtime_policy")
+        if not isinstance(runtime_policy, Mapping):
+            raise RIRCacheError("RIR cache runtime policy is invalid")
+        self.translation_m = np.asarray(
+            _finite_vector(
+                runtime_policy.get("coordinate_translation_m"),
+                3,
+                owner="RIR cache coordinate translation",
+            ),
+            dtype=np.float64,
+        )
         raw_entries = index.get("entries")
         if not isinstance(raw_entries, list) or len(raw_entries) != len(jobs):
             raise RIRCacheError("RIR cache index does not close over the full plan")
+        jobs_by_id = {str(job["job_id"]): job for job in jobs}
         self.entries_by_id: dict[str, Mapping[str, Any]] = {}
         for entry in raw_entries:
             if not isinstance(entry, Mapping):
@@ -1203,6 +1562,59 @@ class RIRCacheSession:
             job_id = entry.get("job_id")
             if not isinstance(job_id, str) or job_id in self.entries_by_id:
                 raise RIRCacheError("RIR cache index job IDs are invalid")
+            if self.listener_pose_bound:
+                job = jobs_by_id.get(job_id)
+                if job is None:
+                    raise RIRCacheError("RIR cache index job is absent from plan")
+                expected_source = (
+                    np.asarray(job["source_position_m"], dtype=np.float64)
+                    + self.translation_m
+                )
+                expected_listener = (
+                    np.asarray(job["listener_position_m"], dtype=np.float64)
+                    + self.translation_m
+                )
+                if (
+                    entry.get("acoustic_state_sha256")
+                    != job["acoustic_state_sha256"]
+                    or not np.array_equal(
+                        np.asarray(
+                            _finite_vector(
+                                entry.get("source_position_m"),
+                                3,
+                                owner="RIR cache index source position",
+                            ),
+                            dtype=np.float64,
+                        ),
+                        expected_source,
+                    )
+                    or not np.array_equal(
+                        np.asarray(
+                            _finite_vector(
+                                entry.get("listener_position_m"),
+                                3,
+                                owner="RIR cache index Listener position",
+                            ),
+                            dtype=np.float64,
+                        ),
+                        expected_listener,
+                    )
+                    or not np.array_equal(
+                        np.asarray(
+                            _unit_orientation(
+                                entry.get("listener_orientation_wxyz"),
+                                owner="RIR cache index Listener orientation",
+                            ),
+                            dtype=np.float64,
+                        ),
+                        np.asarray(
+                            job["listener_orientation_wxyz"], dtype=np.float64
+                        ),
+                    )
+                ):
+                    raise RIRCacheError(
+                        "RIR cache index Listener pose differs from plan"
+                    )
             self.entries_by_id[job_id] = entry
         if set(self.entries_by_id) != {job["job_id"] for job in jobs}:
             raise RIRCacheError("RIR cache index job IDs differ from the plan")
@@ -1285,6 +1697,37 @@ class RIRCacheSession:
                     raise RIRCacheError("RIR cache episode row is outside its shard")
                 length = int(retained["lengths"][row])
                 samples = np.ascontiguousarray(retained["samples"][row, :, :length])
+                expected_source_position = (
+                    np.asarray(job["source_position_m"], dtype=np.float64)
+                    + self.translation_m
+                )
+                expected_listener_position = (
+                    np.asarray(job["listener_position_m"], dtype=np.float64)
+                    + self.translation_m
+                )
+                listener_pose_mismatch = False
+                if self.listener_pose_bound:
+                    listener_pose_mismatch = (
+                        "listener_positions_m" not in retained
+                        or not np.array_equal(
+                            retained["listener_positions_m"][row],
+                            expected_listener_position,
+                        )
+                        or not np.array_equal(
+                            retained["listener_orientations_wxyz"][row],
+                            np.asarray(
+                                job["listener_orientation_wxyz"], dtype="<f8"
+                            ),
+                        )
+                        or str(retained["acoustic_state_sha256"][row])
+                        != job["acoustic_state_sha256"]
+                        or entry.get("listener_position_m")
+                        != expected_listener_position.tolist()
+                        or entry.get("listener_orientation_wxyz")
+                        != job["listener_orientation_wxyz"]
+                        or entry.get("acoustic_state_sha256")
+                        != job["acoustic_state_sha256"]
+                    )
                 if (
                     str(retained["job_ids"][row]) != job["job_id"]
                     or int(retained["job_indices"][row]) != int(entry.get("job_index"))
@@ -1292,8 +1735,9 @@ class RIRCacheSession:
                     or str(retained["ir_sha256"][row]) != entry.get("ir_sha256")
                     or not np.array_equal(
                         retained["source_positions_m"][row],
-                        np.asarray(job["source_position_m"], dtype="<f8"),
+                        expected_source_position,
                     )
+                    or listener_pose_mismatch
                     or samples.shape[0] != self.channel_count
                     or str(retained["layout_id"]) != self.layout_id
                     or int(retained["sample_rate_hz"]) != self.sample_rate_hz
@@ -1311,6 +1755,21 @@ class RIRCacheSession:
                         "visual_frame_index": visual_frame,
                         "ir_sha256": entry["ir_sha256"],
                         "source_position_m": list(job["source_position_m"]),
+                        "listener_position_m": list(job["listener_position_m"]),
+                        "listener_orientation_wxyz": list(
+                            job["listener_orientation_wxyz"]
+                        ),
+                        "acoustic_state_sha256": job[
+                            "acoustic_state_sha256"
+                        ],
+                        "realized_source_position_m": (
+                            retained["source_positions_m"][row].tolist()
+                        ),
+                        "realized_listener_position_m": (
+                            retained["listener_positions_m"][row].tolist()
+                            if "listener_positions_m" in retained
+                            else expected_listener_position.tolist()
+                        ),
                     }
                 )
             rows.append(frame_values)
@@ -1329,6 +1788,11 @@ class RIRCacheSession:
             "episode_id": episode_id,
             "cache_request_identity_sha256": self.request_identity_sha256,
             "plan_sha256": self.plan_sha256,
+            "acoustic_state_binding": (
+                "source_listener_pose_per_job_v1"
+                if self.listener_pose_bound
+                else "legacy_fixed_listener_via_plan_sha256"
+            ),
             "source_slot_ids": list(source_slots),
             "visual_frame_indices": list(visual_frames),
             "keyframe_samples": list(keyframe_samples),

@@ -17,6 +17,13 @@ from avengine.m6.audio_program import (
     bind_audio_program_hash,
     materialize_audio_program_variant,
 )
+from avengine.m6x.room_feasibility import rir_acoustic_state_sha256
+from avengine.m7.sensor_rig import (
+    m7_sensor_rig_binding,
+    m7_sensor_rig_pose_series,
+    validate_m7_rir_listener_alignment,
+)
+from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +46,240 @@ _INDEX = _load_tool(
     "build_asset_bound_dataset_index_for_test",
     "tools/m7/build_asset_bound_dataset_index.py",
 )
+
+
+def _sensor_rig_closure_fixture(
+    tmp_path: Path,
+) -> tuple[Path, Path, dict, dict]:
+    plan_root = tmp_path / "plan"
+    batch_root = tmp_path / "batch"
+    (batch_root / "labels").mkdir(parents=True)
+    plan_root.mkdir()
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="downstream_dynamic_rig",
+        program={
+            "kind": "ROTATE_IN_PLACE",
+            "position_m": [0.0, 1.5, 0.0],
+            "start_yaw_deg": 0.0,
+            "end_yaw_deg": 90.0,
+            "yaw_interpolation": "SHORTEST_ARC",
+        },
+    )
+    poses = m7_sensor_rig_pose_series(trajectory)
+    jobs = []
+    cached_jobs = []
+    for frame_index in (0, 3):
+        for source_ordinal, source_slot in enumerate(("source1", "source2")):
+            source_position = [float(source_ordinal + 1), 1.0, 2.0]
+            listener_position = poses.positions_m[frame_index].tolist()
+            listener_orientation = poses.orientations_wxyz[
+                frame_index
+            ].tolist()
+            state_sha256 = rir_acoustic_state_sha256(
+                source_position,
+                listener_position,
+                listener_orientation,
+            )
+            job_id = f"job_{frame_index}_{source_slot}"
+            jobs.append(
+                {
+                    "job_id": job_id,
+                    "source_position_m": source_position,
+                    "listener_position_m": listener_position,
+                    "listener_orientation_wxyz": listener_orientation,
+                    "acoustic_state_sha256": state_sha256,
+                    "uses": [
+                        {
+                            "episode_id": "episode0",
+                            "source_slot_id": source_slot,
+                            "frame_index": frame_index,
+                        }
+                    ],
+                }
+            )
+            cached_jobs.append(
+                {
+                    "job_id": job_id,
+                    "source_slot_id": source_slot,
+                    "visual_frame_index": frame_index,
+                    "source_position_m": source_position,
+                    "listener_position_m": listener_position,
+                    "listener_orientation_wxyz": listener_orientation,
+                    "acoustic_state_sha256": state_sha256,
+                }
+            )
+    plan = {
+        "schema": "avengine_room_rir_job_plan_v2",
+        "status": "planned_not_run",
+        "listener_pose_mode": "per_episode_frame",
+        "cache_key_fields": [
+            "source_position_m",
+            "listener_position_m",
+            "listener_orientation_wxyz",
+        ],
+        "requested_pair_state_count": len(jobs),
+        "unique_rir_job_count": len(jobs),
+        "jobs": jobs,
+    }
+    binding = m7_sensor_rig_binding(trajectory)
+    alignment = validate_m7_rir_listener_alignment(
+        rir_job_plan=plan,
+        sensor_rig_trajectory=trajectory,
+    )
+    write_json(plan_root / "rir_job_plan.json", plan)
+    write_json(plan_root / "sensor_rig_trajectory.json", trajectory)
+    write_json(
+        batch_root / "labels/sensor_rig_trajectory.json",
+        trajectory,
+    )
+    write_json(
+        batch_root / "delivery.json",
+        {
+            "sensor_rig_trajectory": binding,
+            "sensor_rig_rir_alignment": alignment,
+            "outputs": {
+                "sensor_rig_trajectory": "labels/sensor_rig_trajectory.json"
+            },
+        },
+    )
+    write_json(
+        batch_root / "samples.json",
+        {
+            "samples": [
+                {
+                    "sample_id": "episode0__v00",
+                    "sensor_rig_trajectory": binding,
+                }
+            ]
+        },
+    )
+    write_json(
+        batch_root / "episodes.json",
+        {
+            "episodes": [
+                {
+                    "episode_id": "episode0",
+                    "sensor_rig_trajectory": binding,
+                    "rir_cache": {
+                        "acoustic_state_binding": (
+                            "source_listener_pose_per_job_v1"
+                        ),
+                        "jobs": cached_jobs,
+                    },
+                }
+            ]
+        },
+    )
+    return plan_root, batch_root, trajectory, binding
+
+
+def test_batch_verifier_closes_dynamic_sensor_rig_across_all_records(
+    tmp_path: Path,
+) -> None:
+    plan_root, batch_root, _trajectory, binding = (
+        _sensor_rig_closure_fixture(tmp_path)
+    )
+    result = _VERIFY._verify_sensor_rig_closure(
+        plan_root=plan_root,
+        batch_root=batch_root,
+    )
+    assert result["listener_pose_mode"] == "per_episode_frame"
+    assert result["binding"] == binding
+    assert result["checked_cached_use_count"] == 4
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "batch_sidecar",
+        "delivery_binding",
+        "sample_binding",
+        "episode_binding",
+        "cached_listener",
+        "cached_state",
+        "missing_plan_sidecar",
+    ),
+)
+def test_batch_verifier_rejects_dynamic_sensor_rig_tampering(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    plan_root, batch_root, trajectory, _binding = (
+        _sensor_rig_closure_fixture(tmp_path)
+    )
+    if mutation == "batch_sidecar":
+        trajectory["trajectory_id"] = "forged"
+        write_json(
+            batch_root / "labels/sensor_rig_trajectory.json",
+            trajectory,
+        )
+    elif mutation == "delivery_binding":
+        value = load_json(batch_root / "delivery.json")
+        value["sensor_rig_trajectory"]["content_sha256"] = "a" * 64
+        write_json(batch_root / "delivery.json", value)
+    elif mutation == "sample_binding":
+        value = load_json(batch_root / "samples.json")
+        value["samples"][0]["sensor_rig_trajectory"]["content_sha256"] = (
+            "a" * 64
+        )
+        write_json(batch_root / "samples.json", value)
+    elif mutation == "episode_binding":
+        value = load_json(batch_root / "episodes.json")
+        value["episodes"][0]["sensor_rig_trajectory"][
+            "content_sha256"
+        ] = "a" * 64
+        write_json(batch_root / "episodes.json", value)
+    elif mutation == "cached_listener":
+        value = load_json(batch_root / "episodes.json")
+        value["episodes"][0]["rir_cache"]["jobs"][0][
+            "listener_position_m"
+        ][0] += 1.0
+        write_json(batch_root / "episodes.json", value)
+    elif mutation == "cached_state":
+        value = load_json(batch_root / "episodes.json")
+        value["episodes"][0]["rir_cache"]["jobs"][0][
+            "acoustic_state_sha256"
+        ] = "a" * 64
+        write_json(batch_root / "episodes.json", value)
+    elif mutation == "missing_plan_sidecar":
+        (plan_root / "sensor_rig_trajectory.json").unlink()
+    else:  # pragma: no cover
+        raise AssertionError(mutation)
+
+    with pytest.raises(_VERIFY.BatchVerificationError):
+        _VERIFY._verify_sensor_rig_closure(
+            plan_root=plan_root,
+            batch_root=batch_root,
+        )
+
+
+def test_batch_verifier_keeps_legacy_fixed_plan_without_sidecar(
+    tmp_path: Path,
+) -> None:
+    plan_root = tmp_path / "plan"
+    batch_root = tmp_path / "batch"
+    plan_root.mkdir()
+    batch_root.mkdir()
+    write_json(
+        plan_root / "rir_job_plan.json",
+        {
+            "schema": "avengine_room_rir_job_plan_v2",
+            "status": "planned_not_run",
+            "listener_position_m": [0.0, 1.5, 0.0],
+            "listener_orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+            "jobs": [],
+        },
+    )
+    write_json(batch_root / "delivery.json", {"outputs": {}})
+    write_json(batch_root / "samples.json", {"samples": [{}]})
+    write_json(batch_root / "episodes.json", {"episodes": [{}]})
+
+    result = _VERIFY._verify_sensor_rig_closure(
+        plan_root=plan_root,
+        batch_root=batch_root,
+    )
+    assert result["binding"] is None
+    assert result["compatibility"] == "legacy_fixed_plan_without_sidecar"
 
 
 def _program_bound_sample(

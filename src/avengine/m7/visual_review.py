@@ -14,6 +14,7 @@ remain mutually consistent before an optional UE visual render is requested.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 import math
@@ -23,8 +24,14 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256, file_record, sha256_file
+from avengine.contracts.transforms import transform_error
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
-from avengine.m1.habitat_capture import _make_configuration, _resolved_assets, discover_runtime_root
+from avengine.m1.habitat_capture import (
+    _make_configuration,
+    _resolved_assets,
+    _state_snapshot,
+    discover_runtime_root,
+)
 from avengine.m2.contracts import FORMAL_MODALITIES, load_and_validate_inputs as load_m2_inputs
 from avengine.m2.habitat_capture import (
     HabitatCaptureError,
@@ -41,12 +48,17 @@ from avengine.m5_1.mixed_capture import (
     locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
 )
+from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.m7.sensor_rig import (
+    resolve_m7_sensor_rig_trajectory,
+)
 
 
 SCHEMA = "avengine_m7_asset_bound_two_animal_visual_capture_v1"
 FRAME_RATE_HZ = 15
 _ROOT_READBACK_ATOL = 2.0e-6
 _JOINT_READBACK_ATOL = 2.0e-6
+_RIG_READBACK_ATOL = 2.0e-6
 
 
 class AssetBoundVisualReviewError(RuntimeError):
@@ -63,6 +75,9 @@ class TwoAnimalVisualCapture:
     actor_world_matrices: np.ndarray
     acoustic_source_centers_m: np.ndarray
     semantic_visibility_pixels: np.ndarray
+    listener_positions_m: np.ndarray
+    listener_rotations_xyzw: np.ndarray
+    sensor_rig_trajectory: Mapping[str, Any]
     evidence: Mapping[str, Any]
 
 
@@ -104,6 +119,46 @@ def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
+def _sensor_rig_readback_errors(
+    *,
+    expected_world_from_rig: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    rgb_sensor_uuid: str,
+    listener_uuid: str,
+) -> dict[str, float]:
+    """Measure the agent, formal camera and listener against one rig pose."""
+
+    sensors = snapshot.get("sensors")
+    if (
+        not isinstance(sensors, Mapping)
+        or rgb_sensor_uuid not in sensors
+        or listener_uuid not in sensors
+        or not isinstance(snapshot.get("agent"), Mapping)
+    ):
+        raise AssetBoundVisualReviewError(
+            "camera/listener sensor-rig readback is incomplete"
+        )
+    try:
+        sensor_errors = {
+            str(sensor_uuid): transform_error(
+                dict(expected_world_from_rig), dict(sensor_pose)
+            )
+            for sensor_uuid, sensor_pose in sensors.items()
+        }
+        return {
+            "agent": transform_error(
+                dict(expected_world_from_rig), dict(snapshot["agent"])
+            ),
+            "camera": sensor_errors[rgb_sensor_uuid],
+            "listener": sensor_errors[listener_uuid],
+            "all_sensors": max(sensor_errors.values()),
+        }
+    except (TypeError, ValueError, KeyError) as error:
+        raise AssetBoundVisualReviewError(
+            "camera/listener sensor-rig readback is invalid"
+        ) from error
+
+
 def _load_animal_inputs(manifest_path: str | Path, request_path: str | Path, *, research_candidate: bool) -> Any:
     return (
         load_research_review_inputs(manifest_path, request_path)
@@ -136,13 +191,16 @@ def capture_two_m2_animal_paths(
     output_dir: str | Path,
     runtime_root: str | Path | None = None,
     route_provenance: Mapping[str, Any] | None = None,
+    sensor_rig_trajectory: Mapping[str, Any] | None = None,
 ) -> TwoAnimalVisualCapture:
     """Capture two M2 animal assets over their selected asset-bound paths.
 
     The function accepts different M2 packages for the two actors.  Root paths
     are authoritative visual placements; ``emitter_offsets_m`` produce the
     acoustic centres independently of animated muzzle-bone jitter, matching
-    the M7 cache contract.
+    the M7 cache contract.  The optional SensorRigTrajectory drives the formal
+    camera and co-located listener every frame; omission materializes a
+    complete HOLD trajectory from the historical M1 camera pose.
     """
 
     two = (animal_manifest_paths, m2_request_paths, research_candidates, root_paths_m, local_forward_axes, emitter_offsets_m, actor_ids, actor_classes, semantic_ids)
@@ -186,6 +244,17 @@ def capture_two_m2_animal_paths(
             for index in range(2)
         )
         room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
+        fixed_world_from_rig = room_inputs.request["primary_camera_rig"][
+            "world_from_rig"
+        ]
+        retained_rig_trajectory = resolve_m7_sensor_rig_trajectory(
+            sensor_rig_trajectory=sensor_rig_trajectory,
+            listener_position_m=fixed_world_from_rig["translation_m"],
+            listener_yaw_deg=habitat_yaw_degrees_from_xyzw(
+                fixed_world_from_rig["rotation_xyzw"]
+            ),
+        )
+        rig_frames = tuple(retained_rig_trajectory["frames"])
         runtime = discover_runtime_root(runtime_root)
         if any(not record["exists"] for record in _resolved_assets(room_inputs, runtime)):
             raise AssetBoundVisualReviewError("validated room has a missing runtime asset")
@@ -194,6 +263,7 @@ def capture_two_m2_animal_paths(
         import quaternion as qt
         import habitat_sim
         import magnum as mn
+        from habitat_sim.utils.common import quat_to_coeffs
 
         configuration, modality_to_uuid, _listener_uuid, resolved_scene = _make_configuration(room_inputs, runtime, output / "scene_scratch")
         configuration.sim_cfg.enable_hbao = True
@@ -206,18 +276,28 @@ def capture_two_m2_animal_paths(
         maximum_root_error = [0.0, 0.0]
         maximum_joint_error = [0.0, 0.0]
         pose_hashes = [{"idle": set(), "walk": set()} for _ in range(2)]
+        listener_positions: list[np.ndarray] = []
+        listener_rotations: list[np.ndarray] = []
+        maximum_rig_error = {
+            "agent": 0.0,
+            "camera": 0.0,
+            "listener": 0.0,
+            "all_sensors": 0.0,
+        }
 
         with habitat_sim.Simulator(configuration) as simulator:
             navmesh_path = resolved_scene.get("navmesh")
             if navmesh_path is not None and Path(navmesh_path).is_file():
                 simulator.pathfinder.load_nav_mesh(str(navmesh_path))
             simulator.seed(int(room_inputs.request["seed"]))
-            rig = room_inputs.request["primary_camera_rig"]
+            first_world_from_rig = rig_frames[0]["world_from_rig"]
             camera_state = habitat_sim.AgentState()
-            camera_state.position = np.asarray(rig["world_from_rig"]["translation_m"], dtype=np.float64)
-            x, y, z, w = rig["world_from_rig"]["rotation_xyzw"]
+            camera_state.position = np.asarray(
+                first_world_from_rig["translation_m"], dtype=np.float64
+            )
+            x, y, z, w = first_world_from_rig["rotation_xyzw"]
             camera_state.rotation = qt.quaternion(w, x, y, z)
-            simulator.initialize_agent(0, camera_state)
+            agent = simulator.initialize_agent(0, camera_state)
 
             manager = simulator.metadata_mediator.ao_template_manager
             actors: list[Any] = []
@@ -243,9 +323,64 @@ def capture_two_m2_animal_paths(
                 actors.append(actor)
                 bindings.append(binding)
             sensors = [simulator.sensors[modality_to_uuid[modality]] for modality in FORMAL_MODALITIES]
+            all_sensor_uuids = sorted(
+                {*modality_to_uuid.values(), _listener_uuid}
+            )
             initial_world_time = float(simulator.get_world_time())
 
             for frame_index in range(75):
+                rig_frame = rig_frames[frame_index]
+                if (
+                    rig_frame["frame_index"] != frame_index
+                    or rig_frame["pts_ticks"] != frame_index * 3_200
+                ):
+                    raise AssetBoundVisualReviewError(
+                        "sensor-rig trajectory differs from the visual frame clock"
+                    )
+                world_from_rig = rig_frame["world_from_rig"]
+                frame_position = np.asarray(
+                    world_from_rig["translation_m"], dtype=np.float64
+                )
+                qx, qy, qz, qw = world_from_rig["rotation_xyzw"]
+                camera_state = habitat_sim.AgentState()
+                camera_state.position = frame_position
+                camera_state.rotation = qt.quaternion(qw, qx, qy, qz)
+                agent.set_state(
+                    camera_state,
+                    reset_sensors=False,
+                    infer_sensor_states=True,
+                )
+                rig_snapshot = _state_snapshot(
+                    simulator,
+                    agent,
+                    all_sensor_uuids,
+                    quat_to_coeffs,
+                )
+                rig_errors = _sensor_rig_readback_errors(
+                    expected_world_from_rig=world_from_rig,
+                    snapshot=rig_snapshot,
+                    rgb_sensor_uuid=modality_to_uuid["rgb"],
+                    listener_uuid=_listener_uuid,
+                )
+                for role, error in rig_errors.items():
+                    maximum_rig_error[role] = max(
+                        maximum_rig_error[role], error
+                    )
+                if max(rig_errors.values()) > _RIG_READBACK_ATOL:
+                    raise AssetBoundVisualReviewError(
+                        f"frame {frame_index} camera/listener readback differs"
+                    )
+                listener_pose = rig_snapshot["sensors"][_listener_uuid]
+                listener_positions.append(
+                    np.asarray(
+                        listener_pose["translation_m"], dtype=np.float64
+                    )
+                )
+                listener_rotations.append(
+                    np.asarray(
+                        listener_pose["rotation_xyzw"], dtype=np.float64
+                    )
+                )
                 before: list[Mapping[str, Any]] = []
                 action_rows: list[Mapping[str, Any]] = []
                 for index, actor in enumerate(actors):
@@ -284,11 +419,44 @@ def capture_two_m2_animal_paths(
                 rgb_frames.append(np.asarray(arrays["rgb"])[..., :3].astype(np.uint8, copy=True))
                 semantic_frames.append(np.asarray(arrays["semantic"]).copy())
                 visibility_frames.append(visible)
-                records.append({"frame_index": frame_index, "pts_ticks": frame_index * 3200, "actors": action_rows, "semantic_visibility_pixels": list(visible), "acoustic_source_centers_m": expected_centers[frame_index].tolist(), "observation_calls": 1})
+                records.append(
+                    {
+                        "frame_index": frame_index,
+                        "pts_ticks": frame_index * 3200,
+                        "actors": action_rows,
+                        "semantic_visibility_pixels": list(visible),
+                        "acoustic_source_centers_m": expected_centers[
+                            frame_index
+                        ].tolist(),
+                        "sensor_rig": {
+                            "trajectory_id": retained_rig_trajectory[
+                                "trajectory_id"
+                            ],
+                            "view_pose_hash": rig_frame["pose_hash"],
+                            "expected_world_from_rig": deepcopy(
+                                world_from_rig
+                            ),
+                            "agent_readback": rig_snapshot["agent"],
+                            "camera_readback": rig_snapshot["sensors"][
+                                modality_to_uuid["rgb"]
+                            ],
+                            "listener_readback": listener_pose,
+                            "sensor_readbacks": rig_snapshot["sensors"],
+                            "transform_errors": rig_errors,
+                        },
+                        "observation_calls": 1,
+                    }
+                )
 
         rgb = np.ascontiguousarray(np.stack(rgb_frames))
         semantic = np.ascontiguousarray(np.stack(semantic_frames))
         visibility = np.asarray(visibility_frames, dtype=np.int64)
+        listener_position_array = np.ascontiguousarray(
+            np.stack(listener_positions)
+        )
+        listener_rotation_array = np.ascontiguousarray(
+            np.stack(listener_rotations)
+        )
         if np.any(np.max(visibility, axis=0) <= 0):
             raise AssetBoundVisualReviewError("the camera never observed one requested actor")
         artifacts = {
@@ -297,7 +465,17 @@ def capture_two_m2_animal_paths(
             "actor_world_matrices": _save_array(output, "actor_world_matrices", actor_world_matrices),
             "acoustic_source_centers_m": _save_array(output, "acoustic_source_centers_m", expected_centers),
             "semantic_visibility_pixels": _save_array(output, "semantic_visibility_pixels", visibility),
+            "listener_positions_m": _save_array(
+                output, "listener_positions_m", listener_position_array
+            ),
+            "listener_rotations_xyzw": _save_array(
+                output,
+                "listener_rotations_xyzw",
+                listener_rotation_array,
+            ),
         }
+        trajectory_path = output / "sensor_rig_trajectory.json"
+        _write_json(trajectory_path, retained_rig_trajectory)
         records_path = output / "frame_readback.json"
         _write_json(records_path, records)
         evidence: dict[str, Any] = {
@@ -310,12 +488,33 @@ def capture_two_m2_animal_paths(
                 for index in range(2)
             ],
             "input_paths": {"room_manifest": {"path": str(Path(room_manifest_path).resolve()), "sha256": sha256_file(room_manifest_path)}, "m1_request": {"path": str(Path(m1_request_path).resolve()), "sha256": sha256_file(m1_request_path)}, "animals": [{"asset_manifest": {"path": str(inputs[index].asset_path), "sha256": sha256_file(inputs[index].asset_path)}, "m2_request": {"path": str(inputs[index].request_path), "sha256": sha256_file(inputs[index].request_path)}} for index in range(2)], "route_provenance": dict(route_provenance or {})},
-            "readback": {"maximum_root_error_m": dict(zip(actor_ids, maximum_root_error, strict=True)), "maximum_joint_quaternion_error": dict(zip(actor_ids, maximum_joint_error, strict=True)), "semantic_visible_frame_count": dict(zip(actor_ids, [int(np.count_nonzero(visibility[:, index] > 0)) for index in range(2)], strict=True)), "distinct_rendered_state_count_by_action": {actor_ids[index]: {action_id: len(values) for action_id, values in pose_hashes[index].items()} for index in range(2)}, "maximum_acoustic_center_reconstruction_error_m": 0.0, "frame_records": file_record(records_path, relative_to=output)},
+            "sensor_rig_trajectory": deepcopy(retained_rig_trajectory),
+            "sensor_rig_binding": {
+                "trajectory_id": retained_rig_trajectory["trajectory_id"],
+                "content_sha256": canonical_json_sha256(
+                    retained_rig_trajectory
+                ),
+                "artifact": file_record(
+                    trajectory_path, relative_to=output
+                ),
+            },
+            "readback": {"maximum_root_error_m": dict(zip(actor_ids, maximum_root_error, strict=True)), "maximum_joint_quaternion_error": dict(zip(actor_ids, maximum_joint_error, strict=True)), "maximum_sensor_rig_transform_error": maximum_rig_error, "semantic_visible_frame_count": dict(zip(actor_ids, [int(np.count_nonzero(visibility[:, index] > 0)) for index in range(2)], strict=True)), "distinct_rendered_state_count_by_action": {actor_ids[index]: {action_id: len(values) for action_id, values in pose_hashes[index].items()} for index in range(2)}, "maximum_acoustic_center_reconstruction_error_m": 0.0, "frame_records": file_record(records_path, relative_to=output)},
             "array_artifacts": artifacts,
         }
         evidence["evidence_content_sha256"] = canonical_json_sha256(evidence)
         _write_json(output / "evidence.json", evidence)
-        return TwoAnimalVisualCapture(output, rgb, semantic, actor_world_matrices, expected_centers, visibility, evidence)
+        return TwoAnimalVisualCapture(
+            output,
+            rgb,
+            semantic,
+            actor_world_matrices,
+            expected_centers,
+            visibility,
+            listener_position_array,
+            listener_rotation_array,
+            retained_rig_trajectory,
+            evidence,
+        )
     except (HabitatCaptureError, OSError, ValueError) as exc:
         raise AssetBoundVisualReviewError(str(exc)) from exc
 

@@ -45,6 +45,7 @@ from avengine.optional_backends.spear_apartment import (
     build_topdown_visual_command,
     contiguous_episode_shard,
     load_apartment_lighting_profile,
+    materialize_camera_states,
     summarize_actor_bounds,
     summarize_anatomical_forward_readbacks,
     summarize_root_readbacks,
@@ -641,6 +642,23 @@ def _apply_camera(camera: Any, camera_plan: Mapping[str, Any]) -> None:
     )
 
 
+def _apply_camera_state_and_readback(
+    camera: Any,
+    camera_state: Mapping[str, Any],
+    frame_index: int,
+) -> dict[str, Any]:
+    """Apply the current formal-frame camera state and bind its readback."""
+
+    if camera_state.get("frame_index") not in (None, frame_index):
+        raise RuntimeError(
+            f"camera state frame order changed at frame {frame_index}"
+        )
+    _apply_camera(camera, camera_state)
+    record = _actor_readback(camera, frame_index)
+    record["expected_pose_hash"] = camera_state.get("pose_hash")
+    return record
+
+
 def _apply_actor_state(
     runtime: dict[str, Any], state: Mapping[str, Any], frame_index: int
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -992,7 +1010,7 @@ def _render_scenario(
         frames_root.mkdir()
     ue_video = scenario_root / "ue_visual_only.mp4"
     plan = scenario["plan"]
-    camera_plan = plan["camera"]
+    camera_states = materialize_camera_states(plan)
 
     # A view-specific warmup follows the suite-wide world step.  It must drive
     # actual SceneCapture readbacks: otherwise the first kept frames can be
@@ -1004,7 +1022,7 @@ def _render_scenario(
         capture=capture,
         runtimes=runtimes,
         actor_states=plan["frames"][0]["actor_states"],
-        camera_plan=camera_plan,
+        camera_plan=camera_states[0],
     )
     phase_wall_seconds["camera_warmup"] = _elapsed_seconds(phase_started)
 
@@ -1027,7 +1045,9 @@ def _render_scenario(
     visual_forward_readbacks = {actor_id: [] for actor_id in runtimes}
     camera_readbacks = []
     try:
-        for frame_index, frame in enumerate(plan["frames"]):
+        for frame_index, (frame, camera_state) in enumerate(
+            zip(plan["frames"], camera_states)
+        ):
             with instance.begin_frame():
                 for state in frame["actor_states"]:
                     actor_id = state["actor_id"]
@@ -1047,8 +1067,11 @@ def _render_scenario(
                                 ),
                             )
                         )
-                _apply_camera(camera, camera_plan)
-                camera_readbacks.append(_actor_readback(camera, frame_index))
+                camera_readbacks.append(
+                    _apply_camera_state_and_readback(
+                        camera, camera_state, frame_index
+                    )
+                )
             with instance.end_frame():
                 image = _read_frame(capture).copy()
                 for actor_id, runtime in runtimes.items():
@@ -1115,8 +1138,8 @@ def _render_scenario(
         expected_frames=plan["frames"],
         actor_readbacks=actor_readbacks,
         camera_readbacks=camera_readbacks,
-        camera_position_cm=camera_plan["ue_position_cm"],
-        camera_yaw_deg=camera_plan["ue_yaw_deg"],
+        camera_position_cm=plan["camera"].get("ue_position_cm"),
+        camera_yaw_deg=plan["camera"].get("ue_yaw_deg"),
     )
     animation_gate = {}
     for actor_id, records in animation_readbacks.items():
@@ -1611,10 +1634,11 @@ def run(args: argparse.Namespace) -> Path:
     try:
         phase_started = time.perf_counter()
         first = pending_scenarios[0]
+        first_camera_state = materialize_camera_states(first["plan"])[0]
         with instance.begin_frame():
             camera, capture = _spawn_camera(game)
             light_records = _spawn_generated_lights(game, lighting_profile)
-            _apply_camera(camera, first["plan"]["camera"])
+            _apply_camera(camera, first_camera_state)
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
             )
@@ -1629,9 +1653,12 @@ def run(args: argparse.Namespace) -> Path:
         for scenario in pending_scenarios:
             episode_started = time.perf_counter()
             phase_started = time.perf_counter()
+            scenario_camera_state = materialize_camera_states(
+                scenario["plan"]
+            )[0]
             with instance.begin_frame():
                 runtimes = _spawn_runtime_actors(game, scenario, spear_root)
-                _apply_camera(camera, scenario["plan"]["camera"])
+                _apply_camera(camera, scenario_camera_state)
                 for state in scenario["plan"]["frames"][0]["actor_states"]:
                     _apply_actor_state(runtimes[state["actor_id"]], state, 0)
             with instance.end_frame():

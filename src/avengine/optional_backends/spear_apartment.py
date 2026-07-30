@@ -23,7 +23,10 @@ from avengine.optional_backends.spear_visual import (
     FRAME_COUNT,
     PLAN_SCHEMA,
     build_spear_visual_plan_from_files,
+    camera_ue_yaw_degrees,
+    habitat_point_to_apartment_ue_cm,
 )
+from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
 from avengine.runtime_profiles import (
     load_default_room_runtime_profile_registry,
     load_default_source_asset_runtime_registry,
@@ -696,7 +699,7 @@ def asset_bound_episode_input_paths(
     episode = root / "episodes" / episode_id
     metadata = episode / "metadata"
     videos = episode / "videos"
-    return {
+    paths = {
         "timeline": _direct_file(metadata / "timeline.json", owner="Timeline"),
         "source_manifest": _direct_file(
             metadata / "source_manifest.json", owner="source manifest"
@@ -719,6 +722,12 @@ def asset_bound_episode_input_paths(
             owner="diagnostic Topdown review",
         ),
     }
+    sensor_rig_trajectory = metadata / "sensor_rig_trajectory.json"
+    if sensor_rig_trajectory.exists():
+        paths["sensor_rig_trajectory"] = _direct_file(
+            sensor_rig_trajectory, owner="SensorRigTrajectory"
+        )
+    return paths
 
 
 def _attach_exact_asset_bound_runtime_bindings(
@@ -843,6 +852,185 @@ def _attach_exact_asset_bound_runtime_bindings(
         actor["exact_runtime_binding"] = deepcopy(dict(exact))
 
 
+def materialize_camera_states(
+    plan: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    """Return one validated expected UE camera state per formal frame.
+
+    Current plans carry ``frames[].camera_state``.  Historical retained plans
+    are accepted only when every frame lacks that field, in which case the old
+    top-level fixed pose is repeated explicitly.  A partially upgraded plan is
+    rejected rather than mixing moving metadata with a fixed renderer.
+    """
+
+    # Lazy for the same reason as spear_visual._compiled_camera_states: the
+    # formal SensorRig contract must remain independently importable.
+    from avengine.sensor_rig_trajectory import (
+        SensorRigTrajectoryError,
+        compute_sensor_rig_pose_hash,
+    )
+
+    camera = plan.get("camera")
+    frames = plan.get("frames")
+    if not isinstance(camera, Mapping):
+        raise SpearApartmentError("compiled plan has no camera")
+    if not isinstance(frames, Sequence) or isinstance(frames, (str, bytes)):
+        raise SpearApartmentError("compiled plan frames must be a sequence")
+    if len(frames) != FRAME_COUNT or not all(
+        isinstance(frame, Mapping) for frame in frames
+    ):
+        raise SpearApartmentError("camera state materialization requires 75 frames")
+
+    per_frame = [frame.get("camera_state") for frame in frames]
+    present = [state is not None for state in per_frame]
+    if any(present) and not all(present):
+        raise SpearApartmentError(
+            "compiled plan only partially provides per-frame camera_state"
+        )
+
+    if not any(present):
+        position = _finite_triplet(
+            camera.get("ue_position_cm"), owner="legacy camera.ue_position_cm"
+        )
+        yaw = camera.get("ue_yaw_deg")
+        if (
+            isinstance(yaw, bool)
+            or not isinstance(yaw, (int, float))
+            or not math.isfinite(float(yaw))
+        ):
+            raise SpearApartmentError("legacy camera.ue_yaw_deg must be finite")
+        return tuple(
+            {
+                "frame_index": frame_index,
+                "pts_ticks": frame_index * 3_200,
+                "ue_position_cm": list(position),
+                "ue_yaw_deg": float(yaw),
+                "state_source": "legacy_top_level_fixed_camera_compatibility",
+            }
+            for frame_index in range(FRAME_COUNT)
+        )
+
+    result: list[dict[str, Any]] = []
+    for frame_index, (frame, state) in enumerate(zip(frames, per_frame)):
+        assert isinstance(frame, Mapping)
+        if not isinstance(state, Mapping):
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state must be a mapping"
+            )
+        if (
+            frame.get("frame_index") != frame_index
+            or frame.get("pts_ticks") != frame_index * 3_200
+            or state.get("frame_index") != frame_index
+            or state.get("pts_ticks") != frame_index * 3_200
+        ):
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state is off the Timeline clock"
+            )
+        world_from_rig = state.get("world_from_rig")
+        if not isinstance(world_from_rig, Mapping):
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state lacks world_from_rig"
+            )
+        try:
+            expected_hash = compute_sensor_rig_pose_hash(world_from_rig)
+        except SensorRigTrajectoryError as exc:
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state world_from_rig is invalid: {exc}"
+            ) from exc
+        if state.get("pose_hash") != expected_hash:
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state pose_hash does not bind "
+                "world_from_rig"
+            )
+        habitat_position = _finite_triplet(
+            state.get("habitat_position_m"),
+            owner=f"frame {frame_index} camera_state.habitat_position_m",
+        )
+        world_position = _finite_triplet(
+            world_from_rig.get("translation_m"),
+            owner=(
+                f"frame {frame_index} camera_state."
+                "world_from_rig.translation_m"
+            ),
+        )
+        if max(
+            abs(habitat_position[axis] - world_position[axis])
+            for axis in range(3)
+        ) > 1.0e-9:
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state Habitat position is not "
+                "derived from world_from_rig"
+            )
+        try:
+            expected_habitat_yaw = habitat_yaw_degrees_from_xyzw(
+                world_from_rig.get("rotation_xyzw")
+            )
+        except (TypeError, ValueError) as exc:
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state rotation is invalid"
+            ) from exc
+        habitat_yaw = state.get("habitat_yaw_deg")
+        ue_yaw = state.get("ue_yaw_deg")
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in (habitat_yaw, ue_yaw)
+        ):
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state yaw is not finite"
+            )
+        if abs(
+            wrap_angle_difference_degrees(
+                float(habitat_yaw), expected_habitat_yaw
+            )
+        ) > 1.0e-9:
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state Habitat yaw is not derived "
+                "from world_from_rig"
+            )
+        ue_position = _finite_triplet(
+            state.get("ue_position_cm"),
+            owner=f"frame {frame_index} camera_state.ue_position_cm",
+        )
+        expected_ue_position = habitat_point_to_apartment_ue_cm(world_position)
+        if max(
+            abs(ue_position[axis] - expected_ue_position[axis])
+            for axis in range(3)
+        ) > 1.0e-7:
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state UE position is not derived "
+                "from world_from_rig"
+            )
+        expected_ue_yaw = camera_ue_yaw_degrees(expected_habitat_yaw)
+        if abs(
+            wrap_angle_difference_degrees(float(ue_yaw), expected_ue_yaw)
+        ) > 1.0e-9:
+            raise SpearApartmentError(
+                f"frame {frame_index} camera_state UE yaw is not derived from "
+                "world_from_rig"
+            )
+        result.append(deepcopy(dict(state)))
+
+    first = result[0]
+    if (
+        _finite_triplet(
+            camera.get("ue_position_cm"), owner="camera default ue_position_cm"
+        )
+        != first["ue_position_cm"]
+        or abs(
+            wrap_angle_difference_degrees(
+                camera.get("ue_yaw_deg"), first["ue_yaw_deg"]
+            )
+        )
+        > 1.0e-9
+    ):
+        raise SpearApartmentError(
+            "top-level camera default differs from frame-zero camera_state"
+        )
+    return tuple(result)
+
+
 def _validate_native_plan(
     plan: Mapping[str, Any],
     *,
@@ -895,6 +1083,7 @@ def _validate_native_plan(
         )
     if len(plan.get("frames", ())) != FRAME_COUNT:
         raise SpearApartmentError("native comparison requires exactly 75 frames")
+    materialize_camera_states(plan)
     actor_ids = [actor.get("actor_id") for actor in plan.get("actors", ())]
     if actor_ids not in (
         ["dog0", "human0"],
@@ -925,6 +1114,7 @@ def _build_native_apartment_scenario_from_paths(
         room_capsule_path=paths["room_capsule"],
         qualification_path=paths["qualification"],
         actor_bindings=actor_bindings,
+        sensor_rig_trajectory_path=paths.get("sensor_rig_trajectory"),
     )
     room_profile = _validated_room_runtime_profile(room_runtime_profile)
     _validate_native_plan(
@@ -1302,8 +1492,8 @@ def summarize_root_readbacks(
     expected_frames: Sequence[Mapping[str, Any]],
     actor_readbacks: Mapping[str, Sequence[Mapping[str, Any]]],
     camera_readbacks: Sequence[Mapping[str, Any]],
-    camera_position_cm: Sequence[float],
-    camera_yaw_deg: float,
+    camera_position_cm: Sequence[float] | None = None,
+    camera_yaw_deg: float | None = None,
 ) -> dict[str, Any]:
     """Fail closed on UE actor/camera root drift without inventing new QA."""
 
@@ -1356,22 +1546,89 @@ def summarize_root_readbacks(
             "maximum_yaw_error_deg": maximum_yaw,
         }
 
+    declared_camera_states = [
+        frame.get("camera_state") if isinstance(frame, Mapping) else None
+        for frame in expected_frames
+    ]
+    if any(state is not None for state in declared_camera_states) and not all(
+        isinstance(state, Mapping) for state in declared_camera_states
+    ):
+        raise SpearApartmentError(
+            "expected frames only partially provide camera_state"
+        )
+    if all(isinstance(state, Mapping) for state in declared_camera_states):
+        expected_camera_states = declared_camera_states
+        per_frame_camera_state = True
+    else:
+        if camera_position_cm is None or camera_yaw_deg is None:
+            raise SpearApartmentError(
+                "legacy root readback requires the fixed camera pose"
+            )
+        fixed_position = _finite_triplet(
+            camera_position_cm, owner="legacy expected camera position"
+        )
+        if (
+            isinstance(camera_yaw_deg, bool)
+            or not isinstance(camera_yaw_deg, (int, float))
+            or not math.isfinite(float(camera_yaw_deg))
+        ):
+            raise SpearApartmentError("legacy expected camera yaw must be finite")
+        expected_camera_states = [
+            {
+                "frame_index": frame_index,
+                "ue_position_cm": fixed_position,
+                "ue_yaw_deg": float(camera_yaw_deg),
+            }
+            for frame_index in range(FRAME_COUNT)
+        ]
+        per_frame_camera_state = False
+
     camera_position_errors = []
     camera_yaw_errors = []
-    for frame_index, record in enumerate(camera_readbacks):
+    checked_pose_hash_count = 0
+    for frame_index, (record, expected_camera) in enumerate(
+        zip(camera_readbacks, expected_camera_states)
+    ):
+        assert isinstance(expected_camera, Mapping)
         if record.get("frame_index") != frame_index:
             raise SpearApartmentError("camera readback frame order changed")
+        if expected_camera.get("frame_index") != frame_index:
+            raise SpearApartmentError("expected camera state frame order changed")
+        expected_pose_hash = expected_camera.get("pose_hash")
+        if expected_pose_hash is not None:
+            if record.get("expected_pose_hash") != expected_pose_hash:
+                raise SpearApartmentError(
+                    "UE camera readback pose hash differs from "
+                    f"frame {frame_index} camera_state"
+                )
+            checked_pose_hash_count += 1
+        expected_position = _finite_triplet(
+            expected_camera.get("ue_position_cm"),
+            owner=f"expected camera state {frame_index} position",
+        )
+        expected_yaw = expected_camera.get("ue_yaw_deg")
+        if (
+            isinstance(expected_yaw, bool)
+            or not isinstance(expected_yaw, (int, float))
+            or not math.isfinite(float(expected_yaw))
+        ):
+            raise SpearApartmentError(
+                f"expected camera state {frame_index} yaw must be finite"
+            )
         camera_position_errors.append(
             max(
                 abs(
-                    float(record["location_cm"][axis]) - float(camera_position_cm[axis])
+                    float(record["location_cm"][axis])
+                    - float(expected_position[axis])
                 )
                 for axis in range(3)
             )
         )
         camera_yaw_errors.append(
             abs(
-                wrap_angle_difference_degrees(record["rotation_deg"][2], camera_yaw_deg)
+                wrap_angle_difference_degrees(
+                    record["rotation_deg"][2], float(expected_yaw)
+                )
             )
         )
     maximum_camera_position = max(camera_position_errors)
@@ -1385,6 +1642,15 @@ def summarize_root_readbacks(
         "status": "pass",
         "maximum_position_error_cm": maximum_camera_position,
         "maximum_yaw_error_deg": maximum_camera_yaw,
+        "per_frame_camera_state": per_frame_camera_state,
+        "checked_pose_hash_count": checked_pose_hash_count,
+        "unique_expected_pose_hash_count": len(
+            {
+                state.get("pose_hash")
+                for state in expected_camera_states
+                if isinstance(state, Mapping) and state.get("pose_hash") is not None
+            }
+        ),
     }
     return summaries
 
@@ -1854,6 +2120,7 @@ __all__ = [
     "component_frame_delta_for_asset",
     "detached_suite_copy",
     "load_apartment_lighting_profile",
+    "materialize_camera_states",
     "resolve_apartment_lighting_profile",
     "scenario_input_paths",
     "motion_pilot_input_paths",

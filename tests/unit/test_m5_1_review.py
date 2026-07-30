@@ -67,6 +67,44 @@ def test_source_geometry_uses_habitat_forward_and_positive_right_azimuth() -> No
     assert _source_geometry((0.0, 0.0, 2.0), listener, 90.0) == (2.0, -90.0)
 
 
+def test_compose_uses_matching_listener_pose_for_each_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[float, ...], float]] = []
+
+    def recording_geometry(source, listener, yaw):
+        calls.append(
+            (
+                tuple(float(value) for value in listener),
+                float(yaw),
+            )
+        )
+        return (1.0, 2.0)
+
+    monkeypatch.setattr(
+        "avengine.m5_1.review._source_geometry", recording_geometry
+    )
+    compose_annotated_frames(
+        main_rgb=np.zeros((2, 24, 32, 3), dtype=np.uint8),
+        topdown_rgb=np.zeros((2, 24, 32, 3), dtype=np.uint8),
+        tracks=(_track("human0", (42, 210, 220)),),
+        clip_id="clip",
+        room_id="room",
+        listener_position_m=(0.0, 1.0, 0.0),
+        listener_yaw_deg=0.0,
+        listener_positions_m_by_frame=(
+            (0.0, 1.0, 0.0),
+            (1.0, 1.0, 0.5),
+        ),
+        listener_yaws_deg_by_frame=(0.0, 90.0),
+        center_gate_pass=True,
+    )
+    assert calls == [
+        ((0.0, 1.0, 0.0), 0.0),
+        ((1.0, 1.0, 0.5), 90.0),
+    ]
+
+
 def test_compose_rejects_event_length_mismatch() -> None:
     track = _track("human0", (42, 210, 220))
     bad = SourceOverlayTrack(

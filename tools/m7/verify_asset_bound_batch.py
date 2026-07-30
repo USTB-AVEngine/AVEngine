@@ -31,6 +31,13 @@ from avengine.m6.audio_program import (
     materialize_audio_program_variant,
     validate_audio_program,
 )
+from avengine.m6x.room_feasibility import rir_acoustic_state_sha256
+from avengine.m7.sensor_rig import (
+    M7SensorRigError,
+    m7_sensor_rig_binding,
+    m7_sensor_rig_pose_series,
+    validate_m7_rir_listener_alignment,
+)
 
 
 FRAME_COUNT = 75
@@ -322,6 +329,261 @@ def _finite_paths(value: Any, *, owner: str) -> np.ndarray:
     if paths.shape != (2, FRAME_COUNT, 3) or not np.all(np.isfinite(paths)):
         raise BatchVerificationError(f"{owner} must be finite [2,75,3]")
     return np.ascontiguousarray(paths)
+
+
+def _same_orientation(first: np.ndarray, second: np.ndarray) -> bool:
+    return (
+        first.shape == (4,)
+        and second.shape == (4,)
+        and np.all(np.isfinite(first))
+        and np.all(np.isfinite(second))
+        and np.isclose(
+            abs(float(np.dot(first, second))),
+            1.0,
+            rtol=0.0,
+            atol=1.0e-9,
+        )
+    )
+
+
+def _verify_sensor_rig_closure(
+    *, plan_root: Path, batch_root: Path
+) -> dict[str, Any]:
+    """Verify the optional plan -> cache evidence -> batch rig closure."""
+
+    rir_plan = _json(plan_root / "rir_job_plan.json")
+    pose_mode = rir_plan.get("listener_pose_mode", "fixed")
+    if pose_mode not in {"fixed", "per_episode_frame"}:
+        raise BatchVerificationError(
+            f"unsupported RIR listener_pose_mode: {pose_mode!r}"
+        )
+    plan_sidecar = plan_root / "sensor_rig_trajectory.json"
+    batch_sidecar = batch_root / "labels" / "sensor_rig_trajectory.json"
+    plan_has_sidecar = plan_sidecar.exists() or plan_sidecar.is_symlink()
+    batch_has_sidecar = batch_sidecar.exists() or batch_sidecar.is_symlink()
+    delivery = _json(batch_root / "delivery.json")
+    samples_value = _json(batch_root / "samples.json").get("samples")
+    episodes_value = _json(batch_root / "episodes.json").get("episodes")
+    samples = samples_value if isinstance(samples_value, list) else []
+    episodes = episodes_value if isinstance(episodes_value, list) else []
+
+    if not plan_has_sidecar:
+        if pose_mode == "per_episode_frame":
+            raise BatchVerificationError(
+                "per_episode_frame RIR plan lacks sensor_rig_trajectory.json"
+            )
+        if (
+            batch_has_sidecar
+            or delivery.get("sensor_rig_trajectory") is not None
+            or any(
+                isinstance(row, Mapping)
+                and row.get("sensor_rig_trajectory") is not None
+                for row in (*samples, *episodes)
+            )
+        ):
+            raise BatchVerificationError(
+                "legacy fixed plan has an unbound batch sensor-rig declaration"
+            )
+        return {
+            "listener_pose_mode": "fixed",
+            "binding": None,
+            "checked_cached_use_count": 0,
+            "compatibility": "legacy_fixed_plan_without_sidecar",
+        }
+
+    if not plan_sidecar.is_file():
+        raise BatchVerificationError(
+            "plan sensor_rig_trajectory.json is not a regular file"
+        )
+    trajectory = _json(plan_sidecar)
+    try:
+        binding = m7_sensor_rig_binding(trajectory)
+        poses = m7_sensor_rig_pose_series(trajectory)
+        alignment = validate_m7_rir_listener_alignment(
+            rir_job_plan=rir_plan,
+            sensor_rig_trajectory=trajectory,
+        )
+    except M7SensorRigError as exc:
+        raise BatchVerificationError(
+            f"plan sensor-rig/RIR alignment is invalid: {exc}"
+        ) from exc
+    if not batch_has_sidecar or not batch_sidecar.is_file():
+        raise BatchVerificationError("batch sensor-rig sidecar is missing")
+    batch_trajectory = _json(batch_sidecar)
+    if (
+        batch_sidecar.read_bytes() != plan_sidecar.read_bytes()
+        or batch_trajectory != trajectory
+        or m7_sensor_rig_binding(batch_trajectory) != binding
+    ):
+        raise BatchVerificationError(
+            "batch sensor-rig sidecar differs from the plan"
+        )
+    outputs = delivery.get("outputs")
+    if (
+        delivery.get("sensor_rig_trajectory") != binding
+        or delivery.get("sensor_rig_rir_alignment") != alignment
+        or not isinstance(outputs, Mapping)
+        or outputs.get("sensor_rig_trajectory")
+        != "labels/sensor_rig_trajectory.json"
+    ):
+        raise BatchVerificationError(
+            "batch delivery sensor-rig binding differs from the plan"
+        )
+    for owner, rows in (("sample", samples), ("episode", episodes)):
+        for row in rows:
+            if (
+                not isinstance(row, Mapping)
+                or row.get("sensor_rig_trajectory") != binding
+            ):
+                raise BatchVerificationError(
+                    f"batch {owner} sensor-rig binding differs from the plan"
+                )
+
+    raw_jobs = rir_plan.get("jobs")
+    if not isinstance(raw_jobs, list) or not raw_jobs:
+        raise BatchVerificationError("RIR plan has no jobs for sensor-rig verification")
+    jobs_by_id: dict[str, Mapping[str, Any]] = {}
+    jobs_by_use: dict[tuple[str, str, int], Mapping[str, Any]] = {}
+    for job in raw_jobs:
+        job_id = job.get("job_id") if isinstance(job, Mapping) else None
+        uses = job.get("uses") if isinstance(job, Mapping) else None
+        if (
+            not isinstance(job_id, str)
+            or job_id in jobs_by_id
+            or not isinstance(uses, list)
+            or not uses
+        ):
+            raise BatchVerificationError(
+                "RIR plan jobs are invalid for sensor-rig verification"
+            )
+        jobs_by_id[job_id] = job
+        for use in uses:
+            if not isinstance(use, Mapping):
+                raise BatchVerificationError("RIR plan use is malformed")
+            episode_id = use.get("episode_id")
+            source_slot = use.get("source_slot_id")
+            frame_index = use.get("frame_index")
+            if (
+                not isinstance(episode_id, str)
+                or not episode_id
+                or source_slot not in SOURCE_SLOTS
+                or isinstance(frame_index, bool)
+                or not isinstance(frame_index, int)
+                or not 0 <= frame_index < len(poses.pose_hashes)
+            ):
+                raise BatchVerificationError(
+                    "RIR plan use mapping is invalid"
+                )
+            key = (episode_id, source_slot, frame_index)
+            if key in jobs_by_use:
+                raise BatchVerificationError("RIR plan use mapping is duplicated")
+            jobs_by_use[key] = job
+
+    checked_cached_uses = 0
+    for episode in episodes:
+        assert isinstance(episode, Mapping)
+        episode_id = episode.get("episode_id")
+        cache = episode.get("rir_cache")
+        cached_jobs = cache.get("jobs") if isinstance(cache, Mapping) else None
+        if not isinstance(episode_id, str) or not isinstance(cached_jobs, list):
+            raise BatchVerificationError(
+                "episode cache evidence is invalid for sensor-rig verification"
+            )
+        for cached in cached_jobs:
+            if not isinstance(cached, Mapping):
+                raise BatchVerificationError("cached RIR use is malformed")
+            slot = cached.get("source_slot_id")
+            frame = cached.get("visual_frame_index")
+            job_id = cached.get("job_id")
+            if (
+                slot not in SOURCE_SLOTS
+                or isinstance(frame, bool)
+                or not isinstance(frame, int)
+                or not 0 <= frame < len(poses.pose_hashes)
+                or not isinstance(job_id, str)
+            ):
+                raise BatchVerificationError("cached RIR use identity is invalid")
+            planned = jobs_by_use.get((episode_id, slot, frame))
+            if planned is None or jobs_by_id.get(job_id) is not planned:
+                raise BatchVerificationError(
+                    "cached RIR use differs from its episode/source/frame plan mapping"
+                )
+            planned_source = np.asarray(
+                planned.get("source_position_m"), dtype=np.float64
+            )
+            planned_listener = np.asarray(
+                planned.get(
+                    "listener_position_m",
+                    rir_plan.get("listener_position_m"),
+                ),
+                dtype=np.float64,
+            )
+            planned_orientation = np.asarray(
+                planned.get(
+                    "listener_orientation_wxyz",
+                    rir_plan.get("listener_orientation_wxyz"),
+                ),
+                dtype=np.float64,
+            )
+            cached_listener = np.asarray(
+                cached.get("listener_position_m"), dtype=np.float64
+            )
+            cached_orientation = np.asarray(
+                cached.get("listener_orientation_wxyz"), dtype=np.float64
+            )
+            expected_listener = poses.positions_m[frame]
+            expected_orientation = poses.orientations_wxyz[frame]
+            if (
+                planned_source.shape != (3,)
+                or not np.all(np.isfinite(planned_source))
+                or planned_listener.shape != (3,)
+                or cached_listener.shape != (3,)
+                or not np.allclose(
+                    planned_listener,
+                    expected_listener,
+                    rtol=0.0,
+                    atol=1.0e-9,
+                )
+                or not np.allclose(
+                    cached_listener,
+                    expected_listener,
+                    rtol=0.0,
+                    atol=1.0e-9,
+                )
+                or not _same_orientation(
+                    planned_orientation, expected_orientation
+                )
+                or not _same_orientation(
+                    cached_orientation, expected_orientation
+                )
+            ):
+                raise BatchVerificationError(
+                    "cached RIR Listener pose differs from plan/trajectory"
+                )
+            state_sha256 = rir_acoustic_state_sha256(
+                planned_source,
+                planned_listener,
+                planned_orientation,
+            )
+            if (
+                planned.get("acoustic_state_sha256", state_sha256)
+                != state_sha256
+                or cached.get("acoustic_state_sha256") != state_sha256
+            ):
+                raise BatchVerificationError(
+                    "cached RIR acoustic-state identity differs from plan/trajectory"
+                )
+            checked_cached_uses += 1
+    if checked_cached_uses != len(jobs_by_use):
+        raise BatchVerificationError(
+            "batch cache evidence does not cover every sensor-rig-bound RIR use"
+        )
+    return {
+        "listener_pose_mode": pose_mode,
+        "binding": binding,
+        "rir_alignment": alignment,
+        "checked_cached_use_count": checked_cached_uses,
+    }
 
 
 def _bank(plan_root: Path) -> tuple[dict[str, int], np.ndarray, Mapping[str, Any]]:
@@ -706,6 +968,10 @@ def verify(
         raise BatchVerificationError(f"refusing to replace report: {output}")
     plan_root = plan_root.resolve()
     batch_root = batch_root.resolve()
+    sensor_rig = _verify_sensor_rig_closure(
+        plan_root=plan_root,
+        batch_root=batch_root,
+    )
     indices, centers, bank_record = _bank(plan_root)
     clearances = _assert_center_gate(plan_root, tuple(indices))
     rir = _assert_rir_uses(plan_root, indices, centers)
@@ -743,6 +1009,7 @@ def verify(
             "minimum_source_center_clearance_m": min(clearances.values()),
         },
         "rir_plan": rir,
+        "sensor_rig_trajectory": sensor_rig,
         "episode_cache_index": episode_cache,
         "batch": batch,
         "reference_byte_comparison": reference,

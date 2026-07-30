@@ -24,6 +24,20 @@ from avengine.m5_1.review import (
     compose_annotated_frames,
     encode_annotated_review,
 )
+from avengine.m7.sensor_rig import (
+    M7SensorRigError,
+    m7_sensor_rig_binding,
+    m7_sensor_rig_pose_series,
+)
+from avengine.optional_backends.spear_apartment import (
+    POSITION_TOLERANCE_CM,
+    ROTATION_TOLERANCE_DEGREES,
+    wrap_angle_difference_degrees,
+)
+from avengine.optional_backends.spear_visual import (
+    camera_ue_yaw_degrees,
+    habitat_point_to_apartment_ue_cm,
+)
 from avengine.m6x.geometry import (
     RuntimeObstacleMap,
     evaluate_source_center_gate,
@@ -265,6 +279,231 @@ def _validate_visual_binding(
     }
 
 
+def _validate_camera_readback_series(
+    records: Any,
+    *,
+    owner: str,
+    expected_pose_hashes: tuple[str, ...],
+    expected_positions_cm: np.ndarray,
+    expected_yaws_deg: np.ndarray,
+) -> dict[str, Any]:
+    """Validate one complete series of actual UE camera-root readbacks."""
+
+    expected_frame_count = len(expected_pose_hashes)
+    if not isinstance(records, list) or len(records) != expected_frame_count:
+        raise SpearApartmentReviewError(
+            f"{owner} must contain exactly {expected_frame_count} camera readbacks"
+        )
+    position_errors: list[float] = []
+    roll_errors: list[float] = []
+    pitch_errors: list[float] = []
+    yaw_errors: list[float] = []
+    checked_pose_hash_count = 0
+    for frame_index, record in enumerate(records):
+        if not isinstance(record, Mapping):
+            raise SpearApartmentReviewError(
+                f"{owner}[{frame_index}] must be an object"
+            )
+        if record.get("frame_index") != frame_index:
+            raise SpearApartmentReviewError(
+                f"{owner} frame order changed at frame {frame_index}"
+            )
+        try:
+            location = np.asarray(record["location_cm"], dtype=np.float64)
+            rotation = np.asarray(record["rotation_deg"], dtype=np.float64)
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise SpearApartmentReviewError(
+                f"{owner} lacks actual camera transform at frame {frame_index}"
+            ) from exc
+        if (
+            location.shape != (3,)
+            or rotation.shape != (3,)
+            or not np.all(np.isfinite(location))
+            or not np.all(np.isfinite(rotation))
+        ):
+            raise SpearApartmentReviewError(
+                f"{owner} lacks actual camera transform at frame {frame_index}"
+            )
+        position_error = float(
+            np.max(np.abs(location - expected_positions_cm[frame_index]))
+        )
+        yaw_error = abs(
+            wrap_angle_difference_degrees(
+                float(rotation[2]),
+                float(expected_yaws_deg[frame_index]),
+            )
+        )
+        roll_error = abs(
+            wrap_angle_difference_degrees(float(rotation[0]), 0.0)
+        )
+        pitch_error = abs(
+            wrap_angle_difference_degrees(float(rotation[1]), 0.0)
+        )
+        position_errors.append(position_error)
+        roll_errors.append(roll_error)
+        pitch_errors.append(pitch_error)
+        yaw_errors.append(yaw_error)
+        if (
+            position_error > POSITION_TOLERANCE_CM
+            or roll_error > ROTATION_TOLERANCE_DEGREES
+            or pitch_error > ROTATION_TOLERANCE_DEGREES
+            or yaw_error > ROTATION_TOLERANCE_DEGREES
+        ):
+            raise SpearApartmentReviewError(
+                "UE actual camera readback differs from "
+                f"SensorRigTrajectory at frame {frame_index}"
+            )
+        pose_hash = record.get("expected_pose_hash")
+        if pose_hash is not None:
+            if pose_hash != expected_pose_hashes[frame_index]:
+                raise SpearApartmentReviewError(
+                    "UE expected pose hash differs from "
+                    f"SensorRigTrajectory at frame {frame_index}"
+                )
+            checked_pose_hash_count += 1
+    if checked_pose_hash_count not in (0, expected_frame_count):
+        raise SpearApartmentReviewError(
+            f"{owner} only partially binds SensorRigTrajectory pose hashes"
+        )
+    return {
+        "frame_count": expected_frame_count,
+        "maximum_position_error_cm": max(position_errors),
+        "maximum_roll_error_deg": max(roll_errors),
+        "maximum_pitch_error_deg": max(pitch_errors),
+        "maximum_yaw_error_deg": max(yaw_errors),
+        "checked_pose_hash_count": checked_pose_hash_count,
+    }
+
+
+def _validate_ue_camera_readback_binding(
+    metadata_path: Path,
+    *,
+    expected_pose_hashes: tuple[str, ...],
+    listener_positions_m: np.ndarray,
+    listener_yaws_deg: np.ndarray,
+) -> dict[str, Any]:
+    """Cross-check actual UE camera readbacks against the formal rig."""
+
+    metadata = load_json(metadata_path)
+    root_readback = metadata.get("root_readback")
+    root_camera = (
+        root_readback.get("camera")
+        if isinstance(root_readback, Mapping)
+        else None
+    )
+    if (
+        not isinstance(root_camera, Mapping)
+        or root_camera.get("status") != "pass"
+    ):
+        raise SpearApartmentReviewError(
+            "UE root_readback.camera status did not pass"
+        )
+    documents: list[tuple[str, Mapping[str, Any], Path]] = [
+        ("visual_metadata", metadata, metadata_path)
+    ]
+    referenced_readbacks = metadata.get("runtime_readbacks")
+    readback_paths: list[Path] = []
+    if isinstance(referenced_readbacks, str) and referenced_readbacks:
+        readback_paths.append(
+            (metadata_path.parent / referenced_readbacks).resolve()
+        )
+    sibling_readbacks = metadata_path.parent / "runtime_readbacks.json"
+    if sibling_readbacks.is_file():
+        readback_paths.append(sibling_readbacks.resolve())
+    seen_paths = {metadata_path.resolve()}
+    for path in readback_paths:
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        if not path.is_file():
+            raise SpearApartmentReviewError(
+                f"declared UE runtime readback is missing: {path}"
+            )
+        readback = load_json(path)
+        if not isinstance(readback, Mapping):
+            raise SpearApartmentReviewError(
+                f"UE runtime readback must be an object: {path}"
+            )
+        documents.append(("runtime_readbacks", readback, path))
+
+    expected_positions_cm = np.asarray(
+        [
+            habitat_point_to_apartment_ue_cm(position.tolist())
+            for position in listener_positions_m
+        ],
+        dtype=np.float64,
+    )
+    expected_yaws_deg = np.asarray(
+        [camera_ue_yaw_degrees(yaw) for yaw in listener_yaws_deg],
+        dtype=np.float64,
+    )
+    checked: list[dict[str, Any]] = []
+    for document_id, document, path in documents:
+        candidates: list[tuple[str, Any]] = [
+            ("camera_root", document.get("camera_root")),
+            ("camera_readbacks", document.get("camera_readbacks")),
+        ]
+        embedded = document.get("runtime_readbacks")
+        if isinstance(embedded, Mapping):
+            candidates.extend(
+                (
+                    (
+                        "runtime_readbacks.camera_root",
+                        embedded.get("camera_root"),
+                    ),
+                    (
+                        "runtime_readbacks.camera_readbacks",
+                        embedded.get("camera_readbacks"),
+                    ),
+                )
+            )
+        for candidate_id, records in candidates:
+            if records is None:
+                continue
+            gate = _validate_camera_readback_series(
+                records,
+                owner=f"{document_id}.{candidate_id}",
+                expected_pose_hashes=expected_pose_hashes,
+                expected_positions_cm=expected_positions_cm,
+                expected_yaws_deg=expected_yaws_deg,
+            )
+            checked.append(
+                {
+                    "document": document_id,
+                    "field": candidate_id,
+                    "path": str(path.resolve()),
+                    "sha256": sha256_file(path),
+                    **gate,
+                }
+            )
+
+    if not checked:
+        raise SpearApartmentReviewError(
+            "UE per-frame actual camera readback series is missing"
+        )
+    return {
+        "status": "pass",
+        "root_readback_camera_status": "pass",
+        "checked_actual_readback_series_count": len(checked),
+        "checked_frame_count": len(expected_pose_hashes),
+        "maximum_position_error_cm": max(
+            record["maximum_position_error_cm"] for record in checked
+        ),
+        "maximum_roll_error_deg": max(
+            record["maximum_roll_error_deg"] for record in checked
+        ),
+        "maximum_pitch_error_deg": max(
+            record["maximum_pitch_error_deg"] for record in checked
+        ),
+        "maximum_yaw_error_deg": max(
+            record["maximum_yaw_error_deg"] for record in checked
+        ),
+        "position_tolerance_cm": POSITION_TOLERANCE_CM,
+        "yaw_tolerance_deg": ROTATION_TOLERANCE_DEGREES,
+        "sources": checked,
+    }
+
+
 def _display_label(source: Mapping[str, Any], source_id: str) -> str:
     asset_id = source.get("asset_id")
     if isinstance(asset_id, str) and asset_id:
@@ -280,6 +519,7 @@ def build_review(
     audio_path: Path,
     feasibility_root: Path,
     output_path: Path,
+    sensor_rig_trajectory_path: Path | None = None,
 ) -> Path:
     """Build one no-overwrite UE + Topdown v3 + binaural review."""
 
@@ -290,6 +530,11 @@ def build_review(
         audio_path,
         feasibility_root / "feasible_region.json",
         feasibility_root / "feasible_region_source1.npz",
+        *(
+            (sensor_rig_trajectory_path,)
+            if sensor_rig_trajectory_path is not None
+            else ()
+        ),
     )
     missing = [str(path) for path in paths if not path.is_file()]
     if missing:
@@ -327,6 +572,41 @@ def build_review(
     headings = _motion_headings(center_paths)
     listener = ssot_points_to_habitat([mic["pos_m"]])[0]
     listener_yaw = (float(mic["yaw_deg"]) - 90.0) % 360.0
+    listener_positions_m_by_frame = None
+    listener_yaws_deg_by_frame = None
+    sensor_rig_binding = None
+    ue_camera_readback_binding = None
+    if sensor_rig_trajectory_path is not None:
+        try:
+            sensor_rig_trajectory = load_json(sensor_rig_trajectory_path)
+            rig_poses = m7_sensor_rig_pose_series(sensor_rig_trajectory)
+            sensor_rig_binding = {
+                **m7_sensor_rig_binding(sensor_rig_trajectory),
+                "path": str(sensor_rig_trajectory_path.resolve()),
+                "file_sha256": sha256_file(sensor_rig_trajectory_path),
+            }
+        except (M7SensorRigError, OSError, ValueError) as exc:
+            raise SpearApartmentReviewError(
+                f"SensorRigTrajectory validation failed: {exc}"
+            ) from exc
+        if (
+            len(rig_poses.pose_hashes) != frame_count
+            or sensor_rig_trajectory.get("frame_count") != frame_count
+            or sensor_rig_trajectory.get("frame_rate_hz") != fps
+        ):
+            raise SpearApartmentReviewError(
+                "SensorRigTrajectory clock differs from the review video"
+            )
+        listener = rig_poses.positions_m[0]
+        listener_yaw = float(rig_poses.yaws_deg[0])
+        listener_positions_m_by_frame = rig_poses.positions_m
+        listener_yaws_deg_by_frame = rig_poses.yaws_deg
+        ue_camera_readback_binding = _validate_ue_camera_readback_binding(
+            visual_metadata_path,
+            expected_pose_hashes=rig_poses.pose_hashes,
+            listener_positions_m=rig_poses.positions_m,
+            listener_yaws_deg=rig_poses.yaws_deg,
+        )
     hfov = float(camera_configs[0]["fov_deg"])
 
     obstacle_map, pathfinder = _obstacle_map(feasibility_root)
@@ -368,6 +648,8 @@ def build_review(
         listener_position_m=listener,
         listener_yaw_deg=listener_yaw,
         camera_hfov_degrees=hfov,
+        listener_positions_m_by_frame=listener_positions_m_by_frame,
+        listener_yaws_deg_by_frame=listener_yaws_deg_by_frame,
         source_activity_by_frame=activity,
         source_heading_xz_by_frame=headings,
         source_labels=labels,
@@ -410,6 +692,8 @@ def build_review(
         review_stage_label="SPEAR/UE RGB + Habitat Topdown v3",
         listener_position_m=listener,
         listener_yaw_deg=listener_yaw,
+        listener_positions_m_by_frame=listener_positions_m_by_frame,
+        listener_yaws_deg_by_frame=listener_yaws_deg_by_frame,
         aggregate_true_flags=(
             "all_sources_active",
             "ue_rgb",
@@ -458,6 +742,11 @@ def build_review(
                 "equation": "[x,y,z] -> [-1.2+x,0.271+z,0.8-y]",
                 "listener_position_m": listener.tolist(),
                 "listener_yaw_deg": listener_yaw,
+                "listener_pose_mode": (
+                    "sensor_rig_trajectory_v1"
+                    if sensor_rig_binding is not None
+                    else "legacy_fixed_mic"
+                ),
                 "camera_hfov_degrees": hfov,
             },
             "topdown": {
@@ -469,6 +758,16 @@ def build_review(
             },
             "audio": audio,
             "media": dict(media),
+            **(
+                {
+                    "sensor_rig_trajectory": sensor_rig_binding,
+                    "ue_camera_readback_binding": (
+                        ue_camera_readback_binding
+                    ),
+                }
+                if sensor_rig_binding is not None
+                else {}
+            ),
         },
     )
     return output_path
@@ -482,6 +781,7 @@ def main() -> None:
     parser.add_argument("--audio", type=Path, required=True)
     parser.add_argument("--feasibility-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--sensor-rig-trajectory", type=Path)
     args = parser.parse_args()
     output = build_review(
         spec_path=args.spec.resolve(),
@@ -490,6 +790,11 @@ def main() -> None:
         audio_path=args.audio.resolve(),
         feasibility_root=args.feasibility_root.resolve(),
         output_path=args.output.resolve(),
+        sensor_rig_trajectory_path=(
+            args.sensor_rig_trajectory.resolve()
+            if args.sensor_rig_trajectory is not None
+            else None
+        ),
     )
     print(output)
 

@@ -42,6 +42,11 @@ from avengine.m7.room_evaluation import (
     RoomEvaluationError,
     validate_episode_id,
 )
+from avengine.m7.sensor_rig import (
+    M7SensorRigError,
+    m7_sensor_rig_binding,
+    validate_m7_rir_listener_alignment,
+)
 from avengine.security.path_policy import (
     WorkspacePathPolicy,
     atomic_publish_directory,
@@ -69,6 +74,7 @@ CACHE_ONLY_CONTROL_FLOW = (
 RESULT_CHANGING_CODE_FILES = (
     "tools/m7/render_room_evaluation_binaural.py",
     "src/avengine/m7/room_evaluation.py",
+    "src/avengine/m7/sensor_rig.py",
     "src/avengine/m7/asset_bound_audio.py",
     "src/avengine/m5_1/dry_audio.py",
     "src/avengine/m5/audio.py",
@@ -340,6 +346,9 @@ def _plan_closure(
     """Validate and bind the four documents that define one audio batch."""
 
     paths = {name: plan_root / name for name in PLAN_FILES}
+    sensor_rig_path = plan_root / "sensor_rig_trajectory.json"
+    if sensor_rig_path.is_file():
+        paths["sensor_rig_trajectory.json"] = sensor_rig_path
     if any(not path.is_file() for path in paths.values()):
         raise AssetBoundAudioError("room evaluation plan closure is incomplete")
     delivery = load_json(paths["delivery.json"])
@@ -347,6 +356,29 @@ def _plan_closure(
     sound = load_json(paths["sound_assignments.json"])
     rir_plan = load_json(paths["rir_job_plan.json"])
     jobs = validate_rir_job_plan(rir_plan)
+    sensor_rig_trajectory = (
+        load_json(paths["sensor_rig_trajectory.json"])
+        if "sensor_rig_trajectory.json" in paths
+        else None
+    )
+    listener_pose_mode = rir_plan.get("listener_pose_mode", "fixed")
+    if listener_pose_mode == "per_episode_frame" and sensor_rig_trajectory is None:
+        raise AssetBoundAudioError(
+            "per-frame Listener RIR plan lacks SensorRigTrajectory sidecar"
+        )
+    sensor_rig_binding = None
+    sensor_rig_alignment = None
+    if sensor_rig_trajectory is not None:
+        try:
+            sensor_rig_binding = m7_sensor_rig_binding(
+                sensor_rig_trajectory
+            )
+            sensor_rig_alignment = validate_m7_rir_listener_alignment(
+                rir_job_plan=rir_plan,
+                sensor_rig_trajectory=sensor_rig_trajectory,
+            )
+        except M7SensorRigError as exc:
+            raise AssetBoundAudioError(str(exc)) from exc
 
     assignment_ids = tuple(str(item["episode_id"]) for item in assignments)
     assignment_set = set(assignment_ids)
@@ -506,6 +538,28 @@ def _plan_closure(
     ):
         raise AssetBoundAudioError("RIR plan header or episode grid differs")
 
+    fixed_listener_differs = listener_pose_mode == "fixed" and (
+        delivery.get("listener_position_m")
+        != rir_plan.get("listener_position_m")
+        or delivery.get("listener_orientation_wxyz")
+        != rir_plan.get("listener_orientation_wxyz")
+    )
+    declared_sensor_rig = delivery.get("sensor_rig_trajectory")
+    sensor_rig_differs = (
+        sensor_rig_binding is None
+        and declared_sensor_rig is not None
+    ) or (
+        sensor_rig_binding is not None
+        and (
+            not isinstance(declared_sensor_rig, Mapping)
+            or declared_sensor_rig.get("trajectory_id")
+            != sensor_rig_binding["trajectory_id"]
+            or declared_sensor_rig.get("content_sha256")
+            != sensor_rig_binding["content_sha256"]
+            or delivery.get("listener_pose_mode")
+            != "sensor_rig_trajectory_v1"
+        )
+    )
     if (
         delivery.get("schema") != ROOM_EVALUATION_PLAN_SCHEMA
         or delivery.get("status") != "pass"
@@ -519,26 +573,25 @@ def _plan_closure(
         or delivery.get("motion_case_counts") != dict(declared_motion_counts)
         or delivery.get("sound_pair_counts")
         != dict(sorted(sound_pair_counts.items()))
-        or delivery.get("listener_position_m")
-        != rir_plan.get("listener_position_m")
-        or delivery.get("listener_orientation_wxyz")
-        != rir_plan.get("listener_orientation_wxyz")
+        or fixed_listener_differs
+        or sensor_rig_differs
         or delivery.get("unique_rir_job_count") != len(jobs)
         or delivery.get("requested_pair_state_count") != use_count
         or delivery.get("cache_reuse_count") != use_count - len(jobs)
     ):
         raise AssetBoundAudioError("room evaluation delivery header differs")
 
-    return {
+    result = {
         "schema": INPUT_CLOSURE_SCHEMA,
         "status": "pass",
         "episode_count": len(assignments),
         "frame_count": FRAME_COUNT,
         "frame_rate_hz": FRAME_RATE_HZ,
-        "listener_position_m": list(rir_plan["listener_position_m"]),
+        "listener_position_m": list(delivery["listener_position_m"]),
         "listener_orientation_wxyz": list(
-            rir_plan["listener_orientation_wxyz"]
+            delivery["listener_orientation_wxyz"]
         ),
+        "listener_pose_mode": listener_pose_mode,
         "unique_rir_job_count": len(jobs),
         "requested_pair_state_count": use_count,
         "files": {
@@ -546,6 +599,10 @@ def _plan_closure(
             for name, path in paths.items()
         },
     }
+    if sensor_rig_binding is not None:
+        result["sensor_rig_trajectory"] = sensor_rig_binding
+        result["sensor_rig_rir_alignment"] = sensor_rig_alignment
+    return result
 
 
 def _cache_closure(

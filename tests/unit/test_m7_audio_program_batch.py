@@ -5,9 +5,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from avengine.contracts.json_io import write_json
+from avengine.m6x.room_feasibility import rir_acoustic_state_sha256
 from avengine.m7.asset_bound_audio import AssetBoundAudioError
+from avengine.m7.sensor_rig import m7_sensor_rig_pose_series
+from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 from tools.m7.render_asset_bound_binaural_batch import (
     AudioProgramSpec,
+    _load_sensor_rig_contract,
     _prepare_audio_program_variants,
     audio_program_specs,
 )
@@ -16,6 +21,114 @@ from tools.m7.render_asset_bound_binaural_batch import (
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAMS = ROOT / "examples/m6x/fixed_apartment/audio_programs"
 REGISTRIES = ROOT / "examples/m6/registries"
+
+
+def _write_dynamic_sensor_rig_plan(root: Path) -> tuple[dict, dict]:
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="unit_dynamic_rig",
+        program={
+            "kind": "ROTATE_IN_PLACE",
+            "position_m": [0.0, 1.5, 0.0],
+            "start_yaw_deg": 0.0,
+            "end_yaw_deg": 90.0,
+            "yaw_interpolation": "SHORTEST_ARC",
+        },
+    )
+    poses = m7_sensor_rig_pose_series(trajectory)
+    jobs = []
+    for frame_index in (0, 3):
+        for source_ordinal, source_slot in enumerate(("source1", "source2")):
+            source_position = [float(source_ordinal + 1), 1.0, 2.0]
+            listener_position = poses.positions_m[frame_index].tolist()
+            listener_orientation = poses.orientations_wxyz[
+                frame_index
+            ].tolist()
+            jobs.append(
+                {
+                    "job_id": f"job_{frame_index}_{source_slot}",
+                    "source_position_m": source_position,
+                    "listener_position_m": listener_position,
+                    "listener_orientation_wxyz": listener_orientation,
+                    "acoustic_state_sha256": rir_acoustic_state_sha256(
+                        source_position,
+                        listener_position,
+                        listener_orientation,
+                    ),
+                    "uses": [
+                        {
+                            "episode_id": "episode0",
+                            "source_slot_id": source_slot,
+                            "frame_index": frame_index,
+                        }
+                    ],
+                }
+            )
+    plan = {
+        "schema": "avengine_room_rir_job_plan_v2",
+        "status": "planned_not_run",
+        "listener_pose_mode": "per_episode_frame",
+        "cache_key_fields": [
+            "source_position_m",
+            "listener_position_m",
+            "listener_orientation_wxyz",
+        ],
+        "requested_pair_state_count": len(jobs),
+        "unique_rir_job_count": len(jobs),
+        "jobs": jobs,
+    }
+    root.mkdir(parents=True)
+    write_json(root / "sensor_rig_trajectory.json", trajectory)
+    write_json(root / "rir_job_plan.json", plan)
+    return trajectory, plan
+
+
+def test_asset_bound_batch_loads_and_aligns_dynamic_sensor_rig(
+    tmp_path: Path,
+) -> None:
+    plan_root = tmp_path / "plan"
+    trajectory, _plan = _write_dynamic_sensor_rig_plan(plan_root)
+
+    contract = _load_sensor_rig_contract(plan_root)
+    assert contract is not None
+    assert contract["binding"]["trajectory_id"] == trajectory["trajectory_id"]
+    assert contract["binding"]["dynamic"] is True
+    assert contract["rir_alignment"] == {
+        "listener_pose_mode": "per_episode_frame",
+        "checked_use_count": 4,
+        "acoustic_state_binding": "source_listener_pose_per_job_v1",
+    }
+
+
+def test_asset_bound_batch_fails_closed_on_missing_or_misaligned_dynamic_rig(
+    tmp_path: Path,
+) -> None:
+    missing_root = tmp_path / "missing"
+    _trajectory, plan = _write_dynamic_sensor_rig_plan(missing_root)
+    (missing_root / "sensor_rig_trajectory.json").unlink()
+    with pytest.raises(AssetBoundAudioError, match="requires"):
+        _load_sensor_rig_contract(missing_root)
+
+    mismatch_root = tmp_path / "mismatch"
+    _write_dynamic_sensor_rig_plan(mismatch_root)
+    plan["jobs"][0]["listener_position_m"][0] += 1.0
+    write_json(mismatch_root / "rir_job_plan.json", plan)
+    with pytest.raises(AssetBoundAudioError, match="alignment"):
+        _load_sensor_rig_contract(mismatch_root)
+
+    fixed_root = tmp_path / "fixed"
+    fixed_root.mkdir()
+    write_json(
+        fixed_root / "rir_job_plan.json",
+        {
+            "schema": "avengine_room_rir_job_plan_v2",
+            "status": "planned_not_run",
+            "listener_position_m": [0.0, 1.5, 0.0],
+            "listener_orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+            "unique_rir_job_count": 1,
+            "jobs": [],
+        },
+    )
+    assert _load_sensor_rig_contract(fixed_root) is None
 
 
 def test_program_specs_default_to_a_and_require_aligned_variants() -> None:

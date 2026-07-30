@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 
+from avengine.contracts.json_io import canonical_json_sha256
 from avengine.m6x.geometry import (
     RuntimeObstacleMap,
     evaluate_source_center_gate,
@@ -32,6 +33,7 @@ from avengine.m6x.trajectory import (
 FEASIBLE_REGION_SCHEMA = "avengine_room_feasible_region_v1"
 TRAJECTORY_BANK_SCHEMA = "avengine_room_trajectory_bank_v2"
 RIR_JOB_PLAN_SCHEMA = "avengine_room_rir_job_plan_v2"
+RIR_ACOUSTIC_STATE_SCHEMA = "avengine_rir_acoustic_pair_state_v1"
 TRAJECTORY_COVERAGE_SCHEMA = "avengine_room_trajectory_coverage_v1"
 TRAJECTORY_DIVERSITY_SCHEMA = "avengine_room_trajectory_diversity_v1"
 SOURCE_SLOTS = ("source1", "source2")
@@ -45,6 +47,23 @@ MOTION_CASES = (
 
 class RoomFeasibilityError(ValueError):
     """A room region or sampled trajectory cannot be compiled safely."""
+
+
+def rir_acoustic_state_sha256(
+    source_position_m: Sequence[float],
+    listener_position_m: Sequence[float],
+    listener_orientation_wxyz: Sequence[float],
+) -> str:
+    """Hash the exact source/Listener state that determines one RIR job."""
+
+    return canonical_json_sha256(
+        {
+            "schema": RIR_ACOUSTIC_STATE_SCHEMA,
+            "source_position_m": list(source_position_m),
+            "listener_position_m": list(listener_position_m),
+            "listener_orientation_wxyz": list(listener_orientation_wxyz),
+        }
+    )
 
 
 def _finite_number(value: Any, *, owner: str, minimum: float | None = None) -> float:
@@ -1174,42 +1193,177 @@ def evaluate_trajectory_diversity(
 def build_rir_job_plan(
     bank: TrajectoryBank,
     *,
-    listener_position_m: Sequence[float],
-    listener_orientation_wxyz: Sequence[float],
+    listener_position_m: Sequence[float] | None = None,
+    listener_orientation_wxyz: Sequence[float] | None = None,
+    listener_positions_m_by_episode: Mapping[
+        str, Sequence[Sequence[float]]
+    ] | None = None,
+    listener_orientations_wxyz_by_episode: Mapping[
+        str, Sequence[Sequence[float]]
+    ] | None = None,
     stride_frames: int = 3,
 ) -> dict[str, Any]:
     """Deduplicate exact source/listener states into a reusable RIR work plan.
 
     This function only plans jobs.  Native RLR execution remains a separate
     operation and must bind the room acoustic package and simulation profile.
+    The historical fixed-listener arguments remain supported.  Moving
+    listeners are supplied as one frame-aligned position/orientation path per
+    episode; the two per-episode mappings must exactly cover the bank.
     """
 
     stride = _positive_int(stride_frames, owner="RIR stride frames")
-    listener = np.asarray(listener_position_m, dtype=np.float64)
-    orientation = np.asarray(listener_orientation_wxyz, dtype=np.float64)
-    if (
-        listener.shape != (3,)
-        or orientation.shape != (4,)
-        or not (np.all(np.isfinite(listener)) and np.all(np.isfinite(orientation)))
-    ):
-        raise RoomFeasibilityError("listener pose is invalid")
+    has_fixed_position = listener_position_m is not None
+    has_fixed_orientation = listener_orientation_wxyz is not None
+    has_paths_position = listener_positions_m_by_episode is not None
+    has_paths_orientation = listener_orientations_wxyz_by_episode is not None
+    if has_fixed_position != has_fixed_orientation:
+        raise RoomFeasibilityError(
+            "fixed listener position and orientation must be supplied together"
+        )
+    if has_paths_position != has_paths_orientation:
+        raise RoomFeasibilityError(
+            "per-episode listener positions and orientations must be supplied together"
+        )
+    if not has_fixed_position and not has_paths_position:
+        raise RoomFeasibilityError(
+            "supply a fixed or per-episode listener pose"
+        )
+
+    episode_ids = {episode.episode_id for episode in bank.episodes}
+    fixed_listener: np.ndarray | None = None
+    fixed_orientation: np.ndarray | None = None
+    listener_paths: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    if has_fixed_position:
+        fixed_listener = np.asarray(listener_position_m, dtype=np.float64)
+        fixed_orientation = np.asarray(
+            listener_orientation_wxyz, dtype=np.float64
+        )
+        if (
+            fixed_listener.shape != (3,)
+            or fixed_orientation.shape != (4,)
+            or not (
+                np.all(np.isfinite(fixed_listener))
+                and np.all(np.isfinite(fixed_orientation))
+            )
+        ):
+            raise RoomFeasibilityError("listener pose is invalid")
+        orientation_norm = float(np.linalg.norm(fixed_orientation))
+        if not math.isclose(
+            orientation_norm, 1.0, rel_tol=0.0, abs_tol=1.0e-6
+        ):
+            raise RoomFeasibilityError("listener orientation must be unit normalized")
+    if has_paths_position:
+        assert listener_positions_m_by_episode is not None
+        assert listener_orientations_wxyz_by_episode is not None
+        if (
+            set(listener_positions_m_by_episode) != episode_ids
+            or set(listener_orientations_wxyz_by_episode) != episode_ids
+        ):
+            raise RoomFeasibilityError(
+                "per-episode listener pose mappings must exactly cover episode IDs"
+            )
+        for episode_id in sorted(episode_ids):
+            positions = np.asarray(
+                listener_positions_m_by_episode[episode_id], dtype=np.float64
+            )
+            orientations = np.asarray(
+                listener_orientations_wxyz_by_episode[episode_id],
+                dtype=np.float64,
+            )
+            if (
+                positions.shape != (bank.frame_count, 3)
+                or orientations.shape != (bank.frame_count, 4)
+                or not (
+                    np.all(np.isfinite(positions))
+                    and np.all(np.isfinite(orientations))
+                )
+            ):
+                raise RoomFeasibilityError(
+                    f"listener pose path for {episode_id!r} must have shapes "
+                    f"[{bank.frame_count},3] and [{bank.frame_count},4]"
+                )
+            norms = np.linalg.norm(orientations, axis=1)
+            if not np.allclose(norms, 1.0, rtol=0.0, atol=1.0e-6):
+                raise RoomFeasibilityError(
+                    f"listener orientations for {episode_id!r} must be unit normalized"
+                )
+            listener_paths[episode_id] = (
+                np.ascontiguousarray(positions),
+                np.ascontiguousarray(orientations),
+            )
+        listener_pose_mode = "per_episode_frame"
+        if fixed_listener is not None:
+            assert fixed_orientation is not None
+            for episode_id, (positions, orientations) in listener_paths.items():
+                same_orientation = math.isclose(
+                    abs(float(np.dot(orientations[0], fixed_orientation))),
+                    1.0,
+                    rel_tol=0.0,
+                    abs_tol=1.0e-9,
+                )
+                if (
+                    not np.allclose(
+                        positions[0], fixed_listener, rtol=0.0, atol=1.0e-9
+                    )
+                    or not same_orientation
+                ):
+                    raise RoomFeasibilityError(
+                        f"fixed Listener pose differs from {episode_id!r} frame 0"
+                    )
+    else:
+        assert fixed_listener is not None
+        assert fixed_orientation is not None
+        listener_pose_mode = "fixed"
+
     jobs_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
     use_count = 0
     for episode in bank.episodes:
+        if listener_pose_mode == "fixed":
+            assert fixed_listener is not None
+            assert fixed_orientation is not None
+            episode_listener_positions = np.repeat(
+                fixed_listener[np.newaxis, :], bank.frame_count, axis=0
+            )
+            episode_listener_orientations = np.repeat(
+                fixed_orientation[np.newaxis, :], bank.frame_count, axis=0
+            )
+        else:
+            (
+                episode_listener_positions,
+                episode_listener_orientations,
+            ) = listener_paths[episode.episode_id]
         for source_slot, path in sorted(episode.source_center_paths_m.items()):
             points = np.asarray(path, dtype=np.float64)
             for frame_index in range(0, bank.frame_count, stride):
                 point = points[frame_index]
+                listener = episode_listener_positions[frame_index]
+                orientation = episode_listener_orientations[frame_index]
                 # RLR's current point-source propagation depends on the source
-                # state, not on which logical slot or dry waveform uses it.
-                # Keep slot identity on the use record so one RIR can serve
-                # either source when their acoustic state is identical.
-                key = tuple(float(value) for value in point)
+                # and Listener pose, not on which logical slot or dry waveform
+                # uses it.  Keep slot identity on the use record so one RIR can
+                # serve either source only when the complete acoustic state is
+                # identical.
+                key = (
+                    *tuple(float(value) for value in point),
+                    *tuple(float(value) for value in listener),
+                    *tuple(float(value) for value in orientation),
+                )
                 job = jobs_by_key.get(key)
                 if job is None:
+                    state_sha256 = rir_acoustic_state_sha256(
+                        point,
+                        listener,
+                        orientation,
+                    )
                     job = {
-                        "job_id": f"rir_{len(jobs_by_key):06d}",
+                        "job_id": (
+                            f"rir_{len(jobs_by_key):06d}_{state_sha256[:16]}"
+                        ),
+                        "acoustic_state_sha256": state_sha256,
                         "source_position_m": point.tolist(),
+                        "listener_position_m": listener.tolist(),
+                        "listener_orientation_wxyz": orientation.tolist(),
                         "uses": [],
                     }
                     jobs_by_key[key] = job
@@ -1222,7 +1376,7 @@ def build_rir_job_plan(
                 )
                 use_count += 1
     jobs = list(jobs_by_key.values())
-    return {
+    result = {
         "schema": RIR_JOB_PLAN_SCHEMA,
         "status": "planned_not_run",
         "claim_boundary": (
@@ -1234,19 +1388,39 @@ def build_rir_job_plan(
         "source_acoustic_profile": "omnidirectional_point_source_v1",
         "slot_identity_affects_cache_key": False,
         "dry_audio_independent": True,
-        "listener_position_m": listener.tolist(),
-        "listener_orientation_wxyz": orientation.tolist(),
+        "listener_pose_mode": listener_pose_mode,
+        "cache_key_fields": [
+            "source_position_m",
+            "listener_position_m",
+            "listener_orientation_wxyz",
+        ],
         "stride_frames": stride,
         "requested_pair_state_count": use_count,
         "unique_rir_job_count": len(jobs),
+        "unique_listener_pose_count": len(
+            {
+                (
+                    *tuple(job["listener_position_m"]),
+                    *tuple(job["listener_orientation_wxyz"]),
+                )
+                for job in jobs
+            }
+        ),
         "cache_reuse_count": use_count - len(jobs),
         "jobs": jobs,
     }
+    if listener_pose_mode == "fixed":
+        assert fixed_listener is not None
+        assert fixed_orientation is not None
+        result["listener_position_m"] = fixed_listener.tolist()
+        result["listener_orientation_wxyz"] = fixed_orientation.tolist()
+    return result
 
 
 __all__ = [
     "FEASIBLE_REGION_SCHEMA",
     "MOTION_CASES",
+    "RIR_ACOUSTIC_STATE_SCHEMA",
     "RIR_JOB_PLAN_SCHEMA",
     "RoomFeasibilityCompiler",
     "RoomFeasibilityError",
@@ -1260,5 +1434,6 @@ __all__ = [
     "build_rir_job_plan",
     "evaluate_trajectory_coverage",
     "evaluate_trajectory_diversity",
+    "rir_acoustic_state_sha256",
     "SOURCE_SLOTS",
 ]

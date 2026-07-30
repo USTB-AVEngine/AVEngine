@@ -421,3 +421,44 @@ closure. Scene data must be shared rather than copied once per example.
   verify the cooked Blueprint/Mesh/actions before rendering; do not recook
   once per episode or instance.
 - Generated videos and large temporary evidence stay outside Git.
+
+### Checkpoint 20260730: dynamic SensorRig M7/UE end-to-end closure
+
+- M7 now persists the complete `SensorRigTrajectory` as a canonical sidecar
+  in the plan, bundle and per-episode metadata. Timeline v2 binds every frame
+  to the corresponding `view0` pose hash, while the source manifest, batch
+  binding and delivery records retain the same trajectory id, content hash
+  and first/last pose hashes.
+- Habitat visual capture and the native SPEAR/UE runner now apply the
+  frame-matched camera/listener pose before capture and retain readback
+  evidence. The real UE canary checked 75/75 camera pose hashes, all 75 were
+  unique, maximum position error was 0 cm and the camera root-readback gate
+  passed.
+- The RIR acoustic identity and cache key now include source position plus
+  Listener position and orientation. The native renderer calls
+  `set_listener_pose` when the Listener pose changes, and retained cache
+  evidence records that pose per job. Topdown, distance and DOA use the same
+  frame's Listener pose; the audio batch copies the exact trajectory binding,
+  and the batch verifier cross-checks Timeline, RIR uses and delivery
+  metadata instead of accepting a partially wired dynamic run.
+- The retained real closure is under
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_01_plan`,
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_01_binaural`,
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_01_bundle` and
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_01_ue`. The successful
+  native RLR cache is
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_02_rir_cache`
+  (50/50 jobs, `status=pass`); the earlier
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_01_rir_cache`
+  contains `FAILED.json` and is not passing evidence.
+- Owner-review media are
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_01_ue/corgi_british__recombined_both_moving_0036/ue_clean_binaural.mp4`
+  and
+  `tmp/m7/dynamic_sensor_rig_end_to_end_canary_20260730_01_ue/corgi_british__recombined_both_moving_0036/ue_topdown_binaural.mp4`;
+  both have 75 frames and passed their media/audio gates.
+- This remains a research canary, not dataset admission. SoundSpaces 2.0 and
+  AVEngine use the same Habitat/RLR acoustic-propagation family, while these
+  apartment material coefficients have not been calibrated against measured
+  real-room RIRs. The retained pass establishes cross-modal wiring and native
+  execution, not that AVEngine is acoustically more realistic than
+  SoundSpaces or physical reality.

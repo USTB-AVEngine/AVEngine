@@ -162,6 +162,39 @@ def test_renders_all_frames_and_current_source_points_move() -> None:
     assert not np.array_equal(frames[1], frames[2])
 
 
+def test_per_frame_listener_pose_moves_topdown_listener_and_fov() -> None:
+    source = {"source0": [[3.0, 1.0, 1.0]] * 3}
+    frames = render_runtime_topdown_frames(
+        _obstacle_map(),
+        source,
+        listener_position_m=(0.5, 1.47, 0.5),
+        listener_yaw_deg=0.0,
+        listener_positions_m_by_frame=(
+            (0.5, 1.47, 0.5),
+            (1.0, 1.47, 1.0),
+            (1.5, 1.47, 1.5),
+        ),
+        listener_yaws_deg_by_frame=(0.0, 45.0, 90.0),
+        camera_hfov_degrees=90.0,
+        size_wh=(320, 240),
+        rigid_label_limit=0,
+    )
+    assert frames.shape == (3, 240, 320, 3)
+    assert not np.array_equal(frames[0], frames[1])
+    assert not np.array_equal(frames[1], frames[2])
+
+    with pytest.raises(M6XTopdownError, match=r"finite \[frame,3\]"):
+        render_runtime_topdown_frames(
+            _obstacle_map(),
+            source,
+            listener_position_m=(0.5, 1.47, 0.5),
+            listener_yaw_deg=0.0,
+            listener_positions_m_by_frame=((0.5, 1.47, 0.5),),
+            listener_yaws_deg_by_frame=(0.0, 45.0, 90.0),
+            camera_hfov_degrees=90.0,
+        )
+
+
 def test_explicit_entity_heading_stays_constant_despite_idle_anchor_wobble(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -16,6 +16,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.contracts.json_io import canonical_json_sha256
 from avengine.m6x.room_feasibility import (
     RIR_JOB_PLAN_SCHEMA,
     SOURCE_SLOTS,
@@ -24,6 +25,7 @@ from avengine.m6x.room_feasibility import (
     TrajectoryEpisode,
     build_rir_job_plan,
 )
+from avengine.sensor_rig_trajectory import validate_sensor_rig_trajectory
 
 
 ROOM_EVALUATION_PLAN_SCHEMA = "avengine_room_evaluation_plan_v1"
@@ -164,35 +166,118 @@ def _listener_pose(
     return position, orientation
 
 
+def _listener_pose_frames(
+    *,
+    listener_position_m: Sequence[float],
+    listener_orientation_wxyz: Sequence[float],
+    frame_count: int,
+    frame_rate_hz: int,
+    sensor_rig_trajectory: Mapping[str, Any] | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Resolve one authoritative listener pose for every visual frame."""
+
+    fixed_position, fixed_orientation = _listener_pose(
+        listener_position_m, listener_orientation_wxyz
+    )
+    if sensor_rig_trajectory is None:
+        return (
+            np.repeat(fixed_position[None, :], frame_count, axis=0),
+            np.repeat(fixed_orientation[None, :], frame_count, axis=0),
+        )
+    errors = validate_sensor_rig_trajectory(sensor_rig_trajectory)
+    if errors:
+        raise RoomEvaluationError(
+            "sensor rig trajectory is invalid: " + "; ".join(errors)
+        )
+    if (
+        sensor_rig_trajectory.get("frame_count") != frame_count
+        or sensor_rig_trajectory.get("frame_rate_hz") != frame_rate_hz
+    ):
+        raise RoomEvaluationError(
+            "sensor rig trajectory clock differs from the source trajectory bank"
+        )
+    frames = sensor_rig_trajectory["frames"]
+    positions = np.asarray(
+        [
+            frame["world_from_rig"]["translation_m"]
+            for frame in frames
+        ],
+        dtype=np.float64,
+    )
+    rotations_xyzw = np.asarray(
+        [
+            frame["world_from_rig"]["rotation_xyzw"]
+            for frame in frames
+        ],
+        dtype=np.float64,
+    )
+    orientations_wxyz = rotations_xyzw[:, (3, 0, 1, 2)]
+    if (
+        positions.shape != (frame_count, 3)
+        or orientations_wxyz.shape != (frame_count, 4)
+        or not np.all(np.isfinite(positions))
+        or not np.all(np.isfinite(orientations_wxyz))
+    ):
+        raise RoomEvaluationError("sensor rig trajectory has invalid pose arrays")
+    same_initial_orientation = math.isclose(
+        abs(float(np.dot(orientations_wxyz[0], fixed_orientation))),
+        1.0,
+        rel_tol=0.0,
+        abs_tol=1.0e-9,
+    )
+    if (
+        not np.allclose(
+            positions[0], fixed_position, rtol=0.0, atol=1.0e-9
+        )
+        or not same_initial_orientation
+    ):
+        raise RoomEvaluationError(
+            "fixed listener pose must equal SensorRigTrajectory frame 0"
+        )
+    return (
+        np.ascontiguousarray(positions),
+        np.ascontiguousarray(orientations_wxyz),
+    )
+
+
 def _episode_listener_distance_xz(
-    episode: TrajectoryEpisode, listener_position: np.ndarray
+    episode: TrajectoryEpisode, listener_positions: np.ndarray
 ) -> float:
     values = np.concatenate(
-        [episode.source_center_paths_m[slot] for slot in SOURCE_SLOTS], axis=0
+        [
+            episode.source_center_paths_m[slot][:, (0, 2)]
+            - listener_positions[:, (0, 2)]
+            for slot in SOURCE_SLOTS
+        ],
+        axis=0,
     )
-    return float(
-        np.min(np.linalg.norm(values[:, (0, 2)] - listener_position[[0, 2]], axis=1))
-    )
+    return float(np.min(np.linalg.norm(values, axis=1)))
 
 
 def _episode_azimuth_region_counts(
     episode: TrajectoryEpisode,
     *,
-    listener_position: np.ndarray,
-    listener_orientation: np.ndarray,
+    listener_positions: np.ndarray,
+    listener_orientations: np.ndarray,
 ) -> np.ndarray:
-    directions = np.concatenate(
-        [episode.source_center_paths_m[slot] for slot in SOURCE_SLOTS], axis=0
-    ) - listener_position
+    directions_by_slot = [
+        episode.source_center_paths_m[slot] - listener_positions
+        for slot in SOURCE_SLOTS
+    ]
+    directions = np.concatenate(directions_by_slot, axis=0)
     if np.any(np.linalg.norm(directions, axis=1) <= 0.0):
         raise RoomEvaluationError(
             f"{episode.episode_id} contains a source at the listener position"
         )
-    inverse_vector = -listener_orientation[1:]
-    repeated = np.broadcast_to(inverse_vector, directions.shape)
-    uv = np.cross(repeated, directions)
-    uuv = np.cross(repeated, uv)
-    local = directions + 2.0 * (listener_orientation[0] * uv + uuv)
+    inverse_vectors = np.concatenate(
+        [-listener_orientations[:, 1:]] * len(SOURCE_SLOTS), axis=0
+    )
+    inverse_scalars = np.concatenate(
+        [listener_orientations[:, 0]] * len(SOURCE_SLOTS), axis=0
+    )
+    uv = np.cross(inverse_vectors, directions)
+    uuv = np.cross(inverse_vectors, uv)
+    local = directions + 2.0 * (inverse_scalars[:, None] * uv + uuv)
     azimuth = np.degrees(np.arctan2(local[:, 0], -local[:, 2]))
     counts = np.zeros(len(AZIMUTH_REGIONS), dtype=np.int64)
     counts[0] = np.count_nonzero((azimuth >= -45.0) & (azimuth < 45.0))
@@ -208,8 +293,8 @@ def _balanced_episodes(
     bank: TrajectoryBank,
     count: int,
     *,
-    listener_position: np.ndarray,
-    listener_orientation: np.ndarray,
+    listener_positions: np.ndarray,
+    listener_orientations: np.ndarray,
     minimum_listener_source_distance_m: float,
     balance_azimuth_regions: bool,
 ) -> tuple[TrajectoryEpisode, ...]:
@@ -231,7 +316,7 @@ def _balanced_episodes(
         available = [
             item
             for item in sorted(by_motion[motion_case], key=lambda item: item.episode_id)
-            if _episode_listener_distance_xz(item, listener_position)
+            if _episode_listener_distance_xz(item, listener_positions)
             >= minimum_listener_source_distance_m
         ]
         if len(available) < needed:
@@ -252,8 +337,8 @@ def _balanced_episodes(
                 def score(item: TrajectoryEpisode) -> tuple[float, float, str]:
                     trial = selected_region_counts + _episode_azimuth_region_counts(
                         item,
-                        listener_position=listener_position,
-                        listener_orientation=listener_orientation,
+                        listener_positions=listener_positions,
+                        listener_orientations=listener_orientations,
                     )
                     deviations = np.abs(trial - target_per_region)
                     return (
@@ -268,8 +353,8 @@ def _balanced_episodes(
                 selected.append(choice)
                 selected_region_counts += _episode_azimuth_region_counts(
                     choice,
-                    listener_position=listener_position,
-                    listener_orientation=listener_orientation,
+                    listener_positions=listener_positions,
+                    listener_orientations=listener_orientations,
                 )
             selected_by_motion[motion_case] = chosen
         else:
@@ -314,6 +399,7 @@ def build_room_evaluation_plan(
     minimum_listener_source_distance_m: float = 0.0,
     balance_azimuth_regions: bool = False,
     minimum_azimuth_region_fraction: float = 0.0,
+    sensor_rig_trajectory: Mapping[str, Any] | None = None,
 ) -> RoomEvaluationPlan:
     """Build a balanced, dry-audio-independent room evaluation plan."""
 
@@ -324,15 +410,21 @@ def build_room_evaluation_plan(
         or not 0.0 <= minimum_azimuth_region_fraction <= 0.25
     ):
         raise RoomEvaluationError("listener distance or azimuth fraction is invalid")
-    listener_position, listener_orientation = _listener_pose(
-        listener_position_m, listener_orientation_wxyz
-    )
     source_bank = _load_bank(trajectory_bank)
+    listener_positions, listener_orientations = _listener_pose_frames(
+        listener_position_m=listener_position_m,
+        listener_orientation_wxyz=listener_orientation_wxyz,
+        frame_count=source_bank.frame_count,
+        frame_rate_hz=source_bank.frame_rate_hz,
+        sensor_rig_trajectory=sensor_rig_trajectory,
+    )
+    listener_position = listener_positions[0]
+    listener_orientation = listener_orientations[0]
     selected = _balanced_episodes(
         source_bank,
         episode_count,
-        listener_position=listener_position,
-        listener_orientation=listener_orientation,
+        listener_positions=listener_positions,
+        listener_orientations=listener_orientations,
         minimum_listener_source_distance_m=minimum_listener_source_distance_m,
         balance_azimuth_regions=balance_azimuth_regions,
     )
@@ -342,11 +434,26 @@ def build_room_evaluation_plan(
         frame_rate_hz=source_bank.frame_rate_hz,
         seed=source_bank.seed,
     )
+    rir_kwargs: dict[str, Any] = {}
+    if sensor_rig_trajectory is not None:
+        rir_kwargs.update(
+            {
+                "listener_positions_m_by_episode": {
+                    episode.episode_id: listener_positions.tolist()
+                    for episode in selected
+                },
+                "listener_orientations_wxyz_by_episode": {
+                    episode.episode_id: listener_orientations.tolist()
+                    for episode in selected
+                },
+            }
+        )
     rir_plan = build_rir_job_plan(
         bank,
-        listener_position_m=listener_position_m,
-        listener_orientation_wxyz=listener_orientation_wxyz,
+        listener_position_m=listener_position,
+        listener_orientation_wxyz=listener_orientation,
         stride_frames=stride_frames,
+        **rir_kwargs,
     )
     if rir_plan.get("schema") != RIR_JOB_PLAN_SCHEMA:
         raise RoomEvaluationError("RIR planner returned an unexpected schema")
@@ -393,11 +500,11 @@ def build_room_evaluation_plan(
         motion_counts[episode.motion_case] += 1
         azimuth_counts += _episode_azimuth_region_counts(
             episode,
-            listener_position=listener_position,
-            listener_orientation=listener_orientation,
+            listener_positions=listener_positions,
+            listener_orientations=listener_orientations,
         )
         listener_distances.append(
-            _episode_listener_distance_xz(episode, listener_position)
+            _episode_listener_distance_xz(episode, listener_positions)
         )
     azimuth_total = int(np.sum(azimuth_counts))
     azimuth_fractions = azimuth_counts.astype(np.float64) / azimuth_total
@@ -424,6 +531,11 @@ def build_room_evaluation_plan(
         },
         "listener_position_m": listener_position.tolist(),
         "listener_orientation_wxyz": listener_orientation.tolist(),
+        "listener_pose_mode": (
+            "sensor_rig_trajectory_v1"
+            if sensor_rig_trajectory is not None
+            else "fixed"
+        ),
         "minimum_listener_source_distance_m_requested": minimum_listener_source_distance_m,
         "minimum_listener_source_distance_m_observed": min(listener_distances),
         "azimuth_balance_requested": balance_azimuth_regions,
@@ -440,6 +552,20 @@ def build_room_evaluation_plan(
         "dry_audio_independent": True,
         "visual_asset_independent": True,
     }
+    if sensor_rig_trajectory is not None:
+        summary["sensor_rig_trajectory"] = {
+            "trajectory_id": sensor_rig_trajectory["trajectory_id"],
+            "content_sha256": canonical_json_sha256(
+                sensor_rig_trajectory
+            ),
+            "relative_path": "sensor_rig_trajectory.json",
+            "first_pose_hash": sensor_rig_trajectory["frames"][0][
+                "pose_hash"
+            ],
+            "last_pose_hash": sensor_rig_trajectory["frames"][-1][
+                "pose_hash"
+            ],
+        }
     return RoomEvaluationPlan(
         trajectory_bank=bank.record(include_paths=True),
         rir_job_plan=rir_plan,

@@ -3,7 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
+from avengine.contracts.json_io import canonical_json_sha256
 from avengine.m6x.feasibility_topdown import render_feasibility_topdown
 from avengine.m6x.geometry import RuntimeObstacleMap
 from avengine.m6x.raster_pathfinder import (
@@ -12,7 +14,9 @@ from avengine.m6x.raster_pathfinder import (
 )
 from avengine.m6x.room_feasibility import (
     MOTION_CASES,
+    RIR_ACOUSTIC_STATE_SCHEMA,
     RoomFeasibilityCompiler,
+    RoomFeasibilityError,
     TrajectoryBank,
     TrajectoryBankBuilder,
     TrajectoryEpisode,
@@ -204,6 +208,13 @@ def test_builds_all_four_motion_cases_deterministically_and_plans_rir_cache() ->
     assert plan["cache_artifact"] == "room impulse response (RIR)"
     assert plan["dry_audio_independent"] is True
     assert plan["slot_identity_affects_cache_key"] is False
+    assert plan["listener_pose_mode"] == "fixed"
+    assert plan["unique_listener_pose_count"] == 1
+    assert all(
+        job["listener_position_m"] == [1.0, 1.5, 1.0]
+        and job["listener_orientation_wxyz"] == [1.0, 0.0, 0.0, 0.0]
+        for job in plan["jobs"]
+    )
     assert all("source_slot_id" in use for job in plan["jobs"] for use in job["uses"])
     assert plan["requested_pair_state_count"] == 4 * 2 * 5
     assert plan["unique_rir_job_count"] < plan["requested_pair_state_count"]
@@ -353,6 +364,73 @@ def test_rir_cache_key_is_independent_of_slot_and_dry_audio_identity() -> None:
         "source1",
         "source2",
     }
+
+
+def test_rir_cache_key_includes_per_episode_listener_pose() -> None:
+    point_path = np.asarray([[1.0, 1.2, 2.0]], dtype=np.float64)
+    bank = TrajectoryBank(
+        episodes=tuple(
+            TrajectoryEpisode(
+                episode_id=episode_id,
+                motion_case="static_static",
+                source_root_paths_m={
+                    "source1": point_path.copy(),
+                    "source2": point_path.copy(),
+                },
+                source_center_paths_m={
+                    "source1": point_path.copy(),
+                    "source2": point_path.copy(),
+                },
+                statistics={},
+            )
+            for episode_id in ("episode_a", "episode_b")
+        ),
+        frame_count=1,
+        frame_rate_hz=1,
+        seed=1,
+    )
+    positions = {
+        "episode_a": [[0.0, 1.5, 0.0]],
+        "episode_b": [[0.5, 1.5, 0.0]],
+    }
+    orientations = {
+        "episode_a": [[1.0, 0.0, 0.0, 0.0]],
+        "episode_b": [[2**-0.5, 0.0, 2**-0.5, 0.0]],
+    }
+    plan = build_rir_job_plan(
+        bank,
+        listener_positions_m_by_episode=positions,
+        listener_orientations_wxyz_by_episode=orientations,
+        stride_frames=1,
+    )
+    assert plan["listener_pose_mode"] == "per_episode_frame"
+    assert "listener_position_m" not in plan
+    assert plan["requested_pair_state_count"] == 4
+    assert plan["unique_rir_job_count"] == 2
+    assert plan["unique_listener_pose_count"] == 2
+    assert {
+        tuple(job["listener_position_m"]) for job in plan["jobs"]
+    } == {(0.0, 1.5, 0.0), (0.5, 1.5, 0.0)}
+    assert all(len(job["uses"]) == 2 for job in plan["jobs"])
+    for job in plan["jobs"]:
+        assert job["acoustic_state_sha256"] == canonical_json_sha256(
+            {
+                "schema": RIR_ACOUSTIC_STATE_SCHEMA,
+                "source_position_m": job["source_position_m"],
+                "listener_position_m": job["listener_position_m"],
+                "listener_orientation_wxyz": job[
+                    "listener_orientation_wxyz"
+                ],
+            }
+        )
+
+    with pytest.raises(RoomFeasibilityError, match="exactly cover episode IDs"):
+        build_rir_job_plan(
+            bank,
+            listener_positions_m_by_episode={"episode_a": positions["episode_a"]},
+            listener_orientations_wxyz_by_episode=orientations,
+            stride_frames=1,
+        )
 
 
 def test_moving_paths_are_unique_per_source_slot() -> None:

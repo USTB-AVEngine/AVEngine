@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 
 import avengine.optional_backends.spear_apartment as apartment
+from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 
 _RUNNER_SPEC = importlib.util.spec_from_file_location(
@@ -96,6 +98,51 @@ def _plan(scenario_id: str = "S3") -> dict:
     }
 
 
+def _dynamic_camera_plan() -> dict:
+    plan = _plan()
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="apartment_dynamic_camera_test_v1",
+        program={
+            "kind": "WAYPOINT_ROUTE",
+            "waypoints": [
+                {
+                    "frame_index": 0,
+                    "position_m": [-0.7, 1.471, 0.65],
+                    "yaw_deg": 55.0,
+                },
+                {
+                    "frame_index": 74,
+                    "position_m": [0.8, 1.471, -1.25],
+                    "yaw_deg": -35.0,
+                },
+            ],
+            "interpolation": "LINEAR_POSITION_SHORTEST_YAW",
+        },
+    )
+    for frame, trajectory_frame in zip(plan["frames"], trajectory["frames"]):
+        world_from_rig = deepcopy(trajectory_frame["world_from_rig"])
+        position = world_from_rig["translation_m"]
+        yaw = habitat_yaw_degrees_from_xyzw(
+            world_from_rig["rotation_xyzw"]
+        )
+        frame["camera_state"] = {
+            "frame_index": trajectory_frame["frame_index"],
+            "pts_ticks": trajectory_frame["pts_ticks"],
+            "world_from_rig": world_from_rig,
+            "habitat_position_m": list(position),
+            "habitat_yaw_deg": yaw,
+            "ue_position_cm": list(
+                apartment.habitat_point_to_apartment_ue_cm(position)
+            ),
+            "ue_yaw_deg": apartment.camera_ue_yaw_degrees(yaw),
+            "pose_hash": trajectory_frame["pose_hash"],
+        }
+    first = plan["frames"][0]["camera_state"]
+    plan["camera"]["ue_position_cm"] = deepcopy(first["ue_position_cm"])
+    plan["camera"]["ue_yaw_deg"] = first["ue_yaw_deg"]
+    return plan
+
+
 def _make_input_tree(root: Path, scenario_id: str = "S3") -> dict[str, Path]:
     scenario_directory, variant_id = apartment.SCENARIO_DIRECTORIES[scenario_id]
     metadata = (
@@ -142,6 +189,31 @@ def _make_motion_pilot_input_tree(
     return values
 
 
+def _make_asset_bound_input_tree(
+    root: Path, episode_id: str = "episode_0001"
+) -> dict[str, Path]:
+    metadata = root / "episodes" / episode_id / "metadata"
+    videos = metadata.parent / "videos"
+    metadata.mkdir(parents=True)
+    videos.mkdir()
+    values = {
+        "timeline": metadata / "timeline.json",
+        "source_manifest": metadata / "source_manifest.json",
+        "flags": metadata / "flags.json",
+        "batch_binding": metadata / "batch_binding.json",
+        "sensor_rig_trajectory": metadata / "sensor_rig_trajectory.json",
+        "room_capsule": root / "room/room_capsule.json",
+        "qualification": root / "room/qualification.json",
+        "authoritative_clean_binaural": videos / "clean_binaural.mp4",
+        "authoritative_diagnostic_topdown": videos
+        / "diagnostic_topdown_binaural.mp4",
+    }
+    for path in values.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"{}\n")
+    return values
+
+
 def test_scenario_path_discovery_is_bounded_to_s0_s3_s4(tmp_path: Path) -> None:
     expected = _make_input_tree(tmp_path, "S3")
     observed = apartment.scenario_input_paths(tmp_path, "S3")
@@ -172,6 +244,25 @@ def test_motion_pilot_path_discovery_and_suite_use_p0_to_p3(
     assert scenario["scenario_directory"] == "00_static_static"
     assert scenario["variant_id"] == "A"
     assert suite["authority"]["spear_unreal"] == ["final RGB pixels"]
+
+
+def test_asset_bound_path_discovery_carries_optional_sensor_rig_sidecar(
+    tmp_path: Path,
+) -> None:
+    expected = _make_asset_bound_input_tree(tmp_path)
+
+    observed = apartment.asset_bound_episode_input_paths(
+        tmp_path, "episode_0001"
+    )
+
+    assert observed == {
+        key: value.resolve() for key, value in expected.items()
+    }
+    expected["sensor_rig_trajectory"].unlink()
+    legacy = apartment.asset_bound_episode_input_paths(
+        tmp_path, "episode_0001"
+    )
+    assert "sensor_rig_trajectory" not in legacy
 
 
 def _exact_binding_case(tmp_path: Path) -> tuple[dict, dict, Path]:
@@ -450,6 +541,120 @@ def test_root_readback_gate_covers_every_actor_and_camera_frame() -> None:
             camera_position_cm=[-70.0, 65.0, 147.1],
             camera_yaw_deg=-145.0,
         )
+
+
+def test_dynamic_camera_states_drive_per_frame_readback_gate() -> None:
+    plan = _dynamic_camera_plan()
+    camera_states = apartment.materialize_camera_states(plan)
+    assert len(camera_states) == apartment.FRAME_COUNT
+    assert camera_states[0]["ue_position_cm"] != camera_states[-1][
+        "ue_position_cm"
+    ]
+
+    actor_readbacks = {"dog0": [], "human0": []}
+    camera_readbacks = []
+    for frame_index, (frame, camera_state) in enumerate(
+        zip(plan["frames"], camera_states)
+    ):
+        for state in frame["actor_states"]:
+            actor_readbacks[state["actor_id"]].append(
+                {
+                    "frame_index": frame_index,
+                    "location_cm": list(state["translation_ue_cm"]),
+                    "rotation_deg": [
+                        0.0,
+                        0.0,
+                        state["actor_yaw_ue_deg"],
+                    ],
+                }
+            )
+        camera_readbacks.append(
+            {
+                "frame_index": frame_index,
+                "location_cm": list(camera_state["ue_position_cm"]),
+                "rotation_deg": [0.0, 0.0, camera_state["ue_yaw_deg"]],
+                "expected_pose_hash": camera_state["pose_hash"],
+            }
+        )
+
+    summary = apartment.summarize_root_readbacks(
+        expected_frames=plan["frames"],
+        actor_readbacks=actor_readbacks,
+        camera_readbacks=camera_readbacks,
+    )
+
+    assert summary["camera"]["status"] == "pass"
+    assert summary["camera"]["per_frame_camera_state"] is True
+    assert summary["camera"]["checked_pose_hash_count"] == 75
+    assert summary["camera"]["unique_expected_pose_hash_count"] == 75
+
+    drifted = deepcopy(camera_readbacks)
+    drifted[37]["location_cm"][0] += 1.0
+    with pytest.raises(
+        apartment.SpearApartmentError, match="camera root readback drifted"
+    ):
+        apartment.summarize_root_readbacks(
+            expected_frames=plan["frames"],
+            actor_readbacks=actor_readbacks,
+            camera_readbacks=drifted,
+        )
+
+    wrong_hash = deepcopy(camera_readbacks)
+    wrong_hash[37]["expected_pose_hash"] = "0" * 64
+    with pytest.raises(
+        apartment.SpearApartmentError, match="pose hash differs"
+    ):
+        apartment.summarize_root_readbacks(
+            expected_frames=plan["frames"],
+            actor_readbacks=actor_readbacks,
+            camera_readbacks=wrong_hash,
+        )
+
+
+def test_camera_state_validation_rejects_hash_and_partial_upgrade() -> None:
+    plan = _dynamic_camera_plan()
+    plan["frames"][12]["camera_state"]["pose_hash"] = "0" * 64
+    with pytest.raises(apartment.SpearApartmentError, match="pose_hash"):
+        apartment.materialize_camera_states(plan)
+
+    partial = _dynamic_camera_plan()
+    partial["frames"][12].pop("camera_state")
+    with pytest.raises(apartment.SpearApartmentError, match="partially"):
+        apartment.materialize_camera_states(partial)
+
+
+def test_runner_applies_the_current_camera_frame_before_readback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    states = apartment.materialize_camera_states(_dynamic_camera_plan())
+    applied = []
+    monkeypatch.setattr(
+        _RUNNER,
+        "_apply_camera",
+        lambda _camera, state: applied.append(state["frame_index"]),
+    )
+    monkeypatch.setattr(
+        _RUNNER,
+        "_actor_readback",
+        lambda _camera, frame_index: {
+            "frame_index": frame_index,
+            "location_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [0.0, 0.0, 0.0],
+        },
+    )
+
+    first = _RUNNER._apply_camera_state_and_readback(
+        object(), states[0], 0
+    )
+    last = _RUNNER._apply_camera_state_and_readback(
+        object(), states[-1], 74
+    )
+
+    assert applied == [0, 74]
+    assert first["expected_pose_hash"] == states[0]["pose_hash"]
+    assert last["expected_pose_hash"] == states[-1]["pose_hash"]
+    with pytest.raises(RuntimeError, match="frame order"):
+        _RUNNER._apply_camera_state_and_readback(object(), states[1], 2)
 
 
 def test_media_commands_copy_audio_and_reuse_only_topdown_right_panel() -> None:

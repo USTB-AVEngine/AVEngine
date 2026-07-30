@@ -7,6 +7,10 @@ from avengine.m5_1.mixed_capture import (
     MixedCaptureError,
     capture_human_beagle_paths,
 )
+from avengine.m7.visual_review import (
+    AssetBoundVisualReviewError,
+    _sensor_rig_readback_errors,
+)
 from tools.m7.build_asset_bound_visual_reviews import (
     AssetBoundReviewError,
     _capture_arrays,
@@ -91,4 +95,53 @@ def test_mixed_capture_requires_an_explicit_human_asset_identity() -> None:
             beagle_root_path_m=(),
             output_dir="output",
             human_asset_id="",
+        )
+
+
+def test_sensor_rig_readback_checks_agent_camera_listener_and_all_sensors() -> None:
+    expected = {
+        "translation_m": [1.0, 1.5, -2.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+    listener = {
+        "translation_m": [1.01, 1.5, -2.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+    errors = _sensor_rig_readback_errors(
+        expected_world_from_rig=expected,
+        snapshot={
+            "agent": expected,
+            "sensors": {
+                "rgb0": expected,
+                "depth0": expected,
+                "listener0": listener,
+            },
+        },
+        rgb_sensor_uuid="rgb0",
+        listener_uuid="listener0",
+    )
+
+    assert errors["agent"] == pytest.approx(0.0)
+    assert errors["camera"] == pytest.approx(0.0)
+    assert errors["listener"] == pytest.approx(0.01)
+    assert errors["all_sensors"] == pytest.approx(0.01)
+
+
+def test_sensor_rig_readback_fails_closed_when_listener_is_missing() -> None:
+    expected = {
+        "translation_m": [1.0, 1.5, -2.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+    with pytest.raises(
+        AssetBoundVisualReviewError,
+        match="readback is incomplete",
+    ):
+        _sensor_rig_readback_errors(
+            expected_world_from_rig=expected,
+            snapshot={
+                "agent": expected,
+                "sensors": {"rgb0": expected},
+            },
+            rgb_sensor_uuid="rgb0",
+            listener_uuid="listener0",
         )

@@ -47,6 +47,12 @@ from avengine.m7.asset_bound_audio import (
     prepare_dry_audio,
     render_asset_bound_binaural,
 )
+from avengine.m7.sensor_rig import (
+    M7SensorRigError,
+    m7_sensor_rig_binding,
+    m7_sensor_rig_pose_series,
+    validate_m7_rir_listener_alignment,
+)
 
 
 SCHEMA = "avengine_m7_asset_bound_binaural_batch_delivery_v1"
@@ -59,6 +65,51 @@ class AudioProgramSpec:
 
     path: Path
     variant_id: str = "A"
+
+
+def _load_sensor_rig_contract(plan_root: Path) -> dict[str, Any] | None:
+    """Load the optional plan-side rig and close it against every RIR use."""
+
+    rir_plan = load_json(plan_root / "rir_job_plan.json")
+    pose_mode = rir_plan.get("listener_pose_mode", "fixed")
+    if pose_mode not in {"fixed", "per_episode_frame"}:
+        raise AssetBoundAudioError(
+            f"unsupported RIR listener_pose_mode: {pose_mode!r}"
+        )
+    trajectory_path = plan_root / "sensor_rig_trajectory.json"
+    trajectory_declared = trajectory_path.exists() or trajectory_path.is_symlink()
+    if not trajectory_declared:
+        if pose_mode == "per_episode_frame":
+            raise AssetBoundAudioError(
+                "per_episode_frame RIR plan requires sensor_rig_trajectory.json"
+            )
+        return None
+    if not trajectory_path.is_file():
+        raise AssetBoundAudioError(
+            "sensor_rig_trajectory.json must be a regular file"
+        )
+    trajectory = load_json(trajectory_path)
+    try:
+        binding = m7_sensor_rig_binding(trajectory)
+        poses = m7_sensor_rig_pose_series(trajectory)
+        alignment = validate_m7_rir_listener_alignment(
+            rir_job_plan=rir_plan,
+            sensor_rig_trajectory=trajectory,
+        )
+    except M7SensorRigError as exc:
+        raise AssetBoundAudioError(
+            f"sensor-rig/RIR alignment is invalid: {exc}"
+        ) from exc
+    if len(poses.pose_hashes) != 75:
+        raise AssetBoundAudioError(
+            "sensor rig must contain the 75 formal M7 frames"
+        )
+    return {
+        "trajectory": dict(trajectory),
+        "binding": dict(binding),
+        "rir_alignment": dict(alignment),
+        "source_path": trajectory_path,
+    }
 
 
 def _slot_mapping(values: list[str], *, name: str) -> dict[str, str]:
@@ -529,6 +580,12 @@ def render_batch(
     if not np.isfinite(maximum_mixture_peak) or not 0.0 < maximum_mixture_peak <= 1.0:
         raise AssetBoundAudioError("maximum_mixture_peak must be in (0, 1]")
     bindings = _binding_assets(plan_root)
+    sensor_rig_contract = _load_sensor_rig_contract(plan_root)
+    sensor_rig_binding = (
+        None
+        if sensor_rig_contract is None
+        else dict(sensor_rig_contract["binding"])
+    )
     required_assets = {asset for slots in bindings.values() for asset in slots.values()}
     program_mode = bool(audio_program_specs)
     legacy_prepared: dict[tuple[str, int], PreparedDryAudio] = {}
@@ -624,6 +681,20 @@ def render_batch(
     program_instance_sha256s: dict[int, str] = {}
     try:
         staging.mkdir()
+        if sensor_rig_contract is not None:
+            sensor_rig_relative = Path("labels") / "sensor_rig_trajectory.json"
+            sensor_rig_output = staging / sensor_rig_relative
+            sensor_rig_output.parent.mkdir(parents=True, exist_ok=True)
+            source = Path(sensor_rig_contract["source_path"])
+            shutil.copyfile(source, sensor_rig_output)
+            if (
+                sensor_rig_output.read_bytes() != source.read_bytes()
+                or m7_sensor_rig_binding(load_json(sensor_rig_output))
+                != sensor_rig_binding
+            ):
+                raise AssetBoundAudioError(
+                    "copied sensor-rig sidecar differs from the plan"
+                )
         if program_mode:
             for variant_index, prepared_program in program_prepared.items():
                 relative = (
@@ -664,15 +735,18 @@ def render_batch(
                     partition_key, M5_AUDIO_SAMPLE_COUNT
                 )
                 partitions_by_keyframe_grid[partition_key] = partition_weights
-            episode_records.append(
-                {
-                    "episode_id": episode_id,
-                    "episode_ordinal": episode_ordinal,
-                    "asset_ids_by_source_slot": bindings[episode_id],
-                    "rir_cache": cached.evidence,
-                    "cache_load_policy": "loaded_once_then_reused_for_all_episode_variants",
-                }
-            )
+            episode_record = {
+                "episode_id": episode_id,
+                "episode_ordinal": episode_ordinal,
+                "asset_ids_by_source_slot": bindings[episode_id],
+                "rir_cache": cached.evidence,
+                "cache_load_policy": "loaded_once_then_reused_for_all_episode_variants",
+            }
+            if sensor_rig_binding is not None:
+                episode_record["sensor_rig_trajectory"] = dict(
+                    sensor_rig_binding
+                )
+            episode_records.append(episode_record)
             for variant_index in range(variants_per_episode):
                 sample_id = f"{episode_id}__v{variant_index:02d}"
                 prepared_program = (
@@ -785,6 +859,10 @@ def render_batch(
                         "peak_absolute": peak,
                     },
                 }
+                if sensor_rig_binding is not None:
+                    sample_record["sensor_rig_trajectory"] = dict(
+                        sensor_rig_binding
+                    )
                 if prepared_program is None:
                     sample_record.update(
                         {
@@ -884,6 +962,14 @@ def render_batch(
                 "stems": "audio/binaural/stems/" if retain_stems else None,
             },
         }
+        if sensor_rig_binding is not None:
+            delivery["sensor_rig_trajectory"] = dict(sensor_rig_binding)
+            delivery["sensor_rig_rir_alignment"] = dict(
+                sensor_rig_contract["rir_alignment"]
+            )
+            delivery["outputs"]["sensor_rig_trajectory"] = (
+                "labels/sensor_rig_trajectory.json"
+            )
         if program_mode:
             delivery["source_activity_contract"] = (
                 "m6_audio_program_event_windows_v1"

@@ -2,10 +2,12 @@
 
 This module is deliberately a pure-Python boundary: importing or compiling a
 plan never imports SPEAR or Unreal bindings and never starts a native runtime.
-Timeline v2 owns every actor state, the RoomCapsule owns the room identity and
-layout, and the native room qualification owns the source-center gate.  A
-SPEAR consumer may render the resulting plan only as ``comparison_visual``;
-it is not a second navigation, source-logic, audio, or admission authority.
+Timeline v2 owns every actor state and binds each SensorRig pose hash, the
+SensorRigTrajectory owns exact camera/listener state, the RoomCapsule owns the
+room identity and layout, and native room qualification owns the source-center
+gate. A SPEAR consumer may render the resulting plan only as
+``comparison_visual``; it is not a second navigation, source-logic, audio, or
+admission authority.
 """
 
 from __future__ import annotations
@@ -16,6 +18,9 @@ import json
 import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from avengine.contracts.json_io import canonical_json_sha256
+from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
 
 
 PLAN_SCHEMA = "avengine_optional_spear_visual_plan_v1"
@@ -424,6 +429,141 @@ def _compact_flag_summary(flags: Mapping[str, Any]) -> dict[str, Any]:
     return compact
 
 
+def _compiled_camera_states(
+    *,
+    timeline_frames: Sequence[Mapping[str, Any]],
+    sensor_rig_trajectory: Mapping[str, Any] | None,
+    qualification_position_m: Sequence[float],
+    qualification_yaw_deg: float,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Compile exact per-frame Habitat and UE camera states.
+
+    A supplied SensorRigTrajectory is authoritative and must be cross-bound to
+    Timeline ``view0``.  Legacy inputs without that sidecar retain their old
+    fixed qualification pose, but it is materialized explicitly on every
+    frame so the UE executor has only one state-consumption path.
+    """
+
+    # Keep this dependency lazy: sensor_rig_trajectory imports the M6x
+    # trajectory package, whose public package surface includes optional
+    # backend registries.  A module-level import here would make importing the
+    # standalone SensorRig contract depend on SPEAR import order.
+    from avengine.sensor_rig_trajectory import (
+        compute_sensor_rig_pose_hash,
+        materialize_sensor_rig_trajectory,
+        validate_sensor_rig_trajectory,
+    )
+
+    explicit_trajectory = sensor_rig_trajectory is not None
+    if explicit_trajectory:
+        if not isinstance(sensor_rig_trajectory, Mapping):
+            raise SpearVisualPlanError("sensor_rig_trajectory must be a mapping")
+        errors = validate_sensor_rig_trajectory(sensor_rig_trajectory)
+        if errors:
+            raise SpearVisualPlanError(
+                "sensor_rig_trajectory is invalid: " + "; ".join(errors)
+            )
+        trajectory = deepcopy(dict(sensor_rig_trajectory))
+        state_source = "SensorRigTrajectory_v1"
+    else:
+        trajectory = materialize_sensor_rig_trajectory(
+            trajectory_id="qualification_listener_static_compatibility_v1",
+            program={
+                "kind": "HOLD",
+                "position_m": list(qualification_position_m),
+                "yaw_deg": qualification_yaw_deg,
+            },
+        )
+        state_source = "room_qualification_static_compatibility"
+
+    trajectory_frames = trajectory.get("frames")
+    if not isinstance(trajectory_frames, list) or len(trajectory_frames) != FRAME_COUNT:
+        raise SpearVisualPlanError(
+            "sensor_rig_trajectory frames must contain exactly 75 frames"
+        )
+
+    compiled: list[dict[str, Any]] = []
+    for frame_index, (timeline_frame, trajectory_frame) in enumerate(
+        zip(timeline_frames, trajectory_frames)
+    ):
+        if not isinstance(timeline_frame, Mapping):
+            raise SpearVisualPlanError(
+                f"Timeline frames[{frame_index}] is not a mapping"
+            )
+        if not isinstance(trajectory_frame, Mapping):
+            raise SpearVisualPlanError(
+                f"sensor_rig_trajectory frames[{frame_index}] must be a mapping"
+            )
+        if (
+            trajectory_frame.get("frame_index") != frame_index
+            or trajectory_frame.get("pts_ticks") != frame_index * 3_200
+        ):
+            raise SpearVisualPlanError(
+                f"sensor_rig_trajectory frame {frame_index} is off the Timeline clock"
+            )
+        world_from_rig = trajectory_frame.get("world_from_rig")
+        if not isinstance(world_from_rig, Mapping):
+            raise SpearVisualPlanError(
+                f"sensor_rig_trajectory frame {frame_index} lacks world_from_rig"
+            )
+        pose_hash = trajectory_frame.get("pose_hash")
+        if pose_hash != compute_sensor_rig_pose_hash(world_from_rig):
+            raise SpearVisualPlanError(
+                f"sensor_rig_trajectory frame {frame_index} pose_hash does not bind "
+                "world_from_rig"
+            )
+        position = _finite_vector(
+            world_from_rig.get("translation_m"),
+            3,
+            owner=(
+                f"sensor_rig_trajectory frame {frame_index} "
+                "world_from_rig.translation_m"
+            ),
+        )
+        rotation = _finite_vector(
+            world_from_rig.get("rotation_xyzw"),
+            4,
+            owner=(
+                f"sensor_rig_trajectory frame {frame_index} "
+                "world_from_rig.rotation_xyzw"
+            ),
+        )
+        yaw = habitat_yaw_degrees_from_xyzw(rotation)
+        if explicit_trajectory:
+            view_pose_hashes = timeline_frame.get("view_pose_hashes")
+            if (
+                not isinstance(view_pose_hashes, Mapping)
+                or view_pose_hashes.get("view0") != pose_hash
+            ):
+                raise SpearVisualPlanError(
+                    f"Timeline frame {frame_index} view0 pose hash differs from "
+                    "SensorRigTrajectory"
+                )
+        compiled.append(
+            {
+                "frame_index": frame_index,
+                "pts_ticks": frame_index * 3_200,
+                "world_from_rig": deepcopy(dict(world_from_rig)),
+                "habitat_position_m": list(position),
+                "habitat_yaw_deg": yaw,
+                "ue_position_cm": list(habitat_point_to_apartment_ue_cm(position)),
+                "ue_yaw_deg": camera_ue_yaw_degrees(yaw),
+                "pose_hash": pose_hash,
+            }
+        )
+
+    return (
+        {
+            "state_source": state_source,
+            "trajectory_schema": trajectory.get("schema"),
+            "trajectory_id": trajectory.get("trajectory_id"),
+            "pose_hash_algorithm": trajectory.get("pose_hash_algorithm"),
+            "timeline_pose_hash_crosscheck": explicit_trajectory,
+        },
+        compiled,
+    )
+
+
 def build_spear_visual_plan(
     *,
     timeline: Mapping[str, Any],
@@ -433,6 +573,7 @@ def build_spear_visual_plan(
     qualification: Mapping[str, Any],
     actor_bindings: Mapping[str, SpearActorBinding | Mapping[str, Any]],
     body_plan_forward_axes: Mapping[str, Sequence[float]] | None = None,
+    sensor_rig_trajectory: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a detached 75-frame visual plan without loading SPEAR.
 
@@ -559,6 +700,12 @@ def build_spear_visual_plan(
     )
     if not 0.0 < camera_hfov < 180.0:
         raise SpearVisualPlanError("qualification listener camera HFOV is invalid")
+    camera_state_metadata, camera_states = _compiled_camera_states(
+        timeline_frames=frames,
+        sensor_rig_trajectory=sensor_rig_trajectory,
+        qualification_position_m=camera_habitat_position,
+        qualification_yaw_deg=camera_habitat_yaw,
+    )
 
     compiled_frames: list[dict[str, Any]] = []
     for frame_index, frame in enumerate(frames):
@@ -650,6 +797,7 @@ def build_spear_visual_plan(
             {
                 "frame_index": frame_index,
                 "pts_ticks": frame["pts_ticks"],
+                "camera_state": camera_states[frame_index],
                 "actor_states": compiled_states,
             }
         )
@@ -664,6 +812,27 @@ def build_spear_visual_plan(
         raise SpearVisualPlanError(
             "source_manifest listener differs from the authoritative RoomCapsule"
         )
+    trajectory_ref = source_manifest_listener.get("sensor_rig_trajectory")
+    if trajectory_ref is not None:
+        if not isinstance(trajectory_ref, Mapping):
+            raise SpearVisualPlanError(
+                "source_manifest listener sensor-rig reference must be a mapping"
+            )
+        if sensor_rig_trajectory is None:
+            raise SpearVisualPlanError(
+                "source_manifest declares a SensorRigTrajectory but no sidecar "
+                "was supplied"
+            )
+        if (
+            trajectory_ref.get("trajectory_id")
+            != sensor_rig_trajectory.get("trajectory_id")
+            or trajectory_ref.get("content_sha256")
+            != canonical_json_sha256(sensor_rig_trajectory)
+        ):
+            raise SpearVisualPlanError(
+                "source_manifest SensorRigTrajectory reference differs from "
+                "the supplied sidecar"
+            )
 
     return {
         "schema": PLAN_SCHEMA,
@@ -673,6 +842,7 @@ def build_spear_visual_plan(
             "room_identity_and_layout": "RoomCapsule",
             "source_logic": "source_manifest_and_flags",
             "source_center_placement": "room_qualification",
+            "camera_listener_state": camera_state_metadata["state_source"],
             "backend_may_replan": False,
         },
         "coordinate_contract": {
@@ -695,13 +865,17 @@ def build_spear_visual_plan(
         },
         "camera": {
             "listener_id": capsule_rig.get("listener_id"),
-            "habitat_position_m": list(camera_habitat_position),
-            "habitat_yaw_deg": camera_habitat_yaw,
-            "ue_position_cm": list(
-                habitat_point_to_apartment_ue_cm(camera_habitat_position)
-            ),
-            "ue_yaw_deg": camera_ue_yaw_degrees(camera_habitat_yaw),
             "horizontal_fov_deg": camera_hfov,
+            "calibration_scope": "static_all_frames",
+            "per_frame_state_field": "frames[].camera_state",
+            "default_pose_scope": "frame_zero_compatibility_only",
+            "habitat_position_m": deepcopy(
+                camera_states[0]["habitat_position_m"]
+            ),
+            "habitat_yaw_deg": camera_states[0]["habitat_yaw_deg"],
+            "ue_position_cm": deepcopy(camera_states[0]["ue_position_cm"]),
+            "ue_yaw_deg": camera_states[0]["ue_yaw_deg"],
+            **camera_state_metadata,
         },
         "render": {
             "frame_count": FRAME_COUNT,
@@ -747,8 +921,9 @@ def build_spear_visual_plan_from_files(
     qualification_path: str | Path,
     actor_bindings: Mapping[str, SpearActorBinding | Mapping[str, Any]],
     body_plan_forward_axes: Mapping[str, Sequence[float]] | None = None,
+    sensor_rig_trajectory_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Load the five bounded JSON inputs and compile a path-free plan."""
+    """Load bounded JSON inputs and compile a path-free plan."""
 
     return build_spear_visual_plan(
         timeline=_load_mapping(timeline_path, owner="timeline"),
@@ -760,4 +935,11 @@ def build_spear_visual_plan_from_files(
         qualification=_load_mapping(qualification_path, owner="qualification"),
         actor_bindings=actor_bindings,
         body_plan_forward_axes=body_plan_forward_axes,
+        sensor_rig_trajectory=(
+            None
+            if sensor_rig_trajectory_path is None
+            else _load_mapping(
+                sensor_rig_trajectory_path, owner="sensor_rig_trajectory"
+            )
+        ),
     )

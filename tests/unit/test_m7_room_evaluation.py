@@ -15,6 +15,7 @@ from avengine.m7.room_evaluation import (
     validate_episode_id,
 )
 from avengine.security.path_policy import atomic_publish_directory
+from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 from tools.m7 import build_room_evaluation_plan as plan_tool
 from tools.m7.render_room_evaluation_binaural import (
     OUTPUT_CLOSURE_FILES,
@@ -214,6 +215,47 @@ def test_direction_balanced_plan_deconfounds_motion_and_sound_pairs():
     assert result.summary["minimum_listener_source_distance_m_observed"] >= 0.3
 
 
+def test_room_evaluation_binds_dynamic_listener_pose_into_rir_jobs() -> None:
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="m7_dynamic_listener_test",
+        program={
+            "kind": "WAYPOINT_ROUTE",
+            "waypoints": [
+                {
+                    "frame_index": 0,
+                    "position_m": [0.0, 1.5, 0.0],
+                    "yaw_deg": 0.0,
+                },
+                {
+                    "frame_index": 74,
+                    "position_m": [1.0, 1.5, 0.5],
+                    "yaw_deg": 90.0,
+                },
+            ],
+            "interpolation": "LINEAR_POSITION_SHORTEST_YAW",
+        },
+    )
+    result = build_room_evaluation_plan(
+        _renderer_bank(),
+        listener_position_m=[0.0, 1.5, 0.0],
+        listener_orientation_wxyz=[1.0, 0.0, 0.0, 0.0],
+        stride_frames=3,
+        episode_count=8,
+        sensor_rig_trajectory=trajectory,
+    )
+    assert result.summary["listener_pose_mode"] == "sensor_rig_trajectory_v1"
+    assert (
+        result.summary["sensor_rig_trajectory"]["trajectory_id"]
+        == "m7_dynamic_listener_test"
+    )
+    assert result.rir_job_plan["listener_pose_mode"] == "per_episode_frame"
+    job_positions = {
+        tuple(job["listener_position_m"])
+        for job in result.rir_job_plan["jobs"]
+    }
+    assert len(job_positions) > 1
+
+
 def test_m7_public_exports_keep_audio_and_room_interfaces():
     import avengine.m7 as m7
 
@@ -358,6 +400,7 @@ def test_room_evaluation_plan_cli_uses_immutable_directory_publication(
         sound_classes=None,
         listener_position_m=None,
         listener_orientation_wxyz=None,
+        sensor_rig_trajectory=None,
         minimum_listener_source_distance_m=0.0,
         balance_azimuth_regions=False,
         minimum_azimuth_region_fraction=0.0,
@@ -368,6 +411,57 @@ def test_room_evaluation_plan_cli_uses_immutable_directory_publication(
     assert load_json(output / "delivery.json")["status"] == "pass"
     with pytest.raises(FileExistsError, match="refusing to replace"):
         plan_tool.main()
+
+
+def test_room_evaluation_renderer_closes_dynamic_sensor_rig_plan(
+    tmp_path,
+) -> None:
+    trajectory = materialize_sensor_rig_trajectory(
+        trajectory_id="room_renderer_dynamic_listener",
+        program={
+            "kind": "WAYPOINT_ROUTE",
+            "waypoints": [
+                {
+                    "frame_index": 0,
+                    "position_m": [0.0, 1.5, 0.0],
+                    "yaw_deg": 0.0,
+                },
+                {
+                    "frame_index": 74,
+                    "position_m": [0.5, 1.5, 0.5],
+                    "yaw_deg": 45.0,
+                },
+            ],
+            "interpolation": "LINEAR_POSITION_SHORTEST_YAW",
+        },
+    )
+    result = build_room_evaluation_plan(
+        _renderer_bank(),
+        listener_position_m=[0.0, 1.5, 0.0],
+        listener_orientation_wxyz=[1.0, 0.0, 0.0, 0.0],
+        stride_frames=3,
+        episode_count=8,
+        sensor_rig_trajectory=trajectory,
+    )
+    plan_root = tmp_path / "dynamic_plan"
+    write_json(plan_root / "trajectory_bank.json", result.trajectory_bank)
+    write_json(plan_root / "rir_job_plan.json", result.rir_job_plan)
+    write_json(
+        plan_root / "sound_assignments.json", result.sound_assignments
+    )
+    write_json(plan_root / "delivery.json", result.summary)
+    write_json(plan_root / "sensor_rig_trajectory.json", trajectory)
+    assignments, _ = _assignments(plan_root / "sound_assignments.json")
+
+    closure = _plan_closure(plan_root, assignments)
+
+    assert closure["listener_pose_mode"] == "per_episode_frame"
+    assert (
+        closure["sensor_rig_trajectory"]["trajectory_id"]
+        == "room_renderer_dynamic_listener"
+    )
+    assert closure["sensor_rig_rir_alignment"]["checked_use_count"] == 400
+    assert "sensor_rig_trajectory.json" in closure["files"]
 
 
 def test_room_evaluation_renderer_closes_plan_cache_and_execution_identity(

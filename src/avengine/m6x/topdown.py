@@ -119,6 +119,62 @@ def _source_paths(value: Mapping[str, Any]) -> tuple[dict[str, np.ndarray], int]
     return paths, frame_count
 
 
+def _listener_pose_series(
+    *,
+    listener_position_m: Sequence[float],
+    listener_yaw_deg: Real,
+    listener_positions_m_by_frame: Sequence[Sequence[float]] | None,
+    listener_yaws_deg_by_frame: Sequence[Real] | None,
+    frame_count: int,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Resolve fixed or per-frame listener poses on the visual frame clock."""
+
+    fixed_position = _finite_point(listener_position_m, owner="listener position")
+    if (
+        isinstance(listener_yaw_deg, bool)
+        or not isinstance(listener_yaw_deg, Real)
+        or not math.isfinite(float(listener_yaw_deg))
+    ):
+        raise M6XTopdownError("listener_yaw_deg must be a finite number")
+    dynamic = (
+        listener_positions_m_by_frame is not None
+        or listener_yaws_deg_by_frame is not None
+    )
+    if not dynamic:
+        return (
+            np.repeat(fixed_position[None, :], frame_count, axis=0),
+            np.full(frame_count, float(listener_yaw_deg), dtype=np.float64),
+            False,
+        )
+    if (
+        listener_positions_m_by_frame is None
+        or listener_yaws_deg_by_frame is None
+    ):
+        raise M6XTopdownError(
+            "per-frame listener positions and yaws must be provided together"
+        )
+    try:
+        positions = np.asarray(listener_positions_m_by_frame, dtype=np.float64)
+        yaws = np.asarray(listener_yaws_deg_by_frame, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise M6XTopdownError(
+            "per-frame listener poses must contain finite numbers"
+        ) from exc
+    if positions.shape != (frame_count, 3) or not np.all(np.isfinite(positions)):
+        raise M6XTopdownError(
+            "listener_positions_m_by_frame must be finite [frame,3]"
+        )
+    if yaws.shape != (frame_count,) or not np.all(np.isfinite(yaws)):
+        raise M6XTopdownError(
+            "listener_yaws_deg_by_frame must be finite [frame]"
+        )
+    return (
+        np.ascontiguousarray(positions),
+        np.ascontiguousarray(yaws),
+        True,
+    )
+
+
 def _source_activity(
     value: Mapping[str, Any] | None,
     *,
@@ -745,6 +801,8 @@ def render_runtime_topdown_frame(
     listener_position_m: Sequence[float],
     listener_yaw_deg: Real,
     camera_hfov_degrees: Real,
+    listener_positions_m_by_frame: Sequence[Sequence[float]] | None = None,
+    listener_yaws_deg_by_frame: Sequence[Real] | None = None,
     source_activity_by_frame: Mapping[str, Any] | None = None,
     source_heading_xz_by_frame: Mapping[str, Any] | None = None,
     source_labels: Mapping[str, Any] | None = None,
@@ -784,6 +842,23 @@ def render_runtime_topdown_frame(
         size_wh=size_wh,
         rigid_label_limit=rigid_label_limit,
     )
+    listener_positions, listener_yaws, dynamic_listener = _listener_pose_series(
+        listener_position_m=listener_position_m,
+        listener_yaw_deg=listener_yaw_deg,
+        listener_positions_m_by_frame=listener_positions_m_by_frame,
+        listener_yaws_deg_by_frame=listener_yaws_deg_by_frame,
+        frame_count=frame_count,
+    )
+    if dynamic_listener:
+        prepared = _PreparedTopdown(
+            obstacle_map,
+            paths,
+            listener_positions[frame_index],
+            float(listener_yaws[frame_index]),
+            hfov,
+            (prepared.width, prepared.height),
+            rigid_label_limit=prepared.rigid_label_limit,
+        )
     return _render_prepared_frame(
         prepared,
         frame_index,
@@ -804,6 +879,8 @@ def render_runtime_topdown_frames(
     listener_position_m: Sequence[float],
     listener_yaw_deg: Real,
     camera_hfov_degrees: Real,
+    listener_positions_m_by_frame: Sequence[Sequence[float]] | None = None,
+    listener_yaws_deg_by_frame: Sequence[Real] | None = None,
     source_activity_by_frame: Mapping[str, Any] | None = None,
     source_heading_xz_by_frame: Mapping[str, Any] | None = None,
     source_labels: Mapping[str, Any] | None = None,
@@ -841,11 +918,30 @@ def render_runtime_topdown_frames(
         size_wh=size_wh,
         rigid_label_limit=rigid_label_limit,
     )
+    listener_positions, listener_yaws, dynamic_listener = _listener_pose_series(
+        listener_position_m=listener_position_m,
+        listener_yaw_deg=listener_yaw_deg,
+        listener_positions_m_by_frame=listener_positions_m_by_frame,
+        listener_yaws_deg_by_frame=listener_yaws_deg_by_frame,
+        frame_count=frame_count,
+    )
     return np.ascontiguousarray(
         np.stack(
             [
                 _render_prepared_frame(
-                    prepared,
+                    (
+                        _PreparedTopdown(
+                            obstacle_map,
+                            paths,
+                            listener_positions[frame_index],
+                            float(listener_yaws[frame_index]),
+                            hfov,
+                            (prepared.width, prepared.height),
+                            rigid_label_limit=prepared.rigid_label_limit,
+                        )
+                        if dynamic_listener
+                        else prepared
+                    ),
                     frame_index,
                     paths=paths,
                     frame_count=frame_count,

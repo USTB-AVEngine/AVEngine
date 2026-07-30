@@ -20,7 +20,13 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from avengine.contracts.json_io import sha256_file, write_json
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    sha256_file,
+    write_json,
+)
+from avengine.contracts.transforms import transform_error
+from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
 from avengine.m5_1.review import (
     SourceOverlayTrack,
     compose_annotated_frames,
@@ -28,6 +34,11 @@ from avengine.m5_1.review import (
 )
 from avengine.m6x.geometry import RuntimeObstacleMap
 from avengine.m6x.topdown import render_runtime_topdown_frames
+from avengine.m7.sensor_rig import (
+    M7SensorRigError,
+    m7_sensor_rig_binding,
+    m7_sensor_rig_pose_series,
+)
 
 
 FRAME_COUNT = 75
@@ -37,6 +48,8 @@ LISTENER_POSITION_M = (-0.7, 1.471, 0.65)
 LISTENER_YAW_DEG = 55.0
 CAMERA_HFOV_DEG = 105.0
 REVIEW_SCHEMA = "avengine_m7_asset_bound_habitat_qa_review_v1"
+_RIG_ARRAY_ATOL = 2.0e-6
+_RIG_ERROR_RECORD_ATOL = 1.0e-12
 
 
 class AssetBoundReviewError(RuntimeError):
@@ -58,6 +71,18 @@ class ReviewSpec:
     colors: tuple[tuple[int, int, int], tuple[int, int, int]]
     local_forward_axes: tuple[tuple[float, float, float], tuple[float, float, float]]
     emitter_offsets_m: tuple[tuple[float, float, float], tuple[float, float, float]]
+
+
+@dataclass(frozen=True)
+class _CaptureSensorRig:
+    """Listener poses proven to match one capture's formal rig trajectory."""
+
+    positions_m: np.ndarray
+    rotations_xyzw: np.ndarray
+    yaws_deg: np.ndarray
+    pose_hashes: tuple[str, ...]
+    binding: Mapping[str, Any] | None
+    cross_modal_check: Mapping[str, Any]
 
 
 REVIEW_SPECS = (
@@ -109,6 +134,81 @@ def _load_json(path: Path) -> Mapping[str, Any]:
 def _require_regular_file(path: Path, *, owner: str) -> None:
     if not path.is_file() or path.is_symlink():
         raise AssetBoundReviewError(f"{owner} must be a regular file: {path}")
+
+
+def _validate_evidence_content_hash(evidence: Mapping[str, Any]) -> None:
+    expected = evidence.get("evidence_content_sha256")
+    unhashed = dict(evidence)
+    unhashed.pop("evidence_content_sha256", None)
+    if (
+        not isinstance(expected, str)
+        or len(expected) != 64
+        or canonical_json_sha256(unhashed) != expected
+    ):
+        raise AssetBoundReviewError(
+            "capture evidence content hash is missing or invalid"
+        )
+
+
+def _validate_artifact_record(
+    *,
+    capture_root: Path,
+    path: Path,
+    record: Any,
+    owner: str,
+) -> Mapping[str, Any]:
+    _require_regular_file(path, owner=owner)
+    if not isinstance(record, Mapping):
+        raise AssetBoundReviewError(f"{owner} artifact record is missing")
+    expected_relative_path = path.relative_to(capture_root).as_posix()
+    byte_size = path.stat().st_size
+    digest = sha256_file(path)
+    if (
+        record.get("path") != expected_relative_path
+        or record.get("byte_size") != byte_size
+        or record.get("sha256") != digest
+    ):
+        raise AssetBoundReviewError(
+            f"{owner} artifact path, size, or content hash differs"
+        )
+    return record
+
+
+def _validate_array_artifact(
+    *,
+    capture_root: Path,
+    evidence: Mapping[str, Any],
+    name: str,
+    path: Path,
+) -> Mapping[str, Any]:
+    artifacts = evidence.get("array_artifacts")
+    record = artifacts.get(name) if isinstance(artifacts, Mapping) else None
+    validated = _validate_artifact_record(
+        capture_root=capture_root,
+        path=path,
+        record=record,
+        owner=f"captured {name} array",
+    )
+    if validated.get("readback_verified") is not True:
+        raise AssetBoundReviewError(
+            f"captured {name} array lacks producer readback verification"
+        )
+    return validated
+
+
+def _validate_array_metadata(
+    *,
+    array: np.ndarray,
+    record: Mapping[str, Any],
+    owner: str,
+) -> None:
+    if (
+        record.get("dtype") != array.dtype.str
+        or record.get("shape") != list(array.shape)
+    ):
+        raise AssetBoundReviewError(
+            f"{owner} dtype or shape differs from its artifact record"
+        )
 
 
 def _load_bank(plan_root: Path) -> tuple[Mapping[str, Any], Mapping[str, int], np.lib.npyio.NpzFile]:
@@ -277,15 +377,524 @@ def _capture_arrays(
         raise AssetBoundReviewError("review capture actor classes differ from its requested asset pair")
     if asset_ids != tuple(expected_asset_ids):
         raise AssetBoundReviewError("review capture asset IDs differ from its requested asset pair")
+    _validate_evidence_content_hash(evidence)
     rgb_path = capture_root / "arrays" / "rgb.npy"
     matrix_path = capture_root / "arrays" / "actor_world_matrices.npy"
-    _require_regular_file(rgb_path, owner="captured RGB")
-    _require_regular_file(matrix_path, owner="captured actor transforms")
-    rgb = np.load(rgb_path, allow_pickle=False)
-    matrices = np.load(matrix_path, allow_pickle=False)
+    rgb_record = _validate_array_artifact(
+        capture_root=capture_root,
+        evidence=evidence,
+        name="rgb",
+        path=rgb_path,
+    )
+    matrix_record = _validate_array_artifact(
+        capture_root=capture_root,
+        evidence=evidence,
+        name="actor_world_matrices",
+        path=matrix_path,
+    )
+    try:
+        rgb = np.load(rgb_path, allow_pickle=False)
+        matrices = np.load(matrix_path, allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        raise AssetBoundReviewError(
+            f"cannot load captured RGB/actor arrays: {exc}"
+        ) from exc
     if rgb.shape != (FRAME_COUNT, 240, 320, 3) or rgb.dtype != np.uint8:
         raise AssetBoundReviewError("captured RGB has an unexpected shape")
+    if (
+        matrices.shape != (FRAME_COUNT, 2, 4, 4)
+        or not np.issubdtype(matrices.dtype, np.floating)
+        or not np.all(np.isfinite(matrices))
+    ):
+        raise AssetBoundReviewError(
+            "captured actor transforms must be finite [75,2,4,4]"
+        )
+    _validate_array_metadata(
+        array=rgb,
+        record=rgb_record,
+        owner="captured RGB",
+    )
+    _validate_array_metadata(
+        array=matrices,
+        record=matrix_record,
+        owner="captured actor transforms",
+    )
     return np.ascontiguousarray(rgb), np.ascontiguousarray(matrices, dtype=np.float64)
+
+
+def _validated_error_record(
+    *,
+    record: Any,
+    recomputed: Mapping[str, float],
+    owner: str,
+) -> None:
+    if not isinstance(record, Mapping) or set(record) != set(recomputed):
+        raise AssetBoundReviewError(
+            f"{owner} transform_errors are missing or incomplete"
+        )
+    for role, expected in recomputed.items():
+        raw = record.get(role)
+        if isinstance(raw, (bool, np.bool_)):
+            raise AssetBoundReviewError(f"{owner} transform_errors are invalid")
+        try:
+            reported = float(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise AssetBoundReviewError(
+                f"{owner} transform_errors are invalid"
+            ) from exc
+        if (
+            not np.isfinite(reported)
+            or reported < 0.0
+            or abs(reported - expected) > _RIG_ERROR_RECORD_ATOL
+        ):
+            raise AssetBoundReviewError(
+                f"{owner} transform_errors differ from actual readback"
+            )
+
+
+def _actual_sensor_rig_errors(
+    *,
+    rig: Mapping[str, Any],
+    expected_world_from_rig: Mapping[str, Any],
+    frame_index: int,
+) -> dict[str, float]:
+    agent = rig.get("agent_readback")
+    camera = rig.get("camera_readback")
+    listener = rig.get("listener_readback")
+    sensors = rig.get("sensor_readbacks")
+    if (
+        not isinstance(agent, Mapping)
+        or not isinstance(camera, Mapping)
+        or not isinstance(listener, Mapping)
+        or not isinstance(sensors, Mapping)
+        or not sensors
+        or any(not isinstance(value, Mapping) for value in sensors.values())
+    ):
+        raise AssetBoundReviewError(
+            f"capture frame {frame_index} actual agent/camera/listener "
+            "readback is missing or incomplete"
+        )
+    sensor_values = tuple(sensors.values())
+    if (
+        not any(value == camera for value in sensor_values)
+        or not any(value == listener for value in sensor_values)
+    ):
+        raise AssetBoundReviewError(
+            f"capture frame {frame_index} camera/listener readback is not "
+            "retained in sensor_readbacks"
+        )
+    try:
+        sensor_errors = tuple(
+            transform_error(
+                dict(expected_world_from_rig),
+                dict(sensor_pose),
+            )
+            for sensor_pose in sensor_values
+        )
+        errors = {
+            "agent": transform_error(
+                dict(expected_world_from_rig),
+                dict(agent),
+            ),
+            "camera": transform_error(
+                dict(expected_world_from_rig),
+                dict(camera),
+            ),
+            "listener": transform_error(
+                dict(expected_world_from_rig),
+                dict(listener),
+            ),
+            "all_sensors": max(sensor_errors),
+        }
+    except (TypeError, ValueError, KeyError) as exc:
+        raise AssetBoundReviewError(
+            f"capture frame {frame_index} actual sensor-rig readback is invalid"
+        ) from exc
+    _validated_error_record(
+        record=rig.get("transform_errors"),
+        recomputed=errors,
+        owner=f"capture frame {frame_index}",
+    )
+    if max(errors.values()) > _RIG_ARRAY_ATOL:
+        raise AssetBoundReviewError(
+            f"capture frame {frame_index} actual agent/camera/listener "
+            "readback differs from SensorRigTrajectory"
+        )
+    return errors
+
+
+def _capture_sensor_rig(capture_root: Path) -> _CaptureSensorRig:
+    """Load and revalidate a capture's complete, actual SensorRig closure."""
+
+    evidence = _load_json(capture_root / "evidence.json")
+    trajectory_path = capture_root / "sensor_rig_trajectory.json"
+    listener_position_path = (
+        capture_root / "arrays" / "listener_positions_m.npy"
+    )
+    listener_rotation_path = (
+        capture_root / "arrays" / "listener_rotations_xyzw.npy"
+    )
+    frame_readback_path = capture_root / "frame_readback.json"
+    rig_paths = (
+        trajectory_path,
+        listener_position_path,
+        listener_rotation_path,
+    )
+    evidence_declares_rig = (
+        evidence.get("sensor_rig_trajectory") is not None
+        or evidence.get("sensor_rig_binding") is not None
+    )
+    if (
+        not evidence_declares_rig
+        and not any(path.exists() or path.is_symlink() for path in rig_paths)
+    ):
+        positions = np.repeat(
+            np.asarray(LISTENER_POSITION_M, dtype=np.float64)[None, :],
+            FRAME_COUNT,
+            axis=0,
+        )
+        rotations = np.zeros((FRAME_COUNT, 4), dtype=np.float64)
+        rotations[:, 3] = 1.0
+        return _CaptureSensorRig(
+            positions_m=np.ascontiguousarray(positions),
+            rotations_xyzw=np.ascontiguousarray(rotations),
+            yaws_deg=np.full(
+                FRAME_COUNT,
+                LISTENER_YAW_DEG,
+                dtype=np.float64,
+            ),
+            pose_hashes=(),
+            binding=None,
+            cross_modal_check={
+                "status": "pass",
+                "listener_pose_mode": "legacy_fixed",
+                "checked_frame_count": FRAME_COUNT,
+                "pose_hash_check": "not_available_in_legacy_capture",
+                "capture_listener_arrays": "not_available_in_legacy_capture",
+                "compatibility": "fixed_capture_without_sensor_rig_sidecar",
+            },
+        )
+    _validate_evidence_content_hash(evidence)
+
+    evidence_binding = evidence.get("sensor_rig_binding")
+    if not isinstance(evidence_binding, Mapping):
+        raise AssetBoundReviewError(
+            "capture evidence sensor-rig binding is missing"
+        )
+    trajectory_record = _validate_artifact_record(
+        capture_root=capture_root,
+        path=trajectory_path,
+        record=evidence_binding.get("artifact"),
+        owner="capture sensor-rig trajectory",
+    )
+    position_record = _validate_array_artifact(
+        capture_root=capture_root,
+        evidence=evidence,
+        name="listener_positions_m",
+        path=listener_position_path,
+    )
+    rotation_record = _validate_array_artifact(
+        capture_root=capture_root,
+        evidence=evidence,
+        name="listener_rotations_xyzw",
+        path=listener_rotation_path,
+    )
+    readback_evidence = evidence.get("readback")
+    frame_record = (
+        readback_evidence.get("frame_records")
+        if isinstance(readback_evidence, Mapping)
+        else None
+    )
+    validated_frame_record = _validate_artifact_record(
+        capture_root=capture_root,
+        path=frame_readback_path,
+        record=frame_record,
+        owner="capture frame readback",
+    )
+
+    trajectory = _load_json(trajectory_path)
+    try:
+        binding = m7_sensor_rig_binding(trajectory)
+        poses = m7_sensor_rig_pose_series(trajectory)
+    except M7SensorRigError as exc:
+        raise AssetBoundReviewError(
+            f"capture SensorRigTrajectory is invalid: {exc}"
+        ) from exc
+    if (
+        trajectory.get("frame_count") != FRAME_COUNT
+        or trajectory.get("frame_rate_hz") != FRAME_RATE_HZ
+        or len(poses.pose_hashes) != FRAME_COUNT
+    ):
+        raise AssetBoundReviewError(
+            "capture SensorRigTrajectory has an unexpected M7 clock"
+        )
+    embedded = evidence.get("sensor_rig_trajectory")
+    if embedded != trajectory:
+        raise AssetBoundReviewError(
+            "capture evidence does not retain the SensorRigTrajectory"
+        )
+    if (
+        evidence_binding.get("trajectory_id") != binding["trajectory_id"]
+        or evidence_binding.get("content_sha256")
+        != binding["content_sha256"]
+    ):
+        raise AssetBoundReviewError(
+            "capture evidence sensor-rig binding differs from its sidecar"
+        )
+
+    try:
+        listener_positions = np.load(
+            listener_position_path, allow_pickle=False
+        )
+        listener_rotations = np.load(
+            listener_rotation_path, allow_pickle=False
+        )
+    except (OSError, ValueError) as exc:
+        raise AssetBoundReviewError(
+            f"cannot load captured Listener arrays: {exc}"
+        ) from exc
+    if (
+        listener_positions.shape != (FRAME_COUNT, 3)
+        or listener_rotations.shape != (FRAME_COUNT, 4)
+        or not np.issubdtype(listener_positions.dtype, np.floating)
+        or not np.issubdtype(listener_rotations.dtype, np.floating)
+        or not np.all(np.isfinite(listener_positions))
+        or not np.all(np.isfinite(listener_rotations))
+    ):
+        raise AssetBoundReviewError(
+            "captured Listener arrays must be finite [75,3] and [75,4]"
+        )
+    _validate_array_metadata(
+        array=listener_positions,
+        record=position_record,
+        owner="captured Listener positions",
+    )
+    _validate_array_metadata(
+        array=listener_rotations,
+        record=rotation_record,
+        owner="captured Listener rotations",
+    )
+    stored_positions = np.asarray(listener_positions, dtype=np.float64)
+    stored_rotations = np.asarray(listener_rotations, dtype=np.float64)
+    stored_rotation_norms = np.linalg.norm(stored_rotations, axis=1)
+    rotation_norm_error = float(
+        np.max(np.abs(stored_rotation_norms - 1.0))
+    )
+    if np.any(stored_rotation_norms <= 1.0e-12):
+        raise AssetBoundReviewError(
+            "captured Listener rotation array has a zero quaternion"
+        )
+    unit_stored_rotations = stored_rotations / stored_rotation_norms[:, None]
+    position_error = float(
+        np.max(np.abs(stored_positions - poses.positions_m))
+    )
+    orientation_error = float(
+        np.max(
+            1.0
+            - np.abs(
+                np.einsum(
+                    "ij,ij->i",
+                    unit_stored_rotations,
+                    poses.rotations_xyzw,
+                )
+            )
+        )
+    )
+    if (
+        position_error > _RIG_ARRAY_ATOL
+        or rotation_norm_error > _RIG_ARRAY_ATOL
+        or orientation_error > _RIG_ARRAY_ATOL
+    ):
+        raise AssetBoundReviewError(
+            "captured Listener arrays differ from SensorRigTrajectory"
+        )
+
+    try:
+        frame_readbacks = json.loads(
+            frame_readback_path.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AssetBoundReviewError(
+            f"cannot read capture frame readback: {exc}"
+        ) from exc
+    if not isinstance(frame_readbacks, list) or len(frame_readbacks) != FRAME_COUNT:
+        raise AssetBoundReviewError(
+            "capture frame readback must contain exactly 75 frames"
+        )
+    actual_listener_positions: list[np.ndarray] = []
+    actual_listener_rotations: list[np.ndarray] = []
+    maximum_errors = {
+        "agent": 0.0,
+        "camera": 0.0,
+        "listener": 0.0,
+        "all_sensors": 0.0,
+    }
+    for frame_index, (frame, pose_hash) in enumerate(
+        zip(frame_readbacks, poses.pose_hashes, strict=True)
+    ):
+        rig = frame.get("sensor_rig") if isinstance(frame, Mapping) else None
+        expected_world_from_rig = trajectory["frames"][frame_index][
+            "world_from_rig"
+        ]
+        if (
+            not isinstance(rig, Mapping)
+            or frame.get("frame_index") != frame_index
+            or frame.get("pts_ticks") != frame_index * 3_200
+            or rig.get("trajectory_id") != binding["trajectory_id"]
+            or rig.get("view_pose_hash") != pose_hash
+            or rig.get("expected_world_from_rig")
+            != expected_world_from_rig
+        ):
+            raise AssetBoundReviewError(
+                "capture frame pose hash/readback differs from SensorRigTrajectory"
+            )
+        errors = _actual_sensor_rig_errors(
+            rig=rig,
+            expected_world_from_rig=expected_world_from_rig,
+            frame_index=frame_index,
+        )
+        for role, error in errors.items():
+            maximum_errors[role] = max(maximum_errors[role], error)
+        listener_readback = rig["listener_readback"]
+        actual_listener_positions.append(
+            np.asarray(
+                listener_readback["translation_m"],
+                dtype=np.float64,
+            )
+        )
+        actual_listener_rotations.append(
+            np.asarray(
+                listener_readback["rotation_xyzw"],
+                dtype=np.float64,
+            )
+        )
+
+    actual_positions = np.ascontiguousarray(
+        np.stack(actual_listener_positions)
+    )
+    actual_rotations = np.ascontiguousarray(
+        np.stack(actual_listener_rotations)
+    )
+    actual_rotation_norms = np.linalg.norm(actual_rotations, axis=1)
+    if np.any(actual_rotation_norms <= 1.0e-12):
+        raise AssetBoundReviewError(
+            "capture actual Listener readback has a zero quaternion"
+        )
+    unit_actual_rotations = actual_rotations / actual_rotation_norms[:, None]
+    array_readback_position_error = float(
+        np.max(np.abs(stored_positions - actual_positions))
+    )
+    array_readback_orientation_error = float(
+        np.max(
+            1.0
+            - np.abs(
+                np.einsum(
+                    "ij,ij->i",
+                    unit_stored_rotations,
+                    unit_actual_rotations,
+                )
+            )
+        )
+    )
+    actual_rotation_norm_error = float(
+        np.max(np.abs(actual_rotation_norms - 1.0))
+    )
+    if (
+        array_readback_position_error > _RIG_ARRAY_ATOL
+        or array_readback_orientation_error > _RIG_ARRAY_ATOL
+        or actual_rotation_norm_error > _RIG_ARRAY_ATOL
+    ):
+        raise AssetBoundReviewError(
+            "captured Listener arrays differ from actual frame readback"
+        )
+    maximum_record = (
+        readback_evidence.get("maximum_sensor_rig_transform_error")
+        if isinstance(readback_evidence, Mapping)
+        else None
+    )
+    _validated_error_record(
+        record=maximum_record,
+        recomputed=maximum_errors,
+        owner="capture evidence maximum sensor-rig",
+    )
+    yaws = np.asarray(
+        [
+            habitat_yaw_degrees_from_xyzw(rotation)
+            for rotation in actual_rotations
+        ],
+        dtype=np.float64,
+    )
+
+    return _CaptureSensorRig(
+        positions_m=actual_positions,
+        rotations_xyzw=actual_rotations,
+        yaws_deg=np.ascontiguousarray(yaws),
+        pose_hashes=poses.pose_hashes,
+        binding=binding,
+        cross_modal_check={
+            "status": "pass",
+            "listener_pose_mode": (
+                "per_frame_dynamic"
+                if binding["dynamic"]
+                else "explicit_fixed"
+            ),
+            "checked_frame_count": FRAME_COUNT,
+            "checked_pose_hash_count": len(poses.pose_hashes),
+            "capture_frame_pose_hashes_match": True,
+            "actual_agent_camera_listener_readbacks_match": True,
+            "reported_transform_errors_match_actual_readbacks": True,
+            "capture_listener_arrays_match_actual_readbacks": True,
+            "maximum_sensor_rig_transform_error": maximum_errors,
+            "maximum_listener_position_error_m": position_error,
+            "maximum_listener_orientation_dot_error": orientation_error,
+            "maximum_listener_array_readback_position_error_m": (
+                array_readback_position_error
+            ),
+            "maximum_listener_array_readback_orientation_dot_error": (
+                array_readback_orientation_error
+            ),
+            "validated_artifact_sha256": {
+                "sensor_rig_trajectory": trajectory_record["sha256"],
+                "listener_positions_m": position_record["sha256"],
+                "listener_rotations_xyzw": rotation_record["sha256"],
+                "frame_readback": validated_frame_record["sha256"],
+            },
+        },
+    )
+
+
+def _assert_audio_sensor_rig_binding(
+    *,
+    sample: Mapping[str, Any],
+    capture_sensor_rig: _CaptureSensorRig,
+) -> str:
+    """Require dynamic audio to name the exact visual Listener trajectory."""
+
+    sample_binding = sample.get("sensor_rig_trajectory")
+    binding = capture_sensor_rig.binding
+    if binding is None:
+        if sample_binding is not None:
+            raise AssetBoundReviewError(
+                "legacy fixed capture cannot prove the audio sensor-rig binding"
+            )
+        return "legacy_fixed_audio_without_sensor_rig_binding"
+    if binding["dynamic"] and sample_binding != binding:
+        raise AssetBoundReviewError(
+            "dynamic visual SensorRigTrajectory lacks an exact audio binding"
+        )
+    if sample_binding is not None and sample_binding != binding:
+        raise AssetBoundReviewError(
+            "visual and audio SensorRigTrajectory bindings differ"
+        )
+    return (
+        "exact_dynamic_sensor_rig_binding"
+        if binding["dynamic"]
+        else (
+            "exact_explicit_fixed_sensor_rig_binding"
+            if sample_binding == binding
+            else "explicit_fixed_visual_with_legacy_fixed_audio"
+        )
+    )
 
 
 def _review_one(
@@ -343,6 +952,11 @@ def _review_one(
         expected_actor_classes=spec.actor_classes,
         expected_asset_ids=spec.asset_ids,
     )
+    capture_sensor_rig = _capture_sensor_rig(capture)
+    audio_rig_check = _assert_audio_sensor_rig_binding(
+        sample=sample,
+        capture_sensor_rig=capture_sensor_rig,
+    )
     expected_centers = np.ascontiguousarray(
         bank_arrays["source_center_paths_m"][bank_index[spec.episode_id]].transpose(1, 0, 2)
     )
@@ -364,6 +978,8 @@ def _review_one(
         listener_position_m=LISTENER_POSITION_M,
         listener_yaw_deg=LISTENER_YAW_DEG,
         camera_hfov_degrees=CAMERA_HFOV_DEG,
+        listener_positions_m_by_frame=capture_sensor_rig.positions_m,
+        listener_yaws_deg_by_frame=capture_sensor_rig.yaws_deg,
         source_activity_by_frame={slot: np.ones(FRAME_COUNT, dtype=np.bool_) for slot in SOURCE_SLOTS},
         source_heading_xz_by_frame=headings,
         source_labels={slot: spec.labels[index] for index, slot in enumerate(SOURCE_SLOTS)},
@@ -393,6 +1009,8 @@ def _review_one(
         review_stage_label="M7 internal Habitat QA; not SPEAR final RGB",
         listener_position_m=LISTENER_POSITION_M,
         listener_yaw_deg=LISTENER_YAW_DEG,
+        listener_positions_m_by_frame=capture_sensor_rig.positions_m,
+        listener_yaws_deg_by_frame=capture_sensor_rig.yaws_deg,
         aggregate_true_flags=("both_sources_active", "asset_bound_rir"),
         audio_diagnostic_by_frame=(
             "exact v00 native RLR-HRTF binaural mixture; audio remains 360 degrees",
@@ -419,6 +1037,20 @@ def _review_one(
         },
         "asset_bound_center_reconstruction_maximum_error_m": center_error,
         "center_gate": {"status": "pass", "minimum_navmesh_clearance_m": clearances},
+        "sensor_rig_trajectory": (
+            dict(capture_sensor_rig.binding)
+            if capture_sensor_rig.binding is not None
+            else None
+        ),
+        "cross_modal_sensor_rig_check": {
+            **capture_sensor_rig.cross_modal_check,
+            "rgb_listener_readback": "capture_frame_readback.json",
+            "topdown_listener_pose": "same_frame_SensorRigTrajectory",
+            "distance_doa_overlay_listener_pose": (
+                "same_frame_SensorRigTrajectory"
+            ),
+            "audio_listener_pose_binding": audio_rig_check,
+        },
         "topdown": {
             "qa_only": True,
             "source_centers_from": "asset-bound plan source_center_paths_m",
