@@ -14,6 +14,13 @@ pipeline trap while working, update this file in the same change.
 - This rule also applies to output `tmp` paths in the checked-out SPEAR,
   Hunyuan3D and SkinTokens workspaces. Git-internal paths such as
   `.git/lfs/tmp` are not project outputs and must not be moved.
+- Invoke tools and report artifacts through those repository `tmp/...` paths,
+  but do not mix logical and resolved paths inside a hash-bound lineage
+  contract. If a producer stores resolved absolute file descriptors (as the
+  generated-animal review runner does), every producer and consumer in that
+  contract must resolve the `tmp` parent symlink consistently before comparing
+  path/SHA/size. A raw-string mismatch between the repository path and its
+  `/data/datasets/avengine_workspaces/...` target is not an asset mutation.
 
 ## Active generated-animal / Apartment decisions
 
