@@ -6,7 +6,9 @@
 
 开始前先阅读顶层 [`README.md`](../README.md)、
 [`功能与使用指南`](usage_guideline.md) 和
-[`仓库职责边界`](architecture/REPOSITORY_BOUNDARIES.md)。
+[`仓库职责边界`](architecture/REPOSITORY_BOUNDARIES.md)。参加当前四人
+协作时还必须阅读
+[`生活化任务与可变场景四人协作计划`](planning/LIFELIKE_ENGINE_FOUR_PERSON_PLAN_20260730.md)。
 
 ## 强制隔离规则
 
@@ -377,22 +379,55 @@ fi
 
 ## 代码协作流程
 
-AVEngine 的日常改动必须从最新 `upstream/main` 建立全新的个人任务
-分支。先设置一个不会与其他人冲突、且只对应当前任务的分支名：
+开始修改前，任务负责人必须给出以下五项：
+
+1. 任务 ID；
+2. 目标上游仓库；
+3. 基线分支和 base SHA；
+4. PR 目标分支；
+5. 改动范围与最低验收。
+
+协作者不能自行猜测基线或 PR 目标。没有联合集成计划的普通任务默认从
+最新 `upstream/main` 建分支；当前四人协作必须以
+[`生活化任务与可变场景四人协作计划`](planning/LIFELIKE_ENGINE_FOUR_PERSON_PLAN_20260730.md)
+指定的 integration 分支为基线和 PR 目标，不能直接面向 `main`。
+
+先设置只对应当前任务的分支名和负责人提供的基线：
 
 ```bash
-export AVENGINE_GIT_BRANCH="${AVENGINE_GITHUB_USER}/short-topic"
+export AVENGINE_TASK_ID="lifelike-t1"
+export AVENGINE_GIT_BASE_REF="upstream/integration/lifelike-engine-v1"
+export AVENGINE_GIT_BASE_SHA="<负责人提供的精确 SHA>"
+export AVENGINE_GIT_BRANCH="${AVENGINE_GITHUB_USER}/lifelike-t1-scenario-composer"
 
 cd "${AVENGINE_CODE_ROOT}/AVEngine"
 git fetch upstream --prune
-git switch -c "${AVENGINE_GIT_BRANCH}" upstream/main
+test "$(git rev-parse "${AVENGINE_GIT_BASE_REF}")" = \
+  "${AVENGINE_GIT_BASE_SHA}"
+git switch -c "${AVENGINE_GIT_BRANCH}" "${AVENGINE_GIT_BASE_SHA}"
 
 test "$(git branch --show-current)" = "${AVENGINE_GIT_BRANCH}"
 test "$(git branch --show-current)" != "main"
+git merge-base --is-ancestor \
+  "${AVENGINE_GIT_BASE_SHA}" \
+  "${AVENGINE_GIT_BRANCH}"
 ```
 
-只有以上检查通过后才能开始修改代码。完成后检查改动、运行实际相关
-测试、明确选择要提交的文件，并把分支推送到自己的 Fork：
+只有以上检查通过后才能开始修改代码。一个任务对应一个分支和一个 PR；
+不得夹带其他任务、全仓库格式化、顺手重构或未分配的研究代码。优先扩展
+现有 schema、registry、runner、validator 和 CLI。新增平行入口时，
+PR 必须说明现有入口为何不能扩展。
+
+禁止提交以下内容：
+
+- `tmp/`、RIR、视频、音频和数据集；
+- 模型权重、Conda 环境、编译目录和包缓存；
+- 第三方仓库或外部数据的副本；
+- 私有绝对路径、密钥和未经授权的数据。
+
+大型 canary 产物保留在个人输出目录，PR 只报告仓库相对路径、状态和
+必要的轻量证据。完成后检查改动、运行实际相关测试、明确选择要提交的
+文件，并把分支推送到自己的 Fork：
 
 ```bash
 git status --short
@@ -406,16 +441,37 @@ git commit -m "说明本次改动"
 git push -u origin "${AVENGINE_GIT_BRANCH}"
 ```
 
-然后创建 Pull Request：
+禁止使用 `git add -A` 代替范围检查。提交前应查看 staged diff，并确认
+没有其他人的文件或生成产物。
+
+然后按任务负责人给出的目标创建 Pull Request。当前四人协作使用：
 
 ```text
-base: Eastforward/AVEngine:main
+base: Eastforward/AVEngine:integration/lifelike-engine-v1
 head: <自己的 GitHub 账号>:<个人任务分支>
 ```
 
-通过代码评审后才能合并到 `main`。禁止直接向 `upstream` 推送，禁止
-覆盖别人的分支、工作树、环境或生成目录。Pull Request 合并或关闭后，
-下一项任务必须重新从最新 `upstream/main` 创建另一个新分支。
+PR 必须按 [Pull Request 模板](../.github/PULL_REQUEST_TEMPLATE.md)
+填写：
+
+- 任务 ID、base SHA、head SHA 和目标分支；
+- 改动范围、复用的现有模块和明确未修改的相邻模块；
+- 实际运行的命令以及 `pass`、`skip`、`not_run`；
+- canary、视频和证据的仓库相对路径；
+- claim boundary、已知未完成项和工作树状态。
+
+只给视频不能替代机器检查，只给单元测试也不能宣称 native Habitat、
+RLR、Blender 或媒体层已通过。无法运行的层应如实写 `not_run`，不得
+伪造或降低验证条件。
+
+协作者不得自行合并 PR。审核通过后由 integration 维护者 Squash Merge；
+冲突应由原作者在自己的 Fork 分支解决，审核者不得进入作者工作树直接
+修改。只有项目负责人完成组合回归、真实 canary 和最终视频审核后，
+才可以决定是否创建 integration 到 `main` 的最终 PR。
+
+禁止直接向 `upstream` 推送，禁止覆盖别人的分支、工作树、环境或生成
+目录。PR 合并或关闭后，下一项任务必须重新获取负责人指定的最新基线，
+再创建另一个新分支，禁止复用旧任务分支。
 
 只有必须发生在 Habitat C++/Python 运行时内部、且无法通过稳定接口实现
 的变化，才修改原生运行时仓库。其功能分支应从固定提交创建：

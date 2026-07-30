@@ -10,7 +10,9 @@
 个人安装和协作规则见
 [`同服务器协作与个人环境构建`](quickstart.md)。当前执行状态以
 [`CURRENT_APARTMENT_EXECUTION.md`](roadmap/CURRENT_APARTMENT_EXECUTION.md)
-为准；本文不复制本机临时产物的哈希或把研究验证写成正式数据集发布。
+为准；当前四人开发范围见
+[`生活化任务与可变场景四人协作计划`](planning/LIFELIKE_ENGINE_FOUR_PERSON_PLAN_20260730.md)。
+本文不复制本机临时产物的哈希或把研究验证写成正式数据集发布。
 
 ## 总体定位
 
@@ -40,7 +42,7 @@ AVEngine 不重新实现渲染器或声学求解器。Habitat 负责原生场景
 | 动物资产与动作检查 | 管理生成动物的资产包、动作重定向、支撑面找平、接触/形变检查、原生姿态回读和准入证据 | `tools/m2/`、`src/avengine/m2/` | 生成模型和权重不在本仓库 |
 | 房间声学与材质 | 编译自定义 GLB、MP3D semantic、USD snapshot 和视觉材质槽；按房间来源选择 SoundSpaces、Habitat 或 SPEAR/UE 配置，最终统一上传给 RLR | `avengine m3` | 房间 mesh、语义/材质数据 |
 | 多声源空间音频 | 支持命名声源、独立源/Listener 位姿、FOA 与双耳 RIR、每源 stem、混合音频和严格 WAV 回读 | `avengine m4`、`tools/m6x/render_rir_cache.py` | Habitat/RLR；双耳还需 HRTF |
-| 时间线与任务编排 | 使用 Timeline v2 整数 tick；支持静/静、动/静、静/动、动/动；AudioProgram 支持单一激活、静音负例、间歇、顺序、重叠和路由交换 | `avengine m5`、`avengine m6`、`examples/m6x/fixed_apartment/` | 已登记的轨迹、端点和干声 |
+| 时间线与低层任务编排 | 使用 Timeline v2 整数 tick；支持静/静、动/静、静/动、动/动；AudioProgram 支持单一激活、静音负例、间歇、顺序、重叠和路由交换；通用生活场景组合层仍在开发 | `avengine m5`、`avengine m6`、`examples/m6x/fixed_apartment/` | 已登记的轨迹、端点和干声 |
 | 动态 Camera/Listener | 逐帧保存并应用 SensorRigTrajectory；Timeline、RGB、UE 回读、RIR key、Topdown、DOA 和距离使用同一帧位姿 | `src/avengine/sensor_rig_trajectory.py`，下游参数 `--sensor-rig-trajectory` | geodesic 路线需要 Pathfinder 证据 |
 | 批量生成与索引 | 支持分片、恢复、RIR 缓存复用、双耳批量组装、产物级验证和按视觉 episode 划分训练/验证/测试集 | `tools/m7/` | 已完成的计划、视觉、RIR 和干声 |
 | 审片与标签可视化 | 合成 RGB、Topdown、双耳音频、DOA 和距离的同步审片视频，并保留哈希绑定证据 | `tools/m7/build_mp3d_room_evaluation_review.py` 等 | 已完成的视觉和音频结果 |
@@ -228,10 +230,10 @@ M4 的小型原生验证入口是：
 - Timeline v2 的逐帧状态；
 - 需要输出的 RGB、Topdown、RIR、双耳音频、DOA、距离和标签。
 
-现有生活场景可以表达：
+现有底层合同可以通过人工配置表达：
 
 - 人在厨房活动、狗在房间内移动；
-- 两个人坐着不发声时的“静止声源槽”；
+- 两个人在用餐区域不移动时的“静止声源槽”；
 - 一个声源间歇发声，另一个持续或静音；
 - 两个声源顺序发声或重叠发声；
 - 静/静、动/静、静/动、动/动四类空间关系；
@@ -245,6 +247,14 @@ examples/m6x/fixed_apartment/audio_programs/
 
 其中包括路由检查、交换反事实、静音负例、间歇声、重叠声和
 LOS/NLOS 顺序声。
+
+当前还没有把房间区域、人物/动物行为、轨迹、SensorRig 和
+AudioProgram 自动组合起来的通用生活场景编译层。`navmesh_follow`
+虽然已经出现在轨迹 schema 中，固定 M6.x materializer 仍会拒绝执行；
+自动 Camera/Listener 候选点、停走、区域游走和家具布局变体也属于当前
+四人计划中的待实现能力。开发者应扩展现有 ScenarioSuite、
+TrajectoryBank、SensorRigTrajectory 和房间注册合同，不得另建平行的
+时间线、声音调度或 M7 runner。
 
 当前还不能把“坐着”当作带身体姿态和椅子约束的正式动作。静止槽可以
 表达“不移动”，但不能宣称角色已经完成坐姿、椅子绑定或全身碰撞验证。
