@@ -4,16 +4,199 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Mapping
 
-from avengine.contracts.json_io import load_json
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    load_json,
+    sha256_file,
+)
 from avengine.m3.runtime import load_compiled_acoustic_scene
 from avengine.m4.runtime import M4SimulationConfig
-from avengine.m6x.rir_cache import render_rir_cache
+from avengine.m6x.rir_cache import (
+    RIR_CACHE_ACOUSTIC_SELECTION_NAME,
+    render_rir_cache,
+)
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+LEGACY_SIMULATION_REQUEST = (
+    REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
+)
+DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/m6/rooms/room_registry.json"
+ACOUSTIC_SELECTION_NAME = RIR_CACHE_ACOUSTIC_SELECTION_NAME
 
+
+@dataclass(frozen=True)
+class EffectiveAcousticInputs:
+    """Exact package/request inputs selected for one cache invocation."""
+
+    acoustic_package_manifest: Path
+    simulation_request: Path
+    selection_mode: str
+    simulation_profile: str
+    profile_selection_receipt: Mapping[str, Any] | None
+    explicit_package_override: bool
+    explicit_simulation_override: bool
+
+    def receipt(self) -> dict[str, Any]:
+        def record(path: Path) -> dict[str, Any]:
+            return {
+                "path": str(path),
+                "byte_size": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+
+        value = {
+            "schema": "avengine_rir_cache_acoustic_selection_v1",
+            "selection_mode": self.selection_mode,
+            "simulation_profile": self.simulation_profile,
+            "explicit_overrides": {
+                "acoustic_package_manifest": self.explicit_package_override,
+                "simulation_request": self.explicit_simulation_override,
+            },
+            "registry_selection_applied_to_effective_inputs": {
+                "acoustic_package_manifest": (
+                    self.profile_selection_receipt is not None
+                    and not self.explicit_package_override
+                ),
+                "simulation_request": (
+                    self.profile_selection_receipt is not None
+                    and not self.explicit_simulation_override
+                ),
+            },
+            "registry_resolution": (
+                dict(self.profile_selection_receipt)
+                if self.profile_selection_receipt is not None
+                else None
+            ),
+            "effective_inputs": {
+                "acoustic_package_manifest": record(
+                    self.acoustic_package_manifest
+                ),
+                "simulation_request": record(self.simulation_request),
+            },
+        }
+        value["effective_selection_content_sha256"] = canonical_json_sha256(
+            value
+        )
+        return value
+
+
+def resolve_effective_acoustic_inputs(
+    args: argparse.Namespace,
+) -> EffectiveAcousticInputs:
+    """Resolve manual paths or one exact registry-selected room profile."""
+
+    explicit_package = args.acoustic_package_manifest is not None
+    explicit_simulation = args.simulation_request is not None
+    if args.room_id is None:
+        if args.room_revision is not None:
+            raise ValueError("--room-revision requires --room-id")
+        if args.acoustic_profile_registry is not None:
+            raise ValueError("--acoustic-profile-registry requires --room-id")
+        if args.simulation_profile != "production":
+            raise ValueError(
+                "--simulation-profile reference requires registry selection "
+                "through --room-id"
+            )
+        if not explicit_package:
+            raise ValueError(
+                "provide --acoustic-package-manifest, or select a room with "
+                "--room-id and --room-revision"
+            )
+        return EffectiveAcousticInputs(
+            acoustic_package_manifest=args.acoustic_package_manifest.resolve(),
+            simulation_request=(
+                args.simulation_request.resolve()
+                if explicit_simulation
+                else LEGACY_SIMULATION_REQUEST.resolve()
+            ),
+            selection_mode="explicit",
+            simulation_profile=(
+                "explicit" if explicit_simulation else "legacy_default"
+            ),
+            profile_selection_receipt=None,
+            explicit_package_override=True,
+            explicit_simulation_override=explicit_simulation,
+        )
+
+    if args.room_revision is None:
+        raise ValueError("--room-id requires --room-revision")
+
+    from avengine.acoustic_profiles import (  # noqa: PLC0415
+        load_acoustic_profile_registry,
+        load_default_acoustic_profile_registry,
+        resolve_acoustic_profile,
+    )
+    from avengine.m6.rooms import load_room_registry  # noqa: PLC0415
+
+    acoustic_registry = (
+        load_acoustic_profile_registry(args.acoustic_profile_registry)
+        if args.acoustic_profile_registry is not None
+        else load_default_acoustic_profile_registry()
+    )
+    room_registry = load_room_registry(args.room_registry)
+    room_ref = {
+        "registry_id": room_registry["registry_id"],
+        "room_id": args.room_id,
+        "revision": args.room_revision,
+    }
+    selection = resolve_acoustic_profile(
+        acoustic_registry,
+        room_registry,
+        room_ref,
+        repository_root=REPOSITORY,
+        verify_paths=True,
+    )
+    selected_request = Path(
+        selection.simulation_path(args.simulation_profile)
+    ).resolve()
+    selected_package = Path(selection.acoustic_package_manifest_path).resolve()
+
+    def verified_equivalent_override(
+        override: Path | None,
+        selected: Path,
+        *,
+        option: str,
+    ) -> Path:
+        if override is None:
+            return selected
+        resolved = override.resolve()
+        if not resolved.is_file():
+            raise ValueError(f"{option} override does not exist: {resolved}")
+        if sha256_file(resolved) != sha256_file(selected):
+            raise ValueError(
+                f"{option} override SHA-256 differs from the registry-selected "
+                "physical file"
+            )
+        return resolved
+
+    effective_package = verified_equivalent_override(
+        args.acoustic_package_manifest,
+        selected_package,
+        option="--acoustic-package-manifest",
+    )
+    effective_simulation = verified_equivalent_override(
+        args.simulation_request,
+        selected_request,
+        option="--simulation-request",
+    )
+    return EffectiveAcousticInputs(
+        acoustic_package_manifest=effective_package,
+        simulation_request=effective_simulation,
+        selection_mode=(
+            "registry_with_verified_equivalent_overrides"
+            if explicit_package or explicit_simulation
+            else "registry"
+        ),
+        simulation_profile=args.simulation_profile,
+        profile_selection_receipt=selection.receipt(args.simulation_profile),
+        explicit_package_override=explicit_package,
+        explicit_simulation_override=explicit_simulation,
+    )
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -21,13 +204,45 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--acoustic-package-manifest",
         type=Path,
-        required=True,
+        help=(
+            "Explicit package manifest. Required unless --room-id and "
+            "--room-revision select it from the acoustic profile registry. "
+            "With registry selection, an explicit path is accepted only when "
+            "its SHA-256 equals the selected package."
+        ),
     )
     parser.add_argument(
         "--simulation-request",
         type=Path,
-        default=REPOSITORY
-        / "examples/m4/blender_custom/multi_source_canary_request.json",
+        help=(
+            "Explicit simulation request. Manual package mode keeps the "
+            "historical M4 request default; room selection uses its production "
+            "or reference request. With registry selection, an explicit path "
+            "is accepted only when its SHA-256 equals the selected request."
+        ),
+    )
+    parser.add_argument(
+        "--room-id",
+        help="Room identity for automatic acoustic profile selection",
+    )
+    parser.add_argument(
+        "--room-revision",
+        help="Exact room revision for automatic acoustic profile selection",
+    )
+    parser.add_argument(
+        "--room-registry",
+        type=Path,
+        default=DEFAULT_ROOM_REGISTRY,
+    )
+    parser.add_argument(
+        "--acoustic-profile-registry",
+        type=Path,
+        help="Override the installed/default acoustic profile registry",
+    )
+    parser.add_argument(
+        "--simulation-profile",
+        choices=("production", "reference"),
+        default="production",
     )
     parser.add_argument(
         "--hrtf",
@@ -56,14 +271,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def run(args: argparse.Namespace) -> Path:
-    simulation_request = args.simulation_request.resolve()
+    inputs = resolve_effective_acoustic_inputs(args)
+    selection_receipt = inputs.receipt()
+    simulation_request = inputs.simulation_request
     simulation_value = load_json(simulation_request)["simulation"]
     if args.thread_count is not None:
         simulation_value = dict(simulation_value)
         simulation_value["thread_count"] = args.thread_count
     simulation = M4SimulationConfig.from_mapping(simulation_value)
     scene = load_compiled_acoustic_scene(
-        args.acoustic_package_manifest.resolve(),
+        inputs.acoustic_package_manifest,
         allow_nonpassing_research_qa=True,
     )
     result = render_rir_cache(
@@ -72,6 +289,7 @@ def run(args: argparse.Namespace) -> Path:
         simulation_request_path=simulation_request,
         simulation=simulation,
         output=args.output,
+        acoustic_selection_receipt=selection_receipt,
         layout_type=args.layout,
         hrtf_file_path=args.hrtf if args.layout == "binaural" else None,
         batch_size=args.batch_size,
@@ -86,7 +304,8 @@ def run(args: argparse.Namespace) -> Path:
         "RIR_CACHE_OK "
         f"output={result.output} "
         f"jobs={result.receipt['selected_job_count']} "
-        f"full_plan_complete={result.receipt['full_plan_complete']}",
+        f"full_plan_complete={result.receipt['full_plan_complete']} "
+        f"acoustic_selection={inputs.selection_mode}",
         flush=True,
     )
     return result.output

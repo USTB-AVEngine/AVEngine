@@ -11,6 +11,7 @@ import subprocess
 import numpy as np
 import pytest
 
+from avengine.contracts.json_io import canonical_json_sha256
 import avengine.optional_backends.spear_apartment as apartment
 from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
@@ -214,6 +215,218 @@ def _make_asset_bound_input_tree(
     return values
 
 
+def _acoustic_selection_binding(selection_mode: str) -> dict:
+    binding = {
+        "schema": apartment.ACOUSTIC_SELECTION_BINDING_SCHEMA,
+        "selection_mode": selection_mode,
+        "registry_selection_applied": selection_mode.startswith("registry"),
+        "room_ref": (
+            deepcopy(apartment.DEFAULT_ROOM_RUNTIME_PROFILE["room_ref"])
+            if selection_mode.startswith("registry")
+            else None
+        ),
+        "profile_ref": (
+            {"profile_id": "test_acoustic_profile", "revision": "v1"}
+            if selection_mode.startswith("registry")
+            else None
+        ),
+        "binding_id": (
+            "test_room_to_acoustic_profile_v1"
+            if selection_mode.startswith("registry")
+            else None
+        ),
+        "registry_selection_content_sha256": "1" * 64,
+        "effective_selection_content_sha256": "2" * 64,
+        "acoustic_package_manifest_sha256": "3" * 64,
+        "simulation_request_sha256": "4" * 64,
+        "input_receipt_sha256": "5" * 64,
+        "binding_content_sha256": None,
+    }
+    if selection_mode != "explicit_legacy_unbound":
+        binding["binding_content_sha256"] = canonical_json_sha256(
+            {
+                key: value
+                for key, value in binding.items()
+                if key != "binding_content_sha256"
+            }
+        )
+    return binding
+
+
+def _write_asset_bound_identity_manifest(
+    root: Path,
+    *,
+    selection_mode: str = "registry",
+    visual_room_ref: dict | None = None,
+    binding_room_ref: dict | None = None,
+) -> dict:
+    visual = deepcopy(
+        visual_room_ref or apartment.DEFAULT_ROOM_RUNTIME_PROFILE["room_ref"]
+    )
+    binding = _acoustic_selection_binding(selection_mode)
+    if binding_room_ref is not None:
+        binding["room_ref"] = deepcopy(binding_room_ref)
+        binding["binding_content_sha256"] = canonical_json_sha256(
+            {
+                key: value
+                for key, value in binding.items()
+                if key != "binding_content_sha256"
+            }
+        )
+    acoustic = deepcopy(binding["room_ref"])
+    manifest = {
+        "schema": apartment.ASSET_BOUND_BUNDLE_SCHEMA,
+        "status": "pass",
+        "episode_count": 1,
+        "episode_ids": ["episode_0001"],
+        "visual_room_ref": visual,
+        "acoustic_selection_binding": binding,
+        "acoustic_visual_room_alignment": {
+            "status": "pass" if acoustic is not None else "not_verified",
+            "compatibility": (
+                None
+                if acoustic is not None
+                else "legacy_acoustic_selection_without_room_ref"
+            ),
+            "visual_room_ref": visual,
+            "acoustic_room_ref": acoustic,
+        },
+    }
+    (root / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    return manifest
+
+
+def test_asset_bound_runtime_identity_closes_registry_room_and_binding(
+    tmp_path: Path,
+) -> None:
+    manifest = _write_asset_bound_identity_manifest(tmp_path)
+
+    identity = apartment.asset_bound_bundle_acoustic_visual_identity(tmp_path)
+
+    expected_room_ref = apartment.DEFAULT_ROOM_RUNTIME_PROFILE["room_ref"]
+    assert identity["status"] == "pass"
+    assert identity["verification_status"] == "verified"
+    assert identity["visual_room_ref"] == expected_room_ref
+    assert identity["acoustic_room_ref"] == expected_room_ref
+    assert identity["runtime_room_ref"] == expected_room_ref
+    assert identity["runtime_map_id"] == "apartment_0000"
+    assert identity["acoustic_selection_binding_sha256"] == manifest[
+        "acoustic_selection_binding"
+    ]["binding_content_sha256"]
+
+
+@pytest.mark.parametrize(
+    "selection_mode", ["explicit_legacy", "explicit_legacy_unbound"]
+)
+def test_legacy_asset_bound_acoustic_identity_stays_not_verified(
+    tmp_path: Path, selection_mode: str
+) -> None:
+    manifest = _write_asset_bound_identity_manifest(
+        tmp_path, selection_mode=selection_mode
+    )
+
+    identity = apartment.asset_bound_bundle_acoustic_visual_identity(tmp_path)
+
+    assert identity["status"] == "not_verified"
+    assert identity["verification_status"] == "not_verified"
+    assert identity["acoustic_room_ref"] is None
+    assert identity["visual_room_ref"] == identity["runtime_room_ref"]
+    assert identity["acoustic_selection_binding_sha256"] == manifest[
+        "acoustic_selection_binding"
+    ]["binding_content_sha256"]
+
+
+def test_asset_bound_runtime_identity_rejects_room_or_hash_drift(
+    tmp_path: Path,
+) -> None:
+    wrong_room_ref = {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "wrong_room",
+        "revision": "v1",
+    }
+    _write_asset_bound_identity_manifest(
+        tmp_path, visual_room_ref=wrong_room_ref
+    )
+    with pytest.raises(
+        apartment.SpearApartmentError, match="visual_room_ref differs"
+    ):
+        apartment.asset_bound_bundle_acoustic_visual_identity(tmp_path)
+
+    manifest = _write_asset_bound_identity_manifest(
+        tmp_path, binding_room_ref=wrong_room_ref
+    )
+    with pytest.raises(
+        apartment.SpearApartmentError, match="acoustic selection room_ref differs"
+    ):
+        apartment.asset_bound_bundle_acoustic_visual_identity(tmp_path)
+
+    manifest["acoustic_selection_binding"]["binding_id"] = "tampered"
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    with pytest.raises(apartment.SpearApartmentError, match="hash is invalid"):
+        apartment.asset_bound_bundle_acoustic_visual_identity(tmp_path)
+
+
+def test_asset_bound_suite_carries_one_identity_and_checks_episode_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = _make_asset_bound_input_tree(tmp_path)
+    paths["sensor_rig_trajectory"].unlink()
+    manifest = _write_asset_bound_identity_manifest(tmp_path)
+    binding_sha256 = manifest["acoustic_selection_binding"][
+        "binding_content_sha256"
+    ]
+    assets = {
+        "source1": CURRENT_GENERATED_DOG_ASSET_ID,
+        "source2": CURRENT_GENERATED_CAT_ASSET_ID,
+    }
+    paths["batch_binding"].write_text(
+        json.dumps(
+            {
+                "schema": apartment.ASSET_BOUND_EPISODE_BINDING_SCHEMA,
+                "status": "pass",
+                "episode_id": "episode_0001",
+                "asset_ids_by_source_slot": assets,
+                "acoustic_selection_binding_sha256": binding_sha256,
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = _plan("episode_0001")
+    for index, slot in enumerate(("source1", "source2")):
+        plan["actors"][index]["actor_id"] = f"{slot}_actor"
+        plan["actors"][index]["asset_id"] = assets[slot]
+        for frame in plan["frames"]:
+            frame["actor_states"][index]["actor_id"] = f"{slot}_actor"
+    monkeypatch.setattr(
+        apartment,
+        "build_spear_visual_plan_from_files",
+        lambda **_: deepcopy(plan),
+    )
+
+    suite = apartment.build_native_apartment_asset_bound_suite(tmp_path)
+
+    identity = suite["acoustic_visual_identity"]
+    assert identity["status"] == "pass"
+    assert suite["scenarios"][0]["acoustic_visual_identity"] == identity
+    assert (
+        suite["scenarios"][0]["native_scene"]["room_ref"]
+        == identity["runtime_room_ref"]
+    )
+
+    batch = json.loads(paths["batch_binding"].read_text(encoding="utf-8"))
+    batch["acoustic_selection_binding_sha256"] = "0" * 64
+    paths["batch_binding"].write_text(json.dumps(batch), encoding="utf-8")
+    with pytest.raises(
+        apartment.SpearApartmentError,
+        match="episode acoustic selection binding SHA differs",
+    ):
+        apartment.build_native_apartment_asset_bound_suite(tmp_path)
+
+
 def test_scenario_path_discovery_is_bounded_to_s0_s3_s4(tmp_path: Path) -> None:
     expected = _make_input_tree(tmp_path, "S3")
     observed = apartment.scenario_input_paths(tmp_path, "S3")
@@ -347,6 +560,25 @@ def test_legacy_asset_bound_batch_binding_remains_compatible(tmp_path: Path) -> 
     )
 
     assert "exact_runtime_binding" not in plan["actors"][0]
+
+
+def test_episode_binding_sha_must_match_bundle_identity(tmp_path: Path) -> None:
+    plan, bindings, batch_path = _exact_binding_case(tmp_path)
+    batch = json.loads(batch_path.read_text(encoding="utf-8"))
+    batch["acoustic_selection_binding_sha256"] = "a" * 64
+    batch_path.write_text(json.dumps(batch), encoding="utf-8")
+
+    with pytest.raises(
+        apartment.SpearApartmentError,
+        match="episode acoustic selection binding SHA differs",
+    ):
+        apartment._attach_exact_asset_bound_runtime_bindings(
+            plan=plan,
+            scenario_id="episode_0001",
+            batch_binding_path=batch_path,
+            actor_bindings=bindings,
+            expected_acoustic_selection_binding_sha256="b" * 64,
+        )
 
 
 @pytest.mark.parametrize(
@@ -764,6 +996,80 @@ def test_resume_reopens_complete_scenario_and_discards_only_incomplete_directory
     assert not incomplete.exists()
 
 
+def test_runner_rejects_scenario_room_or_binding_identity_drift_before_ue(
+    tmp_path: Path,
+) -> None:
+    _write_asset_bound_identity_manifest(tmp_path)
+    room_profile = deepcopy(apartment.DEFAULT_ROOM_RUNTIME_PROFILE)
+    identity = apartment.asset_bound_bundle_acoustic_visual_identity(tmp_path)
+    suite = {
+        "room_runtime_profile": room_profile,
+        "native_map": room_profile["scene"]["map_path"],
+        "acoustic_visual_identity": identity,
+        "scenarios": [
+            {
+                "scenario_id": "episode_0001",
+                "native_scene": {
+                    "room_runtime_profile_id": room_profile["profile_id"],
+                    "room_ref": deepcopy(room_profile["room_ref"]),
+                    "map": room_profile["scene"]["map_path"],
+                },
+                "acoustic_visual_identity": deepcopy(identity),
+            }
+        ],
+    }
+
+    _RUNNER._assert_suite_runtime_identity_closure(
+        suite,
+        input_layout="asset-bound-batch",
+        room_runtime_profile=room_profile,
+    )
+
+    suite["scenarios"][0]["acoustic_visual_identity"][
+        "acoustic_selection_binding_sha256"
+    ] = "0" * 64
+    with pytest.raises(RuntimeError, match="differs from its suite"):
+        _RUNNER._assert_suite_runtime_identity_closure(
+            suite,
+            input_layout="asset-bound-batch",
+            room_runtime_profile=room_profile,
+        )
+
+
+def test_resume_rejects_a_different_acoustic_visual_identity(
+    tmp_path: Path,
+) -> None:
+    _write_asset_bound_identity_manifest(tmp_path)
+    identity = apartment.asset_bound_bundle_acoustic_visual_identity(tmp_path)
+    scenario_root = tmp_path / "episode_0001"
+    scenario_root.mkdir()
+    retained_identity = deepcopy(identity)
+    retained_identity["acoustic_selection_binding_sha256"] = "0" * 64
+    (scenario_root / "evidence.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "scenario_id": "episode_0001",
+                "timing": {"video_encoder": "h264_nvenc"},
+                "acoustic_visual_identity": retained_identity,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        RuntimeError, match="resumable scenario evidence is invalid"
+    ):
+        _RUNNER._load_resumable_scenario_record(
+            output_root=tmp_path,
+            scenario={
+                "scenario_id": "episode_0001",
+                "acoustic_visual_identity": identity,
+            },
+            video_encoder="h264_nvenc",
+        )
+
+
 def test_resume_requires_the_same_retained_execution_plan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -784,6 +1090,11 @@ def test_resume_requires_the_same_retained_execution_plan(
     )
     monkeypatch.setattr(
         _RUNNER, "_assert_suite_actor_binding_closure", lambda _suite: None
+    )
+    monkeypatch.setattr(
+        _RUNNER,
+        "_assert_suite_runtime_identity_closure",
+        lambda *_args, **_kwargs: None,
     )
     args = _RUNNER.parse_args(
         [
@@ -880,6 +1191,11 @@ def test_runner_dry_run_records_only_its_exact_manifest_shard(
     )
     monkeypatch.setattr(
         _RUNNER, "_assert_suite_actor_binding_closure", lambda _suite: None
+    )
+    monkeypatch.setattr(
+        _RUNNER,
+        "_assert_suite_runtime_identity_closure",
+        lambda *_args, **_kwargs: None,
     )
     args = _RUNNER.parse_args(
         [

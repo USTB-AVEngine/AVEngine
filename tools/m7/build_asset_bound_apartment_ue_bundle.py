@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
+from copy import deepcopy
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -15,6 +17,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import (
+    canonical_json_sha256,
     load_json,
     sha256_file,
     write_json,
@@ -52,6 +55,21 @@ from avengine.runtime_profiles import (
 
 SCHEMA = "avengine_m7_asset_bound_apartment_ue_input_bundle_v1"
 SOURCE_SLOTS = ("source1", "source2")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ACOUSTIC_SELECTION_FIELDS = {
+    "schema",
+    "selection_mode",
+    "registry_selection_applied",
+    "room_ref",
+    "profile_ref",
+    "binding_id",
+    "registry_selection_content_sha256",
+    "effective_selection_content_sha256",
+    "acoustic_package_manifest_sha256",
+    "simulation_request_sha256",
+    "input_receipt_sha256",
+    "binding_content_sha256",
+}
 _AUDIO_PROGRAM_SAMPLE_FIELDS = frozenset(
     {
         "audio_program_binding",
@@ -59,6 +77,121 @@ _AUDIO_PROGRAM_SAMPLE_FIELDS = frozenset(
         "audio_program_instance_sha256",
     }
 )
+
+
+def _validated_acoustic_selection_binding(
+    value: Any,
+) -> tuple[dict[str, Any], str | None]:
+    if (
+        not isinstance(value, Mapping)
+        or value.get("schema")
+        != "avengine_rir_cache_acoustic_selection_binding_v1"
+        or set(value) != _ACOUSTIC_SELECTION_FIELDS
+    ):
+        raise RuntimeError("audio batch acoustic_selection_binding is invalid")
+    binding = deepcopy(dict(value))
+    mode = binding.get("selection_mode")
+    binding_sha256 = binding.get("binding_content_sha256")
+    if mode == "explicit_legacy_unbound":
+        if (
+            binding_sha256 is not None
+            or binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+        ):
+            raise RuntimeError(
+                "legacy unbound audio batch fabricated an acoustic identity"
+            )
+        return binding, None
+    if (
+        mode
+        not in {
+            "explicit_legacy",
+            "registry",
+            "registry_with_verified_equivalent_overrides",
+        }
+        or not isinstance(binding_sha256, str)
+        or _SHA256_RE.fullmatch(binding_sha256) is None
+        or canonical_json_sha256(
+            {
+                key: item
+                for key, item in binding.items()
+                if key != "binding_content_sha256"
+            }
+        )
+        != binding_sha256
+    ):
+        raise RuntimeError("audio batch acoustic selection hash is invalid")
+    if mode == "explicit_legacy":
+        if (
+            binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+        ):
+            raise RuntimeError(
+                "explicit legacy audio batch contains a registry identity"
+            )
+    elif (
+        binding.get("registry_selection_applied") is not True
+        or not isinstance(binding.get("room_ref"), Mapping)
+        or set(binding["room_ref"])
+        != {"registry_id", "room_id", "revision"}
+        or not isinstance(binding.get("profile_ref"), Mapping)
+        or set(binding["profile_ref"]) != {"profile_id", "revision"}
+        or not isinstance(binding.get("binding_id"), str)
+        or not binding["binding_id"]
+    ):
+        raise RuntimeError(
+            "registry audio batch lacks its exact room/profile binding"
+        )
+    return binding, binding_sha256
+
+
+def _visual_room_ref(room_capsule: Mapping[str, Any]) -> dict[str, str]:
+    declared = room_capsule.get("room_registry_ref")
+    if (
+        not isinstance(declared, Mapping)
+        or not isinstance(declared.get("registry_id"), str)
+        or not isinstance(declared.get("room_id"), str)
+        or not isinstance(declared.get("room_revision"), str)
+    ):
+        raise RuntimeError("room capsule lacks an exact visual room registry ref")
+    return {
+        "registry_id": declared["registry_id"],
+        "room_id": declared["room_id"],
+        "revision": declared["room_revision"],
+    }
+
+
+def _acoustic_visual_room_alignment(
+    acoustic_selection_binding: Mapping[str, Any],
+    visual_room_ref: Mapping[str, str],
+) -> dict[str, Any]:
+    acoustic_room_ref = acoustic_selection_binding.get("room_ref")
+    mode = acoustic_selection_binding.get("selection_mode")
+    if acoustic_room_ref is None:
+        if mode not in {"explicit_legacy", "explicit_legacy_unbound"}:
+            raise RuntimeError(
+                "non-legacy acoustic selection lacks an exact room_ref"
+            )
+        return {
+            "status": "not_verified",
+            "compatibility": "legacy_acoustic_selection_without_room_ref",
+            "visual_room_ref": dict(visual_room_ref),
+            "acoustic_room_ref": None,
+        }
+    if acoustic_room_ref != visual_room_ref:
+        raise RuntimeError(
+            "visual room_ref differs from the audio acoustic selection"
+        )
+    return {
+        "status": "pass",
+        "compatibility": None,
+        "visual_room_ref": dict(visual_room_ref),
+        "acoustic_room_ref": deepcopy(dict(acoustic_room_ref)),
+    }
 
 
 def _obstacle_map(root: Path) -> RuntimeObstacleMap:
@@ -380,6 +513,7 @@ def _build_episode(
     runtime_bindings_by_source_slot: Mapping[str, Mapping[str, Any]],
     sensor_rig_trajectory: Mapping[str, Any],
     sensor_rig_rir_binding: Mapping[str, Any],
+    acoustic_selection_binding_sha256: str | None,
 ) -> dict[str, Any]:
     """Build one independent episode directory for sequential or process use."""
 
@@ -529,6 +663,9 @@ def _build_episode(
             "sensor_rig_trajectory": rig_binding,
             "rir_listener_binding": dict(sensor_rig_rir_binding),
             "sensor_rig_modal_alignment": sensor_rig_modal_alignment,
+            "acoustic_selection_binding_sha256": (
+                acoustic_selection_binding_sha256
+            ),
         }
         if program_instance is not None:
             batch_binding.update(
@@ -551,6 +688,9 @@ def _build_episode(
             "v00_sample_id": sample["sample_id"],
             "sensor_rig_trajectory": rig_binding,
             "sensor_rig_modal_alignment": sensor_rig_modal_alignment,
+            "acoustic_selection_binding_sha256": (
+                acoustic_selection_binding_sha256
+            ),
             "build_wall_seconds": time.perf_counter() - episode_started,
         }
         write_json(
@@ -582,6 +722,7 @@ def _load_completed_episode(
     batch_root: Path,
     runtime_bindings_by_source_slot: Mapping[str, Mapping[str, Any]],
     sensor_rig_binding: Mapping[str, Any],
+    acoustic_selection_binding_sha256: str | None = None,
 ) -> dict[str, Any] | None:
     episode_root = staging / "episodes" / episode_id
     record_path = episode_root / "metadata/build_record.json"
@@ -634,6 +775,12 @@ def _load_completed_episode(
         != dict(runtime_bindings_by_source_slot)
         or batch_binding.get("sensor_rig_trajectory")
         != dict(sensor_rig_binding)
+        or "acoustic_selection_binding_sha256" not in batch_binding
+        or batch_binding.get("acoustic_selection_binding_sha256")
+        != acoustic_selection_binding_sha256
+        or "acoustic_selection_binding_sha256" not in row
+        or row.get("acoustic_selection_binding_sha256")
+        != acoustic_selection_binding_sha256
         or program_binding_differs
         or any(
             not (episode_root / relative).is_file()
@@ -726,10 +873,36 @@ def build_bundle(
     selected = tuple(episode_ids) if episode_ids is not None else tuple(sorted(episodes))
     if not selected or len(selected) != len(set(selected)) or not set(selected) <= set(episodes):
         raise RuntimeError("episode selection is empty, repeated, or unknown")
+    batch_delivery = load_json(batch_root / "delivery.json")
+    batch_samples_record = load_json(batch_root / "samples.json")
+    batch_episodes_record = load_json(batch_root / "episodes.json")
+    (
+        acoustic_selection_binding,
+        acoustic_selection_binding_sha256,
+    ) = _validated_acoustic_selection_binding(
+        batch_delivery.get("acoustic_selection_binding")
+    )
+    if (
+        batch_samples_record.get("acoustic_selection_binding")
+        != acoustic_selection_binding
+        or batch_episodes_record.get("acoustic_selection_binding")
+        != acoustic_selection_binding
+    ):
+        raise RuntimeError(
+            "audio batch acoustic selection differs across its top-level records"
+        )
     samples = _samples(batch_root)
     if not set(selected) <= set(samples):
         raise RuntimeError("selected episodes lack v00 audio samples")
-    batch_delivery = load_json(batch_root / "delivery.json")
+    if any(
+        "acoustic_selection_binding_sha256" not in sample
+        or sample.get("acoustic_selection_binding_sha256")
+        != acoustic_selection_binding_sha256
+        for sample in samples.values()
+    ):
+        raise RuntimeError(
+            "audio sample acoustic selection differs from the batch"
+        )
     variants_per_episode = batch_delivery.get("variants_per_episode")
     if (
         batch_delivery.get("status") != "pass"
@@ -750,6 +923,12 @@ def build_bundle(
             "AudioProgram visual bundles require one program instance per episode"
         )
 
+    room_capsule = load_json(room_template_bundle / "room/room_capsule.json")
+    visual_room_ref = _visual_room_ref(room_capsule)
+    acoustic_visual_room_alignment = _acoustic_visual_room_alignment(
+        acoustic_selection_binding,
+        visual_room_ref,
+    )
     qualification_template = load_json(
         room_template_bundle / "room/qualification.json"
     )
@@ -828,6 +1007,9 @@ def build_bundle(
                         episode_id
                     ],
                     sensor_rig_binding=sensor_rig_binding,
+                    acoustic_selection_binding_sha256=(
+                        acoustic_selection_binding_sha256
+                    ),
                 )
                 if resume
                 else None
@@ -855,6 +1037,9 @@ def build_bundle(
                     ],
                     "sensor_rig_trajectory": sensor_rig_trajectory,
                     "sensor_rig_rir_binding": sensor_rig_rir_binding,
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_selection_binding_sha256
+                    ),
                 }
             )
         if workers == 1:
@@ -888,6 +1073,11 @@ def build_bundle(
                 "diagnostic_encoder_gpu": encoder_gpu,
                 "diagnostic_topdown_layout": "topdown_only_640x480",
                 "episode_workers": workers,
+                "visual_room_ref": visual_room_ref,
+                "acoustic_selection_binding": acoustic_selection_binding,
+                "acoustic_visual_room_alignment": (
+                    acoustic_visual_room_alignment
+                ),
                 "sensor_rig_trajectory": {
                     **sensor_rig_binding,
                     "source_path": (

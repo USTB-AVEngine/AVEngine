@@ -111,6 +111,7 @@
             "semantic_resource",
             "route_manifest",
             "source_manifest",
+            "acoustic_material_config",
             "acoustic_package",
             "derived_proxy_descriptor",
             "diagnostic_aabb"

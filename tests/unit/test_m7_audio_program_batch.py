@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from avengine.contracts.json_io import write_json
+from avengine.contracts.json_io import canonical_json_sha256, write_json
 from avengine.m6x.room_feasibility import rir_acoustic_state_sha256
 from avengine.m7.asset_bound_audio import AssetBoundAudioError
 from avengine.m7.sensor_rig import m7_sensor_rig_pose_series
@@ -14,6 +14,7 @@ from tools.m7.render_asset_bound_binaural_batch import (
     AudioProgramSpec,
     _load_sensor_rig_contract,
     _prepare_audio_program_variants,
+    _validated_acoustic_selection_binding,
     audio_program_specs,
 )
 
@@ -21,6 +22,46 @@ from tools.m7.render_asset_bound_binaural_batch import (
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAMS = ROOT / "examples/m6x/fixed_apartment/audio_programs"
 REGISTRIES = ROOT / "examples/m6/registries"
+
+
+def test_audio_batch_authenticates_binding_and_keeps_legacy_unbound_explicit() -> None:
+    value = {
+        "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+        "selection_mode": "explicit_legacy",
+        "registry_selection_applied": False,
+        "room_ref": None,
+        "profile_ref": None,
+        "binding_id": None,
+        "registry_selection_content_sha256": None,
+        "effective_selection_content_sha256": None,
+        "acoustic_package_manifest_sha256": "1" * 64,
+        "simulation_request_sha256": "2" * 64,
+        "input_receipt_sha256": None,
+    }
+    value["binding_content_sha256"] = canonical_json_sha256(value)
+    binding, binding_sha256 = _validated_acoustic_selection_binding(value)
+    assert binding == value
+    assert binding_sha256 == value["binding_content_sha256"]
+
+    unbound = {
+        "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+        "selection_mode": "explicit_legacy_unbound",
+        "registry_selection_applied": False,
+        "room_ref": None,
+        "profile_ref": None,
+        "binding_id": None,
+        "registry_selection_content_sha256": None,
+        "effective_selection_content_sha256": None,
+        "acoustic_package_manifest_sha256": None,
+        "simulation_request_sha256": None,
+        "input_receipt_sha256": None,
+        "binding_content_sha256": None,
+    }
+    assert _validated_acoustic_selection_binding(unbound) == (unbound, None)
+
+    value["binding_id"] = "forged_after_hash"
+    with pytest.raises(AssetBoundAudioError, match="hash is invalid"):
+        _validated_acoustic_selection_binding(value)
 
 
 def _write_dynamic_sensor_rig_plan(root: Path) -> tuple[dict, dict]:

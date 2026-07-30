@@ -192,14 +192,18 @@ def validate_room_registry(value: Any) -> list[str]:
                 item for item in record["acoustic_representations"]
                 if item["role"] == "derived_proxy"
             ]
-            if len(raw) != 1 or len(derived) != 1:
+            if len(raw) != 1 or not derived:
                 errors.append(
                     f"{prefix}: Matterport3D records require one immutable raw source and "
-                    "one separately declared derived proxy"
+                    "at least one separately declared derived proxy"
                 )
-            elif derived[0].get("derived_from") != raw[0]["representation_id"]:
+            elif any(
+                item.get("derived_from") != raw[0]["representation_id"]
+                for item in derived
+            ):
                 errors.append(
-                    f"{prefix}: Matterport3D derived proxy must reference its raw source"
+                    f"{prefix}: every Matterport3D derived proxy must reference its raw "
+                    "source"
                 )
 
         lineage = record.get("lineage", {})

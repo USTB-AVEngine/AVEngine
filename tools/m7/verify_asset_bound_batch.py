@@ -46,6 +46,20 @@ SAMPLE_RATE_HZ = 16_000
 SAMPLE_COUNT = 80_000
 SCHEMA = "avengine_m7_asset_bound_batch_correctness_report_v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ACOUSTIC_SELECTION_FIELDS = {
+    "schema",
+    "selection_mode",
+    "registry_selection_applied",
+    "room_ref",
+    "profile_ref",
+    "binding_id",
+    "registry_selection_content_sha256",
+    "effective_selection_content_sha256",
+    "acoustic_package_manifest_sha256",
+    "simulation_request_sha256",
+    "input_receipt_sha256",
+    "binding_content_sha256",
+}
 _AUDIO_PROGRAM_SAMPLE_FIELDS = frozenset(
     {
         "audio_program_binding",
@@ -67,6 +81,129 @@ def _json(path: Path) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise BatchVerificationError(f"JSON object required: {path}")
     return value
+
+
+def _validated_acoustic_selection_binding(
+    value: Any,
+) -> tuple[dict[str, Any], str | None]:
+    if (
+        not isinstance(value, Mapping)
+        or value.get("schema")
+        != "avengine_rir_cache_acoustic_selection_binding_v1"
+        or set(value) != _ACOUSTIC_SELECTION_FIELDS
+    ):
+        raise BatchVerificationError(
+            "batch acoustic_selection_binding is invalid"
+        )
+    binding = dict(value)
+    mode = binding.get("selection_mode")
+    binding_sha256 = binding.get("binding_content_sha256")
+    if mode == "explicit_legacy_unbound":
+        if (
+            binding_sha256 is not None
+            or binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+            or any(
+                binding.get(field) is not None
+                for field in (
+                    "registry_selection_content_sha256",
+                    "effective_selection_content_sha256",
+                    "acoustic_package_manifest_sha256",
+                    "simulation_request_sha256",
+                    "input_receipt_sha256",
+                )
+            )
+        ):
+            raise BatchVerificationError(
+                "legacy unbound batch fabricated an acoustic identity"
+            )
+        return binding, None
+    if (
+        mode
+        not in {
+            "explicit_legacy",
+            "registry",
+            "registry_with_verified_equivalent_overrides",
+        }
+        or not isinstance(binding_sha256, str)
+        or _SHA256_RE.fullmatch(binding_sha256) is None
+        or canonical_json_sha256(
+            {
+                key: item
+                for key, item in binding.items()
+                if key != "binding_content_sha256"
+            }
+        )
+        != binding_sha256
+    ):
+        raise BatchVerificationError(
+            "batch acoustic_selection_binding hash is invalid"
+        )
+    if mode == "explicit_legacy":
+        effective_sha256 = binding.get(
+            "effective_selection_content_sha256"
+        )
+        input_receipt_sha256 = binding.get("input_receipt_sha256")
+        if (
+            binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+            or binding.get("registry_selection_content_sha256") is not None
+            or (
+                (effective_sha256 is None) != (input_receipt_sha256 is None)
+            )
+            or (
+                effective_sha256 is not None
+                and (
+                    not isinstance(effective_sha256, str)
+                    or _SHA256_RE.fullmatch(effective_sha256) is None
+                    or not isinstance(input_receipt_sha256, str)
+                    or _SHA256_RE.fullmatch(input_receipt_sha256) is None
+                )
+            )
+        ):
+            raise BatchVerificationError(
+                "explicit legacy batch contains a registry identity"
+            )
+    else:
+        room_ref = binding.get("room_ref")
+        profile_ref = binding.get("profile_ref")
+        if (
+            binding.get("registry_selection_applied") is not True
+            or not isinstance(room_ref, Mapping)
+            or set(room_ref) != {"registry_id", "room_id", "revision"}
+            or not isinstance(profile_ref, Mapping)
+            or set(profile_ref) != {"profile_id", "revision"}
+            or not isinstance(binding.get("binding_id"), str)
+            or not binding["binding_id"]
+            or any(
+                not isinstance(binding.get(field), str)
+                or _SHA256_RE.fullmatch(binding[field]) is None
+                for field in (
+                    "registry_selection_content_sha256",
+                    "effective_selection_content_sha256",
+                    "input_receipt_sha256",
+                )
+            )
+        ):
+            raise BatchVerificationError(
+                "registry batch lacks its exact room/profile binding"
+            )
+    if any(
+        not isinstance(binding.get(field), str)
+        or _SHA256_RE.fullmatch(binding[field]) is None
+        for field in (
+            "acoustic_package_manifest_sha256",
+            "simulation_request_sha256",
+        )
+    ):
+        raise BatchVerificationError(
+            "batch acoustic package/simulation identity is invalid"
+        )
+    return binding, binding_sha256
 
 
 def _program_sample_fields(value: Mapping[str, Any]) -> set[str]:
@@ -787,7 +924,15 @@ def _verify_batch(
         )
     delivery = _json(batch_root / "delivery.json")
     samples_record = _json(batch_root / "samples.json")
+    episodes_record = _json(batch_root / "episodes.json")
     samples = samples_record.get("samples")
+    episodes = episodes_record.get("episodes")
+    (
+        acoustic_selection_binding,
+        acoustic_selection_binding_sha256,
+    ) = _validated_acoustic_selection_binding(
+        delivery.get("acoustic_selection_binding")
+    )
     episode_count = delivery.get("episode_count")
     variants_per_episode = delivery.get("variants_per_episode")
     has_audio_program_samples = isinstance(samples, list) and any(
@@ -796,8 +941,13 @@ def _verify_batch(
     )
     if (
         delivery.get("status") != "pass"
+        or samples_record.get("acoustic_selection_binding")
+        != acoustic_selection_binding
+        or episodes_record.get("acoustic_selection_binding")
+        != acoustic_selection_binding
         or delivery.get("sample_count") != expected_sample_count
         or samples_record.get("status") != "pass"
+        or episodes_record.get("status") != "pass"
         or samples_record.get("sample_count") != expected_sample_count
         or isinstance(episode_count, bool)
         or not isinstance(episode_count, int)
@@ -812,10 +962,26 @@ def _verify_batch(
         )
         or not isinstance(samples, list)
         or len(samples) != expected_sample_count
+        or not isinstance(episodes, list)
+        or len(episodes) != episode_count
     ):
         raise BatchVerificationError(
             "batch delivery summary differs from the expected M7 sample count"
         )
+    for episode in episodes:
+        cache = episode.get("rir_cache") if isinstance(episode, Mapping) else None
+        if (
+            not isinstance(episode, Mapping)
+            or "acoustic_selection_binding_sha256" not in episode
+            or episode.get("acoustic_selection_binding_sha256")
+            != acoustic_selection_binding_sha256
+            or not isinstance(cache, Mapping)
+            or cache.get("acoustic_selection_binding")
+            != acoustic_selection_binding
+        ):
+            raise BatchVerificationError(
+                "episode cache acoustic selection binding differs from the batch"
+            )
     audio_root = batch_root / "audio" / "binaural"
     sample_ids: set[str] = set()
     variants: defaultdict[str, set[int]] = defaultdict(set)
@@ -844,6 +1010,9 @@ def _verify_batch(
             or not isinstance(assets, Mapping)
             or dict(assets) != dict(expected_assets[episode_id])
             or not isinstance(audio, Mapping)
+            or "acoustic_selection_binding_sha256" not in row
+            or row.get("acoustic_selection_binding_sha256")
+            != acoustic_selection_binding_sha256
         ):
             raise BatchVerificationError("sample identity/binding differs from the plan")
         program_instance = _audio_program_instance(
@@ -886,6 +1055,20 @@ def _verify_batch(
         ):
             raise BatchVerificationError(f"sample sidecar hash differs: {sample_id}")
         rendered = read_float32_wav(wav, sidecar_path=sidecar, verify_sidecar=True)
+        sidecar_metadata = (
+            rendered.sidecar.get("metadata")
+            if isinstance(rendered.sidecar, Mapping)
+            else None
+        )
+        if (
+            not isinstance(sidecar_metadata, Mapping)
+            or "acoustic_selection_binding_sha256" not in sidecar_metadata
+            or sidecar_metadata.get("acoustic_selection_binding_sha256")
+            != acoustic_selection_binding_sha256
+        ):
+            raise BatchVerificationError(
+                f"sample sidecar acoustic selection differs: {sample_id}"
+            )
         if rendered.sample_rate_hz != SAMPLE_RATE_HZ or rendered.samples.shape != (2, SAMPLE_COUNT):
             raise BatchVerificationError(f"sample WAV header differs: {sample_id}")
         sample_ids.add(sample_id)
@@ -916,6 +1099,10 @@ def _verify_batch(
         "episode_count": len(variants),
         "variants_per_episode": variants_per_episode,
         "maximum_readback_peak_absolute": maximum_peak,
+        "acoustic_selection_binding": acoustic_selection_binding,
+        "acoustic_selection_binding_sha256": (
+            acoustic_selection_binding_sha256
+        ),
     }
     if audio_program_sample_count:
         result["audio_program_instance_sample_count"] = audio_program_sample_count
@@ -926,8 +1113,16 @@ def _verify_batch(
 
 
 def _compare_reference(batch_root: Path, reference_root: Path) -> Mapping[str, Any]:
-    current = _json(batch_root / "samples.json").get("samples")
-    reference = _json(reference_root / "samples.json").get("samples")
+    current_record = _json(batch_root / "samples.json")
+    reference_record = _json(reference_root / "samples.json")
+    if current_record.get(
+        "acoustic_selection_binding"
+    ) != reference_record.get("acoustic_selection_binding"):
+        raise BatchVerificationError(
+            "reference batch acoustic selection binding differs"
+        )
+    current = current_record.get("samples")
+    reference = reference_record.get("samples")
     if not isinstance(current, list) or not isinstance(reference, list):
         raise BatchVerificationError("reference batch samples are malformed")
     current_rows = {str(row.get("sample_id")): row for row in current if isinstance(row, Mapping)}
@@ -1011,6 +1206,9 @@ def verify(
         "rir_plan": rir,
         "sensor_rig_trajectory": sensor_rig,
         "episode_cache_index": episode_cache,
+        "acoustic_selection_binding": batch[
+            "acoustic_selection_binding"
+        ],
         "batch": batch,
         "reference_byte_comparison": reference,
     }

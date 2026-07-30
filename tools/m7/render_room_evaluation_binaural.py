@@ -16,7 +16,12 @@ from uuid import uuid4
 
 import numpy as np
 
-from avengine.contracts.json_io import load_json, sha256_file, write_json
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    load_json,
+    sha256_file,
+    write_json,
+)
 from avengine.m4.audio import read_float32_wav, write_float32_wav
 from avengine.m5.audio import M5_AUDIO_SAMPLE_COUNT, M5_AUDIO_SAMPLE_RATE_HZ, raised_cosine_partition
 from avengine.m6x.rir_cache import (
@@ -570,7 +575,12 @@ def _plan_closure(
         or delivery.get("episode_count") != len(assignments)
         or delivery.get("frame_count") != FRAME_COUNT
         or delivery.get("frame_rate_hz") != FRAME_RATE_HZ
-        or delivery.get("motion_case_counts") != dict(declared_motion_counts)
+        or delivery.get("motion_case_counts")
+        != {
+            key: value
+            for key, value in sorted(declared_motion_counts.items())
+            if value > 0
+        }
         or delivery.get("sound_pair_counts")
         != dict(sorted(sound_pair_counts.items()))
         or fixed_listener_differs
@@ -617,6 +627,9 @@ def _cache_closure(
     paths = {
         name: cache_root / name for name in ("request.json", "receipt.json", "index.json")
     }
+    acoustic_selection_path = cache_root / "acoustic_selection.json"
+    if acoustic_selection_path.is_file():
+        paths["acoustic_selection.json"] = acoustic_selection_path
     if any(not path.is_file() for path in paths.values()):
         raise AssetBoundAudioError("RIR cache closure is incomplete")
     request = load_json(paths["request.json"])
@@ -648,6 +661,71 @@ def _cache_closure(
     request_scene = request.get("acoustic_scene")
     request_simulation = request.get("simulation")
     request_output = request.get("output")
+    selection_binding = getattr(session, "acoustic_selection_binding", None)
+    if (
+        not isinstance(selection_binding, Mapping)
+        or selection_binding.get("schema")
+        != "avengine_rir_cache_acoustic_selection_binding_v1"
+    ):
+        raise AssetBoundAudioError(
+            "RIR cache lacks a validated acoustic selection binding"
+        )
+    selection_binding = dict(selection_binding)
+    selection_mode = selection_binding.get("selection_mode")
+    selection_binding_sha256 = selection_binding.get("binding_content_sha256")
+    request_binding = request.get("acoustic_selection_binding")
+    registry_mode = selection_mode in {
+        "registry",
+        "registry_with_verified_equivalent_overrides",
+    }
+    bound_mode = registry_mode or selection_mode == "explicit_legacy"
+    if bound_mode:
+        expected_binding_sha256 = canonical_json_sha256(
+            {
+                key: item
+                for key, item in selection_binding.items()
+                if key != "binding_content_sha256"
+            }
+        )
+        if (
+            request_binding != selection_binding
+            or selection_binding_sha256 != expected_binding_sha256
+            or receipt.get("acoustic_selection_binding_sha256")
+            != selection_binding_sha256
+            or index.get("acoustic_selection_binding_sha256")
+            != selection_binding_sha256
+            or receipt.get("acoustic_selection_mode") != selection_mode
+            or index.get("acoustic_selection_mode") != selection_mode
+            or "acoustic_selection.json" not in paths
+        ):
+            raise AssetBoundAudioError(
+                "RIR cache acoustic selection differs across its closure"
+            )
+    elif selection_mode == "explicit_legacy_unbound":
+        if (
+            request_binding is not None
+            or selection_binding_sha256 is not None
+            or selection_binding.get("registry_selection_applied") is not False
+            or selection_binding.get("room_ref") is not None
+            or selection_binding.get("profile_ref") is not None
+            or selection_binding.get("binding_id") is not None
+        ):
+            raise AssetBoundAudioError(
+                "legacy unbound RIR cache fabricated an acoustic identity"
+            )
+    else:
+        raise AssetBoundAudioError("RIR cache acoustic selection mode is invalid")
+    if (
+        registry_mode
+        and (
+            selection_binding.get("registry_selection_applied") is not True
+            or not isinstance(selection_binding.get("room_ref"), Mapping)
+            or not isinstance(selection_binding.get("profile_ref"), Mapping)
+        )
+    ):
+        raise AssetBoundAudioError(
+            "registry RIR cache lacks its exact room/profile identity"
+        )
     if (
         request.get("schema") != RIR_CACHE_REQUEST_SCHEMA
         or not isinstance(request_plan, Mapping)
@@ -673,6 +751,8 @@ def _cache_closure(
         or len(index["entries"]) != unique_rir_job_count
         or not isinstance(external_inputs, Mapping)
         or external_inputs.get("status") != "pass"
+        or external_inputs.get("acoustic_selection_binding_sha256")
+        != selection_binding_sha256
         or not isinstance(plan_input, Mapping)
         or plan_input.get("declared_path") != request_plan.get("path")
         or plan_input.get("sha256") != request_plan.get("sha256")
@@ -715,6 +795,9 @@ def _cache_closure(
         "full_plan_complete": True,
         "full_plan_job_count": unique_rir_job_count,
         "retained_payload_hash_verified": True,
+        "acoustic_selection_binding": selection_binding,
+        "acoustic_selection_binding_sha256": selection_binding_sha256,
+        "acoustic_selection_mode": selection_mode,
         "external_inputs": dict(external_inputs),
         "files": {
             name: {"path": name, "sha256": sha256_file(path)}
@@ -827,6 +910,18 @@ def main() -> int:
         )
         input_closure = dict(plan_closure)
         input_closure["rir_cache"] = cache_closure
+        acoustic_selection_binding = cache_closure[
+            "acoustic_selection_binding"
+        ]
+        acoustic_selection_binding_sha256 = cache_closure[
+            "acoustic_selection_binding_sha256"
+        ]
+        input_closure["acoustic_selection_binding"] = (
+            acoustic_selection_binding
+        )
+        input_closure["acoustic_selection_binding_sha256"] = (
+            acoustic_selection_binding_sha256
+        )
         input_closure["producer_identity"] = _producer_identity()
         for ordinal, assignment in enumerate(assignments):
             episode_id = _safe_episode_id(
@@ -845,6 +940,13 @@ def main() -> int:
                 or cached.source_slot_ids != SOURCE_SLOTS
             ):
                 raise AssetBoundAudioError("RIR cache is not 16 kHz binaural source1/source2")
+            if (
+                cached.evidence.get("acoustic_selection_binding")
+                != acoustic_selection_binding
+            ):
+                raise AssetBoundAudioError(
+                    "episode RIR acoustic selection differs from its session"
+                )
             partition_key = tuple(cached.keyframe_samples)
             weights = partitions.get(partition_key)
             if weights is None:
@@ -884,6 +986,9 @@ def main() -> int:
                         "episode_id": episode_id,
                         "source_slot_id": slot,
                         "sound_class": str(classes[slot]),
+                        "acoustic_selection_binding_sha256": (
+                            acoustic_selection_binding_sha256
+                        ),
                     },
                 )
                 stem_records[slot] = record
@@ -900,6 +1005,9 @@ def main() -> int:
                     "mixture": "exact_persisted_source1_plus_source2_stem_sum",
                     "normalization": False,
                     "limiting": False,
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_selection_binding_sha256
+                    ),
                 },
             )
             stem_peaks = _verify_persisted_exact_mix(
@@ -932,6 +1040,9 @@ def main() -> int:
                     "source_stems": stem_records,
                     "source_stem_peak_absolute": stem_peaks,
                     "mixture_is_exact_persisted_source_stem_sum": True,
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_selection_binding_sha256
+                    ),
                 }
             )
         execution_evidence = _cache_only_execution_evidence(
@@ -957,6 +1068,10 @@ def main() -> int:
                 "schema": "avengine_room_evaluation_binaural_samples_v1",
                 "status": "pass",
                 "sample_count": len(samples),
+                "acoustic_selection_binding": acoustic_selection_binding,
+                "acoustic_selection_binding_sha256": (
+                    acoustic_selection_binding_sha256
+                ),
                 "input_closure": input_closure,
                 "samples": samples,
             },
@@ -995,6 +1110,10 @@ def main() -> int:
                 "sample_count": len(samples),
                 "both_sources_active": True,
                 "source_slots": list(SOURCE_SLOTS),
+                "acoustic_selection_binding": acoustic_selection_binding,
+                "acoustic_selection_binding_sha256": (
+                    acoustic_selection_binding_sha256
+                ),
                 "sound_classes_are_asset_independent": True,
                 "input_closure": input_closure,
                 "mixture_is_exact_persisted_source_stem_sum": True,

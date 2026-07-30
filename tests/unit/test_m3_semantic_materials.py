@@ -160,6 +160,30 @@ def test_mp3d_house_and_binary_semantic_ply_resolve_face_categories(
     assert int(scene.triangles.max()) < len(scene.vertices)
 
 
+def test_mp3d_scene_keeps_raw_mpcat40_label_aligned_with_canonical_token(
+    tmp_path: Path,
+) -> None:
+    house = tmp_path / "hyphen.house"
+    house.write_text(
+        "ASCII 1.1\n"
+        "C  0  1 chopping-board  1 chopping-board  0 0 0 0 0\n"
+        "O  0 0 0  0 0 0  1 0 0  0 1 0  1 1 1  0 0 0 0 0 0 0 0\n",
+        encoding="utf-8",
+    )
+    ply = tmp_path / "hyphen_semantic.ply"
+    _write_semantic_ply(
+        ply,
+        [(0, 0, 0), (1, 0, 0), (0, 1, 0)],
+        [(0, 1, 2, 0)],
+    )
+
+    scene = load_mp3d_semantic_scene(ply, house)
+
+    assert scene.semantic_categories == ("chopping_board",)
+    assert scene.raw_semantic_category_labels == ("chopping-board",)
+    assert scene.objects[0]["source_material_name"] == "chopping_board"
+
+
 def test_semantic_material_precedence_is_deterministic_and_reports_unknowns() -> None:
     surfaces = [
         SemanticSurfaceIdentity(

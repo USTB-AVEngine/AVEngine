@@ -14,6 +14,7 @@ inside ``spear-env`` and receives the old SPEAR checkout through
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import math
 from pathlib import Path
@@ -26,6 +27,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.optional_backends.spear_apartment import (
+    ACOUSTIC_VISUAL_IDENTITY_SCHEMA,
     ANIMATION_TOLERANCE_SECONDS,
     CAMERA_WARMUP_FRAMES,
     FPS,
@@ -628,6 +630,109 @@ def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
                 )
 
 
+def _assert_suite_runtime_identity_closure(
+    suite: Mapping[str, Any],
+    *,
+    input_layout: str,
+    room_runtime_profile: Mapping[str, Any],
+) -> None:
+    """Reject a room/binding split before the optional UE runtime starts."""
+
+    if suite.get("room_runtime_profile") != room_runtime_profile:
+        raise RuntimeError(
+            "suite room runtime profile differs from the selected profile"
+        )
+    scene = room_runtime_profile.get("scene")
+    runtime_room_ref = room_runtime_profile.get("room_ref")
+    if (
+        not isinstance(scene, Mapping)
+        or not isinstance(runtime_room_ref, Mapping)
+        or suite.get("native_map") != scene.get("map_path")
+    ):
+        raise RuntimeError("suite native map differs from the selected profile")
+    if input_layout != "asset-bound-batch":
+        return
+
+    identity = suite.get("acoustic_visual_identity")
+    if (
+        not isinstance(identity, Mapping)
+        or identity.get("schema") != ACOUSTIC_VISUAL_IDENTITY_SCHEMA
+        or identity.get("runtime_room_ref") != runtime_room_ref
+        or identity.get("visual_room_ref") != runtime_room_ref
+        or identity.get("runtime_profile_id")
+        != room_runtime_profile.get("profile_id")
+        or identity.get("runtime_map_id") != scene.get("scene_id")
+        or identity.get("runtime_map_path") != scene.get("map_path")
+    ):
+        raise RuntimeError(
+            "asset-bound suite acoustic/visual identity differs from the "
+            "selected runtime room"
+        )
+    mode = identity.get("selection_mode")
+    binding_sha256 = identity.get("acoustic_selection_binding_sha256")
+    valid_binding_sha = (
+        isinstance(binding_sha256, str)
+        and len(binding_sha256) == 64
+        and all(character in "0123456789abcdef" for character in binding_sha256)
+    )
+    if mode in {
+        "registry",
+        "registry_with_verified_equivalent_overrides",
+    }:
+        if (
+            identity.get("status") != "pass"
+            or identity.get("verification_status") != "verified"
+            or identity.get("compatibility") is not None
+            or not valid_binding_sha
+            or identity.get("acoustic_room_ref") != runtime_room_ref
+        ):
+            raise RuntimeError(
+                "registry acoustic/visual runtime identity is not verified"
+            )
+    elif mode in {"explicit_legacy", "explicit_legacy_unbound"}:
+        if (
+            identity.get("status") != "not_verified"
+            or identity.get("verification_status") != "not_verified"
+            or identity.get("compatibility")
+            != "legacy_acoustic_selection_without_room_ref"
+            or identity.get("acoustic_room_ref") is not None
+            or (
+                mode == "explicit_legacy"
+                and not valid_binding_sha
+            )
+            or (
+                mode == "explicit_legacy_unbound"
+                and binding_sha256 is not None
+            )
+        ):
+            raise RuntimeError(
+                "legacy acoustic/visual runtime identity fabricated verification"
+            )
+    else:
+        raise RuntimeError("asset-bound suite acoustic selection mode is invalid")
+
+    scenarios = suite.get("scenarios")
+    if not isinstance(scenarios, Sequence) or not scenarios:
+        raise RuntimeError("asset-bound suite has no scenarios")
+    for scenario in scenarios:
+        native_scene = (
+            scenario.get("native_scene")
+            if isinstance(scenario, Mapping)
+            else None
+        )
+        if (
+            not isinstance(native_scene, Mapping)
+            or native_scene.get("room_ref") != runtime_room_ref
+            or native_scene.get("room_runtime_profile_id")
+            != room_runtime_profile.get("profile_id")
+            or native_scene.get("map") != scene.get("map_path")
+            or scenario.get("acoustic_visual_identity") != identity
+        ):
+            raise RuntimeError(
+                "scenario runtime room or acoustic binding differs from its suite"
+            )
+
+
 def _apply_camera(camera: Any, camera_plan: Mapping[str, Any]) -> None:
     position = camera_plan["ue_position_cm"]
     camera.K2_SetActorLocationAndRotation(
@@ -952,6 +1057,11 @@ def _load_resumable_scenario_record(
         or value.get("status") != "pass"
         or value.get("scenario_id") != scenario_id
         or value.get("timing", {}).get("video_encoder") != video_encoder
+        or (
+            "acoustic_visual_identity" in scenario
+            and value.get("acoustic_visual_identity")
+            != scenario["acoustic_visual_identity"]
+        )
     ):
         raise RuntimeError(f"resumable scenario evidence is invalid: {scenario_id}")
     media = value.get("media")
@@ -1307,6 +1417,10 @@ def _render_scenario(
             "render_total_wall_seconds": _elapsed_seconds(scenario_started),
         },
     }
+    if "acoustic_visual_identity" in scenario:
+        record["acoustic_visual_identity"] = deepcopy(
+            scenario["acoustic_visual_identity"]
+        )
     _write_json(scenario_root / "evidence.json", record)
     return record
 
@@ -1519,6 +1633,11 @@ def run(args: argparse.Namespace) -> Path:
     }
     if execution_partition is not None:
         suite["execution_partition"] = execution_partition
+    _assert_suite_runtime_identity_closure(
+        suite,
+        input_layout=args.input_layout,
+        room_runtime_profile=room_runtime_profile,
+    )
     exact_registry_bindings: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for scenario in suite["scenarios"]:
         plan = scenario.get("plan")
@@ -1609,6 +1728,21 @@ def run(args: argparse.Namespace) -> Path:
         evidence_path = output_root / "evidence.json"
         if not evidence_path.is_file():
             raise RuntimeError("resume found no pending scenarios but lacks evidence")
+        retained_evidence = json.loads(
+            evidence_path.read_text(encoding="utf-8")
+        )
+        if (
+            "acoustic_visual_identity" in suite
+            and (
+                not isinstance(retained_evidence, Mapping)
+                or retained_evidence.get("acoustic_visual_identity")
+                != suite["acoustic_visual_identity"]
+            )
+        ):
+            raise RuntimeError(
+                "resumed top-level evidence has a different acoustic/visual "
+                "runtime identity"
+            )
         print(
             "SPEAR_APARTMENT_RESUME_ALREADY_COMPLETE "
             f"output={output_root} evidence={evidence_path}",
@@ -1791,6 +1925,10 @@ def run(args: argparse.Namespace) -> Path:
         "scenarios": scenario_records,
         "timing": timing,
     }
+    if "acoustic_visual_identity" in suite:
+        evidence["acoustic_visual_identity"] = deepcopy(
+            suite["acoustic_visual_identity"]
+        )
     evidence_path = output_root / "evidence.json"
     _write_json(evidence_path, evidence)
     print(

@@ -42,6 +42,10 @@ from avengine.m3.qa import (
     ray_leakage_report,
     write_debug_obj,
 )
+from avengine.m3.rlr_material_import import (
+    RLRMaterialImportError,
+    compile_rlr_semantic_material_documents,
+)
 from avengine.m3.semantic import ExpandedSemanticScene, load_mp3d_semantic_scene
 from avengine.m3.semantic_materials import (
     SemanticMaterialRuleError,
@@ -180,6 +184,7 @@ def _compiler_identity() -> tuple[str, dict[str, str]]:
             "gltf.py",
             "materials.py",
             "qa.py",
+            "rlr_material_import.py",
             "semantic.py",
             "semantic_materials.py",
             "usd_snapshot.py",
@@ -223,6 +228,7 @@ def _build_explicit_glb_package(
     expected_material_semantics: str | None = None,
     source_scene: ExpandedGltfScene | ExpandedSemanticScene | None = None,
     source_geometry_path: Path | None = None,
+    acoustic_profile_binding: Mapping[str, Any] | None = None,
     automatic_leakage_origins: Sequence[Sequence[float]] | None = None,
     automatic_leakage_direction_count: int = 32,
 ) -> Path:
@@ -451,6 +457,10 @@ def _build_explicit_glb_package(
             "components": compiler_components,
         },
     }
+    if acoustic_profile_binding is not None:
+        manifest["materials"]["acoustic_profile_binding"] = copy.deepcopy(
+            dict(acoustic_profile_binding)
+        )
     manifest["package_content_sha256"] = canonical_json_sha256(manifest)
     manifest_path = output / "manifest.json"
     write_json(manifest_path, manifest)
@@ -1137,6 +1147,232 @@ def compile_mp3d_semantic_research_scene(
         raise
 
 
+def compile_mp3d_soundspaces_research_scene(
+    *,
+    room_manifest: str | Path,
+    material_config: str | Path,
+    output: str | Path,
+    database_id: str,
+    source_description: str,
+    version: str = "1",
+    source_uri: str | None = None,
+    package_id: str | None = None,
+    probe_origins: Sequence[Sequence[float]] | None = None,
+    probe_direction_count: int = 32,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[Path, Path]:
+    """Compile official SoundSpaces/RLR MP3D materials into an M3 package.
+
+    MP3D semantic category tokens are resolved by faithfully replaying the
+    public RLR greatest-label-substring-match-count rule.  A zero-score token
+    is assigned to that config's official ``Default`` material; a highest-score
+    tie fails closed.  Every resolved winner then receives a generated exact
+    runtime alias.  This keeps native ingestion fail-closed while the returned
+    coverage report preserves the official selection evidence.
+    """
+
+    room_path, room_bytes, room, room_sha256 = _snapshot_json(room_manifest)
+    (
+        material_config_path,
+        _material_config_bytes,
+        material_config_document,
+        material_config_sha256,
+    ) = _snapshot_json(material_config)
+    if source_uri is not None and (
+        not isinstance(source_uri, str) or not source_uri
+    ):
+        raise AcousticSceneCompileError("source_uri must be a non-empty string")
+    room_errors = validate_room_manifest(room)
+    if room_errors:
+        raise AcousticSceneCompileError("invalid source room: " + "; ".join(room_errors))
+    if room.get("room_kind") != "habitat_native":
+        raise AcousticSceneCompileError(
+            "SoundSpaces MP3D compilation requires room_kind='habitat_native'"
+        )
+    effective_environment = dict(os.environ if environment is None else environment)
+    effective_environment.setdefault(
+        "AVENGINE_REPOSITORY_ROOT", str(Path(__file__).resolve().parents[3])
+    )
+    semantic_path = _source_asset_path(
+        room_path,
+        room,
+        role="semantic_surface_mesh",
+        environment=effective_environment,
+    )
+    descriptor_path = _source_asset_path(
+        room_path,
+        room,
+        role="semantic_descriptor",
+        environment=effective_environment,
+    )
+    try:
+        scene = load_mp3d_semantic_scene(semantic_path, descriptor_path)
+        matrix, transform_source = _KNOWN_SOURCE_TRANSFORMS[
+            "mp3d_z_up_y_front_to_habitat"
+        ]
+        source_identity = (
+            f"{source_description}; source_sha256={material_config_sha256}"
+        )
+        if source_uri is not None:
+            source_identity += f"; source_uri={source_uri}"
+        compiled = compile_rlr_semantic_material_documents(
+            room_id=room["room_id"],
+            semantic_categories=scene.semantic_categories,
+            raw_semantic_category_labels=scene.raw_semantic_category_labels,
+            source=material_config_document,
+            database_id=database_id,
+            version=version,
+            source_description=source_identity,
+            source_to_canonical={
+                "matrix_row_major": matrix,
+                "source": transform_source,
+                "reviewed": True,
+            },
+        )
+    except (OSError, RLRMaterialImportError, ValueError) as exc:
+        raise AcousticSceneCompileError(
+            f"unable to compile SoundSpaces/RLR MP3D materials: {exc}"
+        ) from exc
+
+    mapping_errors = validate_mapping_document(
+        compiled.mapping, room_id=room["room_id"]
+    )
+    database_errors = validate_material_database_document(compiled.database)
+    if mapping_errors or database_errors:
+        raise AcousticSceneCompileError(
+            "generated SoundSpaces/RLR material documents are invalid: "
+            + "; ".join([*mapping_errors, *database_errors])
+        )
+    effective_probe_origins = (
+        [list(map(float, origin)) for origin in probe_origins]
+        if probe_origins is not None
+        else _default_semantic_probe_origins(room)
+    )
+
+    destination = Path(output).resolve()
+    staging = _staging_directory(destination)
+    package_directory = staging / "package"
+    generated_inputs = staging / "generated_inputs"
+    generated_inputs.mkdir()
+    mapping_path = generated_inputs / "mapping.json"
+    database_path = generated_inputs / "materials_soundspaces_rlr.json"
+    write_json(mapping_path, compiled.mapping)
+    write_json(database_path, compiled.database)
+    mapping_bytes = mapping_path.read_bytes()
+    database_bytes = database_path.read_bytes()
+    mapping_sha256 = sha256_file(mapping_path)
+    database_sha256 = sha256_file(database_path)
+    descriptor_sha256 = sha256_file(descriptor_path)
+    try:
+        manifest_path = _build_explicit_glb_package(
+            room_path=room_path,
+            room_bytes=room_bytes,
+            room=room,
+            room_sha256=room_sha256,
+            mapping_path=mapping_path,
+            mapping_bytes=mapping_bytes,
+            mapping=compiled.mapping,
+            mapping_sha256=mapping_sha256,
+            database_path=database_path,
+            database_bytes=database_bytes,
+            database=compiled.database,
+            database_sha256=database_sha256,
+            output=package_directory,
+            package_id=package_id
+            or f"{room['room_id']}_soundspaces_rlr_research_v1",
+            environment=effective_environment,
+            expected_room_kind="habitat_native",
+            package_mode="research_candidate",
+            source_scene=scene,
+            source_geometry_path=semantic_path,
+            acoustic_profile_binding={
+                "schema": "avengine_m3_acoustic_profile_binding_v1",
+                "profile_id": database_id,
+                "profile_revision": version,
+                "adapter_id": "soundspaces2_mp3d_semantic_labels_v1",
+                "resources": [
+                    {
+                        "role": "soundspaces2_public_material_config",
+                        "sha256": material_config_sha256,
+                    }
+                ],
+            },
+            automatic_leakage_origins=effective_probe_origins,
+            automatic_leakage_direction_count=probe_direction_count,
+        )
+        report = copy.deepcopy(compiled.report)
+        decisions_by_label = {
+            decision["source_semantic_label"]: decision
+            for decision in report["decisions"]
+        }
+        substring_triangles = 0
+        default_triangles = 0
+        for category, triangle_count in scene.category_triangle_counts.items():
+            decision = decisions_by_label[category]
+            decision["triangle_count"] = triangle_count
+            if decision["official_default_applied"]:
+                default_triangles += triangle_count
+            else:
+                substring_triangles += triangle_count
+        triangle_count = int(len(scene.triangles))
+        report.update(
+            {
+                "source_kind": "soundspaces_rlr_mp3d_semantic_ply_house",
+                "source_material_config": {
+                    "path": str(material_config_path),
+                    "byte_size": len(_material_config_bytes),
+                    "sha256": material_config_sha256,
+                    "canonical_sha256": canonical_json_sha256(
+                        material_config_document
+                    ),
+                    **({"uri": source_uri} if source_uri is not None else {}),
+                },
+                "semantic_mesh_path": str(semantic_path),
+                "semantic_mesh_sha256": scene.source_sha256,
+                "semantic_descriptor_path": str(descriptor_path),
+                "semantic_descriptor_sha256": scene.descriptor_sha256,
+                "source_vertex_count": scene.source_vertex_count,
+                "source_triangle_count": scene.source_triangle_count,
+                "compiled_vertex_count": int(len(scene.vertices)),
+                "compiled_triangle_count": triangle_count,
+                "category_triangle_counts": scene.category_triangle_counts,
+                "triangle_coverage": {
+                    "triangle_count": triangle_count,
+                    "official_substring_match_triangle_count": (
+                        substring_triangles
+                    ),
+                    "official_default_triangle_count": default_triangles,
+                    "official_substring_match_triangle_fraction": (
+                        substring_triangles / triangle_count
+                    ),
+                    "official_default_triangle_fraction": (
+                        default_triangles / triangle_count
+                    ),
+                },
+                "automatic_leakage_probe_origins_m": effective_probe_origins,
+                "automatic_leakage_direction_count": probe_direction_count,
+            }
+        )
+        report_path = package_directory / "semantic_material_coverage.json"
+        write_json(report_path, report)
+        changed = []
+        if sha256_file(material_config_path) != material_config_sha256:
+            changed.append(str(material_config_path))
+        if sha256_file(descriptor_path) != descriptor_sha256:
+            changed.append(str(descriptor_path))
+        if changed:
+            raise AcousticSceneCompileError(
+                "SoundSpaces material compiler input changed during compilation: "
+                + ", ".join(changed)
+            )
+        os.rename(package_directory, destination)
+        shutil.rmtree(staging)
+        return destination / manifest_path.name, destination / report_path.name
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def compile_usd_snapshot_semantic_research_scene(
     *,
     room_manifest: str | Path,
@@ -1325,6 +1561,7 @@ def compile_visual_slot_semantic_research_scene(
     probe_origins: Sequence[Sequence[float]] | None = None,
     probe_direction_count: int = 32,
     environment: Mapping[str, str] | None = None,
+    acoustic_profile_binding: Mapping[str, Any] | None = None,
 ) -> tuple[Path, Path]:
     """Resolve visual material-slot names through semantic rules into an M3 package.
 
@@ -1429,6 +1666,7 @@ def compile_visual_slot_semantic_research_scene(
             package_mode="research_candidate",
             source_scene=scene,
             source_geometry_path=geometry_path,
+            acoustic_profile_binding=acoustic_profile_binding,
             automatic_leakage_origins=effective_probe_origins,
             automatic_leakage_direction_count=probe_direction_count,
         )

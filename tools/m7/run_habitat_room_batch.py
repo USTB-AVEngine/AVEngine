@@ -32,6 +32,8 @@ from avengine.contracts.json_io import (  # noqa: E402
     sha256_file,
     write_json,
 )
+from avengine.m1.contracts import validate_room_manifest  # noqa: E402
+from avengine.m6.rooms import load_room_registry  # noqa: E402
 from avengine.runtime_profiles import (  # noqa: E402
     load_room_runtime_profile_registry,
 )
@@ -39,6 +41,7 @@ from avengine.runtime_profiles import (  # noqa: E402
 BATCH_SCHEMA = "avengine_m7_habitat_room_batch_v1"
 SUPPORTED_LAYOUT = "m5_1-mixed-route"
 GATE_EVIDENCE_NAME = "mp3d_gate_evidence.json"
+DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/m6/rooms/room_registry.json"
 
 
 class HabitatRoomBatchError(RuntimeError):
@@ -80,6 +83,150 @@ def _select_profile(registry_path: Path, profile_id: str) -> Mapping[str, Any]:
     raise HabitatRoomBatchError(f"room profile {profile_id!r} not found")
 
 
+def _resolve_acoustic_selection_binding(
+    *,
+    room_profile: Mapping[str, Any],
+    room_registry_path: Path,
+    acoustic_profile_registry_path: Path | None,
+    simulation_profile: str,
+) -> dict[str, Any]:
+    """Bind the room's acoustic identity without executing audio in this runner."""
+
+    from avengine.acoustic_profiles import (  # noqa: PLC0415
+        load_acoustic_profile_registry,
+        load_default_acoustic_profile_registry,
+        resolve_acoustic_profile,
+    )
+    from avengine.m6.rooms import load_room_registry  # noqa: PLC0415
+
+    acoustic_registry = (
+        load_acoustic_profile_registry(acoustic_profile_registry_path)
+        if acoustic_profile_registry_path is not None
+        else load_default_acoustic_profile_registry()
+    )
+    room_registry_path = room_registry_path.resolve()
+    room_registry = load_room_registry(room_registry_path)
+    room_ref = room_profile["room_ref"]
+    selection = resolve_acoustic_profile(
+        acoustic_registry,
+        room_registry,
+        room_ref,
+        repository_root=REPOSITORY,
+        verify_paths=False,
+    )
+    simulation_request = Path(selection.simulation_path(simulation_profile)).resolve()
+    return {
+        "schema": "avengine_m7_acoustic_selection_binding_v1",
+        "room_ref": dict(room_ref),
+        "simulation_profile": simulation_profile,
+        "acoustic_package_use": "bound_for_downstream_rir_not_consumed_here",
+        "selected_simulation_request": {
+            "path": str(simulation_request),
+            "byte_size": simulation_request.stat().st_size,
+            "sha256": sha256_file(simulation_request),
+        },
+        "acoustic_profile_selection": selection.receipt(simulation_profile),
+    }
+
+
+def _verify_room_manifest_binding(
+    *,
+    room_profile: Mapping[str, Any],
+    room_registry_path: Path,
+    room_manifest_path: Path,
+) -> dict[str, Any]:
+    """Fail closed when the visual manifest differs from the selected room."""
+
+    room_ref = room_profile["room_ref"]
+    registry_path = room_registry_path.resolve()
+    manifest_path = room_manifest_path.resolve()
+    try:
+        registry = load_room_registry(registry_path)
+    except (OSError, ValueError) as error:
+        raise HabitatRoomBatchError(
+            f"room registry is not valid: {registry_path}: {error}"
+        ) from error
+    if registry.get("registry_id") != room_ref.get("registry_id"):
+        raise HabitatRoomBatchError(
+            "room profile room_ref.registry_id does not match the room registry"
+        )
+    records = [
+        record
+        for record in registry["records"]
+        if record["room_id"] == room_ref.get("room_id")
+        and record["revision"] == room_ref.get("revision")
+    ]
+    if len(records) != 1:
+        raise HabitatRoomBatchError(
+            "room profile room_ref does not resolve exactly one room registry record"
+        )
+    record = records[0]
+
+    try:
+        manifest = load_json(manifest_path)
+    except (OSError, ValueError) as error:
+        raise HabitatRoomBatchError(
+            f"room manifest is not readable JSON: {manifest_path}: {error}"
+        ) from error
+    manifest_errors = validate_room_manifest(manifest)
+    if manifest_errors:
+        raise HabitatRoomBatchError(
+            "room manifest contract failed: " + "; ".join(manifest_errors)
+        )
+    if manifest["room_id"] != room_ref["room_id"]:
+        raise HabitatRoomBatchError(
+            "room manifest room_id does not match the exact room profile room_ref"
+        )
+
+    actual_sha256 = sha256_file(manifest_path)
+    declared_resources = [
+        resource
+        for resource in record["resources"]
+        if resource["resource_type"] == "room_manifest"
+    ]
+    if len(declared_resources) != 1:
+        raise HabitatRoomBatchError(
+            "exact room registry record must declare exactly one sha256-bound "
+            "room_manifest resource"
+        )
+    declared_resource = declared_resources[0]
+    expected_sha256 = declared_resource.get("sha256")
+    if not isinstance(expected_sha256, str):
+        raise HabitatRoomBatchError(
+            "declared room_manifest resource has no sha256 for fail-closed "
+            "visual room verification"
+        )
+    if actual_sha256 != expected_sha256:
+        raise HabitatRoomBatchError(
+            "room manifest sha256 does not match the exact room registry record: "
+            f"expected {expected_sha256}, observed {actual_sha256}"
+        )
+    registry_hash_verification = {
+        "status": "pass",
+        "resource_id": declared_resource["resource_id"],
+        "declared_sha256": expected_sha256,
+        "observed_sha256": actual_sha256,
+    }
+
+    return {
+        "schema": "avengine_m7_room_manifest_binding_v1",
+        "status": "pass",
+        "room_ref": dict(room_ref),
+        "room_manifest": {
+            "path": str(manifest_path),
+            "byte_size": manifest_path.stat().st_size,
+            "sha256": actual_sha256,
+            "room_id": manifest["room_id"],
+        },
+        "checks": {
+            "manifest_contract": "pass",
+            "room_ref_registry_record": "pass",
+            "room_id_matches_room_ref": "pass",
+            "registry_declared_hash": registry_hash_verification,
+        },
+    }
+
+
 def _episode_readback(episode_dir: Path) -> dict[str, Any]:
     """Independently re-verify one completed episode's retained evidence."""
 
@@ -119,6 +266,22 @@ def main(argv: list[str] | None = None) -> int:
         default=REPOSITORY / "examples/runtime/room_runtime_profiles.json",
     )
     parser.add_argument("--room-profile", required=True)
+    parser.add_argument(
+        "--room-registry",
+        type=Path,
+        default=DEFAULT_ROOM_REGISTRY,
+    )
+    parser.add_argument(
+        "--acoustic-profile-registry",
+        type=Path,
+        help="Override the installed/default acoustic profile registry",
+    )
+    parser.add_argument(
+        "--simulation-profile",
+        choices=("production", "reference"),
+        default="production",
+        help="Acoustic simulation request bound into the batch manifest",
+    )
     parser.add_argument("--input-layout", default=SUPPORTED_LAYOUT)
     parser.add_argument(
         "--episode",
@@ -154,6 +317,18 @@ def main(argv: list[str] | None = None) -> int:
 
     registry_path = args.room_runtime_registry.resolve()
     profile = _select_profile(registry_path, args.room_profile)
+    room_manifest_path = args.room_manifest.resolve()
+    room_manifest_binding = _verify_room_manifest_binding(
+        room_profile=profile,
+        room_registry_path=args.room_registry,
+        room_manifest_path=room_manifest_path,
+    )
+    acoustic_selection = _resolve_acoustic_selection_binding(
+        room_profile=profile,
+        room_registry_path=args.room_registry,
+        acoustic_profile_registry_path=args.acoustic_profile_registry,
+        simulation_profile=args.simulation_profile,
+    )
     episodes = _parse_episodes(args.episode)
     selected = [
         (ordinal, episode_id, route_path)
@@ -191,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
             started = time.monotonic()
             capture_mp3d_route(
                 route_manifest_path=route_path,
-                room_manifest_path=args.room_manifest,
+                room_manifest_path=room_manifest_path,
                 m1_request_path=args.m1_request,
                 human_runtime_glb_path=args.human_runtime_glb,
                 beagle_animal_manifest_path=args.beagle_manifest,
@@ -239,6 +414,8 @@ def main(argv: list[str] | None = None) -> int:
             "backend_id": profile["backend_id"],
             "render_contract": render_contract,
         },
+        "room_manifest_binding": room_manifest_binding,
+        "acoustic_selection": acoustic_selection,
         "shard": {"count": args.shard_count, "index": args.shard_index},
         "episode_total": len(episodes),
         "episode_selected": len(selected),

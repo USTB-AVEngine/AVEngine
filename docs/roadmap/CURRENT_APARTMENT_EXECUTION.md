@@ -462,3 +462,98 @@ closure. Scene data must be shared rather than copied once per example.
   real-room RIRs. The retained pass establishes cross-modal wiring and native
   execution, not that AVEngine is acoustically more realistic than
   SoundSpaces or physical reality.
+
+### Checkpoint 20260730b: lossless SoundSpaces 2 public acoustic control
+
+- Branch `feature/soundspaces2-frl-acoustic-profile-v1` adds an RLR-native M3
+  material database v2 and the existing `m3 import-rlr-materials` route. Each
+  absorption, scattering, transmission and damping curve keeps its own
+  frequency grid; no interpolation or common-band coercion is performed.
+  The official 30-material public SoundSpaces 2/MP3D file round-trips
+  canonically with 120 curves and 1,488 frequency/value pairs preserved under
+  `tmp/m3/soundspaces2_public_material_import_20260730_01`.
+- The vendor JSON remains byte/canonically unchanged. Its repeated `floor`
+  label is removed only from the derived native-upload database because the
+  pinned RLR binding requires case-insensitive label uniqueness; the material
+  category evidence records that exact normalization. Coefficient curves are
+  checked separately and remain value-identical to the imported source.
+- The offline public-reference verifier SHA-binds all 42 WAV/metric files from
+  the pinned public archive, then binds seven measured plus new/old simulated
+  RIR sets and reproduces the bundled 1000 Hz summary: new DRR MAE
+  `0.981985714286` dB, old DRR MAE
+  `10.953578428571` dB and new RT60 mean relative error
+  `12.443636462634%`. The retained report is
+  `tmp/m3/soundspaces2_real_rir_reference_verification_20260730_01.json`.
+- A real native-RLR room-control canary uses the explicit public 44.1 kHz
+  SoundSpaces/RLR profile, identical geometry/source/listener state and one
+  floor-only official-material change (`Carpet` -> `Carpet, Heavy`). Both
+  caches passed under
+  `tmp/m3/soundspaces2_public_room_control_20260730_01/native_rir_cache_v3`
+  and `.../native_rir_cache_heavy_carpet`; the hash-bound comparison is
+  `.../room_control_report.json`. The candidate changed the native coefficient
+  and RIR hashes, increased the observed broadband DRR by `0.124062` dB and
+  reduced late-energy ratio by `0.000376102` in this one realization.
+- Claim boundary: this proves lossless public-parameter ingestion, native
+  upload/readback and per-surface control. It does not reproduce the paper's
+  FRL room: the public release omits the measurement-fitted coefficients,
+  seven world-coordinate pairs and exact raw Replica scan identifier, and the
+  local ReplicaCAD asset is an artist recreation. All generated packages and
+  reports therefore keep `qualification_claim=false`.
+
+### Checkpoint 20260730c: scene-origin acoustic profile routing
+
+- Branch `feature/soundspaces2-frl-acoustic-profile-v1` now routes three
+  explicit scene origins: `soundspaces2_public`, `habitat_scene` and
+  `spear_ue_authored`. Selection is fail-closed on the exact room id, room
+  revision, source lineage and acoustic-profile id. The selected profile,
+  physical package manifest and simulation request are compiled into the
+  common AVEngine Acoustic Scene Package contract; all three routes then use
+  the existing `rlr_audio_propagation` solver. `habitat_scene` is intentionally
+  not called semantic: the current ReplicaCAD adapter reads visual GLB
+  material slots and makes no semantic-annotation claim.
+- The real MP3D `17DRP5sb8fy` SoundSpaces package `_03` contains 1,570,132
+  vertices, 3,016,249 triangles and 31 categories. Public SoundSpaces
+  substring matches cover 89.738% of triangles and the remaining 10.262% use
+  the official `Default`; selected public coefficient curves are preserved.
+  The ReplicaCAD `apt_0` raw package exposed five zero-area triangles and was
+  correctly rejected by RLR; its retained cleanup removes exactly those five
+  triangles and leaves 37,278. Its ten opaque visual slots currently resolve
+  through the declared default candidate and therefore do not claim physical
+  material truth. The SPEAR Apartment package contains 463,873 vertices and
+  782,306 triangles; 48 slots resolve as 3 explicit, 44 name-hint and 1
+  default assignment. Its retained topology remains research-only.
+- Registry-selected native single-RIR canaries pass for all three origins:
+  MP3D under
+  `tmp/m3/mp3d_17DRP5sb8fy_soundspaces2_video_source_single_rir_cache_registry_20260730_02`,
+  cleaned ReplicaCAD under
+  `tmp/m3/replicacad_apt_0_habitat_scene_profiled_rlr_cleanup_single_rir_cache_registry_20260730_01`,
+  and SPEAR/UE under
+  `tmp/m3/legacy_ue_apartment_spear_single_rir_cache_registry_20260730_01`.
+  Their RIR cache request identities bind the exact room/profile selection,
+  package-manifest SHA and simulation-request SHA before native rendering.
+- That binding now remains closed through `acoustic_selection.json`, cache
+  request/receipt/index, resumed sessions, per-episode RIR evidence, M7 audio,
+  UE bundle/runtime evidence and dataset index rows. SPEAR runtime additionally
+  checks that visual room, selected runtime room and acoustic room are equal
+  before UE launch; the runtime map id is retained separately instead of being
+  presented as a room identity. Historical explicit/unbound caches remain
+  readable but are marked `not_verified` and cannot fabricate registry
+  provenance.
+- The first formal dynamic MP3D path reuses the retained 75-frame
+  `SensorRigTrajectory` and two static source positions from the room request.
+  Its plan has 150 exact source/Listener states under
+  `tmp/m7/mp3d_17DRP5sb8fy_soundspaces2_dynamic_room_plan_20260730_01`;
+  all 150 native RIRs pass under
+  `tmp/m7/mp3d_17DRP5sb8fy_soundspaces2_dynamic_rir_cache_20260730_01`.
+  The cache-backed dog-bark plus human-speech realization is a 5-second,
+  16 kHz float32 binaural mixture with two retained active stems under
+  `tmp/m7/mp3d_17DRP5sb8fy_soundspaces2_dynamic_binaural_20260730_01`.
+  The synchronized Habitat RGB, QA Topdown, same-frame geometric DOA/distance
+  and binaural listening review is
+  `tmp/m7/mp3d_17DRP5sb8fy_soundspaces2_formal_review_20260730_01/mp3d_soundspaces2_room_evaluation_binaural_doa_review.mp4`;
+  its hash-bound evidence is the adjacent `evidence.json`.
+- The complete unit suite passes 1,906 tests with one existing retained-
+  evidence readback skipped unless `AVENGINE_RUN_LOCAL_M6_CANARY_TEST=1`.
+- This checkpoint remains research-only: it is not the unpublished fitted FRL
+  Apartment, a measured ReplicaCAD/SPEAR calibration, room admission or formal
+  dataset admission.

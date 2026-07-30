@@ -48,6 +48,125 @@ _INDEX = _load_tool(
 )
 
 
+def _registry_acoustic_selection_binding() -> dict:
+    value = {
+        "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+        "selection_mode": "registry",
+        "registry_selection_applied": True,
+        "room_ref": {
+            "registry_id": "avengine_m6_representative_rooms_v1",
+            "room_id": "legacy_ue_apartment_0000_v1",
+            "revision": "real_surface_export_pending_portable_package_v1",
+        },
+        "profile_ref": {
+            "profile_id": "legacy_controlled_approximation_pending_v1",
+            "revision": "spear_ue_authored_residential_rules_v1",
+        },
+        "binding_id": "legacy_ue_apartment_0000_authored_v1",
+        "registry_selection_content_sha256": "1" * 64,
+        "effective_selection_content_sha256": "2" * 64,
+        "acoustic_package_manifest_sha256": "3" * 64,
+        "simulation_request_sha256": "4" * 64,
+        "input_receipt_sha256": "5" * 64,
+    }
+    value["binding_content_sha256"] = canonical_json_sha256(value)
+    return value
+
+
+def _legacy_unbound_acoustic_selection_binding() -> dict:
+    return {
+        "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+        "selection_mode": "explicit_legacy_unbound",
+        "registry_selection_applied": False,
+        "room_ref": None,
+        "profile_ref": None,
+        "binding_id": None,
+        "registry_selection_content_sha256": None,
+        "effective_selection_content_sha256": None,
+        "acoustic_package_manifest_sha256": None,
+        "simulation_request_sha256": None,
+        "input_receipt_sha256": None,
+        "binding_content_sha256": None,
+    }
+
+
+def _spear_runtime_identity(
+    acoustic_binding: dict,
+    *,
+    visual_room_ref: dict | None = None,
+) -> dict:
+    mode = acoustic_binding["selection_mode"]
+    is_registry = mode in {
+        "registry",
+        "registry_with_verified_equivalent_overrides",
+    }
+    if visual_room_ref is None:
+        visual_room_ref = (
+            acoustic_binding["room_ref"]
+            if is_registry
+            else {
+                "registry_id": "avengine_m6_representative_rooms_v1",
+                "room_id": "legacy_ue_apartment_0000_v1",
+                "revision": (
+                    "real_surface_export_pending_portable_package_v1"
+                ),
+            }
+        )
+    return {
+        "schema": "avengine_spear_acoustic_visual_runtime_identity_v1",
+        "status": "pass" if is_registry else "not_verified",
+        "verification_status": (
+            "verified" if is_registry else "not_verified"
+        ),
+        "selection_mode": mode,
+        "compatibility": (
+            None
+            if is_registry
+            else "legacy_acoustic_selection_without_room_ref"
+        ),
+        "acoustic_selection_binding_sha256": acoustic_binding[
+            "binding_content_sha256"
+        ],
+        "binding_id": acoustic_binding["binding_id"],
+        "profile_ref": acoustic_binding["profile_ref"],
+        "visual_room_ref": visual_room_ref,
+        "acoustic_room_ref": acoustic_binding["room_ref"],
+        "runtime_room_ref": visual_room_ref,
+        "runtime_profile_id": "apartment_native_default",
+        "runtime_map_id": "apartment_0000",
+        "runtime_map_path": "/Game/Scenes/Apartment/Maps/apartment_0000",
+    }
+
+
+def _write_spear_runtime_evidence(
+    path: Path,
+    *,
+    identity: dict,
+    scenario_ids: tuple[str, ...] = ("episode_0000",),
+) -> Path:
+    write_json(
+        path,
+        {
+            "schema": "avengine_optional_spear_apartment_runtime_evidence_v2",
+            "status": "pass",
+            "native_map": identity["runtime_map_path"],
+            "room_runtime_profile": {
+                "profile_id": identity["runtime_profile_id"],
+            },
+            "acoustic_visual_identity": identity,
+            "scenarios": [
+                {
+                    "status": "pass",
+                    "scenario_id": scenario_id,
+                    "acoustic_visual_identity": identity,
+                }
+                for scenario_id in scenario_ids
+            ],
+        },
+    )
+    return path
+
+
 def _sensor_rig_closure_fixture(
     tmp_path: Path,
 ) -> tuple[Path, Path, dict, dict]:
@@ -536,6 +655,118 @@ def test_legacy_sample_remains_unmodified() -> None:
     ) == ({}, None)
 
 
+def test_dataset_index_requires_runtime_evidence_for_registry_binding() -> None:
+    acoustic_binding = _registry_acoustic_selection_binding()
+    room_ref = acoustic_binding["room_ref"]
+
+    with pytest.raises(
+        _INDEX.ApartmentDatasetIndexError,
+        match="registry-bound index requires SPEAR/UE runtime evidence",
+    ):
+        _INDEX._validated_spear_runtime_evidence(
+            evidence_path=None,
+            acoustic_selection_binding=acoustic_binding,
+            acoustic_selection_binding_sha256=acoustic_binding[
+                "binding_content_sha256"
+            ],
+            visual_room_alignment={
+                "status": "pass",
+                "visual_room_ref": room_ref,
+                "acoustic_room_ref": room_ref,
+            },
+            episode_ids={"episode_0000"},
+        )
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ("binding_sha256", "acoustic_room_ref", "visual_room_ref"),
+)
+def test_dataset_index_rejects_spear_runtime_identity_mismatch(
+    tmp_path: Path,
+    mismatch: str,
+) -> None:
+    acoustic_binding = _registry_acoustic_selection_binding()
+    room_ref = acoustic_binding["room_ref"]
+    identity = _spear_runtime_identity(acoustic_binding)
+    if mismatch == "binding_sha256":
+        identity["acoustic_selection_binding_sha256"] = "f" * 64
+    elif mismatch == "acoustic_room_ref":
+        identity["acoustic_room_ref"] = {
+            **room_ref,
+            "room_id": "wrong_acoustic_room",
+        }
+    else:
+        identity["visual_room_ref"] = {
+            **room_ref,
+            "room_id": "wrong_visual_room",
+        }
+    evidence_path = _write_spear_runtime_evidence(
+        tmp_path / f"{mismatch}.json",
+        identity=identity,
+    )
+
+    with pytest.raises(_INDEX.ApartmentDatasetIndexError):
+        _INDEX._validated_spear_runtime_evidence(
+            evidence_path=evidence_path,
+            acoustic_selection_binding=acoustic_binding,
+            acoustic_selection_binding_sha256=acoustic_binding[
+                "binding_content_sha256"
+            ],
+            visual_room_alignment={
+                "status": "pass",
+                "visual_room_ref": room_ref,
+                "acoustic_room_ref": room_ref,
+            },
+            episode_ids={"episode_0000"},
+        )
+
+
+def test_dataset_index_keeps_legacy_runtime_identity_not_verified(
+    tmp_path: Path,
+) -> None:
+    acoustic_binding = _legacy_unbound_acoustic_selection_binding()
+    identity = _spear_runtime_identity(acoustic_binding)
+    visual_room_alignment = {
+        "status": "not_verified",
+        "compatibility": "legacy_acoustic_selection_without_room_ref",
+        "visual_room_ref": identity["visual_room_ref"],
+        "acoustic_room_ref": None,
+    }
+    absent = _INDEX._validated_spear_runtime_evidence(
+        evidence_path=None,
+        acoustic_selection_binding=acoustic_binding,
+        acoustic_selection_binding_sha256=None,
+        visual_room_alignment=visual_room_alignment,
+        episode_ids={"episode_0000"},
+    )
+    assert absent == {
+        "status": "not_verified",
+        "verification_status": "not_verified",
+        "path": None,
+        "sha256": None,
+        "schema": None,
+        "acoustic_visual_identity": None,
+    }
+
+    evidence_path = _write_spear_runtime_evidence(
+        tmp_path / "legacy_evidence.json",
+        identity=identity,
+    )
+
+    result = _INDEX._validated_spear_runtime_evidence(
+        evidence_path=evidence_path,
+        acoustic_selection_binding=acoustic_binding,
+        acoustic_selection_binding_sha256=None,
+        visual_room_alignment=visual_room_alignment,
+        episode_ids={"episode_0000"},
+    )
+
+    assert result["status"] == "not_verified"
+    assert result["verification_status"] == "not_verified"
+    assert result["acoustic_visual_identity"] == identity
+
+
 def test_dataset_index_propagates_audio_program_labels_and_keeps_episode_split(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -554,11 +785,15 @@ def test_dataset_index_propagates_audio_program_labels_and_keeps_episode_split(
     shared_sidecar_sha256 = sha256_file(shared_sidecar)
     base = _program_bound_sample(audio_root)
     assets = base["asset_ids_by_source_slot"]
+    acoustic_binding = _registry_acoustic_selection_binding()
+    acoustic_binding_sha256 = acoustic_binding["binding_content_sha256"]
+    runtime_identity = _spear_runtime_identity(acoustic_binding)
     episodes = [
         {
             "episode_id": f"episode_{index:04d}",
             "motion_case": f"motion_{index % 4}",
             "asset_ids_by_source_slot": assets,
+            "acoustic_selection_binding_sha256": acoustic_binding_sha256,
         }
         for index in range(1_000)
     ]
@@ -574,6 +809,9 @@ def test_dataset_index_propagates_audio_program_labels_and_keeps_episode_split(
         (media_root / "ue_visual_only.mp4").touch()
         (media_root / "ue_topdown_visual_only.mp4").touch()
         render_evidence[episode_id] = {
+            "status": "pass",
+            "scenario_id": episode_id,
+            "acoustic_visual_identity": runtime_identity,
             "media": {
                 "ue_visual_only": {"status": "pass"},
                 "ue_topdown_visual_only": {"status": "pass"},
@@ -585,6 +823,7 @@ def test_dataset_index_propagates_audio_program_labels_and_keeps_episode_split(
                 "sample_id": f"{episode_id}__v00",
                 "episode_id": episode_id,
                 "variant_index": 0,
+                "acoustic_selection_binding_sha256": acoustic_binding_sha256,
                 "audio": {
                     "sample_rate_hz": 16_000,
                     "channel_count": 2,
@@ -599,14 +838,35 @@ def test_dataset_index_propagates_audio_program_labels_and_keeps_episode_split(
                 },
             }
         )
+    runtime_evidence_path = render_root / "evidence.json"
+    write_json(
+        runtime_evidence_path,
+        {
+            "schema": "avengine_optional_spear_apartment_runtime_evidence_v2",
+            "status": "pass",
+            "native_map": runtime_identity["runtime_map_path"],
+            "room_runtime_profile": {
+                "profile_id": runtime_identity["runtime_profile_id"],
+            },
+            "acoustic_visual_identity": runtime_identity,
+            "scenarios": list(render_evidence.values()),
+        },
+    )
     documents = {
         "samples.json": {
             "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
             "sample_count": 1_000,
             "samples": samples,
         },
+        "episodes.json": {
+            "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
+            "episodes": [],
+        },
         "delivery.json": {
             "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
             "sample_count": 1_000,
             "episode_count": 1_000,
             "variants_per_episode": 1,
@@ -615,25 +875,61 @@ def test_dataset_index_propagates_audio_program_labels_and_keeps_episode_split(
     }
     for filename, document in documents.items():
         write_json(audio_root / filename, document)
-    documents["verification.json"] = {"status": "pass"}
+    documents["verification.json"] = {
+        "status": "pass",
+        "acoustic_selection_binding": acoustic_binding,
+    }
     write_json(audio_root / "verification.json", documents["verification.json"])
-    monkeypatch.setattr(_INDEX, "_visual_episodes", lambda _root: episodes)
-    monkeypatch.setattr(
-        _INDEX,
-        "_render_evidence",
-        lambda _root: render_evidence,
+    write_json(
+        visual_root / "manifest.json",
+        {
+            "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
+            "acoustic_visual_room_alignment": {
+                "status": "pass",
+                "visual_room_ref": acoustic_binding["room_ref"],
+                "acoustic_room_ref": acoustic_binding["room_ref"],
+            },
+            "episodes": episodes,
+        },
     )
+    monkeypatch.setattr(_INDEX, "_visual_episodes", lambda _root: episodes)
 
     _INDEX.build_index(
         audio_batch_root=audio_root,
         visual_bundle_root=visual_root,
         ue_render_root=render_root,
         output=output,
+        spear_runtime_evidence=runtime_evidence_path,
     )
 
     index = load_json(output / "dataset_index.json")
     assert len(index["samples"]) == 1_000
+    assert index["acoustic_selection_binding"] == acoustic_binding
+    assert index["room_ref"] == acoustic_binding["room_ref"]
+    assert "room_id" not in index
+    assert index["runtime_map_id"] == runtime_identity["runtime_map_id"]
+    assert index["spear_ue_runtime_evidence"][
+        "acoustic_visual_identity"
+    ] == runtime_identity
+    split_report = load_json(output / "split_report.json")
+    assert split_report["room_ref"] == acoustic_binding["room_ref"]
+    assert split_report["runtime_map_id"] == runtime_identity["runtime_map_id"]
+    assert split_report["visual_episodes"][0][
+        "spear_ue_runtime_evidence_identity"
+    ]["acoustic_visual_identity"] == runtime_identity
     first = index["samples"][0]
+    assert first["acoustic_selection_binding_sha256"] == acoustic_binding_sha256
+    assert first["runtime_map_id"] == runtime_identity["runtime_map_id"]
+    assert first["spear_ue_runtime_evidence_identity"] == {
+        "status": "pass",
+        "verification_status": "verified",
+        "evidence_schema": (
+            "avengine_optional_spear_apartment_runtime_evidence_v2"
+        ),
+        "evidence_sha256": sha256_file(runtime_evidence_path),
+        "acoustic_visual_identity": runtime_identity,
+    }
     assert first["audio_program_binding"] == base["audio_program_binding"]
     assert (
         first["audio_program_instance_path"]
@@ -661,6 +957,30 @@ def test_dataset_index_propagates_audio_program_labels_and_keeps_episode_split(
         for episode in episodes
     }
     assert all(len(splits) == 1 for splits in splits_by_episode.values())
+
+    visual_manifest = load_json(visual_root / "manifest.json")
+    different_binding = dict(acoustic_binding)
+    different_binding["binding_id"] = "different_visual_binding"
+    different_binding["binding_content_sha256"] = canonical_json_sha256(
+        {
+            key: value
+            for key, value in different_binding.items()
+            if key != "binding_content_sha256"
+        }
+    )
+    visual_manifest["acoustic_selection_binding"] = different_binding
+    write_json(visual_root / "manifest.json", visual_manifest)
+    with pytest.raises(
+        _INDEX.ApartmentDatasetIndexError,
+        match="audio and visual acoustic selection bindings differ",
+    ):
+        _INDEX.build_index(
+            audio_batch_root=audio_root,
+            visual_bundle_root=visual_root,
+            ue_render_root=render_root,
+            output=tmp_path / "mismatched_index",
+            spear_runtime_evidence=runtime_evidence_path,
+        )
 
 
 def test_audio_program_instance_rejects_hash_and_binding_tampering(
@@ -710,12 +1030,15 @@ def test_new_one_sample_canary_may_declare_not_both_sources_active(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assets = {"source1": "asset_a", "source2": "asset_b"}
+    acoustic_binding = _registry_acoustic_selection_binding()
+    acoustic_binding_sha256 = acoustic_binding["binding_content_sha256"]
     samples = [
         {
             "sample_id": f"episode0__v{index:04d}",
             "episode_id": "episode0",
             "variant_index": index,
             "asset_ids_by_source_slot": assets,
+            "acoustic_selection_binding_sha256": acoustic_binding_sha256,
             "both_sources_active": False,
             "audio_program_binding": {},
             "audio_program_instance_path": "labels/instance.json",
@@ -739,6 +1062,7 @@ def test_new_one_sample_canary_may_declare_not_both_sources_active(
     documents = {
         "delivery.json": {
             "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
             "sample_count": 1,
             "episode_count": 1,
             "variants_per_episode": 1,
@@ -746,8 +1070,24 @@ def test_new_one_sample_canary_may_declare_not_both_sources_active(
         },
         "samples.json": {
             "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
             "sample_count": 1,
             "samples": samples,
+        },
+        "episodes.json": {
+            "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
+            "episodes": [
+                {
+                    "episode_id": "episode0",
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_binding_sha256
+                    ),
+                    "rir_cache": {
+                        "acoustic_selection_binding": acoustic_binding,
+                    },
+                }
+            ],
         },
     }
     audio_root = tmp_path / "audio/binaural"
@@ -760,7 +1100,11 @@ def test_new_one_sample_canary_may_declare_not_both_sources_active(
     rendered = SimpleNamespace(
         sample_rate_hz=16_000,
         samples=np.zeros((2, 80_000), dtype=np.float32),
-        sidecar={},
+        sidecar={
+            "metadata": {
+                "acoustic_selection_binding_sha256": acoustic_binding_sha256,
+            }
+        },
     )
     hashes_by_path = {
         mixture_path.resolve(): "a" * 64,
@@ -798,6 +1142,20 @@ def test_new_one_sample_canary_may_declare_not_both_sources_active(
     )
     assert result["audio_program_instance_sample_count"] == 1
     assert result["audio_program_mode_counts"] == {"one_active_of_n": 1}
+    assert result["acoustic_selection_binding"] == acoustic_binding
+
+    rendered.sidecar["metadata"][
+        "acoustic_selection_binding_sha256"
+    ] = "f" * 64
+    with pytest.raises(
+        _VERIFY.BatchVerificationError,
+        match="sidecar acoustic selection differs",
+    ):
+        _VERIFY._verify_batch(
+            tmp_path,
+            expected_assets={"episode0": assets},
+            expected_sample_count=1,
+        )
 
 
 @pytest.mark.parametrize(
@@ -810,8 +1168,10 @@ def test_batch_verifier_rejects_invalid_samples_header(
     header_field: str,
     bad_value: object,
 ) -> None:
+    acoustic_binding = _legacy_unbound_acoustic_selection_binding()
     samples_record = {
         "status": "pass",
+        "acoustic_selection_binding": acoustic_binding,
         "sample_count": 1,
         "samples": [{}],
     }
@@ -819,12 +1179,18 @@ def test_batch_verifier_rejects_invalid_samples_header(
     documents = {
         "delivery.json": {
             "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
             "sample_count": 1,
             "episode_count": 1,
             "variants_per_episode": 1,
             "both_sources_active": True,
         },
         "samples.json": samples_record,
+        "episodes.json": {
+            "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
+            "episodes": [{}],
+        },
     }
     monkeypatch.setattr(
         _VERIFY,
@@ -852,9 +1218,11 @@ def test_legacy_batch_still_requires_both_sources_active(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    acoustic_binding = _legacy_unbound_acoustic_selection_binding()
     documents = {
         "delivery.json": {
             "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
             "sample_count": 1_000,
             "episode_count": 1,
             "variants_per_episode": 1_000,
@@ -862,6 +1230,7 @@ def test_legacy_batch_still_requires_both_sources_active(
         },
         "samples.json": {
             "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
             "sample_count": 1_000,
             "samples": [
                 {
@@ -876,6 +1245,11 @@ def test_legacy_batch_still_requires_both_sources_active(
                 }
                 for index in range(1_000)
             ],
+        },
+        "episodes.json": {
+            "status": "pass",
+            "acoustic_selection_binding": acoustic_binding,
+            "episodes": [{}],
         },
     }
     monkeypatch.setattr(

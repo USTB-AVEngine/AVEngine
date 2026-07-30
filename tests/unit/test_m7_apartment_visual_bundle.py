@@ -618,13 +618,19 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
         json.dumps(trajectory), encoding="utf-8"
     )
     (metadata / "batch_binding.json").write_text(
-        json.dumps({"sensor_rig_trajectory": sensor_rig_binding}),
+        json.dumps(
+            {
+                "sensor_rig_trajectory": sensor_rig_binding,
+                "acoustic_selection_binding_sha256": None,
+            }
+        ),
         encoding="utf-8",
     )
     row = {
         "episode_ordinal": 0,
         "episode_id": episode_id,
         "v00_sample_id": "sample_0001",
+        "acoustic_selection_binding_sha256": None,
     }
     (metadata / "build_record.json").write_text(
         json.dumps(
@@ -653,6 +659,7 @@ def test_ue_input_resume_reopens_only_an_unchanged_atomic_episode(
         "episode_ordinal": 17,
         "episode_id": episode_id,
         "v00_sample_id": "sample_0001",
+        "acoustic_selection_binding_sha256": None,
     }
 
     diagnostic.write_bytes(b"changed media")
@@ -683,6 +690,52 @@ def test_ue_input_rejects_visual_and_audio_asset_binding_mismatch() -> None:
             episode_bindings=_bindings(),
             sample=sample,
         )
+
+
+def test_ue_input_cross_checks_acoustic_and_visual_room_refs() -> None:
+    visual_room_ref = {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "legacy_ue_apartment_0000_v1",
+        "revision": "real_surface_export_pending_portable_package_v1",
+    }
+    binding = {
+        "selection_mode": "registry",
+        "room_ref": dict(visual_room_ref),
+    }
+
+    aligned = _BUILDER._acoustic_visual_room_alignment(
+        binding,
+        visual_room_ref,
+    )
+    assert aligned["status"] == "pass"
+    assert aligned["visual_room_ref"] == visual_room_ref
+
+    binding["room_ref"]["room_id"] = "wrong_room"
+    with pytest.raises(RuntimeError, match="visual room_ref differs"):
+        _BUILDER._acoustic_visual_room_alignment(
+            binding,
+            visual_room_ref,
+        )
+
+
+def test_ue_input_keeps_legacy_unbound_room_compatibility_explicit() -> None:
+    result = _BUILDER._acoustic_visual_room_alignment(
+        {
+            "selection_mode": "explicit_legacy_unbound",
+            "room_ref": None,
+        },
+        {
+            "registry_id": "rooms",
+            "room_id": "visual_room",
+            "revision": "v1",
+        },
+    )
+
+    assert result["status"] == "not_verified"
+    assert result["compatibility"] == (
+        "legacy_acoustic_selection_without_room_ref"
+    )
+    assert result["acoustic_room_ref"] is None
 
 
 def test_ue_input_loads_sample_audio_program(

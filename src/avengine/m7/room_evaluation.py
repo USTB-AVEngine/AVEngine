@@ -47,6 +47,67 @@ class RoomEvaluationPlan:
     summary: Mapping[str, Any]
 
 
+def build_static_source_trajectory_bank(
+    source_positions_m: Mapping[str, Sequence[float]],
+    *,
+    frame_count: int,
+    frame_rate_hz: int,
+    episode_id: str = "static_sources_000",
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Materialize one two-source bank on an existing visual/sensor clock."""
+
+    if (
+        not isinstance(source_positions_m, Mapping)
+        or set(source_positions_m) != set(SOURCE_SLOTS)
+    ):
+        raise RoomEvaluationError(
+            "static source positions must contain exactly source1/source2"
+        )
+    if (
+        isinstance(frame_count, bool)
+        or not isinstance(frame_count, int)
+        or frame_count < 2
+        or isinstance(frame_rate_hz, bool)
+        or not isinstance(frame_rate_hz, int)
+        or frame_rate_hz < 1
+        or isinstance(seed, bool)
+        or not isinstance(seed, int)
+    ):
+        raise RoomEvaluationError("static source trajectory clock or seed is invalid")
+    normalized: dict[str, np.ndarray] = {}
+    for slot in SOURCE_SLOTS:
+        try:
+            position = np.asarray(source_positions_m[slot], dtype=np.float64)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RoomEvaluationError(
+                f"static {slot} position must be finite xyz data"
+            ) from exc
+        if position.shape != (3,) or not np.all(np.isfinite(position)):
+            raise RoomEvaluationError(
+                f"static {slot} position must be finite xyz data"
+            )
+        normalized[slot] = np.repeat(position[None, :], frame_count, axis=0)
+    episode = TrajectoryEpisode(
+        episode_id=validate_episode_id(episode_id),
+        motion_case="static_static",
+        source_root_paths_m=normalized,
+        source_center_paths_m=normalized,
+        statistics={
+            "source_motion": "fixed_world_positions",
+            "static_source_positions_m": {
+                slot: normalized[slot][0].tolist() for slot in SOURCE_SLOTS
+            },
+        },
+    )
+    return TrajectoryBank(
+        episodes=(episode,),
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        seed=seed,
+    ).record(include_paths=True)
+
+
 def validate_episode_id(value: Any) -> str:
     """Return one portable episode ID that is safe as a filename component."""
 
@@ -582,5 +643,6 @@ __all__ = [
     "RoomEvaluationError",
     "RoomEvaluationPlan",
     "build_room_evaluation_plan",
+    "build_static_source_trajectory_bank",
     "validate_episode_id",
 ]

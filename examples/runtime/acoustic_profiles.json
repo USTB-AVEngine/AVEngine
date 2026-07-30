@@ -1,0 +1,194 @@
+{
+  "schema": "avengine_acoustic_profile_registry_v1",
+  "registry_id": "avengine_acoustic_profiles_v1",
+  "revision": "20260730_v2",
+  "solver_backend_id": "rlr_audio_propagation",
+  "profiles": [
+    {
+      "profile_id": "soundspaces2_mp3d_public_materials_v1",
+      "revision": "soundspaces_287184fd_rlr_4fd446b4",
+      "solver_backend_id": "rlr_audio_propagation",
+      "origin": {
+        "kind": "soundspaces2_public",
+        "project": "facebookresearch/sound-spaces and RLR Audio Propagation",
+        "source_revision": "sound-spaces@287184fd7067a0385558492716355c54875500ee; rlr-audio-propagation@4fd446b4abb5c71fb7a232a083bbddd65f25fc6f",
+        "citation": "https://github.com/facebookresearch/sound-spaces",
+        "qualification_claim": false
+      },
+      "source_selection": {
+        "provider_ids": [
+          "matterport3d",
+          "soundspaces2"
+        ]
+      },
+      "material_binding": {
+        "adapter_id": "soundspaces2_mp3d_semantic_labels_v1",
+        "resources": [
+          {
+            "role": "soundspaces2_public_material_config",
+            "path": {
+              "kind": "environment_template",
+              "environment_variable": "AVENGINE_SOUNDSPACES_ROOT",
+              "path_template": "${AVENGINE_SOUNDSPACES_ROOT}/data/mp3d_material_config.json",
+              "sha256": "77cc3b16f45843b1138020837d4f78aeaf0abda2427f658291b632d84afbb1f4"
+            }
+          }
+        ]
+      },
+      "simulation": {
+        "production": {
+          "kind": "repository_relative",
+          "path": "examples/runtime/rir_cache_simulation_request_v2.json",
+          "sha256": "f3c74d9bfa67fb3cb757589f6760c21ac909575f2b4f7d9768d3277c1e8b0a22"
+        },
+        "reference": {
+          "kind": "repository_relative",
+          "path": "examples/runtime/rir_cache_simulation_request_soundspaces2_public_reference_v1.json",
+          "sha256": "37f0c2bdab3e4f9da59929d20bbb1ffe79e2f28cec119ea58c21fcb1a3baeaf5"
+        }
+      },
+      "notes": "Official public MP3D material curves and labels; this does not claim the unpublished fitted FRL Apartment parameters."
+    },
+    {
+      "profile_id": "replicacad_controlled_approximation_pending_v1",
+      "revision": "habitat_visual_slots_residential_rules_v1",
+      "solver_backend_id": "rlr_audio_propagation",
+      "origin": {
+        "kind": "habitat_scene",
+        "project": "AVEngine Habitat scene material-slot compiler",
+        "source_revision": "residential_material_rules_v1",
+        "qualification_claim": false
+      },
+      "source_selection": {
+        "provider_ids": [
+          "replica_cad",
+          "habitat_scene"
+        ]
+      },
+      "material_binding": {
+        "adapter_id": "habitat_visual_material_slots_residential_v1",
+        "resources": [
+          {
+            "role": "habitat_visual_material_rules",
+            "path": {
+              "kind": "repository_relative",
+              "path": "examples/m3/semantic_materials/residential_material_rules.json",
+              "sha256": "bf37a39d69aa8888c95cd0cc6ab963b4735f11a4d820079204575ba03212f953"
+            }
+          }
+        ]
+      },
+      "simulation": {
+        "production": {
+          "kind": "repository_relative",
+          "path": "examples/runtime/rir_cache_simulation_request_v2.json",
+          "sha256": "f3c74d9bfa67fb3cb757589f6760c21ac909575f2b4f7d9768d3277c1e8b0a22"
+        }
+      },
+      "notes": "Habitat scene visual material slots select AVEngine residential research priors. This route does not claim semantic-annotation material truth; physical room calibration remains pending."
+    },
+    {
+      "profile_id": "legacy_controlled_approximation_pending_v1",
+      "revision": "spear_ue_authored_residential_rules_v1",
+      "solver_backend_id": "rlr_audio_propagation",
+      "origin": {
+        "kind": "spear_ue_authored",
+        "project": "AVEngine SPEAR/UE authored material-slot mapping",
+        "source_revision": "residential_material_rules_v1",
+        "qualification_claim": false
+      },
+      "source_selection": {
+        "provider_ids": [
+          "legacy_ue_apartment",
+          "spear_ue"
+        ]
+      },
+      "material_binding": {
+        "adapter_id": "spear_ue_material_slot_authored_v1",
+        "resources": [
+          {
+            "role": "spear_ue_authored_material_rules",
+            "path": {
+              "kind": "repository_relative",
+              "path": "examples/m3/semantic_materials/residential_material_rules.json",
+              "sha256": "bf37a39d69aa8888c95cd0cc6ab963b4735f11a4d820079204575ba03212f953"
+            }
+          }
+        ]
+      },
+      "simulation": {
+        "production": {
+          "kind": "repository_relative",
+          "path": "examples/runtime/rir_cache_simulation_request_v2.json",
+          "sha256": "f3c74d9bfa67fb3cb757589f6760c21ac909575f2b4f7d9768d3277c1e8b0a22"
+        }
+      },
+      "notes": "UE material slots use explicit AVEngine-authored mappings before the common RLR solve."
+    }
+  ],
+  "bindings": [
+    {
+      "binding_id": "mp3d_17DRP5sb8fy_soundspaces2_v1",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "revision": "raw_v1_plus_declared_proxy_v2_research"
+      },
+      "lineage_acoustic_profile_id": "soundspaces2_mp3d_public_materials_v1",
+      "profile_ref": {
+        "profile_id": "soundspaces2_mp3d_public_materials_v1",
+        "revision": "soundspaces_287184fd_rlr_4fd446b4"
+      },
+      "acoustic_representation_id": "mp3d_17DRP5sb8fy_soundspaces2_acoustic_v1",
+      "acoustic_resource_id": "mp3d_soundspaces2_acoustic_package_v1",
+      "geometry_resource_id": "mp3d_semantic_mesh",
+      "acoustic_package_manifest": {
+        "kind": "environment_template",
+        "environment_variable": "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT",
+        "path_template": "${AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT}/manifest.json"
+      }
+    },
+    {
+      "binding_id": "replicacad_apt_0_habitat_scene_v1",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "replicacad_apt_0",
+        "revision": "replica_cad_dataset_1_5_layout_apt_0"
+      },
+      "lineage_acoustic_profile_id": "replicacad_controlled_approximation_pending_v1",
+      "profile_ref": {
+        "profile_id": "replicacad_controlled_approximation_pending_v1",
+        "revision": "habitat_visual_slots_residential_rules_v1"
+      },
+      "acoustic_representation_id": "replicacad_apt_0_acoustic_proxy_v1",
+      "acoustic_resource_id": "replicacad_acoustic_proxy",
+      "geometry_resource_id": "replicacad_stage_surface",
+      "acoustic_package_manifest": {
+        "kind": "environment_template",
+        "environment_variable": "AVENGINE_REPLICACAD_ACOUSTIC_PACKAGE_ROOT",
+        "path_template": "${AVENGINE_REPLICACAD_ACOUSTIC_PACKAGE_ROOT}/manifest.json"
+      }
+    },
+    {
+      "binding_id": "legacy_ue_apartment_0000_authored_v1",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "legacy_ue_apartment_0000_v1",
+        "revision": "real_surface_export_pending_portable_package_v1"
+      },
+      "lineage_acoustic_profile_id": "legacy_controlled_approximation_pending_v1",
+      "profile_ref": {
+        "profile_id": "legacy_controlled_approximation_pending_v1",
+        "revision": "spear_ue_authored_residential_rules_v1"
+      },
+      "acoustic_representation_id": "legacy_real_surface_acoustic_v1",
+      "acoustic_resource_id": "legacy_real_surface_acoustic_package",
+      "geometry_resource_id": "legacy_real_surface",
+      "acoustic_package_manifest": {
+        "kind": "environment_template",
+        "environment_variable": "AVENGINE_LEGACY_APARTMENT_ACOUSTIC_PACKAGE_ROOT",
+        "path_template": "${AVENGINE_LEGACY_APARTMENT_ACOUSTIC_PACKAGE_ROOT}/manifest.json"
+      }
+    }
+  ]
+}

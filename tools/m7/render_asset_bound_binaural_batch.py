@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import shutil
 import time
 from typing import Any, Mapping, Sequence
@@ -25,7 +27,12 @@ import wave
 
 import numpy as np
 
-from avengine.contracts.json_io import load_json, sha256_file, write_json
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    load_json,
+    sha256_file,
+    write_json,
+)
 from avengine.m4.audio import read_float32_wav, write_float32_wav
 from avengine.m5.audio import (
     M5_AUDIO_SAMPLE_COUNT,
@@ -57,6 +64,74 @@ from avengine.m7.sensor_rig import (
 
 SCHEMA = "avengine_m7_asset_bound_binaural_batch_delivery_v1"
 SOURCE_SLOTS = ("source1", "source2")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ACOUSTIC_SELECTION_FIELDS = {
+    "schema",
+    "selection_mode",
+    "registry_selection_applied",
+    "room_ref",
+    "profile_ref",
+    "binding_id",
+    "registry_selection_content_sha256",
+    "effective_selection_content_sha256",
+    "acoustic_package_manifest_sha256",
+    "simulation_request_sha256",
+    "input_receipt_sha256",
+    "binding_content_sha256",
+}
+
+
+def _validated_acoustic_selection_binding(
+    value: Any,
+) -> tuple[dict[str, Any], str | None]:
+    """Return one authenticated cache binding and its row-reference hash."""
+
+    if (
+        not isinstance(value, Mapping)
+        or value.get("schema")
+        != "avengine_rir_cache_acoustic_selection_binding_v1"
+        or set(value) != _ACOUSTIC_SELECTION_FIELDS
+    ):
+        raise AssetBoundAudioError(
+            "RIR cache acoustic_selection_binding is invalid"
+        )
+    binding = deepcopy(dict(value))
+    mode = binding.get("selection_mode")
+    binding_sha256 = binding.get("binding_content_sha256")
+    if mode == "explicit_legacy_unbound":
+        if (
+            binding_sha256 is not None
+            or binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+        ):
+            raise AssetBoundAudioError(
+                "legacy unbound RIR cache fabricated an acoustic identity"
+            )
+        return binding, None
+    if (
+        mode
+        not in {
+            "explicit_legacy",
+            "registry",
+            "registry_with_verified_equivalent_overrides",
+        }
+        or not isinstance(binding_sha256, str)
+        or _SHA256_RE.fullmatch(binding_sha256) is None
+        or canonical_json_sha256(
+            {
+                key: item
+                for key, item in binding.items()
+                if key != "binding_content_sha256"
+            }
+        )
+        != binding_sha256
+    ):
+        raise AssetBoundAudioError(
+            "RIR cache acoustic_selection_binding hash is invalid"
+        )
+    return binding, binding_sha256
 
 
 @dataclass(frozen=True)
@@ -715,6 +790,12 @@ def render_batch(
             frame_rate_hz=15,
             shared_shard_cache=shared_rir_shards,
         )
+        (
+            acoustic_selection_binding,
+            acoustic_selection_binding_sha256,
+        ) = _validated_acoustic_selection_binding(
+            rir_session.acoustic_selection_binding
+        )
         cache_load_count = 0
         for episode_ordinal, episode_id in enumerate(sorted(bindings)):
             cache_started = time.perf_counter()
@@ -728,6 +809,13 @@ def render_batch(
                 or cached.source_slot_ids != SOURCE_SLOTS
             ):
                 raise AssetBoundAudioError("cache is not 16 kHz two-channel binaural")
+            if (
+                cached.evidence.get("acoustic_selection_binding")
+                != acoustic_selection_binding
+            ):
+                raise AssetBoundAudioError(
+                    "episode RIR cache acoustic selection differs from its session"
+                )
             partition_key = tuple(cached.keyframe_samples)
             partition_weights = partitions_by_keyframe_grid.get(partition_key)
             if partition_weights is None:
@@ -740,6 +828,9 @@ def render_batch(
                 "episode_ordinal": episode_ordinal,
                 "asset_ids_by_source_slot": bindings[episode_id],
                 "rir_cache": cached.evidence,
+                "acoustic_selection_binding_sha256": (
+                    acoustic_selection_binding_sha256
+                ),
                 "cache_load_policy": "loaded_once_then_reused_for_all_episode_variants",
             }
             if sensor_rig_binding is not None:
@@ -789,6 +880,9 @@ def render_batch(
                     "mixture": "exact_source1_plus_source2_stem_sum",
                     "normalization": False,
                     "limiting": False,
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_selection_binding_sha256
+                    ),
                 }
                 if prepared_program is not None:
                     mixture_metadata.update(
@@ -819,6 +913,9 @@ def render_batch(
                             "episode_id": episode_id,
                             "variant_index": variant_index,
                             "source_slot_id": slot,
+                            "acoustic_selection_binding_sha256": (
+                                acoustic_selection_binding_sha256
+                            ),
                         }
                         if prepared_program is not None:
                             stem_metadata.update(
@@ -847,6 +944,9 @@ def render_batch(
                     "episode_id": episode_id,
                     "variant_index": variant_index,
                     "asset_ids_by_source_slot": bindings[episode_id],
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_selection_binding_sha256
+                    ),
                     "audio": {
                         "sample_rate_hz": M5_AUDIO_SAMPLE_RATE_HZ,
                         "sample_count": M5_AUDIO_SAMPLE_COUNT,
@@ -903,11 +1003,13 @@ def render_batch(
         write_json(staging / "episodes.json", {
             "schema": "avengine_m7_asset_bound_episode_cache_index_v1",
             "status": "pass",
+            "acoustic_selection_binding": acoustic_selection_binding,
             "episodes": episode_records,
         })
         write_json(staging / "samples.json", {
             "schema": "avengine_m7_asset_bound_binaural_training_samples_v1",
             "status": "pass",
+            "acoustic_selection_binding": acoustic_selection_binding,
             "sample_count": len(sample_records),
             "samples": sample_records,
         })
@@ -947,6 +1049,7 @@ def render_batch(
             "episode_count": len(bindings),
             "variants_per_episode": variants_per_episode,
             "sample_count": len(sample_records),
+            "acoustic_selection_binding": acoustic_selection_binding,
             "both_sources_active": (
                 all(record["both_sources_active"] for record in sample_records)
                 if program_mode

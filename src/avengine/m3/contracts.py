@@ -17,8 +17,10 @@ from avengine.contracts.json_io import (
     load_json,
 )
 from avengine.m3.materials import (
+    MATERIAL_DATABASE_SCHEMA,
     MATERIAL_PROFILE_SCHEMA,
     MATERIAL_QUALIFICATION_CLAIM,
+    RLR_NATIVE_MATERIAL_DATABASE_SCHEMA,
     MaterialContractError,
     compile_materials,
     production_admission_errors,
@@ -38,6 +40,9 @@ _SCHEMA_FILES = {
     ),
     "avengine_m3_acoustic_material_database_v1": (
         "m3_acoustic_material_database_v1.schema.json"
+    ),
+    RLR_NATIVE_MATERIAL_DATABASE_SCHEMA: (
+        "m3_acoustic_material_database_v2.schema.json"
     ),
     MATERIAL_PROFILE_SCHEMA: "avengine_m3_acoustic_material_profile_v1.schema.json",
     CANARY_REQUEST_SCHEMA: "m3_acoustic_canary_request_v1.schema.json",
@@ -171,10 +176,16 @@ def validate_mapping_document(
 
 
 def validate_material_database_document(database: Mapping[str, Any]) -> list[str]:
+    schema_name = database.get("schema")
+    schema_errors = (
+        json_schema_errors(database, schema_name)
+        if isinstance(schema_name, str)
+        and schema_name
+        in {MATERIAL_DATABASE_SCHEMA, RLR_NATIVE_MATERIAL_DATABASE_SCHEMA}
+        else []
+    )
     return [
-        *json_schema_errors(
-            database, "avengine_m3_acoustic_material_database_v1"
-        ),
+        *schema_errors,
         *validate_material_database(database),
     ]
 
@@ -230,7 +241,9 @@ def _record_snapshot(
     return snapshot
 
 
-def _manifest_file_records(manifest: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+def _manifest_file_records(
+    manifest: Mapping[str, Any],
+) -> list[tuple[str, Mapping[str, Any]]]:
     records: list[tuple[str, Mapping[str, Any]]] = []
     arrays = manifest.get("arrays")
     if isinstance(arrays, Mapping):
@@ -284,7 +297,9 @@ def validate_package_manifest(manifest: Mapping[str, Any]) -> list[str]:
     except (TypeError, ValueError):
         actual_hash = None
     if content_hash != actual_hash:
-        errors.append("package_content_sha256 does not match canonical manifest content")
+        errors.append(
+            "package_content_sha256 does not match canonical manifest content"
+        )
 
     geometry = manifest.get("geometry")
     if isinstance(geometry, Mapping):
@@ -318,7 +333,9 @@ def validate_package_manifest(manifest: Mapping[str, Any]) -> list[str]:
         if len(object_ids) != len(set(object_ids)):
             errors.append("package object_id values must be unique")
     compiler = manifest.get("compiler")
-    if isinstance(compiler, Mapping) and isinstance(compiler.get("components"), Mapping):
+    if isinstance(compiler, Mapping) and isinstance(
+        compiler.get("components"), Mapping
+    ):
         if compiler.get("implementation_sha256") != canonical_json_sha256(
             compiler["components"]
         ):
@@ -327,7 +344,10 @@ def validate_package_manifest(manifest: Mapping[str, Any]) -> list[str]:
     if isinstance(materials, Mapping):
         semantics = materials.get("material_semantics")
         expected_claim = MATERIAL_QUALIFICATION_CLAIM.get(semantics)
-        if expected_claim is None or materials.get("qualification_claim") != expected_claim:
+        if (
+            expected_claim is None
+            or materials.get("qualification_claim") != expected_claim
+        ):
             errors.append(
                 "materials.qualification_claim does not match material_semantics"
             )
@@ -345,6 +365,20 @@ def validate_package_manifest(manifest: Mapping[str, Any]) -> list[str]:
             errors.append(
                 "production materials.mapping_source_kind must be explicit_author_slot"
             )
+        profile_binding = materials.get("acoustic_profile_binding")
+        if isinstance(profile_binding, Mapping):
+            resources = profile_binding.get("resources")
+            if isinstance(resources, list):
+                roles = [
+                    item.get("role")
+                    for item in resources
+                    if isinstance(item, Mapping)
+                ]
+                if len(roles) != len(resources) or len(roles) != len(set(roles)):
+                    errors.append(
+                        "materials.acoustic_profile_binding resource roles must "
+                        "be unique"
+                    )
     return errors
 
 
@@ -442,6 +476,8 @@ def _validate_material_files(
     material_ids: np.ndarray,
     manifest: Mapping[str, Any],
     errors: list[str],
+    *,
+    native_independent_curves: bool = False,
 ) -> None:
     if categories.get("schema") != "avengine_acoustic_material_categories_v1":
         errors.append("material categories schema is invalid")
@@ -451,7 +487,9 @@ def _validate_material_files(
         return
     category_count = manifest.get("materials", {}).get("category_count")
     if category_count != len(raw_categories):
-        errors.append("materials.category_count does not match material_categories.json")
+        errors.append(
+            "materials.category_count does not match material_categories.json"
+        )
     category_ids = [
         value.get("material_id")
         for value in raw_categories
@@ -467,7 +505,9 @@ def _validate_material_files(
     if material_ids.size:
         used = sorted(int(value) for value in np.unique(material_ids))
         if used != list(range(len(raw_categories))):
-            errors.append("triangle material IDs must use every declared category exactly in range")
+            errors.append(
+                "triangle material IDs must use every declared category exactly in range"
+            )
 
     rlr_materials = rlr_database.get("materials")
     if not isinstance(rlr_materials, list) or not rlr_materials:
@@ -497,7 +537,9 @@ def _validate_material_files(
         else:
             for label in labels:
                 if not isinstance(label, str) or not label or label != label.lower():
-                    errors.append(f"{prefix}.labels must be non-empty lowercase strings")
+                    errors.append(
+                        f"{prefix}.labels must be non-empty lowercase strings"
+                    )
                 else:
                     all_labels.append(label)
         frequencies: list[float] | None = None
@@ -523,7 +565,7 @@ def _validate_material_files(
                 errors.append(f"{prefix}.{field} frequencies must increase")
             if frequencies is None:
                 frequencies = current_frequencies
-            elif frequencies != current_frequencies:
+            elif not native_independent_curves and frequencies != current_frequencies:
                 errors.append(f"{prefix} coefficient curves must use identical bands")
             if field == "damping":
                 if any(value < 0 for value in values):
@@ -538,9 +580,7 @@ def _validate_material_files(
                 or not math.isfinite(float(value))
                 or float(value) <= 0
             ):
-                errors.append(
-                    f"{prefix}.{physical_field} must be positive and finite"
-                )
+                errors.append(f"{prefix}.{physical_field} must be positive and finite")
     if len(all_labels) != len(set(all_labels)):
         errors.append("RLR material labels must be globally unique")
 
@@ -607,18 +647,14 @@ def _replay_material_source_inputs(
         if materials_manifest.get("mapping_source_kind") != mapping.get(
             "mapping_source_kind"
         ):
-            errors.append(
-                "materials.mapping_source_kind does not match source_mapping"
-            )
+            errors.append("materials.mapping_source_kind does not match source_mapping")
         if materials_manifest.get("database_id") != database.get("database_id"):
             errors.append("materials.database_id does not match source_database")
         provenance = database.get("provenance", {})
         if materials_manifest.get("material_semantics") != provenance.get(
             "material_semantics"
         ):
-            errors.append(
-                "materials.material_semantics does not match source_database"
-            )
+            errors.append("materials.material_semantics does not match source_database")
         expected_claim = MATERIAL_QUALIFICATION_CLAIM.get(
             provenance.get("material_semantics")
         )
@@ -717,10 +753,12 @@ def _validate_qa_reports(
             errors.append("geometry_report triangle_count does not match arrays")
         if geometry.get("object_count") != len(manifest.get("objects", [])):
             errors.append("geometry_report object_count does not match manifest")
-        if geometry.get("source_geometry_sha256") != manifest.get("source_room", {}).get(
-            "geometry_asset_sha256"
-        ):
-            errors.append("geometry_report source geometry hash does not match manifest")
+        if geometry.get("source_geometry_sha256") != manifest.get(
+            "source_room", {}
+        ).get("geometry_asset_sha256"):
+            errors.append(
+                "geometry_report source geometry hash does not match manifest"
+            )
         hashes = geometry.get("array_hashes", {})
         if not isinstance(hashes, Mapping) or hashes.get("vertices") != array_sha256(
             vertices
@@ -760,7 +798,9 @@ def _validate_qa_reports(
             errors.append("material_coverage unmatched_triangle_count must be zero")
         raw_coverage_categories = coverage.get("categories")
         raw_categories = categories.get("categories")
-        if isinstance(raw_coverage_categories, list) and isinstance(raw_categories, list):
+        if isinstance(raw_coverage_categories, list) and isinstance(
+            raw_categories, list
+        ):
             expected_counts = {
                 int(category["material_id"]): int(
                     np.count_nonzero(material_ids == int(category["material_id"]))
@@ -775,7 +815,9 @@ def _validate_qa_reports(
                 and isinstance(category.get("triangle_count"), int)
             }
             if measured_counts != expected_counts:
-                errors.append("material_coverage per-category counts do not match arrays")
+                errors.append(
+                    "material_coverage per-category counts do not match arrays"
+                )
         else:
             errors.append("material_coverage categories must be an array")
 
@@ -879,9 +921,7 @@ def load_and_validate_package(
     root = path.parent.resolve()
     resolved: dict[str, ImmutableFileSnapshot] = {}
     for owner, record in _manifest_file_records(manifest):
-        record_snapshot = _record_snapshot(
-            root, record, owner, errors, cache=cache
-        )
+        record_snapshot = _record_snapshot(root, record, owner, errors, cache=cache)
         if record_snapshot is not None:
             resolved[owner] = record_snapshot
 
@@ -923,7 +963,11 @@ def load_and_validate_package(
     if triangles is not None:
         if triangles.ndim != 2 or triangles.shape[1:] != (3,):
             errors.append("triangles must have shape [T, 3]")
-        elif vertices is not None and triangles.size and int(triangles.max()) >= len(vertices):
+        elif (
+            vertices is not None
+            and triangles.size
+            and int(triangles.max()) >= len(vertices)
+        ):
             errors.append("triangles contain an out-of-range vertex index")
         if len(triangles) != geometry.get("triangle_count"):
             errors.append("triangles length does not match geometry.triangle_count")
@@ -962,7 +1006,16 @@ def load_and_validate_package(
             errors=errors,
         )
     if material_ids is not None and categories and rlr_database:
-        _validate_material_files(categories, rlr_database, material_ids, manifest, errors)
+        _validate_material_files(
+            categories,
+            rlr_database,
+            material_ids,
+            manifest,
+            errors,
+            native_independent_curves=(
+                source_database.get("schema") == RLR_NATIVE_MATERIAL_DATABASE_SCHEMA
+            ),
+        )
         if source_mapping and source_database:
             _replay_material_source_inputs(
                 manifest=manifest,

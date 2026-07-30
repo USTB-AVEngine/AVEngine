@@ -10,7 +10,11 @@ import shutil
 from uuid import uuid4
 
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m7.room_evaluation import build_room_evaluation_plan
+from avengine.m7.room_evaluation import (
+    RoomEvaluationError,
+    build_room_evaluation_plan,
+    build_static_source_trajectory_bank,
+)
 from avengine.security.path_policy import (
     WorkspacePathPolicy,
     atomic_publish_directory,
@@ -19,7 +23,11 @@ from avengine.security.path_policy import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--trajectory-bank", type=Path, required=True)
+    parser.add_argument("--trajectory-bank", type=Path)
+    parser.add_argument("--static-source1-position-m", type=float, nargs=3)
+    parser.add_argument("--static-source2-position-m", type=float, nargs=3)
+    parser.add_argument("--static-episode-id", default="static_sources_000")
+    parser.add_argument("--static-seed", type=int, default=0)
     parser.add_argument("--template-rir-plan", type=Path, required=True)
     parser.add_argument("--episode-count", type=int, default=100)
     parser.add_argument("--sound-class", action="append", dest="sound_classes")
@@ -35,7 +43,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    trajectory_bank = load_json(args.trajectory_bank.resolve())
     template = load_json(args.template_rir_plan.resolve())
     sensor_rig_path = getattr(args, "sensor_rig_trajectory", None)
     sensor_rig_trajectory = (
@@ -43,6 +50,35 @@ def main() -> int:
         if sensor_rig_path is not None
         else None
     )
+    trajectory_bank_path = getattr(args, "trajectory_bank", None)
+    static_source1 = getattr(args, "static_source1_position_m", None)
+    static_source2 = getattr(args, "static_source2_position_m", None)
+    static_requested = static_source1 is not None or static_source2 is not None
+    if trajectory_bank_path is not None and static_requested:
+        raise RoomEvaluationError(
+            "choose either --trajectory-bank or static source positions"
+        )
+    if trajectory_bank_path is not None:
+        trajectory_bank = load_json(trajectory_bank_path.resolve())
+    else:
+        if static_source1 is None or static_source2 is None:
+            raise RoomEvaluationError(
+                "provide --trajectory-bank or both static source positions"
+            )
+        if sensor_rig_trajectory is None:
+            raise RoomEvaluationError(
+                "static source planning requires --sensor-rig-trajectory"
+            )
+        trajectory_bank = build_static_source_trajectory_bank(
+            {
+                "source1": static_source1,
+                "source2": static_source2,
+            },
+            frame_count=sensor_rig_trajectory.get("frame_count"),
+            frame_rate_hz=sensor_rig_trajectory.get("frame_rate_hz"),
+            episode_id=getattr(args, "static_episode_id", "static_sources_000"),
+            seed=getattr(args, "static_seed", 0),
+        )
     first_rig_pose = (
         sensor_rig_trajectory["frames"][0]["world_from_rig"]
         if sensor_rig_trajectory is not None

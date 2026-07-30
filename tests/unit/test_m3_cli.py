@@ -84,6 +84,22 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
             "/tmp/semantic",
         ]
     )
+    soundspaces = parser.parse_args(
+        [
+            "m3",
+            "compile-mp3d-rlr-materials",
+            "--room",
+            "room.json",
+            "--materials",
+            "mp3d_material_config.json",
+            "--database-id",
+            "soundspaces_mp3d_v1",
+            "--source-description",
+            "SoundSpaces/RLR MP3D material config",
+            "--output",
+            "/tmp/soundspaces",
+        ]
+    )
     usd_semantic = parser.parse_args(
         [
             "m3",
@@ -129,6 +145,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     assert proposed.m3_command == "propose-visual-slots"
     assert compiled.m3_command == "compile-explicit-research"
     assert semantic.m3_command == "compile-mp3d-semantic"
+    assert soundspaces.m3_command == "compile-mp3d-rlr-materials"
     assert usd_semantic.m3_command == "compile-usd-snapshot-semantic"
     assert leakage.m3_command == "inspect-mesh-leakage"
     assert canary.m3_command == "run-canary"

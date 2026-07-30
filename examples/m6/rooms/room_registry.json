@@ -128,6 +128,21 @@
       },
       "resources": [
         {
+          "resource_id": "replicacad_apt_0_room_manifest",
+          "resource_type": "room_manifest",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m5_1/replicacad_articulated_review/room_manifest.json"
+          },
+          "sha256": "9c632463ba0af3bd6819761b72984d2820184f555205232e97637fbf85d8bbdf",
+          "required_for": [
+            "visual_runtime",
+            "acoustic_geometry",
+            "material_binding"
+          ],
+          "redistribution": "repository"
+        },
+        {
           "resource_id": "replicacad_dataset_config",
           "resource_type": "scene_dataset_config",
           "location": {
@@ -248,6 +263,21 @@
         "linear_unit": "meter"
       },
       "resources": [
+        {
+          "resource_id": "legacy_ue_apartment_room_manifest",
+          "resource_type": "room_manifest",
+          "location": {
+            "kind": "repository_relative",
+            "path": "examples/m1/rooms/legacy_ue_apartment/room_manifest.json"
+          },
+          "sha256": "0b37ff79ef7832642616ae73c5afed943d874ca063e4ed00af0a0521427b6dce",
+          "required_for": [
+            "visual_runtime",
+            "acoustic_geometry",
+            "material_binding"
+          ],
+          "redistribution": "repository"
+        },
         {
           "resource_id": "legacy_route_manifest",
           "resource_type": "route_manifest",
@@ -379,7 +409,7 @@
         "scene_lineage_id": "matterport3d_17DRP5sb8fy",
         "room_geometry_id": "mp3d_17DRP5sb8fy_raw_scan",
         "layout_variant_id": "mp3d_scan_as_captured",
-        "acoustic_profile_id": "semantic_mapping_approximation_pending_v2",
+        "acoustic_profile_id": "soundspaces2_mp3d_public_materials_v1",
         "episode_layout_id": "m5_1_human_beagle_route_v1"
       },
       "tier": "visual_research_only",
@@ -462,6 +492,19 @@
           "redistribution": "external_required"
         },
         {
+          "resource_id": "soundspaces2_public_mp3d_material_config",
+          "resource_type": "acoustic_material_config",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_SOUNDSPACES_ROOT",
+            "path_template": "${AVENGINE_SOUNDSPACES_ROOT}/data/mp3d_material_config.json"
+          },
+          "sha256": "77cc3b16f45843b1138020837d4f78aeaf0abda2427f658291b632d84afbb1f4",
+          "required_for": ["material_binding"],
+          "redistribution": "external_required",
+          "notes": "Public SoundSpaces 2/RLR material curves and semantic labels; coefficients are imported without resampling."
+        },
+        {
           "resource_id": "mp3d_proxy_v2_descriptor",
           "resource_type": "derived_proxy_descriptor",
           "location": {
@@ -485,6 +528,18 @@
           "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
           "redistribution": "generated_local",
           "notes": "Materialized research proxy. The committed descriptor and release evidence bind its complete ignored artifact closure."
+        },
+        {
+          "resource_id": "mp3d_soundspaces2_acoustic_package_v1",
+          "resource_type": "acoustic_package",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT",
+            "path_template": "${AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT}/manifest.json"
+          },
+          "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
+          "redistribution": "generated_local",
+          "notes": "Generated from the MP3D semantic surface with the public SoundSpaces 2/RLR material config and explicit recorded Default assignments."
         }
       ],
       "acoustic_representations": [
@@ -515,6 +570,24 @@
           "derived_from": "mp3d_17DRP5sb8fy_raw_source_v1",
           "material_semantics": "research_placeholder",
           "notes": "Materialized and hash-bound zero-area cleanup research revision; semantic material mapping has not yet been implemented, and topology/material/ray qualification remains incomplete."
+        },
+        {
+          "representation_id": "mp3d_17DRP5sb8fy_soundspaces2_acoustic_v1",
+          "role": "derived_proxy",
+          "geometry_kind": "declared_derived_surface",
+          "resource_id": "mp3d_soundspaces2_acoustic_package_v1",
+          "build_mode": "compile",
+          "producer": "avengine.m3.compiler:compile_mp3d_soundspaces_research_scene",
+          "input_resource_ids": [
+            "mp3d_raw_visual_surface",
+            "mp3d_semantic_mesh",
+            "mp3d_house_descriptor",
+            "soundspaces2_public_mp3d_material_config"
+          ],
+          "immutable": false,
+          "derived_from": "mp3d_17DRP5sb8fy_raw_source_v1",
+          "material_semantics": "research_placeholder",
+          "notes": "Uses exact public SoundSpaces 2/RLR coefficient curves. Semantic labels select official materials; unmatched labels receive an explicit, auditable assignment to the official Default material."
         }
       ],
       "openings": [],
@@ -535,7 +608,7 @@
         "source_dataset": "Matterport3D / Habitat MP3D example",
         "source_revision": "mp3d_example_scene_1.1",
         "rights": "Matterport3D terms apply; external asset",
-        "notes": "Raw scan, semantic resources and declared derived acoustic proxy remain separately auditable."
+        "notes": "Raw scan, historical research proxy and the SoundSpaces 2 public-material acoustic representation remain separately auditable."
       }
     }
   ]

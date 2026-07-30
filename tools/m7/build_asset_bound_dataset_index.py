@@ -11,7 +11,12 @@ import re
 import shutil
 from typing import Any, Mapping, Sequence
 
-from avengine.contracts.json_io import load_json, sha256_file, write_json
+from avengine.contracts.json_io import (
+    canonical_json_sha256,
+    load_json,
+    sha256_file,
+    write_json,
+)
 from avengine.m7.dataset_index import (
     ApartmentDatasetIndexError,
     assign_episode_splits,
@@ -23,6 +28,50 @@ SCHEMA = "avengine_m7_apartment_training_index_v1"
 SPLIT_SEED = "avengine-apartment-split-v1"
 SPLIT_SAMPLE_COUNTS = {"train": 800, "validation": 100, "test": 100}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ACOUSTIC_SELECTION_FIELDS = {
+    "schema",
+    "selection_mode",
+    "registry_selection_applied",
+    "room_ref",
+    "profile_ref",
+    "binding_id",
+    "registry_selection_content_sha256",
+    "effective_selection_content_sha256",
+    "acoustic_package_manifest_sha256",
+    "simulation_request_sha256",
+    "input_receipt_sha256",
+    "binding_content_sha256",
+}
+_REGISTRY_SELECTION_MODES = {
+    "registry",
+    "registry_with_verified_equivalent_overrides",
+}
+_LEGACY_SELECTION_MODES = {
+    "explicit_legacy",
+    "explicit_legacy_unbound",
+}
+_SPEAR_RUNTIME_EVIDENCE_SCHEMA = (
+    "avengine_optional_spear_apartment_runtime_evidence_v2"
+)
+_SPEAR_RUNTIME_IDENTITY_SCHEMA = (
+    "avengine_spear_acoustic_visual_runtime_identity_v1"
+)
+_SPEAR_RUNTIME_IDENTITY_FIELDS = {
+    "schema",
+    "status",
+    "verification_status",
+    "selection_mode",
+    "compatibility",
+    "acoustic_selection_binding_sha256",
+    "binding_id",
+    "profile_ref",
+    "visual_room_ref",
+    "acoustic_room_ref",
+    "runtime_room_ref",
+    "runtime_profile_id",
+    "runtime_map_id",
+    "runtime_map_path",
+}
 _AUDIO_PROGRAM_SAMPLE_FIELDS = frozenset(
     {
         "audio_program_binding",
@@ -30,6 +79,80 @@ _AUDIO_PROGRAM_SAMPLE_FIELDS = frozenset(
         "audio_program_instance_sha256",
     }
 )
+
+
+def _validated_acoustic_selection_binding(
+    value: Any,
+) -> tuple[dict[str, Any], str | None]:
+    if (
+        not isinstance(value, Mapping)
+        or value.get("schema")
+        != "avengine_rir_cache_acoustic_selection_binding_v1"
+        or set(value) != _ACOUSTIC_SELECTION_FIELDS
+    ):
+        raise ApartmentDatasetIndexError(
+            "acoustic_selection_binding is invalid"
+        )
+    binding = deepcopy(dict(value))
+    mode = binding.get("selection_mode")
+    binding_sha256 = binding.get("binding_content_sha256")
+    if mode == "explicit_legacy_unbound":
+        if (
+            binding_sha256 is not None
+            or binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+        ):
+            raise ApartmentDatasetIndexError(
+                "legacy unbound input fabricated an acoustic identity"
+            )
+        return binding, None
+    if (
+        mode
+        not in {
+            "explicit_legacy",
+            "registry",
+            "registry_with_verified_equivalent_overrides",
+        }
+        or not isinstance(binding_sha256, str)
+        or _SHA256_RE.fullmatch(binding_sha256) is None
+        or canonical_json_sha256(
+            {
+                key: item
+                for key, item in binding.items()
+                if key != "binding_content_sha256"
+            }
+        )
+        != binding_sha256
+    ):
+        raise ApartmentDatasetIndexError(
+            "acoustic_selection_binding hash is invalid"
+        )
+    if mode == "explicit_legacy":
+        if (
+            binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+        ):
+            raise ApartmentDatasetIndexError(
+                "explicit legacy input contains a registry identity"
+            )
+    elif (
+        binding.get("registry_selection_applied") is not True
+        or not isinstance(binding.get("room_ref"), Mapping)
+        or set(binding["room_ref"])
+        != {"registry_id", "room_id", "revision"}
+        or not isinstance(binding.get("profile_ref"), Mapping)
+        or set(binding["profile_ref"]) != {"profile_id", "revision"}
+        or not isinstance(binding.get("binding_id"), str)
+        or not binding["binding_id"]
+    ):
+        raise ApartmentDatasetIndexError(
+            "registry input lacks its exact room/profile binding"
+        )
+    return binding, binding_sha256
 
 
 def _visual_episodes(bundle_root: Path) -> list[dict[str, Any]]:
@@ -44,20 +167,34 @@ def _visual_episodes(bundle_root: Path) -> list[dict[str, Any]]:
         raise ApartmentDatasetIndexError("visual input bundle is invalid")
     result = []
     for value in values:
-        if not isinstance(value, Mapping):
+        if (
+            not isinstance(value, Mapping)
+            or "acoustic_selection_binding_sha256" not in value
+        ):
             raise ApartmentDatasetIndexError("visual episode record is invalid")
         result.append(
             {
                 "episode_id": value.get("episode_id"),
                 "motion_case": value.get("motion_case"),
                 "asset_ids_by_source_slot": value.get("asset_ids_by_source_slot"),
+                "acoustic_selection_binding_sha256": value.get(
+                    "acoustic_selection_binding_sha256"
+                ),
             }
         )
     return result
 
 
-def _render_evidence(render_root: Path) -> dict[str, Mapping[str, Any]]:
-    evidence = load_json(render_root / "evidence.json")
+def _render_evidence(
+    render_root: Path,
+    *,
+    evidence_path: Path | None = None,
+) -> dict[str, Mapping[str, Any]]:
+    evidence = load_json(
+        evidence_path
+        if evidence_path is not None
+        else render_root / "evidence.json"
+    )
     values = evidence.get("scenarios")
     if evidence.get("status") != "pass" or not isinstance(values, list):
         raise ApartmentDatasetIndexError("UE visual evidence did not pass")
@@ -70,6 +207,187 @@ def _render_evidence(render_root: Path) -> dict[str, Mapping[str, Any]]:
             raise ApartmentDatasetIndexError("UE scenario IDs are invalid")
         result[episode_id] = value
     return result
+
+
+def _is_exact_room_ref(value: Any) -> bool:
+    return (
+        isinstance(value, Mapping)
+        and set(value) == {"registry_id", "room_id", "revision"}
+        and all(
+            isinstance(value.get(field), str) and bool(value[field])
+            for field in ("registry_id", "room_id", "revision")
+        )
+    )
+
+
+def _validated_spear_runtime_evidence(
+    *,
+    evidence_path: Path | None,
+    acoustic_selection_binding: Mapping[str, Any],
+    acoustic_selection_binding_sha256: str | None,
+    visual_room_alignment: Mapping[str, Any],
+    episode_ids: set[str],
+) -> dict[str, Any]:
+    """Bind SPEAR/UE readback to the exact audio and visual room identity."""
+
+    mode = acoustic_selection_binding.get("selection_mode")
+    if evidence_path is None:
+        if mode in _REGISTRY_SELECTION_MODES:
+            raise ApartmentDatasetIndexError(
+                "registry-bound index requires SPEAR/UE runtime evidence"
+            )
+        if mode not in _LEGACY_SELECTION_MODES:
+            raise ApartmentDatasetIndexError(
+                "unsupported acoustic selection mode for runtime evidence"
+            )
+        return {
+            "status": "not_verified",
+            "verification_status": "not_verified",
+            "path": None,
+            "sha256": None,
+            "schema": None,
+            "acoustic_visual_identity": None,
+        }
+
+    evidence_path = evidence_path.resolve()
+    if not evidence_path.is_file():
+        raise ApartmentDatasetIndexError(
+            "SPEAR/UE runtime evidence file is missing"
+        )
+    evidence = load_json(evidence_path)
+    scenarios = evidence.get("scenarios")
+    if (
+        evidence.get("schema") != _SPEAR_RUNTIME_EVIDENCE_SCHEMA
+        or evidence.get("status") != "pass"
+        or not isinstance(scenarios, list)
+    ):
+        raise ApartmentDatasetIndexError(
+            "SPEAR/UE runtime evidence is invalid"
+        )
+    scenario_ids = [
+        value.get("scenario_id")
+        for value in scenarios
+        if isinstance(value, Mapping)
+    ]
+    if (
+        len(scenario_ids) != len(scenarios)
+        or not all(
+            isinstance(scenario_id, str) and bool(scenario_id)
+            for scenario_id in scenario_ids
+        )
+        or len(set(scenario_ids)) != len(scenario_ids)
+        or set(scenario_ids) != episode_ids
+    ):
+        raise ApartmentDatasetIndexError(
+            "SPEAR/UE runtime evidence closure differs from the visual bank"
+        )
+
+    identity = evidence.get("acoustic_visual_identity")
+    if (
+        not isinstance(identity, Mapping)
+        or identity.get("schema") != _SPEAR_RUNTIME_IDENTITY_SCHEMA
+        or set(identity) != _SPEAR_RUNTIME_IDENTITY_FIELDS
+    ):
+        raise ApartmentDatasetIndexError(
+            "SPEAR/UE acoustic_visual_identity is invalid"
+        )
+    identity = deepcopy(dict(identity))
+    if any(
+        not isinstance(value, Mapping)
+        or value.get("acoustic_visual_identity") != identity
+        for value in scenarios
+    ):
+        raise ApartmentDatasetIndexError(
+            "SPEAR/UE scenario runtime identities differ from the batch"
+        )
+
+    visual_room_ref = visual_room_alignment.get("visual_room_ref")
+    acoustic_room_ref = acoustic_selection_binding.get("room_ref")
+    if (
+        not _is_exact_room_ref(visual_room_ref)
+        or not _is_exact_room_ref(identity.get("visual_room_ref"))
+        or not _is_exact_room_ref(identity.get("runtime_room_ref"))
+        or identity.get("selection_mode") != mode
+        or identity.get("acoustic_selection_binding_sha256")
+        != acoustic_selection_binding_sha256
+        or identity.get("binding_id")
+        != acoustic_selection_binding.get("binding_id")
+        or identity.get("profile_ref")
+        != acoustic_selection_binding.get("profile_ref")
+        or identity.get("visual_room_ref") != visual_room_ref
+        or identity.get("runtime_room_ref") != visual_room_ref
+    ):
+        raise ApartmentDatasetIndexError(
+            "SPEAR/UE runtime identity differs from the audio/visual binding"
+        )
+    runtime_profile = evidence.get("room_runtime_profile")
+    if (
+        not isinstance(identity.get("runtime_profile_id"), str)
+        or not identity["runtime_profile_id"]
+        or not isinstance(identity.get("runtime_map_id"), str)
+        or not identity["runtime_map_id"]
+        or not isinstance(identity.get("runtime_map_path"), str)
+        or not identity["runtime_map_path"]
+        or not isinstance(runtime_profile, Mapping)
+        or runtime_profile.get("profile_id")
+        != identity["runtime_profile_id"]
+        or evidence.get("native_map") != identity["runtime_map_path"]
+    ):
+        raise ApartmentDatasetIndexError(
+            "SPEAR/UE runtime map/profile identity is invalid"
+        )
+
+    if mode in _REGISTRY_SELECTION_MODES:
+        if (
+            identity.get("status") != "pass"
+            or identity.get("verification_status") != "verified"
+            or identity.get("compatibility") is not None
+            or not _is_exact_room_ref(acoustic_room_ref)
+            or identity.get("acoustic_room_ref") != acoustic_room_ref
+            or identity.get("runtime_room_ref") != acoustic_room_ref
+        ):
+            raise ApartmentDatasetIndexError(
+                "registry-bound SPEAR/UE runtime identity was not verified"
+            )
+    elif mode in _LEGACY_SELECTION_MODES:
+        if (
+            identity.get("status") != "not_verified"
+            or identity.get("verification_status") != "not_verified"
+            or identity.get("compatibility")
+            != "legacy_acoustic_selection_without_room_ref"
+            or acoustic_room_ref is not None
+            or identity.get("acoustic_room_ref") is not None
+        ):
+            raise ApartmentDatasetIndexError(
+                "legacy SPEAR/UE runtime identity must remain not_verified"
+            )
+    else:
+        raise ApartmentDatasetIndexError(
+            "unsupported acoustic selection mode for runtime evidence"
+        )
+
+    return {
+        "status": identity["status"],
+        "verification_status": identity["verification_status"],
+        "path": str(evidence_path),
+        "sha256": sha256_file(evidence_path),
+        "schema": evidence["schema"],
+        "acoustic_visual_identity": identity,
+    }
+
+
+def _runtime_evidence_row_identity(
+    runtime_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": runtime_evidence["status"],
+        "verification_status": runtime_evidence["verification_status"],
+        "evidence_schema": runtime_evidence["schema"],
+        "evidence_sha256": runtime_evidence["sha256"],
+        "acoustic_visual_identity": deepcopy(
+            runtime_evidence["acoustic_visual_identity"]
+        ),
+    }
 
 
 def _audio_program_index_fields(
@@ -142,6 +460,7 @@ def build_index(
     visual_bundle_root: Path,
     ue_render_root: Path,
     output: Path,
+    spear_runtime_evidence: Path | None = None,
 ) -> Path:
     audio_batch_root = audio_batch_root.resolve()
     visual_bundle_root = visual_bundle_root.resolve()
@@ -153,17 +472,16 @@ def build_index(
     if staging.exists() or staging.is_symlink():
         raise FileExistsError(f"refusing to replace staging output: {staging}")
 
+    visual_manifest = load_json(visual_bundle_root / "manifest.json")
     episodes = _visual_episodes(visual_bundle_root)
     episode_ids = {value["episode_id"] for value in episodes}
     if len(episode_ids) != len(episodes) or not all(
         isinstance(value, str) for value in episode_ids
     ):
         raise ApartmentDatasetIndexError("visual episode IDs are invalid")
-    render_evidence = _render_evidence(ue_render_root)
-    if set(render_evidence) != episode_ids:
-        raise ApartmentDatasetIndexError("UE render closure differs from visual bank")
-
     samples_record = load_json(audio_batch_root / "samples.json")
+    audio_episodes_record = load_json(audio_batch_root / "episodes.json")
+    delivery = load_json(audio_batch_root / "delivery.json")
     samples = samples_record.get("samples")
     if (
         samples_record.get("status") != "pass"
@@ -175,10 +493,89 @@ def build_index(
     verification = load_json(audio_batch_root / "verification.json")
     if verification.get("status") != "pass":
         raise ApartmentDatasetIndexError("audio batch verification did not pass")
+    (
+        acoustic_selection_binding,
+        acoustic_selection_binding_sha256,
+    ) = _validated_acoustic_selection_binding(
+        delivery.get("acoustic_selection_binding")
+    )
+    if (
+        samples_record.get("acoustic_selection_binding")
+        != acoustic_selection_binding
+        or audio_episodes_record.get("acoustic_selection_binding")
+        != acoustic_selection_binding
+        or verification.get("acoustic_selection_binding")
+        != acoustic_selection_binding
+        or visual_manifest.get("acoustic_selection_binding")
+        != acoustic_selection_binding
+    ):
+        raise ApartmentDatasetIndexError(
+            "audio and visual acoustic selection bindings differ"
+        )
+    visual_room_alignment = visual_manifest.get(
+        "acoustic_visual_room_alignment"
+    )
+    if not isinstance(visual_room_alignment, Mapping):
+        raise ApartmentDatasetIndexError(
+            "visual bundle lacks acoustic/visual room alignment"
+        )
+    acoustic_room_ref = acoustic_selection_binding.get("room_ref")
+    if acoustic_room_ref is None:
+        if (
+            visual_room_alignment.get("status") != "not_verified"
+            or visual_room_alignment.get("acoustic_room_ref") is not None
+        ):
+            raise ApartmentDatasetIndexError(
+                "legacy unbound acoustic/visual room alignment is invalid"
+            )
+    elif (
+        visual_room_alignment.get("status") != "pass"
+        or visual_room_alignment.get("acoustic_room_ref")
+        != acoustic_room_ref
+        or visual_room_alignment.get("visual_room_ref")
+        != acoustic_room_ref
+    ):
+        raise ApartmentDatasetIndexError(
+            "visual room_ref differs from the acoustic selection"
+        )
+    runtime_evidence = _validated_spear_runtime_evidence(
+        evidence_path=spear_runtime_evidence,
+        acoustic_selection_binding=acoustic_selection_binding,
+        acoustic_selection_binding_sha256=(
+            acoustic_selection_binding_sha256
+        ),
+        visual_room_alignment=visual_room_alignment,
+        episode_ids=episode_ids,
+    )
+    render_evidence = _render_evidence(
+        ue_render_root,
+        evidence_path=(
+            spear_runtime_evidence.resolve()
+            if spear_runtime_evidence is not None
+            else None
+        ),
+    )
+    if set(render_evidence) != episode_ids:
+        raise ApartmentDatasetIndexError("UE render closure differs from visual bank")
+    runtime_row_identity = _runtime_evidence_row_identity(runtime_evidence)
+    runtime_identity = runtime_evidence["acoustic_visual_identity"]
+    runtime_map_id = (
+        runtime_identity["runtime_map_id"]
+        if isinstance(runtime_identity, Mapping)
+        else None
+    )
     program_states: list[bool] = []
     for sample in samples:
         if not isinstance(sample, Mapping):
             raise ApartmentDatasetIndexError("audio sample is invalid")
+        if (
+            "acoustic_selection_binding_sha256" not in sample
+            or sample.get("acoustic_selection_binding_sha256")
+            != acoustic_selection_binding_sha256
+        ):
+            raise ApartmentDatasetIndexError(
+                "audio sample acoustic selection differs from its batch"
+            )
         present = _AUDIO_PROGRAM_SAMPLE_FIELDS.intersection(sample)
         if present and present != _AUDIO_PROGRAM_SAMPLE_FIELDS:
             raise ApartmentDatasetIndexError(
@@ -190,7 +587,6 @@ def build_index(
         raise ApartmentDatasetIndexError(
             "legacy and AudioProgram samples may not be mixed"
         )
-    delivery = load_json(audio_batch_root / "delivery.json")
     variants_per_episode = delivery.get("variants_per_episode")
     if (
         delivery.get("status") != "pass"
@@ -247,6 +643,13 @@ def build_index(
         visual_rows = []
         for episode in sorted(episodes, key=lambda value: str(value["episode_id"])):
             episode_id = str(episode["episode_id"])
+            if (
+                episode["acoustic_selection_binding_sha256"]
+                != acoustic_selection_binding_sha256
+            ):
+                raise ApartmentDatasetIndexError(
+                    "visual episode acoustic selection differs from its bundle"
+                )
             split = assignments[episode_id]
             visual_assets = episode["asset_ids_by_source_slot"]
             scenario_evidence = render_evidence[episode_id]
@@ -287,6 +690,13 @@ def build_index(
                     "topdown_path": media_paths["topdown"],
                     "label_paths": labels,
                     "audio_variant_reuse_count": variants_per_episode,
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_selection_binding_sha256
+                    ),
+                    "runtime_map_id": runtime_map_id,
+                    "spear_ue_runtime_evidence_identity": deepcopy(
+                        runtime_row_identity
+                    ),
                 }
             )
             for sample in sorted(
@@ -336,6 +746,13 @@ def build_index(
                     "rgb_episode_path": media_paths["rgb"],
                     "topdown_episode_path": media_paths["topdown"],
                     "label_paths": sample_labels,
+                    "acoustic_selection_binding_sha256": (
+                        acoustic_selection_binding_sha256
+                    ),
+                    "runtime_map_id": runtime_map_id,
+                    "spear_ue_runtime_evidence_identity": deepcopy(
+                        runtime_row_identity
+                    ),
                     **audio_program_fields,
                 }
                 if audio_program_label is not None:
@@ -355,7 +772,8 @@ def build_index(
                 "status": "pass",
                 "research_only": True,
                 "qualification_claim": False,
-                "room_id": "apartment_0000",
+                "room_ref": deepcopy(acoustic_room_ref),
+                "runtime_map_id": runtime_map_id,
                 "sample_count": 1000,
                 "visual_episode_count": len(episodes),
                 "audio_variants_per_visual_episode": variants_per_episode,
@@ -363,6 +781,11 @@ def build_index(
                 "split_seed": SPLIT_SEED,
                 "split_sample_counts": sample_split_counts,
                 "scene_copy_count": 0,
+                "acoustic_selection_binding": acoustic_selection_binding,
+                "acoustic_visual_room_alignment": deepcopy(
+                    dict(visual_room_alignment)
+                ),
+                "spear_ue_runtime_evidence": deepcopy(runtime_evidence),
                 "media_storage_policy": (
                     "one_rgb_and_topdown_pair_per_episode_plus_declared_binaural_variants"
                 ),
@@ -384,6 +807,10 @@ def build_index(
                     episodes, assignments
                 ),
                 "sample_split_counts": sample_split_counts,
+                "acoustic_selection_binding": acoustic_selection_binding,
+                "room_ref": deepcopy(acoustic_room_ref),
+                "runtime_map_id": runtime_map_id,
+                "spear_ue_runtime_evidence": deepcopy(runtime_evidence),
                 "visual_episodes": visual_rows,
             },
         )
@@ -400,6 +827,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--audio-batch-root", type=Path, required=True)
     parser.add_argument("--visual-bundle-root", type=Path, required=True)
     parser.add_argument("--ue-render-root", type=Path, required=True)
+    parser.add_argument(
+        "--spear-runtime-evidence",
+        type=Path,
+        help=(
+            "Final SPEAR/UE OUTPUT/evidence.json; required for registry-bound "
+            "formal indexing."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)
 
@@ -411,6 +846,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         visual_bundle_root=args.visual_bundle_root,
         ue_render_root=args.ue_render_root,
         output=args.output,
+        spear_runtime_evidence=args.spear_runtime_evidence,
     )
     print(f"ASSET_BOUND_DATASET_INDEX_OK output={result}", flush=True)
     return 0

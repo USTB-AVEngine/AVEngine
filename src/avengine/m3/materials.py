@@ -14,13 +14,20 @@ from avengine.contracts.json_io import canonical_json_sha256
 
 MAPPING_SCHEMA = "avengine_m3_acoustic_material_mapping_v1"
 MATERIAL_DATABASE_SCHEMA = "avengine_m3_acoustic_material_database_v1"
+RLR_NATIVE_MATERIAL_DATABASE_SCHEMA = "avengine_m3_acoustic_material_database_v2"
 MATERIAL_PROFILE_SCHEMA = "avengine_m3_acoustic_material_profile_v1"
-_MATERIAL_PROFILE_SCHEMA_FILE = (
-    "avengine_m3_acoustic_material_profile_v1.schema.json"
-)
+_MATERIAL_PROFILE_SCHEMA_FILE = "avengine_m3_acoustic_material_profile_v1.schema.json"
 _CURVE_FIELDS = ("absorption", "scattering", "transmission", "damping")
 _PHYSICAL_FIELDS = ("density", "speed")
 _OVERRIDE_FIELDS = (*_CURVE_FIELDS, *_PHYSICAL_FIELDS)
+_RLR_NATIVE_COEFFICIENT_UNITS = {
+    "absorption": "frequency_hz_fraction_of_incident_sound_pressure_interleaved",
+    "scattering": "frequency_hz_fraction_of_incident_sound_pressure_interleaved",
+    "transmission": "frequency_hz_fraction_of_incident_sound_pressure_interleaved",
+    "damping": "frequency_hz_decibels_per_meter_interleaved",
+    "density": "kilograms_per_cubic_meter",
+    "speed": "meters_per_second",
+}
 
 MATERIAL_SEMANTIC_INTENDED_USE = {
     "controlled_canary": "controlled_material_activation_canary",
@@ -73,9 +80,7 @@ def _unique(values: Iterable[Any]) -> bool:
 
 def _material_profile_schema_path() -> Path:
     source = (
-        Path(__file__).resolve().parents[3]
-        / "schemas"
-        / _MATERIAL_PROFILE_SCHEMA_FILE
+        Path(__file__).resolve().parents[3] / "schemas" / _MATERIAL_PROFILE_SCHEMA_FILE
     )
     installed = (
         Path(sys.prefix)
@@ -211,11 +216,13 @@ def validate_material_mapping(
             )
         else:
             rows = [matrix[offset : offset + 4] for offset in range(0, 16, 4)]
-            if any(abs(float(a) - float(b)) > 1e-9 for a, b in zip(rows[3], [0, 0, 0, 1])):
+            if any(
+                abs(float(a) - float(b)) > 1e-9 for a, b in zip(rows[3], [0, 0, 0, 1])
+            ):
                 errors.append("mapping.source_to_canonical matrix must be affine")
-        if not isinstance(source_to_canonical.get("source"), str) or not source_to_canonical.get(
-            "source"
-        ):
+        if not isinstance(
+            source_to_canonical.get("source"), str
+        ) or not source_to_canonical.get("source"):
             errors.append("mapping.source_to_canonical.source must be non-empty")
         if not isinstance(source_to_canonical.get("reviewed"), bool):
             errors.append("mapping.source_to_canonical.reviewed must be a boolean")
@@ -287,7 +294,7 @@ def validate_material_mapping(
     return errors
 
 
-def validate_material_database(database: Mapping[str, Any]) -> list[str]:
+def _validate_material_database_v1(database: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
     if database.get("schema") != MATERIAL_DATABASE_SCHEMA:
         errors.append(f"database.schema must be {MATERIAL_DATABASE_SCHEMA!r}")
@@ -377,6 +384,143 @@ def validate_material_database(database: Mapping[str, Any]) -> list[str]:
     return errors
 
 
+def _validate_native_curve(
+    value: Any,
+    *,
+    owner: str,
+    coefficient: bool,
+    errors: list[str],
+) -> None:
+    if not isinstance(value, list) or len(value) < 2 or len(value) % 2:
+        errors.append(f"{owner} must contain interleaved frequency/value pairs")
+        return
+    if any(not _is_finite_number(item) for item in value):
+        errors.append(f"{owner} must contain finite numbers")
+        return
+    frequencies = [float(item) for item in value[0::2]]
+    coefficients = [float(item) for item in value[1::2]]
+    if any(frequency <= 0.0 for frequency in frequencies):
+        errors.append(f"{owner} frequencies must be positive")
+    elif any(left >= right for left, right in zip(frequencies, frequencies[1:])):
+        errors.append(f"{owner} frequencies must be strictly increasing")
+    if coefficient:
+        if any(not 0.0 <= item <= 1.0 for item in coefficients):
+            errors.append(f"{owner} values must be in [0, 1]")
+    elif any(item < 0.0 for item in coefficients):
+        errors.append(f"{owner} values must be non-negative")
+
+
+def _validate_material_database_v2(database: Mapping[str, Any]) -> list[str]:
+    """Validate lossless RLR-native material curves.
+
+    Unlike v1, every coefficient field owns its frequency grid.  Empty and
+    repeated labels are legal because upstream RLR databases contain both;
+    package compilation still proves that every selected category has one
+    unique winning material.
+    """
+
+    errors: list[str] = []
+    if database.get("schema") != RLR_NATIVE_MATERIAL_DATABASE_SCHEMA:
+        errors.append(
+            f"database.schema must be {RLR_NATIVE_MATERIAL_DATABASE_SCHEMA!r}"
+        )
+    for field in ("database_id", "version"):
+        if not isinstance(database.get(field), str) or not database[field]:
+            errors.append(f"database.{field} must be a non-empty string")
+    if database.get("coefficient_units") != _RLR_NATIVE_COEFFICIENT_UNITS:
+        errors.append("database.coefficient_units must use the RLR-native units")
+
+    provenance = database.get("provenance")
+    if not isinstance(provenance, Mapping):
+        errors.append("database.provenance must be an object")
+    else:
+        if not isinstance(provenance.get("source"), str) or not provenance.get(
+            "source"
+        ):
+            errors.append("database.provenance.source must be non-empty")
+        confidence = provenance.get("confidence")
+        if not _is_finite_number(confidence) or not 0 <= float(confidence) <= 1:
+            errors.append("database.provenance.confidence must be finite in [0, 1]")
+        semantics = provenance.get("material_semantics")
+        intended_use = provenance.get("intended_use")
+        expected_use = (
+            MATERIAL_SEMANTIC_INTENDED_USE.get(semantics)
+            if semantics in {"reviewed_physical", "research_placeholder"}
+            else None
+        )
+        if expected_use is None:
+            errors.append(
+                "database.provenance.material_semantics must be one of "
+                "'research_placeholder', 'reviewed_physical'"
+            )
+        elif intended_use != expected_use:
+            errors.append(
+                "database.provenance.intended_use does not match "
+                f"material_semantics={semantics!r}"
+            )
+
+    materials = database.get("materials")
+    if not isinstance(materials, list) or not materials:
+        return [*errors, "database.materials must be a non-empty array"]
+    keys: list[str] = []
+    for index, material in enumerate(materials):
+        prefix = f"database.materials[{index}]"
+        if not isinstance(material, Mapping):
+            errors.append(f"{prefix} must be an object")
+            continue
+        for field in ("material_key", "name", "source"):
+            if not isinstance(material.get(field), str) or not material[field]:
+                errors.append(f"{prefix}.{field} must be a non-empty string")
+        if isinstance(material.get("material_key"), str):
+            keys.append(material["material_key"])
+        raw_labels = material.get("labels")
+        if not isinstance(raw_labels, list):
+            errors.append(f"{prefix}.labels must be an array")
+        else:
+            for label_index, label in enumerate(raw_labels):
+                if not isinstance(label, str) or not label:
+                    errors.append(f"{prefix}.labels[{label_index}] must be non-empty")
+                elif label != label.lower():
+                    errors.append(f"{prefix}.labels[{label_index}] must be lowercase")
+        for field in ("absorption", "scattering", "transmission"):
+            _validate_native_curve(
+                material.get(field),
+                owner=f"{prefix}.{field}",
+                coefficient=True,
+                errors=errors,
+            )
+        _validate_native_curve(
+            material.get("damping"),
+            owner=f"{prefix}.damping",
+            coefficient=False,
+            errors=errors,
+        )
+        for physical_field in ("density", "speed"):
+            value = material.get(physical_field)
+            if not _is_finite_number(value) or float(value) <= 0:
+                errors.append(
+                    f"{prefix}.{physical_field} must be a positive finite number"
+                )
+        confidence = material.get("confidence")
+        if not _is_finite_number(confidence) or not 0 <= float(confidence) <= 1:
+            errors.append(f"{prefix}.confidence must be finite in [0, 1]")
+    if not _unique(keys):
+        errors.append("database material_key values must be unique")
+    return errors
+
+
+def validate_material_database(database: Mapping[str, Any]) -> list[str]:
+    schema = database.get("schema")
+    if schema == MATERIAL_DATABASE_SCHEMA:
+        return _validate_material_database_v1(database)
+    if schema == RLR_NATIVE_MATERIAL_DATABASE_SCHEMA:
+        return _validate_material_database_v2(database)
+    return [
+        "database.schema must be one of "
+        f"{MATERIAL_DATABASE_SCHEMA!r}, {RLR_NATIVE_MATERIAL_DATABASE_SCHEMA!r}"
+    ]
+
+
 def production_admission_errors(
     mapping: Mapping[str, Any],
     database: Mapping[str, Any],
@@ -393,9 +537,7 @@ def production_admission_errors(
 
     errors: list[str] = []
     if mapping.get("mapping_source_kind") != "explicit_author_slot":
-        errors.append(
-            "production mapping_source_kind must be 'explicit_author_slot'"
-        )
+        errors.append("production mapping_source_kind must be 'explicit_author_slot'")
     transform = mapping.get("source_to_canonical")
     if not isinstance(transform, Mapping) or transform.get("reviewed") is not True:
         errors.append("production source_to_canonical.reviewed must be true")
@@ -537,11 +679,7 @@ def controlled_counterfactual_proof(
                 if key not in {"database_id", "materials"}
             },
             "materials": [
-                {
-                    key: value
-                    for key, value in material.items()
-                    if key != "absorption"
-                }
+                {key: value for key, value in material.items() if key != "absorption"}
                 for material in database.get("materials", [])
                 if isinstance(material, Mapping)
             ],
@@ -572,9 +710,7 @@ def controlled_counterfactual_proof(
                             _is_finite_number(low_value)
                             and _is_finite_number(high_value)
                             and float(high_value) > float(low_value)
-                            for low_value, high_value in zip(
-                                low_values, high_values
-                            )
+                            for low_value, high_value in zip(low_values, high_values)
                         )
                     ),
                 }
@@ -629,20 +765,23 @@ def resolve_material_profile(
 
     if not isinstance(profile, Mapping):
         raise MaterialContractError(["profile must be an object"])
+    if database.get("schema") != MATERIAL_DATABASE_SCHEMA:
+        raise MaterialContractError(
+            [
+                "material profile v1 requires acoustic material database v1; "
+                "RLR-native v2 curves must be authored or imported explicitly"
+            ]
+        )
 
     # This validates both input documents and their exact mapping/database
     # relationship before any derived document is created.
     compile_materials(mapping, database, room_id=room_id)
     band_count = len(database["bands_hz"])
-    errors = validate_material_profile(
-        profile, room_id=room_id, band_count=band_count
-    )
+    errors = validate_material_profile(profile, room_id=room_id, band_count=band_count)
     if errors:
         raise MaterialContractError(errors)
 
-    ordered_entries = sorted(
-        mapping["entries"], key=lambda item: item["material_id"]
-    )
+    ordered_entries = sorted(mapping["entries"], key=lambda item: item["material_id"])
     entry_by_source_name = {
         entry["source_material_name"]: entry for entry in ordered_entries
     }
@@ -791,9 +930,7 @@ def resolve_material_profile(
                 material[field] = _normalized_profile_value(
                     field, override[field], band_count=band_count
                 )
-                field_lineage[field] = (
-                    f"profile.material_overrides[{override_index}]"
-                )
+                field_lineage[field] = f"profile.material_overrides[{override_index}]"
                 if field not in modified_fields:
                     modified_fields.append(field)
             applied_layers.append(f"material_override[{override_index}]")
@@ -812,8 +949,7 @@ def resolve_material_profile(
                 "applied_layers": applied_layers,
                 "field_lineage": field_lineage,
                 "effective_values": {
-                    field: copy.deepcopy(material[field])
-                    for field in _OVERRIDE_FIELDS
+                    field: copy.deepcopy(material[field]) for field in _OVERRIDE_FIELDS
                 },
             }
         )
@@ -880,9 +1016,7 @@ def rlr_match_scores(
         raw_labels = material.get("labels", [])
         labels = raw_labels if isinstance(raw_labels, list) else []
         score = sum(
-            1
-            for label in labels
-            if isinstance(label, str) and label.lower() in lowered
+            1 for label in labels if isinstance(label, str) and label.lower() in lowered
         )
         scores.append((key, score))
     return scores
@@ -893,6 +1027,23 @@ def _interleaved(bands: list[Any], values: list[Any]) -> list[float]:
     for frequency, value in zip(bands, values):
         result.extend((float(frequency), float(value)))
     return result
+
+
+def _stable_unique_labels(values: Any) -> tuple[list[str], list[str]]:
+    labels = values if isinstance(values, list) else []
+    seen: set[str] = set()
+    retained: list[str] = []
+    removed: list[str] = []
+    for label in labels:
+        if not isinstance(label, str):
+            continue
+        identity = label.casefold()
+        if identity in seen:
+            removed.append(label)
+        else:
+            seen.add(identity)
+            retained.append(label)
+    return retained, removed
 
 
 def compile_materials(
@@ -906,6 +1057,18 @@ def compile_materials(
     material_by_key = {
         material["material_key"]: material for material in database["materials"]
     }
+    native_curves = database.get("schema") == RLR_NATIVE_MATERIAL_DATABASE_SCHEMA
+    matching_materials = (
+        [
+            {
+                **material,
+                "labels": _stable_unique_labels(material["labels"])[0],
+            }
+            for material in database["materials"]
+        ]
+        if native_curves
+        else database["materials"]
+    )
     categories: list[dict[str, Any]] = []
     source_to_id: dict[str, int] = {}
     used_material_keys: set[str] = set()
@@ -918,13 +1081,14 @@ def compile_materials(
                 f"material_key {key!r}"
             )
             continue
-        scores = rlr_match_scores(entry["category_name"], database["materials"])
+        scores = rlr_match_scores(entry["category_name"], matching_materials)
         highest = max(score for _, score in scores)
         winners = sorted(candidate for candidate, score in scores if score == highest)
+        runtime_labels, removed_labels = _stable_unique_labels(
+            intended.get("labels", [])
+        )
         exact_labels = {
-            str(label).lower()
-            for label in intended.get("labels", [])
-            if isinstance(label, str)
+            str(label).lower() for label in runtime_labels if isinstance(label, str)
         }
         if highest <= 0:
             errors.append(
@@ -943,44 +1107,92 @@ def compile_materials(
             )
         source_to_id[entry["source_material_name"]] = entry["material_id"]
         used_material_keys.add(key)
-        categories.append(
-            {
-                "material_id": entry["material_id"],
-                "category_name": entry["category_name"],
-                "source_material_name": entry["source_material_name"],
-                "material_key": key,
-                "rlr_material_name": intended["name"],
-                "mapping_source": entry["mapping_source"],
-                "mapping_confidence": float(entry["mapping_confidence"]),
-                "human_override": entry["human_override"],
-                "randomized": entry["randomized"],
-                "fallback": False,
-                "rlr_match": {
-                    "rule": "greatest_label_substring_match_count",
-                    "score": highest,
-                    "matched_material_key": key,
-                    "tie_count": len(winners),
-                },
+        category = {
+            "material_id": entry["material_id"],
+            "category_name": entry["category_name"],
+            "source_material_name": entry["source_material_name"],
+            "material_key": key,
+            "rlr_material_name": intended["name"],
+            "mapping_source": entry["mapping_source"],
+            "mapping_confidence": float(entry["mapping_confidence"]),
+            "human_override": entry["human_override"],
+            "randomized": entry["randomized"],
+            "fallback": False,
+            "rlr_match": {
+                "rule": "greatest_label_substring_match_count",
+                "score": highest,
+                "matched_material_key": key,
+                "tie_count": len(winners),
+            },
+        }
+        if native_curves:
+            category["rlr_label_normalization"] = {
+                "policy": "stable_case_insensitive_exact_duplicate_removal_v1",
+                "source_label_count": len(intended["labels"]),
+                "runtime_label_count": len(runtime_labels),
+                "removed_exact_duplicates": removed_labels,
             }
-        )
+        categories.append(category)
+
+    runtime_label_owners: dict[str, str] = {}
+    for material in database["materials"]:
+        key = material["material_key"]
+        if key not in used_material_keys:
+            continue
+        runtime_labels, _removed = _stable_unique_labels(material["labels"])
+        for label in runtime_labels:
+            identity = label.casefold()
+            previous = runtime_label_owners.get(identity)
+            if previous is not None and previous != key:
+                errors.append(
+                    f"used RLR label {label!r} is shared by material_key "
+                    f"{previous!r} and {key!r}"
+                )
+            else:
+                runtime_label_owners[identity] = key
     if errors:
         raise MaterialContractError(errors)
 
-    bands = list(database["bands_hz"])
+    bands = [] if native_curves else list(database["bands_hz"])
     rlr_materials: list[dict[str, Any]] = []
     for material in database["materials"]:
         if material["material_key"] not in used_material_keys:
             continue
+        if native_curves:
+            curves = {
+                field: list(material[field])
+                for field in (
+                    "absorption",
+                    "scattering",
+                    "transmission",
+                    "damping",
+                )
+            }
+            density = material["density"]
+            speed = material["speed"]
+        else:
+            curves = {
+                field: _interleaved(bands, material[field])
+                for field in (
+                    "absorption",
+                    "scattering",
+                    "transmission",
+                    "damping",
+                )
+            }
+            density = float(material["density"])
+            speed = float(material["speed"])
         rlr_materials.append(
             {
                 "name": material["name"],
-                "labels": list(material["labels"]),
-                "absorption": _interleaved(bands, material["absorption"]),
-                "scattering": _interleaved(bands, material["scattering"]),
-                "transmission": _interleaved(bands, material["transmission"]),
-                "damping": _interleaved(bands, material["damping"]),
-                "density": float(material["density"]),
-                "speed": float(material["speed"]),
+                "labels": (
+                    _stable_unique_labels(material["labels"])[0]
+                    if native_curves
+                    else list(material["labels"])
+                ),
+                **curves,
+                "density": density,
+                "speed": speed,
             }
         )
     categories_document = {

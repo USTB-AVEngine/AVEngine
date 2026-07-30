@@ -26,6 +26,7 @@ from .room_evaluation import (
     RoomEvaluationError,
     RoomEvaluationPlan,
     build_room_evaluation_plan,
+    build_static_source_trajectory_bank,
     validate_episode_id,
 )
 
@@ -33,5 +34,6 @@ __all__ += [
     "RoomEvaluationError",
     "RoomEvaluationPlan",
     "build_room_evaluation_plan",
+    "build_static_source_trajectory_bank",
     "validate_episode_id",
 ]

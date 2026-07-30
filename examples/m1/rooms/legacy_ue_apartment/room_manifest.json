@@ -1,0 +1,131 @@
+{
+  "schema": "avengine_room_package_v1",
+  "room_id": "legacy_ue_apartment_0000_v1",
+  "room_kind": "legacy_ue_real_surface_export",
+  "geometry_representation": "real_surface_mesh",
+  "coordinate_system": {
+    "handedness": "right",
+    "up_axis": "+Y",
+    "forward_axis": "-Z",
+    "linear_unit": "meter",
+    "quaternion_order": "xyzw"
+  },
+  "scene": {
+    "scene_id_kind": "handle",
+    "scene_id": "legacy_apartment_0000",
+    "dataset_config_path": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/legacy_apartment_0000.scene_dataset_config.json",
+    "navmesh_path": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/navmeshes/legacy_apartment_0000.navmesh",
+    "navmesh_policy": "load_declared",
+    "load_semantic_mesh": false,
+    "enable_physics": true
+  },
+  "assets": [
+    {
+      "role": "render_surface_mesh",
+      "path": "${AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT}/scene.glb",
+      "license": "legacy AVEngine/SPEAR project asset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "ue_export_manifest",
+      "path": "${AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT}/ue_export_manifest.json",
+      "license": "legacy AVEngine/SPEAR project asset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "real_surface_mesh_audit",
+      "path": "${AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT}/mesh_audit.json",
+      "license": "AVEngine generated evidence",
+      "redistribution": "generated_local"
+    },
+    {
+      "role": "legacy_source_map_package",
+      "path": "${AVENGINE_SPEAR_ROOT}/cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/apartment_0000/Maps/apartment_0000.umap",
+      "license": "legacy AVEngine/SPEAR project asset terms",
+      "redistribution": "external_required"
+    },
+    {
+      "role": "scene_dataset_config",
+      "path": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/legacy_apartment_0000.scene_dataset_config.json",
+      "license": "AVEngine generated package",
+      "redistribution": "generated_local"
+    },
+    {
+      "role": "stage_config",
+      "path": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/stages/legacy_apartment_0000.stage_config.json",
+      "license": "AVEngine generated package",
+      "redistribution": "generated_local"
+    },
+    {
+      "role": "scene_instance",
+      "path": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/scenes/legacy_apartment_0000.scene_instance.json",
+      "license": "AVEngine generated package",
+      "redistribution": "generated_local"
+    },
+    {
+      "role": "lighting_config",
+      "path": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/lighting/legacy_apartment_0000.lighting_config.json",
+      "license": "AVEngine generated package",
+      "redistribution": "generated_local"
+    },
+    {
+      "role": "navmesh",
+      "path": "${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT}/visual/navmeshes/legacy_apartment_0000.navmesh",
+      "license": "AVEngine generated package",
+      "redistribution": "generated_local"
+    }
+  ],
+  "semantics": {
+    "interpretation": "The UE stage/background remains semantic id 0; task source identities are injected separately at runtime"
+  },
+  "navigation": {
+    "agent_height_m": 1.5,
+    "agent_radius_m": 0.2,
+    "include_static_objects": false
+  },
+  "openings": [],
+  "connectivity_pairs": [
+    {
+      "pair_id": "legacy_rig_to_source0",
+      "start_m": [-0.7, 0.271, 0.65],
+      "end_m": [-2.88, 0.271, -0.75]
+    },
+    {
+      "pair_id": "legacy_rig_to_source1",
+      "start_m": [-0.7, 0.271, 0.65],
+      "end_m": [1.48, 0.271, 4.36]
+    }
+  ],
+  "ray_checks": [],
+  "acoustics": {
+    "status": "deferred_to_m3",
+    "reason": "The UE real-surface export must be compiled into a profile-bound M3 package before RLR use"
+  },
+  "provenance": {
+    "source": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
+    "source_revision": "UE StaticMesh render-data LOD0 export",
+    "coordinate_conversion": "UE (X,Y,Z) cm -> glTF (X,Z,Y) * 0.01 m",
+    "exported_scene_sha256": "3c0f53d0a46d99cad90b016763d420d53618cfd0ca881851f142db4d91d399b2",
+    "path_binding": "AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT and AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT"
+  },
+  "surface_audit": {
+    "aabb_proxy": false,
+    "all_mesh_nodes_are_simple_boxes": false,
+    "bounds": {
+      "coordinate_space": "glTF world, right-handed, +Y up, metres as encoded",
+      "diagonal": 18.848372026347356,
+      "extent": [11.854355812072754, 4.169458866119385, 14.048166751861572],
+      "max": [5.953448295593262, 4.169458866119385, 7.088130950927734],
+      "min": [-5.900907516479492, -4.2601328852763943e-16, -6.960035800933838]
+    },
+    "material_count": 48,
+    "mesh_count": 118,
+    "mesh_sha256": "3c0f53d0a46d99cad90b016763d420d53618cfd0ca881851f142db4d91d399b2",
+    "method": "Blender evaluated mesh-node audit of UE StaticMesh render-data LOD0; actor bounds are measurements only and never geometry",
+    "minimum_triangles": 1000,
+    "real_surface_gate_status": "pass",
+    "rejects_known_252_triangle_aabb_proxy": true,
+    "triangle_count": 782305,
+    "vertex_count": 463873
+  }
+}

@@ -22,6 +22,7 @@ from avengine.m3.evidence import (
     load_and_verify_compile_evidence,
     verify_compile_evidence,
 )
+from avengine.m3.rlr_material_import import import_rlr_material_database
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -50,20 +51,26 @@ def test_custom_compiler_emits_strict_144_triangle_package(tmp_path: Path) -> No
     assert package.manifest["geometry"]["source_to_canonical"]["reviewed"] is True
     assert all(report["status"] == "pass" for report in package.qa_reports.values())
     assert (
-        package.qa_reports["geometry_report"]["topology"]
-        ["global_nonmanifold_is_inter_object_junction_diagnostic"]
+        package.qa_reports["geometry_report"]["topology"][
+            "global_nonmanifold_is_inter_object_junction_diagnostic"
+        ]
         is True
     )
     assert (
-        package.qa_reports["geometry_report"]["topology"]
-        ["per_object_nonmanifold_edge_count_after_exact_weld"]
+        package.qa_reports["geometry_report"]["topology"][
+            "per_object_nonmanifold_edge_count_after_exact_weld"
+        ]
         == 0
     )
     assert package.qa_reports["ray_leakage"]["declared_check_count"] == 4
-    assert package.qa_reports["ray_leakage"]["rlr_runtime_ray_check_status"] == "not_run"
+    assert (
+        package.qa_reports["ray_leakage"]["rlr_runtime_ray_check_status"] == "not_run"
+    )
 
 
-def test_low_high_compile_evidence_freezes_geometry_and_verifies(tmp_path: Path) -> None:
+def test_low_high_compile_evidence_freezes_geometry_and_verifies(
+    tmp_path: Path,
+) -> None:
     evidence_path = compile_canary_request(REQUEST, tmp_path / "canary")
 
     status, checks = verify_compile_evidence(evidence_path)
@@ -72,8 +79,7 @@ def test_low_high_compile_evidence_freezes_geometry_and_verifies(tmp_path: Path)
     assert status == "pass"
     assert all(check["status"] == "pass" for check in checks)
     assert all(
-        record["identical"]
-        for record in evidence["frozen_variable_proof"].values()
+        record["identical"] for record in evidence["frozen_variable_proof"].values()
     )
     assert evidence["runtime_material_activation"]["status"] == "not_run"
     low = load_and_validate_acoustic_scene_package(
@@ -136,7 +142,11 @@ def test_production_loader_replays_qa_status_not_only_file_hash(tmp_path: Path) 
     manifest["qa"]["material_coverage"]["sha256"] = sha256_file(coverage_path)
     manifest["qa"]["material_coverage"]["byte_size"] = coverage_path.stat().st_size
     manifest["package_content_sha256"] = canonical_json_sha256(
-        {key: value for key, value in manifest.items() if key != "package_content_sha256"}
+        {
+            key: value
+            for key, value in manifest.items()
+            if key != "package_content_sha256"
+        }
     )
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -168,6 +178,73 @@ def test_generic_visual_slot_path_is_explicitly_research_only(tmp_path: Path) ->
     )
     package = load_and_validate_acoustic_scene_package(manifest)
     assert package.manifest["package_mode"] == "research_candidate"
+
+
+def test_rlr_native_v2_compiles_and_replays_independent_curves(
+    tmp_path: Path,
+) -> None:
+    base = json.loads(LOW.read_text(encoding="utf-8"))
+    source_materials = []
+    for index, material in enumerate(base["materials"]):
+        bands = base["bands_hz"]
+        labels = list(material["labels"])
+        if index == 0:
+            labels = ["floor", "floor"]
+        source_materials.append(
+            {
+                "name": material["name"],
+                "labels": labels,
+                "absorption": [
+                    item for pair in zip(bands, material["absorption"]) for item in pair
+                ],
+                "scattering": [
+                    item for pair in zip(bands, material["scattering"]) for item in pair
+                ],
+                "transmission": [
+                    item
+                    for pair in zip(bands, material["transmission"])
+                    for item in pair
+                ],
+                "damping": [22.0, 0.0, 20_000.0, 0.001],
+                "density": material["density"],
+                "speed": material["speed"],
+            }
+        )
+    database = import_rlr_material_database(
+        {"materials": source_materials},
+        database_id="unit_independent_rlr_curves_v2",
+        source_description="unit native RLR fixture; not physically calibrated",
+    )
+    mapping = json.loads(MAPPING.read_text(encoding="utf-8"))
+    for entry, material in zip(mapping["entries"], database["materials"]):
+        entry["material_key"] = material["material_key"]
+    mapping["entries"][0]["category_name"] = "floor"
+    mapping_path = tmp_path / "mapping.json"
+    database_path = tmp_path / "materials_v2.json"
+    _write_json(mapping_path, mapping)
+    _write_json(database_path, database)
+
+    manifest = compile_explicit_glb_research_scene(
+        room_manifest=ROOM,
+        material_mapping=mapping_path,
+        material_database=database_path,
+        output=tmp_path / "rlr_native_package",
+    )
+    package = load_and_validate_acoustic_scene_package(manifest)
+
+    assert package.source_material_database["schema"] == (
+        "avengine_m3_acoustic_material_database_v2"
+    )
+    assert package.source_material_database["materials"][0]["labels"] == [
+        "floor",
+        "floor",
+    ]
+    assert package.rlr_material_database["materials"][0]["labels"] == ["floor"]
+    assert package.material_categories["categories"][0]["rlr_label_normalization"][
+        "removed_exact_duplicates"
+    ] == ["floor"]
+    assert len(package.rlr_material_database["materials"][0]["absorption"]) == 8
+    assert len(package.rlr_material_database["materials"][0]["damping"]) == 4
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -278,7 +355,8 @@ def test_compile_evidence_replays_hash_bound_source_glb(tmp_path: Path) -> None:
 
     assert status == "fail"
     assert any(
-        check["check_id"] in {
+        check["check_id"]
+        in {
             "compile_source_input_contracts",
             "compile_source_glb_to_package_replay",
         }

@@ -24,6 +24,7 @@ class SemanticSceneError(ValueError):
 @dataclass(frozen=True)
 class Mp3dHouseSemantics:
     category_index_to_label: dict[int, str]
+    category_index_to_raw_label: dict[int, str]
     object_id_to_category_index: dict[int, int]
     source_sha256: str
     source_byte_size: int
@@ -44,6 +45,7 @@ class ExpandedSemanticScene:
     source_triangle_count: int
     semantic_categories: tuple[str, ...]
     category_triangle_counts: dict[str, int]
+    raw_semantic_category_labels: tuple[str, ...] = ()
 
 
 _IDENTITY_MATRIX = [
@@ -78,6 +80,7 @@ def parse_mp3d_house_bytes(payload: bytes) -> Mp3dHouseSemantics:
         raise SemanticSceneError(f"MP3D .house descriptor is not UTF-8: {exc}") from exc
 
     categories: dict[int, str] = {}
+    raw_categories: dict[int, str] = {}
     objects: dict[int, int] = {}
     for line_number, line in enumerate(text.splitlines(), start=1):
         fields = line.split()
@@ -94,11 +97,17 @@ def parse_mp3d_house_bytes(payload: bytes) -> Mp3dHouseSemantics:
                 raise SemanticSceneError(
                     f"MP3D .house C record at line {line_number} has invalid index"
                 ) from exc
-            canonical_label = _semantic_label(fields[5])
+            raw_label = fields[5]
+            canonical_label = _semantic_label(raw_label)
             previous = categories.setdefault(category_index, canonical_label)
             if previous != canonical_label:
                 raise SemanticSceneError(
                     f"MP3D category index {category_index} has conflicting labels"
+                )
+            previous_raw = raw_categories.setdefault(category_index, raw_label)
+            if previous_raw != raw_label:
+                raise SemanticSceneError(
+                    f"MP3D category index {category_index} has conflicting raw labels"
                 )
         elif fields[0] == "O":
             if len(fields) < 4:
@@ -123,6 +132,7 @@ def parse_mp3d_house_bytes(payload: bytes) -> Mp3dHouseSemantics:
         raise SemanticSceneError("MP3D .house descriptor contains no O records")
     return Mp3dHouseSemantics(
         category_index_to_label=categories,
+        category_index_to_raw_label=raw_categories,
         object_id_to_category_index=objects,
         source_sha256=hashlib.sha256(payload).hexdigest(),
         source_byte_size=len(payload),
@@ -270,6 +280,7 @@ def load_mp3d_semantic_scene(
 
     unique_object_ids = np.unique(face_object_ids)
     object_label: dict[int, str] = {}
+    canonical_to_raw_label: dict[str, str] = {}
     for value in unique_object_ids:
         object_id = int(value)
         category_index = house.object_id_to_category_index.get(object_id)
@@ -278,7 +289,23 @@ def load_mp3d_semantic_scene(
             if category_index is not None
             else None
         )
-        object_label[object_id] = label or "unknown_object"
+        raw_label = (
+            house.category_index_to_raw_label.get(category_index)
+            if category_index is not None
+            else None
+        )
+        canonical_label = label or "unknown_object"
+        effective_raw_label = raw_label or "unknown_object"
+        previous_raw_label = canonical_to_raw_label.setdefault(
+            canonical_label, effective_raw_label
+        )
+        if previous_raw_label != effective_raw_label:
+            raise SemanticSceneError(
+                "MP3D raw semantic labels collapse to the same canonical "
+                f"category {canonical_label!r}: "
+                f"{previous_raw_label!r}, {effective_raw_label!r}"
+            )
+        object_label[object_id] = canonical_label
     labels = sorted(set(object_label.values()))
     label_to_code = {label: index for index, label in enumerate(labels)}
     face_codes = np.empty(len(face_object_ids), dtype=np.int32)
@@ -344,4 +371,8 @@ def load_mp3d_semantic_scene(
         source_triangle_count=len(source_triangles),
         semantic_categories=tuple(item["source_material_name"] for item in objects),
         category_triangle_counts=category_triangle_counts,
+        raw_semantic_category_labels=tuple(
+            canonical_to_raw_label[item["source_material_name"]]
+            for item in objects
+        ),
     )

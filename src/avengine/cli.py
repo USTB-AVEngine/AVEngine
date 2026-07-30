@@ -15,6 +15,11 @@ from avengine.appearance import (
     generate_l9_batch,
     write_l9_batch_exclusive,
 )
+from avengine.acoustic_profiles import (
+    AcousticProfileError,
+    load_acoustic_profile_registry,
+    load_default_acoustic_profile_registry,
+)
 from avengine.contracts.json_io import file_record, load_json, sha256_file, write_json
 from avengine.m1.contracts import (
     ContractError,
@@ -41,6 +46,7 @@ from avengine.m3.compiler import (
     compile_custom_acoustic_scene,
     compile_explicit_glb_research_scene,
     compile_mp3d_semantic_research_scene,
+    compile_mp3d_soundspaces_research_scene,
     compile_usd_snapshot_semantic_research_scene,
     compile_visual_slot_semantic_research_scene,
     propose_visual_slot_research_materials,
@@ -52,7 +58,17 @@ from avengine.m3.contracts import (
 )
 from avengine.m3.evidence import verify_compile_evidence
 from avengine.m3.materials import MaterialContractError, resolve_material_profile
+from avengine.m3.profiled_compiler import compile_registered_acoustic_scene
 from avengine.m3.qa import automatic_mesh_leakage_report
+from avengine.m3.real_rir_reference import (
+    RealRIRReferenceError,
+    verify_soundspaces2_real_rir_reference,
+)
+from avengine.m3.rlr_material_import import (
+    RLRMaterialImportError,
+    build_rlr_material_import_report,
+    import_rlr_material_database,
+)
 from avengine.m3.runtime import RuntimeUnavailableError
 from avengine.m4.canary import M4CanaryError, run_m4_canary
 from avengine.m4.contracts import (
@@ -63,6 +79,7 @@ from avengine.m4.contracts import (
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
 from avengine.m5.timeline import validate_episode_request
+from avengine.m6.rooms import load_room_registry
 from avengine.m6.canary import (
     M6CanaryError,
     load_controlled_canary_request,
@@ -443,9 +460,7 @@ def _m3_verify_canary(args: argparse.Namespace) -> int:
 def _m3_environment(runtime_root: str | None) -> dict[str, str]:
     environment = dict(os.environ)
     if runtime_root is not None:
-        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(
-            Path(runtime_root).resolve()
-        )
+        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(Path(runtime_root).resolve())
     return environment
 
 
@@ -525,6 +540,37 @@ def _m3_compile_mp3d_semantic(args: argparse.Namespace) -> int:
     return 0
 
 
+def _m3_compile_mp3d_rlr_materials(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        manifest, coverage = compile_mp3d_soundspaces_research_scene(
+            room_manifest=args.room,
+            material_config=args.materials,
+            output=output,
+            database_id=args.database_id,
+            version=args.version,
+            source_description=args.source_description,
+            source_uri=args.source_uri,
+            package_id=args.package_id,
+            probe_origins=args.probe_origin,
+            probe_direction_count=args.probe_directions,
+            environment=_m3_environment(args.runtime_root),
+        )
+    except (AcousticSceneCompileError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "research_candidate",
+            "manifest": str(manifest),
+            "semantic_material_coverage": str(coverage),
+            "material_source": "soundspaces_rlr_native_config",
+            "qualification_claim": False,
+        }
+    )
+    return 0
+
+
 def _m3_compile_usd_snapshot_semantic(args: argparse.Namespace) -> int:
     try:
         output = _require_ignored_or_external_output(args.output)
@@ -575,6 +621,59 @@ def _m3_compile_visual_slots_semantic(args: argparse.Namespace) -> int:
             "status": "research_candidate",
             "manifest": str(manifest),
             "semantic_material_coverage": str(coverage),
+            "qualification_claim": False,
+        }
+    )
+    return 0
+
+
+def _m3_compile_registered_scene(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        environment = _m3_environment(args.runtime_root)
+        acoustic_registry = (
+            load_acoustic_profile_registry(args.acoustic_profile_registry)
+            if args.acoustic_profile_registry is not None
+            else load_default_acoustic_profile_registry()
+        )
+        room_registry = load_room_registry(args.room_registry)
+        result = compile_registered_acoustic_scene(
+            acoustic_registry,
+            room_registry,
+            {
+                "registry_id": room_registry["registry_id"],
+                "room_id": args.room_id,
+                "revision": args.room_revision,
+            },
+            room_manifest=args.room,
+            output=output,
+            repository_root=Path(__file__).resolve().parents[2],
+            environment=environment,
+            seed=args.seed,
+            package_id=args.package_id,
+            probe_origins=args.probe_origin,
+            probe_direction_count=args.probe_directions,
+        )
+        receipt = result.receipt()
+    except (
+        AcousticProfileError,
+        AcousticSceneCompileError,
+        OSError,
+        ValueError,
+    ) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "research_candidate",
+            "manifest": str(result.manifest_path),
+            "semantic_material_coverage": str(result.coverage_path),
+            "compiler_route": result.compiler_route,
+            "room_ref": receipt["room_ref"],
+            "profile_ref": receipt["profile_ref"],
+            "geometry_resource_id": receipt["geometry_resource_id"],
+            "solver_backend_id": receipt["solver_backend_id"],
+            "receipt_content_sha256": receipt["receipt_content_sha256"],
             "qualification_claim": False,
         }
     )
@@ -702,6 +801,117 @@ def _m3_resolve_materials(args: argparse.Namespace) -> int:
             "mapping": str(destination / "mapping.json"),
             "materials": str(destination / "materials.json"),
             "resolution_report": str(destination / "resolution_report.json"),
+        }
+    )
+    return 0
+
+
+def _m3_verify_soundspaces_reference(args: argparse.Namespace) -> int:
+    """Bind and reproduce the public SoundSpaces 2 real-RIR summary."""
+
+    staging: Path | None = None
+    try:
+        destination = _require_ignored_or_external_output(args.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            raise ValueError(f"refusing to replace existing output: {destination}")
+        report = verify_soundspaces2_real_rir_reference(args.reference_root)
+        staging = Path(
+            tempfile.mkdtemp(
+                prefix=f".{destination.name}.staging-", dir=destination.parent
+            )
+        ).resolve()
+        staged_report = staging / "report.json"
+        write_json(staged_report, report)
+        os.link(staged_report, destination)
+        shutil.rmtree(staging, ignore_errors=True)
+        staging = None
+    except (OSError, RealRIRReferenceError, ValueError) as error:
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "pass",
+            "report": str(destination),
+            "reference_verified": report["reference_verified"],
+            "pinned_snapshot_identity_verified": report[
+                "pinned_snapshot_identity_verified"
+            ],
+            "published_summary_reproduced": report["published_summary_reproduced"],
+            "qualification_claim": report["qualification_claim"],
+            "coordinate_binding": report["coordinate_binding"],
+            "computed_summary": report["computed_summary"],
+        }
+    )
+    return 0
+
+
+def _m3_import_rlr_materials(args: argparse.Namespace) -> int:
+    """Import an upstream RLR database without resampling its curves."""
+
+    destination: Path | None = None
+    staging: Path | None = None
+    try:
+        destination = _require_ignored_or_external_output(args.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            raise ValueError(f"refusing to replace existing output: {destination}")
+
+        source_snapshot = read_immutable_file_snapshot(args.source)
+        source = json.loads(source_snapshot.payload)
+        if not isinstance(source, dict):
+            raise ValueError("RLR material source must be a JSON object")
+        database = import_rlr_material_database(
+            source,
+            database_id=args.database_id,
+            version=args.version,
+            source_description=args.source_description,
+        )
+
+        staging = Path(
+            tempfile.mkdtemp(
+                prefix=f".{destination.name}.staging-", dir=destination.parent
+            )
+        ).resolve()
+        materials_path = staging / "materials.json"
+        report_path = staging / "import_report.json"
+        write_json(materials_path, database)
+        report = build_rlr_material_import_report(
+            source_snapshot.path,
+            database,
+            output_path=materials_path,
+            source_uri=args.source_uri,
+        )
+        if (
+            report["source"]["byte_size"] != source_snapshot.byte_size
+            or report["source"]["sha256"] != source_snapshot.sha256
+        ):
+            raise ValueError("RLR material source changed during import")
+        report["output"]["path"] = "materials.json"
+        write_json(report_path, report)
+        os.rename(staging, destination)
+        staging = None
+    except (
+        json.JSONDecodeError,
+        OSError,
+        RLRMaterialImportError,
+        ValueError,
+    ) as error:
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+        _print({"status": "fail", "error": str(error)})
+        return 2
+
+    _print(
+        {
+            "status": "pass",
+            "materials": str(destination / "materials.json"),
+            "import_report": str(destination / "import_report.json"),
+            "material_count": report["statistics"]["material_count"],
+            "preserved_exactly": report["roundtrip"]["preserved_exactly"],
+            "frl_measurement_fitted": report["claims"]["frl_measurement_fitted"],
         }
     )
     return 0
@@ -1051,6 +1261,36 @@ def build_parser() -> argparse.ArgumentParser:
     m3_semantic.add_argument("--package-id")
     m3_semantic.set_defaults(handler=_m3_compile_mp3d_semantic)
 
+    m3_soundspaces = m3_commands.add_parser(
+        "compile-mp3d-rlr-materials",
+        help=(
+            "Compile MP3D semantic PLY/.house geometry by replaying official "
+            "RLR label matching over native SoundSpaces material curves"
+        ),
+    )
+    m3_soundspaces.add_argument("--room", required=True)
+    m3_soundspaces.add_argument("--materials", required=True)
+    m3_soundspaces.add_argument("--database-id", required=True)
+    m3_soundspaces.add_argument("--version", default="1")
+    m3_soundspaces.add_argument("--source-description", required=True)
+    m3_soundspaces.add_argument("--source-uri")
+    m3_soundspaces.add_argument("--runtime-root")
+    m3_soundspaces.add_argument(
+        "--probe-origin",
+        nargs=3,
+        type=float,
+        action="append",
+        metavar=("X", "Y", "Z"),
+        help=(
+            "Canonical interior point for automatic enclosure probes; may be "
+            "repeated. Defaults to up to two room connectivity anchors."
+        ),
+    )
+    m3_soundspaces.add_argument("--probe-directions", type=int, default=32)
+    m3_soundspaces.add_argument("--output", required=True)
+    m3_soundspaces.add_argument("--package-id")
+    m3_soundspaces.set_defaults(handler=_m3_compile_mp3d_rlr_materials)
+
     m3_usd_semantic = m3_commands.add_parser(
         "compile-usd-snapshot-semantic",
         help=(
@@ -1076,9 +1316,7 @@ def build_parser() -> argparse.ArgumentParser:
     m3_usd_semantic.add_argument("--probe-directions", type=int, default=32)
     m3_usd_semantic.add_argument("--output", required=True)
     m3_usd_semantic.add_argument("--package-id")
-    m3_usd_semantic.set_defaults(
-        handler=_m3_compile_usd_snapshot_semantic
-    )
+    m3_usd_semantic.set_defaults(handler=_m3_compile_usd_snapshot_semantic)
 
     m3_slots_semantic = m3_commands.add_parser(
         "compile-visual-slots-semantic",
@@ -1120,6 +1358,47 @@ def build_parser() -> argparse.ArgumentParser:
     m3_slots_semantic.add_argument("--package-id")
     m3_slots_semantic.set_defaults(handler=_m3_compile_visual_slots_semantic)
 
+    m3_registered = m3_commands.add_parser(
+        "compile-registered-scene",
+        help=(
+            "Select a SoundSpaces, Habitat, or SPEAR/UE acoustic profile from "
+            "an exact room identity and compile the common RLR scene package"
+        ),
+    )
+    m3_registered.add_argument("--room", required=True)
+    m3_registered.add_argument("--room-id", required=True)
+    m3_registered.add_argument("--room-revision", required=True)
+    m3_registered.add_argument(
+        "--room-registry",
+        type=Path,
+        default=(
+            Path(__file__).resolve().parents[2]
+            / "examples/m6/rooms/room_registry.json"
+        ),
+    )
+    m3_registered.add_argument(
+        "--acoustic-profile-registry",
+        type=Path,
+        help="Override the installed/default acoustic profile registry",
+    )
+    m3_registered.add_argument("--seed", type=int, default=917)
+    m3_registered.add_argument("--runtime-root")
+    m3_registered.add_argument(
+        "--probe-origin",
+        nargs=3,
+        type=float,
+        action="append",
+        metavar=("X", "Y", "Z"),
+        help=(
+            "Canonical interior point for automatic enclosure probes; may be "
+            "repeated. Defaults to room connectivity anchors."
+        ),
+    )
+    m3_registered.add_argument("--probe-directions", type=int, default=32)
+    m3_registered.add_argument("--output", required=True)
+    m3_registered.add_argument("--package-id")
+    m3_registered.set_defaults(handler=_m3_compile_registered_scene)
+
     m3_leakage = m3_commands.add_parser(
         "inspect-mesh-leakage",
         help="Run automatic interior-ray leakage diagnostics on an existing package",
@@ -1149,6 +1428,26 @@ def build_parser() -> argparse.ArgumentParser:
     m3_resolve.add_argument("--output", required=True)
     m3_resolve.set_defaults(handler=_m3_resolve_materials)
 
+    m3_reference = m3_commands.add_parser(
+        "verify-soundspaces-reference",
+        help="Verify the published SoundSpaces 2 seven-RIR comparison bundle",
+    )
+    m3_reference.add_argument("--reference-root", required=True)
+    m3_reference.add_argument("--output", required=True)
+    m3_reference.set_defaults(handler=_m3_verify_soundspaces_reference)
+
+    m3_import_rlr = m3_commands.add_parser(
+        "import-rlr-materials",
+        help="Import an upstream RLR material database without interpolation",
+    )
+    m3_import_rlr.add_argument("--source", required=True)
+    m3_import_rlr.add_argument("--database-id", required=True)
+    m3_import_rlr.add_argument("--version", default="1")
+    m3_import_rlr.add_argument("--source-description", required=True)
+    m3_import_rlr.add_argument("--source-uri")
+    m3_import_rlr.add_argument("--output", required=True)
+    m3_import_rlr.set_defaults(handler=_m3_import_rlr_materials)
+
     m4 = commands.add_parser("m4", help="M4 named multi-source spatial-audio commands")
     m4_commands = m4.add_subparsers(dest="m4_command", required=True)
 
@@ -1167,9 +1466,7 @@ def build_parser() -> argparse.ArgumentParser:
     m4_run.add_argument(
         "--hrtf", default="/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
     )
-    m4_run.add_argument(
-        "--hrtf-license", default="/usr/share/doc/libmysofa1/copyright"
-    )
+    m4_run.add_argument("--hrtf-license", default="/usr/share/doc/libmysofa1/copyright")
     m4_run.add_argument("--output", required=True)
     m4_run.set_defaults(handler=_m4_run_canary)
 
@@ -1202,9 +1499,7 @@ def build_parser() -> argparse.ArgumentParser:
     m5_run.add_argument(
         "--hrtf", default="/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
     )
-    m5_run.add_argument(
-        "--hrtf-license", default="/usr/share/doc/libmysofa1/copyright"
-    )
+    m5_run.add_argument("--hrtf-license", default="/usr/share/doc/libmysofa1/copyright")
     m5_run.add_argument("--beagle-dry", required=True)
     m5_run.add_argument("--golden-dry", required=True)
     m5_run.add_argument(

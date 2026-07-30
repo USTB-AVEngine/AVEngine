@@ -16,8 +16,10 @@ from copy import deepcopy
 import json
 import math
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
+from avengine.contracts.json_io import canonical_json_sha256
 from avengine.optional_backends.spear_visual import (
     BACKEND_ROLE,
     FRAME_COUNT,
@@ -80,7 +82,33 @@ COMPONENT_FRAME_DELTA_SCHEMA = "avengine_spear_component_frame_delta_v1"
 LIGHTING_PROFILE_SCHEMA = "avengine_optional_spear_apartment_lighting_profiles_v1"
 ASSET_BOUND_EPISODE_BINDING_SCHEMA = "avengine_m7_asset_bound_apartment_episode_binding_v1"
 EXACT_ASSET_BOUND_RUNTIME_BINDING_SCHEMA = "avengine_exact_asset_bound_runtime_binding_v1"
+ASSET_BOUND_BUNDLE_SCHEMA = "avengine_m7_asset_bound_apartment_ue_input_bundle_v1"
+ACOUSTIC_SELECTION_BINDING_SCHEMA = (
+    "avengine_rir_cache_acoustic_selection_binding_v1"
+)
+ACOUSTIC_VISUAL_IDENTITY_SCHEMA = (
+    "avengine_spear_acoustic_visual_runtime_identity_v1"
+)
 _ASSET_BOUND_SOURCE_SLOTS = ("source1", "source2")
+_ROOM_REF_FIELDS = frozenset({"registry_id", "room_id", "revision"})
+_ACOUSTIC_SELECTION_FIELDS = frozenset(
+    {
+        "schema",
+        "selection_mode",
+        "registry_selection_applied",
+        "room_ref",
+        "profile_ref",
+        "binding_id",
+        "registry_selection_content_sha256",
+        "effective_selection_content_sha256",
+        "acoustic_package_manifest_sha256",
+        "simulation_request_sha256",
+        "input_receipt_sha256",
+        "binding_content_sha256",
+    }
+)
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_UNSPECIFIED_ACOUSTIC_BINDING_SHA256 = object()
 
 
 NATIVE_LIGHTING_PROFILE: Mapping[str, Any] = {
@@ -135,6 +163,21 @@ class SpearApartmentError(ValueError):
     """The native Apartment comparison cannot preserve its authority boundary."""
 
 
+def _validated_room_ref(value: Any, *, owner: str) -> dict[str, str]:
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != _ROOM_REF_FIELDS
+        or any(
+            not isinstance(value.get(key), str) or not value[key].strip()
+            for key in _ROOM_REF_FIELDS
+        )
+    ):
+        raise SpearApartmentError(
+            f"{owner} must be an exact registry_id/room_id/revision reference"
+        )
+    return {key: str(value[key]) for key in ("registry_id", "room_id", "revision")}
+
+
 def _validated_room_runtime_profile(
     profile: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -173,10 +216,11 @@ def _validated_room_runtime_profile(
         raise SpearApartmentError(
             "spear_apartment_v1 room profile changed its fixed render transport"
         )
+    validated_room_ref = _validated_room_ref(
+        room_ref, owner="room runtime profile room_ref"
+    )
     for owner, value in (
         ("profile_id", profile.get("profile_id")),
-        ("room_id", room_ref.get("room_id")),
-        ("room revision", room_ref.get("revision")),
         ("scene_id", scene.get("scene_id")),
         ("map_path", scene.get("map_path")),
     ):
@@ -184,7 +228,9 @@ def _validated_room_runtime_profile(
             raise SpearApartmentError(f"room runtime profile {owner} is invalid")
     if not str(scene["map_path"]).startswith("/Game/"):
         raise SpearApartmentError("room runtime map path must start with /Game/")
-    return deepcopy(dict(profile))
+    result = deepcopy(dict(profile))
+    result["room_ref"] = validated_room_ref
+    return result
 
 
 def _finite_scalar(value: Any, *, owner: str) -> float:
@@ -730,12 +776,220 @@ def asset_bound_episode_input_paths(
     return paths
 
 
+def _load_asset_bound_bundle_manifest(root: Path) -> dict[str, Any]:
+    manifest_path = root / "manifest.json"
+    try:
+        value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SpearApartmentError(
+            f"could not read asset-bound bundle manifest: {manifest_path}"
+        ) from exc
+    if not isinstance(value, dict):
+        raise SpearApartmentError(
+            "asset-bound bundle manifest must be a JSON object"
+        )
+    return value
+
+
+def asset_bound_bundle_acoustic_visual_identity(
+    bundle_root: str | Path,
+    *,
+    room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
+) -> dict[str, Any]:
+    """Close the bundle's acoustic/visual identity against the UE room.
+
+    Registry-selected acoustics are verified only when the canonical binding,
+    the visual RoomCapsule identity, and the selected SPEAR runtime room are
+    exactly equal. Explicit legacy modes remain usable for compatibility, but
+    are deliberately recorded as ``not_verified`` and receive no inferred
+    acoustic room identity.
+    """
+
+    root = Path(bundle_root).resolve()
+    if not root.is_dir():
+        raise SpearApartmentError(f"bundle root is missing: {root}")
+    manifest = _load_asset_bound_bundle_manifest(root)
+    if (
+        manifest.get("schema") != ASSET_BOUND_BUNDLE_SCHEMA
+        or manifest.get("status") != "pass"
+    ):
+        raise SpearApartmentError(
+            "asset-bound bundle manifest identity/status is invalid"
+        )
+
+    room_profile = _validated_room_runtime_profile(room_runtime_profile)
+    runtime_room_ref = _validated_room_ref(
+        room_profile["room_ref"], owner="selected runtime room_ref"
+    )
+    visual_room_ref = _validated_room_ref(
+        manifest.get("visual_room_ref"), owner="bundle visual_room_ref"
+    )
+    if visual_room_ref != runtime_room_ref:
+        raise SpearApartmentError(
+            "bundle visual_room_ref differs from the selected runtime room_ref"
+        )
+
+    raw_binding = manifest.get("acoustic_selection_binding")
+    if (
+        not isinstance(raw_binding, Mapping)
+        or set(raw_binding) != _ACOUSTIC_SELECTION_FIELDS
+        or raw_binding.get("schema") != ACOUSTIC_SELECTION_BINDING_SCHEMA
+    ):
+        raise SpearApartmentError(
+            "bundle acoustic_selection_binding is invalid"
+        )
+    binding = deepcopy(dict(raw_binding))
+    mode = binding.get("selection_mode")
+    binding_sha256 = binding.get("binding_content_sha256")
+    acoustic_room_ref: dict[str, str] | None
+    verification_status: str
+    status: str
+    compatibility: str | None
+
+    if mode == "explicit_legacy_unbound":
+        if (
+            binding_sha256 is not None
+            or binding.get("registry_selection_applied") is not False
+            or binding.get("room_ref") is not None
+            or binding.get("profile_ref") is not None
+            or binding.get("binding_id") is not None
+        ):
+            raise SpearApartmentError(
+                "legacy unbound acoustic selection fabricated an identity"
+            )
+        acoustic_room_ref = None
+        verification_status = "not_verified"
+        status = "not_verified"
+        compatibility = "legacy_acoustic_selection_without_room_ref"
+    else:
+        if (
+            mode
+            not in {
+                "explicit_legacy",
+                "registry",
+                "registry_with_verified_equivalent_overrides",
+            }
+            or not isinstance(binding_sha256, str)
+            or _SHA256_RE.fullmatch(binding_sha256) is None
+            or canonical_json_sha256(
+                {
+                    key: item
+                    for key, item in binding.items()
+                    if key != "binding_content_sha256"
+                }
+            )
+            != binding_sha256
+        ):
+            raise SpearApartmentError(
+                "bundle acoustic selection binding hash is invalid"
+            )
+        if mode == "explicit_legacy":
+            if (
+                binding.get("registry_selection_applied") is not False
+                or binding.get("room_ref") is not None
+                or binding.get("profile_ref") is not None
+                or binding.get("binding_id") is not None
+            ):
+                raise SpearApartmentError(
+                    "explicit legacy acoustic selection contains a registry identity"
+                )
+            acoustic_room_ref = None
+            verification_status = "not_verified"
+            status = "not_verified"
+            compatibility = "legacy_acoustic_selection_without_room_ref"
+        else:
+            profile_ref = binding.get("profile_ref")
+            if (
+                binding.get("registry_selection_applied") is not True
+                or not isinstance(profile_ref, Mapping)
+                or set(profile_ref) != {"profile_id", "revision"}
+                or any(
+                    not isinstance(profile_ref.get(key), str)
+                    or not profile_ref[key].strip()
+                    for key in ("profile_id", "revision")
+                )
+                or not isinstance(binding.get("binding_id"), str)
+                or not binding["binding_id"].strip()
+            ):
+                raise SpearApartmentError(
+                    "registry acoustic selection lacks its exact profile binding"
+                )
+            acoustic_room_ref = _validated_room_ref(
+                binding.get("room_ref"),
+                owner="acoustic selection room_ref",
+            )
+            if acoustic_room_ref != visual_room_ref:
+                raise SpearApartmentError(
+                    "acoustic selection room_ref differs from visual/runtime room_ref"
+                )
+            verification_status = "verified"
+            status = "pass"
+            compatibility = None
+
+    alignment = manifest.get("acoustic_visual_room_alignment")
+    if not isinstance(alignment, Mapping):
+        raise SpearApartmentError(
+            "bundle lacks acoustic/visual room alignment evidence"
+        )
+    alignment_visual_room_ref = _validated_room_ref(
+        alignment.get("visual_room_ref"),
+        owner="acoustic/visual alignment visual_room_ref",
+    )
+    if alignment_visual_room_ref != visual_room_ref:
+        raise SpearApartmentError(
+            "bundle acoustic/visual alignment changed visual_room_ref"
+        )
+    if acoustic_room_ref is None:
+        if (
+            alignment.get("status") != "not_verified"
+            or alignment.get("acoustic_room_ref") is not None
+            or alignment.get("compatibility")
+            != "legacy_acoustic_selection_without_room_ref"
+        ):
+            raise SpearApartmentError(
+                "legacy acoustic/visual alignment fabricated a pass"
+            )
+    else:
+        alignment_acoustic_room_ref = _validated_room_ref(
+            alignment.get("acoustic_room_ref"),
+            owner="acoustic/visual alignment acoustic_room_ref",
+        )
+        if (
+            alignment.get("status") != "pass"
+            or alignment.get("compatibility") is not None
+            or alignment_acoustic_room_ref != acoustic_room_ref
+        ):
+            raise SpearApartmentError(
+                "bundle acoustic/visual alignment differs from the binding"
+            )
+
+    return {
+        "schema": ACOUSTIC_VISUAL_IDENTITY_SCHEMA,
+        "status": status,
+        "verification_status": verification_status,
+        "selection_mode": mode,
+        "compatibility": compatibility,
+        "acoustic_selection_binding_sha256": binding_sha256,
+        "binding_id": binding.get("binding_id"),
+        "profile_ref": deepcopy(binding.get("profile_ref")),
+        "visual_room_ref": visual_room_ref,
+        "acoustic_room_ref": acoustic_room_ref,
+        "runtime_room_ref": runtime_room_ref,
+        "runtime_profile_id": room_profile["profile_id"],
+        "runtime_map_id": room_profile["scene"]["scene_id"],
+        "runtime_map_path": room_profile["scene"]["map_path"],
+    }
+
+
 def _attach_exact_asset_bound_runtime_bindings(
     *,
     plan: dict[str, Any],
     scenario_id: str,
     batch_binding_path: Path,
     actor_bindings: Mapping[str, Mapping[str, Any]],
+    expected_acoustic_selection_binding_sha256: Any = (
+        _UNSPECIFIED_ACOUSTIC_BINDING_SHA256
+    ),
 ) -> None:
     """Attach exact snapshots when present; keep legacy batch bindings valid."""
 
@@ -751,6 +1005,18 @@ def _attach_exact_asset_bound_runtime_bindings(
     ):
         raise SpearApartmentError(
             "asset-bound batch binding identity/status is invalid"
+        )
+    if (
+        expected_acoustic_selection_binding_sha256
+        is not _UNSPECIFIED_ACOUSTIC_BINDING_SHA256
+        and (
+            "acoustic_selection_binding_sha256" not in batch
+            or batch.get("acoustic_selection_binding_sha256")
+            != expected_acoustic_selection_binding_sha256
+        )
+    ):
+        raise SpearApartmentError(
+            "episode acoustic selection binding SHA differs from its bundle"
         )
     selected_assets = batch.get("asset_ids_by_source_slot")
     if not isinstance(selected_assets, Mapping) or set(selected_assets) != set(
@@ -1104,6 +1370,7 @@ def _build_native_apartment_scenario_from_paths(
     actor_bindings: Mapping[str, Mapping[str, Any]],
     lighting_profile: Mapping[str, Any],
     room_runtime_profile: Mapping[str, Any],
+    acoustic_visual_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile a resolved Apartment input closure into one UE execution record."""
 
@@ -1117,6 +1384,21 @@ def _build_native_apartment_scenario_from_paths(
         sensor_rig_trajectory_path=paths.get("sensor_rig_trajectory"),
     )
     room_profile = _validated_room_runtime_profile(room_runtime_profile)
+    if acoustic_visual_identity is not None and (
+        acoustic_visual_identity.get("runtime_room_ref")
+        != room_profile["room_ref"]
+        or acoustic_visual_identity.get("visual_room_ref")
+        != room_profile["room_ref"]
+        or acoustic_visual_identity.get("runtime_profile_id")
+        != room_profile["profile_id"]
+        or acoustic_visual_identity.get("runtime_map_id")
+        != room_profile["scene"]["scene_id"]
+        or acoustic_visual_identity.get("runtime_map_path")
+        != room_profile["scene"]["map_path"]
+    ):
+        raise SpearApartmentError(
+            "asset-bound acoustic/visual identity differs from the native scene"
+        )
     _validate_native_plan(
         plan,
         scenario_id=scenario_id,
@@ -1142,17 +1424,26 @@ def _build_native_apartment_scenario_from_paths(
         if basis_bones is not None:
             actor["ue_anatomical_basis_bones"] = basis_bones
     if "batch_binding" in paths:
+        attach_arguments: dict[str, Any] = {
+            "plan": plan,
+            "scenario_id": scenario_id,
+            "batch_binding_path": paths["batch_binding"],
+            "actor_bindings": actor_bindings,
+        }
+        if acoustic_visual_identity is not None:
+            attach_arguments["expected_acoustic_selection_binding_sha256"] = (
+                acoustic_visual_identity.get(
+                    "acoustic_selection_binding_sha256"
+                )
+            )
         _attach_exact_asset_bound_runtime_bindings(
-            plan=plan,
-            scenario_id=scenario_id,
-            batch_binding_path=paths["batch_binding"],
-            actor_bindings=actor_bindings,
+            **attach_arguments,
         )
     lighting = deepcopy(dict(lighting_profile))
     generated_lights = lighting.get("generated_lights")
     if not isinstance(generated_lights, list):
         raise SpearApartmentError("resolved lighting profile lacks generated_lights")
-    return {
+    scenario = {
         "schema": SCENARIO_SCHEMA,
         "scenario_id": scenario_id,
         "scenario_directory": scenario_directory,
@@ -1200,6 +1491,11 @@ def _build_native_apartment_scenario_from_paths(
         },
         "plan": plan,
     }
+    if acoustic_visual_identity is not None:
+        scenario["acoustic_visual_identity"] = deepcopy(
+            dict(acoustic_visual_identity)
+        )
+    return scenario
 
 
 def build_native_apartment_scenario(
@@ -1263,6 +1559,10 @@ def build_native_apartment_asset_bound_scenario(
     """Compile one generic M7 source1/source2 episode for native UE pixels."""
 
     root = Path(bundle_root).resolve()
+    acoustic_visual_identity = asset_bound_bundle_acoustic_visual_identity(
+        root,
+        room_runtime_profile=room_runtime_profile,
+    )
     paths = asset_bound_episode_input_paths(root, episode_id)
     return _build_native_apartment_scenario_from_paths(
         root=root,
@@ -1273,6 +1573,7 @@ def build_native_apartment_asset_bound_scenario(
         actor_bindings=actor_bindings,
         lighting_profile=lighting_profile,
         room_runtime_profile=room_runtime_profile,
+        acoustic_visual_identity=acoustic_visual_identity,
     )
 
 
@@ -1381,22 +1682,33 @@ def build_native_apartment_asset_bound_suite(
         selected = tuple(scenario_ids)
     if not selected or len(selected) != len(set(selected)):
         raise SpearApartmentError("scenario selection must be nonempty and unique")
-    scenarios = [
-        build_native_apartment_asset_bound_scenario(
-            root,
-            episode_id,
-            actor_bindings=actor_bindings,
-            lighting_profile=lighting_profile,
-            room_runtime_profile=room_runtime_profile,
+    acoustic_visual_identity = asset_bound_bundle_acoustic_visual_identity(
+        root,
+        room_runtime_profile=room_runtime_profile,
+    )
+    scenarios = []
+    for episode_id in selected:
+        paths = asset_bound_episode_input_paths(root, episode_id)
+        scenarios.append(
+            _build_native_apartment_scenario_from_paths(
+                root=root,
+                scenario_id=episode_id,
+                scenario_directory=episode_id,
+                variant_id="A",
+                paths=paths,
+                actor_bindings=actor_bindings,
+                lighting_profile=lighting_profile,
+                room_runtime_profile=room_runtime_profile,
+                acoustic_visual_identity=acoustic_visual_identity,
+            )
         )
-        for episode_id in selected
-    ]
     return {
         "schema": SUITE_SCHEMA,
         "backend_role": BACKEND_ROLE,
         "room_runtime_profile": deepcopy(dict(room_runtime_profile)),
         "native_map": room_runtime_profile["scene"]["map_path"],
         "lighting_profile": deepcopy(dict(lighting_profile)),
+        "acoustic_visual_identity": deepcopy(acoustic_visual_identity),
         "authority": {
             "habitat_native": [
                 "Timeline_v2",
@@ -2081,6 +2393,7 @@ def detached_suite_copy(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
+    "ACOUSTIC_VISUAL_IDENTITY_SCHEMA",
     "ANATOMICAL_FORWARD_TOLERANCE_DEGREES",
     "ANIMATION_TOLERANCE_SECONDS",
     "BACKEND_ROLE",
@@ -2107,6 +2420,8 @@ __all__ = [
     "anatomical_basis_bones_for_asset",
     "animation_position_seconds",
     "apply_ue_component_frame_delta",
+    "asset_bound_bundle_acoustic_visual_identity",
+    "asset_bound_bundle_episode_ids",
     "build_clean_binaural_mux_command",
     "build_native_apartment_scenario",
     "build_native_apartment_suite",
