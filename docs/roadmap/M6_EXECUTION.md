@@ -28,6 +28,10 @@ export AVENGINE_EVIDENCE_ROOT="$(pwd)/tmp"
 # Optional room datasets. There are no private-server defaults.
 export AVENGINE_REPLICACAD_ROOT=/path/to/replica_cad
 export AVENGINE_MP3D_PROXY_V2_ROOT=/path/to/materialized/mp3d_proxy_v2
+
+# Optional legacy UE Apartment source and generated package roots.
+export AVENGINE_UNREAL_ENGINE_ROOT=/path/to/UnrealEngine-5.5
+export AVENGINE_SPEAR_ROOT=/path/to/pinned/spear
 export AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT=/path/to/legacy-apartment-export
 export AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT=/path/to/legacy-apartment-package
 ```

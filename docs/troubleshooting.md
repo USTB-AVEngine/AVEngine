@@ -211,6 +211,40 @@ readlink -f tmp
 如果它不属于当前协作者的个人输出目录，停止操作并确认归属。禁止直接
 覆盖、删除或重新链接未知 `tmp`。
 
+## `legacy_source_map_package` 或 SPEAR Git 读取失败
+
+先区分任务边界。只渲染已有 GLB 的 render-only consumer 不需要
+`.umap`、SPEAR 或 UE；正式 M1 package/capture/evidence 则故意要求
+固定的 SPEAR 来源，不能靠删除 `legacy_source_map_package` 放宽。
+
+在 `48g-jump` 上按只读方式使用公共来源：
+
+```bash
+export AVENGINE_SPEAR_ROOT=/data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632
+export AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT=/data/datasets/avengine_workspaces/shared/legacy_apartment_0000_v2
+
+git config --global --add safe.directory \
+  /data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632
+```
+
+共享目录权限可能允许组内写入，但消费者不得修改这个固定 checkout；
+需要 UE 写入或重导出时，应使用个人完整 clone。
+
+检查时应确认：
+
+```bash
+git -C "${AVENGINE_SPEAR_ROOT}" rev-parse HEAD
+git -C "${AVENGINE_SPEAR_ROOT}" status --porcelain --untracked-files=no
+git -C "${AVENGINE_SPEAR_ROOT}" ls-files --error-unmatch -- \
+  cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/apartment_0000/Maps/apartment_0000.umap
+```
+
+HEAD 必须是 `7fbf3632fdb63cc2eceea564811c9597cabfb199`，tracked
+worktree 必须为空。不要把 `AVENGINE_SPEAR_ROOT` 指向
+`/data/UE_5.5`；后者只是 UE 引擎根目录。其他机器应独立 clone SPEAR
+并设置同一个环境变量。详见
+[`M1_EXECUTION.md`](roadmap/M1_EXECUTION.md)。
+
 ## UE、SPEAR、Blender 或生成模型问题
 
 这些不是默认构建依赖。先确认任务是否真的需要可选后端：

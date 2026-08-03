@@ -4,6 +4,29 @@ This file records the immutable starting points for the Habitat-native
 migration. It is an inventory pointer, not a claim that every legacy artifact
 is production-ready.
 
+## Current portable Apartment consumer pointers
+
+The following `48g-jump` paths are the current shared handoff. They are
+consumer locators, not replacements for the immutable producer history below:
+
+- Unreal Engine 5.5 root: `/data/UE_5.5`
+- Pinned sparse SPEAR checkout:
+  `/data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632`
+- Legacy Apartment export:
+  `/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m1/legacy_apartment_export`
+- Regenerated portable package:
+  `/data/datasets/avengine_workspaces/shared/legacy_apartment_0000_v2`
+
+SPEAR is an independent Git repository pinned to
+`7fbf3632fdb63cc2eceea564811c9597cabfb199`. Consumers locate it with
+`AVENGINE_SPEAR_ROOT` and verify the tracked repository-relative map path and
+hash; they do not require the producer's `/data/jzy/...` checkout. The shared
+sparse checkout must be treated as read-only even if group permissions allow
+writes. Re-exporting requires a contributor-owned full clone. The public
+package uses environment-variable locators and contains no `/data/jzy` path.
+Historical absolute paths below remain evidence of where older artifacts were
+produced and must not be rewritten as current consumer requirements.
+
 ## AVEngine main repository
 
 - Local legacy worktree: `/data/jzy/code/AVEngine`

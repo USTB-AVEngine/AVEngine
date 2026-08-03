@@ -1,6 +1,6 @@
 # AVEngine Habitat-native bootstrap manifest.
-# This file intentionally contains no SPEAR, UE, gpuRIR or generative-model
-# dependency. Historical backends require the explicit legacy_optional profile.
+# Legacy repositories are declared for reproducibility but are never installed
+# by the default Habitat-native bootstrap.
 
 schema: avengine_bootstrap_manifest_v2
 version: 2
@@ -21,6 +21,14 @@ repositories:
     rlr_commit: 4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
     install_by_default: false
     reason: native builds are a separate test layer; fast bootstrap only validates the checkout when present
+  spear_legacy:
+    role: pinned_legacy_ue_source_checkout
+    url: https://github.com/Eastforward/spear.git
+    default_path: external/SPEAR
+    environment_override: AVENGINE_SPEAR_ROOT
+    commit: 7fbf3632fdb63cc2eceea564811c9597cabfb199
+    install_by_default: false
+    reason: required only to re-export or verify formal provenance for the legacy UE apartment
 
 python:
   requires: ">=3.10"
@@ -36,6 +44,7 @@ profiles:
   legacy_optional:
     default: false
     explicit_opt_in_required: true
+    repositories: [avengine, habitat_runtime, spear_legacy]
     documentation: docs/legacy/OPTIONAL_BACKENDS.md
     automatic_backends: []
     note: Historical UE, SPEAR, gpuRIR and generative-asset dependencies are never installed by the current setup script.

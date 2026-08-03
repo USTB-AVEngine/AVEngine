@@ -155,9 +155,11 @@ test "${CONDA_PREFIX}" = "${AVENGINE_ENV_PREFIX}"
 | --- | --- | --- |
 | `Eastforward/AVEngine` | 任务、时间线、资产/房间配置、音频组装、质量检查、命令行 | `main` |
 | `Eastforward/habitat-sim-AVEngine` | Habitat 原生视觉、动作和 RLR 适配 | `feature/m6-release-state` |
+| `Eastforward/spear` | 可选的 UE 控制、`SpearSim` 项目和 Apartment 来源 | `7fbf3632fdb63cc2eceea564811c9597cabfb199`，仅 `legacy_optional` |
 
 RLR Audio Propagation 已经是 Habitat 派生仓库的递归子模块，不要单独
-克隆。SPEAR、UE、Blender、生成模型仓库和模型权重都不是默认构建依赖。
+克隆。SPEAR、UE、Blender、生成模型仓库和模型权重都不是默认构建依赖；
+只有正式 Apartment 溯源或 UE 重导出任务才需要单独准备 SPEAR。
 
 当前固定版本为：
 
@@ -166,11 +168,47 @@ habitat-sim-AVEngine:
   e9c81c10834f7e89f33f4e0602c75535a84e054b
 rlr-audio-propagation:
   4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
+spear (legacy_optional):
+  7fbf3632fdb63cc2eceea564811c9597cabfb199
 ```
 
 固定版本的机器可读依据是
 [`manifest.yaml`](../manifest.yaml)。更新原生运行时时，必须同时更新
 版本清单、相关测试和本文档。
+
+### 48g-jump 的可选 Apartment 公共输入
+
+同一服务器上的协作者应按只读方式使用以下共享输入：
+
+```bash
+export AVENGINE_UNREAL_ENGINE_ROOT=/data/UE_5.5
+export AVENGINE_SPEAR_ROOT=/data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632
+export AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT=/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m1/legacy_apartment_export
+export AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT=/data/datasets/avengine_workspaces/shared/legacy_apartment_0000_v2
+
+git config --global --add safe.directory \
+  /data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632
+```
+
+`/data/UE_5.5` 只是 UE 引擎根目录，绝不是 SPEAR root。公共 SPEAR
+checkout 是固定 commit 的 sparse 溯源输入；共享目录权限可能允许组内
+写入，但消费者仍必须把它当作只读输入。它可以用于打包、正式采集和验证，
+但不能在其中启动 UE、生成 `Saved/Intermediate` 或修改项目。
+`safe.directory` 是每个协作者自己的 Git 信任决定，不得改成系统级配置。
+
+需要 UE 重导出时，必须在个人目录中创建完整 SPEAR clone：
+
+```bash
+export AVENGINE_SPEAR_ROOT="${AVENGINE_CODE_ROOT}/spear"
+git clone git@github.com:Eastforward/spear.git "${AVENGINE_SPEAR_ROOT}"
+git -C "${AVENGINE_SPEAR_ROOT}" checkout --detach \
+  7fbf3632fdb63cc2eceea564811c9597cabfb199
+```
+
+若任务只是用既有 GLB 做 render-only 预览，则不需要 UE 或 SPEAR。
+AVEngine 的正式 M1 package/capture/evidence 路线仍会检查 clean pinned
+SPEAR、仓库相对路径和内容 hash。完整命令见
+[`M1_EXECUTION.md`](roadmap/M1_EXECUTION.md)。
 
 ## 克隆仓库
 

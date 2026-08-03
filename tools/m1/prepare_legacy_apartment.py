@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -33,10 +34,14 @@ from typing import Any
 ROOM_ID = "legacy_ue_apartment_0000_v1"
 SCENE_HANDLE = "legacy_apartment_0000"
 KNOWN_AABB_TRIANGLE_COUNT = 252
+SPEAR_PROJECT = Path("cpp/unreal_projects/SpearSim")
+SPEAR_PROJECT_CONTENT = SPEAR_PROJECT / "Content"
 SPEAR_MAP_PACKAGE = Path(
     "cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/"
     "apartment_0000/Maps/apartment_0000.umap"
 )
+SPEAR_ROOT_LOCATOR = "${AVENGINE_SPEAR_ROOT}"
+FULL_GIT_COMMIT = re.compile(r"[0-9a-f]{40}")
 
 # UE (X, Y, Z) cm -> glTF/Habitat (X, Z, Y) m.  These values preserve the
 # approved legacy camera/listener and two source placements in the UE map.
@@ -120,9 +125,39 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def _producer_source_root(snapshot: dict[str, Any]) -> Path:
+    root_raw = snapshot.get("repository_root")
+    require(
+        isinstance(root_raw, str) and bool(root_raw) and Path(root_raw).is_absolute(),
+        "UE source snapshot repository_root must be an absolute producer locator",
+    )
+    root = Path(root_raw)
+    require(
+        snapshot.get("actual_project_dir") == str(root / SPEAR_PROJECT),
+        "UE source snapshot project locator does not match its repository root",
+    )
+    require(
+        snapshot.get("map_package_path") == str(root / SPEAR_MAP_PACKAGE),
+        "UE source snapshot map locator does not match its repository root",
+    )
+    return root
+
+
+def _producer_package_locator_matches(
+    record: dict[str, Any], producer_root: Path, repository_relative: str
+) -> bool:
+    producer_path = record.get("resolved_path")
+    return bool(
+        isinstance(producer_path, str)
+        and Path(producer_path).is_absolute()
+        and Path(producer_path) == producer_root / repository_relative
+    )
+
+
 def spear_source_snapshot(
     root: Path, *, capture_phase: str = "before_ue_gltf_export"
 ) -> dict[str, Any]:
+    root = root.resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"SPEAR checkout does not exist: {root}")
 
@@ -139,14 +174,43 @@ def spear_source_snapshot(
             )
         return result.stdout.strip()
 
+    git_toplevel = Path(git("rev-parse", "--show-toplevel")).resolve()
+    require(
+        git_toplevel == root,
+        "SPEAR root must be the Git repository top level",
+    )
+
     commit = git("rev-parse", "HEAD")
+    require(
+        FULL_GIT_COMMIT.fullmatch(commit) is not None,
+        "SPEAR HEAD must resolve to a full lowercase 40-character commit",
+    )
     tracked_status = git("status", "--porcelain", "--untracked-files=no")
     require(not tracked_status, "SPEAR tracked files are dirty")
-    map_package = (root / SPEAR_MAP_PACKAGE).resolve()
+    tracked_map = git(
+        "ls-files",
+        "--error-unmatch",
+        "--",
+        SPEAR_MAP_PACKAGE.as_posix(),
+    )
+    require(
+        tracked_map == SPEAR_MAP_PACKAGE.as_posix(),
+        "SPEAR apartment map package must be Git-tracked",
+    )
+    map_locator = root / SPEAR_MAP_PACKAGE
+    require(
+        not map_locator.is_symlink(),
+        "SPEAR apartment map package must not be a symlink",
+    )
+    map_package = map_locator.resolve()
+    try:
+        map_package.relative_to(root)
+    except ValueError as error:
+        raise ValueError("SPEAR apartment map package escapes the checkout") from error
     require(
         map_package.is_file(), f"SPEAR apartment map package is missing: {map_package}"
     )
-    expected_project_dir = (root / "cpp" / "unreal_projects" / "SpearSim").resolve()
+    expected_project_dir = (root / SPEAR_PROJECT).resolve()
     return {
         "schema": "avengine_spear_source_snapshot_v1",
         "capture_phase": capture_phase,
@@ -163,6 +227,13 @@ def spear_source_snapshot(
 def validate_selected_project_packages(
     ue_manifest: dict[str, Any], spear_root: Path
 ) -> None:
+    source_snapshot = ue_manifest.get("source_snapshot")
+    require(
+        isinstance(source_snapshot, dict),
+        "UE export is missing its producer SPEAR source snapshot",
+    )
+    producer_root = _producer_source_root(source_snapshot)
+    spear_root = spear_root.resolve()
     records = ue_manifest.get("selected_project_asset_packages")
     require(
         isinstance(records, list) and bool(records),
@@ -203,8 +274,7 @@ def validate_selected_project_packages(
         require(package_name not in package_names, "UE package closure has duplicates")
         package_names.add(package_name)
         expected_relative = (
-            Path("cpp/unreal_projects/SpearSim/Content")
-            / f"{package_name.removeprefix('/Game/')}.uasset"
+            SPEAR_PROJECT_CONTENT / f"{package_name.removeprefix('/Game/')}.uasset"
         ).as_posix()
         require(
             relative_raw == expected_relative,
@@ -213,16 +283,16 @@ def validate_selected_project_packages(
         require(
             relative_raw in tracked, "UE package closure contains an untracked file"
         )
+        require(
+            _producer_package_locator_matches(record, producer_root, relative_raw),
+            "UE package closure producer locator does not match its relative path",
+        )
         expected_path = (spear_root / relative_raw).resolve()
         try:
             expected_path.relative_to(spear_root)
         except ValueError as error:
             raise ValueError("UE package closure escapes the SPEAR checkout") from error
         require(expected_path.is_file(), f"UE package is missing: {expected_path}")
-        require(
-            record.get("resolved_path") == str(expected_path),
-            "UE package closure resolved path changed",
-        )
         require(record.get("git_tracked") is True, "UE package was not tracked")
         require(
             record.get("byte_size") == expected_path.stat().st_size
@@ -270,11 +340,9 @@ def validate_real_surface_inputs(
         isinstance(export_spear_snapshot, dict),
         "UE export manifest is missing its pre-export SPEAR source snapshot",
     )
-    require(
-        export_spear_snapshot == current_spear_snapshot,
-        "UE export SPEAR snapshot does not match the current clean source checkout",
-    )
-    expected_after_snapshot = dict(current_spear_snapshot)
+    _producer_source_root(export_spear_snapshot)
+    _producer_source_root(current_spear_snapshot)
+    expected_after_snapshot = dict(export_spear_snapshot)
     expected_after_snapshot["capture_phase"] = "after_ue_gltf_export"
     require(
         ue_manifest.get("source_snapshot_after_export") == expected_after_snapshot,
@@ -282,8 +350,43 @@ def validate_real_surface_inputs(
     )
     require(
         ue_manifest.get("actual_project_dir")
-        == current_spear_snapshot["actual_project_dir"],
-        "UE export ran from a different Unreal project checkout",
+        == export_spear_snapshot["actual_project_dir"],
+        "UE export project locator is inconsistent with its source snapshot",
+    )
+    require(
+        export_spear_snapshot.get("schema")
+        == current_spear_snapshot.get("schema")
+        == "avengine_spear_source_snapshot_v1",
+        "UE export and current SPEAR snapshot schemas do not match",
+    )
+    require(
+        export_spear_snapshot.get("capture_phase") == "before_ue_gltf_export",
+        "UE export source snapshot has the wrong capture phase",
+    )
+    require(
+        export_spear_snapshot.get("commit") == current_spear_snapshot.get("commit"),
+        "UE export SPEAR commit does not match the current clean checkout",
+    )
+    require(
+        isinstance(export_spear_snapshot.get("commit"), str)
+        and FULL_GIT_COMMIT.fullmatch(export_spear_snapshot["commit"]) is not None,
+        "UE export SPEAR commit must be a full lowercase 40-character commit",
+    )
+    require(
+        export_spear_snapshot.get("tracked_worktree_dirty") is False
+        and current_spear_snapshot.get("tracked_worktree_dirty") is False,
+        "UE export or current SPEAR snapshot records a dirty tracked worktree",
+    )
+    require(
+        export_spear_snapshot.get("map_asset")
+        == current_spear_snapshot.get("map_asset")
+        == "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
+        "UE export source map identity does not match the current checkout",
+    )
+    require(
+        export_spear_snapshot.get("map_package_sha256")
+        == current_spear_snapshot.get("map_package_sha256"),
+        "UE export source map bytes do not match the current checkout",
     )
     validate_selected_project_packages(
         ue_manifest, Path(current_spear_snapshot["repository_root"]).resolve()
@@ -523,7 +626,7 @@ def make_room_manifest(
             {"role": "real_surface_mesh_audit", "path": str(mesh_audit_path)},
             {
                 "role": "legacy_source_map_package",
-                "path": spear_snapshot["map_package_path"],
+                "path": f"{SPEAR_ROOT_LOCATOR}/{SPEAR_MAP_PACKAGE.as_posix()}",
             },
             {
                 "role": "scene_dataset_config",
@@ -604,9 +707,15 @@ def make_room_manifest(
         "provenance": {
             "source": ue_manifest.get("source_map_asset"),
             "source_revision": spear_snapshot["commit"],
-            "source_repository_root": spear_snapshot["repository_root"],
+            "source_repository_root": SPEAR_ROOT_LOCATOR,
+            "source_project_repository_relative_path": SPEAR_PROJECT.as_posix(),
             "source_repository_tracked_dirty": spear_snapshot["tracked_worktree_dirty"],
-            "source_map_package_path": spear_snapshot["map_package_path"],
+            "source_map_package_path": (
+                f"{SPEAR_ROOT_LOCATOR}/{SPEAR_MAP_PACKAGE.as_posix()}"
+            ),
+            "source_map_package_repository_relative_path": (
+                SPEAR_MAP_PACKAGE.as_posix()
+            ),
             "source_map_package_sha256": spear_snapshot["map_package_sha256"],
             "exported_scene_sha256": scene_sha256,
             "loaded_editor_world": ue_manifest.get("loaded_editor_world"),

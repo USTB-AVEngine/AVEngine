@@ -27,10 +27,30 @@ paths:
     default: null
     kind: directory
     required_for: [mp3d_room]
-  AVENGINE_LEGACY_APARTMENT_ROOT:
+  AVENGINE_UNREAL_ENGINE_ROOT:
+    default: null
+    kind: directory
+    required_for: [legacy_ue_export]
+  AVENGINE_SPEAR_ROOT:
+    default: external/SPEAR
+    kind: directory
+    required_for: [legacy_ue_export, legacy_room]
+  AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT:
     default: null
     kind: directory
     required_for: [legacy_room]
+  AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT:
+    default: null
+    kind: directory
+    required_for: [legacy_room]
+  AVENGINE_LEGACY_APARTMENT_ROOT:
+    default: null
+    kind: directory
+    required_for: []
+    deprecated: true
+    replaced_by:
+      - AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT
+      - AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT
 
 workspace_root_entries:
   - AVENGINE_REPOSITORY_ROOT
@@ -38,6 +58,10 @@ workspace_root_entries:
   - AVENGINE_EVIDENCE_ROOT
   - AVENGINE_REPLICACAD_ROOT
   - AVENGINE_MP3D_ROOT
+  - AVENGINE_UNREAL_ENGINE_ROOT
+  - AVENGINE_SPEAR_ROOT
+  - AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT
+  - AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT
   - AVENGINE_LEGACY_APARTMENT_ROOT
 
 optional_backends:

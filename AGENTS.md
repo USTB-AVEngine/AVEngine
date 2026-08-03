@@ -28,6 +28,24 @@ every producer and consumer in that contract must resolve the `tmp` parent
 symlink before comparing path, SHA or size. A raw-string mismatch between a
 repository path and its external-storage target is not an asset mutation.
 
+On the shared `48g-jump` host, `/data/UE_5.5` is the public UE 5.5 engine root
+only; it is never a SPEAR source root. The shared sparse checkout at
+`/data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632` is pinned to SPEAR
+commit `7fbf3632fdb63cc2eceea564811c9597cabfb199` and must be treated as
+read-only provenance material. It may verify the tracked Apartment map, but
+must not be used for UE project writes or re-export because the sparse checkout does not
+contain the full project. For UE work, each contributor uses an independent
+full clone at `/data/datasets/avengine_workspaces/users/$USER/SPEAR` (or an
+explicit equivalent) and keeps it at the required commit. AVEngine and SPEAR
+remain independent Git repositories; neither checkout is vendored into the
+other.
+
+Because the shared sparse checkout is owned by its maintainer account, Git may
+require another user to opt in once with `git config --global --add
+safe.directory /data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632`.
+This is a per-user trust decision; do not change system-wide Git configuration
+or another contributor's global configuration.
+
 For the active Apartment dataset work, also read
 `docs/roadmap/CURRENT_APARTMENT_EXECUTION.md`. `AGENTS.md` contains durable
 owner decisions; that file contains the current checkpoint, unfinished work

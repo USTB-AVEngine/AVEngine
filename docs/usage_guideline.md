@@ -367,9 +367,14 @@ M7 还提供：
 | SPEAR/UE Apartment | UE/SPEAR 视觉房间 | 已声明的视觉材质槽规则，再上传 RLR | UE 是可选视觉后端；材质未做真实房间标定 |
 | 自定义房间 | 用户提供 GLB/房间包 | 显式 mapping、materials 和仿真请求 | 用户必须负责几何、材质来源和资格检查 |
 
-SPEAR/UE 不是默认依赖。没有 UE 的协作者仍可开发和验证数据结构、轨迹、
-RLR、音频、Habitat 与 MP3D 研究路线；但不能重建当前最终 Apartment UE
-RGB 和依赖 UE render root 的数据索引。
+SPEAR/UE 不是默认依赖。只消费已经产出的 Apartment GLB 做 render-only
+预览不需要 UE/SPEAR。正式 Apartment package/capture/evidence 必须把
+SPEAR 作为独立 Git checkout 固定到 `manifest.yaml` 声明的 commit，
+通过 `AVENGINE_SPEAR_ROOT` 定位，并按 commit、仓库相对路径和文件 hash
+验证；历史导出记录中的产出者绝对路径只是诊断信息。只有重建最终
+Apartment UE RGB 时才同时需要完整 SPEAR checkout 和 UE 5.5。公共服务器
+路径与跨机器 clone 方法见
+[`M1_EXECUTION.md`](roadmap/M1_EXECUTION.md)。
 
 ## 当前明确限制
 

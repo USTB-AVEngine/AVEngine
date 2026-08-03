@@ -1,11 +1,41 @@
 # Current Apartment execution
 
-Last updated: 2026-07-29
+Last updated: 2026-08-04
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
 file prevents a later session from reconstructing current state from chat
 history or choosing an easier but incorrect substitute.
+
+## Portable Apartment handoff checkpoint
+
+- The SPEAR source is the independent `Eastforward/spear` repository at
+  commit `7fbf3632fdb63cc2eceea564811c9597cabfb199`. On `48g-jump`,
+  consumers may set `AVENGINE_SPEAR_ROOT` to the pinned sparse checkout
+  `/data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632` and must treat
+  that shared checkout as read-only.
+- `AVENGINE_UNREAL_ENGINE_ROOT` points to `/data/UE_5.5`. This is an
+  engine root only and is never a SPEAR source root.
+- The source export is
+  `/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m1/legacy_apartment_export`.
+  The regenerated portable package is
+  `/data/datasets/avengine_workspaces/shared/legacy_apartment_0000_v2`.
+- The portable package contains no `/data/jzy` locator. Its
+  `legacy_source_map_package` uses `$AVENGINE_SPEAR_ROOT` plus a
+  repository-relative map path. Absolute producer paths retained inside the
+  referenced UE export manifest are diagnostic lineage only.
+- Formal `legacy_real_surface_provenance` validation passes: all 13 assets
+  exist, the source map is Git-tracked, the tracked SPEAR worktree is clean,
+  and commit/map hashes match. The tracked `.umap` SHA-256 is
+  `042e2a7d9b7123c5ae1a1aa2aa775459e0827067b65d4b07bd7067689a7b7a8c`.
+- The Apartment GLB SHA-256 is
+  `3c0f53d0a46d99cad90b016763d420d53618cfd0ca881851f142db4d91d399b2`.
+  The navmesh SHA-256 is
+  `4ddf9fb4345b31f528280d1309a95654213d209cf9e5f9e83fbfaccb0d28bcab`;
+  its traversable area is 173.0112762451172 m² across 5 islands.
+- The shared map, room manifest, GLB and navmesh were read successfully from
+  the `tjy` account. Re-exporting or launching UE requires a
+  contributor-owned full SPEAR clone rather than the shared sparse checkout.
 
 ## Target deliverable
 

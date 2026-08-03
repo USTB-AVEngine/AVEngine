@@ -91,6 +91,21 @@ def test_replicacad_provider_requires_declared_environment_root() -> None:
     assert any("AVENGINE_REPLICACAD_ROOT" in blocker for blocker in resolution.blockers)
 
 
+def test_legacy_provider_verifies_checked_in_room_manifest_hash() -> None:
+    record = find_room_record(REGISTRY, "legacy_ue_apartment_0000_v1")
+    provider = LegacyUEApartmentRoomProvider()
+
+    resolution = provider.resolve_room(
+        record, repository_root=REPOSITORY_ROOT, environment={}
+    )
+    room_manifest = resolution.resources["legacy_ue_apartment_room_manifest"]
+
+    assert room_manifest.status == "pass"
+    assert room_manifest.path == (
+        REPOSITORY_ROOT / "examples/m1/rooms/legacy_ue_apartment/room_manifest.json"
+    )
+
+
 def test_legacy_provider_keeps_aabb_diagnostic_non_authoritative() -> None:
     record = find_room_record(REGISTRY, "legacy_ue_apartment_0000_v1")
     provider = LegacyUEApartmentRoomProvider()
@@ -109,11 +124,14 @@ def test_legacy_provider_keeps_aabb_diagnostic_non_authoritative() -> None:
     )
 
     assert aabb.status == "pass"
-    assert next(
-        item
-        for item in record["acoustic_representations"]
-        if item["representation_id"] == aabb.representation_id
-    )["role"] == "diagnostic_only"
+    assert (
+        next(
+            item
+            for item in record["acoustic_representations"]
+            if item["representation_id"] == aabb.representation_id
+        )["role"]
+        == "diagnostic_only"
+    )
     assert real_surface.status == "blocked"
     assert "AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT" in (real_surface.reason or "")
 

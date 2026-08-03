@@ -23,22 +23,63 @@ does not prove audio propagation.
 Run with the Habitat runtime at the commit in
 [`locks/m1_runtime_v1.yaml`](../../locks/m1_runtime_v1.yaml), selected through
 the root `runtime.lock.yaml` index, and with both worktrees clean; worktree
-cleanliness is a required evidence check. The commands below assume this local
-layout:
+cleanliness is a required evidence check. Resolve every machine-local checkout,
+tool and output location through environment variables:
 
 ```bash
-export REPO=/data/jzy/code/AVEngine-habitat-native
-export RUNTIME=/data/jzy/code/habitat-sim-AVEngine
-export HABPY=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python
-export SPEAR=/data/jzy/code/AVEngine/external/SPEAR
-export SPEARPY=/data/jzy/miniconda3/envs/spear-env/bin/python
-export UE=/data/UE_5.5
-export BLENDER=/data/jzy/.local/bin/blender
-export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
+export REPO="${AVENGINE_REPOSITORY_ROOT:-$(git rev-parse --show-toplevel)}"
+export AVENGINE_REPOSITORY_ROOT="$REPO"
+export AVENGINE_HABITAT_RUNTIME_ROOT="${AVENGINE_HABITAT_RUNTIME_ROOT:-$REPO/../habitat-sim-AVEngine}"
+export AVENGINE_UNREAL_ENGINE_ROOT="${AVENGINE_UNREAL_ENGINE_ROOT:-/path/to/UnrealEngine-5.5}"
+export AVENGINE_SPEAR_ROOT="${AVENGINE_SPEAR_ROOT:-$REPO/external/SPEAR}"
+export AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT="${AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT:-$REPO/tmp/m1/legacy_apartment_export}"
+export AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT="${AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT:-$REPO/tmp/m1/legacy_apartment_package}"
+
+export HABPY="${HABPY:-$REPO/.venv/bin/python}"
+export SPEARPY="${SPEARPY:-python3}"
+export BLENDER="${BLENDER:-blender}"
+export RUNTIME="$AVENGINE_HABITAT_RUNTIME_ROOT"
+export UE="$AVENGINE_UNREAL_ENGINE_ROOT"
+export SPEAR="$AVENGINE_SPEAR_ROOT"
 export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
-export AVENGINE_HABITAT_RUNTIME_ROOT="$RUNTIME"
 cd "$REPO"
 ```
+
+SPEAR is an independent Git repository, not content bundled into AVEngine.
+Clone it separately and detach it at the revision declared in
+`manifest.yaml`:
+
+```bash
+git clone https://github.com/Eastforward/spear.git "$AVENGINE_SPEAR_ROOT"
+git -C "$AVENGINE_SPEAR_ROOT" checkout --detach 7fbf3632fdb63cc2eceea564811c9597cabfb199
+```
+
+On the shared `48g-jump` server, UE 5.5 and an Apartment provenance
+checkout that consumers must treat as read-only are available at:
+
+```bash
+export AVENGINE_UNREAL_ENGINE_ROOT=/data/UE_5.5
+export AVENGINE_SPEAR_ROOT=/data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632
+git config --global --add safe.directory /data/datasets/avengine_workspaces/shared/SPEAR-7fbf3632
+```
+
+The `safe.directory` command is a one-time, per-user trust opt-in because the
+shared checkout has a different owner. Do not apply it system-wide. That
+checkout is a sparse, pinned provenance source. Its group permissions may allow
+writes, but consumers must not modify it: use it to package, capture and verify
+the tracked Apartment map, and do not launch UE or write project files there.
+Re-exporting with UE requires a contributor-owned full clone:
+
+```bash
+export AVENGINE_SPEAR_ROOT="/data/datasets/avengine_workspaces/users/$USER/SPEAR"
+git clone https://github.com/Eastforward/spear.git "$AVENGINE_SPEAR_ROOT"
+git -C "$AVENGINE_SPEAR_ROOT" checkout --detach 7fbf3632fdb63cc2eceea564811c9597cabfb199
+```
+
+The shared UE path is only the engine root; it is not a SPEAR checkout. Public
+Apartment export and package artifacts may remain under
+`/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m1/`, or use
+any other shared readable locations through the two Apartment root variables.
 
 The runtime environment must contain the pinned audio-enabled Habitat build,
 `numpy-quaternion`, NumPy, Pillow, and a working headless GPU/EGL context. The
@@ -104,7 +145,7 @@ Export the loaded apartment world as UE StaticMesh **render LOD0**. Actor AABBs
 are measurements only and must never replace surface geometry.
 
 ```bash
-mkdir -p "$REPO/tmp/m1/legacy_apartment_export"
+mkdir -p "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT"
 
 "$SPEARPY" "$SPEAR/tools/run_editor_script.py" \
   --unreal-engine-dir "$UE" \
@@ -113,15 +154,15 @@ mkdir -p "$REPO/tmp/m1/legacy_apartment_export"
   --launch-mode full \
   --render-offscreen \
   --script "$REPO/tools/ue/export_apartment_gltf.py" \
-  --output "$REPO/tmp/m1/legacy_apartment_export/scene.glb" \
-  --manifest "$REPO/tmp/m1/legacy_apartment_export/ue_export_manifest.json" \
+  --output "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT/scene.glb" \
+  --manifest "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT/ue_export_manifest.json" \
   --spear-root "$SPEAR" \
   --texture-size 512
 
 "$BLENDER" --background --factory-startup --python-exit-code 2 \
   --python "$REPO/tools/mesh/audit_real_surface_mesh.py" -- \
-  --input "$REPO/tmp/m1/legacy_apartment_export/scene.glb" \
-  --output "$REPO/tmp/m1/legacy_apartment_export/mesh_audit.json" \
+  --input "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT/scene.glb" \
+  --output "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT/mesh_audit.json" \
   --minimum-triangles 1000
 ```
 
@@ -150,27 +191,42 @@ and `all_mesh_nodes_are_simple_boxes == false`.
 The packaging step also requires the SPEAR tracked worktree to be clean and
 records both its Git commit and the source `apartment_0000.umap` SHA-256.
 
+Producer absolute locators recorded in an older `ue_export_manifest.json` are
+diagnostic only; they are not portable identity. Admission binds the exact
+SPEAR commit, each repository-relative package path,
+and current file size/SHA-256, plus the exported GLB and full selected-package
+closure hashes. A consumer may therefore relocate the same clean checkout by
+setting `AVENGINE_SPEAR_ROOT`; matching a producer's private absolute root is
+neither required nor sufficient.
+
+A render-only consumer outside this formal route can use an already-produced
+GLB or render package without installing UE or cloning SPEAR. The formal M1
+package, capture and evidence route deliberately requires a clean, pinned
+SPEAR provenance checkout so it can replay the map and selected-package
+identity. Do not weaken that contract by removing the
+`legacy_source_map_package` role or making the source map optional.
+
 Package the audited GLB for Habitat and build its navmesh:
 
 ```bash
 "$HABPY" "$REPO/tools/m1/prepare_legacy_apartment.py" \
-  --scene-glb "$REPO/tmp/m1/legacy_apartment_export/scene.glb" \
-  --ue-manifest "$REPO/tmp/m1/legacy_apartment_export/ue_export_manifest.json" \
-  --mesh-audit "$REPO/tmp/m1/legacy_apartment_export/mesh_audit.json" \
+  --scene-glb "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT/scene.glb" \
+  --ue-manifest "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT/ue_export_manifest.json" \
+  --mesh-audit "$AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT/mesh_audit.json" \
   --spear-root "$SPEAR" \
-  --output-dir "$REPO/tmp/m1/legacy_apartment_package"
+  --output-dir "$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT"
 
 "$HABPY" -m avengine.cli m1 validate-room \
-  "$REPO/tmp/m1/legacy_apartment_package/room_manifest.json"
+  "$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/room_manifest.json"
 "$HABPY" -m avengine.cli m1 validate-request \
-  "$REPO/tmp/m1/legacy_apartment_package/capture_request.json" \
-  --room "$REPO/tmp/m1/legacy_apartment_package/room_manifest.json"
+  "$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/capture_request.json" \
+  --room "$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/room_manifest.json"
 
 "$HABPY" -m avengine.cli m1 build-navmesh \
-  --room "$REPO/tmp/m1/legacy_apartment_package/room_manifest.json" \
-  --request "$REPO/tmp/m1/legacy_apartment_package/capture_request.json" \
+  --room "$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/room_manifest.json" \
+  --request "$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/capture_request.json" \
   --runtime-root "$RUNTIME" \
-  --output "$REPO/tmp/m1/legacy_apartment_package/visual/navmeshes/legacy_apartment_0000.navmesh"
+  --output "$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/visual/navmeshes/legacy_apartment_0000.navmesh"
 ```
 
 During capture, AVEngine unconditionally and explicitly loads the room's
@@ -198,8 +254,8 @@ export NATIVE_ROOM="$REPO/examples/m1/rooms/habitat_mp3d_example/room_manifest.j
 export NATIVE_REQ="$REPO/examples/m1/requests/habitat_mp3d_example.json"
 export CUSTOM_ROOM="$REPO/examples/m1/rooms/blender_custom/room_manifest.json"
 export CUSTOM_REQ="$REPO/examples/m1/requests/blender_custom.json"
-export LEGACY_ROOM="$REPO/tmp/m1/legacy_apartment_package/room_manifest.json"
-export LEGACY_REQ="$REPO/tmp/m1/legacy_apartment_package/capture_request.json"
+export LEGACY_ROOM="$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/room_manifest.json"
+export LEGACY_REQ="$AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT/capture_request.json"
 export FORMAL="$REPO/tmp/m1/formal"
 mkdir -p "$FORMAL"
 ```

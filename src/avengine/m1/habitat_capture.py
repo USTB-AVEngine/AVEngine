@@ -51,6 +51,15 @@ VISUAL_SENSOR_TYPES = {
     "semantic": "SEMANTIC",
 }
 
+SPEAR_PROJECT_REPOSITORY_RELATIVE = Path("cpp/unreal_projects/SpearSim")
+SPEAR_PROJECT_CONTENT_REPOSITORY_RELATIVE = (
+    SPEAR_PROJECT_REPOSITORY_RELATIVE / "Content"
+)
+SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE = Path(
+    "cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/"
+    "apartment_0000/Maps/apartment_0000.umap"
+)
+
 PROCESS_INSTANCE_ID = str(uuid.uuid4())
 PROCESS_STARTED_AT_UTC = datetime.now(timezone.utc).isoformat()
 PROCESS_INITIAL_PID = os.getpid()
@@ -122,6 +131,89 @@ def _environment_for_paths(runtime_root: Path) -> dict[str, str]:
     return environment
 
 
+def _source_map_repository_relative(inputs: ValidatedM1Inputs) -> Path:
+    provenance = inputs.room.get("provenance", {})
+    key = "source_map_package_repository_relative_path"
+    if key not in provenance:
+        return SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE
+    raw = provenance.get(key)
+    if raw != SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE.as_posix():
+        raise ValueError(
+            "Legacy source map repository-relative path does not match Apartment"
+        )
+    return SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE
+
+
+def _resolved_spear_source_root(
+    inputs: ValidatedM1Inputs, environment: dict[str, str]
+) -> Path | None:
+    provenance = inputs.room.get("provenance", {})
+    raw = environment.get("AVENGINE_SPEAR_ROOT") or provenance.get(
+        "source_repository_root"
+    )
+    if not isinstance(raw, str) or not raw:
+        return None
+    return resolve_declared_path(
+        raw,
+        manifest_dir=inputs.room_path.parent,
+        environment=environment,
+    )
+
+
+def _resolved_room_asset_path(
+    inputs: ValidatedM1Inputs,
+    asset: dict[str, Any],
+    environment: dict[str, str],
+) -> Path:
+    if asset.get("role") == "legacy_source_map_package" and environment.get(
+        "AVENGINE_SPEAR_ROOT"
+    ):
+        source_root = _resolved_spear_source_root(inputs, environment)
+        if source_root is None:
+            raise ValueError("AVENGINE_SPEAR_ROOT did not resolve to a source root")
+        path = (source_root / _source_map_repository_relative(inputs)).resolve()
+        provenance = inputs.room.get("provenance", {})
+        relative_keys = [
+            "source_project_repository_relative_path" in provenance,
+            "source_map_package_repository_relative_path" in provenance,
+        ]
+        if all(relative_keys):
+            declared_path = resolve_declared_path(
+                asset.get("path"),
+                manifest_dir=inputs.room_path.parent,
+                environment=environment,
+            )
+            if declared_path != path:
+                raise ValueError(
+                    "Portable legacy source-map asset does not match its fixed locator"
+                )
+        elif not any(relative_keys):
+            declared_raw = asset.get("path")
+            producer_map_raw = provenance.get("source_map_package_path")
+            if not (
+                isinstance(declared_raw, str)
+                and Path(declared_raw).is_absolute()
+                and isinstance(producer_map_raw, str)
+                and Path(producer_map_raw).is_absolute()
+                and Path(declared_raw) == Path(producer_map_raw)
+            ):
+                raise ValueError(
+                    "Legacy source-map asset does not match its producer locator"
+                )
+        else:
+            raise ValueError("Portable SPEAR provenance locator is incomplete")
+        try:
+            path.relative_to(source_root)
+        except ValueError as error:
+            raise ValueError("Legacy source map escapes the SPEAR checkout") from error
+        return path
+    return resolve_declared_path(
+        asset["path"],
+        manifest_dir=inputs.room_path.parent,
+        environment=environment,
+    )
+
+
 def _resolved_scene(inputs: ValidatedM1Inputs, runtime_root: Path) -> dict[str, Any]:
     scene = inputs.room["scene"]
     environment = _environment_for_paths(runtime_root)
@@ -166,11 +258,7 @@ def _resolved_assets(
     environment = _environment_for_paths(runtime_root)
     records: list[dict[str, Any]] = []
     for asset in inputs.room["assets"]:
-        path = resolve_declared_path(
-            asset["path"],
-            manifest_dir=inputs.room_path.parent,
-            environment=environment,
-        )
+        path = _resolved_room_asset_path(inputs, asset, environment)
         record = {
             "role": asset["role"],
             "declared_path": asset["path"],
@@ -196,16 +284,63 @@ def _positive_integer(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
+def _producer_source_locator_report(
+    snapshot: Any,
+) -> tuple[bool, dict[str, Any]]:
+    value = snapshot if isinstance(snapshot, dict) else {}
+    root_raw = value.get("repository_root")
+    root = (
+        Path(root_raw)
+        if isinstance(root_raw, str) and root_raw and Path(root_raw).is_absolute()
+        else None
+    )
+    expected_project = (
+        root / SPEAR_PROJECT_REPOSITORY_RELATIVE if root is not None else None
+    )
+    expected_map = (
+        root / SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE if root is not None else None
+    )
+    project_matches = bool(
+        expected_project is not None
+        and value.get("actual_project_dir") == str(expected_project)
+    )
+    map_matches = bool(
+        expected_map is not None and value.get("map_package_path") == str(expected_map)
+    )
+    measured = {
+        "repository_root": root_raw,
+        "project_repository_relative_path": (
+            SPEAR_PROJECT_REPOSITORY_RELATIVE.as_posix()
+        ),
+        "declared_project_path": value.get("actual_project_dir"),
+        "project_locator_matches": project_matches,
+        "map_package_repository_relative_path": (
+            SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE.as_posix()
+        ),
+        "declared_map_package_path": value.get("map_package_path"),
+        "map_locator_matches": map_matches,
+    }
+    return bool(root is not None and project_matches and map_matches), measured
+
+
 def _ue_project_asset_package_closure(
     report: dict[str, Any], source_root: Path | None
 ) -> tuple[bool, dict[str, Any]]:
     records = report.get("selected_project_asset_packages")
+    producer_locator_passed, producer_locator = _producer_source_locator_report(
+        report.get("source_snapshot")
+    )
     measured: dict[str, Any] = {
         "record_count": len(records) if isinstance(records, list) else None,
         "declared_count": report.get("selected_project_asset_package_count"),
+        "producer_source_locator": producer_locator,
         "errors": [],
     }
     errors: list[str] = measured["errors"]
+    if not producer_locator_passed:
+        errors.append("producer SPEAR source locator is inconsistent")
+        return False, measured
+    producer_root = Path(producer_locator["repository_root"])
     if source_root is None or not source_root.is_dir():
         errors.append("SPEAR source root is unavailable")
         return False, measured
@@ -253,7 +388,7 @@ def _ue_project_asset_package_closure(
             errors.append(f"duplicate package record: {package_name}")
         package_names.add(package_name)
         expected_relative = (
-            Path("cpp/unreal_projects/SpearSim/Content")
+            SPEAR_PROJECT_CONTENT_REPOSITORY_RELATIVE
             / f"{package_name.removeprefix('/Game/')}.uasset"
         ).as_posix()
         relative = record.get("repository_relative_path")
@@ -262,6 +397,13 @@ def _ue_project_asset_package_closure(
                 f"package path is not the tracked expected file: {package_name}"
             )
             continue
+        producer_path_raw = record.get("resolved_path")
+        if not (
+            isinstance(producer_path_raw, str)
+            and Path(producer_path_raw).is_absolute()
+            and Path(producer_path_raw) == producer_root / relative
+        ):
+            errors.append(f"producer package locator mismatch: {package_name}")
         path = (source_root / relative).resolve()
         try:
             path.relative_to(source_root)
@@ -270,7 +412,6 @@ def _ue_project_asset_package_closure(
             continue
         if (
             not path.is_file()
-            or record.get("resolved_path") != str(path)
             or record.get("git_tracked") is not True
             or record.get("byte_size") != path.stat().st_size
             or record.get("sha256") != sha256_file(path)
@@ -311,6 +452,102 @@ def _load_record_json(
     except (OSError, ValueError) as error:
         return None, f"Unable to load {role}: {type(error).__name__}: {error}"
     return value, None
+
+
+def _provenance_source_locator_report(
+    inputs: ValidatedM1Inputs,
+    source_root: Path | None,
+    environment: dict[str, str],
+) -> tuple[bool, dict[str, Any]]:
+    provenance = inputs.room.get("provenance", {})
+    project_key = "source_project_repository_relative_path"
+    map_key = "source_map_package_repository_relative_path"
+    project_raw = provenance.get(project_key)
+    map_relative_raw = provenance.get(map_key)
+    relative_keys_present = [project_key in provenance, map_key in provenance]
+    portable_locator = all(relative_keys_present)
+    legacy_locator = not any(relative_keys_present)
+    relative_paths_match = bool(
+        legacy_locator
+        or (
+            portable_locator
+            and project_raw == SPEAR_PROJECT_REPOSITORY_RELATIVE.as_posix()
+            and map_relative_raw == SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE.as_posix()
+        )
+    )
+
+    root_raw = provenance.get("source_repository_root")
+    map_path_raw = provenance.get("source_map_package_path")
+    root_locator_matches = False
+    map_locator_matches = False
+    locator_error: str | None = None
+    try:
+        if portable_locator:
+            declared_root = resolve_declared_path(
+                root_raw,
+                manifest_dir=inputs.room_path.parent,
+                environment=environment,
+            )
+            declared_map = resolve_declared_path(
+                map_path_raw,
+                manifest_dir=inputs.room_path.parent,
+                environment=environment,
+            )
+            root_locator_matches = (
+                source_root is not None and declared_root == source_root
+            )
+            map_locator_matches = bool(
+                source_root is not None
+                and declared_map
+                == (source_root / SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE).resolve()
+            )
+        elif legacy_locator:
+            producer_root = (
+                Path(root_raw)
+                if isinstance(root_raw, str)
+                and root_raw
+                and Path(root_raw).is_absolute()
+                else None
+            )
+            root_locator_matches = producer_root is not None
+            map_locator_matches = bool(
+                producer_root is not None
+                and isinstance(map_path_raw, str)
+                and Path(map_path_raw).is_absolute()
+                and Path(map_path_raw)
+                == producer_root / SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE
+            )
+    except (OSError, TypeError, ValueError) as error:
+        locator_error = f"{type(error).__name__}: {error}"
+
+    current_project_exists = bool(
+        source_root is not None
+        and (source_root / SPEAR_PROJECT_REPOSITORY_RELATIVE).is_dir()
+    )
+    measured = {
+        "source_repository_root": root_raw,
+        "source_project_repository_relative_path": (
+            project_raw or SPEAR_PROJECT_REPOSITORY_RELATIVE.as_posix()
+        ),
+        "source_map_package_path": map_path_raw,
+        "source_map_package_repository_relative_path": (
+            map_relative_raw or SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE.as_posix()
+        ),
+        "portable_locator": portable_locator,
+        "legacy_locator": legacy_locator,
+        "relative_paths_match": relative_paths_match,
+        "root_locator_matches": root_locator_matches,
+        "map_locator_matches": map_locator_matches,
+        "current_project_exists": current_project_exists,
+        "locator_error": locator_error,
+    }
+    return bool(
+        relative_paths_match
+        and root_locator_matches
+        and map_locator_matches
+        and current_project_exists
+        and locator_error is None
+    ), measured
 
 
 def _surface_provenance_check(
@@ -381,13 +618,18 @@ def _surface_provenance_check(
     source_map_record = _asset_by_role(asset_records, "legacy_source_map_package")
     provenance = inputs.room.get("provenance", {})
     source_root_raw = provenance.get("source_repository_root")
-    source_root = (
-        Path(source_root_raw).resolve()
-        if isinstance(source_root_raw, str) and source_root_raw
-        else None
+    environment = dict(os.environ)
+    source_root_error: str | None = None
+    try:
+        source_root = _resolved_spear_source_root(inputs, environment)
+    except (OSError, TypeError, ValueError) as error:
+        source_root = None
+        source_root_error = f"{type(error).__name__}: {error}"
+    provenance_locator_passed, provenance_locator = _provenance_source_locator_report(
+        inputs, source_root, environment
     )
-    expected_source_project = (
-        (source_root / "cpp" / "unreal_projects" / "SpearSim").resolve()
+    expected_source_map = (
+        (source_root / SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE).resolve()
         if source_root is not None
         else None
     )
@@ -406,13 +648,36 @@ def _surface_provenance_check(
         if source_root is not None and source_root.is_dir()
         else None
     )
+    current_source_toplevel = (
+        _git_value(source_root, "rev-parse", "--show-toplevel")
+        if source_root is not None and source_root.is_dir()
+        else None
+    )
+    current_source_map_tracked = (
+        _git_value(
+            source_root,
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE.as_posix(),
+        )
+        if source_root is not None and source_root.is_dir()
+        else None
+    )
     measured = {
         "ue_manifest_error": ue_error,
         "mesh_audit_error": mesh_error,
         "manifest_surface_audit": surface_audit,
-        "source_repository_root": source_root_raw,
+        "source_repository_locator": source_root_raw,
+        "resolved_source_repository_root": (
+            str(source_root) if source_root is not None else None
+        ),
+        "source_repository_resolution_error": source_root_error,
+        "provenance_source_locator": provenance_locator,
         "current_source_commit": current_source_commit,
         "current_source_tracked_status": current_source_tracked_status,
+        "current_source_toplevel": current_source_toplevel,
+        "current_source_map_tracked": current_source_map_tracked,
         "source_map_record": source_map_record,
     }
     passed = (
@@ -428,6 +693,23 @@ def _surface_provenance_check(
         export_messages = ue_report.get("export_messages", {})
         export_source_snapshot = ue_report.get("source_snapshot", {})
         export_source_snapshot_after = ue_report.get("source_snapshot_after_export", {})
+        producer_locator_passed, producer_locator = _producer_source_locator_report(
+            export_source_snapshot
+        )
+        producer_after_locator_passed, producer_after_locator = (
+            _producer_source_locator_report(export_source_snapshot_after)
+        )
+        producer_locator_matches_provenance = bool(
+            provenance_locator.get("portable_locator") is True
+            or (
+                provenance_locator.get("legacy_locator") is True
+                and export_source_snapshot.get("repository_root")
+                == provenance.get("source_repository_root")
+                and export_source_snapshot.get("map_package_path")
+                == provenance.get("source_map_package_path")
+            )
+        )
+
         dirty_packages = ue_report.get("dirty_packages", {})
         gate = mesh_report.get("real_surface_gate", {})
         indicators = mesh_report.get("aabb_proxy_indicators", {})
@@ -455,6 +737,11 @@ def _surface_provenance_check(
                 "export_errors": export_messages.get("errors"),
                 "export_source_snapshot": export_source_snapshot,
                 "export_source_snapshot_after": export_source_snapshot_after,
+                "producer_source_locator": producer_locator,
+                "producer_source_locator_after_export": producer_after_locator,
+                "producer_locator_matches_provenance": (
+                    producer_locator_matches_provenance
+                ),
                 "actual_project_dir": ue_report.get("actual_project_dir"),
                 "dirty_packages": dirty_packages,
                 "triangles": mesh_report.get("triangles"),
@@ -483,6 +770,9 @@ def _surface_provenance_check(
                 **export_source_snapshot,
                 "capture_phase": "after_ue_gltf_export",
             }
+            and producer_locator_passed
+            and producer_after_locator_passed
+            and producer_locator_matches_provenance
             and export_source_snapshot.get("map_asset")
             == ue_report.get("source_map_asset")
             and str(ue_report.get("loaded_editor_world", "")).startswith(
@@ -515,22 +805,26 @@ def _surface_provenance_check(
             and surface_audit.get("triangle_count") == triangles
             and surface_audit.get("mesh_sha256") == render_record.get("sha256")
             and surface_audit.get("real_surface_gate_status") == "pass"
-            and export_source_snapshot.get("repository_root") == source_root_raw
             and ue_report.get("actual_project_dir")
             == export_source_snapshot.get("actual_project_dir")
-            == str(expected_source_project)
+            and provenance_locator_passed
             and dirty_packages.get("before_reload") == {"content": [], "maps": []}
             and dirty_packages.get("after_reload") == {"content": [], "maps": []}
             and dirty_packages.get("after_export") == {"content": [], "maps": []}
             and export_source_snapshot.get("commit")
             == provenance.get("source_revision")
             == current_source_commit
+            and isinstance(current_source_commit, str)
+            and re.fullmatch(r"[0-9a-f]{40}", current_source_commit) is not None
             and export_source_snapshot.get("tracked_worktree_dirty") is False
             and provenance.get("source_repository_tracked_dirty") is False
             and current_source_tracked_status == ""
-            and export_source_snapshot.get("map_package_path")
-            == provenance.get("source_map_package_path")
-            == source_map_record.get("resolved_path")
+            and source_root is not None
+            and current_source_toplevel == str(source_root)
+            and expected_source_map is not None
+            and current_source_map_tracked
+            == SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE.as_posix()
+            and source_map_record.get("resolved_path") == str(expected_source_map)
             and export_source_snapshot.get("map_package_sha256")
             == provenance.get("source_map_package_sha256")
             == source_map_record.get("sha256")

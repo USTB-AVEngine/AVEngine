@@ -270,7 +270,7 @@
             "kind": "repository_relative",
             "path": "examples/m1/rooms/legacy_ue_apartment/room_manifest.json"
           },
-          "sha256": "0b37ff79ef7832642616ae73c5afed943d874ca063e4ed00af0a0521427b6dce",
+          "sha256": "a0ff9382364ecdb797def16cf5d94c91dbb6d7f8c627c6aa9b7f0e86a27a6c2f",
           "required_for": [
             "visual_runtime",
             "acoustic_geometry",

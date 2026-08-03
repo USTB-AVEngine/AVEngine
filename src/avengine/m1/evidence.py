@@ -43,6 +43,12 @@ from avengine.m1.contracts import (
 from avengine.runtime_lock import RuntimeLockError, resolve_runtime_profile
 
 
+SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE = Path(
+    "cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/"
+    "apartment_0000/Maps/apartment_0000.umap"
+)
+
+
 def make_check(
     check_id: str,
     status: str,
@@ -797,6 +803,89 @@ def _runtime_check(evidence: dict[str, Any]) -> tuple[dict[str, Any], Path | Non
     )
 
 
+def _source_map_repository_relative(inputs: ValidatedM1Inputs) -> Path:
+    provenance = inputs.room.get("provenance", {})
+    key = "source_map_package_repository_relative_path"
+    if key not in provenance:
+        return SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE
+    raw = provenance.get(key)
+    if raw != SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE.as_posix():
+        raise ValueError(
+            "Legacy source map repository-relative path does not match Apartment"
+        )
+    return SPEAR_MAP_PACKAGE_REPOSITORY_RELATIVE
+
+
+def _resolved_spear_source_root(
+    inputs: ValidatedM1Inputs, environment: dict[str, str]
+) -> Path | None:
+    provenance = inputs.room.get("provenance", {})
+    raw = environment.get("AVENGINE_SPEAR_ROOT") or provenance.get(
+        "source_repository_root"
+    )
+    if not isinstance(raw, str) or not raw:
+        return None
+    return resolve_declared_path(
+        raw,
+        manifest_dir=inputs.room_path.parent,
+        environment=environment,
+    )
+
+
+def _resolved_scene_asset_path(
+    inputs: ValidatedM1Inputs,
+    asset: dict[str, Any],
+    environment: dict[str, str],
+) -> Path:
+    if asset.get("role") == "legacy_source_map_package" and environment.get(
+        "AVENGINE_SPEAR_ROOT"
+    ):
+        source_root = _resolved_spear_source_root(inputs, environment)
+        if source_root is None:
+            raise ValueError("AVENGINE_SPEAR_ROOT did not resolve to a source root")
+        path = (source_root / _source_map_repository_relative(inputs)).resolve()
+        provenance = inputs.room.get("provenance", {})
+        relative_keys = [
+            "source_project_repository_relative_path" in provenance,
+            "source_map_package_repository_relative_path" in provenance,
+        ]
+        if all(relative_keys):
+            declared_path = resolve_declared_path(
+                asset.get("path"),
+                manifest_dir=inputs.room_path.parent,
+                environment=environment,
+            )
+            if declared_path != path:
+                raise ValueError(
+                    "Portable legacy source-map asset does not match its fixed locator"
+                )
+        elif not any(relative_keys):
+            declared_raw = asset.get("path")
+            producer_map_raw = provenance.get("source_map_package_path")
+            if not (
+                isinstance(declared_raw, str)
+                and Path(declared_raw).is_absolute()
+                and isinstance(producer_map_raw, str)
+                and Path(producer_map_raw).is_absolute()
+                and Path(declared_raw) == Path(producer_map_raw)
+            ):
+                raise ValueError(
+                    "Legacy source-map asset does not match its producer locator"
+                )
+        else:
+            raise ValueError("Portable SPEAR provenance locator is incomplete")
+        try:
+            path.relative_to(source_root)
+        except ValueError as error:
+            raise ValueError("Legacy source map escapes the SPEAR checkout") from error
+        return path
+    return resolve_declared_path(
+        asset["path"],
+        manifest_dir=inputs.room_path.parent,
+        environment=environment,
+    )
+
+
 def _scene_asset_checks(
     evidence: dict[str, Any],
     inputs: ValidatedM1Inputs,
@@ -806,36 +895,67 @@ def _scene_asset_checks(
 ) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     repository_root = Path(__file__).resolve().parents[3]
+    resolution_environment = dict(os.environ)
+    if runtime_root is not None:
+        resolution_environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(runtime_root)
     allowed = [base, repository_root, inputs.room_path.parent]
     if runtime_root is not None:
         allowed.append(runtime_root)
-    source_root_raw = inputs.room.get("provenance", {}).get("source_repository_root")
-    if isinstance(source_root_raw, str) and source_root_raw:
-        allowed.append(Path(source_root_raw).resolve())
+    try:
+        source_root = _resolved_spear_source_root(inputs, resolution_environment)
+    except (KeyError, OSError, TypeError, ValueError):
+        source_root = None
+    if source_root is not None:
+        allowed.append(source_root)
     records = evidence["scene_assets"]
     roles = [record["role"] for record in records]
     declared = [(asset["role"], asset["path"]) for asset in inputs.room["assets"]]
     recorded = [(record["role"], record["declared_path"]) for record in records]
-    resolution_environment = dict(os.environ)
-    if runtime_root is not None:
-        resolution_environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(runtime_root)
     resolved_path_reports: list[dict[str, Any]] = []
+    verification_records: list[dict[str, Any]] = []
     resolved_paths_match = len(records) == len(inputs.room["assets"])
     for asset, record in zip(inputs.room["assets"], records, strict=False):
+        verification_record = dict(record)
         try:
-            expected_path = resolve_declared_path(
-                asset["path"],
-                manifest_dir=inputs.room_path.parent,
-                environment=resolution_environment,
+            expected_path = _resolved_scene_asset_path(
+                inputs,
+                asset,
+                resolution_environment,
             )
             recorded_path = Path(record["resolved_path"]).resolve()
-            item_matches = expected_path == recorded_path
+            source_relative = _source_map_repository_relative(inputs)
+            recorded_has_source_suffix = (
+                len(recorded_path.parts) >= len(source_relative.parts)
+                and recorded_path.parts[-len(source_relative.parts) :]
+                == source_relative.parts
+            )
+            provenance = inputs.room.get("provenance", {})
+            relative_keys = [
+                "source_project_repository_relative_path" in provenance,
+                "source_map_package_repository_relative_path" in provenance,
+            ]
+            if not any(relative_keys):
+                recorded_has_source_suffix = bool(
+                    isinstance(provenance.get("source_map_package_path"), str)
+                    and recorded_path
+                    == Path(provenance["source_map_package_path"]).resolve()
+                )
+            relocatable_source_map = bool(
+                asset.get("role") == "legacy_source_map_package"
+                and resolution_environment.get("AVENGINE_SPEAR_ROOT")
+                and recorded_has_source_suffix
+            )
+            item_matches = expected_path == recorded_path or relocatable_source_map
+            if relocatable_source_map:
+                verification_record["resolved_path"] = str(expected_path)
             resolved_path_reports.append(
                 {
                     "role": asset["role"],
                     "declared_path": asset["path"],
                     "expected_resolved_path": str(expected_path),
                     "recorded_resolved_path": str(recorded_path),
+                    "relocated": relocatable_source_map
+                    and expected_path != recorded_path,
                     "matches": item_matches,
                 }
             )
@@ -850,6 +970,7 @@ def _scene_asset_checks(
                     "matches": False,
                 }
             )
+        verification_records.append(verification_record)
     closure_passed = bool(
         records
         and len(roles) == len(set(roles))
@@ -857,10 +978,12 @@ def _scene_asset_checks(
         and resolved_paths_match
         and all(record.get("exists") is True for record in records)
     )
-    for index, record in enumerate(records):
+    for index, (record, verification_record) in enumerate(
+        zip(records, verification_records, strict=False)
+    ):
         check, _ = _declared_file_check(
             f"scene_asset_{index}_{record['role']}",
-            record,
+            verification_record,
             allowed_roots=allowed,
             path_key="resolved_path",
         )
@@ -937,7 +1060,7 @@ def _scene_asset_checks(
     }:
         from avengine.m1.habitat_capture import _surface_provenance_check
 
-        replay = _surface_provenance_check(inputs, records)
+        replay = _surface_provenance_check(inputs, verification_records)
         replay_passed = replay is not None and replay["status"] == "pass"
         checks.append(
             make_check(

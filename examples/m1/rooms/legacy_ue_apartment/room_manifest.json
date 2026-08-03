@@ -103,10 +103,16 @@
   },
   "provenance": {
     "source": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
-    "source_revision": "UE StaticMesh render-data LOD0 export",
+    "source_revision": "7fbf3632fdb63cc2eceea564811c9597cabfb199",
+    "source_repository_root": "${AVENGINE_SPEAR_ROOT}",
+    "source_repository_tracked_dirty": false,
+    "source_map_package_path": "${AVENGINE_SPEAR_ROOT}/cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/apartment_0000/Maps/apartment_0000.umap",
+    "source_project_repository_relative_path": "cpp/unreal_projects/SpearSim",
+    "source_map_package_repository_relative_path": "cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/apartment_0000/Maps/apartment_0000.umap",
+    "source_map_package_sha256": "042e2a7d9b7123c5ae1a1aa2aa775459e0827067b65d4b07bd7067689a7b7a8c",
     "coordinate_conversion": "UE (X,Y,Z) cm -> glTF (X,Z,Y) * 0.01 m",
     "exported_scene_sha256": "3c0f53d0a46d99cad90b016763d420d53618cfd0ca881851f142db4d91d399b2",
-    "path_binding": "AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT and AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT"
+    "path_binding": "AVENGINE_SPEAR_ROOT, AVENGINE_LEGACY_APARTMENT_EXPORT_ROOT and AVENGINE_LEGACY_APARTMENT_PACKAGE_ROOT"
   },
   "surface_audit": {
     "aabb_proxy": false,

@@ -90,15 +90,23 @@ Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 | --- | --- |
 | `Eastforward/AVEngine` | 任务包、注册表、时间线、音频组装、质量检查、来源记录、命令行和数据准入 |
 | `Eastforward/habitat-sim-AVEngine` | 有边界的 Habitat 运行时扩展、关节对象回放、显式声学包上传和 RLR 适配 |
+| `Eastforward/spear` | 可选的 UE 控制、`SpearSim` 项目和 `apartment_0000` 来源；仅在正式 Apartment 溯源或 UE 重导出时独立使用 |
 
 RLR 已作为 Habitat 派生仓库的递归子模块固定版本，不需要单独克隆。
 旧 SPEAR/UE 和 gpuRIR 是可选迁移或对照后端，不是默认运行架构。私有
 模型实验、权重和评估环境不进入本仓库。
 
+SPEAR 始终是独立 Git 仓库，不内嵌到 AVEngine。只渲染已经产出的
+GLB 不需要 SPEAR；正式 Apartment 打包、采集和 evidence 验证必须使用
+`manifest.yaml` 固定的 SPEAR commit，并通过 `AVENGINE_SPEAR_ROOT`
+定位 checkout。服务器公共路径和跨机器 clone 方法见
+[M1 执行手册](docs/roadmap/M1_EXECUTION.md)。
+
 ## 文档
 
 - [功能与使用指南](docs/usage_guideline.md)
 - [同服务器协作与个人环境构建](docs/quickstart.md)
+- [M1 Apartment 导出、打包与溯源](docs/roadmap/M1_EXECUTION.md)
 - [系统架构](docs/architecture/SYSTEM_OVERVIEW.md)
 - [仓库职责与接口边界](docs/architecture/REPOSITORY_BOUNDARIES.md)
 - [生成动物资产与实例合同](docs/assets/GENERATED_ANIMAL_ASSET_AND_INSTANCE_CONTRACT.md)

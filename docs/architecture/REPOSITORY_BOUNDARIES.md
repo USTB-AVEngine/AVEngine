@@ -68,11 +68,20 @@ the initial M6 MVP do not. Top-down cameras belong only to QA tooling.
 
 ## Legacy route
 
-The ignored checkout at the legacy worktree path
-`/data/jzy/code/AVEngine/external/SPEAR` remains a migration source and optional
-comparison backend. The new worktree does not contain an `external/SPEAR`
-checkout and does not import it wholesale. Each legacy entrypoint must be
-explicitly classified before migration.
+SPEAR remains the independent `Eastforward/spear` repository and is never
+vendored into AVEngine. Formal Apartment package/capture/evidence work locates
+the checkout through `AVENGINE_SPEAR_ROOT`, pins the exact full commit from
+`manifest.yaml`, and verifies a repository-relative map path plus its content
+hash. Producer-machine absolute paths retained in historical export manifests
+are diagnostic evidence, not consumer path requirements.
+
+The old `/data/jzy/code/AVEngine/external/SPEAR` path is a historical
+producer location only. On `48g-jump`, consumers may use the shared pinned
+sparse checkout documented in
+[M1_EXECUTION.md](../roadmap/M1_EXECUTION.md), treating it as read-only even
+when group permissions allow writes. Re-exporting or launching UE requires a
+contributor-owned full clone. `/data/UE_5.5` is only the Unreal Engine root
+and must never be used as `AVENGINE_SPEAR_ROOT`.
 
 ## Future repositories
 

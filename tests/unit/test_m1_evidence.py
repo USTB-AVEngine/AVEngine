@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -18,13 +19,23 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.m1.contracts import EVIDENCE_SCHEMA, aggregate_status
+from avengine.m1.contracts import ValidatedM1Inputs
 from avengine.m1.evidence import (
     BASE_REQUIRED_CHECKS,
     array_sha256,
     finalize_evidence,
     make_check,
+    _resolved_scene_asset_path,
+    _resolved_spear_source_root,
+    _scene_asset_checks,
     save_observations,
     verify_evidence_artifacts,
+)
+
+
+SPEAR_MAP_RELATIVE = Path(
+    "cpp/unreal_projects/SpearSim/Content/SPEAR/Scenes/"
+    "apartment_0000/Maps/apartment_0000.umap"
 )
 
 
@@ -89,6 +100,142 @@ def test_array_hash_binds_sensor_dtype_shape_and_values() -> None:
     changed = values.copy()
     changed[0, 0] = 99
     assert array_sha256("rig_semantic", changed) != baseline
+
+
+def test_legacy_source_map_evidence_resolves_against_relocated_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_root = tmp_path / "shared" / "SPEAR"
+    source_map = source_root / SPEAR_MAP_RELATIVE
+    source_map.parent.mkdir(parents=True)
+    source_map.write_bytes(b"tracked apartment map\n")
+    inputs = ValidatedM1Inputs(
+        room_path=tmp_path / "room_manifest.json",
+        request_path=tmp_path / "capture_request.json",
+        room={
+            "assets": [
+                {
+                    "role": "legacy_source_map_package",
+                    "path": (
+                        "/data/jzy/code/SPEAR/cpp/unreal_projects/SpearSim/"
+                        "Content/SPEAR/Scenes/apartment_0000/Maps/"
+                        "apartment_0000.umap"
+                    ),
+                }
+            ],
+            "provenance": {
+                "source_repository_root": "/data/jzy/code/SPEAR",
+                "source_map_package_path": (
+                    "/data/jzy/code/SPEAR/cpp/unreal_projects/SpearSim/Content/"
+                    "SPEAR/Scenes/apartment_0000/Maps/apartment_0000.umap"
+                ),
+            },
+        },
+        request={},
+    )
+    monkeypatch.setenv("AVENGINE_SPEAR_ROOT", str(source_root))
+    environment = dict(os.environ)
+
+    assert _resolved_spear_source_root(inputs, environment) == source_root.resolve()
+    assert (
+        _resolved_scene_asset_path(inputs, inputs.room["assets"][0], environment)
+        == source_map.resolve()
+    )
+
+    inputs.room["assets"][0]["path"] = "/tmp/wrong.umap"
+    with pytest.raises(ValueError, match="producer locator"):
+        _resolved_scene_asset_path(inputs, inputs.room["assets"][0], environment)
+
+
+def test_legacy_scene_asset_evidence_replays_with_relocated_map_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_root = tmp_path / "shared" / "SPEAR"
+    source_map = source_root / SPEAR_MAP_RELATIVE
+    source_map.parent.mkdir(parents=True)
+    source_map.write_bytes(b"tracked apartment map\n")
+    producer_root = Path("/data/jzy/code/SPEAR")
+    producer_map = producer_root / SPEAR_MAP_RELATIVE
+    inputs = ValidatedM1Inputs(
+        room_path=tmp_path / "room_manifest.json",
+        request_path=tmp_path / "capture_request.json",
+        room={
+            "room_kind": "legacy_ue_real_surface_export",
+            "assets": [
+                {
+                    "role": "legacy_source_map_package",
+                    "path": str(producer_map),
+                }
+            ],
+            "provenance": {
+                "source_repository_root": str(producer_root),
+                "source_map_package_path": str(producer_map),
+            },
+        },
+        request={},
+    )
+    evidence = {
+        "room_kind": "legacy_ue_real_surface_export",
+        "scene_assets": [
+            {
+                "role": "legacy_source_map_package",
+                "declared_path": str(producer_map),
+                "resolved_path": str(producer_map),
+                "exists": True,
+                "byte_size": source_map.stat().st_size,
+                "sha256": sha256_file(source_map),
+            }
+        ],
+        "checks": [
+            {
+                "check_id": "scene_load_graph_closure",
+                "measured": {"loaded_graph": {}},
+            }
+        ],
+    }
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    replayed: dict[str, str] = {}
+
+    def fake_surface_replay(_: ValidatedM1Inputs, records: list[dict]) -> dict:
+        replayed["source_map"] = records[0]["resolved_path"]
+        return make_check(
+            "surface_replay",
+            "pass",
+            measured={"relocated": True},
+            threshold={"relocated": True},
+        )
+
+    monkeypatch.setenv("AVENGINE_SPEAR_ROOT", str(source_root))
+    monkeypatch.setattr(
+        "avengine.m1.evidence.validate_scene_asset_graph", lambda *_: []
+    )
+    monkeypatch.setattr(
+        "avengine.m1.evidence.validate_recorded_scene_asset_graph", lambda *_: []
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._surface_provenance_check",
+        fake_surface_replay,
+    )
+
+    checks = _scene_asset_checks(
+        evidence,
+        inputs,
+        base=tmp_path,
+        runtime_root=runtime_root,
+    )
+
+    closure = next(
+        check for check in checks if check["check_id"] == "evidence_scene_asset_closure"
+    )
+    replay = next(
+        check
+        for check in checks
+        if check["check_id"] == "evidence_surface_provenance_replay"
+    )
+    assert closure["status"] == "pass"
+    assert replay["status"] == "pass"
+    assert replayed["source_map"] == str(source_map.resolve())
 
 
 def test_finalize_evidence_is_deterministic_and_idempotent() -> None:
