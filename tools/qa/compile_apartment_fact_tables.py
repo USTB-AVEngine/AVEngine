@@ -165,6 +165,14 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=REPOSITORY / "schemas/avengine_qa_fact_table_v1.schema.json",
     )
+    parser.add_argument(
+        "--sensor-rig-trajectory",
+        type=Path,
+        help=(
+            "Optional SensorRigTrajectory v1 shared by the selected episodes; "
+            "frame 0 must agree with the historical fixed RIR Listener pose"
+        ),
+    )
     parser.add_argument("--limit", type=int, help="Compile only the first N episodes")
     parser.add_argument(
         "--intermittent-batch",
@@ -202,6 +210,11 @@ def main(argv: list[str] | None = None) -> int:
     room_capsule = load_json(args.room_capsule)
     m1_request = load_json(args.m1_request)
     schema_document = load_json(args.schema)
+    sensor_rig_trajectory = (
+        None
+        if args.sensor_rig_trajectory is None
+        else load_json(args.sensor_rig_trajectory.resolve())
+    )
     validator = jsonschema.Draft202012Validator(schema_document)
 
     camera_rig = m1_request["primary_camera_rig"]
@@ -275,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
         _provenance_record("room_capsule", args.room_capsule.resolve()),
         _provenance_record("m1_capture_request", args.m1_request.resolve()),
     ]
+    if args.sensor_rig_trajectory is not None:
+        provenance_inputs.append(
+            _provenance_record(
+                "sensor_rig_trajectory", args.sensor_rig_trajectory.resolve()
+            )
+        )
     room = {
         "room_capsule_id": room_capsule["room_capsule_id"],
         "revision": room_capsule["revision"],
@@ -381,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
                 rir_cache_request_identity_sha256=cache_identity_by_episode[episode_id],
                 provenance_inputs=provenance_inputs,
                 declared_events_by_slot=declared_events_by_slot,
+                sensor_rig_trajectory=sensor_rig_trajectory,
             )
         except QAFactTableError as error:
             raise FactTableBatchError(f"{episode_id}: {error}") from error

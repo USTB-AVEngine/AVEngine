@@ -13,6 +13,7 @@ from avengine.qa.fact_table import (
     compile_episode_fact_table,
     listener_local_spherical_track,
 )
+from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "avengine_qa_fact_table_v1.schema.json"
@@ -157,6 +158,41 @@ def _compile(**overrides) -> dict:
     return compile_episode_fact_table(**arguments)
 
 
+def _moving_listener_trajectory() -> dict:
+    return materialize_sensor_rig_trajectory(
+        trajectory_id="qa_dynamic_listener_move_v1",
+        program={
+            "kind": "WAYPOINT_ROUTE",
+            "waypoints": [
+                {
+                    "frame_index": 0,
+                    "position_m": [0.0, 1.5, 0.0],
+                    "yaw_deg": 0.0,
+                },
+                {
+                    "frame_index": 74,
+                    "position_m": [1.0, 1.5, 0.0],
+                    "yaw_deg": 0.0,
+                },
+            ],
+            "interpolation": "LINEAR_POSITION_SHORTEST_YAW",
+        },
+    )
+
+
+def _rotating_listener_trajectory() -> dict:
+    return materialize_sensor_rig_trajectory(
+        trajectory_id="qa_dynamic_listener_rotate_v1",
+        program={
+            "kind": "ROTATE_IN_PLACE",
+            "position_m": [0.0, 1.5, 0.0],
+            "start_yaw_deg": 0.0,
+            "end_yaw_deg": 90.0,
+            "yaw_interpolation": "SHORTEST_ARC",
+        },
+    )
+
+
 def test_doa_track_follows_native_full_circle_convention() -> None:
     listener = [0.0, 1.0, 0.0]
     sources = [
@@ -209,6 +245,8 @@ def test_compiled_fact_table_derivations() -> None:
     assert fact_table["schema"] == "avengine_qa_fact_table_v1"
     assert fact_table["time"]["ticks_per_frame"] == 3200
     assert fact_table["listener"]["yaw_deg"] == pytest.approx(0.0, abs=1e-9)
+    assert fact_table["listener"]["static"] is True
+    assert "positions_m_by_frame" not in fact_table["listener"]
 
     source1 = fact_table["tracks"]["instances"]["source1"]
     assert all(not moving for moving in source1["moving"])
@@ -239,6 +277,62 @@ def test_compiled_fact_table_derivations() -> None:
     assert relations["source1"]["marker_front"]["min_m"] == pytest.approx(
         math.dist([0.0, 1.1, -2.4], [0.0, 0.5, -4.0]), abs=1e-9
     )
+
+
+def test_dynamic_listener_position_updates_per_frame_facts_and_doa() -> None:
+    fact_table = _compile(sensor_rig_trajectory=_moving_listener_trajectory())
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator(schema).validate(fact_table)
+
+    listener = fact_table["listener"]
+    assert listener["static"] is False
+    assert (
+        listener["sensor_rig_trajectory"]["trajectory_id"]
+        == "qa_dynamic_listener_move_v1"
+    )
+    assert listener["sensor_rig_trajectory"]["dynamic"] is True
+    assert len(listener["positions_m_by_frame"]) == FRAME_COUNT
+    assert listener["positions_m_by_frame"][0] == pytest.approx([0.0, 1.5, 0.0])
+    assert listener["positions_m_by_frame"][-1] == pytest.approx([1.0, 1.5, 0.0])
+    assert listener["yaw_deg_by_frame"] == pytest.approx([0.0] * FRAME_COUNT)
+
+    doa = fact_table["tracks"]["instances"]["source1"]["doa"]
+    assert doa["azimuth_deg"][0] == pytest.approx(0.0, abs=1e-9)
+    assert doa["azimuth_deg"][-1] == pytest.approx(
+        math.degrees(math.atan2(-1.0, 2.4)), abs=1e-9
+    )
+    assert doa["distance_m"][0] == pytest.approx(math.sqrt(0.4**2 + 2.4**2))
+    assert doa["distance_m"][-1] == pytest.approx(
+        math.sqrt(1.0**2 + 0.4**2 + 2.4**2)
+    )
+
+
+def test_dynamic_listener_orientation_updates_per_frame_doa() -> None:
+    fact_table = _compile(sensor_rig_trajectory=_rotating_listener_trajectory())
+    listener = fact_table["listener"]
+    assert listener["static"] is False
+    assert listener["positions_m_by_frame"][0] == pytest.approx(
+        listener["positions_m_by_frame"][-1]
+    )
+    assert listener["yaw_deg_by_frame"][0] == pytest.approx(0.0, abs=1e-9)
+    assert listener["yaw_deg_by_frame"][-1] == pytest.approx(90.0, abs=1e-9)
+    doa = fact_table["tracks"]["instances"]["source1"]["doa"]
+    assert doa["azimuth_deg"][0] == pytest.approx(0.0, abs=1e-9)
+    assert doa["azimuth_deg"][-1] == pytest.approx(90.0, abs=1e-9)
+
+
+def test_sensor_rig_trajectory_rejects_mismatch_and_invalid_frames() -> None:
+    trajectory = _moving_listener_trajectory()
+    with pytest.raises(QAFactTableError, match="frame 0 position"):
+        _compile(
+            listener_position_m=[0.1, 1.5, 0.0],
+            sensor_rig_trajectory=trajectory,
+        )
+
+    invalid = json.loads(json.dumps(trajectory))
+    invalid["frames"][1]["pts_ticks"] += 1
+    with pytest.raises(QAFactTableError, match="sensor_rig_trajectory is invalid"):
+        _compile(sensor_rig_trajectory=invalid)
 
 
 def test_human_style_vertical_emitter_offset_yields_null_facing() -> None:

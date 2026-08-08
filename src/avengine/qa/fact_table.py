@@ -21,6 +21,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.sensor_rig_trajectory import validate_sensor_rig_trajectory
+
 FACT_TABLE_SCHEMA = "avengine_qa_fact_table_v1"
 TIME_BASE_HZ = 48000
 MOVING_SPEED_THRESHOLD_MPS = 0.05
@@ -28,6 +30,7 @@ AZIMUTH_CONVENTION = "avengine_native_full_circle_front0_right_plus90"
 EMITTER_OFFSET_TOLERANCE_M = 1.0e-6
 HEADING_MIN_HORIZONTAL_OFFSET_M = 1.0e-6
 _UNIT_QUATERNION_TOLERANCE = 1.0e-9
+_LISTENER_POSE_TOLERANCE = 1.0e-9
 FRUSTUM_AUTHORITY = "center_point_pinhole_frustum_no_occlusion_v1"
 
 CLAIM_BOUNDARY = (
@@ -66,13 +69,63 @@ def _unit_quaternion_wxyz(value: Any) -> np.ndarray:
     return quaternion
 
 
+def _listener_position_series(value: Any, *, frame_count: int) -> np.ndarray:
+    try:
+        positions = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise QAFactTableError("listener position must be numeric") from exc
+    if positions.shape == (3,):
+        if not np.all(np.isfinite(positions)):
+            raise QAFactTableError("listener position must be a finite xyz point")
+        return np.repeat(positions[None, :], frame_count, axis=0)
+    if positions.shape != (frame_count, 3) or not np.all(np.isfinite(positions)):
+        raise QAFactTableError(
+            "listener positions must be one finite xyz point or one per frame"
+        )
+    return np.ascontiguousarray(positions)
+
+
+def _listener_orientation_series(value: Any, *, frame_count: int) -> np.ndarray:
+    try:
+        orientations = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise QAFactTableError("listener orientation must be numeric") from exc
+    if orientations.shape == (4,):
+        quaternion = _unit_quaternion_wxyz(orientations)
+        return np.repeat(quaternion[None, :], frame_count, axis=0)
+    if orientations.shape != (frame_count, 4) or not np.all(
+        np.isfinite(orientations)
+    ):
+        raise QAFactTableError(
+            "listener orientations must be one finite wxyz quaternion or one per frame"
+        )
+    norms = np.linalg.norm(orientations, axis=1)
+    if not np.allclose(
+        norms, 1.0, rtol=0.0, atol=_UNIT_QUATERNION_TOLERANCE
+    ):
+        raise QAFactTableError("listener orientations must be unit normalized")
+    return np.ascontiguousarray(orientations)
+
+
 def _rotate_by_inverse_quaternion(
     world_vectors: np.ndarray, quaternion_wxyz: np.ndarray
 ) -> np.ndarray:
     """Rotate world vectors into the listener-local frame."""
 
-    w = float(quaternion_wxyz[0])
-    inverse_vector = -quaternion_wxyz[1:]
+    if quaternion_wxyz.ndim == 1:
+        w: float | np.ndarray = float(quaternion_wxyz[0])
+        inverse_vector = -quaternion_wxyz[1:]
+    elif (
+        quaternion_wxyz.ndim == 2
+        and quaternion_wxyz.shape[0] == world_vectors.shape[0]
+        and quaternion_wxyz.shape[1] == 4
+    ):
+        w = quaternion_wxyz[:, 0, None]
+        inverse_vector = -quaternion_wxyz[:, 1:]
+    else:
+        raise QAFactTableError(
+            "listener orientation track must align with world-vector frames"
+        )
     uv = np.cross(inverse_vector, world_vectors)
     uuv = np.cross(inverse_vector, uv)
     return world_vectors + 2.0 * (w * uv + uuv)
@@ -102,15 +155,15 @@ def listener_local_spherical_track(
     """Per-frame azimuth/elevation/distance of world points around a listener."""
 
     sources = _as_float_array(source_positions_m, name="source positions")
-    try:
-        listener = np.asarray(listener_position_m, dtype=np.float64)
-    except (TypeError, ValueError) as exc:
-        raise QAFactTableError("listener position must be numeric") from exc
-    if listener.shape != (3,) or not np.all(np.isfinite(listener)):
-        raise QAFactTableError("listener position must be a finite xyz point")
-    quaternion = _unit_quaternion_wxyz(listener_orientation_wxyz)
+    frame_count = int(sources.shape[0])
+    listener = _listener_position_series(
+        listener_position_m, frame_count=frame_count
+    )
+    quaternion = _listener_orientation_series(
+        listener_orientation_wxyz, frame_count=frame_count
+    )
 
-    world_direction = sources - listener[None, :]
+    world_direction = sources - listener
     distance = np.linalg.norm(world_direction, axis=1)
     if not np.all(distance > 0.0):
         raise QAFactTableError("source and listener positions must differ")
@@ -148,9 +201,14 @@ def center_frustum_track(
     if not isinstance(height, int) or not isinstance(width, int) or height <= 0 or width <= 0:
         raise QAFactTableError("resolution_hw must be positive integers")
     sources = _as_float_array(source_positions_m, name="source positions")
-    listener = np.asarray(listener_position_m, dtype=np.float64)
-    quaternion = _unit_quaternion_wxyz(listener_orientation_wxyz)
-    local = _rotate_by_inverse_quaternion(sources - listener[None, :], quaternion)
+    frame_count = int(sources.shape[0])
+    listener = _listener_position_series(
+        listener_position_m, frame_count=frame_count
+    )
+    quaternion = _listener_orientation_series(
+        listener_orientation_wxyz, frame_count=frame_count
+    )
+    local = _rotate_by_inverse_quaternion(sources - listener, quaternion)
 
     tan_half_h = math.tan(math.radians(float(hfov_degrees)) / 2.0)
     tan_half_v = tan_half_h * (height / width)
@@ -472,6 +530,101 @@ def _anchor_entries(anchors: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]
     return entries
 
 
+def _resolve_listener_pose_series(
+    *,
+    listener_position_m: Any,
+    listener_orientation_wxyz: Any,
+    sensor_rig_trajectory: Mapping[str, Any] | None,
+    frame_count: int,
+    frame_rate_hz: int,
+    ticks_per_frame: int,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any] | None, bool]:
+    """Resolve the legacy fixed pose or a validated SensorRigTrajectory.
+
+    The fixed pose remains mandatory because it is the frame-zero authority in
+    the historical RIR plan.  A supplied trajectory must agree with that pose
+    at frame zero, so adding dynamic Facts cannot silently detach the visual
+    and acoustic coordinate systems.
+    """
+
+    fixed_position = _listener_position_series(
+        listener_position_m, frame_count=frame_count
+    )[0]
+    fixed_orientation = _listener_orientation_series(
+        listener_orientation_wxyz, frame_count=frame_count
+    )[0]
+    if sensor_rig_trajectory is None:
+        return (
+            np.repeat(fixed_position[None, :], frame_count, axis=0),
+            np.repeat(fixed_orientation[None, :], frame_count, axis=0),
+            None,
+            False,
+        )
+    if not isinstance(sensor_rig_trajectory, Mapping):
+        raise QAFactTableError("sensor_rig_trajectory must be an object")
+    errors = validate_sensor_rig_trajectory(sensor_rig_trajectory)
+    if errors:
+        raise QAFactTableError(
+            "sensor_rig_trajectory is invalid: " + "; ".join(errors)
+        )
+    if (
+        sensor_rig_trajectory.get("frame_count") != frame_count
+        or sensor_rig_trajectory.get("frame_rate_hz") != frame_rate_hz
+        or sensor_rig_trajectory.get("ticks_per_frame") != ticks_per_frame
+        or sensor_rig_trajectory.get("time_base_hz") != TIME_BASE_HZ
+    ):
+        raise QAFactTableError(
+            "sensor_rig_trajectory clock disagrees with the episode frame contract"
+        )
+    frames = sensor_rig_trajectory["frames"]
+    positions = _listener_position_series(
+        [frame["world_from_rig"]["translation_m"] for frame in frames],
+        frame_count=frame_count,
+    )
+    rotations_xyzw = np.asarray(
+        [frame["world_from_rig"]["rotation_xyzw"] for frame in frames],
+        dtype=np.float64,
+    )
+    orientations = _listener_orientation_series(
+        rotations_xyzw[:, (3, 0, 1, 2)], frame_count=frame_count
+    )
+    if not np.allclose(
+        positions[0], fixed_position, rtol=0.0, atol=_LISTENER_POSE_TOLERANCE
+    ):
+        raise QAFactTableError(
+            "sensor_rig_trajectory frame 0 position disagrees with the fixed listener"
+        )
+    if not math.isclose(
+        abs(float(np.dot(orientations[0], fixed_orientation))),
+        1.0,
+        rel_tol=0.0,
+        abs_tol=_LISTENER_POSE_TOLERANCE,
+    ):
+        raise QAFactTableError(
+            "sensor_rig_trajectory frame 0 orientation disagrees with the fixed listener"
+        )
+    first_orientation = orientations[0]
+    dynamic = bool(
+        np.any(
+            np.linalg.norm(positions - positions[0][None, :], axis=1)
+            > _LISTENER_POSE_TOLERANCE
+        )
+        or np.any(
+            1.0 - np.abs(orientations @ first_orientation)
+            > _LISTENER_POSE_TOLERANCE
+        )
+    )
+    binding = {
+        "schema": sensor_rig_trajectory["schema"],
+        "trajectory_id": sensor_rig_trajectory["trajectory_id"],
+        "pose_hash_algorithm": sensor_rig_trajectory["pose_hash_algorithm"],
+        "first_pose_hash": frames[0]["pose_hash"],
+        "last_pose_hash": frames[-1]["pose_hash"],
+        "dynamic": dynamic,
+    }
+    return positions, orientations, binding, dynamic
+
+
 def compile_episode_fact_table(
     *,
     bank_header: Mapping[str, Any],
@@ -487,6 +640,7 @@ def compile_episode_fact_table(
     rir_cache_request_identity_sha256: str,
     provenance_inputs: Sequence[Mapping[str, Any]],
     declared_events_by_slot: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    sensor_rig_trajectory: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile one episode's fact table from already-frozen artifacts."""
 
@@ -548,14 +702,32 @@ def compile_episode_fact_table(
     if not isinstance(asset_ids, Mapping):
         raise QAFactTableError("sample entry must map source slots to asset ids")
 
-    quaternion = _unit_quaternion_wxyz(listener_orientation_wxyz)
-    listener_point = np.asarray(listener_position_m, dtype=np.float64)
-    if listener_point.shape != (3,) or not np.all(np.isfinite(listener_point)):
-        raise QAFactTableError("listener position must be a finite xyz point")
-    listener_forward = _rotate_by_quaternion(
-        np.asarray([0.0, 0.0, -1.0], dtype=np.float64), quaternion
+    (
+        listener_positions,
+        listener_orientations,
+        sensor_rig_binding,
+        listener_dynamic,
+    ) = _resolve_listener_pose_series(
+        listener_position_m=listener_position_m,
+        listener_orientation_wxyz=listener_orientation_wxyz,
+        sensor_rig_trajectory=sensor_rig_trajectory,
+        frame_count=frame_count,
+        frame_rate_hz=int(frame_rate_hz),
+        ticks_per_frame=ticks_per_frame,
     )
-    listener_yaw_deg = _yaw_deg_of_world_forward(listener_forward[[0, 2]])
+    listener_forwards = np.stack(
+        [
+            _rotate_by_quaternion(
+                np.asarray([0.0, 0.0, -1.0], dtype=np.float64), orientation
+            )
+            for orientation in listener_orientations
+        ],
+        axis=0,
+    )
+    listener_yaws_deg = [
+        _yaw_deg_of_world_forward(forward[[0, 2]])
+        for forward in listener_forwards
+    ]
 
     center_paths = bank_episode.get("source_center_paths_m")
     root_paths = bank_episode.get("source_root_paths_m")
@@ -618,7 +790,9 @@ def compile_episode_fact_table(
 
         speed = _speed_track_mps(root, float(frame_rate_hz))
         moving = [value > MOVING_SPEED_THRESHOLD_MPS for value in speed]
-        doa = listener_local_spherical_track(emitter, listener_point, quaternion)
+        doa = listener_local_spherical_track(
+            emitter, listener_positions, listener_orientations
+        )
         timeline_block = asset.get("timeline")
         facing = _facing_track_yaw_deg(
             root=root,
@@ -632,8 +806,8 @@ def compile_episode_fact_table(
         )
         frustum = center_frustum_track(
             emitter,
-            listener_point,
-            quaternion,
+            listener_positions,
+            listener_orientations,
             hfov_degrees=camera_hfov,
             resolution_hw=(camera_resolution[0], camera_resolution[1]),
         )
@@ -689,6 +863,31 @@ def compile_episode_fact_table(
     ) != 64:
         raise QAFactTableError("rir cache identity must be a sha256 hex digest")
 
+    listener_block: dict[str, Any] = {
+        "position_m": [float(v) for v in listener_positions[0]],
+        "orientation_wxyz": [float(v) for v in listener_orientations[0]],
+        "forward_world": [float(v) for v in listener_forwards[0]],
+        "yaw_deg": float(listener_yaws_deg[0]),
+        "static": not listener_dynamic,
+        "azimuth_convention": AZIMUTH_CONVENTION,
+    }
+    if sensor_rig_binding is not None:
+        listener_block.update(
+            {
+                "sensor_rig_trajectory": sensor_rig_binding,
+                "positions_m_by_frame": [
+                    [float(value) for value in row] for row in listener_positions
+                ],
+                "orientations_wxyz_by_frame": [
+                    [float(value) for value in row] for row in listener_orientations
+                ],
+                "forward_world_by_frame": [
+                    [float(value) for value in row] for row in listener_forwards
+                ],
+                "yaw_deg_by_frame": [float(value) for value in listener_yaws_deg],
+            }
+        )
+
     return {
         "schema": FACT_TABLE_SCHEMA,
         "status": "pass",
@@ -709,14 +908,7 @@ def compile_episode_fact_table(
             "audio_sample_rate_hz": audio_sample_rate,
             "audio_sample_count": audio_sample_count,
         },
-        "listener": {
-            "position_m": [float(v) for v in listener_point],
-            "orientation_wxyz": [float(v) for v in quaternion],
-            "forward_world": [float(v) for v in listener_forward],
-            "yaw_deg": listener_yaw_deg,
-            "static": True,
-            "azimuth_convention": AZIMUTH_CONVENTION,
-        },
+        "listener": listener_block,
         "instances": instances,
         "sound_events": sound_events,
         "tracks": {

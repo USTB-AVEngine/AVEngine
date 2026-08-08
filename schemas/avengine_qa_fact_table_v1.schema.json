@@ -95,11 +95,68 @@
         },
         "forward_world": {"$ref": "#/$defs/vec3"},
         "yaw_deg": {"type": "number"},
-        "static": {"const": true},
+        "static": {"type": "boolean"},
         "azimuth_convention": {
           "const": "avengine_native_full_circle_front0_right_plus90"
+        },
+        "sensor_rig_trajectory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "trajectory_id",
+            "pose_hash_algorithm",
+            "first_pose_hash",
+            "last_pose_hash",
+            "dynamic"
+          ],
+          "properties": {
+            "schema": {"const": "avengine_sensor_rig_trajectory_v1"},
+            "trajectory_id": {"type": "string", "minLength": 1},
+            "pose_hash_algorithm": {
+              "const": "avengine_sensor_rig_pose_hash_v1"
+            },
+            "first_pose_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "last_pose_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "dynamic": {"type": "boolean"}
+          }
+        },
+        "positions_m_by_frame": {"$ref": "#/$defs/frameVec3Track"},
+        "orientations_wxyz_by_frame": {"$ref": "#/$defs/frameQuatTrack"},
+        "forward_world_by_frame": {"$ref": "#/$defs/frameVec3Track"},
+        "yaw_deg_by_frame": {"$ref": "#/$defs/frameScalarTrack"}
+      },
+      "dependentRequired": {
+        "sensor_rig_trajectory": [
+          "positions_m_by_frame",
+          "orientations_wxyz_by_frame",
+          "forward_world_by_frame",
+          "yaw_deg_by_frame"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"static": {"const": false}},
+            "required": ["static"]
+          },
+          "then": {
+            "required": [
+              "sensor_rig_trajectory",
+              "positions_m_by_frame",
+              "orientations_wxyz_by_frame",
+              "forward_world_by_frame",
+              "yaw_deg_by_frame"
+            ]
+          }
         }
-      }
+      ]
     },
     "instances": {
       "type": "array",
@@ -534,6 +591,17 @@
         "type": "array",
         "minItems": 3,
         "maxItems": 3,
+        "items": {"type": "number"}
+      }
+    },
+    "frameQuatTrack": {
+      "type": "array",
+      "minItems": 75,
+      "maxItems": 75,
+      "items": {
+        "type": "array",
+        "minItems": 4,
+        "maxItems": 4,
         "items": {"type": "number"}
       }
     }
