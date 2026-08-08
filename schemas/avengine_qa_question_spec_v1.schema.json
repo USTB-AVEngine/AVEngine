@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/avengine_qa_question_spec_v1.schema.json",
+  "title": "AVEngine registry-bound QuestionSpec v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "spec_id", "question_type", "selectors"],
+  "properties": {
+    "schema": {"const": "avengine_qa_question_spec_v1"},
+    "spec_id": {"type": "string", "pattern": "^QS-[0-9]{3}$"},
+    "question_type": {
+      "enum": [
+        "appearance_to_speaking",
+        "sound_to_appearance",
+        "who_spoke_first",
+        "speaker_side",
+        "overlapping_speech",
+        "speaking_while_moving",
+        "offscreen_to_onscreen",
+        "occlusion_while_speaking",
+        "reappeared_after_occlusion",
+        "occluder_identity"
+      ]
+    },
+    "selectors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "appearance_field": {
+          "enum": ["breed_id", "size", "body_build", "life_stage", "coat_value"]
+        },
+        "appearance_value": {"type": "string", "minLength": 1},
+        "sound_asset_id": {"$ref": "#/$defs/readableId"},
+        "sound_asset_ids": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/readableId"}
+        },
+        "target_instance_id": {"$ref": "#/$defs/readableId"},
+        "frame_index": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"question_type": {"const": "appearance_to_speaking"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["appearance_field", "appearance_value"], "minProperties": 2, "maxProperties": 2}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "sound_to_appearance"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["sound_asset_id", "appearance_field"], "minProperties": 2, "maxProperties": 2}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "who_spoke_first"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"maxProperties": 0}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "speaker_side"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["sound_asset_id", "frame_index"], "minProperties": 2, "maxProperties": 2}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "overlapping_speech"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["sound_asset_ids"], "minProperties": 1, "maxProperties": 1}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "speaking_while_moving"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["sound_asset_id"], "minProperties": 1, "maxProperties": 1}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "offscreen_to_onscreen"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["target_instance_id"], "minProperties": 1, "maxProperties": 1}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "occlusion_while_speaking"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["sound_asset_id", "frame_index"], "minProperties": 2, "maxProperties": 2}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "reappeared_after_occlusion"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["target_instance_id"], "minProperties": 1, "maxProperties": 1}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "occluder_identity"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["target_instance_id", "frame_index"], "minProperties": 2, "maxProperties": 2}}}
+    }
+  ],
+  "$defs": {
+    "readableId": {
+      "type": "string",
+      "minLength": 1,
+      "not": {"pattern": "^[0-9a-fA-F]{32,}$"}
+    }
+  }
+}
