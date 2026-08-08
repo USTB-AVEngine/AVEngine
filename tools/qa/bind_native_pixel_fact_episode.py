@@ -358,28 +358,33 @@ def _question_inputs(
                 for event in active_events
             )
         ]
-        _require(occluder_frames, "no speaking frame has a unique native static-object occluder")
         anchor_records = [
             record
             for record in occluder_frames
             if record["frame_index"] == occlusion_anchor_frame
         ]
-        _require(
-            len(anchor_records) == 1,
-            f"frame {occlusion_anchor_frame} must have exactly one unique native static occluder record",
-        )
-        occluder_frame = occlusion_anchor_frame
-        specs.append(
-            {
-                "schema": "avengine_qa_question_spec_v1",
-                "spec_id": "QS-010",
-                "question_type": "occluder_identity",
-                "selectors": {
-                    "target_instance_id": target_instance,
-                    "frame_index": occluder_frame,
-                },
-            }
-        )
+        if scenario_type == "occlusion_to_reappearance":
+            _require(
+                len(anchor_records) == 1,
+                f"frame {occlusion_anchor_frame} must have exactly one unique native static occluder record",
+            )
+        # A full target can legitimately be covered by two static objects.  In
+        # that case the pixel truth remains a valid full-occlusion positive,
+        # but a singular "which object" question has no unique answer and must
+        # not be emitted.  Partial-occlusion canaries retain the older strict
+        # single-occluder requirement.
+        if len(anchor_records) == 1:
+            specs.append(
+                {
+                    "schema": "avengine_qa_question_spec_v1",
+                    "spec_id": "QS-010",
+                    "question_type": "occluder_identity",
+                    "selectors": {
+                        "target_instance_id": target_instance,
+                        "frame_index": occlusion_anchor_frame,
+                    },
+                }
+            )
     statement_events = [
         event for event in facts["sound_events"] if event.get("statement_id")
     ]
@@ -596,10 +601,11 @@ def build(
             and by_id["QS-009"]["answer"]["value"] == "yes",
             "full-occlusion scenario requires QS-009=yes",
         )
-        _require(
-            by_id["QS-010"]["status"] == "pass",
-            "full-occlusion scenario requires a unique native static occluder answer",
-        )
+        if "QS-010" in by_id:
+            _require(
+                by_id["QS-010"]["status"] == "pass",
+                "emitted full-occlusion identity question must have a unique answer",
+            )
         if "QS-012" in by_id:
             _require(
                 by_id["QS-012"]["status"] == "pass",
@@ -610,7 +616,14 @@ def build(
             "fully_occluded_frame_indices": fully_occluded_frames,
             "reappeared_frame_indices": reappeared_frames,
             "occlusion_anchor_frame": by_id["QS-008"]["evidence"]["frame_index"],
-            "occluder_answer": by_id["QS-010"]["answer"],
+            "occluder_answer": (
+                by_id["QS-010"]["answer"] if "QS-010" in by_id else None
+            ),
+            "occluder_question_status": (
+                "emitted_unique_answer"
+                if "QS-010" in by_id
+                else "omitted_no_unique_single_object_answer"
+            ),
             "appearance_to_content_answer": (
                 by_id["QS-012"]["answer"] if "QS-012" in by_id else None
             ),
