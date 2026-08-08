@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 
 import jsonschema
+import numpy as np
 import pytest
 
 from avengine.qa.fact_table import (
@@ -13,6 +14,7 @@ from avengine.qa.fact_table import (
     compile_episode_fact_table,
     listener_local_spherical_track,
 )
+from avengine.qa.pixel_visibility import compile_pixel_visibility_truth
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -193,6 +195,56 @@ def _rotating_listener_trajectory() -> dict:
     )
 
 
+def _pixel_truth_for_episode(trajectory: dict) -> dict:
+    height, width = 8, 10
+    normal_masks: list[np.ndarray] = []
+    source1_target_masks: list[np.ndarray] = []
+    source2_target_masks: list[np.ndarray] = []
+    for frame_index in range(FRAME_COUNT):
+        normal = np.zeros((height, width), dtype=np.int32)
+        source1_target = np.zeros_like(normal)
+        source2_target = np.zeros_like(normal)
+        source2_target[0:2, 0:2] = 22
+        normal[0:2, 0:2] = 22
+        if frame_index < 45 or frame_index >= 60:
+            source1_target[2:6, 3:8] = 11
+        if frame_index < 15 or frame_index >= 60:
+            normal[2:6, 3:8] = 11
+        elif frame_index < 30:
+            normal[2:6, 3:5] = 11
+        normal_masks.append(normal)
+        source1_target_masks.append(source1_target)
+        source2_target_masks.append(source2_target)
+
+    pose_ids = [frame["pose_hash"] for frame in trajectory["frames"]]
+    common_context = {
+        "renderer_backend": "hermetic_same_renderer_canary",
+        "rgb_renderer_backend": "hermetic_same_renderer_canary",
+        "camera_contract_id": "qa_pixel_camera_canary_v1",
+        "semantic_id_namespace": "qa_pixel_semantic_canary_v1",
+        "resolution_hw": [height, width],
+        "frame_indices": list(range(FRAME_COUNT)),
+        "camera_pose_ids": pose_ids,
+    }
+    return compile_pixel_visibility_truth(
+        normal_semantic_masks=normal_masks,
+        target_only_semantic_masks_by_instance={
+            "source1": source1_target_masks,
+            "source2": source2_target_masks,
+        },
+        semantic_ids_by_instance={"source1": 11, "source2": 22},
+        normal_context={"pass_kind": "modal_scene", **common_context},
+        target_only_contexts_by_instance={
+            instance_id: {
+                "pass_kind": "target_only",
+                "target_instance_id": instance_id,
+                **common_context,
+            }
+            for instance_id in ("source1", "source2")
+        },
+    )
+
+
 def test_doa_track_follows_native_full_circle_convention() -> None:
     listener = [0.0, 1.0, 0.0]
     sources = [
@@ -333,6 +385,45 @@ def test_sensor_rig_trajectory_rejects_mismatch_and_invalid_frames() -> None:
     invalid["frames"][1]["pts_ticks"] += 1
     with pytest.raises(QAFactTableError, match="sensor_rig_trajectory is invalid"):
         _compile(sensor_rig_trajectory=invalid)
+
+
+def test_compiled_fact_table_binds_pixel_visibility_truth() -> None:
+    trajectory = _moving_listener_trajectory()
+    pixel_truth = _pixel_truth_for_episode(trajectory)
+    fact_table = _compile(
+        sensor_rig_trajectory=trajectory,
+        pixel_visibility_truth=pixel_truth,
+        camera={"hfov_degrees": 105.0, "resolution_hw": [8, 10]},
+    )
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator(schema).validate(fact_table)
+    bound = fact_table["visibility"]["pixel_truth"]
+    assert bound["status"] == "computed_modal_target_only_v1"
+    assert bound["renderer_backend"] == bound["rgb_renderer_backend"]
+    assert bound["per_instance"]["source1"]["state_counts"] == {
+        "out_of_view": 15,
+        "visible_clear": 30,
+        "visible_occluded": 15,
+        "fully_occluded": 15,
+    }
+    assert bound["per_instance"]["source2"]["state_counts"] == {
+        "out_of_view": 0,
+        "visible_clear": 75,
+        "visible_occluded": 0,
+        "fully_occluded": 0,
+    }
+
+
+def test_pixel_visibility_truth_rejects_sensor_rig_pose_mismatch() -> None:
+    trajectory = _moving_listener_trajectory()
+    pixel_truth = _pixel_truth_for_episode(trajectory)
+    pixel_truth["camera_pose_ids"][10] = "different_camera_pose"
+    with pytest.raises(QAFactTableError, match="camera poses differ"):
+        _compile(
+            sensor_rig_trajectory=trajectory,
+            pixel_visibility_truth=pixel_truth,
+            camera={"hfov_degrees": 105.0, "resolution_hw": [8, 10]},
+        )
 
 
 def test_human_style_vertical_emitter_offset_yields_null_facing() -> None:

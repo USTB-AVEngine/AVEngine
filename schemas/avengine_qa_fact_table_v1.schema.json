@@ -480,7 +480,12 @@
             }
           }
         },
-        "pixel_truth": {"const": "pending_P1_amodal_modal_pass"}
+        "pixel_truth": {
+          "oneOf": [
+            {"const": "pending_P1_amodal_modal_pass"},
+            {"$ref": "#/$defs/pixelVisibilityTruth"}
+          ]
+        }
       }
     },
     "frame_events": {
@@ -571,6 +576,129 @@
     }
   },
   "$defs": {
+    "pixelVisibilityTruth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "authority",
+        "renderer_backend",
+        "rgb_renderer_backend",
+        "camera_contract_id",
+        "semantic_id_namespace",
+        "resolution_hw",
+        "frame_indices",
+        "camera_pose_ids",
+        "fraction_policy",
+        "out_of_view_fraction_policy",
+        "per_instance"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_qa_pixel_visibility_truth_v1"},
+        "status": {"const": "computed_modal_target_only_v1"},
+        "authority": {
+          "const": "same_renderer_same_camera_modal_target_only_semantic_masks_v1"
+        },
+        "renderer_backend": {"type": "string", "minLength": 1},
+        "rgb_renderer_backend": {"type": "string", "minLength": 1},
+        "camera_contract_id": {"type": "string", "minLength": 1},
+        "semantic_id_namespace": {"type": "string", "minLength": 1},
+        "resolution_hw": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "frame_indices": {
+          "type": "array",
+          "minItems": 75,
+          "maxItems": 75,
+          "items": {"type": "integer", "minimum": 0, "maximum": 74}
+        },
+        "camera_pose_ids": {
+          "type": "array",
+          "minItems": 75,
+          "maxItems": 75,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "fraction_policy": {
+          "const": "visible_pixels_divided_by_in_view_target_only_pixels_v1"
+        },
+        "out_of_view_fraction_policy": {
+          "const": "null_no_in_view_target_denominator"
+        },
+        "per_instance": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["semantic_id", "frames", "state_counts"],
+            "properties": {
+              "semantic_id": {"type": "integer", "minimum": 1},
+              "frames": {
+                "type": "array",
+                "minItems": 75,
+                "maxItems": 75,
+                "items": {"$ref": "#/$defs/pixelVisibilityFrame"}
+              },
+              "state_counts": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "out_of_view",
+                  "visible_clear",
+                  "visible_occluded",
+                  "fully_occluded"
+                ],
+                "properties": {
+                  "out_of_view": {"type": "integer", "minimum": 0},
+                  "visible_clear": {"type": "integer", "minimum": 0},
+                  "visible_occluded": {"type": "integer", "minimum": 0},
+                  "fully_occluded": {"type": "integer", "minimum": 0}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "pixelVisibilityFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_index",
+        "visible_pixels",
+        "target_pixels",
+        "visible_fraction",
+        "occlusion_fraction",
+        "state"
+      ],
+      "properties": {
+        "frame_index": {"type": "integer", "minimum": 0, "maximum": 74},
+        "visible_pixels": {"type": "integer", "minimum": 0},
+        "target_pixels": {"type": "integer", "minimum": 0},
+        "visible_fraction": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "occlusion_fraction": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "state": {
+          "enum": [
+            "out_of_view",
+            "visible_clear",
+            "visible_occluded",
+            "fully_occluded"
+          ]
+        }
+      }
+    },
     "vec3": {
       "type": "array",
       "minItems": 3,

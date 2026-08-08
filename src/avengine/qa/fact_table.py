@@ -21,6 +21,10 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.qa.pixel_visibility import (
+    PixelVisibilityError,
+    bind_pixel_visibility_truth,
+)
 from avengine.sensor_rig_trajectory import validate_sensor_rig_trajectory
 
 FACT_TABLE_SCHEMA = "avengine_qa_fact_table_v1"
@@ -641,6 +645,7 @@ def compile_episode_fact_table(
     provenance_inputs: Sequence[Mapping[str, Any]],
     declared_events_by_slot: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     sensor_rig_trajectory: Mapping[str, Any] | None = None,
+    pixel_visibility_truth: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile one episode's fact table from already-frozen artifacts."""
 
@@ -863,6 +868,32 @@ def compile_episode_fact_table(
     ) != 64:
         raise QAFactTableError("rir cache identity must be a sha256 hex digest")
 
+    pixel_truth_block: str | dict[str, Any] = "pending_P1_amodal_modal_pass"
+    if pixel_visibility_truth is not None:
+        expected_pose_ids = (
+            None
+            if sensor_rig_trajectory is None
+            else [
+                str(frame["pose_hash"])
+                for frame in sensor_rig_trajectory["frames"]
+            ]
+        )
+        try:
+            pixel_truth_block = bind_pixel_visibility_truth(
+                pixel_visibility_truth,
+                expected_instance_ids=slot_list,
+                expected_frame_count=frame_count,
+                expected_resolution_hw=[
+                    int(camera_resolution[0]),
+                    int(camera_resolution[1]),
+                ],
+                expected_camera_pose_ids=expected_pose_ids,
+            )
+        except PixelVisibilityError as error:
+            raise QAFactTableError(
+                f"pixel visibility truth is invalid: {error}"
+            ) from error
+
     listener_block: dict[str, Any] = {
         "position_m": [float(v) for v in listener_positions[0]],
         "orientation_wxyz": [float(v) for v in listener_orientations[0]],
@@ -935,7 +966,7 @@ def compile_episode_fact_table(
                 }
                 for slot_id, frustum in frustum_by_slot.items()
             },
-            "pixel_truth": "pending_P1_amodal_modal_pass",
+            "pixel_truth": pixel_truth_block,
         },
         "frame_events": {
             "status": "computed_center_point_v0",
