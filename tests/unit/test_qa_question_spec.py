@@ -26,6 +26,7 @@ from test_qa_fact_table import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "avengine_qa_question_spec_v1.schema.json"
+FACT_SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "avengine_qa_fact_table_v1.schema.json"
 
 
 def _controlled_inputs() -> tuple[dict, dict, dict, dict]:
@@ -136,12 +137,18 @@ def _specs() -> list[dict]:
             "question_type": "occluder_identity",
             "selectors": {"target_instance_id": "source1", "frame_index": 35},
         },
+        {
+            "schema": QUESTION_SPEC_SCHEMA,
+            "spec_id": "QS-011",
+            "question_type": "became_clear_after_partial_occlusion",
+            "selectors": {"target_instance_id": "source1"},
+        },
     ]
 
 
-def test_fixed_catalog_has_ten_plain_language_types() -> None:
+def test_controlled_catalog_has_eleven_plain_language_types() -> None:
     catalog = question_type_catalog()
-    assert [entry["index"] for entry in catalog] == list(range(1, 11))
+    assert [entry["index"] for entry in catalog] == list(range(1, 12))
     assert [entry["name_zh"] for entry in catalog] == [
         "外貌→是否发声",
         "声音/内容→外貌",
@@ -153,6 +160,7 @@ def test_fixed_catalog_has_ten_plain_language_types() -> None:
         "发声时遮挡状态",
         "遮挡后重新出现",
         "遮挡者身份",
+        "部分遮挡→完全可见",
     ]
 
 
@@ -168,7 +176,7 @@ def test_specs_validate_and_only_emit_registry_requirements() -> None:
         assert requirements["required_modalities"]
 
 
-def test_dynamic_pixel_canary_passes_first_nine_and_truthfully_rejects_tenth() -> None:
+def test_dynamic_pixel_canary_keeps_full_and_partial_reappearance_distinct() -> None:
     facts, assets, sounds, bindings = _controlled_inputs()
     results = evaluate_question_specs(
         _specs(),
@@ -177,7 +185,11 @@ def test_dynamic_pixel_canary_passes_first_nine_and_truthfully_rejects_tenth() -
         sound_registry=sounds,
         event_sound_bindings=bindings,
     )
-    assert [result["status"] for result in results] == ["pass"] * 9 + ["unsupported"]
+    assert [result["status"] for result in results] == [
+        *(["pass"] * 9),
+        "unsupported",
+        "pass",
+    ]
     assert [result["answer"]["value"] for result in results[:9]] == [
         "yes",
         "black",
@@ -194,6 +206,7 @@ def test_dynamic_pixel_canary_passes_first_nine_and_truthfully_rejects_tenth() -
     assert results[7]["evidence"]["frame_index"] == 35
     assert results[8]["evidence"]["reappeared_frames"] == [60]
     assert results[9]["reason"]["code"] == "missing_occluder_identity"
+    assert results[10]["answer"]["value"] == "no"
     assert all(
         "not a model-ablation claim"
         in next(
@@ -201,8 +214,110 @@ def test_dynamic_pixel_canary_passes_first_nine_and_truthfully_rejects_tenth() -
             for check in result["checks"]
             if check["name"] == "modality_necessity"
         )
-        for result in results[:9]
+        for result in [*results[:9], results[10]]
     )
+
+
+def test_partial_occlusion_to_clear_requires_an_adjacent_pixel_transition() -> None:
+    facts, assets, sounds, bindings = _controlled_inputs()
+    frames = facts["visibility"]["pixel_truth"]["per_instance"]["source1"][
+        "frames"
+    ]
+    frames[30].update(
+        {
+            "state": "visible_clear",
+            "visible_pixels": frames[30]["target_pixels"],
+            "visible_fraction": 1.0,
+            "occlusion_fraction": 0.0,
+        }
+    )
+    counts = facts["visibility"]["pixel_truth"]["per_instance"]["source1"][
+        "state_counts"
+    ]
+    counts["fully_occluded"] -= 1
+    counts["visible_clear"] += 1
+
+    result = evaluate_question_spec(
+        _specs()[10],
+        facts=facts,
+        asset_registry=assets,
+        sound_registry=sounds,
+        event_sound_bindings=bindings,
+    )
+
+    assert result["status"] == "pass"
+    assert result["answer"]["value"] == "yes"
+    assert result["evidence"]["clear_transition_frames"] == [30]
+
+
+def test_occluder_identity_accepts_unique_native_static_object_evidence() -> None:
+    facts, assets, sounds, bindings = _controlled_inputs()
+    zero_sha = "0" * 64
+    occluder_id = "native_static_object::Meshes/05_chair/Round_Table_Chair_01"
+    facts["visibility"]["occluder_evidence"] = {
+        "schema": "avengine_native_static_occluder_evidence_v1",
+        "status": "computed_native_static_object_ids_v1",
+        "authority": (
+            "same_renderer_same_camera_occluded_target_footprint_"
+            "normal_static_object_ids_v1"
+        ),
+        "camera_pose_ids": facts["visibility"]["pixel_truth"]["camera_pose_ids"],
+        "decision_policy": {
+            "minimum_occluded_pixels": 32,
+            "unique_static_object_required": True,
+            "all_occluded_pixels_require_known_static_object_id": True,
+            "unknown_raw_ids_are_never_admitted": True,
+        },
+        "source_artifacts": {
+            name: {"path": f"/{name}", "sha256": zero_sha}
+            for name in ["pixel_masks", "pixel_truth", "object_ids", "descriptors"]
+        },
+        "occluder_registry": {
+            occluder_id: {
+                "occluder_id": occluder_id,
+                "display_label": "Round_Table_Chair_01",
+                "actor_stable_name": "Meshes/05_chair/Round_Table_Chair_01",
+                "actor_names": ["Round_Table_Chair_01:StaticMeshActor_67"],
+                "raw_object_ids": [181],
+            }
+        },
+        "frame_records": [
+            {
+                "target_instance_id": "source1",
+                "frame_index": 35,
+                "pixel_state": "fully_occluded",
+                "occluded_pixels": 100,
+                "known_static_object_pixels": 100,
+                "candidates": [
+                    {
+                        "occluder_id": occluder_id,
+                        "pixel_count": 100,
+                        "fraction_of_occluded_target": 1.0,
+                        "raw_object_ids": [181],
+                    }
+                ],
+                "occluder_instance_ids": [occluder_id],
+                "decision": "unique_static_occluder",
+            }
+        ],
+    }
+    jsonschema.validate(
+        facts, json.loads(FACT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    )
+
+    result = evaluate_question_spec(
+        _specs()[9],
+        facts=facts,
+        asset_registry=assets,
+        sound_registry=sounds,
+        event_sound_bindings=bindings,
+    )
+
+    assert result["status"] == "pass"
+    assert result["answer"] == {
+        "value": occluder_id,
+        "label_zh": "Round_Table_Chair_01",
+    }
 
 
 def test_simultaneous_first_speakers_are_rejected_instead_of_guessed() -> None:

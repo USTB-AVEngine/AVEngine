@@ -131,10 +131,20 @@ QUESTION_TYPES: tuple[dict[str, Any], ...] = (
         "question_type": "occluder_identity",
         "name_zh": "遮挡者身份",
         "required_facts": [
-            "visibility.pixel_truth.per_instance.*.frames.occluder_instance_ids"
+            "visibility.occluder_evidence.frame_records.occluder_instance_ids"
         ],
         "required_modalities": ["video", "pixel_instance_visibility"],
-        "scene_constraints": ["遮挡像素必须绑定到唯一受控实例 ID"],
+        "scene_constraints": ["遮挡像素必须绑定到唯一原生静态对象 ID"],
+    },
+    {
+        "index": 11,
+        "question_type": "became_clear_after_partial_occlusion",
+        "name_zh": "部分遮挡→完全可见",
+        "required_facts": ["visibility.pixel_truth.per_instance.*.frames"],
+        "required_modalities": ["video", "pixel_visibility"],
+        "scene_constraints": [
+            "实例相邻像素状态从 visible_occluded 变为 visible_clear"
+        ],
     },
 )
 
@@ -150,6 +160,7 @@ _SELECTOR_KEYS = {
     "occlusion_while_speaking": {"sound_asset_id", "frame_index"},
     "reappeared_after_occlusion": {"target_instance_id"},
     "occluder_identity": {"target_instance_id", "frame_index"},
+    "became_clear_after_partial_occlusion": {"target_instance_id"},
 }
 
 
@@ -167,7 +178,7 @@ class _StopEvaluation(Exception):
 
 
 def question_type_catalog() -> list[dict[str, Any]]:
-    """Return the fixed ten-type catalog in stable user-facing order."""
+    """Return the controlled catalog in stable user-facing order."""
 
     return copy.deepcopy(list(QUESTION_TYPES))
 
@@ -199,7 +210,7 @@ def _validate_spec(spec: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, A
     question_type = spec.get("question_type")
     definition = _TYPE_BY_ID.get(question_type)
     if definition is None:
-        raise QuestionSpecError("question_type is not one of the fixed ten types")
+        raise QuestionSpecError("question_type is not in the controlled catalog")
     selectors = spec.get("selectors")
     if not isinstance(selectors, Mapping):
         raise QuestionSpecError("selectors must be an object")
@@ -853,12 +864,70 @@ def _question_and_answer(
             {"fully_occluded_frames": fully_occluded_at, "reappeared_frames": reappeared_at},
         )
 
+    if question_type == "became_clear_after_partial_occlusion":
+        instance_id = selectors["target_instance_id"]
+        frames = _pixel_frames(context, instance_id)
+        partial_frames: list[int] = []
+        clear_transition_frames: list[int] = []
+        previous_state = None
+        for frame in frames:
+            state = frame.get("state")
+            if state == "visible_occluded":
+                partial_frames.append(frame["frame_index"])
+            if previous_state == "visible_occluded" and state == "visible_clear":
+                clear_transition_frames.append(frame["frame_index"])
+            previous_state = state
+        answer = bool(clear_transition_frames)
+        return (
+            f"受控实例“{instance_id}”是否从部分遮挡变为完全可见？",
+            {
+                "value": "yes" if answer else "no",
+                "label_zh": "是" if answer else "否",
+            },
+            {
+                "partial_occlusion_frames": partial_frames,
+                "clear_transition_frames": clear_transition_frames,
+            },
+        )
+
     if question_type == "occluder_identity":
         instance_id = selectors["target_instance_id"]
         frame_index = selectors["frame_index"]
         _validate_frame(context, frame_index)
         frame = _pixel_frames(context, instance_id)[frame_index]
         occluders = frame.get("occluder_instance_ids")
+        occluder_registry: Mapping[str, Any] = context["instances"]
+        if not _is_sequence(occluders):
+            visibility = context["facts"].get("visibility")
+            evidence = (
+                visibility.get("occluder_evidence")
+                if isinstance(visibility, Mapping)
+                else None
+            )
+            records = (
+                evidence.get("frame_records")
+                if isinstance(evidence, Mapping)
+                else None
+            )
+            registry = (
+                evidence.get("occluder_registry")
+                if isinstance(evidence, Mapping)
+                else None
+            )
+            matches = (
+                [
+                    record
+                    for record in records
+                    if isinstance(record, Mapping)
+                    and record.get("target_instance_id") == instance_id
+                    and record.get("frame_index") == frame_index
+                ]
+                if _is_sequence(records)
+                else []
+            )
+            if len(matches) == 1 and isinstance(registry, Mapping):
+                occluders = matches[0].get("occluder_instance_ids")
+                occluder_registry = registry
         if not _is_sequence(occluders):
             raise _StopEvaluation(
                 "unsupported",
@@ -867,7 +936,7 @@ def _question_and_answer(
                 "observable",
                 {"target_instance_id": instance_id, "frame_index": frame_index, "pixel_state": frame.get("state")},
             )
-        known = [value for value in occluders if value in context["instances"]]
+        known = [value for value in occluders if value in occluder_registry]
         if len(known) != 1 or len(known) != len(occluders):
             raise _StopEvaluation(
                 "rejected",
@@ -876,10 +945,18 @@ def _question_and_answer(
                 "answer_unique",
                 {"occluder_instance_ids": list(occluders)},
             )
-        occluder = context["instances"][known[0]]
+        occluder = occluder_registry[known[0]]
+        label = occluder.get("display_label")
+        if not isinstance(label, str) or not label:
+            raise _StopEvaluation(
+                "rejected",
+                "facts_not_observable",
+                "the unique occluder lacks a display label",
+                "observable",
+            )
         return (
             f"第 {frame_index} 帧是谁遮挡了受控实例“{instance_id}”？",
-            {"value": known[0], "label_zh": occluder["display_label"]},
+            {"value": known[0], "label_zh": label},
             {"target_instance_id": instance_id, "frame_index": frame_index},
         )
 

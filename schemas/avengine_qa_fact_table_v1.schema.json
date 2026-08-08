@@ -485,6 +485,9 @@
             {"const": "pending_P1_amodal_modal_pass"},
             {"$ref": "#/$defs/pixelVisibilityTruth"}
           ]
+        },
+        "occluder_evidence": {
+          "$ref": "#/$defs/nativeStaticOccluderEvidence"
         }
       }
     },
@@ -576,9 +579,174 @@
     }
   },
   "$defs": {
+    "nativeStaticOccluderEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "authority",
+        "camera_pose_ids",
+        "decision_policy",
+        "source_artifacts",
+        "occluder_registry",
+        "frame_records"
+      ],
+      "properties": {
+        "schema": {"const": "avengine_native_static_occluder_evidence_v1"},
+        "status": {"const": "computed_native_static_object_ids_v1"},
+        "authority": {
+          "const": "same_renderer_same_camera_occluded_target_footprint_normal_static_object_ids_v1"
+        },
+        "camera_pose_ids": {
+          "type": "array",
+          "minItems": 75,
+          "maxItems": 75,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "decision_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum_occluded_pixels",
+            "unique_static_object_required",
+            "all_occluded_pixels_require_known_static_object_id",
+            "unknown_raw_ids_are_never_admitted"
+          ],
+          "properties": {
+            "minimum_occluded_pixels": {"type": "integer", "minimum": 1},
+            "unique_static_object_required": {"const": true},
+            "all_occluded_pixels_require_known_static_object_id": {"const": true},
+            "unknown_raw_ids_are_never_admitted": {"const": true}
+          }
+        },
+        "source_artifacts": {
+          "type": "object",
+          "minProperties": 4,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        },
+        "occluder_registry": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "occluder_id",
+              "display_label",
+              "actor_stable_name",
+              "actor_names",
+              "raw_object_ids"
+            ],
+            "properties": {
+              "occluder_id": {"type": "string", "minLength": 1},
+              "display_label": {"type": "string", "minLength": 1},
+              "actor_stable_name": {"type": "string", "minLength": 1},
+              "actor_names": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true
+              },
+              "raw_object_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "integer", "minimum": 1},
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "frame_records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_instance_id",
+              "frame_index",
+              "pixel_state",
+              "occluded_pixels",
+              "known_static_object_pixels",
+              "candidates",
+              "occluder_instance_ids",
+              "decision"
+            ],
+            "properties": {
+              "target_instance_id": {"type": "string", "minLength": 1},
+              "frame_index": {"type": "integer", "minimum": 0, "maximum": 74},
+              "pixel_state": {
+                "enum": ["visible_occluded", "fully_occluded"]
+              },
+              "occluded_pixels": {"type": "integer", "minimum": 1},
+              "known_static_object_pixels": {"type": "integer", "minimum": 0},
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "occluder_id",
+                    "pixel_count",
+                    "fraction_of_occluded_target",
+                    "raw_object_ids"
+                  ],
+                  "properties": {
+                    "occluder_id": {"type": "string", "minLength": 1},
+                    "pixel_count": {"type": "integer", "minimum": 1},
+                    "fraction_of_occluded_target": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1
+                    },
+                    "raw_object_ids": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {"type": "integer", "minimum": 1},
+                      "uniqueItems": true
+                    }
+                  }
+                }
+              },
+              "occluder_instance_ids": {
+                "type": "array",
+                "maxItems": 1,
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true
+              },
+              "decision": {
+                "enum": [
+                  "unique_static_occluder",
+                  "rejected_ambiguous_or_insufficient"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "pixelVisibilityTruth": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "authority": {
+                "const": "same_renderer_same_camera_normal_vs_target_only_metric_depth_v1"
+              }
+            }
+          },
+          "then": {"required": ["depth_comparison"]},
+          "else": {"not": {"required": ["depth_comparison"]}}
+        }
+      ],
       "required": [
         "schema",
         "status",
@@ -598,7 +766,13 @@
         "schema": {"const": "avengine_qa_pixel_visibility_truth_v1"},
         "status": {"const": "computed_modal_target_only_v1"},
         "authority": {
-          "const": "same_renderer_same_camera_modal_target_only_semantic_masks_v1"
+          "enum": [
+            "same_renderer_same_camera_modal_target_only_semantic_masks_v1",
+            "same_renderer_same_camera_normal_vs_target_only_metric_depth_v1"
+          ]
+        },
+        "depth_comparison": {
+          "$ref": "#/$defs/pixelVisibilityDepthComparison"
         },
         "renderer_backend": {"type": "string", "minLength": 1},
         "rgb_renderer_backend": {"type": "string", "minLength": 1},
@@ -661,6 +835,41 @@
               }
             }
           }
+        }
+      }
+    },
+    "pixelVisibilityDepthComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "units",
+        "normal_pass",
+        "target_only_pass",
+        "target_footprint_policy",
+        "visibility_policy",
+        "target_only_background_depth_m",
+        "absolute_tolerance_m",
+        "relative_tolerance",
+        "overlap_resolution"
+      ],
+      "properties": {
+        "units": {"const": "meters"},
+        "normal_pass": {"const": "full_scene_metric_depth"},
+        "target_only_pass": {"const": "show_only_target_metric_depth"},
+        "target_footprint_policy": {
+          "const": "target_depth_below_background_sentinel_v1"
+        },
+        "visibility_policy": {
+          "const": "absolute_normal_minus_target_depth_lte_absolute_plus_relative_v1"
+        },
+        "target_only_background_depth_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "absolute_tolerance_m": {"type": "number", "minimum": 0},
+        "relative_tolerance": {"type": "number", "minimum": 0},
+        "overlap_resolution": {
+          "const": "minimum_depth_residual_then_instance_id_v1"
         }
       }
     },

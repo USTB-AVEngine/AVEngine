@@ -19,7 +19,8 @@
         "offscreen_to_onscreen",
         "occlusion_while_speaking",
         "reappeared_after_occlusion",
-        "occluder_identity"
+        "occluder_identity",
+        "became_clear_after_partial_occlusion"
       ]
     },
     "selectors": {
@@ -83,6 +84,10 @@
     {
       "if": {"properties": {"question_type": {"const": "occluder_identity"}}, "required": ["question_type"]},
       "then": {"properties": {"selectors": {"required": ["target_instance_id", "frame_index"], "minProperties": 2, "maxProperties": 2}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "became_clear_after_partial_occlusion"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["target_instance_id"], "minProperties": 1, "maxProperties": 1}}}
     }
   ],
   "$defs": {

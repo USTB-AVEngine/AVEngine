@@ -13,7 +13,6 @@ position matches the bank emitter paths it claims to serve.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -39,6 +38,7 @@ INDEX_SCHEMA = "avengine_qa_fact_table_index_v1"
 STATS_SCHEMA = "avengine_qa_fact_table_stats_v1"
 DELIVERY_SCHEMA = "avengine_m7_asset_bound_binaural_batch_delivery_v1"
 PLAN_POSITION_TOLERANCE_M = 1.0e-12
+PLAN_ORIENTATION_TOLERANCE = 1.0e-12
 AZIMUTH_SECTOR_DEG = 15.0
 DISTANCE_BIN_M = 0.5
 
@@ -76,6 +76,108 @@ def _check_plan_positions_against_bank(
                 f"plan job {job['job_id']} position disagrees with the bank at "
                 f"{use['episode_id']}/{use['source_slot_id']}/frame "
                 f"{use['frame_index']}",
+            )
+            checked += 1
+    return checked
+
+
+def _sensor_rig_listener_pose_series(
+    sensor_rig_trajectory: Mapping[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    frames = sensor_rig_trajectory.get("frames")
+    _require(isinstance(frames, list) and frames, "sensor rig trajectory has no frames")
+    try:
+        positions = np.asarray(
+            [frame["world_from_rig"]["translation_m"] for frame in frames],
+            dtype=np.float64,
+        )
+        rotations_xyzw = np.asarray(
+            [frame["world_from_rig"]["rotation_xyzw"] for frame in frames],
+            dtype=np.float64,
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise FactTableBatchError(
+            "sensor rig trajectory frames do not carry numeric world_from_rig poses"
+        ) from error
+    _require(
+        positions.shape == (len(frames), 3)
+        and rotations_xyzw.shape == (len(frames), 4)
+        and np.all(np.isfinite(positions))
+        and np.all(np.isfinite(rotations_xyzw)),
+        "sensor rig trajectory frames have invalid pose shapes or values",
+    )
+    norms = np.linalg.norm(rotations_xyzw, axis=1)
+    _require(
+        bool(np.all(np.abs(norms - 1.0) <= PLAN_ORIENTATION_TOLERANCE)),
+        "sensor rig trajectory rotations are not unit quaternions",
+    )
+    orientations_wxyz = rotations_xyzw[:, (3, 0, 1, 2)]
+    return positions, orientations_wxyz
+
+
+def _listener_pose_authority(
+    plan: Mapping[str, Any],
+    sensor_rig_trajectory: Mapping[str, Any] | None,
+) -> tuple[list[float], list[float]]:
+    if sensor_rig_trajectory is not None:
+        positions, orientations = _sensor_rig_listener_pose_series(
+            sensor_rig_trajectory
+        )
+        return positions[0].tolist(), orientations[0].tolist()
+    position = plan.get("listener_position_m")
+    orientation = plan.get("listener_orientation_wxyz")
+    _require(
+        isinstance(position, list) and isinstance(orientation, list),
+        "fixed-listener RIR plan lacks its top-level listener pose",
+    )
+    return list(position), list(orientation)
+
+
+def _check_plan_listener_poses_against_sensor_rig(
+    plan: Mapping[str, Any],
+    sensor_rig_trajectory: Mapping[str, Any] | None,
+) -> int:
+    if sensor_rig_trajectory is None:
+        return 0
+    positions, orientations = _sensor_rig_listener_pose_series(
+        sensor_rig_trajectory
+    )
+    checked = 0
+    for job in plan["jobs"]:
+        try:
+            job_position = np.asarray(job["listener_position_m"], dtype=np.float64)
+            job_orientation = np.asarray(
+                job["listener_orientation_wxyz"], dtype=np.float64
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise FactTableBatchError(
+                f"plan job {job.get('job_id')!r} lacks a numeric listener pose"
+            ) from error
+        _require(
+            job_position.shape == (3,) and job_orientation.shape == (4,),
+            f"plan job {job.get('job_id')!r} listener pose has an invalid shape",
+        )
+        for use in job["uses"]:
+            frame_index = use["frame_index"]
+            _require(
+                isinstance(frame_index, int) and 0 <= frame_index < len(positions),
+                f"plan job {job['job_id']} references an invalid Listener frame",
+            )
+            _require(
+                bool(
+                    np.all(
+                        np.abs(job_position - positions[frame_index])
+                        <= PLAN_POSITION_TOLERANCE_M
+                    )
+                ),
+                f"plan job {job['job_id']} Listener position disagrees with "
+                f"SensorRigTrajectory frame {frame_index}",
+            )
+            dot = abs(float(np.dot(job_orientation, orientations[frame_index])))
+            _require(
+                abs(dot - 1.0) <= PLAN_ORIENTATION_TOLERANCE,
+                f"plan job {job['job_id']} Listener orientation disagrees with "
+                f"SensorRigTrajectory frame {frame_index}",
             )
             checked += 1
     return checked
@@ -173,6 +275,15 @@ def main(argv: list[str] | None = None) -> int:
             "frame 0 must agree with the historical fixed RIR Listener pose"
         ),
     )
+    parser.add_argument(
+        "--pixel-visibility-truth",
+        type=Path,
+        help=(
+            "Optional native pixel-visibility truth for a single selected "
+            "Episode; it is schema-, instance-, frame-, resolution- and "
+            "SensorRig-pose-bound by the Fact compiler"
+        ),
+    )
     parser.add_argument("--limit", type=int, help="Compile only the first N episodes")
     parser.add_argument(
         "--intermittent-batch",
@@ -215,15 +326,24 @@ def main(argv: list[str] | None = None) -> int:
         if args.sensor_rig_trajectory is None
         else load_json(args.sensor_rig_trajectory.resolve())
     )
+    pixel_visibility_truth = (
+        None
+        if args.pixel_visibility_truth is None
+        else load_json(args.pixel_visibility_truth.resolve())
+    )
     validator = jsonschema.Draft202012Validator(schema_document)
+
+    listener_position_m, listener_orientation_wxyz = _listener_pose_authority(
+        plan, sensor_rig_trajectory
+    )
 
     camera_rig = m1_request["primary_camera_rig"]
     calibration = camera_rig["shared_calibration"]
     world_from_rig = camera_rig["world_from_rig"]
     rig_translation = np.asarray(world_from_rig["translation_m"], dtype=np.float64)
     rig_xyzw = np.asarray(world_from_rig["rotation_xyzw"], dtype=np.float64)
-    plan_position = np.asarray(plan["listener_position_m"], dtype=np.float64)
-    plan_wxyz = np.asarray(plan["listener_orientation_wxyz"], dtype=np.float64)
+    plan_position = np.asarray(listener_position_m, dtype=np.float64)
+    plan_wxyz = np.asarray(listener_orientation_wxyz, dtype=np.float64)
     _require(
         bool(np.all(np.abs(rig_translation - plan_position) <= 1.0e-9)),
         "M1 camera rig translation disagrees with the RIR plan listener position",
@@ -276,6 +396,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     plan_position_checks = _check_plan_positions_against_bank(plan, episodes_by_id)
+    plan_listener_pose_checks = _check_plan_listener_poses_against_sensor_rig(
+        plan, sensor_rig_trajectory
+    )
 
     provenance_inputs = [
         _provenance_record("trajectory_bank", bank_path),
@@ -292,6 +415,13 @@ def main(argv: list[str] | None = None) -> int:
         provenance_inputs.append(
             _provenance_record(
                 "sensor_rig_trajectory", args.sensor_rig_trajectory.resolve()
+            )
+        )
+    if args.pixel_visibility_truth is not None:
+        provenance_inputs.append(
+            _provenance_record(
+                "native_pixel_visibility_truth",
+                args.pixel_visibility_truth.resolve(),
             )
         )
     room = {
@@ -354,6 +484,10 @@ def main(argv: list[str] | None = None) -> int:
         selected = bank_episodes
     if args.limit is not None:
         selected = selected[: args.limit]
+    _require(
+        pixel_visibility_truth is None or len(selected) == 1,
+        "--pixel-visibility-truth requires exactly one selected Episode",
+    )
     entries: list[dict[str, Any]] = []
     azimuth_values: list[np.ndarray] = []
     distance_values: list[np.ndarray] = []
@@ -389,8 +523,8 @@ def main(argv: list[str] | None = None) -> int:
             fact_table = compile_episode_fact_table(
                 bank_header=bank_header,
                 bank_episode=bank_episode,
-                listener_position_m=plan["listener_position_m"],
-                listener_orientation_wxyz=plan["listener_orientation_wxyz"],
+                listener_position_m=listener_position_m,
+                listener_orientation_wxyz=listener_orientation_wxyz,
                 sample_entry=sample,
                 dry_variants_by_slot=_resolve_dry_variants(sample, episode_dry_library),
                 registry=registry,
@@ -401,6 +535,7 @@ def main(argv: list[str] | None = None) -> int:
                 provenance_inputs=provenance_inputs,
                 declared_events_by_slot=declared_events_by_slot,
                 sensor_rig_trajectory=sensor_rig_trajectory,
+                pixel_visibility_truth=pixel_visibility_truth,
             )
         except QAFactTableError as error:
             raise FactTableBatchError(f"{episode_id}: {error}") from error
@@ -484,6 +619,7 @@ def main(argv: list[str] | None = None) -> int:
             else len(bank_episodes)
         ),
         "plan_position_checks": plan_position_checks,
+        "plan_listener_pose_checks": plan_listener_pose_checks,
         "motion_case_counts": motion_case_counts,
         "species_pair_counts": species_pair_counts,
         "instance_frames": instance_frames,
@@ -533,6 +669,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"QA_FACT_TABLES_OK output={output} episodes={len(entries)} "
         f"plan_checks={plan_position_checks} "
+        f"listener_checks={plan_listener_pose_checks} "
         f"moving_frame_fraction={stats['moving_frame_fraction']:.3f}"
     )
     return 0

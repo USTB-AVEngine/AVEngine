@@ -4,8 +4,10 @@ import numpy as np
 import pytest
 
 from avengine.qa.pixel_visibility import (
+    PIXEL_VISIBILITY_DEPTH_AUTHORITY,
     PixelVisibilityError,
     bind_pixel_visibility_truth,
+    compile_depth_pixel_visibility_truth,
     compile_pixel_visibility_truth,
 )
 
@@ -60,6 +62,28 @@ def _compile(normal: list[np.ndarray], target: list[np.ndarray]) -> dict:
                 target_instance_id="source1",
             )
         },
+    )
+
+
+def _compile_depth(
+    normal: list[np.ndarray], target: list[np.ndarray]
+) -> dict:
+    frame_count = len(normal)
+    return compile_depth_pixel_visibility_truth(
+        normal_depth_m_frames=normal,
+        target_only_depth_m_frames_by_instance={"source1": target},
+        semantic_ids_by_instance={"source1": TARGET_ID},
+        normal_context=_context("modal_scene", frame_count=frame_count),
+        target_only_contexts_by_instance={
+            "source1": _context(
+                "target_only",
+                frame_count=frame_count,
+                target_instance_id="source1",
+            )
+        },
+        target_only_background_depth_m=100.0,
+        absolute_tolerance_m=0.01,
+        relative_tolerance=0.002,
     )
 
 
@@ -211,4 +235,117 @@ def test_fact_binding_rejects_tampered_fraction_and_state_counts() -> None:
             expected_frame_count=1,
             expected_resolution_hw=[HEIGHT, WIDTH],
             expected_camera_pose_ids=["camera_pose_000"],
+        )
+
+
+def test_metric_depth_authority_compiles_all_visibility_states() -> None:
+    footprint = np.zeros((HEIGHT, WIDTH), dtype=bool)
+    footprint[1:5, 2:6] = True
+    target = np.full((HEIGHT, WIDTH), 100.0, dtype=np.float32)
+    target[footprint] = 4.0
+    out_of_view = np.full_like(target, 100.0)
+    clear = np.full_like(target, 7.0)
+    clear[footprint] = 4.0
+    partial = clear.copy()
+    partial[1:5, 4:6] = 2.0
+    fully_occluded = np.full_like(target, 7.0)
+    fully_occluded[footprint] = 2.0
+
+    truth = _compile_depth(
+        [clear, partial, fully_occluded, clear],
+        [target, target, target, out_of_view],
+    )
+    assert truth["authority"] == PIXEL_VISIBILITY_DEPTH_AUTHORITY
+    assert truth["depth_comparison"]["units"] == "meters"
+    frames = truth["per_instance"]["source1"]["frames"]
+    assert [frame["state"] for frame in frames] == [
+        "visible_clear",
+        "visible_occluded",
+        "fully_occluded",
+        "out_of_view",
+    ]
+    assert [frame["visible_pixels"] for frame in frames] == [16, 8, 0, 0]
+    assert [frame["target_pixels"] for frame in frames] == [16, 16, 16, 0]
+    assert bind_pixel_visibility_truth(
+        truth,
+        expected_instance_ids=["source1"],
+        expected_frame_count=4,
+        expected_resolution_hw=[HEIGHT, WIDTH],
+        expected_camera_pose_ids=[
+            "camera_pose_000",
+            "camera_pose_001",
+            "camera_pose_002",
+            "camera_pose_003",
+        ],
+    )["authority"] == PIXEL_VISIBILITY_DEPTH_AUTHORITY
+
+
+@pytest.mark.parametrize(
+    ("normal", "target", "match"),
+    [
+        (
+            [np.ones((HEIGHT + 1, WIDTH), dtype=np.float32)],
+            [np.ones((HEIGHT, WIDTH), dtype=np.float32)],
+            "numeric shape",
+        ),
+        (
+            [np.full((HEIGHT, WIDTH), np.nan, dtype=np.float32)],
+            [np.ones((HEIGHT, WIDTH), dtype=np.float32)],
+            "finite positive",
+        ),
+        (
+            [np.ones((HEIGHT, WIDTH), dtype=np.float32)],
+            [np.full((HEIGHT, WIDTH), np.inf, dtype=np.float32)],
+            "finite positive",
+        ),
+    ],
+)
+def test_metric_depth_authority_rejects_bad_shape_or_nonfinite_values(
+    normal: list[np.ndarray], target: list[np.ndarray], match: str
+) -> None:
+    with pytest.raises(PixelVisibilityError, match=match):
+        _compile_depth(normal, target)
+
+
+def test_metric_depth_authority_rejects_zero_tolerance_and_pose_mismatch() -> None:
+    depth = np.ones((HEIGHT, WIDTH), dtype=np.float32)
+    with pytest.raises(PixelVisibilityError, match="identically zero"):
+        compile_depth_pixel_visibility_truth(
+            normal_depth_m_frames=[depth],
+            target_only_depth_m_frames_by_instance={"source1": [depth]},
+            semantic_ids_by_instance={"source1": TARGET_ID},
+            normal_context=_context(
+                "modal_scene", frame_count=1, camera_pose_ids=["pose_a"]
+            ),
+            target_only_contexts_by_instance={
+                "source1": _context(
+                    "target_only",
+                    frame_count=1,
+                    camera_pose_ids=["pose_a"],
+                    target_instance_id="source1",
+                )
+            },
+            target_only_background_depth_m=100.0,
+            absolute_tolerance_m=0.0,
+            relative_tolerance=0.0,
+        )
+    with pytest.raises(PixelVisibilityError, match="camera_pose_ids differs"):
+        compile_depth_pixel_visibility_truth(
+            normal_depth_m_frames=[depth],
+            target_only_depth_m_frames_by_instance={"source1": [depth]},
+            semantic_ids_by_instance={"source1": TARGET_ID},
+            normal_context=_context(
+                "modal_scene", frame_count=1, camera_pose_ids=["pose_a"]
+            ),
+            target_only_contexts_by_instance={
+                "source1": _context(
+                    "target_only",
+                    frame_count=1,
+                    camera_pose_ids=["pose_b"],
+                    target_instance_id="source1",
+                )
+            },
+            target_only_background_depth_m=100.0,
+            absolute_tolerance_m=0.01,
+            relative_tolerance=0.002,
         )

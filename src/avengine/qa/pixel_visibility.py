@@ -19,6 +19,13 @@ PIXEL_VISIBILITY_SCHEMA = "avengine_qa_pixel_visibility_truth_v1"
 PIXEL_VISIBILITY_AUTHORITY = (
     "same_renderer_same_camera_modal_target_only_semantic_masks_v1"
 )
+PIXEL_VISIBILITY_DEPTH_AUTHORITY = (
+    "same_renderer_same_camera_normal_vs_target_only_metric_depth_v1"
+)
+PIXEL_VISIBILITY_AUTHORITIES = (
+    PIXEL_VISIBILITY_AUTHORITY,
+    PIXEL_VISIBILITY_DEPTH_AUTHORITY,
+)
 PIXEL_VISIBILITY_STATES = (
     "out_of_view",
     "visible_clear",
@@ -147,6 +154,53 @@ def _normalize_mask(
     if np.any(mask < 0):
         raise PixelVisibilityError(f"{owner} may not contain negative semantic ids")
     return np.ascontiguousarray(mask)
+
+
+def _normalize_depth_frames(
+    value: Any,
+    *,
+    frame_count: int,
+    resolution_hw: tuple[int, int],
+    owner: str,
+) -> list[np.ndarray]:
+    if (
+        isinstance(value, (str, bytes))
+        or not isinstance(value, Sequence)
+        or len(value) != frame_count
+    ):
+        raise PixelVisibilityError(
+            f"{owner} must contain one metric-depth frame per context frame"
+        )
+    frames: list[np.ndarray] = []
+    for index, item in enumerate(value):
+        try:
+            frame = np.asarray(item)
+        except (TypeError, ValueError) as error:
+            raise PixelVisibilityError(
+                f"{owner}[{index}] must be a metric-depth array"
+            ) from error
+        if frame.shape != resolution_hw or frame.dtype.kind not in {"f", "i", "u"}:
+            raise PixelVisibilityError(
+                f"{owner}[{index}] must have numeric shape {resolution_hw}"
+            )
+        normalized = np.asarray(frame, dtype=np.float32)
+        if not np.all(np.isfinite(normalized)) or np.any(normalized <= 0.0):
+            raise PixelVisibilityError(
+                f"{owner}[{index}] must contain finite positive metric depth"
+            )
+        frames.append(np.ascontiguousarray(normalized))
+    return frames
+
+
+def _finite_non_negative(value: Any, *, owner: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) < 0.0
+    ):
+        raise PixelVisibilityError(f"{owner} must be finite and non-negative")
+    return float(value)
 
 
 def _frame_truth(
@@ -315,6 +369,165 @@ def compile_pixel_visibility_truth(
     }
 
 
+def compile_depth_pixel_visibility_truth(
+    *,
+    normal_depth_m_frames: Sequence[Any],
+    target_only_depth_m_frames_by_instance: Mapping[str, Sequence[Any]],
+    semantic_ids_by_instance: Mapping[str, int],
+    normal_context: Mapping[str, Any],
+    target_only_contexts_by_instance: Mapping[str, Mapping[str, Any]],
+    target_only_background_depth_m: float,
+    absolute_tolerance_m: float,
+    relative_tolerance: float,
+) -> dict[str, Any]:
+    """Compile native visibility from normal and show-only metric depth.
+
+    A target-only depth frame uses a finite far-depth sentinel outside the
+    target.  Pixels below that sentinel form the target's in-frustum
+    footprint.  A target is modal-visible where the normal-pass depth agrees
+    with its target-only depth within the declared absolute-plus-relative
+    tolerance.  Every pass must share renderer, RGB backend, camera contract,
+    frame indices and exact camera pose hashes.
+    """
+
+    if (
+        isinstance(normal_depth_m_frames, (str, bytes))
+        or not isinstance(normal_depth_m_frames, Sequence)
+        or not normal_depth_m_frames
+    ):
+        raise PixelVisibilityError("normal_depth_m_frames may not be empty")
+    frame_count = len(normal_depth_m_frames)
+    normal = _normalize_context(
+        normal_context,
+        expected_pass_kind="modal_scene",
+        frame_count=frame_count,
+    )
+    resolution = tuple(normal["resolution_hw"])
+    normal_depths = _normalize_depth_frames(
+        normal_depth_m_frames,
+        frame_count=frame_count,
+        resolution_hw=resolution,
+        owner="normal_depth_m_frames",
+    )
+    background_depth_m = _finite_non_negative(
+        target_only_background_depth_m,
+        owner="target_only_background_depth_m",
+    )
+    if background_depth_m <= 0.0:
+        raise PixelVisibilityError(
+            "target_only_background_depth_m must be positive"
+        )
+    absolute_tolerance = _finite_non_negative(
+        absolute_tolerance_m, owner="absolute_tolerance_m"
+    )
+    relative_tolerance_value = _finite_non_negative(
+        relative_tolerance, owner="relative_tolerance"
+    )
+    if absolute_tolerance == 0.0 and relative_tolerance_value == 0.0:
+        raise PixelVisibilityError("depth tolerance may not be identically zero")
+
+    instance_ids = set(semantic_ids_by_instance)
+    if (
+        not instance_ids
+        or set(target_only_depth_m_frames_by_instance) != instance_ids
+    ):
+        raise PixelVisibilityError(
+            "target-only depth instances must exactly match semantic_ids_by_instance"
+        )
+    if set(target_only_contexts_by_instance) != instance_ids:
+        raise PixelVisibilityError(
+            "target-only contexts must exactly match semantic_ids_by_instance"
+        )
+
+    target_depths_by_instance: dict[str, list[np.ndarray]] = {}
+    target_footprints_by_instance: dict[str, list[np.ndarray]] = {}
+    residuals_by_instance: dict[str, list[np.ndarray]] = {}
+    visible_candidates_by_instance: dict[str, list[np.ndarray]] = {}
+    for instance_id in sorted(instance_ids):
+        target_context = _normalize_context(
+            target_only_contexts_by_instance[instance_id],
+            expected_pass_kind="target_only",
+            frame_count=frame_count,
+            target_instance_id=instance_id,
+        )
+        for field in _COMMON_CONTEXT_FIELDS:
+            if target_context[field] != normal[field]:
+                raise PixelVisibilityError(
+                    f"{instance_id}: target-only {field} differs from the normal pass"
+                )
+        target_depths = _normalize_depth_frames(
+            target_only_depth_m_frames_by_instance[instance_id],
+            frame_count=frame_count,
+            resolution_hw=resolution,
+            owner=f"{instance_id}.target_only_depth_m_frames",
+        )
+        target_depths_by_instance[instance_id] = target_depths
+        target_footprints: list[np.ndarray] = []
+        residuals: list[np.ndarray] = []
+        visible_candidates: list[np.ndarray] = []
+        for normal_depth, target_depth in zip(normal_depths, target_depths):
+            footprint = target_depth < background_depth_m
+            residual = np.abs(normal_depth - target_depth)
+            tolerance = (
+                absolute_tolerance
+                + relative_tolerance_value * target_depth
+            )
+            visible = footprint & (residual <= tolerance)
+            if np.any(visible & ~footprint):
+                raise PixelVisibilityError(
+                    f"{instance_id}: depth-visible pixels exceed target footprint"
+                )
+            target_footprints.append(np.ascontiguousarray(footprint))
+            residuals.append(np.ascontiguousarray(residual))
+            visible_candidates.append(np.ascontiguousarray(visible))
+        target_footprints_by_instance[instance_id] = target_footprints
+        residuals_by_instance[instance_id] = residuals
+        visible_candidates_by_instance[instance_id] = visible_candidates
+
+    normal_semantic_masks: list[np.ndarray] = []
+    target_semantic_masks_by_instance: dict[str, list[np.ndarray]] = {
+        instance_id: [] for instance_id in instance_ids
+    }
+    for frame_offset in range(frame_count):
+        modal_mask = np.zeros(resolution, dtype=np.int32)
+        best_residual = np.full(resolution, np.inf, dtype=np.float32)
+        for instance_id in sorted(instance_ids):
+            semantic_id = semantic_ids_by_instance[instance_id]
+            footprint = target_footprints_by_instance[instance_id][frame_offset]
+            target_semantic_masks_by_instance[instance_id].append(
+                np.where(footprint, semantic_id, 0).astype(np.int32)
+            )
+            residual = residuals_by_instance[instance_id][frame_offset]
+            visible = visible_candidates_by_instance[instance_id][frame_offset]
+            wins = visible & (residual < best_residual)
+            modal_mask[wins] = semantic_id
+            best_residual[wins] = residual[wins]
+        normal_semantic_masks.append(modal_mask)
+
+    truth = compile_pixel_visibility_truth(
+        normal_semantic_masks=normal_semantic_masks,
+        target_only_semantic_masks_by_instance=target_semantic_masks_by_instance,
+        semantic_ids_by_instance=semantic_ids_by_instance,
+        normal_context=normal_context,
+        target_only_contexts_by_instance=target_only_contexts_by_instance,
+    )
+    truth["authority"] = PIXEL_VISIBILITY_DEPTH_AUTHORITY
+    truth["depth_comparison"] = {
+        "units": "meters",
+        "normal_pass": "full_scene_metric_depth",
+        "target_only_pass": "show_only_target_metric_depth",
+        "target_footprint_policy": "target_depth_below_background_sentinel_v1",
+        "visibility_policy": (
+            "absolute_normal_minus_target_depth_lte_absolute_plus_relative_v1"
+        ),
+        "target_only_background_depth_m": background_depth_m,
+        "absolute_tolerance_m": absolute_tolerance,
+        "relative_tolerance": relative_tolerance_value,
+        "overlap_resolution": "minimum_depth_residual_then_instance_id_v1",
+    }
+    return truth
+
+
 def bind_pixel_visibility_truth(
     value: Any,
     *,
@@ -329,8 +542,51 @@ def bind_pixel_visibility_truth(
         raise PixelVisibilityError("pixel truth has an unexpected schema")
     if value.get("status") != "computed_modal_target_only_v1":
         raise PixelVisibilityError("pixel truth is not computed")
-    if value.get("authority") != PIXEL_VISIBILITY_AUTHORITY:
+    authority = value.get("authority")
+    if authority not in PIXEL_VISIBILITY_AUTHORITIES:
         raise PixelVisibilityError("pixel truth has an unexpected authority")
+    if authority == PIXEL_VISIBILITY_DEPTH_AUTHORITY:
+        depth_comparison = value.get("depth_comparison")
+        if not isinstance(depth_comparison, Mapping):
+            raise PixelVisibilityError(
+                "metric-depth pixel truth lacks its comparison contract"
+            )
+        if (
+            depth_comparison.get("units") != "meters"
+            or depth_comparison.get("normal_pass")
+            != "full_scene_metric_depth"
+            or depth_comparison.get("target_only_pass")
+            != "show_only_target_metric_depth"
+            or depth_comparison.get("target_footprint_policy")
+            != "target_depth_below_background_sentinel_v1"
+            or depth_comparison.get("visibility_policy")
+            != (
+                "absolute_normal_minus_target_depth_lte_absolute_plus_relative_v1"
+            )
+            or depth_comparison.get("overlap_resolution")
+            != "minimum_depth_residual_then_instance_id_v1"
+        ):
+            raise PixelVisibilityError(
+                "metric-depth pixel truth has an unsupported comparison policy"
+            )
+        background_depth = _finite_non_negative(
+            depth_comparison.get("target_only_background_depth_m"),
+            owner="target_only_background_depth_m",
+        )
+        absolute_tolerance = _finite_non_negative(
+            depth_comparison.get("absolute_tolerance_m"),
+            owner="absolute_tolerance_m",
+        )
+        relative_tolerance = _finite_non_negative(
+            depth_comparison.get("relative_tolerance"),
+            owner="relative_tolerance",
+        )
+        if background_depth <= 0.0 or (
+            absolute_tolerance == 0.0 and relative_tolerance == 0.0
+        ):
+            raise PixelVisibilityError(
+                "metric-depth pixel truth has invalid sentinel or tolerance"
+            )
     if (
         value.get("fraction_policy")
         != "visible_pixels_divided_by_in_view_target_only_pixels_v1"
@@ -459,9 +715,12 @@ def bind_pixel_visibility_truth(
 
 __all__ = [
     "PIXEL_VISIBILITY_AUTHORITY",
+    "PIXEL_VISIBILITY_AUTHORITIES",
+    "PIXEL_VISIBILITY_DEPTH_AUTHORITY",
     "PIXEL_VISIBILITY_SCHEMA",
     "PIXEL_VISIBILITY_STATES",
     "PixelVisibilityError",
     "bind_pixel_visibility_truth",
+    "compile_depth_pixel_visibility_truth",
     "compile_pixel_visibility_truth",
 ]
