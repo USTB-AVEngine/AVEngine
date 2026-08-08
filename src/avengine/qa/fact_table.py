@@ -375,6 +375,7 @@ def _sound_events_for_slot(
     ticks_per_frame: int,
     audio_sample_count: int,
     declared_events: Sequence[Mapping[str, Any]] | None,
+    controlled_content: Mapping[str, Any] | None,
 ) -> list[dict[str, Any]]:
     record = dry_variant.get("record")
     if not isinstance(record, Mapping):
@@ -385,6 +386,47 @@ def _sound_events_for_slot(
     identity = asset.get("identity")
     if not isinstance(identity, Mapping) or not identity.get("species_id"):
         raise QAFactTableError(f"{slot_id}: registry asset lacks identity.species_id")
+    content_fields: dict[str, Any] = {}
+    if controlled_content is not None:
+        if not isinstance(controlled_content, Mapping):
+            raise QAFactTableError(
+                f"{slot_id}: controlled content binding must be an object"
+            )
+        allowed = {"sound_asset_id", "statement_id", "transcript", "language"}
+        extra = set(controlled_content) - allowed
+        if extra:
+            raise QAFactTableError(
+                f"{slot_id}: controlled content has unsupported fields {sorted(extra)}"
+            )
+        sound_asset_id = controlled_content.get("sound_asset_id")
+        if not isinstance(sound_asset_id, str) or not sound_asset_id:
+            raise QAFactTableError(
+                f"{slot_id}: controlled content requires sound_asset_id"
+            )
+        content_fields["sound_asset_id"] = sound_asset_id
+        statement_id = controlled_content.get("statement_id")
+        transcript = controlled_content.get("transcript")
+        language = controlled_content.get("language")
+        if (statement_id is None) != (transcript is None):
+            raise QAFactTableError(
+                f"{slot_id}: statement_id and transcript must be supplied together"
+            )
+        if statement_id is not None:
+            if not all(
+                isinstance(value, str) and value.strip()
+                for value in (statement_id, transcript, language)
+            ):
+                raise QAFactTableError(
+                    f"{slot_id}: spoken content requires readable statement, transcript and language"
+                )
+            content_fields.update(
+                {
+                    "statement_id": statement_id,
+                    "transcript": transcript,
+                    "language": language,
+                }
+            )
+
     shared = {
         "source_slot_id": slot_id,
         "asset_id": asset.get("asset_id"),
@@ -398,6 +440,7 @@ def _sound_events_for_slot(
             "input_sha256": source_input["sha256"],
             "linear_gain": record.get("linear_gain"),
         },
+        **content_fields,
     }
     if declared_events is None:
         return [
@@ -490,6 +533,7 @@ def _instance_entry(
             "size": realized.get("size"),
             "body_build": realized.get("body_build"),
             "life_stage": realized.get("life_stage"),
+            "sex_or_gender_label": realized.get("sex_or_gender_label"),
             "coat_profile_id": coat.get("profile_id") if isinstance(coat, Mapping) else None,
             "coat_value": coat.get("value") if isinstance(coat, Mapping) else None,
         },
@@ -646,6 +690,7 @@ def compile_episode_fact_table(
     declared_events_by_slot: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     sensor_rig_trajectory: Mapping[str, Any] | None = None,
     pixel_visibility_truth: Mapping[str, Any] | None = None,
+    controlled_content_by_slot: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compile one episode's fact table from already-frozen artifacts."""
 
@@ -684,6 +729,13 @@ def compile_episode_fact_table(
     slots = bank_header.get("source_slots")
     if not isinstance(slots, Sequence) or not slots:
         raise QAFactTableError("bank header must declare source_slots")
+    if controlled_content_by_slot is not None and (
+        not isinstance(controlled_content_by_slot, Mapping)
+        or set(controlled_content_by_slot) != set(slots)
+    ):
+        raise QAFactTableError(
+            "controlled_content_by_slot must exactly cover the declared source slots"
+        )
 
     audio_record = sample_entry.get("audio")
     if not isinstance(audio_record, Mapping):
@@ -790,6 +842,11 @@ def compile_episode_fact_table(
                 ticks_per_frame=ticks_per_frame,
                 audio_sample_count=audio_sample_count,
                 declared_events=declared_events,
+                controlled_content=(
+                    controlled_content_by_slot.get(slot_id)
+                    if controlled_content_by_slot is not None
+                    else None
+                ),
             )
         )
 

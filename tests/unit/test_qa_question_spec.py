@@ -57,6 +57,9 @@ def _controlled_inputs() -> tuple[dict, dict, dict, dict]:
                 "species": "cat",
                 "path": "/dry/cat.wav",
                 "sha256": SHA_B,
+                "statement_id": "controlled_sentence_001",
+                "transcript": "Maybe tomorrow it will be cold.",
+                "language": "en",
             },
         ],
     }
@@ -66,6 +69,16 @@ def _controlled_inputs() -> tuple[dict, dict, dict, dict]:
         )
         for event in facts["sound_events"]
     }
+    for event in facts["sound_events"]:
+        if event["source_slot_id"] == "source2":
+            event.update(
+                {
+                    "sound_asset_id": "cat_meow",
+                    "statement_id": "controlled_sentence_001",
+                    "transcript": "Maybe tomorrow it will be cold.",
+                    "language": "en",
+                }
+            )
     return facts, asset_registry, sound_registry, bindings
 
 
@@ -143,12 +156,21 @@ def _specs() -> list[dict]:
             "question_type": "became_clear_after_partial_occlusion",
             "selectors": {"target_instance_id": "source1"},
         },
+        {
+            "schema": QUESTION_SPEC_SCHEMA,
+            "spec_id": "QS-012",
+            "question_type": "appearance_to_spoken_content",
+            "selectors": {
+                "appearance_field": "breed_id",
+                "appearance_value": "cat_breed",
+            },
+        },
     ]
 
 
-def test_controlled_catalog_has_eleven_plain_language_types() -> None:
+def test_controlled_catalog_has_twelve_plain_language_types() -> None:
     catalog = question_type_catalog()
-    assert [entry["index"] for entry in catalog] == list(range(1, 12))
+    assert [entry["index"] for entry in catalog] == list(range(1, 13))
     assert [entry["name_zh"] for entry in catalog] == [
         "外貌→是否发声",
         "声音/内容→外貌",
@@ -161,6 +183,7 @@ def test_controlled_catalog_has_eleven_plain_language_types() -> None:
         "遮挡后重新出现",
         "遮挡者身份",
         "部分遮挡→完全可见",
+        "外貌→说了什么",
     ]
 
 
@@ -189,6 +212,7 @@ def test_dynamic_pixel_canary_keeps_full_and_partial_reappearance_distinct() -> 
         *(["pass"] * 9),
         "unsupported",
         "pass",
+        "pass",
     ]
     assert [result["answer"]["value"] for result in results[:9]] == [
         "yes",
@@ -197,7 +221,7 @@ def test_dynamic_pixel_canary_keeps_full_and_partial_reappearance_distinct() -> 
         "left",
         "yes",
         "yes",
-        "yes",
+        "right",
         "fully_occluded",
         "yes",
     ]
@@ -207,6 +231,8 @@ def test_dynamic_pixel_canary_keeps_full_and_partial_reappearance_distinct() -> 
     assert results[8]["evidence"]["reappeared_frames"] == [60]
     assert results[9]["reason"]["code"] == "missing_occluder_identity"
     assert results[10]["answer"]["value"] == "no"
+    assert results[11]["answer"]["value"] == "Maybe tomorrow it will be cold."
+    assert results[11]["evidence"]["statement_id"] == "controlled_sentence_001"
     assert all(
         "not a model-ablation claim"
         in next(
@@ -331,6 +357,16 @@ def test_simultaneous_first_speakers_are_rejected_instead_of_guessed() -> None:
         )
         for event in continuous["sound_events"]
     }
+    for event in continuous["sound_events"]:
+        if event["source_slot_id"] == "source2":
+            event.update(
+                {
+                    "sound_asset_id": "cat_meow",
+                    "statement_id": "controlled_sentence_001",
+                    "transcript": "Maybe tomorrow it will be cold.",
+                    "language": "en",
+                }
+            )
     result = evaluate_question_spec(
         _specs()[2],
         facts=continuous,
@@ -395,3 +431,59 @@ def test_registry_provenance_mismatch_and_hash_like_id_are_rejected() -> None:
     )
     assert result["status"] == "rejected"
     assert result["reason"]["code"] == "invalid_question_spec"
+
+
+def test_spoken_content_must_match_the_bound_registry_record_exactly() -> None:
+    facts, assets, sounds, bindings = _controlled_inputs()
+    tampered = copy.deepcopy(facts)
+    event = next(
+        item for item in tampered["sound_events"] if item["source_slot_id"] == "source2"
+    )
+    event["transcript"] = "Free-form text that is not in the registry."
+    result = evaluate_question_spec(
+        _specs()[11],
+        facts=tampered,
+        asset_registry=assets,
+        sound_registry=sounds,
+        event_sound_bindings=bindings,
+    )
+    assert result["status"] == "rejected"
+    assert result["reason"]["code"] == "sound_registry_mismatch"
+
+
+def test_b_style_nested_sound_asset_registry_is_supported() -> None:
+    facts, assets, _, bindings = _controlled_inputs()
+    sounds = {
+        "registry_id": "controlled_sound_content_registry_v1",
+        "assets": [
+            {
+                "sound_asset_id": "dog_bark",
+                "audio": {"uri": "artifact://test/dog.wav", "sha256": SHA_B},
+                "content": {
+                    "species": "dog",
+                    "statement_id": None,
+                    "transcript": None,
+                    "language": "und",
+                },
+            },
+            {
+                "sound_asset_id": "cat_meow",
+                "audio": {"uri": "artifact://test/cat.wav", "sha256": SHA_B},
+                "content": {
+                    "species": "cat",
+                    "statement_id": "controlled_sentence_001",
+                    "transcript": "Maybe tomorrow it will be cold.",
+                    "language": "en",
+                },
+            },
+        ],
+    }
+    result = evaluate_question_spec(
+        _specs()[11],
+        facts=facts,
+        asset_registry=assets,
+        sound_registry=sounds,
+        event_sound_bindings=bindings,
+    )
+    assert result["status"] == "pass"
+    assert result["evidence"]["statement_id"] == "controlled_sentence_001"

@@ -20,7 +20,8 @@
         "occlusion_while_speaking",
         "reappeared_after_occlusion",
         "occluder_identity",
-        "became_clear_after_partial_occlusion"
+        "became_clear_after_partial_occlusion",
+        "appearance_to_spoken_content"
       ]
     },
     "selectors": {
@@ -28,7 +29,7 @@
       "additionalProperties": false,
       "properties": {
         "appearance_field": {
-          "enum": ["breed_id", "size", "body_build", "life_stage", "coat_value"]
+          "enum": ["breed_id", "size", "body_build", "life_stage", "coat_value", "sex_or_gender_label"]
         },
         "appearance_value": {"type": "string", "minLength": 1},
         "sound_asset_id": {"$ref": "#/$defs/readableId"},
@@ -88,6 +89,10 @@
     {
       "if": {"properties": {"question_type": {"const": "became_clear_after_partial_occlusion"}}, "required": ["question_type"]},
       "then": {"properties": {"selectors": {"required": ["target_instance_id"], "minProperties": 1, "maxProperties": 1}}}
+    },
+    {
+      "if": {"properties": {"question_type": {"const": "appearance_to_spoken_content"}}, "required": ["question_type"]},
+      "then": {"properties": {"selectors": {"required": ["appearance_field", "appearance_value"], "minProperties": 2, "maxProperties": 2}}}
     }
   ],
   "$defs": {

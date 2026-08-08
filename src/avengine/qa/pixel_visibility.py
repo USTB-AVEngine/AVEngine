@@ -231,7 +231,17 @@ def _frame_truth(
         state = "out_of_view"
         visible_fraction: float | None = None
         occlusion_fraction: float | None = None
+        target_bbox_xyxy_px: list[int] | None = None
+        target_centroid_xy_px: list[float] | None = None
     else:
+        rows, columns = np.nonzero(target_footprint)
+        target_bbox_xyxy_px = [
+            int(columns.min()),
+            int(rows.min()),
+            int(columns.max()) + 1,
+            int(rows.max()) + 1,
+        ]
+        target_centroid_xy_px = [float(columns.mean()), float(rows.mean())]
         visible_fraction = visible_pixels / target_pixels
         occlusion_fraction = 1.0 - visible_fraction
         if visible_pixels == target_pixels:
@@ -246,6 +256,8 @@ def _frame_truth(
         "target_pixels": target_pixels,
         "visible_fraction": visible_fraction,
         "occlusion_fraction": occlusion_fraction,
+        "target_bbox_xyxy_px": target_bbox_xyxy_px,
+        "target_centroid_xy_px": target_centroid_xy_px,
         "state": state,
     }
 

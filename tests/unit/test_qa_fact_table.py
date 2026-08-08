@@ -206,10 +206,14 @@ def _pixel_truth_for_episode(trajectory: dict) -> dict:
         source2_target = np.zeros_like(normal)
         source2_target[0:2, 0:2] = 22
         normal[0:2, 0:2] = 22
-        if frame_index < 45 or frame_index >= 60:
+        if frame_index < 45:
             source1_target[2:6, 3:8] = 11
-        if frame_index < 15 or frame_index >= 60:
+        elif frame_index >= 60:
+            source1_target[2:6, 6:10] = 11
+        if frame_index < 15:
             normal[2:6, 3:8] = 11
+        elif frame_index >= 60:
+            normal[2:6, 6:10] = 11
         elif frame_index < 30:
             normal[2:6, 3:5] = 11
         normal_masks.append(normal)
@@ -290,6 +294,35 @@ def test_compiled_fact_table_validates_against_repository_schema() -> None:
     fact_table = _compile()
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(fact_table)
+
+
+def test_compiler_embeds_registry_bound_spoken_content_in_events() -> None:
+    fact_table = _compile(
+        controlled_content_by_slot={
+            "source1": {"sound_asset_id": "dog_bark_v1"},
+            "source2": {
+                "sound_asset_id": "speech_cremad_1002_mti_neu_v1",
+                "statement_id": "cremad_mti_v1",
+                "transcript": "Maybe tomorrow it will be cold.",
+                "language": "en",
+            },
+        }
+    )
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator(schema).validate(fact_table)
+    events = {event["source_slot_id"]: event for event in fact_table["sound_events"]}
+    assert events["source1"]["sound_asset_id"] == "dog_bark_v1"
+    assert "statement_id" not in events["source1"]
+    assert events["source2"]["sound_asset_id"] == "speech_cremad_1002_mti_neu_v1"
+    assert events["source2"]["statement_id"] == "cremad_mti_v1"
+    assert events["source2"]["transcript"] == "Maybe tomorrow it will be cold."
+
+    with pytest.raises(QAFactTableError, match="exactly cover"):
+        _compile(
+            controlled_content_by_slot={
+                "source2": {"sound_asset_id": "speech_cremad_1002_mti_neu_v1"}
+            }
+        )
 
 
 def test_compiled_fact_table_derivations() -> None:

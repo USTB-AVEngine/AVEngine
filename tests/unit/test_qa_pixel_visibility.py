@@ -114,8 +114,12 @@ def test_clear_partial_full_and_out_of_view_states() -> None:
     assert frames[1]["occlusion_fraction"] == pytest.approx(0.5)
     assert frames[2]["visible_fraction"] == pytest.approx(0.0)
     assert frames[2]["occlusion_fraction"] == pytest.approx(1.0)
+    assert frames[2]["target_bbox_xyxy_px"] == [2, 1, 6, 5]
+    assert frames[2]["target_centroid_xy_px"] == pytest.approx([3.5, 2.5])
     assert frames[3]["visible_fraction"] is None
     assert frames[3]["occlusion_fraction"] is None
+    assert frames[3]["target_bbox_xyxy_px"] is None
+    assert frames[3]["target_centroid_xy_px"] is None
     assert truth["per_instance"]["source1"]["state_counts"] == {
         "out_of_view": 1,
         "visible_clear": 1,

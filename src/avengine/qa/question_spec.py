@@ -27,6 +27,7 @@ CLAIM_BOUNDARY = (
 _SPEC_ID = re.compile(r"^QS-[0-9]{3}$")
 _HASH_LIKE_ID = re.compile(r"^[0-9a-fA-F]{32,}$")
 _SIDE_DEAD_ZONE_DEG = 5.0
+_ENTRY_SIDE_DEAD_ZONE_FRACTION = 0.02
 _VISIBLE_STATES = {"visible_clear", "visible_occluded"}
 _OCCLUDED_STATES = {"visible_occluded", "fully_occluded"}
 _APPEARANCE_FIELDS = {
@@ -35,6 +36,7 @@ _APPEARANCE_FIELDS = {
     "body_build",
     "life_stage",
     "coat_value",
+    "sex_or_gender_label",
 }
 
 
@@ -146,6 +148,23 @@ QUESTION_TYPES: tuple[dict[str, Any], ...] = (
             "实例相邻像素状态从 visible_occluded 变为 visible_clear"
         ],
     },
+    {
+        "index": 12,
+        "question_type": "appearance_to_spoken_content",
+        "name_zh": "外貌→说了什么",
+        "required_facts": [
+            "instances.attributes",
+            "sound_events.sound_asset_id",
+            "sound_events.statement_id",
+            "sound_events.transcript",
+        ],
+        "required_modalities": ["video", "audio"],
+        "scene_constraints": [
+            "一个受控外貌值只匹配一个实例",
+            "该实例只绑定一个受控 statement_id 与 transcript",
+            "Facts 中内容与受控声音 registry 完全一致",
+        ],
+    },
 )
 
 _TYPE_BY_ID = {item["question_type"]: item for item in QUESTION_TYPES}
@@ -161,6 +180,7 @@ _SELECTOR_KEYS = {
     "reappeared_after_occlusion": {"target_instance_id"},
     "occluder_identity": {"target_instance_id", "frame_index"},
     "became_clear_after_partial_occlusion": {"target_instance_id"},
+    "appearance_to_spoken_content": {"appearance_field", "appearance_value"},
 }
 
 
@@ -308,6 +328,7 @@ def _sound_records(registry: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     families = (
         ("sounds", ("sound_asset_id", "sound_id", "sound_key")),
         ("sound_assets", ("sound_asset_id",)),
+        ("assets", ("sound_asset_id",)),
         ("samples", ("category",)),
     )
     records = None
@@ -392,7 +413,43 @@ def _sound_provenance(record: Mapping[str, Any]) -> tuple[Any, Any]:
     if isinstance(dry, Mapping):
         path = path or dry.get("uri")
         sha256 = sha256 or dry.get("sha256")
+    audio = record.get("audio")
+    if isinstance(audio, Mapping):
+        path = path or audio.get("uri")
+        sha256 = sha256 or audio.get("sha256")
     return path, sha256
+
+
+def _sound_species(record: Mapping[str, Any]) -> Any:
+    content = record.get("content")
+    if isinstance(content, Mapping) and content.get("species") is not None:
+        return content.get("species")
+    return record.get("species")
+
+
+def _controlled_statement(record: Mapping[str, Any]) -> dict[str, str] | None:
+    content = record.get("content")
+    owner = content if isinstance(content, Mapping) else record
+    statement_id = owner.get("statement_id")
+    transcript = owner.get("transcript")
+    language = owner.get("language")
+    if statement_id is None and transcript is None:
+        return None
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (statement_id, transcript, language)
+    ):
+        raise _StopEvaluation(
+            "rejected",
+            "invalid_sound_registry",
+            "spoken sound records require readable statement_id, transcript and language",
+            "registry_references",
+        )
+    return {
+        "statement_id": statement_id,
+        "transcript": transcript,
+        "language": language,
+    }
 
 
 def _prepare_context(
@@ -473,6 +530,7 @@ def _prepare_context(
             "registry_references",
         )
     sound_id_by_event: dict[str, str] = {}
+    statement_by_event: dict[str, Mapping[str, str]] = {}
     normalized_events: list[Mapping[str, Any]] = []
     for event in events:
         if not isinstance(event, Mapping):
@@ -501,7 +559,7 @@ def _prepare_context(
                 f"event {event_id!r} selects unregistered sound {sound_id!r}",
                 "registry_references",
             )
-        species = sound_record.get("species")
+        species = _sound_species(sound_record)
         sound_class = event.get("sound_class")
         event_species = sound_class.get("species_id") if isinstance(sound_class, Mapping) else None
         if species is not None and species != event_species:
@@ -529,6 +587,39 @@ def _prepare_context(
                 f"sound {sound_id!r} path does not match event {event_id!r}",
                 "registry_references",
             )
+        fact_sound_id = event.get("sound_asset_id")
+        if fact_sound_id is not None and fact_sound_id != sound_id:
+            raise _StopEvaluation(
+                "rejected",
+                "sound_registry_mismatch",
+                f"event {event_id!r} sound_asset_id differs from its binding",
+                "registry_references",
+            )
+        registered_statement = _controlled_statement(sound_record)
+        event_statement_fields = {
+            field: event.get(field)
+            for field in ("statement_id", "transcript", "language")
+        }
+        has_event_statement = any(
+            value is not None for value in event_statement_fields.values()
+        )
+        if registered_statement is None:
+            if has_event_statement:
+                raise _StopEvaluation(
+                    "rejected",
+                    "sound_registry_mismatch",
+                    f"event {event_id!r} invents spoken content absent from its registry record",
+                    "registry_references",
+                )
+        elif event_statement_fields != registered_statement:
+            raise _StopEvaluation(
+                "rejected",
+                "sound_registry_mismatch",
+                f"event {event_id!r} spoken content differs from its registry record",
+                "registry_references",
+            )
+        else:
+            statement_by_event[event_id] = registered_statement
         sound_id_by_event[event_id] = sound_id
         normalized_events.append(event)
     return {
@@ -538,6 +629,7 @@ def _prepare_context(
         "events": normalized_events,
         "sound_records": sounds,
         "sound_id_by_event": sound_id_by_event,
+        "statement_by_event": statement_by_event,
     }
 
 
@@ -656,11 +748,82 @@ def _question_and_answer(
         return (
             f"外貌属性“{field}={value}”的个体是否发过声？",
             {"value": "yes" if spoke else "no", "label_zh": "是" if spoke else "否"},
-            {"instance_id": instance["instance_id"], "matched_event_count": sum(
-                event["source_slot_id"] == instance["source_slot_id"] for event in context["events"]
-            )},
+            {
+                "instance_id": instance["instance_id"],
+                "matched_event_count": sum(
+                    event["source_slot_id"] == instance["source_slot_id"]
+                    for event in context["events"]
+                ),
+            },
         )
 
+    if question_type == "appearance_to_spoken_content":
+        field = selectors["appearance_field"]
+        value = selectors["appearance_value"]
+        matches = [
+            instance
+            for instance in context["instances"].values()
+            if _fact_asset_value(instance, field) == value
+        ]
+        if len(matches) != 1:
+            raise _StopEvaluation(
+                "rejected",
+                "answer_not_unique",
+                f"appearance selector {field}={value!r} matches {len(matches)} instances",
+                "answer_unique",
+            )
+        instance = matches[0]
+        events = [
+            event
+            for event in context["events"]
+            if event["source_slot_id"] == instance["source_slot_id"]
+        ]
+        statements = {
+            (
+                context["statement_by_event"][event["event_id"]]["statement_id"],
+                context["statement_by_event"][event["event_id"]]["transcript"],
+                context["statement_by_event"][event["event_id"]]["language"],
+            )
+            for event in events
+            if event["event_id"] in context["statement_by_event"]
+        }
+        if not statements:
+            raise _StopEvaluation(
+                "rejected",
+                "facts_not_observable",
+                "the selected instance has no registry-bound spoken statement",
+                "observable",
+            )
+        if len(statements) != 1:
+            raise _StopEvaluation(
+                "rejected",
+                "answer_not_unique",
+                "the selected appearance is bound to multiple spoken statements",
+                "answer_unique",
+                {"statement_ids": sorted(statement[0] for statement in statements)},
+            )
+        statement_id, transcript, language = next(iter(statements))
+        matched_events = [
+            event["event_id"]
+            for event in events
+            if event["event_id"] in context["statement_by_event"]
+        ]
+        return (
+            f"外貌属性“{field}={value}”的个体说了什么？",
+            {"value": transcript, "label_zh": transcript},
+            {
+                "instance_id": instance["instance_id"],
+                "statement_id": statement_id,
+                "language": language,
+                "event_ids": matched_events,
+                "sound_asset_ids": sorted(
+                    {
+                        context["sound_id_by_event"][event_id]
+                        for event_id in matched_events
+                    }
+                ),
+            },
+        )
     if question_type == "sound_to_appearance":
         sound_id = selectors["sound_asset_id"]
         events = _events_for_sound(context, sound_id)
@@ -800,18 +963,88 @@ def _question_and_answer(
     if question_type == "offscreen_to_onscreen":
         instance_id = selectors["target_instance_id"]
         frames = _pixel_frames(context, instance_id)
-        transitions = []
+        visibility = context["facts"].get("visibility")
+        truth = visibility.get("pixel_truth") if isinstance(visibility, Mapping) else None
+        resolution = truth.get("resolution_hw") if isinstance(truth, Mapping) else None
+        if (
+            not _is_sequence(resolution)
+            or len(resolution) != 2
+            or not isinstance(resolution[1], int)
+            or resolution[1] <= 0
+        ):
+            raise _StopEvaluation(
+                "rejected",
+                "facts_not_observable",
+                "pixel-truth image width is unavailable",
+                "observable",
+            )
+        image_center_x = (resolution[1] - 1) / 2.0
+        dead_zone_px = max(1.0, resolution[1] * _ENTRY_SIDE_DEAD_ZONE_FRACTION)
+        transitions: list[dict[str, Any]] = []
         previous_state = None
         for frame in frames:
             state = frame.get("state")
             if previous_state == "out_of_view" and state in _VISIBLE_STATES:
-                transitions.append(frame["frame_index"])
+                centroid = frame.get("target_centroid_xy_px")
+                if (
+                    not _is_sequence(centroid)
+                    or len(centroid) != 2
+                    or not isinstance(centroid[0], (int, float))
+                ):
+                    raise _StopEvaluation(
+                        "rejected",
+                        "facts_not_observable",
+                        "entry frame lacks target-only footprint centroid",
+                        "observable",
+                        {"frame_index": frame.get("frame_index")},
+                    )
+                offset_px = float(centroid[0]) - image_center_x
+                if abs(offset_px) <= dead_zone_px:
+                    raise _StopEvaluation(
+                        "rejected",
+                        "answer_not_unique",
+                        "entry footprint is too close to image centre to assign a side",
+                        "answer_unique",
+                        {
+                            "frame_index": frame.get("frame_index"),
+                            "target_centroid_x_px": float(centroid[0]),
+                            "image_center_x_px": image_center_x,
+                            "dead_zone_px": dead_zone_px,
+                        },
+                    )
+                transitions.append(
+                    {
+                        "frame_index": frame["frame_index"],
+                        "side": "right" if offset_px > 0.0 else "left",
+                        "target_centroid_xy_px": [float(centroid[0]), float(centroid[1])],
+                    }
+                )
             previous_state = state
-        answer = bool(transitions)
+        if not transitions:
+            raise _StopEvaluation(
+                "rejected",
+                "facts_not_observable",
+                "the target has no pixel-observed out-of-view to visible transition",
+                "observable",
+            )
+        sides = {transition["side"] for transition in transitions}
+        if len(sides) != 1:
+            raise _StopEvaluation(
+                "rejected",
+                "answer_not_unique",
+                "the target enters from different sides in this Episode",
+                "answer_unique",
+                {"entry_transitions": transitions},
+            )
+        side = next(iter(sides))
         return (
-            f"受控实例“{instance_id}”是否经历过画外到入画？",
-            {"value": "yes" if answer else "no", "label_zh": "是" if answer else "否"},
-            {"entry_frame_indices": transitions},
+            f"受控实例“{instance_id}”从画面左侧还是右侧进入？",
+            {"value": side, "label_zh": "右侧" if side == "right" else "左侧"},
+            {
+                "entry_frame_indices": [item["frame_index"] for item in transitions],
+                "entry_transitions": transitions,
+                "image_center_x_px": image_center_x,
+            },
         )
 
     if question_type == "occlusion_while_speaking":

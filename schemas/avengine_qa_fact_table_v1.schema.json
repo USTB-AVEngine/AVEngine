@@ -198,6 +198,7 @@
               "size": {"type": ["string", "null"]},
               "body_build": {"type": ["string", "null"]},
               "life_stage": {"type": ["string", "null"]},
+              "sex_or_gender_label": {"type": ["string", "null"]},
               "coat_profile_id": {"type": ["string", "null"]},
               "coat_value": {"type": ["string", "null"]}
             }
@@ -280,6 +281,18 @@
             ]
           },
           "voice_asset_id": {"type": "string", "minLength": 1},
+          "sound_asset_id": {
+            "type": "string",
+            "minLength": 1,
+            "not": {"pattern": "^[0-9a-fA-F]{32,}$"}
+          },
+          "statement_id": {
+            "type": "string",
+            "minLength": 1,
+            "not": {"pattern": "^[0-9a-fA-F]{32,}$"}
+          },
+          "transcript": {"type": "string", "minLength": 1},
+          "language": {"type": "string", "minLength": 1},
           "fade_samples": {"type": "integer", "minimum": 0},
           "gating": {"type": "string", "minLength": 1},
           "dry_variant": {
@@ -296,6 +309,11 @@
               "linear_gain": {"type": "number", "exclusiveMinimum": 0}
             }
           }
+        },
+        "dependentRequired": {
+          "statement_id": ["sound_asset_id", "transcript", "language"],
+          "transcript": ["sound_asset_id", "statement_id", "language"],
+          "language": ["sound_asset_id", "statement_id", "transcript"]
         }
       }
     },
@@ -897,6 +915,28 @@
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1
+        },
+        "target_bbox_xyxy_px": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {"type": "integer", "minimum": 0}
+            }
+          ]
+        },
+        "target_centroid_xy_px": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {"type": "number", "minimum": 0}
+            }
+          ]
         },
         "state": {
           "enum": [

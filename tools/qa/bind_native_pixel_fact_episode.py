@@ -213,17 +213,58 @@ def _question_inputs(
     for slot_id, events in sorted(by_slot.items()):
         dry = events[0]["dry_variant"]
         species = events[0]["sound_class"]["species_id"]
-        sound_id = f"controlled_{slot_id}_{species}_v1"
-        sound_id_by_slot[slot_id] = sound_id
-        sound_assets.append(
-            {
-                "sound_asset_id": sound_id,
-                "species": species,
-                "path": dry["input_path"],
-                "sha256": dry["input_sha256"],
-                "admissibility": "research",
-            }
+        declared_sound_ids = {event.get("sound_asset_id") for event in events}
+        declared_sound_ids.discard(None)
+        _require(
+            len(declared_sound_ids) <= 1,
+            f"{slot_id} uses multiple controlled sound_asset_id values",
         )
+        sound_id = (
+            next(iter(declared_sound_ids))
+            if declared_sound_ids
+            else f"controlled_{slot_id}_{species}_v1"
+        )
+        sound_id_by_slot[slot_id] = sound_id
+        sound_record = {
+            "sound_asset_id": sound_id,
+            "species": species,
+            "path": dry["input_path"],
+            "sha256": dry["input_sha256"],
+            "admissibility": "research",
+        }
+        statements = {
+            (
+                event.get("statement_id"),
+                event.get("transcript"),
+                event.get("language"),
+            )
+            for event in events
+            if any(
+                event.get(field) is not None
+                for field in ("statement_id", "transcript", "language")
+            )
+        }
+        _require(
+            len(statements) <= 1,
+            f"{slot_id} uses multiple controlled statements",
+        )
+        if statements:
+            statement_id, transcript, language = next(iter(statements))
+            _require(
+                all(
+                    isinstance(value, str) and value
+                    for value in (statement_id, transcript, language)
+                ),
+                f"{slot_id} has an incomplete controlled statement",
+            )
+            sound_record.update(
+                {
+                    "statement_id": statement_id,
+                    "transcript": transcript,
+                    "language": language,
+                }
+            )
+        sound_assets.append(sound_record)
         for event in events:
             _require(
                 event["dry_variant"]["input_sha256"] == dry["input_sha256"],
@@ -246,7 +287,10 @@ def _question_inputs(
             "selectors": {"target_instance_id": target_instance},
         },
     ]
-    if scenario_type == "occlusion_to_reappearance":
+    if scenario_type in {
+        "occlusion_to_reappearance",
+        "full_occlusion_to_reappearance",
+    }:
         frames = facts["visibility"]["pixel_truth"]["per_instance"][target_instance][
             "frames"
         ]
@@ -261,10 +305,27 @@ def _question_inputs(
             )
         ]
         _require(eligible, "no pixel-occluded speaking frame is available")
-        _require(
-            OCCLUSION_ANCHOR_FRAME in eligible,
-            f"required speaking occlusion anchor frame {OCCLUSION_ANCHOR_FRAME} is unavailable",
-        )
+        fully_eligible = [
+            frame["frame_index"]
+            for frame in frames
+            if frame["state"] == "fully_occluded"
+            and any(
+                event["start_frame"] <= frame["frame_index"] < event["end_frame"]
+                for event in active_events
+            )
+        ]
+        if scenario_type == "full_occlusion_to_reappearance":
+            _require(
+                fully_eligible,
+                "full-occlusion scenario has no fully_occluded speaking frame",
+            )
+            occlusion_anchor_frame = fully_eligible[0]
+        else:
+            _require(
+                OCCLUSION_ANCHOR_FRAME in eligible,
+                f"required speaking occlusion anchor frame {OCCLUSION_ANCHOR_FRAME} is unavailable",
+            )
+            occlusion_anchor_frame = OCCLUSION_ANCHOR_FRAME
         specs.append(
             {
                 "schema": "avengine_qa_question_spec_v1",
@@ -272,18 +333,19 @@ def _question_inputs(
                 "question_type": "occlusion_while_speaking",
                 "selectors": {
                     "sound_asset_id": sound_id_by_slot[target_slot],
-                    "frame_index": OCCLUSION_ANCHOR_FRAME,
+                    "frame_index": occlusion_anchor_frame,
                 },
             }
         )
-        specs.append(
-            {
-                "schema": "avengine_qa_question_spec_v1",
-                "spec_id": "QS-011",
-                "question_type": "became_clear_after_partial_occlusion",
-                "selectors": {"target_instance_id": target_instance},
-            }
-        )
+        if scenario_type == "occlusion_to_reappearance":
+            specs.append(
+                {
+                    "schema": "avengine_qa_question_spec_v1",
+                    "spec_id": "QS-011",
+                    "question_type": "became_clear_after_partial_occlusion",
+                    "selectors": {"target_instance_id": target_instance},
+                }
+            )
         evidence = facts["visibility"].get("occluder_evidence")
         records = evidence.get("frame_records") if isinstance(evidence, Mapping) else []
         occluder_frames = [
@@ -296,20 +358,17 @@ def _question_inputs(
                 for event in active_events
             )
         ]
-        _require(
-            occluder_frames,
-            "no speaking frame has a unique native static-object occluder",
-        )
+        _require(occluder_frames, "no speaking frame has a unique native static-object occluder")
         anchor_records = [
             record
             for record in occluder_frames
-            if record["frame_index"] == OCCLUSION_ANCHOR_FRAME
+            if record["frame_index"] == occlusion_anchor_frame
         ]
         _require(
             len(anchor_records) == 1,
-            f"frame {OCCLUSION_ANCHOR_FRAME} must have exactly one unique native static occluder record",
+            f"frame {occlusion_anchor_frame} must have exactly one unique native static occluder record",
         )
-        occluder_frame = OCCLUSION_ANCHOR_FRAME
+        occluder_frame = occlusion_anchor_frame
         specs.append(
             {
                 "schema": "avengine_qa_question_spec_v1",
@@ -318,6 +377,60 @@ def _question_inputs(
                 "selectors": {
                     "target_instance_id": target_instance,
                     "frame_index": occluder_frame,
+                },
+            }
+        )
+    statement_events = [
+        event for event in facts["sound_events"] if event.get("statement_id")
+    ]
+    if statement_events:
+        statement_slots = {event["source_slot_id"] for event in statement_events}
+        _require(
+            len(statement_slots) == 1,
+            "appearance-to-content binder needs one spoken-content source slot",
+        )
+        statement_slot = next(iter(statement_slots))
+        instance = next(
+            item for item in facts["instances"] if item["source_slot_id"] == statement_slot
+        )
+        candidate_fields = [
+            ("sex_or_gender_label", instance["attributes"].get("sex_or_gender_label")),
+            ("breed_id", instance.get("breed_id")),
+            ("coat_value", instance["attributes"].get("coat_value")),
+            ("body_build", instance["attributes"].get("body_build")),
+            ("size", instance["attributes"].get("size")),
+            ("life_stage", instance["attributes"].get("life_stage")),
+        ]
+        appearance_field = None
+        appearance_value = None
+        for field, value in candidate_fields:
+            if value is None:
+                continue
+            matches = [
+                item
+                for item in facts["instances"]
+                if (
+                    item.get("breed_id")
+                    if field == "breed_id"
+                    else item["attributes"].get(field)
+                )
+                == value
+            ]
+            if len(matches) == 1:
+                appearance_field, appearance_value = field, value
+                break
+        _require(
+            appearance_field is not None,
+            "spoken-content source has no unique controlled appearance field",
+        )
+        specs.append(
+            {
+                "schema": "avengine_qa_question_spec_v1",
+                "spec_id": "QS-012",
+                "question_type": "appearance_to_spoken_content",
+                "selectors": {
+                    "appearance_field": appearance_field,
+                    "appearance_value": appearance_value,
                 },
             }
         )
@@ -406,8 +519,8 @@ def build(
         )
         _require(
             by_id["QS-007"]["status"] == "pass"
-            and by_id["QS-007"]["answer"]["value"] == "yes",
-            "offscreen_to_onscreen required QS-007 did not produce a unique yes "
+            and by_id["QS-007"]["answer"]["value"] in {"left", "right"},
+            "offscreen_to_onscreen required QS-007 did not produce a unique entry side "
             f"answer: {by_id['QS-007']}",
         )
         scenario_observation = {
@@ -458,6 +571,49 @@ def build(
             "first_clear_frame_after_occlusion": clear_after_occlusion[0],
             "occlusion_anchor_frame": OCCLUSION_ANCHOR_FRAME,
             "occluder_answer": by_id["QS-010"]["answer"],
+        }
+    elif scenario_type == "full_occlusion_to_reappearance":
+        target_frames = pixel_truth["per_instance"][target_slot]["frames"]
+        fully_occluded_frames = [
+            frame["frame_index"]
+            for frame in target_frames
+            if frame["state"] == "fully_occluded"
+        ]
+        reappeared_frames = by_id["QS-009"]["evidence"].get(
+            "reappeared_frames", []
+        )
+        _require(
+            fully_occluded_frames and reappeared_frames,
+            "full-occlusion scenario requires native fully_occluded then visible frames",
+        )
+        _require(
+            by_id["QS-008"]["status"] == "pass"
+            and by_id["QS-008"]["answer"]["value"] == "fully_occluded",
+            "full-occlusion scenario requires QS-008=fully_occluded",
+        )
+        _require(
+            by_id["QS-009"]["status"] == "pass"
+            and by_id["QS-009"]["answer"]["value"] == "yes",
+            "full-occlusion scenario requires QS-009=yes",
+        )
+        _require(
+            by_id["QS-010"]["status"] == "pass",
+            "full-occlusion scenario requires a unique native static occluder answer",
+        )
+        if "QS-012" in by_id:
+            _require(
+                by_id["QS-012"]["status"] == "pass",
+                "appearance-to-spoken-content QuestionSpec did not pass",
+            )
+        scenario_observation = {
+            "observed_scenario_type": "full_occlusion_to_reappearance",
+            "fully_occluded_frame_indices": fully_occluded_frames,
+            "reappeared_frame_indices": reappeared_frames,
+            "occlusion_anchor_frame": by_id["QS-008"]["evidence"]["frame_index"],
+            "occluder_answer": by_id["QS-010"]["answer"],
+            "appearance_to_content_answer": (
+                by_id["QS-012"]["answer"] if "QS-012" in by_id else None
+            ),
         }
     else:
         raise RuntimeError(f"unsupported native scenario type: {scenario_type}")
