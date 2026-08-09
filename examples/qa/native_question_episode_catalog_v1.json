@@ -1,0 +1,121 @@
+{
+  "schema": "avengine_native_question_episode_catalog_v1",
+  "catalog_id": "lead_a_native_question_episode_catalog_20260809_v1",
+  "claim_boundary": "Retained native Episode evidence only. The compiler re-evaluates current QuestionSpec code and never treats retained question_evaluations.json as ground truth.",
+  "episodes": [
+    {
+      "episode_key": "dynamic_corgi_british_0036",
+      "episode_id": "corgi_british__recombined_both_moving_0036",
+      "facts_path": "tmp/lead_a_native_dynamic_episode_v1/facts_native_pixel_v1/facts/corgi_british__recombined_both_moving_0036.json",
+      "asset_registry_manifest_pointer": "/inputs/asset_registry",
+      "sound_registry_path": "tmp/lead_a_native_dynamic_episode_v1/native_binding_pixel_v2/controlled_sound_registry.json",
+      "event_sound_bindings_path": "tmp/lead_a_native_dynamic_episode_v1/native_binding_pixel_v2/event_sound_bindings.json",
+      "binding_manifest_path": "tmp/lead_a_native_dynamic_episode_v1/native_binding_pixel_v2/manifest.json",
+      "facts_manifest_pointer": "/inputs/facts",
+      "native_role_pointers": {
+        "native_rgb_binaural": "/inputs/native_pixel_native_rgb_binaural",
+        "normal_object_ids": "/inputs/native_pixel_normal_object_ids",
+        "pixel_masks": "/inputs/native_pixel_pixel_masks",
+        "pixel_visibility_truth": "/inputs/native_pixel_pixel_visibility_truth",
+        "runtime_readbacks": "/inputs/native_pixel_runtime_readbacks",
+        "metric_depth": "/inputs/native_pixel_metric_depth"
+      }
+    },
+    {
+      "episode_key": "furniture_partial_0089",
+      "episode_id": "border_collie_cat__recombined_both_moving_0089",
+      "facts_path": "tmp/lead_a_native_scenarios_v1/occlusion_0089_final_binding/facts.json",
+      "asset_registry_manifest_pointer": "/source_asset_registry",
+      "sound_registry_path": "tmp/lead_a_native_scenarios_v1/occlusion_0089_final_binding/controlled_sound_registry.json",
+      "event_sound_bindings_path": "tmp/lead_a_native_scenarios_v1/occlusion_0089_final_binding/event_sound_bindings.json",
+      "binding_manifest_path": "tmp/lead_a_native_scenarios_v1/occlusion_0089_final_binding/manifest.json",
+      "facts_manifest_pointer": "/outputs/facts",
+      "native_role_pointers": {
+        "native_rgb_binaural": "/native_artifacts/native_rgb_binaural",
+        "normal_object_ids": "/native_artifacts/normal_object_ids",
+        "pixel_masks": "/native_artifacts/pixel_masks",
+        "pixel_visibility_truth": "/native_artifacts/pixel_visibility_truth",
+        "runtime_readbacks": "/native_artifacts/runtime_readbacks",
+        "metric_depth": "/native_artifacts/metric_depth"
+      }
+    },
+    {
+      "episode_key": "entry_left_0323",
+      "episode_id": "border_collie_human__recombined_both_moving_0323",
+      "facts_path": "tmp/lead_a_native_entry_0323_v1/binding_side_v3/facts.json",
+      "asset_registry_manifest_pointer": "/source_asset_registry",
+      "sound_registry_path": "tmp/lead_a_native_entry_0323_v1/binding_side_v3/controlled_sound_registry.json",
+      "event_sound_bindings_path": "tmp/lead_a_native_entry_0323_v1/binding_side_v3/event_sound_bindings.json",
+      "binding_manifest_path": "tmp/lead_a_native_entry_0323_v1/binding_side_v3/manifest.json",
+      "facts_manifest_pointer": "/outputs/facts",
+      "native_role_pointers": {
+        "native_rgb_binaural": "/native_artifacts/native_rgb_binaural",
+        "normal_object_ids": "/native_artifacts/normal_object_ids",
+        "pixel_masks": "/native_artifacts/pixel_masks",
+        "pixel_visibility_truth": "/native_artifacts/pixel_visibility_truth",
+        "runtime_readbacks": "/native_artifacts/runtime_readbacks",
+        "metric_depth": "/native_artifacts/metric_depth"
+      }
+    },
+    {
+      "episode_key": "dynamic_full_occlusion_0323",
+      "episode_id": "border_collie_human__dynamic_full_occlusion_reappearance_0323_v1",
+      "facts_path": "tmp/lead_a_native_full_occlusion_reappearance_0323_v1/binding_v1/facts.json",
+      "asset_registry_manifest_pointer": "/source_asset_registry",
+      "sound_registry_path": "tmp/lead_a_native_full_occlusion_reappearance_0323_v1/binding_v1/controlled_sound_registry.json",
+      "event_sound_bindings_path": "tmp/lead_a_native_full_occlusion_reappearance_0323_v1/binding_v1/event_sound_bindings.json",
+      "binding_manifest_path": "tmp/lead_a_native_full_occlusion_reappearance_0323_v1/binding_v1/manifest.json",
+      "facts_manifest_pointer": "/outputs/facts",
+      "native_role_pointers": {
+        "native_rgb_binaural": "/native_artifacts/native_rgb_binaural",
+        "normal_object_ids": "/native_artifacts/normal_object_ids",
+        "pixel_masks": "/native_artifacts/pixel_masks",
+        "pixel_visibility_truth": "/native_artifacts/pixel_visibility_truth",
+        "runtime_readbacks": "/native_artifacts/runtime_readbacks",
+        "metric_depth": "/native_artifacts/metric_depth"
+      }
+    }
+  ],
+  "visual_canaries": [
+    {
+      "canary_id": "fully_visible",
+      "episode_key": "dynamic_corgi_british_0036",
+      "target_instance_id": "source1",
+      "expected_state_sequence": ["visible_clear"],
+      "qa_question_type": "occlusion_while_speaking",
+      "require_dynamic_listener": false
+    },
+    {
+      "canary_id": "furniture_partial_occlusion",
+      "episode_key": "furniture_partial_0089",
+      "target_instance_id": "source1",
+      "expected_state_sequence": ["visible_occluded"],
+      "qa_question_type": "occlusion_while_speaking",
+      "require_dynamic_listener": false
+    },
+    {
+      "canary_id": "in_view_fully_occluded",
+      "episode_key": "dynamic_full_occlusion_0323",
+      "target_instance_id": "source2",
+      "expected_state_sequence": ["fully_occluded"],
+      "qa_question_type": "occlusion_while_speaking",
+      "require_dynamic_listener": false
+    },
+    {
+      "canary_id": "fully_out_of_view",
+      "episode_key": "dynamic_corgi_british_0036",
+      "target_instance_id": "source1",
+      "expected_state_sequence": ["out_of_view"],
+      "qa_question_type": "occlusion_while_speaking",
+      "require_dynamic_listener": false
+    },
+    {
+      "canary_id": "moving_listener_occlusion_reappearance",
+      "episode_key": "dynamic_full_occlusion_0323",
+      "target_instance_id": "source2",
+      "expected_state_sequence": ["fully_occluded", "visible_occluded"],
+      "qa_question_type": "reappeared_after_occlusion",
+      "require_dynamic_listener": true
+    }
+  ]
+}
