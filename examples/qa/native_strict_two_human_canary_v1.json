@@ -1,0 +1,100 @@
+{
+  "schema": "avengine_native_strict_two_human_canary_plan_v1",
+  "plan_id": "lead_d_strict_two_human_canary_20260810_v1",
+  "status": "cpu_preflight_pending",
+  "claim_boundary": "One planned native SPEAR Apartment sparse canary. No native two-human capture and no formal D scene are claimed before every sparse gate passes.",
+  "feasibility_report": "reports/lead_a/two_human_feasibility_v1.json",
+  "source_runtime_registry": "examples/runtime/source_asset_runtime_profiles.json",
+  "paper_catalog_mutation_allowed": false,
+  "environment": {
+    "room_id": "apartment_v1",
+    "renderer_backend": "spear_unreal_native_apartment",
+    "spear_root": "/data/jzy/code/SPEAR-lead-b",
+    "current_spear_executable": "/data/jzy/code/SPEAR-lead-b/cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
+  },
+  "evidence": {
+    "target_source_record": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/human_roster_v2/source_assets/rocketbox_adults_male_adult_01.json",
+    "distractor_source_record": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/human_roster_v2/source_assets/rocketbox_adults_female_adult_01.json",
+    "target_runtime_glb": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb",
+    "distractor_runtime_glb": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_ue_v1/rocketbox_adults_female_adult_01_original_ue_v1/runtime.glb",
+    "target_ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_original_ue_v3/ue_import_manifest.json",
+    "distractor_ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_adults_female_adult_01_original_ue_v1/ue_import_manifest.json",
+    "target_speech_wav": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/media/speech_cremad_1001_ieo_neu_v1.wav",
+    "rir_template_job_plan": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_generated_assets_rir_plan_unique1000_20260723_01/rir_job_plan.json",
+    "rir_template_cache_receipt": "/data/datasets/avengine_workspaces/AVEngine-habitat-native-acoustic-fix/tmp/m7/apartment_generated_assets_rir_cache_unique1000_semantic_v2_20260726_01/receipt.json"
+  },
+  "runtime_provenance": {
+    "target": "Existing A legacy_human runtime authority, male original identity, UE v3; it is not represented as the Lead-B batch UE v1 build.",
+    "distractor": "Lead-B exact female original identity runtime and UE import/readback, batch UE v1.",
+    "same_runtime_build_revision_required": false,
+    "distinct_original_base_identity_required": true
+  },
+  "rir_policy": {
+    "existing_unique1000_cache_is_template_only": true,
+    "reuse_existing_cache_as_exact_two_human_evidence": false,
+    "reason": "The canary replaces the prior source1 dog muzzle with a male mouth emitter and changes the exact source geometry; a new asset-bound RIR plan/cache is required.",
+    "required_next_output_root": "tmp/lead_d_strict_two_human_canary_v1/exact_rir_v1"
+  },
+  "timeline": {
+    "frame_count": 75,
+    "frame_rate_hz": 15,
+    "sparse_gate_frame_index": 15
+  },
+  "camera_pose": {
+    "coordinate_frame": "avengine_world_right_handed_y_up_m",
+    "translation_m": [-0.7, 1.471, 0.65],
+    "rotation_xyzw": [0.0, 0.4617486132350339, 0.0, 0.8870108331782217]
+  },
+  "actors": [
+    {
+      "role": "target",
+      "source_slot_id": "source1",
+      "original_identity_id": "rocketbox_adults_male_adult_01",
+      "runtime_asset_alias": "legacy_human",
+      "runtime_asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+      "runtime_revision": "native_runtime_ue_v3",
+      "expected_screen_side": "right",
+      "root_translation_m": [-1.0850754976272583, 0.4000000059604645, 0.254158079624176],
+      "action_id": "idle",
+      "voice_policy": "speaking",
+      "sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+      "speech_frame_window": [7, 31]
+    },
+    {
+      "role": "distractor",
+      "source_slot_id": "source2",
+      "original_identity_id": "rocketbox_adults_female_adult_01",
+      "runtime_asset_alias": "strict_two_human_female_adult",
+      "runtime_asset_id": "lead_b_rocketbox_adults_female_adult_01_original_v1",
+      "runtime_revision": "native_runtime_ue_v1",
+      "expected_screen_side": "left",
+      "root_translation_m": [-4.208858489990234, 0.4000000059604645, 0.254158079624176],
+      "action_id": "idle",
+      "voice_policy": "silent",
+      "sound_events": []
+    }
+  ],
+  "target_only_actor_map": {
+    "source1": "rocketbox_adults_male_adult_01_actor",
+    "source2": "rocketbox_adults_female_adult_01_actor"
+  },
+  "gpu_policy": {
+    "physical_gpu_index": 1,
+    "graphics_adapter_argument": 1,
+    "required_idle_compute_process_count": 0,
+    "forbidden_physical_gpu_indices": [0, 3]
+  },
+  "required_sparse_gates": [
+    "two_distinct_original_identities",
+    "both_sources_visible_pixels_gt_zero",
+    "normal_rgb",
+    "metric_depth",
+    "source1_target_only",
+    "source2_target_only",
+    "actor_pose_readback_matches_plan",
+    "mouth_emitter_binding_matches_target",
+    "native_binaural_rlr",
+    "target_speaking_and_distractor_silent"
+  ],
+  "expansion_policy": "Do not plan or capture the remaining seven strict scenes until this canary passes every required sparse gate."
+}
