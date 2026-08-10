@@ -22,7 +22,9 @@ from avengine.qa.question_spec import question_type_catalog
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = REPOSITORY / "examples/qa/question_spec_paper_protocol_v1.json"
-EPISODE_CATALOG_PATH = REPOSITORY / "examples/qa/native_question_episode_catalog_v1.json"
+EPISODE_CATALOG_PATH = (
+    REPOSITORY / "examples/qa/native_question_episode_catalog_v1.json"
+)
 
 
 def _load(path: Path) -> dict:
@@ -66,7 +68,11 @@ def test_episode_catalog_has_exact_five_canaries_and_native_roles() -> None:
     protocol = _load(PROTOCOL_PATH)
     catalog = _load(EPISODE_CATALOG_PATH)
     validate_episode_catalog(catalog, protocol)
-    assert len(catalog["episodes"]) == 4
+    assert len(catalog["episodes"]) == 6
+    assert {
+        "paper_balance_stationary_first",
+        "paper_balance_right_entry",
+    } <= {item["episode_key"] for item in catalog["episodes"]}
     assert {item["canary_id"] for item in catalog["visual_canaries"]} == set(
         protocol["visual_canary_contract"]["required_canary_ids"]
     )
@@ -158,7 +164,9 @@ def test_compiled_validator_accepts_minimum_and_keeps_paper_gate_separate(
     files = []
     for name in ("coverage.json", "protocol_snapshot.json"):
         path = output / name
-        files.append({"path": name, "size_bytes": path.stat().st_size, "sha256": _sha(path)})
+        files.append(
+            {"path": name, "size_bytes": path.stat().st_size, "sha256": _sha(path)}
+        )
     (output / "manifest.json").write_text(
         json.dumps(
             {"schema": DELIVERY_SCHEMA, "status": "pass", "files": files},

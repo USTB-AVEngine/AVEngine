@@ -1,6 +1,6 @@
 {
   "schema": "avengine_native_question_episode_catalog_v1",
-  "catalog_id": "lead_a_native_question_episode_catalog_20260809_v1",
+  "catalog_id": "lead_a_native_question_episode_catalog_20260810_v2",
   "claim_boundary": "Retained native Episode evidence only. The compiler re-evaluates current QuestionSpec code and never treats retained question_evaluations.json as ground truth.",
   "episodes": [
     {
@@ -65,6 +65,42 @@
       "sound_registry_path": "tmp/lead_a_native_full_occlusion_reappearance_0323_v1/binding_v1/controlled_sound_registry.json",
       "event_sound_bindings_path": "tmp/lead_a_native_full_occlusion_reappearance_0323_v1/binding_v1/event_sound_bindings.json",
       "binding_manifest_path": "tmp/lead_a_native_full_occlusion_reappearance_0323_v1/binding_v1/manifest.json",
+      "facts_manifest_pointer": "/outputs/facts",
+      "native_role_pointers": {
+        "native_rgb_binaural": "/native_artifacts/native_rgb_binaural",
+        "normal_object_ids": "/native_artifacts/normal_object_ids",
+        "pixel_masks": "/native_artifacts/pixel_masks",
+        "pixel_visibility_truth": "/native_artifacts/pixel_visibility_truth",
+        "runtime_readbacks": "/native_artifacts/runtime_readbacks",
+        "metric_depth": "/native_artifacts/metric_depth"
+      }
+    },
+    {
+      "episode_key": "paper_balance_stationary_first",
+      "episode_id": "border_collie_human__paper_balance_stationary_first_v1",
+      "facts_path": "tmp/lead_a_native_paper_balance_v1/stationary_binding_gpu1_v1/facts.json",
+      "asset_registry_manifest_pointer": "/source_asset_registry",
+      "sound_registry_path": "tmp/lead_a_native_paper_balance_v1/stationary_binding_gpu1_v1/controlled_sound_registry.json",
+      "event_sound_bindings_path": "tmp/lead_a_native_paper_balance_v1/stationary_binding_gpu1_v1/event_sound_bindings.json",
+      "binding_manifest_path": "tmp/lead_a_native_paper_balance_v1/stationary_binding_gpu1_v1/manifest.json",
+      "facts_manifest_pointer": "/outputs/facts",
+      "native_role_pointers": {
+        "native_rgb_binaural": "/native_artifacts/native_rgb_binaural",
+        "normal_object_ids": "/native_artifacts/normal_object_ids",
+        "pixel_masks": "/native_artifacts/pixel_masks",
+        "pixel_visibility_truth": "/native_artifacts/pixel_visibility_truth",
+        "runtime_readbacks": "/native_artifacts/runtime_readbacks",
+        "metric_depth": "/native_artifacts/metric_depth"
+      }
+    },
+    {
+      "episode_key": "paper_balance_right_entry",
+      "episode_id": "border_collie_human__paper_balance_right_entry_v1",
+      "facts_path": "tmp/lead_a_native_paper_balance_v1/right_entry_binding_gpu1_v1/facts.json",
+      "asset_registry_manifest_pointer": "/source_asset_registry",
+      "sound_registry_path": "tmp/lead_a_native_paper_balance_v1/right_entry_binding_gpu1_v1/controlled_sound_registry.json",
+      "event_sound_bindings_path": "tmp/lead_a_native_paper_balance_v1/right_entry_binding_gpu1_v1/event_sound_bindings.json",
+      "binding_manifest_path": "tmp/lead_a_native_paper_balance_v1/right_entry_binding_gpu1_v1/manifest.json",
       "facts_manifest_pointer": "/outputs/facts",
       "native_role_pointers": {
         "native_rgb_binaural": "/native_artifacts/native_rgb_binaural",
