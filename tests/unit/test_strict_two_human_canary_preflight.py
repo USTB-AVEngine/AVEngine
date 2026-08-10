@@ -102,3 +102,8 @@ def test_strict_two_human_canary_rejects_voice_gpu_or_catalog_drift() -> None:
     invalid["rir_policy"]["reuse_existing_cache_as_exact_two_human_evidence"] = True
     errors = TOOL.validate_contract(invalid, report, registry)
     assert "existing RIR cache cannot be reused as exact two-human evidence" in errors
+
+    invalid = deepcopy(plan)
+    invalid["runtime_lineage"]["target"]["build_tag"] = "unrelated_build"
+    errors = TOOL.validate_contract(invalid, report, registry)
+    assert "target positive runtime lineage mismatch" in errors

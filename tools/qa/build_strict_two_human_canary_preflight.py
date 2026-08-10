@@ -67,7 +67,7 @@ def validate_contract(
     require(report.get("status") == "ready_for_canary_cpu_registration", "report status mismatch")
     require(
         report.get("current_blocker")
-        == "register_second_adult_in_a_runtime_profile",
+        == "exact_two_human_rir_and_sparse_native_gate",
         "feasibility blocker changed",
     )
     require(plan.get("paper_catalog_mutation_allowed") is False, "paper catalog mutation is forbidden")
@@ -137,8 +137,8 @@ def validate_contract(
     require(
         plan.get("target_only_actor_map")
         == {
-            "source1": "rocketbox_adults_male_adult_01_actor",
-            "source2": "rocketbox_adults_female_adult_01_actor",
+            "source1": "source1_actor",
+            "source2": "source2_actor",
         },
         "target-only actor map mismatch",
     )
@@ -213,6 +213,29 @@ def validate_contract(
     require(
         provenance.get("distinct_original_base_identity_required") is True,
         "distinct base identity gate is required",
+    )
+    lineage = plan.get("runtime_lineage", {})
+    require(
+        lineage.get("target")
+        == {
+            "base_avatar_id": "rocketbox_adults_male_adult_01",
+            "build_asset_id": "rocketbox_male_adult_01",
+            "build_tag": "rocketbox_male_adult_01_original_v1",
+            "normalization_tag": "rocketbox_male_adult_01_original_ue_v3",
+            "runtime_profile_revision": "native_runtime_ue_v3",
+        },
+        "target positive runtime lineage mismatch",
+    )
+    require(
+        lineage.get("distractor")
+        == {
+            "base_avatar_id": "rocketbox_adults_female_adult_01",
+            "build_asset_id": "rocketbox_female_adult_01",
+            "build_tag": "rocketbox_adults_female_adult_01_original_v1",
+            "normalization_tag": "rocketbox_adults_female_adult_01_original_ue_v1",
+            "runtime_profile_revision": "native_runtime_ue_v1",
+        },
+        "distractor positive runtime lineage mismatch",
     )
     rir_policy = plan.get("rir_policy", {})
     require(
@@ -296,6 +319,69 @@ def build(plan_path: Path, output: Path) -> Path:
     if len(set(source_fbx_paths.values())) != 2 or None in source_fbx_paths.values():
         raise RuntimeError("source FBX paths do not prove two original identities")
 
+    build_manifests = {
+        "target": _load_json(evidence_paths["target_runtime_build_manifest"]),
+        "distractor": _load_json(
+            evidence_paths["distractor_runtime_build_manifest"]
+        ),
+    }
+    normalization_manifests = {
+        "target": _load_json(evidence_paths["target_normalization_manifest"]),
+        "distractor": _load_json(
+            evidence_paths["distractor_normalization_manifest"]
+        ),
+    }
+    for role in ("target", "distractor"):
+        lineage = plan["runtime_lineage"][role]
+        build_manifest = build_manifests[role]
+        normalization = normalization_manifests[role]
+        if build_manifest.get("asset_id") != lineage["build_asset_id"]:
+            raise RuntimeError(f"{role} build asset identity mismatch")
+        if build_manifest.get("tag") != lineage["build_tag"]:
+            raise RuntimeError(f"{role} build tag mismatch")
+        if build_manifest.get("status") != "research_candidate":
+            raise RuntimeError(f"{role} build admission boundary changed")
+        checks = build_manifest.get("automatic_checks", {})
+        if checks.get("overall") != "passed":
+            raise RuntimeError(f"{role} build automatic checks failed")
+        if role == "target" and checks.get("both_action_roundtrips") != "passed":
+            raise RuntimeError("target build action closure failed")
+        if role == "distractor" and checks.get("actions_exactly_walk_idle") != "passed":
+            raise RuntimeError("distractor build action closure failed")
+        roundtrips = build_manifest.get("glb_roundtrip", {})
+        if any(
+            roundtrips.get(action, {}).get("passed") is not True
+            for action in ("Standing_Idle", "Walking")
+        ):
+            raise RuntimeError(f"{role} build action roundtrip failed")
+        if normalization.get("tag") != lineage["normalization_tag"]:
+            raise RuntimeError(f"{role} normalization tag mismatch")
+        if normalization.get("automatic_checks", {}).get("overall") != "passed":
+            raise RuntimeError(f"{role} normalization checks failed")
+        source_manifest = normalization.get("source", {}).get("manifest", "")
+        if not str(source_manifest).endswith(
+            f"/{lineage['build_tag']}/build_manifest.json"
+        ):
+            raise RuntimeError(f"{role} normalization does not bind the build")
+        if normalization.get("source", {}).get("manifest_sha256") != _sha256(
+            evidence_paths[f"{role}_runtime_build_manifest"]
+        ):
+            raise RuntimeError(f"{role} normalization build digest mismatch")
+    if (
+        build_manifests["distractor"].get("base_avatar_id")
+        != distractor_record.get("base_avatar_id")
+    ):
+        raise RuntimeError("female B source identity does not bind the build")
+    if (
+        build_manifests["distractor"].get("source", {}).get("source_fbx")
+        != source_fbx_paths["distractor"]
+    ):
+        raise RuntimeError("female source FBX does not bind the build")
+    if plan["runtime_lineage"]["target"]["base_avatar_id"] != target_record.get(
+        "base_avatar_id"
+    ):
+        raise RuntimeError("male B source identity does not bind the legacy build")
+
     import_manifests = {
         "target": _load_json(evidence_paths["target_ue_import_manifest"]),
         "distractor": _load_json(evidence_paths["distractor_ue_import_manifest"]),
@@ -341,6 +427,7 @@ def build(plan_path: Path, output: Path) -> Path:
         required = (
             f"Blueprints/{tag}/BP_{tag}.uasset",
             f"Meshes/{tag}/runtime.uasset",
+            f"Meshes/{tag}/runtime_Skeleton.uasset",
             f"Meshes/{tag}/Standing_Idle.uasset",
             f"Meshes/{tag}/Walking.uasset",
         )
@@ -382,6 +469,7 @@ def build(plan_path: Path, output: Path) -> Path:
             for role in ("target", "distractor")
         },
         "runtime_provenance": plan["runtime_provenance"],
+        "runtime_lineage": plan["runtime_lineage"],
         "rir_policy": plan["rir_policy"],
         "source_fbx_paths": source_fbx_paths,
         "packaged_runtime": {
@@ -396,7 +484,8 @@ def build(plan_path: Path, output: Path) -> Path:
             "runtime_profiles": "pass",
             "ue_import_and_reload": "pass",
             "idle_and_walking": "pass",
-            "mouth_anchor": "pass",
+            "profile_mouth_anchor_declared": "pass",
+            "exact_scene_target_mouth_binding": "pending_required",
             "target_speech_candidate": "research_pending_listening_review",
             "distractor_silent": "pass",
             "packaged_runtime": "pass",

@@ -40,5 +40,5 @@ def test_two_human_feasibility_is_fail_closed() -> None:
     assert report["children"]["voice_policy"] == "silent_only"
     assert report["children"]["allowed_as_speaking_target"] is False
     assert report["current_blocker"] == (
-        "register_second_adult_in_a_runtime_profile"
+        "exact_two_human_rir_and_sparse_native_gate"
     )

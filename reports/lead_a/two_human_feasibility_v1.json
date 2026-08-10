@@ -28,5 +28,5 @@
     "voice_policy": "silent_only",
     "allowed_as_speaking_target": false
   },
-  "current_blocker": "register_second_adult_in_a_runtime_profile"
+  "current_blocker": "exact_two_human_rir_and_sparse_native_gate"
 }

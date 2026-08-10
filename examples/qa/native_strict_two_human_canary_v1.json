@@ -17,6 +17,10 @@
     "distractor_source_record": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/human_roster_v2/source_assets/rocketbox_adults_female_adult_01.json",
     "target_runtime_glb": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb",
     "distractor_runtime_glb": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_ue_v1/rocketbox_adults_female_adult_01_original_ue_v1/runtime.glb",
+    "target_runtime_build_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_v1/rocketbox_male_adult_01_original_v1/build_manifest.json",
+    "distractor_runtime_build_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_v1/rocketbox_adults_female_adult_01_original_v1/build_manifest.json",
+    "target_normalization_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/normalization_manifest.json",
+    "distractor_normalization_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_ue_v1/rocketbox_adults_female_adult_01_original_ue_v1/normalization_manifest.json",
     "target_ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_original_ue_v3/ue_import_manifest.json",
     "distractor_ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_adults_female_adult_01_original_ue_v1/ue_import_manifest.json",
     "target_speech_wav": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/media/speech_cremad_1001_ieo_neu_v1.wav",
@@ -28,6 +32,22 @@
     "distractor": "Lead-B exact female original identity runtime and UE import/readback, batch UE v1.",
     "same_runtime_build_revision_required": false,
     "distinct_original_base_identity_required": true
+  },
+  "runtime_lineage": {
+    "target": {
+      "base_avatar_id": "rocketbox_adults_male_adult_01",
+      "build_asset_id": "rocketbox_male_adult_01",
+      "build_tag": "rocketbox_male_adult_01_original_v1",
+      "normalization_tag": "rocketbox_male_adult_01_original_ue_v3",
+      "runtime_profile_revision": "native_runtime_ue_v3"
+    },
+    "distractor": {
+      "base_avatar_id": "rocketbox_adults_female_adult_01",
+      "build_asset_id": "rocketbox_female_adult_01",
+      "build_tag": "rocketbox_adults_female_adult_01_original_v1",
+      "normalization_tag": "rocketbox_adults_female_adult_01_original_ue_v1",
+      "runtime_profile_revision": "native_runtime_ue_v1"
+    }
   },
   "rir_policy": {
     "existing_unique1000_cache_is_template_only": true,
@@ -75,8 +95,8 @@
     }
   ],
   "target_only_actor_map": {
-    "source1": "rocketbox_adults_male_adult_01_actor",
-    "source2": "rocketbox_adults_female_adult_01_actor"
+    "source1": "source1_actor",
+    "source2": "source2_actor"
   },
   "gpu_policy": {
     "physical_gpu_index": 1,
