@@ -14,22 +14,21 @@ import argparse
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
 import sys
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
 
 import numpy as np
-
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
-from avengine.qa.pixel_visibility import (  # noqa: E402
+from avengine.qa.pixel_visibility import (
     PIXEL_VISIBILITY_DEPTH_AUTHORITY,
     compile_depth_pixel_visibility_truth,
 )
-
 
 SPIKE_PATH = REPOSITORY / "tools/qa/spike_spear_native_pixel_visibility.py"
 SPIKE_SPEC = importlib.util.spec_from_file_location(
@@ -151,6 +150,278 @@ def _descriptor_raw_ids(
         for descriptor in descriptors
         if descriptor.get("actorStableName") == stable_name
     ]
+
+
+def _runtime_asset_readbacks(
+    *,
+    game: Any,
+    scenario: Mapping[str, Any],
+    runtimes: Mapping[str, Mapping[str, Any]],
+    stable_names: Mapping[str, str],
+    raw_descriptors: Sequence[Mapping[str, Any]],
+    frame: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Read exact live BP/mesh/skeleton/Idle and mouth-root bindings."""
+
+    declarations = {
+        item["actor_id"]: item for item in scenario["plan"]["actors"]
+    }
+    states = {item["actor_id"]: item for item in frame["actor_states"]}
+    _require(
+        set(declarations) == set(runtimes) == set(states),
+        "runtime asset readback actor closure failed",
+    )
+    records: dict[str, Any] = {}
+    for actor_id in sorted(runtimes):
+        runtime = runtimes[actor_id]
+        declaration = declarations[actor_id]
+        state = states[actor_id]
+        instance_id = actor_id.removesuffix("_actor")
+        stable_name = stable_names[instance_id]
+        raw_ids = _descriptor_raw_ids(raw_descriptors, stable_name)
+        _require(raw_ids, f"{actor_id} stable actor tag has no proxy descriptor")
+
+        blueprint_path = declaration.get("blueprint_class_path")
+        _require(
+            isinstance(blueprint_path, str) and blueprint_path,
+            f"{actor_id} Blueprint path is missing",
+        )
+        expected_blueprint_handle = int(
+            game.unreal_service.load_class(
+                uclass="AActor",
+                name=blueprint_path,
+                as_handle=True,
+            )
+        )
+        observed_blueprint_handle = int(
+            game.unreal_service.get_class(
+                uobject=runtime["visual_actor"],
+                as_handle=True,
+            )
+        )
+        blueprint_match = observed_blueprint_handle == expected_blueprint_handle
+        _require(blueprint_match, f"{actor_id} live Blueprint class mismatch")
+
+        mesh_path = declaration.get("skeletal_mesh_path")
+        skeleton_path = declaration.get("skeleton_path")
+        _require(
+            isinstance(mesh_path, str) and mesh_path,
+            f"{actor_id} skeletal mesh path is missing",
+        )
+        _require(
+            isinstance(skeleton_path, str) and skeleton_path,
+            f"{actor_id} Skeleton path is missing",
+        )
+        expected_mesh_handle = int(
+            game.unreal_service.load_object(
+                uclass="USkeletalMesh",
+                name=mesh_path,
+                as_handle=True,
+            )
+        )
+        observed_mesh_handle, mesh_method = RUNNER._skeletal_mesh_handle(
+            runtime["component"]
+        )
+        _require(
+            observed_mesh_handle == expected_mesh_handle,
+            f"{actor_id} live SkeletalMesh mismatch",
+        )
+        observed_mesh = game.get_unreal_object(uobject=observed_mesh_handle)
+        try:
+            observed_skeleton_handle = int(observed_mesh.GetSkeleton(as_handle=True))
+            skeleton_readback_method = "USkeletalMesh.GetSkeleton"
+        except (AttributeError, RuntimeError):
+            observed_skeleton_handle = int(
+                observed_mesh.get_property_value(
+                    property_name="Skeleton",
+                    as_handle=True,
+                )
+            )
+            skeleton_readback_method = "USkeletalMesh.Skeleton_property"
+        expected_skeleton_handle = int(
+            game.unreal_service.load_object(
+                uclass="USkeleton",
+                name=skeleton_path,
+                as_handle=True,
+            )
+        )
+        _require(
+            observed_skeleton_handle == expected_skeleton_handle,
+            f"{actor_id} live Skeleton mismatch",
+        )
+
+        idle_path = declaration.get("idle_animation")
+        _require(
+            isinstance(idle_path, str) and idle_path,
+            f"{actor_id} Standing_Idle path is missing",
+        )
+        _require(
+            state.get("action_id") == "idle" and state.get("ue_animation") == idle_path,
+            f"{actor_id} sparse frame is not bound to Standing_Idle",
+        )
+        expected_idle_handle = int(
+            game.unreal_service.load_object(
+                uclass="UAnimationAsset",
+                name=idle_path,
+                as_handle=True,
+            )
+        )
+        runtime_idle_handle = int(runtime["animations"][idle_path].uobject)
+        try:
+            anim_instance_handle = int(
+                runtime["component"].GetAnimInstance(as_handle=True)
+            )
+            anim_instance_readback_method = "USkeletalMeshComponent.GetAnimInstance"
+        except (AttributeError, RuntimeError):
+            anim_instance_handle = int(
+                runtime["component"].get_property_value(
+                    property_name="AnimScriptInstance",
+                    as_handle=True,
+                )
+            )
+            anim_instance_readback_method = (
+                "USkeletalMeshComponent.AnimScriptInstance_property"
+            )
+        _require(
+            anim_instance_handle != 0,
+            f"{actor_id} has no live AnimScriptInstance",
+        )
+        anim_instance = game.get_unreal_object(uobject=anim_instance_handle)
+        try:
+            observed_idle_handle = int(
+                anim_instance.GetAnimationAsset(as_handle=True)
+            )
+            idle_readback_method = "UAnimSingleNodeInstance.GetAnimationAsset"
+        except (AttributeError, RuntimeError):
+            observed_idle_handle = int(
+                anim_instance.get_property_value(
+                    property_name="CurrentAsset",
+                    as_handle=True,
+                )
+            )
+            idle_readback_method = "UAnimSingleNodeInstance.CurrentAsset_property"
+        _require(
+            runtime_idle_handle == expected_idle_handle
+            and observed_idle_handle == expected_idle_handle
+            and runtime["current_animation"] == idle_path,
+            f"{actor_id} live Standing_Idle binding mismatch",
+        )
+        observed_animation_seconds = float(runtime["component"].GetPosition())
+        expected_animation_seconds = RUNNER.animation_position_seconds(
+            float(state["action_phase"]),
+            float(runtime["lengths"][idle_path]),
+        )
+        animation_error = abs(observed_animation_seconds - expected_animation_seconds)
+        _require(
+            animation_error <= RUNNER.ANIMATION_TOLERANCE_SECONDS,
+            f"{actor_id} live Standing_Idle position mismatch",
+        )
+
+        anchor_readback = RUNNER._actor_readback(
+            runtime["anchor"], int(frame["frame_index"])
+        )
+        location_cm = anchor_readback["location_cm"]
+        observed_root_m = [
+            float(location_cm[0]) / 100.0,
+            float(location_cm[2]) / 100.0,
+            float(location_cm[1]) / 100.0,
+        ]
+        expected_root_m = [float(value) for value in state["translation_m"]]
+        root_error_m = max(
+            abs(observed - expected)
+            for observed, expected in zip(observed_root_m, expected_root_m)
+        )
+        _require(root_error_m <= 1.0e-6, f"{actor_id} live root readback drift")
+        emitter_offset_m = declaration.get("emitter_offset_m")
+        _require(
+            isinstance(emitter_offset_m, Sequence)
+            and len(emitter_offset_m) == 3,
+            f"{actor_id} emitter offset is missing",
+        )
+        observed_emitter_m = [
+            observed_root_m[index] + float(emitter_offset_m[index])
+            for index in range(3)
+        ]
+        expected_emitter_m = [
+            expected_root_m[index] + float(emitter_offset_m[index])
+            for index in range(3)
+        ]
+        emitter_error_m = max(
+            abs(observed - expected)
+            for observed, expected in zip(observed_emitter_m, expected_emitter_m)
+        )
+        _require(
+            emitter_error_m <= 1.0e-6,
+            f"{actor_id} live emitter binding drift",
+        )
+        records[instance_id] = {
+            "status": "pass",
+            "actor_id": actor_id,
+            "asset_id": declaration["asset_id"],
+            "asset_revision": declaration["asset_revision"],
+            "stable_actor_tag": {
+                "status": "pass",
+                "value": stable_name,
+                "descriptor_match_count": len(raw_ids),
+                "raw_object_ids": raw_ids,
+            },
+            "blueprint": {
+                "status": "pass",
+                "expected_path": blueprint_path,
+                "expected_class_handle": expected_blueprint_handle,
+                "observed_class_handle": observed_blueprint_handle,
+                "spawned_actor_exact_class_match": blueprint_match,
+            },
+            "skeletal_mesh": {
+                "status": "pass",
+                "expected_path": mesh_path,
+                "expected_handle": expected_mesh_handle,
+                "observed_handle": observed_mesh_handle,
+                "readback_method": mesh_method,
+            },
+            "skeleton": {
+                "status": "pass",
+                "expected_path": skeleton_path,
+                "expected_handle": expected_skeleton_handle,
+                "observed_mesh_skeleton_handle": observed_skeleton_handle,
+                "readback_method": skeleton_readback_method,
+            },
+            "standing_idle": {
+                "status": "pass",
+                "expected_path": idle_path,
+                "expected_handle": expected_idle_handle,
+                "runtime_loaded_handle": runtime_idle_handle,
+                "anim_script_instance_handle": anim_instance_handle,
+                "anim_instance_readback_method": anim_instance_readback_method,
+                "observed_animation_asset_handle": observed_idle_handle,
+                "readback_method": idle_readback_method,
+                "current_animation_path": runtime["current_animation"],
+                "play_length_seconds": float(runtime["lengths"][idle_path]),
+                "expected_position_seconds": expected_animation_seconds,
+                "observed_position_seconds": observed_animation_seconds,
+                "absolute_position_error_seconds": animation_error,
+            },
+            "emitter_native_readback": {
+                "status": "pass",
+                "authority": "native_actor_root_plus_declared_profile_offset",
+                "claim_boundary": (
+                    "does_not_claim_live_mouth_bone_or_socket_geometry_readback"
+                ),
+                "anchor_id": declaration["emitter_anchor_id"],
+                "offset_m": [float(value) for value in emitter_offset_m],
+                "observed_root_m": observed_root_m,
+                "expected_root_m": expected_root_m,
+                "observed_world_emitter_m": observed_emitter_m,
+                "expected_world_emitter_m": expected_emitter_m,
+                "maximum_absolute_error_m": emitter_error_m,
+            },
+        }
+    return {
+        "schema": "avengine_native_spear_runtime_asset_readbacks_v1",
+        "status": "pass",
+        "frame_index": int(frame["frame_index"]),
+        "per_instance": records,
+    }
 
 
 def _derive_masks(
@@ -314,6 +585,7 @@ def run(args: argparse.Namespace) -> Path:
     descriptors: list[dict[str, Any]] = []
     stable_names: dict[str, str] = {}
     direct_modal_pixel_counts: dict[str, list[int]] = {}
+    runtime_asset_readbacks: dict[str, Any] = {}
     try:
         with instance.begin_frame():
             camera, components = SPIKE._spawn_multimodal_camera(game)
@@ -430,11 +702,27 @@ def run(args: argparse.Namespace) -> Path:
                 target_object_id_foreground_counts[instance_id].append(
                     int(np.count_nonzero(raw_ids != 0))
                 )
+        with instance.begin_frame():
+            SPIKE._apply_exact_frame(
+                camera=camera,
+                runtimes=runtimes,
+                frame=frames[-1],
+            )
+            runtime_asset_readbacks = _runtime_asset_readbacks(
+                game=game,
+                scenario=scenario,
+                runtimes=runtimes,
+                stable_names=stable_names,
+                raw_descriptors=raw_descriptors,
+                frame=frames[-1],
+            )
+        with instance.end_frame():
+            pass
     finally:
         if runtimes:
             try:
                 RUNNER._destroy_runtime_actors(instance, runtimes)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
         instance.close(force=True)
 
@@ -522,6 +810,8 @@ def run(args: argparse.Namespace) -> Path:
             "descriptors": descriptors,
         },
     )
+    runtime_asset_readbacks_path = args.output / "runtime_asset_readbacks.json"
+    _write_json(runtime_asset_readbacks_path, runtime_asset_readbacks)
 
     visual_path = args.output / "native_rgb_visual_only.mp4"
     muxed_path = args.output / "native_rgb_binaural.mp4"
@@ -599,6 +889,7 @@ def run(args: argparse.Namespace) -> Path:
         "pixel_masks": mask_path,
         "pixel_visibility_truth": truth_path,
         "runtime_readbacks": readbacks_path,
+        "runtime_asset_readbacks": runtime_asset_readbacks_path,
         "object_id_descriptors": descriptor_path,
     }
     artifact_records = {
@@ -635,6 +926,16 @@ def run(args: argparse.Namespace) -> Path:
         },
         "camera_intrinsics": intrinsics,
         "runtime_alignment": alignment,
+        "runtime_assets": {
+            "status": runtime_asset_readbacks["status"],
+            "frame_index": runtime_asset_readbacks["frame_index"],
+            "per_instance_status": {
+                instance_id: record["status"]
+                for instance_id, record in runtime_asset_readbacks[
+                    "per_instance"
+                ].items()
+            },
+        },
         "pixel_visibility": {
             "authority": truth["authority"],
             "mask_array_contract": {

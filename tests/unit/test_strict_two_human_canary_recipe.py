@@ -33,17 +33,43 @@ def test_static_two_human_geometry_recomputes_both_human_yaws() -> None:
         "rocketbox_human_male_adult_01_m5_1_candidate",
         "lead_b_rocketbox_adults_female_adult_01_original_v1",
     ]
+    for declaration in bundle["declarations"]:
+        assert "exact_runtime_binding" not in declaration
+        assert declaration["runtime_asset_expectation"]["source_slot_id"] == (
+            declaration["actor_id"].removesuffix("_actor")
+        )
+        assert declaration["skeletal_mesh_path"].endswith("/runtime.runtime")
+        assert declaration["skeleton_path"].endswith(
+            "/runtime_Skeleton.runtime_Skeleton"
+        )
+        assert declaration["animation_paths_by_action_id"]["idle"] == declaration[
+            "idle_animation"
+        ]
+        assert declaration["runtime_asset_expectation"]["schema"] == (
+            "avengine_generic_human_runtime_asset_expectation_v1"
+        )
     yaws = {
         item["actor_id"]: item["actor_yaw_ue_deg"]
         for item in bundle["state_templates"]
     }
-    assert yaws["source1_actor"] == pytest.approx(-44.210, abs=0.01)
+    assert yaws["source1_actor"] == pytest.approx(-38.301, abs=0.01)
     assert yaws["source2_actor"] == pytest.approx(-83.564, abs=0.01)
     assert yaws["source1_actor"] != pytest.approx(-93.1818305917363)
     assert bundle["projection_offset_fraction"]["source1"] > 0.02
     assert bundle["projection_offset_fraction"]["source2"] < -0.02
-    assert bundle["emitters"]["source1"][1] == pytest.approx(2.0100000059604646)
+    assert bundle["roots"]["source1"] == pytest.approx(
+        [-1.9941582267673559, 0.4, -0.9886440992754871]
+    )
+    assert bundle["emitters"]["source1"][1] == pytest.approx(2.01)
     assert bundle["emitters"]["source2"][1] == pytest.approx(1.9690124571323395)
+    assert bundle["projection_xy_fraction"]["source1"] == pytest.approx(
+        [0.615099048196844, 0.3161825571019291]
+    )
+    assert bundle["projection_xy_fraction"]["source2"][0] < 0.5
+    assert bundle["target_vertical_envelope_y_fraction"] == pytest.approx(
+        {"top": 0.18317921251890928, "bottom": 0.8652476462779852}
+    )
+    assert bundle["composition_gate"]["status"] == "pass"
 
 
 def test_static_two_human_geometry_fails_closed_on_identity_or_side_drift() -> None:
@@ -58,6 +84,23 @@ def test_static_two_human_geometry_fails_closed_on_identity_or_side_drift() -> N
     invalid = deepcopy(plan)
     invalid["actors"][1]["runtime_asset_id"] = "missing_second_identity"
     with pytest.raises(RuntimeError, match="runtime asset does not resolve once"):
+        TOOL.build_static_actor_bundle(invalid, registry)
+
+    invalid = deepcopy(plan)
+    invalid["actors"][0]["root_translation_m"] = [
+        -1.0850754976272583,
+        0.4000000059604645,
+        0.254158079624176,
+    ]
+    with pytest.raises(RuntimeError, match="deterministic camera-local placement"):
+        TOOL.build_static_actor_bundle(invalid, registry)
+
+    invalid = deepcopy(plan)
+    invalid["deterministic_composition"]["target_vertical_envelope_from_root_m"] = [
+        0.0,
+        5.0,
+    ]
+    with pytest.raises(RuntimeError, match="vertical envelope touches"):
         TOOL.build_static_actor_bundle(invalid, registry)
 
 

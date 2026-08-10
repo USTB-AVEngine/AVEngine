@@ -104,18 +104,74 @@ def _asset(registry: Mapping[str, Any], asset_id: str) -> Mapping[str, Any]:
     return matches[0]
 
 
-def _profile_actor(actor_id: str, profile: Mapping[str, Any]) -> dict[str, Any]:
+def _profile_actor(
+    actor_id: str,
+    profile: Mapping[str, Any],
+    ue_import_content: Mapping[str, Any],
+    ue_import_manifest_path: Path,
+) -> dict[str, Any]:
     timeline = profile["timeline"]
     unreal = profile["runtime_backends"]["spear_unreal"]
+    blueprint_asset_path = str(ue_import_content["blueprint"])
+    blueprint_name = blueprint_asset_path.rsplit("/", 1)[1]
+    authoritative_blueprint_class_path = (
+        f"{blueprint_asset_path}.{blueprint_name}_C"
+    )
+    authoritative_animations = ue_import_content["animations"]
+    _require(
+        unreal["blueprint_class_path"] == authoritative_blueprint_class_path,
+        f"{actor_id} runtime profile Blueprint differs from UE import authority",
+    )
+    _require(
+        unreal["idle_animation"] == authoritative_animations["Standing_Idle"]
+        and unreal["walking_animation"] == authoritative_animations["Walking"],
+        f"{actor_id} runtime profile animations differ from UE import authority",
+    )
+    skeletal_mesh_path = str(ue_import_content["skeletal_mesh"])
+    skeleton_path = str(ue_import_content["skeleton"])
+    animation_paths = {
+        "idle": unreal["idle_animation"],
+        "walk": unreal["walking_animation"],
+    }
+    emitter = next(
+        item
+        for item in profile["emitter_anchors"]
+        if item["anchor_id"] == profile["default_emitter_anchor_id"]
+    )
     return {
         "actor_id": actor_id,
         "asset_id": profile["asset_id"],
+        "asset_revision": profile["revision"],
+        "actor_scale": 1.0,
+        "animation_paths_by_action_id": animation_paths,
         "blueprint_class_path": unreal["blueprint_class_path"],
         "body_plan_id": timeline["body_plan_id"],
+        "emitter_anchor_id": emitter["anchor_id"],
+        "emitter_offset_m": deepcopy(emitter["offset_m"]),
+        "runtime_asset_expectation": {
+            "schema": "avengine_generic_human_runtime_asset_expectation_v1",
+            "source_slot_id": actor_id.removesuffix("_actor"),
+            "asset_id": profile["asset_id"],
+            "asset_revision": profile["revision"],
+            "source_mesh_uri": profile["geometry"]["source_mesh_uri"],
+            "ue_import_manifest": str(ue_import_manifest_path.resolve()),
+            "ue_runtime_objects": {
+                "blueprint_class_path": authoritative_blueprint_class_path,
+                "skeletal_mesh_path": skeletal_mesh_path,
+                "skeleton_path": skeleton_path,
+                "standing_idle_path": authoritative_animations["Standing_Idle"],
+                "walking_path": authoritative_animations["Walking"],
+            },
+            "admission_state": "research",
+        },
+        "floor_contact_gate": bool(unreal["floor_contact_gate"]),
         "habitat_local_anatomical_forward_axis": timeline[
             "local_anatomical_forward_axis"
         ],
         "idle_animation": unreal["idle_animation"],
+        "skeletal_mesh_binding": unreal["skeletal_mesh_binding"],
+        "skeletal_mesh_path": skeletal_mesh_path,
+        "skeleton_path": skeleton_path,
         "template_id": timeline["template_id"],
         "ue_anatomical_forward_yaw_deg": unreal[
             "ue_anatomical_forward_yaw_deg"
@@ -138,18 +194,39 @@ def _facing_camera_rotation(
     return rotation, forward
 
 
-def _screen_offset_fraction(
+def _camera_basis_xz(camera_forward: Sequence[float]) -> tuple[list[float], list[float]]:
+    forward_xz = [float(camera_forward[0]), float(camera_forward[2])]
+    norm = math.hypot(*forward_xz)
+    _require(norm > 1.0e-6, "camera forward is invalid")
+    forward_xz = [value / norm for value in forward_xz]
+    return forward_xz, [-forward_xz[1], forward_xz[0]]
+
+
+def _camera_local_root(
+    *,
+    camera_m: Sequence[float],
+    camera_forward: Sequence[float],
+    forward_m: float,
+    right_m: float,
+    floor_y_m: float,
+) -> list[float]:
+    forward_xz, right_xz = _camera_basis_xz(camera_forward)
+    return [
+        float(camera_m[0]) + forward_m * forward_xz[0] + right_m * right_xz[0],
+        floor_y_m,
+        float(camera_m[2]) + forward_m * forward_xz[1] + right_m * right_xz[1],
+    ]
+
+
+def _pinhole_xy_fraction(
     point_m: Sequence[float],
     *,
     camera_m: Sequence[float],
     camera_forward: Sequence[float],
     horizontal_fov_deg: float,
-) -> float:
-    forward_xz = [float(camera_forward[0]), float(camera_forward[2])]
-    norm = math.hypot(*forward_xz)
-    _require(norm > 1.0e-6, "camera forward is invalid")
-    forward_xz = [value / norm for value in forward_xz]
-    right_xz = [-forward_xz[1], forward_xz[0]]
+    resolution_hw: Sequence[int],
+) -> tuple[list[float], float]:
+    forward_xz, right_xz = _camera_basis_xz(camera_forward)
     delta = [
         float(point_m[0]) - float(camera_m[0]),
         float(point_m[2]) - float(camera_m[2]),
@@ -157,7 +234,19 @@ def _screen_offset_fraction(
     depth = delta[0] * forward_xz[0] + delta[1] * forward_xz[1]
     _require(depth > 0.0, "planned actor is behind the camera")
     lateral = delta[0] * right_xz[0] + delta[1] * right_xz[1]
-    return lateral / (depth * math.tan(math.radians(horizontal_fov_deg) / 2.0))
+    height, width = (int(value) for value in resolution_hw)
+    _require(height > 0 and width > 0, "camera resolution is invalid")
+    tan_horizontal = math.tan(math.radians(horizontal_fov_deg) / 2.0)
+    tan_vertical = tan_horizontal * height / width
+    return (
+        [
+            0.5 + lateral / (2.0 * depth * tan_horizontal),
+            0.5
+            - (float(point_m[1]) - float(camera_m[1]))
+            / (2.0 * depth * tan_vertical),
+        ],
+        depth,
+    )
 
 
 def build_static_actor_bundle(
@@ -173,17 +262,57 @@ def build_static_actor_bundle(
         actor_id: _asset(registry, spec["runtime_asset_id"])
         for actor_id, spec in actor_specs.items()
     }
+    import_manifest_paths = {
+        "source1_actor": Path(plan["evidence"]["target_ue_import_manifest"]),
+        "source2_actor": Path(plan["evidence"]["distractor_ue_import_manifest"]),
+    }
+    import_contents: dict[str, Mapping[str, Any]] = {}
+    for actor_id, manifest_path in import_manifest_paths.items():
+        _require(manifest_path.is_file(), f"{actor_id} UE import manifest is missing")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        content = manifest.get("content")
+        _require(
+            isinstance(content, Mapping),
+            f"{actor_id} UE import manifest content is invalid",
+        )
+        import_contents[actor_id] = content
     declarations = [
-        _profile_actor(actor_id, profiles[actor_id])
+        _profile_actor(
+            actor_id,
+            profiles[actor_id],
+            import_contents[actor_id],
+            import_manifest_paths[actor_id],
+        )
         for actor_id in ("source1_actor", "source2_actor")
     ]
     declarations_by_id = {item["actor_id"]: item for item in declarations}
     camera_m = plan["camera_pose"]["translation_m"]
     camera_forward = [-math.sin(math.radians(55.0)), 0.0, -math.cos(math.radians(55.0))]
+    composition = plan["deterministic_composition"]
+    local_target = composition["target_camera_local_root"]
+    expected_target_root = _camera_local_root(
+        camera_m=camera_m,
+        camera_forward=camera_forward,
+        forward_m=float(local_target["forward_m"]),
+        right_m=float(local_target["right_m"]),
+        floor_y_m=float(local_target["floor_y_m"]),
+    )
+    declared_target_root = [
+        float(value) for value in actors_by_role["target"]["root_translation_m"]
+    ]
+    _require(
+        max(
+            abs(actual - expected)
+            for actual, expected in zip(declared_target_root, expected_target_root)
+        )
+        <= 1.0e-9,
+        "planned target root drifted from deterministic camera-local placement",
+    )
     states: list[dict[str, Any]] = []
     roots: dict[str, list[float]] = {}
     emitters: dict[str, list[float]] = {}
     projection: dict[str, float] = {}
+    projection_xy: dict[str, list[float]] = {}
     for actor_id in ("source1_actor", "source2_actor"):
         spec = actor_specs[actor_id]
         profile = profiles[actor_id]
@@ -208,20 +337,23 @@ def build_static_actor_bundle(
             f"{slot} canary requires a root-vertical mouth offset",
         )
         emitter = [root[0], root[1] + float(offset[1]), root[2]]
-        offset_fraction = _screen_offset_fraction(
+        xy_fraction, _ = _pinhole_xy_fraction(
             emitter,
             camera_m=camera_m,
             camera_forward=camera_forward,
-            horizontal_fov_deg=105.0,
+            horizontal_fov_deg=float(composition["horizontal_fov_deg"]),
+            resolution_hw=composition["camera_resolution_hw"],
         )
         expected_sign = 1.0 if spec["expected_screen_side"] == "right" else -1.0
         _require(
-            expected_sign * offset_fraction > 0.02,
+            expected_sign * (xy_fraction[0] - 0.5)
+            > float(composition["screen_side_dead_zone_fraction"]),
             f"{slot} does not clear its planned screen-side dead zone",
         )
         roots[slot] = root
         emitters[slot] = emitter
-        projection[slot] = offset_fraction
+        projection[slot] = 2.0 * (xy_fraction[0] - 0.5)
+        projection_xy[slot] = xy_fraction
         states.append(
             {
                 "action_id": "idle",
@@ -239,12 +371,58 @@ def build_static_actor_bundle(
                 "ue_animation": declaration["idle_animation"],
             }
         )
+    safe_min, safe_max = (
+        float(value) for value in composition["safe_frame_fraction_xy"]
+    )
+    target_mouth_xy = projection_xy["source1"]
+    _require(
+        all(safe_min < value < safe_max for value in target_mouth_xy),
+        "target mouth leaves the safe frame region",
+    )
+    target_root = roots["source1"]
+    envelope_low, envelope_high = (
+        float(value)
+        for value in composition["target_vertical_envelope_from_root_m"]
+    )
+    bottom_xy, _ = _pinhole_xy_fraction(
+        [target_root[0], target_root[1] + envelope_low, target_root[2]],
+        camera_m=camera_m,
+        camera_forward=camera_forward,
+        horizontal_fov_deg=float(composition["horizontal_fov_deg"]),
+        resolution_hw=composition["camera_resolution_hw"],
+    )
+    top_xy, _ = _pinhole_xy_fraction(
+        [target_root[0], target_root[1] + envelope_high, target_root[2]],
+        camera_m=camera_m,
+        camera_forward=camera_forward,
+        horizontal_fov_deg=float(composition["horizontal_fov_deg"]),
+        resolution_hw=composition["camera_resolution_hw"],
+    )
+    _require(
+        safe_min < top_xy[1] < bottom_xy[1] < safe_max,
+        "target projected vertical envelope touches the frame boundary",
+    )
     return {
         "declarations": declarations,
         "state_templates": states,
         "roots": roots,
         "emitters": emitters,
         "projection_offset_fraction": projection,
+        "projection_xy_fraction": projection_xy,
+        "target_vertical_envelope_y_fraction": {
+            "top": top_xy[1],
+            "bottom": bottom_xy[1],
+        },
+        "composition_gate": {
+            "status": "pass",
+            "safe_frame_fraction_xy": [safe_min, safe_max],
+            "post_capture_bbox_edge_margin_px": composition[
+                "post_capture_bbox_edge_margin_px"
+            ],
+            "post_capture_both_sources_visible_pixels_minimum": composition[
+                "post_capture_both_sources_visible_pixels_minimum"
+            ],
+        },
         "camera_forward_world": camera_forward,
     }
 
@@ -662,6 +840,11 @@ def build(
                 for state in bundle["state_templates"]
             },
             "projection_offset_fraction": bundle["projection_offset_fraction"],
+            "projection_xy_fraction": bundle["projection_xy_fraction"],
+            "target_vertical_envelope_y_fraction": bundle[
+                "target_vertical_envelope_y_fraction"
+            ],
+            "composition_gate": bundle["composition_gate"],
             "target_event_count": 1,
             "distractor_event_count": 0,
             "exact_rir": "pending_required",

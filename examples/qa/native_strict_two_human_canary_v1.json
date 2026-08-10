@@ -1,6 +1,6 @@
 {
   "schema": "avengine_native_strict_two_human_canary_plan_v1",
-  "plan_id": "lead_d_strict_two_human_canary_20260810_v1",
+  "plan_id": "lead_d_strict_two_human_canary_20260811_v2",
   "status": "cpu_preflight_pending",
   "claim_boundary": "One planned native SPEAR Apartment sparse canary. No native two-human capture and no formal D scene are claimed before every sparse gate passes.",
   "feasibility_report": "reports/lead_a/two_human_feasibility_v1.json",
@@ -53,7 +53,7 @@
     "existing_unique1000_cache_is_template_only": true,
     "reuse_existing_cache_as_exact_two_human_evidence": false,
     "reason": "The canary replaces the prior source1 dog muzzle with a male mouth emitter and changes the exact source geometry; a new asset-bound RIR plan/cache is required.",
-    "required_next_output_root": "tmp/lead_d_strict_two_human_canary_v1/exact_rir_v1"
+    "required_next_output_root": "tmp/lead_d_strict_two_human_canary_v1/exact_rir_v2"
   },
   "timeline": {
     "frame_count": 75,
@@ -65,6 +65,22 @@
     "translation_m": [-0.7, 1.471, 0.65],
     "rotation_xyzw": [0.0, 0.4617486132350339, 0.0, 0.8870108331782217]
   },
+  "deterministic_composition": {
+    "revision": "rejected_v1_male_mouth_above_frame_fix_v2",
+    "camera_resolution_hw": [720, 1280],
+    "horizontal_fov_deg": 105.0,
+    "safe_frame_fraction_xy": [0.05, 0.95],
+    "screen_side_dead_zone_fraction": 0.02,
+    "target_camera_local_root": {
+      "forward_m": 2.0,
+      "right_m": 0.6,
+      "floor_y_m": 0.4
+    },
+    "target_vertical_envelope_from_root_m": [0.0, 2.0],
+    "target_vertical_envelope_authority": "target normalization expected_ue_qa.height_range_cm upper bound",
+    "post_capture_bbox_edge_margin_px": 1,
+    "post_capture_both_sources_visible_pixels_minimum": 1
+  },
   "actors": [
     {
       "role": "target",
@@ -74,7 +90,7 @@
       "runtime_asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
       "runtime_revision": "native_runtime_ue_v3",
       "expected_screen_side": "right",
-      "root_translation_m": [-1.0850754976272583, 0.4000000059604645, 0.254158079624176],
+      "root_translation_m": [-1.9941582267673559, 0.4, -0.9886440992754871],
       "action_id": "idle",
       "voice_policy": "speaking",
       "sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
@@ -113,6 +129,9 @@
     "source2_target_only",
     "actor_pose_readback_matches_plan",
     "mouth_emitter_binding_matches_target",
+    "target_mouth_in_safe_frame_region",
+    "target_bbox_not_touch_top_bottom",
+    "both_source_centroids_on_declared_sides",
     "native_binaural_rlr",
     "target_speaking_and_distractor_silent"
   ],
