@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import struct
 from copy import deepcopy
 from pathlib import Path
 
@@ -243,6 +244,35 @@ def test_full_dry_window_rejects_silent_fifteen_or_overflow() -> None:
     )
     with pytest.raises(RuntimeError, match="exceeds five seconds"):
         TOOL._speech_window(start_sample=7467, source_sample_count=80000)
+
+
+def test_wave_header_accepts_rendered_float32_contract(tmp_path: Path) -> None:
+    channels = 2
+    sample_rate_hz = 16000
+    sample_count = 80000
+    bits_per_sample = 32
+    block_align = channels * bits_per_sample // 8
+    data = b"\x00" * (sample_count * block_align)
+    fmt = struct.pack(
+        "<HHIIHH",
+        3,
+        channels,
+        sample_rate_hz,
+        sample_rate_hz * block_align,
+        block_align,
+        bits_per_sample,
+    )
+    body = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+    body += b"data" + struct.pack("<I", len(data)) + data
+    wav_path = tmp_path / "float32.wav"
+    wav_path.write_bytes(b"RIFF" + struct.pack("<I", len(body) + 4) + b"WAVE" + body)
+
+    assert TOOL._wave_header(wav_path) == {
+        "format_tag": 3,
+        "channel_count": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 80000,
+    }
 
 
 def test_prepare_rejects_identity_speech_window_drift(tmp_path: Path) -> None:

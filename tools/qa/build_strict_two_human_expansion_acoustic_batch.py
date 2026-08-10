@@ -7,8 +7,8 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import struct
 import sys
-import wave
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
@@ -93,6 +93,49 @@ def _record(role: str, path: Path) -> dict[str, Any]:
         "size_bytes": path.stat().st_size,
         "sha256": _sha256(path),
     }
+
+
+def _wave_header(path: Path) -> dict[str, int]:
+    with path.open("rb") as stream:
+        _require(stream.read(4) == b"RIFF", f"invalid WAV RIFF header: {path}")
+        stream.read(4)
+        _require(stream.read(4) == b"WAVE", f"invalid WAV format header: {path}")
+        fmt: tuple[int, int, int, int] | None = None
+        data_size: int | None = None
+        while True:
+            chunk_id = stream.read(4)
+            if not chunk_id:
+                break
+            chunk_size_raw = stream.read(4)
+            _require(len(chunk_size_raw) == 4, f"truncated WAV chunk: {path}")
+            chunk_size = struct.unpack("<I", chunk_size_raw)[0]
+            payload = stream.read(chunk_size)
+            _require(len(payload) == chunk_size, f"truncated WAV payload: {path}")
+            if chunk_size % 2:
+                stream.read(1)
+            if chunk_id == b"fmt ":
+                _require(chunk_size >= 16, f"short WAV fmt chunk: {path}")
+                format_tag, channels, sample_rate, _, _, bits = struct.unpack(
+                    "<HHIIHH", payload[:16]
+                )
+                fmt = (format_tag, channels, sample_rate, bits)
+            elif chunk_id == b"data":
+                data_size = chunk_size
+        _require(fmt is not None and data_size is not None, f"WAV chunks missing: {path}")
+        format_tag, channels, sample_rate, bits = fmt
+        _require(format_tag in {1, 3}, f"unsupported WAV encoding: {format_tag}")
+        bytes_per_frame = channels * bits // 8
+        _require(bytes_per_frame > 0, f"invalid WAV frame width: {path}")
+        _require(
+            data_size % bytes_per_frame == 0,
+            f"WAV data does not contain whole frames: {path}",
+        )
+        return {
+            "format_tag": format_tag,
+            "channel_count": channels,
+            "sample_rate_hz": sample_rate,
+            "sample_count": data_size // bytes_per_frame,
+        }
 
 
 def _angle_delta_deg(a: float, b: float) -> float:
@@ -962,11 +1005,19 @@ def finalize(*, batch_root: Path, output: Path) -> Path:
             f"{row['row_id']} inherited animal sound metadata",
         )
         sensor_binding = m7_sensor_rig_binding(sensor_rig)
+        declared_sensor_binding = plan_delivery.get("sensor_rig_trajectory", {})
         _require(
-            plan_delivery.get("sensor_rig_trajectory") == {
-                "relative_path": "sensor_rig_trajectory.json",
-                **sensor_binding,
-            },
+            declared_sensor_binding.get("relative_path")
+            == "sensor_rig_trajectory.json"
+            and all(
+                declared_sensor_binding.get(key) == sensor_binding[key]
+                for key in (
+                    "trajectory_id",
+                    "content_sha256",
+                    "first_pose_hash",
+                    "last_pose_hash",
+                )
+            ),
             f"{row['row_id']} RIR plan sensor binding drift",
         )
         jobs = rir_plan.get("jobs", [])
@@ -1095,13 +1146,13 @@ def finalize(*, batch_root: Path, output: Path) -> Path:
             and _sha256(mixture_path) == mixture["audio_sha256"],
             f"{row['row_id']} binaural WAV artifact drift",
         )
-        with wave.open(str(mixture_path), "rb") as stream:
-            _require(
-                stream.getnchannels() == 2
-                and stream.getframerate() == SAMPLE_RATE_HZ
-                and stream.getnframes() == SAMPLE_COUNT,
-                f"{row['row_id']} binaural WAV header drift",
-            )
+        wav_header = _wave_header(mixture_path)
+        _require(
+            wav_header["channel_count"] == 2
+            and wav_header["sample_rate_hz"] == SAMPLE_RATE_HZ
+            and wav_header["sample_count"] == SAMPLE_COUNT,
+            f"{row['row_id']} binaural WAV header drift",
+        )
         ready_request = deepcopy(blocked_request)
         ready_request["status"] = "ready_for_native_sparse"
         ready_request["audio_wav"] = str(mixture_path.resolve())
