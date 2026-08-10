@@ -117,8 +117,12 @@ def validate_plan(plan: Mapping[str, Any], registry: Mapping[str, Any]) -> list[
     require(timeline.get("frame_count") == 75, "frame count must be 75")
     require(timeline.get("frame_rate_hz") == 15, "frame rate must be 15 Hz")
     require(timeline.get("sparse_gate_frame_index") == 15, "sparse gate must be f15")
-    speech_window = timeline.get("target_speech_frame_window_inclusive")
-    require(speech_window == [7, 31], "speech window must be [7,31]")
+    require(timeline.get("target_speech_start_sample") == 7467, "speech start sample drift")
+    require(timeline.get("target_speech_start_frame") == 7, "speech start frame drift")
+    require(
+        timeline.get("target_speech_duration_policy") == "full_dry_asset",
+        "full dry speech policy required",
+    )
 
     catalog = plan.get("approved_identity_catalog", {})
     require(set(catalog) == {"M", "F", "C"}, "approved catalog must contain exactly M/F/C")
@@ -146,6 +150,16 @@ def validate_plan(plan: Mapping[str, Any], registry: Mapping[str, Any]) -> list[
         require(profile.get("realized_attributes", {}).get("life_stage") == "adult", f"identity {key} is not adult")
         require(profile.get("admission_state") == "research", f"identity {key} must remain research")
         require(identity.get("listening_review") == "pending_research_only", f"identity {key} listening boundary mismatch")
+        expected_window = {"M": [7, 31], "F": [7, 50], "C": [7, 50]}[key]
+        require(
+            identity.get("expected_speech_frame_window_inclusive")
+            == expected_window,
+            f"identity {key} speech window mismatch",
+        )
+        require(
+            isinstance(identity.get("ue_import_manifest"), str),
+            f"identity {key} UE import authority missing",
+        )
         anchors = profile.get("emitter_anchors", [])
         mouth = [anchor for anchor in anchors if anchor.get("anchor_id") == "mouth"]
         require(len(mouth) == 1, f"identity {key} mouth anchor must resolve once")

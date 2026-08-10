@@ -22,6 +22,9 @@
       "runtime_revision": "native_runtime_ue_v3",
       "mouth_offset_from_root_m": [0.0, 1.61, 0.0],
       "sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+      "transcript": "It's eleven o'clock.",
+      "expected_speech_frame_window_inclusive": [7, 31],
+      "ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_original_ue_v3/ue_import_manifest.json",
       "listening_review": "pending_research_only"
     },
     "F": {
@@ -31,6 +34,9 @@
       "runtime_revision": "native_runtime_ue_v1",
       "mouth_offset_from_root_m": [0.0, 1.569012451171875, 0.0],
       "sound_asset_id": "speech_cremad_1002_mti_neu_v1",
+      "transcript": "Maybe tomorrow it will be cold.",
+      "expected_speech_frame_window_inclusive": [7, 50],
+      "ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_adults_female_adult_01_original_ue_v1/ue_import_manifest.json",
       "listening_review": "pending_research_only"
     },
     "C": {
@@ -40,6 +46,9 @@
       "runtime_revision": "native_runtime_ue_v1",
       "mouth_offset_from_root_m": [0.0, 1.664033031463623, 0.0],
       "sound_asset_id": "speech_cremad_1005_tie_neu_v1",
+      "transcript": "That is exactly what happened.",
+      "expected_speech_frame_window_inclusive": [7, 50],
+      "ue_import_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_professions_construction_male_01_original_ue_v1/ue_import_manifest.json",
       "listening_review": "pending_research_only"
     }
   },
@@ -60,7 +69,9 @@
     "frame_count": 75,
     "frame_rate_hz": 15,
     "sparse_gate_frame_index": 15,
-    "target_speech_frame_window_inclusive": [7, 31]
+    "target_speech_start_sample": 7467,
+    "target_speech_start_frame": 7,
+    "target_speech_duration_policy": "full_dry_asset"
   },
   "projection_and_native_thresholds": {
     "resolution_hw": [720, 1280],

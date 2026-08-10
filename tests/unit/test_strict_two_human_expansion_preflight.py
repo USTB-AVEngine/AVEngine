@@ -66,6 +66,11 @@ def test_strict_eight_plan_contract_and_balance_pass() -> None:
     assert plan["formal_scene_count"] == 0
     assert plan["qualification_claim"] is False
     assert plan["execution_policy"]["gpu_or_rir_allowed_in_this_atom"] is False
+    assert {
+        key: identity["expected_speech_frame_window_inclusive"]
+        for key, identity in plan["approved_identity_catalog"].items()
+    } == {"M": [7, 31], "F": [7, 50], "C": [7, 50]}
+    assert plan["timeline"]["target_speech_duration_policy"] == "full_dry_asset"
 
 
 def test_strict_eight_preflight_binds_native_floor_points(tmp_path: Path) -> None:
@@ -117,6 +122,13 @@ def test_strict_eight_rejects_identity_side_voice_or_scope_drift() -> None:
     invalid["rows"][6]["actors"][1]["voice_policy"] = "speaking"
     errors = TOOL.validate_plan(invalid, registry)
     assert "row 7 distractor must be silent" in errors
+
+    invalid = deepcopy(plan)
+    invalid["approved_identity_catalog"]["F"][
+        "expected_speech_frame_window_inclusive"
+    ] = [7, 31]
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "identity F speech window mismatch" in errors
 
     invalid = deepcopy(plan)
     invalid["formal_scene_count"] = 8
