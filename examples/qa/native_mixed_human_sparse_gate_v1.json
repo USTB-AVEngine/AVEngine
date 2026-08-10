@@ -1,0 +1,118 @@
+{
+  "schema": "avengine_native_mixed_human_sparse_gate_plan_v1",
+  "plan_id": "lead_d_mixed_human_target_sparse_gate_20260810_v1",
+  "status": "planned",
+  "claim_boundary": "Eight one-frame native SPEAR Apartment gates with one human target and one Border Collie distractor. These are mixed human+dog engineering evidence only; formal_scene_count remains zero until the D protocol explicitly admits this domain.",
+  "source_suite_plan": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/suite_execution_plan.json",
+  "fact_root": "/data/datasets/avengine_workspaces/AVEngine-habitat-native-acoustic-fix/tmp/qa/apartment_fact_tables_intermittent_20260727_01/facts",
+  "audio_root": "/data/datasets/avengine_workspaces/AVEngine-habitat-native-acoustic-fix/tmp/m7/apartment_generated_assets_1000_unique_visual_binaural_semantic_v2_20260726_01/audio/binaural",
+  "rir_cache_receipt": "/data/datasets/avengine_workspaces/AVEngine-habitat-native-acoustic-fix/tmp/m7/apartment_generated_assets_rir_cache_unique1000_semantic_v2_20260726_01/receipt.json",
+  "spear_root": "/data/jzy/code/SPEAR-lead-b",
+  "output_root": "tmp/lead_d_native_mixed_human_sparse_gate_v1",
+  "gpu_policy": {
+    "preferred_physical_gpu_index": 1,
+    "required_idle_compute_process_count": 0,
+    "forbidden_physical_gpu_indices": [0, 3],
+    "graphics_adapter_argument": 1
+  },
+  "gate_contract": {
+    "formal_scene_count": 0,
+    "capture_frame_count_per_case": 1,
+    "required_renderer": "spear_unreal_native_apartment",
+    "required_artifacts": [
+      "native_rgb_binaural",
+      "metric_depth",
+      "pixel_masks",
+      "pixel_visibility_truth",
+      "runtime_readbacks"
+    ],
+    "required_source_slots": ["source1", "source2"],
+    "minimum_visible_pixels_per_source": 1,
+    "require_human_speaking_at_frame": true,
+    "require_both_fact_frustum_flags": true,
+    "maximum_runtime_location_drift_cm": 0.0001,
+    "maximum_runtime_rotation_drift_deg": 0.0001
+  },
+  "cases": [
+    {
+      "case_id": "mixed_human_left_0999_f44",
+      "episode_id": "human_border_collie__recombined_both_moving_0999",
+      "frame_index": 44,
+      "human_source_slot_id": "source1",
+      "expected_side": "left",
+      "expected_human_doa_deg": -8.014328604113537,
+      "expected_active_human_event_id": "source1_event_001",
+      "legacy_scene_overlap": false
+    },
+    {
+      "case_id": "mixed_human_left_0919_f64",
+      "episode_id": "border_collie_human__recombined_static_static_0919",
+      "frame_index": 64,
+      "human_source_slot_id": "source2",
+      "expected_side": "left",
+      "expected_human_doa_deg": -11.339590279790698,
+      "expected_active_human_event_id": "source2_event_002",
+      "legacy_scene_overlap": false
+    },
+    {
+      "case_id": "mixed_human_left_0125_f32",
+      "episode_id": "border_collie_human__recombined_both_moving_0125",
+      "frame_index": 32,
+      "human_source_slot_id": "source2",
+      "expected_side": "left",
+      "expected_human_doa_deg": -32.24875083232349,
+      "expected_active_human_event_id": "source2_event_000",
+      "legacy_scene_overlap": true
+    },
+    {
+      "case_id": "mixed_human_left_0342_f8",
+      "episode_id": "border_collie_human__recombined_source1_moving_source2_static_0342",
+      "frame_index": 8,
+      "human_source_slot_id": "source2",
+      "expected_side": "left",
+      "expected_human_doa_deg": -11.339590279790698,
+      "expected_active_human_event_id": "source2_event_000",
+      "legacy_scene_overlap": false
+    },
+    {
+      "case_id": "mixed_human_right_0425_f71",
+      "episode_id": "border_collie_human__recombined_both_moving_0425",
+      "frame_index": 71,
+      "human_source_slot_id": "source2",
+      "expected_side": "right",
+      "expected_human_doa_deg": 35.24397459739902,
+      "expected_active_human_event_id": "source2_event_001",
+      "legacy_scene_overlap": false
+    },
+    {
+      "case_id": "mixed_human_right_0523_f28",
+      "episode_id": "human_border_collie__recombined_both_moving_0523",
+      "frame_index": 28,
+      "human_source_slot_id": "source1",
+      "expected_side": "right",
+      "expected_human_doa_deg": 38.79719581159029,
+      "expected_active_human_event_id": "source1_event_000",
+      "legacy_scene_overlap": true
+    },
+    {
+      "case_id": "mixed_human_right_0065_f8",
+      "episode_id": "border_collie_human__recombined_static_static_0065",
+      "frame_index": 8,
+      "human_source_slot_id": "source2",
+      "expected_side": "right",
+      "expected_human_doa_deg": 30.64590714672992,
+      "expected_active_human_event_id": "source2_event_000",
+      "legacy_scene_overlap": false
+    },
+    {
+      "case_id": "mixed_human_right_0136_f71",
+      "episode_id": "border_collie_human__recombined_source1_static_source2_moving_0136",
+      "frame_index": 71,
+      "human_source_slot_id": "source2",
+      "expected_side": "right",
+      "expected_human_doa_deg": 46.3433966820873,
+      "expected_active_human_event_id": "source2_event_001",
+      "legacy_scene_overlap": false
+    }
+  ]
+}
