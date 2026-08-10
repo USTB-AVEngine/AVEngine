@@ -140,22 +140,22 @@ def _anchors() -> list[dict]:
 
 
 def _compile(**overrides) -> dict:
-    arguments = dict(
-        bank_header=_bank_header(),
-        bank_episode=_bank_episode(),
-        listener_position_m=[0.0, 1.5, 0.0],
-        listener_orientation_wxyz=IDENTITY_WXYZ,
-        sample_entry=_sample_entry(),
-        dry_variants_by_slot=_dry_variants(),
-        registry=_registry(),
-        anchors=_anchors(),
-        room={"room_capsule_id": "test_room", "revision": "v1"},
-        camera={"hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
-        rir_cache_request_identity_sha256=SHA_C,
-        provenance_inputs=[
+    arguments = {
+        "bank_header": _bank_header(),
+        "bank_episode": _bank_episode(),
+        "listener_position_m": [0.0, 1.5, 0.0],
+        "listener_orientation_wxyz": IDENTITY_WXYZ,
+        "sample_entry": _sample_entry(),
+        "dry_variants_by_slot": _dry_variants(),
+        "registry": _registry(),
+        "anchors": _anchors(),
+        "room": {"room_capsule_id": "test_room", "revision": "v1"},
+        "camera": {"hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
+        "rir_cache_request_identity_sha256": SHA_C,
+        "provenance_inputs": [
             {"role": "trajectory_bank", "path": "/x/bank.json", "sha256": SHA_B}
         ],
-    )
+    }
     arguments.update(overrides)
     return compile_episode_fact_table(**arguments)
 
@@ -277,6 +277,38 @@ def test_doa_track_with_yawed_listener() -> None:
     )
     assert track["azimuth_deg"][0] == pytest.approx(0.0, abs=1e-9)
     assert track["azimuth_deg"][1] == pytest.approx(90.0, abs=1e-9)
+
+
+def _one_source2_declared_event() -> dict[str, list[dict]]:
+    return {
+        "source1": [],
+        "source2": [
+            {
+                "event_id": "source2_event_000",
+                "start_sample": 8000,
+                "end_sample_exclusive": 24000,
+                "start_tick": 24000,
+                "end_tick_exclusive": 72000,
+                "fade_samples": 80,
+                "gating": "m6_audio_program_event_window_v1",
+            }
+        ],
+    }
+
+
+def test_fact_table_allows_only_an_explicitly_declared_silent_source() -> None:
+    facts = _compile(
+        declared_events_by_slot=_one_source2_declared_event(),
+        silent_source_slots={"source1"},
+    )
+    assert [event["source_slot_id"] for event in facts["sound_events"]] == [
+        "source2"
+    ]
+
+
+def test_fact_table_rejects_an_implicit_empty_event_list() -> None:
+    with pytest.raises(QAFactTableError, match="declared event list may not be empty"):
+        _compile(declared_events_by_slot=_one_source2_declared_event())
 
 
 def test_doa_rejects_non_unit_quaternion_and_coincident_points() -> None:

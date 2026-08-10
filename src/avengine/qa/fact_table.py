@@ -17,7 +17,8 @@ of any private model branch.
 from __future__ import annotations
 
 import math
-from typing import Any, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -376,6 +377,7 @@ def _sound_events_for_slot(
     audio_sample_count: int,
     declared_events: Sequence[Mapping[str, Any]] | None,
     controlled_content: Mapping[str, Any] | None,
+    allow_empty: bool = False,
 ) -> list[dict[str, Any]]:
     record = dry_variant.get("record")
     if not isinstance(record, Mapping):
@@ -503,6 +505,8 @@ def _sound_events_for_slot(
             }
         )
     if not events:
+        if allow_empty:
+            return []
         raise QAFactTableError(f"{slot_id}: declared event list may not be empty")
     return events
 
@@ -691,6 +695,7 @@ def compile_episode_fact_table(
     sensor_rig_trajectory: Mapping[str, Any] | None = None,
     pixel_visibility_truth: Mapping[str, Any] | None = None,
     controlled_content_by_slot: Mapping[str, Mapping[str, Any]] | None = None,
+    silent_source_slots: Collection[str] = (),
 ) -> dict[str, Any]:
     """Compile one episode's fact table from already-frozen artifacts."""
 
@@ -729,6 +734,15 @@ def compile_episode_fact_table(
     slots = bank_header.get("source_slots")
     if not isinstance(slots, Sequence) or not slots:
         raise QAFactTableError("bank header must declare source_slots")
+    if isinstance(silent_source_slots, (str, bytes)):
+        raise QAFactTableError("silent_source_slots must be a collection of slot ids")
+    silent_slots = set(silent_source_slots)
+    if not silent_slots <= set(slots):
+        raise QAFactTableError("silent_source_slots contains an undeclared source slot")
+    if silent_slots and declared_events_by_slot is None:
+        raise QAFactTableError(
+            "silent_source_slots requires explicit declared_events_by_slot"
+        )
     if controlled_content_by_slot is not None and (
         not isinstance(controlled_content_by_slot, Mapping)
         or set(controlled_content_by_slot) != set(slots)
@@ -847,6 +861,7 @@ def compile_episode_fact_table(
                     if controlled_content_by_slot is not None
                     else None
                 ),
+                allow_empty=slot_id in silent_slots,
             )
         )
 
