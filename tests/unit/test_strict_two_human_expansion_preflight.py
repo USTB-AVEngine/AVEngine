@@ -81,6 +81,9 @@ def test_strict_eight_preflight_binds_native_floor_points(tmp_path: Path) -> Non
     assert result["status"] == (
         "pass_cpu_plan_pending_exact_rir_and_seven_sparse_native_gates"
     )
+    assert result["plan_id"] == _load(plan_path)["plan_id"]
+    assert result["plan_record"]["path"] == str(plan_path.resolve())
+    assert len(result["plan_record"]["sha256"]) == 64
     assert result["row_count"] == 8
     assert result["left_target_count"] == 4
     assert result["right_target_count"] == 4

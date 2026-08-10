@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
@@ -20,6 +21,14 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError(f"JSON root is not an object: {path}")
     return value
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _resolve(raw: str) -> Path:
@@ -442,6 +451,10 @@ def build(plan_path: Path, output: Path) -> Path:
         "status": "pass_cpu_plan_pending_exact_rir_and_seven_sparse_native_gates",
         "claim_boundary": plan["claim_boundary"],
         "plan_id": plan["plan_id"],
+        "plan_record": {
+            "path": str(plan_path.resolve()),
+            "sha256": _sha256(plan_path),
+        },
         "row_count": 8,
         "left_target_count": 4,
         "right_target_count": 4,
