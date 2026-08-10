@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+TOOL_PATH = REPOSITORY / "tools/qa/build_strict_two_human_expansion_preflight.py"
+TOOL_SPEC = importlib.util.spec_from_file_location(
+    "build_strict_two_human_expansion_preflight", TOOL_PATH
+)
+assert TOOL_SPEC is not None and TOOL_SPEC.loader is not None
+TOOL = importlib.util.module_from_spec(TOOL_SPEC)
+TOOL_SPEC.loader.exec_module(TOOL)
+
+
+def _load(path: Path) -> dict:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    return value
+
+
+def _inputs() -> tuple[dict, dict]:
+    plan = _load(REPOSITORY / "examples/qa/native_strict_two_human_expansion_v1.json")
+    registry = _load(REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json")
+    return plan, registry
+
+
+def test_strict_eight_plan_contract_and_balance_pass() -> None:
+    plan, registry = _inputs()
+    assert TOOL.validate_plan(plan, registry) == []
+
+    rows = plan["rows"]
+    assert len(rows) == 8
+    assert [row["identity_pair"] for row in rows] == [
+        "M/F",
+        "M/F",
+        "F/M",
+        "F/M",
+        "M/C",
+        "C/M",
+        "F/C",
+        "C/F",
+    ]
+    assert [row["target_expected_screen_side"] for row in rows] == [
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+    ]
+    assert {
+        identity["original_identity_id"]
+        for identity in plan["approved_identity_catalog"].values()
+    } == {
+        "rocketbox_adults_male_adult_01",
+        "rocketbox_adults_female_adult_01",
+        "rocketbox_professions_construction_male_01",
+    }
+    assert plan["formal_scene_count"] == 0
+    assert plan["qualification_claim"] is False
+    assert plan["execution_policy"]["gpu_or_rir_allowed_in_this_atom"] is False
+
+
+def test_strict_eight_preflight_binds_native_floor_points(tmp_path: Path) -> None:
+    plan_path = REPOSITORY / "examples/qa/native_strict_two_human_expansion_v1.json"
+    result_path = TOOL.build(plan_path, tmp_path / "preflight")
+    result = _load(result_path)
+
+    assert result["status"] == (
+        "pass_cpu_plan_pending_exact_rir_and_seven_sparse_native_gates"
+    )
+    assert result["row_count"] == 8
+    assert result["left_target_count"] == 4
+    assert result["right_target_count"] == 4
+    assert result["camera_translation_cluster_count"] == 8
+    assert result["minimum_camera_translation_separation_m"] >= 0.75
+    assert result["native_occupied_floor_point_count"] == 21
+    assert all(
+        record["status"] == "pass_native_occupied_floor_point"
+        for record in result["occupied_floor_point_evidence"]
+    )
+    assert result["rows"][0]["status"] == "pass_existing_sparse_canary"
+    assert all(
+        row["status"] == "pass_cpu_geometry_pending_exact_rir_and_native_sparse"
+        for row in result["rows"][1:]
+    )
+    assert result["formal_scene_count"] == 0
+    assert result["qualification_claim"] is False
+    assert result["gpu_or_rir_executed"] is False
+
+    with pytest.raises(RuntimeError, match="refusing to overwrite"):
+        TOOL.build(plan_path, tmp_path / "preflight")
+
+
+def test_strict_eight_rejects_identity_side_voice_or_scope_drift() -> None:
+    plan, registry = _inputs()
+
+    invalid = deepcopy(plan)
+    invalid["rows"][4]["actors"][1]["identity_key"] = "M"
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "row 5 identities must differ" in errors
+    assert "row 5 pair mismatch" in errors
+
+    invalid = deepcopy(plan)
+    invalid["rows"][2]["target_expected_screen_side"] = "left"
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "target side sequence mismatch" in errors
+
+    invalid = deepcopy(plan)
+    invalid["rows"][6]["actors"][1]["voice_policy"] = "speaking"
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "row 7 distractor must be silent" in errors
+
+    invalid = deepcopy(plan)
+    invalid["formal_scene_count"] = 8
+    invalid["qualification_claim"] = True
+    invalid["paper_catalog_mutation_allowed"] = True
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "formal scene count must remain zero" in errors
+    assert "qualification claim must remain false" in errors
+    assert "paper catalog mutation forbidden" in errors
+
+
+def test_strict_eight_rejects_camera_geometry_and_runtime_drift() -> None:
+    plan, registry = _inputs()
+
+    invalid = deepcopy(plan)
+    invalid["rows"][1]["camera_pose"] = deepcopy(plan["rows"][0]["camera_pose"])
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "eight distinct camera poses required" in errors
+    assert "camera translation clusters are not separated enough" in errors
+
+    invalid = deepcopy(plan)
+    invalid["rows"][3]["camera_pose"]["rotation_xyzw"] = [0.0, 0.0, 0.0, 1.0]
+    errors = TOOL.validate_plan(invalid, registry)
+    assert any("camera quaternion/yaw mismatch" in error for error in errors)
+
+    invalid_registry = deepcopy(registry)
+    invalid_registry["aliases"].pop("strict_two_human_construction_male")
+    errors = TOOL.validate_plan(plan, invalid_registry)
+    assert "identity C alias mismatch" in errors
+
+    invalid = deepcopy(plan)
+    invalid["approved_identity_catalog"]["C"]["original_identity_id"] = (
+        "rocketbox_professions_medical_female_01"
+    )
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "identity C is not approved" in errors
+    assert "identity C is excluded" in errors
+
+
+def test_strict_eight_rejects_floor_point_provenance_drift(tmp_path: Path) -> None:
+    plan, _ = _inputs()
+    invalid = deepcopy(plan)
+    invalid["rows"][1]["actors"][0]["floor_point_provenance"][
+        "frame_index"
+    ] = 10
+    plan_path = tmp_path / "invalid_plan.json"
+    plan_path.write_text(json.dumps(invalid), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="actor floor provenance mismatch"):
+        TOOL.build(plan_path, tmp_path / "preflight")
