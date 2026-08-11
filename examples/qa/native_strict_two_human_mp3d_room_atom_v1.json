@@ -1,0 +1,50 @@
+{
+  "schema": "avengine_native_strict_two_human_mp3d_room_atom_request_v1",
+  "request_id": "mp3d_17DRP5sb8fy_strict_two_human_static_v1",
+  "episode_id": "mp3d_17DRP5sb8fy_male_female_static_0001",
+  "room": {
+    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+    "room_revision": "raw_v1_plus_declared_proxy_v2_research",
+    "scene_id": "17DRP5sb8fy",
+    "entry_map": "/Engine/Maps/Entry",
+    "ue_import_manifest": "/data/jzy/code/AVEngine/external/SPEAR/tmp/mp3d_ue_comparison_20260718_01/import/ue_import_result.json",
+    "ue_runtime_evidence": "/data/jzy/code/AVEngine/external/SPEAR/tmp/mp3d_ue_comparison_20260718_01/render/evidence.json",
+    "fresh_navmesh_probe": "/data/jzy/code/AVEngine-lead-a/examples/qa/native_strict_two_human_mp3d_navmesh_probe_v1.json",
+    "navmesh_path": "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/mp3d_example_scene_1.1/17DRP5sb8fy/17DRP5sb8fy.navmesh"
+  },
+  "template_suite": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/recipe_v3/suite_execution_plan.pending_fact.json",
+  "acoustics": {
+    "package_manifest": "/data/datasets/avengine_workspaces/AVEngine-soundspaces-frl/tmp/m3/mp3d_17DRP5sb8fy_soundspaces2_public_20260730_03/manifest.json",
+    "package_root": "/data/datasets/avengine_workspaces/AVEngine-soundspaces-frl/tmp/m3/mp3d_17DRP5sb8fy_soundspaces2_public_20260730_03",
+    "room_registry": "/data/jzy/code/AVEngine-lead-a/examples/m6/rooms/room_registry.json",
+    "acoustic_profile_registry": "/data/jzy/code/AVEngine-lead-a/examples/runtime/acoustic_profiles.json",
+    "simulation_profile": "production",
+    "rir_stride_frames": 3,
+    "thread_count": 4
+  },
+  "placement": {
+    "authority_semantics": "fresh_pathfinder_search_actor_root_center_only",
+    "retained_route_context": ["human0", "dog0"],
+    "source1_root_habitat_m": [-4.6, 0.072447, -2.35],
+    "source2_root_habitat_m": [-3.75, 0.072447, -3.35],
+    "source1_emitter_offset_m": [0.0, 1.61, 0.0],
+    "source2_emitter_offset_m": [0.0, 1.569012451171875, 0.0]
+  },
+  "camera_listener": {
+    "habitat_position_m": [-4.1499128342, 1.572447, -1.2454376221],
+    "habitat_yaw_deg": 0.0,
+    "ue_position_cm": [-414.99128342, -124.54376221, 157.2447],
+    "ue_yaw_deg": -90.0,
+    "horizontal_fov_deg": 90.0
+  },
+  "capture": {
+    "sparse_frame_indices": [15],
+    "full_episode_frame_count": 75,
+    "frame_rate_hz": 15,
+    "graphics_adapter": 1,
+    "rpc_port": 39631,
+    "spear_root": "/data/jzy/code/AVEngine/external/SPEAR"
+  },
+  "qualification_claim": false,
+  "formal_dataset_count": 0
+}
