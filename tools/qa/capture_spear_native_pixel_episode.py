@@ -46,6 +46,12 @@ ABSOLUTE_TOLERANCE_M = 0.01
 RELATIVE_TOLERANCE = 0.002
 TARGET_ONLY_BACKGROUND_DEPTH_M = 65504.0
 RUNTIME_ASSET_SAMPLE_FRAME_INDICES = (0, 37, 74)
+GROUND_CONTACT_BONES = {
+    "left": {"foot": "Bip01 L Foot", "toe": "Bip01 L Toe0"},
+    "right": {"foot": "Bip01 R Foot", "toe": "Bip01 R Toe0"},
+}
+GROUND_TRACE_START_OFFSET_CM = 25.0
+GROUND_TRACE_LENGTH_CM = 300.0
 
 
 def _require(condition: bool, message: str) -> None:
@@ -149,6 +155,418 @@ def _descriptor_raw_ids(
         for descriptor in descriptors
         if descriptor.get("actorStableName") == stable_name
     ]
+
+
+def _return_value(value: Any) -> Any:
+    """Unwrap SPEAR's direct and ``as_dict`` return conventions."""
+
+    current = value
+    for _ in range(2):
+        if not isinstance(current, Mapping):
+            return current
+        lowered = {str(key).lower(): item for key, item in current.items()}
+        if "returnvalue" not in lowered:
+            return current
+        current = lowered["returnvalue"]
+    return current
+
+
+def _mapping_value(value: Mapping[str, Any], key: str) -> Any:
+    lowered = {str(name).lower(): item for name, item in value.items()}
+    _require(key.lower() in lowered, f"Unreal result is missing {key}")
+    return lowered[key.lower()]
+
+
+def _xyz(value: Any, *, owner: str) -> list[float]:
+    if isinstance(value, Mapping):
+        lowered = {str(key).lower(): item for key, item in value.items()}
+        result = [float(lowered[axis]) for axis in ("x", "y", "z")]
+    else:
+        result = [float(value.x), float(value.y), float(value.z)]
+    _require(all(np.isfinite(item) for item in result), f"{owner} is nonfinite")
+    return result
+
+
+def _safe_unreal_reference(value: Any) -> str | int | float | bool | None:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _live_bone_world_position(
+    component: Any, *, bone_name: str, actor_id: str
+) -> list[float]:
+    bone_count = int(_return_value(component.GetNumBones()))
+    _require(bone_count > 0, f"{actor_id} has no live bones")
+    available_names = [
+        str(_return_value(component.GetBoneName(BoneIndex=index)))
+        for index in range(bone_count)
+    ]
+    _require(
+        available_names.count(bone_name) == 1,
+        f"{actor_id} bone {bone_name!r} did not resolve exactly once",
+    )
+    bone_index = int(component.GetBoneIndex(BoneName=bone_name))
+    _require(bone_index >= 0, f"{actor_id} bone {bone_name!r} has invalid index")
+    transform = component.GetBoneTransform(
+        InBoneName=bone_name,
+        TransformSpace="RTS_World",
+        as_dict=True,
+    )
+    transform = _return_value(transform)
+    _require(isinstance(transform, Mapping), f"{actor_id} bone transform is invalid")
+    translation = _mapping_value(transform, "translation")
+    return _xyz(translation, owner=f"{actor_id} {bone_name} world position")
+
+
+def _line_trace_floor(
+    *,
+    game: Any,
+    position_ue_cm: Sequence[float],
+    actors_to_ignore: Sequence[Any],
+    owner: str,
+) -> dict[str, Any]:
+    start = {
+        "X": float(position_ue_cm[0]),
+        "Y": float(position_ue_cm[1]),
+        "Z": float(position_ue_cm[2]) + GROUND_TRACE_START_OFFSET_CM,
+    }
+    end = dict(start)
+    end["Z"] = start["Z"] - GROUND_TRACE_LENGTH_CM
+    kismet = game.get_unreal_object(uclass="UKismetSystemLibrary")
+    trace = kismet.LineTraceSingleByProfile(
+        Start=start,
+        End=end,
+        ProfileName="BlockAll",
+        bTraceComplex=True,
+        ActorsToIgnore=list(actors_to_ignore),
+        DrawDebugType="None",
+        bIgnoreSelf=True,
+        TraceColor={"R": 1.0, "G": 0.0, "B": 0.0, "A": 1.0},
+        TraceHitColor={"R": 0.0, "G": 1.0, "B": 0.0, "A": 1.0},
+        DrawTime=0.0,
+        as_dict=True,
+    )
+    _require(isinstance(trace, Mapping), f"{owner} floor trace result is invalid")
+    _require(bool(_return_value(trace)), f"{owner} downward trace did not hit")
+    hit = _mapping_value(trace, "outhit")
+    _require(isinstance(hit, Mapping), f"{owner} floor hit is invalid")
+    location = _xyz(_mapping_value(hit, "location"), owner=f"{owner} hit point")
+    normal = _xyz(_mapping_value(hit, "normal"), owner=f"{owner} hit normal")
+    horizontal_error_cm = max(
+        abs(location[0] - float(position_ue_cm[0])),
+        abs(location[1] - float(position_ue_cm[1])),
+    )
+    _require(
+        horizontal_error_cm <= 1.0e-4,
+        f"{owner} floor trace moved horizontally",
+    )
+    return {
+        "status": "hit",
+        "profile_name": "BlockAll",
+        "trace_complex": True,
+        "actors_to_ignore_count": len(actors_to_ignore),
+        "start_ue_cm": [start[axis] for axis in ("X", "Y", "Z")],
+        "end_ue_cm": [end[axis] for axis in ("X", "Y", "Z")],
+        "hit_actor": _safe_unreal_reference(_mapping_value(hit, "actor")),
+        "hit_component": _safe_unreal_reference(_mapping_value(hit, "component")),
+        "hit_point_ue_cm": location,
+        "hit_normal_ue": normal,
+        "horizontal_error_cm": horizontal_error_cm,
+    }
+
+
+def _runtime_ground_contact_readback(
+    *, game: Any, runtimes: Mapping[str, Mapping[str, Any]], actor_id: str
+) -> dict[str, Any]:
+    """Measure live Rocketbox foot/toe bones against runtime floor traces.
+
+    This is deliberately a measurement-only record.  A later release gate must
+    supply an asset- and animation-specific contact interval; this function does
+    not infer one from the actor root or from imported mesh bounds.
+    """
+
+    runtime = runtimes[actor_id]
+    ignored_actors = [
+        actor
+        for item in runtimes.values()
+        for actor in (item.get("anchor"), item.get("visual_actor"))
+        if actor is not None
+    ]
+    sides: dict[str, Any] = {}
+    for side, bone_names in GROUND_CONTACT_BONES.items():
+        anchors: dict[str, Any] = {}
+        for anchor_kind, bone_name in bone_names.items():
+            position = _live_bone_world_position(
+                runtime["component"], bone_name=bone_name, actor_id=actor_id
+            )
+            trace = _line_trace_floor(
+                game=game,
+                position_ue_cm=position,
+                actors_to_ignore=ignored_actors,
+                owner=f"{actor_id} {bone_name}",
+            )
+            clearance_cm = position[2] - float(trace["hit_point_ue_cm"][2])
+            _require(np.isfinite(clearance_cm), f"{actor_id} clearance is nonfinite")
+            anchors[anchor_kind] = {
+                "bone_name": bone_name,
+                "bone_index": int(
+                    runtime["component"].GetBoneIndex(BoneName=bone_name)
+                ),
+                "world_position_ue_cm": position,
+                "floor_trace": trace,
+                "bone_to_floor_clearance_cm": clearance_cm,
+            }
+        sides[side] = {
+            "status": "observed",
+            "anchors": anchors,
+            "minimum_bone_to_floor_clearance_cm": min(
+                float(value["bone_to_floor_clearance_cm"]) for value in anchors.values()
+            ),
+        }
+    latest_snap = runtime.get("latest_runtime_visual_ground_snap")
+    if latest_snap is None:
+        snap_record = {
+            "schema": "ue_dynamic_ground_snap_v1",
+            "status": "not_requested",
+            "timeline_anchor_mutated": False,
+            "emitter_or_rir_mutated": False,
+        }
+    else:
+        _require(
+            latest_snap.get("status") == "passed",
+            f"{actor_id} runtime visual ground snap did not pass",
+        )
+        snap_record = deepcopy(dict(latest_snap))
+    return {
+        "schema": "avengine_native_live_ground_contact_readback_v1",
+        "status": "pass_instrumented_measurement_only",
+        "authority": (
+            "live_USkeletalMeshComponent_GetBoneTransform_RTS_World_plus_"
+            "complex_BlockAll_downward_trace_v1"
+        ),
+        "claim_boundary": (
+            "no_contact_release_without_a_declared_asset_animation_contact_profile"
+        ),
+        "ue_length_unit": "centimeter",
+        "trace_policy": {
+            "start_offset_cm": GROUND_TRACE_START_OFFSET_CM,
+            "length_cm": GROUND_TRACE_LENGTH_CM,
+            "ignored_runtime_actor_count": len(ignored_actors),
+        },
+        "runtime_visual_ground_snap": snap_record,
+        "sides": sides,
+    }
+
+
+def _actor_location_ue_cm(actor: Any, *, owner: str) -> list[float]:
+    location = actor.K2_GetActorLocation(as_dict=True)
+    location = _return_value(location)
+    _require(isinstance(location, Mapping), f"{owner} location is invalid")
+    return _xyz(location, owner=f"{owner} location")
+
+
+def _visual_bounds_ue_cm(actor: Any, *, owner: str) -> dict[str, Any]:
+    bounds = actor.GetActorBounds(bOnlyCollidingComponents=False, as_dict=True)
+    bounds = _return_value(bounds)
+    _require(isinstance(bounds, Mapping), f"{owner} bounds are invalid")
+    origin = _xyz(_mapping_value(bounds, "origin"), owner=f"{owner} bounds origin")
+    extent = _xyz(_mapping_value(bounds, "boxextent"), owner=f"{owner} bounds extent")
+    _require(all(value > 0.0 for value in extent), f"{owner} bounds are degenerate")
+    return {
+        "origin_ue_cm": origin,
+        "extent_ue_cm": extent,
+        "minimum_ue_cm": [origin[index] - extent[index] for index in range(3)],
+        "maximum_ue_cm": [origin[index] + extent[index] for index in range(3)],
+        "bottom_z_ue_cm": origin[2] - extent[2],
+    }
+
+
+def _runtime_visual_ground_snap_contract(
+    declaration: Mapping[str, Any], *, actor_id: str
+) -> Mapping[str, Any] | None:
+    profile = declaration.get("ground_contact_release_profile")
+    if profile is None:
+        return None
+    _require(isinstance(profile, Mapping), f"{actor_id} ground profile is invalid")
+    snap = profile.get("runtime_visual_ground_snap")
+    _require(isinstance(snap, Mapping), f"{actor_id} ground snap is missing")
+    _require(
+        snap.get("schema") == "ue_dynamic_ground_snap_v1"
+        and snap.get("target") == "attached_visual_actor_root_component"
+        and snap.get("timeline_anchor_mutation_allowed") is False
+        and snap.get("emitter_or_rir_mutation_allowed") is False,
+        f"{actor_id} ground snap authority drift",
+    )
+    for key in ("maximum_abs_correction_cm", "residual_tolerance_cm"):
+        value = snap.get(key)
+        _require(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and np.isfinite(float(value)),
+            f"{actor_id} {key} is invalid",
+        )
+    _require(
+        0.0 < float(snap["maximum_abs_correction_cm"]) <= 15.0
+        and 0.0 <= float(snap["residual_tolerance_cm"]) <= 0.1,
+        f"{actor_id} ground snap exceeds normalization limits",
+    )
+    authority = snap.get("normalization_manifest_authority")
+    _require(
+        isinstance(authority, str) and Path(authority).is_file(),
+        f"{actor_id} normalization manifest authority is missing",
+    )
+    manifest = _load_json_object(Path(authority))
+    expected = manifest.get("expected_ue_qa", {})
+    runtime_motion = manifest.get("runtime_motion_contract", {})
+    _require(
+        runtime_motion.get("dynamic_ground_snap_to_floor_required") is True
+        and expected.get("ground_snap_to_floor") is True
+        and float(expected.get("ground_snap_max_abs_correction_cm", -1.0))
+        == float(snap["maximum_abs_correction_cm"])
+        and float(expected.get("ground_snap_residual_tolerance_cm", -1.0))
+        == float(snap["residual_tolerance_cm"]),
+        f"{actor_id} ground snap differs from normalization authority",
+    )
+    return snap
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    _require(isinstance(value, dict), f"JSON root is not an object: {path}")
+    return value
+
+
+def _reset_runtime_visual_ground_snap(runtime: Mapping[str, Any]) -> None:
+    correction_cm = float(runtime.get("runtime_visual_ground_snap_z_cm", 0.0))
+    if abs(correction_cm) > 0.0:
+        runtime["visual_root"].K2_AddRelativeLocation(
+            DeltaLocation={"X": 0.0, "Y": 0.0, "Z": -correction_cm},
+            bSweep=False,
+            bTeleport=True,
+        )
+    runtime["runtime_visual_ground_snap_z_cm"] = 0.0
+    runtime["latest_runtime_visual_ground_snap"] = None
+
+
+def _apply_runtime_visual_ground_snap(
+    *,
+    game: Any,
+    runtimes: Mapping[str, Mapping[str, Any]],
+    declaration: Mapping[str, Any],
+    actor_id: str,
+    frame_index: int,
+) -> dict[str, Any]:
+    contract = _runtime_visual_ground_snap_contract(declaration, actor_id=actor_id)
+    if contract is None:
+        return {
+            "schema": "ue_dynamic_ground_snap_v1",
+            "status": "not_requested",
+            "frame_index": frame_index,
+            "timeline_anchor_mutated": False,
+            "emitter_or_rir_mutated": False,
+        }
+    runtime = runtimes[actor_id]
+    anchor_before = _actor_location_ue_cm(
+        runtime["anchor"], owner=f"{actor_id} timeline anchor"
+    )
+    bounds_before = _visual_bounds_ue_cm(
+        runtime["visual_actor"], owner=f"{actor_id} visual actor before snap"
+    )
+    ignored_actors = [
+        actor
+        for item in runtimes.values()
+        for actor in (item.get("anchor"), item.get("visual_actor"))
+        if actor is not None
+    ]
+    floor_trace = _line_trace_floor(
+        game=game,
+        position_ue_cm=anchor_before,
+        actors_to_ignore=ignored_actors,
+        owner=f"{actor_id} root-floor authority",
+    )
+    floor_z_cm = float(floor_trace["hit_point_ue_cm"][2])
+    correction_cm = floor_z_cm - float(bounds_before["bottom_z_ue_cm"])
+    maximum_abs_correction_cm = float(contract["maximum_abs_correction_cm"])
+    _require(
+        np.isfinite(correction_cm) and abs(correction_cm) <= maximum_abs_correction_cm,
+        f"{actor_id} ground snap correction {correction_cm:.6f} cm exceeds "
+        f"{maximum_abs_correction_cm:.6f} cm",
+    )
+    runtime["visual_root"].K2_AddRelativeLocation(
+        DeltaLocation={"X": 0.0, "Y": 0.0, "Z": correction_cm},
+        bSweep=False,
+        bTeleport=True,
+    )
+    runtime["runtime_visual_ground_snap_z_cm"] = correction_cm
+    bounds_after = _visual_bounds_ue_cm(
+        runtime["visual_actor"], owner=f"{actor_id} visual actor after snap"
+    )
+    residual_cm = float(bounds_after["bottom_z_ue_cm"]) - floor_z_cm
+    residual_tolerance_cm = float(contract["residual_tolerance_cm"])
+    _require(
+        np.isfinite(residual_cm) and abs(residual_cm) <= residual_tolerance_cm,
+        f"{actor_id} ground snap residual {residual_cm:.6f} cm exceeds "
+        f"{residual_tolerance_cm:.6f} cm",
+    )
+    anchor_after = _actor_location_ue_cm(
+        runtime["anchor"], owner=f"{actor_id} timeline anchor"
+    )
+    anchor_error_cm = max(
+        abs(before - after) for before, after in zip(anchor_before, anchor_after)
+    )
+    _require(
+        anchor_error_cm <= 1.0e-6,
+        f"{actor_id} ground snap mutated the Timeline/acoustic anchor",
+    )
+    record = {
+        "schema": "ue_dynamic_ground_snap_v1",
+        "status": "passed",
+        "frame_index": frame_index,
+        "target": "attached_visual_actor_root_component",
+        "floor_trace": floor_trace,
+        "floor_z_cm": floor_z_cm,
+        "visual_bounds_before": bounds_before,
+        "applied_z_correction_cm": correction_cm,
+        "visual_bounds_after": bounds_after,
+        "residual_clearance_cm": residual_cm,
+        "maximum_abs_correction_cm": maximum_abs_correction_cm,
+        "residual_tolerance_cm": residual_tolerance_cm,
+        "timeline_anchor_before_ue_cm": anchor_before,
+        "timeline_anchor_after_ue_cm": anchor_after,
+        "maximum_timeline_anchor_error_cm": anchor_error_cm,
+        "timeline_anchor_mutated": False,
+        "emitter_or_rir_mutated": False,
+        "bounds_role": "action_only_not_release_evidence",
+    }
+    runtime["latest_runtime_visual_ground_snap"] = record
+    return record
+
+
+def _apply_exact_frame_with_ground_snap(
+    *,
+    game: Any,
+    camera: Any,
+    runtimes: Mapping[str, Mapping[str, Any]],
+    scenario: Mapping[str, Any],
+    frame: Mapping[str, Any],
+) -> dict[str, Any]:
+    declarations = {actor["actor_id"]: actor for actor in scenario["plan"]["actors"]}
+    _require(set(declarations) == set(runtimes), "ground-snap actor closure failed")
+    for runtime in runtimes.values():
+        _reset_runtime_visual_ground_snap(runtime)
+    readback = SPIKE._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frame)
+    readback["visual_ground_snaps"] = {
+        actor_id: _apply_runtime_visual_ground_snap(
+            game=game,
+            runtimes=runtimes,
+            declaration=declarations[actor_id],
+            actor_id=actor_id,
+            frame_index=int(frame["frame_index"]),
+        )
+        for actor_id in sorted(runtimes)
+    }
+    return readback
 
 
 def _runtime_asset_readbacks(
@@ -374,6 +792,11 @@ def _runtime_asset_readbacks(
             emitter_error_m <= 1.0e-6,
             f"{actor_id} live emitter binding drift",
         )
+        ground_contact = _runtime_ground_contact_readback(
+            game=game,
+            runtimes=runtimes,
+            actor_id=actor_id,
+        )
         records[instance_id] = {
             "status": "pass",
             "actor_id": actor_id,
@@ -443,6 +866,7 @@ def _runtime_asset_readbacks(
                 "expected_world_emitter_m": expected_emitter_m,
                 "maximum_absolute_error_m": emitter_error_m,
             },
+            "live_ground_contact_readback": ground_contact,
         }
     return {
         "schema": "avengine_native_spear_runtime_asset_readbacks_v1",
@@ -470,8 +894,9 @@ def _bundle_runtime_asset_samples(
         "status": "pass",
         "frame_indices": list(RUNTIME_ASSET_SAMPLE_FRAME_INDICES),
         "purpose": (
-            "close actor root, emitter, live action asset, and animation position "
-            "at the beginning, midpoint, and end of the full75 Episode"
+            "close actor root, emitter, live action asset, animation position, "
+            "and measurement-only foot/toe-to-floor traces at the beginning, "
+            "midpoint, and end of the full75 Episode"
         ),
     }
     bundled["sampled_frames"] = [deepcopy(dict(sample)) for sample in samples]
@@ -653,7 +1078,13 @@ def run(args: argparse.Namespace) -> Path:
                     actor=runtime["visual_actor"], stable_name=stable_name
                 )
                 stable_names[actor_id.removesuffix("_actor")] = stable_name
-            SPIKE._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
+            _apply_exact_frame_with_ground_snap(
+                game=game,
+                camera=camera,
+                runtimes=runtimes,
+                scenario=scenario,
+                frame=frames[0],
+            )
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
             )
@@ -665,7 +1096,13 @@ def run(args: argparse.Namespace) -> Path:
             game.segmentation_service.initialize()
             components["depth"].PrimitiveRenderMode = "PRM_RenderScenePrimitives"
             components["depth"].ShowOnlyActors = []
-            SPIKE._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
+            _apply_exact_frame_with_ground_snap(
+                game=game,
+                camera=camera,
+                runtimes=runtimes,
+                scenario=scenario,
+                frame=frames[0],
+            )
         with instance.end_frame():
             pass
         instance.step(num_frames=2)
@@ -689,8 +1126,12 @@ def run(args: argparse.Namespace) -> Path:
 
         for capture_index, frame in enumerate(frames):
             with instance.begin_frame():
-                readback = SPIKE._apply_exact_frame(
-                    camera=camera, runtimes=runtimes, frame=frame
+                readback = _apply_exact_frame_with_ground_snap(
+                    game=game,
+                    camera=camera,
+                    runtimes=runtimes,
+                    scenario=scenario,
+                    frame=frame,
                 )
                 if int(frame["frame_index"]) in RUNTIME_ASSET_SAMPLE_FRAME_INDICES:
                     runtime_asset_samples.append(
@@ -738,8 +1179,12 @@ def run(args: argparse.Namespace) -> Path:
                 components["depth"].ShowOnlyActors = [
                     runtimes[actor_id]["visual_actor"]
                 ]
-                SPIKE._apply_exact_frame(
-                    camera=camera, runtimes=runtimes, frame=frames[0]
+                _apply_exact_frame_with_ground_snap(
+                    game=game,
+                    camera=camera,
+                    runtimes=runtimes,
+                    scenario=scenario,
+                    frame=frames[0],
                 )
             with instance.end_frame():
                 pass
@@ -749,8 +1194,12 @@ def run(args: argparse.Namespace) -> Path:
             target_object_id_foreground_counts[instance_id] = []
             for frame in frames:
                 with instance.begin_frame():
-                    readback = SPIKE._apply_exact_frame(
-                        camera=camera, runtimes=runtimes, frame=frame
+                    readback = _apply_exact_frame_with_ground_snap(
+                        game=game,
+                        camera=camera,
+                        runtimes=runtimes,
+                        scenario=scenario,
+                        frame=frame,
                     )
                 with instance.end_frame():
                     depth = _depth_native(components["depth"])

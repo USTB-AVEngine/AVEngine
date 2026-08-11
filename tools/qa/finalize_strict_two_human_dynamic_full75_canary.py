@@ -8,6 +8,7 @@ import json
 import struct
 import subprocess
 from collections.abc import Mapping, Sequence
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,14 @@ EXPECTED_MOTION = {
         "interpolated_slots": [],
         "listener_orientation_count": 75,
     },
+}
+GROUND_CONTACT_READBACK_SCHEMA = "avengine_native_live_ground_contact_readback_v1"
+GROUND_CONTACT_PROFILE_SCHEMA = (
+    "avengine_strict_two_human_ground_contact_release_profile_v1"
+)
+GROUND_CONTACT_BONES = {
+    "left": {"foot": "Bip01 L Foot", "toe": "Bip01 L Toe0"},
+    "right": {"foot": "Bip01 R Foot", "toe": "Bip01 R Toe0"},
 }
 
 
@@ -342,9 +351,7 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
             and abs(float(camera_application.get("habitat_yaw_span_deg")) - 6.0)
             <= 1.0e-9
             and yaw_span_deg >= 5.9
-            and all(
-                current > previous for previous, current in zip(yaw_path, yaw_path[1:])
-            ),
+            and all(current > previous for previous, current in pairwise(yaw_path)),
             "camera pan must apply 75 monotonic orientations spanning at least 5.9 degrees",
         )
         for slot in ("source1", "source2"):
@@ -592,6 +599,318 @@ def _validate_runtime_transform_readbacks(
     }
 
 
+def _ground_contact_failure(reason: str) -> dict[str, Any]:
+    return {
+        "status": "fail",
+        "release_authorized": False,
+        "first_blocker": reason,
+        "claim_boundary": (
+            "missing_or_out_of_range_live_foot_floor_evidence_blocks_release"
+        ),
+    }
+
+
+def _strict_ground_contact_release(
+    assets: Mapping[str, Any], plan: Mapping[str, Any]
+) -> dict[str, Any]:
+    samples = assets.get("sampled_frames")
+    _require(isinstance(samples, list), "live ground samples are missing")
+    _require(
+        [sample.get("frame_index") for sample in samples] == [0, 37, 74],
+        "live ground samples must close f0/f37/f74",
+    )
+    # Evidence completeness is the first release question.  Legacy captures have
+    # neither profiles nor live readbacks; diagnose the missing measurements before
+    # considering any profile/tolerance semantics so the failure cannot be mistaken
+    # for a threshold-configuration problem.
+    for sample in samples:
+        frame_index = int(sample["frame_index"])
+        records = sample.get("per_instance")
+        _require(
+            isinstance(records, Mapping) and set(records) == {"source1", "source2"},
+            f"frame {frame_index}: ground-contact instance closure failed",
+        )
+        for slot, record in records.items():
+            actor_id = f"{slot}_actor"
+            _require(
+                isinstance(record, Mapping),
+                f"{actor_id} ground sample is missing at frame {frame_index}",
+            )
+            ground = record.get("live_ground_contact_readback")
+            _require(
+                isinstance(ground, Mapping)
+                and ground.get("schema") == GROUND_CONTACT_READBACK_SCHEMA
+                and ground.get("status") == "pass_instrumented_measurement_only"
+                and ground.get("ue_length_unit") == "centimeter",
+                f"{actor_id} live ground readback is missing at frame {frame_index}",
+            )
+    declarations = {actor["actor_id"]: actor for actor in plan["actors"]}
+    _require(
+        set(declarations) == {"source1_actor", "source2_actor"},
+        "ground-contact actor declaration closure failed",
+    )
+    profiles: dict[str, Mapping[str, Any]] = {}
+    for actor_id, declaration in declarations.items():
+        profile = declaration.get("ground_contact_release_profile")
+        _require(
+            isinstance(profile, Mapping),
+            f"{actor_id} ground-contact release profile is missing",
+        )
+        _require(
+            profile.get("schema") == GROUND_CONTACT_PROFILE_SCHEMA,
+            f"{actor_id} ground-contact release profile schema drift",
+        )
+        _require(
+            profile.get("ue_length_unit") == "centimeter"
+            and profile.get("bone_names") == GROUND_CONTACT_BONES,
+            f"{actor_id} ground-contact unit/bone declaration drift",
+        )
+        authority = profile.get("clearance_interval_authority")
+        _require(
+            isinstance(authority, Mapping)
+            and authority.get("derived_from_live_diagnostic") is True
+            and isinstance(authority.get("artifact"), str)
+            and bool(authority["artifact"]),
+            f"{actor_id} clearance interval lacks live diagnostic authority",
+        )
+        expected_actor = profile.get("expected_floor_hit_actor")
+        expected_components = profile.get("expected_floor_hit_components")
+        _require(
+            isinstance(expected_actor, (str, int))
+            and isinstance(expected_components, list)
+            and expected_components
+            and all(isinstance(value, (str, int)) for value in expected_components),
+            f"{actor_id} expected floor identity is incomplete",
+        )
+        intervals = profile.get("support_anchor_clearance_interval_cm_by_action")
+        _require(
+            isinstance(intervals, Mapping) and set(intervals) == {"idle", "walk"},
+            f"{actor_id} action clearance intervals are incomplete",
+        )
+        for action_id, interval in intervals.items():
+            _require(
+                isinstance(interval, list)
+                and len(interval) == 2
+                and all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and np.isfinite(float(value))
+                    for value in interval
+                )
+                and float(interval[0]) <= float(interval[1]),
+                f"{actor_id} {action_id} clearance interval is invalid",
+            )
+        for key in (
+            "minimum_individual_anchor_clearance_cm",
+            "minimum_floor_normal_z",
+        ):
+            value = profile.get(key)
+            _require(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and np.isfinite(float(value)),
+                f"{actor_id} {key} is not a declared finite threshold",
+            )
+        snap = profile.get("runtime_visual_ground_snap")
+        _require(
+            isinstance(snap, Mapping)
+            and snap.get("schema") == "ue_dynamic_ground_snap_v1"
+            and snap.get("target") == "attached_visual_actor_root_component"
+            and snap.get("timeline_anchor_mutation_allowed") is False
+            and snap.get("emitter_or_rir_mutation_allowed") is False,
+            f"{actor_id} runtime visual ground snap contract is incomplete",
+        )
+        _require(
+            float(snap.get("maximum_abs_correction_cm", 16.0)) <= 15.0
+            and float(snap.get("maximum_abs_correction_cm", 0.0)) > 0.0
+            and 0.0 <= float(snap.get("residual_tolerance_cm", 1.0)) <= 0.1,
+            f"{actor_id} runtime visual ground snap exceeds normalization limits",
+        )
+        profiles[actor_id] = profile
+
+    observed_floor_actors: set[str | int] = set()
+    observed_floor_components: set[str | int] = set()
+    support_clearances: list[float] = []
+    individual_clearances: list[float] = []
+    floor_normal_z_values: list[float] = []
+    snap_corrections: list[float] = []
+    snap_residuals: list[float] = []
+    trace_count = 0
+    per_actor_sample_count = {actor_id: 0 for actor_id in declarations}
+    for sample in samples:
+        frame_index = int(sample["frame_index"])
+        expected_states = {
+            state["actor_id"]: state
+            for state in plan["frames"][frame_index]["actor_states"]
+        }
+        records = sample.get("per_instance")
+        _require(
+            isinstance(records, Mapping) and set(records) == {"source1", "source2"},
+            f"frame {frame_index}: ground-contact instance closure failed",
+        )
+        for slot, record in records.items():
+            actor_id = f"{slot}_actor"
+            profile = profiles[actor_id]
+            action_id = expected_states[actor_id]["action_id"]
+            _require(
+                record.get("current_action", {}).get("action_id") == action_id,
+                f"{actor_id} ground sample action drift at frame {frame_index}",
+            )
+            ground = record.get("live_ground_contact_readback")
+            _require(
+                isinstance(ground, Mapping)
+                and ground.get("schema") == GROUND_CONTACT_READBACK_SCHEMA
+                and ground.get("status") == "pass_instrumented_measurement_only"
+                and ground.get("ue_length_unit") == "centimeter",
+                f"{actor_id} live ground readback is missing at frame {frame_index}",
+            )
+            sides = ground.get("sides")
+            _require(
+                isinstance(sides, Mapping) and set(sides) == set(GROUND_CONTACT_BONES),
+                f"{actor_id} foot-side closure failed at frame {frame_index}",
+            )
+            snap = ground.get("runtime_visual_ground_snap")
+            declared_snap = profile["runtime_visual_ground_snap"]
+            _require(
+                isinstance(snap, Mapping)
+                and snap.get("schema") == "ue_dynamic_ground_snap_v1"
+                and snap.get("status") == "passed"
+                and snap.get("target") == "attached_visual_actor_root_component"
+                and snap.get("timeline_anchor_mutated") is False
+                and snap.get("emitter_or_rir_mutated") is False
+                and snap.get("bounds_role") == "action_only_not_release_evidence",
+                f"{actor_id} runtime visual ground snap did not pass",
+            )
+            correction_cm = float(snap["applied_z_correction_cm"])
+            residual_cm = float(snap["residual_clearance_cm"])
+            anchor_error_cm = float(snap["maximum_timeline_anchor_error_cm"])
+            _require(
+                np.isfinite(correction_cm)
+                and abs(correction_cm)
+                <= float(declared_snap["maximum_abs_correction_cm"])
+                and np.isfinite(residual_cm)
+                and abs(residual_cm) <= float(declared_snap["residual_tolerance_cm"])
+                and anchor_error_cm <= 1.0e-6,
+                f"{actor_id} runtime visual ground snap metric failed",
+            )
+            snap_trace = snap.get("floor_trace", {})
+            _require(
+                snap_trace.get("hit_actor") == profile["expected_floor_hit_actor"]
+                and snap_trace.get("hit_component")
+                in profile["expected_floor_hit_components"],
+                f"{actor_id} ground snap hit an undeclared floor object",
+            )
+            snap_corrections.append(correction_cm)
+            snap_residuals.append(residual_cm)
+            sample_clearances: list[float] = []
+            for side, expected_bones in GROUND_CONTACT_BONES.items():
+                anchors = sides[side].get("anchors")
+                _require(
+                    isinstance(anchors, Mapping)
+                    and set(anchors) == set(expected_bones),
+                    f"{actor_id} {side} anchor closure failed at frame {frame_index}",
+                )
+                for anchor_kind, expected_bone in expected_bones.items():
+                    anchor = anchors[anchor_kind]
+                    trace = anchor.get("floor_trace")
+                    _require(
+                        anchor.get("bone_name") == expected_bone
+                        and isinstance(trace, Mapping)
+                        and trace.get("status") == "hit"
+                        and trace.get("profile_name") == "BlockAll"
+                        and trace.get("trace_complex") is True,
+                        f"{actor_id} {expected_bone} trace authority drift",
+                    )
+                    clearance = float(anchor["bone_to_floor_clearance_cm"])
+                    normal_z = float(trace["hit_normal_ue"][2])
+                    _require(
+                        np.isfinite(clearance) and np.isfinite(normal_z),
+                        f"{actor_id} {expected_bone} trace is nonfinite",
+                    )
+                    _require(
+                        clearance
+                        >= float(profile["minimum_individual_anchor_clearance_cm"]),
+                        f"{actor_id} {expected_bone} penetrates below its threshold",
+                    )
+                    _require(
+                        normal_z >= float(profile["minimum_floor_normal_z"]),
+                        f"{actor_id} {expected_bone} did not hit an allowed floor normal",
+                    )
+                    hit_actor = trace.get("hit_actor")
+                    hit_component = trace.get("hit_component")
+                    _require(
+                        hit_actor == profile["expected_floor_hit_actor"]
+                        and hit_component in profile["expected_floor_hit_components"],
+                        f"{actor_id} {expected_bone} hit an undeclared floor object",
+                    )
+                    observed_floor_actors.add(hit_actor)
+                    observed_floor_components.add(hit_component)
+                    individual_clearances.append(clearance)
+                    floor_normal_z_values.append(normal_z)
+                    sample_clearances.append(clearance)
+                    trace_count += 1
+            support_clearance = min(sample_clearances)
+            interval = profile["support_anchor_clearance_interval_cm_by_action"][
+                action_id
+            ]
+            _require(
+                float(interval[0]) <= support_clearance <= float(interval[1]),
+                f"{actor_id} {action_id} support-anchor clearance is outside "
+                f"the declared interval at frame {frame_index}",
+            )
+            support_clearances.append(support_clearance)
+            per_actor_sample_count[actor_id] += 1
+    _require(trace_count == 24, "ground-contact trace count is not 24")
+    _require(
+        per_actor_sample_count == {"source1_actor": 3, "source2_actor": 3},
+        "ground-contact actor sample count drift",
+    )
+    return {
+        "status": "pass",
+        "release_authorized": True,
+        "authority": (
+            "live_four_bone_world_readback_plus_complex_runtime_floor_trace_v1"
+        ),
+        "sample_frame_indices": [0, 37, 74],
+        "actor_sample_count": 6,
+        "trace_count": trace_count,
+        "runtime_visual_ground_snap_count": len(snap_corrections),
+        "minimum_applied_visual_z_correction_cm": min(snap_corrections),
+        "maximum_applied_visual_z_correction_cm": max(snap_corrections),
+        "maximum_abs_visual_ground_snap_residual_cm": max(
+            abs(value) for value in snap_residuals
+        ),
+        "timeline_anchor_and_emitter_mutation_count": 0,
+        "observed_floor_actors": sorted(str(value) for value in observed_floor_actors),
+        "observed_floor_components": sorted(
+            str(value) for value in observed_floor_components
+        ),
+        "minimum_support_anchor_clearance_cm": min(support_clearances),
+        "maximum_support_anchor_clearance_cm": max(support_clearances),
+        "minimum_individual_anchor_clearance_cm": min(individual_clearances),
+        "maximum_individual_anchor_clearance_cm": max(individual_clearances),
+        "minimum_floor_normal_z": min(floor_normal_z_values),
+    }
+
+
+def _evaluate_ground_contact_release(
+    assets: Mapping[str, Any], plan: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return a durable rejection instead of treating absent evidence as pass."""
+
+    try:
+        return _strict_ground_contact_release(assets, plan)
+    except (
+        AttributeError,
+        IndexError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+    ) as error:
+        return _ground_contact_failure(str(error))
+
+
 def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[str, Any]:
     readbacks = _load(capture_root / "runtime_readbacks.json")
     _require(
@@ -673,6 +992,7 @@ def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[st
                 maximum_root_emitter_error_m, emitter_error
             )
             sampled_actions[slot].append(str(action["action_id"]))
+    ground_contact = _evaluate_ground_contact_release(assets, plan)
     return {
         "status": "pass",
         "normal_frame_readback_count": FRAME_COUNT,
@@ -681,6 +1001,7 @@ def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[st
         "sampled_current_actions": sampled_actions,
         "maximum_action_position_error_seconds": maximum_action_position_error_seconds,
         "maximum_root_emitter_error_m": maximum_root_emitter_error_m,
+        "ground_contact_release_gate": ground_contact,
         "transform_readbacks": transforms,
     }
 
@@ -938,8 +1259,23 @@ def finalize(
         result["artifacts"]["capture_root"] = str(capture_root.resolve())
         result["artifacts"]["launch_receipt"] = str(launch_receipt_path.resolve())
         visibility_pass = result["capture"]["visibility_gate"]["status"] == "pass"
-        result["dynamic_full75_canary_pass"] = visibility_pass
-        if not visibility_pass:
+        ground_contact = result["capture"]["runtime"]["ground_contact_release_gate"]
+        ground_contact_pass = (
+            ground_contact.get("status") == "pass"
+            and ground_contact.get("release_authorized") is True
+        )
+        result["dynamic_full75_canary_pass"] = visibility_pass and ground_contact_pass
+        if not ground_contact_pass:
+            result["status"] = "rejected_ground_contact_release_gate"
+            result["rejection_reason"] = ground_contact["first_blocker"]
+            result["supersedes_machine_only_finalization"] = str(
+                (
+                    materialization_root
+                    / "post_capture_finalization_v1"
+                    / "finalization.json"
+                ).resolve()
+            )
+        elif not visibility_pass:
             result["status"] = "rejected_visibility_gate"
             result["rejection_reason"] = (
                 "native per-frame target/distractor visibility did not meet the "

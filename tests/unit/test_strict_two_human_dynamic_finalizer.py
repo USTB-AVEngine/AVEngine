@@ -262,3 +262,200 @@ def test_runtime_transform_gate_rejects_camera_yaw_drift() -> None:
         RuntimeError, match="runtime camera/actor transform readback drift"
     ):
         TOOL._validate_runtime_transform_readbacks(readbacks, plan)
+
+
+def _ground_contact_profile() -> dict[str, object]:
+    return {
+        "schema": "avengine_strict_two_human_ground_contact_release_profile_v1",
+        "ue_length_unit": "centimeter",
+        "bone_names": TOOL.GROUND_CONTACT_BONES,
+        "clearance_interval_authority": {
+            "derived_from_live_diagnostic": True,
+            "artifact": "/evidence/live_ground_contact_diagnostic.json",
+        },
+        "expected_floor_hit_actor": "ApartmentFloorActor",
+        "expected_floor_hit_components": ["ApartmentFloorComponent"],
+        "support_anchor_clearance_interval_cm_by_action": {
+            "idle": [1.0, 3.0],
+            "walk": [0.5, 4.0],
+        },
+        "minimum_individual_anchor_clearance_cm": -0.5,
+        "minimum_floor_normal_z": 0.99,
+        "runtime_visual_ground_snap": {
+            "schema": "ue_dynamic_ground_snap_v1",
+            "target": "attached_visual_actor_root_component",
+            "timeline_anchor_mutation_allowed": False,
+            "emitter_or_rir_mutation_allowed": False,
+            "maximum_abs_correction_cm": 15.0,
+            "residual_tolerance_cm": 0.1,
+        },
+    }
+
+
+def _ground_contact_readback(clearance_cm: float = 2.0) -> dict[str, object]:
+    sides = {}
+    for side, bone_names in TOOL.GROUND_CONTACT_BONES.items():
+        anchors = {}
+        for index, (anchor_kind, bone_name) in enumerate(bone_names.items()):
+            observed_clearance = clearance_cm + index
+            anchors[anchor_kind] = {
+                "bone_name": bone_name,
+                "bone_index": index,
+                "world_position_ue_cm": [10.0, 20.0, 40.0 + observed_clearance],
+                "bone_to_floor_clearance_cm": observed_clearance,
+                "floor_trace": {
+                    "status": "hit",
+                    "profile_name": "BlockAll",
+                    "trace_complex": True,
+                    "hit_actor": "ApartmentFloorActor",
+                    "hit_component": "ApartmentFloorComponent",
+                    "hit_point_ue_cm": [10.0, 20.0, 40.0],
+                    "hit_normal_ue": [0.0, 0.0, 1.0],
+                },
+            }
+        sides[side] = {
+            "status": "observed",
+            "anchors": anchors,
+            "minimum_bone_to_floor_clearance_cm": clearance_cm,
+        }
+    return {
+        "schema": "avengine_native_live_ground_contact_readback_v1",
+        "status": "pass_instrumented_measurement_only",
+        "ue_length_unit": "centimeter",
+        "runtime_visual_ground_snap": {
+            "schema": "ue_dynamic_ground_snap_v1",
+            "status": "passed",
+            "target": "attached_visual_actor_root_component",
+            "floor_trace": {
+                "hit_actor": "ApartmentFloorActor",
+                "hit_component": "ApartmentFloorComponent",
+            },
+            "applied_z_correction_cm": 1.75,
+            "residual_clearance_cm": 0.02,
+            "maximum_timeline_anchor_error_cm": 0.0,
+            "timeline_anchor_mutated": False,
+            "emitter_or_rir_mutated": False,
+            "bounds_role": "action_only_not_release_evidence",
+        },
+        "sides": sides,
+    }
+
+
+def _ground_contact_case() -> tuple[dict[str, object], dict[str, object]]:
+    profile = _ground_contact_profile()
+    plan = {
+        "actors": [
+            {
+                "actor_id": actor_id,
+                "ground_contact_release_profile": json.loads(json.dumps(profile)),
+            }
+            for actor_id in ("source1_actor", "source2_actor")
+        ],
+        "frames": [
+            {
+                "actor_states": [
+                    {"actor_id": "source1_actor", "action_id": "walk"},
+                    {"actor_id": "source2_actor", "action_id": "walk"},
+                ]
+            }
+            for _ in range(75)
+        ],
+    }
+    assets = {
+        "sampled_frames": [
+            {
+                "frame_index": frame_index,
+                "per_instance": {
+                    slot: {
+                        "current_action": {"action_id": "walk"},
+                        "live_ground_contact_readback": _ground_contact_readback(),
+                    }
+                    for slot in ("source1", "source2")
+                },
+            }
+            for frame_index in (0, 37, 74)
+        ]
+    }
+    return assets, plan
+
+
+def test_ground_contact_release_passes_only_declared_live_interval() -> None:
+    assets, plan = _ground_contact_case()
+
+    result = TOOL._evaluate_ground_contact_release(assets, plan)
+
+    assert result["status"] == "pass"
+    assert result["release_authorized"] is True
+    assert result["trace_count"] == 24
+    assert result["runtime_visual_ground_snap_count"] == 6
+    assert result["timeline_anchor_and_emitter_mutation_count"] == 0
+    assert result["minimum_support_anchor_clearance_cm"] == 2.0
+    assert result["maximum_support_anchor_clearance_cm"] == 2.0
+
+
+def test_ground_contact_release_rejects_legacy_capture_without_live_fields() -> None:
+    assets, plan = _ground_contact_case()
+    for sample in assets["sampled_frames"]:
+        for record in sample["per_instance"].values():
+            record.pop("live_ground_contact_readback")
+
+    result = TOOL._evaluate_ground_contact_release(assets, plan)
+
+    assert result["status"] == "fail"
+    assert result["release_authorized"] is False
+    assert "live ground readback is missing" in result["first_blocker"]
+
+
+def test_ground_contact_release_diagnoses_legacy_live_evidence_before_profile() -> None:
+    assets, plan = _ground_contact_case()
+    for sample in assets["sampled_frames"]:
+        for record in sample["per_instance"].values():
+            record.pop("live_ground_contact_readback")
+    for actor in plan["actors"]:
+        actor.pop("ground_contact_release_profile")
+
+    result = TOOL._evaluate_ground_contact_release(assets, plan)
+
+    assert result["status"] == "fail"
+    assert result["release_authorized"] is False
+    assert result["first_blocker"] == (
+        "source1_actor live ground readback is missing at frame 0"
+    )
+
+
+def test_ground_contact_release_rejects_missing_profile_before_threshold_guess() -> (
+    None
+):
+    assets, plan = _ground_contact_case()
+    plan["actors"][0].pop("ground_contact_release_profile")
+
+    result = TOOL._evaluate_ground_contact_release(assets, plan)
+
+    assert result["status"] == "fail"
+    assert result["release_authorized"] is False
+    assert result["first_blocker"].endswith("release profile is missing")
+
+
+def test_ground_contact_release_rejects_clearance_outside_declared_interval() -> None:
+    assets, plan = _ground_contact_case()
+    assets["sampled_frames"][1]["per_instance"]["source1"][
+        "live_ground_contact_readback"
+    ] = _ground_contact_readback(clearance_cm=5.0)
+
+    result = TOOL._evaluate_ground_contact_release(assets, plan)
+
+    assert result["status"] == "fail"
+    assert "outside the declared interval" in result["first_blocker"]
+
+
+def test_ground_contact_release_rejects_wrong_floor_object() -> None:
+    assets, plan = _ground_contact_case()
+    trace = assets["sampled_frames"][2]["per_instance"]["source2"][
+        "live_ground_contact_readback"
+    ]["sides"]["right"]["anchors"]["toe"]["floor_trace"]
+    trace["hit_component"] = "ChairComponent"
+
+    result = TOOL._evaluate_ground_contact_release(assets, plan)
+
+    assert result["status"] == "fail"
+    assert "undeclared floor object" in result["first_blocker"]
