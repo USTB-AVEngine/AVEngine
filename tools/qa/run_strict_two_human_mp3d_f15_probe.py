@@ -31,6 +31,8 @@ VISIBILITY_SCHEMA = "avengine_qa_pixel_visibility_truth_v1"
 EPISODE_ID = "mp3d_17DRP5sb8fy_male_female_static_0001"
 SCENE_ID = "17DRP5sb8fy"
 GPU1_UUID = "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581"
+CAPTURE_PYTHON_LOGICAL = Path("/data/jzy/miniconda3/envs/spear-env/bin/python")
+SPEAR_ROOT = Path("/data/jzy/code/AVEngine/external/SPEAR")
 EXPECTED_MESH_COUNT = 71
 FRAME_INDEX = 15
 HEIGHT = 720
@@ -168,6 +170,12 @@ def _assert_port_available(port: int) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", port))
+
+
+def _is_authoritative_capture_python(path: Path) -> bool:
+    """Accept the pinned logical executable or its exact resolved symlink target."""
+
+    return path.resolve() == CAPTURE_PYTHON_LOGICAL.resolve()
 
 
 def _artifact_paths(atom_root: Path) -> dict[str, Path]:
@@ -456,6 +464,54 @@ def prepare_request(
     return request_path
 
 
+def archive_preparation_failure(*, atom_root: Path, error: str) -> Path:
+    """Preserve a failed pre-GPU request without consuming the real attempt."""
+
+    atom_root = atom_root.resolve()
+    _require(
+        atom_root
+        == REPOSITORY / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1",
+        "MP3D f15 atom root drift",
+    )
+    attempt_root = atom_root / "diagnostic_f15_launch_attempt_01"
+    archive_root = atom_root / "diagnostic_f15_prepare_failure_01"
+    _require(attempt_root.is_dir(), "canonical prepared request is missing")
+    _require(not archive_root.exists(), "preparation-failure archive already exists")
+    _require((attempt_root / "request.json").is_file(), "prepared request is missing")
+    _require(
+        not any(
+            (attempt_root / name).exists()
+            for name in (
+                "dry_run_receipt.json",
+                "running_receipt.json",
+                "final_receipt.json",
+            )
+        ),
+        "cannot archive a request after dry or real launch evidence exists",
+    )
+    request = _load(attempt_root / "request.json")
+    receipt_path = attempt_root / "preparation_failure_receipt.json"
+    _write_json_exclusive(
+        receipt_path,
+        {
+            "schema": RECEIPT_SCHEMA,
+            "status": "prepare_validation_failed_before_gpu_query",
+            "episode_id": EPISODE_ID,
+            "required_repo_commit": request.get("required_repo_commit"),
+            "request": str((attempt_root / "request.json").resolve()),
+            "error": error,
+            "gpu_query_started": False,
+            "gpu_started": False,
+            "attempt_consumed": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+            "captured_at_utc": _utc_now(),
+        },
+    )
+    attempt_root.rename(archive_root)
+    return archive_root / receipt_path.name
+
+
 def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     request = _load(request_path)
     _require(request.get("schema") == REQUEST_SCHEMA, "f15 request schema drift")
@@ -533,13 +589,11 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
         "capture suite/room path drift",
     )
     _require(
-        Path(request["capture_python"])
-        == Path("/data/jzy/miniconda3/envs/spear-env/bin/python")
+        _is_authoritative_capture_python(Path(request["capture_python"]))
         and Path(request["capture_script"]).resolve()
         == repo_root
         / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
-        and Path(request["spear_root"])
-        == Path("/data/jzy/code/AVEngine/external/SPEAR"),
+        and Path(request["spear_root"]) == SPEAR_ROOT,
         "authoritative MP3D SPEAR runtime binding drift",
     )
     for key in ("capture_python", "capture_script", "spear_root"):
@@ -818,14 +872,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     prepare.add_argument(
         "--capture-python",
         type=Path,
-        default=Path("/data/jzy/miniconda3/envs/spear-env/bin/python"),
+        default=CAPTURE_PYTHON_LOGICAL,
     )
     prepare.add_argument(
         "--spear-root",
         type=Path,
-        default=Path("/data/jzy/code/AVEngine/external/SPEAR"),
+        default=SPEAR_ROOT,
     )
     prepare.add_argument("--rpc-port", type=int, default=39631)
+    archive = subparsers.add_parser("archive-preparation-failure")
+    archive.add_argument("--atom-root", required=True, type=Path)
+    archive.add_argument("--error", required=True)
     launch = subparsers.add_parser("launch")
     launch.add_argument("--request", required=True, type=Path)
     launch.add_argument("--dry-run", action="store_true")
@@ -842,6 +899,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             rpc_port=args.rpc_port,
         )
         print(f"MP3D_F15_REQUEST_PREPARED request={path} formal=0", flush=True)
+        return 0
+    if args.command == "archive-preparation-failure":
+        path = archive_preparation_failure(
+            atom_root=args.atom_root,
+            error=args.error,
+        )
+        print(f"MP3D_F15_PREPARE_FAILURE_ARCHIVED receipt={path} formal=0", flush=True)
         return 0
     return run(args.request, dry_run=args.dry_run)
 

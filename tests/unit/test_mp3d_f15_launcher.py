@@ -106,6 +106,40 @@ class Mp3dF15LauncherTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "binding drift"):
                 LAUNCHER._validate_file_record(record, owner="evidence")
 
+    def test_capture_python_symlink_resolves_to_only_pinned_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real = root / "python3.11"
+            real.write_text("runtime", encoding="utf-8")
+            logical = root / "python"
+            logical.symlink_to(real.name)
+            wrong = root / "other-python"
+            wrong.write_text("wrong", encoding="utf-8")
+            with mock.patch.object(
+                LAUNCHER, "CAPTURE_PYTHON_LOGICAL", logical
+            ):
+                self.assertTrue(LAUNCHER._is_authoritative_capture_python(logical))
+                self.assertTrue(LAUNCHER._is_authoritative_capture_python(real))
+                self.assertFalse(LAUNCHER._is_authoritative_capture_python(wrong))
+
+    def test_prepare_failure_archive_preserves_request_without_consuming_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            atom = repo / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
+            attempt = atom / "diagnostic_f15_launch_attempt_01"
+            _write(attempt / "request.json", {"required_repo_commit": "a" * 40})
+            with mock.patch.object(LAUNCHER, "REPOSITORY", repo):
+                receipt_path = LAUNCHER.archive_preparation_failure(
+                    atom_root=atom,
+                    error="canonical interpreter symlink mismatch",
+                )
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            self.assertFalse(receipt["gpu_query_started"])
+            self.assertFalse(receipt["gpu_started"])
+            self.assertFalse(receipt["attempt_consumed"])
+            self.assertTrue(receipt_path.with_name("request.json").is_file())
+            self.assertFalse(attempt.exists())
+
     def test_dry_run_writes_only_non_consuming_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             attempt = Path(directory) / "diagnostic_f15_launch_attempt_01"
