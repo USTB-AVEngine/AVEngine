@@ -470,6 +470,126 @@ def _validate_acoustics(
     }
 
 
+def _validate_runtime_transform_readbacks(
+    readbacks: Mapping[str, Any], plan: Mapping[str, Any]
+) -> dict[str, Any]:
+    frames = plan.get("frames", [])
+    _require(len(frames) == FRAME_COUNT, "runtime transform plan is not full75")
+    passes = {"normal": readbacks.get("normal", [])}
+    passes.update(
+        {
+            f"target_only_{slot}": items
+            for slot, items in readbacks.get("target_only", {}).items()
+        }
+    )
+    _require(
+        set(passes) == {"normal", "target_only_source1", "target_only_source2"}
+        and all(len(items) == FRAME_COUNT for items in passes.values()),
+        "runtime transform readback pass closure failed",
+    )
+
+    maximum_camera_location_error_cm = 0.0
+    maximum_camera_rotation_error_deg = 0.0
+    maximum_actor_location_error_cm = 0.0
+    maximum_actor_rotation_error_deg = 0.0
+    normal_camera_yaws: list[float] = []
+
+    def angular_error(observed: float, expected: float) -> float:
+        return abs((observed - expected + 180.0) % 360.0 - 180.0)
+
+    for pass_name, items in passes.items():
+        for frame_index, observed in enumerate(items):
+            expected_frame = frames[frame_index]
+            _require(
+                observed.get("camera", {}).get("frame_index") == frame_index,
+                f"{pass_name}: camera frame index drift at {frame_index}",
+            )
+            observed_camera = observed["camera"]
+            expected_camera = expected_frame["camera_state"]
+            _require(
+                observed_camera.get("expected_pose_hash")
+                == expected_camera.get("pose_hash"),
+                f"{pass_name}: camera pose authority drift at {frame_index}",
+            )
+            camera_location_errors = [
+                abs(float(actual) - float(expected))
+                for actual, expected in zip(
+                    observed_camera["location_cm"],
+                    expected_camera["ue_position_cm"],
+                )
+            ]
+            camera_rotation_errors = [
+                angular_error(float(actual), float(expected))
+                for actual, expected in zip(
+                    observed_camera["rotation_deg"],
+                    [0.0, 0.0, expected_camera["ue_yaw_deg"]],
+                )
+            ]
+            maximum_camera_location_error_cm = max(
+                maximum_camera_location_error_cm, *camera_location_errors
+            )
+            maximum_camera_rotation_error_deg = max(
+                maximum_camera_rotation_error_deg, *camera_rotation_errors
+            )
+            if pass_name == "normal":
+                normal_camera_yaws.append(float(observed_camera["rotation_deg"][2]))
+
+            expected_actors = {
+                state["actor_id"]: state for state in expected_frame["actor_states"]
+            }
+            observed_actors = observed.get("actors", {})
+            _require(
+                set(observed_actors) == set(expected_actors),
+                f"{pass_name}: actor transform set drift at {frame_index}",
+            )
+            for actor_id, expected_actor in expected_actors.items():
+                observed_actor = observed_actors[actor_id]
+                _require(
+                    observed_actor.get("frame_index") == frame_index,
+                    f"{pass_name}: {actor_id} frame index drift at {frame_index}",
+                )
+                actor_location_errors = [
+                    abs(float(actual) - float(expected))
+                    for actual, expected in zip(
+                        observed_actor["location_cm"],
+                        expected_actor["translation_ue_cm"],
+                    )
+                ]
+                actor_rotation_errors = [
+                    angular_error(float(actual), float(expected))
+                    for actual, expected in zip(
+                        observed_actor["rotation_deg"],
+                        [0.0, 0.0, expected_actor["actor_yaw_ue_deg"]],
+                    )
+                ]
+                maximum_actor_location_error_cm = max(
+                    maximum_actor_location_error_cm, *actor_location_errors
+                )
+                maximum_actor_rotation_error_deg = max(
+                    maximum_actor_rotation_error_deg, *actor_rotation_errors
+                )
+
+    _require(
+        maximum_camera_location_error_cm <= 1.0e-6
+        and maximum_camera_rotation_error_deg <= 1.0e-6
+        and maximum_actor_location_error_cm <= 1.0e-6
+        and maximum_actor_rotation_error_deg <= 1.0e-6,
+        "runtime camera/actor transform readback drift",
+    )
+    return {
+        "status": "pass_exact_all_normal_and_target_only_frames",
+        "readback_pass_count": 3,
+        "camera_readback_count": 225,
+        "actor_readback_count": 450,
+        "maximum_camera_location_error_cm": maximum_camera_location_error_cm,
+        "maximum_camera_rotation_error_deg": maximum_camera_rotation_error_deg,
+        "maximum_actor_location_error_cm": maximum_actor_location_error_cm,
+        "maximum_actor_rotation_error_deg": maximum_actor_rotation_error_deg,
+        "normal_distinct_camera_yaw_count": len(set(normal_camera_yaws)),
+        "normal_camera_yaw_span_deg": max(normal_camera_yaws) - min(normal_camera_yaws),
+    }
+
+
 def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[str, Any]:
     readbacks = _load(capture_root / "runtime_readbacks.json")
     _require(
@@ -490,6 +610,7 @@ def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[st
         "dynamic live asset closure drift",
     )
     _, plan = _scenario(materialization_root)
+    transforms = _validate_runtime_transform_readbacks(readbacks, plan)
     declared = {actor["actor_id"]: actor for actor in plan["actors"]}
     sampling = assets.get("sampling_contract", {})
     samples = assets.get("sampled_frames", [])
@@ -558,6 +679,7 @@ def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[st
         "sampled_current_actions": sampled_actions,
         "maximum_action_position_error_seconds": maximum_action_position_error_seconds,
         "maximum_root_emitter_error_m": maximum_root_emitter_error_m,
+        "transform_readbacks": transforms,
     }
 
 

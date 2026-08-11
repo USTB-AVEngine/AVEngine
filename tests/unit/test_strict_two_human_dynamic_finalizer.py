@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import struct
 from pathlib import Path
 
@@ -163,3 +164,87 @@ def test_dynamic_visibility_window_excludes_target_failures_after_speech() -> No
 
     assert result["status"] == "pass"
     assert result["target_speech"]["frame_count"] == 44
+
+
+def _runtime_transform_fixture() -> tuple[dict[str, object], dict[str, object]]:
+    frames = []
+    normal = []
+    for frame_index in range(75):
+        camera_yaw = -142.0 - 6.0 * frame_index / 74.0
+        camera = {
+            "frame_index": frame_index,
+            "expected_pose_hash": f"pose_{frame_index}",
+            "location_cm": [-70.0, 65.0, 147.1],
+            "rotation_deg": [0.0, 0.0, camera_yaw],
+        }
+        actors = {
+            "source1_actor": {
+                "frame_index": frame_index,
+                "location_cm": [-202.0, -129.0, 40.0],
+                "rotation_deg": [0.0, 0.0, -34.0],
+            },
+            "source2_actor": {
+                "frame_index": frame_index,
+                "location_cm": [-321.0, -55.0, 40.0],
+                "rotation_deg": [0.0, 0.0, -64.0],
+            },
+        }
+        normal.append({"camera": camera, "actors": actors})
+        frames.append(
+            {
+                "camera_state": {
+                    "pose_hash": f"pose_{frame_index}",
+                    "ue_position_cm": [-70.0, 65.0, 147.1],
+                    "ue_yaw_deg": camera_yaw,
+                },
+                "actor_states": [
+                    {
+                        "actor_id": "source1_actor",
+                        "translation_ue_cm": [-202.0, -129.0, 40.0],
+                        "actor_yaw_ue_deg": -34.0,
+                    },
+                    {
+                        "actor_id": "source2_actor",
+                        "translation_ue_cm": [-321.0, -55.0, 40.0],
+                        "actor_yaw_ue_deg": -64.0,
+                    },
+                ],
+            }
+        )
+    readbacks = {
+        "normal": normal,
+        "target_only": {
+            "source1": json.loads(json.dumps(normal)),
+            "source2": json.loads(json.dumps(normal)),
+        },
+    }
+    return readbacks, {"frames": frames}
+
+
+def test_runtime_transform_gate_closes_all_225_camera_readbacks() -> None:
+    readbacks, plan = _runtime_transform_fixture()
+
+    result = TOOL._validate_runtime_transform_readbacks(readbacks, plan)
+
+    assert result == {
+        "status": "pass_exact_all_normal_and_target_only_frames",
+        "readback_pass_count": 3,
+        "camera_readback_count": 225,
+        "actor_readback_count": 450,
+        "maximum_camera_location_error_cm": 0.0,
+        "maximum_camera_rotation_error_deg": 0.0,
+        "maximum_actor_location_error_cm": 0.0,
+        "maximum_actor_rotation_error_deg": 0.0,
+        "normal_distinct_camera_yaw_count": 75,
+        "normal_camera_yaw_span_deg": pytest.approx(6.0),
+    }
+
+
+def test_runtime_transform_gate_rejects_camera_yaw_drift() -> None:
+    readbacks, plan = _runtime_transform_fixture()
+    readbacks["target_only"]["source2"][37]["camera"]["rotation_deg"][2] += 0.01
+
+    with pytest.raises(
+        RuntimeError, match="runtime camera/actor transform readback drift"
+    ):
+        TOOL._validate_runtime_transform_readbacks(readbacks, plan)
