@@ -197,6 +197,14 @@ def validate_plan(plan: Mapping[str, Any], registry: Mapping[str, Any]) -> list[
     minimum_x_separation = float(thresholds.get("minimum_projected_x_separation_fraction", 0.0))
     minimum_actor_separation = float(thresholds.get("minimum_actor_horizontal_separation_m", 0.0))
     envelope = thresholds.get("conservative_actor_vertical_envelope_from_root_m", [])
+    require(
+        float(thresholds.get("target_visible_fraction_minimum", -1.0)) == 0.8,
+        "target visible-fraction minimum must remain 0.8",
+    )
+    require(
+        float(thresholds.get("distractor_visible_fraction_minimum", -1.0)) == 0.5,
+        "distractor visible-fraction minimum must remain 0.5",
+    )
     camera_signatures: set[tuple[float, ...]] = set()
     actor_signatures: set[tuple[float, ...]] = set()
     camera_translations: list[Sequence[float]] = []

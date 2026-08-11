@@ -71,6 +71,44 @@ def test_strict_eight_plan_contract_and_balance_pass() -> None:
         for key, identity in plan["approved_identity_catalog"].items()
     } == {"M": [7, 31], "F": [7, 50], "C": [7, 50]}
     assert plan["timeline"]["target_speech_duration_policy"] == "full_dry_asset"
+    thresholds = plan["projection_and_native_thresholds"]
+    assert thresholds["target_visible_fraction_minimum"] == 0.8
+    assert thresholds["distractor_visible_fraction_minimum"] == 0.5
+
+
+def test_row7_v1_rejection_record_binds_retained_native_failure() -> None:
+    plan, _ = _inputs()
+    rejection_path = REPOSITORY / plan["evidence"]["rejected_row7_v1"]
+    rejection = _load(rejection_path)
+    row7 = plan["rows"][6]
+
+    assert rejection["status"] == "rejected"
+    assert rejection["decision"] == "fail"
+    assert rejection["row_id"] == row7["row_id"]
+    assert rejection["episode_id"] == row7["episode_id"]
+    assert rejection["frame_index"] == plan["timeline"]["sparse_gate_frame_index"]
+    assert rejection["formal_scene_count"] == 0
+    assert rejection["qualification_claim"] is False
+    assert rejection["original_output_mutated"] is False
+    assert rejection["row8_executed"] is False
+
+    pixels = _load(Path(rejection["evidence"]["pixel_visibility_truth"]))
+    target = pixels["per_instance"]["source1"]["frames"][0]
+    distractor = pixels["per_instance"]["source2"]["frames"][0]
+    target_gate = rejection["target_gate"]
+    distractor_gate = rejection["distractor_gate"]
+    assert target["frame_index"] == rejection["frame_index"]
+    assert target["target_pixels"] == target_gate["observed_target_pixels"]
+    assert target["visible_pixels"] == target_gate["observed_visible_pixels"]
+    assert target["visible_fraction"] == pytest.approx(
+        target_gate["observed_visible_fraction"]
+    )
+    assert target_gate["observed_visible_fraction"] < 0.8
+    assert distractor["visible_fraction"] == pytest.approx(
+        distractor_gate["observed_visible_fraction"]
+    )
+    assert distractor_gate["observed_visible_fraction"] >= 0.5
+    assert Path(rejection["evidence"]["normal_rgb"]).is_file()
 
 
 def test_strict_eight_preflight_binds_native_floor_points(tmp_path: Path) -> None:
@@ -141,6 +179,20 @@ def test_strict_eight_rejects_identity_side_voice_or_scope_drift() -> None:
     assert "formal scene count must remain zero" in errors
     assert "qualification claim must remain false" in errors
     assert "paper catalog mutation forbidden" in errors
+
+    invalid = deepcopy(plan)
+    invalid["projection_and_native_thresholds"][
+        "target_visible_fraction_minimum"
+    ] = 0.5
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "target visible-fraction minimum must remain 0.8" in errors
+
+    invalid = deepcopy(plan)
+    invalid["projection_and_native_thresholds"][
+        "distractor_visible_fraction_minimum"
+    ] = 0.8
+    errors = TOOL.validate_plan(invalid, registry)
+    assert "distractor visible-fraction minimum must remain 0.5" in errors
 
 
 def test_strict_eight_rejects_camera_geometry_and_runtime_drift() -> None:

@@ -12,7 +12,8 @@
     "feasibility_report": "reports/lead_a/two_human_feasibility_v1.json",
     "runtime_registry": "examples/runtime/source_asset_runtime_profiles.json",
     "passed_canary_ledger": "tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/final_gate_ledger.json",
-    "current_package_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/lead_b_siamese_post_approval_v1/packaged_runtime_v1/Standalone-Development/Linux/Manifest_UFSFiles_Linux.txt"
+    "current_package_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/lead_b_siamese_post_approval_v1/packaged_runtime_v1/Standalone-Development/Linux/Manifest_UFSFiles_Linux.txt",
+    "rejected_row7_v1": "reports/lead_a/strict_two_human_row7_v1_rejected.json"
   },
   "approved_identity_catalog": {
     "M": {
@@ -80,7 +81,8 @@
     "bbox_edge_margin_px_minimum": 1,
     "screen_side_dead_zone_fraction": 0.02,
     "visible_pixels_minimum_per_actor": 5000,
-    "visible_fraction_minimum_per_actor": 0.5,
+    "target_visible_fraction_minimum": 0.8,
+    "distractor_visible_fraction_minimum": 0.5,
     "minimum_actor_horizontal_separation_m": 1.0,
     "minimum_projected_x_separation_fraction": 0.15,
     "conservative_actor_vertical_envelope_from_root_m": [0.0, 2.0],

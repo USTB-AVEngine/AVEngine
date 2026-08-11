@@ -69,6 +69,12 @@ def _contains_pending(value: Any) -> bool:
     return False
 
 
+def _visible_fraction_minimum(slot: str) -> float:
+    minimum_by_slot = {"source1": 0.80, "source2": 0.50}
+    _require(slot in minimum_by_slot, f"unsupported source slot: {slot}")
+    return minimum_by_slot[slot]
+
+
 def _build_facts(
     *,
     recipe_root: Path,
@@ -299,7 +305,10 @@ def _validate_capture(
         x0, y0, x1, y1 = frame["target_bbox_xyxy_px"]
         _require(x0 > 0 and y0 > 0 and x1 < width - 1 and y1 < height - 1, f"{slot} bbox touches frame edge")
         _require(frame["visible_pixels"] >= 5000, f"{slot} visible-pixel gate failed")
-        _require(frame["visible_fraction"] >= 0.50, f"{slot} visible-fraction gate failed")
+        _require(
+            frame["visible_fraction"] >= _visible_fraction_minimum(slot),
+            f"{slot} visible-fraction gate failed",
+        )
         centroid_x = float(frame["target_centroid_xy_px"][0])
         if slot == "source1":
             _require(centroid_x > center_x + side_margin, "source1 is not on the right")

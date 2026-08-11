@@ -19,6 +19,13 @@ def test_pending_scan_is_recursive_and_case_insensitive() -> None:
     assert not TOOL._contains_pending({"status": "pass", "formal_scene_count": 0})
 
 
+def test_visible_fraction_thresholds_are_role_specific() -> None:
+    assert TOOL._visible_fraction_minimum("source1") == 0.8
+    assert TOOL._visible_fraction_minimum("source2") == 0.5
+    with pytest.raises(RuntimeError, match="unsupported source slot"):
+        TOOL._visible_fraction_minimum("source3")
+
+
 def test_capture_nonzero_exit_fails_before_artifact_trust(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="exit code was non-zero"):
         TOOL._validate_capture(
