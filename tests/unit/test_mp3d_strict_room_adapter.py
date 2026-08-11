@@ -257,7 +257,18 @@ class PreflightTests(unittest.TestCase):
                 f"{remote_root}/tmp/lead_a_mp3d_strict_two_human_room_atom_v1/"
                 "fresh_soundspaces2_package_v1"
             )
-            compile_step, rir_step = execution["cpu_steps"]
+            habitat_python = (
+                "/data/jzy/miniconda3/envs/"
+                "avengine-habitat-runtime/bin/python"
+            )
+            runtime_step, compile_step, rir_step = execution["cpu_steps"]
+            self.assertEqual(
+                runtime_step["step_id"],
+                "probe_authoritative_habitat_rir_runtime",
+            )
+            self.assertEqual(runtime_step["argv"][0], habitat_python)
+            self.assertFalse(runtime_step["expected"]["cuda_initialized"])
+            self.assertEqual(runtime_step["expected"]["compute_device"], "CPU")
             self.assertEqual(
                 compile_step["step_id"], "fresh_compile_mp3d_rlr_materials"
             )
@@ -284,13 +295,17 @@ class PreflightTests(unittest.TestCase):
             self.assertFalse(compile_step["expected"]["qualification_claim"])
 
             self.assertEqual(rir_step["step_id"], "render_two_exact_rirs")
-            self.assertEqual(rir_step["attempt_id"], "exact_rir_cache_v3")
+            self.assertEqual(rir_step["attempt_id"], "exact_rir_cache_v4")
             self.assertEqual(
                 rir_step["supersedes_failed_attempts"],
-                ["exact_rir_cache_v1", "exact_rir_cache_v2"],
+                [
+                    "exact_rir_cache_v1",
+                    "exact_rir_cache_v2",
+                    "exact_rir_cache_v3",
+                ],
             )
             self.assertEqual(rir_step["argv"][:2], [
-                python,
+                habitat_python,
                 f"{remote_root}/tools/m6x/render_rir_cache.py",
             ])
             self.assertNotIn("--job-limit", rir_step["argv"])
@@ -300,9 +315,20 @@ class PreflightTests(unittest.TestCase):
                 ),
                 "AVENGINE_SOUNDSPACES_ROOT": "/data/jzy/code/sound-spaces",
                 "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": fresh_package,
+                "PATH": (
+                    "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:"
+                    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                ),
+                "PYTHONPATH": f"{remote_root}/src",
+                "SKBUILD_EDITABLE_SKIP": (
+                    "/data/jzy/code/habitat-sim-AVEngine/build/"
+                    "cp312-cp312-linux_x86_64"
+                ),
+                "NUMBA_DISABLE_JIT": "1",
             }
             self.assertEqual(rir_step["environment"], expected_environment)
-            builder.validate_rir_execution_environment(
+            builder.validate_rir_runtime_binding(
+                habitat_python,
                 rir_step["environment"]
             )
             for missing_name in expected_environment:
@@ -310,6 +336,11 @@ class PreflightTests(unittest.TestCase):
                 mutation.pop(missing_name)
                 with self.assertRaisesRegex(RuntimeError, missing_name):
                     builder.validate_rir_execution_environment(mutation)
+            with self.assertRaisesRegex(RuntimeError, "runtime interpreter"):
+                builder.validate_rir_runtime_binding(
+                    python,
+                    expected_environment,
+                )
             self.assertEqual(rir_step["expected"]["selected_job_count"], 2)
             self.assertTrue(rir_step["expected"]["full_plan_complete"])
             self.assertEqual(rir_step["expected"]["layout"], "binaural")

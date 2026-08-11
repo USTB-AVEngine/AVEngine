@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
+import os
+import sys
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
@@ -29,6 +32,16 @@ TICKS_PER_FRAME = 3200
 REMOTE_REPOSITORY = Path("/data/jzy/code/AVEngine-lead-a")
 HABITAT_RUNTIME_ROOT = "/data/jzy/code/habitat-sim-AVEngine"
 SOUNDSPACES_ROOT = "/data/jzy/code/sound-spaces"
+HABITAT_PYTHON = Path(
+    "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python"
+)
+HABITAT_PATH = (
+    "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:"
+    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+)
+HABITAT_EDITABLE_BUILD = (
+    "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
+)
 
 
 def validate_rir_execution_environment(environment: Mapping[str, Any]) -> None:
@@ -38,15 +51,34 @@ def validate_rir_execution_environment(environment: Mapping[str, Any]) -> None:
         "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
         "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,
         "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": None,
+        "PATH": HABITAT_PATH,
+        "PYTHONPATH": str(REMOTE_REPOSITORY / "src"),
+        "SKBUILD_EDITABLE_SKIP": HABITAT_EDITABLE_BUILD,
+        "NUMBA_DISABLE_JIT": "1",
     }
     for name, expected in required.items():
         value = environment.get(name)
-        _require(
-            isinstance(value, str) and value.startswith("/"),
-            f"RIR execution environment is missing absolute {name}",
-        )
-        if expected is not None:
+        _require(isinstance(value, str), f"RIR execution environment lacks {name}")
+        if expected is None:
+            _require(
+                value.startswith("/"),
+                f"RIR execution environment is missing absolute {name}",
+            )
+        else:
             _require(value == expected, f"RIR execution environment drifted {name}")
+
+
+def validate_rir_runtime_binding(
+    python_executable: str | Path,
+    environment: Mapping[str, Any],
+) -> None:
+    """Bind native RLR to the reviewed Habitat interpreter and environment."""
+
+    _require(
+        Path(python_executable) == HABITAT_PYTHON,
+        "RIR runtime interpreter differs from the authoritative Habitat Python",
+    )
+    validate_rir_execution_environment(environment)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -111,6 +143,63 @@ def _write_json(path: Path, value: Any) -> None:
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def probe_rir_runtime(output: Path) -> Path:
+    """Import the exact native CPU runtime and emit a fail-closed receipt."""
+
+    validate_rir_runtime_binding(sys.executable, os.environ)
+    _require(not output.exists(), f"refusing to replace runtime probe: {output}")
+    numpy = importlib.import_module("numpy")
+    quaternion = importlib.import_module("quaternion")
+    habitat_sim = importlib.import_module("habitat_sim")
+    avengine = importlib.import_module("avengine")
+    driver = importlib.import_module("numba.cuda.cudadrv.driver")
+
+    avengine_path = Path(avengine.__file__).resolve()
+    expected_avengine_path = (REMOTE_REPOSITORY / "src/avengine/__init__.py").resolve()
+    _require(
+        avengine_path == expected_avengine_path,
+        "runtime probe imported avengine from an unreviewed checkout",
+    )
+    cuda_initialized = bool(driver.driver.is_initialized)
+    _require(not cuda_initialized, "runtime probe initialized CUDA unexpectedly")
+    receipt = {
+        "schema": "avengine_mp3d_rir_runtime_probe_v1",
+        "status": "pass",
+        "python_executable": str(Path(sys.executable).resolve()),
+        "versions": {
+            "python": sys.version.split()[0],
+            "numpy": numpy.__version__,
+            "quaternion": getattr(quaternion, "__version__", None),
+            "habitat_sim": getattr(habitat_sim, "__version__", None),
+        },
+        "avengine_source": str(avengine_path),
+        "import_order": ["numpy", "quaternion", "habitat_sim", "avengine"],
+        "environment": {
+            name: os.environ[name]
+            for name in (
+                "PATH",
+                "PYTHONPATH",
+                "SKBUILD_EDITABLE_SKIP",
+                "NUMBA_DISABLE_JIT",
+                "AVENGINE_HABITAT_RUNTIME_ROOT",
+                "AVENGINE_SOUNDSPACES_ROOT",
+                "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT",
+            )
+        },
+        "compute_device": "CPU",
+        "gpu_required": False,
+        "cuda_initialized": cuda_initialized,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+    _write_json(output, receipt)
+    print(
+        f"MP3D_RIR_RUNTIME_PROBE_OK output={output} cuda_initialized=false",
+        flush=True,
+    )
+    return output
 
 
 def _vector3(value: Any, *, owner: str) -> list[float]:
@@ -823,9 +912,11 @@ def _execution_plan(
     remote_python = remote_root / ".venv/bin/python"
     remote_output = remote_root / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
     fresh_package = remote_output / "fresh_soundspaces2_package_v1"
-    suite = remote_output / "cpu_preflight_v3/suite_execution_plan.json"
-    room_adapter = remote_output / "cpu_preflight_v3/room_adapter.json"
-    rir_plan = remote_output / "cpu_preflight_v3/rir_job_plan.json"
+    preflight_output = remote_output / "cpu_preflight_v4"
+    runtime_probe = preflight_output / "rir_runtime_probe.json"
+    suite = preflight_output / "suite_execution_plan.json"
+    room_adapter = preflight_output / "room_adapter.json"
+    rir_plan = preflight_output / "rir_job_plan.json"
     capture = request["capture"]
     acoustics = request["acoustics"]
     common_capture = [
@@ -878,7 +969,7 @@ def _execution_plan(
         "habitat_mp3d_example_17DRP5sb8fy_soundspaces2_strict_two_human_v1",
     ]
     rir_argv = [
-        str(remote_python),
+        str(HABITAT_PYTHON),
         str(remote_root / "tools/m6x/render_rir_cache.py"),
         "--rir-job-plan",
         str(rir_plan),
@@ -893,7 +984,7 @@ def _execution_plan(
         "--simulation-profile",
         acoustics["simulation_profile"],
         "--output",
-        str(remote_output / "exact_rir_cache_v3"),
+        str(remote_output / "exact_rir_cache_v4"),
         "--layout",
         "binaural",
         "--batch-size",
@@ -905,14 +996,44 @@ def _execution_plan(
         "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
         "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,
         "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": str(fresh_package),
+        "PATH": HABITAT_PATH,
+        "PYTHONPATH": str(remote_root / "src"),
+        "SKBUILD_EDITABLE_SKIP": HABITAT_EDITABLE_BUILD,
+        "NUMBA_DISABLE_JIT": "1",
     }
-    validate_rir_execution_environment(execution_environment)
+    validate_rir_runtime_binding(HABITAT_PYTHON, execution_environment)
     return {
         "schema": "avengine_native_strict_two_human_mp3d_execution_plan_v1",
         "status": "planned_not_run",
         "local_staging_output": str(output.resolve()),
         "remote_target_root": str(remote_output),
         "cpu_steps": [
+            {
+                "step_id": "probe_authoritative_habitat_rir_runtime",
+                "working_directory": str(remote_root),
+                "environment": execution_environment,
+                "argv": [
+                    str(HABITAT_PYTHON),
+                    str(
+                        remote_root
+                        / "tools/qa/build_strict_two_human_mp3d_room_preflight.py"
+                    ),
+                    "--runtime-probe-output",
+                    str(runtime_probe),
+                ],
+                "expected": {
+                    "receipt": str(runtime_probe),
+                    "status": "pass",
+                    "python": "3.12.13",
+                    "numpy": "2.3.5",
+                    "quaternion": "2024.0.13",
+                    "habitat_sim": "0.3.3",
+                    "avengine_source": str(remote_root / "src/avengine/__init__.py"),
+                    "compute_device": "CPU",
+                    "cuda_initialized": False,
+                    "qualification_claim": False,
+                },
+            },
             {
                 "step_id": "fresh_compile_mp3d_rlr_materials",
                 "working_directory": str(remote_root),
@@ -930,10 +1051,11 @@ def _execution_plan(
             },
             {
                 "step_id": "render_two_exact_rirs",
-                "attempt_id": "exact_rir_cache_v3",
+                "attempt_id": "exact_rir_cache_v4",
                 "supersedes_failed_attempts": [
                     "exact_rir_cache_v1",
                     "exact_rir_cache_v2",
+                    "exact_rir_cache_v3",
                 ],
                 "working_directory": str(remote_root),
                 "environment": execution_environment,
@@ -943,8 +1065,8 @@ def _execution_plan(
                     "selected_job_count": 2,
                     "full_plan_complete": True,
                     "layout": "binaural",
-                    "receipt": str(remote_output / "exact_rir_cache_v3/receipt.json"),
-                    "index": str(remote_output / "exact_rir_cache_v3/index.json"),
+                    "receipt": str(remote_output / "exact_rir_cache_v4/receipt.json"),
+                    "index": str(remote_output / "exact_rir_cache_v4/index.json"),
                 },
             },
         ],
@@ -1151,7 +1273,7 @@ def build(args: argparse.Namespace) -> Path:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--request", type=Path, required=True)
+    parser.add_argument("--request", type=Path)
     parser.add_argument("--template-suite", type=Path)
     parser.add_argument("--ue-import-manifest", type=Path)
     parser.add_argument("--ue-runtime-evidence", type=Path)
@@ -1159,12 +1281,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--acoustic-manifest", type=Path)
     parser.add_argument("--room-registry", type=Path)
     parser.add_argument("--acoustic-profiles", type=Path)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--runtime-probe-output", type=Path)
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    build(parse_args(argv))
+    args = parse_args(argv)
+    if args.runtime_probe_output is not None:
+        _require(args.request is None and args.output is None, "runtime probe is isolated")
+        probe_rir_runtime(args.runtime_probe_output.resolve())
+        return 0
+    _require(args.request is not None, "--request is required for preflight build")
+    _require(args.output is not None, "--output is required for preflight build")
+    build(args)
     return 0
 
 
