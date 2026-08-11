@@ -45,6 +45,19 @@ python3 tools/qa/audit_strict_two_human_room_expansion.py \
   --output tmp/lead_a_strict_two_human_full_episode_batch_v1/room_expansion_audit_v1
 ```
 
+Prepare the two cooked debug-map probes with the repository environment:
+
+```bash
+.venv/bin/python tools/qa/build_strict_two_human_debug_room_preflight.py \
+  --output tmp/lead_a_strict_two_human_full_episode_batch_v1/debug_room_cpu_preflight_v1
+```
+
+This emits a complete 75-frame M/F suite and a sparse `[0, 15, 74]` visual
+probe request for each map. The generated stereo silence is mux transport only;
+it is never acoustic evidence. Proposed floor placements remain provisional,
+and each pending acoustic plan remains non-executable until exact native
+surface geometry and a reviewed material mapping exist.
+
 ## Four full75 canaries
 
 The CPU plan publishes `canary_plan.json` for strict sparse rows 1–4. Run them
