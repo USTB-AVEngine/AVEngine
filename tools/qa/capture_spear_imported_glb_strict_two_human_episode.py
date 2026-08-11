@@ -14,7 +14,9 @@ import importlib.util
 import json
 import math
 import sys
+import traceback
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -45,6 +47,21 @@ FPS = 15
 WIDTH = 1280
 HEIGHT = 720
 TARGET_ONLY_BACKGROUND_DEPTH_M = 65504.0
+CAPTURE_PHASES = (
+    "preconnect",
+    "post-entry",
+    "mesh",
+    "lighting",
+    "camera",
+    "actor",
+    "capture",
+    "artifact_finalize",
+    "complete",
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _require(condition: bool, message: str) -> None:
@@ -57,6 +74,67 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_json_exclusive(path: Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as stream:
+        json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
+        stream.write("\n")
+
+
+class CapturePhaseJournal:
+    """Append-only phase and failure evidence for the diagnostic capture."""
+
+    def __init__(self, output: Path) -> None:
+        self.output = output
+        self.current_phase = "before_output_materialization"
+        self.sequence = 0
+
+    def enter(self, phase: str) -> Path:
+        _require(self.output.is_dir(), "capture output is not materialized")
+        _require(
+            phase in CAPTURE_PHASES,
+            f"unknown capture phase: {phase}",
+        )
+        self.current_phase = phase
+        path = self.output / (
+            f"capture_phase_{self.sequence:02d}_{phase}.json"
+        )
+        _write_json_exclusive(
+            path,
+            {
+                "schema": "avengine_mp3d_f15_capture_phase_v1",
+                "status": "entered",
+                "phase": phase,
+                "sequence": self.sequence,
+                "recorded_at_utc": _utc_now(),
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+            },
+        )
+        self.sequence += 1
+        return path
+
+    def record_failure(self, exc: BaseException) -> Path | None:
+        if not self.output.is_dir():
+            return None
+        path = self.output / "capture_failure.json"
+        _write_json_exclusive(
+            path,
+            {
+                "schema": "avengine_mp3d_f15_capture_failure_v1",
+                "status": "failed",
+                "phase": self.current_phase,
+                "exception_type": type(exc).__name__,
+                "exception_message": str(exc),
+                "traceback": traceback.format_exc(),
+                "recorded_at_utc": _utc_now(),
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+            },
+        )
+        return path
 
 
 def _load_native_capture_backend() -> ModuleType:
@@ -469,7 +547,9 @@ def _write_review_overlays(
     return paths
 
 
-def run(args: argparse.Namespace) -> Path:
+def _run_impl(
+    args: argparse.Namespace, journal: CapturePhaseJournal
+) -> Path:
     import cv2
     import numpy as np
 
@@ -487,6 +567,7 @@ def run(args: argparse.Namespace) -> Path:
     args.output.mkdir(parents=True)
     rgb_directory = args.output / "rgb_frames"
     rgb_directory.mkdir()
+    journal.enter("preconnect")
 
     native = _load_native_capture_backend()
     runner = native.RUNNER
@@ -500,6 +581,7 @@ def run(args: argparse.Namespace) -> Path:
         configure_args, native_map=ENTRY_MAP
     )
     game = instance.get_game()
+    journal.enter("post-entry")
     room_actors: list[Any] = []
     runtimes: dict[str, Any] = {}
     camera = None
@@ -515,13 +597,16 @@ def run(args: argparse.Namespace) -> Path:
     target_readbacks: dict[str, list[dict[str, Any]]] = {}
     pass_identities: list[dict[str, Any]] = []
     try:
+        journal.enter("mesh")
         with instance.begin_frame():
             room_actors, room_readback = spawn_scene_meshes_with_readback(
                 game, room_adapter
             )
+            journal.enter("lighting")
             lighting_readback = spawn_review_lighting(
                 game, spear_root, room_adapter["review_lighting"]
             )
+            journal.enter("camera")
             camera, components = spike._spawn_multimodal_camera(game)
             _require(
                 set(components) >= {"rgb", "depth", "object_ids"},
@@ -532,6 +617,7 @@ def run(args: argparse.Namespace) -> Path:
                 camera,
                 float(scenario["plan"]["camera"]["horizontal_fov_deg"]),
             )
+            journal.enter("actor")
             runtimes = runner._spawn_runtime_actors(game, scenario, spear_root)
             spike._apply_exact_frame(
                 camera=camera, runtimes=runtimes, frame=frames[0]
@@ -543,6 +629,7 @@ def run(args: argparse.Namespace) -> Path:
             pass
         instance.step(num_frames=args.warmup_frames)
 
+        journal.enter("capture")
         with instance.begin_frame():
             game.segmentation_service.initialize()
             components["depth"].PrimitiveRenderMode = "PRM_RenderScenePrimitives"
@@ -616,6 +703,7 @@ def run(args: argparse.Namespace) -> Path:
                 pass
         instance.close(force=True)
 
+    journal.enter("artifact_finalize")
     _require(
         room_readback.get("spawned_static_mesh_count")
         == EXPECTED_STATIC_MESH_COUNT
@@ -716,12 +804,22 @@ def run(args: argparse.Namespace) -> Path:
     }
     manifest_path = args.output / "manifest.json"
     _write_json(manifest_path, manifest)
+    journal.enter("complete")
     print(
         "SPEAR_IMPORTED_MP3D_STRICT_TWO_HUMAN_CAPTURE_OK "
         f"output={args.output} frames={len(frames)} meshes=71 formal=0",
         flush=True,
     )
     return manifest_path
+
+
+def run(args: argparse.Namespace) -> Path:
+    journal = CapturePhaseJournal(args.output)
+    try:
+        return _run_impl(args, journal)
+    except BaseException as exc:
+        journal.record_failure(exc)
+        raise
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

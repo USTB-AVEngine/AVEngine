@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import sys
 import tempfile
@@ -15,6 +16,9 @@ LAUNCHER_PATH = next(
     for candidate in Path(__file__).resolve().parents
     if (candidate / LAUNCHER_NAME).is_file()
 )
+CAPTURE_PATH = LAUNCHER_PATH.with_name(
+    "capture_spear_imported_glb_strict_two_human_episode.py"
+)
 
 
 def _load_launcher() -> ModuleType:
@@ -28,6 +32,19 @@ def _load_launcher() -> ModuleType:
 
 
 LAUNCHER = _load_launcher()
+
+
+def _load_capture() -> ModuleType:
+    name = "avengine_test_mp3d_f15_capture"
+    spec = importlib.util.spec_from_file_location(name, CAPTURE_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+CAPTURE = _load_capture()
 
 
 def _write(path: Path, value: object) -> None:
@@ -57,6 +74,17 @@ def _request(attempt_root: Path) -> dict[str, object]:
         "capture_output": str(attempt_root.parent / "diagnostic_f15_capture_attempt_01"),
         "required_repo_commit": "a" * 40,
         "rpc_port": 39631,
+    }
+
+
+def _request_v2(attempt_root: Path) -> dict[str, object]:
+    return {
+        "attempt_root": str(attempt_root),
+        "capture_output": str(attempt_root.parent / LAUNCHER.V2_CAPTURE_DIRECTORY),
+        "capture_stdout": str(attempt_root / "capture_stdout.log"),
+        "capture_stderr": str(attempt_root / "capture_stderr.log"),
+        "required_repo_commit": "b" * 40,
+        "rpc_port": LAUNCHER.V2_RPC_PORT,
     }
 
 
@@ -218,6 +246,319 @@ class Mp3dF15LauncherTests(unittest.TestCase):
                 self.assertRaisesRegex(RuntimeError, "final receipt"),
             ):
                 LAUNCHER.run(request_path, dry_run=False)
+
+    def test_attempt01_failure_ledger_freezes_only_observed_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            atom = repo / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
+            attempt = atom / "diagnostic_f15_launch_attempt_01"
+            capture = atom / "diagnostic_f15_capture_attempt_01"
+            capture.mkdir(parents=True)
+            _write(
+                attempt / "request.json",
+                {
+                    "schema": LAUNCHER.REQUEST_SCHEMA,
+                    "capture_output": str(capture),
+                },
+            )
+            _write(
+                attempt / "dry_run_receipt.json",
+                {
+                    "schema": LAUNCHER.RECEIPT_SCHEMA,
+                    "status": "dry_run_pass_not_launched",
+                },
+            )
+            _write(
+                attempt / "running_receipt.json",
+                {"schema": LAUNCHER.RECEIPT_SCHEMA, "status": "running"},
+            )
+            _write(
+                attempt / "final_receipt.json",
+                {
+                    "schema": LAUNCHER.RECEIPT_SCHEMA,
+                    "status": "failed",
+                    "capture_process_exit_code": 1,
+                },
+            )
+            spear_log = repo / "SpearSim_rpc_39631.log"
+            spear_log.write_text(
+                "LogInit: Display: Game Engine Initialized.\n"
+                "LogGlobalStatus: LoadMap Load map complete /Engine/Maps/Entry\n"
+                "LogInit: Display: Engine is initialized. "
+                "Leaving FEngineLoop::Init()\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(LAUNCHER, "REPOSITORY", repo):
+                ledger_path = LAUNCHER.record_attempt01_failure_ledger(
+                    atom_root=atom,
+                    spear_log=spear_log,
+                )
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+            self.assertEqual(ledger["status"], LAUNCHER.ATTEMPT01_FAILURE_STATUS)
+            self.assertEqual(ledger["root_cause"], "undetermined")
+            self.assertTrue(ledger["attempt_consumed"])
+            self.assertTrue(ledger["retry_same_candidate_forbidden"])
+            self.assertEqual(ledger["captured_frame_count"], 0)
+            self.assertEqual(ledger["capture_artifact_count"], 0)
+            self.assertEqual(ledger["first_capture_artifact_count"], 0)
+            self.assertFalse(ledger["causal_exclusions"]["mesh_failure_claimed"])
+            with (
+                mock.patch.object(LAUNCHER, "REPOSITORY", repo),
+                self.assertRaises(FileExistsError),
+            ):
+                LAUNCHER.record_attempt01_failure_ledger(
+                    atom_root=atom,
+                    spear_log=spear_log,
+                )
+
+    def test_capture_failure_journal_covers_all_runtime_phases(self) -> None:
+        phases = (
+            "preconnect",
+            "post-entry",
+            "mesh",
+            "lighting",
+            "camera",
+            "actor",
+            "capture",
+        )
+        for phase in phases:
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "capture"
+                output.mkdir()
+
+                def fail_at_phase(
+                    _args: SimpleNamespace,
+                    journal: object,
+                    *,
+                    selected_phase: str = phase,
+                ) -> Path:
+                    journal.enter(selected_phase)
+                    raise RuntimeError(f"fake runtime failure at {selected_phase}")
+
+                with (
+                    mock.patch.object(CAPTURE, "_run_impl", side_effect=fail_at_phase),
+                    self.assertRaisesRegex(RuntimeError, phase),
+                ):
+                    CAPTURE.run(SimpleNamespace(output=output))
+                failure = json.loads(
+                    (output / "capture_failure.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(failure["phase"], phase)
+                self.assertEqual(failure["exception_type"], "RuntimeError")
+                self.assertIn(
+                    f"RuntimeError: fake runtime failure at {phase}",
+                    failure["traceback"],
+                )
+                markers = list(output.glob(f"capture_phase_*_{phase}.json"))
+                self.assertEqual(len(markers), 1)
+
+    def test_capture_runtime_wires_required_phases_in_order(self) -> None:
+        source = inspect.getsource(CAPTURE._run_impl)
+        phases = (
+            "preconnect",
+            "post-entry",
+            "mesh",
+            "lighting",
+            "camera",
+            "actor",
+            "capture",
+        )
+        offsets = [source.index(f'journal.enter("{phase}")') for phase in phases]
+        self.assertEqual(offsets, sorted(offsets))
+
+    def test_revision_v2_dry_run_writes_no_child_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            attempt = Path(directory) / LAUNCHER.V2_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            request_path.write_text("{}\n", encoding="utf-8")
+            request = _request_v2(attempt)
+            argv = ["python", "capture.py", "--frame-index", "15"]
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v2", return_value=(request, argv)
+                ),
+                mock.patch.object(
+                    LAUNCHER, "_gpu_snapshot", return_value=_idle_snapshot()
+                ),
+                mock.patch.object(LAUNCHER, "_assert_port_available"),
+            ):
+                self.assertEqual(
+                    LAUNCHER.run_v2(
+                        request_path,
+                        dry_run=True,
+                        authorize_gpu_capture=False,
+                    ),
+                    0,
+                )
+            receipt = json.loads(
+                (attempt / "dry_run_receipt.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(receipt["status"], "dry_run_pass_not_launched")
+            self.assertFalse(receipt["gpu_started"])
+            self.assertFalse(receipt["attempt_consumed"])
+            self.assertFalse((attempt / "capture_stdout.log").exists())
+            self.assertFalse((attempt / "capture_stderr.log").exists())
+
+    def test_revision_v2_real_launch_requires_explicit_authorization(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            attempt = Path(directory) / LAUNCHER.V2_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            request_path.write_text("{}\n", encoding="utf-8")
+            request = _request_v2(attempt)
+            argv = ["python", "capture.py", "--frame-index", "15"]
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v2", return_value=(request, argv)
+                ),
+                mock.patch.object(LAUNCHER, "_gpu_snapshot") as snapshot,
+                self.assertRaisesRegex(RuntimeError, "explicit launch authorization"),
+            ):
+                LAUNCHER.run_v2(
+                    request_path,
+                    dry_run=False,
+                    authorize_gpu_capture=False,
+                )
+            snapshot.assert_not_called()
+            self.assertFalse((attempt / "running_receipt.json").exists())
+
+    def test_revision_v2_rejects_preexisting_child_log_before_gpu_query(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            attempt = Path(directory) / LAUNCHER.V2_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            request_path.write_text("{}\n", encoding="utf-8")
+            request = _request_v2(attempt)
+            Path(str(request["capture_stdout"])).write_text(
+                "do not replace\n", encoding="utf-8"
+            )
+            argv = ["python", "capture.py", "--frame-index", "15"]
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v2", return_value=(request, argv)
+                ),
+                mock.patch.object(LAUNCHER, "_gpu_snapshot") as snapshot,
+                self.assertRaisesRegex(RuntimeError, "already exists"),
+            ):
+                LAUNCHER.run_v2(
+                    request_path,
+                    dry_run=False,
+                    authorize_gpu_capture=True,
+                )
+            snapshot.assert_not_called()
+            self.assertEqual(
+                Path(str(request["capture_stdout"])).read_text(encoding="utf-8"),
+                "do not replace\n",
+            )
+            self.assertFalse((attempt / "running_receipt.json").exists())
+
+    def test_revision_v2_failure_persists_observability(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            attempt = root / LAUNCHER.V2_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            request_path.write_text("{}\n", encoding="utf-8")
+            request = _request_v2(attempt)
+            capture_output = Path(str(request["capture_output"]))
+            argv = ["python", "capture.py", "--frame-index", "15"]
+
+            def fake_child(*_args: object, **kwargs: object) -> SimpleNamespace:
+                stdout = kwargs["stdout"]
+                stderr = kwargs["stderr"]
+                stdout.write(b"exclusive child stdout\n")
+                stderr.write(b"Traceback: exclusive child stderr\n")
+                capture_output.mkdir()
+                _write(
+                    capture_output / "capture_phase_00_mesh.json",
+                    {
+                        "schema": "avengine_mp3d_f15_capture_phase_v1",
+                        "status": "entered",
+                        "phase": "mesh",
+                        "sequence": 0,
+                        "qualification_claim": False,
+                        "formal_dataset_count": 0,
+                    },
+                )
+                _write(
+                    capture_output / "capture_failure.json",
+                    {
+                        "schema": LAUNCHER.CAPTURE_FAILURE_SCHEMA,
+                        "status": "failed",
+                        "phase": "mesh",
+                        "exception_type": "RuntimeError",
+                        "exception_message": "fake mesh failure",
+                        "traceback": (
+                            "Traceback (most recent call last):\n"
+                            "RuntimeError: fake mesh failure\n"
+                        ),
+                        "qualification_claim": False,
+                        "formal_dataset_count": 0,
+                    },
+                )
+                return SimpleNamespace(returncode=23)
+
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v2", return_value=(request, argv)
+                ),
+                mock.patch.object(
+                    LAUNCHER,
+                    "_gpu_snapshot",
+                    side_effect=[_idle_snapshot(), _idle_snapshot()],
+                ),
+                mock.patch.object(LAUNCHER, "_assert_port_available"),
+                mock.patch.object(LAUNCHER.subprocess, "run", side_effect=fake_child),
+            ):
+                self.assertEqual(
+                    LAUNCHER.run_v2(
+                        request_path,
+                        dry_run=False,
+                        authorize_gpu_capture=True,
+                    ),
+                    23,
+                )
+            final = json.loads(
+                (attempt / "final_receipt.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(final["status"], "failed")
+            self.assertEqual(final["child_exit_code"], 23)
+            self.assertEqual(final["capture_process_exit_code"], 23)
+            self.assertEqual(
+                final["child_exit"], {"observed": True, "returncode": 23}
+            )
+            self.assertEqual(
+                final["failure_observability_status"],
+                "phase_and_complete_traceback_persisted",
+            )
+            self.assertEqual(
+                final["capture_observability"]["capture_failure_detail"]["phase"],
+                "mesh",
+            )
+            self.assertIn(
+                "RuntimeError: fake mesh failure",
+                final["capture_observability"]["capture_failure_detail"]["traceback"],
+            )
+            self.assertEqual(
+                (attempt / "capture_stdout.log").read_text(encoding="utf-8"),
+                "exclusive child stdout\n",
+            )
+            self.assertEqual(
+                (attempt / "capture_stderr.log").read_text(encoding="utf-8"),
+                "Traceback: exclusive child stderr\n",
+            )
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v2", return_value=(request, argv)
+                ),
+                self.assertRaisesRegex(RuntimeError, "final receipt"),
+            ):
+                LAUNCHER.run_v2(
+                    request_path,
+                    dry_run=False,
+                    authorize_gpu_capture=True,
+                )
 
 
 if __name__ == "__main__":
