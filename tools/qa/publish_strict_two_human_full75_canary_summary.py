@@ -102,9 +102,10 @@ def _review_markdown(rows: Sequence[dict[str, Any]], contact_sheet: Path) -> str
         [
             "",
             (
-                "Boundary: the four-row gate authorizes only the first 20 single-room "
-                "mechanism pilots. The final 100-row multi-room batch remains blocked "
-                "until at least three real rooms pass visual and exact-acoustic closure."
+                "Boundary: these four static rows prove the full75 pipeline only. The "
+                "first 20 single-room mechanism pilots remain blocked until target-move, "
+                "distractor-move, both-move, and camera-pan full75 canaries all pass. The "
+                "final 100-row multi-room batch also requires at least three real rooms."
             ),
             "",
         ]
@@ -265,7 +266,16 @@ def publish(canary_plan_path: Path, finalization_root: Path, output: Path) -> Pa
         "minimum_distractor_visible_pixels": min(
             row["minimum_distractor_visible_pixels"] for row in rows
         ),
-        "single_room_mechanism_pilot_authorized": True,
+        "static_full75_pipeline_gate_pass": True,
+        "dynamic_mechanism_full75_gate_pass_count": 0,
+        "dynamic_mechanism_full75_gate_required_count": 4,
+        "pending_dynamic_mechanism_canaries": [
+            "target_moves",
+            "distractor_moves",
+            "both_move",
+            "camera_pan_both_static",
+        ],
+        "single_room_mechanism_pilot_authorized": False,
         "single_room_mechanism_pilot_target": 20,
         "final_multi_room_100_authorized": False,
         "formal_episode_count": 0,

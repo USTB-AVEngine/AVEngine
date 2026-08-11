@@ -197,7 +197,10 @@ def test_full75_canary_publisher_requires_four_passed_balanced_rows(
     assert summary["normal_rgb_frame_count"] == 300
     assert summary["target_only_frame_count"] == 600
     assert summary["native_render_frame_count"] == 900
-    assert summary["single_room_mechanism_pilot_authorized"] is True
+    assert summary["static_full75_pipeline_gate_pass"] is True
+    assert summary["dynamic_mechanism_full75_gate_pass_count"] == 0
+    assert summary["dynamic_mechanism_full75_gate_required_count"] == 4
+    assert summary["single_room_mechanism_pilot_authorized"] is False
     assert summary["final_multi_room_100_authorized"] is False
     assert summary["formal_episode_count"] == 0
     assert Path(summary["artifacts"]["contact_sheet"]).is_file()
