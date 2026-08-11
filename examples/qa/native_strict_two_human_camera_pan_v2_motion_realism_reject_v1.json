@@ -1,0 +1,181 @@
+{
+  "audit_execution": {
+    "cpu_only": true,
+    "files_mutated_in_source_repo": false,
+    "gpu_used": false,
+    "other_gate_results_recomputed": false
+  },
+  "candidate_decision": "REJECT_RELEASE_KEEP_PIPELINE_CANARY",
+  "current_candidate": {
+    "camera_provenance": {
+      "coordinate_contract": "UE_yaw_deg=-90-Habitat_yaw_deg",
+      "midpoint_fresh_capture_episode": "strict2h_dynamic_canary_02_distractor_moves_v2",
+      "source_suite": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/suite_execution_plan.json"
+    },
+    "candidate_revision": "camera_pan_v2_0589_right_target_yaw52_58_v1",
+    "declared_active_interval": null,
+    "episode_id": "strict2h_dynamic_canary_04_camera_pan_both_static_v2",
+    "frame_count": 75,
+    "frame_rate_hz": 15.0,
+    "full_clip_linear_interpolation": true,
+    "interframe_slope_angular_velocity_deg_s": 1.2162162162162162,
+    "maximum_signed_interframe_step_deg": 0.08108108108109491,
+    "mechanism": "camera_pan_both_static",
+    "minimum_signed_interframe_step_deg": 0.08108108108109491,
+    "native_or_approved_motion_authority_present": false,
+    "nominal_clip_angular_velocity_deg_s": 1.2,
+    "nominal_clip_duration_s": 5.0,
+    "nonzero_interframe_step_count": 74,
+    "outside_active_interval_hold_frame_count": 0,
+    "recognized_motion_authority_fields": [],
+    "sampled_interval_duration_s": 4.933333333333334,
+    "target_side": "right",
+    "uniform_interframe_step": true,
+    "unique_yaw_count": 75,
+    "yaw_end_deg": 58.0,
+    "yaw_span_deg": 6.0,
+    "yaw_start_deg": 52.0
+  },
+  "first_blocker": {
+    "code": "missing_native_or_approved_camera_motion_profile",
+    "message": "the audited inventory has no per-frame camera motion and the candidate names no approved motion profile"
+  },
+  "formal": false,
+  "formal_episode_count": 0,
+  "independent_release_gates": {
+    "fresh_pixels": "existing_candidate_machine_pass_preserved_not_reused_for_replacement",
+    "ground_contact": "blocked_unqualified_visible_floor_clearance_gap",
+    "motion_realism": "reject_missing_authority"
+  },
+  "native_rate_candidate_search": {
+    "candidate_count": 0,
+    "candidates": [],
+    "reason": "all 1000 inventory Episodes use one static pose; static poses may not be ordered into a trajectory or used to invent angular speed",
+    "status": "no_candidate_under_audited_authority"
+  },
+  "preserved_machine_evidence": {
+    "camera_readback_count": 225,
+    "camera_transform_readback_status": "pass_exact_all_normal_and_target_only_frames",
+    "captured_frame_count": 75,
+    "distractor_minimum_visible_fraction": 1.0,
+    "distractor_minimum_visible_pixels": 16218,
+    "dynamic_full75_canary_pass": true,
+    "evidence_classification": "nonformal_pipeline_canary_evidence_only",
+    "identity_continuity_finding": "pass_left_female_right_male_continuous",
+    "maximum_camera_location_error_cm": 0.0,
+    "maximum_camera_rotation_error_deg": 2.842170943040401e-14,
+    "normal_camera_yaw_span_deg": 6.0,
+    "normal_distinct_camera_yaw_count": 75,
+    "preserved_not_recomputed": true,
+    "runtime_status": "pass",
+    "strict_finalization_status": "pass",
+    "target_speech_minimum_visible_fraction": 1.0,
+    "target_speech_minimum_visible_pixels": 32617,
+    "visibility_status": "pass",
+    "visible_floor_clearance_gap_beneath_both_characters": true,
+    "visual_camera_pan_finding": "pass_monotonic_visual_pan_consistent_with_runtime_yaw_minus142_to_minus148"
+  },
+  "qualification_claim": false,
+  "release_classification": "nonrelease_pipeline_evidence_only",
+  "release_qualified": false,
+  "required_replacement_contract": {
+    "active_interval_mapping": "1:1 source samples at 15 Hz; time_scale=1.0",
+    "cross_episode_static_pose_interpolation_allowed": false,
+    "geometry_constraints": [
+      "speaking target remains right of the midline dead zone",
+      "silent distractor remains left of the midline dead zone",
+      "both 2 m actor envelopes stay inside frame with depth clearance"
+    ],
+    "global_time_stretch_allowed": false,
+    "motion_authority": "native 15 Hz per-frame camera trajectory or versioned owner-approved camera motion profile",
+    "outside_active_interval_policy": "HOLD first/last authorized yaw",
+    "runtime_reverification": [
+      "fresh all75 normal and target-only pixels",
+      "all75 camera transform readback",
+      "all75 target/distractor visibility and metric-depth gates",
+      "independent ground-contact release receipt"
+    ]
+  },
+  "schema": "avengine_native_strict_two_human_camera_pan_motion_realism_audit_v1",
+  "source_authority": {
+    "inventory": {
+      "camera_keyset_distribution": [
+        {
+          "fields": [
+            "habitat_position_m",
+            "habitat_yaw_deg",
+            "horizontal_fov_deg",
+            "listener_id",
+            "ue_position_cm",
+            "ue_yaw_deg"
+          ],
+          "scenario_count": 1000
+        }
+      ],
+      "dynamic_camera_inventory": {
+        "absolute_angular_speed_deg_s_distribution": {
+          "reason": "no authoritative per-frame camera trajectory contains a positive yaw step",
+          "sample_count": 0,
+          "status": "undefined_empty"
+        },
+        "authority_field_distribution": [],
+        "continuous_pan_duration_s_distribution": {
+          "reason": "no authoritative positive-yaw camera segment exists",
+          "sample_count": 0,
+          "status": "undefined_empty"
+        },
+        "continuous_pan_segment_count": 0,
+        "frame_count": 0,
+        "positive_angular_speed_sample_count": 0,
+        "scenario_count": 0
+      },
+      "frame_rate_hz_distribution": [
+        {
+          "frame_rate_hz": 15.0,
+          "scenario_count": 1000
+        }
+      ],
+      "plan_frame_count_distribution": [
+        {
+          "frame_count": 75,
+          "scenario_count": 1000
+        }
+      ],
+      "scenario_count": 1000,
+      "static_camera_inventory": {
+        "cross_episode_pose_differences_are_motion_samples": false,
+        "episode_count": 1000,
+        "habitat_yaws_deg": [
+          [
+            55.0,
+            1000
+          ]
+        ],
+        "positions": [
+          [
+            [
+              -0.7,
+              1.471,
+              0.65
+            ],
+            1000
+          ]
+        ],
+        "unique_habitat_yaw_count": 1,
+        "unique_position_count": 1
+      },
+      "status": "pass_inventory_readback",
+      "total_plan_frame_count": 75000
+    },
+    "scope": "all scenarios and all plan frames",
+    "suite_path": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/suite_execution_plan.json",
+    "suite_schema": "avengine_optional_spear_apartment_suite_v1"
+  },
+  "status": "reject_release_missing_camera_motion_authority",
+  "time_stretch_assessment": {
+    "is_proven_resampling_of_a_native_pan": false,
+    "reason": "the candidate is explicit full75 linear interpolation, but no native pan path, source frame range, native duration, or approved speed profile exists to define a time-scale ratio",
+    "release_implication": "absence of a computable stretch factor does not pass realism; missing motion authority is itself release-blocking",
+    "status": "not_computable_no_native_camera_motion_source"
+  }
+}
