@@ -64,9 +64,7 @@ def _actor_pose(
     state: dict[str, Any], *, root: list[float], camera: list[float], frame_index: int
 ) -> dict[str, Any]:
     result = deepcopy(state)
-    yaw = -math.degrees(
-        math.atan2(camera[0] - root[0], camera[2] - root[2])
-    )
+    yaw = -math.degrees(math.atan2(camera[0] - root[0], camera[2] - root[2]))
     yaw_rad = math.radians(yaw)
     result.update(
         {
@@ -250,23 +248,31 @@ def build(plan_path: Path, output: Path) -> Path:
         },
         "GPU1 policy drift",
     )
-    package_text = _resolve(plan["package_manifest"]).read_text(encoding="utf-8").lower()
+    package_text = (
+        _resolve(plan["package_manifest"]).read_text(encoding="utf-8").lower()
+    )
     base_suite = _load(_resolve(plan["base_strict_suite"]))
-    _require(len(base_suite["scenarios"]) == 1, "base strict suite must contain one scenario")
+    _require(
+        len(base_suite["scenarios"]) == 1, "base strict suite must contain one scenario"
+    )
     output.mkdir(parents=True)
     silence = output / "transport_silence_5s_16k_stereo.wav"
     _write_silence(silence)
     rows: list[dict[str, Any]] = []
     for index, candidate in enumerate(plan["candidates"]):
         fragment = candidate["map_package_fragment"].lower()
-        _require(fragment in package_text, f"cooked map missing: {candidate['candidate_id']}")
+        _require(
+            fragment in package_text, f"cooked map missing: {candidate['candidate_id']}"
+        )
         candidate_root = output / candidate["candidate_id"]
         candidate_root.mkdir()
         suite = _candidate_suite(base_suite=base_suite, candidate=candidate)
         suite_path = candidate_root / "suite_execution_plan.pending_native.json"
         _write(suite_path, suite)
         episode_id = suite["scenarios"][0]["scenario_id"]
-        visual_output = output.parent / "debug_room_visual_probes" / candidate["candidate_id"]
+        visual_output = (
+            output.parent / "debug_room_visual_probes" / candidate["candidate_id"]
+        )
         visual_request = {
             "schema": "avengine_native_strict_two_human_debug_room_visual_probe_request_v1",
             "status": "ready_pending_gpu1_idle_gate",
@@ -281,7 +287,7 @@ def build(plan_path: Path, output: Path) -> Path:
             "transport_audio_wav": str(silence.resolve()),
             "output_root": str(visual_output.resolve()),
             "capture_argv": [
-                "python3",
+                "/data/jzy/miniconda3/envs/spear-env/bin/python",
                 "tools/qa/capture_spear_native_pixel_episode.py",
                 "--suite-plan",
                 str(suite_path.resolve()),

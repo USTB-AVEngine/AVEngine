@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import struct
 import subprocess
-import wave
 from pathlib import Path
 from typing import Any
 
@@ -35,21 +35,54 @@ def _require(condition: bool, message: str) -> None:
 
 def _wav_contract(path: Path) -> dict[str, Any]:
     _require(path.is_file(), f"binaural WAV missing: {path}")
-    with wave.open(str(path), "rb") as stream:
+    with path.open("rb") as stream:
+        _require(stream.read(4) == b"RIFF", f"invalid WAV RIFF header: {path}")
+        stream.read(4)
+        _require(stream.read(4) == b"WAVE", f"invalid WAV format header: {path}")
+        fmt: tuple[int, int, int, int] | None = None
+        data_size: int | None = None
+        while True:
+            chunk_id = stream.read(4)
+            if not chunk_id:
+                break
+            chunk_size_raw = stream.read(4)
+            _require(len(chunk_size_raw) == 4, f"truncated WAV chunk: {path}")
+            chunk_size = struct.unpack("<I", chunk_size_raw)[0]
+            payload = stream.read(chunk_size)
+            _require(len(payload) == chunk_size, f"truncated WAV payload: {path}")
+            if chunk_size % 2:
+                _require(len(stream.read(1)) == 1, f"truncated WAV padding: {path}")
+            if chunk_id == b"fmt ":
+                _require(chunk_size >= 16, f"short WAV fmt chunk: {path}")
+                format_tag, channels, sample_rate, _, _, bits = struct.unpack(
+                    "<HHIIHH", payload[:16]
+                )
+                fmt = (format_tag, channels, sample_rate, bits)
+            elif chunk_id == b"data":
+                data_size = chunk_size
+        _require(
+            fmt is not None and data_size is not None, f"WAV chunks missing: {path}"
+        )
+        format_tag, channels, sample_rate, bits = fmt
+        _require(format_tag in {1, 3}, f"unsupported WAV encoding: {format_tag}")
+        _require(bits > 0 and bits % 8 == 0, f"invalid WAV sample width: {bits}")
+        bytes_per_frame = channels * bits // 8
+        _require(bytes_per_frame > 0, f"invalid WAV frame width: {path}")
+        _require(
+            data_size % bytes_per_frame == 0,
+            f"WAV data does not contain whole frames: {path}",
+        )
         record = {
-            "channel_count": stream.getnchannels(),
-            "sample_rate_hz": stream.getframerate(),
-            "sample_count": stream.getnframes(),
-            "sample_width_bytes": stream.getsampwidth(),
+            "format_tag": format_tag,
+            "channel_count": channels,
+            "sample_rate_hz": sample_rate,
+            "sample_count": data_size // bytes_per_frame,
+            "sample_width_bytes": bits // 8,
         }
     _require(
-        record
-        == {
-            "channel_count": 2,
-            "sample_rate_hz": 16000,
-            "sample_count": 80000,
-            "sample_width_bytes": 2,
-        },
+        record["channel_count"] == 2
+        and record["sample_rate_hz"] == 16000
+        and record["sample_count"] == 80000,
         f"binaural WAV contract drift: {record}",
     )
     return record
@@ -90,7 +123,10 @@ def _validate_npz(capture_root: Path) -> dict[str, Any]:
     depth_path = capture_root / "metric_depth_native.npz"
     mask_path = capture_root / "native_pixel_masks_depth_authority_v1.npz"
     object_path = capture_root / "normal_object_ids_uint32.npz"
-    _require(depth_path.is_file() and mask_path.is_file() and object_path.is_file(), "native arrays missing")
+    _require(
+        depth_path.is_file() and mask_path.is_file() and object_path.is_file(),
+        "native arrays missing",
+    )
     with np.load(depth_path) as arrays:
         _require(
             set(arrays.files)
@@ -120,7 +156,9 @@ def _validate_npz(capture_root: Path) -> dict[str, Any]:
             _require(arrays[key].shape == (75, 720, 1280), f"{key}: shape drift")
         _require(
             np.all(np.count_nonzero(arrays["target_only_source1"], axis=(1, 2)) > 0)
-            and np.all(np.count_nonzero(arrays["target_only_source2"], axis=(1, 2)) > 0),
+            and np.all(
+                np.count_nonzero(arrays["target_only_source2"], axis=(1, 2)) > 0
+            ),
             "target-only footprint absent in one or more frames",
         )
     with np.load(object_path) as arrays:
@@ -140,32 +178,60 @@ def _validate_npz(capture_root: Path) -> dict[str, Any]:
 
 def _validate_pixels(canary: dict[str, Any], capture_root: Path) -> dict[str, Any]:
     truth = _load(capture_root / "pixel_visibility_truth.json")
-    _require(truth.get("status") == "pass", "pixel truth status drift")
+    _require(
+        truth.get("schema") == "avengine_qa_pixel_visibility_truth_v1"
+        and truth.get("status") == "computed_modal_target_only_v1",
+        "pixel truth contract drift",
+    )
     _require(truth.get("frame_indices") == list(range(75)), "pixel frame index drift")
     _require(truth.get("resolution_hw") == [720, 1280], "pixel resolution drift")
     target_frames = truth["per_instance"]["source1"]["frames"]
     distractor_frames = truth["per_instance"]["source2"]["frames"]
-    _require(len(target_frames) == len(distractor_frames) == 75, "pixel frame count drift")
+    _require(
+        len(target_frames) == len(distractor_frames) == 75, "pixel frame count drift"
+    )
     start, end = [int(value) for value in canary["speech_frame_window_inclusive"]]
-    target_speech = [item for item in target_frames if start <= int(item["frame_index"]) <= end]
-    _require(len(target_speech) == end - start + 1, "target speech-frame truth incomplete")
-    minimum_target_fraction = min(float(item["visible_fraction"]) for item in target_speech)
-    minimum_distractor_fraction = min(float(item["visible_fraction"]) for item in distractor_frames)
+    target_speech = [
+        item for item in target_frames if start <= int(item["frame_index"]) <= end
+    ]
+    _require(
+        len(target_speech) == end - start + 1, "target speech-frame truth incomplete"
+    )
+    minimum_target_fraction = min(
+        float(item["visible_fraction"]) for item in target_speech
+    )
+    minimum_distractor_fraction = min(
+        float(item["visible_fraction"]) for item in distractor_frames
+    )
     minimum_target_pixels = min(int(item["visible_pixels"]) for item in target_speech)
-    minimum_distractor_pixels = min(int(item["visible_pixels"]) for item in distractor_frames)
-    _require(minimum_target_fraction >= 0.8, "target visibility below 0.8 during speech")
+    minimum_distractor_pixels = min(
+        int(item["visible_pixels"]) for item in distractor_frames
+    )
+    _require(
+        minimum_target_fraction >= 0.8, "target visibility below 0.8 during speech"
+    )
     _require(minimum_distractor_fraction >= 0.5, "distractor visibility below 0.5")
-    _require(minimum_target_pixels >= 5000 and minimum_distractor_pixels >= 5000, "visible pixel minimum failed")
+    _require(
+        minimum_target_pixels >= 5000 and minimum_distractor_pixels >= 5000,
+        "visible pixel minimum failed",
+    )
     target_side = canary["target_side"]
-    target_x = [float(item["target_centroid_xy_px"][0]) / 1280.0 for item in target_frames]
+    target_x = [
+        float(item["target_centroid_xy_px"][0]) / 1280.0 for item in target_frames
+    ]
     distractor_x = [
-        float(item["target_centroid_xy_px"][0]) / 1280.0
-        for item in distractor_frames
+        float(item["target_centroid_xy_px"][0]) / 1280.0 for item in distractor_frames
     ]
     if target_side == "left":
-        _require(max(target_x) < 0.48 and min(distractor_x) > 0.52, "left/right identity drift")
+        _require(
+            max(target_x) < 0.48 and min(distractor_x) > 0.52,
+            "left/right identity drift",
+        )
     else:
-        _require(min(target_x) > 0.52 and max(distractor_x) < 0.48, "right/left identity drift")
+        _require(
+            min(target_x) > 0.52 and max(distractor_x) < 0.48,
+            "right/left identity drift",
+        )
     for owner, frames in (("target", target_speech), ("distractor", distractor_frames)):
         for item in frames:
             x0, y0, x1, y1 = [int(value) for value in item["target_bbox_xyxy_px"]]
@@ -185,7 +251,9 @@ def _validate_pixels(canary: dict[str, Any], capture_root: Path) -> dict[str, An
 
 def _validate_runtime(capture_root: Path) -> dict[str, Any]:
     readbacks = _load(capture_root / "runtime_readbacks.json")
-    _require(len(readbacks["normal"]) == 75, "normal runtime readback frame count drift")
+    _require(
+        len(readbacks["normal"]) == 75, "normal runtime readback frame count drift"
+    )
     _require(
         set(readbacks["target_only"]) == {"source1", "source2"}
         and all(len(value) == 75 for value in readbacks["target_only"].values()),
@@ -207,7 +275,9 @@ def _validate_runtime(capture_root: Path) -> dict[str, Any]:
         "emitter_native_readback",
     }
     for instance_id, record in assets["per_instance"].items():
-        _require(record.get("status") == "pass", f"{instance_id}: runtime asset status drift")
+        _require(
+            record.get("status") == "pass", f"{instance_id}: runtime asset status drift"
+        )
         _require(required.issubset(record), f"{instance_id}: live gate keys missing")
         _require(
             all(record[key].get("status") == "pass" for key in required),
@@ -337,10 +407,18 @@ def finalize(
             "capture_manifest": str((capture_root / "manifest.json").resolve()),
             "normal_rgb_frames": str((capture_root / "rgb_frames").resolve()),
             "metric_depth": str((capture_root / "metric_depth_native.npz").resolve()),
-            "target_only_masks": str((capture_root / "native_pixel_masks_depth_authority_v1.npz").resolve()),
-            "pixel_visibility_truth": str((capture_root / "pixel_visibility_truth.json").resolve()),
-            "runtime_readbacks": str((capture_root / "runtime_readbacks.json").resolve()),
-            "runtime_asset_readbacks": str((capture_root / "runtime_asset_readbacks.json").resolve()),
+            "target_only_masks": str(
+                (capture_root / "native_pixel_masks_depth_authority_v1.npz").resolve()
+            ),
+            "pixel_visibility_truth": str(
+                (capture_root / "pixel_visibility_truth.json").resolve()
+            ),
+            "runtime_readbacks": str(
+                (capture_root / "runtime_readbacks.json").resolve()
+            ),
+            "runtime_asset_readbacks": str(
+                (capture_root / "runtime_asset_readbacks.json").resolve()
+            ),
             "binaural_video": str((capture_root / "native_rgb_binaural.mp4").resolve()),
             "binaural_wav": str(Path(canary["audio_wav"]).resolve()),
             "gpu_launch_receipt": str(launch_receipt_path.resolve()),

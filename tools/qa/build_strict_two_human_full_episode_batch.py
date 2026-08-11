@@ -22,8 +22,7 @@ from typing import Any
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_REQUEST = (
-    REPOSITORY
-    / "examples/qa/native_strict_two_human_full_episode_batch_v1.json"
+    REPOSITORY / "examples/qa/native_strict_two_human_full_episode_batch_v1.json"
 )
 OUTPUT_SCHEMA = "avengine_native_strict_two_human_full_episode_candidate_manifest_v1"
 FRAME_COUNT = 75
@@ -75,9 +74,12 @@ def _camera_yaw_deg(
     anchors = [path[index] for path in paths for index in (0, 37, 74)]
     mean_x = sum(float(point[0]) for point in anchors) / len(anchors)
     mean_z = sum(float(point[2]) for point in anchors) / len(anchors)
-    return math.degrees(
-        math.atan2(-(mean_x - float(camera[0])), -(mean_z - float(camera[2])))
-    ) % 360.0
+    return (
+        math.degrees(
+            math.atan2(-(mean_x - float(camera[0])), -(mean_z - float(camera[2])))
+        )
+        % 360.0
+    )
 
 
 def _camera_rotation_xyzw(yaw_deg: float) -> list[float]:
@@ -126,12 +128,10 @@ def _geometry_metrics(
     resolution = contract["resolution_hw"]
     safe_x = [float(value) for value in contract["safe_x_fraction_open_interval"]]
     safe_y = [
-        float(value)
-        for value in contract["safe_vertical_fraction_open_interval"]
+        float(value) for value in contract["safe_vertical_fraction_open_interval"]
     ]
     envelope = [
-        float(value)
-        for value in contract["human_vertical_envelope_from_root_m"]
+        float(value) for value in contract["human_vertical_envelope_from_root_m"]
     ]
     dead_zone = float(contract["screen_side_dead_zone_fraction"])
     minimum_separation = float(contract["minimum_projected_x_separation_fraction"])
@@ -231,7 +231,10 @@ def _source_inventory(
         _require(len(frames) == FRAME_COUNT, f"{scenario_id}: source frame drift")
         for frame in frames:
             frame_index = int(frame["frame_index"])
-            _require(frame_index == len(paths["source1_actor"]), f"{scenario_id}: frame order drift")
+            _require(
+                frame_index == len(paths["source1_actor"]),
+                f"{scenario_id}: frame order drift",
+            )
             actors = {str(item["actor_id"]): item for item in frame["actor_states"]}
             _require(
                 set(actors) == {"source1_actor", "source2_actor"},
@@ -453,20 +456,32 @@ def _canary_plan(
     for row in publication["rows"][:4]:
         row_index = int(row["row_index"])
         if row_index == 1:
-            suite = REPOSITORY / "tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/suite_execution_plan.json"
+            suite = (
+                REPOSITORY
+                / "tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/suite_execution_plan.json"
+            )
             audio = REPOSITORY / (
                 "tmp/lead_d_strict_two_human_canary_v1/binaural_v5/audio/binaural/"
                 "rocketbox_male_female__strict_two_human_canary_v1__v00.wav"
             )
             acoustic_evidence = {
                 "exact_rir_plan": str(
-                    (REPOSITORY / "tmp/lead_d_strict_two_human_canary_v1/exact_rir_plan_v3/rir_job_plan.json").resolve()
+                    (
+                        REPOSITORY
+                        / "tmp/lead_d_strict_two_human_canary_v1/exact_rir_plan_v3/rir_job_plan.json"
+                    ).resolve()
                 ),
                 "rir_cache": str(
-                    (REPOSITORY / "tmp/lead_d_strict_two_human_canary_v1/exact_rir_cache_v4/receipt.json").resolve()
+                    (
+                        REPOSITORY
+                        / "tmp/lead_d_strict_two_human_canary_v1/exact_rir_cache_v4/receipt.json"
+                    ).resolve()
                 ),
                 "binaural_delivery": str(
-                    (REPOSITORY / "tmp/lead_d_strict_two_human_canary_v1/binaural_v5/delivery.json").resolve()
+                    (
+                        REPOSITORY
+                        / "tmp/lead_d_strict_two_human_canary_v1/binaural_v5/delivery.json"
+                    ).resolve()
                 ),
             }
         else:
@@ -491,15 +506,13 @@ def _canary_plan(
                 "target_identity_key": row["target_identity_key"],
                 "distractor_identity_key": row["distractor_identity_key"],
                 "target_side": row["target_side"],
-                "speech_frame_window_inclusive": row[
-                    "speech_frame_window_inclusive"
-                ],
+                "speech_frame_window_inclusive": row["speech_frame_window_inclusive"],
                 "suite_plan": str(suite.resolve()),
                 "audio_wav": str(audio.resolve()),
                 "acoustic_evidence": acoustic_evidence,
                 "output_root": str(output.resolve()),
                 "capture_argv": [
-                    "python3",
+                    "/data/jzy/miniconda3/envs/spear-env/bin/python",
                     "tools/qa/capture_spear_native_pixel_episode.py",
                     "--suite-plan",
                     str(suite.resolve()),
@@ -565,7 +578,10 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
     identities = _identity_metadata(strict, sounds)
     suite_path = _resolve(request["inputs"]["native_floor_point_suite"])
     suite = _load(suite_path)
-    _require(len(suite["scenarios"]) == 1000, "native source suite must contain 1000 Episodes")
+    _require(
+        len(suite["scenarios"]) == 1000,
+        "native source suite must contain 1000 Episodes",
+    )
     _require(
         suite["native_map"] == "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
         "native map drift",
@@ -615,9 +631,11 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                     continue
                 if scenario_id == camera_record["scenario_id"]:
                     continue
-                for target_actor_id, distractor_actor_id, hold_frame in _candidate_cases(
-                    trajectory, mechanism
-                ):
+                for (
+                    target_actor_id,
+                    distractor_actor_id,
+                    hold_frame,
+                ) in _candidate_cases(trajectory, mechanism):
                     target_map, distractor_map = _frame_maps(mechanism, hold_frame)
                     target_path = _path(trajectory, target_actor_id, target_map)
                     distractor_path = _path(
@@ -662,7 +680,9 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                     break
                 if found is not None:
                     break
-        _require(found is not None, f"could not find independent candidate {episode_number}")
+        _require(
+            found is not None, f"could not find independent candidate {episode_number}"
+        )
         episode_id = f"strict2h_full75_{episode_number:04d}_v1"
         target = identities[target_key]
         distractor = identities[distractor_key]
@@ -682,7 +702,10 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
             "distractor_path_binding": distractor_binding,
             "mechanism": mechanism,
         }
-        dedup_key_text = "|".join(str(dedup_key[key]) for key in request["independence_contract"]["dedup_key_fields"])
+        dedup_key_text = "|".join(
+            str(dedup_key[key])
+            for key in request["independence_contract"]["dedup_key_fields"]
+        )
         _require(dedup_key_text not in used_dedup_keys, "duplicate Episode key")
         used_dedup_keys.add(dedup_key_text)
         used_source_scenarios.add(str(found["trajectory"]["scenario_id"]))
@@ -724,7 +747,9 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                     "rotation_xyzw": _camera_rotation_xyzw(found["yaw"]),
                     "habitat_yaw_deg": found["yaw"],
                     "yaw_path_deg": camera_yaw_path,
-                    "horizontal_fov_deg": request["geometry_contract"]["horizontal_fov_deg"],
+                    "horizontal_fov_deg": request["geometry_contract"][
+                        "horizontal_fov_deg"
+                    ],
                     "provenance": {
                         "scenario_id": found["camera_record"]["scenario_id"],
                         "frame_index": found["camera_record"]["frame_index"],
@@ -765,8 +790,12 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                         "sound_asset_id": target["sound_asset_id"],
                         "voice_id": target["voice_id"],
                         "content_id": target["content_id"],
-                        "start_sample": request["timeline"]["target_speech_start_sample"],
-                        "end_sample_exclusive": request["timeline"]["target_speech_start_sample"]
+                        "start_sample": request["timeline"][
+                            "target_speech_start_sample"
+                        ],
+                        "end_sample_exclusive": request["timeline"][
+                            "target_speech_start_sample"
+                        ]
                         + target["speech_sample_count"],
                     },
                 },
@@ -804,11 +833,24 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         f"{item['target']['identity_key']}/{item['distractor']['identity_key']}"
         for item in episodes
     )
-    answer_index_counts = Counter(item["question"]["correct_index"] for item in episodes)
-    _require(mechanism_counts == Counter(request["balance_contract"]["mechanism_counts"]), "mechanism balance drift")
-    _require(side_counts == Counter(request["balance_contract"]["target_side_counts"]), "side balance drift")
-    _require(region_counts == Counter(request["balance_contract"]["spatial_stratum_counts"]), "spatial balance drift")
-    _require(answer_index_counts == Counter({0: 50, 1: 50}), "answer-index balance drift")
+    answer_index_counts = Counter(
+        item["question"]["correct_index"] for item in episodes
+    )
+    _require(
+        mechanism_counts == Counter(request["balance_contract"]["mechanism_counts"]),
+        "mechanism balance drift",
+    )
+    _require(
+        side_counts == Counter(request["balance_contract"]["target_side_counts"]),
+        "side balance drift",
+    )
+    _require(
+        region_counts == Counter(request["balance_contract"]["spatial_stratum_counts"]),
+        "spatial balance drift",
+    )
+    _require(
+        answer_index_counts == Counter({0: 50, 1: 50}), "answer-index balance drift"
+    )
     _require(len(used_source_scenarios) == 100, "source Episode independence drift")
     _require(len(used_camera_clusters) == 100, "camera-cluster independence drift")
     _require(len(used_dedup_keys) == 100, "dedup-key independence drift")
@@ -844,14 +886,18 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "target_side_counts": dict(sorted(side_counts.items())),
         "ordered_identity_pair_counts": dict(sorted(pair_counts.items())),
         "spatial_stratum_counts": dict(sorted(region_counts.items())),
-        "answer_index_counts": {str(key): value for key, value in sorted(answer_index_counts.items())},
+        "answer_index_counts": {
+            str(key): value for key, value in sorted(answer_index_counts.items())
+        },
         "unique_native_source_scenario_count": len(used_source_scenarios),
         "unique_camera_cluster_count": len(used_camera_clusters),
         "unique_dedup_key_count": len(used_dedup_keys),
         "exact_rir_job_count_required": len(all_rir_ids),
         "native_render_pass_count_required": 300,
         "native_rendered_frame_count_required": 22500,
-        "estimated_storage_gb": request["resource_budget"]["estimated_storage_gb_for_100_episodes"],
+        "estimated_storage_gb": request["resource_budget"][
+            "estimated_storage_gb_for_100_episodes"
+        ],
         "ready_room_count": request["native_room_scope"]["ready_room_count"],
         "room_scope_boundary": request["native_room_scope"]["boundary"],
         "formal_episode_count": 0,
