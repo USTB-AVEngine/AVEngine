@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import itertools
 import json
 import math
 import random
@@ -66,6 +67,89 @@ def _round_point(values: Sequence[float], digits: int = 9) -> list[float]:
 
 def _distance_xz(a: Sequence[float], b: Sequence[float]) -> float:
     return math.hypot(float(a[0]) - float(b[0]), float(a[2]) - float(b[2]))
+
+
+def _motion_metrics(path: Sequence[Sequence[float]]) -> dict[str, Any]:
+    _require(len(path) == FRAME_COUNT, "motion path is not full75")
+    horizontal_path_length_m = sum(
+        _distance_xz(previous, current)
+        for previous, current in itertools.pairwise(path)
+    )
+    maximum_displacement_from_start_m = max(
+        _distance_xz(path[0], point) for point in path
+    )
+    unique_root_positions_at_1mm = len(
+        {(round(float(point[0]), 3), round(float(point[2]), 3)) for point in path}
+    )
+    return {
+        "horizontal_path_length_m": horizontal_path_length_m,
+        "maximum_displacement_from_start_m": maximum_displacement_from_start_m,
+        "unique_root_positions_at_1mm": unique_root_positions_at_1mm,
+    }
+
+
+def _actor_motion_passes(
+    path: Sequence[Sequence[float]],
+    *,
+    expected_moving: bool,
+    contract: Mapping[str, Any],
+) -> tuple[bool, dict[str, Any]]:
+    metrics = _motion_metrics(path)
+    if expected_moving:
+        passed = (
+            metrics["horizontal_path_length_m"]
+            >= float(contract["minimum_moving_horizontal_path_length_m"])
+            and metrics["maximum_displacement_from_start_m"]
+            >= float(contract["minimum_moving_maximum_displacement_from_start_m"])
+            and metrics["unique_root_positions_at_1mm"]
+            >= int(contract["minimum_moving_unique_root_positions_at_1mm"])
+        )
+    else:
+        passed = metrics["maximum_displacement_from_start_m"] <= float(
+            contract["maximum_static_horizontal_drift_m"]
+        )
+    return passed, {
+        **metrics,
+        "expected_moving": expected_moving,
+        "status": "pass" if passed else "fail",
+    }
+
+
+def _mechanism_motion_preflight(
+    *,
+    mechanism: str,
+    target_path: Sequence[Sequence[float]],
+    distractor_path: Sequence[Sequence[float]],
+    camera_yaw_path: Sequence[float],
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    target_expected_moving = mechanism in {"target_moves", "both_move"}
+    distractor_expected_moving = mechanism in {"distractor_moves", "both_move"}
+    target_pass, target = _actor_motion_passes(
+        target_path, expected_moving=target_expected_moving, contract=contract
+    )
+    distractor_pass, distractor = _actor_motion_passes(
+        distractor_path, expected_moving=distractor_expected_moving, contract=contract
+    )
+    camera_pan_degrees = abs(float(camera_yaw_path[-1]) - float(camera_yaw_path[0]))
+    camera_expected_moving = mechanism == "camera_pan_both_static"
+    camera_pass = (
+        camera_pan_degrees >= float(contract["minimum_camera_pan_total_degrees"])
+        if camera_expected_moving
+        else camera_pan_degrees <= 1.0e-9
+    )
+    passed = target_pass and distractor_pass and camera_pass
+    return {
+        "status": "pass" if passed else "fail",
+        "mechanism": mechanism,
+        "target": target,
+        "distractor": distractor,
+        "camera": {
+            "expected_moving": camera_expected_moving,
+            "total_pan_degrees": camera_pan_degrees,
+            "status": "pass" if camera_pass else "fail",
+        },
+    }
 
 
 def _camera_yaw_deg(
@@ -541,6 +625,70 @@ def _canary_plan(
     }
 
 
+def _dynamic_mechanism_canary_plan(
+    request: Mapping[str, Any], episodes: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    mechanisms = [
+        "target_moves",
+        "distractor_moves",
+        "both_move",
+        "camera_pan_both_static",
+    ]
+    pilot_rows = [item for item in episodes if int(item["episode_index"]) <= 20]
+    selected = [
+        next(item for item in pilot_rows if item["mechanism"] == mechanism)
+        for mechanism in mechanisms
+    ]
+    _require(
+        all(item["motion_preflight"]["status"] == "pass" for item in selected),
+        "dynamic canary motion preflight failed",
+    )
+    return {
+        "schema": "avengine_native_strict_two_human_dynamic_full75_canary_plan_v1",
+        "status": "pass_cpu_selection_pending_suite_acoustics_and_gpu1",
+        "static_pipeline_canary_pass_count": 4,
+        "dynamic_mechanism_canary_pass_count": 0,
+        "dynamic_mechanism_canary_required_count": 4,
+        "single_room_mechanism_pilot_authorized": False,
+        "formal_episode_count": 0,
+        "qualification_claim": False,
+        "gpu_policy": request["gpu_policy"],
+        "canaries": [
+            {
+                "execution_order": order,
+                "episode_index": row["episode_index"],
+                "episode_id": row["episode_id"],
+                "mechanism": row["mechanism"],
+                "target_identity_key": row["target"]["identity_key"],
+                "distractor_identity_key": row["distractor"]["identity_key"],
+                "target_side": row["target"]["side"],
+                "speech_frame_window_inclusive": row["target"][
+                    "speech_frame_window_inclusive"
+                ],
+                "motion_preflight": row["motion_preflight"],
+                "projection_preflight": row["projection_preflight"],
+                "native_source_scenario_id": row["native_source_scenario_id"],
+                "camera_cluster_id": row["camera_cluster_id"],
+                "suite_plan": "PENDING_DYNAMIC_SUITE_MATERIALIZATION",
+                "audio_wav": "PENDING_EXACT_RIR_AND_BINAURAL_RENDER",
+                "exact_rir_plan": "PENDING_DYNAMIC_EXACT_RIR_PLAN",
+                "capture_output": str(
+                    (
+                        REPOSITORY
+                        / "tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_full75_canaries"
+                        / row["episode_id"]
+                    ).resolve()
+                ),
+                "rpc_port": 39700 + order,
+                "physical_gpu_index": 1,
+                "graphics_adapter_argument": 1,
+                "status": "cpu_preflight_pass_pending_suite_acoustics_and_gpu1",
+            }
+            for order, row in enumerate(selected, start=1)
+        ],
+    }
+
+
 def build(request_path: Path, output: Path) -> dict[str, Path]:
     _require(not output.exists(), f"refusing to overwrite output: {output}")
     request = _load(request_path)
@@ -600,7 +748,6 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
     used_source_scenarios: set[str] = set()
     used_camera_clusters: set[str] = set()
     used_dedup_keys: set[str] = set()
-    camera_cursor = {key: 0 for key in camera_strata}
     suite_root = suite_path.parent
     for index in range(100):
         episode_number = index + 1
@@ -613,9 +760,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         stratum_id = f"stratum_{stratum_index + 1:02d}"
         found: dict[str, Any] | None = None
         records = camera_strata[stratum_id]
-        while camera_cursor[stratum_id] < len(records) and found is None:
-            camera_record = records[camera_cursor[stratum_id]]
-            camera_cursor[stratum_id] += 1
+        for camera_record in records:
             cell_x, cell_z = camera_record["cell"]
             cluster_id = f"apartment_grid075_x{cell_x:+03d}_z{cell_z:+03d}"
             if cluster_id in used_camera_clusters:
@@ -641,6 +786,20 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                     distractor_path = _path(
                         trajectory, distractor_actor_id, distractor_map
                     )
+                    target_moves = mechanism in {"target_moves", "both_move"}
+                    distractor_moves = mechanism in {"distractor_moves", "both_move"}
+                    target_motion_pass, _ = _actor_motion_passes(
+                        target_path,
+                        expected_moving=target_moves,
+                        contract=request["motion_contract"],
+                    )
+                    distractor_motion_pass, _ = _actor_motion_passes(
+                        distractor_path,
+                        expected_moving=distractor_moves,
+                        contract=request["motion_contract"],
+                    )
+                    if not target_motion_pass or not distractor_motion_pass:
+                        continue
                     yaw = _camera_yaw_deg(camera, [target_path, distractor_path])
                     metrics = _geometry_metrics(
                         request=request,
@@ -680,9 +839,42 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                     break
                 if found is not None:
                     break
-        _require(
-            found is not None, f"could not find independent candidate {episode_number}"
-        )
+        if found is None:
+            output.mkdir(parents=True, exist_ok=True)
+            _write(
+                output / "motion_feasibility_failure.json",
+                {
+                    "schema": "avengine_native_strict_two_human_motion_feasibility_failure_v1",
+                    "status": "blocked_balanced_100_not_constructed",
+                    "requested_episode_count": 100,
+                    "deterministic_balanced_prefix_count": len(episodes),
+                    "failed_episode_index": episode_number,
+                    "failed_mechanism": mechanism,
+                    "failed_target_side": target_side,
+                    "failed_spatial_stratum": stratum_id,
+                    "constructed_mechanism_counts": dict(
+                        sorted(Counter(item["mechanism"] for item in episodes).items())
+                    ),
+                    "constructed_target_side_counts": dict(
+                        sorted(
+                            Counter(item["target"]["side"] for item in episodes).items()
+                        )
+                    ),
+                    "balanced_50_left_50_right": False,
+                    "ten_batches_of_ten_complete": False,
+                    "formal_episode_count": 0,
+                    "qualification_claim": False,
+                    "next_safe_step": (
+                        "materialize_four_true-motion mechanism canaries and redesign "
+                        "the 100-row camera/trajectory assignment; do not relabel "
+                        "static paths as movement"
+                    ),
+                },
+            )
+            raise RuntimeError(
+                f"could not find independent candidate {episode_number}; "
+                f"receipt={output / 'motion_feasibility_failure.json'}"
+            )
         episode_id = f"strict2h_full75_{episode_number:04d}_v1"
         target = identities[target_key]
         distractor = identities[distractor_key]
@@ -720,6 +912,14 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
             )
             for frame_index in range(FRAME_COUNT)
         ]
+        motion_preflight = _mechanism_motion_preflight(
+            mechanism=mechanism,
+            target_path=found["target_path"],
+            distractor_path=found["distractor_path"],
+            camera_yaw_path=camera_yaw_path,
+            contract=request["motion_contract"],
+        )
+        _require(motion_preflight["status"] == "pass", "mechanism motion drift")
         question = _question(index, target_side, episode_id)
         episodes.append(
             {
@@ -805,6 +1005,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                 ],
                 "question": question,
                 "projection_preflight": found["metrics"],
+                "motion_preflight": motion_preflight,
                 "native_root_provenance": found["provenance"],
                 "dedup_key": dedup_key,
                 "dedup_key_text": dedup_key_text,
@@ -881,7 +1082,9 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "episode_count": len(episodes),
         "batch_count": 10,
         "batch_size": 10,
-        "full75_canary_count": 4,
+        "static_full75_pipeline_canary_count": 4,
+        "dynamic_full75_mechanism_canary_count": 4,
+        "full75_gate_canary_count_total": 8,
         "mechanism_counts": dict(sorted(mechanism_counts.items())),
         "target_side_counts": dict(sorted(side_counts.items())),
         "ordered_identity_pair_counts": dict(sorted(pair_counts.items())),
@@ -906,7 +1109,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "single_room_mechanism_pilot_count": 20,
         "final_multi_room_episode_count": 0,
         "final_required_ready_room_count": 3,
-        "next_gate": "run_and_finalize_four_full75_canaries_on_idle_physical_gpu1_then_limit_execution_to_first_20_until_three_real_rooms_are_ready",
+        "next_gate": "materialize_and_pass_four_dynamic_full75_mechanism_canaries_then_limit_execution_to_first_20_until_three_real_rooms_are_ready",
     }
     dedup = {
         "schema": "avengine_native_strict_two_human_full_episode_dedup_audit_v1",
@@ -926,11 +1129,16 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "summary": output / "summary.json",
         "dedup_audit": output / "dedup_audit.json",
         "canary_plan": output / "canary_plan.json",
+        "dynamic_mechanism_canary_plan": output / "dynamic_mechanism_canary_plan.json",
     }
     _write(paths["manifest"], manifest)
     _write(paths["summary"], summary)
     _write(paths["dedup_audit"], dedup)
     _write(paths["canary_plan"], _canary_plan(request, publication))
+    _write(
+        paths["dynamic_mechanism_canary_plan"],
+        _dynamic_mechanism_canary_plan(request, episodes),
+    )
     for batch_number in range(1, 11):
         rows = [
             item for item in episodes if item["batch_id"] == f"batch_{batch_number:02d}"

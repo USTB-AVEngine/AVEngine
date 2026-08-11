@@ -20,6 +20,9 @@ FINALIZER_PATH = REPOSITORY / "tools/qa/finalize_strict_two_human_full75_canary.
 PUBLISHER_PATH = (
     REPOSITORY / "tools/qa/publish_strict_two_human_full75_canary_summary.py"
 )
+DYNAMIC_PREFLIGHT_PATH = (
+    REPOSITORY / "tools/qa/build_strict_two_human_dynamic_canary_preflight.py"
+)
 REQUEST_PATH = (
     REPOSITORY / "examples/qa/native_strict_two_human_full_episode_batch_v1.json"
 )
@@ -41,6 +44,7 @@ AUDIT = _module("strict2h_room_audit", AUDIT_PATH)
 DEBUG_BUILDER = _module("strict2h_debug_room_builder", DEBUG_BUILDER_PATH)
 FINALIZER = _module("strict2h_full75_finalizer", FINALIZER_PATH)
 PUBLISHER = _module("strict2h_full75_publisher", PUBLISHER_PATH)
+DYNAMIC_PREFLIGHT = _module("strict2h_dynamic_preflight", DYNAMIC_PREFLIGHT_PATH)
 
 
 def test_full75_finalizer_accepts_ieee_float32_wav(tmp_path: Path) -> None:
@@ -217,6 +221,7 @@ def test_request_is_interim_single_room_and_gpu1_only() -> None:
     assert request["native_room_scope"]["interim_single_room_candidate_bank"] is True
     assert request["formal_episode_count"] == 0
     assert request["qualification_claim"] is False
+    assert request["output_contract"]["full75_gate_canary_count_total"] == 8
     assert request["gpu_policy"] == {
         "physical_gpu_index": 1,
         "graphics_adapter_argument": 1,
@@ -338,27 +343,30 @@ def test_real_debug_room_preflight_is_visual_only_and_fail_closed(
     ).is_file(),
     reason="retained native Apartment 1000-Episode authority is not mounted",
 )
-def test_real_cpu_builder_emits_100_independent_rows(tmp_path: Path) -> None:
-    paths = BUILDER.build(REQUEST_PATH, tmp_path / "plan")
-    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
-    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
-    episodes = manifest["episodes"]
-    assert len(episodes) == 100
-    assert len({item["camera_cluster_id"] for item in episodes}) == 100
-    assert len({item["native_source_scenario_id"] for item in episodes}) == 100
-    assert len({item["dedup_key_text"] for item in episodes}) == 100
-    assert Counter(item["target"]["side"] for item in episodes) == {
-        "left": 50,
-        "right": 50,
+def test_real_dynamic_canary_preflight_selects_four_independent_true_motion_rows(
+    tmp_path: Path,
+) -> None:
+    path = DYNAMIC_PREFLIGHT.build(REQUEST_PATH, tmp_path / "dynamic")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    assert result["status"] == "pass_cpu_motion_geometry_pending_suite_acoustics_gpu1"
+    assert result["dynamic_canary_count"] == 4
+    assert result["dynamic_canary_gpu_pass_count"] == 0
+    assert result["unique_source_scenario_count"] == 4
+    assert result["unique_camera_cluster_count"] == 4
+    assert result["target_side_counts"] == {"left": 2, "right": 2}
+    assert result["source_motion_pattern_counts"] == {
+        "both_moving": 248,
+        "both_static": 252,
+        "source1_only_moving": 252,
+        "source2_only_moving": 248,
     }
-    assert Counter(item["mechanism"] for item in episodes) == {
-        "both_static": 20,
-        "target_moves": 20,
-        "distractor_moves": 20,
-        "both_move": 20,
-        "camera_pan_both_static": 20,
-    }
-    assert all(item["formal"] is False for item in episodes)
-    assert summary["single_room_mechanism_pilot_count"] == 20
-    assert summary["final_multi_room_episode_count"] == 0
-    assert summary["batch_launch_authorized"] is False
+    assert [item["mechanism"] for item in result["canaries"]] == [
+        "target_moves",
+        "distractor_moves",
+        "both_move",
+        "camera_pan_both_static",
+    ]
+    assert all(
+        item["motion_preflight"]["status"] == "pass" for item in result["canaries"]
+    )
+    assert all(item["gpu_launch_authorized"] is False for item in result["canaries"])

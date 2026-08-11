@@ -28,7 +28,9 @@
     "final_multi_room_minimum_ready_room_count": 3,
     "batch_size": 10,
     "batch_count": 10,
-    "full75_canary_count": 4,
+    "static_full75_pipeline_canary_count": 4,
+    "dynamic_full75_mechanism_canary_count": 4,
+    "full75_gate_canary_count_total": 8,
     "candidate_manifest": "manifest.json",
     "summary": "summary.json",
     "dedup_audit": "dedup_audit.json",
@@ -124,6 +126,13 @@
     "both_move",
     "camera_pan_both_static"
   ],
+  "motion_contract": {
+    "minimum_moving_horizontal_path_length_m": 0.5,
+    "minimum_moving_maximum_displacement_from_start_m": 0.25,
+    "minimum_moving_unique_root_positions_at_1mm": 10,
+    "maximum_static_horizontal_drift_m": 0.000001,
+    "minimum_camera_pan_total_degrees": 5.9
+  },
   "gpu_policy": {
     "physical_gpu_index": 1,
     "graphics_adapter_argument": 1,
