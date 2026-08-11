@@ -4,11 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import math
+import os
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from avengine.m7.sensor_rig import validate_m7_rir_listener_alignment
+from avengine.sensor_rig_trajectory import (
+    materialize_sensor_rig_trajectory,
+    validate_sensor_rig_trajectory,
+)
 
 FRAME_COUNT = 75
 FPS = 15
@@ -21,6 +30,20 @@ PACKAGED_MAP = (
 PACKAGE_ID = "habitat_test_skokloster_castle_raw_research_v1_rlr_incompatible_filter_v2"
 MALE_ASSET = "rocketbox_human_male_adult_01_m5_1_candidate"
 FEMALE_ASSET = "lead_b_rocketbox_adults_female_adult_01_original_v1"
+REMOTE_REPOSITORY = Path("/data/jzy/code/AVEngine-lead-a")
+HABITAT_RUNTIME_ROOT = "/data/jzy/code/habitat-sim-AVEngine"
+SOUNDSPACES_ROOT = "/data/jzy/code/sound-spaces"
+SKOKLOSTER_RLR48_PACKAGE_ROOT = Path(
+    "/tmp/skokloster_strict_room_atom_run/clean_package"
+)
+HABITAT_PYTHON = Path("/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python")
+HABITAT_PATH = (
+    "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:"
+    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+)
+HABITAT_EDITABLE_BUILD = (
+    "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
+)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -43,6 +66,97 @@ def _write(path: Path, value: object) -> None:
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def validate_rir_execution_environment(environment: Mapping[str, Any]) -> None:
+    """Reject a Skokloster RIR plan that is not bound to the native CPU runtime."""
+
+    required = {
+        "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
+        "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,
+        "AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT": str(SKOKLOSTER_RLR48_PACKAGE_ROOT),
+        "PATH": HABITAT_PATH,
+        "PYTHONPATH": str(REMOTE_REPOSITORY / "src"),
+        "SKBUILD_EDITABLE_SKIP": HABITAT_EDITABLE_BUILD,
+        "NUMBA_DISABLE_JIT": "1",
+        "CUDA_VISIBLE_DEVICES": "",
+    }
+    for name, expected in required.items():
+        value = environment.get(name)
+        _require(isinstance(value, str), f"RIR execution environment lacks {name}")
+        _require(value == expected, f"RIR execution environment drifted {name}")
+
+
+def validate_rir_runtime_binding(
+    python_executable: str | Path,
+    environment: Mapping[str, Any],
+) -> None:
+    """Bind RLR to the reviewed Habitat interpreter and fail on substitutions."""
+
+    _require(
+        Path(python_executable) == HABITAT_PYTHON,
+        "RIR runtime interpreter differs from the authoritative Habitat Python",
+    )
+    validate_rir_execution_environment(environment)
+
+
+def probe_rir_runtime(output: Path) -> Path:
+    """Import the native RLR stack in order and prove CUDA stayed uninitialized."""
+
+    validate_rir_runtime_binding(sys.executable, os.environ)
+    _require(not output.exists(), f"refusing to replace runtime probe: {output}")
+    numpy = importlib.import_module("numpy")
+    quaternion = importlib.import_module("quaternion")
+    habitat_sim = importlib.import_module("habitat_sim")
+    avengine = importlib.import_module("avengine")
+    driver = importlib.import_module("numba.cuda.cudadrv.driver")
+
+    avengine_path = Path(avengine.__file__).resolve()
+    expected_avengine_path = (REMOTE_REPOSITORY / "src/avengine/__init__.py").resolve()
+    _require(
+        avengine_path == expected_avengine_path,
+        "runtime probe imported avengine from an unreviewed checkout",
+    )
+    cuda_initialized = bool(driver.driver.is_initialized)
+    _require(not cuda_initialized, "runtime probe initialized CUDA unexpectedly")
+    receipt = {
+        "schema": "avengine_skokloster_rir_runtime_probe_v1",
+        "status": "pass",
+        "python_executable": str(Path(sys.executable).resolve()),
+        "versions": {
+            "python": sys.version.split()[0],
+            "numpy": numpy.__version__,
+            "quaternion": getattr(quaternion, "__version__", None),
+            "habitat_sim": getattr(habitat_sim, "__version__", None),
+        },
+        "avengine_source": str(avengine_path),
+        "import_order": ["numpy", "quaternion", "habitat_sim", "avengine"],
+        "environment": {
+            name: os.environ[name]
+            for name in (
+                "PATH",
+                "PYTHONPATH",
+                "SKBUILD_EDITABLE_SKIP",
+                "NUMBA_DISABLE_JIT",
+                "CUDA_VISIBLE_DEVICES",
+                "AVENGINE_HABITAT_RUNTIME_ROOT",
+                "AVENGINE_SOUNDSPACES_ROOT",
+                "AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT",
+            )
+        },
+        "compute_device": "CPU",
+        "gpu_required": False,
+        "cuda_initialized": cuda_initialized,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _write(output, receipt)
+    print(
+        f"SKOKLOSTER_RIR_RUNTIME_PROBE_OK output={output} cuda_initialized=false",
+        flush=True,
+    )
+    return output
 
 
 def _vector(value: Any, *, length: int, owner: str) -> list[float]:
@@ -349,7 +463,6 @@ def _build_documents(
     camera_ue_yaw = -90.0 - yaw
     actors = [_actor_declaration(item) for item in request["actors"]]
     frames: list[dict[str, Any]] = []
-    rig_frames: list[dict[str, Any]] = []
     for frame_index in range(FRAME_COUNT):
         pts = frame_index * TICKS_PER_FRAME
         camera_state = {
@@ -373,14 +486,16 @@ def _build_documents(
                 ],
             }
         )
-        rig_frames.append(
-            {
-                "frame_index": frame_index,
-                "pts_ticks": pts,
-                "pose_id": camera_state["pose_id"],
-                "world_from_rig": world_from_rig,
-            }
-        )
+
+    sensor_rig_trajectory_id = f"{episode_id}__sensor_rig_v3"
+    rig = materialize_sensor_rig_trajectory(
+        trajectory_id=sensor_rig_trajectory_id,
+        program={"kind": "HOLD", "position_m": camera, "yaw_deg": yaw},
+    )
+    _require(
+        not validate_sensor_rig_trajectory(rig),
+        "canonical SensorRigTrajectory validator rejected the static hold",
+    )
 
     plan = {
         "schema": "avengine_optional_spear_visual_plan_v1",
@@ -396,7 +511,7 @@ def _build_documents(
             "ue_position_cm": camera_ue,
             "ue_yaw_deg": camera_ue_yaw,
             "horizontal_fov_deg": 105.0,
-            "sensor_rig_trajectory_id": f"{episode_id}__sensor_rig",
+            "sensor_rig_trajectory_id": sensor_rig_trajectory_id,
         },
         "coordinate_contract": {
             "source_to_habitat": "H=(S.x,S.z,-S.y)",
@@ -486,18 +601,6 @@ def _build_documents(
         "qualification_claim": False,
         "formal_dataset_count": 0,
     }
-    rig = {
-        "schema": "avengine_sensor_rig_trajectory_v1",
-        "trajectory_id": f"{episode_id}__sensor_rig",
-        "formal_view_id": "view0",
-        "camera_listener_coupling": "rigid_colocated_cooriented",
-        "coordinate_frame": "avengine_world_right_handed_y_up_m",
-        "frame_count": FRAME_COUNT,
-        "frame_rate_hz": FPS,
-        "duration_ticks": FRAME_COUNT * TICKS_PER_FRAME,
-        "frames": rig_frames,
-    }
-
     roots = {
         actor["source_slot_id"]: _vector(
             actor["root_habitat_m"], length=3, owner="actor root"
@@ -615,6 +718,15 @@ def _build_documents(
         "qualification_claim": False,
         "formal_dataset_count": 0,
     }
+    alignment = validate_m7_rir_listener_alignment(
+        rir_job_plan=rir_plan,
+        sensor_rig_trajectory=rig,
+    )
+    _require(
+        alignment.get("listener_pose_mode") == "fixed"
+        and alignment.get("checked_use_count") == 150,
+        "canonical SensorRigTrajectory does not align with all RIR uses",
+    )
     audio_plan = {
         "schema": "avengine_skokloster_strict_audio_program_binding_v1",
         "status": "validated_canonical_program_pending_exact_rir_render",
@@ -664,9 +776,22 @@ def _build_documents(
 def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     execution = request["execution"]
     repository = Path(execution["repository"])
+    _require(repository == REMOTE_REPOSITORY, "execution repository drift")
     output_root = Path(execution["output_root"])
-    rir_cache = output_root / "exact_rir_cache_v1"
-    binaural = output_root / "binaural_v1"
+    runtime_probe = output / "rir_runtime_probe.json"
+    rir_cache = output_root / "exact_rir_cache_v3"
+    binaural = output_root / "binaural_v4"
+    rir_environment = {
+        "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
+        "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,
+        "AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT": str(SKOKLOSTER_RLR48_PACKAGE_ROOT),
+        "PATH": HABITAT_PATH,
+        "PYTHONPATH": str(repository / "src"),
+        "SKBUILD_EDITABLE_SKIP": HABITAT_EDITABLE_BUILD,
+        "NUMBA_DISABLE_JIT": "1",
+        "CUDA_VISIBLE_DEVICES": "",
+    }
+    validate_rir_runtime_binding(HABITAT_PYTHON, rir_environment)
     common_capture = [
         execution["python"],
         execution["capture_runner"],
@@ -691,25 +816,71 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
                 "attempt_id": "cpu_preflight_v1",
                 "status": "rejected_before_rir_execution",
                 "reason": "noncanonical listener pose mode failed the real RIR validator",
-            }
+            },
+            {
+                "attempt_id": "cpu_preflight_v2",
+                "status": "rejected_during_rir_execution",
+                "reason": (
+                    "repository Python lacked numpy-quaternion; exact_rir_cache_v1 "
+                    "failed before rendering any job"
+                ),
+                "failed_cache": str(output_root / "exact_rir_cache_v1"),
+                "rendered_job_count": 0,
+            },
+            {
+                "attempt_id": "cpu_preflight_v3",
+                "status": "audio_plan_rejected_after_rir_pass",
+                "reason": (
+                    "handwritten sensor rig did not satisfy the authoritative M7 "
+                    "SensorRigTrajectory validator"
+                ),
+                "retained_rir_cache": str(output_root / "exact_rir_cache_v2"),
+                "retained_rir_job_count": 2,
+                "failed_audio_attempt": "binaural_v2",
+            },
         ],
         "generated_preflight_root": str(output.resolve()),
         "runtime_output_root": str(output_root),
         "cpu_steps": [
             {
-                "step_id": "render_two_exact_binaural_rirs",
+                "step_id": "probe_authoritative_habitat_rir_runtime",
                 "status": "planned_not_run",
                 "working_directory": str(repository),
-                "environment": {
-                    "AVENGINE_HABITAT_RUNTIME_ROOT": (
-                        "/data/jzy/code/habitat-sim-AVEngine"
-                    ),
-                    "AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT": str(
-                        Path(request["room"]["acoustic_package_manifest"]).parent
-                    ),
-                },
+                "environment": rir_environment,
                 "argv": [
-                    execution["python"],
+                    str(HABITAT_PYTHON),
+                    str(
+                        repository
+                        / "tools/qa/build_skokloster_strict_two_human_preflight.py"
+                    ),
+                    "--runtime-probe-output",
+                    str(runtime_probe),
+                ],
+                "expected": {
+                    "receipt": str(runtime_probe),
+                    "status": "pass",
+                    "python": "3.12.13",
+                    "numpy": "2.3.5",
+                    "quaternion": "2024.0.13",
+                    "habitat_sim": "0.3.3",
+                    "avengine_source": str(repository / "src/avengine/__init__.py"),
+                    "compute_device": "CPU",
+                    "cuda_initialized": False,
+                    "qualification_claim": False,
+                },
+            },
+            {
+                "step_id": "render_two_exact_binaural_rirs",
+                "attempt_id": "exact_rir_cache_v3",
+                "supersedes_failed_attempts": ["exact_rir_cache_v1"],
+                "prior_valid_cache_not_reusable_for_plan_path": str(
+                    output_root / "exact_rir_cache_v2"
+                ),
+                "status": "planned_not_run",
+                "working_directory": str(repository),
+                "environment": rir_environment,
+                "argv": [
+                    str(HABITAT_PYTHON),
                     str(repository / "tools/m6x/render_rir_cache.py"),
                     "--rir-job-plan",
                     str(output / "rir_job_plan.json"),
@@ -816,7 +987,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
 
 
 def _preflight(
-    request: Mapping[str, Any], evidence: Mapping[str, Any]
+    request: Mapping[str, Any], evidence: Mapping[str, Any], attempt_id: str
 ) -> dict[str, Any]:
     gates = {
         "old_near_listener_rejected": "pass",
@@ -840,13 +1011,31 @@ def _preflight(
     return {
         "schema": "avengine_skokloster_strict_two_human_cpu_preflight_v1",
         "status": "cpu_plan_pass_gpu_sparse_pending",
-        "attempt_id": "cpu_preflight_v2",
+        "attempt_id": attempt_id,
         "supersedes": [
             {
                 "attempt_id": "cpu_preflight_v1",
                 "status": "rejected_before_rir_execution",
                 "reason": "noncanonical listener pose mode failed the real RIR validator",
-            }
+            },
+            {
+                "attempt_id": "cpu_preflight_v2",
+                "status": "rejected_during_rir_execution",
+                "reason": (
+                    "repository Python lacked numpy-quaternion; no RIR job rendered"
+                ),
+                "rendered_job_count": 0,
+            },
+            {
+                "attempt_id": "cpu_preflight_v3",
+                "status": "audio_plan_rejected_after_rir_pass",
+                "reason": (
+                    "handwritten sensor rig did not satisfy the authoritative M7 "
+                    "SensorRigTrajectory validator"
+                ),
+                "retained_rir_job_count": 2,
+                "failed_audio_attempt": "binaural_v2",
+            },
         ],
         "episode_id": request["episode_id"],
         "camera_listener_habitat_m": evidence["camera_listener_habitat_m"],
@@ -915,7 +1104,7 @@ def build(args: argparse.Namespace) -> Path:
     output.mkdir(parents=True)
     documents = _build_documents(request, evidence)
     documents["execution_plan.json"] = _execution_plan(request, output)
-    documents["preflight.json"] = _preflight(request, evidence)
+    documents["preflight.json"] = _preflight(request, evidence, output.name)
     for name, value in documents.items():
         _write(output / name, value)
     print(
@@ -928,7 +1117,8 @@ def build(args: argparse.Namespace) -> Path:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--request", required=True, type=Path)
+    parser.add_argument("--runtime-probe-output", type=Path)
+    parser.add_argument("--request", type=Path)
     parser.add_argument("--listener-search", type=Path)
     parser.add_argument("--near-rejection", type=Path)
     parser.add_argument("--runtime-profile", type=Path)
@@ -937,12 +1127,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--simulation-request", type=Path)
     parser.add_argument("--audio-program", type=Path)
     parser.add_argument("--audio-binding", type=Path)
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--output", type=Path)
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    build(parse_args(argv))
+    args = parse_args(argv)
+    if args.runtime_probe_output is not None:
+        _require(args.request is None, "runtime probe may not also build a request")
+        _require(args.output is None, "runtime probe may not also build an output")
+        probe_rir_runtime(args.runtime_probe_output.resolve())
+        return 0
+    _require(args.request is not None, "--request is required when building")
+    _require(args.output is not None, "--output is required when building")
+    build(args)
     return 0
 
 

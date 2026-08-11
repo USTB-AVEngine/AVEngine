@@ -158,11 +158,113 @@ def test_real_rir_validator_accepts_legacy_fixed_listener_plan() -> None:
     )
 
 
-def test_generated_documents_do_not_add_digest_fields() -> None:
+def test_rir_execution_uses_authoritative_runtime_and_path_closed_v3_cache() -> None:
+    request, _, _ = fixtures()
+    output = Path(
+        "/data/jzy/code/AVEngine-lead-a/tmp/"
+        "lead_a_skokloster_strict_two_human_v1/cpu_preflight_v4"
+    )
+    execution = MODULE._execution_plan(request, output)
+    runtime_step, rir_step, audio_step = execution["cpu_steps"]
+    expected_environment = {
+        "AVENGINE_HABITAT_RUNTIME_ROOT": "/data/jzy/code/habitat-sim-AVEngine",
+        "AVENGINE_SOUNDSPACES_ROOT": "/data/jzy/code/sound-spaces",
+        "AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT": (
+            "/tmp/skokloster_strict_room_atom_run/clean_package"
+        ),
+        "PATH": (
+            "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:"
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ),
+        "PYTHONPATH": "/data/jzy/code/AVEngine-lead-a/src",
+        "SKBUILD_EDITABLE_SKIP": (
+            "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
+        ),
+        "NUMBA_DISABLE_JIT": "1",
+        "CUDA_VISIBLE_DEVICES": "",
+    }
+    habitat_python = "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python"
+    assert runtime_step["step_id"] == "probe_authoritative_habitat_rir_runtime"
+    assert runtime_step["argv"][0] == habitat_python
+    assert runtime_step["environment"] == expected_environment
+    assert runtime_step["expected"]["cuda_initialized"] is False
+    assert rir_step["attempt_id"] == "exact_rir_cache_v3"
+    assert rir_step["supersedes_failed_attempts"] == ["exact_rir_cache_v1"]
+    assert rir_step["argv"][:2] == [
+        habitat_python,
+        "/data/jzy/code/AVEngine-lead-a/tools/m6x/render_rir_cache.py",
+    ]
+    assert rir_step["environment"] == expected_environment
+    assert rir_step["argv"][rir_step["argv"].index("--output") + 1].endswith(
+        "/exact_rir_cache_v3"
+    )
+    assert audio_step["argv"][audio_step["argv"].index("--output") + 1].endswith(
+        "/binaural_v4"
+    )
+    MODULE.validate_rir_runtime_binding(habitat_python, expected_environment)
+    for missing_name in expected_environment:
+        mutation = dict(expected_environment)
+        mutation.pop(missing_name)
+        with pytest.raises(RuntimeError, match=missing_name):
+            MODULE.validate_rir_execution_environment(mutation)
+
+
+def test_rejects_wrong_rir_interpreter_even_with_valid_environment() -> None:
+    valid_environment = {
+        "AVENGINE_HABITAT_RUNTIME_ROOT": MODULE.HABITAT_RUNTIME_ROOT,
+        "AVENGINE_SOUNDSPACES_ROOT": MODULE.SOUNDSPACES_ROOT,
+        "AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT": str(
+            MODULE.SKOKLOSTER_RLR48_PACKAGE_ROOT
+        ),
+        "PATH": MODULE.HABITAT_PATH,
+        "PYTHONPATH": str(MODULE.REMOTE_REPOSITORY / "src"),
+        "SKBUILD_EDITABLE_SKIP": MODULE.HABITAT_EDITABLE_BUILD,
+        "NUMBA_DISABLE_JIT": "1",
+        "CUDA_VISIBLE_DEVICES": "",
+    }
+    with pytest.raises(RuntimeError, match="runtime interpreter"):
+        MODULE.validate_rir_runtime_binding(
+            "/data/jzy/code/AVEngine-lead-a/.venv/bin/python",
+            valid_environment,
+        )
+
+
+def test_canonical_sensor_rig_validates_and_aligns_all_rir_uses() -> None:
+    sensor_rig = pytest.importorskip("avengine.sensor_rig_trajectory")
+    m7_sensor_rig = pytest.importorskip("avengine.m7.sensor_rig")
     request, _, evidence = fixtures()
     documents = MODULE._build_documents(request, evidence)
+    rig = documents["sensor_rig_trajectory.json"]
+    assert sensor_rig.validate_sensor_rig_trajectory(rig) == []
+    binding = m7_sensor_rig.m7_sensor_rig_binding(rig)
+    assert binding["dynamic"] is False
+    assert rig["trajectory_id"].endswith("__sensor_rig_v3")
+    assert len(rig["frames"]) == 75
+    assert all(
+        frame["world_from_rig"]["translation_m"]
+        == evidence["camera_listener_habitat_m"]
+        for frame in rig["frames"]
+    )
+    alignment = m7_sensor_rig.validate_m7_rir_listener_alignment(
+        rir_job_plan=documents["rir_job_plan.json"],
+        sensor_rig_trajectory=rig,
+    )
+    assert alignment["listener_pose_mode"] == "fixed"
+    assert alignment["checked_use_count"] == 150
+
+
+def test_only_canonical_sensor_rig_uses_internal_pose_identity() -> None:
+    sensor_rig = pytest.importorskip("avengine.sensor_rig_trajectory")
+    request, _, evidence = fixtures()
+    documents = MODULE._build_documents(request, evidence)
+    rig = documents.pop("sensor_rig_trajectory.json")
     keys = [value.lower() for value in walk(documents) if isinstance(value, str)]
     assert not any("sha256" in value or "hash" in value for value in keys)
+    assert rig["pose_hash_algorithm"] == sensor_rig.POSE_HASH_ALGORITHM
+    assert all(
+        set(frame) == {"frame_index", "pts_ticks", "world_from_rig", "pose_hash"}
+        for frame in rig["frames"]
+    )
 
 
 def test_rejects_decoupled_camera_listener() -> None:
