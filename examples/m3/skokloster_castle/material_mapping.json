@@ -1,0 +1,29 @@
+{
+  "schema": "avengine_m3_acoustic_material_mapping_v1",
+  "mapping_id": "skokloster_single_visual_slot_research_v1",
+  "room_id": "habitat_test_skokloster_castle",
+  "mapping_source_kind": "visual_material_slot_proposal",
+  "source_to_canonical": {
+    "matrix_row_major": [
+      1.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      0.0, -1.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 1.0
+    ],
+    "source": "Exact Skokloster legacy Habitat test-scene POSITION conversion H=(S.x,S.z,-S.y), established by GLB/navmesh bound alignment",
+    "reviewed": true
+  },
+  "entries": [
+    {
+      "source_material_name": "model_Material_u1_v1",
+      "material_id": 0,
+      "category_name": "skokloster_unreviewed_surface",
+      "material_key": "skokloster_research_placeholder",
+      "mapping_source": "The GLB exposes one visual slot; it does not identify physical surface materials",
+      "mapping_confidence": 1.0,
+      "human_override": true,
+      "randomized": false,
+      "fallback": false
+    }
+  ]
+}

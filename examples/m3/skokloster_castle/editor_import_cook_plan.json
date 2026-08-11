@@ -1,0 +1,168 @@
+{
+  "schema": "avengine_skokloster_editor_import_cook_plan_v1",
+  "status": "packaged_room_object_readback_pass_visual_sparse_pending",
+  "remote_repository": "/data/jzy/code/AVEngine-lead-a",
+  "spear_root": "/data/jzy/code/AVEngine/external/SPEAR",
+  "unreal_project": "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim/SpearSim.uproject",
+  "unreal_engine_root": "/data/UE_5.5",
+  "unreal_engine_version": {
+    "major": 5,
+    "minor": 5,
+    "patch": 4,
+    "changelist": 40574608,
+    "is_promoted_build": true
+  },
+  "managed_content_root": "/Game/MyAssets/Audioset/Scenes/skokloster_castle",
+  "preflight": {
+    "snapshot_phase": "before_editor_import",
+    "uproject_present": true,
+    "managed_content_filesystem_target_absent": true,
+    "unreal_editor_at_declared_root_present": true,
+    "run_uat_at_declared_root_present": true,
+    "unreal_editor_path": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+    "unreal_editor_cmd_path": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor-Cmd",
+    "run_uat_path": "/data/UE_5.5/Engine/Build/BatchFiles/RunUAT.sh",
+    "actual_import_authorized_in_this_atom": true,
+    "cook_authorized_in_this_atom": true,
+    "no_clobber": true
+  },
+  "execution_history": {
+    "editor_import": {
+      "status": "pass",
+      "pid": 1152739,
+      "result": "artifacts/editor_import_result.json"
+    },
+    "fresh_editor_reload": {
+      "status": "pass",
+      "pid": 1155191,
+      "map_check_errors": 0,
+      "map_check_warnings": 0,
+      "result": "artifacts/editor_fresh_reload_result.json"
+    },
+    "uat_test_v1": {
+      "status": "rejected",
+      "failure_phase": "build",
+      "failure_reason": "installed UE distribution cannot build Test configuration",
+      "archive_created": false,
+      "result": "artifacts/uat_test_v1_exit.json"
+    },
+    "uat_development_v3": {
+      "status": "pass",
+      "exit_code": 0,
+      "archive_created": true,
+      "archive_dir": "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim/Standalone-Skokloster-Development",
+      "pak_count": 1,
+      "result": "artifacts/uat_development_v3/EXIT.json"
+    },
+    "packaged_object_readback_v1": {
+      "status": "rejected",
+      "asset_or_map_failure": false,
+      "failure_reason": "probe API branch attempted to call a noncallable StaticMesh property proxy",
+      "result": "artifacts/packaged_object_readback_v1_rejected.json"
+    },
+    "packaged_object_readback_v2": {
+      "status": "pass",
+      "nullrhi": true,
+      "rendering_or_capture_called": false,
+      "result": "artifacts/packaged_object_readback_v2/RESULT.json"
+    }
+  },
+  "next_cook_plan": {
+    "status": "completed_pass",
+    "direct_run_uat": true,
+    "archive_dir": "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim/Standalone-Skokloster-Development",
+    "archive_was_absent_before_execution": true,
+    "clean_archive_dir": false,
+    "build_config": "Development",
+    "argv": [
+      "/data/UE_5.5/Engine/Build/BatchFiles/RunUAT.sh",
+      "BuildCookRun",
+      "-project=/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim/SpearSim.uproject",
+      "-target=SpearSim",
+      "-targetplatform=Linux",
+      "-clientconfig=Development",
+      "-archivedirectory=/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim/Standalone-Skokloster-Development",
+      "-build",
+      "-cook",
+      "-stage",
+      "-package",
+      "-archive",
+      "-pak",
+      "-map=/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict"
+    ]
+  },
+  "steps": [
+    {
+      "step_id": "prepare_canonical_interchange_glb",
+      "compute": "CPU",
+      "argv": [
+        "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python",
+        "/data/jzy/code/AVEngine-lead-a/tools/m6y/prepare_skokloster_interchange_glb.py",
+        "--source", "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/habitat_test_scenes_v1.0/skokloster-castle.glb",
+        "--output", "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_skokloster_castle_room_v1/prepared/skokloster_castle_habitat_y_up.glb",
+        "--report", "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_skokloster_castle_room_v1/prepared/report.json"
+      ]
+    },
+    {
+      "step_id": "editor_interchange_import",
+      "blocked_until": "target root is absent and explicit import GO is recorded",
+      "environment": {
+        "AVENGINE_SKOKLOSTER_IMPORT_REQUEST": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_import_request.json",
+        "AVENGINE_SKOKLOSTER_EDITOR_RESULT": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_skokloster_castle_room_v1/editor/import_result.json"
+      },
+      "argv": [
+        "/data/jzy/miniconda3/envs/spear-env/bin/python",
+        "/data/jzy/code/AVEngine/external/SPEAR/tools/run_editor_script.py",
+        "--script", "/data/jzy/code/AVEngine-lead-a/tools/m6y/import_spear_skokloster_editor.py",
+        "--unreal-engine-dir", "/data/UE_5.5",
+        "--unreal-project-dir", "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim",
+        "--launch-mode", "commandlet"
+      ]
+    },
+    {
+      "step_id": "fresh_editor_reload_verify",
+      "blocked_until": "editor import passed and first process exited",
+      "environment": {
+        "AVENGINE_SKOKLOSTER_IMPORT_REQUEST": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_import_request.json",
+        "AVENGINE_SKOKLOSTER_EDITOR_RESULT": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_skokloster_castle_room_v1/editor/fresh_reload_result.json",
+        "AVENGINE_SKOKLOSTER_VERIFY_ONLY": "1"
+      },
+      "argv": [
+        "/data/jzy/miniconda3/envs/spear-env/bin/python",
+        "/data/jzy/code/AVEngine/external/SPEAR/tools/run_editor_script.py",
+        "--script", "/data/jzy/code/AVEngine-lead-a/tools/m6y/import_spear_skokloster_editor.py",
+        "--unreal-engine-dir", "/data/UE_5.5",
+        "--unreal-project-dir", "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim",
+        "--launch-mode", "commandlet"
+      ]
+    },
+    {
+      "step_id": "cook_isolated_content_and_map",
+      "authorization": "historical_test_v1_authorized_and_rejected",
+      "execution_status": "rejected_before_cook_in_build_phase",
+      "blocked_until": "fresh editor reload passed and a separate cook GO is received",
+      "cook_scope_note": "Audioset is already DirectoriesToAlwaysCook; omit --cook-dirs to avoid wrapper path doubling",
+      "argv": [
+        "/data/jzy/miniconda3/envs/spear-env/bin/python",
+        "/data/jzy/code/AVEngine/external/SPEAR/tools/run_uat.py",
+        "--unreal-engine-dir", "/data/UE_5.5",
+        "--unreal-project-dir", "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim",
+        "--skip-cook-default-maps",
+        "--cook-maps", "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict",
+        "--build-config", "Test",
+        "-build",
+        "-cook",
+        "-stage",
+        "-package",
+        "-archive",
+        "-pak"
+      ]
+    }
+  ],
+  "release_blockers": [
+    "strict visual sparse f15 capture and human bbox review have not run",
+    "CC BY 4.0 attribution must ship with any redistributed visual derivative"
+  ],
+  "qualification_claim": false,
+  "formal_dataset_count": 0
+}
