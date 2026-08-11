@@ -51,6 +51,19 @@ def test_dynamic_expected_rir_counts_are_not_static_two_job_counts() -> None:
     }
 
 
+def test_camera_pan_motion_contract_requires_static_actors_and_75_orientations() -> (
+    None
+):
+    assert TOOL.EXPECTED_MOTION["camera_pan_both_static"] == {
+        "action_counts": {
+            "source1": {"idle": 75, "walk": 0},
+            "source2": {"idle": 75, "walk": 0},
+        },
+        "interpolated_slots": [],
+        "listener_orientation_count": 75,
+    }
+
+
 def test_float32_wav_contract_and_exact_silence(tmp_path: Path) -> None:
     samples = np.zeros((80_000, 2), dtype=np.float32)
     path = tmp_path / "silent.wav"

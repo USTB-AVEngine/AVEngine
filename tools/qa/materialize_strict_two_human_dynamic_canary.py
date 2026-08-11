@@ -93,6 +93,12 @@ EXPECTED_ACOUSTICS = {
         "unique": 76,
         "reuse": 74,
     },
+    "camera_pan_both_static": {
+        "motion_case": "source1_static_source2_static_camera_pan",
+        "per_slot_distinct": {"source1": 75, "source2": 75},
+        "unique": 150,
+        "reuse": 0,
+    },
 }
 
 
@@ -520,10 +526,24 @@ def _suite(
         "sound_asset_registry": "controlled_audio_program/sound_asset_registry.json",
         "audio_program": "controlled_audio_program/audio_program.json",
     }
+    camera_pan = row["mechanism"] == "camera_pan_both_static"
     template["reuse_contract"] = {
-        "camera_and_room": "retained Apartment native room; selected independent camera cluster",
-        "actor_roots": "all 75 roots copied from exact retained native root readbacks",
-        "actor_yaws": "moving actor follows native anatomical heading; held actor faces camera",
+        "camera_and_room": (
+            "retained Apartment native room; mechanism-only common camera center "
+            "with 75 applied listener orientations"
+            if camera_pan
+            else "retained Apartment native room; selected independent camera cluster"
+        ),
+        "actor_roots": (
+            "both actor roots are held at exact retained native human readbacks"
+            if camera_pan
+            else "all 75 roots copied from exact retained native root readbacks"
+        ),
+        "actor_yaws": (
+            "both held actors face the camera center and remain static"
+            if camera_pan
+            else "moving actor follows native anatomical heading; held actor faces camera"
+        ),
         "audio": "source1 controlled speech only; source2 is explicitly silent",
     }
     template["camera_trajectory_binding"] = {
@@ -943,6 +963,21 @@ def _materialize_into(
     declarations[1]["actor_id"] = "source2_actor"
     declarations[1]["runtime_asset_expectation"]["source_slot_id"] = "source2"
     sensor_rig = _sensor_rig(row)
+    listener_orientations_xyzw = [
+        tuple(float(value) for value in frame["world_from_rig"]["rotation_xyzw"])
+        for frame in sensor_rig["frames"]
+    ]
+    distinct_listener_orientation_count = len(set(listener_orientations_xyzw))
+    if mechanism == "camera_pan_both_static":
+        _require(
+            distinct_listener_orientation_count == FRAME_COUNT,
+            "camera pan must apply 75 distinct listener orientations",
+        )
+    else:
+        _require(
+            distinct_listener_orientation_count == 1,
+            f"{mechanism} must retain one listener orientation",
+        )
     suite = _suite(
         base_suite=base_suite,
         row=row,
@@ -1129,6 +1164,16 @@ def _materialize_into(
             "applied_frame_count": 75,
             "listener_coupled_to_camera": True,
             "distinct_listener_pose_count": rir_plan["unique_listener_pose_count"],
+            "distinct_listener_orientation_count": (
+                distinct_listener_orientation_count
+            ),
+            "habitat_yaw_path_deg": [
+                float(value) for value in row["camera"]["yaw_path_deg"]
+            ],
+            "habitat_yaw_span_deg": (
+                max(float(value) for value in row["camera"]["yaw_path_deg"])
+                - min(float(value) for value in row["camera"]["yaw_path_deg"])
+            ),
         },
         "dynamic_acoustics": {
             "status": "planned_not_run",

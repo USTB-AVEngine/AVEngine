@@ -38,6 +38,7 @@ def _request_fixture(tmp_path: Path, mechanism: str = "target_moves") -> Path:
                 "human_border_collie__recombined_both_moving_0523"
             ),
             "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
+            "expected_unique_rir_job_count": 76,
         },
         "distractor_moves": {
             "episode_id": "strict2h_dynamic_canary_02_distractor_moves_v2",
@@ -49,6 +50,17 @@ def _request_fixture(tmp_path: Path, mechanism: str = "target_moves") -> Path:
                 "human_border_collie__recombined_both_moving_0589"
             ),
             "expected_rir_count_by_source_slot": {"source1": 1, "source2": 75},
+            "expected_unique_rir_job_count": 76,
+        },
+        "camera_pan_both_static": {
+            "episode_id": "strict2h_dynamic_canary_04_camera_pan_both_static_v2",
+            "candidate_revision": "camera_pan_v2_0589_right_target_yaw52_58_v1",
+            "materialization_basename": "dynamic_camera_pan_v2_materialized_v1",
+            "capture_basename": "dynamic_camera_pan_v2_capture_attempt_01",
+            "moving_source_slot": None,
+            "native_source_scenario_id": None,
+            "expected_rir_count_by_source_slot": {"source1": 75, "source2": 75},
+            "expected_unique_rir_job_count": 150,
         },
     }
     profile = profiles[mechanism]
@@ -81,23 +93,35 @@ def _request_fixture(tmp_path: Path, mechanism: str = "target_moves") -> Path:
                 "status": "pass",
                 "frame_count": 75,
                 "requested_source_frame_uses": 150,
-                "expected_unique_rir_job_count": 76,
+                "expected_unique_rir_job_count": profile[
+                    "expected_unique_rir_job_count"
+                ],
                 "expected_rir_count_by_source_slot": profile[
                     "expected_rir_count_by_source_slot"
                 ],
-                "animation_timing": {
-                    profile["moving_source_slot"]: {
-                        "mode": "arc_length_preserving_native_stride_v1",
-                        "path_provenance": {
-                            "native_source_scenario_id": (
-                                profile["native_source_scenario_id"]
-                            ),
-                            "output_root_count": 75,
-                            "output_unique_root_count_at_1mm": 75,
-                            "interior_output_roots_exact_native_frame_readbacks": False,
-                        },
+                "animation_timing": (
+                    {}
+                    if profile["moving_source_slot"] is None
+                    else {
+                        profile["moving_source_slot"]: {
+                            "mode": "arc_length_preserving_native_stride_v1",
+                            "path_provenance": {
+                                "native_source_scenario_id": (
+                                    profile["native_source_scenario_id"]
+                                ),
+                                "output_root_count": 75,
+                                "output_unique_root_count_at_1mm": 75,
+                                "interior_output_roots_exact_native_frame_readbacks": False,
+                            },
+                        }
                     }
+                ),
+                "action_counts": {
+                    "source1": {"idle": 75, "walk": 0},
+                    "source2": {"idle": 75, "walk": 0},
                 },
+                "distinct_listener_orientation_count": 75,
+                "camera_yaw_span_deg": 6.0,
             },
         },
     )
@@ -168,7 +192,7 @@ def test_dynamic_runner_rejects_unsupported_mechanism(tmp_path: Path) -> None:
     request = json.loads(request_path.read_text(encoding="utf-8"))
     request["mechanism"] = "both_move"
     _write_json(request_path, request)
-    with pytest.raises(RuntimeError, match="target_moves or distractor_moves"):
+    with pytest.raises(RuntimeError, match="target_moves, distractor_moves"):
         runner._validate_request(request_path)
 
 
@@ -201,6 +225,52 @@ def test_dynamic_runner_distractor_dry_run_binds_source2_motion(
         "/dynamic_distractor_moves_v2_capture_attempt_01"
     )
     assert "--frame-index" not in receipt["capture_argv"]
+
+
+def test_dynamic_runner_camera_pan_dry_run_binds_static_actors_and_150_rirs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path, "camera_pan_both_static")
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: {
+            "gpus": [
+                {
+                    "physical_index": 1,
+                    "uuid": runner.GPU1_UUID,
+                    "name": "test",
+                }
+            ],
+            "compute_apps": [],
+        },
+    )
+    receipt_path = request_path.parent / "dry_run_receipt.json"
+
+    assert runner.run(request_path, receipt_path, dry_run=True) == 0
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "dry_run_pass"
+    assert receipt["mechanism"] == "camera_pan_both_static"
+    assert receipt["capture_output"].endswith(
+        "/dynamic_camera_pan_v2_capture_attempt_01"
+    )
+    assert "--frame-index" not in receipt["capture_argv"]
+
+
+def test_dynamic_runner_rejects_camera_pan_orientation_drift(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path, "camera_pan_both_static")
+    finalization_path = Path(
+        json.loads(request_path.read_text(encoding="utf-8"))["pre_capture_finalization"]
+    )
+    finalization = json.loads(finalization_path.read_text(encoding="utf-8"))
+    finalization["materialization"]["distinct_listener_orientation_count"] = 74
+    _write_json(finalization_path, finalization)
+
+    with pytest.raises(RuntimeError, match="listener orientation authority drift"):
+        runner._validate_request(request_path)
 
 
 def test_dynamic_runner_rejects_distractor_rir_slot_drift(tmp_path: Path) -> None:

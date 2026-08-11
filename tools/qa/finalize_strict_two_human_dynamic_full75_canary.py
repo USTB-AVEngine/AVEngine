@@ -31,6 +31,40 @@ EXPECTED_ACOUSTICS = {
         "reuse": 0,
     },
 }
+EXPECTED_MOTION = {
+    "target_moves": {
+        "action_counts": {
+            "source1": {"idle": 0, "walk": 75},
+            "source2": {"idle": 75, "walk": 0},
+        },
+        "interpolated_slots": ["source1"],
+        "listener_orientation_count": 1,
+    },
+    "distractor_moves": {
+        "action_counts": {
+            "source1": {"idle": 75, "walk": 0},
+            "source2": {"idle": 0, "walk": 75},
+        },
+        "interpolated_slots": ["source2"],
+        "listener_orientation_count": 1,
+    },
+    "both_move": {
+        "action_counts": {
+            "source1": {"idle": 0, "walk": 75},
+            "source2": {"idle": 0, "walk": 75},
+        },
+        "interpolated_slots": ["source1", "source2"],
+        "listener_orientation_count": 1,
+    },
+    "camera_pan_both_static": {
+        "action_counts": {
+            "source1": {"idle": 75, "walk": 0},
+            "source2": {"idle": 75, "walk": 0},
+        },
+        "interpolated_slots": [],
+        "listener_orientation_count": 75,
+    },
+}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -207,6 +241,13 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
         "suite source activation contradicts AudioProgram",
     )
     root_application = receipt.get("suite_actor_root_application", {})
+    expected_motion = EXPECTED_MOTION[str(mechanism)]
+    _require(
+        root_application.get("status") == "pass_exact_all_75_frames"
+        and root_application.get("maximum_root_path_error_m") == 0.0
+        and root_application.get("action_counts") == expected_motion["action_counts"],
+        "suite action/root application drift",
+    )
     root_provenance = root_application.get("root_path_provenance", {})
     animation_timing = root_application.get("animation_timing", {})
     interpolated_slots = []
@@ -257,11 +298,76 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
             ),
             "suite slow-walk phase path was not applied exactly",
         )
-    expected_interpolated_slot = "source1" if mechanism == "target_moves" else "source2"
     _require(
-        interpolated_slots == [expected_interpolated_slot],
+        interpolated_slots == expected_motion["interpolated_slots"],
         "moving source provenance/timing slot drift",
     )
+
+    camera_application = receipt.get("suite_camera_application", {})
+    sensor_rig = _load(materialization_root / "sensor_rig_trajectory.json")
+    rig_frames = sensor_rig.get("frames", [])
+    _require(
+        camera_application.get("status") == "pass_exact_all_75_frames"
+        and camera_application.get("applied_frame_count") == FRAME_COUNT
+        and camera_application.get("listener_coupled_to_camera") is True
+        and camera_application.get("distinct_listener_orientation_count")
+        == expected_motion["listener_orientation_count"]
+        and len(rig_frames) == FRAME_COUNT,
+        "suite listener orientation application drift",
+    )
+    rig_rotations = [
+        tuple(float(value) for value in frame["world_from_rig"]["rotation_xyzw"])
+        for frame in rig_frames
+    ]
+    suite_rotations = [
+        tuple(
+            float(value)
+            for value in frame["camera_state"]["world_from_rig"]["rotation_xyzw"]
+        )
+        for frame in frames
+    ]
+    _require(
+        suite_rotations == rig_rotations
+        and len(set(rig_rotations)) == expected_motion["listener_orientation_count"],
+        "suite camera rotations do not exactly match sensor-rig authority",
+    )
+    yaw_path = [float(frame["camera_state"]["habitat_yaw_deg"]) for frame in frames]
+    yaw_span_deg = max(yaw_path) - min(yaw_path)
+    if mechanism == "camera_pan_both_static":
+        _require(
+            camera_application.get("distinct_listener_pose_count") == FRAME_COUNT
+            and camera_application.get("habitat_yaw_path_deg") == yaw_path
+            and abs(float(camera_application.get("habitat_yaw_span_deg")) - 6.0)
+            <= 1.0e-9
+            and yaw_span_deg >= 5.9
+            and all(
+                current > previous for previous, current in zip(yaw_path, yaw_path[1:])
+            ),
+            "camera pan must apply 75 monotonic orientations spanning at least 5.9 degrees",
+        )
+        for slot in ("source1", "source2"):
+            actor_id = f"{slot}_actor"
+            states = [
+                next(
+                    state
+                    for state in frame["actor_states"]
+                    if state["actor_id"] == actor_id
+                )
+                for frame in frames
+            ]
+            translations = {
+                tuple(float(value) for value in state["translation_m"])
+                for state in states
+            }
+            _require(
+                len(translations) == 1
+                and all(
+                    state.get("action_id") == "idle"
+                    and state.get("animation_timing_mode") == "held_idle_v1"
+                    for state in states
+                ),
+                f"{slot}: camera-pan actor must remain static and idle",
+            )
     return {
         "status": "pass",
         "episode_id": receipt["episode_id"],
@@ -279,6 +385,9 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
         "target_sound_asset_id": event["sound_asset_id"],
         "root_path_provenance": root_provenance,
         "animation_timing": animation_timing,
+        "action_counts": root_application["action_counts"],
+        "distinct_listener_orientation_count": len(set(rig_rotations)),
+        "camera_yaw_span_deg": yaw_span_deg,
     }
 
 

@@ -204,3 +204,38 @@ def test_arc_length_interpolation_rejects_repeated_roots() -> None:
 
     with pytest.raises(RuntimeError, match="move every frame"):
         TOOL._arc_length_animation_timing(role=role, roots=roots)
+
+
+def test_camera_pan_acoustics_require_one_state_per_orientation_and_slot() -> None:
+    assert TOOL.EXPECTED_ACOUSTICS["camera_pan_both_static"] == {
+        "motion_case": "source1_static_source2_static_camera_pan",
+        "per_slot_distinct": {"source1": 75, "source2": 75},
+        "unique": 150,
+        "reuse": 0,
+    }
+
+
+def test_camera_pan_sensor_rig_applies_75_unique_orientations() -> None:
+    yaw_path = [52.0 + 6.0 * frame_index / 74.0 for frame_index in range(75)]
+    row = {
+        "episode_id": "strict2h_dynamic_canary_04_camera_pan_both_static_v2",
+        "camera": {
+            "translation_m": [-0.7, 1.471, 0.65],
+            "yaw_path_deg": yaw_path,
+        },
+    }
+
+    rig = TOOL._sensor_rig(row)
+
+    rotations = [
+        tuple(frame["world_from_rig"]["rotation_xyzw"]) for frame in rig["frames"]
+    ]
+    observed_yaws = [
+        math.degrees(2.0 * math.atan2(rotation[1], rotation[3]))
+        for rotation in rotations
+    ]
+    assert len(rotations) == 75
+    assert len(set(rotations)) == 75
+    assert observed_yaws[0] == pytest.approx(52.0)
+    assert observed_yaws[-1] == pytest.approx(58.0)
+    assert all(current > previous for previous, current in pairwise(observed_yaws))

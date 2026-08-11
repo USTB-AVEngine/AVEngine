@@ -31,6 +31,7 @@ RUNNER_PROFILES = {
             "human_border_collie__recombined_both_moving_0523"
         ),
         "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
+        "expected_unique_rir_job_count": 76,
     },
     "distractor_moves": {
         "episode_id": "strict2h_dynamic_canary_02_distractor_moves_v2",
@@ -42,6 +43,17 @@ RUNNER_PROFILES = {
             "human_border_collie__recombined_both_moving_0589"
         ),
         "expected_rir_count_by_source_slot": {"source1": 1, "source2": 75},
+        "expected_unique_rir_job_count": 76,
+    },
+    "camera_pan_both_static": {
+        "episode_id": "strict2h_dynamic_canary_04_camera_pan_both_static_v2",
+        "candidate_revision": "camera_pan_v2_0589_right_target_yaw52_58_v1",
+        "materialization_basename": "dynamic_camera_pan_v2_materialized_v1",
+        "capture_basename": "dynamic_camera_pan_v2_capture_attempt_01",
+        "moving_source_slot": None,
+        "native_source_scenario_id": None,
+        "expected_rir_count_by_source_slot": {"source1": 75, "source2": 75},
+        "expected_unique_rir_job_count": 150,
     },
 }
 
@@ -132,7 +144,8 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     mechanism = request.get("mechanism")
     _require(
         mechanism in RUNNER_PROFILES,
-        "runner mechanism must be target_moves or distractor_moves",
+        "runner mechanism must be target_moves, distractor_moves, or "
+        "camera_pan_both_static",
     )
     profile = RUNNER_PROFILES[mechanism]
     _require(
@@ -190,36 +203,54 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
         "materialization must have 150 source-frame uses",
     )
     _require(
-        materialization.get("expected_unique_rir_job_count") == 76,
-        f"{mechanism} must have 76 exact RIR jobs",
+        materialization.get("expected_unique_rir_job_count")
+        == profile["expected_unique_rir_job_count"],
+        f"{mechanism} exact RIR job count drifted",
     )
     _require(
         materialization.get("expected_rir_count_by_source_slot")
         == profile["expected_rir_count_by_source_slot"],
         f"{mechanism} RIR slot counts drifted",
     )
-    timing = materialization.get("animation_timing", {}).get(
-        profile["moving_source_slot"], {}
-    )
-    provenance = timing.get("path_provenance", {})
-    _require(
-        timing.get("mode") == "arc_length_preserving_native_stride_v1",
-        "continuous slow-walk timing authority drift",
-    )
-    _require(
-        provenance.get("native_source_scenario_id")
-        == profile["native_source_scenario_id"],
-        "native source scenario drift",
-    )
-    _require(
-        provenance.get("output_root_count") == 75
-        and provenance.get("output_unique_root_count_at_1mm") == 75,
-        "continuous v2 root uniqueness drift",
-    )
-    _require(
-        provenance.get("interior_output_roots_exact_native_frame_readbacks") is False,
-        "derived-interpolation claim boundary drift",
-    )
+    if profile["moving_source_slot"] is not None:
+        timing = materialization.get("animation_timing", {}).get(
+            profile["moving_source_slot"], {}
+        )
+        provenance = timing.get("path_provenance", {})
+        _require(
+            timing.get("mode") == "arc_length_preserving_native_stride_v1",
+            "continuous slow-walk timing authority drift",
+        )
+        _require(
+            provenance.get("native_source_scenario_id")
+            == profile["native_source_scenario_id"],
+            "native source scenario drift",
+        )
+        _require(
+            provenance.get("output_root_count") == 75
+            and provenance.get("output_unique_root_count_at_1mm") == 75,
+            "continuous v2 root uniqueness drift",
+        )
+        _require(
+            provenance.get("interior_output_roots_exact_native_frame_readbacks")
+            is False,
+            "derived-interpolation claim boundary drift",
+        )
+    else:
+        _require(
+            materialization.get("animation_timing") == {}
+            and materialization.get("action_counts")
+            == {
+                "source1": {"idle": 75, "walk": 0},
+                "source2": {"idle": 75, "walk": 0},
+            },
+            "camera-pan actors must remain static and idle",
+        )
+        _require(
+            materialization.get("distinct_listener_orientation_count") == 75
+            and float(materialization.get("camera_yaw_span_deg", 0.0)) >= 5.9,
+            "camera-pan listener orientation authority drift",
+        )
 
     materialization_root = Path(
         finalization["artifacts"]["materialization_root"]
