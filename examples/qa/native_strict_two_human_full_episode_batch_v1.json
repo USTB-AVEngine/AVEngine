@@ -1,0 +1,145 @@
+{
+  "schema": "avengine_native_strict_two_human_full_episode_batch_request_v1",
+  "request_id": "lead_a_strict_two_human_full_episode_batch_20260811_v1",
+  "status": "cpu_plan_requested",
+  "claim_boundary": "Interim single-room CPU candidate bank for 100 full 75-frame strict two-human Episodes. It is not the requested final multi-room 100. First, only 20 apartment mechanism pilots may advance after four full75 canaries; the final 100 requires at least three genuinely runnable room IDs.",
+  "formal_episode_count": 0,
+  "qualification_claim": false,
+  "inputs": {
+    "strict_sparse_contract": "examples/qa/native_strict_two_human_expansion_v1.json",
+    "strict_sparse_publication": "examples/qa/native_strict_two_human_publication_v1.json",
+    "runtime_registry": "examples/runtime/source_asset_runtime_profiles.json",
+    "controlled_sound_registry": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/controlled_sound_content_registry_v1.json",
+    "native_floor_point_suite": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/suite_execution_plan.json"
+  },
+  "timeline": {
+    "frame_count": 75,
+    "frame_rate_hz": 15,
+    "duration_seconds": 5,
+    "sample_rate_hz": 16000,
+    "sample_count": 80000,
+    "target_speech_start_sample": 7467
+  },
+  "output_contract": {
+    "episode_count": 100,
+    "interim_single_room_candidate_count": 100,
+    "first_phase_ready_pilot_target": 20,
+    "final_multi_room_episode_target": 100,
+    "final_multi_room_minimum_ready_room_count": 3,
+    "batch_size": 10,
+    "batch_count": 10,
+    "full75_canary_count": 4,
+    "candidate_manifest": "manifest.json",
+    "summary": "summary.json",
+    "dedup_audit": "dedup_audit.json",
+    "canary_plan": "canary_plan.json"
+  },
+  "native_room_scope": {
+    "ready_room_count": 1,
+    "final_required_ready_room_count": 3,
+    "interim_single_room_candidate_bank": true,
+    "room_id": "legacy_ue_apartment_0000_v1",
+    "scene_id": "apartment_0000",
+    "renderer_backend": "spear_unreal_native_apartment",
+    "spatial_strata": 5,
+    "boundary": "The current cooked strict M/F/C runtime and exact target-only SPEAR adapter are closed only in apartment_0000. Spatial strata are not represented as additional room IDs, and this 100-row bank must not be reported as the completed multi-room 100.",
+    "not_counted_as_ready_rooms": [
+      {
+        "room_id": "replicacad_apt_0",
+        "reason": "No shared cooked M/F/C strict two-human runtime plus the same SPEAR target-only/live-readback contract."
+      },
+      {
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "reason": "No shared cooked M/F/C strict two-human runtime plus the same SPEAR target-only/live-readback contract."
+      }
+    ]
+  },
+  "independence_contract": {
+    "camera_cluster_cell_size_m": 0.75,
+    "unique_camera_cluster_per_episode": true,
+    "unique_native_source_scenario_per_episode": true,
+    "mirror_is_not_independent": true,
+    "voice_replacement_is_not_independent": true,
+    "content_replacement_is_not_independent": true,
+    "same_camera_pose_is_not_independent": true,
+    "dedup_key_fields": [
+      "room_id",
+      "camera_cluster_id",
+      "native_source_scenario_id",
+      "target_path_binding",
+      "distractor_path_binding",
+      "mechanism"
+    ]
+  },
+  "balance_contract": {
+    "target_side_counts": {
+      "left": 50,
+      "right": 50
+    },
+    "ordered_identity_pairs": [
+      "M/F",
+      "F/M",
+      "M/C",
+      "C/M",
+      "F/C",
+      "C/F"
+    ],
+    "mechanism_counts": {
+      "both_static": 20,
+      "target_moves": 20,
+      "distractor_moves": 20,
+      "both_move": 20,
+      "camera_pan_both_static": 20
+    },
+    "spatial_stratum_counts": {
+      "stratum_01": 20,
+      "stratum_02": 20,
+      "stratum_03": 20,
+      "stratum_04": 20,
+      "stratum_05": 20
+    }
+  },
+  "geometry_contract": {
+    "resolution_hw": [720, 1280],
+    "horizontal_fov_deg": 105.0,
+    "camera_height_m": 1.471,
+    "minimum_actor_horizontal_separation_m": 1.0,
+    "minimum_projected_x_separation_fraction": 0.15,
+    "screen_side_dead_zone_fraction": 0.02,
+    "safe_x_fraction_open_interval": [0.07, 0.93],
+    "safe_vertical_fraction_open_interval": [0.04, 0.96],
+    "human_vertical_envelope_from_root_m": [0.0, 2.0],
+    "minimum_camera_depth_m": 1.3,
+    "maximum_camera_depth_m": 6.5,
+    "camera_pan_total_degrees": 6.0,
+    "target_visible_fraction_minimum_during_speech": 0.8,
+    "distractor_visible_fraction_minimum": 0.5,
+    "visible_pixels_minimum_per_actor": 5000,
+    "bbox_edge_margin_px_minimum": 1
+  },
+  "mechanism_schedule": [
+    "both_static",
+    "target_moves",
+    "distractor_moves",
+    "both_move",
+    "camera_pan_both_static"
+  ],
+  "gpu_policy": {
+    "physical_gpu_index": 1,
+    "graphics_adapter_argument": 1,
+    "required_idle_compute_process_count": 0,
+    "forbidden_physical_gpu_indices": [0, 3],
+    "cpu_builder_must_not_launch_gpu": true,
+    "first_20_blocked_until_canaries_pass": true,
+    "rows_21_to_100_blocked_until_three_real_rooms_are_ready": true
+  },
+  "resource_budget": {
+    "native_render_passes_per_episode": 3,
+    "native_rendered_frames_per_episode": 225,
+    "exact_rir_jobs_per_episode": 2,
+    "measured_reference_storage_mb_per_full75_episode": 115,
+    "estimated_storage_gb_for_100_episodes": 11.5,
+    "execution_batches": 10,
+    "stop_after_each_batch_for_audit": true
+  }
+}
