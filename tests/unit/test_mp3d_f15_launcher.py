@@ -71,7 +71,9 @@ def _idle_snapshot() -> dict[str, object]:
 def _request(attempt_root: Path) -> dict[str, object]:
     return {
         "attempt_root": str(attempt_root),
-        "capture_output": str(attempt_root.parent / "diagnostic_f15_capture_attempt_01"),
+        "capture_output": str(
+            attempt_root.parent / "diagnostic_f15_capture_attempt_01"
+        ),
         "required_repo_commit": "a" * 40,
         "rpc_port": 39631,
     }
@@ -143,14 +145,14 @@ class Mp3dF15LauncherTests(unittest.TestCase):
             logical.symlink_to(real.name)
             wrong = root / "other-python"
             wrong.write_text("wrong", encoding="utf-8")
-            with mock.patch.object(
-                LAUNCHER, "CAPTURE_PYTHON_LOGICAL", logical
-            ):
+            with mock.patch.object(LAUNCHER, "CAPTURE_PYTHON_LOGICAL", logical):
                 self.assertTrue(LAUNCHER._is_authoritative_capture_python(logical))
                 self.assertTrue(LAUNCHER._is_authoritative_capture_python(real))
                 self.assertFalse(LAUNCHER._is_authoritative_capture_python(wrong))
 
-    def test_prepare_failure_archive_preserves_request_without_consuming_attempt(self) -> None:
+    def test_prepare_failure_archive_preserves_request_without_consuming_attempt(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory).resolve()
             atom = repo / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
@@ -195,7 +197,9 @@ class Mp3dF15LauncherTests(unittest.TestCase):
             self.assertFalse((attempt / "running_receipt.json").exists())
             self.assertFalse((attempt / "final_receipt.json").exists())
 
-    def test_real_attempt_has_immutable_running_and_separate_final_receipt(self) -> None:
+    def test_real_attempt_has_immutable_running_and_separate_final_receipt(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             attempt = Path(directory) / "diagnostic_f15_launch_attempt_01"
             attempt.mkdir()
@@ -525,9 +529,7 @@ class Mp3dF15LauncherTests(unittest.TestCase):
             self.assertEqual(final["status"], "failed")
             self.assertEqual(final["child_exit_code"], 23)
             self.assertEqual(final["capture_process_exit_code"], 23)
-            self.assertEqual(
-                final["child_exit"], {"observed": True, "returncode": 23}
-            )
+            self.assertEqual(final["child_exit"], {"observed": True, "returncode": 23})
             self.assertEqual(
                 final["failure_observability_status"],
                 "phase_and_complete_traceback_persisted",

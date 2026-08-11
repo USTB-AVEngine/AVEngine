@@ -33,8 +33,7 @@ RECEIPT_SCHEMA_V2 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v2"
 FAILURE_LEDGER_SCHEMA = "avengine_mp3d_f15_attempt_failure_ledger_v1"
 CAPTURE_FAILURE_SCHEMA = "avengine_mp3d_f15_capture_failure_v1"
 ATTEMPT01_FAILURE_STATUS = (
-    "undetermined_observability_gap_after_entry_init_"
-    "before_first_capture_artifact"
+    "undetermined_observability_gap_after_entry_init_before_first_capture_artifact"
 )
 VISIBILITY_SCHEMA = "avengine_qa_pixel_visibility_truth_v1"
 EPISODE_ID = "mp3d_17DRP5sb8fy_male_female_static_0001"
@@ -137,9 +136,7 @@ def _nvidia_csv(query_kind: str, fields: str) -> list[list[str]]:
 
 
 def _gpu_snapshot() -> dict[str, Any]:
-    gpus = _nvidia_csv(
-        "gpu", "index,uuid,name,memory.used,utilization.gpu"
-    )
+    gpus = _nvidia_csv("gpu", "index,uuid,name,memory.used,utilization.gpu")
     apps = _nvidia_csv("compute-apps", "gpu_uuid,pid,process_name,used_memory")
     return {
         "captured_at_utc": _utc_now(),
@@ -167,9 +164,7 @@ def _gpu_snapshot() -> dict[str, Any]:
 
 def _validate_gpu1_idle(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     gpus = [
-        item
-        for item in snapshot.get("gpus", [])
-        if item.get("physical_index") == 1
+        item for item in snapshot.get("gpus", []) if item.get("physical_index") == 1
     ]
     _require(len(gpus) == 1, "physical GPU1 did not resolve exactly once")
     gpu = gpus[0]
@@ -225,9 +220,7 @@ def _regular_files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*") if path.is_file())
 
 
-def record_attempt01_failure_ledger(
-    *, atom_root: Path, spear_log: Path
-) -> Path:
+def record_attempt01_failure_ledger(*, atom_root: Path, spear_log: Path) -> Path:
     """Freeze the consumed v1 attempt without assigning an unobserved cause."""
 
     atom_root = atom_root.resolve()
@@ -259,8 +252,7 @@ def record_attempt01_failure_ledger(
         "attempt01 dry-run receipt drift",
     )
     _require(
-        running.get("schema") == RECEIPT_SCHEMA
-        and running.get("status") == "running",
+        running.get("schema") == RECEIPT_SCHEMA and running.get("status") == "running",
         "attempt01 running receipt drift",
     )
     _require(
@@ -370,8 +362,7 @@ def _validate_cpu_evidence(paths: Mapping[str, Path]) -> dict[str, Any]:
     _require(
         navigation.get("status") == "pass"
         and navigation.get("shared_island_id") == 1
-        and float(navigation.get("horizontal_source_separation_m", 0.0))
-        >= 1.3
+        and float(navigation.get("horizontal_source_separation_m", 0.0)) >= 1.3
         and pair_gate.get("clearance_gate_passed") is True
         and pair_gate.get("separation_gate_passed") is True,
         "adult two-human navigation gate drift",
@@ -379,8 +370,7 @@ def _validate_cpu_evidence(paths: Mapping[str, Path]) -> dict[str, Any]:
     selected = navigation.get("selected_positions", {})
     _require(
         float(selected.get("source1", {}).get("fresh_clearance_m", 0.0)) >= 0.5
-        and float(selected.get("source2", {}).get("fresh_clearance_m", 0.0))
-        >= 0.5,
+        and float(selected.get("source2", {}).get("fresh_clearance_m", 0.0)) >= 0.5,
         "adult root clearance fell below 0.5m",
     )
 
@@ -486,8 +476,7 @@ def _validate_cpu_evidence(paths: Mapping[str, Path]) -> dict[str, Any]:
         and coverage.get("status") == "research_candidate"
         and coverage.get("qualification_claim") is False
         and coverage.get("compiled_triangle_count") == 3_016_249
-        and coverage.get("triangle_coverage", {}).get("triangle_count")
-        == 3_016_249
+        and coverage.get("triangle_coverage", {}).get("triangle_count") == 3_016_249
         and coverage.get("runtime_one_to_one", {}).get("passed") is True,
         "research material coverage binding drift",
     )
@@ -559,17 +548,19 @@ def prepare_request(
     attempt_root = atom_root / "diagnostic_f15_launch_attempt_01"
     capture_output = atom_root / "diagnostic_f15_capture_attempt_01"
     _require(not attempt_root.exists(), "attempt 01 already exists")
-    _require(not capture_output.exists(), "diagnostic f15 capture output already exists")
+    _require(
+        not capture_output.exists(), "diagnostic f15 capture output already exists"
+    )
     paths = _artifact_paths(atom_root)
     _validate_cpu_evidence(paths)
-    capture_script = REPOSITORY / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
+    capture_script = (
+        REPOSITORY / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
+    )
     _require(capture_python.is_file(), "authoritative SPEAR Python is missing")
     _require(capture_script.is_file(), "MP3D capture runner is missing")
     _require(spear_root.is_dir(), "SPEAR root is missing")
     _require(1024 <= rpc_port <= 65535, "RPC port is out of range")
-    artifact_records = {
-        name: _file_record(path) for name, path in paths.items()
-    }
+    artifact_records = {name: _file_record(path) for name, path in paths.items()}
     request = {
         "schema": REQUEST_SCHEMA,
         "status": "prepared_not_launched",
@@ -639,9 +630,7 @@ def prepare_request_v2(
         "revision_v2 observability source is missing",
     )
     failure_ledger_path = (
-        atom_root
-        / "diagnostic_f15_launch_attempt_01"
-        / "failure_ledger.json"
+        atom_root / "diagnostic_f15_launch_attempt_01" / "failure_ledger.json"
     )
     failure_ledger = _load(failure_ledger_path)
     _require(
@@ -741,8 +730,7 @@ def archive_preparation_failure(*, atom_root: Path, error: str) -> Path:
 
     atom_root = atom_root.resolve()
     _require(
-        atom_root
-        == REPOSITORY / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1",
+        atom_root == REPOSITORY / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1",
         "MP3D f15 atom root drift",
     )
     attempt_root = atom_root / "diagnostic_f15_launch_attempt_01"
@@ -856,15 +844,13 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     _validate_cpu_evidence(expected_paths)
     _require(
         Path(request["suite_plan"]).resolve() == expected_paths["suite_plan"]
-        and Path(request["room_adapter"]).resolve()
-        == expected_paths["room_adapter"],
+        and Path(request["room_adapter"]).resolve() == expected_paths["room_adapter"],
         "capture suite/room path drift",
     )
     _require(
         _is_authoritative_capture_python(Path(request["capture_python"]))
         and Path(request["capture_script"]).resolve()
-        == repo_root
-        / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
+        == repo_root / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
         and Path(request["spear_root"]) == SPEAR_ROOT,
         "authoritative MP3D SPEAR runtime binding drift",
     )
@@ -895,8 +881,7 @@ def _validate_request_v2(
         request.get("status") == "prepared_not_launched"
         and request.get("episode_id") == EPISODE_ID
         and request.get("scene_id") == SCENE_ID
-        and request.get("candidate_revision")
-        == "revision_v2_observability_only",
+        and request.get("candidate_revision") == "revision_v2_observability_only",
         "v2 request identity drift",
     )
     repo_root = Path(request["repo_root"]).resolve()
@@ -961,8 +946,7 @@ def _validate_request_v2(
         observability.get("exclusive_child_stdout") == str(stdout_path)
         and observability.get("exclusive_child_stderr") == str(stderr_path)
         and observability.get("capture_phase_markers_required") is True
-        and observability.get("complete_traceback_on_python_failure_required")
-        is True
+        and observability.get("complete_traceback_on_python_failure_required") is True
         and observability.get("child_exit_code_in_final_receipt_required") is True
         and observability.get("phases")
         == [
@@ -999,11 +983,7 @@ def _validate_request_v2(
         observed_path = _validate_file_record(source_records[name], owner=name)
         _require(observed_path == expected.resolve(), f"{name} source path drift")
 
-    ledger_path = (
-        atom_root
-        / "diagnostic_f15_launch_attempt_01"
-        / "failure_ledger.json"
-    )
+    ledger_path = atom_root / "diagnostic_f15_launch_attempt_01" / "failure_ledger.json"
     observed_ledger = _validate_file_record(
         request.get("predecessor_failure_ledger", {}),
         owner="predecessor failure ledger",
@@ -1020,8 +1000,7 @@ def _validate_request_v2(
     )
     _require(
         Path(request["suite_plan"]).resolve() == expected_paths["suite_plan"]
-        and Path(request["room_adapter"]).resolve()
-        == expected_paths["room_adapter"],
+        and Path(request["room_adapter"]).resolve() == expected_paths["room_adapter"],
         "v2 capture suite/room path drift",
     )
     _require(
@@ -1125,8 +1104,7 @@ def _compile_and_validate_visibility(
         "f15 distractor visibility is below 0.5",
     )
     _require(
-        int(target["visible_pixels"]) > 0
-        and int(distractor["visible_pixels"]) > 0,
+        int(target["visible_pixels"]) > 0 and int(distractor["visible_pixels"]) > 0,
         "f15 target or distractor has no modal-visible pixels",
     )
     truth_path = capture_root / "pixel_visibility_truth.json"
@@ -1199,8 +1177,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         and readback.get("spawned_static_mesh_count") == EXPECTED_MESH_COUNT
         and readback.get("all_expected_handles_match_components") is True
         and readback.get("unique_loaded_object_handle_count") == EXPECTED_MESH_COUNT
-        and readback.get("unique_component_mesh_handle_count")
-        == EXPECTED_MESH_COUNT
+        and readback.get("unique_component_mesh_handle_count") == EXPECTED_MESH_COUNT
         and isinstance(meshes, list)
         and [item.get("object_path") for item in meshes]
         == adapter["static_mesh_object_paths"],
@@ -1210,9 +1187,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "status": "pass_diagnostic_f15_review_ready",
         "capture_manifest": _file_record(capture_root / "manifest.json"),
-        "room_live_readback": _file_record(
-            capture_root / "room_live_readback.json"
-        ),
+        "room_live_readback": _file_record(capture_root / "room_live_readback.json"),
         "visibility": visibility,
         "manual_live_mouth_bone_or_socket_review_required": True,
         "qualification_claim": False,
@@ -1527,9 +1502,7 @@ def run_v2(
                     else "child_failed_without_capture_failure_artifact"
                 )
         except Exception as exc:  # noqa: BLE001
-            final["capture_observability_error"] = (
-                f"{type(exc).__name__}: {exc}"
-            )
+            final["capture_observability_error"] = f"{type(exc).__name__}: {exc}"
             final["capture_observability_traceback"] = traceback.format_exc()
         try:
             final["postlaunch_snapshot"] = _gpu_snapshot()

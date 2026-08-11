@@ -98,9 +98,7 @@ class CapturePhaseJournal:
             f"unknown capture phase: {phase}",
         )
         self.current_phase = phase
-        path = self.output / (
-            f"capture_phase_{self.sequence:02d}_{phase}.json"
-        )
+        path = self.output / (f"capture_phase_{self.sequence:02d}_{phase}.json")
         _write_json_exclusive(
             path,
             {
@@ -266,8 +264,7 @@ def validate_capture_contract(
         camera_state = frame.get("camera_state")
         _require(isinstance(camera_state, Mapping), "frame camera state is missing")
         _require(
-            _maximum_error(camera_state["habitat_position_m"], habitat_camera)
-            <= 1.0e-9
+            _maximum_error(camera_state["habitat_position_m"], habitat_camera) <= 1.0e-9
             and _maximum_error(camera_state["ue_position_cm"], ue_camera) <= 1.0e-6
             and float(camera_state["habitat_yaw_deg"])
             == float(camera["habitat_yaw_deg"])
@@ -393,8 +390,8 @@ def _mouth_proxy_projection(
     yaw = math.radians(float(camera["ue_yaw_deg"]))
     forward = [math.cos(yaw), math.sin(yaw), 0.0]
     right = [-math.sin(yaw), math.cos(yaw), 0.0]
-    focal = 0.5 * WIDTH / math.tan(
-        math.radians(float(camera["horizontal_fov_deg"])) / 2.0
+    focal = (
+        0.5 * WIDTH / math.tan(math.radians(float(camera["horizontal_fov_deg"])) / 2.0)
     )
     principal = [(WIDTH - 1) / 2.0, (HEIGHT - 1) / 2.0]
     declarations = {item["actor_id"]: item for item in plan["actors"]}
@@ -437,7 +434,10 @@ def _target_bbox(mask: Any) -> dict[str, Any]:
         "xyxy_inclusive_px": [x0, y0, x1, y1],
         "center_uv": [(x0 + x1) / 2.0, (y0 + y1) / 2.0],
         "pixel_count": int(rows.size),
-        "touches_frame_boundary": x0 == 0 or y0 == 0 or x1 == WIDTH - 1 or y1 == HEIGHT - 1,
+        "touches_frame_boundary": x0 == 0
+        or y0 == 0
+        or x1 == WIDTH - 1
+        or y1 == HEIGHT - 1,
     }
 
 
@@ -512,9 +512,7 @@ def _write_review_overlays(
 
     paths = []
     colors = {"source1": (255, 128, 0), "source2": (0, 128, 255)}
-    for capture_index, (rgb, record) in enumerate(
-        zip(rgb_frames, review["per_frame"])
-    ):
+    for capture_index, (rgb, record) in enumerate(zip(rgb_frames, review["per_frame"])):
         canvas = rgb.copy()
         for instance_id in ("source1", "source2"):
             source = record["per_source"][instance_id]
@@ -547,16 +545,12 @@ def _write_review_overlays(
     return paths
 
 
-def _run_impl(
-    args: argparse.Namespace, journal: CapturePhaseJournal
-) -> Path:
+def _run_impl(args: argparse.Namespace, journal: CapturePhaseJournal) -> Path:
     import cv2
     import numpy as np
 
     suite = load_json_object(args.suite_plan.resolve(), owner="suite plan")
-    room_adapter = load_json_object(
-        args.room_adapter.resolve(), owner="room adapter"
-    )
+    room_adapter = load_json_object(args.room_adapter.resolve(), owner="room adapter")
     scenario, frames = validate_capture_contract(
         suite,
         scenario_id=args.scenario_id,
@@ -619,9 +613,7 @@ def _run_impl(
             )
             journal.enter("actor")
             runtimes = runner._spawn_runtime_actors(game, scenario, spear_root)
-            spike._apply_exact_frame(
-                camera=camera, runtimes=runtimes, frame=frames[0]
-            )
+            spike._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
             )
@@ -634,9 +626,7 @@ def _run_impl(
             game.segmentation_service.initialize()
             components["depth"].PrimitiveRenderMode = "PRM_RenderScenePrimitives"
             components["depth"].ShowOnlyActors = []
-            spike._apply_exact_frame(
-                camera=camera, runtimes=runtimes, frame=frames[0]
-            )
+            spike._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
             pass_identities.append(
                 _camera_pass_identity(camera, components, pass_id="normal")
             )
@@ -705,14 +695,11 @@ def _run_impl(
 
     journal.enter("artifact_finalize")
     _require(
-        room_readback.get("spawned_static_mesh_count")
-        == EXPECTED_STATIC_MESH_COUNT
+        room_readback.get("spawned_static_mesh_count") == EXPECTED_STATIC_MESH_COUNT
         and room_readback.get("all_expected_handles_match_components") is True,
         "fresh packaged room readback did not close 71 unique meshes",
     )
-    alignment = native._maximum_readback_drift(
-        normal_readbacks, target_readbacks
-    )
+    alignment = native._maximum_readback_drift(normal_readbacks, target_readbacks)
     review = _build_live_review(
         scenario=scenario, frames=frames, target_depths=target_depths
     )
@@ -728,9 +715,7 @@ def _run_impl(
         target_only_source2_depth_m=np.stack(target_depths["source2"]),
     )
     object_id_path = args.output / "normal_object_ids_uint32.npz"
-    np.savez_compressed(
-        object_id_path, normal_object_ids=np.stack(normal_object_ids)
-    )
+    np.savez_compressed(object_id_path, normal_object_ids=np.stack(normal_object_ids))
     room_readback_path = args.output / "room_live_readback.json"
     _write_json(room_readback_path, room_readback)
     runtime_readback_path = args.output / "runtime_readbacks.json"
@@ -759,9 +744,7 @@ def _run_impl(
             "raw_to_habitat": "H=(S.x,S.z,-S.y)",
             "habitat_to_ue_cm": "U_cm=(100*H.x,100*H.z,100*H.y)",
             "camera_listener_coupling": "rigid_colocated_cooriented",
-            "habitat_position_m": scenario["plan"]["camera"][
-                "habitat_position_m"
-            ],
+            "habitat_position_m": scenario["plan"]["camera"]["habitat_position_m"],
             "ue_position_cm": scenario["plan"]["camera"]["ue_position_cm"],
         },
         "frame_contract": {

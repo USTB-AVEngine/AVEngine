@@ -82,23 +82,17 @@ class FakeUnrealService:
 
     def spawn_actor(self, **_: object) -> FakeActor:
         index = len(self.actors)
-        component = FakeComponent(
-            3000 + index, mismatch=index == self.mismatch_at
-        )
+        component = FakeComponent(3000 + index, mismatch=index == self.mismatch_at)
         actor = FakeActor(2000 + index, component)
         self.actors.append(actor)
         return actor
 
-    def get_component_by_class(
-        self, *, actor: FakeActor, uclass: str
-    ) -> FakeComponent:
+    def get_component_by_class(self, *, actor: FakeActor, uclass: str) -> FakeComponent:
         if uclass != "UStaticMeshComponent":
             raise AssertionError("unexpected component class")
         return actor.component
 
-    def set_stable_name_for_actor(
-        self, *, actor: FakeActor, stable_name: str
-    ) -> None:
+    def set_stable_name_for_actor(self, *, actor: FakeActor, stable_name: str) -> None:
         del actor
         self.stable_names.append(stable_name)
 
@@ -116,9 +110,7 @@ class FakeGame:
 
 
 def _declared_inputs() -> tuple[Path, dict[str, Path]]:
-    request_path = (
-        ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v1.json"
-    )
+    request_path = ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v1.json"
     request = json.loads(request_path.read_text())
     staging_reference = ROOT / "reference"
     if staging_reference.is_dir():
@@ -126,11 +118,9 @@ def _declared_inputs() -> tuple[Path, dict[str, Path]]:
             "template_suite": staging_reference
             / "strict_two_human_template_suite.json",
             "ue_import_manifest": staging_reference / "mp3d_ue_import_result.json",
-            "ue_runtime_evidence": staging_reference
-            / "mp3d_ue_runtime_evidence.json",
+            "ue_runtime_evidence": staging_reference / "mp3d_ue_runtime_evidence.json",
             "fresh_navmesh_probe": staging_reference / "fresh_navmesh_probe.json",
-            "acoustic_manifest": staging_reference
-            / "mp3d_soundspaces2_manifest.json",
+            "acoustic_manifest": staging_reference / "mp3d_soundspaces2_manifest.json",
             "room_registry": staging_reference / "room_registry.json",
             "acoustic_profiles": staging_reference / "acoustic_profiles.json",
         }
@@ -164,9 +154,7 @@ class RoomAdapterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         _, inputs = _declared_inputs()
-        cls.import_manifest = json.loads(
-            inputs["ue_import_manifest"].read_text()
-        )
+        cls.import_manifest = json.loads(inputs["ue_import_manifest"].read_text())
         cls.adapter = adapter_module.build_room_adapter_record(
             cls.import_manifest,
             execution_manifest_path="/execution/ue_import_result.json",
@@ -213,7 +201,9 @@ class RoomAdapterTests(unittest.TestCase):
 
 
 class PreflightTests(unittest.TestCase):
-    def test_cpu_preflight_closes_safer_pair_but_keeps_live_review_pending(self) -> None:
+    def test_cpu_preflight_closes_safer_pair_but_keeps_live_review_pending(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "preflight"
             _build_output(output)
@@ -258,8 +248,7 @@ class PreflightTests(unittest.TestCase):
                 "fresh_soundspaces2_package_v1"
             )
             habitat_python = (
-                "/data/jzy/miniconda3/envs/"
-                "avengine-habitat-runtime/bin/python"
+                "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python"
             )
             runtime_step, compile_step, rir_step = execution["cpu_steps"]
             self.assertEqual(
@@ -273,13 +262,16 @@ class PreflightTests(unittest.TestCase):
                 compile_step["step_id"], "fresh_compile_mp3d_rlr_materials"
             )
             self.assertEqual(compile_step["working_directory"], remote_root)
-            self.assertEqual(compile_step["argv"][:5], [
-                python,
-                "-m",
-                "avengine.cli",
-                "m3",
-                "compile-mp3d-rlr-materials",
-            ])
+            self.assertEqual(
+                compile_step["argv"][:5],
+                [
+                    python,
+                    "-m",
+                    "avengine.cli",
+                    "m3",
+                    "compile-mp3d-rlr-materials",
+                ],
+            )
             self.assertNotIn("compile-registered-scene", compile_step["argv"])
             self.assertEqual(
                 compile_step["expected"]["manifest"],
@@ -304,10 +296,13 @@ class PreflightTests(unittest.TestCase):
                     "exact_rir_cache_v3",
                 ],
             )
-            self.assertEqual(rir_step["argv"][:2], [
-                habitat_python,
-                f"{remote_root}/tools/m6x/render_rir_cache.py",
-            ])
+            self.assertEqual(
+                rir_step["argv"][:2],
+                [
+                    habitat_python,
+                    f"{remote_root}/tools/m6x/render_rir_cache.py",
+                ],
+            )
             self.assertNotIn("--job-limit", rir_step["argv"])
             expected_environment = {
                 "AVENGINE_HABITAT_RUNTIME_ROOT": (
@@ -321,15 +316,13 @@ class PreflightTests(unittest.TestCase):
                 ),
                 "PYTHONPATH": f"{remote_root}/src",
                 "SKBUILD_EDITABLE_SKIP": (
-                    "/data/jzy/code/habitat-sim-AVEngine/build/"
-                    "cp312-cp312-linux_x86_64"
+                    "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
                 ),
                 "NUMBA_DISABLE_JIT": "1",
             }
             self.assertEqual(rir_step["environment"], expected_environment)
             builder.validate_rir_runtime_binding(
-                habitat_python,
-                rir_step["environment"]
+                habitat_python, rir_step["environment"]
             )
             for missing_name in expected_environment:
                 mutation = dict(expected_environment)
@@ -348,9 +341,7 @@ class PreflightTests(unittest.TestCase):
                 rir["acoustic_state_sha256_authority"],
                 "avengine.m6x.room_feasibility.rir_acoustic_state_sha256",
             )
-            option_values = dict(
-                zip(rir_step["argv"][2::2], rir_step["argv"][3::2])
-            )
+            option_values = dict(zip(rir_step["argv"][2::2], rir_step["argv"][3::2]))
             self.assertEqual(
                 option_values["--room-id"], "habitat_mp3d_example_17DRP5sb8fy"
             )
