@@ -918,11 +918,27 @@ def prepare(
     return manifest_path
 
 
-def finalize(*, batch_root: Path, output: Path) -> Path:
+def finalize(
+    *,
+    batch_root: Path,
+    output: Path,
+    expected_row_count: int = 7,
+    delivery_schema: str = DELIVERY_SCHEMA,
+    delivery_status: str = "pass_cpu_rows2_to8_ready_for_sequential_f15_sparse",
+    delivery_claim_boundary: str = (
+        "CPU acoustics and requests only; no rows2-8 native capture or formal "
+        "scene claimed"
+    ),
+) -> Path:
     _require(not output.exists(), f"refusing to overwrite delivery output: {output}")
     manifest = _load(batch_root / "manifest.json")
     _require(manifest.get("schema") == SCHEMA, "batch manifest schema mismatch")
-    _require(manifest.get("row_count") == 7, "batch manifest row count mismatch")
+    _require(expected_row_count > 0, "expected row count must be positive")
+    _require(
+        manifest.get("row_count") == expected_row_count
+        and len(manifest.get("rows", [])) == expected_row_count,
+        "batch manifest row count mismatch",
+    )
     global_states: set[str] = set()
     rows: list[dict[str, Any]] = []
     output.mkdir(parents=True)
@@ -1195,13 +1211,16 @@ def finalize(*, batch_root: Path, output: Path) -> Path:
                 "status": "pass_cpu_ready_for_f15_sparse",
             }
         )
-    _require(len(global_states) == 14, "cross-row exact RIR independence failed")
+    _require(
+        len(global_states) == expected_row_count * 2,
+        "cross-row exact RIR independence failed",
+    )
     delivery = {
-        "schema": DELIVERY_SCHEMA,
-        "status": "pass_cpu_rows2_to8_ready_for_sequential_f15_sparse",
-        "claim_boundary": "CPU acoustics and requests only; no rows2-8 native capture or formal scene claimed",
-        "row_count": 7,
-        "exact_rir_job_count": 14,
+        "schema": delivery_schema,
+        "status": delivery_status,
+        "claim_boundary": delivery_claim_boundary,
+        "row_count": expected_row_count,
+        "exact_rir_job_count": expected_row_count * 2,
         "cross_row_rir_reuse_count": 0,
         "rows": rows,
         "retained_row1_canary": manifest["retained_row1_canary"],
