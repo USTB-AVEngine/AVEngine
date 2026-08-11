@@ -1,0 +1,93 @@
+{
+  "schema": "avengine_native_strict_two_human_row_revision_overlay_v1",
+  "revision_id": "lead_d_strict_two_human_row7_visibility_revision_20260811_v2",
+  "status": "cpu_geometry_revision_proposal",
+  "base_plan": "examples/qa/native_strict_two_human_expansion_v1.json",
+  "base_plan_sha256": "381fbb53d94412b4dff8613259a53b165f8209c383e2e5b46805c358bcaf0e3c",
+  "v1_rejection": "reports/lead_a/strict_two_human_row7_v1_rejected.json",
+  "v1_rejection_sha256": "e1212e9cd21494a18125bf4ec3b4e0f56484b71dfb3a9a60d549183b5e704252",
+  "target_row_id": "strict_07_female_construction_right",
+  "replacement_scope": [
+    "episode_id",
+    "camera_pose",
+    "camera_floor_point_provenance",
+    "actors.source1.root_translation_m",
+    "actors.source1.actor_yaw_ue_deg",
+    "actors.source1.floor_point_provenance",
+    "actors.source2.root_translation_m",
+    "actors.source2.actor_yaw_ue_deg",
+    "actors.source2.floor_point_provenance"
+  ],
+  "immutable_contract": {
+    "identity_pair": "F/C",
+    "target": {
+      "role": "target",
+      "source_slot_id": "source1",
+      "identity_key": "F",
+      "expected_screen_side": "right",
+      "voice_policy": "speaking"
+    },
+    "distractor": {
+      "role": "distractor",
+      "source_slot_id": "source2",
+      "identity_key": "C",
+      "expected_screen_side": "left",
+      "voice_policy": "silent"
+    },
+    "sparse_gate_frame_index": 15,
+    "target_visible_fraction_minimum": 0.8,
+    "distractor_visible_fraction_minimum": 0.5
+  },
+  "replacement": {
+    "episode_id": "rocketbox_female_construction__strict_two_human_right_v2",
+    "camera_pose": {
+      "translation_m": [-2.0072733647114522, 1.471, -0.8751470704336426],
+      "rotation_xyzw": [0.0, 0.585506778433778, 0.0, 0.8106675103938105],
+      "habitat_yaw_deg": 71.67759931187568
+    },
+    "camera_floor_point_provenance": {
+      "scenario_id": "border_collie_cat__recombined_both_moving_0180",
+      "frame_index": 60,
+      "actor_id": "source1_actor"
+    },
+    "actors": [
+      {
+        "source_slot_id": "source1",
+        "root_translation_m": [-4.001039245644131, 0.4, -2.231611274384164],
+        "actor_yaw_ue_deg": -55.77047760017907,
+        "floor_point_provenance": {
+          "scenario_id": "border_collie_cat__recombined_both_moving_0551",
+          "frame_index": 70,
+          "actor_id": "source2_actor"
+        }
+      },
+      {
+        "source_slot_id": "source2",
+        "root_translation_m": [-4.403688933398272, 0.4, -0.9725009525144421],
+        "actor_yaw_ue_deg": -87.67365014068156,
+        "floor_point_provenance": {
+          "scenario_id": "border_collie_human__recombined_both_moving_0375",
+          "frame_index": 30,
+          "actor_id": "source2_actor"
+        }
+      }
+    ]
+  },
+  "rationale": {
+    "selection_policy": "deterministic_unused_native_occupied_points",
+    "camera_orientation_policy": "look_at_actor_root_midpoint",
+    "actor_orientation_policy": "face_camera",
+    "v1_occluded_sightline_z_range_m": [0.05620517843478434, 1.075175917631871],
+    "v2_sightline_z_range_m": [-2.231611274384164, -0.8751470704336426],
+    "native_occlusion_claim": "pending_single_sparse_gate"
+  },
+  "execution_boundary": {
+    "formal_scene_count": 0,
+    "qualification_claim": false,
+    "gpu_or_rir_executed": false,
+    "exact_rir_required_before_sparse": true,
+    "single_sparse_gate_required": true,
+    "automatic_retry_allowed": false,
+    "base_plan_mutation_allowed": false
+  }
+}
