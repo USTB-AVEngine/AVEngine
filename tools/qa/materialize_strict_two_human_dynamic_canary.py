@@ -27,6 +27,7 @@ from avengine.contracts.json_io import write_json
 from avengine.m5_1.source_contracts import sample_boundary
 from avengine.m6.audio_program import bind_audio_program_hash, validate_audio_program
 from avengine.m6.audio_render import assemble_audio_program_dry_buses
+from avengine.m6.registry import bind_content_hash
 from avengine.m6.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
@@ -70,12 +71,29 @@ SIMULATION_REQUEST = (
     REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
 )
 HABITAT_PYTHON = Path("/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python")
-TARGET_AUDIO = Path(
+CONTROLLED_SOUND_CONTENT_REGISTRY = Path(
     "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/"
-    "media/speech_cremad_1001_ieo_neu_v1.wav"
+    "controlled_sound_content_registry_v1.json"
+)
+CONTROLLED_AUDIO_ROOT = Path(
+    "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/media"
 )
 SPEECH_INTRA_FRAME_OFFSET_SAMPLES = 128
 ANIMATION_TICKS_PER_PHASE_CYCLE = 51_200
+EXPECTED_ACOUSTICS = {
+    "target_moves": {
+        "motion_case": "source1_moving_source2_static",
+        "per_slot_distinct": {"source1": 75, "source2": 1},
+        "unique": 76,
+        "reuse": 74,
+    },
+    "distractor_moves": {
+        "motion_case": "source1_static_source2_moving",
+        "per_slot_distinct": {"source1": 1, "source2": 75},
+        "unique": 76,
+        "reuse": 74,
+    },
+}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -187,13 +205,10 @@ def _arc_length_animation_timing(
         for previous, current in pairwise(roots)
     ]
     _require(
-        len(segment_lengths) == FRAME_COUNT - 1
-        and min(segment_lengths) > 1.0e-6,
+        len(segment_lengths) == FRAME_COUNT - 1 and min(segment_lengths) > 1.0e-6,
         "interpolated slow-walk roots must move every frame",
     )
-    phase_advances = [
-        current - previous for previous, current in pairwise(unwrapped)
-    ]
+    phase_advances = [current - previous for previous, current in pairwise(unwrapped)]
     phase_per_meter = [
         phase / distance for phase, distance in zip(phase_advances, segment_lengths)
     ]
@@ -224,11 +239,12 @@ def _arc_length_animation_timing(
             maximum_forward_angular_error_deg, math.degrees(math.acos(dot))
         )
         expected_yaw = math.degrees(math.atan2(expected[0], expected[2])) % 360.0
-        yaw_error = abs((float(yaws[frame_index]) - expected_yaw + 180.0) % 360.0 - 180.0)
+        yaw_error = abs(
+            (float(yaws[frame_index]) - expected_yaw + 180.0) % 360.0 - 180.0
+        )
         maximum_yaw_error_deg = max(maximum_yaw_error_deg, yaw_error)
     _require(
-        maximum_forward_angular_error_deg <= 1.0e-5
-        and maximum_yaw_error_deg <= 1.0e-5,
+        maximum_forward_angular_error_deg <= 1.0e-5 and maximum_yaw_error_deg <= 1.0e-5,
         "slow-walk forward/yaw path is not tangent to the applied roots",
     )
     path_length_m = sum(segment_lengths)
@@ -242,16 +258,14 @@ def _arc_length_animation_timing(
         "action_phase_path": [float(value) for value in phases],
         "unwrapped_action_phase_path": unwrapped,
         "action_time_ticks_path": [
-            round(value * ANIMATION_TICKS_PER_PHASE_CYCLE)
-            for value in unwrapped
+            round(value * ANIMATION_TICKS_PER_PHASE_CYCLE) for value in unwrapped
         ],
         "path_length_m": path_length_m,
         "episode_span_seconds": episode_span_seconds,
         "average_root_speed_m_per_second": path_length_m / episode_span_seconds,
         "phase_cycle_count": phase_cycles,
         "stride_distance_m_per_phase_cycle": path_length_m / phase_cycles,
-        "maximum_segment_length_delta_m": max(segment_lengths)
-        - min(segment_lengths),
+        "maximum_segment_length_delta_m": max(segment_lengths) - min(segment_lengths),
         "maximum_phase_per_meter_error": maximum_phase_per_meter_error,
         "maximum_forward_angular_error_deg": maximum_forward_angular_error_deg,
         "maximum_tangent_yaw_error_deg": maximum_yaw_error_deg,
@@ -581,43 +595,119 @@ def _binding_report(
     }
 
 
-def _copy_audio_contracts(audio_template: Path, output: Path, episode_id: str) -> None:
+def _controlled_target_sound(
+    row: Mapping[str, Any],
+) -> tuple[dict[str, Any], Path]:
+    catalog = _load(CONTROLLED_SOUND_CONTENT_REGISTRY)
+    sound_asset_id = str(row["target"]["sound_asset_id"])
+    matches = [
+        item
+        for item in catalog.get("assets", [])
+        if item.get("sound_asset_id") == sound_asset_id
+    ]
+    _require(len(matches) == 1, "target controlled sound must resolve exactly once")
+    sound = matches[0]
+    _require(
+        sound["content"]["speaker_id"] == row["target"]["voice_id"]
+        and sound["content"]["statement_id"] == row["target"]["content_id"]
+        and sound["content"]["transcript"] == row["target"]["transcript"]
+        and int(sound["audio"]["sample_count"])
+        == int(row["target"]["speech_sample_count"]),
+        "target controlled sound metadata drift",
+    )
+    audio_path = CONTROLLED_AUDIO_ROOT / f"{sound_asset_id}.wav"
+    _require(audio_path.is_file(), f"target controlled audio is missing: {audio_path}")
+    return sound, audio_path
+
+
+def _copy_audio_contracts(
+    audio_template: Path, output: Path, row: Mapping[str, Any]
+) -> None:
     target = output / "controlled_audio_program"
     target.mkdir()
-    for name in (
-        "source_endpoint_registry.json",
-        "sound_asset_registry.json",
-        "audio_program.json",
-        "controlled_audio_binding.json",
+    controlled_sound, target_audio = _controlled_target_sound(row)
+
+    endpoints = _load(audio_template / "source_endpoint_registry.json")
+    roles = {"source1": row["target"], "source2": row["distractor"]}
+    for endpoint in endpoints["source_endpoints"]:
+        slot = str(endpoint["binding"]["entity_instance_id"])
+        role = roles[slot]
+        endpoint["binding"]["entity_asset_id"] = role["runtime_asset_id"]
+        endpoint["binding"]["entity_asset_revision"] = role["runtime_revision"]
+    endpoints = bind_content_hash(endpoints)
+
+    sounds = _load(audio_template / "sound_asset_registry.json")
+    _require(len(sounds.get("sound_assets", [])) == 1, "sound template closure drift")
+    sound = sounds["sound_assets"][0]
+    sound_asset_id = str(controlled_sound["sound_asset_id"])
+    sound["sound_asset_id"] = sound_asset_id
+    sound["instance_lineage_id"] = controlled_sound["content"]["speaker_id"]
+    sound["dry_audio"] = {
+        "channel_count": int(controlled_sound["audio"]["channel_count"]),
+        "sample_count": int(controlled_sound["audio"]["sample_count"]),
+        "sample_rate_hz": int(controlled_sound["audio"]["sample_rate_hz"]),
+        "sha256": controlled_sound["audio"]["sha256"],
+        "uri": controlled_sound["audio"]["uri"],
+    }
+    sound["provenance"] = {
+        "license": controlled_sound["license"]["license_id"],
+        "origin": "lead_b_controlled_sound_content_registry_v1",
+        "rights_evidence_sha256": controlled_sound["license"]["evidence"]["sha256"],
+        "rights_status": "licensed",
+    }
+    sounds = bind_content_hash(sounds)
+
+    program = _load(audio_template / "audio_program.json")
+    _require(len(program.get("events", [])) == 1, "audio template must have one event")
+    event = program["events"][0]
+    speech_window = [
+        int(value) for value in row["target"]["speech_frame_window_inclusive"]
+    ]
+    source_duration = int(controlled_sound["audio"]["sample_count"])
+    start_sample = sample_boundary(speech_window[0]) + SPEECH_INTRA_FRAME_OFFSET_SAMPLES
+    end_sample = start_sample + source_duration
+    first_frame = start_sample * FRAME_RATE_HZ // 16000
+    last_frame = (end_sample - 1) * FRAME_RATE_HZ // 16000
+    _require(
+        [first_frame, last_frame] == speech_window,
+        "controlled speech duration does not match the declared frame window",
+    )
+    event["sound_asset_id"] = sound_asset_id
+    event["source_start_sample"] = 0
+    event["source_end_sample_exclusive"] = source_duration
+    event["start_sample"] = start_sample
+    event["end_sample_exclusive"] = end_sample
+    event["start_tick"] = start_sample * 3
+    event["end_tick_exclusive"] = end_sample * 3
+    program = bind_audio_program_hash(program)
+
+    binding = _load(audio_template / "controlled_audio_binding.json")
+    binding["episode_id"] = row["episode_id"]
+    binding["controlled_content"]["source1"] = {
+        "language": controlled_sound["content"]["language"],
+        "sound_asset_id": sound_asset_id,
+        "statement_id": controlled_sound["content"]["statement_id"],
+        "transcript": controlled_sound["content"]["transcript"],
+    }
+    binding["controlled_content"]["source2"] = None
+    binding["sound_audio_paths"] = {sound_asset_id: str(target_audio)}
+    binding["status"] = "pass_materialized_pending_exact_rir_render"
+
+    for name, value in (
+        ("source_endpoint_registry.json", endpoints),
+        ("sound_asset_registry.json", sounds),
+        ("audio_program.json", program),
+        ("controlled_audio_binding.json", binding),
     ):
-        value = _load(audio_template / name)
-        if name == "audio_program.json":
-            _require(
-                len(value.get("events", [])) == 1, "audio template must have one event"
-            )
-            event = value["events"][0]
-            source_duration = int(event["source_end_sample_exclusive"]) - int(
-                event["source_start_sample"]
-            )
-            start_sample = sample_boundary(7) + SPEECH_INTRA_FRAME_OFFSET_SAMPLES
-            end_sample = start_sample + source_duration
-            _require(
-                start_sample < sample_boundary(8)
-                and sample_boundary(31) < end_sample <= sample_boundary(32),
-                "shifted speech event must stay inside frames 7 through 31",
-            )
-            event["start_sample"] = start_sample
-            event["end_sample_exclusive"] = end_sample
-            event["start_tick"] = start_sample * 3
-            event["end_tick_exclusive"] = end_sample * 3
-            value = bind_audio_program_hash(value)
-        elif name == "controlled_audio_binding.json":
-            value["episode_id"] = episode_id
-            value["status"] = "pass_materialized_pending_exact_rir_render"
         write_json(target / name, value)
 
 
-def _validate_audio_contracts(output: Path) -> dict[str, Any]:
+def _validate_audio_contracts(
+    output: Path,
+    *,
+    target_audio: Path,
+    expected_speech_window: Sequence[int],
+) -> dict[str, Any]:
     root = output / "controlled_audio_program"
     endpoints = _load(root / "source_endpoint_registry.json")
     sounds = _load(root / "sound_asset_registry.json")
@@ -652,7 +742,8 @@ def _validate_audio_contracts(output: Path) -> dict[str, Any]:
     event = source1_events[0]
     first_frame = int(event["start_sample"]) * FRAME_RATE_HZ // 16000
     last_frame = (int(event["end_sample_exclusive"]) - 1) * FRAME_RATE_HZ // 16000
-    _require([first_frame, last_frame] == [7, 31], "speech frame window drift")
+    expected_window = [int(value) for value in expected_speech_window]
+    _require([first_frame, last_frame] == expected_window, "speech frame window drift")
     _require(
         program["timeline"]["frame_count"] == 75
         and program["timeline"]["sample_count"] == 80000,
@@ -670,7 +761,7 @@ def _validate_audio_contracts(output: Path) -> dict[str, Any]:
         sound_asset_registry=sounds,
         asset_bindings={
             event["sound_asset_id"]: {
-                "path": str(TARGET_AUDIO),
+                "path": str(target_audio),
                 "sha256": sound["dry_audio"]["sha256"],
             }
         },
@@ -687,10 +778,10 @@ def _validate_audio_contracts(output: Path) -> dict[str, Any]:
         return bool(np.any(buses["source1"][begin:end] != 0.0))
 
     activity_checks = {
-        "frame_6_silent": not frame_active(6),
-        "frame_7_active": frame_active(7),
-        "frame_31_active": frame_active(31),
-        "frame_32_silent": not frame_active(32),
+        f"frame_{first_frame - 1}_silent": not frame_active(first_frame - 1),
+        f"frame_{first_frame}_active": frame_active(first_frame),
+        f"frame_{last_frame}_active": frame_active(last_frame),
+        f"frame_{last_frame + 1}_silent": not frame_active(last_frame + 1),
         "source2_all_zero": bool(np.all(buses["source2"] == 0.0)),
     }
     _require(
@@ -701,13 +792,22 @@ def _validate_audio_contracts(output: Path) -> dict[str, Any]:
         "target_event_count": 1,
         "distractor_event_count": 0,
         "speech_frame_window_inclusive": [first_frame, last_frame],
+        "target_sound_asset_id": event["sound_asset_id"],
+        "target_active_sample_count": int(
+            event["end_sample_exclusive"] - event["start_sample"]
+        ),
         "sample_count": 80000,
         "dry_bus_activity_checks": activity_checks,
     }
 
 
 def _acoustic_execution_request(
-    *, output: Path, episode_id: str, rir_plan: Mapping[str, Any]
+    *,
+    output: Path,
+    episode_id: str,
+    rir_plan: Mapping[str, Any],
+    target_sound_asset_id: str,
+    target_audio: Path,
 ) -> dict[str, Any]:
     cache = output / "rir_cache_v3"
     audio_output = output / "binaural_v1"
@@ -780,7 +880,7 @@ def _acoustic_execution_request(
             "--source-endpoint-slot",
             "lead_d_source2_mouth=source2",
             "--sound-audio",
-            f"speech_cremad_1001_ieo_neu_v1={TARGET_AUDIO}",
+            f"{target_sound_asset_id}={target_audio}",
             "--variants-per-episode",
             "1",
             "--retain-stems",
@@ -806,21 +906,23 @@ def _materialize_into(
     preflight = _load(preflight_path)
     _require(preflight.get("schema") == PREFLIGHT_SCHEMA, "preflight schema drift")
     row = _selected_canary(preflight, canary_index)
+    mechanism = str(row["mechanism"])
+    _require(mechanism in EXPECTED_ACOUSTICS, "unsupported dynamic mechanism")
+    expected_acoustics = EXPECTED_ACOUSTICS[mechanism]
     _require(
-        row["mechanism"] == "target_moves", "first atom supports target_moves only"
+        {row["target"]["identity_key"], row["distractor"]["identity_key"]}
+        == {"M", "F"},
+        "dynamic canary requires the reviewed M/F runtime pair",
     )
-    _require(
-        row["target"]["identity_key"] == "M"
-        and row["distractor"]["identity_key"] == "F",
-        "first atom requires the reviewed M/F runtime pair",
-    )
+    _, target_audio = _controlled_target_sound(row)
     for path in (
         base_suite_path,
         audio_template / "audio_program.json",
+        CONTROLLED_SOUND_CONTENT_REGISTRY,
         ACOUSTIC_PACKAGE,
         SIMULATION_REQUEST,
         HABITAT_PYTHON,
-        TARGET_AUDIO,
+        target_audio,
     ):
         _require(path.is_file(), f"required input is missing: {path}")
 
@@ -851,7 +953,7 @@ def _materialize_into(
 
     episode = TrajectoryEpisode(
         episode_id=row["episode_id"],
-        motion_case="source1_moving_source2_static",
+        motion_case=expected_acoustics["motion_case"],
         source_root_paths_m={
             slot: np.asarray(path, dtype=np.float64)
             for slot, path in root_paths.items()
@@ -929,19 +1031,25 @@ def _materialize_into(
         for slot in ("source1", "source2")
     }
     _require(
-        per_slot_distinct == {"source1": 75, "source2": 1},
-        "target RIR state count drift",
+        per_slot_distinct == expected_acoustics["per_slot_distinct"],
+        f"{mechanism} RIR slot state count drift",
     )
     _require(
-        rir_plan["unique_rir_job_count"] == 76, "target total RIR state count drift"
+        rir_plan["unique_rir_job_count"] == expected_acoustics["unique"],
+        f"{mechanism} total RIR state count drift",
     )
     _require(
-        rir_plan["cache_reuse_count"] == 74, "target exact cache reuse count drift"
+        rir_plan["cache_reuse_count"] == expected_acoustics["reuse"],
+        f"{mechanism} exact cache reuse count drift",
     )
 
     output.mkdir(parents=True, exist_ok=True)
-    _copy_audio_contracts(audio_template, output, row["episode_id"])
-    audio_validation = _validate_audio_contracts(output)
+    _copy_audio_contracts(audio_template, output, row)
+    audio_validation = _validate_audio_contracts(
+        output,
+        target_audio=target_audio,
+        expected_speech_window=row["target"]["speech_frame_window_inclusive"],
+    )
     binding_report = _binding_report(
         row=row, declarations=declarations, emitter_paths=emitter_paths
     )
@@ -964,7 +1072,11 @@ def _materialize_into(
     write_json(work_paths["asset_emitter_binding_report"], binding_report)
     write_json(work_paths["rir_job_plan"], rir_plan)
     request = _acoustic_execution_request(
-        output=published_output, episode_id=row["episode_id"], rir_plan=rir_plan
+        output=published_output,
+        episode_id=row["episode_id"],
+        rir_plan=rir_plan,
+        target_sound_asset_id=row["target"]["sound_asset_id"],
+        target_audio=target_audio,
     )
     write_json(work_paths["cpu_acoustic_execution_request"], request)
 
@@ -1037,8 +1149,11 @@ def _materialize_into(
             "distractor_source_slot": "source2",
             "distractor_event_count": 0,
             "target_speech_start_sample": (
-                sample_boundary(7) + SPEECH_INTRA_FRAME_OFFSET_SAMPLES
+                sample_boundary(int(row["target"]["speech_frame_window_inclusive"][0]))
+                + SPEECH_INTRA_FRAME_OFFSET_SAMPLES
             ),
+            "target_sound_asset_id": row["target"]["sound_asset_id"],
+            "target_audio_path": str(target_audio),
             "sample_rate_hz": 16000,
             "sample_count": 80000,
         },

@@ -14,15 +14,35 @@ REQUEST_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_gpu_launch_req
 RECEIPT_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_gpu_launch_receipt_v2"
 FINALIZATION_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_finalization_v1"
 GPU1_UUID = "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581"
-TARGET_EPISODE_ID = "strict2h_dynamic_canary_01_target_moves_v2"
-TARGET_MATERIALIZATION_BASENAME = "dynamic_target_moves_v2_materialized_v1"
-TARGET_CAPTURE_BASENAME = "dynamic_target_moves_v2_capture_attempt_01"
-TARGET_NATIVE_SOURCE_SCENARIO_ID = "human_border_collie__recombined_both_moving_0523"
 ATTEMPT_POLICY = {
     "attempt_index": 1,
     "maximum_attempts_for_candidate": 1,
     "retry_same_candidate_forbidden": True,
     "failure_disposition": "reject_candidate_without_same_candidate_retry",
+}
+RUNNER_PROFILES = {
+    "target_moves": {
+        "episode_id": "strict2h_dynamic_canary_01_target_moves_v2",
+        "candidate_revision": "target_moves_v2_0523_continuous_v1",
+        "materialization_basename": "dynamic_target_moves_v2_materialized_v1",
+        "capture_basename": "dynamic_target_moves_v2_capture_attempt_01",
+        "moving_source_slot": "source1",
+        "native_source_scenario_id": (
+            "human_border_collie__recombined_both_moving_0523"
+        ),
+        "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
+    },
+    "distractor_moves": {
+        "episode_id": "strict2h_dynamic_canary_02_distractor_moves_v2",
+        "candidate_revision": "distractor_moves_v2_0589_continuous_v1",
+        "materialization_basename": "dynamic_distractor_moves_v2_materialized_v1",
+        "capture_basename": "dynamic_distractor_moves_v2_capture_attempt_01",
+        "moving_source_slot": "source2",
+        "native_source_scenario_id": (
+            "human_border_collie__recombined_both_moving_0589"
+        ),
+        "expected_rir_count_by_source_slot": {"source1": 1, "source2": 75},
+    },
 }
 
 
@@ -109,13 +129,18 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     _require(
         request.get("schema") == REQUEST_SCHEMA, "dynamic launch request schema drift"
     )
-    _require(request.get("mechanism") == "target_moves", "runner is target_moves-only")
+    mechanism = request.get("mechanism")
     _require(
-        request.get("episode_id") == TARGET_EPISODE_ID,
-        "runner is bound to the continuous target_moves v2 episode",
+        mechanism in RUNNER_PROFILES,
+        "runner mechanism must be target_moves or distractor_moves",
+    )
+    profile = RUNNER_PROFILES[mechanism]
+    _require(
+        request.get("episode_id") == profile["episode_id"],
+        f"runner is bound to the continuous {mechanism} v2 episode",
     )
     _require(
-        request.get("candidate_revision") == "target_moves_v2_0523_continuous_v1",
+        request.get("candidate_revision") == profile["candidate_revision"],
         "candidate revision drift",
     )
     _require(request.get("attempt_policy") == ATTEMPT_POLICY, "attempt policy drift")
@@ -166,14 +191,16 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     )
     _require(
         materialization.get("expected_unique_rir_job_count") == 76,
-        "target_moves must have 76 exact RIR jobs",
+        f"{mechanism} must have 76 exact RIR jobs",
     )
     _require(
         materialization.get("expected_rir_count_by_source_slot")
-        == {"source1": 75, "source2": 1},
-        "target_moves RIR slot counts drifted",
+        == profile["expected_rir_count_by_source_slot"],
+        f"{mechanism} RIR slot counts drifted",
     )
-    timing = materialization.get("animation_timing", {}).get("source1", {})
+    timing = materialization.get("animation_timing", {}).get(
+        profile["moving_source_slot"], {}
+    )
     provenance = timing.get("path_provenance", {})
     _require(
         timing.get("mode") == "arc_length_preserving_native_stride_v1",
@@ -181,7 +208,7 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     )
     _require(
         provenance.get("native_source_scenario_id")
-        == TARGET_NATIVE_SOURCE_SCENARIO_ID,
+        == profile["native_source_scenario_id"],
         "native source scenario drift",
     )
     _require(
@@ -198,8 +225,8 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
         finalization["artifacts"]["materialization_root"]
     ).resolve()
     _require(
-        materialization_root.name == TARGET_MATERIALIZATION_BASENAME,
-        "materialization root is not the target_moves v2 authority",
+        materialization_root.name == profile["materialization_basename"],
+        f"materialization root is not the {mechanism} v2 authority",
     )
     _require(
         finalization_path
@@ -228,8 +255,7 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
         "audio is not the authoritative materialized binaural mixture",
     )
     _require(
-        capture_output
-        == materialization_root.parent / TARGET_CAPTURE_BASENAME,
+        capture_output == materialization_root.parent / profile["capture_basename"],
         "capture output path drift",
     )
 
@@ -297,7 +323,9 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
 def run(request_path: Path, receipt_path: Path, *, dry_run: bool) -> int:
     _require(not receipt_path.exists(), "launch receipt must be new")
     request, argv = _validate_request(request_path)
-    materialization_root = Path(request["pre_capture_finalization"]).resolve().parents[1]
+    materialization_root = (
+        Path(request["pre_capture_finalization"]).resolve().parents[1]
+    )
     attempt_root = materialization_root / "gpu_launch_attempt_01"
     expected_receipt_path = attempt_root / (
         "dry_run_receipt.json" if dry_run else "launch_receipt.json"

@@ -26,9 +26,34 @@ def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def _request_fixture(tmp_path: Path) -> Path:
-    episode_id = "strict2h_dynamic_canary_01_target_moves_v2"
-    root = tmp_path / "dynamic_target_moves_v2_materialized_v1"
+def _request_fixture(tmp_path: Path, mechanism: str = "target_moves") -> Path:
+    profiles = {
+        "target_moves": {
+            "episode_id": "strict2h_dynamic_canary_01_target_moves_v2",
+            "candidate_revision": "target_moves_v2_0523_continuous_v1",
+            "materialization_basename": "dynamic_target_moves_v2_materialized_v1",
+            "capture_basename": "dynamic_target_moves_v2_capture_attempt_01",
+            "moving_source_slot": "source1",
+            "native_source_scenario_id": (
+                "human_border_collie__recombined_both_moving_0523"
+            ),
+            "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
+        },
+        "distractor_moves": {
+            "episode_id": "strict2h_dynamic_canary_02_distractor_moves_v2",
+            "candidate_revision": "distractor_moves_v2_0589_continuous_v1",
+            "materialization_basename": "dynamic_distractor_moves_v2_materialized_v1",
+            "capture_basename": "dynamic_distractor_moves_v2_capture_attempt_01",
+            "moving_source_slot": "source2",
+            "native_source_scenario_id": (
+                "human_border_collie__recombined_both_moving_0589"
+            ),
+            "expected_rir_count_by_source_slot": {"source1": 1, "source2": 75},
+        },
+    }
+    profile = profiles[mechanism]
+    episode_id = profile["episode_id"]
+    root = tmp_path / profile["materialization_basename"]
     finalization_path = root / "pre_capture_finalization_v1" / "finalization.json"
     suite_path = root / "suite_execution_plan.json"
     audio_path = root / "binaural_v1" / "audio" / "binaural" / f"{episode_id}__v00.wav"
@@ -50,20 +75,22 @@ def _request_fixture(tmp_path: Path) -> Path:
             "gpu_launch_authorized": True,
             "qualification_claim": False,
             "episode_id": episode_id,
-            "mechanism": "target_moves",
+            "mechanism": mechanism,
             "artifacts": {"materialization_root": str(root)},
             "materialization": {
                 "status": "pass",
                 "frame_count": 75,
                 "requested_source_frame_uses": 150,
                 "expected_unique_rir_job_count": 76,
-                "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
+                "expected_rir_count_by_source_slot": profile[
+                    "expected_rir_count_by_source_slot"
+                ],
                 "animation_timing": {
-                    "source1": {
+                    profile["moving_source_slot"]: {
                         "mode": "arc_length_preserving_native_stride_v1",
                         "path_provenance": {
                             "native_source_scenario_id": (
-                                "human_border_collie__recombined_both_moving_0523"
+                                profile["native_source_scenario_id"]
                             ),
                             "output_root_count": 75,
                             "output_unique_root_count_at_1mm": 75,
@@ -80,8 +107,8 @@ def _request_fixture(tmp_path: Path) -> Path:
         {
             "schema": "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v2",
             "episode_id": episode_id,
-            "mechanism": "target_moves",
-            "candidate_revision": "target_moves_v2_0523_continuous_v1",
+            "mechanism": mechanism,
+            "candidate_revision": profile["candidate_revision"],
             "attempt_policy": {
                 "attempt_index": 1,
                 "maximum_attempts_for_candidate": 1,
@@ -97,9 +124,7 @@ def _request_fixture(tmp_path: Path) -> Path:
             "suite_plan": str(suite_path),
             "audio_wav": str(audio_path),
             "spear_root": "/data/jzy/code/SPEAR-lead-b",
-            "capture_output": str(
-                root.parent / "dynamic_target_moves_v2_capture_attempt_01"
-            ),
+            "capture_output": str(root.parent / profile["capture_basename"]),
             "rpc_port": 39701,
             "physical_gpu_index": 1,
             "graphics_adapter_argument": 1,
@@ -137,13 +162,60 @@ def test_dynamic_runner_dry_run_persists_gpu1_receipt(
     assert "--frame-index" not in receipt["capture_argv"]
 
 
-def test_dynamic_runner_rejects_non_target_mechanism(tmp_path: Path) -> None:
+def test_dynamic_runner_rejects_unsupported_mechanism(tmp_path: Path) -> None:
     runner = _load_runner()
     request_path = _request_fixture(tmp_path)
     request = json.loads(request_path.read_text(encoding="utf-8"))
     request["mechanism"] = "both_move"
     _write_json(request_path, request)
-    with pytest.raises(RuntimeError, match="target_moves-only"):
+    with pytest.raises(RuntimeError, match="target_moves or distractor_moves"):
+        runner._validate_request(request_path)
+
+
+def test_dynamic_runner_distractor_dry_run_binds_source2_motion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path, "distractor_moves")
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: {
+            "gpus": [
+                {
+                    "physical_index": 1,
+                    "uuid": runner.GPU1_UUID,
+                    "name": "test",
+                }
+            ],
+            "compute_apps": [],
+        },
+    )
+    receipt_path = request_path.parent / "dry_run_receipt.json"
+    assert runner.run(request_path, receipt_path, dry_run=True) == 0
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "dry_run_pass"
+    assert receipt["mechanism"] == "distractor_moves"
+    assert receipt["candidate_revision"] == "distractor_moves_v2_0589_continuous_v1"
+    assert receipt["capture_output"].endswith(
+        "/dynamic_distractor_moves_v2_capture_attempt_01"
+    )
+    assert "--frame-index" not in receipt["capture_argv"]
+
+
+def test_dynamic_runner_rejects_distractor_rir_slot_drift(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path, "distractor_moves")
+    finalization_path = Path(
+        json.loads(request_path.read_text(encoding="utf-8"))["pre_capture_finalization"]
+    )
+    finalization = json.loads(finalization_path.read_text(encoding="utf-8"))
+    finalization["materialization"]["expected_rir_count_by_source_slot"] = {
+        "source1": 75,
+        "source2": 1,
+    }
+    _write_json(finalization_path, finalization)
+    with pytest.raises(RuntimeError, match="distractor_moves RIR slot counts drifted"):
         runner._validate_request(request_path)
 
 
@@ -177,9 +249,7 @@ def test_dynamic_runner_rejects_capture_output_drift(tmp_path: Path) -> None:
         runner._validate_request(request_path)
 
 
-def test_dynamic_runner_rejects_receipt_path_drift(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_dynamic_runner_rejects_receipt_path_drift(tmp_path: Path, monkeypatch) -> None:
     runner = _load_runner()
     request_path = _request_fixture(tmp_path)
     monkeypatch.setattr(

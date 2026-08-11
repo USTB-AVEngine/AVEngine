@@ -16,7 +16,6 @@ import numpy as np
 FRAME_COUNT = 75
 SAMPLE_COUNT = 80_000
 SAMPLE_RATE_HZ = 16_000
-SPEECH_FRAME_WINDOW_INCLUSIVE = (7, 31)
 TARGET_SPEECH_VISIBLE_PIXELS_MINIMUM = 10_000
 TARGET_SPEECH_VISIBLE_FRACTION_MINIMUM = 0.8
 DISTRACTOR_VISIBLE_PIXELS_MINIMUM = 5_000
@@ -136,21 +135,43 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
         and dynamic.get("exact_pose_cache_reuse_count") == expected["reuse"],
         "materialized dynamic acoustic counts drift",
     )
-    audio = receipt.get("audio_program", {}).get("validation", {})
+    audio_receipt = receipt.get("audio_program", {})
+    audio = audio_receipt.get("validation", {})
     checks = audio.get("dry_bus_activity_checks", {})
+    speech_window = audio.get("speech_frame_window_inclusive")
+    _require(
+        isinstance(speech_window, list)
+        and len(speech_window) == 2
+        and all(isinstance(value, int) for value in speech_window),
+        "AudioProgram speech window missing",
+    )
+    first_frame, last_frame = speech_window
+    expected_checks = {
+        f"frame_{first_frame - 1}_silent": True,
+        f"frame_{first_frame}_active": True,
+        f"frame_{last_frame}_active": True,
+        f"frame_{last_frame + 1}_silent": True,
+        "source2_all_zero": True,
+    }
+    program = _load(
+        materialization_root / "controlled_audio_program/audio_program.json"
+    )
+    events = program.get("events", [])
+    _require(len(events) == 1, "AudioProgram event closure failed")
+    event = events[0]
+    active_sample_count = int(event["end_sample_exclusive"]) - int(
+        event["start_sample"]
+    )
     _require(
         audio.get("status") == "pass"
         and audio.get("target_event_count") == 1
         and audio.get("distractor_event_count") == 0
-        and audio.get("speech_frame_window_inclusive") == [7, 31]
-        and checks
-        == {
-            "frame_6_silent": True,
-            "frame_7_active": True,
-            "frame_31_active": True,
-            "frame_32_silent": True,
-            "source2_all_zero": True,
-        },
+        and first_frame == 7
+        and last_frame < FRAME_COUNT - 1
+        and audio.get("target_active_sample_count") == active_sample_count
+        and audio.get("target_sound_asset_id") == event.get("sound_asset_id")
+        and audio_receipt.get("target_sound_asset_id") == event.get("sound_asset_id")
+        and checks == expected_checks,
         "AudioProgram activity closure failed",
     )
     scenario, plan = _scenario(materialization_root)
@@ -188,19 +209,20 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
     root_application = receipt.get("suite_actor_root_application", {})
     root_provenance = root_application.get("root_path_provenance", {})
     animation_timing = root_application.get("animation_timing", {})
-    source1_provenance = root_provenance.get("source1", {})
-    if source1_provenance.get("method") == (
-        "arc_length_interpolation_of_native_polyline_v1"
-    ):
-        timing = animation_timing.get("source1", {})
+    interpolated_slots = []
+    for slot in ("source1", "source2"):
+        provenance = root_provenance.get(slot, {})
+        if provenance.get("method") != (
+            "arc_length_interpolation_of_native_polyline_v1"
+        ):
+            continue
+        interpolated_slots.append(slot)
+        timing = animation_timing.get(slot, {})
         _require(
-            source1_provenance.get(
-                "interior_output_roots_exact_native_frame_readbacks"
-            )
+            provenance.get("interior_output_roots_exact_native_frame_readbacks")
             is False
-            and source1_provenance.get("endpoints_exact_native_readbacks") is True
-            and timing.get("schema")
-            == "avengine_arc_length_bound_animation_timing_v1"
+            and provenance.get("endpoints_exact_native_readbacks") is True
+            and timing.get("schema") == "avengine_arc_length_bound_animation_timing_v1"
             and timing.get("status") == "pass"
             and timing.get("mode") == "arc_length_preserving_native_stride_v1"
             and len(timing.get("action_phase_path", [])) == FRAME_COUNT
@@ -212,11 +234,11 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
             and timing.get("maximum_tangent_yaw_error_deg", 1.0) <= 1.0e-5,
             "arc-length-bound slow-walk timing closure failed",
         )
-        source1_states = [
+        actor_states = [
             next(
                 state
                 for state in frame["actor_states"]
-                if state["actor_id"] == "source1_actor"
+                if state["actor_id"] == f"{slot}_actor"
             )
             for frame in frames
         ]
@@ -231,10 +253,15 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
                 <= 1.0e-12
                 and int(state["action_time_ticks"])
                 == int(timing["action_time_ticks_path"][frame_index])
-                for frame_index, state in enumerate(source1_states)
+                for frame_index, state in enumerate(actor_states)
             ),
             "suite slow-walk phase path was not applied exactly",
         )
+    expected_interpolated_slot = "source1" if mechanism == "target_moves" else "source2"
+    _require(
+        interpolated_slots == [expected_interpolated_slot],
+        "moving source provenance/timing slot drift",
+    )
     return {
         "status": "pass",
         "episode_id": receipt["episode_id"],
@@ -247,6 +274,9 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
             "source2": expected["source2"],
         },
         "exact_pose_cache_reuse_count": expected["reuse"],
+        "speech_frame_window_inclusive": speech_window,
+        "target_active_sample_count": active_sample_count,
+        "target_sound_asset_id": event["sound_asset_id"],
         "root_path_provenance": root_provenance,
         "animation_timing": animation_timing,
     }
@@ -301,7 +331,7 @@ def _validate_acoustics(
         and summary.get("active_source_slots") == ["source1"]
         and summary.get("silent_source_slots") == ["source2"]
         and summary.get("active_sample_count_by_source_slot")
-        == {"source1": 25_626, "source2": 0},
+        == {"source1": expected["target_active_sample_count"], "source2": 0},
         "rendered source activity closure failed",
     )
     audio_root = materialization_root / "binaural_v1/audio/binaural"
@@ -422,7 +452,9 @@ def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[st
     }
 
 
-def _evaluate_visibility_gate(truth: Mapping[str, Any]) -> dict[str, Any]:
+def _evaluate_visibility_gate(
+    truth: Mapping[str, Any], speech_frame_window_inclusive: Sequence[int]
+) -> dict[str, Any]:
     _require(
         truth.get("schema") == "avengine_qa_pixel_visibility_truth_v1"
         and truth.get("status") == "computed_modal_target_only_v1",
@@ -440,7 +472,11 @@ def _evaluate_visibility_gate(truth: Mapping[str, Any]) -> dict[str, Any]:
         len(target_frames) == len(distractor_frames) == FRAME_COUNT,
         "pixel per-instance frame count drift",
     )
-    start, end = SPEECH_FRAME_WINDOW_INCLUSIVE
+    _require(
+        len(speech_frame_window_inclusive) == 2,
+        "target speech-frame window is malformed",
+    )
+    start, end = [int(value) for value in speech_frame_window_inclusive]
     target_speech = [
         item for item in target_frames if start <= int(item["frame_index"]) <= end
     ]
@@ -518,6 +554,7 @@ def _validate_capture(
     launch_receipt_path: Path,
     materialization_root: Path,
     episode_id: str,
+    speech_frame_window_inclusive: Sequence[int],
 ) -> dict[str, Any]:
     launch = _load(launch_receipt_path)
     _require(
@@ -603,7 +640,8 @@ def _validate_capture(
         )
     runtime = _validate_runtime(capture_root, materialization_root)
     visibility = _evaluate_visibility_gate(
-        _load(capture_root / "pixel_visibility_truth.json")
+        _load(capture_root / "pixel_visibility_truth.json"),
+        speech_frame_window_inclusive,
     )
     return {
         "status": "pass",
@@ -661,6 +699,7 @@ def finalize(
             launch_receipt_path,
             materialization_root,
             materialization["episode_id"],
+            materialization["speech_frame_window_inclusive"],
         )
         result["gpu_launch_authorized"] = False
         result["artifacts"]["capture_root"] = str(capture_root.resolve())

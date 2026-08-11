@@ -16,9 +16,57 @@ TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
 
 
+def _audio_row(*, female_target: bool) -> dict[str, object]:
+    if female_target:
+        target = {
+            "content_id": "cremad_mti_v1",
+            "identity_key": "F",
+            "runtime_asset_id": "lead_b_rocketbox_adults_female_adult_01_original_v1",
+            "runtime_revision": "native_runtime_ue_v1",
+            "sound_asset_id": "speech_cremad_1002_mti_neu_v1",
+            "speech_frame_window_inclusive": [7, 50],
+            "speech_sample_count": 45912,
+            "transcript": "Maybe tomorrow it will be cold.",
+            "voice_id": "cremad_actor_1002",
+        }
+        distractor = {
+            "identity_key": "M",
+            "runtime_asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+            "runtime_revision": "native_runtime_ue_v3",
+        }
+    else:
+        target = {
+            "content_id": "cremad_ieo_v1",
+            "identity_key": "M",
+            "runtime_asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+            "runtime_revision": "native_runtime_ue_v3",
+            "sound_asset_id": "speech_cremad_1001_ieo_neu_v1",
+            "speech_frame_window_inclusive": [7, 31],
+            "speech_sample_count": 25626,
+            "transcript": "It's eleven o'clock.",
+            "voice_id": "cremad_actor_1001",
+        }
+        distractor = {
+            "identity_key": "F",
+            "runtime_asset_id": "lead_b_rocketbox_adults_female_adult_01_original_v1",
+            "runtime_revision": "native_runtime_ue_v1",
+        }
+    return {
+        "episode_id": "dynamic_test_episode",
+        "target": target,
+        "distractor": distractor,
+    }
+
+
 def test_audio_program_has_exact_declared_activity_window(tmp_path: Path) -> None:
-    TOOL._copy_audio_contracts(TOOL.BASE_AUDIO, tmp_path, "dynamic_test_episode")
-    result = TOOL._validate_audio_contracts(tmp_path)
+    row = _audio_row(female_target=False)
+    TOOL._copy_audio_contracts(TOOL.BASE_AUDIO, tmp_path, row)
+    _, target_audio = TOOL._controlled_target_sound(row)
+    result = TOOL._validate_audio_contracts(
+        tmp_path,
+        target_audio=target_audio,
+        expected_speech_window=[7, 31],
+    )
     program = json.loads(
         (tmp_path / "controlled_audio_program/audio_program.json").read_text()
     )
@@ -34,6 +82,45 @@ def test_audio_program_has_exact_declared_activity_window(tmp_path: Path) -> Non
     }
     assert program["events"][0]["start_sample"] == 7595
     assert program["events"][0]["end_sample_exclusive"] == 33221
+
+
+def test_audio_program_supports_female_static_target_and_silent_moving_source2(
+    tmp_path: Path,
+) -> None:
+    row = _audio_row(female_target=True)
+    TOOL._copy_audio_contracts(TOOL.BASE_AUDIO, tmp_path, row)
+    _, target_audio = TOOL._controlled_target_sound(row)
+    result = TOOL._validate_audio_contracts(
+        tmp_path,
+        target_audio=target_audio,
+        expected_speech_window=[7, 50],
+    )
+    root = tmp_path / "controlled_audio_program"
+    program = json.loads((root / "audio_program.json").read_text())
+    endpoints = json.loads((root / "source_endpoint_registry.json").read_text())
+    sounds = json.loads((root / "sound_asset_registry.json").read_text())
+    bindings = {
+        endpoint["binding"]["entity_instance_id"]: endpoint["binding"]
+        for endpoint in endpoints["source_endpoints"]
+    }
+
+    assert result["speech_frame_window_inclusive"] == [7, 50]
+    assert result["target_active_sample_count"] == 45912
+    assert result["dry_bus_activity_checks"] == {
+        "frame_6_silent": True,
+        "frame_7_active": True,
+        "frame_50_active": True,
+        "frame_51_silent": True,
+        "source2_all_zero": True,
+    }
+    assert program["events"][0]["sound_asset_id"] == "speech_cremad_1002_mti_neu_v1"
+    assert program["events"][0]["start_sample"] == 7595
+    assert program["events"][0]["end_sample_exclusive"] == 53507
+    assert sounds["sound_assets"][0]["dry_audio"]["sample_count"] == 45912
+    assert bindings["source1"]["entity_asset_id"].startswith(
+        "lead_b_rocketbox_adults_female"
+    )
+    assert bindings["source2"]["entity_asset_id"].startswith("rocketbox_human_male")
 
 
 def test_materializer_publishes_only_failure_receipt_on_error(tmp_path: Path) -> None:

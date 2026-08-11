@@ -107,14 +107,46 @@ def test_dynamic_visibility_gate_is_fail_closed_per_frame() -> None:
             },
         },
     }
-    assert TOOL._evaluate_visibility_gate(truth)["status"] == "pass"
+    assert TOOL._evaluate_visibility_gate(truth, [7, 50])["status"] == "pass"
 
     truth["per_instance"]["source1"]["frames"][7]["visible_pixels"] = 9_999
     truth["per_instance"]["source2"]["frames"][37]["visible_fraction"] = 0.49
-    rejected = TOOL._evaluate_visibility_gate(truth)
+    rejected = TOOL._evaluate_visibility_gate(truth, [7, 50])
 
     assert rejected["status"] == "fail"
     assert rejected["target_speech"]["failing_frame_count"] == 1
     assert rejected["target_speech"]["failures"][0]["frame_index"] == 7
     assert rejected["distractor_all_frames"]["failing_frame_count"] == 1
     assert rejected["distractor_all_frames"]["failures"][0]["frame_index"] == 37
+
+
+def test_dynamic_visibility_window_excludes_target_failures_after_speech() -> None:
+    truth = {
+        "schema": "avengine_qa_pixel_visibility_truth_v1",
+        "status": "computed_modal_target_only_v1",
+        "frame_indices": list(range(75)),
+        "resolution_hw": [720, 1280],
+        "per_instance": {
+            "source1": {
+                "frames": [
+                    _visibility_frame(
+                        index,
+                        visible_pixels=9_000 if index == 51 else 12_000,
+                        visible_fraction=0.9,
+                    )
+                    for index in range(75)
+                ]
+            },
+            "source2": {
+                "frames": [
+                    _visibility_frame(index, visible_pixels=8_000, visible_fraction=0.7)
+                    for index in range(75)
+                ]
+            },
+        },
+    }
+
+    result = TOOL._evaluate_visibility_gate(truth, [7, 50])
+
+    assert result["status"] == "pass"
+    assert result["target_speech"]["frame_count"] == 44
