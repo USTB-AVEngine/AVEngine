@@ -10,6 +10,7 @@
     "strict_sparse_publication": "examples/qa/native_strict_two_human_publication_v1.json",
     "runtime_registry": "examples/runtime/source_asset_runtime_profiles.json",
     "controlled_sound_registry": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/controlled_sound_content_registry_v1.json",
+    "frozen_global_assignment": "examples/qa/native_strict_two_human_full_episode_global_assignment_v1.json",
     "native_floor_point_suite": "/data/datasets/avengine_workspaces/AVEngine-habitat-native/tmp/m7/apartment_asset_bound_ue_unique1000_full_20260723_01/suite_execution_plan.json"
   },
   "timeline": {
@@ -34,6 +35,7 @@
     "candidate_manifest": "manifest.json",
     "summary": "summary.json",
     "dedup_audit": "dedup_audit.json",
+    "assignment_validation": "assignment_validation.json",
     "canary_plan": "canary_plan.json"
   },
   "native_room_scope": {
@@ -145,9 +147,19 @@
   "resource_budget": {
     "native_render_passes_per_episode": 3,
     "native_rendered_frames_per_episode": 225,
-    "exact_rir_jobs_per_episode": 2,
-    "measured_reference_storage_mb_per_full75_episode": 115,
-    "estimated_storage_gb_for_100_episodes": 11.5,
+    "capture_media_reference_bytes_per_full75_episode": 114047991,
+    "capture_media_budget_gb_for_100_episodes": 11.5,
+    "capture_media_budget_scope": "capture outputs only; excludes exact RIR caches, materialization intermediates, failed attempts, and staging copies",
+    "empirical_rir_reference_cache_bytes": 10544894,
+    "empirical_rir_reference_state_count": 76,
+    "empirical_rir_cache_budget_gb_for_9080_states": 1.3,
+    "minimum_capture_plus_rir_workspace_gb": 12.8,
+    "workspace_budget_exclusions": [
+      "materialization_intermediates",
+      "failed_attempt_directories",
+      "staging_copies",
+      "temporary_encoder_outputs"
+    ],
     "execution_batches": 10,
     "stop_after_each_batch_for_audit": true
   }
