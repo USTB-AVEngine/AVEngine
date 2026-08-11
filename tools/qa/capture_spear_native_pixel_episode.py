@@ -110,12 +110,9 @@ def _directory_artifact_record(path: Path) -> dict[str, Any]:
 
 def _raw_object_ids(component: Any) -> np.ndarray:
     bgra = component.read_pixels()["arrays"]["data"].copy()
-    return (
-        np.ascontiguousarray(bgra)
-        .view(np.uint32)
-        .reshape(bgra.shape[:2])
-        & np.uint32(0x00FFFFFF)
-    )
+    return np.ascontiguousarray(bgra).view(np.uint32).reshape(
+        bgra.shape[:2]
+    ) & np.uint32(0x00FFFFFF)
 
 
 def _depth_native(component: Any) -> np.ndarray:
@@ -161,11 +158,9 @@ def _runtime_asset_readbacks(
     raw_descriptors: Sequence[Mapping[str, Any]],
     frame: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Read exact live BP/mesh/skeleton/Idle and mouth-root bindings."""
+    """Read exact live BP/mesh/skeleton/action and mouth-root bindings."""
 
-    declarations = {
-        item["actor_id"]: item for item in scenario["plan"]["actors"]
-    }
+    declarations = {item["actor_id"]: item for item in scenario["plan"]["actors"]}
     states = {item["actor_id"]: item for item in frame["actor_states"]}
     _require(
         set(declarations) == set(runtimes) == set(states),
@@ -255,9 +250,21 @@ def _runtime_asset_readbacks(
             isinstance(idle_path, str) and idle_path,
             f"{actor_id} Standing_Idle path is missing",
         )
+        walking_path = declaration.get("walking_animation")
         _require(
-            state.get("action_id") == "idle" and state.get("ue_animation") == idle_path,
-            f"{actor_id} sparse frame is not bound to Standing_Idle",
+            isinstance(walking_path, str) and walking_path,
+            f"{actor_id} Walking path is missing",
+        )
+        action_paths = {"idle": idle_path, "walk": walking_path}
+        action_id = state.get("action_id")
+        _require(
+            action_id in action_paths,
+            f"{actor_id} frame action is not Idle/Walking",
+        )
+        action_path = action_paths[action_id]
+        _require(
+            state.get("ue_animation") == action_path,
+            f"{actor_id} frame action/animation binding mismatch",
         )
         expected_idle_handle = int(
             game.unreal_service.load_object(
@@ -267,6 +274,18 @@ def _runtime_asset_readbacks(
             )
         )
         runtime_idle_handle = int(runtime["animations"][idle_path].uobject)
+        _require(
+            runtime_idle_handle == expected_idle_handle,
+            f"{actor_id} Standing_Idle asset was not loaded exactly",
+        )
+        expected_action_handle = int(
+            game.unreal_service.load_object(
+                uclass="UAnimationAsset",
+                name=action_path,
+                as_handle=True,
+            )
+        )
+        runtime_action_handle = int(runtime["animations"][action_path].uobject)
         try:
             anim_instance_handle = int(
                 runtime["component"].GetAnimInstance(as_handle=True)
@@ -288,33 +307,33 @@ def _runtime_asset_readbacks(
         )
         anim_instance = game.get_unreal_object(uobject=anim_instance_handle)
         try:
-            observed_idle_handle = int(
+            observed_action_handle = int(
                 anim_instance.GetAnimationAsset(as_handle=True)
             )
-            idle_readback_method = "UAnimSingleNodeInstance.GetAnimationAsset"
+            action_readback_method = "UAnimSingleNodeInstance.GetAnimationAsset"
         except (AttributeError, RuntimeError):
-            observed_idle_handle = int(
+            observed_action_handle = int(
                 anim_instance.get_property_value(
                     property_name="CurrentAsset",
                     as_handle=True,
                 )
             )
-            idle_readback_method = "UAnimSingleNodeInstance.CurrentAsset_property"
+            action_readback_method = "UAnimSingleNodeInstance.CurrentAsset_property"
         _require(
-            runtime_idle_handle == expected_idle_handle
-            and observed_idle_handle == expected_idle_handle
-            and runtime["current_animation"] == idle_path,
-            f"{actor_id} live Standing_Idle binding mismatch",
+            runtime_action_handle == expected_action_handle
+            and observed_action_handle == expected_action_handle
+            and runtime["current_animation"] == action_path,
+            f"{actor_id} live current-action binding mismatch",
         )
         observed_animation_seconds = float(runtime["component"].GetPosition())
         expected_animation_seconds = RUNNER.animation_position_seconds(
             float(state["action_phase"]),
-            float(runtime["lengths"][idle_path]),
+            float(runtime["lengths"][action_path]),
         )
         animation_error = abs(observed_animation_seconds - expected_animation_seconds)
         _require(
             animation_error <= RUNNER.ANIMATION_TOLERANCE_SECONDS,
-            f"{actor_id} live Standing_Idle position mismatch",
+            f"{actor_id} live current-action position mismatch",
         )
 
         anchor_readback = RUNNER._actor_readback(
@@ -334,8 +353,7 @@ def _runtime_asset_readbacks(
         _require(root_error_m <= 1.0e-6, f"{actor_id} live root readback drift")
         emitter_offset_m = declaration.get("emitter_offset_m")
         _require(
-            isinstance(emitter_offset_m, Sequence)
-            and len(emitter_offset_m) == 3,
+            isinstance(emitter_offset_m, Sequence) and len(emitter_offset_m) == 3,
             f"{actor_id} emitter offset is missing",
         )
         observed_emitter_m = [
@@ -391,12 +409,20 @@ def _runtime_asset_readbacks(
                 "expected_path": idle_path,
                 "expected_handle": expected_idle_handle,
                 "runtime_loaded_handle": runtime_idle_handle,
+                "play_length_seconds": float(runtime["lengths"][idle_path]),
+            },
+            "current_action": {
+                "status": "pass",
+                "action_id": action_id,
+                "expected_path": action_path,
+                "expected_handle": expected_action_handle,
+                "runtime_loaded_handle": runtime_action_handle,
                 "anim_script_instance_handle": anim_instance_handle,
                 "anim_instance_readback_method": anim_instance_readback_method,
-                "observed_animation_asset_handle": observed_idle_handle,
-                "readback_method": idle_readback_method,
+                "observed_animation_asset_handle": observed_action_handle,
+                "readback_method": action_readback_method,
                 "current_animation_path": runtime["current_animation"],
-                "play_length_seconds": float(runtime["lengths"][idle_path]),
+                "play_length_seconds": float(runtime["lengths"][action_path]),
                 "expected_position_seconds": expected_animation_seconds,
                 "observed_position_seconds": observed_animation_seconds,
                 "absolute_position_error_seconds": animation_error,
@@ -476,8 +502,12 @@ def _maximum_readback_drift(
                 "target-only camera pose hash differs from normal pass",
             )
             for owner in ["camera", *sorted(normal["actors"])]:
-                normal_value = normal[owner] if owner == "camera" else normal["actors"][owner]
-                target_value = target[owner] if owner == "camera" else target["actors"][owner]
+                normal_value = (
+                    normal[owner] if owner == "camera" else normal["actors"][owner]
+                )
+                target_value = (
+                    target[owner] if owner == "camera" else target["actors"][owner]
+                )
                 location = max(
                     abs(float(left) - float(right))
                     for left, right in zip(
@@ -485,9 +515,7 @@ def _maximum_readback_drift(
                     )
                 )
                 rotation = max(
-                    abs(
-                        ((float(left) - float(right) + 180.0) % 360.0) - 180.0
-                    )
+                    abs(((float(left) - float(right) + 180.0) % 360.0) - 180.0)
                     for left, right in zip(
                         normal_value["rotation_deg"], target_value["rotation_deg"]
                     )
@@ -596,9 +624,7 @@ def run(args: argparse.Namespace) -> Path:
                     actor=runtime["visual_actor"], stable_name=stable_name
                 )
                 stable_names[actor_id.removesuffix("_actor")] = stable_name
-            SPIKE._apply_exact_frame(
-                camera=camera, runtimes=runtimes, frame=frames[0]
-            )
+            SPIKE._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
             )
@@ -610,18 +636,14 @@ def run(args: argparse.Namespace) -> Path:
             game.segmentation_service.initialize()
             components["depth"].PrimitiveRenderMode = "PRM_RenderScenePrimitives"
             components["depth"].ShowOnlyActors = []
-            SPIKE._apply_exact_frame(
-                camera=camera, runtimes=runtimes, frame=frames[0]
-            )
+            SPIKE._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
         with instance.end_frame():
             pass
         instance.step(num_frames=2)
 
         with instance.begin_frame():
-            raw_descriptors = (
-                game.segmentation_service.get_mesh_proxy_geometry_descs(
-                    include_debug_info=False, as_global=True
-                )
+            raw_descriptors = game.segmentation_service.get_mesh_proxy_geometry_descs(
+                include_debug_info=False, as_global=True
             )
         with instance.end_frame():
             pass
@@ -634,9 +656,7 @@ def run(args: argparse.Namespace) -> Path:
             all(raw_ids_by_instance.values()),
             "dynamic source proxy descriptors are missing",
         )
-        direct_modal_pixel_counts = {
-            instance_id: [] for instance_id in stable_names
-        }
+        direct_modal_pixel_counts = {instance_id: [] for instance_id in stable_names}
 
         for capture_index, frame in enumerate(frames):
             with instance.begin_frame():
@@ -648,9 +668,7 @@ def run(args: argparse.Namespace) -> Path:
                 depth = _depth_native(components["depth"])
                 raw_ids = _raw_object_ids(components["object_ids"])
             _require(
-                cv2.imwrite(
-                    str(rgb_directory / f"frame_{capture_index:06d}.png"), rgb
-                ),
+                cv2.imwrite(str(rgb_directory / f"frame_{capture_index:06d}.png"), rgb),
                 f"could not write RGB frame {frame['frame_index']}",
             )
             normal_depths.append(depth)
@@ -770,8 +788,7 @@ def run(args: argparse.Namespace) -> Path:
     normal_depth_array = np.stack(normal_depths)
     normal_object_id_array = np.stack(normal_object_ids)
     target_depth_arrays = {
-        instance_id: np.stack(values)
-        for instance_id, values in target_depths.items()
+        instance_id: np.stack(values) for instance_id, values in target_depths.items()
     }
     depth_path = args.output / "metric_depth_native.npz"
     np.savez_compressed(
@@ -873,12 +890,8 @@ def run(args: argparse.Namespace) -> Path:
         ),
         "minimum_m": float(normal_depth_array.min()),
         "maximum_m": float(normal_depth_array.max()),
-        "per_frame_minimum_m": [
-            float(np.min(frame)) for frame in normal_depth_array
-        ],
-        "per_frame_maximum_m": [
-            float(np.max(frame)) for frame in normal_depth_array
-        ],
+        "per_frame_minimum_m": [float(np.min(frame)) for frame in normal_depth_array],
+        "per_frame_maximum_m": [float(np.max(frame)) for frame in normal_depth_array],
     }
     artifact_paths = {
         "rgb_frames": rgb_directory,
@@ -911,9 +924,7 @@ def run(args: argparse.Namespace) -> Path:
             "qualification claim"
         ),
         "scenario_id": args.scenario_id,
-        "authoritative_capture_request": scenario.get(
-            "authoritative_capture_request"
-        ),
+        "authoritative_capture_request": scenario.get("authoritative_capture_request"),
         "static_camera_upgrade": scenario.get("static_camera_upgrade"),
         "native_map": suite["native_map"],
         "frame_contract": {

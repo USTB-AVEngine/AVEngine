@@ -53,6 +53,7 @@ class _UnrealService:
             "/Game/Test/runtime.runtime": 200,
             "/Game/Test/runtime_Skeleton.runtime_Skeleton": 300,
             "/Game/Test/Standing_Idle.Standing_Idle": 400,
+            "/Game/Test/Walking.Walking": 401,
         }
         assert kwargs["as_handle"] is True
         return handles[name]
@@ -77,6 +78,10 @@ class _Animation:
     uobject = 400
 
 
+class _WalkingAnimation:
+    uobject = 401
+
+
 class _Component:
     def GetAnimInstance(self, *, as_handle: bool) -> int:
         assert as_handle is True
@@ -91,8 +96,14 @@ class _Component:
         return 0.0
 
 
+class _WalkingComponent(_Component):
+    def GetPosition(self) -> float:
+        return 0.5
+
+
 def _case() -> tuple[dict, dict, dict, dict, list]:
     idle = "/Game/Test/Standing_Idle.Standing_Idle"
+    walking = "/Game/Test/Walking.Walking"
     scenario = {
         "plan": {
             "actors": [
@@ -104,6 +115,7 @@ def _case() -> tuple[dict, dict, dict, dict, list]:
                     "skeletal_mesh_path": "/Game/Test/runtime.runtime",
                     "skeleton_path": "/Game/Test/runtime_Skeleton.runtime_Skeleton",
                     "idle_animation": idle,
+                    "walking_animation": walking,
                     "emitter_anchor_id": "mouth",
                     "emitter_offset_m": [0.0, 1.6, 0.0],
                 }
@@ -127,8 +139,8 @@ def _case() -> tuple[dict, dict, dict, dict, list]:
             "anchor": object(),
             "visual_actor": _VisualActor(),
             "component": _Component(),
-            "animations": {idle: _Animation()},
-            "lengths": {idle: 2.0},
+            "animations": {idle: _Animation(), walking: _WalkingAnimation()},
+            "lengths": {idle: 2.0, walking: 2.0},
             "current_animation": idle,
         }
     }
@@ -176,12 +188,67 @@ def test_runtime_asset_readback_closes_live_identity_and_emitter(
     assert observed["skeletal_mesh"]["observed_handle"] == 200
     assert observed["skeleton"]["observed_mesh_skeleton_handle"] == 300
     assert observed["standing_idle"]["runtime_loaded_handle"] == 400
-    assert observed["standing_idle"]["observed_animation_asset_handle"] == 400
+    assert observed["current_action"]["action_id"] == "idle"
+    assert observed["current_action"]["observed_animation_asset_handle"] == 400
     assert observed["emitter_native_readback"]["observed_world_emitter_m"] == [
         -2.0,
         2.0,
         -1.0,
     ]
+
+
+def test_runtime_asset_readback_accepts_declared_walking_at_last_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario, frame, runtimes, stable_names, descriptors = _case()
+    walking = "/Game/Test/Walking.Walking"
+    frame["frame_index"] = 74
+    frame["actor_states"][0].update(
+        {
+            "action_id": "walk",
+            "action_phase": 0.25,
+            "ue_animation": walking,
+        }
+    )
+    runtime = runtimes["source1_actor"]
+    runtime["component"] = _WalkingComponent()
+    runtime["current_animation"] = walking
+    monkeypatch.setattr(
+        TOOL.RUNNER,
+        "_skeletal_mesh_handle",
+        lambda _: (200, "GetSkeletalMeshAsset"),
+    )
+    monkeypatch.setattr(
+        TOOL.RUNNER,
+        "_actor_readback",
+        lambda _actor, frame_index: {
+            "frame_index": frame_index,
+            "location_cm": [-200.0, -100.0, 40.0],
+            "rotation_deg": [0.0, 0.0, -38.0],
+        },
+    )
+    monkeypatch.setattr(
+        _AnimInstance,
+        "GetAnimationAsset",
+        lambda self, *, as_handle: 401,
+    )
+
+    result = TOOL._runtime_asset_readbacks(
+        game=_Game(),
+        scenario=scenario,
+        runtimes=runtimes,
+        stable_names=stable_names,
+        raw_descriptors=descriptors,
+        frame=frame,
+    )
+
+    observed = result["per_instance"]["source1"]
+    assert observed["standing_idle"]["status"] == "pass"
+    assert observed["standing_idle"]["runtime_loaded_handle"] == 400
+    assert observed["current_action"]["action_id"] == "walk"
+    assert observed["current_action"]["expected_handle"] == 401
+    assert observed["current_action"]["observed_animation_asset_handle"] == 401
+    assert observed["current_action"]["absolute_position_error_seconds"] == 0.0
 
 
 def test_runtime_asset_readback_rejects_wrong_live_blueprint(
