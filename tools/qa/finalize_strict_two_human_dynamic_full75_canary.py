@@ -31,6 +31,10 @@ EXPECTED_ACOUSTICS = {
         "reuse": 0,
     },
 }
+INTERPOLATED_PATH_METHODS = {
+    "arc_length_interpolation_of_native_polyline_v1",
+    "equal_arc_interpolation_of_exact_native_human_polyline_v1",
+}
 EXPECTED_MOTION = {
     "target_moves": {
         "action_counts": {
@@ -253,9 +257,7 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
     interpolated_slots = []
     for slot in ("source1", "source2"):
         provenance = root_provenance.get(slot, {})
-        if provenance.get("method") != (
-            "arc_length_interpolation_of_native_polyline_v1"
-        ):
+        if provenance.get("method") not in INTERPOLATED_PATH_METHODS:
             continue
         interpolated_slots.append(slot)
         timing = animation_timing.get(slot, {})

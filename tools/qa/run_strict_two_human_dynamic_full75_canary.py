@@ -26,34 +26,67 @@ RUNNER_PROFILES = {
         "candidate_revision": "target_moves_v2_0523_continuous_v1",
         "materialization_basename": "dynamic_target_moves_v2_materialized_v1",
         "capture_basename": "dynamic_target_moves_v2_capture_attempt_01",
-        "moving_source_slot": "source1",
-        "native_source_scenario_id": (
-            "human_border_collie__recombined_both_moving_0523"
-        ),
+        "moving_source_scenarios": {
+            "source1": "human_border_collie__recombined_both_moving_0523"
+        },
         "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
         "expected_unique_rir_job_count": 76,
+        "expected_action_counts": {
+            "source1": {"idle": 0, "walk": 75},
+            "source2": {"idle": 75, "walk": 0},
+        },
+        "expected_listener_orientation_count": 1,
+        "minimum_camera_yaw_span_deg": 0.0,
     },
     "distractor_moves": {
         "episode_id": "strict2h_dynamic_canary_02_distractor_moves_v2",
         "candidate_revision": "distractor_moves_v2_0589_continuous_v1",
         "materialization_basename": "dynamic_distractor_moves_v2_materialized_v1",
         "capture_basename": "dynamic_distractor_moves_v2_capture_attempt_01",
-        "moving_source_slot": "source2",
-        "native_source_scenario_id": (
-            "human_border_collie__recombined_both_moving_0589"
-        ),
+        "moving_source_scenarios": {
+            "source2": "human_border_collie__recombined_both_moving_0589"
+        },
         "expected_rir_count_by_source_slot": {"source1": 1, "source2": 75},
         "expected_unique_rir_job_count": 76,
+        "expected_action_counts": {
+            "source1": {"idle": 75, "walk": 0},
+            "source2": {"idle": 0, "walk": 75},
+        },
+        "expected_listener_orientation_count": 1,
+        "minimum_camera_yaw_span_deg": 0.0,
     },
     "camera_pan_both_static": {
         "episode_id": "strict2h_dynamic_canary_04_camera_pan_both_static_v2",
         "candidate_revision": "camera_pan_v2_0589_right_target_yaw52_58_v1",
         "materialization_basename": "dynamic_camera_pan_v2_materialized_v1",
         "capture_basename": "dynamic_camera_pan_v2_capture_attempt_01",
-        "moving_source_slot": None,
-        "native_source_scenario_id": None,
+        "moving_source_scenarios": {},
         "expected_rir_count_by_source_slot": {"source1": 75, "source2": 75},
         "expected_unique_rir_job_count": 150,
+        "expected_action_counts": {
+            "source1": {"idle": 75, "walk": 0},
+            "source2": {"idle": 75, "walk": 0},
+        },
+        "expected_listener_orientation_count": 75,
+        "minimum_camera_yaw_span_deg": 5.9,
+    },
+    "both_move": {
+        "episode_id": "strict2h_dynamic_canary_03_both_move_v1",
+        "candidate_revision": "both_move_v1_0304_0990_equal_arc_v1",
+        "materialization_basename": "dynamic_both_move_v1_materialized_v1",
+        "capture_basename": "dynamic_both_move_v1_capture_attempt_01",
+        "moving_source_scenarios": {
+            "source1": "human_border_collie__recombined_both_moving_0304",
+            "source2": "border_collie_human__recombined_both_moving_0990",
+        },
+        "expected_rir_count_by_source_slot": {"source1": 75, "source2": 75},
+        "expected_unique_rir_job_count": 150,
+        "expected_action_counts": {
+            "source1": {"idle": 0, "walk": 75},
+            "source2": {"idle": 0, "walk": 75},
+        },
+        "expected_listener_orientation_count": 1,
+        "minimum_camera_yaw_span_deg": 0.0,
     },
 }
 
@@ -144,13 +177,13 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     mechanism = request.get("mechanism")
     _require(
         mechanism in RUNNER_PROFILES,
-        "runner mechanism must be target_moves, distractor_moves, or "
+        "runner mechanism must be target_moves, distractor_moves, both_move, or "
         "camera_pan_both_static",
     )
     profile = RUNNER_PROFILES[mechanism]
     _require(
         request.get("episode_id") == profile["episode_id"],
-        f"runner is bound to the continuous {mechanism} v2 episode",
+        f"runner is bound to the selected {mechanism} candidate",
     )
     _require(
         request.get("candidate_revision") == profile["candidate_revision"],
@@ -212,18 +245,20 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
         == profile["expected_rir_count_by_source_slot"],
         f"{mechanism} RIR slot counts drifted",
     )
-    if profile["moving_source_slot"] is not None:
-        timing = materialization.get("animation_timing", {}).get(
-            profile["moving_source_slot"], {}
-        )
+    animation_timing = materialization.get("animation_timing", {})
+    _require(
+        set(animation_timing) == set(profile["moving_source_scenarios"]),
+        "moving source timing slot set drift",
+    )
+    for slot, scenario_id in profile["moving_source_scenarios"].items():
+        timing = animation_timing.get(slot, {})
         provenance = timing.get("path_provenance", {})
         _require(
             timing.get("mode") == "arc_length_preserving_native_stride_v1",
             "continuous slow-walk timing authority drift",
         )
         _require(
-            provenance.get("native_source_scenario_id")
-            == profile["native_source_scenario_id"],
+            provenance.get("native_source_scenario_id") == scenario_id,
             "native source scenario drift",
         )
         _require(
@@ -236,28 +271,24 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
             is False,
             "derived-interpolation claim boundary drift",
         )
-    else:
-        _require(
-            materialization.get("animation_timing") == {}
-            and materialization.get("action_counts")
-            == {
-                "source1": {"idle": 75, "walk": 0},
-                "source2": {"idle": 75, "walk": 0},
-            },
-            "camera-pan actors must remain static and idle",
-        )
-        _require(
-            materialization.get("distinct_listener_orientation_count") == 75
-            and float(materialization.get("camera_yaw_span_deg", 0.0)) >= 5.9,
-            "camera-pan listener orientation authority drift",
-        )
+    _require(
+        materialization.get("action_counts") == profile["expected_action_counts"],
+        f"{mechanism} action count drift",
+    )
+    _require(
+        materialization.get("distinct_listener_orientation_count")
+        == profile["expected_listener_orientation_count"]
+        and float(materialization.get("camera_yaw_span_deg", 0.0))
+        >= profile["minimum_camera_yaw_span_deg"],
+        f"{mechanism} listener orientation authority drift",
+    )
 
     materialization_root = Path(
         finalization["artifacts"]["materialization_root"]
     ).resolve()
     _require(
         materialization_root.name == profile["materialization_basename"],
-        f"materialization root is not the {mechanism} v2 authority",
+        f"materialization root is not the selected {mechanism} authority",
     )
     _require(
         finalization_path

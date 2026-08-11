@@ -239,3 +239,65 @@ def test_camera_pan_sensor_rig_applies_75_unique_orientations() -> None:
     assert observed_yaws[0] == pytest.approx(52.0)
     assert observed_yaws[-1] == pytest.approx(58.0)
     assert all(current > previous for previous, current in pairwise(observed_yaws))
+
+
+def test_both_move_acoustics_require_150_distinct_states_without_reuse() -> None:
+    assert TOOL.EXPECTED_ACOUSTICS["both_move"] == {
+        "motion_case": "source1_moving_source2_moving",
+        "per_slot_distinct": {"source1": 75, "source2": 75},
+        "unique": 150,
+        "reuse": 0,
+    }
+
+
+def test_counterfactual_source_scenarios_bind_each_native_human_path(
+    tmp_path: Path,
+) -> None:
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text(
+        json.dumps(
+            {
+                "scenarios": [
+                    {"scenario_id": "native_target"},
+                    {"scenario_id": "native_distractor"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    row = {
+        "source_suite": str(suite_path),
+        "native_source_scenario_ids": ["native_target", "native_distractor"],
+        "target": {"path_provenance": {"native_source_scenario_id": "native_target"}},
+        "distractor": {
+            "path_provenance": {"native_source_scenario_id": "native_distractor"}
+        },
+    }
+
+    resolved = TOOL._source_scenarios(row)
+
+    assert resolved["source1"]["scenario_id"] == "native_target"
+    assert resolved["source2"]["scenario_id"] == "native_distractor"
+
+
+def test_equal_arc_native_human_method_binds_animation_phase() -> None:
+    roots = [[0.01 * index, 0.4, -3.0] for index in range(75)]
+    role = {
+        "path_provenance": {
+            "method": "equal_arc_interpolation_of_exact_native_human_polyline_v1",
+            "interior_output_roots_exact_native_frame_readbacks": False,
+            "endpoints_exact_native_readbacks": True,
+            "output_root_count": 75,
+            "output_unique_root_count_at_1mm": 75,
+        },
+        "per_frame_action_phase": [(0.625 * index / 74.0) % 1.0 for index in range(75)],
+        "per_frame_anatomical_forward_habitat_world": [[1.0, 0.0, 0.0]] * 75,
+        "per_frame_tangent_yaw_habitat_deg": [90.0] * 75,
+    }
+
+    timing = TOOL._arc_length_animation_timing(role=role, roots=roots)
+
+    assert timing is not None
+    assert timing["status"] == "pass"
+    assert timing["phase_cycle_count"] == pytest.approx(0.625)
+    assert timing["path_provenance"]["method"].startswith("equal_arc")

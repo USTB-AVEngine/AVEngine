@@ -65,6 +65,20 @@ def test_camera_pan_motion_contract_requires_static_actors_and_75_orientations()
     }
 
 
+def test_both_move_requires_two_interpolated_walking_slots() -> None:
+    assert TOOL.EXPECTED_MOTION["both_move"] == {
+        "action_counts": {
+            "source1": {"idle": 0, "walk": 75},
+            "source2": {"idle": 0, "walk": 75},
+        },
+        "interpolated_slots": ["source1", "source2"],
+        "listener_orientation_count": 1,
+    }
+    assert "equal_arc_interpolation_of_exact_native_human_polyline_v1" in (
+        TOOL.INTERPOLATED_PATH_METHODS
+    )
+
+
 def test_float32_wav_contract_and_exact_silence(tmp_path: Path) -> None:
     samples = np.zeros((80_000, 2), dtype=np.float32)
     path = tmp_path / "silent.wav"

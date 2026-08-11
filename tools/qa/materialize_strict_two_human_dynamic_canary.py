@@ -80,6 +80,10 @@ CONTROLLED_AUDIO_ROOT = Path(
 )
 SPEECH_INTRA_FRAME_OFFSET_SAMPLES = 128
 ANIMATION_TICKS_PER_PHASE_CYCLE = 51_200
+INTERPOLATED_PATH_METHODS = {
+    "arc_length_interpolation_of_native_polyline_v1",
+    "equal_arc_interpolation_of_exact_native_human_polyline_v1",
+}
 EXPECTED_ACOUSTICS = {
     "target_moves": {
         "motion_case": "source1_moving_source2_static",
@@ -95,6 +99,12 @@ EXPECTED_ACOUSTICS = {
     },
     "camera_pan_both_static": {
         "motion_case": "source1_static_source2_static_camera_pan",
+        "per_slot_distinct": {"source1": 75, "source2": 75},
+        "unique": 150,
+        "reuse": 0,
+    },
+    "both_move": {
+        "motion_case": "source1_moving_source2_moving",
         "per_slot_distinct": {"source1": 75, "source2": 75},
         "unique": 150,
         "reuse": 0,
@@ -130,15 +140,36 @@ def _identity_declarations(base_suite: Mapping[str, Any]) -> dict[str, dict[str,
     return by_identity
 
 
-def _source_scenario(row: Mapping[str, Any]) -> dict[str, Any]:
+def _source_scenarios(row: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     suite = _load(Path(row["source_suite"]))
-    matches = [
-        scenario
-        for scenario in suite["scenarios"]
-        if scenario["scenario_id"] == row["native_source_scenario_id"]
-    ]
-    _require(len(matches) == 1, "native source scenario must resolve exactly once")
-    return matches[0]
+    by_id = {str(scenario["scenario_id"]): scenario for scenario in suite["scenarios"]}
+    _require(
+        len(by_id) == len(suite["scenarios"]),
+        "source suite scenario IDs must be unique",
+    )
+    result: dict[str, dict[str, Any]] = {}
+    for slot, role in (("source1", row["target"]), ("source2", row["distractor"])):
+        provenance = role.get("path_provenance", {})
+        scenario_id = provenance.get("native_source_scenario_id") or row.get(
+            "native_source_scenario_id"
+        )
+        _require(
+            isinstance(scenario_id, str) and scenario_id in by_id,
+            f"{slot} native source scenario must resolve exactly once",
+        )
+        result[slot] = by_id[scenario_id]
+    declared_ids = row.get("native_source_scenario_ids")
+    if declared_ids is not None:
+        _require(
+            declared_ids
+            == [
+                row["target"]["path_provenance"]["native_source_scenario_id"],
+                row["distractor"]["path_provenance"]["native_source_scenario_id"],
+            ]
+            and len(set(declared_ids)) == 2,
+            "counterfactual source scenario binding drift",
+        )
+    return result
 
 
 def _rotation_from_forward(forward: Sequence[float]) -> list[float]:
@@ -178,8 +209,9 @@ def _arc_length_animation_timing(
     *, role: Mapping[str, Any], roots: Sequence[Sequence[float]]
 ) -> dict[str, Any] | None:
     provenance = role.get("path_provenance")
-    if not isinstance(provenance, Mapping) or provenance.get("method") != (
-        "arc_length_interpolation_of_native_polyline_v1"
+    if (
+        not isinstance(provenance, Mapping)
+        or provenance.get("method") not in INTERPOLATED_PATH_METHODS
     ):
         return None
     _require(
@@ -332,7 +364,7 @@ def _sensor_rig(row: Mapping[str, Any]) -> dict[str, Any]:
 def _actor_materialization(
     *,
     row: Mapping[str, Any],
-    source_scenario: Mapping[str, Any],
+    source_scenarios: Mapping[str, Mapping[str, Any]],
     declarations_by_identity: Mapping[str, dict[str, Any]],
 ) -> tuple[
     list[dict[str, Any]],
@@ -340,8 +372,6 @@ def _actor_materialization(
     dict[str, list[list[float]]],
     dict[str, dict[str, Any]],
 ]:
-    source_frames = source_scenario["plan"]["frames"]
-    _require(len(source_frames) == FRAME_COUNT, "source scenario is not full75")
     camera = row["camera"]["translation_m"]
     roles = {"source1": row["target"], "source2": row["distractor"]}
     declarations: list[dict[str, Any]] = []
@@ -368,6 +398,21 @@ def _actor_materialization(
         timing = _arc_length_animation_timing(role=role, roots=roots)
         if timing is not None:
             animation_timing[slot] = timing
+        source_frames = source_scenarios[slot]["plan"]["frames"]
+        frame_index_map = role["frame_index_map"]
+        _require(
+            len(source_frames) == FRAME_COUNT and len(frame_index_map) == FRAME_COUNT,
+            f"{slot} source scenario/frame map is not full75",
+        )
+        for source_frame_index in frame_index_map:
+            _require(
+                0 <= int(source_frame_index) < FRAME_COUNT
+                and any(
+                    state["actor_id"] == role["source_actor_id"]
+                    for state in source_frames[int(source_frame_index)]["actor_states"]
+                ),
+                f"{slot} native source actor/frame provenance drift",
+            )
 
     output_frames: list[dict[str, Any]] = []
     declarations_by_slot = {
@@ -378,17 +423,18 @@ def _actor_materialization(
         actor_states: list[dict[str, Any]] = []
         for slot, role in roles.items():
             declaration = declarations_by_slot[slot]
-            source_actor_id = str(role["source_actor_id"])
-            source_frame_index = int(role["frame_index_map"][frame_index])
-            source_states = {
-                state["actor_id"]: state
-                for state in source_frames[source_frame_index]["actor_states"]
-            }
-            source_state = source_states[source_actor_id]
             moving = len({tuple(point) for point in root_paths[slot]}) > 1
             if moving:
                 timing = animation_timing.get(slot)
                 if timing is None:
+                    source_frames = source_scenarios[slot]["plan"]["frames"]
+                    source_actor_id = str(role["source_actor_id"])
+                    source_frame_index = int(role["frame_index_map"][frame_index])
+                    source_states = {
+                        state["actor_id"]: state
+                        for state in source_frames[source_frame_index]["actor_states"]
+                    }
+                    source_state = source_states[source_actor_id]
                     forward = source_state["anatomical_forward_habitat_world"]
                     action_phase = float(source_state.get("action_phase", 0.0)) % 1.0
                     action_time_ticks = frame_index * TICKS_PER_FRAME
@@ -497,7 +543,18 @@ def _suite(
         "sensor_rig_trajectory_id": sensor_rig["trajectory_id"],
         "dynamic": len(set(row["camera"]["yaw_path_deg"])) > 1,
     }
-    template["plan"]["source_logic"]["scenario_id"] = row["native_source_scenario_id"]
+    native_source_scenario_ids = row.get("native_source_scenario_ids")
+    if native_source_scenario_ids is None:
+        native_source_scenario_ids = [row["native_source_scenario_id"]]
+    if len(native_source_scenario_ids) == 1:
+        template["plan"]["source_logic"]["scenario_id"] = native_source_scenario_ids[0]
+    else:
+        template["plan"]["source_logic"]["scenario_id"] = (
+            "counterfactual_cross_scenario_pair"
+        )
+        template["plan"]["source_logic"]["native_source_scenario_ids"] = deepcopy(
+            native_source_scenario_ids
+        )
     template["plan"]["source_logic"]["sources"] = [
         {
             "activation": "active",
@@ -527,6 +584,7 @@ def _suite(
         "audio_program": "controlled_audio_program/audio_program.json",
     }
     camera_pan = row["mechanism"] == "camera_pan_both_static"
+    both_move = row["mechanism"] == "both_move"
     template["reuse_contract"] = {
         "camera_and_room": (
             "retained Apartment native room; mechanism-only common camera center "
@@ -537,12 +595,22 @@ def _suite(
         "actor_roots": (
             "both actor roots are held at exact retained native human readbacks"
             if camera_pan
-            else "all 75 roots copied from exact retained native root readbacks"
+            else (
+                "both paths use separate exact native-human anchor polylines; "
+                "endpoints are exact and 75-frame interiors are derived equal-arc "
+                "interpolation"
+                if both_move
+                else "all 75 roots copied from exact retained native root readbacks"
+            )
         ),
         "actor_yaws": (
             "both held actors face the camera center and remain static"
             if camera_pan
-            else "moving actor follows native anatomical heading; held actor faces camera"
+            else (
+                "both moving actors follow their independently derived tangent headings"
+                if both_move
+                else "moving actor follows native anatomical heading; held actor faces camera"
+            )
         ),
         "audio": "source1 controlled speech only; source2 is explicitly silent",
     }
@@ -948,10 +1016,10 @@ def _materialize_into(
 
     base_suite = _load(base_suite_path)
     declarations_by_identity = _identity_declarations(base_suite)
-    source_scenario = _source_scenario(row)
+    source_scenarios = _source_scenarios(row)
     actor_frames, root_paths, emitter_paths, animation_timing = _actor_materialization(
         row=row,
-        source_scenario=source_scenario,
+        source_scenarios=source_scenarios,
         declarations_by_identity=declarations_by_identity,
     )
     declarations = [

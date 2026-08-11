@@ -33,34 +33,67 @@ def _request_fixture(tmp_path: Path, mechanism: str = "target_moves") -> Path:
             "candidate_revision": "target_moves_v2_0523_continuous_v1",
             "materialization_basename": "dynamic_target_moves_v2_materialized_v1",
             "capture_basename": "dynamic_target_moves_v2_capture_attempt_01",
-            "moving_source_slot": "source1",
-            "native_source_scenario_id": (
-                "human_border_collie__recombined_both_moving_0523"
-            ),
+            "moving_source_scenarios": {
+                "source1": "human_border_collie__recombined_both_moving_0523"
+            },
             "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
             "expected_unique_rir_job_count": 76,
+            "expected_action_counts": {
+                "source1": {"idle": 0, "walk": 75},
+                "source2": {"idle": 75, "walk": 0},
+            },
+            "expected_listener_orientation_count": 1,
+            "camera_yaw_span_deg": 0.0,
         },
         "distractor_moves": {
             "episode_id": "strict2h_dynamic_canary_02_distractor_moves_v2",
             "candidate_revision": "distractor_moves_v2_0589_continuous_v1",
             "materialization_basename": "dynamic_distractor_moves_v2_materialized_v1",
             "capture_basename": "dynamic_distractor_moves_v2_capture_attempt_01",
-            "moving_source_slot": "source2",
-            "native_source_scenario_id": (
-                "human_border_collie__recombined_both_moving_0589"
-            ),
+            "moving_source_scenarios": {
+                "source2": "human_border_collie__recombined_both_moving_0589"
+            },
             "expected_rir_count_by_source_slot": {"source1": 1, "source2": 75},
             "expected_unique_rir_job_count": 76,
+            "expected_action_counts": {
+                "source1": {"idle": 75, "walk": 0},
+                "source2": {"idle": 0, "walk": 75},
+            },
+            "expected_listener_orientation_count": 1,
+            "camera_yaw_span_deg": 0.0,
         },
         "camera_pan_both_static": {
             "episode_id": "strict2h_dynamic_canary_04_camera_pan_both_static_v2",
             "candidate_revision": "camera_pan_v2_0589_right_target_yaw52_58_v1",
             "materialization_basename": "dynamic_camera_pan_v2_materialized_v1",
             "capture_basename": "dynamic_camera_pan_v2_capture_attempt_01",
-            "moving_source_slot": None,
-            "native_source_scenario_id": None,
+            "moving_source_scenarios": {},
             "expected_rir_count_by_source_slot": {"source1": 75, "source2": 75},
             "expected_unique_rir_job_count": 150,
+            "expected_action_counts": {
+                "source1": {"idle": 75, "walk": 0},
+                "source2": {"idle": 75, "walk": 0},
+            },
+            "expected_listener_orientation_count": 75,
+            "camera_yaw_span_deg": 6.0,
+        },
+        "both_move": {
+            "episode_id": "strict2h_dynamic_canary_03_both_move_v1",
+            "candidate_revision": "both_move_v1_0304_0990_equal_arc_v1",
+            "materialization_basename": "dynamic_both_move_v1_materialized_v1",
+            "capture_basename": "dynamic_both_move_v1_capture_attempt_01",
+            "moving_source_scenarios": {
+                "source1": "human_border_collie__recombined_both_moving_0304",
+                "source2": "border_collie_human__recombined_both_moving_0990",
+            },
+            "expected_rir_count_by_source_slot": {"source1": 75, "source2": 75},
+            "expected_unique_rir_job_count": 150,
+            "expected_action_counts": {
+                "source1": {"idle": 0, "walk": 75},
+                "source2": {"idle": 0, "walk": 75},
+            },
+            "expected_listener_orientation_count": 1,
+            "camera_yaw_span_deg": 0.0,
         },
     }
     profile = profiles[mechanism]
@@ -99,29 +132,23 @@ def _request_fixture(tmp_path: Path, mechanism: str = "target_moves") -> Path:
                 "expected_rir_count_by_source_slot": profile[
                     "expected_rir_count_by_source_slot"
                 ],
-                "animation_timing": (
-                    {}
-                    if profile["moving_source_slot"] is None
-                    else {
-                        profile["moving_source_slot"]: {
-                            "mode": "arc_length_preserving_native_stride_v1",
-                            "path_provenance": {
-                                "native_source_scenario_id": (
-                                    profile["native_source_scenario_id"]
-                                ),
-                                "output_root_count": 75,
-                                "output_unique_root_count_at_1mm": 75,
-                                "interior_output_roots_exact_native_frame_readbacks": False,
-                            },
-                        }
+                "animation_timing": {
+                    slot: {
+                        "mode": "arc_length_preserving_native_stride_v1",
+                        "path_provenance": {
+                            "native_source_scenario_id": scenario_id,
+                            "output_root_count": 75,
+                            "output_unique_root_count_at_1mm": 75,
+                            "interior_output_roots_exact_native_frame_readbacks": False,
+                        },
                     }
-                ),
-                "action_counts": {
-                    "source1": {"idle": 75, "walk": 0},
-                    "source2": {"idle": 75, "walk": 0},
+                    for slot, scenario_id in profile["moving_source_scenarios"].items()
                 },
-                "distinct_listener_orientation_count": 75,
-                "camera_yaw_span_deg": 6.0,
+                "action_counts": profile["expected_action_counts"],
+                "distinct_listener_orientation_count": profile[
+                    "expected_listener_orientation_count"
+                ],
+                "camera_yaw_span_deg": profile["camera_yaw_span_deg"],
             },
         },
     )
@@ -190,7 +217,7 @@ def test_dynamic_runner_rejects_unsupported_mechanism(tmp_path: Path) -> None:
     runner = _load_runner()
     request_path = _request_fixture(tmp_path)
     request = json.loads(request_path.read_text(encoding="utf-8"))
-    request["mechanism"] = "both_move"
+    request["mechanism"] = "unknown_motion"
     _write_json(request_path, request)
     with pytest.raises(RuntimeError, match="target_moves, distractor_moves"):
         runner._validate_request(request_path)
@@ -259,6 +286,39 @@ def test_dynamic_runner_camera_pan_dry_run_binds_static_actors_and_150_rirs(
     assert "--frame-index" not in receipt["capture_argv"]
 
 
+def test_dynamic_runner_both_move_dry_run_binds_two_native_human_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path, "both_move")
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: {
+            "gpus": [
+                {
+                    "physical_index": 1,
+                    "uuid": runner.GPU1_UUID,
+                    "name": "test",
+                }
+            ],
+            "compute_apps": [],
+        },
+    )
+    receipt_path = request_path.parent / "dry_run_receipt.json"
+
+    assert runner.run(request_path, receipt_path, dry_run=True) == 0
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "dry_run_pass"
+    assert receipt["mechanism"] == "both_move"
+    assert receipt["candidate_revision"] == "both_move_v1_0304_0990_equal_arc_v1"
+    assert receipt["capture_output"].endswith(
+        "/dynamic_both_move_v1_capture_attempt_01"
+    )
+    assert "--frame-index" not in receipt["capture_argv"]
+
+
 def test_dynamic_runner_rejects_camera_pan_orientation_drift(tmp_path: Path) -> None:
     runner = _load_runner()
     request_path = _request_fixture(tmp_path, "camera_pan_both_static")
@@ -270,6 +330,22 @@ def test_dynamic_runner_rejects_camera_pan_orientation_drift(tmp_path: Path) -> 
     _write_json(finalization_path, finalization)
 
     with pytest.raises(RuntimeError, match="listener orientation authority drift"):
+        runner._validate_request(request_path)
+
+
+def test_dynamic_runner_rejects_both_move_missing_source2_timing(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path, "both_move")
+    finalization_path = Path(
+        json.loads(request_path.read_text(encoding="utf-8"))["pre_capture_finalization"]
+    )
+    finalization = json.loads(finalization_path.read_text(encoding="utf-8"))
+    del finalization["materialization"]["animation_timing"]["source2"]
+    _write_json(finalization_path, finalization)
+
+    with pytest.raises(RuntimeError, match="moving source timing slot set drift"):
         runner._validate_request(request_path)
 
 
@@ -295,7 +371,7 @@ def test_dynamic_runner_rejects_noncontinuous_episode(tmp_path: Path) -> None:
     request = json.loads(request_path.read_text(encoding="utf-8"))
     request["episode_id"] = "strict2h_dynamic_canary_01_target_moves_v1"
     _write_json(request_path, request)
-    with pytest.raises(RuntimeError, match="continuous target_moves v2"):
+    with pytest.raises(RuntimeError, match="selected target_moves candidate"):
         runner._validate_request(request_path)
 
 
