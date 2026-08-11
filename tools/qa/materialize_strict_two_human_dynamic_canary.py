@@ -17,6 +17,7 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,7 @@ TARGET_AUDIO = Path(
     "media/speech_cremad_1001_ieo_neu_v1.wav"
 )
 SPEECH_INTRA_FRAME_OFFSET_SAMPLES = 128
+ANIMATION_TICKS_PER_PHASE_CYCLE = 51_200
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -130,6 +132,136 @@ def _face_camera(root: Sequence[float], camera: Sequence[float]) -> list[float]:
     )
 
 
+def _unwrap_phase_path(phases: Sequence[float]) -> list[float]:
+    _require(len(phases) == FRAME_COUNT, "animation phase path is not full75")
+    wrapped = [float(value) for value in phases]
+    _require(
+        all(0.0 <= value < 1.0 for value in wrapped),
+        "animation phases must be wrapped to [0, 1)",
+    )
+    unwrapped = [wrapped[0]]
+    for previous, current in pairwise(wrapped):
+        advance = (current - previous) % 1.0
+        _require(
+            0.0 < advance < 0.5,
+            "moving animation phase must advance continuously without a large jump",
+        )
+        unwrapped.append(unwrapped[-1] + advance)
+    return unwrapped
+
+
+def _arc_length_animation_timing(
+    *, role: Mapping[str, Any], roots: Sequence[Sequence[float]]
+) -> dict[str, Any] | None:
+    provenance = role.get("path_provenance")
+    if not isinstance(provenance, Mapping) or provenance.get("method") != (
+        "arc_length_interpolation_of_native_polyline_v1"
+    ):
+        return None
+    _require(
+        provenance.get("interior_output_roots_exact_native_frame_readbacks") is False
+        and provenance.get("endpoints_exact_native_readbacks") is True,
+        "interpolated path provenance must distinguish anchors from interior roots",
+    )
+    _require(
+        int(provenance.get("output_root_count", -1)) == FRAME_COUNT
+        and int(provenance.get("output_unique_root_count_at_1mm", -1)) == FRAME_COUNT,
+        "interpolated slow-walk path must have 75 unique roots",
+    )
+    phases = role.get("per_frame_action_phase")
+    forwards = role.get("per_frame_anatomical_forward_habitat_world")
+    yaws = role.get("per_frame_tangent_yaw_habitat_deg")
+    _require(
+        isinstance(phases, list)
+        and isinstance(forwards, list)
+        and isinstance(yaws, list)
+        and len(phases) == len(forwards) == len(yaws) == FRAME_COUNT,
+        "interpolated slow walk needs 75 phase/forward/yaw samples",
+    )
+    unwrapped = _unwrap_phase_path(phases)
+    segment_lengths = [
+        math.hypot(
+            float(current[0]) - float(previous[0]),
+            float(current[2]) - float(previous[2]),
+        )
+        for previous, current in pairwise(roots)
+    ]
+    _require(
+        len(segment_lengths) == FRAME_COUNT - 1
+        and min(segment_lengths) > 1.0e-6,
+        "interpolated slow-walk roots must move every frame",
+    )
+    phase_advances = [
+        current - previous for previous, current in pairwise(unwrapped)
+    ]
+    phase_per_meter = [
+        phase / distance for phase, distance in zip(phase_advances, segment_lengths)
+    ]
+    maximum_phase_per_meter_error = max(phase_per_meter) - min(phase_per_meter)
+    _require(
+        maximum_phase_per_meter_error <= 1.0e-8,
+        "animation phase is not proportional to root arc length",
+    )
+    maximum_forward_angular_error_deg = 0.0
+    maximum_yaw_error_deg = 0.0
+    for frame_index, (previous, current) in enumerate(pairwise(roots)):
+        dx = float(current[0]) - float(previous[0])
+        dz = float(current[2]) - float(previous[2])
+        norm = math.hypot(dx, dz)
+        expected = [dx / norm, 0.0, dz / norm]
+        observed = [float(value) for value in forwards[frame_index]]
+        observed_norm = math.hypot(observed[0], observed[2])
+        _require(observed_norm > 1.0e-8, "slow-walk forward vector is degenerate")
+        dot = max(
+            -1.0,
+            min(
+                1.0,
+                expected[0] * observed[0] / observed_norm
+                + expected[2] * observed[2] / observed_norm,
+            ),
+        )
+        maximum_forward_angular_error_deg = max(
+            maximum_forward_angular_error_deg, math.degrees(math.acos(dot))
+        )
+        expected_yaw = math.degrees(math.atan2(expected[0], expected[2])) % 360.0
+        yaw_error = abs((float(yaws[frame_index]) - expected_yaw + 180.0) % 360.0 - 180.0)
+        maximum_yaw_error_deg = max(maximum_yaw_error_deg, yaw_error)
+    _require(
+        maximum_forward_angular_error_deg <= 1.0e-5
+        and maximum_yaw_error_deg <= 1.0e-5,
+        "slow-walk forward/yaw path is not tangent to the applied roots",
+    )
+    path_length_m = sum(segment_lengths)
+    episode_span_seconds = (FRAME_COUNT - 1) / FRAME_RATE_HZ
+    phase_cycles = unwrapped[-1] - unwrapped[0]
+    return {
+        "schema": "avengine_arc_length_bound_animation_timing_v1",
+        "status": "pass",
+        "mode": "arc_length_preserving_native_stride_v1",
+        "path_provenance": deepcopy(dict(provenance)),
+        "action_phase_path": [float(value) for value in phases],
+        "unwrapped_action_phase_path": unwrapped,
+        "action_time_ticks_path": [
+            round(value * ANIMATION_TICKS_PER_PHASE_CYCLE)
+            for value in unwrapped
+        ],
+        "path_length_m": path_length_m,
+        "episode_span_seconds": episode_span_seconds,
+        "average_root_speed_m_per_second": path_length_m / episode_span_seconds,
+        "phase_cycle_count": phase_cycles,
+        "stride_distance_m_per_phase_cycle": path_length_m / phase_cycles,
+        "maximum_segment_length_delta_m": max(segment_lengths)
+        - min(segment_lengths),
+        "maximum_phase_per_meter_error": maximum_phase_per_meter_error,
+        "maximum_forward_angular_error_deg": maximum_forward_angular_error_deg,
+        "maximum_tangent_yaw_error_deg": maximum_yaw_error_deg,
+        "claim_boundary": (
+            "interior roots are deterministic arc-length interpolation of the "
+            "retained native polyline, not exact native per-frame readbacks"
+        ),
+    }
+
+
 def _forward_from_rotation(rotation: Sequence[float]) -> list[float]:
     yaw = 2.0 * math.atan2(float(rotation[1]), float(rotation[3]))
     return [math.sin(yaw), 0.0, math.cos(yaw)]
@@ -183,7 +315,10 @@ def _actor_materialization(
     source_scenario: Mapping[str, Any],
     declarations_by_identity: Mapping[str, dict[str, Any]],
 ) -> tuple[
-    list[dict[str, Any]], dict[str, list[list[float]]], dict[str, list[list[float]]]
+    list[dict[str, Any]],
+    dict[str, list[list[float]]],
+    dict[str, list[list[float]]],
+    dict[str, dict[str, Any]],
 ]:
     source_frames = source_scenario["plan"]["frames"]
     _require(len(source_frames) == FRAME_COUNT, "source scenario is not full75")
@@ -192,6 +327,7 @@ def _actor_materialization(
     declarations: list[dict[str, Any]] = []
     root_paths: dict[str, list[list[float]]] = {}
     emitter_paths: dict[str, list[list[float]]] = {}
+    animation_timing: dict[str, dict[str, Any]] = {}
     for slot, role in roles.items():
         identity_id = str(role["runtime_asset_id"])
         _require(
@@ -209,6 +345,9 @@ def _actor_materialization(
         emitter_paths[slot] = [
             [root[0], root[1] + offset[1], root[2]] for root in roots
         ]
+        timing = _arc_length_animation_timing(role=role, roots=roots)
+        if timing is not None:
+            animation_timing[slot] = timing
 
     output_frames: list[dict[str, Any]] = []
     declarations_by_slot = {
@@ -228,23 +367,38 @@ def _actor_materialization(
             source_state = source_states[source_actor_id]
             moving = len({tuple(point) for point in root_paths[slot]}) > 1
             if moving:
-                rotation = _rotation_from_forward(
-                    source_state["anatomical_forward_habitat_world"]
-                )
+                timing = animation_timing.get(slot)
+                if timing is None:
+                    forward = source_state["anatomical_forward_habitat_world"]
+                    action_phase = float(source_state.get("action_phase", 0.0)) % 1.0
+                    action_time_ticks = frame_index * TICKS_PER_FRAME
+                    timing_mode = "nearest_native_state_phase_v1"
+                else:
+                    forward = role["per_frame_anatomical_forward_habitat_world"][
+                        frame_index
+                    ]
+                    action_phase = float(timing["action_phase_path"][frame_index])
+                    action_time_ticks = int(
+                        timing["action_time_ticks_path"][frame_index]
+                    )
+                    timing_mode = timing["mode"]
+                rotation = _rotation_from_forward(forward)
                 action_id = "walk"
-                action_phase = float(source_state.get("action_phase", 0.0)) % 1.0
                 animation = declaration["walking_animation"]
             else:
                 rotation = _face_camera(root_paths[slot][frame_index], camera)
                 action_id = "idle"
                 action_phase = 0.0
+                action_time_ticks = 0
+                timing_mode = "held_idle_v1"
                 animation = declaration["idle_animation"]
             forward_h = _forward_from_rotation(rotation)
             actor_states.append(
                 {
                     "action_id": action_id,
                     "action_phase": action_phase,
-                    "action_time_ticks": frame_index * TICKS_PER_FRAME,
+                    "action_time_ticks": action_time_ticks,
+                    "animation_timing_mode": timing_mode,
                     "actor_id": f"{slot}_actor",
                     "actor_yaw_ue_deg": actor_ue_yaw_degrees(
                         rotation,
@@ -270,7 +424,7 @@ def _actor_materialization(
                 "actor_states": actor_states,
             }
         )
-    return output_frames, root_paths, emitter_paths
+    return output_frames, root_paths, emitter_paths, animation_timing
 
 
 def _suite(
@@ -673,7 +827,7 @@ def _materialize_into(
     base_suite = _load(base_suite_path)
     declarations_by_identity = _identity_declarations(base_suite)
     source_scenario = _source_scenario(row)
-    actor_frames, root_paths, emitter_paths = _actor_materialization(
+    actor_frames, root_paths, emitter_paths, animation_timing = _actor_materialization(
         row=row,
         source_scenario=source_scenario,
         declarations_by_identity=declarations_by_identity,
@@ -721,7 +875,24 @@ def _materialize_into(
     trajectory_bank = bank.record()
     trajectory_bank["path_semantics"] = {
         "source_center_paths_m": "identity-bound world mouth emitter points",
-        "source_root_paths_m": "exact selected retained native actor roots",
+        "source_root_paths_m": (
+            "exactly applied requested roots; native-vs-derived authority is "
+            "declared separately for each source slot"
+        ),
+        "source_root_path_provenance": {
+            "source1": deepcopy(
+                row["target"].get(
+                    "path_provenance",
+                    {"method": "exact_selected_retained_native_actor_roots_v1"},
+                )
+            ),
+            "source2": deepcopy(
+                row["distractor"].get(
+                    "path_provenance",
+                    {"method": "exact_selected_retained_native_actor_roots_v1"},
+                )
+            ),
+        },
     }
     listener_positions = {
         row["episode_id"]: [
@@ -836,6 +1007,10 @@ def _materialize_into(
             "source2_applied_frame_count": 75,
             "maximum_root_path_error_m": maximum_root_error,
             "action_counts": action_counts,
+            "root_path_provenance": trajectory_bank["path_semantics"][
+                "source_root_path_provenance"
+            ],
+            "animation_timing": animation_timing,
         },
         "suite_camera_application": {
             "status": "pass_exact_all_75_frames",

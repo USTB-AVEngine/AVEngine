@@ -270,3 +270,41 @@ def test_runtime_asset_readback_rejects_wrong_live_blueprint(
             raw_descriptors=descriptors,
             frame=frame,
         )
+
+
+def test_runtime_asset_samples_close_begin_midpoint_and_end() -> None:
+    samples = [
+        {
+            "schema": "avengine_native_spear_runtime_asset_readbacks_v1",
+            "status": "pass",
+            "frame_index": frame_index,
+            "per_instance": {
+                "source1": {
+                    "current_action": {
+                        "absolute_position_error_seconds": 0.0,
+                    }
+                }
+            },
+        }
+        for frame_index in (0, 37, 74)
+    ]
+
+    result = TOOL._bundle_runtime_asset_samples(samples)
+
+    assert result["frame_index"] == 74
+    assert result["sampling_contract"]["status"] == "pass"
+    assert result["sampling_contract"]["frame_indices"] == [0, 37, 74]
+    assert [sample["frame_index"] for sample in result["sampled_frames"]] == [
+        0,
+        37,
+        74,
+    ]
+
+
+def test_runtime_asset_samples_reject_missing_midpoint() -> None:
+    samples = [
+        {"status": "pass", "frame_index": frame_index}
+        for frame_index in (0, 36, 74)
+    ]
+    with pytest.raises(RuntimeError, match="sample frame closure"):
+        TOOL._bundle_runtime_asset_samples(samples)

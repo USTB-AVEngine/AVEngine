@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,8 +27,8 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _request_fixture(tmp_path: Path) -> Path:
-    episode_id = "strict2h_dynamic_canary_01_target_moves_v1"
-    root = tmp_path / "dynamic_target_moves_materialized_v4"
+    episode_id = "strict2h_dynamic_canary_01_target_moves_v2"
+    root = tmp_path / "dynamic_target_moves_v2_materialized_v1"
     finalization_path = root / "pre_capture_finalization_v1" / "finalization.json"
     suite_path = root / "suite_execution_plan.json"
     audio_path = root / "binaural_v1" / "audio" / "binaural" / f"{episode_id}__v00.wav"
@@ -57,16 +58,36 @@ def _request_fixture(tmp_path: Path) -> Path:
                 "requested_source_frame_uses": 150,
                 "expected_unique_rir_job_count": 76,
                 "expected_rir_count_by_source_slot": {"source1": 75, "source2": 1},
+                "animation_timing": {
+                    "source1": {
+                        "mode": "arc_length_preserving_native_stride_v1",
+                        "path_provenance": {
+                            "native_source_scenario_id": (
+                                "human_border_collie__recombined_both_moving_0523"
+                            ),
+                            "output_root_count": 75,
+                            "output_unique_root_count_at_1mm": 75,
+                            "interior_output_roots_exact_native_frame_readbacks": False,
+                        },
+                    }
+                },
             },
         },
     )
-    request_path = root / "gpu_launch_v1" / "request.json"
+    request_path = root / "gpu_launch_attempt_01" / "request.json"
     _write_json(
         request_path,
         {
-            "schema": "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v1",
+            "schema": "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v2",
             "episode_id": episode_id,
             "mechanism": "target_moves",
+            "candidate_revision": "target_moves_v2_0523_continuous_v1",
+            "attempt_policy": {
+                "attempt_index": 1,
+                "maximum_attempts_for_candidate": 1,
+                "retry_same_candidate_forbidden": True,
+                "failure_disposition": "reject_candidate_without_same_candidate_retry",
+            },
             "repo_root": str(REPO_ROOT),
             "pre_capture_finalization": str(finalization_path),
             "capture_python": "/data/jzy/miniconda3/envs/spear-env/bin/python",
@@ -76,7 +97,9 @@ def _request_fixture(tmp_path: Path) -> Path:
             "suite_plan": str(suite_path),
             "audio_wav": str(audio_path),
             "spear_root": "/data/jzy/code/SPEAR-lead-b",
-            "capture_output": str(root.parent / "dynamic_target_moves_capture_v1"),
+            "capture_output": str(
+                root.parent / "dynamic_target_moves_v2_capture_attempt_01"
+            ),
             "rpc_port": 39701,
             "physical_gpu_index": 1,
             "graphics_adapter_argument": 1,
@@ -106,7 +129,7 @@ def test_dynamic_runner_dry_run_persists_gpu1_receipt(
             "compute_apps": [],
         },
     )
-    receipt_path = tmp_path / "dry_receipt.json"
+    receipt_path = request_path.parent / "dry_run_receipt.json"
     assert runner.run(request_path, receipt_path, dry_run=True) == 0
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "dry_run_pass"
@@ -122,3 +145,90 @@ def test_dynamic_runner_rejects_non_target_mechanism(tmp_path: Path) -> None:
     _write_json(request_path, request)
     with pytest.raises(RuntimeError, match="target_moves-only"):
         runner._validate_request(request_path)
+
+
+def test_dynamic_runner_rejects_noncontinuous_episode(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path)
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    request["episode_id"] = "strict2h_dynamic_canary_01_target_moves_v1"
+    _write_json(request_path, request)
+    with pytest.raises(RuntimeError, match="continuous target_moves v2"):
+        runner._validate_request(request_path)
+
+
+def test_dynamic_runner_rejects_attempt_policy_drift(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path)
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    request["attempt_policy"]["maximum_attempts_for_candidate"] = 2
+    _write_json(request_path, request)
+    with pytest.raises(RuntimeError, match="attempt policy drift"):
+        runner._validate_request(request_path)
+
+
+def test_dynamic_runner_rejects_capture_output_drift(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path)
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    request["capture_output"] = str(tmp_path / "fresh_but_wrong")
+    _write_json(request_path, request)
+    with pytest.raises(RuntimeError, match="capture output path drift"):
+        runner._validate_request(request_path)
+
+
+def test_dynamic_runner_rejects_receipt_path_drift(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: {
+            "gpus": [
+                {
+                    "physical_index": 1,
+                    "uuid": runner.GPU1_UUID,
+                    "name": "test",
+                }
+            ],
+            "compute_apps": [],
+        },
+    )
+    with pytest.raises(RuntimeError, match="receipt path is not bound"):
+        runner.run(request_path, tmp_path / "wrong.json", dry_run=True)
+
+
+def test_dynamic_runner_failed_real_attempt_is_persisted_and_cannot_retry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = _load_runner()
+    request_path = _request_fixture(tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: {
+            "gpus": [
+                {
+                    "physical_index": 1,
+                    "uuid": runner.GPU1_UUID,
+                    "name": "test",
+                }
+            ],
+            "compute_apps": [],
+        },
+    )
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=17),
+    )
+    receipt_path = request_path.parent / "launch_receipt.json"
+    assert runner.run(request_path, receipt_path, dry_run=False) == 17
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "fail"
+    assert receipt["capture_process_exit_code"] == 17
+    assert receipt["attempt_policy"]["retry_same_candidate_forbidden"] is True
+    with pytest.raises(RuntimeError, match="launch receipt must be new"):
+        runner.run(request_path, receipt_path, dry_run=False)

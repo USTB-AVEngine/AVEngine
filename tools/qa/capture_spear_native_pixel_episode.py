@@ -17,6 +17,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,7 @@ SCHEMA = "avengine_qa_native_spear_pixel_episode_v1"
 ABSOLUTE_TOLERANCE_M = 0.01
 RELATIVE_TOLERANCE = 0.002
 TARGET_ONLY_BACKGROUND_DEPTH_M = 65504.0
+RUNTIME_ASSET_SAMPLE_FRAME_INDICES = (0, 37, 74)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -450,6 +452,32 @@ def _runtime_asset_readbacks(
     }
 
 
+def _bundle_runtime_asset_samples(
+    samples: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    _require(
+        [int(sample.get("frame_index", -1)) for sample in samples]
+        == list(RUNTIME_ASSET_SAMPLE_FRAME_INDICES),
+        "runtime asset sample frame closure failed",
+    )
+    _require(
+        all(sample.get("status") == "pass" for sample in samples),
+        "runtime asset sample failed",
+    )
+    bundled = deepcopy(dict(samples[-1]))
+    bundled["sampling_contract"] = {
+        "schema": "avengine_native_spear_runtime_asset_sampling_v1",
+        "status": "pass",
+        "frame_indices": list(RUNTIME_ASSET_SAMPLE_FRAME_INDICES),
+        "purpose": (
+            "close actor root, emitter, live action asset, and animation position "
+            "at the beginning, midpoint, and end of the full75 Episode"
+        ),
+    }
+    bundled["sampled_frames"] = [deepcopy(dict(sample)) for sample in samples]
+    return bundled
+
+
 def _derive_masks(
     *,
     normal_depths: Sequence[np.ndarray],
@@ -613,6 +641,7 @@ def run(args: argparse.Namespace) -> Path:
     descriptors: list[dict[str, Any]] = []
     stable_names: dict[str, str] = {}
     direct_modal_pixel_counts: dict[str, list[int]] = {}
+    runtime_asset_samples: list[dict[str, Any]] = []
     runtime_asset_readbacks: dict[str, Any] = {}
     try:
         with instance.begin_frame():
@@ -663,6 +692,17 @@ def run(args: argparse.Namespace) -> Path:
                 readback = SPIKE._apply_exact_frame(
                     camera=camera, runtimes=runtimes, frame=frame
                 )
+                if int(frame["frame_index"]) in RUNTIME_ASSET_SAMPLE_FRAME_INDICES:
+                    runtime_asset_samples.append(
+                        _runtime_asset_readbacks(
+                            game=game,
+                            scenario=scenario,
+                            runtimes=runtimes,
+                            stable_names=stable_names,
+                            raw_descriptors=raw_descriptors,
+                            frame=frame,
+                        )
+                    )
             with instance.end_frame():
                 rgb = _rgb_bgr(components["rgb"])
                 depth = _depth_native(components["depth"])
@@ -720,22 +760,7 @@ def run(args: argparse.Namespace) -> Path:
                 target_object_id_foreground_counts[instance_id].append(
                     int(np.count_nonzero(raw_ids != 0))
                 )
-        with instance.begin_frame():
-            SPIKE._apply_exact_frame(
-                camera=camera,
-                runtimes=runtimes,
-                frame=frames[-1],
-            )
-            runtime_asset_readbacks = _runtime_asset_readbacks(
-                game=game,
-                scenario=scenario,
-                runtimes=runtimes,
-                stable_names=stable_names,
-                raw_descriptors=raw_descriptors,
-                frame=frames[-1],
-            )
-        with instance.end_frame():
-            pass
+        runtime_asset_readbacks = _bundle_runtime_asset_samples(runtime_asset_samples)
     finally:
         if runtimes:
             try:

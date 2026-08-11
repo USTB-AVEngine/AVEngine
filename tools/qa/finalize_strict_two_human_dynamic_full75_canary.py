@@ -185,6 +185,56 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
         is False,
         "suite source activation contradicts AudioProgram",
     )
+    root_application = receipt.get("suite_actor_root_application", {})
+    root_provenance = root_application.get("root_path_provenance", {})
+    animation_timing = root_application.get("animation_timing", {})
+    source1_provenance = root_provenance.get("source1", {})
+    if source1_provenance.get("method") == (
+        "arc_length_interpolation_of_native_polyline_v1"
+    ):
+        timing = animation_timing.get("source1", {})
+        _require(
+            source1_provenance.get(
+                "interior_output_roots_exact_native_frame_readbacks"
+            )
+            is False
+            and source1_provenance.get("endpoints_exact_native_readbacks") is True
+            and timing.get("schema")
+            == "avengine_arc_length_bound_animation_timing_v1"
+            and timing.get("status") == "pass"
+            and timing.get("mode") == "arc_length_preserving_native_stride_v1"
+            and len(timing.get("action_phase_path", [])) == FRAME_COUNT
+            and len(timing.get("action_time_ticks_path", [])) == FRAME_COUNT
+            and timing.get("phase_cycle_count", 0.0) > 0.0
+            and timing.get("average_root_speed_m_per_second", 0.0) > 0.0
+            and timing.get("maximum_phase_per_meter_error", 1.0) <= 1.0e-8
+            and timing.get("maximum_forward_angular_error_deg", 1.0) <= 1.0e-5
+            and timing.get("maximum_tangent_yaw_error_deg", 1.0) <= 1.0e-5,
+            "arc-length-bound slow-walk timing closure failed",
+        )
+        source1_states = [
+            next(
+                state
+                for state in frame["actor_states"]
+                if state["actor_id"] == "source1_actor"
+            )
+            for frame in frames
+        ]
+        _require(
+            all(
+                state.get("animation_timing_mode")
+                == "arc_length_preserving_native_stride_v1"
+                and abs(
+                    float(state["action_phase"])
+                    - float(timing["action_phase_path"][frame_index])
+                )
+                <= 1.0e-12
+                and int(state["action_time_ticks"])
+                == int(timing["action_time_ticks_path"][frame_index])
+                for frame_index, state in enumerate(source1_states)
+            ),
+            "suite slow-walk phase path was not applied exactly",
+        )
     return {
         "status": "pass",
         "episode_id": receipt["episode_id"],
@@ -197,6 +247,8 @@ def _validate_materialization(materialization_root: Path) -> dict[str, Any]:
             "source2": expected["source2"],
         },
         "exact_pose_cache_reuse_count": expected["reuse"],
+        "root_path_provenance": root_provenance,
+        "animation_timing": animation_timing,
     }
 
 
@@ -300,39 +352,73 @@ def _validate_runtime(capture_root: Path, materialization_root: Path) -> dict[st
     )
     _, plan = _scenario(materialization_root)
     declared = {actor["actor_id"]: actor for actor in plan["actors"]}
-    last_states = {
-        state["actor_id"]: state for state in plan["frames"][-1]["actor_states"]
-    }
-    for slot, record in assets["per_instance"].items():
-        actor_id = f"{slot}_actor"
-        state = last_states[actor_id]
-        action = record.get("current_action", {})
-        idle = record.get("standing_idle", {})
+    sampling = assets.get("sampling_contract", {})
+    samples = assets.get("sampled_frames", [])
+    _require(
+        sampling.get("schema") == "avengine_native_spear_runtime_asset_sampling_v1"
+        and sampling.get("status") == "pass"
+        and sampling.get("frame_indices") == [0, 37, 74]
+        and isinstance(samples, list)
+        and [sample.get("frame_index") for sample in samples] == [0, 37, 74],
+        "dynamic live asset sampling closure failed",
+    )
+    maximum_action_position_error_seconds = 0.0
+    maximum_root_emitter_error_m = 0.0
+    sampled_actions: dict[str, list[str]] = {"source1": [], "source2": []}
+    for sample in samples:
+        frame_index = int(sample["frame_index"])
+        states = {
+            state["actor_id"]: state
+            for state in plan["frames"][frame_index]["actor_states"]
+        }
         _require(
-            record.get("status") == "pass"
-            and idle.get("status") == "pass"
-            and idle.get("runtime_loaded_handle") == idle.get("expected_handle")
-            and action.get("status") == "pass"
-            and action.get("action_id") == state["action_id"]
-            and action.get("expected_path") == state["ue_animation"]
-            and action.get("current_animation_path") == state["ue_animation"]
-            and action.get("observed_animation_asset_handle")
-            == action.get("expected_handle")
-            == action.get("runtime_loaded_handle")
-            and action.get("absolute_position_error_seconds", 1.0) <= 1.0e-4
-            and declared[actor_id]["animation_paths_by_action_id"][state["action_id"]]
-            == state["ue_animation"],
-            f"{slot}: current-action live closure failed",
+            sample.get("status") == "pass"
+            and set(sample.get("per_instance", {})) == {"source1", "source2"},
+            f"frame {frame_index}: sampled live asset closure drift",
         )
+        for slot, record in sample["per_instance"].items():
+            actor_id = f"{slot}_actor"
+            state = states[actor_id]
+            action = record.get("current_action", {})
+            idle = record.get("standing_idle", {})
+            emitter = record.get("emitter_native_readback", {})
+            action_error = float(action.get("absolute_position_error_seconds", 1.0))
+            emitter_error = float(emitter.get("maximum_absolute_error_m", 1.0))
+            _require(
+                record.get("status") == "pass"
+                and idle.get("status") == "pass"
+                and idle.get("runtime_loaded_handle") == idle.get("expected_handle")
+                and action.get("status") == "pass"
+                and action.get("action_id") == state["action_id"]
+                and action.get("expected_path") == state["ue_animation"]
+                and action.get("current_animation_path") == state["ue_animation"]
+                and action.get("observed_animation_asset_handle")
+                == action.get("expected_handle")
+                == action.get("runtime_loaded_handle")
+                and action_error <= 1.0e-4
+                and emitter.get("status") == "pass"
+                and emitter_error <= 1.0e-6
+                and declared[actor_id]["animation_paths_by_action_id"][
+                    state["action_id"]
+                ]
+                == state["ue_animation"],
+                f"{slot}: frame {frame_index} live action/emitter closure failed",
+            )
+            maximum_action_position_error_seconds = max(
+                maximum_action_position_error_seconds, action_error
+            )
+            maximum_root_emitter_error_m = max(
+                maximum_root_emitter_error_m, emitter_error
+            )
+            sampled_actions[slot].append(str(action["action_id"]))
     return {
         "status": "pass",
         "normal_frame_readback_count": FRAME_COUNT,
         "target_only_frame_readback_count": 150,
-        "live_asset_readback_frame": 74,
-        "current_actions": {
-            slot: record["current_action"]["action_id"]
-            for slot, record in assets["per_instance"].items()
-        },
+        "live_asset_readback_frames": [0, 37, 74],
+        "sampled_current_actions": sampled_actions,
+        "maximum_action_position_error_seconds": maximum_action_position_error_seconds,
+        "maximum_root_emitter_error_m": maximum_root_emitter_error_m,
     }
 
 

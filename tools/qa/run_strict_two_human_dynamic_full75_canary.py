@@ -10,10 +10,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-REQUEST_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v1"
-RECEIPT_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_gpu_launch_receipt_v1"
+REQUEST_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v2"
+RECEIPT_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_gpu_launch_receipt_v2"
 FINALIZATION_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_finalization_v1"
 GPU1_UUID = "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581"
+TARGET_EPISODE_ID = "strict2h_dynamic_canary_01_target_moves_v2"
+TARGET_MATERIALIZATION_BASENAME = "dynamic_target_moves_v2_materialized_v1"
+TARGET_CAPTURE_BASENAME = "dynamic_target_moves_v2_capture_attempt_01"
+TARGET_NATIVE_SOURCE_SCENARIO_ID = "human_border_collie__recombined_both_moving_0523"
+ATTEMPT_POLICY = {
+    "attempt_index": 1,
+    "maximum_attempts_for_candidate": 1,
+    "retry_same_candidate_forbidden": True,
+    "failure_disposition": "reject_candidate_without_same_candidate_retry",
+}
 
 
 def _utc_now() -> str:
@@ -100,6 +110,15 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
         request.get("schema") == REQUEST_SCHEMA, "dynamic launch request schema drift"
     )
     _require(request.get("mechanism") == "target_moves", "runner is target_moves-only")
+    _require(
+        request.get("episode_id") == TARGET_EPISODE_ID,
+        "runner is bound to the continuous target_moves v2 episode",
+    )
+    _require(
+        request.get("candidate_revision") == "target_moves_v2_0523_continuous_v1",
+        "candidate revision drift",
+    )
+    _require(request.get("attempt_policy") == ATTEMPT_POLICY, "attempt policy drift")
     _require(request.get("physical_gpu_index") == 1, "physical GPU must be index 1")
     _require(
         request.get("graphics_adapter_argument") == 1, "graphics adapter must be 1"
@@ -154,21 +173,50 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
         == {"source1": 75, "source2": 1},
         "target_moves RIR slot counts drifted",
     )
+    timing = materialization.get("animation_timing", {}).get("source1", {})
+    provenance = timing.get("path_provenance", {})
+    _require(
+        timing.get("mode") == "arc_length_preserving_native_stride_v1",
+        "continuous slow-walk timing authority drift",
+    )
+    _require(
+        provenance.get("native_source_scenario_id")
+        == TARGET_NATIVE_SOURCE_SCENARIO_ID,
+        "native source scenario drift",
+    )
+    _require(
+        provenance.get("output_root_count") == 75
+        and provenance.get("output_unique_root_count_at_1mm") == 75,
+        "continuous v2 root uniqueness drift",
+    )
+    _require(
+        provenance.get("interior_output_roots_exact_native_frame_readbacks") is False,
+        "derived-interpolation claim boundary drift",
+    )
 
     materialization_root = Path(
         finalization["artifacts"]["materialization_root"]
     ).resolve()
     _require(
+        materialization_root.name == TARGET_MATERIALIZATION_BASENAME,
+        "materialization root is not the target_moves v2 authority",
+    )
+    _require(
         finalization_path
         == materialization_root / "pre_capture_finalization_v1" / "finalization.json",
         "pre-capture finalization is not bound to its materialization root",
+    )
+    _require(
+        request_path.resolve()
+        == materialization_root / "gpu_launch_attempt_01" / "request.json",
+        "launch request is not bound to attempt 01 under the materialization root",
     )
     suite_path = Path(request["suite_plan"]).resolve()
     audio_path = Path(request["audio_wav"]).resolve()
     capture_output = Path(request["capture_output"]).resolve()
     _require(
         suite_path == materialization_root / "suite_execution_plan.json",
-        "suite plan is not the materialized v4 authority",
+        "suite plan is not the materialized v2 authority",
     )
     _require(
         audio_path
@@ -181,7 +229,7 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
     )
     _require(
         capture_output
-        == materialization_root.parent / "dynamic_target_moves_capture_v1",
+        == materialization_root.parent / TARGET_CAPTURE_BASENAME,
         "capture output path drift",
     )
 
@@ -249,6 +297,21 @@ def _validate_request(request_path: Path) -> tuple[dict[str, Any], list[str]]:
 def run(request_path: Path, receipt_path: Path, *, dry_run: bool) -> int:
     _require(not receipt_path.exists(), "launch receipt must be new")
     request, argv = _validate_request(request_path)
+    materialization_root = Path(request["pre_capture_finalization"]).resolve().parents[1]
+    attempt_root = materialization_root / "gpu_launch_attempt_01"
+    expected_receipt_path = attempt_root / (
+        "dry_run_receipt.json" if dry_run else "launch_receipt.json"
+    )
+    _require(
+        receipt_path.resolve() == expected_receipt_path,
+        "receipt path is not bound to attempt 01",
+    )
+    real_receipt_path = attempt_root / "launch_receipt.json"
+    if dry_run:
+        _require(
+            not real_receipt_path.exists(),
+            "candidate already has a real launch receipt; dry-run replay is forbidden",
+        )
     before = _gpu_snapshot()
     gpu1 = [item for item in before["gpus"] if item["physical_index"] == 1]
     _require(len(gpu1) == 1, "physical GPU1 did not resolve exactly once")
@@ -264,6 +327,8 @@ def run(request_path: Path, receipt_path: Path, *, dry_run: bool) -> int:
         "status": "dry_run_pass" if dry_run else "running",
         "episode_id": request["episode_id"],
         "mechanism": request["mechanism"],
+        "candidate_revision": request["candidate_revision"],
+        "attempt_policy": request["attempt_policy"],
         "physical_gpu_index": 1,
         "graphics_adapter_argument": 1,
         "forbidden_physical_gpu_indices_used": [],
