@@ -26,6 +26,27 @@ SCENARIO_SCHEMA = "avengine_optional_spear_imported_glb_scenario_v1"
 FRAME_COUNT = 75
 FPS = 15
 TICKS_PER_FRAME = 3200
+REMOTE_REPOSITORY = Path("/data/jzy/code/AVEngine-lead-a")
+HABITAT_RUNTIME_ROOT = "/data/jzy/code/habitat-sim-AVEngine"
+SOUNDSPACES_ROOT = "/data/jzy/code/sound-spaces"
+
+
+def validate_rir_execution_environment(environment: Mapping[str, Any]) -> None:
+    """Reject plans that cannot resolve the selected MP3D acoustic profile."""
+
+    required = {
+        "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
+        "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,
+        "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": None,
+    }
+    for name, expected in required.items():
+        value = environment.get(name)
+        _require(
+            isinstance(value, str) and value.startswith("/"),
+            f"RIR execution environment is missing absolute {name}",
+        )
+        if expected is not None:
+            _require(value == expected, f"RIR execution environment drifted {name}")
 
 
 def _require(condition: bool, message: str) -> None:
@@ -764,13 +785,13 @@ def _build_rir_plan(
 def _execution_plan(
     request: Mapping[str, Any], output: Path
 ) -> dict[str, Any]:
-    remote_root = Path("/data/jzy/code/AVEngine-lead-a")
+    remote_root = REMOTE_REPOSITORY
     remote_python = remote_root / ".venv/bin/python"
     remote_output = remote_root / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
     fresh_package = remote_output / "fresh_soundspaces2_package_v1"
-    suite = remote_output / "cpu_preflight_v1/suite_execution_plan.json"
-    room_adapter = remote_output / "cpu_preflight_v1/room_adapter.json"
-    rir_plan = remote_output / "cpu_preflight_v1/rir_job_plan.json"
+    suite = remote_output / "cpu_preflight_v2/suite_execution_plan.json"
+    room_adapter = remote_output / "cpu_preflight_v2/room_adapter.json"
+    rir_plan = remote_output / "cpu_preflight_v2/rir_job_plan.json"
     capture = request["capture"]
     acoustics = request["acoustics"]
     common_capture = [
@@ -812,7 +833,7 @@ def _execution_plan(
         "--source-description",
         "SoundSpaces 2 public MP3D RLR materials",
         "--runtime-root",
-        "/data/jzy/code/habitat-sim-AVEngine",
+        HABITAT_RUNTIME_ROOT,
         "--probe-origin",
         "-4.1499128342",
         "1.572447",
@@ -838,7 +859,7 @@ def _execution_plan(
         "--simulation-profile",
         acoustics["simulation_profile"],
         "--output",
-        str(remote_output / "exact_rir_cache_v1"),
+        str(remote_output / "exact_rir_cache_v2"),
         "--layout",
         "binaural",
         "--batch-size",
@@ -846,6 +867,12 @@ def _execution_plan(
         "--thread-count",
         str(acoustics["thread_count"]),
     ]
+    execution_environment = {
+        "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
+        "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,
+        "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": str(fresh_package),
+    }
+    validate_rir_execution_environment(execution_environment)
     return {
         "schema": "avengine_native_strict_two_human_mp3d_execution_plan_v1",
         "status": "planned_not_run",
@@ -855,9 +882,7 @@ def _execution_plan(
             {
                 "step_id": "fresh_compile_mp3d_rlr_materials",
                 "working_directory": str(remote_root),
-                "environment": {
-                    "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": str(fresh_package)
-                },
+                "environment": execution_environment,
                 "argv": compile_argv,
                 "expected": {
                     "manifest": str(fresh_package / "manifest.json"),
@@ -871,18 +896,18 @@ def _execution_plan(
             },
             {
                 "step_id": "render_two_exact_rirs",
+                "attempt_id": "exact_rir_cache_v2",
+                "supersedes_failed_attempt": "exact_rir_cache_v1",
                 "working_directory": str(remote_root),
-                "environment": {
-                    "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": str(fresh_package)
-                },
+                "environment": execution_environment,
                 "argv": rir_argv,
                 "expected": {
                     "compute_device": "CPU",
                     "selected_job_count": 2,
                     "full_plan_complete": True,
                     "layout": "binaural",
-                    "receipt": str(remote_output / "exact_rir_cache_v1/receipt.json"),
-                    "index": str(remote_output / "exact_rir_cache_v1/index.json"),
+                    "receipt": str(remote_output / "exact_rir_cache_v2/receipt.json"),
+                    "index": str(remote_output / "exact_rir_cache_v2/index.json"),
                 },
             },
         ],

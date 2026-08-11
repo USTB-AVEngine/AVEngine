@@ -283,17 +283,31 @@ class PreflightTests(unittest.TestCase):
             self.assertFalse(compile_step["expected"]["qualification_claim"])
 
             self.assertEqual(rir_step["step_id"], "render_two_exact_rirs")
+            self.assertEqual(rir_step["attempt_id"], "exact_rir_cache_v2")
+            self.assertEqual(
+                rir_step["supersedes_failed_attempt"], "exact_rir_cache_v1"
+            )
             self.assertEqual(rir_step["argv"][:2], [
                 python,
                 f"{remote_root}/tools/m6x/render_rir_cache.py",
             ])
             self.assertNotIn("--job-limit", rir_step["argv"])
-            self.assertEqual(
-                rir_step["environment"][
-                    "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT"
-                ],
-                fresh_package,
+            expected_environment = {
+                "AVENGINE_HABITAT_RUNTIME_ROOT": (
+                    "/data/jzy/code/habitat-sim-AVEngine"
+                ),
+                "AVENGINE_SOUNDSPACES_ROOT": "/data/jzy/code/sound-spaces",
+                "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT": fresh_package,
+            }
+            self.assertEqual(rir_step["environment"], expected_environment)
+            builder.validate_rir_execution_environment(
+                rir_step["environment"]
             )
+            for missing_name in expected_environment:
+                mutation = dict(expected_environment)
+                mutation.pop(missing_name)
+                with self.assertRaisesRegex(RuntimeError, missing_name):
+                    builder.validate_rir_execution_environment(mutation)
             self.assertEqual(rir_step["expected"]["selected_job_count"], 2)
             self.assertTrue(rir_step["expected"]["full_plan_complete"])
             self.assertEqual(rir_step["expected"]["layout"], "binaural")
