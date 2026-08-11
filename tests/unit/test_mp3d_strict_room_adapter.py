@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 TEST_FILE = Path(__file__).resolve()
@@ -283,9 +284,10 @@ class PreflightTests(unittest.TestCase):
             self.assertFalse(compile_step["expected"]["qualification_claim"])
 
             self.assertEqual(rir_step["step_id"], "render_two_exact_rirs")
-            self.assertEqual(rir_step["attempt_id"], "exact_rir_cache_v2")
+            self.assertEqual(rir_step["attempt_id"], "exact_rir_cache_v3")
             self.assertEqual(
-                rir_step["supersedes_failed_attempt"], "exact_rir_cache_v1"
+                rir_step["supersedes_failed_attempts"],
+                ["exact_rir_cache_v1", "exact_rir_cache_v2"],
             )
             self.assertEqual(rir_step["argv"][:2], [
                 python,
@@ -311,6 +313,50 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(rir_step["expected"]["selected_job_count"], 2)
             self.assertTrue(rir_step["expected"]["full_plan_complete"])
             self.assertEqual(rir_step["expected"]["layout"], "binaural")
+            self.assertEqual(
+                rir["acoustic_state_sha256_authority"],
+                "avengine.m6x.room_feasibility.rir_acoustic_state_sha256",
+            )
+            option_values = dict(
+                zip(rir_step["argv"][2::2], rir_step["argv"][3::2])
+            )
+            self.assertEqual(
+                option_values["--room-id"], "habitat_mp3d_example_17DRP5sb8fy"
+            )
+            self.assertEqual(
+                option_values["--room-revision"],
+                "raw_v1_plus_declared_proxy_v2_research",
+            )
+            self.assertEqual(option_values["--layout"], "binaural")
+
+            try:
+                from avengine.m6x.rir_cache import (
+                    RIRCacheError,
+                    validate_rir_job_plan,
+                )
+            except ModuleNotFoundError:
+                pass
+            else:
+                validated_jobs = validate_rir_job_plan(rir)
+                self.assertEqual(len(validated_jobs), 2)
+                self.assertEqual(
+                    list(validated_jobs[0]["source_position_m"]),
+                    rir["jobs"][0]["source_position_m"],
+                )
+                self.assertEqual(
+                    list(validated_jobs[0]["listener_position_m"]),
+                    rir["jobs"][0]["listener_position_m"],
+                )
+                self.assertEqual(
+                    list(validated_jobs[0]["listener_orientation_wxyz"]),
+                    rir["jobs"][0]["listener_orientation_wxyz"],
+                )
+                mutation = deepcopy(rir)
+                mutation["jobs"][0]["source_position_m"][0] += 0.001
+                with self.assertRaisesRegex(
+                    RIRCacheError, "acoustic-state SHA-256 differs from its pose"
+                ):
+                    validate_rir_job_plan(mutation)
 
             scenario, frames = capture.validate_capture_contract(
                 suite,

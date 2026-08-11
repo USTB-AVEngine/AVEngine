@@ -61,6 +61,33 @@ def _canonical_sha256(value: Any) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _authoritative_rir_acoustic_state_sha256(
+    source_position_m: Sequence[float],
+    listener_position_m: Sequence[float],
+    listener_orientation_wxyz: Sequence[float],
+) -> str:
+    """Use A's runtime authority; keep staging self-contained for local QA."""
+
+    try:
+        from avengine.m6x.room_feasibility import (
+            rir_acoustic_state_sha256,
+        )
+    except ModuleNotFoundError:
+        return _canonical_sha256(
+            {
+                "schema": "avengine_rir_acoustic_pair_state_v1",
+                "source_position_m": list(source_position_m),
+                "listener_position_m": list(listener_position_m),
+                "listener_orientation_wxyz": list(listener_orientation_wxyz),
+            }
+        )
+    return rir_acoustic_state_sha256(
+        source_position_m,
+        listener_position_m,
+        listener_orientation_wxyz,
+    )
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -744,7 +771,11 @@ def _build_rir_plan(
             "listener_position_m": listener,
             "listener_orientation_wxyz": listener_wxyz,
         }
-        digest = _canonical_sha256(state)
+        digest = _authoritative_rir_acoustic_state_sha256(
+            state["source_position_m"],
+            state["listener_position_m"],
+            state["listener_orientation_wxyz"],
+        )
         jobs.append(
             {
                 "job_id": f"rir_{index:06d}_{digest[:16]}",
@@ -772,6 +803,9 @@ def _build_rir_plan(
         "requested_pair_state_count": requested_states,
         "unique_listener_pose_count": 1,
         "unique_rir_job_count": len(jobs),
+        "acoustic_state_sha256_authority": (
+            "avengine.m6x.room_feasibility.rir_acoustic_state_sha256"
+        ),
         "cache_reuse_count": requested_states - len(jobs),
         "claim_boundary": (
             "exact MP3D source/listener CPU RLR execution plan; native RLR has not run"
@@ -789,9 +823,9 @@ def _execution_plan(
     remote_python = remote_root / ".venv/bin/python"
     remote_output = remote_root / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
     fresh_package = remote_output / "fresh_soundspaces2_package_v1"
-    suite = remote_output / "cpu_preflight_v2/suite_execution_plan.json"
-    room_adapter = remote_output / "cpu_preflight_v2/room_adapter.json"
-    rir_plan = remote_output / "cpu_preflight_v2/rir_job_plan.json"
+    suite = remote_output / "cpu_preflight_v3/suite_execution_plan.json"
+    room_adapter = remote_output / "cpu_preflight_v3/room_adapter.json"
+    rir_plan = remote_output / "cpu_preflight_v3/rir_job_plan.json"
     capture = request["capture"]
     acoustics = request["acoustics"]
     common_capture = [
@@ -859,7 +893,7 @@ def _execution_plan(
         "--simulation-profile",
         acoustics["simulation_profile"],
         "--output",
-        str(remote_output / "exact_rir_cache_v2"),
+        str(remote_output / "exact_rir_cache_v3"),
         "--layout",
         "binaural",
         "--batch-size",
@@ -896,8 +930,11 @@ def _execution_plan(
             },
             {
                 "step_id": "render_two_exact_rirs",
-                "attempt_id": "exact_rir_cache_v2",
-                "supersedes_failed_attempt": "exact_rir_cache_v1",
+                "attempt_id": "exact_rir_cache_v3",
+                "supersedes_failed_attempts": [
+                    "exact_rir_cache_v1",
+                    "exact_rir_cache_v2",
+                ],
                 "working_directory": str(remote_root),
                 "environment": execution_environment,
                 "argv": rir_argv,
@@ -906,8 +943,8 @@ def _execution_plan(
                     "selected_job_count": 2,
                     "full_plan_complete": True,
                     "layout": "binaural",
-                    "receipt": str(remote_output / "exact_rir_cache_v2/receipt.json"),
-                    "index": str(remote_output / "exact_rir_cache_v2/index.json"),
+                    "receipt": str(remote_output / "exact_rir_cache_v3/receipt.json"),
+                    "index": str(remote_output / "exact_rir_cache_v3/index.json"),
                 },
             },
         ],
