@@ -9,6 +9,7 @@ exist.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import struct
 from collections.abc import Mapping, Sequence
@@ -25,6 +26,12 @@ GROUND_CONTACT_BONES = {
 REQUIRED_BONES = {
     bone_name for side in GROUND_CONTACT_BONES.values() for bone_name in side.values()
 }
+REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v2"
+MUTATION_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_mutation_v2"
+FLOOR_TRACE_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v2"
+FLOOR_TRACE_IDENTITY_AUTHORITY = "OutHit.Component_to_UActorComponent.GetOwner"
+FAILURE_LEDGER_SCHEMA = "avengine_strict_two_human_ground_contact_failure_ledger_v1"
+FAILED_ATTEMPT_FIRST_BLOCKER = "Unreal result is missing actor"
 
 
 def _require(condition: bool, message: str) -> None:
@@ -45,6 +52,103 @@ def _write(path: Path, value: Mapping[str, Any]) -> None:
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _file_record(path: Path) -> dict[str, Any]:
+    data = path.read_bytes()
+    return {
+        "path": str(path.resolve()),
+        "byte_size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def _materialize_failure_ledger(
+    *, final_receipt_path: Path, output: Path, new_capture_output: Path
+) -> Path:
+    _require(not output.exists(), f"refusing to overwrite failure ledger: {output}")
+    final_receipt_path = final_receipt_path.resolve()
+    final = _load(final_receipt_path)
+    _require(
+        final.get("schema")
+        == "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v1"
+        and final.get("status") == "failed"
+        and final.get("capture_process_exit_code") == 1
+        and final.get("attempt_consumed") is True
+        and final.get("gpu_started") is True
+        and final.get("frame_indices") == FRAME_INDICES
+        and final.get("release_authorized") is False
+        and final.get("formal_dataset_count") == 0,
+        "superseded ground attempt is not the closed failed attempt01",
+    )
+    attempt_root = final_receipt_path.parent
+    request_path = attempt_root / "request.json"
+    dry_receipt_path = attempt_root / "dry_run_receipt.json"
+    running_receipt_path = attempt_root / "running_receipt.json"
+    for owner, path in (
+        ("failed request", request_path),
+        ("failed dry receipt", dry_receipt_path),
+        ("failed running receipt", running_receipt_path),
+    ):
+        _require(path.is_file(), f"{owner} is missing: {path}")
+    failed_capture_output = Path(str(final.get("capture_output", ""))).resolve()
+    _require(
+        failed_capture_output.is_dir(),
+        "failed attempt capture root is missing",
+    )
+    files = sorted(path for path in failed_capture_output.rglob("*") if path.is_file())
+    _require(not files, "failed attempt unexpectedly produced capture evidence")
+    _require(
+        new_capture_output.resolve() != failed_capture_output,
+        "revision_v2 must use a fresh capture candidate/output",
+    )
+    ledger = {
+        "schema": FAILURE_LEDGER_SCHEMA,
+        "status": "closed_failed_attempt_no_same_candidate_retry",
+        "failed_attempt": {
+            "request": _file_record(request_path),
+            "dry_run_receipt": _file_record(dry_receipt_path),
+            "running_receipt": _file_record(running_receipt_path),
+            "final_receipt": _file_record(final_receipt_path),
+            "required_repo_commit": final.get("required_repo_commit"),
+            "capture_output": str(failed_capture_output),
+            "capture_process_exit_code": 1,
+            "attempt_consumed": True,
+            "captured_file_count": 0,
+            "live_trace_count": 0,
+            "snap_measurement_count": 0,
+            "pixel_frame_count": 0,
+        },
+        "first_blocker": {
+            "stage": "f0_first_visual_root_floor_trace_identity_decode",
+            "message": FAILED_ATTEMPT_FIRST_BLOCKER,
+            "code_precondition": "required_OutHit.Actor",
+            "machine_receipt_error": final.get("error"),
+            "evidence_boundary": (
+                "exact inner exception observed in attempt01 terminal traceback; "
+                "immutable final receipt records the enclosing capture exit 1"
+            ),
+        },
+        "disposition": {
+            "same_candidate_retry_forbidden": True,
+            "failed_attempt_preserved": True,
+            "new_capture_output": str(new_capture_output.resolve()),
+        },
+        "revision_v2": {
+            "floor_identity_schema": FLOOR_TRACE_IDENTITY_SCHEMA,
+            "floor_identity_authority": FLOOR_TRACE_IDENTITY_AUTHORITY,
+            "component_required": True,
+            "owner_derived_via_get_owner": True,
+            "raw_out_hit_shape_required": True,
+            "legacy_actor_field_identity_authority": False,
+            "hit_object_handle_identity_authority": False,
+        },
+        "release_authorized": False,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+    _write(output, ledger)
+    return output
 
 
 def _glb_node_names(path: Path) -> list[str]:
@@ -106,6 +210,8 @@ def build_request(
     capture_output: Path,
     instrumented_suite_output: Path,
     output: Path,
+    failed_attempt_final_receipt: Path,
+    failure_ledger_output: Path,
     rpc_port: int,
     graphics_adapter: int,
 ) -> Path:
@@ -210,6 +316,11 @@ def build_request(
                 "normalization_manifest_authority": str(normalization_path.resolve()),
             },
         }
+    failure_ledger_path = _materialize_failure_ledger(
+        final_receipt_path=failed_attempt_final_receipt,
+        output=failure_ledger_output,
+        new_capture_output=capture_output,
+    )
     instrumented_suite = deepcopy(suite)
     instrumented_scenario = next(
         item
@@ -219,12 +330,18 @@ def build_request(
     for actor in instrumented_scenario["plan"]["actors"]:
         actor["ground_contact_release_profile"] = profile_mutations[actor["actor_id"]]
     instrumented_suite["ground_contact_diagnostic_mutation"] = {
-        "schema": "avengine_strict_two_human_ground_contact_diagnostic_mutation_v1",
+        "schema": MUTATION_SCHEMA,
         "status": "cpu_materialized_pending_one_sparse_capture",
         "source_suite_plan": str(suite_plan.resolve()),
+        "failure_ledger": str(failure_ledger_path.resolve()),
         "timeline_actor_root_mutation": False,
         "emitter_or_rir_mutation": False,
         "visual_root_dynamic_ground_snap_only": True,
+        "floor_trace_identity_schema": FLOOR_TRACE_IDENTITY_SCHEMA,
+        "floor_trace_identity_authority": FLOOR_TRACE_IDENTITY_AUTHORITY,
+        "raw_out_hit_shape_required": True,
+        "legacy_actor_field_identity_authority": False,
+        "hit_object_handle_identity_authority": False,
         "formal": False,
         "qualification_claim": False,
     }
@@ -252,7 +369,7 @@ def build_request(
     for frame_index in FRAME_INDICES:
         argv.extend(["--frame-index", str(frame_index)])
     request = {
-        "schema": "avengine_strict_two_human_ground_contact_diagnostic_request_v1",
+        "schema": REQUEST_SCHEMA,
         "status": "cpu_ready_not_authorized_for_execution",
         "scenario_id": scenario_id,
         "frame_indices": FRAME_INDICES,
@@ -272,12 +389,22 @@ def build_request(
                 "UKismetSystemLibrary.LineTraceSingleByProfile_"
                 "BlockAll_complex_runtime_map"
             ),
+            "floor_identity_schema": FLOOR_TRACE_IDENTITY_SCHEMA,
+            "floor_identity_authority": FLOOR_TRACE_IDENTITY_AUTHORITY,
+            "raw_out_hit_shape_required": True,
+            "legacy_actor_field_identity_authority": False,
+            "hit_object_handle_identity_authority": False,
             "actors_to_ignore": "both_runtime_anchor_and_visual_actors",
             "required_hit_fields": [
-                "actor",
                 "component",
                 "location",
                 "normal",
+            ],
+            "derived_identity_fields": [
+                "hit_actor",
+                "hit_actor_class",
+                "hit_component",
+                "hit_component_class",
             ],
             "ue_length_unit": "centimeter",
         },
@@ -297,6 +424,10 @@ def build_request(
             "audio_wav": str(audio_wav.resolve()),
             "spear_root": str(spear_root.resolve()),
             "capture_output": str(capture_output.resolve()),
+            "failure_ledger": str(failure_ledger_path.resolve()),
+            "supersedes_failed_final_receipt": str(
+                failed_attempt_final_receipt.resolve()
+            ),
         },
     }
     _write(output, request)
@@ -312,6 +443,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--capture-output", required=True, type=Path)
     parser.add_argument("--instrumented-suite-output", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--failed-attempt-final-receipt", required=True, type=Path)
+    parser.add_argument("--failure-ledger-output", required=True, type=Path)
     parser.add_argument("--rpc-port", type=int, default=39583)
     parser.add_argument("--graphics-adapter", type=int, default=1)
     args = parser.parse_args(argv)
@@ -332,6 +465,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         capture_output=args.capture_output.resolve(),
         instrumented_suite_output=args.instrumented_suite_output.resolve(),
         output=args.output.resolve(),
+        failed_attempt_final_receipt=args.failed_attempt_final_receipt.resolve(),
+        failure_ledger_output=args.failure_ledger_output.resolve(),
         rpc_port=args.rpc_port,
         graphics_adapter=args.graphics_adapter,
     )

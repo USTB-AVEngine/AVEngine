@@ -193,6 +193,162 @@ def _safe_unreal_reference(value: Any) -> str | int | float | bool | None:
     return str(value)
 
 
+def _mapping_shape(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Record raw UE struct keys/types without treating unstable handles as identity."""
+
+    return {
+        "keys": sorted(str(key) for key in value),
+        "value_types": {
+            str(key): type(item).__name__
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        },
+    }
+
+
+def _optional_mapping_value(value: Mapping[str, Any], key: str) -> tuple[bool, Any]:
+    lowered = {str(name).lower(): item for name, item in value.items()}
+    if key.lower() not in lowered:
+        return False, None
+    return True, lowered[key.lower()]
+
+
+def _unreal_reference_is_present(value: Any) -> bool:
+    if value is None or value is False:
+        return False
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if not normalized:
+            return False
+        if normalized.startswith("0x"):
+            try:
+                return int(normalized, 16) != 0
+            except ValueError:
+                return False
+    return True
+
+
+def _floor_identity_from_hit_component(
+    *, game: Any, hit: Mapping[str, Any], owner: str
+) -> dict[str, Any]:
+    """Resolve stable floor identity through FHitResult.Component -> GetOwner.
+
+    UE5.5 no longer guarantees an ``Actor`` member in serialized ``FHitResult``.
+    ``Component`` is therefore required and authoritative; ``Actor`` and
+    ``HitObjectHandle`` are retained only as raw diagnostic auxiliaries.
+    """
+
+    raw_shape = _mapping_shape(hit)
+    component_present, component_reference = _optional_mapping_value(hit, "component")
+    _require(
+        component_present and _unreal_reference_is_present(component_reference),
+        f"{owner} floor hit is missing Component; raw OutHit keys={raw_shape['keys']}",
+    )
+    try:
+        component = game.get_unreal_object(uobject=component_reference)
+    except Exception as exc:
+        raise RuntimeError(f"{owner} Component could not resolve to a UObject") from exc
+    try:
+        owner_reference = _return_value(component.GetOwner(as_handle=True))
+    except Exception as exc:
+        raise RuntimeError(f"{owner} Component.GetOwner failed") from exc
+    _require(
+        _unreal_reference_is_present(owner_reference),
+        f"{owner} Component.GetOwner returned null",
+    )
+    try:
+        hit_owner = game.get_unreal_object(uobject=owner_reference)
+    except Exception as exc:
+        raise RuntimeError(
+            f"{owner} owner handle could not resolve to an Actor"
+        ) from exc
+
+    service = game.unreal_service
+    try:
+        component_stable_name = str(
+            service.get_stable_name_for_component(
+                component=component,
+                include_actor_stable_name=True,
+                include_actor_unreal_name=True,
+            )
+        )
+        actor_stable_name = str(
+            service.get_stable_name_for_actor(
+                actor=hit_owner,
+                include_unreal_name=True,
+            )
+        )
+        component_class = service.get_class(uobject=component, as_handle=True)
+        actor_class = service.get_class(uobject=hit_owner, as_handle=True)
+        component_class_name = str(
+            service.get_type_for_class_as_string(uclass=component_class)
+        )
+        actor_class_name = str(service.get_type_for_class_as_string(uclass=actor_class))
+    except Exception as exc:
+        raise RuntimeError(
+            f"{owner} stable Component/GetOwner identity failed"
+        ) from exc
+    _require(
+        bool(component_stable_name)
+        and bool(actor_stable_name)
+        and bool(component_class_name)
+        and bool(actor_class_name),
+        f"{owner} stable Component/GetOwner identity is empty",
+    )
+
+    actor_field_present, actor_field = _optional_mapping_value(hit, "actor")
+    hit_object_present, hit_object_handle = _optional_mapping_value(
+        hit, "hitobjecthandle"
+    )
+    physical_material_present, physical_material = _optional_mapping_value(
+        hit, "physmaterial"
+    )
+    return {
+        "schema": "ue_fhitresult_component_owner_floor_identity_v2",
+        "authority": "OutHit.Component_to_UActorComponent.GetOwner",
+        "hit_actor": actor_stable_name,
+        "hit_actor_class": actor_class_name,
+        "hit_component": component_stable_name,
+        "hit_component_class": component_class_name,
+        "component_runtime_reference": _safe_unreal_reference(component_reference),
+        "owner_runtime_reference": _safe_unreal_reference(owner_reference),
+        "raw_out_hit_shape": raw_shape,
+        "raw_actor_field": {
+            "present": actor_field_present,
+            "value_type": type(actor_field).__name__ if actor_field_present else None,
+            "value": (
+                _safe_unreal_reference(actor_field) if actor_field_present else None
+            ),
+            "identity_authority": False,
+        },
+        "hit_object_handle_auxiliary": {
+            "present": hit_object_present,
+            "value_type": (
+                type(hit_object_handle).__name__ if hit_object_present else None
+            ),
+            "value": (
+                _safe_unreal_reference(hit_object_handle)
+                if hit_object_present
+                else None
+            ),
+            "identity_authority": False,
+        },
+        "physical_material_auxiliary": {
+            "present": physical_material_present,
+            "value_type": (
+                type(physical_material).__name__ if physical_material_present else None
+            ),
+            "value": (
+                _safe_unreal_reference(physical_material)
+                if physical_material_present
+                else None
+            ),
+            "identity_authority": False,
+        },
+    }
+
+
 def _live_bone_world_position(
     component: Any, *, bone_name: str, actor_id: str
 ) -> list[float]:
@@ -251,6 +407,11 @@ def _line_trace_floor(
     _require(bool(_return_value(trace)), f"{owner} downward trace did not hit")
     hit = _mapping_value(trace, "outhit")
     _require(isinstance(hit, Mapping), f"{owner} floor hit is invalid")
+    floor_identity = _floor_identity_from_hit_component(
+        game=game,
+        hit=hit,
+        owner=owner,
+    )
     location = _xyz(_mapping_value(hit, "location"), owner=f"{owner} hit point")
     normal = _xyz(_mapping_value(hit, "normal"), owner=f"{owner} hit normal")
     horizontal_error_cm = max(
@@ -268,11 +429,10 @@ def _line_trace_floor(
         "actors_to_ignore_count": len(actors_to_ignore),
         "start_ue_cm": [start[axis] for axis in ("X", "Y", "Z")],
         "end_ue_cm": [end[axis] for axis in ("X", "Y", "Z")],
-        "hit_actor": _safe_unreal_reference(_mapping_value(hit, "actor")),
-        "hit_component": _safe_unreal_reference(_mapping_value(hit, "component")),
         "hit_point_ue_cm": location,
         "hit_normal_ue": normal,
         "horizontal_error_cm": horizontal_error_cm,
+        **floor_identity,
     }
 
 

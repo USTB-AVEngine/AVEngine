@@ -28,7 +28,44 @@ def _write_glb(path: Path, bone_names: list[str]) -> None:
     )
 
 
-def _case(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _closed_failed_attempt(tmp_path: Path) -> Path:
+    attempt_root = tmp_path / "failed_candidate/gpu_launch_attempt_01"
+    attempt_root.mkdir(parents=True)
+    for name, status in (
+        ("request.json", "prepared_not_launched"),
+        ("dry_run_receipt.json", "dry_run_pass_not_launched"),
+        ("running_receipt.json", "running"),
+    ):
+        (attempt_root / name).write_text(
+            json.dumps({"status": status}), encoding="utf-8"
+        )
+    failed_capture = tmp_path / "failed_candidate/capture_attempt_01"
+    (failed_capture / "rgb_frames").mkdir(parents=True)
+    final = attempt_root / "final_receipt.json"
+    final.write_text(
+        json.dumps(
+            {
+                "schema": (
+                    "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v1"
+                ),
+                "status": "failed",
+                "required_repo_commit": "failed-commit",
+                "capture_output": str(failed_capture),
+                "capture_process_exit_code": 1,
+                "attempt_consumed": True,
+                "gpu_started": True,
+                "frame_indices": [0, 37, 74],
+                "release_authorized": False,
+                "formal_dataset_count": 0,
+                "error": "RuntimeError: ground-contact capture exited 1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return final
+
+
+def _case(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     actors = []
     for actor_id in ("source1_actor", "source2_actor"):
         glb = tmp_path / f"{actor_id}.glb"
@@ -89,12 +126,13 @@ def _case(tmp_path: Path) -> tuple[Path, Path, Path]:
     audio.write_bytes(b"not decoded by CPU request builder")
     spear_root = tmp_path / "spear"
     spear_root.mkdir()
-    return suite, audio, spear_root
+    return suite, audio, spear_root, _closed_failed_attempt(tmp_path)
 
 
 def test_build_diagnostic_request_is_not_gpu_authorization(tmp_path: Path) -> None:
-    suite, audio, spear_root = _case(tmp_path)
+    suite, audio, spear_root, failed_receipt = _case(tmp_path)
     output = tmp_path / "request.json"
+    ledger_output = tmp_path / "failure_ledger.json"
 
     TOOL.build_request(
         suite_plan=suite,
@@ -104,21 +142,42 @@ def test_build_diagnostic_request_is_not_gpu_authorization(tmp_path: Path) -> No
         capture_output=tmp_path / "future_capture",
         instrumented_suite_output=tmp_path / "instrumented_suite.json",
         output=output,
+        failed_attempt_final_receipt=failed_receipt,
+        failure_ledger_output=ledger_output,
         rpc_port=39583,
         graphics_adapter=1,
     )
 
     request = json.loads(output.read_text())
+    assert request["schema"] == TOOL.REQUEST_SCHEMA
     assert request["status"] == "cpu_ready_not_authorized_for_execution"
     assert request["frame_indices"] == [0, 37, 74]
     assert request["gpu_launch_authorized"] is False
     assert request["artifacts"]["instrumented_suite_plan"].endswith(
         "instrumented_suite.json"
     )
+    assert request["artifacts"]["failure_ledger"] == str(ledger_output.resolve())
+    ledger = json.loads(ledger_output.read_text())
+    assert ledger["status"] == "closed_failed_attempt_no_same_candidate_retry"
+    assert ledger["failed_attempt"]["capture_process_exit_code"] == 1
+    assert ledger["failed_attempt"]["captured_file_count"] == 0
+    assert ledger["failed_attempt"]["live_trace_count"] == 0
+    assert ledger["first_blocker"]["message"] == "Unreal result is missing actor"
+    assert ledger["disposition"]["same_candidate_retry_forbidden"] is True
+    assert ledger["revision_v2"]["component_required"] is True
     instrumented = json.loads((tmp_path / "instrumented_suite.json").read_text())
     mutation = instrumented["ground_contact_diagnostic_mutation"]
+    assert mutation["schema"] == TOOL.MUTATION_SCHEMA
     assert mutation["timeline_actor_root_mutation"] is False
     assert mutation["emitter_or_rir_mutation"] is False
+    assert mutation["floor_trace_identity_schema"] == (
+        "ue_fhitresult_component_owner_floor_identity_v2"
+    )
+    assert mutation["floor_trace_identity_authority"] == (
+        "OutHit.Component_to_UActorComponent.GetOwner"
+    )
+    assert mutation["raw_out_hit_shape_required"] is True
+    assert mutation["legacy_actor_field_identity_authority"] is False
     for actor in instrumented["scenarios"][0]["plan"]["actors"]:
         profile = actor["ground_contact_release_profile"]
         assert profile["status"] == "diagnostic_pending_not_release_qualified"
@@ -132,6 +191,21 @@ def test_build_diagnostic_request_is_not_gpu_authorization(tmp_path: Path) -> No
         "bounds_only_release_forbidden": True,
         "plan_root_only_release_forbidden": True,
     }
+    measurement = request["measurement_contract"]
+    assert measurement["required_hit_fields"] == [
+        "component",
+        "location",
+        "normal",
+    ]
+    assert measurement["floor_identity_schema"] == (
+        "ue_fhitresult_component_owner_floor_identity_v2"
+    )
+    assert measurement["floor_identity_authority"] == (
+        "OutHit.Component_to_UActorComponent.GetOwner"
+    )
+    assert measurement["raw_out_hit_shape_required"] is True
+    assert measurement["legacy_actor_field_identity_authority"] is False
+    assert measurement["hit_object_handle_identity_authority"] is False
     argv = request["capture_argv_without_python"]
     assert [
         argv[index + 1] for index, value in enumerate(argv) if value == "--frame-index"
@@ -146,7 +220,7 @@ def test_build_diagnostic_request_is_not_gpu_authorization(tmp_path: Path) -> No
 
 
 def test_build_diagnostic_request_rejects_missing_contact_bone(tmp_path: Path) -> None:
-    suite, audio, spear_root = _case(tmp_path)
+    suite, audio, spear_root, failed_receipt = _case(tmp_path)
     document = json.loads(suite.read_text())
     manifest_path = Path(
         document["scenarios"][0]["plan"]["actors"][0]["runtime_asset_expectation"][
@@ -165,6 +239,8 @@ def test_build_diagnostic_request_rejects_missing_contact_bone(tmp_path: Path) -
             capture_output=tmp_path / "future_capture",
             instrumented_suite_output=tmp_path / "instrumented_suite.json",
             output=tmp_path / "request.json",
+            failed_attempt_final_receipt=failed_receipt,
+            failure_ledger_output=tmp_path / "failure_ledger.json",
             rpc_port=39583,
             graphics_adapter=1,
         )

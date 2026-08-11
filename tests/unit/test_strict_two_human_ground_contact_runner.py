@@ -64,6 +64,63 @@ def _source_fixture(tmp_path: Path, monkeypatch):
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     audio_path.write_bytes(b"RIFF")
     capture_output = diagnostic_root / "capture_attempt_01"
+    failed_attempt_root = repo / "tmp/failed_ground/gpu_launch_attempt_01"
+    failed_attempt_root.mkdir(parents=True)
+    failed_capture_output = repo / "tmp/failed_ground/capture_attempt_01"
+    failed_capture_output.mkdir(parents=True)
+    failed_final_receipt = failed_attempt_root / "final_receipt.json"
+    _write_json(
+        failed_final_receipt,
+        {
+            "schema": "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v1",
+            "status": "failed",
+            "capture_output": str(failed_capture_output),
+            "capture_process_exit_code": 1,
+            "attempt_consumed": True,
+            "gpu_started": True,
+            "frame_indices": [0, 37, 74],
+            "release_authorized": False,
+            "formal_dataset_count": 0,
+        },
+    )
+    failure_ledger_path = diagnostic_root / "failure_ledger.json"
+    _write_json(
+        failure_ledger_path,
+        {
+            "schema": runner.FAILURE_LEDGER_SCHEMA,
+            "status": "closed_failed_attempt_no_same_candidate_retry",
+            "failed_attempt": {
+                "final_receipt": runner._file_record(failed_final_receipt),
+                "capture_process_exit_code": 1,
+                "attempt_consumed": True,
+                "captured_file_count": 0,
+                "live_trace_count": 0,
+                "snap_measurement_count": 0,
+                "pixel_frame_count": 0,
+            },
+            "first_blocker": {
+                "message": runner.FAILED_ATTEMPT_FIRST_BLOCKER,
+                "code_precondition": "required_OutHit.Actor",
+            },
+            "disposition": {
+                "same_candidate_retry_forbidden": True,
+                "failed_attempt_preserved": True,
+                "new_capture_output": str(capture_output.resolve()),
+            },
+            "revision_v2": {
+                "floor_identity_schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
+                "floor_identity_authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
+                "component_required": True,
+                "owner_derived_via_get_owner": True,
+                "raw_out_hit_shape_required": True,
+                "legacy_actor_field_identity_authority": False,
+                "hit_object_handle_identity_authority": False,
+            },
+            "release_authorized": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        },
+    )
 
     actors = [
         {
@@ -127,11 +184,17 @@ def _source_fixture(tmp_path: Path, monkeypatch):
     instrumented_suite = {
         **source_suite,
         "ground_contact_diagnostic_mutation": {
-            "schema": "avengine_strict_two_human_ground_contact_diagnostic_mutation_v1",
+            "schema": runner.MUTATION_SCHEMA,
             "status": "cpu_materialized_pending_one_sparse_capture",
             "visual_root_dynamic_ground_snap_only": True,
             "timeline_actor_root_mutation": False,
             "emitter_or_rir_mutation": False,
+            "floor_trace_identity_schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
+            "floor_trace_identity_authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
+            "raw_out_hit_shape_required": True,
+            "legacy_actor_field_identity_authority": False,
+            "hit_object_handle_identity_authority": False,
+            "failure_ledger": str(failure_ledger_path.resolve()),
             "qualification_claim": False,
             "formal": False,
         },
@@ -183,6 +246,8 @@ def _source_fixture(tmp_path: Path, monkeypatch):
             "audio_wav": str(audio_path.resolve()),
             "spear_root": str(spear_root.resolve()),
             "capture_output": str(capture_output.resolve()),
+            "failure_ledger": str(failure_ledger_path.resolve()),
+            "supersedes_failed_final_receipt": str(failed_final_receipt.resolve()),
         },
         "asset_evidence": asset_evidence,
         "diagnostic_profile_mutations": profiles,
@@ -194,7 +259,18 @@ def _source_fixture(tmp_path: Path, monkeypatch):
             ),
             "actors_to_ignore": "both_runtime_anchor_and_visual_actors",
             "bone_names": runner.GROUND_BONES,
-            "required_hit_fields": ["actor", "component", "location", "normal"],
+            "required_hit_fields": ["component", "location", "normal"],
+            "derived_identity_fields": [
+                "hit_actor",
+                "hit_actor_class",
+                "hit_component",
+                "hit_component_class",
+            ],
+            "floor_identity_schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
+            "floor_identity_authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
+            "raw_out_hit_shape_required": True,
+            "legacy_actor_field_identity_authority": False,
+            "hit_object_handle_identity_authority": False,
             "ue_length_unit": "centimeter",
         },
         "threshold_policy": {
@@ -340,6 +416,36 @@ def test_real_launch_requires_explicit_one_attempt_authorization(
         runner.run(request_path, dry_run=False, authorize_one_attempt=False)
 
 
+def _floor_trace(runner, *, floor_z: float = 40.0) -> dict[str, object]:
+    return {
+        "schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
+        "authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
+        "status": "hit",
+        "profile_name": "BlockAll",
+        "trace_complex": True,
+        "hit_actor": "ApartmentFloorActor",
+        "hit_actor_class": "AStaticMeshActor",
+        "hit_component": "ApartmentFloorComponent",
+        "hit_component_class": "UStaticMeshComponent",
+        "hit_point_ue_cm": [10.0, 20.0, floor_z],
+        "hit_normal_ue": [0.0, 0.0, 1.0],
+        "raw_out_hit_shape": {
+            "keys": ["Component", "HitObjectHandle", "Location", "Normal"],
+            "value_types": {
+                "Component": "str",
+                "HitObjectHandle": "dict",
+                "Location": "dict",
+                "Normal": "dict",
+            },
+        },
+        "raw_actor_field": {"present": False, "identity_authority": False},
+        "hit_object_handle_auxiliary": {
+            "present": True,
+            "identity_authority": False,
+        },
+    }
+
+
 def _ground_readback(runner) -> dict[str, object]:
     sides = {}
     for side, bones in runner.GROUND_BONES.items():
@@ -351,15 +457,7 @@ def _ground_readback(runner) -> dict[str, object]:
                 "bone_index": index,
                 "world_position_ue_cm": [10.0, 20.0, 40.0 + clearance],
                 "bone_to_floor_clearance_cm": clearance,
-                "floor_trace": {
-                    "status": "hit",
-                    "profile_name": "BlockAll",
-                    "trace_complex": True,
-                    "hit_actor": "ApartmentFloorActor",
-                    "hit_component": "ApartmentFloorComponent",
-                    "hit_point_ue_cm": [10.0, 20.0, 40.0],
-                    "hit_normal_ue": [0.0, 0.0, 1.0],
-                },
+                "floor_trace": _floor_trace(runner),
             }
         sides[side] = {"status": "observed", "anchors": anchors}
     return {
@@ -370,8 +468,14 @@ def _ground_readback(runner) -> dict[str, object]:
             "schema": "ue_dynamic_ground_snap_v1",
             "status": "passed",
             "target": "attached_visual_actor_root_component",
+            "floor_trace": _floor_trace(runner, floor_z=39.98),
+            "floor_z_cm": 39.98,
+            "visual_bounds_before": {"bottom_z_ue_cm": 38.5},
+            "visual_bounds_after": {"bottom_z_ue_cm": 40.0},
             "applied_z_correction_cm": 1.5,
             "residual_clearance_cm": 0.02,
+            "timeline_anchor_before_ue_cm": [100.0, 200.0, 40.0],
+            "timeline_anchor_after_ue_cm": [100.0, 200.0, 40.0],
             "maximum_timeline_anchor_error_cm": 0.0,
             "timeline_anchor_mutated": False,
             "emitter_or_rir_mutated": False,

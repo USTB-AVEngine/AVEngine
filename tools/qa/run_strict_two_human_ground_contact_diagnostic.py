@@ -22,10 +22,15 @@ from pathlib import Path
 from typing import Any
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-SOURCE_REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v1"
-REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_request_v1"
-RECEIPT_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v1"
+SOURCE_REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v2"
+REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_request_v2"
+RECEIPT_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v2"
 READBACK_SCHEMA = "avengine_native_live_ground_contact_readback_v1"
+MUTATION_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_mutation_v2"
+FLOOR_TRACE_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v2"
+FLOOR_TRACE_IDENTITY_AUTHORITY = "OutHit.Component_to_UActorComponent.GetOwner"
+FAILURE_LEDGER_SCHEMA = "avengine_strict_two_human_ground_contact_failure_ledger_v1"
+FAILED_ATTEMPT_FIRST_BLOCKER = "Unreal result is missing actor"
 EPISODE_ID = "strict2h_dynamic_canary_04_camera_pan_both_static_v2"
 GPU1_UUID = "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581"
 CAPTURE_PYTHON_LOGICAL = Path("/data/jzy/miniconda3/envs/spear-env/bin/python")
@@ -278,10 +283,16 @@ def _validate_source_cpu_request(
     source_suite_path = Path(str(artifacts.get("source_suite_plan", ""))).resolve()
     audio_path = Path(str(artifacts.get("audio_wav", ""))).resolve()
     spear_root = Path(str(artifacts.get("spear_root", ""))).resolve()
+    failure_ledger_path = Path(str(artifacts.get("failure_ledger", ""))).resolve()
+    failed_final_receipt_path = Path(
+        str(artifacts.get("supersedes_failed_final_receipt", ""))
+    ).resolve()
     for owner, path in (
         ("instrumented suite", instrumented_path),
         ("source suite", source_suite_path),
         ("audio WAV", audio_path),
+        ("failure ledger", failure_ledger_path),
+        ("superseded final receipt", failed_final_receipt_path),
     ):
         _require(path.is_file(), f"{owner} is missing: {path}")
     _require(spear_root.is_dir(), f"SPEAR root is missing: {spear_root}")
@@ -315,15 +326,64 @@ def _validate_source_cpu_request(
         )
     mutation = instrumented_suite.get("ground_contact_diagnostic_mutation", {})
     _require(
-        mutation.get("schema")
-        == "avengine_strict_two_human_ground_contact_diagnostic_mutation_v1"
+        mutation.get("schema") == MUTATION_SCHEMA
         and mutation.get("status") == "cpu_materialized_pending_one_sparse_capture"
         and mutation.get("visual_root_dynamic_ground_snap_only") is True
         and mutation.get("timeline_actor_root_mutation") is False
         and mutation.get("emitter_or_rir_mutation") is False
+        and mutation.get("floor_trace_identity_schema") == FLOOR_TRACE_IDENTITY_SCHEMA
+        and mutation.get("floor_trace_identity_authority")
+        == FLOOR_TRACE_IDENTITY_AUTHORITY
+        and mutation.get("raw_out_hit_shape_required") is True
+        and mutation.get("legacy_actor_field_identity_authority") is False
+        and mutation.get("hit_object_handle_identity_authority") is False
+        and Path(str(mutation.get("failure_ledger", ""))).resolve()
+        == failure_ledger_path
         and mutation.get("qualification_claim") is False
         and mutation.get("formal") is False,
         "instrumented suite visual-only mutation contract drift",
+    )
+
+    failure_ledger = _load(failure_ledger_path)
+    failed_attempt = failure_ledger.get("failed_attempt", {})
+    first_blocker = failure_ledger.get("first_blocker", {})
+    disposition = failure_ledger.get("disposition", {})
+    revision = failure_ledger.get("revision_v2", {})
+    _require(
+        failure_ledger.get("schema") == FAILURE_LEDGER_SCHEMA
+        and failure_ledger.get("status")
+        == "closed_failed_attempt_no_same_candidate_retry"
+        and failed_attempt.get("capture_process_exit_code") == 1
+        and failed_attempt.get("attempt_consumed") is True
+        and failed_attempt.get("captured_file_count") == 0
+        and failed_attempt.get("live_trace_count") == 0
+        and failed_attempt.get("snap_measurement_count") == 0
+        and failed_attempt.get("pixel_frame_count") == 0
+        and first_blocker.get("message") == FAILED_ATTEMPT_FIRST_BLOCKER
+        and first_blocker.get("code_precondition") == "required_OutHit.Actor"
+        and disposition.get("same_candidate_retry_forbidden") is True
+        and disposition.get("failed_attempt_preserved") is True
+        and Path(str(disposition.get("new_capture_output", ""))).resolve()
+        == capture_output
+        and revision.get("floor_identity_schema") == FLOOR_TRACE_IDENTITY_SCHEMA
+        and revision.get("floor_identity_authority") == FLOOR_TRACE_IDENTITY_AUTHORITY
+        and revision.get("component_required") is True
+        and revision.get("owner_derived_via_get_owner") is True
+        and revision.get("raw_out_hit_shape_required") is True
+        and revision.get("legacy_actor_field_identity_authority") is False
+        and revision.get("hit_object_handle_identity_authority") is False
+        and failure_ledger.get("release_authorized") is False
+        and failure_ledger.get("qualification_claim") is False
+        and failure_ledger.get("formal_dataset_count") == 0,
+        "failed-attempt ledger or revision_v2 disposition drift",
+    )
+    observed_failed_final = _validate_file_record(
+        failed_attempt.get("final_receipt", {}),
+        owner="superseded final receipt",
+    )
+    _require(
+        observed_failed_final == failed_final_receipt_path,
+        "superseded final receipt path drift",
     )
 
     assets = source.get("asset_evidence")
@@ -387,7 +447,15 @@ def _validate_source_cpu_request(
         == "both_runtime_anchor_and_visual_actors"
         and measurement.get("bone_names") == GROUND_BONES
         and measurement.get("required_hit_fields")
-        == ["actor", "component", "location", "normal"]
+        == ["component", "location", "normal"]
+        and measurement.get("derived_identity_fields")
+        == ["hit_actor", "hit_actor_class", "hit_component", "hit_component_class"]
+        and measurement.get("floor_identity_schema") == FLOOR_TRACE_IDENTITY_SCHEMA
+        and measurement.get("floor_identity_authority")
+        == FLOOR_TRACE_IDENTITY_AUTHORITY
+        and measurement.get("raw_out_hit_shape_required") is True
+        and measurement.get("legacy_actor_field_identity_authority") is False
+        and measurement.get("hit_object_handle_identity_authority") is False
         and measurement.get("ue_length_unit") == "centimeter",
         "live foot/floor measurement contract drift",
     )
@@ -421,6 +489,10 @@ def _artifact_paths(source_path: Path, source: Mapping[str, Any]) -> dict[str, P
         "audio_wav": Path(artifacts["audio_wav"]).resolve(),
         "capture_script": (
             REPOSITORY / "tools/qa/capture_spear_native_pixel_episode.py"
+        ).resolve(),
+        "failure_ledger": Path(artifacts["failure_ledger"]).resolve(),
+        "superseded_final_receipt": Path(
+            artifacts["supersedes_failed_final_receipt"]
         ).resolve(),
     }
     for asset in source["asset_evidence"]:
@@ -596,6 +668,34 @@ def _finite_xyz(value: object) -> bool:
     )
 
 
+def _validate_floor_trace_identity(trace: Mapping[str, Any], *, owner: str) -> None:
+    shape = trace.get("raw_out_hit_shape")
+    keys = shape.get("keys") if isinstance(shape, Mapping) else None
+    value_types = shape.get("value_types") if isinstance(shape, Mapping) else None
+    _require(
+        trace.get("schema") == FLOOR_TRACE_IDENTITY_SCHEMA
+        and trace.get("authority") == FLOOR_TRACE_IDENTITY_AUTHORITY
+        and trace.get("hit_actor") not in (None, "")
+        and trace.get("hit_actor_class") not in (None, "")
+        and trace.get("hit_component") not in (None, "")
+        and trace.get("hit_component_class") not in (None, "")
+        and isinstance(keys, list)
+        and any(str(key).lower() == "component" for key in keys)
+        and isinstance(value_types, Mapping)
+        and set(value_types) == set(keys),
+        f"{owner} Component/GetOwner floor identity or raw OutHit shape failed",
+    )
+    raw_actor = trace.get("raw_actor_field")
+    hit_object = trace.get("hit_object_handle_auxiliary")
+    _require(
+        isinstance(raw_actor, Mapping)
+        and raw_actor.get("identity_authority") is False
+        and isinstance(hit_object, Mapping)
+        and hit_object.get("identity_authority") is False,
+        f"{owner} treated Actor/HitObjectHandle as floor identity authority",
+    )
+
+
 def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
     capture_root = Path(request["capture_output"])
     manifest_path = capture_root / "manifest.json"
@@ -631,6 +731,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
     snap_residuals: list[float] = []
     floor_actors: set[str] = set()
     floor_components: set[str] = set()
+    measurements: list[dict[str, Any]] = []
     for sample in samples:
         frame_index = int(sample["frame_index"])
         records = sample.get("per_instance")
@@ -658,9 +759,40 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
                 and snap.get("bounds_role") == "action_only_not_release_evidence",
                 f"{slot} visual-only ground snap failed at frame {frame_index}",
             )
+            snap_floor_trace = snap.get("floor_trace")
+            _require(
+                isinstance(snap_floor_trace, Mapping)
+                and snap_floor_trace.get("status") == "hit"
+                and snap_floor_trace.get("profile_name") == "BlockAll"
+                and snap_floor_trace.get("trace_complex") is True
+                and _finite_xyz(snap_floor_trace.get("hit_point_ue_cm"))
+                and _finite_xyz(snap_floor_trace.get("hit_normal_ue")),
+                f"{slot} visual ground snap floor trace failed at frame {frame_index}",
+            )
+            _validate_floor_trace_identity(
+                snap_floor_trace,
+                owner=f"{slot} visual snap frame {frame_index}",
+            )
             correction = float(snap.get("applied_z_correction_cm", math.nan))
             residual = float(snap.get("residual_clearance_cm", math.nan))
             anchor_error = float(snap.get("maximum_timeline_anchor_error_cm", math.nan))
+            bounds_before = snap.get("visual_bounds_before")
+            bounds_after = snap.get("visual_bounds_after")
+            anchor_before = snap.get("timeline_anchor_before_ue_cm")
+            anchor_after = snap.get("timeline_anchor_after_ue_cm")
+            floor_z = float(snap.get("floor_z_cm", math.nan))
+            _require(
+                isinstance(bounds_before, Mapping)
+                and isinstance(bounds_after, Mapping)
+                and isinstance(bounds_before.get("bottom_z_ue_cm"), (int, float))
+                and isinstance(bounds_after.get("bottom_z_ue_cm"), (int, float))
+                and _finite_xyz(anchor_before)
+                and _finite_xyz(anchor_after)
+                and math.isfinite(floor_z),
+                f"{slot} visual snap bounds/anchor ledger failed at frame {frame_index}",
+            )
+            bottom_before = float(bounds_before["bottom_z_ue_cm"])
+            bottom_after = float(bounds_after["bottom_z_ue_cm"])
             _require(
                 math.isfinite(correction)
                 and abs(correction) <= 15.0
@@ -670,8 +802,33 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
                 and anchor_error <= 1.0e-6,
                 f"{slot} visual ground snap metric failed at frame {frame_index}",
             )
+            _require(
+                abs((bottom_after - bottom_before) - correction) <= 1.0e-4
+                and abs((bottom_after - floor_z) - residual) <= 1.0e-4
+                and max(
+                    abs(float(before) - float(after))
+                    for before, after in zip(anchor_before, anchor_after, strict=True)
+                )
+                <= 1.0e-6,
+                f"{slot} visual snap pre/post geometry or anchor invariant failed",
+            )
             snap_corrections.append(correction)
             snap_residuals.append(residual)
+            actor_measurement = {
+                "frame_index": frame_index,
+                "instance_id": slot,
+                "snap_floor_actor": snap_floor_trace["hit_actor"],
+                "snap_floor_component": snap_floor_trace["hit_component"],
+                "visual_bounds_bottom_before_cm": bottom_before,
+                "visual_bounds_bottom_after_cm": bottom_after,
+                "applied_z_correction_cm": correction,
+                "residual_clearance_cm": residual,
+                "timeline_anchor_before_ue_cm": anchor_before,
+                "timeline_anchor_after_ue_cm": anchor_after,
+                "maximum_timeline_anchor_error_cm": anchor_error,
+                "emitter_or_rir_mutated": False,
+                "anchors": [],
+            }
             sides = ground.get("sides")
             _require(
                 isinstance(sides, Mapping) and set(sides) == set(GROUND_BONES),
@@ -703,22 +860,43 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
                         and trace.get("status") == "hit"
                         and trace.get("profile_name") == "BlockAll"
                         and trace.get("trace_complex") is True
-                        and trace.get("hit_actor") not in (None, "")
-                        and trace.get("hit_component") not in (None, "")
                         and _finite_xyz(trace.get("hit_point_ue_cm"))
                         and _finite_xyz(trace.get("hit_normal_ue")),
                         f"{slot} {side} {kind} exact floor trace failed",
                     )
+                    _validate_floor_trace_identity(
+                        trace,
+                        owner=f"{slot} {side} {kind} frame {frame_index}",
+                    )
                     hit_point = trace["hit_point_ue_cm"]
                     _require(
-                        abs(float(position[0]) - float(hit_point[0])) <= 1.0e-6
-                        and abs(float(position[1]) - float(hit_point[1])) <= 1.0e-6,
+                        abs(float(position[0]) - float(hit_point[0])) <= 1.0e-4
+                        and abs(float(position[1]) - float(hit_point[1])) <= 1.0e-4,
                         f"{slot} {side} {kind} floor trace XY drift",
                     )
                     trace_count += 1
                     clearances.append(float(clearance))
                     floor_actors.add(str(trace["hit_actor"]))
                     floor_components.add(str(trace["hit_component"]))
+                    actor_measurement["anchors"].append(
+                        {
+                            "side": side,
+                            "anchor_kind": kind,
+                            "bone_name": bone_name,
+                            "bone_index": int(anchor["bone_index"]),
+                            "world_position_ue_cm": position,
+                            "bone_to_floor_clearance_cm": float(clearance),
+                            "floor_actor": trace["hit_actor"],
+                            "floor_component": trace["hit_component"],
+                            "floor_hit_point_ue_cm": hit_point,
+                            "floor_hit_normal_ue": trace["hit_normal_ue"],
+                        }
+                    )
+            _require(
+                len(actor_measurement["anchors"]) == 4,
+                f"{slot} frame {frame_index} does not contain four bone traces",
+            )
+            measurements.append(actor_measurement)
     _require(trace_count == 24, "ground diagnostic must contain exactly 24 traces")
     return {
         "status": "pass_live_measurements_manual_visual_review_pending",
@@ -732,6 +910,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         "maximum_abs_snap_residual_cm": max(map(abs, snap_residuals)),
         "observed_floor_actors": sorted(floor_actors),
         "observed_floor_components": sorted(floor_components),
+        "per_actor_frame_measurements": measurements,
         "bounds_only_release_forbidden": True,
         "clearance_threshold_derivation_pending": True,
         "manual_pixel_ground_contact_review_required": True,

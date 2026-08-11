@@ -40,9 +40,31 @@ class _UnrealService:
         return 100
 
     def get_class(self, **kwargs: object) -> int:
-        assert isinstance(kwargs["uobject"], _VisualActor)
         assert kwargs["as_handle"] is True
-        return 100 if self.class_match else 101
+        uobject = kwargs["uobject"]
+        if isinstance(uobject, _VisualActor):
+            return 100 if self.class_match else 101
+        if isinstance(uobject, _FloorComponent):
+            return 6000
+        assert isinstance(uobject, _FloorOwner)
+        return 7000
+
+    def get_type_for_class_as_string(self, *, uclass: int) -> str:
+        return {
+            6000: "UStaticMeshComponent",
+            7000: "AStaticMeshActor",
+        }[uclass]
+
+    def get_stable_name_for_component(self, **kwargs: object) -> str:
+        assert isinstance(kwargs["component"], _FloorComponent)
+        assert kwargs["include_actor_stable_name"] is True
+        assert kwargs["include_actor_unreal_name"] is True
+        return "ApartmentFloorActor:PersistentLevel.FloorComponent0"
+
+    def get_stable_name_for_actor(self, **kwargs: object) -> str:
+        assert isinstance(kwargs["actor"], _FloorOwner)
+        assert kwargs["include_unreal_name"] is True
+        return "ApartmentFloorActor:PersistentLevel.ApartmentFloorActor_0"
 
     def load_object(self, **kwargs: object) -> object:
         name = kwargs["name"]
@@ -59,30 +81,70 @@ class _UnrealService:
         return handles[name]
 
 
+class _FloorOwner:
+    pass
+
+
+class _FloorComponent:
+    def __init__(self, *, owner_present: bool = True) -> None:
+        self.owner_present = owner_present
+
+    def GetOwner(self, *, as_handle: bool) -> str:
+        assert as_handle is True
+        return "0x2bc" if self.owner_present else "0x0"
+
+
 class _Kismet:
-    def __init__(self, *, ground_hit: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        ground_hit: bool = True,
+        component_present: bool = True,
+        actor_field_present: bool = False,
+    ) -> None:
         self.ground_hit = ground_hit
+        self.component_present = component_present
+        self.actor_field_present = actor_field_present
 
     def LineTraceSingleByProfile(self, **kwargs: object) -> dict[str, object]:
         assert kwargs["ProfileName"] == "BlockAll"
         assert kwargs["bTraceComplex"] is True
         assert len(kwargs["ActorsToIgnore"]) == 2
         start = kwargs["Start"]
+        out_hit = {
+            "HitObjectHandle": {"Index": 12},
+            "PhysMaterial": "0x321",
+            "location": {"x": start["X"], "y": start["Y"], "z": 40.0},
+            "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+        }
+        if self.component_present:
+            out_hit["Component"] = "0x258"
+        if self.actor_field_present:
+            out_hit["Actor"] = "WrongLegacyActorField"
         return {
             "ReturnValue": self.ground_hit,
-            "OutHit": {
-                "actor": "ApartmentFloorActor",
-                "component": "ApartmentFloorComponent",
-                "location": {"x": start["X"], "y": start["Y"], "z": 40.0},
-                "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
-            },
+            "OutHit": out_hit,
         }
 
 
 class _Game:
-    def __init__(self, *, class_match: bool = True, ground_hit: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        class_match: bool = True,
+        ground_hit: bool = True,
+        component_present: bool = True,
+        owner_present: bool = True,
+        actor_field_present: bool = False,
+    ) -> None:
         self.unreal_service = _UnrealService(class_match=class_match)
-        self.kismet = _Kismet(ground_hit=ground_hit)
+        self.kismet = _Kismet(
+            ground_hit=ground_hit,
+            component_present=component_present,
+            actor_field_present=actor_field_present,
+        )
+        self.floor_component = _FloorComponent(owner_present=owner_present)
+        self.floor_owner = _FloorOwner()
 
     def get_unreal_object(
         self, *, uobject: int | None = None, uclass: str | None = None
@@ -92,6 +154,10 @@ class _Game:
             return self.kismet
         if uobject == 200:
             return _LoadedMesh()
+        if uobject == "0x258":
+            return self.floor_component
+        if uobject == "0x2bc":
+            return self.floor_owner
         assert uobject == 500
         return _AnimInstance()
 
@@ -352,18 +418,47 @@ def test_runtime_asset_readback_closes_live_identity_and_emitter(
     assert ground["ue_length_unit"] == "centimeter"
     assert ground["sides"]["left"]["minimum_bone_to_floor_clearance_cm"] == 2.0
     assert ground["sides"]["right"]["minimum_bone_to_floor_clearance_cm"] == 3.0
-    assert ground["sides"]["left"]["anchors"]["foot"]["floor_trace"] == {
-        "status": "hit",
-        "profile_name": "BlockAll",
-        "trace_complex": True,
-        "actors_to_ignore_count": 2,
-        "start_ue_cm": [-201.0, -101.0, 71.0],
-        "end_ue_cm": [-201.0, -101.0, -229.0],
-        "hit_actor": "ApartmentFloorActor",
-        "hit_component": "ApartmentFloorComponent",
-        "hit_point_ue_cm": [-201.0, -101.0, 40.0],
-        "hit_normal_ue": [0.0, 0.0, 1.0],
-        "horizontal_error_cm": 0.0,
+    trace = ground["sides"]["left"]["anchors"]["foot"]["floor_trace"]
+    assert trace["status"] == "hit"
+    assert trace["profile_name"] == "BlockAll"
+    assert trace["trace_complex"] is True
+    assert trace["actors_to_ignore_count"] == 2
+    assert trace["start_ue_cm"] == [-201.0, -101.0, 71.0]
+    assert trace["end_ue_cm"] == [-201.0, -101.0, -229.0]
+    assert trace["hit_actor"] == (
+        "ApartmentFloorActor:PersistentLevel.ApartmentFloorActor_0"
+    )
+    assert trace["hit_actor_class"] == "AStaticMeshActor"
+    assert trace["hit_component"] == (
+        "ApartmentFloorActor:PersistentLevel.FloorComponent0"
+    )
+    assert trace["hit_component_class"] == "UStaticMeshComponent"
+    assert trace["hit_point_ue_cm"] == [-201.0, -101.0, 40.0]
+    assert trace["hit_normal_ue"] == [0.0, 0.0, 1.0]
+    assert trace["horizontal_error_cm"] == 0.0
+    assert trace["schema"] == "ue_fhitresult_component_owner_floor_identity_v2"
+    assert trace["authority"] == "OutHit.Component_to_UActorComponent.GetOwner"
+    assert trace["raw_actor_field"] == {
+        "present": False,
+        "value_type": None,
+        "value": None,
+        "identity_authority": False,
+    }
+    assert trace["raw_out_hit_shape"] == {
+        "keys": [
+            "Component",
+            "HitObjectHandle",
+            "PhysMaterial",
+            "location",
+            "normal",
+        ],
+        "value_types": {
+            "Component": "str",
+            "HitObjectHandle": "dict",
+            "PhysMaterial": "str",
+            "location": "dict",
+            "normal": "dict",
+        },
     }
 
 
@@ -484,6 +579,58 @@ def test_runtime_ground_contact_rejects_floor_trace_miss(
             stable_names=stable_names,
             raw_descriptors=descriptors,
             frame=frame,
+        )
+
+
+def test_floor_trace_v2_accepts_component_owner_without_actor_field() -> None:
+    result = TOOL._line_trace_floor(
+        game=_Game(actor_field_present=False),
+        position_ue_cm=[1.0, 2.0, 46.0],
+        actors_to_ignore=[object(), object()],
+        owner="source1_actor Bip01 L Foot",
+    )
+
+    assert result["schema"] == "ue_fhitresult_component_owner_floor_identity_v2"
+    assert result["hit_actor"] == (
+        "ApartmentFloorActor:PersistentLevel.ApartmentFloorActor_0"
+    )
+    assert result["hit_component"] == (
+        "ApartmentFloorActor:PersistentLevel.FloorComponent0"
+    )
+    assert result["raw_actor_field"]["present"] is False
+    assert result["hit_object_handle_auxiliary"]["identity_authority"] is False
+
+
+def test_floor_trace_v2_ignores_legacy_actor_field_for_identity() -> None:
+    result = TOOL._line_trace_floor(
+        game=_Game(actor_field_present=True),
+        position_ue_cm=[1.0, 2.0, 46.0],
+        actors_to_ignore=[object(), object()],
+        owner="source1_actor Bip01 L Foot",
+    )
+
+    assert result["raw_actor_field"]["value"] == "WrongLegacyActorField"
+    assert result["raw_actor_field"]["identity_authority"] is False
+    assert result["hit_actor"] != result["raw_actor_field"]["value"]
+
+
+def test_floor_trace_v2_rejects_missing_component() -> None:
+    with pytest.raises(RuntimeError, match="missing Component.*raw OutHit keys"):
+        TOOL._line_trace_floor(
+            game=_Game(component_present=False),
+            position_ue_cm=[1.0, 2.0, 46.0],
+            actors_to_ignore=[object(), object()],
+            owner="source1_actor Bip01 L Foot",
+        )
+
+
+def test_floor_trace_v2_rejects_component_with_null_owner() -> None:
+    with pytest.raises(RuntimeError, match="Component.GetOwner returned null"):
+        TOOL._line_trace_floor(
+            game=_Game(owner_present=False),
+            position_ue_cm=[1.0, 2.0, 46.0],
+            actors_to_ignore=[object(), object()],
+            owner="source1_actor Bip01 L Foot",
         )
 
 
