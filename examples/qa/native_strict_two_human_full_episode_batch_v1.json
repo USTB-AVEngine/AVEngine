@@ -2,9 +2,24 @@
   "schema": "avengine_native_strict_two_human_full_episode_batch_request_v1",
   "request_id": "lead_a_strict_two_human_full_episode_batch_20260811_v1",
   "status": "cpu_plan_requested",
-  "claim_boundary": "Interim single-room CPU candidate bank for 100 full 75-frame strict two-human Episodes. It is not the requested final multi-room 100. First, only 20 apartment mechanism pilots may advance after four full75 canaries; the final 100 requires at least three genuinely runnable room IDs.",
+  "claim_boundary": "Interim single-room CPU candidate bank for 100 full 75-frame strict two-human Episodes. It is not the requested final multi-room 100. First, only 20 apartment mechanism pilots may advance after four full75 canaries and accepted ground-contact evidence; the final 100 requires at least three genuinely runnable room IDs and the same ground-contact release gate.",
   "formal_episode_count": 0,
   "qualification_claim": false,
+  "release_gate": {
+    "accepted_ground_contact_evidence_modes": [
+      "live_foot_or_shoe_socket_world_readback_plus_floor_depth",
+      "quantitative_shoe_floor_metric_depth_clearance_with_declared_tolerance",
+      "geometry_revision_eliminating_visible_gap_plus_human_visual_review"
+    ],
+    "applies_to": [
+      "first_20_single_room_mechanism_pilot",
+      "final_multi_room_100",
+      "formal_episode_admission"
+    ],
+    "camera_pan_v2_evidence_status": "nonformal_mechanism_pass_ground_contact_unqualified",
+    "ground_contact_evidence_required": true,
+    "release_blocked_without_accepted_ground_contact_evidence": true
+  },
   "inputs": {
     "strict_sparse_contract": "examples/qa/native_strict_two_human_expansion_v1.json",
     "strict_sparse_publication": "examples/qa/native_strict_two_human_publication_v1.json",

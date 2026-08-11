@@ -223,11 +223,15 @@ def _storage_budget_summary(
     minimum_workspace_gb = float(
         resource_budget["minimum_capture_plus_rir_workspace_gb"]
     )
-    _require(episode_count == 100, "storage reference is scoped to exactly 100 Episodes")
+    _require(
+        episode_count == 100, "storage reference is scoped to exactly 100 Episodes"
+    )
     _require(capture_bytes_per_episode > 0, "capture media reference must be positive")
     _require(reference_rir_cache_bytes > 0, "RIR cache reference must be positive")
     _require(reference_rir_state_count > 0, "RIR state reference must be positive")
-    _require(exact_rir_state_count == 9080, "storage budget expects 9080 exact RIR states")
+    _require(
+        exact_rir_state_count == 9080, "storage budget expects 9080 exact RIR states"
+    )
 
     capture_extrapolated_gb = capture_bytes_per_episode * episode_count / 1.0e9
     rir_bytes_per_state = reference_rir_cache_bytes / reference_rir_state_count
@@ -767,8 +771,7 @@ def _validate_frozen_assignment_structure(
         "frozen assignment spatial balance drift",
     )
     _require(
-        len({str(row["native_source_scenario_id"]) for row in rows})
-        == episode_count,
+        len({str(row["native_source_scenario_id"]) for row in rows}) == episode_count,
         "frozen assignment source reuse",
     )
     _require(
@@ -789,8 +792,7 @@ def _validate_frozen_assignment_structure(
             f"{batch_id}: each mechanism must have one left and one right row",
         )
         _require(
-            Counter(row["stratum_id"] for row in batch_rows)
-            == expected_batch_strata,
+            Counter(row["stratum_id"] for row in batch_rows) == expected_batch_strata,
             f"{batch_id}: stratum balance drift",
         )
     return rows
@@ -981,6 +983,7 @@ def _resolve_frozen_assignment(
             "exact acoustic plan and binaural render",
             "native per-frame human and camera readbacks",
             "body/scene intersection audit because capture collision is disabled",
+            "foot/socket or quantitative shoe-floor depth ground-contact evidence",
             "machine visibility/depth/mask gates",
             "human visual and audio review",
         ],
@@ -1168,6 +1171,28 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
     )
     _require(request.get("formal_episode_count") == 0, "formal count must remain zero")
     _require(request.get("qualification_claim") is False, "qualification forbidden")
+    release_gate = request.get("release_gate")
+    _require(
+        release_gate
+        == {
+            "accepted_ground_contact_evidence_modes": [
+                "live_foot_or_shoe_socket_world_readback_plus_floor_depth",
+                "quantitative_shoe_floor_metric_depth_clearance_with_declared_tolerance",
+                "geometry_revision_eliminating_visible_gap_plus_human_visual_review",
+            ],
+            "applies_to": [
+                "first_20_single_room_mechanism_pilot",
+                "final_multi_room_100",
+                "formal_episode_admission",
+            ],
+            "camera_pan_v2_evidence_status": (
+                "nonformal_mechanism_pass_ground_contact_unqualified"
+            ),
+            "ground_contact_evidence_required": True,
+            "release_blocked_without_accepted_ground_contact_evidence": True,
+        },
+        "ground-contact release gate drift",
+    )
     timeline = request["timeline"]
     _require(
         timeline
@@ -1436,6 +1461,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "final_multi_room_episode_count": 0,
         "formal_episode_count": 0,
         "qualification_claim": False,
+        "release_gate": release_gate,
         "ready_room_count": request["native_room_scope"]["ready_room_count"],
         "room_scope_boundary": request["native_room_scope"]["boundary"],
         "timeline": request["timeline"],
@@ -1474,9 +1500,9 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         ),
         "native_render_pass_count_required": 300,
         "native_rendered_frame_count_required": 22500,
-        "capture_media_only_estimated_storage_gb": storage_budget[
-            "capture_media_only"
-        ]["budget_decimal_gb"],
+        "capture_media_only_estimated_storage_gb": storage_budget["capture_media_only"][
+            "budget_decimal_gb"
+        ],
         "empirical_rir_cache_estimated_storage_gb": storage_budget[
             "rir_cache_empirical_budget"
         ]["budget_decimal_gb"],
@@ -1489,10 +1515,15 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "formal_episode_count": 0,
         "qualification_claim": False,
         "batch_launch_authorized": False,
+        "release_gate": release_gate,
         "single_room_mechanism_pilot_count": 20,
         "final_multi_room_episode_count": 0,
         "final_required_ready_room_count": 3,
-        "next_gate": "materialize_and_pass_four_dynamic_full75_mechanism_canaries_then_limit_execution_to_first_20_until_three_real_rooms_are_ready",
+        "next_gate": (
+            "materialize_and_pass_four_dynamic_full75_mechanism_canaries_and_"
+            "accepted_ground_contact_evidence_then_limit_execution_to_first_20_"
+            "until_three_real_rooms_are_ready"
+        ),
     }
     dedup = {
         "schema": "avengine_native_strict_two_human_full_episode_dedup_audit_v1",
@@ -1541,6 +1572,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                 "batch_id": f"batch_{batch_number:02d}",
                 "episode_count": 10,
                 "gpu_policy": request["gpu_policy"],
+                "release_gate": release_gate,
                 "episodes": rows,
             },
         )

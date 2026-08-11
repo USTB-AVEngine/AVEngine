@@ -194,6 +194,12 @@ class FrozenGlobalAssignmentTest(unittest.TestCase):
                 summary["empirical_rir_cache_estimated_storage_gb"], 1.3
             )
             self.assertEqual(summary["minimum_workspace_storage_gb"], 12.8)
+            self.assertTrue(
+                summary["release_gate"][
+                    "release_blocked_without_accepted_ground_contact_evidence"
+                ]
+            )
+            self.assertEqual(summary["release_gate"], manifest["release_gate"])
             self.assertEqual(
                 summary["exact_rir_state_count_by_mechanism"],
                 {
@@ -217,6 +223,12 @@ class FrozenGlobalAssignmentTest(unittest.TestCase):
                 len(list((Path(directory) / "global100/batches").glob("batch_*.json"))),
                 10,
             )
+            first_batch = json.loads(
+                (Path(directory) / "global100/batches/batch_01.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(first_batch["release_gate"], summary["release_gate"])
 
 
 if __name__ == "__main__":

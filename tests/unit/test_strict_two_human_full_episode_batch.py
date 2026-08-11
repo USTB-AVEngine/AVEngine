@@ -221,6 +221,23 @@ def test_request_is_interim_single_room_and_gpu1_only() -> None:
     assert request["native_room_scope"]["interim_single_room_candidate_bank"] is True
     assert request["formal_episode_count"] == 0
     assert request["qualification_claim"] is False
+    assert request["release_gate"] == {
+        "accepted_ground_contact_evidence_modes": [
+            "live_foot_or_shoe_socket_world_readback_plus_floor_depth",
+            "quantitative_shoe_floor_metric_depth_clearance_with_declared_tolerance",
+            "geometry_revision_eliminating_visible_gap_plus_human_visual_review",
+        ],
+        "applies_to": [
+            "first_20_single_room_mechanism_pilot",
+            "final_multi_room_100",
+            "formal_episode_admission",
+        ],
+        "camera_pan_v2_evidence_status": (
+            "nonformal_mechanism_pass_ground_contact_unqualified"
+        ),
+        "ground_contact_evidence_required": True,
+        "release_blocked_without_accepted_ground_contact_evidence": True,
+    }
     assert request["output_contract"]["full75_gate_canary_count_total"] == 8
     assert request["gpu_policy"] == {
         "physical_gpu_index": 1,
@@ -231,6 +248,18 @@ def test_request_is_interim_single_room_and_gpu1_only() -> None:
         "first_20_blocked_until_canaries_pass": True,
         "rows_21_to_100_blocked_until_three_real_rooms_are_ready": True,
     }
+
+
+def test_builder_rejects_ground_contact_release_gate_drift(tmp_path: Path) -> None:
+    request = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
+    request["release_gate"][
+        "release_blocked_without_accepted_ground_contact_evidence"
+    ] = False
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="ground-contact release gate drift"):
+        BUILDER.build(request_path, tmp_path / "output")
 
 
 def test_projection_and_answer_order_balance() -> None:
