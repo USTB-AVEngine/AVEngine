@@ -363,7 +363,17 @@ def run(args: argparse.Namespace) -> Path:
     batch = CONTRACT.resolve_request(args.request.resolve())
     _require(args.execute, "--execute is required for native room-batch capture")
     CONTRACT.require_execution_authorized(batch)
-    finalizer_python = REPOSITORY / ".venv/bin/python"
+    _require(
+        Path(sys.executable).resolve() == CONTRACT.SPEAR_CAPTURE_PYTHON.resolve(),
+        "native room-batch capture must run inside the checked-in spear-env",
+    )
+    finalizer_python = Path(
+        batch.request["runtime_environments"]["avengine_cpu_python"]
+    )
+    _require(
+        finalizer_python.resolve() == CONTRACT.AVENGINE_CPU_PYTHON.resolve(),
+        "CPU finalizer Python is not the checked-in AVEngine native environment",
+    )
     finalizer_script = TOOLS / "finalize_strict_two_human_raw_episode.py"
 
     def session_factory(resolved: Any) -> SpearNativeRoomBatchSession:

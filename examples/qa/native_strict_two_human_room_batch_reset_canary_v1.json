@@ -120,6 +120,10 @@
   },
   "raw_memmap_total_bytes": 691200000,
   "room_loaded_once": true,
+  "runtime_environments": {
+    "avengine_cpu_python": "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python",
+    "spear_capture_python": "/data/jzy/miniconda3/envs/spear-env/bin/python"
+  },
   "schema": "avengine_native_strict_two_human_room_batch_request_v1",
   "segmentation_reset_and_negative_check_per_episode": true,
   "stop_on_first_fail": true

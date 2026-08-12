@@ -142,6 +142,7 @@ def _request_fixture(tmp_path: Path) -> Path:
         "raw_memmap_contract": RUNNER.RAW_MEMMAP_CONTRACT,
         "raw_memmap_total_bytes": RUNNER.RAW_MEMMAP_TOTAL_BYTES,
         "cpu_worker_policy": RUNNER.CPU_WORKER_POLICY,
+        "runtime_environments": RUNNER.RUNTIME_ENVIRONMENTS,
         "episodes": rows,
         "formal_episode_count": 0,
         "qualification_claim": False,
@@ -236,6 +237,24 @@ def test_resolve_two_episode_canary_freezes_room_audio_rir_and_raw_contract(
     assert plan["room_process_launch_count"] == 1
     assert plan["raw_memmap_total_bytes_per_episode"] == 691_200_000
     assert plan["gates"]["production_requires_two_episode_reset_canary"] is True
+
+
+@pytest.mark.parametrize(
+    ("key", "replacement"),
+    [
+        ("spear_capture_python", "/data/jzy/code/AVEngine-lead-a/.venv/bin/python"),
+        ("avengine_cpu_python", "/data/jzy/code/AVEngine-lead-a/.venv/bin/python"),
+    ],
+)
+def test_repository_local_venv_is_rejected_for_batch_runtime(
+    tmp_path: Path, key: str, replacement: str
+) -> None:
+    request_path = _request_fixture(tmp_path)
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    request["runtime_environments"][key] = replacement
+    _write(request_path, request)
+    with pytest.raises(RuntimeError, match="official Conda runtime"):
+        RUNNER.resolve_request(request_path)
 
 
 def test_production_batch_cannot_bypass_two_episode_canary(tmp_path: Path) -> None:

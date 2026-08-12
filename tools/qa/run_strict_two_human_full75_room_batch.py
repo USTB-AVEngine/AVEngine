@@ -43,6 +43,19 @@ PRODUCTION_BATCH_SIZE = 10
 RESET_CANARY_BATCH_SIZE = 2
 QUEUE_DEPTH = 2
 
+# Runtime environments are an execution contract, not a repository-local
+# convenience.  GitHub's checked-in runbook assigns UE/SPEAR RPC work to
+# ``spear-env`` and Habitat/RLR/AVEngine CPU work to the native Python 3.12
+# environment.  A checkout-local ``.venv`` is intentionally not accepted.
+SPEAR_CAPTURE_PYTHON = Path("/data/jzy/miniconda3/envs/spear-env/bin/python")
+AVENGINE_CPU_PYTHON = Path(
+    "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python"
+)
+RUNTIME_ENVIRONMENTS = {
+    "spear_capture_python": str(SPEAR_CAPTURE_PYTHON),
+    "avengine_cpu_python": str(AVENGINE_CPU_PYTHON),
+}
+
 # Raw binary memmaps intentionally have no variable-size NPY header.  Shape,
 # byte order and dtype are frozen here and repeated in every raw-ready receipt.
 RAW_MEMMAP_CONTRACT: dict[str, dict[str, Any]] = {
@@ -549,6 +562,10 @@ def resolve_request(path: Path) -> ResolvedBatch:
     )
     _require(
         request.get("cpu_worker_policy") == CPU_WORKER_POLICY, "CPU worker policy drift"
+    )
+    _require(
+        request.get("runtime_environments") == RUNTIME_ENVIRONMENTS,
+        "official Conda runtime environment contract drift",
     )
     if purpose == "production_room_shard":
         canary_path = Path(str(request.get("segmentation_reset_canary_receipt", "")))
