@@ -25,6 +25,13 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 TOOLS_QA = REPOSITORY / "tools/qa"
 if str(TOOLS_QA) not in sys.path:
     sys.path.insert(0, str(TOOLS_QA))
+if str(REPOSITORY / "src") not in sys.path:
+    sys.path.insert(0, str(REPOSITORY / "src"))
+
+from avengine.qa.spear_unreal_capabilities import (  # noqa: E402
+    live_handle,
+    set_numeric_property_with_readback,
+)
 
 from spear_imported_glb_room_adapter import (  # noqa: E402
     CAMERA_BLUEPRINT,
@@ -309,14 +316,7 @@ def validate_capture_contract(
 
 
 def _unreal_handle(value: Any, *, owner: str) -> int:
-    raw = getattr(value, "uobject", None)
-    if raw is None:
-        raw = getattr(value, "_uobject", None)
-    _require(
-        raw is not None and not isinstance(raw, bool) and int(raw) > 0,
-        f"{owner} lacks a live Unreal handle",
-    )
-    return int(raw)
+    return live_handle(value, owner=owner)
 
 
 def _set_camera_hfov(
@@ -332,45 +332,23 @@ def _set_camera_hfov(
     those exact live objects are the only authoritative HFOV targets.
     """
 
-    required_names = ("rgb", "depth", "object_ids")
-    missing = [name for name in required_names if name not in components]
-    _require(not missing, f"missing named camera components: {missing}")
-    selected = {name: components[name] for name in required_names}
-    handles_before = {
-        name: _unreal_handle(component, owner=f"{name} camera component")
-        for name, component in selected.items()
-    }
-    _require(
-        len(set(handles_before.values())) == len(required_names),
-        "named camera components do not have distinct live handles",
-    )
-
-    observed_by_component: dict[str, float] = {}
-    handles_after: dict[str, int] = {}
-    for name, component in selected.items():
-        component.set_property_value(
-            property_name="FOVAngle", property_value=float(hfov_deg)
-        )
-        observed = float(component.get_property_value(property_name="FOVAngle"))
-        _require(
-            abs(observed - hfov_deg) <= 1.0e-6,
-            f"{name} live scene-capture HFOV readback drift",
-        )
-        observed_by_component[name] = observed
-        handles_after[name] = _unreal_handle(
-            component, owner=f"{name} camera component after HFOV write"
-        )
-    _require(
-        handles_after == handles_before,
-        "named camera component handle drift during HFOV write/readback",
+    capability = set_numeric_property_with_readback(
+        components,
+        owner="named camera components",
+        property_name="FOVAngle",
+        requested_value=float(hfov_deg),
+        required_names=("rgb", "depth", "object_ids"),
+        tolerance=1.0e-6,
+        require_distinct_handles=True,
     )
     return {
         "status": "pass",
         "camera_actor_handle": _unreal_handle(camera, owner="BP_CameraSensor"),
-        "component_handles": handles_before,
+        "component_handles": capability["component_handles"],
         "requested_horizontal_fov_deg": float(hfov_deg),
-        "observed_horizontal_fov_deg_by_component": observed_by_component,
+        "observed_horizontal_fov_deg_by_component": capability["observed_by_component"],
         "write_method": "named_USpSceneCaptureComponent2D.FOVAngle_property",
+        "capability_readback": capability,
     }
 
 

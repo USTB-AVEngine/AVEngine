@@ -14,6 +14,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from avengine.qa.spear_unreal_capabilities import read_handle_capability
+
 SCHEMA = "avengine_spear_imported_glb_room_adapter_v1"
 IMPORT_SCHEMA = "avengine_mp3d_ue_import_result_v1"
 ENTRY_MAP = "/Engine/Maps/Entry"
@@ -191,30 +193,19 @@ def _set_collision_disabled(component: Any) -> None:
 
 
 def _static_mesh_handle(component: Any) -> tuple[int, str]:
-    getter = getattr(component, "GetStaticMesh", None)
-    if callable(getter):
-        value = getter(as_handle=True)
-        method = "UStaticMeshComponent.GetStaticMesh"
-    else:
-        property_reader = getattr(component, "get_property_value", None)
-        _require(
-            callable(property_reader),
-            "live component exposes neither callable GetStaticMesh "
-            "nor a readable StaticMesh property",
-        )
-        value = property_reader(property_name="StaticMesh", as_handle=True)
-        method = "UStaticMeshComponent.StaticMesh_property"
-    try:
-        handle = int(value)
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError(
-            "live StaticMesh readback did not return an integer handle"
-        ) from exc
-    _require(
-        not isinstance(value, bool) and handle > 0,
-        "live StaticMesh readback returned an invalid handle",
+    evidence = read_handle_capability(
+        component,
+        owner="live UStaticMeshComponent.StaticMesh",
+        getter_name="GetStaticMesh",
+        property_name="StaticMesh",
+        getter_kwargs={"as_handle": True},
+        property_kwargs={"as_handle": True},
     )
-    return handle, method
+    method = {
+        "callable_getter": "UStaticMeshComponent.GetStaticMesh",
+        "property_readback": "UStaticMeshComponent.StaticMesh_property",
+    }[str(evidence["strategy"])]
+    return int(evidence["handle"]), method
 
 
 def spawn_scene_meshes_with_readback(

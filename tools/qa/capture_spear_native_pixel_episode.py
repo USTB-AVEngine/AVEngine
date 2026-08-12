@@ -30,6 +30,9 @@ from avengine.qa.pixel_visibility import (  # noqa: E402
     PIXEL_VISIBILITY_DEPTH_AUTHORITY,
     compile_depth_pixel_visibility_truth,
 )
+from avengine.qa.spear_unreal_capabilities import (  # noqa: E402
+    resolve_component_bone_names,
+)
 
 SPIKE_PATH = REPOSITORY / "tools/qa/spike_spear_native_pixel_visibility.py"
 SPIKE_SPEC = importlib.util.spec_from_file_location(
@@ -601,29 +604,24 @@ def _floor_identity_from_hit_component(
 
 
 def _live_bone_world_position(
-    component: Any, *, bone_name: str, actor_id: str
+    component: Any, *, resolution: Mapping[str, Any], actor_id: str
 ) -> list[float]:
-    bone_count = int(_return_value(component.GetNumBones()))
-    _require(bone_count > 0, f"{actor_id} has no live bones")
-    available_names = [
-        str(_return_value(component.GetBoneName(BoneIndex=index)))
-        for index in range(bone_count)
-    ]
+    requested_name = str(resolution["requested_name"])
+    actual_name = str(resolution["actual_live_name"])
+    bone_index = int(component.GetBoneIndex(BoneName=actual_name))
     _require(
-        available_names.count(bone_name) == 1,
-        f"{actor_id} bone {bone_name!r} did not resolve exactly once",
+        bone_index == int(resolution["inventory_index"]),
+        f"{actor_id} bone {actual_name!r} index drift after resolution",
     )
-    bone_index = int(component.GetBoneIndex(BoneName=bone_name))
-    _require(bone_index >= 0, f"{actor_id} bone {bone_name!r} has invalid index")
     transform = component.GetBoneTransform(
-        InBoneName=bone_name,
+        InBoneName=actual_name,
         TransformSpace="RTS_World",
         as_dict=True,
     )
     transform = _return_value(transform)
     _require(isinstance(transform, Mapping), f"{actor_id} bone transform is invalid")
     translation = _mapping_value(transform, "translation")
-    return _xyz(translation, owner=f"{actor_id} {bone_name} world position")
+    return _xyz(translation, owner=f"{actor_id} {requested_name} world position")
 
 
 def _line_trace_floor(
@@ -710,12 +708,24 @@ def _runtime_ground_contact_readback(
         for actor in (item.get("anchor"), item.get("visual_actor"))
         if actor is not None
     ]
+    requested_bones = [
+        bone_name
+        for bone_names in GROUND_CONTACT_BONES.values()
+        for bone_name in bone_names.values()
+    ]
+    bone_resolution = resolve_component_bone_names(
+        runtime["component"], requested_bones, owner=actor_id
+    )
+    resolution_by_requested = {
+        str(item["requested_name"]): item for item in bone_resolution["resolutions"]
+    }
     sides: dict[str, Any] = {}
     for side, bone_names in GROUND_CONTACT_BONES.items():
         anchors: dict[str, Any] = {}
         for anchor_kind, bone_name in bone_names.items():
+            resolution = resolution_by_requested[bone_name]
             position = _live_bone_world_position(
-                runtime["component"], bone_name=bone_name, actor_id=actor_id
+                runtime["component"], resolution=resolution, actor_id=actor_id
             )
             trace = _line_trace_floor(
                 game=game,
@@ -728,9 +738,10 @@ def _runtime_ground_contact_readback(
             _require(np.isfinite(clearance_cm), f"{actor_id} clearance is nonfinite")
             anchors[anchor_kind] = {
                 "bone_name": bone_name,
-                "bone_index": int(
-                    runtime["component"].GetBoneIndex(BoneName=bone_name)
-                ),
+                "requested_bone_name": bone_name,
+                "actual_live_bone_name": resolution["actual_live_name"],
+                "bone_name_resolution_mode": resolution["resolution_mode"],
+                "bone_index": int(resolution["inventory_index"]),
                 "world_position_ue_cm": position,
                 "floor_trace": trace,
                 "bone_to_floor_clearance_cm": clearance_cm,
@@ -772,6 +783,7 @@ def _runtime_ground_contact_readback(
             "length_cm": GROUND_TRACE_LENGTH_CM,
             "ignored_runtime_actor_count": len(ignored_actors),
         },
+        "bone_name_resolution": bone_resolution,
         "runtime_visual_ground_snap": snap_record,
         "sides": sides,
     }

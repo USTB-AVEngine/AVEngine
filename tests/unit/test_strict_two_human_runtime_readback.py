@@ -297,10 +297,10 @@ class _WalkingAnimation:
 class _Component:
     def __init__(self) -> None:
         self.bone_names = [
-            "Bip01 L Foot",
-            "Bip01 L Toe0",
-            "Bip01 R Foot",
-            "Bip01 R Toe0",
+            "Bip01-L-Foot",
+            "Bip01-L-Toe0",
+            "Bip01-R-Foot",
+            "Bip01-R-Toe0",
         ]
 
     def GetAnimInstance(self, *, as_handle: bool) -> int:
@@ -333,10 +333,10 @@ class _Component:
         assert TransformSpace == "RTS_World"
         assert as_dict is True
         positions = {
-            "Bip01 L Foot": [-201.0, -101.0, 46.0],
-            "Bip01 L Toe0": [-202.0, -102.0, 42.0],
-            "Bip01 R Foot": [-199.0, -99.0, 47.0],
-            "Bip01 R Toe0": [-198.0, -98.0, 43.0],
+            "Bip01-L-Foot": [-201.0, -101.0, 46.0],
+            "Bip01-L-Toe0": [-202.0, -102.0, 42.0],
+            "Bip01-R-Foot": [-199.0, -99.0, 47.0],
+            "Bip01-R-Toe0": [-198.0, -98.0, 43.0],
         }
         x, y, z = positions[InBoneName]
         return {
@@ -481,6 +481,11 @@ def test_runtime_asset_readback_closes_live_identity_and_emitter(
     ground = observed["live_ground_contact_readback"]
     assert ground["status"] == "pass_instrumented_measurement_only"
     assert ground["ue_length_unit"] == "centimeter"
+    left_foot = ground["sides"]["left"]["anchors"]["foot"]
+    assert left_foot["requested_bone_name"] == "Bip01 L Foot"
+    assert left_foot["actual_live_bone_name"] == "Bip01-L-Foot"
+    assert left_foot["bone_name_resolution_mode"] == ("sanitized_live_fname_required")
+    assert ground["bone_name_resolution"]["bone_count"] == 4
     assert ground["sides"]["left"]["minimum_bone_to_floor_clearance_cm"] == 2.0
     assert ground["sides"]["right"]["minimum_bone_to_floor_clearance_cm"] == 3.0
     trace = ground["sides"]["left"]["anchors"]["foot"]["floor_trace"]
@@ -630,9 +635,9 @@ def test_runtime_ground_contact_rejects_missing_exact_toe_bone(
         lambda _: (200, "GetSkeletalMeshAsset"),
     )
     runtimes["source1_actor"]["component"].bone_names = [
-        "Bip01 L Foot",
-        "Bip01 R Foot",
-        "Bip01 R Toe0",
+        "Bip01-L-Foot",
+        "Bip01-R-Foot",
+        "Bip01-R-Toe0",
     ]
     with pytest.raises(RuntimeError, match="Bip01 L Toe0.*exactly once"):
         TOOL._runtime_asset_readbacks(
