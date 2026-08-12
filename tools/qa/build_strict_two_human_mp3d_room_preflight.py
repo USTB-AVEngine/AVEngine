@@ -30,11 +30,10 @@ FRAME_COUNT = 75
 FPS = 15
 TICKS_PER_FRAME = 3200
 REMOTE_REPOSITORY = Path("/data/jzy/code/AVEngine-lead-a")
+SPEAR_CAPTURE_PYTHON = Path("/data/jzy/miniconda3/envs/spear-env/bin/python")
 HABITAT_RUNTIME_ROOT = "/data/jzy/code/habitat-sim-AVEngine"
 SOUNDSPACES_ROOT = "/data/jzy/code/sound-spaces"
-HABITAT_PYTHON = Path(
-    "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python"
-)
+HABITAT_PYTHON = Path("/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python")
 HABITAT_PATH = (
     "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:"
     "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -229,8 +228,7 @@ def _validate_request(request: Mapping[str, Any]) -> None:
     _require(
         isinstance(room, Mapping)
         and room.get("room_id") == "habitat_mp3d_example_17DRP5sb8fy"
-        and room.get("room_revision")
-        == "raw_v1_plus_declared_proxy_v2_research"
+        and room.get("room_revision") == "raw_v1_plus_declared_proxy_v2_research"
         and room.get("scene_id") == "17DRP5sb8fy"
         and room.get("entry_map") == ENTRY_MAP,
         "MP3D room identity drift",
@@ -278,8 +276,7 @@ def _validate_navigation(
     selected: dict[str, Any] = {}
     island_ids = set()
     _require(
-        fresh_probe.get("schema")
-        == "avengine_mp3d_strict_two_human_navmesh_probe_v1"
+        fresh_probe.get("schema") == "avengine_mp3d_strict_two_human_navmesh_probe_v1"
         and fresh_probe.get("status") == "pass"
         and fresh_probe.get("navmesh_path") == request["room"]["navmesh_path"],
         "fresh MP3D navmesh probe is invalid",
@@ -418,7 +415,9 @@ def _project_mouth_proxies(request: Mapping[str, Any]) -> dict[str, Any]:
             ),
             "inside_frame": True,
         }
-    separation = projected["source2"]["pixel_uv"][0] - projected["source1"]["pixel_uv"][0]
+    separation = (
+        projected["source2"]["pixel_uv"][0] - projected["source1"]["pixel_uv"][0]
+    )
     _require(separation >= 256.0, "planned mouths lack strict left/right separation")
     return {
         "status": "proxy_projection_pass_live_bbox_pending",
@@ -463,8 +462,7 @@ def _validate_acoustic_registration(
         and source_room.get("room_id") == room["room_id"]
         and isinstance(materials, Mapping)
         and materials.get("material_semantics") == "research_placeholder"
-        and materials.get("qualification_claim")
-        == "unqualified_research_placeholder"
+        and materials.get("qualification_claim") == "unqualified_research_placeholder"
         and isinstance(geometry, Mapping)
         and geometry.get("vertex_count") == 1_570_132
         and geometry.get("triangle_count") == 3_016_249,
@@ -483,8 +481,7 @@ def _validate_acoustic_registration(
     _require(
         isinstance(representations, list)
         and any(
-            item.get("representation_id")
-            == "mp3d_17DRP5sb8fy_soundspaces2_acoustic_v1"
+            item.get("representation_id") == "mp3d_17DRP5sb8fy_soundspaces2_acoustic_v1"
             and item.get("resource_id") == "mp3d_soundspaces2_acoustic_package_v1"
             for item in representations
         ),
@@ -574,13 +571,17 @@ def _build_suite(
     room_adapter: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     scenarios = template_suite.get("scenarios")
-    _require(isinstance(scenarios, list) and len(scenarios) == 1, "strict template closure drift")
+    _require(
+        isinstance(scenarios, list) and len(scenarios) == 1,
+        "strict template closure drift",
+    )
     template_scenario = scenarios[0]
     actors = deepcopy(template_scenario["plan"]["actors"])
     _require(
-        [item.get("actor_id") for item in actors]
-        == ["source1_actor", "source2_actor"]
-        and actors[0].get("body_plan_id") == actors[1].get("body_plan_id") == "biped_human"
+        [item.get("actor_id") for item in actors] == ["source1_actor", "source2_actor"]
+        and actors[0].get("body_plan_id")
+        == actors[1].get("body_plan_id")
+        == "biped_human"
         and "male_adult_01" in actors[0].get("template_id", "")
         and "female_adult_01" in actors[1].get("template_id", ""),
         "template must bind one male and one distinct female human",
@@ -606,10 +607,7 @@ def _build_suite(
     camera_h = _vector3(camera["habitat_position_m"], owner="camera position")
     camera_ue = _vector3(camera["ue_position_cm"], owner="camera UE position")
     _require(
-        max(
-            abs(a - b)
-            for a, b in zip(camera_ue, _habitat_to_ue_cm(camera_h))
-        )
+        max(abs(a - b) for a, b in zip(camera_ue, _habitat_to_ue_cm(camera_h)))
         <= 1.0e-6,
         "camera Habitat-to-UE projection drift",
     )
@@ -795,12 +793,8 @@ def _build_rir_plan(
         ),
     }
     roots = {
-        "source1": _vector3(
-            placement["source1_root_habitat_m"], owner="source1 root"
-        ),
-        "source2": _vector3(
-            placement["source2_root_habitat_m"], owner="source2 root"
-        ),
+        "source1": _vector3(placement["source1_root_habitat_m"], owner="source1 root"),
+        "source2": _vector3(placement["source2_root_habitat_m"], owner="source2 root"),
     }
     trajectory_bank = {
         "schema": "avengine_room_trajectory_bank_v2",
@@ -826,8 +820,7 @@ def _build_rir_plan(
                     slot: [position] * FRAME_COUNT for slot, position in roots.items()
                 },
                 "source_center_paths_m": {
-                    slot: [position] * FRAME_COUNT
-                    for slot, position in centers.items()
+                    slot: [position] * FRAME_COUNT for slot, position in centers.items()
                 },
                 "statistics": {
                     "target_source_slot_id": "source1",
@@ -901,18 +894,17 @@ def _build_rir_plan(
         ),
         "jobs": jobs,
     }
-    _require(len(jobs) == 2, "static strict-two-human plan must deduplicate to 2 RIR jobs")
+    _require(
+        len(jobs) == 2, "static strict-two-human plan must deduplicate to 2 RIR jobs"
+    )
     return trajectory_bank, plan
 
 
-def _execution_plan(
-    request: Mapping[str, Any], output: Path
-) -> dict[str, Any]:
+def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     remote_root = REMOTE_REPOSITORY
-    remote_python = remote_root / ".venv/bin/python"
     remote_output = remote_root / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
     fresh_package = remote_output / "fresh_soundspaces2_package_v1"
-    preflight_output = remote_output / "cpu_preflight_v4"
+    preflight_output = remote_output / "cpu_preflight_v5"
     runtime_probe = preflight_output / "rir_runtime_probe.json"
     suite = preflight_output / "suite_execution_plan.json"
     room_adapter = preflight_output / "room_adapter.json"
@@ -920,7 +912,7 @@ def _execution_plan(
     capture = request["capture"]
     acoustics = request["acoustics"]
     common_capture = [
-        str(remote_python),
+        str(SPEAR_CAPTURE_PYTHON),
         str(
             remote_root
             / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
@@ -939,16 +931,13 @@ def _execution_plan(
         str(capture["rpc_port"]),
     ]
     compile_argv = [
-        str(remote_python),
+        str(HABITAT_PYTHON),
         "-m",
         "avengine.cli",
         "m3",
         "compile-mp3d-rlr-materials",
         "--room",
-        str(
-            remote_root
-            / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
-        ),
+        str(remote_root / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"),
         "--materials",
         "/data/jzy/code/sound-spaces/data/mp3d_material_config.json",
         "--database-id",
@@ -1123,8 +1112,7 @@ def build(args: argparse.Namespace) -> Path:
         args.fresh_navmesh_probe or Path(request["room"]["fresh_navmesh_probe"])
     ).resolve()
     acoustic_path = (
-        args.acoustic_manifest
-        or Path(request["acoustics"]["package_manifest"])
+        args.acoustic_manifest or Path(request["acoustics"]["package_manifest"])
     ).resolve()
     room_registry_path = (
         args.room_registry or Path(request["acoustics"]["room_registry"])
@@ -1179,9 +1167,7 @@ def build(args: argparse.Namespace) -> Path:
     }
     for name, value in artifacts.items():
         _write_json(args.output / name, value)
-    adult_pair_ready = (
-        navigation["adult_static_pair_gate"]["status"] == "pass"
-    )
+    adult_pair_ready = navigation["adult_static_pair_gate"]["status"] == "pass"
     preflight = {
         "schema": PREFLIGHT_SCHEMA,
         "status": "pass" if adult_pair_ready else "blocked",
@@ -1198,9 +1184,9 @@ def build(args: argparse.Namespace) -> Path:
                 "source_axis_description": import_manifest["coordinate_contract"][
                     "source_axis_description"
                 ],
-                "canonical_axis_description": import_manifest[
-                    "coordinate_contract"
-                ]["canonical_axis_description"],
+                "canonical_axis_description": import_manifest["coordinate_contract"][
+                    "canonical_axis_description"
+                ],
                 "source_to_canonical": import_manifest["coordinate_contract"][
                     "source_to_canonical"
                 ],
@@ -1289,7 +1275,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.runtime_probe_output is not None:
-        _require(args.request is None and args.output is None, "runtime probe is isolated")
+        _require(
+            args.request is None and args.output is None, "runtime probe is isolated"
+        )
         probe_rir_runtime(args.runtime_probe_output.resolve())
         return 0
     _require(args.request is not None, "--request is required for preflight build")

@@ -17,9 +17,9 @@ ROOT = (
 TOOLS = ROOT / "tools/qa"
 sys.path.insert(0, str(TOOLS))
 
-import build_strict_two_human_mp3d_room_preflight as builder
-import capture_spear_imported_glb_strict_two_human_episode as capture
-import spear_imported_glb_room_adapter as adapter_module
+import build_strict_two_human_mp3d_room_preflight as builder  # noqa: E402
+import capture_spear_imported_glb_strict_two_human_episode as capture  # noqa: E402
+import spear_imported_glb_room_adapter as adapter_module  # noqa: E402
 
 
 class FakeObject:
@@ -82,6 +82,25 @@ class FakePropertyOnlyComponent(FakeComponent):
 
 class FakeMissingReadbackComponent(FakeComponent):
     GetStaticMesh = None
+
+
+class FakeCaptureComponent(FakeObject):
+    def __init__(self, uobject: int, *, drift_handle: bool = False) -> None:
+        super().__init__(uobject)
+        self.fov_angle = 0.0
+        self.drift_handle = drift_handle
+
+    def set_property_value(self, *, property_name: str, property_value: float) -> None:
+        if property_name != "FOVAngle":
+            raise AssertionError("unexpected scene-capture property write")
+        self.fov_angle = float(property_value)
+        if self.drift_handle:
+            self.uobject += 1
+
+    def get_property_value(self, *, property_name: str) -> float:
+        if property_name != "FOVAngle":
+            raise AssertionError("unexpected scene-capture property read")
+        return self.fov_angle
 
 
 class FakeUnrealService:
@@ -201,6 +220,59 @@ class RoomAdapterTests(unittest.TestCase):
             {adapter_module.DEPTH_COMPONENT},
         )
 
+    def test_hfov_uses_exact_named_scene_capture_components(self) -> None:
+        camera = FakeObject(5000)
+        components = {
+            "rgb": FakeCaptureComponent(5001),
+            "depth": FakeCaptureComponent(5002),
+            "object_ids": FakeCaptureComponent(5003),
+        }
+        evidence = capture._set_camera_hfov(camera, components, 90.0)
+        self.assertEqual(evidence["status"], "pass")
+        self.assertEqual(evidence["camera_actor_handle"], 5000)
+        self.assertEqual(
+            evidence["component_handles"],
+            {"rgb": 5001, "depth": 5002, "object_ids": 5003},
+        )
+        self.assertEqual(
+            evidence["observed_horizontal_fov_deg_by_component"],
+            {"rgb": 90.0, "depth": 90.0, "object_ids": 90.0},
+        )
+        self.assertEqual(
+            evidence["write_method"],
+            "named_USpSceneCaptureComponent2D.FOVAngle_property",
+        )
+
+    def test_hfov_rejects_missing_named_component(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "missing named camera components"):
+            capture._set_camera_hfov(
+                FakeObject(5000),
+                {
+                    "rgb": FakeCaptureComponent(5001),
+                    "depth": FakeCaptureComponent(5002),
+                },
+                90.0,
+            )
+
+    def test_hfov_rejects_component_alias_and_handle_drift(self) -> None:
+        shared = FakeCaptureComponent(5001)
+        with self.assertRaisesRegex(RuntimeError, "distinct live handles"):
+            capture._set_camera_hfov(
+                FakeObject(5000),
+                {"rgb": shared, "depth": shared, "object_ids": shared},
+                90.0,
+            )
+        with self.assertRaisesRegex(RuntimeError, "handle drift"):
+            capture._set_camera_hfov(
+                FakeObject(5000),
+                {
+                    "rgb": FakeCaptureComponent(5001),
+                    "depth": FakeCaptureComponent(5002, drift_handle=True),
+                    "object_ids": FakeCaptureComponent(5003),
+                },
+                90.0,
+            )
+
     def test_fake_runtime_fresh_load_spawn_readback_closes_71(self) -> None:
         game = FakeGame()
         actors, evidence = adapter_module.spawn_scene_meshes_with_readback(
@@ -300,7 +372,7 @@ class PreflightTests(unittest.TestCase):
             )
 
             remote_root = "/data/jzy/code/AVEngine-lead-a"
-            python = f"{remote_root}/.venv/bin/python"
+            spear_python = "/data/jzy/miniconda3/envs/spear-env/bin/python"
             fresh_package = (
                 f"{remote_root}/tmp/lead_a_mp3d_strict_two_human_room_atom_v1/"
                 "fresh_soundspaces2_package_v1"
@@ -323,7 +395,7 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(
                 compile_step["argv"][:5],
                 [
-                    python,
+                    habitat_python,
                     "-m",
                     "avengine.cli",
                     "m3",
@@ -389,7 +461,7 @@ class PreflightTests(unittest.TestCase):
                     builder.validate_rir_execution_environment(mutation)
             with self.assertRaisesRegex(RuntimeError, "runtime interpreter"):
                 builder.validate_rir_runtime_binding(
-                    python,
+                    spear_python,
                     expected_environment,
                 )
             self.assertEqual(rir_step["expected"]["selected_job_count"], 2)
@@ -408,6 +480,28 @@ class PreflightTests(unittest.TestCase):
                 "raw_v1_plus_declared_proxy_v2_research",
             )
             self.assertEqual(option_values["--layout"], "binaural")
+
+            sparse_step, full75_step = execution["gpu_steps"]
+            self.assertEqual(sparse_step["argv"][0], spear_python)
+            self.assertEqual(full75_step["argv"][0], spear_python)
+            self.assertNotEqual(sparse_step["argv"][0], habitat_python)
+            self.assertNotEqual(full75_step["argv"][0], habitat_python)
+            forbidden_local_environment = "/" + "." + "venv/"
+            self.assertNotIn(
+                forbidden_local_environment, json.dumps(execution, sort_keys=True)
+            )
+            self.assertEqual(
+                {step["argv"][0] for step in execution["cpu_steps"]},
+                {habitat_python},
+            )
+            self.assertIn(
+                "/cpu_preflight_v5/",
+                next(
+                    value
+                    for value in sparse_step["argv"]
+                    if value.endswith("suite_execution_plan.json")
+                ),
+            )
 
             try:
                 from avengine.m6x.rir_cache import (

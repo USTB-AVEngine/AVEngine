@@ -26,7 +26,7 @@ TOOLS_QA = REPOSITORY / "tools/qa"
 if str(TOOLS_QA) not in sys.path:
     sys.path.insert(0, str(TOOLS_QA))
 
-from spear_imported_glb_room_adapter import (
+from spear_imported_glb_room_adapter import (  # noqa: E402
     CAMERA_BLUEPRINT,
     DEPTH_COMPONENT,
     ENTRY_MAP,
@@ -319,26 +319,58 @@ def _unreal_handle(value: Any, *, owner: str) -> int:
     return int(raw)
 
 
-def _set_camera_hfov(game: Any, camera: Any, hfov_deg: float) -> dict[str, Any]:
-    component = game.unreal_service.get_component_by_class(
-        actor=camera, uclass="UCameraComponent"
+def _set_camera_hfov(
+    camera: Any,
+    components: Mapping[str, Any],
+    hfov_deg: float,
+) -> dict[str, Any]:
+    """Set HFOV on the exact named scene-capture components already in use.
+
+    ``BP_CameraSensor`` is a multimodal scene-capture actor; it does not promise
+    exactly one ``UCameraComponent``.  The native pixel runner has already
+    resolved the RGB, metric-depth, and object-ID components by stable name, so
+    those exact live objects are the only authoritative HFOV targets.
+    """
+
+    required_names = ("rgb", "depth", "object_ids")
+    missing = [name for name in required_names if name not in components]
+    _require(not missing, f"missing named camera components: {missing}")
+    selected = {name: components[name] for name in required_names}
+    handles_before = {
+        name: _unreal_handle(component, owner=f"{name} camera component")
+        for name, component in selected.items()
+    }
+    _require(
+        len(set(handles_before.values())) == len(required_names),
+        "named camera components do not have distinct live handles",
     )
-    try:
-        component.SetFieldOfView(InFieldOfView=float(hfov_deg))
-        method = "UCameraComponent.SetFieldOfView"
-    except (AttributeError, RuntimeError):
+
+    observed_by_component: dict[str, float] = {}
+    handles_after: dict[str, int] = {}
+    for name, component in selected.items():
         component.set_property_value(
-            property_name="FieldOfView", property_value=float(hfov_deg)
+            property_name="FOVAngle", property_value=float(hfov_deg)
         )
-        method = "UCameraComponent.FieldOfView_property"
-    observed = float(component.get_property_value(property_name="FieldOfView"))
-    _require(abs(observed - hfov_deg) <= 1.0e-6, "live camera HFOV readback drift")
+        observed = float(component.get_property_value(property_name="FOVAngle"))
+        _require(
+            abs(observed - hfov_deg) <= 1.0e-6,
+            f"{name} live scene-capture HFOV readback drift",
+        )
+        observed_by_component[name] = observed
+        handles_after[name] = _unreal_handle(
+            component, owner=f"{name} camera component after HFOV write"
+        )
+    _require(
+        handles_after == handles_before,
+        "named camera component handle drift during HFOV write/readback",
+    )
     return {
         "status": "pass",
-        "component_handle": _unreal_handle(component, owner="camera component"),
+        "camera_actor_handle": _unreal_handle(camera, owner="BP_CameraSensor"),
+        "component_handles": handles_before,
         "requested_horizontal_fov_deg": float(hfov_deg),
-        "observed_horizontal_fov_deg": observed,
-        "write_method": method,
+        "observed_horizontal_fov_deg_by_component": observed_by_component,
+        "write_method": "named_USpSceneCaptureComponent2D.FOVAngle_property",
     }
 
 
@@ -607,8 +639,8 @@ def _run_impl(args: argparse.Namespace, journal: CapturePhaseJournal) -> Path:
                 "BP_CameraSensor multimodal component closure drift",
             )
             fov_readback = _set_camera_hfov(
-                game,
                 camera,
+                components,
                 float(scenario["plan"]["camera"]["horizontal_fov_deg"]),
             )
             journal.enter("actor")
