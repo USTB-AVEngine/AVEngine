@@ -386,7 +386,22 @@ class ActorFramingConsumerTests(unittest.TestCase):
         self, build_actor: object, solve_camera: object
     ) -> None:
         build_actor.return_value = {  # type: ignore[attr-defined]
-            "frames": [{"frame_index": index} for index in range(75)]
+            "frames": [
+                {
+                    "frame_index": index,
+                    "actor_aabbs": {
+                        "source1_actor": {
+                            "minimum_m": [-0.2, 0.0, -2.2],
+                            "maximum_m": [0.2, 1.8, -1.8],
+                        },
+                        "source2_actor": {
+                            "minimum_m": [0.8, 0.0, -2.2],
+                            "maximum_m": [1.2, 1.8, -1.8],
+                        },
+                    },
+                }
+                for index in range(75)
+            ]
         }
         solve_camera.return_value = {  # type: ignore[attr-defined]
             "selected_candidate_id": "declared0",
@@ -432,6 +447,109 @@ class ActorFramingConsumerTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(RuntimeError, "no explicit CPU planning"):
             builder._solve_full75_actor_framing(self._request(), self._suite())
+
+    @patch.object(builder, "solve_static_camera_candidates")
+    @patch.object(builder, "build_actor_framing_frames")
+    @patch.object(builder, "evaluate_camera_candidates")
+    def test_runtime_helper_forwards_only_runtime_admitted_candidates(
+        self, evaluate: object, build_actor: object, solve_camera: object
+    ) -> None:
+        request = self._request()
+        request["camera_framing"]["floor_height_m"] = 0.0  # type: ignore[index]
+        request["camera_framing"]["candidates"].append(  # type: ignore[index]
+            {
+                "candidate_id": "blocked0",
+                "position_m": [1.0, 1.5, 0.0],
+                "yaw_deg": 0.0,
+            }
+        )
+        suite = self._suite()
+        suite["scenarios"][0]["plan"]["actors"] = [  # type: ignore[index]
+            {
+                "actor_id": "source1_actor",
+                "asset_id": "male",
+                "emitter_offset_m": [0.0, 1.6, 0.0],
+            },
+            {
+                "actor_id": "source2_actor",
+                "asset_id": "female",
+                "emitter_offset_m": [0.0, 1.55, 0.0],
+            },
+        ]
+        for frame in suite["scenarios"][0]["plan"]["frames"]:  # type: ignore[index]
+            frame["actor_states"][0].update(  # type: ignore[index]
+                {"asset_id": "male", "translation_m": [0.0, 0.0, -2.0]}
+            )
+            frame["actor_states"].append(  # type: ignore[index]
+                {
+                    "actor_id": "source2_actor",
+                    "asset_id": "female",
+                    "translation_m": [1.0, 0.0, -2.0],
+                }
+            )
+        evaluate.return_value = [  # type: ignore[attr-defined]
+            {
+                "candidate_id": "declared0",
+                "status": "pass",
+                "room_gate": {
+                    "status": "pass",
+                    "authority_id": "runtime/declared0",
+                    "provenance": "habitat_cpu_runtime",
+                    "native_habitat_validation_status": "pass",
+                    "line_of_sight_validation_status": "pass",
+                    "full_body_clearance_status": "pending_live_ue",
+                    "hard_gates": {"listener_navmesh": {"status": "pass"}},
+                },
+            },
+            {"candidate_id": "blocked0", "status": "fail", "room_gate": None},
+        ]
+        build_actor.return_value = {  # type: ignore[attr-defined]
+            "frames": [
+                {
+                    "frame_index": index,
+                    "actor_aabbs": {
+                        "source1_actor": {
+                            "minimum_m": [-0.2, 0.0, -2.2],
+                            "maximum_m": [0.2, 1.8, -1.8],
+                        },
+                        "source2_actor": {
+                            "minimum_m": [0.8, 0.0, -2.2],
+                            "maximum_m": [1.2, 1.8, -1.8],
+                        },
+                    },
+                }
+                for index in range(75)
+            ]
+        }
+        solve_camera.return_value = {  # type: ignore[attr-defined]
+            "selected_candidate_id": "declared0",
+            "sensor_rig_binding": {"trajectory": {"frames": []}},
+        }
+
+        _, solution, gates = builder._runtime_gate_and_solve_full75_actor_framing(
+            request, suite, runtime_provider=object()
+        )
+
+        self.assertEqual(solution["selected_candidate_id"], "declared0")
+        self.assertEqual(len(gates), 2)
+        self.assertEqual(
+            build_actor.return_value["actor_orientation_policy"],
+            "frozen_suite_actor_states_not_retargeted_to_selected_camera",
+        )
+        self.assertEqual(
+            list(evaluate.call_args.kwargs["actor_visibility_anchors_m"]),
+            ["source1_actor", "source2_actor"],
+        )
+        anchors = evaluate.call_args.kwargs["actor_visibility_anchors_m"][
+            "source1_actor"
+        ]
+        self.assertEqual(
+            set(anchors), {"torso_envelope_center", "declared_emitter_proxy"}
+        )
+        forwarded = solve_camera.call_args.kwargs["candidates"]
+        self.assertEqual([item["candidate_id"] for item in forwarded], ["declared0"])
+        self.assertEqual(forwarded[0]["room_gate"]["provenance"], "habitat_cpu_runtime")
+        self.assertTrue(forwarded[0]["room_gate"]["hard_gates"])
 
 
 class PreflightTests(unittest.TestCase):

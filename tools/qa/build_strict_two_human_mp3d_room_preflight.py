@@ -17,6 +17,7 @@ from typing import Any
 
 from avengine.actor_framing import build_actor_framing_frames
 from avengine.camera_framing import solve_static_camera_candidates
+from avengine.m5_1.camera_candidate_gate import evaluate_camera_candidates
 
 from spear_imported_glb_room_adapter import (
     ENTRY_MAP,
@@ -807,6 +808,9 @@ def _solve_full75_actor_framing(
         padding_m=actor_contract.get("padding_m", 0.02),
         expected_frame_count=FRAME_COUNT,
     )
+    actor_inputs["actor_orientation_policy"] = (
+        "frozen_suite_actor_states_not_retargeted_to_selected_camera"
+    )
     solution = solve_static_camera_candidates(
         frames=actor_inputs["frames"],
         candidates=candidates,
@@ -820,6 +824,130 @@ def _solve_full75_actor_framing(
         "no explicit CPU planning camera candidate contains both actor envelopes",
     )
     return actor_inputs, solution
+
+
+def _runtime_gate_and_solve_full75_actor_framing(
+    request: Mapping[str, Any],
+    suite: Mapping[str, Any],
+    *,
+    runtime_provider: Any,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Admit candidates in one runtime before solving sampled actor framing."""
+
+    actor_contract = request.get("actor_framing")
+    camera_contract = request.get("camera_framing")
+    _require(
+        isinstance(actor_contract, Mapping) and isinstance(camera_contract, Mapping),
+        "fresh request must declare actor_framing and camera_framing contracts",
+    )
+    scenario = suite["scenarios"][0]
+    plan = scenario["plan"]
+    actor_declarations = {actor["actor_id"]: actor for actor in plan["actors"]}
+    _require(
+        len(actor_declarations) >= 2,
+        "runtime camera gate requires at least two declared actors",
+    )
+    plan_frames = plan["frames"]
+    actor_inputs = build_actor_framing_frames(
+        actor_bindings=actor_contract.get("actor_bindings"),
+        frame_states=[
+            {
+                "frame_index": frame["frame_index"],
+                "actor_states": frame["actor_states"],
+            }
+            for frame in plan_frames
+        ],
+        sample_rate_hz=actor_contract.get("sample_rate_hz", 120.0),
+        padding_m=actor_contract.get("padding_m", 0.02),
+        expected_frame_count=FRAME_COUNT,
+    )
+    actor_inputs["actor_orientation_policy"] = (
+        "frozen_suite_actor_states_not_retargeted_to_selected_camera"
+    )
+    floor_paths: dict[str, list[list[float]]] = {
+        actor_id: [] for actor_id in actor_declarations
+    }
+    visibility: dict[str, dict[str, list[list[float]]]] = {
+        actor_id: {"torso_envelope_center": [], "declared_emitter_proxy": []}
+        for actor_id in actor_declarations
+    }
+    for frame, framing_frame in zip(plan_frames, actor_inputs["frames"], strict=True):
+        states = {state["actor_id"]: state for state in frame["actor_states"]}
+        _require(
+            set(states) == set(actor_declarations),
+            "suite actor states differ from actor declarations",
+        )
+        for actor_id, declaration in actor_declarations.items():
+            state = states[actor_id]
+            _require(
+                state.get("asset_id") == declaration.get("asset_id"),
+                f"{actor_id} state asset differs from declaration",
+            )
+            root = _vector3(state.get("translation_m"), owner=f"{actor_id} root")
+            emitter = _add3(
+                root,
+                _vector3(
+                    declaration.get("emitter_offset_m"),
+                    owner=f"{actor_id} declared emitter offset",
+                ),
+            )
+            floor_paths[actor_id].append(root)
+            bounds = framing_frame["actor_aabbs"][actor_id]
+            minimum = bounds["minimum_m"]
+            maximum = bounds["maximum_m"]
+            torso = [
+                (float(minimum[0]) + float(maximum[0])) / 2.0,
+                float(minimum[1]) + 0.55 * (float(maximum[1]) - float(minimum[1])),
+                (float(minimum[2]) + float(maximum[2])) / 2.0,
+            ]
+            visibility[actor_id]["torso_envelope_center"].append(torso)
+            visibility[actor_id]["declared_emitter_proxy"].append(emitter)
+
+    declared_candidates = camera_contract.get("candidates")
+    gate_results = evaluate_camera_candidates(
+        runtime_provider=runtime_provider,
+        candidates=declared_candidates,
+        actor_floor_paths_m=floor_paths,
+        actor_visibility_anchors_m=visibility,
+        floor_height_m=camera_contract.get("floor_height_m"),
+        evaluation_id=f"{request['episode_id']}__camera-runtime-gate",
+        maximum_y_delta_m=camera_contract.get("maximum_y_delta_m", 0.25),
+        maximum_snap_error_m=camera_contract.get("maximum_snap_error_m", 0.05),
+        minimum_clearance_m=camera_contract.get("minimum_clearance_m", 0.25),
+        maximum_clearance_query_m=camera_contract.get(
+            "maximum_clearance_query_m", 10.0
+        ),
+        line_of_sight_tolerance_m=camera_contract.get(
+            "line_of_sight_tolerance_m", 0.03
+        ),
+    )
+    declared_by_id = {
+        candidate["candidate_id"]: candidate for candidate in declared_candidates
+    }
+    passing_candidates = []
+    for result in gate_results:
+        if result.get("status") != "pass":
+            continue
+        room_gate = result.get("room_gate")
+        _require(isinstance(room_gate, Mapping), "passing runtime gate lacks room_gate")
+        candidate = deepcopy(declared_by_id[result["candidate_id"]])
+        candidate["room_gate"] = deepcopy(room_gate)
+        passing_candidates.append(candidate)
+    _require(passing_candidates, "no camera candidate passed the Habitat runtime gate")
+
+    solution = solve_static_camera_candidates(
+        frames=actor_inputs["frames"],
+        candidates=passing_candidates,
+        calibration=camera_contract.get("calibration"),
+        trajectory_id=f"{request['episode_id']}__sensor_rig",
+        ordered_actor_ids=camera_contract.get("ordered_actor_ids"),
+        minimum_order_gap_px=camera_contract.get("minimum_order_gap_px"),
+    )
+    _require(
+        solution.get("selected_candidate_id") is not None,
+        "no runtime-admitted camera candidate contains both actor envelopes",
+    )
+    return actor_inputs, solution, gate_results
 
 
 def _add3(first: Sequence[float], second: Sequence[float]) -> list[float]:
