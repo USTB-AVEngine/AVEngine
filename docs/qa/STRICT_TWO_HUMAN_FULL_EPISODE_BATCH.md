@@ -45,10 +45,12 @@ python3 tools/qa/audit_strict_two_human_room_expansion.py \
   --output tmp/lead_a_strict_two_human_full_episode_batch_v1/room_expansion_audit_v1
 ```
 
-Prepare the two cooked debug-map probes with the repository environment:
+Prepare the two cooked debug-map probes with the checked-in AVEngine native
+Conda environment (the checkout-local `.venv` is not a supported runtime):
 
 ```bash
-.venv/bin/python tools/qa/build_strict_two_human_debug_room_preflight.py \
+/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python \
+  tools/qa/build_strict_two_human_debug_room_preflight.py \
   --output tmp/lead_a_strict_two_human_full_episode_batch_v1/debug_room_cpu_preflight_v1
 ```
 

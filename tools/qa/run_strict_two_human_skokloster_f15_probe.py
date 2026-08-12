@@ -50,7 +50,7 @@ ARCHIVE_ROOT = Path(
 PACKAGED_EXECUTABLE = ARCHIVE_ROOT / "Linux/SpearSim.sh"
 PACKAGED_BINARY = ARCHIVE_ROOT / "Linux/SpearSim/Binaries/Linux/SpearSim"
 PACKAGED_PAK = ARCHIVE_ROOT / "Linux/SpearSim/Content/Paks/SpearSim-Linux.pak"
-CAPTURE_PYTHON_LOGICAL = REPOSITORY / ".venv/bin/python"
+CAPTURE_PYTHON_LOGICAL = Path("/data/jzy/miniconda3/envs/spear-env/bin/python")
 SPEAR_ROOT = Path("/data/jzy/code/SPEAR-lead-b")
 MP3D_V2_TERMINAL_RECEIPT = (
     REPOSITORY
