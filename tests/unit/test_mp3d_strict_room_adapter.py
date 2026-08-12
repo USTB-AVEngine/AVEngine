@@ -706,6 +706,7 @@ class PreflightTests(unittest.TestCase):
             suite = json.loads((output / "suite_execution_plan.json").read_text())
             rig = json.loads((output / "sensor_rig_trajectory.json").read_text())
             rir = json.loads((output / "rir_job_plan.json").read_text())
+            execution = json.loads((output / "execution_plan.json").read_text())
             preflight = json.loads((output / "preflight.json").read_text())
 
             self.assertTrue((output / "actor_framing.json").is_file())
@@ -722,6 +723,28 @@ class PreflightTests(unittest.TestCase):
                 )
             self.assertEqual(rir["listener_pose_mode"], "per_episode_frame")
             self.assertEqual(rir["requested_pair_state_count"], 50)
+            self.assertEqual(
+                execution["schema"],
+                "avengine_native_strict_two_human_mp3d_execution_plan_v2",
+            )
+            self.assertEqual(execution["remote_target_root"], str(output.parent))
+            self.assertIn(
+                str(output / "suite_execution_plan.json"),
+                execution["gpu_steps"][0]["argv"],
+            )
+            compile_argv = execution["cpu_steps"][1]["argv"]
+            probe_index = compile_argv.index("--probe-origin")
+            self.assertEqual(
+                compile_argv[probe_index + 1 : probe_index + 4],
+                [
+                    str(component)
+                    for component in solution["selected_camera_pose"]["position_m"]
+                ],
+            )
+            self.assertIn(
+                str(output.parent / "exact_rir_cache_v1"),
+                execution["cpu_steps"][2]["argv"],
+            )
             self.assertEqual(
                 preflight["runtime_camera_framing"]["selected_candidate_id"],
                 "midpoint_grid_000",

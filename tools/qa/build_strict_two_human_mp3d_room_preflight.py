@@ -1436,11 +1436,46 @@ def _build_rir_plan(
     return trajectory_bank, plan
 
 
-def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
+def _execution_plan(
+    request: Mapping[str, Any],
+    output: Path,
+    *,
+    rig: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     remote_root = REMOTE_REPOSITORY
-    remote_output = remote_root / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
-    fresh_package = remote_output / "fresh_soundspaces2_package_v1"
-    preflight_output = remote_output / "cpu_preflight_v5"
+    is_v2 = request.get("schema") == REQUEST_SCHEMA_V2
+    if is_v2:
+        preflight_output = output.resolve()
+        remote_output = preflight_output.parent
+        fresh_package = remote_output / "fresh_soundspaces2_package_v1"
+        rir_cache = remote_output / "exact_rir_cache_v1"
+        sparse_capture = remote_output / "native_sparse_f15_v1"
+        full_capture = remote_output / "native_full75_v1"
+        _require(
+            isinstance(rig, Mapping)
+            and isinstance(rig.get("frames"), list)
+            and len(rig["frames"]) == FRAME_COUNT,
+            "v2 execution plan requires the selected 75-frame sensor rig",
+        )
+        probe_origin = _vector3(
+            rig["frames"][0]["world_from_rig"]["translation_m"],
+            owner="selected RIR probe origin",
+        )
+        for owner, target in {
+            "fresh acoustic package": fresh_package,
+            "exact RIR cache": rir_cache,
+            "sparse capture": sparse_capture,
+            "full75 capture": full_capture,
+        }.items():
+            _require(not target.exists(), f"{owner} target already exists: {target}")
+    else:
+        remote_output = remote_root / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
+        fresh_package = remote_output / "fresh_soundspaces2_package_v1"
+        preflight_output = remote_output / "cpu_preflight_v5"
+        rir_cache = remote_output / "exact_rir_cache_v4"
+        sparse_capture = remote_output / "native_sparse_f15_v1"
+        full_capture = remote_output / "native_full75_v1"
+        probe_origin = [-4.1499128342, 1.572447, -1.2454376221]
     runtime_probe = preflight_output / "rir_runtime_probe.json"
     suite = preflight_output / "suite_execution_plan.json"
     room_adapter = preflight_output / "room_adapter.json"
@@ -1485,9 +1520,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
         "--runtime-root",
         HABITAT_RUNTIME_ROOT,
         "--probe-origin",
-        "-4.1499128342",
-        "1.572447",
-        "-1.2454376221",
+        *(str(component) for component in probe_origin),
         "--output",
         str(fresh_package),
         "--package-id",
@@ -1509,7 +1542,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
         "--simulation-profile",
         acoustics["simulation_profile"],
         "--output",
-        str(remote_output / "exact_rir_cache_v4"),
+        str(rir_cache),
         "--layout",
         "binaural",
         "--batch-size",
@@ -1528,7 +1561,11 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     }
     validate_rir_runtime_binding(HABITAT_PYTHON, execution_environment)
     return {
-        "schema": "avengine_native_strict_two_human_mp3d_execution_plan_v1",
+        "schema": (
+            "avengine_native_strict_two_human_mp3d_execution_plan_v2"
+            if is_v2
+            else "avengine_native_strict_two_human_mp3d_execution_plan_v1"
+        ),
         "status": "planned_not_run",
         "local_staging_output": str(output.resolve()),
         "remote_target_root": str(remote_output),
@@ -1576,12 +1613,16 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
             },
             {
                 "step_id": "render_two_exact_rirs",
-                "attempt_id": "exact_rir_cache_v4",
-                "supersedes_failed_attempts": [
-                    "exact_rir_cache_v1",
-                    "exact_rir_cache_v2",
-                    "exact_rir_cache_v3",
-                ],
+                "attempt_id": rir_cache.name,
+                "supersedes_failed_attempts": (
+                    []
+                    if is_v2
+                    else [
+                        "exact_rir_cache_v1",
+                        "exact_rir_cache_v2",
+                        "exact_rir_cache_v3",
+                    ]
+                ),
                 "working_directory": str(remote_root),
                 "environment": execution_environment,
                 "argv": rir_argv,
@@ -1590,8 +1631,8 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
                     "selected_job_count": 2,
                     "full_plan_complete": True,
                     "layout": "binaural",
-                    "receipt": str(remote_output / "exact_rir_cache_v4/receipt.json"),
-                    "index": str(remote_output / "exact_rir_cache_v4/index.json"),
+                    "receipt": str(rir_cache / "receipt.json"),
+                    "index": str(rir_cache / "index.json"),
                 },
             },
         ],
@@ -1608,7 +1649,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
                 "argv": common_capture
                 + [
                     "--output",
-                    str(remote_output / "native_sparse_f15_v1"),
+                    str(sparse_capture),
                     "--frame-index",
                     "15",
                 ],
@@ -1625,7 +1666,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
                 "argv": common_capture
                 + [
                     "--output",
-                    str(remote_output / "native_full75_v1"),
+                    str(full_capture),
                 ],
             },
         ],
@@ -1735,7 +1776,7 @@ def build(
     else:
         trajectory_bank, rir_plan = _build_rir_plan(request, rig)
         projection = _project_mouth_proxies(request)
-    execution = _execution_plan(request, args.output)
+    execution = _execution_plan(request, args.output, rig=rig)
     _require(not args.output.exists(), f"refusing to replace output: {args.output}")
     args.output.mkdir(parents=True)
     artifacts = {
