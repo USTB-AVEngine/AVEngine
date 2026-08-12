@@ -78,6 +78,7 @@ def validate_rir_execution_environment(environment: Mapping[str, Any]) -> None:
         "PYTHONPATH": str(REMOTE_REPOSITORY / "src"),
         "SKBUILD_EDITABLE_SKIP": HABITAT_EDITABLE_BUILD,
         "NUMBA_DISABLE_JIT": "1",
+        "CUDA_VISIBLE_DEVICES": "",
     }
     for name, expected in required.items():
         value = environment.get(name)
@@ -194,6 +195,7 @@ def probe_rir_runtime(output: Path) -> Path:
                 "PYTHONPATH",
                 "SKBUILD_EDITABLE_SKIP",
                 "NUMBA_DISABLE_JIT",
+                "CUDA_VISIBLE_DEVICES",
                 "AVENGINE_HABITAT_RUNTIME_ROOT",
                 "AVENGINE_SOUNDSPACES_ROOT",
                 "AVENGINE_MP3D_SOUNDSPACES2_PACKAGE_ROOT",
@@ -1447,7 +1449,7 @@ def _execution_plan(
     if is_v2:
         preflight_output = output.resolve()
         remote_output = preflight_output.parent
-        fresh_package = remote_output / "fresh_soundspaces2_package_v1"
+        fresh_package = remote_output / "fresh_soundspaces2_package_v2"
         rir_cache = remote_output / "exact_rir_cache_v1"
         sparse_capture = remote_output / "native_sparse_f15_v1"
         full_capture = remote_output / "native_full75_v1"
@@ -1524,7 +1526,11 @@ def _execution_plan(
         "--output",
         str(fresh_package),
         "--package-id",
-        "habitat_mp3d_example_17DRP5sb8fy_soundspaces2_strict_two_human_v1",
+        (
+            "habitat_mp3d_example_17DRP5sb8fy_soundspaces2_strict_two_human_v2"
+            if is_v2
+            else "habitat_mp3d_example_17DRP5sb8fy_soundspaces2_strict_two_human_v1"
+        ),
     ]
     rir_argv = [
         str(HABITAT_PYTHON),
@@ -1558,6 +1564,7 @@ def _execution_plan(
         "PYTHONPATH": str(remote_root / "src"),
         "SKBUILD_EDITABLE_SKIP": HABITAT_EDITABLE_BUILD,
         "NUMBA_DISABLE_JIT": "1",
+        "CUDA_VISIBLE_DEVICES": "",
     }
     validate_rir_runtime_binding(HABITAT_PYTHON, execution_environment)
     return {
@@ -1805,7 +1812,15 @@ def build(
     adult_pair_ready = navigation["adult_static_pair_gate"]["status"] == "pass"
     preflight = {
         "schema": PREFLIGHT_SCHEMA,
-        "status": "pass" if adult_pair_ready else "blocked",
+        "status": (
+            "pending_remaining_evidence"
+            if is_v2 and adult_pair_ready
+            else ("pass" if adult_pair_ready else "blocked")
+        ),
+        "cpu_planning_status": "pass" if adult_pair_ready else "blocked",
+        "episode_ready": False,
+        "capture_ready": False,
+        "formal_ready": False,
         "request_id": request["request_id"],
         "episode_id": request["episode_id"],
         "inputs": {name: _file_record(path) for name, path in inputs.items()},

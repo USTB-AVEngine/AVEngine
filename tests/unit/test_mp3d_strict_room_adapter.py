@@ -662,8 +662,8 @@ class ActorFramingConsumerTests(unittest.TestCase):
 
 class PreflightTests(unittest.TestCase):
     def _v2_solution(self) -> tuple[dict[str, object], dict[str, object]]:
-        position = [-2.0, 1.572447, 0.5]
-        yaw_deg = 32.993798925907846
+        position = [0.0, 1.572447, -0.5]
+        yaw_deg = 60.62595999388584
         rig = materialize_sensor_rig_trajectory(
             trajectory_id=("mp3d_17DRP5sb8fy_male_female_static_0002__sensor_rig"),
             program={"kind": "HOLD", "position_m": position, "yaw_deg": yaw_deg},
@@ -728,11 +728,23 @@ class PreflightTests(unittest.TestCase):
                 "avengine_native_strict_two_human_mp3d_execution_plan_v2",
             )
             self.assertEqual(execution["remote_target_root"], str(output.parent))
+            self.assertEqual(
+                execution["cpu_steps"][0]["environment"]["CUDA_VISIBLE_DEVICES"],
+                "",
+            )
+            compile_argv = execution["cpu_steps"][1]["argv"]
+            self.assertIn(
+                "habitat_mp3d_example_17DRP5sb8fy_soundspaces2_strict_two_human_v2",
+                compile_argv,
+            )
+            self.assertIn(
+                str(output.parent / "fresh_soundspaces2_package_v2"),
+                compile_argv,
+            )
             self.assertIn(
                 str(output / "suite_execution_plan.json"),
                 execution["gpu_steps"][0]["argv"],
             )
-            compile_argv = execution["cpu_steps"][1]["argv"]
             probe_index = compile_argv.index("--probe-origin")
             self.assertEqual(
                 compile_argv[probe_index + 1 : probe_index + 4],
@@ -749,6 +761,11 @@ class PreflightTests(unittest.TestCase):
                 preflight["runtime_camera_framing"]["selected_candidate_id"],
                 "midpoint_grid_000",
             )
+            self.assertEqual(preflight["status"], "pending_remaining_evidence")
+            self.assertEqual(preflight["cpu_planning_status"], "pass")
+            self.assertFalse(preflight["episode_ready"])
+            self.assertFalse(preflight["capture_ready"])
+            self.assertFalse(preflight["formal_ready"])
             self.assertGreaterEqual(
                 preflight["planned_projection"]["horizontal_mouth_separation_px"],
                 preflight["planned_projection"][
@@ -898,6 +915,7 @@ class PreflightTests(unittest.TestCase):
                     "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
                 ),
                 "NUMBA_DISABLE_JIT": "1",
+                "CUDA_VISIBLE_DEVICES": "",
             }
             self.assertEqual(rir_step["environment"], expected_environment)
             builder.validate_rir_runtime_binding(
