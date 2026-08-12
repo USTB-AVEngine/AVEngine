@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,31 @@ class PreGpuLaunchLedgerTests(unittest.TestCase):
                 "capture_output": capture,
             },
             forbidden_paths=(capture,),
+        )
+        return attempt, archive, spec
+
+    def _prepared_with_probe(
+        self, root: Path
+    ) -> tuple[Path, Path, LEDGER.PreparedAttemptSpec]:
+        attempt, archive, original = self._prepared(root)
+        preserved: dict[str, LEDGER.PreservedFileIdentity] = {}
+        for name, payload in {
+            "interpreter_preflight_receipt.json": b'{"status":"pass"}\n',
+            "interpreter_probe_stdout.log": b'{"python":"3.11"}\n',
+            "interpreter_probe_stderr.log": b"",
+        }.items():
+            (attempt / name).write_bytes(payload)
+            preserved[name] = LEDGER.PreservedFileIdentity(
+                byte_size=len(payload), sha256=hashlib.sha256(payload).hexdigest()
+            )
+        spec = LEDGER.PreparedAttemptSpec(
+            request_schema=original.request_schema,
+            request_keys=original.request_keys,
+            workspace_roots=original.workspace_roots,
+            expected_fields=original.expected_fields,
+            expected_paths=original.expected_paths,
+            forbidden_paths=original.forbidden_paths,
+            preserved_files=preserved,
         )
         return attempt, archive, spec
 
@@ -100,6 +126,57 @@ class PreGpuLaunchLedgerTests(unittest.TestCase):
             attempt, _, spec = self._prepared(Path(directory))
             request = LEDGER.verify_prepared_attempt(attempt_root=attempt, spec=spec)
             self.assertEqual(request["episode_id"], "episode-1")
+
+    def test_archive_preserves_exact_cpu_probe_closure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            attempt, archive, spec = self._prepared_with_probe(Path(directory))
+            receipt = LEDGER.archive_prepared_attempt(
+                attempt_root=attempt,
+                archive_root=archive,
+                spec=spec,
+                reason="request became stale after a CPU-only interpreter probe",
+            )
+            self.assertTrue(receipt.is_file())
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertTrue(payload["preserved_embedded_paths_rehomed_by_archive"])
+            self.assertTrue(payload["embedded_paths_non_authoritative_after_archive"])
+            self.assertEqual(
+                set(payload["preserved_file_records"]), set(spec.preserved_files)
+            )
+            for name, identity in spec.preserved_files.items():
+                record = payload["preserved_file_records"][name]
+                self.assertEqual(record["path"], str(archive / name))
+                self.assertEqual(record["byte_size"], identity.byte_size)
+                self.assertEqual(record["sha256"], identity.sha256)
+            self.assertEqual(
+                {path.name for path in archive.iterdir()},
+                {
+                    "request.json",
+                    "pre_gpu_archive_receipt.json",
+                    *spec.preserved_files,
+                },
+            )
+
+    def test_preserved_probe_missing_tampered_or_extra_is_rejected(self) -> None:
+        for mutation, message in (
+            ("missing", "entries are not closed"),
+            ("tampered", "byte size drift"),
+            ("extra", "entries are not closed"),
+        ):
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                attempt, _, spec = self._prepared_with_probe(Path(directory))
+                target = attempt / "interpreter_probe_stdout.log"
+                if mutation == "missing":
+                    target.unlink()
+                elif mutation == "tampered":
+                    target.write_bytes(target.read_bytes() + b"x")
+                else:
+                    (attempt / "fifth-entry.log").write_text("x", encoding="utf-8")
+                with self.assertRaisesRegex(LEDGER.PreGpuLaunchLedgerError, message):
+                    LEDGER.verify_prepared_attempt(attempt_root=attempt, spec=spec)
 
     def test_rejects_wrong_schema_status_and_extra_key(self) -> None:
         for mutation, message in (

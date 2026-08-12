@@ -9,6 +9,7 @@ revisions, or episode IDs, so old and new launchers can share one ledger rule.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -42,6 +43,22 @@ class PreGpuLaunchLedgerError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class PreservedFileIdentity:
+    """Expected immutable bytes for one launcher-specific CPU artifact."""
+
+    byte_size: int
+    sha256: str
+
+    def __post_init__(self) -> None:
+        if self.byte_size < 0:
+            raise ValueError("preserved file byte_size must be non-negative")
+        if len(self.sha256) != 64 or any(
+            character not in "0123456789abcdef" for character in self.sha256
+        ):
+            raise ValueError("preserved file sha256 must be lowercase hexadecimal")
+
+
+@dataclass(frozen=True)
 class PreparedAttemptSpec:
     """Launcher-owned contract for one unlaunched prepared request.
 
@@ -57,6 +74,7 @@ class PreparedAttemptSpec:
     expected_fields: Mapping[str, Any] = field(default_factory=dict)
     expected_paths: Mapping[str, Path] = field(default_factory=dict)
     forbidden_paths: tuple[Path, ...] = ()
+    preserved_files: Mapping[str, PreservedFileIdentity] = field(default_factory=dict)
     request_status: str = "prepared_not_launched"
     request_filename: str = "request.json"
     receipt_filename: str = "pre_gpu_archive_receipt.json"
@@ -76,6 +94,13 @@ class PreparedAttemptSpec:
                 raise ValueError("ledger filenames must be plain basenames")
         if self.request_filename == self.receipt_filename:
             raise ValueError("request and receipt filenames must differ")
+        for name in self.preserved_files:
+            if (
+                not name
+                or Path(name).name != name
+                or name in {self.request_filename, self.receipt_filename}
+            ):
+                raise ValueError("preserved file names must be distinct basenames")
         unknown = (set(self.expected_fields) | set(self.expected_paths)) - set(
             self.request_keys
         )
@@ -110,6 +135,25 @@ def _load_request(path: Path) -> dict[str, Any]:
         raise PreGpuLaunchLedgerError(f"cannot read prepared request: {exc}") from exc
     _require(isinstance(value, dict), "prepared request must be a JSON object")
     return value
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_preserved_files(root: Path, spec: PreparedAttemptSpec) -> None:
+    for name, identity in spec.preserved_files.items():
+        path = root / name
+        _require(path.is_file(), f"preserved file is missing or not regular: {name}")
+        _require(
+            path.stat().st_size == identity.byte_size,
+            f"preserved file byte size drift: {name}",
+        )
+        _require(_sha256(path) == identity.sha256, f"preserved file SHA drift: {name}")
 
 
 def _path_policy(spec: PreparedAttemptSpec) -> WorkspacePathPolicy:
@@ -187,8 +231,9 @@ def verify_prepared_attempt(
     names = {entry.name for entry in entries}
     forbidden = sorted(names & set(spec.forbidden_entry_names))
     _require(not forbidden, f"launch evidence exists: {forbidden}")
+    expected_names = {spec.request_filename, *spec.preserved_files}
     _require(
-        names == {spec.request_filename},
+        names == expected_names,
         f"prepared attempt entries are not closed: {sorted(names)}",
     )
 
@@ -196,6 +241,7 @@ def verify_prepared_attempt(
     _require(request_path.is_file(), "prepared request is not a regular file")
     request = _load_request(request_path)
     _validate_request(request, spec)
+    _verify_preserved_files(attempt_root, spec)
 
     for forbidden_path in spec.forbidden_paths:
         forbidden_path = _absolute(forbidden_path)
@@ -274,6 +320,16 @@ def archive_prepared_attempt(
         "archive_root": str(archive_root),
         "original_request_path": str(original_request),
         "archived_request_path": str(archived_request),
+        "preserved_file_records": {
+            name: {
+                "path": str(archive_root / name),
+                "byte_size": identity.byte_size,
+                "sha256": identity.sha256,
+            }
+            for name, identity in sorted(spec.preserved_files.items())
+        },
+        "preserved_embedded_paths_rehomed_by_archive": bool(spec.preserved_files),
+        "embedded_paths_non_authoritative_after_archive": bool(spec.preserved_files),
         "capture_launch_gpu_query_started": False,
         "gpu_query_started": False,
         "gpu_started": False,
@@ -326,13 +382,14 @@ def verify_preparation_archive(
     )
     _require(
         {entry.name for entry in entries}
-        == {spec.request_filename, spec.receipt_filename},
+        == {spec.request_filename, spec.receipt_filename, *spec.preserved_files},
         "prepared attempt archive entries are not closed",
     )
     request_path = archive_root / spec.request_filename
     receipt_path = archive_root / spec.receipt_filename
     request = _load_request(request_path)
     _validate_request(request, spec)
+    _verify_preserved_files(archive_root, spec)
     try:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -347,6 +404,16 @@ def verify_preparation_archive(
         "archive_root": str(archive_root),
         "original_request_path": str(original_attempt_root / spec.request_filename),
         "archived_request_path": str(request_path),
+        "preserved_file_records": {
+            name: {
+                "path": str(archive_root / name),
+                "byte_size": identity.byte_size,
+                "sha256": identity.sha256,
+            }
+            for name, identity in sorted(spec.preserved_files.items())
+        },
+        "preserved_embedded_paths_rehomed_by_archive": bool(spec.preserved_files),
+        "embedded_paths_non_authoritative_after_archive": bool(spec.preserved_files),
         "capture_launch_gpu_query_started": False,
         "gpu_query_started": False,
         "gpu_started": False,
