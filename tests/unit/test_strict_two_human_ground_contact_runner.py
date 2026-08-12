@@ -512,14 +512,45 @@ def _floor_trace(runner, *, sequence: int, floor_z: float = 40.0) -> dict[str, o
     }
 
 
-def _ground_readback(runner, next_trace) -> dict[str, object]:
+def _ground_readback(runner, next_trace, *, actor_id: str) -> dict[str, object]:
+    requested_names = runner.FLAT_GROUND_BONES
+    actual_names = [name.replace(" ", "-") for name in requested_names]
+    inventory = [
+        {
+            "inventory_index": index,
+            "actual_name": actual_name,
+            "normalized_name": "".join(
+                character for character in actual_name.casefold() if character.isalnum()
+            ),
+        }
+        for index, actual_name in enumerate(actual_names)
+    ]
+    resolutions = [
+        {
+            "requested_name": requested_name,
+            "requested_normalized_name": inventory[index]["normalized_name"],
+            "actual_live_name": actual_names[index],
+            "actual_normalized_name": inventory[index]["normalized_name"],
+            "inventory_index": index,
+            "requested_probe_index": -1,
+            "actual_probe_index": index,
+            "resolution_mode": "sanitized_live_fname_required",
+        }
+        for index, requested_name in enumerate(requested_names)
+    ]
+    resolution_by_requested = {item["requested_name"]: item for item in resolutions}
     sides = {}
     for side, bones in runner.GROUND_BONES.items():
         anchors = {}
-        for index, (kind, bone_name) in enumerate(bones.items()):
+        for kind, bone_name in bones.items():
+            resolution = resolution_by_requested[bone_name]
+            index = resolution["inventory_index"]
             clearance = 2.0 + index
             anchors[kind] = {
                 "bone_name": bone_name,
+                "requested_bone_name": bone_name,
+                "actual_live_bone_name": resolution["actual_live_name"],
+                "bone_name_resolution_mode": resolution["resolution_mode"],
                 "bone_index": index,
                 "world_position_ue_cm": [10.0, 20.0, 40.0 + clearance],
                 "bone_to_floor_clearance_cm": clearance,
@@ -546,6 +577,15 @@ def _ground_readback(runner, next_trace) -> dict[str, object]:
             "timeline_anchor_mutated": False,
             "emitter_or_rir_mutated": False,
             "bounds_role": "action_only_not_release_evidence",
+        },
+        "bone_name_resolution": {
+            "schema": runner.BONE_NAME_RESOLUTION_SCHEMA,
+            "status": "pass",
+            "owner": actor_id,
+            "normalization": runner.BONE_NAME_NORMALIZATION,
+            "bone_count": len(inventory),
+            "inventory": inventory,
+            "resolutions": resolutions,
         },
         "sides": sides,
     }
@@ -596,7 +636,12 @@ def _capture_fixture(tmp_path: Path, runner) -> dict[str, object]:
         per_instance = {}
         for slot in runner.INSTANCE_IDS:
             per_instance[slot] = {
-                "live_ground_contact_readback": _ground_readback(runner, next_trace)
+                "actor_id": f"{slot}_actor",
+                "live_ground_contact_readback": _ground_readback(
+                    runner,
+                    next_trace,
+                    actor_id=f"{slot}_actor",
+                ),
             }
         sampled_frames.append(
             {"frame_index": frame_index, "per_instance": per_instance}
@@ -657,6 +702,11 @@ def test_capture_validator_requires_24_live_traces_and_stays_nonrelease(
     assert result["bounds_only_release_forbidden"] is True
     assert result["clearance_threshold_derivation_pending"] is True
     assert result["release_authorized"] is False
+    assert set(result["bone_name_resolution_by_instance"]) == {
+        "source1",
+        "source2",
+    }
+    assert result["bone_name_resolution_by_instance"]["source1"]["bone_count"] == 4
     assert result["formal_dataset_count"] == 0
 
 
@@ -671,4 +721,70 @@ def test_capture_validator_rejects_missing_live_ground_field(tmp_path: Path) -> 
     _write_json(path, readbacks)
 
     with pytest.raises(RuntimeError, match="live ground readback is missing"):
+        runner._validate_capture(request)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("actual_probe_index", -1, "requested/actual/index/probe closure"),
+        ("resolution_mode", "direct_exact_fname", "probe/mode semantics"),
+    ],
+)
+def test_capture_validator_rejects_bone_resolution_probe_or_mode_drift(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    runner = _load_runner()
+    request = _capture_fixture(tmp_path, runner)
+    path = Path(request["capture_output"]) / "runtime_asset_readbacks.json"
+    readbacks = json.loads(path.read_text(encoding="utf-8"))
+    resolution = readbacks["sampled_frames"][0]["per_instance"]["source1"][
+        "live_ground_contact_readback"
+    ]["bone_name_resolution"]["resolutions"][0]
+    resolution[field] = value
+    _write_json(path, readbacks)
+
+    with pytest.raises(RuntimeError, match=message):
+        runner._validate_capture(request)
+
+
+def test_capture_validator_rejects_anchor_resolution_drift(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request = _capture_fixture(tmp_path, runner)
+    path = Path(request["capture_output"]) / "runtime_asset_readbacks.json"
+    readbacks = json.loads(path.read_text(encoding="utf-8"))
+    anchor = readbacks["sampled_frames"][0]["per_instance"]["source1"][
+        "live_ground_contact_readback"
+    ]["sides"]["left"]["anchors"]["foot"]
+    anchor["actual_live_bone_name"] = "Bip01-Wrong-Foot"
+    _write_json(path, readbacks)
+
+    with pytest.raises(RuntimeError, match="live bone readback failed"):
+        runner._validate_capture(request)
+
+
+def test_capture_validator_requires_resolution_stability_across_sparse_frames(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    request = _capture_fixture(tmp_path, runner)
+    path = Path(request["capture_output"]) / "runtime_asset_readbacks.json"
+    readbacks = json.loads(path.read_text(encoding="utf-8"))
+    resolution = readbacks["sampled_frames"][1]["per_instance"]["source1"][
+        "live_ground_contact_readback"
+    ]["bone_name_resolution"]
+    resolution["bone_count"] = 5
+    resolution["inventory"].append(
+        {
+            "inventory_index": 4,
+            "actual_name": "Bip01-Head",
+            "normalized_name": "bip01head",
+        }
+    )
+    _write_json(path, readbacks)
+
+    with pytest.raises(RuntimeError, match="not stable across f0/f37/f74"):
         runner._validate_capture(request)

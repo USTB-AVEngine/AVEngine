@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from avengine.qa.spear_unreal_capabilities import normalize_unreal_name
+
 REPOSITORY = Path(__file__).resolve().parents[2]
 SOURCE_REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v3"
 REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_request_v3"
@@ -31,6 +33,8 @@ FLOOR_TRACE_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v3"
 FLOOR_TRACE_IDENTITY_AUTHORITY = (
     "UGameplayStatics.BreakHitResult(HitComponent)_to_UActorComponent.GetOwner"
 )
+BONE_NAME_RESOLUTION_SCHEMA = "avengine_spear_bone_name_resolution_v1"
+BONE_NAME_NORMALIZATION = "unicode_casefold_then_alphanumeric_only"
 FAILURE_LEDGER_SCHEMA = "avengine_strict_two_human_ground_contact_failure_ledger_v2"
 PREVIOUS_FAILURE_LEDGER_SCHEMA = (
     "avengine_strict_two_human_ground_contact_failure_ledger_v1"
@@ -746,6 +750,150 @@ def _nonzero_hex_handle(value: object) -> bool:
         return False
 
 
+def _validate_bone_name_resolution(
+    value: object,
+    *,
+    expected_owner: str,
+    owner: str,
+) -> tuple[dict[str, Mapping[str, Any]], dict[str, Any]]:
+    _require(isinstance(value, Mapping), f"{owner} bone-name resolution is missing")
+    resolution = value
+    bone_count = resolution.get("bone_count")
+    inventory = resolution.get("inventory")
+    resolutions = resolution.get("resolutions")
+    _require(
+        resolution.get("schema") == BONE_NAME_RESOLUTION_SCHEMA
+        and resolution.get("status") == "pass"
+        and resolution.get("owner") == expected_owner
+        and resolution.get("normalization") == BONE_NAME_NORMALIZATION
+        and isinstance(bone_count, int)
+        and not isinstance(bone_count, bool)
+        and bone_count > 0
+        and isinstance(inventory, list)
+        and len(inventory) == bone_count
+        and isinstance(resolutions, list),
+        f"{owner} bone-name resolution schema/owner/inventory header failed",
+    )
+
+    inventory_records: list[dict[str, Any]] = []
+    for expected_index, item in enumerate(inventory):
+        _require(
+            isinstance(item, Mapping),
+            f"{owner} bone inventory entry {expected_index} is invalid",
+        )
+        actual_name = item.get("actual_name")
+        normalized_name = item.get("normalized_name")
+        inventory_index = item.get("inventory_index")
+        _require(
+            isinstance(inventory_index, int)
+            and not isinstance(inventory_index, bool)
+            and inventory_index == expected_index
+            and isinstance(actual_name, str)
+            and bool(actual_name)
+            and isinstance(normalized_name, str)
+            and normalized_name == normalize_unreal_name(actual_name),
+            f"{owner} bone inventory entry {expected_index} name/index failed",
+        )
+        inventory_records.append(
+            {
+                "inventory_index": inventory_index,
+                "actual_name": actual_name,
+                "normalized_name": normalized_name,
+            }
+        )
+    _require(
+        len({item["actual_name"] for item in inventory_records}) == bone_count,
+        f"{owner} live bone inventory contains duplicate actual names",
+    )
+
+    _require(
+        len(resolutions) == len(FLAT_GROUND_BONES),
+        f"{owner} must resolve exactly four requested contact bones",
+    )
+    by_requested: dict[str, Mapping[str, Any]] = {}
+    stable_resolutions: list[dict[str, Any]] = []
+    for expected_name, item in zip(FLAT_GROUND_BONES, resolutions, strict=True):
+        _require(
+            isinstance(item, Mapping),
+            f"{owner} resolution for {expected_name!r} is invalid",
+        )
+        requested_name = item.get("requested_name")
+        requested_normalized = item.get("requested_normalized_name")
+        actual_name = item.get("actual_live_name")
+        actual_normalized = item.get("actual_normalized_name")
+        inventory_index = item.get("inventory_index")
+        requested_probe = item.get("requested_probe_index")
+        actual_probe = item.get("actual_probe_index")
+        mode = item.get("resolution_mode")
+        _require(
+            requested_name == expected_name
+            and requested_normalized == normalize_unreal_name(expected_name)
+            and isinstance(actual_name, str)
+            and bool(actual_name)
+            and actual_normalized == normalize_unreal_name(actual_name)
+            and requested_normalized == actual_normalized
+            and isinstance(inventory_index, int)
+            and not isinstance(inventory_index, bool)
+            and 0 <= inventory_index < bone_count
+            and isinstance(requested_probe, int)
+            and not isinstance(requested_probe, bool)
+            and requested_probe in (-1, inventory_index)
+            and isinstance(actual_probe, int)
+            and not isinstance(actual_probe, bool)
+            and actual_probe == inventory_index,
+            f"{owner} requested/actual/index/probe closure failed for {expected_name!r}",
+        )
+        inventory_match = inventory_records[inventory_index]
+        normalized_matches = [
+            candidate
+            for candidate in inventory_records
+            if candidate["normalized_name"] == requested_normalized
+        ]
+        _require(
+            len(normalized_matches) == 1
+            and inventory_match == normalized_matches[0]
+            and inventory_match["actual_name"] == actual_name,
+            f"{owner} actual live name does not close against a unique inventory entry",
+        )
+        mode_is_closed = bool(
+            (
+                mode == "direct_exact_fname"
+                and requested_name == actual_name
+                and requested_probe == inventory_index
+            )
+            or (
+                mode == "requested_alias_fname_accepted"
+                and requested_name != actual_name
+                and requested_probe == inventory_index
+            )
+            or (
+                mode == "sanitized_live_fname_required"
+                and requested_name != actual_name
+                and requested_probe == -1
+            )
+        )
+        _require(
+            mode_is_closed,
+            f"{owner} resolution probe/mode semantics failed for {expected_name!r}",
+        )
+        _require(
+            requested_name not in by_requested,
+            f"{owner} repeats requested bone {requested_name!r}",
+        )
+        by_requested[str(requested_name)] = item
+        stable_resolutions.append(dict(item))
+
+    return by_requested, {
+        "schema": resolution["schema"],
+        "status": resolution["status"],
+        "owner": resolution["owner"],
+        "normalization": resolution["normalization"],
+        "bone_count": bone_count,
+        "inventory": inventory_records,
+        "resolutions": stable_resolutions,
+    }
+
+
 def _validate_floor_trace_identity(trace: Mapping[str, Any], *, owner: str) -> None:
     shape = trace.get("raw_out_hit_shape")
     keys = shape.get("keys") if isinstance(shape, Mapping) else None
@@ -965,6 +1113,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
     floor_actors: set[str] = set()
     floor_components: set[str] = set()
     measurements: list[dict[str, Any]] = []
+    stable_bone_resolution_by_instance: dict[str, dict[str, Any]] = {}
     for sample in samples:
         frame_index = int(sample["frame_index"])
         records = sample.get("per_instance")
@@ -974,6 +1123,11 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         )
         for slot, record in records.items():
             ground = record.get("live_ground_contact_readback")
+            expected_owner = f"{slot}_actor"
+            _require(
+                record.get("actor_id") == expected_owner,
+                f"{slot} runtime actor owner drift at frame {frame_index}",
+            )
             _require(
                 isinstance(ground, Mapping)
                 and ground.get("schema") == READBACK_SCHEMA
@@ -981,6 +1135,19 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
                 and ground.get("ue_length_unit") == "centimeter",
                 f"{slot} live ground readback is missing at frame {frame_index}",
             )
+            resolution_by_requested, stable_resolution = _validate_bone_name_resolution(
+                ground.get("bone_name_resolution"),
+                expected_owner=expected_owner,
+                owner=f"{slot} frame {frame_index}",
+            )
+            previous_resolution = stable_bone_resolution_by_instance.get(slot)
+            if previous_resolution is None:
+                stable_bone_resolution_by_instance[slot] = stable_resolution
+            else:
+                _require(
+                    stable_resolution == previous_resolution,
+                    f"{slot} bone-name resolution is not stable across f0/f37/f74",
+                )
             snap = ground.get("runtime_visual_ground_snap")
             _require(
                 isinstance(snap, Mapping)
@@ -1080,13 +1247,21 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
                 )
                 for kind, bone_name in expected.items():
                     anchor = anchors[kind]
+                    resolution = resolution_by_requested[bone_name]
                     position = anchor.get("world_position_ue_cm")
                     clearance = anchor.get("bone_to_floor_clearance_cm")
                     trace = anchor.get("floor_trace")
                     _require(
                         anchor.get("bone_name") == bone_name
+                        and anchor.get("requested_bone_name") == bone_name
+                        and anchor.get("actual_live_bone_name")
+                        == resolution["actual_live_name"]
+                        and anchor.get("bone_name_resolution_mode")
+                        == resolution["resolution_mode"]
                         and isinstance(anchor.get("bone_index"), int)
-                        and int(anchor["bone_index"]) >= 0
+                        and not isinstance(anchor.get("bone_index"), bool)
+                        and int(anchor["bone_index"])
+                        == int(resolution["inventory_index"])
                         and _finite_xyz(position)
                         and isinstance(clearance, (int, float))
                         and not isinstance(clearance, bool)
@@ -1126,6 +1301,8 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
                             "side": side,
                             "anchor_kind": kind,
                             "bone_name": bone_name,
+                            "actual_live_bone_name": resolution["actual_live_name"],
+                            "bone_name_resolution_mode": resolution["resolution_mode"],
                             "bone_index": int(anchor["bone_index"]),
                             "world_position_ue_cm": position,
                             "bone_to_floor_clearance_cm": float(clearance),
@@ -1141,6 +1318,10 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
             )
             measurements.append(actor_measurement)
     _require(trace_count == 24, "ground diagnostic must contain exactly 24 traces")
+    _require(
+        set(stable_bone_resolution_by_instance) == set(INSTANCE_IDS),
+        "stable two-instance bone-name resolution closure failed",
+    )
     return {
         "status": "pass_live_measurements_manual_visual_review_pending",
         "manifest": _file_record(manifest_path),
@@ -1155,6 +1336,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         "observed_floor_actors": sorted(floor_actors),
         "observed_floor_components": sorted(floor_components),
         "per_actor_frame_measurements": measurements,
+        "bone_name_resolution_by_instance": stable_bone_resolution_by_instance,
         "bounds_only_release_forbidden": True,
         "clearance_threshold_derivation_pending": True,
         "manual_pixel_ground_contact_review_required": True,
