@@ -228,7 +228,7 @@ def test_resolve_two_episode_canary_freezes_room_audio_rir_and_raw_contract(
     batch = RUNNER.resolve_request(_request_fixture(tmp_path))
     assert batch.purpose == "segmentation_reset_canary"
     assert len(batch.episodes) == 2
-    assert {item.mechanism for item in batch.episodes} == {"static"}
+    assert {item.mechanism for item in batch.episodes} == {"both_static"}
     assert all(
         item.bindings["acoustics"]["status"] == "pass_precomputed_before_gpu"
         for item in batch.episodes
@@ -388,6 +388,166 @@ def test_motion_realism_receipt_binds_native_rate_active_speed(
     )
     assert result["status"] == "pass_release_qualified"
     assert result["speed_gate"]["moving_actor_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("mechanism", "per_slot"),
+    [
+        ("target_moves", {"source1": 27, "source2": 1}),
+        ("distractor_moves", {"source1": 1, "source2": 16}),
+        ("both_move", {"source1": 11, "source2": 12}),
+    ],
+)
+def test_acoustics_derives_native_rate_counts_from_bound_plan(
+    tmp_path: Path, mechanism: str, per_slot: dict[str, int]
+) -> None:
+    jobs = [
+        {"source_slot_id": slot, "job_id": f"{slot}-{index}"}
+        for slot, count in per_slot.items()
+        for index in range(count)
+    ]
+    plan = _write(
+        tmp_path / "rir.json",
+        {
+            "jobs": jobs,
+            "unique_rir_job_count": len(jobs),
+            "distinct_rir_state_count_by_source_slot": per_slot,
+        },
+    )
+    cache = _write(
+        tmp_path / "cache.json",
+        {
+            "status": "pass",
+            "full_plan_complete": True,
+            "selected_job_count": len(jobs),
+        },
+    )
+    delivery = _write(
+        tmp_path / "delivery.json",
+        {"status": "pass", "episode_count": 1, "qualification_claim": False},
+    )
+    result = RUNNER._validate_acoustics(
+        {
+            "acoustic_evidence": {
+                "exact_rir_plan": str(plan),
+                "rir_cache": str(cache),
+                "binaural_delivery": str(delivery),
+            }
+        },
+        mechanism=mechanism,
+    )
+    assert result["canonical_mechanism"] == mechanism
+    assert result["expected_unique_rir_job_count"] == len(jobs)
+    assert result["expected_rir_count_by_source_slot"] == per_slot
+
+
+def test_acoustics_rejects_cache_count_not_bound_to_actual_plan(
+    tmp_path: Path,
+) -> None:
+    plan = _write(
+        tmp_path / "rir.json",
+        {
+            "jobs": [
+                {"source_slot_id": "source1"},
+                {"source_slot_id": "source2"},
+            ]
+        },
+    )
+    cache = _write(
+        tmp_path / "cache.json",
+        {"status": "pass", "full_plan_complete": True, "selected_job_count": 76},
+    )
+    delivery = _write(
+        tmp_path / "delivery.json",
+        {"status": "pass", "episode_count": 1, "qualification_claim": False},
+    )
+    with pytest.raises(RuntimeError, match="exact RIR cache is incomplete"):
+        RUNNER._validate_acoustics(
+            {
+                "acoustic_evidence": {
+                    "exact_rir_plan": str(plan),
+                    "rir_cache": str(cache),
+                    "binaural_delivery": str(delivery),
+                }
+            },
+            mechanism="target_moves",
+        )
+
+
+def test_both_move_accepts_distinct_native_intervals_per_actor(
+    tmp_path: Path,
+) -> None:
+    intervals = {
+        "source1_actor": [14, 24],
+        "source2_actor": [14, 25],
+    }
+    active_by_actor = {
+        actor_id: {
+            "active_frame_interval_inclusive": interval,
+            "active_frame_count": interval[1] - interval[0] + 1,
+            "mapping_kind": "native_rate_active_interval",
+            "active_speed_evaluated_only": True,
+        }
+        for actor_id, interval in intervals.items()
+    }
+    speed_by_actor = {
+        actor_id: {
+            "measured_active_speed_mps": 0.8,
+            "minimum_release_speed_mps": 0.7,
+            "maximum_release_speed_mps": 1.2,
+            "active_frame_interval_inclusive": interval,
+            "source_native_frame_interval_inclusive": [
+                39 if actor_id == "source1_actor" else 62,
+                49 if actor_id == "source1_actor" else 73,
+            ],
+        }
+        for actor_id, interval in intervals.items()
+    }
+    phase_by_actor = {
+        actor_id: {
+            "phase_progression_monotonic": True,
+            "foot_plant_sync": True,
+            "phase_freeze_detected": False,
+        }
+        for actor_id in intervals
+    }
+    path = _write(
+        tmp_path / "motion_both.json",
+        {
+            "schema": "avengine_strict_two_human_motion_realism_receipt_v1",
+            "status": "pass",
+            "episode_id": "dynamic_both",
+            "mechanism": "both_move",
+            "release_qualified": True,
+            "no_global_time_stretch": True,
+            "active_interval_gate": {
+                "status": "pass",
+                "per_moving_actor": active_by_actor,
+            },
+            "speed_gate": {
+                "status": "pass",
+                "moving_actor_count": 2,
+                "per_moving_actor": speed_by_actor,
+            },
+            "clip_phase_foot_plant_sync_gate": {
+                "status": "pass",
+                "per_moving_actor": phase_by_actor,
+            },
+        },
+    )
+    result = RUNNER._validate_motion_realism(
+        {"motion_realism_evidence": str(path)},
+        episode_id="dynamic_both",
+        mechanism="both_move",
+        purpose="production_room_shard",
+    )
+    assert result["status"] == "pass_release_qualified"
+    assert set(result["active_interval_gate"]["per_moving_actor"]) == set(intervals)
+
+
+def test_legacy_mechanism_aliases_normalize_to_canonical_names() -> None:
+    assert RUNNER._canonical_mechanism("static") == "both_static"
+    assert RUNNER._canonical_mechanism("camera_pan") == "camera_pan_both_static"
 
 
 def test_raw_spool_publishes_ready_last_with_exact_tiny_memmaps(

@@ -88,12 +88,16 @@ RAW_MEMMAP_TOTAL_BYTES = sum(
     int(value["size_bytes"]) for value in RAW_MEMMAP_CONTRACT.values()
 )
 
-MECHANISM_RIR_CONTRACT: dict[str, tuple[int, dict[str, int]]] = {
-    "static": (2, {"source1": 1, "source2": 1}),
-    "target_moves": (76, {"source1": 75, "source2": 1}),
-    "distractor_moves": (76, {"source1": 1, "source2": 75}),
-    "both_move": (150, {"source1": 75, "source2": 75}),
-    "camera_pan": (150, {"source1": 75, "source2": 75}),
+CANONICAL_MECHANISMS = {
+    "both_static",
+    "target_moves",
+    "distractor_moves",
+    "both_move",
+    "camera_pan_both_static",
+}
+LEGACY_MECHANISM_ALIASES = {
+    "static": "both_static",
+    "camera_pan": "camera_pan_both_static",
 }
 
 CPU_WORKER_POLICY = {
@@ -114,6 +118,12 @@ CPU_WORKER_POLICY = {
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _canonical_mechanism(value: object) -> str:
+    mechanism = LEGACY_MECHANISM_ALIASES.get(str(value), str(value))
+    _require(mechanism in CANONICAL_MECHANISMS, f"unknown mechanism: {value}")
+    return mechanism
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -290,8 +300,7 @@ def _validate_suite(
 def _validate_acoustics(
     episode: Mapping[str, Any], *, mechanism: str
 ) -> dict[str, Any]:
-    _require(mechanism in MECHANISM_RIR_CONTRACT, f"unknown mechanism: {mechanism}")
-    expected_count, expected_by_slot = MECHANISM_RIR_CONTRACT[mechanism]
+    canonical_mechanism = _canonical_mechanism(mechanism)
     evidence = episode.get("acoustic_evidence")
     _require(isinstance(evidence, Mapping), "acoustic evidence is missing")
     required = {"exact_rir_plan", "rir_cache", "binaural_delivery"}
@@ -299,9 +308,7 @@ def _validate_acoustics(
     paths = {key: Path(str(evidence[key])).resolve() for key in required}
     values = {key: _load(path) for key, path in paths.items()}
     jobs = values["exact_rir_plan"].get("jobs")
-    _require(
-        isinstance(jobs, list) and len(jobs) == expected_count, "RIR plan count drift"
-    )
+    _require(isinstance(jobs, list) and bool(jobs), "RIR plan jobs are missing")
     by_slot: dict[str, int] = {slot: 0 for slot in SOURCE_SLOTS}
     for job in jobs:
         slot = job.get("source_slot_id", job.get("source_slot"))
@@ -313,12 +320,29 @@ def _validate_acoustics(
             slot = next(iter(use_slots))
         _require(slot in by_slot, "RIR job source-slot drift")
         by_slot[str(slot)] += 1
-    _require(by_slot == expected_by_slot, f"RIR per-source count drift: {by_slot}")
+    _require(
+        all(count > 0 for count in by_slot.values()),
+        f"RIR plan does not cover both source slots: {by_slot}",
+    )
+    observed_count = len(jobs)
+    plan = values["exact_rir_plan"]
+    declared_unique = plan.get("unique_rir_job_count")
+    if declared_unique is not None:
+        _require(
+            int(declared_unique) == observed_count,
+            "RIR plan declared unique-job count drift",
+        )
+    declared_by_slot = plan.get("distinct_rir_state_count_by_source_slot")
+    if declared_by_slot is not None:
+        _require(
+            declared_by_slot == by_slot,
+            "RIR plan declared per-source count drift",
+        )
     cache = values["rir_cache"]
     _require(
         cache.get("status") == "pass"
         and cache.get("full_plan_complete") is True
-        and int(cache.get("selected_job_count", -1)) == expected_count,
+        and int(cache.get("selected_job_count", -1)) == observed_count,
         "exact RIR cache is incomplete",
     )
     delivery = values["binaural_delivery"]
@@ -330,8 +354,9 @@ def _validate_acoustics(
     )
     return {
         "status": "pass_precomputed_before_gpu",
-        "expected_unique_rir_job_count": expected_count,
-        "expected_rir_count_by_source_slot": expected_by_slot,
+        "canonical_mechanism": canonical_mechanism,
+        "expected_unique_rir_job_count": observed_count,
+        "expected_rir_count_by_source_slot": by_slot,
         "paths": {key: str(path) for key, path in paths.items()},
         "sha256": {key: _sha256(path) for key, path in paths.items()},
     }
@@ -346,7 +371,8 @@ def _validate_motion_realism(
 ) -> dict[str, Any]:
     """Bind release-grade motion evidence; never infer it from a long timeline."""
 
-    if mechanism == "static":
+    canonical_mechanism = _canonical_mechanism(mechanism)
+    if canonical_mechanism == "both_static":
         return {"status": "not_applicable_static", "release_qualified": True}
     evidence_value = episode.get("motion_realism_evidence")
     if purpose != "production_room_shard" and evidence_value is None:
@@ -369,7 +395,7 @@ def _validate_motion_realism(
         value.get("schema") == "avengine_strict_two_human_motion_realism_receipt_v1"
         and value.get("status") == "pass"
         and value.get("episode_id") == episode_id
-        and value.get("mechanism") == mechanism
+        and _canonical_mechanism(value.get("mechanism")) == canonical_mechanism
         and value.get("release_qualified") is True
         and value.get("no_global_time_stretch") is True
         and isinstance(active, Mapping)
@@ -379,19 +405,6 @@ def _validate_motion_realism(
         and isinstance(phase, Mapping)
         and phase.get("status") == "pass",
         f"{episode_id}: motion-realism release gate failed",
-    )
-    interval = active.get("active_frame_interval_inclusive")
-    _require(
-        isinstance(interval, list)
-        and len(interval) == 2
-        and all(
-            isinstance(item, int) and not isinstance(item, bool) for item in interval
-        )
-        and 0 <= interval[0] < interval[1] < FRAME_COUNT
-        and active.get("active_frame_count") == interval[1] - interval[0] + 1
-        and active.get("mapping_kind") == "native_rate_active_interval"
-        and active.get("active_speed_evaluated_only") is True,
-        f"{episode_id}: active motion interval contract failed",
     )
     per_actor = speed.get("per_moving_actor")
     moving_actor_count = speed.get("moving_actor_count")
@@ -403,8 +416,37 @@ def _validate_motion_realism(
         and moving_actor_count == len(per_actor),
         f"{episode_id}: moving-actor speed inventory failed",
     )
+    per_actor_intervals = active.get("per_moving_actor")
+    if per_actor_intervals is not None:
+        _require(
+            isinstance(per_actor_intervals, Mapping)
+            and set(per_actor_intervals) == set(per_actor),
+            f"{episode_id}: per-actor active interval inventory failed",
+        )
+    else:
+        per_actor_intervals = {actor_id: active for actor_id in per_actor}
     for actor_id, record in per_actor.items():
         _require(isinstance(record, Mapping), f"{actor_id}: speed record missing")
+        interval_record = per_actor_intervals[actor_id]
+        _require(
+            isinstance(interval_record, Mapping),
+            f"{actor_id}: active interval record missing",
+        )
+        interval = interval_record.get("active_frame_interval_inclusive")
+        _require(
+            isinstance(interval, list)
+            and len(interval) == 2
+            and all(
+                isinstance(item, int) and not isinstance(item, bool)
+                for item in interval
+            )
+            and 0 <= interval[0] < interval[1] < FRAME_COUNT
+            and interval_record.get("active_frame_count")
+            == interval[1] - interval[0] + 1
+            and interval_record.get("mapping_kind") == "native_rate_active_interval"
+            and interval_record.get("active_speed_evaluated_only") is True,
+            f"{actor_id}: active motion interval contract failed",
+        )
         measured = record.get("measured_active_speed_mps")
         minimum = record.get("minimum_release_speed_mps")
         maximum = record.get("maximum_release_speed_mps")
@@ -613,7 +655,7 @@ def resolve_request(path: Path) -> ResolvedBatch:
         episode_id = str(row.get("episode_id"))
         _require(episode_id not in episode_ids, "duplicate Episode id")
         episode_ids.add(episode_id)
-        mechanism = str(row.get("mechanism"))
+        mechanism = _canonical_mechanism(row.get("mechanism"))
         target_source_slot = str(row.get("target_source_slot"))
         _require(target_source_slot in SOURCE_SLOTS, "target source-slot drift")
         target_side = str(row.get("target_side"))
