@@ -31,6 +31,8 @@ REQUEST_SCHEMA_V2 = "avengine_mp3d_strict_two_human_f15_launch_request_v2"
 RECEIPT_SCHEMA_V2 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v2"
 REQUEST_SCHEMA_V5 = "avengine_mp3d_strict_two_human_f15_launch_request_v5"
 RECEIPT_SCHEMA_V5 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v5"
+REQUEST_SCHEMA_V6 = "avengine_mp3d_strict_two_human_f15_launch_request_v6"
+RECEIPT_SCHEMA_V6 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v6"
 FAILURE_LEDGER_SCHEMA = "avengine_mp3d_f15_attempt_failure_ledger_v1"
 CAPTURE_FAILURE_SCHEMA = "avengine_mp3d_f15_capture_failure_v1"
 ATTEMPT01_FAILURE_STATUS = (
@@ -55,6 +57,8 @@ V2_RPC_PORT = 39632
 V2_ATTEMPT_DIRECTORY = "diagnostic_f15_revision_v2_launch_attempt_01"
 V2_CAPTURE_DIRECTORY = "diagnostic_f15_revision_v2_capture_attempt_01"
 V5_ATTEMPT_DIRECTORY = "diagnostic_f15_execution_plan_v5_launch_attempt_01"
+V6_ATTEMPT_DIRECTORY = "diagnostic_f15_execution_plan_v6_launch_attempt_01"
+PACKAGED_ROOM_READBACK_DIRECTORY = "packaged_room_readback_v1"
 ATTEMPT_POLICY = {
     "attempt_index": 1,
     "maximum_attempts_for_candidate": 1,
@@ -1937,6 +1941,160 @@ def offline_validate_execution_plan(execution_plan_path: Path) -> dict[str, Any]
     }
 
 
+def _packaged_room_readback_paths(atom_root: Path) -> dict[str, Path]:
+    root = _require_contained(
+        atom_root / PACKAGED_ROOM_READBACK_DIRECTORY,
+        atom_root,
+        owner="packaged room readback root",
+    )
+    return {
+        "packaged_room_readback_result": root / "RESULT.json",
+        "packaged_room_readback_exit": root / "EXIT.json",
+    }
+
+
+def _validate_packaged_room_readback(
+    *,
+    atom_root: Path,
+    result_path: Path,
+    exit_path: Path,
+    room_adapter: Mapping[str, Any],
+    scene_id: str,
+) -> dict[str, Any]:
+    """Close the fresh packaged NullRHI result by parsed semantics only."""
+
+    expected_paths = _packaged_room_readback_paths(atom_root.resolve())
+    _require(
+        result_path.resolve() == expected_paths["packaged_room_readback_result"]
+        and exit_path.resolve() == expected_paths["packaged_room_readback_exit"],
+        "packaged room readback path drift",
+    )
+    result = _load(result_path)
+    exit_receipt = _load(exit_path)
+    expected_meshes = room_adapter.get("static_mesh_object_paths")
+    _require(
+        isinstance(expected_meshes, list)
+        and len(expected_meshes) == EXPECTED_MESH_COUNT
+        and len(set(expected_meshes)) == EXPECTED_MESH_COUNT,
+        "room adapter lacks the exact 71-mesh readback authority",
+    )
+    _require(
+        result.get("schema") == "avengine_packaged_imported_glb_room_readback_v1"
+        and result.get("status") == "pass"
+        and result.get("readiness_status")
+        == "packaged_71_mesh_readback_pass_gpu_f15_pending"
+        and result.get("scene_id") == scene_id
+        and result.get("entry_map") == "/Engine/Maps/Entry"
+        and result.get("nullrhi") is True
+        and result.get("rendering_or_capture_called") is False
+        and result.get("qualification_claim") is False
+        and result.get("formal_dataset_count") == 0,
+        "packaged room readback RESULT boundary drift",
+    )
+    live = result.get("room_live_readback")
+    _require(isinstance(live, Mapping), "packaged room live readback is missing")
+    meshes = live.get("meshes")
+    _require(
+        live.get("schema") == "avengine_spear_imported_glb_live_readback_v1"
+        and live.get("status") == "pass"
+        and live.get("scene_id") == scene_id
+        and live.get("entry_map") == "/Engine/Maps/Entry"
+        and live.get("expected_static_mesh_count") == EXPECTED_MESH_COUNT
+        and live.get("spawned_static_mesh_count") == EXPECTED_MESH_COUNT
+        and live.get("unique_loaded_object_handle_count") == EXPECTED_MESH_COUNT
+        and live.get("unique_component_mesh_handle_count") == EXPECTED_MESH_COUNT
+        and live.get("all_expected_handles_match_components") is True
+        and live.get("qualification_claim") is False
+        and live.get("formal_dataset_count") == 0
+        and isinstance(meshes, list)
+        and len(meshes) == EXPECTED_MESH_COUNT,
+        "packaged room 71-mesh live readback drift",
+    )
+    _require(
+        [mesh.get("mesh_index") for mesh in meshes] == list(range(EXPECTED_MESH_COUNT))
+        and [mesh.get("object_path") for mesh in meshes] == expected_meshes
+        and all(
+            mesh.get("status") == "pass"
+            and mesh.get("readback_method")
+            in {
+                "UStaticMeshComponent.GetStaticMesh",
+                "UStaticMeshComponent.StaticMesh_property",
+            }
+            and mesh.get("stable_actor_name")
+            == f"AVEngine/ImportedGLB/{scene_id}/mesh_{index:03d}"
+            and isinstance(mesh.get("expected_object_handle"), int)
+            and mesh.get("expected_object_handle") > 0
+            and mesh.get("observed_component_mesh_handle")
+            == mesh.get("expected_object_handle")
+            for index, mesh in enumerate(meshes)
+        ),
+        "packaged room per-mesh readback drift",
+    )
+    expected_handles = [mesh.get("expected_object_handle") for mesh in meshes]
+    observed_handles = [mesh.get("observed_component_mesh_handle") for mesh in meshes]
+    stable_names = [mesh.get("stable_actor_name") for mesh in meshes]
+    _require(
+        len(set(expected_handles)) == EXPECTED_MESH_COUNT
+        and len(set(observed_handles)) == EXPECTED_MESH_COUNT
+        and len(set(stable_names)) == EXPECTED_MESH_COUNT,
+        "packaged room per-mesh identities are not unique",
+    )
+    _require(
+        exit_receipt.get("schema")
+        == "avengine_packaged_imported_glb_room_probe_exit_v1"
+        and exit_receipt.get("status") == "pass"
+        and exit_receipt.get("worker_exit_code") == 0
+        and exit_receipt.get("timed_out") is False
+        and exit_receipt.get("exact_packaged_process_exit_closed") is True
+        and exit_receipt.get("exact_packaged_processes_before") == []
+        and exit_receipt.get("exact_packaged_processes_after") == []
+        and exit_receipt.get("nullrhi") is True
+        and exit_receipt.get("rendering_or_capture_called") is False
+        and exit_receipt.get("result_exists") is True
+        and exit_receipt.get("result_status") == "pass"
+        and exit_receipt.get("semantic_error") is None
+        and exit_receipt.get("qualification_claim") is False
+        and exit_receipt.get("formal_dataset_count") == 0,
+        "packaged room readback EXIT boundary drift",
+    )
+    return {"result": result, "exit": exit_receipt}
+
+
+def offline_validate_execution_plan_v6(execution_plan_path: Path) -> dict[str, Any]:
+    """Validate the selected v3 preflight plus fresh packaged room readback."""
+
+    validation = offline_validate_execution_plan(execution_plan_path.resolve())
+    plan_path = Path(validation["execution_plan"]).resolve()
+    atom_root = plan_path.parent.parent.resolve()
+    _require(
+        plan_path == atom_root / "cpu_preflight_v3/execution_plan.json",
+        "v6 must bind the selected cpu_preflight_v3 execution plan",
+    )
+    _require(
+        Path(validation["capture_output"]).resolve()
+        == atom_root / "native_sparse_f15_v1",
+        "v6 sparse f15 output path drift",
+    )
+    readback_paths = _packaged_room_readback_paths(atom_root)
+    room_adapter = _load(Path(validation["evidence_paths"]["room_adapter"]))
+    _validate_packaged_room_readback(
+        atom_root=atom_root,
+        result_path=readback_paths["packaged_room_readback_result"],
+        exit_path=readback_paths["packaged_room_readback_exit"],
+        room_adapter=room_adapter,
+        scene_id=validation["scene_id"],
+    )
+    return {
+        **validation,
+        "schema": "avengine_mp3d_f15_execution_plan_offline_validation_v2",
+        "evidence_paths": {
+            **validation["evidence_paths"],
+            **{name: str(path) for name, path in readback_paths.items()},
+        },
+        "packaged_room_readback_status": "pass_nullrhi_71_of_71",
+    }
+
+
 def prepare_request_v5(*, execution_plan_path: Path) -> Path:
     validation = offline_validate_execution_plan(execution_plan_path.resolve())
     plan_path = Path(validation["execution_plan"])
@@ -1961,6 +2119,50 @@ def prepare_request_v5(*, execution_plan_path: Path) -> Path:
         "attempt_policy": {
             **ATTEMPT_POLICY,
             "candidate_revision": "execution_plan_v2_selected_camera",
+        },
+        "frame_indices": [FRAME_INDEX],
+        "full75_allowed": False,
+        "physical_gpu_index": 1,
+        "physical_gpu_uuid": GPU1_UUID,
+        "graphics_adapter_argument": 1,
+        "required_idle_compute_process_count": 0,
+        "explicit_gpu_capture_authorization_required": True,
+        "gpu_capture_authorized_at_prepare": False,
+        "manual_review_required": True,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+        "created_at_utc": _utc_now(),
+    }
+    attempt_root.mkdir(parents=True)
+    request_path = attempt_root / "request.json"
+    _write_json_exclusive(request_path, request)
+    return request_path
+
+
+def prepare_request_v6(*, execution_plan_path: Path) -> Path:
+    validation = offline_validate_execution_plan_v6(execution_plan_path.resolve())
+    plan_path = Path(validation["execution_plan"])
+    atom_root = plan_path.parent.parent
+    attempt_root = atom_root / V6_ATTEMPT_DIRECTORY
+    _require(not attempt_root.exists(), "execution-plan v6 attempt already exists")
+    request = {
+        "schema": REQUEST_SCHEMA_V6,
+        "status": "prepared_not_launched",
+        "episode_id": validation["episode_id"],
+        "scene_id": validation["scene_id"],
+        "required_repo_commit": _git_head(REPOSITORY),
+        "repo_root": str(REPOSITORY),
+        "atom_root": str(atom_root),
+        "attempt_root": str(attempt_root),
+        "execution_plan": validation["execution_plan"],
+        "evidence_paths": validation["evidence_paths"],
+        "suite_plan": validation["evidence_paths"]["suite_plan"],
+        "room_adapter": validation["evidence_paths"]["room_adapter"],
+        "capture_output": validation["capture_output"],
+        "capture_argv": validation["capture_argv"],
+        "attempt_policy": {
+            **ATTEMPT_POLICY,
+            "candidate_revision": "execution_plan_v3_packaged_readback_closed",
         },
         "frame_indices": [FRAME_INDEX],
         "full75_allowed": False,
@@ -2030,6 +2232,72 @@ def _validate_request_v5(request_path: Path) -> tuple[dict[str, Any], list[str]]
         "v5 Episode/capture binding drift",
     )
     _require(not paths["capture_output"].exists(), "v5 capture output must be new")
+    return request, argv
+
+
+def _validate_request_v6(request_path: Path) -> tuple[dict[str, Any], list[str]]:
+    request = _load(request_path)
+    _require(request.get("schema") == REQUEST_SCHEMA_V6, "v6 request schema drift")
+    _require(
+        request.get("status") == "prepared_not_launched"
+        and request.get("frame_indices") == [FRAME_INDEX]
+        and request.get("full75_allowed") is False
+        and request.get("explicit_gpu_capture_authorization_required") is True
+        and request.get("gpu_capture_authorized_at_prepare") is False
+        and request.get("manual_review_required") is True
+        and request.get("qualification_claim") is False
+        and request.get("formal_dataset_count") == 0,
+        "v6 request boundary drift",
+    )
+    _require(
+        request.get("physical_gpu_index") == 1
+        and request.get("physical_gpu_uuid") == GPU1_UUID
+        and request.get("graphics_adapter_argument") == 1
+        and request.get("required_idle_compute_process_count") == 0,
+        "v6 physical GPU1/adapter1 binding drift",
+    )
+    _require(
+        request.get("attempt_policy")
+        == {
+            **ATTEMPT_POLICY,
+            "candidate_revision": "execution_plan_v3_packaged_readback_closed",
+        },
+        "v6 attempt policy drift",
+    )
+    repo_root = Path(str(request.get("repo_root", ""))).resolve()
+    _require(repo_root == REPOSITORY, "v6 repository drift")
+    _require(
+        request.get("required_repo_commit") == _git_head(repo_root),
+        "repository HEAD differs from the v6 request-bound commit",
+    )
+    plan_path = Path(str(request.get("execution_plan", ""))).resolve()
+    validation = offline_validate_execution_plan_v6(plan_path)
+    atom_root = plan_path.parent.parent
+    attempt_root = atom_root / V6_ATTEMPT_DIRECTORY
+    _require(
+        Path(str(request.get("atom_root", ""))).resolve() == atom_root
+        and Path(str(request.get("attempt_root", ""))).resolve() == attempt_root
+        and request_path.resolve() == attempt_root / "request.json",
+        "v6 request path containment drift",
+    )
+    _require(
+        request.get("evidence_paths") == validation["evidence_paths"],
+        "v6 path-only evidence closure drift",
+    )
+    argv = validation["capture_argv"]
+    _require(
+        request.get("episode_id") == validation["episode_id"]
+        and request.get("scene_id") == validation["scene_id"]
+        and request.get("suite_plan") == validation["evidence_paths"]["suite_plan"]
+        and request.get("room_adapter") == validation["evidence_paths"]["room_adapter"]
+        and request.get("capture_output") == validation["capture_output"]
+        and request.get("capture_argv") == argv,
+        "v6 Episode/capture binding drift",
+    )
+    _require(
+        not Path(validation["capture_output"]).exists(),
+        "v6 capture output must be new",
+    )
     return request, argv
 
 
@@ -2172,6 +2440,147 @@ def run_v5(
     return exit_code
 
 
+def run_v6(
+    request_path: Path,
+    *,
+    offline_validate: bool,
+    dry_run: bool,
+    authorize_gpu_capture: bool,
+) -> int:
+    request, argv = _validate_request_v6(request_path.resolve())
+    if offline_validate:
+        _require(not dry_run, "choose offline validation or dry-run, not both")
+        return 0
+
+    attempt_root = Path(request["attempt_root"])
+    dry_receipt = attempt_root / "dry_run_receipt.json"
+    running_receipt = attempt_root / "running_receipt.json"
+    final_receipt = attempt_root / "final_receipt.json"
+    stdout_path = attempt_root / "capture_stdout.log"
+    stderr_path = attempt_root / "capture_stderr.log"
+    _require(
+        not final_receipt.exists(), "execution-plan v6 already has a final receipt"
+    )
+    common = {
+        "schema": RECEIPT_SCHEMA_V6,
+        "episode_id": request["episode_id"],
+        "scene_id": request["scene_id"],
+        "required_repo_commit": request["required_repo_commit"],
+        "request": str(request_path.resolve()),
+        "execution_plan": request["execution_plan"],
+        "evidence_paths": request["evidence_paths"],
+        "capture_argv": argv,
+        "capture_output": request["capture_output"],
+        "frame_indices": [FRAME_INDEX],
+        "full75_allowed": False,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+    if dry_run:
+        _require(not dry_receipt.exists(), "execution-plan v6 dry-run receipt exists")
+        _require(not running_receipt.exists(), "execution-plan v6 already started")
+        _write_json_exclusive(
+            dry_receipt,
+            {
+                **common,
+                "status": "dry_run_pass_not_launched",
+                "packaged_room_readback_status": "pass_nullrhi_71_of_71",
+                "gpu_query_started": False,
+                "gpu_started": False,
+                "attempt_consumed": False,
+                "captured_at_utc": _utc_now(),
+            },
+        )
+        return 0
+
+    _require(
+        authorize_gpu_capture, "v6 GPU capture lacks explicit launch authorization"
+    )
+    _require(not running_receipt.exists(), "execution-plan v6 already started")
+    _require(
+        not stdout_path.exists() and not stderr_path.exists(),
+        "execution-plan v6 exclusive child logs already exist",
+    )
+    before = _gpu_snapshot()
+    gpu = _validate_gpu1_idle(before)
+    rpc_port = int(argv[argv.index("--rpc-port") + 1])
+    _assert_port_available(rpc_port)
+    common.update(
+        {
+            "physical_gpu_index": 1,
+            "physical_gpu_uuid": GPU1_UUID,
+            "graphics_adapter_argument": 1,
+            "prelaunch_gpu": gpu,
+            "prelaunch_snapshot": before,
+        }
+    )
+    started_at = _utc_now()
+    _write_json_exclusive(
+        running_receipt,
+        {
+            **common,
+            "status": "running",
+            "gpu_started": False,
+            "attempt_consumed": True,
+            "started_at_utc": started_at,
+            "child_exit_code": None,
+        },
+    )
+    child_exit_code: int | None = None
+    final: dict[str, Any] = {
+        **common,
+        "status": "failed",
+        "gpu_started": False,
+        "attempt_consumed": True,
+        "retry_same_candidate_forbidden": True,
+        "started_at_utc": started_at,
+    }
+    exit_code = 1
+    try:
+        with (
+            stdout_path.open("xb") as stdout_stream,
+            stderr_path.open("xb") as stderr_stream,
+        ):
+            completed = subprocess.run(
+                argv,
+                cwd=REPOSITORY,
+                check=False,
+                stdout=stdout_stream,
+                stderr=stderr_stream,
+            )
+        child_exit_code = int(completed.returncode)
+        exit_code = child_exit_code
+        _require(child_exit_code == 0, f"v6 f15 capture exited {exit_code}")
+        observability = _collect_v2_capture_observability(
+            Path(request["capture_output"])
+        )
+        _validate_complete_v2_phase_sequence(observability)
+        final["capture_observability"] = observability
+        final["validation"] = _validate_capture(request)
+        final["status"] = "pass_diagnostic_f15_review_ready"
+    except Exception as exc:  # noqa: BLE001
+        final["error"] = f"{type(exc).__name__}: {exc}"
+        final["launcher_traceback"] = traceback.format_exc()
+        exit_code = exit_code or 1
+    finally:
+        final["ended_at_utc"] = _utc_now()
+        final["child_exit_code"] = child_exit_code
+        final["capture_process_exit_code"] = child_exit_code
+        final["gpu_started"] = child_exit_code is not None
+        final["exclusive_child_stdout"] = (
+            _file_record(stdout_path) if stdout_path.is_file() else None
+        )
+        final["exclusive_child_stderr"] = (
+            _file_record(stderr_path) if stderr_path.is_file() else None
+        )
+        try:
+            final["postlaunch_snapshot"] = _gpu_snapshot()
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            final["postlaunch_snapshot_error"] = f"{type(exc).__name__}: {exc}"
+        _write_json_exclusive(final_receipt, final)
+    return exit_code
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2224,6 +2633,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     launch_v5.add_argument("--request", required=True, type=Path)
     launch_v5.add_argument("--dry-run", action="store_true")
     launch_v5.add_argument("--authorize-gpu-capture", action="store_true")
+    offline_v6 = subparsers.add_parser("offline-validate-v6")
+    offline_v6_source = offline_v6.add_mutually_exclusive_group(required=True)
+    offline_v6_source.add_argument("--execution-plan", type=Path)
+    offline_v6_source.add_argument("--request", type=Path)
+    prepare_v6 = subparsers.add_parser("prepare-v6")
+    prepare_v6.add_argument("--execution-plan", required=True, type=Path)
+    launch_v6 = subparsers.add_parser("launch-v6")
+    launch_v6.add_argument("--request", required=True, type=Path)
+    launch_v6.add_argument("--dry-run", action="store_true")
+    launch_v6.add_argument("--authorize-gpu-capture", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -2295,6 +2714,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "launch-v5":
         return run_v5(
+            args.request,
+            offline_validate=False,
+            dry_run=args.dry_run,
+            authorize_gpu_capture=args.authorize_gpu_capture,
+        )
+    if args.command == "offline-validate-v6":
+        if args.execution_plan is not None:
+            validation = offline_validate_execution_plan_v6(args.execution_plan)
+        else:
+            request, _ = _validate_request_v6(args.request.resolve())
+            validation = {
+                "schema": "avengine_mp3d_f15_execution_plan_offline_validation_v2",
+                "status": "pass_offline_no_write_no_gpu_query",
+                "episode_id": request["episode_id"],
+                "scene_id": request["scene_id"],
+                "request": str(args.request.resolve()),
+                "packaged_room_readback_status": "pass_nullrhi_71_of_71",
+                "gpu_query_started": False,
+                "gpu_started": False,
+                "writes_performed": False,
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+            }
+        print(json.dumps(validation, ensure_ascii=False, sort_keys=True), flush=True)
+        return 0
+    if args.command == "prepare-v6":
+        path = prepare_request_v6(execution_plan_path=args.execution_plan)
+        print(f"MP3D_F15_V6_REQUEST_PREPARED request={path} formal=0", flush=True)
+        return 0
+    if args.command == "launch-v6":
+        return run_v6(
             args.request,
             offline_validate=False,
             dry_run=args.dry_run,

@@ -90,6 +90,77 @@ def _request_v2(attempt_root: Path) -> dict[str, object]:
     }
 
 
+def _write_packaged_readback(atom: Path) -> tuple[dict[str, object], Path, Path]:
+    mesh_paths = [
+        f"/Game/MyAssets/Audioset/Scenes/17DRP5sb8fy/mesh_{index:03d}.mesh_{index:03d}"
+        for index in range(LAUNCHER.EXPECTED_MESH_COUNT)
+    ]
+    room_adapter: dict[str, object] = {"static_mesh_object_paths": mesh_paths}
+    root = atom / LAUNCHER.PACKAGED_ROOM_READBACK_DIRECTORY
+    result_path = root / "RESULT.json"
+    exit_path = root / "EXIT.json"
+    meshes = [
+        {
+            "mesh_index": index,
+            "object_path": object_path,
+            "stable_actor_name": (f"AVEngine/ImportedGLB/17DRP5sb8fy/mesh_{index:03d}"),
+            "expected_object_handle": 10_000 + index,
+            "observed_component_mesh_handle": 10_000 + index,
+            "readback_method": "UStaticMeshComponent.StaticMesh_property",
+            "status": "pass",
+        }
+        for index, object_path in enumerate(mesh_paths)
+    ]
+    _write(
+        result_path,
+        {
+            "schema": "avengine_packaged_imported_glb_room_readback_v1",
+            "status": "pass",
+            "readiness_status": "packaged_71_mesh_readback_pass_gpu_f15_pending",
+            "scene_id": "17DRP5sb8fy",
+            "entry_map": "/Engine/Maps/Entry",
+            "nullrhi": True,
+            "rendering_or_capture_called": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+            "room_live_readback": {
+                "schema": "avengine_spear_imported_glb_live_readback_v1",
+                "status": "pass",
+                "scene_id": "17DRP5sb8fy",
+                "entry_map": "/Engine/Maps/Entry",
+                "expected_static_mesh_count": 71,
+                "spawned_static_mesh_count": 71,
+                "unique_loaded_object_handle_count": 71,
+                "unique_component_mesh_handle_count": 71,
+                "all_expected_handles_match_components": True,
+                "meshes": meshes,
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+            },
+        },
+    )
+    _write(
+        exit_path,
+        {
+            "schema": "avengine_packaged_imported_glb_room_probe_exit_v1",
+            "status": "pass",
+            "worker_exit_code": 0,
+            "timed_out": False,
+            "exact_packaged_process_exit_closed": True,
+            "exact_packaged_processes_before": [],
+            "exact_packaged_processes_after": [],
+            "nullrhi": True,
+            "rendering_or_capture_called": False,
+            "result_exists": True,
+            "result_status": "pass",
+            "semantic_error": None,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        },
+    )
+    return room_adapter, result_path, exit_path
+
+
 class Mp3dF15LauncherTests(unittest.TestCase):
     def test_capture_argv_is_exactly_one_f15_on_adapter1(self) -> None:
         request = {
@@ -318,6 +389,165 @@ class Mp3dF15LauncherTests(unittest.TestCase):
             )
             self.assertFalse(receipt["gpu_query_started"])
             self.assertFalse(receipt["gpu_started"])
+
+    def test_v6_nullrhi_result_and_exit_tamper_fail_closed(self) -> None:
+        for mutation, error in (
+            ("result", "71-mesh live readback drift"),
+            ("exit", "readback EXIT boundary drift"),
+        ):
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                atom = Path(directory).resolve() / "tmp/atom"
+                room, result_path, exit_path = _write_packaged_readback(atom)
+                LAUNCHER._validate_packaged_room_readback(
+                    atom_root=atom,
+                    result_path=result_path,
+                    exit_path=exit_path,
+                    room_adapter=room,
+                    scene_id="17DRP5sb8fy",
+                )
+                tampered_path = result_path if mutation == "result" else exit_path
+                tampered = json.loads(tampered_path.read_text(encoding="utf-8"))
+                if mutation == "result":
+                    tampered["room_live_readback"]["spawned_static_mesh_count"] = 70
+                else:
+                    tampered["exact_packaged_processes_after"] = [1491774]
+                _write(tampered_path, tampered)
+                with self.assertRaisesRegex(RuntimeError, error):
+                    LAUNCHER._validate_packaged_room_readback(
+                        atom_root=atom,
+                        result_path=result_path,
+                        exit_path=exit_path,
+                        room_adapter=room,
+                        scene_id="17DRP5sb8fy",
+                    )
+
+    def test_v6_nullrhi_accepts_getter_and_rejects_duplicate_handles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            atom = Path(directory).resolve() / "tmp/atom"
+            room, result_path, exit_path = _write_packaged_readback(atom)
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["room_live_readback"]["meshes"][0]["readback_method"] = (
+                "UStaticMeshComponent.GetStaticMesh"
+            )
+            _write(result_path, result)
+            LAUNCHER._validate_packaged_room_readback(
+                atom_root=atom,
+                result_path=result_path,
+                exit_path=exit_path,
+                room_adapter=room,
+                scene_id="17DRP5sb8fy",
+            )
+
+            meshes = result["room_live_readback"]["meshes"]
+            meshes[1]["expected_object_handle"] = meshes[0]["expected_object_handle"]
+            meshes[1]["observed_component_mesh_handle"] = meshes[0][
+                "observed_component_mesh_handle"
+            ]
+            _write(result_path, result)
+            with self.assertRaisesRegex(RuntimeError, "identities are not unique"):
+                LAUNCHER._validate_packaged_room_readback(
+                    atom_root=atom,
+                    result_path=result_path,
+                    exit_path=exit_path,
+                    room_adapter=room,
+                    scene_id="17DRP5sb8fy",
+                )
+
+    def test_v6_prepare_and_dry_run_bind_paths_without_gpu_or_ue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            atom = root / "tmp/atom"
+            plan = atom / "cpu_preflight_v3/execution_plan.json"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("{}\n", encoding="utf-8")
+            evidence_paths = {
+                "execution_plan": str(plan),
+                "preflight": str(plan.with_name("preflight.json")),
+                "suite_plan": str(plan.with_name("suite_execution_plan.json")),
+                "room_adapter": str(plan.with_name("room_adapter.json")),
+                "packaged_room_readback_result": str(
+                    atom / "packaged_room_readback_v1/RESULT.json"
+                ),
+                "packaged_room_readback_exit": str(
+                    atom / "packaged_room_readback_v1/EXIT.json"
+                ),
+            }
+            validation = {
+                "episode_id": "episode_0002",
+                "scene_id": "17DRP5sb8fy",
+                "execution_plan": str(plan),
+                "evidence_paths": evidence_paths,
+                "capture_output": str(atom / "native_sparse_f15_v1"),
+                "capture_argv": [
+                    "python",
+                    "capture.py",
+                    "--rpc-port",
+                    "39631",
+                    "--frame-index",
+                    "15",
+                ],
+            }
+            bound_commit = "1" * 40
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "offline_validate_execution_plan_v6",
+                    return_value=validation,
+                ),
+                mock.patch.object(LAUNCHER, "_git_head", return_value=bound_commit),
+            ):
+                request_path = LAUNCHER.prepare_request_v6(execution_plan_path=plan)
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            self.assertEqual(request["schema"], LAUNCHER.REQUEST_SCHEMA_V6)
+            self.assertEqual(request["required_repo_commit"], bound_commit)
+            self.assertEqual(request["execution_plan"], str(plan))
+            self.assertEqual(request["evidence_paths"], evidence_paths)
+            self.assertEqual(
+                request["capture_output"], str(atom / "native_sparse_f15_v1")
+            )
+            argv = validation["capture_argv"]
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_request_v6",
+                    return_value=(request, argv),
+                ),
+                mock.patch.object(LAUNCHER, "_gpu_snapshot") as gpu_snapshot,
+                mock.patch.object(LAUNCHER.subprocess, "run") as child,
+            ):
+                self.assertEqual(
+                    LAUNCHER.run_v6(
+                        request_path,
+                        offline_validate=True,
+                        dry_run=False,
+                        authorize_gpu_capture=False,
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    LAUNCHER.run_v6(
+                        request_path,
+                        offline_validate=False,
+                        dry_run=True,
+                        authorize_gpu_capture=False,
+                    ),
+                    0,
+                )
+            gpu_snapshot.assert_not_called()
+            child.assert_not_called()
+            receipt = json.loads(
+                (request_path.parent / "dry_run_receipt.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(receipt["schema"], LAUNCHER.RECEIPT_SCHEMA_V6)
+            self.assertEqual(receipt["evidence_paths"], evidence_paths)
+            self.assertFalse(receipt["gpu_query_started"])
+            self.assertFalse(receipt["gpu_started"])
+            self.assertFalse(receipt["attempt_consumed"])
 
     def test_capture_python_symlink_resolves_to_only_pinned_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
