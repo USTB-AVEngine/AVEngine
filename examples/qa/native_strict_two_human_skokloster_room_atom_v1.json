@@ -94,7 +94,7 @@
   },
   "execution": {
     "repository": "/data/jzy/code/AVEngine-lead-a",
-    "python": "/data/jzy/code/AVEngine-lead-a/.venv/bin/python",
+    "python": "/data/jzy/miniconda3/envs/spear-env/bin/python",
     "spear_root": "/data/jzy/code/SPEAR-lead-b",
     "capture_runner": "/data/jzy/code/AVEngine-lead-a/tools/qa/capture_skokloster_strict_two_human_episode.py",
     "output_root": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_skokloster_strict_two_human_v1",

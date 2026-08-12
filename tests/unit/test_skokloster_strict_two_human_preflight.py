@@ -146,6 +146,23 @@ def test_materializes_static_75f_two_rir_and_silent_distractor() -> None:
     assert audio["source2"]["event_count"] == 0
 
 
+def test_spear_capture_steps_use_origin_main_environment_contract() -> None:
+    request, _, _ = fixtures()
+    official_python = "/data/jzy/miniconda3/envs/spear-env/bin/python"
+    assert request["execution"]["python"] == official_python
+    assert "/.venv/" not in request["execution"]["python"]
+
+    output = Path(
+        "/data/jzy/code/AVEngine-lead-a/tmp/"
+        "lead_a_skokloster_strict_two_human_v1/cpu_preflight_v4"
+    )
+    execution = MODULE._execution_plan(request, output)
+    assert len(execution["gpu_steps"]) == 2
+    assert all(step["argv"][0] == official_python for step in execution["gpu_steps"])
+    audio_step = execution["cpu_steps"][2]
+    assert audio_step["argv"][0] == official_python
+
+
 def test_real_rir_validator_accepts_legacy_fixed_listener_plan() -> None:
     rir_cache = pytest.importorskip("avengine.m6x.rir_cache")
     request, _, evidence = fixtures()
