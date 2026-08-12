@@ -1678,13 +1678,9 @@ def _materialize_into(
         ),
         "planning_episode_authority": (
             {
-                "status": "pass_exact_manifest_episode_binding",
+                "status": "pass_absolute_manifest_unique_episode_and_semantic_binding",
                 "path": planning_binding["path"],
-                "document_sha256": planning_binding["document_sha256"],
                 "json_pointer": planning_binding["json_pointer"],
-                "canonical_value_sha256": planning_binding[
-                    "canonical_value_sha256"
-                ],
                 "episode_id": planning_binding["value"]["episode_id"],
                 "mechanism": planning_binding["value"]["mechanism"],
             }
@@ -1712,9 +1708,7 @@ def materialize(
     output: Path,
     motion_candidate_path: Path | None = None,
     planning_manifest_path: Path | None = None,
-    planning_manifest_sha256: str | None = None,
     planning_episode_id: str | None = None,
-    planning_episode_sha256: str | None = None,
 ) -> Path:
     """Build in staging and publish either a complete result or one failure receipt."""
 
@@ -1722,24 +1716,18 @@ def materialize(
     planning_binding: Mapping[str, Any] | None = None
     planning_values = (
         planning_manifest_path,
-        planning_manifest_sha256,
         planning_episode_id,
-        planning_episode_sha256,
     )
     if any(value is not None for value in planning_values):
         _require(
             all(value is not None for value in planning_values),
-            "planning manifest reference requires path, document hash, episode selector, and row hash",
+            "planning manifest reference requires path and episode selector",
         )
         assert planning_manifest_path is not None
-        assert planning_manifest_sha256 is not None
         assert planning_episode_id is not None
-        assert planning_episode_sha256 is not None
         planning_binding = bind_planning_episode(
             planning_manifest_path=planning_manifest_path,
-            manifest_sha256=planning_manifest_sha256,
             episode_id=planning_episode_id,
-            episode_sha256=planning_episode_sha256,
         )
         _validate_planning_materialization_authority(
             binding=planning_binding,
@@ -1792,9 +1780,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--audio-template", type=Path, default=BASE_AUDIO)
     parser.add_argument("--motion-candidate", type=Path)
     parser.add_argument("--planning-manifest", type=Path)
-    parser.add_argument("--planning-manifest-sha256")
     parser.add_argument("--planning-episode-id")
-    parser.add_argument("--planning-episode-sha256")
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)
 
@@ -1813,9 +1799,7 @@ def main() -> int:
         planning_manifest_path=(
             args.planning_manifest.resolve() if args.planning_manifest else None
         ),
-        planning_manifest_sha256=args.planning_manifest_sha256,
         planning_episode_id=args.planning_episode_id,
-        planning_episode_sha256=args.planning_episode_sha256,
     )
     print(f"STRICT_TWO_HUMAN_DYNAMIC_MATERIALIZATION_OK receipt={receipt}")
     return 0

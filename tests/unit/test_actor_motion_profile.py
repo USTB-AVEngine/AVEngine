@@ -15,7 +15,6 @@ from avengine.qa.actor_motion_profile import (
     validate_actor_motion_authorities,
     validate_actor_motion_profile,
 )
-from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -67,35 +66,38 @@ def _profile(authorities):
     )
 
 
-def test_planning_episode_binding_rejects_manifest_hash_drift(tmp_path):
+def test_planning_episode_binding_uses_absolute_file_and_unique_selector(tmp_path):
+    row = {"episode_id": "episode_001", "mechanism": "target_moves"}
     path = tmp_path / "planning.json"
-    path.write_text(json.dumps({"episodes": [{"episode_id": "episode_001"}]}))
-    with pytest.raises(ActorMotionProfileError, match="document hash mismatch"):
-        bind_planning_episode(
-            planning_manifest_path=path,
-            manifest_sha256="0" * 64,
-            episode_id="episode_001",
-            episode_sha256=canonical_json_sha256({"episode_id": "episode_001"}),
-        )
+    path.write_text(json.dumps({"episodes": [row]}))
+
+    binding = bind_planning_episode(
+        planning_manifest_path=path,
+        episode_id="episode_001",
+    )
+
+    assert binding == {
+        "path": str(path.resolve()),
+        "json_pointer": "/episodes/0",
+        "value": row,
+    }
 
 
-def test_planning_episode_binding_rejects_selector_or_row_hash_drift(tmp_path):
+def test_planning_episode_binding_rejects_missing_or_duplicate_selector(tmp_path):
     row = {"episode_id": "episode_001", "mechanism": "target_moves"}
     path = tmp_path / "planning.json"
     path.write_text(json.dumps({"episodes": [row]}))
     with pytest.raises(ActorMotionProfileError, match="selector"):
         bind_planning_episode(
             planning_manifest_path=path,
-            manifest_sha256=sha256_file(path),
             episode_id="episode_999",
-            episode_sha256=canonical_json_sha256(row),
         )
-    with pytest.raises(ActorMotionProfileError, match="canonical hash mismatch"):
+
+    path.write_text(json.dumps({"episodes": [row, row]}))
+    with pytest.raises(ActorMotionProfileError, match="selector"):
         bind_planning_episode(
             planning_manifest_path=path,
-            manifest_sha256=sha256_file(path),
             episode_id="episode_001",
-            episode_sha256="0" * 64,
         )
 
 

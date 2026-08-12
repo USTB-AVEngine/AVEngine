@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPOSITORY / "tools/qa/materialize_strict_two_human_dynamic_canary.py"
@@ -310,9 +309,7 @@ def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
         output=output,
         motion_candidate_path=candidate_path,
         planning_manifest_path=planning_path,
-        planning_manifest_sha256=sha256_file(planning_path),
         planning_episode_id=planning_row["episode_id"],
-        planning_episode_sha256=canonical_json_sha256(planning_row),
     )
 
     receipt = json.loads(receipt_path.read_text())
@@ -324,11 +321,9 @@ def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
     assert receipt["actor_motion_profile"]["derived_action_counts"] == expected_actions
     assert receipt["actor_motion_profile"]["legacy_root_motion_inference_used"] is False
     assert receipt["planning_episode_authority"] == {
-        "status": "pass_exact_manifest_episode_binding",
+        "status": "pass_absolute_manifest_unique_episode_and_semantic_binding",
         "path": str(planning_path.resolve()),
-        "document_sha256": sha256_file(planning_path),
         "json_pointer": "/episodes/0",
-        "canonical_value_sha256": canonical_json_sha256(planning_row),
         "episode_id": planning_row["episode_id"],
         "mechanism": planning_row["mechanism"],
     }
@@ -412,9 +407,7 @@ def test_global_planning_row_without_native_motion_authority_writes_no_output(
             audio_template=TOOL.BASE_AUDIO,
             output=output,
             planning_manifest_path=planning_path,
-            planning_manifest_sha256=sha256_file(planning_path),
             planning_episode_id=planning_row["episode_id"],
-            planning_episode_sha256=canonical_json_sha256(planning_row),
         )
 
     assert not output.exists()
@@ -432,7 +425,9 @@ def test_planning_runtime_mismatch_fails_before_output(tmp_path: Path) -> None:
     planning_path.write_text(json.dumps({"episodes": [row]}))
     output = tmp_path / "must_not_exist"
 
-    with pytest.raises(RuntimeError, match="target runtime binding drift"):
+    with pytest.raises(
+        RuntimeError, match="planning target runtime_revision binding drift"
+    ):
         TOOL.materialize(
             preflight_path=preflight_path,
             canary_index=1,
@@ -447,9 +442,7 @@ def test_planning_runtime_mismatch_fails_before_output(tmp_path: Path) -> None:
                 / "examples/qa/native_strict_two_human_target_moves_native_rate_candidate_v1.json"
             ),
             planning_manifest_path=planning_path,
-            planning_manifest_sha256=sha256_file(planning_path),
             planning_episode_id=row["episode_id"],
-            planning_episode_sha256=canonical_json_sha256(row),
         )
 
     assert not output.exists()

@@ -38,18 +38,12 @@ def _require(condition: bool, message: str) -> None:
 def bind_planning_episode(
     *,
     planning_manifest_path: str | Path,
-    manifest_sha256: str,
     episode_id: str,
-    episode_sha256: str,
 ) -> dict[str, Any]:
-    """Bind one planning row by immutable document, selector, and value hashes."""
+    """Bind one planning row by absolute regular path and unique selector."""
 
     path = Path(planning_manifest_path).resolve()
     _require(path.is_file(), f"planning manifest is not a file: {path}")
-    _require(
-        sha256_file(path) == manifest_sha256,
-        "planning manifest document hash mismatch",
-    )
     document = load_json(path)
     _require(isinstance(document, Mapping), "planning manifest is not an object")
     episodes = document.get("episodes")
@@ -64,11 +58,11 @@ def bind_planning_episode(
         f"planning episode selector must resolve exactly once: {episode_id!r}",
     )
     index, row = matches[0]
-    _require(
-        canonical_json_sha256(row) == episode_sha256,
-        "planning episode canonical hash mismatch",
-    )
-    return _source_binding(path, row, json_pointer=f"/episodes/{index}")
+    return {
+        "path": str(path),
+        "json_pointer": f"/episodes/{index}",
+        "value": deepcopy(dict(row)),
+    }
 
 
 def _source_binding(
