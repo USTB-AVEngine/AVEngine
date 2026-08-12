@@ -338,6 +338,82 @@ def _idle_gpu(runner) -> dict:
 
 
 @pytest.mark.parametrize("mechanism", sorted(AUTHORITIES))
+def test_prepare_profile_request_is_derived_deterministic_and_no_clobber(
+    tmp_path: Path, monkeypatch, mechanism: str
+) -> None:
+    runner = _load_runner()
+    request_path, _ = _profile_request_fixture(tmp_path, mechanism)
+    expected = _load(request_path)
+    request_path.unlink()
+    root = request_path.parents[1]
+    source = (
+        root / "pre_capture_finalization_v1/finalization.json"
+        if mechanism == "both_move"
+        else root
+    )
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: pytest.fail("prepare must not query GPU state"),
+    )
+
+    first_path, first = runner.build_launch_request(source)
+    second_path, second = runner.build_launch_request(source)
+    assert first_path == second_path == request_path
+    assert first == second == expected
+    assert runner.prepare_launch_request(source) == request_path
+    original_bytes = request_path.read_bytes()
+    with pytest.raises(FileExistsError):
+        runner.prepare_launch_request(source)
+    assert request_path.read_bytes() == original_bytes
+
+
+def test_prepare_rejects_authority_drift_before_creating_request(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    request_path, _ = _profile_request_fixture(tmp_path, "target_moves")
+    request_path.unlink()
+    finalization_path = request_path.parents[1] / (
+        "pre_capture_finalization_v1/finalization.json"
+    )
+    finalization = _load(finalization_path)
+    finalization["mechanism"] = "distractor_moves"
+    _write_json(finalization_path, finalization)
+
+    with pytest.raises(RuntimeError, match="identity drift"):
+        runner.prepare_launch_request(finalization_path)
+    assert not request_path.exists()
+
+
+def test_prepare_keeps_camera_pan_as_the_only_profileless_legacy_boundary(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    request_path = _camera_pan_request_fixture(tmp_path)
+    request_path.unlink()
+    root = request_path.parents[1]
+
+    built_path, request = runner.build_launch_request(root)
+    assert built_path == request_path
+    assert request["schema"] == runner.REQUEST_SCHEMA
+    assert "motion_authority" not in request
+    assert request["capture_output"].endswith(
+        "/dynamic_camera_pan_v2_capture_attempt_01"
+    )
+    assert runner.prepare_launch_request(root) == request_path
+
+    request_path.unlink()
+    finalization_path = root / "pre_capture_finalization_v1/finalization.json"
+    finalization = _load(finalization_path)
+    finalization["mechanism"] = "target_moves"
+    _write_json(finalization_path, finalization)
+    with pytest.raises(RuntimeError, match="missing actor_motion_profile"):
+        runner.prepare_launch_request(root)
+    assert not request_path.exists()
+
+
+@pytest.mark.parametrize("mechanism", sorted(AUTHORITIES))
 def test_profile_backed_runner_derives_real_motion_chain(
     tmp_path: Path, monkeypatch, mechanism: str
 ) -> None:

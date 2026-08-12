@@ -79,6 +79,15 @@ def _write(path: Path, value: object) -> None:
     )
 
 
+def _write_exclusive(path: Path, value: object) -> None:
+    """Atomically create one canonical JSON artifact without clobbering."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        )
+
+
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
@@ -394,10 +403,9 @@ def _validate_legacy_camera_pan_chain(
     }
 
 
-def _validate_request(
-    request_path: Path,
+def _validate_request_value(
+    request_path: Path, request: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str], dict[str, Any]]:
-    request = _load(request_path)
     mechanism = request.get("mechanism")
     if mechanism == LEGACY_CAMERA_PAN_MECHANISM:
         _require(
@@ -587,6 +595,114 @@ def _validate_request(
     return request, argv, motion_authority
 
 
+def _validate_request(
+    request_path: Path,
+) -> tuple[dict[str, Any], list[str], dict[str, Any]]:
+    return _validate_request_value(request_path, _load(request_path))
+
+
+def build_launch_request(source: Path) -> tuple[Path, dict[str, Any]]:
+    """Derive a canonical attempt-01 request from finalized materialization state."""
+    source = source.resolve()
+    finalization_path = (
+        source / "pre_capture_finalization_v1" / "finalization.json"
+        if source.is_dir()
+        else source
+    )
+    finalization = _load(finalization_path)
+    artifacts = _as_mapping(
+        finalization.get("artifacts"), "finalization artifacts missing"
+    )
+    materialization_root = Path(
+        str(artifacts.get("materialization_root", ""))
+    ).resolve()
+    _require(
+        finalization_path
+        == materialization_root / "pre_capture_finalization_v1" / "finalization.json",
+        "prepare source is not the authoritative materialization finalization",
+    )
+    episode_id = finalization.get("episode_id")
+    mechanism = finalization.get("mechanism")
+    _require(
+        isinstance(episode_id, str)
+        and bool(episode_id)
+        and isinstance(mechanism, str)
+        and bool(mechanism),
+        "finalization episode/mechanism identity missing",
+    )
+
+    request: dict[str, Any] = {
+        "schema": REQUEST_SCHEMA,
+        "attempt_policy": dict(ATTEMPT_POLICY),
+        "repo_root": str(Path(__file__).resolve().parents[2]),
+        "capture_python": "/data/jzy/miniconda3/envs/spear-env/bin/python",
+        "capture_script": str(
+            Path(__file__).resolve().parents[2]
+            / "tools"
+            / "qa"
+            / "capture_spear_native_pixel_episode.py"
+        ),
+        "suite_plan": str(materialization_root / "suite_execution_plan.json"),
+        "audio_wav": str(
+            materialization_root
+            / "binaural_v1"
+            / "audio"
+            / "binaural"
+            / f"{episode_id}__v00.wav"
+        ),
+        "spear_root": "/data/jzy/code/SPEAR-lead-b",
+        "rpc_port": 39701,
+        "physical_gpu_index": 1,
+        "graphics_adapter_argument": 1,
+        "forbidden_physical_gpu_indices": [0, 3],
+        "required_idle_compute_process_count": 0,
+        "episode_id": episode_id,
+        "mechanism": mechanism,
+        "pre_capture_finalization": str(finalization_path),
+    }
+    profile_path = materialization_root / "actor_motion_profile.json"
+    if profile_path.exists():
+        profile = _load_motion_profile(profile_path)
+        candidate = _as_mapping(
+            _as_mapping(
+                _as_mapping(
+                    profile.get("authorities"), "profile authorities missing"
+                ).get("candidate"),
+                "profile candidate binding missing",
+            ).get("value"),
+            "profile candidate value missing",
+        )
+        candidate_episode_id = candidate.get("candidate_episode_id")
+        _require(
+            isinstance(candidate_episode_id, str) and bool(candidate_episode_id),
+            "profile candidate episode id missing",
+        )
+        request["motion_authority"] = {
+            "schema": MOTION_AUTHORITY_SCHEMA,
+            "path": str(profile_path),
+            "file_sha256": sha256_file(profile_path),
+            "profile_content_sha256": profile.get("profile_content_sha256"),
+        }
+        capture_basename = f"{candidate_episode_id}__capture_attempt_01"
+    else:
+        _require(
+            mechanism == LEGACY_CAMERA_PAN_MECHANISM,
+            "profile-backed materialization is missing actor_motion_profile.json",
+        )
+        capture_basename = LEGACY_CAMERA_PAN_ADAPTER["capture_basename"]
+    request["capture_output"] = str(materialization_root.parent / capture_basename)
+    request_path = materialization_root / "gpu_launch_attempt_01" / "request.json"
+    _validate_request_value(request_path, request)
+    return request_path, request
+
+
+def prepare_launch_request(source: Path) -> Path:
+    """Validate all CPU authorities, then exclusively create the request."""
+    request_path, request = build_launch_request(source)
+    _write_exclusive(request_path, request)
+    return request_path
+
+
 def run(request_path: Path, receipt_path: Path, *, dry_run: bool) -> int:
     _require(not receipt_path.exists(), "launch receipt must be new")
     request, argv, motion_authority = _validate_request(request_path)
@@ -666,10 +782,20 @@ def run(request_path: Path, receipt_path: Path, *, dry_run: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--request", type=Path, required=True)
-    parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--prepare-from", type=Path)
+    parser.add_argument("--request", type=Path)
+    parser.add_argument("--receipt", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    if args.prepare_from is not None:
+        _require(
+            args.request is None and args.receipt is None and not args.dry_run,
+            "--prepare-from cannot be combined with launch arguments",
+        )
+        print(prepare_launch_request(args.prepare_from))
+        return 0
+    _require(args.request is not None, "--request is required for launch")
+    _require(args.receipt is not None, "--receipt is required for launch")
     return run(args.request.resolve(), args.receipt.resolve(), dry_run=args.dry_run)
 
 
