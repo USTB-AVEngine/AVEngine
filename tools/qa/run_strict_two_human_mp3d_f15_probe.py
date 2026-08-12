@@ -11,7 +11,6 @@ dataset increment.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import socket
 import subprocess
@@ -30,6 +29,8 @@ REQUEST_SCHEMA = "avengine_mp3d_strict_two_human_f15_launch_request_v1"
 RECEIPT_SCHEMA = "avengine_mp3d_strict_two_human_f15_launch_receipt_v1"
 REQUEST_SCHEMA_V2 = "avengine_mp3d_strict_two_human_f15_launch_request_v2"
 RECEIPT_SCHEMA_V2 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v2"
+REQUEST_SCHEMA_V5 = "avengine_mp3d_strict_two_human_f15_launch_request_v5"
+RECEIPT_SCHEMA_V5 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v5"
 FAILURE_LEDGER_SCHEMA = "avengine_mp3d_f15_attempt_failure_ledger_v1"
 CAPTURE_FAILURE_SCHEMA = "avengine_mp3d_f15_capture_failure_v1"
 ATTEMPT01_FAILURE_STATUS = (
@@ -53,6 +54,7 @@ DISTRACTOR_MINIMUM_VISIBLE_FRACTION = 0.5
 V2_RPC_PORT = 39632
 V2_ATTEMPT_DIRECTORY = "diagnostic_f15_revision_v2_launch_attempt_01"
 V2_CAPTURE_DIRECTORY = "diagnostic_f15_revision_v2_capture_attempt_01"
+V5_ATTEMPT_DIRECTORY = "diagnostic_f15_execution_plan_v5_launch_attempt_01"
 ATTEMPT_POLICY = {
     "attempt_index": 1,
     "maximum_attempts_for_candidate": 1,
@@ -90,20 +92,34 @@ def _write_json_exclusive(path: Path, value: Mapping[str, Any]) -> None:
 
 
 def _file_record(path: Path) -> dict[str, Any]:
-    data = path.read_bytes()
-    return {
-        "path": str(path.resolve()),
-        "byte_size": len(data),
-        "sha256": hashlib.sha256(data).hexdigest(),
-    }
+    """Return a path-only reference for a required file.
+
+    Older request JSON may contain additional legacy fields.  Readers ignore
+    them: launcher admission is based on path containment and parsed semantic
+    closure, not file-byte identity.
+    """
+
+    return {"path": str(path.resolve())}
 
 
 def _validate_file_record(record: Mapping[str, Any], *, owner: str) -> Path:
     path = Path(str(record.get("path", ""))).resolve()
     _require(path.is_file(), f"{owner} is missing: {path}")
-    observed = _file_record(path)
-    _require(observed == dict(record), f"{owner} artifact binding drift")
     return path
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _require_contained(path: Path, root: Path, *, owner: str) -> Path:
+    resolved = path.resolve()
+    _require(_is_relative_to(resolved, root.resolve()), f"{owner} escapes {root}")
+    return resolved
 
 
 def _git_head(repo_root: Path) -> str:
@@ -204,6 +220,131 @@ def _artifact_paths(atom_root: Path) -> dict[str, Path]:
         "rir_cache_receipt": cache / "receipt.json",
         "rir_cache_index": cache / "index.json",
     }
+
+
+def _execution_plan_artifact_paths(execution_plan_path: Path) -> dict[str, Path]:
+    """Resolve the admitted v2 execution plan without guessing versioned dirs."""
+
+    execution_plan_path = execution_plan_path.resolve()
+    plan = _load(execution_plan_path)
+    _require(
+        plan.get("schema")
+        in {
+            "avengine_native_strict_two_human_mp3d_execution_plan_v1",
+            "avengine_native_strict_two_human_mp3d_execution_plan_v2",
+        },
+        "MP3D execution plan schema drift",
+    )
+    _require(
+        plan.get("qualification_claim") is False
+        and plan.get("formal_dataset_count") == 0,
+        "execution plan crossed the non-formal boundary",
+    )
+    preflight_root = execution_plan_path.parent.resolve()
+    atom_root = preflight_root.parent.resolve()
+    repo_root = REPOSITORY.resolve()
+    _require_contained(preflight_root, repo_root / "tmp", owner="preflight root")
+    _require_contained(atom_root, repo_root / "tmp", owner="atom root")
+    _require(
+        Path(str(plan.get("local_staging_output", ""))).resolve() == preflight_root,
+        "execution plan staging root drift",
+    )
+    _require(
+        Path(str(plan.get("remote_target_root", ""))).resolve() == atom_root,
+        "execution plan atom root drift",
+    )
+
+    cpu_steps = plan.get("cpu_steps")
+    gpu_steps = plan.get("gpu_steps")
+    _require(isinstance(cpu_steps, list), "execution plan CPU steps are missing")
+    _require(isinstance(gpu_steps, list), "execution plan GPU steps are missing")
+    by_cpu_id = {
+        str(step.get("step_id")): step
+        for step in cpu_steps
+        if isinstance(step, Mapping)
+    }
+    by_gpu_id = {
+        str(step.get("step_id")): step
+        for step in gpu_steps
+        if isinstance(step, Mapping)
+    }
+    _require(
+        set(by_cpu_id)
+        == {
+            "probe_authoritative_habitat_rir_runtime",
+            "fresh_compile_mp3d_rlr_materials",
+            "render_two_exact_rirs",
+        },
+        "execution plan CPU-step closure drift",
+    )
+    _require(
+        set(by_gpu_id) == {"sparse_f15_probe", "full75_episode"},
+        "execution plan GPU-step closure drift",
+    )
+
+    sparse = by_gpu_id["sparse_f15_probe"]
+    sparse_argv = sparse.get("argv")
+    _require(isinstance(sparse_argv, list), "sparse f15 argv is missing")
+
+    def arg_value(argv: Sequence[Any], flag: str) -> str:
+        _require(argv.count(flag) == 1, f"execution plan must contain one {flag}")
+        index = argv.index(flag)
+        _require(index + 1 < len(argv), f"execution plan lacks a value for {flag}")
+        return str(argv[index + 1])
+
+    def arg_path(argv: Sequence[Any], flag: str) -> Path:
+        return Path(arg_value(argv, flag)).resolve()
+
+    suite_plan = arg_path(sparse_argv, "--suite-plan")
+    room_adapter = arg_path(sparse_argv, "--room-adapter")
+    capture_output = arg_path(sparse_argv, "--output")
+    _require_contained(suite_plan, preflight_root, owner="suite plan")
+    _require_contained(room_adapter, preflight_root, owner="room adapter")
+    _require_contained(capture_output, atom_root, owner="capture output")
+    _require(
+        arg_value(sparse_argv, "--frame-index") == str(FRAME_INDEX),
+        "execution plan is not the exact sparse f15 probe",
+    )
+    _require(
+        arg_value(sparse_argv, "--graphics-adapter") == "1",
+        "execution plan sparse probe is not bound to graphics adapter 1",
+    )
+
+    probe_expected = by_cpu_id["probe_authoritative_habitat_rir_runtime"].get(
+        "expected", {}
+    )
+    compile_expected = by_cpu_id["fresh_compile_mp3d_rlr_materials"].get("expected", {})
+    rir_expected = by_cpu_id["render_two_exact_rirs"].get("expected", {})
+    _require(
+        isinstance(probe_expected, Mapping)
+        and isinstance(compile_expected, Mapping)
+        and isinstance(rir_expected, Mapping),
+        "execution plan expected-output contract is missing",
+    )
+    paths = {
+        "execution_plan": execution_plan_path,
+        "preflight": preflight_root / "preflight.json",
+        "room_adapter": room_adapter,
+        "suite_plan": suite_plan,
+        "rir_runtime_probe": Path(str(probe_expected.get("receipt", ""))).resolve(),
+        "package_manifest": Path(str(compile_expected.get("manifest", ""))).resolve(),
+        "package_material_coverage": Path(
+            str(compile_expected.get("semantic_material_coverage", ""))
+        ).resolve(),
+        "rir_cache_receipt": Path(str(rir_expected.get("receipt", ""))).resolve(),
+        "rir_cache_index": Path(str(rir_expected.get("index", ""))).resolve(),
+        "capture_output": capture_output,
+    }
+    for name in ("preflight", "room_adapter", "suite_plan", "rir_runtime_probe"):
+        _require_contained(paths[name], preflight_root, owner=name)
+    for name in (
+        "package_manifest",
+        "package_material_coverage",
+        "rir_cache_receipt",
+        "rir_cache_index",
+    ):
+        _require_contained(paths[name], atom_root, owner=name)
+    return paths
 
 
 def _v2_source_paths() -> dict[str, Path]:
@@ -512,6 +653,245 @@ def _validate_cpu_evidence(paths: Mapping[str, Path]) -> dict[str, Any]:
     return values
 
 
+def _validate_execution_plan_package(
+    plan: Mapping[str, Any],
+    package: Mapping[str, Any],
+    coverage: Mapping[str, Any],
+) -> None:
+    compile_step = next(
+        step
+        for step in plan["cpu_steps"]
+        if step.get("step_id") == "fresh_compile_mp3d_rlr_materials"
+    )
+    compile_argv = compile_step.get("argv", [])
+    _require(
+        isinstance(compile_argv, list) and compile_argv.count("--package-id") == 1,
+        "execution plan package ID is missing",
+    )
+    package_id = str(compile_argv[compile_argv.index("--package-id") + 1])
+    geometry = package.get("geometry", {})
+    triangle_count = int(geometry.get("triangle_count", 0))
+    vertex_count = int(geometry.get("vertex_count", 0))
+    _require(
+        package.get("schema") == "avengine_acoustic_scene_package_v1"
+        and package.get("package_id") == package_id
+        and package.get("package_mode") == "research_candidate"
+        and package.get("room_kind") == "habitat_native"
+        and triangle_count > 0
+        and vertex_count > 0,
+        "current fresh acoustic package drift",
+    )
+    _require(
+        coverage.get("schema") == "avengine_m3_rlr_semantic_material_coverage_v1"
+        and coverage.get("status") == "research_candidate"
+        and coverage.get("qualification_claim") is False
+        and coverage.get("compiled_triangle_count") == triangle_count
+        and coverage.get("triangle_coverage", {}).get("triangle_count")
+        == triangle_count
+        and coverage.get("runtime_one_to_one", {}).get("passed") is True,
+        "current research material coverage drift",
+    )
+
+
+def _validate_execution_plan_evidence(
+    paths: Mapping[str, Path],
+) -> dict[str, Any]:
+    required = {
+        "execution_plan",
+        "preflight",
+        "room_adapter",
+        "suite_plan",
+        "rir_runtime_probe",
+        "package_manifest",
+        "package_material_coverage",
+        "rir_cache_receipt",
+        "rir_cache_index",
+        "capture_output",
+    }
+    _require(set(paths) == required, "execution-plan artifact closure drift")
+    for name in required - {"capture_output"}:
+        _require(paths[name].is_file(), f"missing execution-plan evidence: {name}")
+
+    values = {name: _load(paths[name]) for name in required - {"capture_output"}}
+    plan = values["execution_plan"]
+    if plan.get("schema") == "avengine_native_strict_two_human_mp3d_execution_plan_v1":
+        legacy_paths = {
+            name: paths[name]
+            for name in (
+                "preflight",
+                "room_adapter",
+                "suite_plan",
+                "rir_runtime_probe",
+                "package_manifest",
+                "package_material_coverage",
+                "rir_cache_receipt",
+                "rir_cache_index",
+            )
+        }
+        legacy_values = _validate_cpu_evidence(legacy_paths)
+        sparse = next(
+            step
+            for step in plan["gpu_steps"]
+            if step.get("step_id") == "sparse_f15_probe"
+        )
+        return {
+            **values,
+            **legacy_values,
+            "episode_id": legacy_values["preflight"]["episode_id"],
+            "scene_id": legacy_values["room_adapter"]["scene_id"],
+            "capture_argv": list(sparse["argv"]),
+        }
+    preflight = values["preflight"]
+    episode_id = str(preflight.get("episode_id", ""))
+    _require(
+        preflight.get("schema")
+        == "avengine_native_strict_two_human_mp3d_room_preflight_v1"
+        and preflight.get("status") == "pending_remaining_evidence"
+        and preflight.get("cpu_planning_status") == "pass"
+        and episode_id
+        and preflight.get("gpu_started") is False
+        and preflight.get("gpu_f15_request_materialized") is True
+        and preflight.get("gpu_f15_request_ready") is False
+        and preflight.get("episode_ready") is False
+        and preflight.get("capture_ready") is False
+        and preflight.get("formal_ready") is False
+        and preflight.get("qualification_claim") is False
+        and preflight.get("formal_dataset_count") == 0,
+        "current MP3D preflight evidence boundary drift",
+    )
+    navigation = preflight.get("navigation", {})
+    pair_gate = navigation.get("adult_static_pair_gate", {})
+    _require(
+        navigation.get("status") == "pass"
+        and navigation.get("fresh_pathfinder_replay_status") == "pass"
+        and float(navigation.get("horizontal_source_separation_m", 0.0)) >= 1.3
+        and pair_gate.get("clearance_gate_passed") is True
+        and pair_gate.get("separation_gate_passed") is True,
+        "current MP3D navigation evidence drift",
+    )
+    framing = preflight.get("runtime_camera_framing", {})
+    _require(
+        framing.get("status") == "pass_cpu_declared_bounds_framing"
+        and framing.get("selected_candidate_id")
+        and framing.get("native_pixel_validation_status") == "pending",
+        "current MP3D camera-framing boundary drift",
+    )
+
+    room = values["room_adapter"]
+    scene_id = str(room.get("scene_id", ""))
+    meshes = room.get("static_mesh_object_paths")
+    _require(
+        room.get("schema") == "avengine_spear_imported_glb_room_adapter_v1"
+        and scene_id
+        and room.get("expected_static_mesh_count") == EXPECTED_MESH_COUNT
+        and isinstance(meshes, list)
+        and len(meshes) == EXPECTED_MESH_COUNT
+        and len(set(meshes)) == EXPECTED_MESH_COUNT
+        and room.get("qualification_claim") is False
+        and room.get("formal_dataset_count") == 0,
+        "current MP3D room-adapter closure drift",
+    )
+    camera = room.get("camera_contract", {})
+    _require(
+        camera.get("one_camera_actor_for_all_passes") is True
+        and camera.get("pass_order")
+        == ["normal", "source1_target_only", "source2_target_only"],
+        "current MP3D shared-camera contract drift",
+    )
+
+    suite = values["suite_plan"]
+    scenarios = suite.get("scenarios")
+    _require(
+        suite.get("schema") == "avengine_optional_spear_imported_glb_suite_v1"
+        and suite.get("native_map") == "/Engine/Maps/Entry"
+        and suite.get("qualification_claim") is False
+        and suite.get("formal_dataset_count") == 0
+        and isinstance(scenarios, list)
+        and len(scenarios) == 1,
+        "current MP3D suite closure drift",
+    )
+    scenario = scenarios[0]
+    episode = scenario.get("plan", {})
+    frames = episode.get("frames")
+    actors = episode.get("actors")
+    _require(
+        scenario.get("scenario_id") == episode_id
+        and isinstance(frames, list)
+        and len(frames) == 75
+        and [frame.get("frame_index") for frame in frames] == list(range(75))
+        and isinstance(actors, list)
+        and [actor.get("actor_id") for actor in actors]
+        == ["source1_actor", "source2_actor"],
+        "current MP3D Episode identity/frame/actor closure drift",
+    )
+    nested_room = episode.get("room", {}).get("room_adapter", {})
+    _require(
+        nested_room.get("static_mesh_object_paths") == meshes
+        and nested_room.get("camera_contract") == camera
+        and episode.get("room", {}).get("scene_id") == scene_id
+        and preflight.get("ue_import", {}).get("scene_id") == scene_id,
+        "suite and room-adapter semantics differ",
+    )
+
+    runtime = values["rir_runtime_probe"]
+    _require(
+        runtime.get("schema") == "avengine_mp3d_rir_runtime_probe_v1"
+        and runtime.get("status") == "pass"
+        and runtime.get("compute_device") == "CPU"
+        and runtime.get("gpu_required") is False
+        and runtime.get("cuda_initialized") is False
+        and runtime.get("qualification_claim") is False
+        and runtime.get("formal_dataset_count") == 0,
+        "current authoritative CPU runtime probe drift",
+    )
+
+    package = values["package_manifest"]
+    coverage = values["package_material_coverage"]
+    _validate_execution_plan_package(plan, package, coverage)
+
+    receipt = values["rir_cache_receipt"]
+    index = values["rir_cache_index"]
+    _require(
+        receipt.get("schema") == "avengine_rlr_rir_cache_receipt_v1"
+        and receipt.get("status") == "pass"
+        and receipt.get("compute_device") == "CPU"
+        and receipt.get("layout_type") == "binaural"
+        and receipt.get("sample_rate_hz") == 16_000
+        and receipt.get("selected_job_count") == 2
+        and receipt.get("full_plan_job_count") == 2
+        and receipt.get("full_plan_complete") is True
+        and receipt.get("qualification_claim") is False,
+        "current exact RIR receipt drift",
+    )
+    entries = index.get("entries")
+    _require(
+        index.get("schema") == "avengine_rlr_rir_cache_index_v1"
+        and index.get("status") == "pass"
+        and index.get("selected_job_count") == 2
+        and index.get("full_plan_complete") is True
+        and isinstance(entries, list)
+        and len(entries) == 2
+        and [entry.get("job_index") for entry in entries] == [0, 1]
+        and all(int(entry.get("sample_count", 0)) > 0 for entry in entries),
+        "current exact RIR index drift",
+    )
+
+    sparse = next(
+        step for step in plan["gpu_steps"] if step.get("step_id") == "sparse_f15_probe"
+    )
+    argv = list(sparse["argv"])
+    _require(
+        argv[argv.index("--scenario-id") + 1] == episode_id,
+        "execution plan and Episode ID differ",
+    )
+    return {
+        **values,
+        "episode_id": episode_id,
+        "scene_id": scene_id,
+        "capture_argv": argv,
+    }
+
+
 def _capture_argv(request: Mapping[str, Any]) -> list[str]:
     return [
         str(request["capture_python"]),
@@ -519,7 +899,7 @@ def _capture_argv(request: Mapping[str, Any]) -> list[str]:
         "--suite-plan",
         str(request["suite_plan"]),
         "--scenario-id",
-        EPISODE_ID,
+        str(request.get("episode_id", EPISODE_ID)),
         "--room-adapter",
         str(request["room_adapter"]),
         "--spear-root",
@@ -1128,7 +1508,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         manifest.get("schema")
         == "avengine_spear_imported_glb_strict_two_human_capture_v1"
         and manifest.get("status") == "capture_pass_review_pending"
-        and manifest.get("scenario_id") == EPISODE_ID,
+        and manifest.get("scenario_id") == request.get("episode_id"),
         "MP3D f15 capture manifest drift",
     )
     frame = manifest.get("frame_contract", {})
@@ -1142,7 +1522,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         "capture is not exactly sparse f15",
     )
     _require(
-        room.get("scene_id") == SCENE_ID
+        room.get("scene_id") == request.get("scene_id")
         and room.get("fresh_cooked_mesh_readback_status") == "pass"
         and room.get("spawned_static_mesh_count") == EXPECTED_MESH_COUNT,
         "capture did not close the fresh 71-mesh room readback",
@@ -1512,6 +1892,286 @@ def run_v2(
     return exit_code
 
 
+def offline_validate_execution_plan(execution_plan_path: Path) -> dict[str, Any]:
+    """Validate the current evidence without writing or inspecting a GPU."""
+
+    paths = _execution_plan_artifact_paths(execution_plan_path)
+    evidence = _validate_execution_plan_evidence(paths)
+    argv = evidence["capture_argv"]
+    _require(
+        Path(argv[0]).resolve() == CAPTURE_PYTHON_LOGICAL.resolve()
+        and Path(argv[1]).resolve()
+        == REPOSITORY
+        / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py",
+        "execution plan capture runtime drift",
+    )
+    _require(
+        argv[argv.index("--suite-plan") + 1] == str(paths["suite_plan"])
+        and argv[argv.index("--room-adapter") + 1] == str(paths["room_adapter"])
+        and argv[argv.index("--output") + 1] == str(paths["capture_output"])
+        and Path(argv[argv.index("--spear-root") + 1]).resolve() == SPEAR_ROOT
+        and argv[argv.index("--graphics-adapter") + 1] == "1"
+        and argv[argv.index("--frame-index") + 1] == str(FRAME_INDEX),
+        "execution plan sparse capture argv is not semantically closed",
+    )
+    _require(CAPTURE_PYTHON_LOGICAL.is_file(), "authoritative SPEAR Python is missing")
+    _require(Path(argv[1]).is_file(), "MP3D capture runner is missing")
+    _require(SPEAR_ROOT.is_dir(), "SPEAR root is missing")
+    _require(not paths["capture_output"].exists(), "sparse f15 output must be new")
+    return {
+        "schema": "avengine_mp3d_f15_execution_plan_offline_validation_v1",
+        "status": "pass_offline_no_write_no_gpu_query",
+        "episode_id": evidence["episode_id"],
+        "scene_id": evidence["scene_id"],
+        "execution_plan": str(paths["execution_plan"]),
+        "evidence_paths": {
+            name: str(path) for name, path in paths.items() if name != "capture_output"
+        },
+        "capture_output": str(paths["capture_output"]),
+        "capture_argv": argv,
+        "gpu_query_started": False,
+        "gpu_started": False,
+        "writes_performed": False,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+
+
+def prepare_request_v5(*, execution_plan_path: Path) -> Path:
+    validation = offline_validate_execution_plan(execution_plan_path.resolve())
+    plan_path = Path(validation["execution_plan"])
+    atom_root = plan_path.parent.parent
+    attempt_root = atom_root / V5_ATTEMPT_DIRECTORY
+    _require(not attempt_root.exists(), "execution-plan v5 attempt already exists")
+    request = {
+        "schema": REQUEST_SCHEMA_V5,
+        "status": "prepared_not_launched",
+        "episode_id": validation["episode_id"],
+        "scene_id": validation["scene_id"],
+        "required_repo_commit": _git_head(REPOSITORY),
+        "repo_root": str(REPOSITORY),
+        "atom_root": str(atom_root),
+        "attempt_root": str(attempt_root),
+        "execution_plan": validation["execution_plan"],
+        "evidence_paths": validation["evidence_paths"],
+        "suite_plan": validation["evidence_paths"]["suite_plan"],
+        "room_adapter": validation["evidence_paths"]["room_adapter"],
+        "capture_output": validation["capture_output"],
+        "capture_argv": validation["capture_argv"],
+        "attempt_policy": {
+            **ATTEMPT_POLICY,
+            "candidate_revision": "execution_plan_v2_selected_camera",
+        },
+        "frame_indices": [FRAME_INDEX],
+        "full75_allowed": False,
+        "physical_gpu_index": 1,
+        "physical_gpu_uuid": GPU1_UUID,
+        "graphics_adapter_argument": 1,
+        "required_idle_compute_process_count": 0,
+        "explicit_gpu_capture_authorization_required": True,
+        "gpu_capture_authorized_at_prepare": False,
+        "manual_review_required": True,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+        "created_at_utc": _utc_now(),
+    }
+    attempt_root.mkdir(parents=True)
+    request_path = attempt_root / "request.json"
+    _write_json_exclusive(request_path, request)
+    return request_path
+
+
+def _validate_request_v5(request_path: Path) -> tuple[dict[str, Any], list[str]]:
+    request = _load(request_path)
+    _require(request.get("schema") == REQUEST_SCHEMA_V5, "v5 request schema drift")
+    _require(
+        request.get("status") == "prepared_not_launched"
+        and request.get("frame_indices") == [FRAME_INDEX]
+        and request.get("full75_allowed") is False
+        and request.get("explicit_gpu_capture_authorization_required") is True
+        and request.get("gpu_capture_authorized_at_prepare") is False
+        and request.get("manual_review_required") is True
+        and request.get("qualification_claim") is False
+        and request.get("formal_dataset_count") == 0,
+        "v5 request boundary drift",
+    )
+    repo_root = Path(str(request.get("repo_root", ""))).resolve()
+    _require(repo_root == REPOSITORY, "v5 repository drift")
+    _require(
+        request.get("required_repo_commit") == _git_head(repo_root),
+        "repository HEAD differs from the v5 request-bound commit",
+    )
+    plan_path = Path(str(request.get("execution_plan", ""))).resolve()
+    paths = _execution_plan_artifact_paths(plan_path)
+    evidence = _validate_execution_plan_evidence(paths)
+    atom_root = plan_path.parent.parent
+    attempt_root = atom_root / V5_ATTEMPT_DIRECTORY
+    _require(
+        Path(str(request.get("atom_root", ""))).resolve() == atom_root
+        and Path(str(request.get("attempt_root", ""))).resolve() == attempt_root
+        and request_path.resolve() == attempt_root / "request.json",
+        "v5 request path containment drift",
+    )
+    expected_evidence = {
+        name: str(path) for name, path in paths.items() if name != "capture_output"
+    }
+    _require(
+        request.get("evidence_paths") == expected_evidence,
+        "v5 path-only evidence closure drift",
+    )
+    argv = evidence["capture_argv"]
+    _require(
+        request.get("episode_id") == evidence["episode_id"]
+        and request.get("scene_id") == evidence["scene_id"]
+        and request.get("suite_plan") == str(paths["suite_plan"])
+        and request.get("room_adapter") == str(paths["room_adapter"])
+        and request.get("capture_output") == str(paths["capture_output"])
+        and request.get("capture_argv") == argv,
+        "v5 Episode/capture binding drift",
+    )
+    _require(not paths["capture_output"].exists(), "v5 capture output must be new")
+    return request, argv
+
+
+def run_v5(
+    request_path: Path,
+    *,
+    offline_validate: bool,
+    dry_run: bool,
+    authorize_gpu_capture: bool,
+) -> int:
+    request, argv = _validate_request_v5(request_path.resolve())
+    if offline_validate:
+        _require(not dry_run, "choose offline validation or dry-run, not both")
+        return 0
+
+    attempt_root = Path(request["attempt_root"])
+    dry_receipt = attempt_root / "dry_run_receipt.json"
+    running_receipt = attempt_root / "running_receipt.json"
+    final_receipt = attempt_root / "final_receipt.json"
+    stdout_path = attempt_root / "capture_stdout.log"
+    stderr_path = attempt_root / "capture_stderr.log"
+    _require(
+        not final_receipt.exists(), "execution-plan v5 already has a final receipt"
+    )
+    common = {
+        "schema": RECEIPT_SCHEMA_V5,
+        "episode_id": request["episode_id"],
+        "scene_id": request["scene_id"],
+        "required_repo_commit": request["required_repo_commit"],
+        "request": str(request_path.resolve()),
+        "execution_plan": request["execution_plan"],
+        "capture_argv": argv,
+        "capture_output": request["capture_output"],
+        "frame_indices": [FRAME_INDEX],
+        "full75_allowed": False,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+    if dry_run:
+        _require(not dry_receipt.exists(), "execution-plan v5 dry-run receipt exists")
+        _require(not running_receipt.exists(), "execution-plan v5 already started")
+        _write_json_exclusive(
+            dry_receipt,
+            {
+                **common,
+                "status": "dry_run_pass_not_launched",
+                "gpu_query_started": False,
+                "gpu_started": False,
+                "attempt_consumed": False,
+                "captured_at_utc": _utc_now(),
+            },
+        )
+        return 0
+
+    _require(
+        authorize_gpu_capture, "v5 GPU capture lacks explicit launch authorization"
+    )
+    _require(not running_receipt.exists(), "execution-plan v5 already started")
+    _require(
+        not stdout_path.exists() and not stderr_path.exists(),
+        "execution-plan v5 exclusive child logs already exist",
+    )
+    before = _gpu_snapshot()
+    gpu = _validate_gpu1_idle(before)
+    rpc_port = int(argv[argv.index("--rpc-port") + 1])
+    _assert_port_available(rpc_port)
+    common.update(
+        {
+            "physical_gpu_index": 1,
+            "physical_gpu_uuid": GPU1_UUID,
+            "graphics_adapter_argument": 1,
+            "prelaunch_gpu": gpu,
+            "prelaunch_snapshot": before,
+        }
+    )
+    started_at = _utc_now()
+    _write_json_exclusive(
+        running_receipt,
+        {
+            **common,
+            "status": "running",
+            "gpu_started": False,
+            "attempt_consumed": True,
+            "started_at_utc": started_at,
+            "child_exit_code": None,
+        },
+    )
+    child_exit_code: int | None = None
+    final: dict[str, Any] = {
+        **common,
+        "status": "failed",
+        "gpu_started": False,
+        "attempt_consumed": True,
+        "retry_same_candidate_forbidden": True,
+        "started_at_utc": started_at,
+    }
+    exit_code = 1
+    try:
+        with (
+            stdout_path.open("xb") as stdout_stream,
+            stderr_path.open("xb") as stderr_stream,
+        ):
+            completed = subprocess.run(
+                argv,
+                cwd=REPOSITORY,
+                check=False,
+                stdout=stdout_stream,
+                stderr=stderr_stream,
+            )
+        child_exit_code = int(completed.returncode)
+        exit_code = child_exit_code
+        _require(child_exit_code == 0, f"v5 f15 capture exited {exit_code}")
+        observability = _collect_v2_capture_observability(
+            Path(request["capture_output"])
+        )
+        _validate_complete_v2_phase_sequence(observability)
+        final["capture_observability"] = observability
+        final["validation"] = _validate_capture(request)
+        final["status"] = "pass_diagnostic_f15_review_ready"
+    except Exception as exc:  # noqa: BLE001
+        final["error"] = f"{type(exc).__name__}: {exc}"
+        final["launcher_traceback"] = traceback.format_exc()
+        exit_code = exit_code or 1
+    finally:
+        final["ended_at_utc"] = _utc_now()
+        final["child_exit_code"] = child_exit_code
+        final["capture_process_exit_code"] = child_exit_code
+        final["gpu_started"] = child_exit_code is not None
+        final["exclusive_child_stdout"] = (
+            _file_record(stdout_path) if stdout_path.is_file() else None
+        )
+        final["exclusive_child_stderr"] = (
+            _file_record(stderr_path) if stderr_path.is_file() else None
+        )
+        try:
+            final["postlaunch_snapshot"] = _gpu_snapshot()
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            final["postlaunch_snapshot_error"] = f"{type(exc).__name__}: {exc}"
+        _write_json_exclusive(final_receipt, final)
+    return exit_code
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1554,6 +2214,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     launch_v2.add_argument("--request", required=True, type=Path)
     launch_v2.add_argument("--dry-run", action="store_true")
     launch_v2.add_argument("--authorize-gpu-capture", action="store_true")
+    offline_v5 = subparsers.add_parser("offline-validate-v5")
+    offline_source = offline_v5.add_mutually_exclusive_group(required=True)
+    offline_source.add_argument("--execution-plan", type=Path)
+    offline_source.add_argument("--request", type=Path)
+    prepare_v5 = subparsers.add_parser("prepare-v5")
+    prepare_v5.add_argument("--execution-plan", required=True, type=Path)
+    launch_v5 = subparsers.add_parser("launch-v5")
+    launch_v5.add_argument("--request", required=True, type=Path)
+    launch_v5.add_argument("--dry-run", action="store_true")
+    launch_v5.add_argument("--authorize-gpu-capture", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -1598,6 +2268,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "launch-v2":
         return run_v2(
             args.request,
+            dry_run=args.dry_run,
+            authorize_gpu_capture=args.authorize_gpu_capture,
+        )
+    if args.command == "offline-validate-v5":
+        if args.execution_plan is not None:
+            validation = offline_validate_execution_plan(args.execution_plan)
+        else:
+            request, _ = _validate_request_v5(args.request.resolve())
+            validation = {
+                "status": "pass_offline_no_write_no_gpu_query",
+                "episode_id": request["episode_id"],
+                "scene_id": request["scene_id"],
+                "request": str(args.request.resolve()),
+                "gpu_query_started": False,
+                "gpu_started": False,
+                "writes_performed": False,
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+            }
+        print(json.dumps(validation, ensure_ascii=False, sort_keys=True), flush=True)
+        return 0
+    if args.command == "prepare-v5":
+        path = prepare_request_v5(execution_plan_path=args.execution_plan)
+        print(f"MP3D_F15_V5_REQUEST_PREPARED request={path} formal=0", flush=True)
+        return 0
+    if args.command == "launch-v5":
+        return run_v5(
+            args.request,
+            offline_validate=False,
             dry_run=args.dry_run,
             authorize_gpu_capture=args.authorize_gpu_capture,
         )

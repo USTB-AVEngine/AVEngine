@@ -165,7 +165,10 @@ def _assert_v3_terminal_failure(atom_root: Path) -> dict[str, Any]:
     failure_record = observability.get("capture_failure_artifact")
     base._require(
         isinstance(failure_record, Mapping)
-        and dict(failure_record) == base._file_record(paths["failure"]),
+        and base._validate_file_record(
+            failure_record, owner="v3 capture failure artifact"
+        )
+        == paths["failure"].resolve(),
         "v3 failure artifact binding drift",
     )
 

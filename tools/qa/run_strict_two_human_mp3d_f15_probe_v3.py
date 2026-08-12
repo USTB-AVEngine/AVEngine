@@ -23,7 +23,7 @@ if str(REPOSITORY / "src") not in sys.path:
 if str(REPOSITORY / "tools/qa") not in sys.path:
     sys.path.insert(0, str(REPOSITORY / "tools/qa"))
 
-import run_strict_two_human_mp3d_f15_probe as base
+import run_strict_two_human_mp3d_f15_probe as base  # noqa: E402
 
 REQUEST_SCHEMA = "avengine_mp3d_strict_two_human_f15_launch_request_v3"
 RECEIPT_SCHEMA = "avengine_mp3d_strict_two_human_f15_launch_receipt_v3"
@@ -155,7 +155,10 @@ def _assert_v2_terminal_failure(atom_root: Path) -> dict[str, Any]:
     failure_record = observability.get("capture_failure_artifact")
     base._require(
         isinstance(failure_record, Mapping)
-        and dict(failure_record) == base._file_record(paths["failure"]),
+        and base._validate_file_record(
+            failure_record, owner="v2 capture failure artifact"
+        )
+        == paths["failure"].resolve(),
         "v2 failure artifact binding drift",
     )
 

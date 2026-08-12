@@ -264,6 +264,7 @@ class Mp3dF15V3LauncherTests(unittest.TestCase):
             self.assertEqual(request["frame_indices"], [15])
             self.assertFalse(request["full75_allowed"])
             self.assertEqual(request["formal_dataset_count"], 0)
+            self.assertEqual(set(request["predecessor_v2_failure_ledger"]), {"path"})
             self.assertEqual(
                 request["predecessor_v2_failure_ledger"], BASE._file_record(ledger)
             )

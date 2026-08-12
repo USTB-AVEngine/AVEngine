@@ -93,6 +93,7 @@ def _request_v2(attempt_root: Path) -> dict[str, object]:
 class Mp3dF15LauncherTests(unittest.TestCase):
     def test_capture_argv_is_exactly_one_f15_on_adapter1(self) -> None:
         request = {
+            "episode_id": "dynamic_episode_0002",
             "capture_python": "/runtime/python",
             "capture_script": "/repo/capture.py",
             "suite_plan": "/evidence/suite.json",
@@ -106,6 +107,7 @@ class Mp3dF15LauncherTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--frame-index") + 1], "15")
         self.assertEqual(argv.count("--graphics-adapter"), 1)
         self.assertEqual(argv[argv.index("--graphics-adapter") + 1], "1")
+        self.assertEqual(argv[argv.index("--scenario-id") + 1], "dynamic_episode_0002")
 
     def test_gpu_gate_rejects_uuid_drift_and_busy_gpu1(self) -> None:
         snapshot = _idle_snapshot()
@@ -123,18 +125,199 @@ class Mp3dF15LauncherTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not idle"):
             LAUNCHER._validate_gpu1_idle(busy)
 
-    def test_artifact_binding_detects_single_byte_mutation(self) -> None:
+    def test_artifact_binding_is_path_only_and_ignores_legacy_digest_fields(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
             path.write_text("{}\n", encoding="utf-8")
             record = LAUNCHER._file_record(path)
+            self.assertEqual(record, {"path": str(path.resolve())})
             self.assertEqual(
                 LAUNCHER._validate_file_record(record, owner="evidence"),
                 path.resolve(),
             )
             path.write_text("{ }\n", encoding="utf-8")
-            with self.assertRaisesRegex(RuntimeError, "binding drift"):
-                LAUNCHER._validate_file_record(record, owner="evidence")
+            legacy_record = {**record, "legacy_metadata": "ignored"}
+            self.assertEqual(
+                LAUNCHER._validate_file_record(legacy_record, owner="evidence"),
+                path.resolve(),
+            )
+
+    def test_execution_plan_resolver_rejects_suite_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            preflight = repo / "tmp/atom/cpu_preflight_v3"
+            preflight.mkdir(parents=True)
+            plan_path = preflight / "execution_plan.json"
+            atom = preflight.parent
+            cpu_steps = [
+                {
+                    "step_id": "probe_authoritative_habitat_rir_runtime",
+                    "expected": {"receipt": str(preflight / "runtime.json")},
+                },
+                {
+                    "step_id": "fresh_compile_mp3d_rlr_materials",
+                    "expected": {
+                        "manifest": str(atom / "package/manifest.json"),
+                        "semantic_material_coverage": str(
+                            atom / "package/coverage.json"
+                        ),
+                    },
+                },
+                {
+                    "step_id": "render_two_exact_rirs",
+                    "expected": {
+                        "receipt": str(atom / "cache/receipt.json"),
+                        "index": str(atom / "cache/index.json"),
+                    },
+                },
+            ]
+            sparse_argv = [
+                "python",
+                "capture.py",
+                "--suite-plan",
+                str(repo.parent / "escaped_suite.json"),
+                "--room-adapter",
+                str(preflight / "room_adapter.json"),
+                "--output",
+                str(atom / "capture"),
+                "--frame-index",
+                "15",
+                "--graphics-adapter",
+                "1",
+            ]
+            _write(
+                plan_path,
+                {
+                    "schema": "avengine_native_strict_two_human_mp3d_execution_plan_v2",
+                    "qualification_claim": False,
+                    "formal_dataset_count": 0,
+                    "local_staging_output": str(preflight),
+                    "remote_target_root": str(atom),
+                    "cpu_steps": cpu_steps,
+                    "gpu_steps": [
+                        {"step_id": "sparse_f15_probe", "argv": sparse_argv},
+                        {"step_id": "full75_episode", "argv": []},
+                    ],
+                },
+            )
+            with (
+                mock.patch.object(LAUNCHER, "REPOSITORY", repo),
+                self.assertRaisesRegex(RuntimeError, "suite plan escapes"),
+            ):
+                LAUNCHER._execution_plan_artifact_paths(plan_path)
+
+    def test_execution_plan_package_id_mismatch_fails_closed(self) -> None:
+        plan = {
+            "cpu_steps": [
+                {
+                    "step_id": "fresh_compile_mp3d_rlr_materials",
+                    "argv": ["compile", "--package-id", "package_from_plan"],
+                }
+            ]
+        }
+        package = {
+            "schema": "avengine_acoustic_scene_package_v1",
+            "package_id": "different_package",
+            "package_mode": "research_candidate",
+            "room_kind": "habitat_native",
+            "geometry": {"triangle_count": 10, "vertex_count": 9},
+        }
+        coverage = {
+            "schema": "avengine_m3_rlr_semantic_material_coverage_v1",
+            "status": "research_candidate",
+            "qualification_claim": False,
+            "compiled_triangle_count": 10,
+            "triangle_coverage": {"triangle_count": 10},
+            "runtime_one_to_one": {"passed": True},
+        }
+        with self.assertRaisesRegex(RuntimeError, "fresh acoustic package drift"):
+            LAUNCHER._validate_execution_plan_package(plan, package, coverage)
+
+    def test_v5_prepare_emits_path_only_request(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            plan = root / "atom/cpu_preflight_v3/execution_plan.json"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("{}\n", encoding="utf-8")
+            validation = {
+                "episode_id": "episode_0002",
+                "scene_id": "scene_dynamic",
+                "execution_plan": str(plan),
+                "evidence_paths": {
+                    "preflight": str(plan.with_name("preflight.json")),
+                    "suite_plan": str(plan.with_name("suite_execution_plan.json")),
+                    "room_adapter": str(plan.with_name("room_adapter.json")),
+                },
+                "capture_output": str(root / "atom/native_sparse_f15_v1"),
+                "capture_argv": ["python", "capture.py", "--frame-index", "15"],
+            }
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "offline_validate_execution_plan",
+                    return_value=validation,
+                ),
+                mock.patch.object(LAUNCHER, "_git_head", return_value="c" * 40),
+            ):
+                request_path = LAUNCHER.prepare_request_v5(execution_plan_path=plan)
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            self.assertEqual(request["schema"], LAUNCHER.REQUEST_SCHEMA_V5)
+            self.assertEqual(request["scene_id"], "scene_dynamic")
+            self.assertIn("evidence_paths", request)
+            self.assertEqual(
+                request["suite_plan"], validation["evidence_paths"]["suite_plan"]
+            )
+            self.assertEqual(
+                request["room_adapter"], validation["evidence_paths"]["room_adapter"]
+            )
+
+    def test_v5_offline_validate_and_dry_run_never_query_gpu(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            attempt = Path(directory) / LAUNCHER.V5_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            request_path.write_text("{}\n", encoding="utf-8")
+            request = {
+                "attempt_root": str(attempt),
+                "episode_id": "episode_0002",
+                "scene_id": "scene_dynamic",
+                "required_repo_commit": "d" * 40,
+                "execution_plan": "/evidence/execution_plan.json",
+                "capture_output": str(attempt.parent / "capture"),
+            }
+            argv = ["python", "capture.py", "--rpc-port", "39631"]
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v5", return_value=(request, argv)
+                ),
+                mock.patch.object(LAUNCHER, "_gpu_snapshot") as snapshot,
+            ):
+                self.assertEqual(
+                    LAUNCHER.run_v5(
+                        request_path,
+                        offline_validate=True,
+                        dry_run=False,
+                        authorize_gpu_capture=False,
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    LAUNCHER.run_v5(
+                        request_path,
+                        offline_validate=False,
+                        dry_run=True,
+                        authorize_gpu_capture=False,
+                    ),
+                    0,
+                )
+            snapshot.assert_not_called()
+            receipt = json.loads(
+                (attempt / "dry_run_receipt.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(receipt["gpu_query_started"])
+            self.assertFalse(receipt["gpu_started"])
 
     def test_capture_python_symlink_resolves_to_only_pinned_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
