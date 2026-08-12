@@ -60,6 +60,30 @@ class FakeComponent(FakeObject):
         return self.mesh.uobject + int(self.mismatch)
 
 
+class FakeNonCallableGetterComponent(FakeComponent):
+    @property
+    def GetStaticMesh(self) -> FakeObject:
+        return FakeObject(9001)
+
+    def get_property_value(self, *, property_name: str, as_handle: bool) -> int:
+        if property_name != "StaticMesh" or not as_handle or self.mesh is None:
+            raise AssertionError("unexpected property readback")
+        return self.mesh.uobject
+
+
+class FakePropertyOnlyComponent(FakeComponent):
+    GetStaticMesh = None
+
+    def get_property_value(self, *, property_name: str, as_handle: bool) -> int:
+        if property_name != "StaticMesh" or not as_handle or self.mesh is None:
+            raise AssertionError("unexpected property readback")
+        return self.mesh.uobject
+
+
+class FakeMissingReadbackComponent(FakeComponent):
+    GetStaticMesh = None
+
+
 class FakeUnrealService:
     def __init__(
         self, *, mismatch_at: int | None = None, duplicate_loads: bool = False
@@ -188,6 +212,40 @@ class RoomAdapterTests(unittest.TestCase):
         self.assertEqual(evidence["unique_loaded_object_handle_count"], 71)
         self.assertEqual(evidence["unique_component_mesh_handle_count"], 71)
         self.assertEqual(len(set(game.unreal_service.stable_names)), 71)
+
+    def test_static_mesh_readback_prefers_callable_component_getter(self) -> None:
+        component = FakeComponent(3000)
+        component.SetStaticMesh(NewMesh=FakeObject(1234))
+        self.assertEqual(
+            adapter_module._static_mesh_handle(component),
+            (1234, "UStaticMeshComponent.GetStaticMesh"),
+        )
+
+    def test_static_mesh_readback_uses_property_for_noncallable_unreal_object(
+        self,
+    ) -> None:
+        component = FakeNonCallableGetterComponent(3000)
+        component.SetStaticMesh(NewMesh=FakeObject(2345))
+        self.assertEqual(
+            adapter_module._static_mesh_handle(component),
+            (2345, "UStaticMeshComponent.StaticMesh_property"),
+        )
+
+    def test_static_mesh_readback_uses_property_when_getter_is_absent(self) -> None:
+        component = FakePropertyOnlyComponent(3000)
+        component.SetStaticMesh(NewMesh=FakeObject(3456))
+        self.assertEqual(
+            adapter_module._static_mesh_handle(component),
+            (3456, "UStaticMeshComponent.StaticMesh_property"),
+        )
+
+    def test_static_mesh_readback_rejects_missing_getter_and_property(self) -> None:
+        component = FakeMissingReadbackComponent(3000)
+        component.SetStaticMesh(NewMesh=FakeObject(4567))
+        with self.assertRaisesRegex(
+            RuntimeError, "neither callable GetStaticMesh nor a readable"
+        ):
+            adapter_module._static_mesh_handle(component)
 
     def test_fake_runtime_rejects_component_mesh_mismatch(self) -> None:
         game = FakeGame(mismatch_at=9)

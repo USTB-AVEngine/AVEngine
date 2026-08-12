@@ -169,8 +169,7 @@ def validate_room_adapter(value: Mapping[str, Any]) -> None:
         isinstance(coordinate, Mapping)
         and coordinate.get("source_axis_description") == "Matterport raw GLB Z-up"
         and coordinate.get("source_to_habitat") == "H=(S.x,S.z,-S.y)"
-        and coordinate.get("habitat_to_ue_cm")
-        == "U_cm=(100*H.x,100*H.z,100*H.y)",
+        and coordinate.get("habitat_to_ue_cm") == "U_cm=(100*H.x,100*H.z,100*H.y)",
         "room adapter coordinate chain is not raw MP3D Z-up to Habitat to UE",
     )
     lighting = value.get("review_lighting")
@@ -192,19 +191,30 @@ def _set_collision_disabled(component: Any) -> None:
 
 
 def _static_mesh_handle(component: Any) -> tuple[int, str]:
-    try:
-        value = component.GetStaticMesh(as_handle=True)
+    getter = getattr(component, "GetStaticMesh", None)
+    if callable(getter):
+        value = getter(as_handle=True)
         method = "UStaticMeshComponent.GetStaticMesh"
-    except (AttributeError, RuntimeError):
-        value = component.get_property_value(
-            property_name="StaticMesh", as_handle=True
+    else:
+        property_reader = getattr(component, "get_property_value", None)
+        _require(
+            callable(property_reader),
+            "live component exposes neither callable GetStaticMesh "
+            "nor a readable StaticMesh property",
         )
+        value = property_reader(property_name="StaticMesh", as_handle=True)
         method = "UStaticMeshComponent.StaticMesh_property"
+    try:
+        handle = int(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "live StaticMesh readback did not return an integer handle"
+        ) from exc
     _require(
-        not isinstance(value, bool) and int(value) > 0,
+        not isinstance(value, bool) and handle > 0,
         "live StaticMesh readback returned an invalid handle",
     )
-    return int(value), method
+    return handle, method
 
 
 def spawn_scene_meshes_with_readback(
@@ -262,9 +272,7 @@ def spawn_scene_meshes_with_readback(
         "spawned imported-room mesh closure is not 71",
     )
     expected_handles = [item["expected_object_handle"] for item in records]
-    observed_handles = [
-        item["observed_component_mesh_handle"] for item in records
-    ]
+    observed_handles = [item["observed_component_mesh_handle"] for item in records]
     _require(
         len(set(expected_handles)) == EXPECTED_STATIC_MESH_COUNT
         and len(set(observed_handles)) == EXPECTED_STATIC_MESH_COUNT,
