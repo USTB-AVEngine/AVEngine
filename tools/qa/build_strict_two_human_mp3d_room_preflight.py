@@ -15,6 +15,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from avengine.actor_framing import build_actor_framing_frames
+from avengine.camera_framing import solve_static_camera_candidates
+
 from spear_imported_glb_room_adapter import (
     ENTRY_MAP,
     build_room_adapter_record,
@@ -119,21 +122,9 @@ def _authoritative_rir_acoustic_state_sha256(
     )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _file_record(path: Path) -> dict[str, Any]:
     resolved = path.resolve()
-    return {
-        "path": str(resolved),
-        "byte_size": resolved.stat().st_size,
-        "sha256": _sha256(resolved),
-    }
+    return {"path": str(resolved)}
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -726,7 +717,7 @@ def _build_suite(
                 "scenario_type": "strict_two_human_static_mp3d_research_probe",
                 "target_source_slot_id": "source1",
                 "fact_path": "PENDING_NATIVE_CAPTURE",
-                "fact_sha256": "PENDING_NATIVE_CAPTURE",
+                "fact_selector": "/capture_fact",
             },
             "reuse_contract": {
                 "actors": "distinct retained male/female Rocketbox runtime bindings",
@@ -770,6 +761,65 @@ def _build_suite(
         "frames": rig_frames,
     }
     return suite, rig
+
+
+def _solve_full75_actor_framing(
+    request: Mapping[str, Any], suite: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bind sampled actor envelopes to explicit planning-only camera candidates."""
+
+    actor_contract = request.get("actor_framing")
+    camera_contract = request.get("camera_framing")
+    _require(
+        isinstance(actor_contract, Mapping) and isinstance(camera_contract, Mapping),
+        "request must declare actor_framing and camera_framing CPU planning contracts",
+    )
+    candidates = camera_contract.get("candidates")
+    _require(
+        isinstance(candidates, list) and candidates,
+        "camera_framing.candidates must be a non-empty explicit list",
+    )
+    for candidate in candidates:
+        _require(isinstance(candidate, Mapping), "camera candidate must be an object")
+        room_gate = candidate.get("room_gate")
+        _require(
+            isinstance(room_gate, Mapping)
+            and room_gate.get("provenance") == "declared_cpu_planning"
+            and room_gate.get("native_habitat_validation_status") == "pending"
+            and room_gate.get("line_of_sight_validation_status") == "pending"
+            and room_gate.get("full_body_clearance_status") == "pending",
+            (
+                "camera room_gate must be declared_cpu_planning with native Habitat, "
+                "line-of-sight, and full-body clearance explicitly pending"
+            ),
+        )
+    plan_frames = suite["scenarios"][0]["plan"]["frames"]
+    actor_inputs = build_actor_framing_frames(
+        actor_bindings=actor_contract.get("actor_bindings"),
+        frame_states=[
+            {
+                "frame_index": frame["frame_index"],
+                "actor_states": frame["actor_states"],
+            }
+            for frame in plan_frames
+        ],
+        sample_rate_hz=actor_contract.get("sample_rate_hz", 120.0),
+        padding_m=actor_contract.get("padding_m", 0.02),
+        expected_frame_count=FRAME_COUNT,
+    )
+    solution = solve_static_camera_candidates(
+        frames=actor_inputs["frames"],
+        candidates=candidates,
+        calibration=camera_contract.get("calibration"),
+        trajectory_id=f"{request['episode_id']}__sensor_rig",
+        ordered_actor_ids=camera_contract.get("ordered_actor_ids"),
+        minimum_order_gap_px=camera_contract.get("minimum_order_gap_px"),
+    )
+    _require(
+        solution["selected_candidate_id"] is not None,
+        "no explicit CPU planning camera candidate contains both actor envelopes",
+    )
+    return actor_inputs, solution
 
 
 def _add3(first: Sequence[float], second: Sequence[float]) -> list[float]:

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 TEST_FILE = Path(__file__).resolve()
 ROOT = (
@@ -330,6 +331,109 @@ class RoomAdapterTests(unittest.TestCase):
             adapter_module.spawn_scene_meshes_with_readback(game, self.adapter)
 
 
+class ActorFramingConsumerTests(unittest.TestCase):
+    def _request(self) -> dict[str, object]:
+        return {
+            "episode_id": "episode0",
+            "actor_framing": {
+                "actor_bindings": [{"actor_id": "source1_actor"}],
+                "sample_rate_hz": 120.0,
+                "padding_m": 0.02,
+            },
+            "camera_framing": {
+                "candidates": [
+                    {
+                        "candidate_id": "declared0",
+                        "position_m": [0.0, 1.5, 0.0],
+                        "yaw_deg": 0.0,
+                        "room_gate": {
+                            "status": "pass",
+                            "authority_id": "request/declared0/room-gate",
+                            "provenance": "declared_cpu_planning",
+                            "native_habitat_validation_status": "pending",
+                            "line_of_sight_validation_status": "pending",
+                            "full_body_clearance_status": "pending",
+                            "hard_gates": {"declared_position": {"status": "pass"}},
+                        },
+                    }
+                ],
+                "calibration": {"resolution_hw": [720, 1280]},
+                "ordered_actor_ids": ["source1_actor", "source2_actor"],
+                "minimum_order_gap_px": 8.0,
+            },
+        }
+
+    def _suite(self) -> dict[str, object]:
+        return {
+            "scenarios": [
+                {
+                    "plan": {
+                        "frames": [
+                            {
+                                "frame_index": index,
+                                "actor_states": [{"actor_id": "source1_actor"}],
+                            }
+                            for index in range(75)
+                        ]
+                    }
+                }
+            ]
+        }
+
+    @patch.object(builder, "solve_static_camera_candidates")
+    @patch.object(builder, "build_actor_framing_frames")
+    def test_helper_binds_full75_inputs_and_selected_hold_rig(
+        self, build_actor: object, solve_camera: object
+    ) -> None:
+        build_actor.return_value = {  # type: ignore[attr-defined]
+            "frames": [{"frame_index": index} for index in range(75)]
+        }
+        solve_camera.return_value = {  # type: ignore[attr-defined]
+            "selected_candidate_id": "declared0",
+            "sensor_rig_binding": {
+                "source": "materialized_hold",
+                "trajectory": {
+                    "frames": [{"frame_index": index} for index in range(75)]
+                },
+            },
+        }
+
+        actor_inputs, solution = builder._solve_full75_actor_framing(
+            self._request(), self._suite()
+        )
+
+        self.assertEqual(len(actor_inputs["frames"]), 75)
+        self.assertEqual(solution["selected_candidate_id"], "declared0")
+        self.assertEqual(
+            len(solution["sensor_rig_binding"]["trajectory"]["frames"]), 75
+        )
+        self.assertEqual(build_actor.call_args.kwargs["expected_frame_count"], 75)
+        self.assertEqual(
+            solve_camera.call_args.kwargs["trajectory_id"], "episode0__sensor_rig"
+        )
+        room_gate = solve_camera.call_args.kwargs["candidates"][0]["room_gate"]
+        self.assertEqual(room_gate["provenance"], "declared_cpu_planning")
+        self.assertEqual(room_gate["line_of_sight_validation_status"], "pending")
+
+    def test_helper_fails_closed_without_explicit_pending_room_gate(self) -> None:
+        request = self._request()
+        del request["camera_framing"]["candidates"][0]["room_gate"]  # type: ignore[index]
+        with self.assertRaisesRegex(RuntimeError, "camera room_gate"):
+            builder._solve_full75_actor_framing(request, self._suite())
+
+    @patch.object(builder, "solve_static_camera_candidates")
+    @patch.object(builder, "build_actor_framing_frames")
+    def test_helper_fails_closed_when_solver_selects_nothing(
+        self, build_actor: object, solve_camera: object
+    ) -> None:
+        build_actor.return_value = {"frames": []}  # type: ignore[attr-defined]
+        solve_camera.return_value = {  # type: ignore[attr-defined]
+            "selected_candidate_id": None
+        }
+        with self.assertRaisesRegex(RuntimeError, "no explicit CPU planning"):
+            builder._solve_full75_actor_framing(self._request(), self._suite())
+
+
 class PreflightTests(unittest.TestCase):
     def test_cpu_preflight_closes_safer_pair_but_keeps_live_review_pending(
         self,
@@ -363,6 +467,10 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(len(rir["jobs"]), 2)
             self.assertEqual(len(suite["scenarios"][0]["plan"]["frames"]), 75)
             self.assertEqual(len(room["static_mesh_object_paths"]), 71)
+            for record in preflight["inputs"].values():
+                self.assertEqual(set(record), {"path"})
+            self.assertNotIn("fact_sha256", json.dumps(suite, sort_keys=True))
+            self.assertNotIn("byte_size", json.dumps(preflight, sort_keys=True))
             sparse = execution["gpu_steps"][0]
             self.assertEqual(sparse["step_id"], "sparse_f15_probe")
             self.assertTrue(
