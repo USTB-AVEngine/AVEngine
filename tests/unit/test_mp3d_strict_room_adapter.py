@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 TEST_FILE = Path(__file__).resolve()
 ROOT = (
@@ -21,6 +21,9 @@ sys.path.insert(0, str(TOOLS))
 import build_strict_two_human_mp3d_room_preflight as builder  # noqa: E402
 import capture_spear_imported_glb_strict_two_human_episode as capture  # noqa: E402
 import spear_imported_glb_room_adapter as adapter_module  # noqa: E402
+from avengine.sensor_rig_trajectory import (  # noqa: E402
+    materialize_sensor_rig_trajectory,
+)
 
 
 class FakeObject:
@@ -191,6 +194,22 @@ def _build_output(output: Path) -> None:
             **inputs,
             output=output,
         )
+    )
+
+
+def _v2_args(output: Path) -> argparse.Namespace:
+    request = ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v2.json"
+    value = json.loads(request.read_text())
+    return argparse.Namespace(
+        request=request,
+        template_suite=Path(value["template_suite"]),
+        ue_import_manifest=Path(value["room"]["ue_import_manifest"]),
+        ue_runtime_evidence=Path(value["room"]["ue_runtime_evidence"]),
+        fresh_navmesh_probe=Path(value["room"]["fresh_navmesh_probe"]),
+        acoustic_manifest=Path(value["acoustics"]["package_manifest"]),
+        room_registry=Path(value["acoustics"]["room_registry"]),
+        acoustic_profiles=Path(value["acoustics"]["acoustic_profile_registry"]),
+        output=output,
     )
 
 
@@ -455,24 +474,27 @@ class ActorFramingConsumerTests(unittest.TestCase):
         self, evaluate: object, build_actor: object, solve_camera: object
     ) -> None:
         request = self._request()
+        request["actor_framing"]["actor_bindings"] = [  # type: ignore[index]
+            {"actor_id": "source1_actor", "asset_id": "male", "asset_revision": "r1"},
+            {"actor_id": "source2_actor", "asset_id": "female", "asset_revision": "r1"},
+        ]
         request["camera_framing"]["floor_height_m"] = 0.0  # type: ignore[index]
-        request["camera_framing"]["candidates"].append(  # type: ignore[index]
-            {
-                "candidate_id": "blocked0",
-                "position_m": [1.0, 1.5, 0.0],
-                "yaw_deg": 0.0,
-            }
-        )
+        request["camera_framing"]["candidate_generation"] = {  # type: ignore[index]
+            "eye_height_m": 1.5,
+            "offsets_xz_m": [[0.0, 0.0, 2.0], [1.0, 0.0, 2.0]],
+        }
         suite = self._suite()
         suite["scenarios"][0]["plan"]["actors"] = [  # type: ignore[index]
             {
                 "actor_id": "source1_actor",
                 "asset_id": "male",
+                "asset_revision": "r1",
                 "emitter_offset_m": [0.0, 1.6, 0.0],
             },
             {
                 "actor_id": "source2_actor",
                 "asset_id": "female",
+                "asset_revision": "r1",
                 "emitter_offset_m": [0.0, 1.55, 0.0],
             },
         ]
@@ -489,7 +511,7 @@ class ActorFramingConsumerTests(unittest.TestCase):
             )
         evaluate.return_value = [  # type: ignore[attr-defined]
             {
-                "candidate_id": "declared0",
+                "candidate_id": "midpoint_grid_000",
                 "status": "pass",
                 "room_gate": {
                     "status": "pass",
@@ -501,7 +523,11 @@ class ActorFramingConsumerTests(unittest.TestCase):
                     "hard_gates": {"listener_navmesh": {"status": "pass"}},
                 },
             },
-            {"candidate_id": "blocked0", "status": "fail", "room_gate": None},
+            {
+                "candidate_id": "midpoint_grid_001",
+                "status": "fail",
+                "room_gate": None,
+            },
         ]
         build_actor.return_value = {  # type: ignore[attr-defined]
             "frames": [
@@ -522,7 +548,7 @@ class ActorFramingConsumerTests(unittest.TestCase):
             ]
         }
         solve_camera.return_value = {  # type: ignore[attr-defined]
-            "selected_candidate_id": "declared0",
+            "selected_candidate_id": "midpoint_grid_000",
             "sensor_rig_binding": {"trajectory": {"frames": []}},
         }
 
@@ -530,7 +556,7 @@ class ActorFramingConsumerTests(unittest.TestCase):
             request, suite, runtime_provider=object()
         )
 
-        self.assertEqual(solution["selected_candidate_id"], "declared0")
+        self.assertEqual(solution["selected_candidate_id"], "midpoint_grid_000")
         self.assertEqual(len(gates), 2)
         self.assertEqual(
             build_actor.return_value["actor_orientation_policy"],
@@ -547,12 +573,173 @@ class ActorFramingConsumerTests(unittest.TestCase):
             set(anchors), {"torso_envelope_center", "declared_emitter_proxy"}
         )
         forwarded = solve_camera.call_args.kwargs["candidates"]
-        self.assertEqual([item["candidate_id"] for item in forwarded], ["declared0"])
+        self.assertEqual(
+            [item["candidate_id"] for item in forwarded], ["midpoint_grid_000"]
+        )
         self.assertEqual(forwarded[0]["room_gate"]["provenance"], "habitat_cpu_runtime")
         self.assertTrue(forwarded[0]["room_gate"]["hard_gates"])
 
+    def test_selected_hold_rig_replaces_plan_and_all_camera_states(self) -> None:
+        suite = self._suite()
+        suite["scenarios"][0]["scenario_id"] = "episode0"  # type: ignore[index]
+        suite["scenarios"][0]["plan"]["camera"] = {  # type: ignore[index]
+            "listener_id": "listener0",
+            "horizontal_fov_deg": 90.0,
+        }
+        for frame in suite["scenarios"][0]["plan"]["frames"]:  # type: ignore[index]
+            frame["pts_ticks"] = frame["frame_index"] * 3200  # type: ignore[index]
+        rig = {
+            "trajectory_id": "episode0__sensor_rig",
+            "frames": [
+                {
+                    "frame_index": index,
+                    "pts_ticks": index * 3200,
+                    "pose_hash": "selected-pose",
+                    "world_from_rig": {
+                        "translation_m": [2.0, 1.5, -3.0],
+                        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                    },
+                }
+                for index in range(75)
+            ],
+        }
+        solution = {
+            "selected_camera_pose": {"position_m": [2.0, 1.5, -3.0], "yaw_deg": 0.0},
+            "sensor_rig_binding": {"trajectory": rig},
+        }
+
+        applied, selected = builder._apply_selected_sensor_rig(suite, solution)
+
+        camera = applied["scenarios"][0]["plan"]["camera"]
+        self.assertEqual(camera["habitat_position_m"], [2.0, 1.5, -3.0])
+        self.assertEqual(camera["ue_position_cm"], [200.0, -300.0, 150.0])
+        self.assertEqual(camera["ue_yaw_deg"], -90.0)
+        self.assertEqual(camera["sensor_rig_trajectory_id"], selected["trajectory_id"])
+        for frame, rig_frame in zip(
+            applied["scenarios"][0]["plan"]["frames"], selected["frames"]
+        ):
+            self.assertEqual(
+                frame["camera_state"]["world_from_rig"], rig_frame["world_from_rig"]
+            )
+            self.assertEqual(frame["camera_state"]["pose_hash"], "selected-pose")
+
+    def test_canonical_rir_uses_selected_rig_and_both_source_paths(self) -> None:
+        suite = self._suite()
+        plan = suite["scenarios"][0]["plan"]  # type: ignore[index]
+        suite["scenarios"][0]["scenario_id"] = "episode0"  # type: ignore[index]
+        plan["actors"] = [
+            {"actor_id": "source1_actor", "emitter_offset_m": [0.0, 1.6, 0.0]},
+            {"actor_id": "source2_actor", "emitter_offset_m": [0.0, 1.5, 0.0]},
+        ]
+        for frame in plan["frames"]:
+            frame["actor_states"] = [
+                {"actor_id": "source1_actor", "translation_m": [0.0, 0.0, -2.0]},
+                {"actor_id": "source2_actor", "translation_m": [1.0, 0.0, -2.0]},
+            ]
+        rig = {
+            "frames": [
+                {
+                    "world_from_rig": {
+                        "translation_m": [2.0, 1.5, -3.0],
+                        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                    }
+                }
+                for _ in range(75)
+            ]
+        }
+
+        bank, rir = builder._build_canonical_rir_plan(suite, rig, stride_frames=3)
+
+        self.assertEqual(bank["episode_count"], 1)
+        self.assertEqual(rir["listener_pose_mode"], "per_episode_frame")
+        self.assertEqual(rir["requested_pair_state_count"], 50)
+        self.assertEqual(rir["unique_listener_pose_count"], 1)
+        self.assertEqual(
+            {use["source_slot_id"] for job in rir["jobs"] for use in job["uses"]},
+            {"source1", "source2"},
+        )
+
 
 class PreflightTests(unittest.TestCase):
+    def _v2_solution(self) -> tuple[dict[str, object], dict[str, object]]:
+        position = [-4.1499128342, 1.572447, -1.2454376221]
+        rig = materialize_sensor_rig_trajectory(
+            trajectory_id=("mp3d_17DRP5sb8fy_male_female_static_0002__sensor_rig"),
+            program={"kind": "HOLD", "position_m": position, "yaw_deg": 0.0},
+        )
+        actor = {
+            "actor_orientation_policy": (
+                "frozen_suite_actor_states_not_retargeted_to_selected_camera"
+            ),
+            "frames": [{"frame_index": index} for index in range(75)],
+        }
+        solution = {
+            "status": "pass_cpu_declared_bounds_framing",
+            "selected_candidate_id": "midpoint_grid_000",
+            "selected_camera_pose": {"position_m": position, "yaw_deg": 0.0},
+            "sensor_rig_binding": {"trajectory": rig},
+        }
+        return actor, solution
+
+    @patch.object(builder, "_runtime_gate_and_solve_full75_actor_framing")
+    def test_v2_build_binds_framing_rig_and_canonical_rir(
+        self, runtime_solve: object
+    ) -> None:
+        actor, solution = self._v2_solution()
+        runtime_solve.return_value = (  # type: ignore[attr-defined]
+            actor,
+            solution,
+            [
+                {
+                    "candidate_id": "midpoint_grid_000",
+                    "status": "pass",
+                    "room_gate": {"status": "pass"},
+                }
+            ],
+        )
+        factory = MagicMock()
+        factory.return_value.__enter__.return_value = object()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "v2"
+            builder.build(_v2_args(output), runtime_provider_factory=factory)
+            suite = json.loads((output / "suite_execution_plan.json").read_text())
+            rig = json.loads((output / "sensor_rig_trajectory.json").read_text())
+            rir = json.loads((output / "rir_job_plan.json").read_text())
+            preflight = json.loads((output / "preflight.json").read_text())
+
+            self.assertTrue((output / "actor_framing.json").is_file())
+            self.assertTrue((output / "camera_framing.json").is_file())
+            self.assertTrue((output / "runtime_camera_gates.json").is_file())
+            camera = suite["scenarios"][0]["plan"]["camera"]
+            self.assertEqual(camera["sensor_rig_trajectory_id"], rig["trajectory_id"])
+            for suite_frame, rig_frame in zip(
+                suite["scenarios"][0]["plan"]["frames"], rig["frames"]
+            ):
+                self.assertEqual(
+                    suite_frame["camera_state"]["world_from_rig"],
+                    rig_frame["world_from_rig"],
+                )
+            self.assertEqual(rir["listener_pose_mode"], "per_episode_frame")
+            self.assertEqual(rir["requested_pair_state_count"], 50)
+            self.assertEqual(
+                preflight["runtime_camera_framing"]["selected_candidate_id"],
+                "midpoint_grid_000",
+            )
+            factory.assert_called_once()
+
+    @patch.object(builder, "_runtime_gate_and_solve_full75_actor_framing")
+    def test_v2_runtime_gate_failure_creates_no_output(
+        self, runtime_solve: object
+    ) -> None:
+        runtime_solve.side_effect = RuntimeError("runtime gate rejected")  # type: ignore[attr-defined]
+        factory = MagicMock()
+        factory.return_value.__enter__.return_value = object()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "v2"
+            with self.assertRaisesRegex(RuntimeError, "runtime gate rejected"):
+                builder.build(_v2_args(output), runtime_provider_factory=factory)
+            self.assertFalse(output.exists())
+
     def test_cpu_preflight_closes_safer_pair_but_keeps_live_review_pending(
         self,
     ) -> None:

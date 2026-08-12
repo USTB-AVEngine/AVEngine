@@ -11,13 +11,24 @@ import math
 import os
 import sys
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from avengine.actor_framing import build_actor_framing_frames
 from avengine.camera_framing import solve_static_camera_candidates
-from avengine.m5_1.camera_candidate_gate import evaluate_camera_candidates
+from avengine.m5_1.camera_candidate_gate import (
+    HabitatRuntimeCameraProvider,
+    evaluate_camera_candidates,
+)
+from avengine.m6x.room_feasibility import (
+    TrajectoryBank,
+    TrajectoryEpisode,
+    build_rir_job_plan,
+)
 
 from spear_imported_glb_room_adapter import (
     ENTRY_MAP,
@@ -27,6 +38,7 @@ from spear_imported_glb_room_adapter import (
 )
 
 REQUEST_SCHEMA = "avengine_native_strict_two_human_mp3d_room_atom_request_v1"
+REQUEST_SCHEMA_V2 = "avengine_native_strict_two_human_mp3d_room_atom_request_v2"
 PREFLIGHT_SCHEMA = "avengine_native_strict_two_human_mp3d_room_preflight_v1"
 SUITE_SCHEMA = "avengine_optional_spear_imported_glb_suite_v1"
 SCENARIO_SCHEMA = "avengine_optional_spear_imported_glb_scenario_v1"
@@ -44,6 +56,14 @@ HABITAT_PATH = (
 )
 HABITAT_EDITABLE_BUILD = (
     "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
+)
+MP3D_SCENE = Path(
+    "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/"
+    "mp3d_example_scene_1.1/17DRP5sb8fy/17DRP5sb8fy.glb"
+)
+MP3D_DATASET = Path(
+    "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/"
+    "mp3d_example_scene_1.1/mp3d.scene_dataset_config.json"
 )
 
 
@@ -213,7 +233,10 @@ def _habitat_to_ue_cm(position: Sequence[float]) -> list[float]:
 
 
 def _validate_request(request: Mapping[str, Any]) -> None:
-    _require(request.get("schema") == REQUEST_SCHEMA, "request schema drift")
+    _require(
+        request.get("schema") in {REQUEST_SCHEMA, REQUEST_SCHEMA_V2},
+        "request schema drift",
+    )
     _require(request.get("qualification_claim") is False, "formal claim forbidden")
     _require(request.get("formal_dataset_count") == 0, "formal count must remain zero")
     room = request.get("room")
@@ -233,6 +256,61 @@ def _validate_request(request: Mapping[str, Any]) -> None:
         and capture.get("sparse_frame_indices") == [15],
         "capture must declare one f15 probe and one 75-frame/15-Hz suite",
     )
+
+
+@contextmanager
+def _open_mp3d_camera_runtime(request: Mapping[str, Any]):
+    """Open one sensorless physics-enabled CPU runtime for all camera gates."""
+
+    runtime = request.get("camera_runtime")
+    _require(isinstance(runtime, Mapping), "v2 request lacks camera_runtime")
+    scene = Path(str(runtime.get("scene_path"))).resolve()
+    dataset = Path(str(runtime.get("dataset_config_path"))).resolve()
+    navmesh = Path(str(request["room"]["navmesh_path"])).resolve()
+    physics = Path(str(runtime.get("physics_config_path"))).resolve()
+    _require(scene == MP3D_SCENE and scene.is_file(), "MP3D runtime scene drift")
+    _require(
+        dataset == MP3D_DATASET and dataset.is_file(), "MP3D runtime dataset drift"
+    )
+    _require(navmesh.is_file(), "MP3D runtime navmesh is missing")
+    _require(physics.is_file(), "MP3D physics config is missing")
+    import quaternion  # noqa: F401
+
+    import habitat_sim
+    import magnum as mn
+
+    sim_cfg = habitat_sim.SimulatorConfiguration()
+    sim_cfg.scene_id = str(scene)
+    sim_cfg.scene_dataset_config_file = str(dataset)
+    sim_cfg.physics_config_file = str(physics)
+    sim_cfg.enable_physics = True
+    if hasattr(sim_cfg, "create_renderer"):
+        sim_cfg.create_renderer = False
+    agent_cfg = habitat_sim.AgentConfiguration()
+    agent_cfg.sensor_specifications = []
+    agent_cfg.action_space = {}
+    agent_cfg.height = float(runtime.get("agent_height_m"))
+    agent_cfg.radius = float(runtime.get("agent_radius_m"))
+    configuration = habitat_sim.Configuration(sim_cfg, [agent_cfg])
+    with habitat_sim.Simulator(configuration) as simulator:
+        _require(
+            simulator.pathfinder.load_nav_mesh(str(navmesh))
+            and simulator.pathfinder.is_loaded,
+            "Habitat failed to load the exact MP3D navmesh",
+        )
+        provider = HabitatRuntimeCameraProvider(
+            simulator,
+            habitat_sim,
+            mn,
+            {
+                "configured_scene_id": str(scene),
+                "loaded_scene_id": str(runtime.get("loaded_scene_id")),
+                "active_dataset": str(dataset),
+                "stage_surface": str(scene),
+            },
+            provider_id=f"{request['episode_id']}__sensorless-physics",
+        )
+        yield provider
 
 
 def _validate_navigation(
@@ -847,6 +925,25 @@ def _runtime_gate_and_solve_full75_actor_framing(
         len(actor_declarations) >= 2,
         "runtime camera gate requires at least two declared actors",
     )
+    bindings = actor_contract.get("actor_bindings")
+    _require(isinstance(bindings, list), "actor_framing.actor_bindings must be a list")
+    bindings_by_id = {
+        binding.get("actor_id"): binding
+        for binding in bindings
+        if isinstance(binding, Mapping)
+    }
+    _require(
+        len(bindings_by_id) == len(bindings) == len(actor_declarations)
+        and set(bindings_by_id) == set(actor_declarations),
+        "actor framing bindings must exactly close suite actors",
+    )
+    for actor_id, declaration in actor_declarations.items():
+        binding = bindings_by_id[actor_id]
+        _require(
+            binding.get("asset_id") == declaration.get("asset_id")
+            and binding.get("asset_revision") == declaration.get("asset_revision"),
+            f"{actor_id} framing asset identity differs from suite declaration",
+        )
     plan_frames = plan["frames"]
     actor_inputs = build_actor_framing_frames(
         actor_bindings=actor_contract.get("actor_bindings"),
@@ -903,13 +1000,42 @@ def _runtime_gate_and_solve_full75_actor_framing(
             visibility[actor_id]["torso_envelope_center"].append(torso)
             visibility[actor_id]["declared_emitter_proxy"].append(emitter)
 
-    declared_candidates = camera_contract.get("candidates")
+    generation = camera_contract.get("candidate_generation")
+    _require(isinstance(generation, Mapping), "camera candidate_generation is missing")
+    offsets = generation.get("offsets_xz_m")
+    _require(isinstance(offsets, list) and offsets, "candidate offsets are missing")
+    floor_height = float(camera_contract.get("floor_height_m"))
+    eye_height = float(generation.get("eye_height_m"))
+    first_roots = [floor_paths[actor_id][0] for actor_id in sorted(floor_paths)]
+    midpoint = [
+        sum(point[axis] for point in first_roots) / len(first_roots)
+        for axis in range(3)
+    ]
+    declared_candidates = []
+    for index, offset in enumerate(offsets):
+        values = _vector3(offset, owner=f"candidate offset {index}")
+        position = [
+            midpoint[0] + values[0],
+            floor_height + eye_height,
+            midpoint[2] + values[2],
+        ]
+        delta_x = midpoint[0] - position[0]
+        delta_z = midpoint[2] - position[2]
+        _require(math.hypot(delta_x, delta_z) > 0.0, "camera candidate hits midpoint")
+        declared_candidates.append(
+            {
+                "candidate_id": f"midpoint_grid_{index:03d}",
+                "position_m": position,
+                "yaw_deg": math.degrees(math.atan2(-delta_x, -delta_z)),
+                "priority": index,
+            }
+        )
     gate_results = evaluate_camera_candidates(
         runtime_provider=runtime_provider,
         candidates=declared_candidates,
         actor_floor_paths_m=floor_paths,
         actor_visibility_anchors_m=visibility,
-        floor_height_m=camera_contract.get("floor_height_m"),
+        floor_height_m=floor_height,
         evaluation_id=f"{request['episode_id']}__camera-runtime-gate",
         maximum_y_delta_m=camera_contract.get("maximum_y_delta_m", 0.25),
         maximum_snap_error_m=camera_contract.get("maximum_snap_error_m", 0.05),
@@ -924,6 +1050,15 @@ def _runtime_gate_and_solve_full75_actor_framing(
     declared_by_id = {
         candidate["candidate_id"]: candidate for candidate in declared_candidates
     }
+    _require(
+        len(declared_by_id) == len(declared_candidates),
+        "generated camera candidate IDs must be unique",
+    )
+    gate_ids = [result.get("candidate_id") for result in gate_results]
+    _require(
+        len(gate_ids) == len(set(gate_ids)) and set(gate_ids) == set(declared_by_id),
+        "runtime gate results must exactly cover generated candidates",
+    )
     passing_candidates = []
     for result in gate_results:
         if result.get("status") != "pass":
@@ -950,9 +1085,214 @@ def _runtime_gate_and_solve_full75_actor_framing(
     return actor_inputs, solution, gate_results
 
 
+def _bind_v2_actor_revisions(
+    suite: Mapping[str, Any],
+    request: Mapping[str, Any],
+    runtime_profiles: Mapping[str, Any],
+) -> dict[str, Any]:
+    result = deepcopy(suite)
+    declarations = {
+        actor["actor_id"]: actor for actor in result["scenarios"][0]["plan"]["actors"]
+    }
+    bindings = request["actor_framing"]["actor_bindings"]
+    _require(
+        isinstance(bindings, list)
+        and len(bindings) == len(declarations)
+        and all(isinstance(binding, Mapping) for binding in bindings),
+        "v2 actor bindings differ from suite actors",
+    )
+    profiles = runtime_profiles.get("assets")
+    _require(isinstance(profiles, list), "runtime profile registry lacks assets")
+    for binding in bindings:
+        actor_id = binding["actor_id"]
+        _require(actor_id in declarations, "v2 actor binding contains unknown actor")
+        declaration = declarations[actor_id]
+        revision = str(binding.get("asset_revision", ""))
+        _require(
+            binding.get("asset_id") == declaration.get("asset_id") and revision,
+            f"{actor_id} v2 asset identity drift",
+        )
+        selected = [
+            profile
+            for profile in profiles
+            if isinstance(profile, Mapping)
+            and profile.get("asset_id") == binding.get("asset_id")
+            and profile.get("revision") == revision
+        ]
+        _require(len(selected) == 1, f"{actor_id} runtime profile is not unique")
+        profile = selected[0]
+        timeline = profile["timeline"]
+        unreal = profile["runtime_backends"]["spear_unreal"]
+        anchors = [
+            item
+            for item in profile["emitter_anchors"]
+            if item["anchor_id"] == profile["default_emitter_anchor_id"]
+        ]
+        _require(len(anchors) == 1, f"{actor_id} default emitter anchor is not unique")
+        anchor = anchors[0]
+        _require(
+            declaration.get("template_id") == timeline["template_id"]
+            and declaration.get("body_plan_id") == timeline["body_plan_id"]
+            and declaration.get("habitat_local_anatomical_forward_axis")
+            == timeline["local_anatomical_forward_axis"]
+            and declaration.get("blueprint_class_path")
+            == unreal["blueprint_class_path"]
+            and declaration.get("idle_animation") == unreal["idle_animation"]
+            and declaration.get("walking_animation") == unreal["walking_animation"]
+            and declaration.get("emitter_offset_m") == anchor["offset_m"]
+            and binding.get("action_name_by_action_id")
+            == {"idle": "Standing_Idle", "walk": "Walking"},
+            f"{actor_id} differs from selected runtime profile",
+        )
+        declaration["asset_revision"] = revision
+    return result
+
+
 def _add3(first: Sequence[float], second: Sequence[float]) -> list[float]:
     _require(len(first) == len(second) == 3, "3D vector length drift")
     return [float(a + b) for a, b in zip(first, second)]
+
+
+def _apply_selected_sensor_rig(
+    suite: Mapping[str, Any], solution: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Atomically bind the selected canonical HOLD rig into all suite locations."""
+
+    binding = solution.get("sensor_rig_binding")
+    _require(isinstance(binding, Mapping), "framing solution lacks sensor rig binding")
+    rig = deepcopy(binding.get("trajectory"))
+    _require(
+        isinstance(rig, Mapping)
+        and isinstance(rig.get("frames"), list)
+        and len(rig["frames"]) == FRAME_COUNT,
+        "selected sensor rig must contain 75 frames",
+    )
+    result = deepcopy(suite)
+    plan = result["scenarios"][0]["plan"]
+    plan_frames = plan["frames"]
+    _require(len(plan_frames) == FRAME_COUNT, "suite frame count drift")
+    selected_pose = solution.get("selected_camera_pose")
+    _require(isinstance(selected_pose, Mapping), "selected camera pose is missing")
+    selected_yaw = float(selected_pose["yaw_deg"])
+    expected_trajectory_id = f"{suite['scenarios'][0]['scenario_id']}__sensor_rig"
+    _require(
+        rig.get("trajectory_id") == expected_trajectory_id,
+        "selected sensor rig trajectory_id differs from scenario",
+    )
+    first_position = list(rig["frames"][0]["world_from_rig"]["translation_m"])
+    _require(
+        first_position == list(selected_pose["position_m"])
+        and all(
+            frame["world_from_rig"] == rig["frames"][0]["world_from_rig"]
+            for frame in rig["frames"]
+        ),
+        "selected sensor rig is not the selected canonical HOLD pose",
+    )
+    for suite_frame, rig_frame in zip(plan_frames, rig["frames"], strict=True):
+        frame_index = int(suite_frame["frame_index"])
+        _require(
+            rig_frame["frame_index"] == frame_index
+            and rig_frame["pts_ticks"] == suite_frame["pts_ticks"],
+            "suite and selected rig clocks differ",
+        )
+        suite_frame["camera_state"] = {
+            "frame_index": frame_index,
+            "pts_ticks": rig_frame["pts_ticks"],
+            "pose_hash": rig_frame["pose_hash"],
+            "world_from_rig": deepcopy(rig_frame["world_from_rig"]),
+            "habitat_position_m": list(rig_frame["world_from_rig"]["translation_m"]),
+            "habitat_yaw_deg": selected_yaw,
+            "ue_position_cm": _habitat_to_ue_cm(
+                rig_frame["world_from_rig"]["translation_m"]
+            ),
+            "ue_yaw_deg": -90.0 - selected_yaw,
+        }
+    plan["camera"] = {
+        **deepcopy(plan["camera"]),
+        "dynamic": False,
+        "habitat_position_m": first_position,
+        "habitat_yaw_deg": selected_yaw,
+        "ue_position_cm": _habitat_to_ue_cm(first_position),
+        "ue_yaw_deg": -90.0 - selected_yaw,
+        "sensor_rig_trajectory_id": rig["trajectory_id"],
+        "actor_orientation_policy": (
+            "frozen_suite_actor_states_not_retargeted_to_selected_camera"
+        ),
+    }
+    for frame, rig_frame in zip(plan_frames, rig["frames"], strict=True):
+        state = frame["camera_state"]
+        _require(
+            state["world_from_rig"] == rig_frame["world_from_rig"]
+            and state["pose_hash"] == rig_frame["pose_hash"],
+            "selected rig did not close suite camera state",
+        )
+    return result, rig
+
+
+def _build_canonical_rir_plan(
+    suite: Mapping[str, Any], rig: Mapping[str, Any], *, stride_frames: int
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    scenario = suite["scenarios"][0]
+    plan = scenario["plan"]
+    episode_id = scenario["scenario_id"]
+    declarations = {actor["actor_id"]: actor for actor in plan["actors"]}
+    roots = {"source1": [], "source2": []}
+    centers = {"source1": [], "source2": []}
+    actor_to_slot = {"source1_actor": "source1", "source2_actor": "source2"}
+    for frame in plan["frames"]:
+        for state in frame["actor_states"]:
+            actor_id = state["actor_id"]
+            slot = actor_to_slot[actor_id]
+            root = _vector3(state["translation_m"], owner=f"{slot} root")
+            offset = _vector3(
+                declarations[actor_id]["emitter_offset_m"],
+                owner=f"{slot} emitter offset",
+            )
+            roots[slot].append(root)
+            centers[slot].append(_add3(root, offset))
+    episode = TrajectoryEpisode(
+        episode_id=episode_id,
+        motion_case="strict_two_human_static_mp3d",
+        source_root_paths_m={slot: np.asarray(path) for slot, path in roots.items()},
+        source_center_paths_m={
+            slot: np.asarray(path) for slot, path in centers.items()
+        },
+        statistics={
+            "target_source_slot_id": "source1",
+            "distractor_source_slot_id": "source2",
+            "native_recapture_required": True,
+        },
+    )
+    bank = TrajectoryBank(
+        episodes=(episode,), frame_count=FRAME_COUNT, frame_rate_hz=FPS, seed=20260812
+    )
+    listener_positions = [
+        frame["world_from_rig"]["translation_m"] for frame in rig["frames"]
+    ]
+    listener_orientations = [
+        [rotation[3], rotation[0], rotation[1], rotation[2]]
+        for rotation in (
+            frame["world_from_rig"]["rotation_xyzw"] for frame in rig["frames"]
+        )
+    ]
+    rir = build_rir_job_plan(
+        bank,
+        listener_positions_m_by_episode={episode_id: listener_positions},
+        listener_orientations_wxyz_by_episode={episode_id: listener_orientations},
+        stride_frames=stride_frames,
+    )
+    expected_frames = list(range(0, FRAME_COUNT, stride_frames))
+    _require(
+        rir["requested_pair_state_count"] == 2 * len(expected_frames),
+        "canonical RIR request count drift",
+    )
+    uses = [use for job in rir["jobs"] for use in job["uses"]]
+    _require(
+        {(use["source_slot_id"], use["frame_index"]) for use in uses}
+        == {(slot, index) for slot in roots for index in expected_frames},
+        "canonical RIR uses do not close source slots and frames",
+    )
+    return bank.record(), rir
 
 
 def _build_rir_plan(
@@ -1276,7 +1616,11 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     }
 
 
-def build(args: argparse.Namespace) -> Path:
+def build(
+    args: argparse.Namespace,
+    *,
+    runtime_provider_factory: Any = _open_mp3d_camera_runtime,
+) -> Path:
     request = load_json_object(args.request.resolve(), owner="atom request")
     _validate_request(request)
     template_path = (args.template_suite or Path(request["template_suite"])).resolve()
@@ -1309,6 +1653,12 @@ def build(args: argparse.Namespace) -> Path:
         "room_registry": room_registry_path,
         "acoustic_profiles": profiles_path,
     }
+    is_v2 = request["schema"] == REQUEST_SCHEMA_V2
+    if is_v2:
+        profile_registry_path = Path(
+            request["actor_framing"]["runtime_profile_registry"]
+        ).resolve()
+        inputs["runtime_profile_registry"] = profile_registry_path
     for owner, path in inputs.items():
         _require(path.is_file(), f"{owner} is missing: {path}")
     template = load_json_object(template_path, owner="strict template suite")
@@ -1317,9 +1667,22 @@ def build(args: argparse.Namespace) -> Path:
     fresh_navmesh_probe = load_json_object(
         nav_probe_path, owner="fresh MP3D navmesh probe"
     )
+    if is_v2:
+        _require(
+            float(request["camera_runtime"]["agent_radius_m"])
+            == float(fresh_navmesh_probe["agent_radius_m"]),
+            "v2 camera runtime agent radius differs from fresh navmesh probe",
+        )
     acoustic_manifest = load_json_object(acoustic_path, owner="MP3D acoustic package")
     room_registry = load_json_object(room_registry_path, owner="room registry")
     profiles = load_json_object(profiles_path, owner="acoustic profile registry")
+    runtime_profiles = (
+        load_json_object(
+            inputs["runtime_profile_registry"], owner="source runtime profile registry"
+        )
+        if is_v2
+        else None
+    )
     room_adapter = build_room_adapter_record(
         import_manifest,
         execution_manifest_path=request["room"]["ue_import_manifest"],
@@ -1330,8 +1693,30 @@ def build(args: argparse.Namespace) -> Path:
         acoustic_manifest, room_registry, profiles, request
     )
     suite, rig = _build_suite(request, template, room_adapter)
-    trajectory_bank, rir_plan = _build_rir_plan(request, rig)
-    projection = _project_mouth_proxies(request)
+    actor_framing = None
+    camera_framing = None
+    runtime_camera_gates = None
+    if is_v2:
+        assert runtime_profiles is not None
+        suite = _bind_v2_actor_revisions(suite, request, runtime_profiles)
+        with runtime_provider_factory(request) as runtime_provider:
+            actor_framing, camera_framing, runtime_camera_gates = (
+                _runtime_gate_and_solve_full75_actor_framing(
+                    request, suite, runtime_provider=runtime_provider
+                )
+            )
+        suite, rig = _apply_selected_sensor_rig(suite, camera_framing)
+        trajectory_bank, rir_plan = _build_canonical_rir_plan(
+            suite, rig, stride_frames=int(request["acoustics"]["rir_stride_frames"])
+        )
+        selected_request = deepcopy(request)
+        selected_request["camera_listener"] = deepcopy(
+            suite["scenarios"][0]["plan"]["camera"]
+        )
+        projection = _project_mouth_proxies(selected_request)
+    else:
+        trajectory_bank, rir_plan = _build_rir_plan(request, rig)
+        projection = _project_mouth_proxies(request)
     execution = _execution_plan(request, args.output)
     _require(not args.output.exists(), f"refusing to replace output: {args.output}")
     args.output.mkdir(parents=True)
@@ -1343,6 +1728,19 @@ def build(args: argparse.Namespace) -> Path:
         "rir_job_plan.json": rir_plan,
         "execution_plan.json": execution,
     }
+    if is_v2:
+        artifacts.update(
+            {
+                "actor_framing.json": actor_framing,
+                "camera_framing.json": camera_framing,
+                "runtime_camera_gates.json": {
+                    "schema": "avengine_mp3d_runtime_camera_gate_batch_v1",
+                    "results": runtime_camera_gates,
+                    "qualification_claim": False,
+                    "formal_dataset_count": 0,
+                },
+            }
+        )
     for name, value in artifacts.items():
         _write_json(args.output / name, value)
     adult_pair_ready = navigation["adult_static_pair_gate"]["status"] == "pass"
@@ -1373,6 +1771,17 @@ def build(args: argparse.Namespace) -> Path:
         },
         "navigation": navigation,
         "planned_projection": projection,
+        "runtime_camera_framing": (
+            {
+                "status": camera_framing["status"],
+                "selected_candidate_id": camera_framing["selected_candidate_id"],
+                "actor_orientation_policy": actor_framing["actor_orientation_policy"],
+                "native_pixel_validation_status": "pending",
+                "qualification_claim": False,
+            }
+            if is_v2
+            else {"status": "legacy_v1_not_runtime_gated"}
+        ),
         "acoustic_registration": acoustic,
         "episode_contract": {
             "frame_count": FRAME_COUNT,
