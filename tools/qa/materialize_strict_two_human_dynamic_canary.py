@@ -23,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from avengine.contracts.json_io import write_json
+from avengine.contracts.json_io import canonical_json_sha256, write_json
 from avengine.m5_1.source_contracts import sample_boundary
 from avengine.m6.audio_program import bind_audio_program_hash, validate_audio_program
 from avengine.m6.audio_render import assemble_audio_program_dry_buses
@@ -42,6 +42,12 @@ from avengine.optional_backends.spear_visual import (
     actor_ue_yaw_degrees,
     camera_ue_yaw_degrees,
     habitat_point_to_apartment_ue_cm,
+)
+from avengine.qa.actor_motion_profile import (
+    build_actor_motion_profile,
+    materialize_profile_frames,
+    source_center_paths,
+    validate_actor_motion_profile,
 )
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
@@ -84,31 +90,16 @@ INTERPOLATED_PATH_METHODS = {
     "arc_length_interpolation_of_native_polyline_v1",
     "equal_arc_interpolation_of_exact_native_human_polyline_v1",
 }
-EXPECTED_ACOUSTICS = {
-    "target_moves": {
-        "motion_case": "source1_moving_source2_static",
-        "per_slot_distinct": {"source1": 75, "source2": 1},
-        "unique": 76,
-        "reuse": 74,
-    },
-    "distractor_moves": {
-        "motion_case": "source1_static_source2_moving",
-        "per_slot_distinct": {"source1": 1, "source2": 75},
-        "unique": 76,
-        "reuse": 74,
-    },
-    "camera_pan_both_static": {
-        "motion_case": "source1_static_source2_static_camera_pan",
-        "per_slot_distinct": {"source1": 75, "source2": 75},
-        "unique": 150,
-        "reuse": 0,
-    },
-    "both_move": {
-        "motion_case": "source1_moving_source2_moving",
-        "per_slot_distinct": {"source1": 75, "source2": 75},
-        "unique": 150,
-        "reuse": 0,
-    },
+LEGACY_CAMERA_PAN_ACOUSTICS = {
+    "motion_case": "source1_static_source2_static_camera_pan",
+    "per_slot_distinct": {"source1": 75, "source2": 75},
+    "unique": 150,
+    "reuse": 0,
+}
+MOTION_PROFILE_REQUIRED_MECHANISMS = {
+    "target_moves",
+    "distractor_moves",
+    "both_move",
 }
 
 
@@ -493,6 +484,190 @@ def _actor_materialization(
     return output_frames, root_paths, emitter_paths, animation_timing
 
 
+def _actor_materialization_from_profile(
+    profile: Mapping[str, Any],
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, list[list[float]]],
+    dict[str, list[list[float]]],
+    dict[str, dict[str, Any]],
+]:
+    """Adapt hash-bound profile states to the SPEAR suite without inferring motion."""
+
+    validate_actor_motion_profile(profile)
+    candidate = profile["authorities"]["candidate"]["value"]
+    candidate_actors = candidate["actors"]
+    declarations_by_actor = candidate["actor_declarations"]
+    profile_frames = materialize_profile_frames(profile)
+    _require(
+        len(profile_frames) == FRAME_COUNT
+        and int(candidate["frame_count"]) == FRAME_COUNT,
+        "motion profile is not full75",
+    )
+    declarations = [
+        deepcopy(declarations_by_actor[candidate_actors[slot]["actor_id"]])
+        for slot in candidate_actors
+    ]
+    root_paths: dict[str, list[list[float]]] = {
+        str(slot): [] for slot in candidate_actors
+    }
+    output_frames: list[dict[str, Any]] = []
+    action_counts: dict[str, dict[str, int]] = {
+        str(slot): {
+            str(action_id): 0
+            for action_id in declarations_by_actor[actor["actor_id"]][
+                "animation_paths_by_action_id"
+            ]
+        }
+        for slot, actor in candidate_actors.items()
+    }
+    for frame_index, profile_frame in enumerate(profile_frames):
+        output_states: list[dict[str, Any]] = []
+        profile_states = profile_frame["actor_states"]
+        _require(
+            [state["slot_id"] for state in profile_states] == list(candidate_actors),
+            f"profile actor order drift at f{frame_index}",
+        )
+        for profile_state in profile_states:
+            slot = str(profile_state["slot_id"])
+            actor = candidate_actors[slot]
+            declaration = declarations_by_actor[profile_state["actor_id"]]
+            forward_path = actor.get("anatomical_forward_habitat_world_path")
+            _require(
+                isinstance(forward_path, list) and len(forward_path) == FRAME_COUNT,
+                f"profile forward path is not full75 for {slot}",
+            )
+            forward = [float(value) for value in forward_path[frame_index]]
+            rotation = _rotation_from_forward(forward)
+            expected_actor_yaw = actor_ue_yaw_degrees(
+                rotation,
+                declaration["habitat_local_anatomical_forward_axis"],
+                declaration["ue_anatomical_forward_yaw_deg"],
+            )
+            _require(
+                abs(
+                    (
+                        expected_actor_yaw
+                        - float(profile_state["actor_yaw_ue_deg"])
+                        + 180.0
+                    )
+                    % 360.0
+                    - 180.0
+                )
+                <= 1.0e-8,
+                f"profile forward/yaw projection drift at f{frame_index} {slot}",
+            )
+            root = [float(value) for value in profile_state["translation_m"]]
+            root_paths[slot].append(root)
+            action_id = str(profile_state["action_id"])
+            _require(
+                action_id in action_counts[slot],
+                f"profile action {action_id!r} is not declared at f{frame_index} {slot}",
+            )
+            action_counts[slot][action_id] += 1
+            output_states.append(
+                {
+                    **deepcopy(profile_state),
+                    "asset_id": declaration["asset_id"],
+                    "blueprint_class_path": declaration["blueprint_class_path"],
+                    "rotation_xyzw": rotation,
+                    "anatomical_forward_habitat_world": forward,
+                    "anatomical_forward_ue_world": [forward[0], forward[2], 0.0],
+                }
+            )
+        output_frames.append(
+            {
+                "frame_index": frame_index,
+                "pts_ticks": int(profile_frame["pts_ticks"]),
+                "canonical_motion_profile_frame_sha256": profile_frame[
+                    "canonical_frame_sha256"
+                ],
+                "actor_states": output_states,
+            }
+        )
+    expected_roots = {
+        str(slot): [[float(value) for value in root] for root in actor["root_path_m"]]
+        for slot, actor in candidate_actors.items()
+    }
+    _require(root_paths == expected_roots, "profile frame/root-path authority drift")
+    emitter_paths = source_center_paths(profile)
+    motion_semantics = {
+        str(slot): {
+            "moving": actor["moving"],
+            "native_rate_active_interval": deepcopy(
+                actor["native_rate_active_interval"]
+            ),
+            "trajectory_preflight": deepcopy(actor["trajectory_preflight"]),
+            "action_counts": action_counts[str(slot)],
+        }
+        for slot, actor in candidate_actors.items()
+    }
+    return (
+        declarations,
+        output_frames,
+        root_paths,
+        emitter_paths,
+        motion_semantics,
+    )
+
+
+def _validate_rir_plan_against_profile(
+    rir_plan: Mapping[str, Any], profile: Mapping[str, Any]
+) -> dict[str, Any]:
+    expectation = profile["rir_expectation"]
+    candidate = profile["authorities"]["candidate"]["value"]
+    old_row = profile["authorities"]["selected_old_row"]["value"]
+    output_episode_id = str(old_row["episode_id"])
+    candidate_episode_id = str(candidate["candidate_episode_id"])
+
+    def normalize_episode_id(value: Any) -> Any:
+        if isinstance(value, str):
+            return value.replace(output_episode_id, candidate_episode_id)
+        if isinstance(value, list):
+            return [normalize_episode_id(item) for item in value]
+        if isinstance(value, Mapping):
+            return {
+                normalize_episode_id(key): normalize_episode_id(item)
+                for key, item in value.items()
+            }
+        return value
+
+    compared = {
+        "stride_frames": int(rir_plan["stride_frames"]),
+        "requested_pair_state_count": int(rir_plan["requested_pair_state_count"]),
+        "unique_rir_job_count": int(rir_plan["unique_rir_job_count"]),
+    }
+    _require(
+        all(compared[key] == int(expectation[key]) for key in compared),
+        "actual RIR plan does not match actor motion profile expectation",
+    )
+    actual_plan_sha256 = canonical_json_sha256(rir_plan)
+    normalized_actual_plan_sha256 = canonical_json_sha256(
+        normalize_episode_id(rir_plan)
+    )
+    _require(
+        normalized_actual_plan_sha256 == expectation["canonical_plan_sha256"],
+        "actual RIR plan content does not match actor motion profile expectation",
+    )
+    return {
+        "status": "pass_actual_plan_matches_profile_expectation",
+        "profile_content_sha256": profile["profile_content_sha256"],
+        "profile_expected_plan_sha256": expectation["canonical_plan_sha256"],
+        "actual_plan_sha256": actual_plan_sha256,
+        "normalized_actual_plan_sha256": normalized_actual_plan_sha256,
+        "normalization": {
+            "field": "episode_id",
+            "from": output_episode_id,
+            "to": candidate_episode_id,
+        },
+        "compared_counts": compared,
+        "derived_cache_reuse_count": (
+            compared["requested_pair_state_count"] - compared["unique_rir_job_count"]
+        ),
+    }
+
+
 def _suite(
     *,
     base_suite: Mapping[str, Any],
@@ -500,6 +675,7 @@ def _suite(
     declarations: list[dict[str, Any]],
     actor_frames: list[dict[str, Any]],
     sensor_rig: Mapping[str, Any],
+    motion_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     template = deepcopy(base_suite["scenarios"][0])
     frames: list[dict[str, Any]] = []
@@ -584,7 +760,7 @@ def _suite(
         "audio_program": "controlled_audio_program/audio_program.json",
     }
     camera_pan = row["mechanism"] == "camera_pan_both_static"
-    both_move = row["mechanism"] == "both_move"
+    profile_bound = motion_profile is not None
     template["reuse_contract"] = {
         "camera_and_room": (
             "retained Apartment native room; mechanism-only common camera center "
@@ -593,24 +769,16 @@ def _suite(
             else "retained Apartment native room; selected independent camera cluster"
         ),
         "actor_roots": (
-            "both actor roots are held at exact retained native human readbacks"
-            if camera_pan
-            else (
-                "both paths use separate exact native-human anchor polylines; "
-                "endpoints are exact and 75-frame interiors are derived equal-arc "
-                "interpolation"
-                if both_move
-                else "all 75 roots copied from exact retained native root readbacks"
-            )
+            "all roots are consumed frame-by-frame from the hash-bound actor "
+            "motion profile"
+            if profile_bound
+            else "both actor roots are held at exact retained native human readbacks"
         ),
         "actor_yaws": (
-            "both held actors face the camera center and remain static"
-            if camera_pan
-            else (
-                "both moving actors follow their independently derived tangent headings"
-                if both_move
-                else "moving actor follows native anatomical heading; held actor faces camera"
-            )
+            "all actions, phases, native indices, and headings are consumed "
+            "frame-by-frame from the hash-bound actor motion profile"
+            if profile_bound
+            else "both held actors face the camera center and remain static"
         ),
         "audio": "source1 controlled speech only; source2 is explicitly silent",
     }
@@ -619,6 +787,16 @@ def _suite(
         "trajectory_id": sensor_rig["trajectory_id"],
         "frame_count": FRAME_COUNT,
     }
+    if motion_profile is not None:
+        template["actor_motion_profile_binding"] = {
+            "schema": motion_profile["schema"],
+            "profile_content_sha256": motion_profile["profile_content_sha256"],
+            "candidate_document_sha256": motion_profile["authorities"]["candidate"][
+                "document_sha256"
+            ],
+            "frame_count": len(motion_profile["frames"]),
+            "qualification_claim": False,
+        }
     template.pop("static_camera_upgrade", None)
     suite = deepcopy(base_suite)
     suite["scenarios"] = [template]
@@ -986,6 +1164,7 @@ def _materialize_into(
     audio_template: Path,
     output: Path,
     published_output: Path,
+    motion_candidate_path: Path | None = None,
 ) -> Path:
     _require(
         output.is_dir() and not any(output.iterdir()),
@@ -995,15 +1174,23 @@ def _materialize_into(
     _require(preflight.get("schema") == PREFLIGHT_SCHEMA, "preflight schema drift")
     row = _selected_canary(preflight, canary_index)
     mechanism = str(row["mechanism"])
-    _require(mechanism in EXPECTED_ACOUSTICS, "unsupported dynamic mechanism")
-    expected_acoustics = EXPECTED_ACOUSTICS[mechanism]
+    _require(
+        mechanism in MOTION_PROFILE_REQUIRED_MECHANISMS
+        or mechanism == "camera_pan_both_static",
+        "unsupported dynamic mechanism",
+    )
+    _require(
+        mechanism not in MOTION_PROFILE_REQUIRED_MECHANISMS
+        or motion_candidate_path is not None,
+        f"{mechanism} requires --motion-candidate; legacy root inference is disabled",
+    )
     _require(
         {row["target"]["identity_key"], row["distractor"]["identity_key"]}
         == {"M", "F"},
         "dynamic canary requires the reviewed M/F runtime pair",
     )
     _, target_audio = _controlled_target_sound(row)
-    for path in (
+    required_paths = [
         base_suite_path,
         audio_template / "audio_program.json",
         CONTROLLED_SOUND_CONTENT_REGISTRY,
@@ -1011,25 +1198,56 @@ def _materialize_into(
         SIMULATION_REQUEST,
         HABITAT_PYTHON,
         target_audio,
-    ):
+    ]
+    if motion_candidate_path is not None:
+        required_paths.append(motion_candidate_path)
+    for path in required_paths:
         _require(path.is_file(), f"required input is missing: {path}")
 
     base_suite = _load(base_suite_path)
-    declarations_by_identity = _identity_declarations(base_suite)
-    source_scenarios = _source_scenarios(row)
-    actor_frames, root_paths, emitter_paths, animation_timing = _actor_materialization(
-        row=row,
-        source_scenarios=source_scenarios,
-        declarations_by_identity=declarations_by_identity,
-    )
-    declarations = [
-        deepcopy(declarations_by_identity[row["target"]["runtime_asset_id"]]),
-        deepcopy(declarations_by_identity[row["distractor"]["runtime_asset_id"]]),
-    ]
-    declarations[0]["actor_id"] = "source1_actor"
-    declarations[0]["runtime_asset_expectation"]["source_slot_id"] = "source1"
-    declarations[1]["actor_id"] = "source2_actor"
-    declarations[1]["runtime_asset_expectation"]["source_slot_id"] = "source2"
+    motion_profile: dict[str, Any] | None = None
+    if mechanism in MOTION_PROFILE_REQUIRED_MECHANISMS:
+        assert motion_candidate_path is not None
+        motion_candidate = _load(motion_candidate_path)
+        motion_profile = build_actor_motion_profile(
+            candidate_path=motion_candidate_path,
+            candidate=motion_candidate,
+            old_preflight_path=preflight_path,
+            selected_old_row=row,
+            base_suite_path=base_suite_path,
+            base_suite=base_suite,
+        )
+        validate_actor_motion_profile(motion_profile)
+        (
+            declarations,
+            actor_frames,
+            root_paths,
+            emitter_paths,
+            animation_timing,
+        ) = _actor_materialization_from_profile(motion_profile)
+        motion_case = str(motion_candidate["mechanism"])
+    else:
+        declarations_by_identity = _identity_declarations(base_suite)
+        source_scenarios = _source_scenarios(row)
+        (
+            actor_frames,
+            root_paths,
+            emitter_paths,
+            animation_timing,
+        ) = _actor_materialization(
+            row=row,
+            source_scenarios=source_scenarios,
+            declarations_by_identity=declarations_by_identity,
+        )
+        declarations = [
+            deepcopy(declarations_by_identity[row["target"]["runtime_asset_id"]]),
+            deepcopy(declarations_by_identity[row["distractor"]["runtime_asset_id"]]),
+        ]
+        declarations[0]["actor_id"] = "source1_actor"
+        declarations[0]["runtime_asset_expectation"]["source_slot_id"] = "source1"
+        declarations[1]["actor_id"] = "source2_actor"
+        declarations[1]["runtime_asset_expectation"]["source_slot_id"] = "source2"
+        motion_case = str(LEGACY_CAMERA_PAN_ACOUSTICS["motion_case"])
     sensor_rig = _sensor_rig(row)
     listener_orientations_xyzw = [
         tuple(float(value) for value in frame["world_from_rig"]["rotation_xyzw"])
@@ -1052,11 +1270,12 @@ def _materialize_into(
         declarations=declarations,
         actor_frames=actor_frames,
         sensor_rig=sensor_rig,
+        motion_profile=motion_profile,
     )
 
     episode = TrajectoryEpisode(
         episode_id=row["episode_id"],
-        motion_case=expected_acoustics["motion_case"],
+        motion_case=motion_case,
         source_root_paths_m={
             slot: np.asarray(path, dtype=np.float64)
             for slot, path in root_paths.items()
@@ -1078,13 +1297,26 @@ def _materialize_into(
         seed=20260812,
     )
     trajectory_bank = bank.record()
-    trajectory_bank["path_semantics"] = {
-        "source_center_paths_m": "identity-bound world mouth emitter points",
-        "source_root_paths_m": (
-            "exactly applied requested roots; native-vs-derived authority is "
-            "declared separately for each source slot"
-        ),
-        "source_root_path_provenance": {
+    if motion_profile is not None:
+        motion_candidate = motion_profile["authorities"]["candidate"]["value"]
+        root_path_provenance = {
+            str(slot): {
+                "method": "hash_bound_actor_motion_profile_v1",
+                "profile_content_sha256": motion_profile["profile_content_sha256"],
+                "candidate_document_sha256": motion_profile["authorities"]["candidate"][
+                    "document_sha256"
+                ],
+                "native_motion_authority": deepcopy(
+                    actor.get("native_motion_authority")
+                ),
+                "native_rate_active_interval": deepcopy(
+                    actor.get("native_rate_active_interval")
+                ),
+            }
+            for slot, actor in motion_candidate["actors"].items()
+        }
+    else:
+        root_path_provenance = {
             "source1": deepcopy(
                 row["target"].get(
                     "path_provenance",
@@ -1097,7 +1329,14 @@ def _materialize_into(
                     {"method": "exact_selected_retained_native_actor_roots_v1"},
                 )
             ),
-        },
+        }
+    trajectory_bank["path_semantics"] = {
+        "source_center_paths_m": "identity-bound world mouth emitter points",
+        "source_root_paths_m": (
+            "exactly applied requested roots; native-vs-derived authority is "
+            "declared separately for each source slot"
+        ),
+        "source_root_path_provenance": root_path_provenance,
     }
     listener_positions = {
         row["episode_id"]: [
@@ -1120,7 +1359,7 @@ def _materialize_into(
         stride_frames=1,
     )
     _require(
-        rir_plan["requested_pair_state_count"] == 150,
+        rir_plan["requested_pair_state_count"] == FRAME_COUNT * len(root_paths),
         "RIR plan must cover both sources at all 75 frames",
     )
     per_slot_distinct = {
@@ -1133,18 +1372,24 @@ def _materialize_into(
         )
         for slot in ("source1", "source2")
     }
-    _require(
-        per_slot_distinct == expected_acoustics["per_slot_distinct"],
-        f"{mechanism} RIR slot state count drift",
-    )
-    _require(
-        rir_plan["unique_rir_job_count"] == expected_acoustics["unique"],
-        f"{mechanism} total RIR state count drift",
-    )
-    _require(
-        rir_plan["cache_reuse_count"] == expected_acoustics["reuse"],
-        f"{mechanism} exact cache reuse count drift",
-    )
+    if motion_profile is not None:
+        rir_profile_comparison = _validate_rir_plan_against_profile(
+            rir_plan, motion_profile
+        )
+    else:
+        _require(
+            per_slot_distinct == LEGACY_CAMERA_PAN_ACOUSTICS["per_slot_distinct"],
+            "legacy camera pan RIR slot state count drift",
+        )
+        _require(
+            rir_plan["unique_rir_job_count"] == LEGACY_CAMERA_PAN_ACOUSTICS["unique"],
+            "legacy camera pan total RIR state count drift",
+        )
+        _require(
+            rir_plan["cache_reuse_count"] == LEGACY_CAMERA_PAN_ACOUSTICS["reuse"],
+            "legacy camera pan exact cache reuse count drift",
+        )
+        rir_profile_comparison = None
 
     output.mkdir(parents=True, exist_ok=True)
     _copy_audio_contracts(audio_template, output, row)
@@ -1165,6 +1410,8 @@ def _materialize_into(
         "cpu_acoustic_execution_request": "cpu_acoustic_execution_request.json",
         "materialization_receipt": "materialization_receipt.json",
     }
+    if motion_profile is not None:
+        relative_paths["actor_motion_profile"] = "actor_motion_profile.json"
     work_paths = {key: output / name for key, name in relative_paths.items()}
     published_paths = {
         key: published_output / name for key, name in relative_paths.items()
@@ -1174,6 +1421,8 @@ def _materialize_into(
     write_json(work_paths["sensor_rig_trajectory"], sensor_rig)
     write_json(work_paths["asset_emitter_binding_report"], binding_report)
     write_json(work_paths["rir_job_plan"], rir_plan)
+    if motion_profile is not None:
+        write_json(work_paths["actor_motion_profile"], motion_profile)
     request = _acoustic_execution_request(
         output=published_output,
         episode_id=row["episode_id"],
@@ -1246,7 +1495,7 @@ def _materialize_into(
         "dynamic_acoustics": {
             "status": "planned_not_run",
             "frame_stride": 1,
-            "requested_source_frame_uses": 150,
+            "requested_source_frame_uses": rir_plan["requested_pair_state_count"],
             "distinct_rir_state_count": rir_plan["unique_rir_job_count"],
             "distinct_rir_state_count_by_source_slot": per_slot_distinct,
             "exact_pose_cache_reuse_count": rir_plan["cache_reuse_count"],
@@ -1254,6 +1503,7 @@ def _materialize_into(
                 "source position, listener position, and listener orientation "
                 "must be exactly identical"
             ),
+            "actor_motion_profile_comparison": rir_profile_comparison,
         },
         "audio_program": {
             "validation": audio_validation,
@@ -1270,6 +1520,33 @@ def _materialize_into(
             "sample_rate_hz": 16000,
             "sample_count": 80000,
         },
+        "actor_motion_profile": (
+            {
+                "status": "pass_bound_and_consumed_frame_by_frame",
+                "schema": motion_profile["schema"],
+                "profile_content_sha256": motion_profile["profile_content_sha256"],
+                "candidate_document_sha256": motion_profile["authorities"]["candidate"][
+                    "document_sha256"
+                ],
+                "candidate_value_sha256": motion_profile["authorities"]["candidate"][
+                    "canonical_value_sha256"
+                ],
+                "canonical_frame_sha256": [
+                    frame["canonical_frame_sha256"]
+                    for frame in motion_profile["frames"]
+                ],
+                "derived_action_counts": action_counts,
+                "derived_rir_counts": rir_profile_comparison["compared_counts"],
+                "legacy_root_motion_inference_used": False,
+                "qualification_claim": False,
+            }
+            if motion_profile is not None and rir_profile_comparison is not None
+            else {
+                "status": "explicit_legacy_camera_pan_adapter",
+                "legacy_root_motion_inference_used": True,
+                "qualification_claim": False,
+            }
+        ),
         "gpu_launch_authorized": False,
         "formal": False,
         "qualification_claim": False,
@@ -1289,6 +1566,7 @@ def materialize(
     base_suite_path: Path,
     audio_template: Path,
     output: Path,
+    motion_candidate_path: Path | None = None,
 ) -> Path:
     """Build in staging and publish either a complete result or one failure receipt."""
 
@@ -1305,6 +1583,7 @@ def materialize(
             audio_template=audio_template,
             output=staging,
             published_output=output,
+            motion_candidate_path=motion_candidate_path,
         )
     except Exception as exc:
         shutil.rmtree(staging)
@@ -1334,6 +1613,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--canary-index", type=int, default=1)
     parser.add_argument("--base-suite", type=Path, default=BASE_SUITE)
     parser.add_argument("--audio-template", type=Path, default=BASE_AUDIO)
+    parser.add_argument("--motion-candidate", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)
 
@@ -1346,6 +1626,9 @@ def main() -> int:
         base_suite_path=args.base_suite.resolve(),
         audio_template=args.audio_template.resolve(),
         output=args.output.resolve(),
+        motion_candidate_path=(
+            args.motion_candidate.resolve() if args.motion_candidate else None
+        ),
     )
     print(f"STRICT_TWO_HUMAN_DYNAMIC_MATERIALIZATION_OK receipt={receipt}")
     return 0

@@ -207,7 +207,7 @@ def test_arc_length_interpolation_rejects_repeated_roots() -> None:
 
 
 def test_camera_pan_acoustics_require_one_state_per_orientation_and_slot() -> None:
-    assert TOOL.EXPECTED_ACOUSTICS["camera_pan_both_static"] == {
+    assert TOOL.LEGACY_CAMERA_PAN_ACOUSTICS == {
         "motion_case": "source1_static_source2_static_camera_pan",
         "per_slot_distinct": {"source1": 75, "source2": 75},
         "unique": 150,
@@ -241,13 +241,127 @@ def test_camera_pan_sensor_rig_applies_75_unique_orientations() -> None:
     assert all(current > previous for previous, current in pairwise(observed_yaws))
 
 
-def test_both_move_acoustics_require_150_distinct_states_without_reuse() -> None:
-    assert TOOL.EXPECTED_ACOUSTICS["both_move"] == {
-        "motion_case": "source1_moving_source2_moving",
-        "per_slot_distinct": {"source1": 75, "source2": 75},
-        "unique": 150,
-        "reuse": 0,
+@pytest.mark.parametrize(
+    (
+        "candidate_name",
+        "preflight_relative",
+        "base_suite_relative",
+        "canary_index",
+        "expected_actions",
+        "expected_unique_rirs",
+    ),
+    [
+        (
+            "native_strict_two_human_target_moves_native_rate_candidate_v1.json",
+            "dynamic_target_moves_v2_cpu_candidate_v1/target_moves_v2_preflight.json",
+            "dynamic_target_moves_v2_materialized_v1/suite_execution_plan.json",
+            1,
+            {"source1": {"idle": 48, "walk": 27}, "source2": {"idle": 75, "walk": 0}},
+            28,
+        ),
+        (
+            "native_strict_two_human_distractor_moves_native_rate_candidate_v1.json",
+            "dynamic_distractor_moves_v2_geometry_v1/distractor_moves_v2_preflight.json",
+            "dynamic_distractor_moves_v2_materialized_v1/suite_execution_plan.json",
+            2,
+            {"source1": {"idle": 75, "walk": 0}, "source2": {"idle": 59, "walk": 16}},
+            17,
+        ),
+        (
+            "native_strict_two_human_both_move_native_rate_candidate_v1.json",
+            "dynamic_both_move_v1_adapter_v1/preflight.json",
+            "dynamic_both_move_v1_materialized_v1/suite_execution_plan.json",
+            3,
+            {"source1": {"idle": 64, "walk": 11}, "source2": {"idle": 63, "walk": 12}},
+            23,
+        ),
+    ],
+)
+def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
+    tmp_path: Path,
+    candidate_name: str,
+    preflight_relative: str,
+    base_suite_relative: str,
+    canary_index: int,
+    expected_actions: dict[str, dict[str, int]],
+    expected_unique_rirs: int,
+) -> None:
+    batch_root = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
+    candidate_path = REPOSITORY / "examples/qa" / candidate_name
+    preflight_path = batch_root / preflight_relative
+    base_suite_path = batch_root / base_suite_relative
+    output = tmp_path / candidate_path.stem
+
+    receipt_path = TOOL.materialize(
+        preflight_path=preflight_path,
+        canary_index=canary_index,
+        base_suite_path=base_suite_path,
+        audio_template=TOOL.BASE_AUDIO,
+        output=output,
+        motion_candidate_path=candidate_path,
+    )
+
+    receipt = json.loads(receipt_path.read_text())
+    profile = json.loads((output / "actor_motion_profile.json").read_text())
+    suite = json.loads((output / "suite_execution_plan.json").read_text())
+    candidate = json.loads(candidate_path.read_text())
+    frames = suite["scenarios"][0]["plan"]["frames"]
+    assert receipt["suite_actor_root_application"]["action_counts"] == expected_actions
+    assert receipt["actor_motion_profile"]["derived_action_counts"] == expected_actions
+    assert receipt["actor_motion_profile"]["legacy_root_motion_inference_used"] is False
+    assert (
+        receipt["actor_motion_profile"]["profile_content_sha256"]
+        == profile["profile_content_sha256"]
+    )
+    comparison = receipt["dynamic_acoustics"]["actor_motion_profile_comparison"]
+    assert comparison["status"] == "pass_actual_plan_matches_profile_expectation"
+    assert comparison["compared_counts"] == {
+        "stride_frames": 1,
+        "requested_pair_state_count": 150,
+        "unique_rir_job_count": expected_unique_rirs,
     }
+    assert (
+        comparison["normalized_actual_plan_sha256"]
+        == comparison["profile_expected_plan_sha256"]
+    )
+    assert len(frames) == len(profile["frames"]) == 75
+    for index, (suite_frame, profile_frame, candidate_frame) in enumerate(
+        zip(frames, profile["frames"], candidate["frames"], strict=True)
+    ):
+        assert (
+            suite_frame["canonical_motion_profile_frame_sha256"]
+            == profile_frame["canonical_frame_sha256"]
+        )
+        assert profile_frame["frame_index"] == index
+        for suite_state, candidate_state in zip(
+            suite_frame["actor_states"], candidate_frame["actor_states"], strict=True
+        ):
+            assert all(
+                suite_state[key] == value for key, value in candidate_state.items()
+            )
+
+
+def test_motion_mechanism_without_candidate_fails_closed(tmp_path: Path) -> None:
+    batch_root = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
+    output = tmp_path / "missing_motion_candidate"
+    with pytest.raises(RuntimeError, match="requires --motion-candidate"):
+        TOOL.materialize(
+            preflight_path=(
+                batch_root
+                / "dynamic_target_moves_v2_cpu_candidate_v1/target_moves_v2_preflight.json"
+            ),
+            canary_index=1,
+            base_suite_path=(
+                batch_root
+                / "dynamic_target_moves_v2_materialized_v1/suite_execution_plan.json"
+            ),
+            audio_template=TOOL.BASE_AUDIO,
+            output=output,
+        )
+
+    failure = json.loads((output / "FAILED.json").read_text())
+    assert failure["status"] == "failed"
+    assert "requires --motion-candidate" in failure["error"]
 
 
 def test_counterfactual_source_scenarios_bind_each_native_human_path(
