@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import json
 import sys
@@ -34,6 +35,15 @@ BASE = V2.base
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+
+def _record(path: Path) -> dict[str, object]:
+    payload = path.read_bytes()
+    return {
+        "path": str(path.resolve()),
+        "byte_size": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
 
 
 def _write_recipe(path: Path) -> None:
@@ -177,6 +187,85 @@ def _identity_patch(repo: Path, official_python: Path):
 
 
 class SkoklosterF15V2LauncherTests(unittest.TestCase):
+    def test_stale_v2_preparation_uses_shared_exact_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            atom = repo / BASE.ATOM_DIRECTORY
+            attempt = atom / V2.V2_ATTEMPT_DIRECTORY
+            attempt.mkdir(parents=True)
+            capture = atom / V2.V2_CAPTURE_DIRECTORY
+            source = repo / "tools/qa/source.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("old\n", encoding="utf-8")
+            stdout = attempt / "interpreter_probe_stdout.log"
+            stderr = attempt / "interpreter_probe_stderr.log"
+            probe = attempt / "interpreter_preflight_receipt.json"
+            stdout.write_text("probe\n", encoding="utf-8")
+            stderr.write_bytes(b"")
+            _write_json(
+                probe,
+                {
+                    "stdout": _record(stdout),
+                    "stderr": _record(stderr),
+                },
+            )
+            request = {key: None for key in V2.V2_REQUEST_KEYS}
+            request.update(
+                {
+                    "schema": V2.REQUEST_SCHEMA,
+                    "status": "prepared_not_launched",
+                    "candidate_revision": V2.CANDIDATE_REVISION,
+                    "episode_id": BASE.EPISODE_ID,
+                    "scene_id": BASE.SCENE_ID,
+                    "repo_root": str(repo),
+                    "atom_root": str(atom),
+                    "attempt_root": str(attempt),
+                    "capture_output": str(capture),
+                    "capture_stdout": str(attempt / "capture_stdout.log"),
+                    "capture_stderr": str(attempt / "capture_stderr.log"),
+                    "candidate_source_records": {"source": _record(source)},
+                    "interpreter_preflight_receipt": _record(probe),
+                    "required_repo_commit": "a" * 40,
+                    "required_clean_worktree": True,
+                    "frame_indices": [BASE.FRAME_INDEX],
+                    "full75_allowed": False,
+                    "physical_gpu_index": 1,
+                    "physical_gpu_uuid": BASE.GPU1_UUID,
+                    "graphics_adapter_argument": 1,
+                    "required_idle_compute_process_count": 0,
+                    "rpc_port": V2.V2_RPC_PORT,
+                    "gpu_capture_authorized_at_prepare": False,
+                    "qualification_claim": False,
+                    "formal_dataset_count": 0,
+                }
+            )
+            _write_json(attempt / "request.json", request)
+            source.write_text("new\n", encoding="utf-8")
+            with (
+                mock.patch.object(V2, "REPOSITORY", repo),
+                mock.patch.object(BASE, "_require_clean_head", return_value="b" * 40),
+                mock.patch.object(
+                    V2,
+                    "_validate_probe_receipt",
+                    return_value={"stdout": _record(stdout), "stderr": _record(stderr)},
+                ),
+                mock.patch.object(BASE, "_validate_file_record"),
+            ):
+                receipt_path = V2.archive_stale_preparation_v2(atom_root=atom)
+            archive = atom / V2.V2_STALE_PREPARATION_ARCHIVE_DIRECTORY
+            self.assertEqual(receipt_path.parent, archive)
+            self.assertFalse(attempt.exists())
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            reason = json.loads(receipt["reason"])
+            self.assertEqual(reason["code"], "source_record_and_repository_head_drift")
+            self.assertEqual(set(reason["source_drift"]), {"source"})
+            self.assertFalse(receipt["attempt_consumed"])
+            self.assertFalse(receipt["gpu_started"])
+            self.assertEqual(receipt["formal_dataset_count"], 0)
+
+    def test_stale_v2_archive_requires_real_source_drift(self) -> None:
+        self.assertIn("pre_gpu_launch_ledger", V2._v2_source_paths())
+
     def test_v1_ledger_freezes_environment_failure_and_zero_frames(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory).resolve()

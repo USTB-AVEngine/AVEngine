@@ -31,6 +31,11 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 import run_strict_two_human_skokloster_f15_probe as base  # noqa: E402
+from pre_gpu_launch_ledger import (  # noqa: E402
+    PreparedAttemptSpec,
+    PreservedFileIdentity,
+    archive_prepared_attempt,
+)
 
 REQUEST_SCHEMA = "avengine_skokloster_strict_two_human_f15_launch_request_v2"
 RECEIPT_SCHEMA = "avengine_skokloster_strict_two_human_f15_launch_receipt_v2"
@@ -42,6 +47,9 @@ CANDIDATE_REVISION = "revision_v2_authoritative_spear_interpreter_binding"
 V2_ATTEMPT_DIRECTORY = "diagnostic_f15_revision_v2_launch_attempt_01"
 V2_CAPTURE_DIRECTORY = "diagnostic_f15_revision_v2_capture_attempt_01"
 V2_RPC_PORT = 39832
+V2_STALE_PREPARATION_ARCHIVE_DIRECTORY = (
+    "diagnostic_f15_revision_v2_prepare_superseded_source_drift_01"
+)
 AUTHORITATIVE_CAPTURE_PYTHON_LOGICAL = Path(
     "/data/jzy/miniconda3/envs/spear-env/bin/python"
 )
@@ -67,6 +75,57 @@ EXPECTED_DEPENDENCIES = {
     "spear": {"distribution_version": "1.0.0"},
     "spear_ext": {"distribution_version": "1.0.0"},
 }
+V2_REQUEST_KEYS = frozenset(
+    {
+        "artifact_records",
+        "atom_root",
+        "attempt_policy",
+        "attempt_root",
+        "audio_wav",
+        "candidate_change_contract",
+        "candidate_revision",
+        "candidate_source_records",
+        "capture_output",
+        "capture_python",
+        "capture_python_logical",
+        "capture_python_realpath",
+        "capture_script",
+        "capture_stderr",
+        "capture_stdout",
+        "cpu_validation",
+        "created_at_utc",
+        "episode_id",
+        "explicit_gpu_capture_authorization_required",
+        "formal_dataset_count",
+        "frame_indices",
+        "full75_allowed",
+        "gpu_capture_authorized_at_prepare",
+        "graphics_adapter_argument",
+        "interpreter_preflight_receipt",
+        "manual_visual_review_required",
+        "mp3d_revision_v2_terminal_receipt",
+        "mp3d_revision_v2_terminal_required_before_real_launch",
+        "official_env_contract",
+        "package_records",
+        "packaged_executable",
+        "packaged_map",
+        "physical_gpu_index",
+        "physical_gpu_uuid",
+        "predecessor_v1_failure_ledger",
+        "qualification_claim",
+        "repo_root",
+        "required_clean_worktree",
+        "required_idle_compute_process_count",
+        "required_repo_commit",
+        "rpc_port",
+        "scene_id",
+        "schema",
+        "spear_root",
+        "status",
+        "suite_plan",
+        "visibility_gate",
+    }
+)
 
 INTERPRETER_PROBE_CODE = r"""
 import importlib
@@ -624,7 +683,170 @@ def _v2_source_paths() -> dict[str, Path]:
         "base_capture_runner": REPOSITORY
         / "tools/qa/capture_spear_native_pixel_episode.py",
         "official_env_recipe": _official_env_recipe(),
+        "pre_gpu_launch_ledger": REPOSITORY / "tools/qa/pre_gpu_launch_ledger.py",
     }
+
+
+def _record_identity(record: Mapping[str, Any], *, owner: str) -> PreservedFileIdentity:
+    byte_size = record.get("byte_size")
+    sha256 = record.get("sha256")
+    base._require(
+        isinstance(byte_size, int)
+        and not isinstance(byte_size, bool)
+        and byte_size >= 0
+        and isinstance(sha256, str),
+        f"{owner} identity is invalid",
+    )
+    return PreservedFileIdentity(byte_size=byte_size, sha256=sha256)
+
+
+def _stale_v2_source_drift(
+    request: Mapping[str, Any], *, repo_root: Path
+) -> dict[str, dict[str, Any]]:
+    records = request.get("candidate_source_records")
+    base._require(isinstance(records, Mapping) and records, "v2 source records missing")
+    drift: dict[str, dict[str, Any]] = {}
+    seen_paths: set[Path] = set()
+    for name, value in records.items():
+        base._require(
+            isinstance(name, str) and isinstance(value, Mapping),
+            "v2 source record invalid",
+        )
+        raw_path = value.get("path")
+        base._require(isinstance(raw_path, str), f"v2 source path invalid: {name}")
+        path = Path(raw_path).resolve()
+        base._require(
+            path.is_relative_to(repo_root) and path not in seen_paths,
+            f"v2 source path escapes or repeats: {name}",
+        )
+        seen_paths.add(path)
+        recorded = _record_identity(value, owner=f"v2 source {name}")
+        base._require(path.is_file(), f"current v2 source is missing: {name}")
+        current = base._file_record(path)
+        if (
+            current["byte_size"] != recorded.byte_size
+            or current["sha256"] != recorded.sha256
+        ):
+            drift[name] = {
+                "path": str(path),
+                "recorded": {
+                    "byte_size": recorded.byte_size,
+                    "sha256": recorded.sha256,
+                },
+                "current": {
+                    "byte_size": current["byte_size"],
+                    "sha256": current["sha256"],
+                },
+            }
+    return drift
+
+
+def archive_stale_preparation_v2(*, atom_root: Path) -> Path:
+    """Archive the exact CPU-probed v2 request after source/HEAD drift."""
+
+    repo_root = REPOSITORY.resolve()
+    atom_root = atom_root.resolve()
+    base._require(
+        atom_root == repo_root / base.ATOM_DIRECTORY, "Skokloster atom root drift"
+    )
+    current_head = base._require_clean_head(repo_root)
+    attempt_root = atom_root / V2_ATTEMPT_DIRECTORY
+    archive_root = atom_root / V2_STALE_PREPARATION_ARCHIVE_DIRECTORY
+    request_path = attempt_root / "request.json"
+    request = _load_required(request_path, owner="stale Skokloster v2 request")
+    base._require(set(request) == V2_REQUEST_KEYS, "stale v2 request key closure drift")
+    base._require(
+        request.get("schema") == REQUEST_SCHEMA
+        and request.get("status") == "prepared_not_launched"
+        and request.get("candidate_revision") == CANDIDATE_REVISION
+        and request.get("episode_id") == base.EPISODE_ID
+        and request.get("scene_id") == base.SCENE_ID
+        and request.get("formal_dataset_count") == 0
+        and request.get("qualification_claim") is False
+        and request.get("gpu_capture_authorized_at_prepare") is False
+        and request.get("full75_allowed") is False
+        and request.get("frame_indices") == [base.FRAME_INDEX],
+        "stale v2 request identity drift",
+    )
+    recorded_head = request.get("required_repo_commit")
+    base._require(
+        isinstance(recorded_head, str) and recorded_head != current_head,
+        "stale v2 archive requires repository HEAD drift",
+    )
+    source_drift = _stale_v2_source_drift(request, repo_root=repo_root)
+    base._require(source_drift, "stale v2 archive requires source-record drift")
+
+    probe_path = attempt_root / "interpreter_preflight_receipt.json"
+    probe = _validate_probe_receipt(probe_path)
+    probe_record = request.get("interpreter_preflight_receipt")
+    base._require(isinstance(probe_record, Mapping), "request probe record missing")
+    base._validate_file_record(probe_record, owner="request interpreter probe")
+    stdout = probe.get("stdout")
+    stderr = probe.get("stderr")
+    base._require(
+        isinstance(stdout, Mapping) and isinstance(stderr, Mapping),
+        "probe log records missing",
+    )
+    preserved = {
+        "interpreter_preflight_receipt.json": _record_identity(
+            probe_record, owner="interpreter preflight receipt"
+        ),
+        "interpreter_probe_stdout.log": _record_identity(
+            stdout, owner="interpreter probe stdout"
+        ),
+        "interpreter_probe_stderr.log": _record_identity(
+            stderr, owner="interpreter probe stderr"
+        ),
+    }
+    expected_paths = {
+        "repo_root": repo_root,
+        "atom_root": atom_root,
+        "attempt_root": attempt_root,
+        "capture_output": atom_root / V2_CAPTURE_DIRECTORY,
+        "capture_stdout": attempt_root / "capture_stdout.log",
+        "capture_stderr": attempt_root / "capture_stderr.log",
+    }
+    spec = PreparedAttemptSpec(
+        request_schema=REQUEST_SCHEMA,
+        request_keys=V2_REQUEST_KEYS,
+        workspace_roots=(atom_root,),
+        expected_fields={
+            "candidate_revision": CANDIDATE_REVISION,
+            "episode_id": base.EPISODE_ID,
+            "scene_id": base.SCENE_ID,
+            "required_repo_commit": recorded_head,
+            "required_clean_worktree": True,
+            "frame_indices": [base.FRAME_INDEX],
+            "full75_allowed": False,
+            "physical_gpu_index": 1,
+            "physical_gpu_uuid": base.GPU1_UUID,
+            "graphics_adapter_argument": 1,
+            "required_idle_compute_process_count": 0,
+            "rpc_port": V2_RPC_PORT,
+            "gpu_capture_authorized_at_prepare": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        },
+        expected_paths=expected_paths,
+        forbidden_paths=(atom_root / V2_CAPTURE_DIRECTORY,),
+        preserved_files=preserved,
+    )
+    reason = json.dumps(
+        {
+            "code": "source_record_and_repository_head_drift",
+            "recorded_head": recorded_head,
+            "current_head": current_head,
+            "source_drift": source_drift,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return archive_prepared_attempt(
+        attempt_root=attempt_root,
+        archive_root=archive_root,
+        spec=spec,
+        reason=reason,
+    )
 
 
 def _capture_argv_v2(request: Mapping[str, Any]) -> list[str]:
@@ -1187,6 +1409,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
     ledger = subparsers.add_parser("record-v1-failure")
     ledger.add_argument("--atom-root", required=True, type=Path)
+    archive = subparsers.add_parser("archive-stale-v2-preparation")
+    archive.add_argument("--atom-root", required=True, type=Path)
     prepare = subparsers.add_parser("prepare-v2")
     prepare.add_argument("--atom-root", required=True, type=Path)
     prepare.add_argument(
@@ -1213,6 +1437,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "record-v1-failure":
         path = record_v1_terminal_failure(atom_root=args.atom_root)
         print(f"SKOK_V1_FAILURE_LEDGER_RECORDED ledger={path} formal=0", flush=True)
+        return 0
+    if args.command == "archive-stale-v2-preparation":
+        path = archive_stale_preparation_v2(atom_root=args.atom_root)
+        print(f"SKOK_F15_V2_PREPARATION_ARCHIVED receipt={path} formal=0", flush=True)
         return 0
     if args.command == "prepare-v2":
         path = prepare_request_v2(
