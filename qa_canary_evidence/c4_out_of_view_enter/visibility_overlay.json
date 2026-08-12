@@ -1,0 +1,18 @@
+{
+  "description": "每帧目标可见性状态变化",
+  "events": [
+    {
+      "actor_id": "dog_01",
+      "event_type": "enter_frustum",
+      "frame_index": 3
+    }
+  ],
+  "frame_count": 5,
+  "per_frame_states": [
+    "out_of_view",
+    "out_of_view",
+    "out_of_view",
+    "visible_clear",
+    "visible_clear"
+  ]
+}

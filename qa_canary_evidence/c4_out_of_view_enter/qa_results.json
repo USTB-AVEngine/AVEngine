@@ -1,0 +1,16 @@
+{
+  "all_passed": true,
+  "canary_id": "c4_out_of_view_enter",
+  "results": [
+    {
+      "answer_text": "左侧",
+      "answer_unique": true,
+      "canary_id": "c4_out_of_view_enter",
+      "expected_answer": "左侧",
+      "fact_observable": true,
+      "passed": true,
+      "question_text": "狗从哪侧进入？",
+      "question_type": "enter_frustum_direction"
+    }
+  ]
+}

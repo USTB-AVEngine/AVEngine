@@ -1,0 +1,16 @@
+{
+  "all_passed": true,
+  "canary_id": "c5_camera_motion_reappear",
+  "results": [
+    {
+      "answer_text": "完全遮挡",
+      "answer_unique": true,
+      "canary_id": "c5_camera_motion_reappear",
+      "expected_answer": "完全遮挡",
+      "fact_observable": true,
+      "passed": true,
+      "question_text": "比格犬叫时是否可见？",
+      "question_type": "sound_visibility"
+    }
+  ]
+}

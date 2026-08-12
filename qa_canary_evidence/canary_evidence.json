@@ -1,0 +1,52 @@
+{
+  "all_passed": true,
+  "canaries": [
+    {
+      "all_passed": true,
+      "canary_id": "c1_fully_visible",
+      "episode_path": "c1_fully_visible/episode.json",
+      "qa_count": 2,
+      "qa_passed": 2,
+      "qa_results_path": "c1_fully_visible/qa_results.json",
+      "visibility_overlay_path": "c1_fully_visible/visibility_overlay.json"
+    },
+    {
+      "all_passed": true,
+      "canary_id": "c2_partial_occlusion",
+      "episode_path": "c2_partial_occlusion/episode.json",
+      "qa_count": 1,
+      "qa_passed": 1,
+      "qa_results_path": "c2_partial_occlusion/qa_results.json",
+      "visibility_overlay_path": "c2_partial_occlusion/visibility_overlay.json"
+    },
+    {
+      "all_passed": true,
+      "canary_id": "c3_fully_occluded",
+      "episode_path": "c3_fully_occluded/episode.json",
+      "qa_count": 1,
+      "qa_passed": 1,
+      "qa_results_path": "c3_fully_occluded/qa_results.json",
+      "visibility_overlay_path": "c3_fully_occluded/visibility_overlay.json"
+    },
+    {
+      "all_passed": true,
+      "canary_id": "c4_out_of_view_enter",
+      "episode_path": "c4_out_of_view_enter/episode.json",
+      "qa_count": 1,
+      "qa_passed": 1,
+      "qa_results_path": "c4_out_of_view_enter/qa_results.json",
+      "visibility_overlay_path": "c4_out_of_view_enter/visibility_overlay.json"
+    },
+    {
+      "all_passed": true,
+      "canary_id": "c5_camera_motion_reappear",
+      "episode_path": "c5_camera_motion_reappear/episode.json",
+      "qa_count": 1,
+      "qa_passed": 1,
+      "qa_results_path": "c5_camera_motion_reappear/qa_results.json",
+      "visibility_overlay_path": "c5_camera_motion_reappear/visibility_overlay.json"
+    }
+  ],
+  "canary_count": 5,
+  "schema": "avengine_qa_canary_evidence_v1"
+}
