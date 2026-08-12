@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from avengine.m5_1.camera_candidate_gate import (
     CameraCandidateGateError,
+    HabitatRuntimeCameraProvider,
     evaluate_camera_candidates,
 )
 
@@ -306,3 +308,138 @@ def test_endpoint_policy_must_be_full_ray_without_provider_tolerance() -> None:
     provider.line_of_sight_nearest_hit = shortened_ray  # type: ignore[attr-defined]
     with pytest.raises(CameraCandidateGateError, match="endpoint_policy differs"):
         _evaluate(inputs)
+
+
+class FakeRay:
+    def __init__(self, origin: np.ndarray, direction: np.ndarray) -> None:
+        self.origin = np.asarray(origin, dtype=np.float64)
+        self.direction = np.asarray(direction, dtype=np.float64)
+
+
+class FakeHabitatSimulator:
+    def __init__(self) -> None:
+        self.pathfinder = SimpleNamespace(is_loaded=True)
+        self.config = SimpleNamespace(
+            sim_cfg=SimpleNamespace(enable_physics=True, scene_id="mp3d-room")
+        )
+        self.curr_scene_name = "mp3d-room"
+        self.active_dataset = "mp3d-dataset"
+        self.scene_aabb = ([-4.0, -1.0, -5.0], [4.0, 4.0, 3.0])
+        self.hits: list[object] = []
+        self.last_cast: tuple[object, float, float] | None = None
+
+    def get_physics_simulation_library(self) -> str:
+        return "bullet"
+
+    def get_stage_initialization_template(self) -> object:
+        return SimpleNamespace(render_asset_fullpath="/scenes/mp3d-room.glb")
+
+    def cast_ray(
+        self, ray: object, *, max_distance: float, buffer_distance: float
+    ) -> object:
+        self.last_cast = (ray, max_distance, buffer_distance)
+        return SimpleNamespace(has_hits=lambda: bool(self.hits), hits=self.hits)
+
+
+def _real_provider(simulator: FakeHabitatSimulator) -> HabitatRuntimeCameraProvider:
+    habitat = SimpleNamespace(geo=SimpleNamespace(Ray=FakeRay))
+    magnum = SimpleNamespace(Vector3=lambda value: np.asarray(value, dtype=np.float64))
+    return HabitatRuntimeCameraProvider(
+        simulator,
+        habitat,
+        magnum,
+        "mp3d-room",
+        provider_id="mp3d-runtime-01",
+    )
+
+
+def test_habitat_provider_uses_loaded_scene_bounds_and_complete_zero_buffer_ray() -> (
+    None
+):
+    simulator = FakeHabitatSimulator()
+    provider = _real_provider(simulator)
+
+    assert provider.pathfinder is simulator.pathfinder
+    assert provider.room_bounds_m == {
+        "minimum_m": [-4.0, -1.0, -5.0],
+        "maximum_m": [4.0, 4.0, 3.0],
+    }
+    assert provider.runtime_context["room_bounds_source"] == "loaded_scene_aabb"
+    assert provider.runtime_context["active_dataset"] == "mp3d-dataset"
+    assert provider.runtime_context["stage_surface"] == "/scenes/mp3d-room.glb"
+
+    evidence = provider.line_of_sight_nearest_hit([0.0, 1.0, 0.0], [3.0, 1.0, 4.0])
+    ray, max_distance, buffer_distance = simulator.last_cast  # type: ignore[misc]
+    assert np.allclose(ray.origin, [0.0, 1.0, 0.0])
+    assert np.allclose(ray.direction, [0.6, 0.0, 0.8])
+    assert max_distance == 5.0
+    assert buffer_distance == 0.0
+    assert evidence["nearest_hit_distance_m"] is None
+    assert evidence["endpoint_policy"] == ("full_ray_buffer_zero_no_endpoint_tolerance")
+
+
+def test_habitat_provider_returns_nearest_actual_hit() -> None:
+    simulator = FakeHabitatSimulator()
+    simulator.hits = [
+        SimpleNamespace(
+            ray_distance=3.0,
+            object_id=9,
+            point=[0.0, 1.0, -3.0],
+            normal=[0.0, 0.0, 1.0],
+        ),
+        SimpleNamespace(
+            ray_distance=1.5,
+            object_id=4,
+            point=[0.0, 1.0, -1.5],
+            normal=[0.0, 0.0, 1.0],
+        ),
+    ]
+    evidence = _real_provider(simulator).line_of_sight_nearest_hit(
+        [0.0, 1.0, 0.0], [0.0, 1.0, -4.0]
+    )
+
+    assert evidence["nearest_hit_distance_m"] == 1.5
+    assert evidence["nearest_hit"] == {
+        "object_id": 4,
+        "point_m": [0.0, 1.0, -1.5],
+        "normal": [0.0, 0.0, 1.0],
+    }
+
+
+@pytest.mark.parametrize("mutation", ["physics", "scene", "pathfinder"])
+def test_habitat_provider_fails_closed_on_runtime_mismatch(mutation: str) -> None:
+    simulator = FakeHabitatSimulator()
+    if mutation == "physics":
+        simulator.config.sim_cfg.enable_physics = False
+    elif mutation == "scene":
+        simulator.curr_scene_name = "different-room"
+    else:
+        simulator.pathfinder.is_loaded = False
+
+    with pytest.raises(CameraCandidateGateError):
+        _real_provider(simulator)
+
+
+def test_habitat_provider_supports_distinct_configured_and_loaded_scene_ids() -> None:
+    simulator = FakeHabitatSimulator()
+    simulator.config.sim_cfg.scene_id = "/datasets/mp3d/room.glb"
+    simulator.curr_scene_name = "mp3d-room-instance"
+    habitat = SimpleNamespace(geo=SimpleNamespace(Ray=FakeRay))
+    magnum = SimpleNamespace(Vector3=lambda value: np.asarray(value, dtype=np.float64))
+
+    provider = HabitatRuntimeCameraProvider(
+        simulator,
+        habitat,
+        magnum,
+        {
+            "configured_scene_id": "/datasets/mp3d/room.glb",
+            "loaded_scene_id": "mp3d-room-instance",
+            "active_dataset": "mp3d-dataset",
+            "stage_surface": "/scenes/mp3d-room.glb",
+        },
+    )
+
+    assert provider.runtime_context["configured_scene_id"] == (
+        "/datasets/mp3d/room.glb"
+    )
+    assert provider.runtime_context["scene_id"] == "mp3d-room-instance"

@@ -34,12 +34,19 @@ def _finite(value: Any, *, owner: str) -> float:
 
 
 def _vec3(value: Any, *, owner: str) -> np.ndarray:
-    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+    if isinstance(value, (str, bytes)):
         raise CameraCandidateGateError(f"{owner} must contain three numbers")
-    if len(value) != 3:
+    try:
+        components = list(value)
+    except TypeError as error:
+        raise CameraCandidateGateError(f"{owner} must contain three numbers") from error
+    if len(components) != 3:
         raise CameraCandidateGateError(f"{owner} must contain three numbers")
     return np.asarray(
-        [_finite(item, owner=f"{owner}[{index}]") for index, item in enumerate(value)],
+        [
+            _finite(item, owner=f"{owner}[{index}]")
+            for index, item in enumerate(components)
+        ],
         dtype=np.float64,
     )
 
@@ -60,6 +67,217 @@ def _identifier(value: Any, *, owner: str) -> str:
 
 def _status(passed: bool, **evidence: Any) -> dict[str, Any]:
     return {"status": "pass" if passed else "fail", **evidence}
+
+
+def _runtime_bounds(value: Any, *, owner: str) -> tuple[np.ndarray, np.ndarray]:
+    """Read a Magnum Range3D or a two-vector bounds tuple."""
+
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if len(value) != 2:
+            raise CameraCandidateGateError(f"{owner} must contain two corners")
+        minimum_value, maximum_value = value
+    else:
+        minimum_value = getattr(value, "min", None)
+        maximum_value = getattr(value, "max", None)
+        if callable(minimum_value):
+            minimum_value = minimum_value()
+        if callable(maximum_value):
+            maximum_value = maximum_value()
+    minimum = _vec3(minimum_value, owner=f"{owner}.minimum")
+    maximum = _vec3(maximum_value, owner=f"{owner}.maximum")
+    if np.any(minimum >= maximum):
+        raise CameraCandidateGateError(f"{owner} minimum must be smaller than maximum")
+    return minimum, maximum
+
+
+class HabitatRuntimeCameraProvider:
+    """Bind camera admission queries to one loaded Habitat simulator.
+
+    Every capability claim below is read from the simulator.  The caller only
+    declares the scene identity it expects; it cannot supply navigation,
+    physics, bounds, or raycast booleans.
+    """
+
+    def __init__(
+        self,
+        simulator: Any,
+        habitat_sim: Any,
+        mn: Any,
+        declared_scene_id: Any,
+        *,
+        provider_id: Any = "habitat-runtime-camera-provider",
+    ) -> None:
+        self._simulator = simulator
+        self._habitat_sim = habitat_sim
+        self._mn = mn
+        if isinstance(declared_scene_id, Mapping):
+            expected_configured_scene = _identifier(
+                declared_scene_id.get("configured_scene_id"),
+                owner="declared configured_scene_id",
+            )
+            expected_loaded_scene = _identifier(
+                declared_scene_id.get("loaded_scene_id"),
+                owner="declared loaded_scene_id",
+            )
+            expected_dataset = _identifier(
+                declared_scene_id.get("active_dataset"),
+                owner="declared active_dataset",
+            )
+            expected_stage_surface = _identifier(
+                declared_scene_id.get("stage_surface"),
+                owner="declared stage_surface",
+            )
+        else:
+            expected_scene = _identifier(declared_scene_id, owner="declared_scene_id")
+            expected_configured_scene = expected_scene
+            expected_loaded_scene = expected_scene
+            expected_dataset = None
+            expected_stage_surface = None
+        owner_id = _identifier(provider_id, owner="provider_id")
+
+        pathfinder = getattr(simulator, "pathfinder", None)
+        if pathfinder is None or getattr(pathfinder, "is_loaded", None) is not True:
+            raise CameraCandidateGateError("Habitat runtime pathfinder is not loaded")
+        self.pathfinder = pathfinder
+
+        config = getattr(simulator, "config", None)
+        sim_cfg = getattr(config, "sim_cfg", None)
+        if getattr(sim_cfg, "enable_physics", None) is not True:
+            raise CameraCandidateGateError("Habitat runtime physics is not enabled")
+        configured_scene = _identifier(
+            getattr(sim_cfg, "scene_id", None), owner="configured Habitat scene_id"
+        )
+        loaded_scene = _identifier(
+            getattr(simulator, "curr_scene_name", None),
+            owner="loaded Habitat scene_id",
+        )
+        if (
+            configured_scene != expected_configured_scene
+            or loaded_scene != expected_loaded_scene
+        ):
+            raise CameraCandidateGateError(
+                "configured or loaded Habitat scene identity differs from declaration"
+            )
+
+        cast_ray = getattr(simulator, "cast_ray", None)
+        if not callable(cast_ray):
+            raise CameraCandidateGateError("Habitat runtime cast_ray is unavailable")
+        self._cast_ray = cast_ray
+
+        library_query = getattr(simulator, "get_physics_simulation_library", None)
+        if not callable(library_query):
+            raise CameraCandidateGateError(
+                "Habitat runtime physics-library readback is unavailable"
+            )
+        physics_library = _identifier(
+            str(library_query()), owner="Habitat physics library"
+        )
+        library_key = physics_library.casefold().replace("-", "_").replace(" ", "_")
+        if library_key in {"none", "no_physics", "nophysics"}:
+            raise CameraCandidateGateError("Habitat runtime has no physics library")
+
+        active_dataset = _identifier(
+            str(getattr(simulator, "active_dataset", "")),
+            owner="loaded Habitat dataset",
+        )
+        stage_query = getattr(simulator, "get_stage_initialization_template", None)
+        if not callable(stage_query):
+            raise CameraCandidateGateError(
+                "Habitat runtime stage-template readback is unavailable"
+            )
+        stage = stage_query()
+        stage_surface = _identifier(
+            str(getattr(stage, "render_asset_fullpath", "")),
+            owner="loaded Habitat stage surface",
+        )
+        if expected_dataset is not None and active_dataset != expected_dataset:
+            raise CameraCandidateGateError(
+                "loaded Habitat dataset differs from declaration"
+            )
+        if (
+            expected_stage_surface is not None
+            and stage_surface != expected_stage_surface
+        ):
+            raise CameraCandidateGateError(
+                "loaded Habitat stage surface differs from declaration"
+            )
+
+        scene_bounds = getattr(simulator, "scene_aabb", None)
+        if scene_bounds is None:
+            raise CameraCandidateGateError("Habitat runtime scene_aabb is unavailable")
+        minimum, maximum = _runtime_bounds(scene_bounds, owner="scene_aabb")
+        self.room_bounds_m = {
+            "minimum_m": minimum.tolist(),
+            "maximum_m": maximum.tolist(),
+        }
+        self.runtime_context = {
+            "provider_id": owner_id,
+            "scene_id": loaded_scene,
+            "configured_scene_id": configured_scene,
+            "active_dataset": active_dataset,
+            "stage_surface": stage_surface,
+            "physics_library": physics_library,
+            "pathfinder_loaded": True,
+            "physics_enabled": True,
+            "raycast_enabled": True,
+            "room_bounds_source": "loaded_scene_aabb",
+        }
+
+    def line_of_sight_nearest_hit(
+        self, origin: list[float], target: list[float]
+    ) -> dict[str, Any]:
+        origin_vector = _vec3(origin, owner="ray origin")
+        target_vector = _vec3(target, owner="ray target")
+        delta = target_vector - origin_vector
+        target_distance = float(np.linalg.norm(delta))
+        if target_distance <= 1.0e-9:
+            raise CameraCandidateGateError("ray origin and target must differ")
+        direction = delta / target_distance
+        ray = self._habitat_sim.geo.Ray(
+            self._mn.Vector3(origin_vector), self._mn.Vector3(direction)
+        )
+        result = self._cast_ray(ray, max_distance=target_distance, buffer_distance=0.0)
+        has_hits = getattr(result, "has_hits", None)
+        if not callable(has_hits):
+            raise CameraCandidateGateError("Habitat cast_ray returned invalid results")
+
+        nearest_distance: float | None = None
+        nearest_hit: Any = None
+        hits = list(getattr(result, "hits", ()))
+        if bool(has_hits()) != bool(hits):
+            raise CameraCandidateGateError("Habitat ray hit status and hit list differ")
+        for hit in hits:
+            distance = _nonnegative(
+                getattr(hit, "ray_distance", None), owner="Habitat ray hit distance"
+            )
+            if nearest_distance is None or distance < nearest_distance:
+                nearest_distance = distance
+                nearest_hit = hit
+
+        context = self.runtime_context
+        evidence: dict[str, Any] = {
+            "provider_id": context["provider_id"],
+            "scene_id": context["scene_id"],
+            "physics_enabled": True,
+            "raycast_enabled": True,
+            "endpoint_policy": "full_ray_buffer_zero_no_endpoint_tolerance",
+            "ray_origin_m": origin_vector.tolist(),
+            "ray_direction_unit": direction.tolist(),
+            "ray_max_distance_m": target_distance,
+            "ray_buffer_distance_m": 0.0,
+            "nearest_hit_distance_m": nearest_distance,
+        }
+        if nearest_hit is not None:
+            evidence["nearest_hit"] = {
+                "object_id": int(getattr(nearest_hit, "object_id")),
+                "point_m": _vec3(
+                    getattr(nearest_hit, "point", None), owner="Habitat hit point"
+                ).tolist(),
+                "normal": _vec3(
+                    getattr(nearest_hit, "normal", None), owner="Habitat hit normal"
+                ).tolist(),
+            }
+        return evidence
 
 
 def _room_bounds(value: Any) -> tuple[np.ndarray, np.ndarray]:
@@ -104,15 +322,18 @@ def _runtime_provider(value: Any) -> tuple[Any, Any, Any, dict[str, Any]]:
             raise CameraCandidateGateError(
                 f"runtime_context.{field_name} must be explicitly true"
             )
-    if value.get("room_bounds_source") != "loaded_scene_pathfinder_bounds":
+    if value.get("room_bounds_source") not in {
+        "loaded_scene_aabb",
+        "loaded_scene_pathfinder_bounds",
+    }:
         raise CameraCandidateGateError(
-            "runtime_context.room_bounds_source must be loaded_scene_pathfinder_bounds"
+            "runtime_context.room_bounds_source must identify loaded runtime bounds"
         )
     context = {
         "provider_id": provider_id,
         "scene_id": scene_id,
         **required,
-        "room_bounds_source": "loaded_scene_pathfinder_bounds",
+        "room_bounds_source": value["room_bounds_source"],
     }
     if room_bounds_m is None:
         raise CameraCandidateGateError(
