@@ -56,6 +56,14 @@ AUTHORITATIVE_CAPTURE_PYTHON_LOGICAL = Path(
 AUTHORITATIVE_ENV_PREFIX = Path("/data/jzy/miniconda3/envs/spear-env")
 OFFICIAL_ENV_RECIPE_RELATIVE = Path("envs/spear-env.yml")
 OFFICIAL_ENV_GIT_REF = "origin/main"
+AUTHORITATIVE_REPOSITORY = "USTB-AVEngine/AVEngine"
+AUTHORITATIVE_REMOTE_URLS = frozenset(
+    {
+        "https://github.com/USTB-AVEngine/AVEngine.git",
+        "git@github.com:USTB-AVEngine/AVEngine.git",
+        "ssh://git@github.com/USTB-AVEngine/AVEngine.git",
+    }
+)
 V1_EXCEPTION = "ModuleNotFoundError: No module named 'numpy'"
 V2_ATTEMPT_POLICY = {
     **base.ATTEMPT_POLICY,
@@ -232,8 +240,8 @@ def _origin_main_env_contract() -> dict[str, Any]:
     _validate_official_env_recipe(recipe)
     remote_url = _git_text("remote", "get-url", "origin").strip()
     base._require(
-        "Eastforward/AVEngine" in remote_url,
-        "origin is not the authoritative Eastforward/AVEngine repository",
+        remote_url in AUTHORITATIVE_REMOTE_URLS,
+        "origin is not an exact authoritative USTB-AVEngine/AVEngine remote",
     )
     commit = _git_text("rev-parse", OFFICIAL_ENV_GIT_REF).strip()
     base._require(len(commit) == 40, "origin/main is not a full commit id")
@@ -245,7 +253,7 @@ def _origin_main_env_contract() -> dict[str, Any]:
         "working spear-env recipe differs from origin/main",
     )
     return {
-        "repository": "Eastforward/AVEngine",
+        "repository": AUTHORITATIVE_REPOSITORY,
         "remote_url": remote_url,
         "git_ref": OFFICIAL_ENV_GIT_REF,
         "commit": commit,

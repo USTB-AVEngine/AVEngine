@@ -162,8 +162,8 @@ def _write_v1_terminal(atom: Path, *, bound_python: str) -> dict[str, Path]:
 def _identity_patch(repo: Path, official_python: Path):
     def origin_main_contract():
         return {
-            "repository": "Eastforward/AVEngine",
-            "remote_url": "git@github.com:Eastforward/AVEngine.git",
+            "repository": "USTB-AVEngine/AVEngine",
+            "remote_url": "https://github.com/USTB-AVEngine/AVEngine.git",
             "git_ref": V2.OFFICIAL_ENV_GIT_REF,
             "commit": "f" * 40,
             "recipe_path": str(V2.OFFICIAL_ENV_RECIPE_RELATIVE),
@@ -341,7 +341,7 @@ class SkoklosterF15V2LauncherTests(unittest.TestCase):
 
             def git_text(*args: str) -> str:
                 if args == ("remote", "get-url", "origin"):
-                    return "git@github.com:Eastforward/AVEngine.git\n"
+                    return "git@github.com:USTB-AVEngine/AVEngine.git\n"
                 if args == ("rev-parse", "origin/main"):
                     return expected_commit + "\n"
                 if args == ("show", "origin/main:envs/spear-env.yml"):
@@ -355,7 +355,7 @@ class SkoklosterF15V2LauncherTests(unittest.TestCase):
             ):
                 contract = V2._origin_main_env_contract()
 
-            self.assertEqual(contract["repository"], "Eastforward/AVEngine")
+            self.assertEqual(contract["repository"], "USTB-AVEngine/AVEngine")
             self.assertEqual(contract["git_ref"], "origin/main")
             self.assertEqual(contract["commit"], expected_commit)
             self.assertEqual(contract["environment_name"], "spear-env")
@@ -370,7 +370,7 @@ class SkoklosterF15V2LauncherTests(unittest.TestCase):
 
             def git_text(*args: str) -> str:
                 if args == ("remote", "get-url", "origin"):
-                    return "https://github.com/Eastforward/AVEngine.git\n"
+                    return "https://github.com/USTB-AVEngine/AVEngine.git\n"
                 if args == ("rev-parse", "origin/main"):
                     return "c" * 40 + "\n"
                 if args == ("show", "origin/main:envs/spear-env.yml"):
@@ -383,6 +383,55 @@ class SkoklosterF15V2LauncherTests(unittest.TestCase):
                 self.assertRaisesRegex(RuntimeError, "differs from origin/main"),
             ):
                 V2._origin_main_env_contract()
+
+    def test_origin_main_contract_accepts_only_exact_ustb_remote_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            recipe = repo / V2.OFFICIAL_ENV_RECIPE_RELATIVE
+            _write_recipe(recipe)
+            official = repo / "conda/envs/spear-env/bin/python"
+
+            for remote_url in V2.AUTHORITATIVE_REMOTE_URLS:
+
+                def git_text(*args: str, remote_url: str = remote_url) -> str:
+                    if args == ("remote", "get-url", "origin"):
+                        return remote_url + "\n"
+                    if args == ("rev-parse", "origin/main"):
+                        return "d" * 40 + "\n"
+                    if args == ("show", "origin/main:envs/spear-env.yml"):
+                        return recipe.read_text(encoding="utf-8")
+                    raise AssertionError(f"unexpected git query: {args}")
+
+                with (
+                    self.subTest(remote_url=remote_url),
+                    mock.patch.object(V2, "REPOSITORY", repo),
+                    mock.patch.object(
+                        V2, "AUTHORITATIVE_CAPTURE_PYTHON_LOGICAL", official
+                    ),
+                    mock.patch.object(V2, "_git_text", side_effect=git_text),
+                ):
+                    self.assertEqual(
+                        V2._origin_main_env_contract()["remote_url"], remote_url
+                    )
+
+            for remote_url in (
+                "git@github.com:Eastforward/AVEngine.git",
+                "https://github.com/Eastforward/AVEngine.git",
+                "https://github.com/USTB-AVEngine/AVEngine.git.evil.example",
+            ):
+
+                def rejected_git_text(*args: str, remote_url: str = remote_url) -> str:
+                    if args == ("remote", "get-url", "origin"):
+                        return remote_url + "\n"
+                    raise AssertionError(f"unexpected git query: {args}")
+
+                with (
+                    self.subTest(rejected_remote_url=remote_url),
+                    mock.patch.object(V2, "REPOSITORY", repo),
+                    mock.patch.object(V2, "_git_text", side_effect=rejected_git_text),
+                    self.assertRaisesRegex(RuntimeError, "exact authoritative"),
+                ):
+                    V2._origin_main_env_contract()
 
     def test_interpreter_probe_executes_logical_path_and_imports_full_graph(
         self,
