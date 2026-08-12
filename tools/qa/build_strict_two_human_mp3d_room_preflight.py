@@ -488,7 +488,24 @@ def _project_mouth_proxies(request: Mapping[str, Any]) -> dict[str, Any]:
     separation = (
         projected["source2"]["pixel_uv"][0] - projected["source1"]["pixel_uv"][0]
     )
-    _require(separation >= 256.0, "planned mouths lack strict left/right separation")
+    minimum_separation = 256.0
+    if request.get("schema") == REQUEST_SCHEMA_V2:
+        camera_framing = request.get("camera_framing")
+        _require(
+            isinstance(camera_framing, Mapping),
+            "v2 request lacks camera_framing",
+        )
+        minimum_separation = float(
+            camera_framing.get("minimum_mouth_proxy_separation_px")
+        )
+        _require(
+            math.isfinite(minimum_separation) and minimum_separation >= 0.0,
+            "v2 mouth proxy separation must be finite and nonnegative",
+        )
+    _require(
+        separation >= minimum_separation,
+        "planned mouths lack declared left/right separation",
+    )
     return {
         "status": "proxy_projection_pass_live_bbox_pending",
         "coordinate_chain": [
@@ -503,6 +520,7 @@ def _project_mouth_proxies(request: Mapping[str, Any]) -> dict[str, Any]:
         "principal_point_uv": principal,
         "source_order": ["source1_left", "source2_right"],
         "horizontal_mouth_separation_px": separation,
+        "minimum_horizontal_mouth_separation_px": minimum_separation,
         "per_source": projected,
         "live_human_bbox_status": "pending_sparse_f15",
         "live_mouth_bone_or_socket_status": "pending_not_declared",

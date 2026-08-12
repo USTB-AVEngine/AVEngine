@@ -82,7 +82,14 @@
     "floor_height_m": 0.072447,
     "candidate_generation": {
       "eye_height_m": 1.5,
-      "offsets_xz_m": [[0.0, 0.0, 1.6], [-0.8, 0.0, 1.8], [0.8, 0.0, 1.8], [0.0, 0.0, -1.8]]
+      "offsets_xz_m": [
+        [2.175, 0.0, 3.35],
+        [2.675, 0.0, 3.35],
+        [3.175, 0.0, 3.35],
+        [3.675, 0.0, 1.85],
+        [4.175, 0.0, 1.85],
+        [4.175, 0.0, 2.35]
+      ]
     },
     "maximum_y_delta_m": 0.25,
     "maximum_snap_error_m": 0.05,
@@ -97,7 +104,8 @@
       "margins_px": {"left": 24.0, "right": 24.0, "top": 24.0, "bottom": 24.0}
     },
     "ordered_actor_ids": ["source1_actor", "source2_actor"],
-    "minimum_order_gap_px": 8.0
+    "minimum_order_gap_px": 24.0,
+    "minimum_mouth_proxy_separation_px": 24.0
   },
   "capture": {
     "sparse_frame_indices": [15],

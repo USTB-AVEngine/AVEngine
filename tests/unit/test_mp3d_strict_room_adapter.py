@@ -662,10 +662,11 @@ class ActorFramingConsumerTests(unittest.TestCase):
 
 class PreflightTests(unittest.TestCase):
     def _v2_solution(self) -> tuple[dict[str, object], dict[str, object]]:
-        position = [-4.1499128342, 1.572447, -1.2454376221]
+        position = [-2.0, 1.572447, 0.5]
+        yaw_deg = 32.993798925907846
         rig = materialize_sensor_rig_trajectory(
             trajectory_id=("mp3d_17DRP5sb8fy_male_female_static_0002__sensor_rig"),
-            program={"kind": "HOLD", "position_m": position, "yaw_deg": 0.0},
+            program={"kind": "HOLD", "position_m": position, "yaw_deg": yaw_deg},
         )
         actor = {
             "actor_orientation_policy": (
@@ -676,7 +677,7 @@ class PreflightTests(unittest.TestCase):
         solution = {
             "status": "pass_cpu_declared_bounds_framing",
             "selected_candidate_id": "midpoint_grid_000",
-            "selected_camera_pose": {"position_m": position, "yaw_deg": 0.0},
+            "selected_camera_pose": {"position_m": position, "yaw_deg": yaw_deg},
             "sensor_rig_binding": {"trajectory": rig},
         }
         return actor, solution
@@ -724,6 +725,18 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(
                 preflight["runtime_camera_framing"]["selected_candidate_id"],
                 "midpoint_grid_000",
+            )
+            self.assertGreaterEqual(
+                preflight["planned_projection"]["horizontal_mouth_separation_px"],
+                preflight["planned_projection"][
+                    "minimum_horizontal_mouth_separation_px"
+                ],
+            )
+            self.assertEqual(
+                preflight["planned_projection"][
+                    "minimum_horizontal_mouth_separation_px"
+                ],
+                24.0,
             )
             factory.assert_called_once()
 
