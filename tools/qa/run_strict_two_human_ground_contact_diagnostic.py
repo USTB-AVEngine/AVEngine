@@ -22,15 +22,25 @@ from pathlib import Path
 from typing import Any
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-SOURCE_REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v2"
-REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_request_v2"
-RECEIPT_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v2"
+SOURCE_REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v3"
+REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_request_v3"
+RECEIPT_SCHEMA = "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v3"
 READBACK_SCHEMA = "avengine_native_live_ground_contact_readback_v1"
-MUTATION_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_mutation_v2"
-FLOOR_TRACE_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v2"
-FLOOR_TRACE_IDENTITY_AUTHORITY = "OutHit.Component_to_UActorComponent.GetOwner"
-FAILURE_LEDGER_SCHEMA = "avengine_strict_two_human_ground_contact_failure_ledger_v1"
-FAILED_ATTEMPT_FIRST_BLOCKER = "Unreal result is missing actor"
+MUTATION_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_mutation_v3"
+FLOOR_TRACE_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v3"
+FLOOR_TRACE_IDENTITY_AUTHORITY = (
+    "UGameplayStatics.BreakHitResult(HitComponent)_to_UActorComponent.GetOwner"
+)
+FAILURE_LEDGER_SCHEMA = "avengine_strict_two_human_ground_contact_failure_ledger_v2"
+PREVIOUS_FAILURE_LEDGER_SCHEMA = (
+    "avengine_strict_two_human_ground_contact_failure_ledger_v1"
+)
+FAILED_V2_OUTER_ERROR = "RuntimeError: ground-contact capture exited 1"
+FAILED_V2_AUDITED_INNER_EXCEPTION = (
+    "source1_actor root-floor authority Component could not resolve to a UObject"
+)
+GROUND_HIT_RAW_JOURNAL_NAME = "ground_contact_raw_hit_journal.json"
+GROUND_HIT_RAW_JOURNAL_SCHEMA = "avengine_ue_fhitresult_raw_component_journal_v1"
 EPISODE_ID = "strict2h_dynamic_canary_04_camera_pan_both_static_v2"
 GPU1_UUID = "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581"
 CAPTURE_PYTHON_LOGICAL = Path("/data/jzy/miniconda3/envs/spear-env/bin/python")
@@ -284,6 +294,9 @@ def _validate_source_cpu_request(
     audio_path = Path(str(artifacts.get("audio_wav", ""))).resolve()
     spear_root = Path(str(artifacts.get("spear_root", ""))).resolve()
     failure_ledger_path = Path(str(artifacts.get("failure_ledger", ""))).resolve()
+    frozen_failure_ledger_path = Path(
+        str(artifacts.get("frozen_revision_v2_failure_ledger", ""))
+    ).resolve()
     failed_final_receipt_path = Path(
         str(artifacts.get("supersedes_failed_final_receipt", ""))
     ).resolve()
@@ -292,6 +305,7 @@ def _validate_source_cpu_request(
         ("source suite", source_suite_path),
         ("audio WAV", audio_path),
         ("failure ledger", failure_ledger_path),
+        ("frozen revision_v2 failure ledger", frozen_failure_ledger_path),
         ("superseded final receipt", failed_final_receipt_path),
     ):
         _require(path.is_file(), f"{owner} is missing: {path}")
@@ -335,6 +349,9 @@ def _validate_source_cpu_request(
         and mutation.get("floor_trace_identity_authority")
         == FLOOR_TRACE_IDENTITY_AUTHORITY
         and mutation.get("raw_out_hit_shape_required") is True
+        and mutation.get("raw_component_key_type_literal_journal_required") is True
+        and mutation.get("raw_component_non_handle_string_required") is True
+        and mutation.get("break_hit_result_required") is True
         and mutation.get("legacy_actor_field_identity_authority") is False
         and mutation.get("hit_object_handle_identity_authority") is False
         and Path(str(mutation.get("failure_ledger", ""))).resolve()
@@ -345,29 +362,39 @@ def _validate_source_cpu_request(
     )
 
     failure_ledger = _load(failure_ledger_path)
-    failed_attempt = failure_ledger.get("failed_attempt", {})
+    failed_attempt = failure_ledger.get("failed_revision_v2_attempt", {})
     first_blocker = failure_ledger.get("first_blocker", {})
     disposition = failure_ledger.get("disposition", {})
-    revision = failure_ledger.get("revision_v2", {})
+    revision = failure_ledger.get("revision_v3", {})
+    frozen_previous = failure_ledger.get("frozen_revision_v2_failure_ledger", {})
     _require(
         failure_ledger.get("schema") == FAILURE_LEDGER_SCHEMA
         and failure_ledger.get("status")
-        == "closed_failed_attempt_no_same_candidate_retry"
+        == "closed_two_failed_attempts_no_same_candidate_retry"
         and failed_attempt.get("capture_process_exit_code") == 1
         and failed_attempt.get("attempt_consumed") is True
         and failed_attempt.get("captured_file_count") == 0
         and failed_attempt.get("live_trace_count") == 0
         and failed_attempt.get("snap_measurement_count") == 0
         and failed_attempt.get("pixel_frame_count") == 0
-        and first_blocker.get("message") == FAILED_ATTEMPT_FIRST_BLOCKER
-        and first_blocker.get("code_precondition") == "required_OutHit.Actor"
+        and first_blocker.get("machine_receipt_message") == FAILED_V2_OUTER_ERROR
+        and first_blocker.get("audited_inner_exception")
+        == FAILED_V2_AUDITED_INNER_EXCEPTION
+        and first_blocker.get("audited_inner_exception_machine_persisted") is False
+        and first_blocker.get("code_precondition")
+        == "treated_raw_OutHit.Component_string_as_0x_handle"
         and disposition.get("same_candidate_retry_forbidden") is True
         and disposition.get("failed_attempt_preserved") is True
         and Path(str(disposition.get("new_capture_output", ""))).resolve()
         == capture_output
         and revision.get("floor_identity_schema") == FLOOR_TRACE_IDENTITY_SCHEMA
         and revision.get("floor_identity_authority") == FLOOR_TRACE_IDENTITY_AUTHORITY
-        and revision.get("component_required") is True
+        and revision.get("raw_component_required") is True
+        and revision.get("raw_component_non_handle_string_required") is True
+        and revision.get("raw_component_key_type_literal_journal_required") is True
+        and revision.get("raw_component_identity_authority") is False
+        and revision.get("break_hit_result_required") is True
+        and revision.get("break_hit_result_hit_component_handle_required") is True
         and revision.get("owner_derived_via_get_owner") is True
         and revision.get("raw_out_hit_shape_required") is True
         and revision.get("legacy_actor_field_identity_authority") is False
@@ -375,7 +402,41 @@ def _validate_source_cpu_request(
         and failure_ledger.get("release_authorized") is False
         and failure_ledger.get("qualification_claim") is False
         and failure_ledger.get("formal_dataset_count") == 0,
-        "failed-attempt ledger or revision_v2 disposition drift",
+        "failed-attempt ledger or revision_v3 disposition drift",
+    )
+    frozen_previous_path = _validate_file_record(
+        frozen_previous,
+        owner="frozen revision_v2 failure ledger",
+    )
+    expected_frozen_previous = Path(
+        str(artifacts.get("frozen_revision_v2_failure_ledger", ""))
+    ).resolve()
+    _require(
+        frozen_previous_path == expected_frozen_previous,
+        "frozen revision_v2 failure-ledger path drift",
+    )
+    previous_failure_ledger = _load(frozen_previous_path)
+    failed_capture_output = Path(
+        str(failed_attempt.get("capture_output", ""))
+    ).resolve()
+    _require(
+        frozen_previous_path
+        == failed_final_receipt_path.parent.parent / "failure_ledger.json"
+        and previous_failure_ledger.get("schema") == PREVIOUS_FAILURE_LEDGER_SCHEMA
+        and previous_failure_ledger.get("status")
+        == "closed_failed_attempt_no_same_candidate_retry",
+        "frozen revision_v2 failure ledger content drift",
+    )
+    _require(
+        Path(
+            str(
+                previous_failure_ledger.get("disposition", {}).get(
+                    "new_capture_output", ""
+                )
+            )
+        ).resolve()
+        == failed_capture_output,
+        "frozen revision_v2 ledger does not bind the failed revision_v2 capture",
     )
     observed_failed_final = _validate_file_record(
         failed_attempt.get("final_receipt", {}),
@@ -454,6 +515,11 @@ def _validate_source_cpu_request(
         and measurement.get("floor_identity_authority")
         == FLOOR_TRACE_IDENTITY_AUTHORITY
         and measurement.get("raw_out_hit_shape_required") is True
+        and measurement.get("raw_component_key_type_literal_journal_required") is True
+        and measurement.get("raw_component_non_handle_string_required") is True
+        and measurement.get("raw_component_identity_authority") is False
+        and measurement.get("break_hit_result_required") is True
+        and measurement.get("break_hit_result_hit_component_handle_required") is True
         and measurement.get("legacy_actor_field_identity_authority") is False
         and measurement.get("hit_object_handle_identity_authority") is False
         and measurement.get("ue_length_unit") == "centimeter",
@@ -491,6 +557,9 @@ def _artifact_paths(source_path: Path, source: Mapping[str, Any]) -> dict[str, P
             REPOSITORY / "tools/qa/capture_spear_native_pixel_episode.py"
         ).resolve(),
         "failure_ledger": Path(artifacts["failure_ledger"]).resolve(),
+        "frozen_revision_v2_failure_ledger": Path(
+            artifacts["frozen_revision_v2_failure_ledger"]
+        ).resolve(),
         "superseded_final_receipt": Path(
             artifacts["supersedes_failed_final_receipt"]
         ).resolve(),
@@ -668,10 +737,28 @@ def _finite_xyz(value: object) -> bool:
     )
 
 
+def _nonzero_hex_handle(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip().lower().startswith("0x"):
+        return False
+    try:
+        return int(value, 16) != 0
+    except ValueError:
+        return False
+
+
 def _validate_floor_trace_identity(trace: Mapping[str, Any], *, owner: str) -> None:
     shape = trace.get("raw_out_hit_shape")
     keys = shape.get("keys") if isinstance(shape, Mapping) else None
     value_types = shape.get("value_types") if isinstance(shape, Mapping) else None
+    raw_component = trace.get("raw_component_diagnostic")
+    break_component = trace.get("break_hit_result_component")
+    break_actor = trace.get("break_hit_result_actor_auxiliary")
+    raw_literal = (
+        raw_component.get("literal") if isinstance(raw_component, Mapping) else None
+    )
+    break_literal = (
+        break_component.get("literal") if isinstance(break_component, Mapping) else None
+    )
     _require(
         trace.get("schema") == FLOOR_TRACE_IDENTITY_SCHEMA
         and trace.get("authority") == FLOOR_TRACE_IDENTITY_AUTHORITY
@@ -683,7 +770,30 @@ def _validate_floor_trace_identity(trace: Mapping[str, Any], *, owner: str) -> N
         and any(str(key).lower() == "component" for key in keys)
         and isinstance(value_types, Mapping)
         and set(value_types) == set(keys),
-        f"{owner} Component/GetOwner floor identity or raw OutHit shape failed",
+        f"{owner} BreakHitResult/Component/GetOwner identity or raw shape failed",
+    )
+    _require(
+        isinstance(trace.get("raw_hit_journal_sequence"), int)
+        and int(trace["raw_hit_journal_sequence"]) >= 0
+        and isinstance(raw_component, Mapping)
+        and raw_component.get("present") is True
+        and str(raw_component.get("key", "")).lower() == "component"
+        and raw_component.get("python_type") == "builtins.str"
+        and isinstance(raw_literal, str)
+        and bool(raw_literal.strip())
+        and not raw_literal.strip().lower().startswith("0x")
+        and raw_component.get("literal_persisted_exactly") is True
+        and raw_component.get("identity_authority") is False
+        and isinstance(break_component, Mapping)
+        and break_component.get("present") is True
+        and str(break_component.get("key", "")).lower() == "hitcomponent"
+        and break_component.get("python_type") == "builtins.str"
+        and _nonzero_hex_handle(break_literal)
+        and break_component.get("literal_persisted_exactly") is True
+        and break_component.get("identity_authority") is True
+        and isinstance(break_actor, Mapping)
+        and break_actor.get("identity_authority") is False,
+        f"{owner} raw Component or BreakHitResult HitComponent evidence failed",
     )
     raw_actor = trace.get("raw_actor_field")
     hit_object = trace.get("hit_object_handle_auxiliary")
@@ -696,17 +806,140 @@ def _validate_floor_trace_identity(trace: Mapping[str, Any], *, owner: str) -> N
     )
 
 
+def _validate_trace_journal_binding(
+    trace: Mapping[str, Any],
+    *,
+    entries: Mapping[int, Mapping[str, Any]],
+    owner: str,
+) -> None:
+    sequence = int(trace["raw_hit_journal_sequence"])
+    _require(sequence in entries, f"{owner} raw-hit journal sequence is missing")
+    entry = entries[sequence]
+    stable_identity = entry.get("stable_identity")
+    break_result = entry.get("break_hit_result")
+    _require(
+        entry.get("raw_component") == trace.get("raw_component_diagnostic")
+        and isinstance(break_result, Mapping)
+        and break_result.get("hit_component") == trace.get("break_hit_result_component")
+        and break_result.get("hit_actor_auxiliary")
+        == trace.get("break_hit_result_actor_auxiliary")
+        and isinstance(stable_identity, Mapping)
+        and stable_identity.get("authority") == FLOOR_TRACE_IDENTITY_AUTHORITY
+        and stable_identity.get("hit_actor") == trace.get("hit_actor")
+        and stable_identity.get("hit_actor_class") == trace.get("hit_actor_class")
+        and stable_identity.get("hit_component") == trace.get("hit_component")
+        and stable_identity.get("hit_component_class")
+        == trace.get("hit_component_class"),
+        f"{owner} trace differs from pre-conversion raw-hit journal",
+    )
+
+
+def _raw_hit_journal_entry_is_closed(
+    entry: Mapping[str, Any], *, sequence: int
+) -> bool:
+    raw_component = entry.get("raw_component")
+    break_result = entry.get("break_hit_result")
+    stable_identity = entry.get("stable_identity")
+    if not (
+        entry.get("sequence") == sequence
+        and isinstance(raw_component, Mapping)
+        and isinstance(break_result, Mapping)
+        and isinstance(stable_identity, Mapping)
+    ):
+        return False
+    raw_literal = raw_component.get("literal")
+    break_component = break_result.get("hit_component")
+    break_actor = break_result.get("hit_actor_auxiliary")
+    return bool(
+        raw_component.get("present") is True
+        and str(raw_component.get("key", "")).lower() == "component"
+        and raw_component.get("python_type") == "builtins.str"
+        and isinstance(raw_literal, str)
+        and raw_literal.strip()
+        and not raw_literal.strip().lower().startswith("0x")
+        and raw_component.get("literal_persisted_exactly") is True
+        and raw_component.get("identity_authority") is False
+        and break_result.get("method") == "UGameplayStatics.BreakHitResult"
+        and isinstance(break_component, Mapping)
+        and break_component.get("present") is True
+        and str(break_component.get("key", "")).lower() == "hitcomponent"
+        and break_component.get("python_type") == "builtins.str"
+        and _nonzero_hex_handle(break_component.get("literal"))
+        and break_component.get("literal_persisted_exactly") is True
+        and break_component.get("identity_authority") is True
+        and isinstance(break_actor, Mapping)
+        and break_actor.get("identity_authority") is False
+        and (
+            (
+                _nonzero_hex_handle(break_actor.get("literal"))
+                and break_actor.get("stable_name") == stable_identity.get("hit_actor")
+            )
+            or (
+                not _nonzero_hex_handle(break_actor.get("literal"))
+                and break_actor.get("stable_name") is None
+            )
+        )
+        and stable_identity.get("authority") == FLOOR_TRACE_IDENTITY_AUTHORITY
+        and all(
+            stable_identity.get(key) not in (None, "")
+            for key in (
+                "hit_actor",
+                "hit_actor_class",
+                "hit_component",
+                "hit_component_class",
+            )
+        )
+    )
+
+
 def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
     capture_root = Path(request["capture_output"])
     manifest_path = capture_root / "manifest.json"
     readback_path = capture_root / "runtime_asset_readbacks.json"
+    raw_hit_journal_path = capture_root / GROUND_HIT_RAW_JOURNAL_NAME
     manifest = _load(manifest_path)
+    raw_hit_journal = _load(raw_hit_journal_path)
+    raw_entries = raw_hit_journal.get("entries")
+    _require(
+        raw_hit_journal.get("schema") == GROUND_HIT_RAW_JOURNAL_SCHEMA
+        and raw_hit_journal.get("status") == "complete"
+        and isinstance(raw_entries, list)
+        and raw_hit_journal.get("entry_count") == len(raw_entries)
+        and len(raw_entries) >= 30
+        and raw_hit_journal.get("raw_component_literal_identity_claim") is False
+        and raw_hit_journal.get("stable_identity_authority")
+        == FLOOR_TRACE_IDENTITY_AUTHORITY
+        and raw_hit_journal.get("release_authorized") is False
+        and raw_hit_journal.get("qualification_claim") is False
+        and raw_hit_journal.get("formal_dataset_count") == 0,
+        "raw FHitResult Component journal closure failed",
+    )
+    journal_entries = {
+        int(entry.get("sequence", -1)): entry
+        for entry in raw_entries
+        if isinstance(entry, Mapping)
+    }
+    _require(
+        set(journal_entries) == set(range(len(raw_entries)))
+        and all(
+            _raw_hit_journal_entry_is_closed(entry, sequence=sequence)
+            for sequence, entry in journal_entries.items()
+        ),
+        "raw FHitResult Component journal sequence/resolution closure failed",
+    )
     frame = manifest.get("frame_contract", {})
     _require(
         manifest.get("schema") == "avengine_qa_native_spear_pixel_episode_v1"
         and manifest.get("status") == "pass"
         and manifest.get("scenario_id") == EPISODE_ID,
         "ground-contact capture manifest drift",
+    )
+    _require(
+        Path(
+            str(manifest.get("artifacts", {}).get("ground_contact_raw_hit_journal", ""))
+        ).resolve()
+        == raw_hit_journal_path.resolve(),
+        "capture manifest does not bind the raw hit journal",
     )
     _require(
         frame.get("frame_count") == 3
@@ -771,6 +1004,11 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
             )
             _validate_floor_trace_identity(
                 snap_floor_trace,
+                owner=f"{slot} visual snap frame {frame_index}",
+            )
+            _validate_trace_journal_binding(
+                snap_floor_trace,
+                entries=journal_entries,
                 owner=f"{slot} visual snap frame {frame_index}",
             )
             correction = float(snap.get("applied_z_correction_cm", math.nan))
@@ -868,6 +1106,11 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
                         trace,
                         owner=f"{slot} {side} {kind} frame {frame_index}",
                     )
+                    _validate_trace_journal_binding(
+                        trace,
+                        entries=journal_entries,
+                        owner=f"{slot} {side} {kind} frame {frame_index}",
+                    )
                     hit_point = trace["hit_point_ue_cm"]
                     _require(
                         abs(float(position[0]) - float(hit_point[0])) <= 1.0e-4
@@ -902,6 +1145,7 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         "status": "pass_live_measurements_manual_visual_review_pending",
         "manifest": _file_record(manifest_path),
         "runtime_asset_readbacks": _file_record(readback_path),
+        "ground_contact_raw_hit_journal": _file_record(raw_hit_journal_path),
         "rgb_frames": [_file_record(path) for path in rgb_paths],
         "trace_count": trace_count,
         "minimum_bone_to_floor_clearance_cm": min(clearances),
@@ -1022,6 +1266,11 @@ def run(
         exit_code = exit_code or 1
     finally:
         final["ended_at_utc"] = _utc_now()
+        raw_hit_journal_path = (
+            Path(request["capture_output"]) / GROUND_HIT_RAW_JOURNAL_NAME
+        )
+        if raw_hit_journal_path.is_file():
+            final["ground_contact_raw_hit_journal"] = _file_record(raw_hit_journal_path)
         try:
             final["postlaunch_snapshot"] = _gpu_snapshot()
         except (OSError, subprocess.SubprocessError, ValueError) as exc:

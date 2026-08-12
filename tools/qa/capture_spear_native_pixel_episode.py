@@ -26,7 +26,7 @@ import numpy as np
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
-from avengine.qa.pixel_visibility import (
+from avengine.qa.pixel_visibility import (  # noqa: E402
     PIXEL_VISIBILITY_DEPTH_AUTHORITY,
     compile_depth_pixel_visibility_truth,
 )
@@ -52,6 +52,12 @@ GROUND_CONTACT_BONES = {
 }
 GROUND_TRACE_START_OFFSET_CM = 25.0
 GROUND_TRACE_LENGTH_CM = 300.0
+GROUND_HIT_RAW_JOURNAL_NAME = "ground_contact_raw_hit_journal.json"
+GROUND_HIT_RAW_JOURNAL_SCHEMA = "avengine_ue_fhitresult_raw_component_journal_v1"
+GROUND_FLOOR_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v3"
+GROUND_FLOOR_IDENTITY_AUTHORITY = (
+    "UGameplayStatics.BreakHitResult(HitComponent)_to_UActorComponent.GetOwner"
+)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -65,6 +71,15 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_json_atomic(path: Path, value: Mapping[str, Any]) -> None:
+    """Replace one owned diagnostic journal without clobbering another artifact."""
+
+    temporary = path.with_name(f".{path.name}.tmp")
+    _require(not temporary.exists(), f"stale journal temporary exists: {temporary}")
+    _write_json(temporary, value)
+    temporary.replace(path)
 
 
 def _sha256(path: Path) -> str:
@@ -212,6 +227,142 @@ def _optional_mapping_value(value: Mapping[str, Any], key: str) -> tuple[bool, A
     return True, lowered[key.lower()]
 
 
+def _optional_mapping_item(
+    value: Mapping[str, Any], key: str
+) -> tuple[bool, str | None, Any]:
+    matches = [
+        (str(name), item)
+        for name, item in value.items()
+        if str(name).lower() == key.lower()
+    ]
+    _require(len(matches) <= 1, f"Unreal result contains duplicate {key} keys")
+    if not matches:
+        return False, None, None
+    name, item = matches[0]
+    return True, name, item
+
+
+def _python_type_name(value: Any) -> str:
+    value_type = type(value)
+    return f"{value_type.__module__}.{value_type.__qualname__}"
+
+
+def _raw_scalar_record(value: Any) -> dict[str, Any]:
+    scalar = isinstance(value, (str, int, float, bool)) or value is None
+    return {
+        "python_type": _python_type_name(value),
+        "literal": value if scalar else None,
+        "literal_persisted_exactly": scalar,
+    }
+
+
+class _GroundHitRawJournal:
+    """Crash-retained raw FHitResult evidence, flushed before identity conversion."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        _require(not path.exists(), f"refusing to overwrite raw hit journal: {path}")
+        self.entries: list[dict[str, Any]] = []
+        self._status = "in_progress"
+        self._flush()
+
+    def _payload(self) -> dict[str, Any]:
+        return {
+            "schema": GROUND_HIT_RAW_JOURNAL_SCHEMA,
+            "status": self._status,
+            "entry_count": len(self.entries),
+            "entries": self.entries,
+            "raw_component_literal_identity_claim": False,
+            "stable_identity_authority": GROUND_FLOOR_IDENTITY_AUTHORITY,
+            "release_authorized": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        }
+
+    def _flush(self) -> None:
+        _write_json_atomic(self.path, self._payload())
+
+    def record_raw(self, *, owner: str, hit: Mapping[str, Any]) -> int:
+        component_present, component_key, component_value = _optional_mapping_item(
+            hit, "component"
+        )
+        entry = {
+            "sequence": len(self.entries),
+            "owner": owner,
+            "raw_out_hit_shape": _mapping_shape(hit),
+            "raw_component": {
+                "present": component_present,
+                "key": component_key,
+                **_raw_scalar_record(component_value),
+                "identity_authority": False,
+            },
+            "break_hit_result": None,
+            "stable_identity": None,
+        }
+        self.entries.append(entry)
+        self._flush()
+        return int(entry["sequence"])
+
+    def record_break_result(self, *, sequence: int, result: Mapping[str, Any]) -> None:
+        component_present, component_key, component_value = _optional_mapping_item(
+            result, "hitcomponent"
+        )
+        actor_present, actor_key, actor_value = _optional_mapping_item(
+            result, "hitactor"
+        )
+        self.entries[sequence]["break_hit_result"] = {
+            "method": "UGameplayStatics.BreakHitResult",
+            "shape": _mapping_shape(result),
+            "hit_component": {
+                "present": component_present,
+                "key": component_key,
+                **_raw_scalar_record(component_value),
+                "identity_authority": True,
+            },
+            "hit_actor_auxiliary": {
+                "present": actor_present,
+                "key": actor_key,
+                **_raw_scalar_record(actor_value),
+                "identity_authority": False,
+            },
+        }
+        self._flush()
+
+    def record_stable_identity(
+        self,
+        *,
+        sequence: int,
+        actor: str,
+        actor_class: str,
+        component: str,
+        component_class: str,
+        break_hit_actor_stable_name: str | None,
+    ) -> None:
+        break_result = self.entries[sequence]["break_hit_result"]
+        _require(
+            isinstance(break_result, dict),
+            "BreakHitResult journal stage is missing",
+        )
+        break_result["hit_actor_auxiliary"]["stable_name"] = break_hit_actor_stable_name
+        self.entries[sequence]["stable_identity"] = {
+            "authority": GROUND_FLOOR_IDENTITY_AUTHORITY,
+            "hit_actor": actor,
+            "hit_actor_class": actor_class,
+            "hit_component": component,
+            "hit_component_class": component_class,
+        }
+        self._flush()
+
+    def finalize(self) -> None:
+        _require(self.entries, "raw hit journal has no entries")
+        _require(
+            all(entry.get("stable_identity") is not None for entry in self.entries),
+            "raw hit journal contains unresolved entries",
+        )
+        self._status = "complete"
+        self._flush()
+
+
 def _unreal_reference_is_present(value: Any) -> bool:
     if value is None or value is False:
         return False
@@ -230,25 +381,68 @@ def _unreal_reference_is_present(value: Any) -> bool:
 
 
 def _floor_identity_from_hit_component(
-    *, game: Any, hit: Mapping[str, Any], owner: str
+    *,
+    game: Any,
+    hit: Mapping[str, Any],
+    owner: str,
+    raw_hit_journal: _GroundHitRawJournal | None,
 ) -> dict[str, Any]:
-    """Resolve stable floor identity through FHitResult.Component -> GetOwner.
+    """Resolve stable identity through UE's native FHitResult break function.
 
-    UE5.5 no longer guarantees an ``Actor`` member in serialized ``FHitResult``.
-    ``Component`` is therefore required and authoritative; ``Actor`` and
-    ``HitObjectHandle`` are retained only as raw diagnostic auxiliaries.
+    UE JSON serializes ``TWeakObjectPtr<UPrimitiveComponent>`` as a class-qualified
+    object-path string, not a SPEAR pointer.  ``BreakHitResult`` rehydrates the
+    struct through UE reflection and returns ``HitComponent`` as an ordinary
+    object output, which SPEAR marshals as a pointer.  The raw value is journaled
+    before that conversion, so a failed round trip still leaves exact evidence.
     """
 
     raw_shape = _mapping_shape(hit)
-    component_present, component_reference = _optional_mapping_value(hit, "component")
+    component_present, component_key, component_literal = _optional_mapping_item(
+        hit, "component"
+    )
+    journal_sequence = (
+        raw_hit_journal.record_raw(owner=owner, hit=hit)
+        if raw_hit_journal is not None
+        else None
+    )
     _require(
-        component_present and _unreal_reference_is_present(component_reference),
-        f"{owner} floor hit is missing Component; raw OutHit keys={raw_shape['keys']}",
+        component_present
+        and isinstance(component_literal, str)
+        and _unreal_reference_is_present(component_literal)
+        and not component_literal.strip().lower().startswith("0x"),
+        f"{owner} floor hit lacks a non-handle Component string; "
+        f"raw OutHit keys={raw_shape['keys']}",
+    )
+    try:
+        gameplay_statics = game.get_unreal_object(uclass="UGameplayStatics")
+        broken_hit = gameplay_statics.BreakHitResult(Hit=dict(hit), as_dict=True)
+    except Exception as exc:
+        raise RuntimeError(f"{owner} BreakHitResult failed") from exc
+    _require(
+        isinstance(broken_hit, Mapping),
+        f"{owner} BreakHitResult returned an invalid result",
+    )
+    if journal_sequence is not None:
+        raw_hit_journal.record_break_result(
+            sequence=journal_sequence,
+            result=broken_hit,
+        )
+    broken_component_present, broken_component_key, component_reference = (
+        _optional_mapping_item(broken_hit, "hitcomponent")
+    )
+    _require(
+        broken_component_present
+        and isinstance(component_reference, str)
+        and component_reference.strip().lower().startswith("0x")
+        and _unreal_reference_is_present(component_reference),
+        f"{owner} BreakHitResult did not return a non-null HitComponent handle",
     )
     try:
         component = game.get_unreal_object(uobject=component_reference)
     except Exception as exc:
-        raise RuntimeError(f"{owner} Component could not resolve to a UObject") from exc
+        raise RuntimeError(
+            f"{owner} BreakHitResult HitComponent could not resolve to a UObject"
+        ) from exc
     try:
         owner_reference = _return_value(component.GetOwner(as_handle=True))
     except Exception as exc:
@@ -297,6 +491,43 @@ def _floor_identity_from_hit_component(
         f"{owner} stable Component/GetOwner identity is empty",
     )
 
+    broken_actor_present, broken_actor_key, broken_actor_reference = (
+        _optional_mapping_item(broken_hit, "hitactor")
+    )
+    broken_actor_stable_name = None
+    if broken_actor_present and _unreal_reference_is_present(broken_actor_reference):
+        _require(
+            isinstance(broken_actor_reference, str)
+            and broken_actor_reference.strip().lower().startswith("0x"),
+            f"{owner} BreakHitResult returned a non-handle HitActor",
+        )
+        try:
+            broken_actor = game.get_unreal_object(uobject=broken_actor_reference)
+            broken_actor_stable_name = str(
+                service.get_stable_name_for_actor(
+                    actor=broken_actor,
+                    include_unreal_name=True,
+                )
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"{owner} BreakHitResult HitActor validation failed"
+            ) from exc
+        _require(
+            broken_actor_stable_name == actor_stable_name,
+            f"{owner} BreakHitResult HitActor differs from Component.GetOwner",
+        )
+
+    if journal_sequence is not None:
+        raw_hit_journal.record_stable_identity(
+            sequence=journal_sequence,
+            actor=actor_stable_name,
+            actor_class=actor_class_name,
+            component=component_stable_name,
+            component_class=component_class_name,
+            break_hit_actor_stable_name=broken_actor_stable_name,
+        )
+
     actor_field_present, actor_field = _optional_mapping_value(hit, "actor")
     hit_object_present, hit_object_handle = _optional_mapping_value(
         hit, "hitobjecthandle"
@@ -305,12 +536,32 @@ def _floor_identity_from_hit_component(
         hit, "physmaterial"
     )
     return {
-        "schema": "ue_fhitresult_component_owner_floor_identity_v2",
-        "authority": "OutHit.Component_to_UActorComponent.GetOwner",
+        "schema": GROUND_FLOOR_IDENTITY_SCHEMA,
+        "authority": GROUND_FLOOR_IDENTITY_AUTHORITY,
         "hit_actor": actor_stable_name,
         "hit_actor_class": actor_class_name,
         "hit_component": component_stable_name,
         "hit_component_class": component_class_name,
+        "raw_hit_journal_sequence": journal_sequence,
+        "raw_component_diagnostic": {
+            "present": component_present,
+            "key": component_key,
+            **_raw_scalar_record(component_literal),
+            "identity_authority": False,
+        },
+        "break_hit_result_component": {
+            "present": broken_component_present,
+            "key": broken_component_key,
+            **_raw_scalar_record(component_reference),
+            "identity_authority": True,
+        },
+        "break_hit_result_actor_auxiliary": {
+            "present": broken_actor_present,
+            "key": broken_actor_key,
+            **_raw_scalar_record(broken_actor_reference),
+            "stable_name": broken_actor_stable_name,
+            "identity_authority": False,
+        },
         "component_runtime_reference": _safe_unreal_reference(component_reference),
         "owner_runtime_reference": _safe_unreal_reference(owner_reference),
         "raw_out_hit_shape": raw_shape,
@@ -381,6 +632,7 @@ def _line_trace_floor(
     position_ue_cm: Sequence[float],
     actors_to_ignore: Sequence[Any],
     owner: str,
+    raw_hit_journal: _GroundHitRawJournal | None = None,
 ) -> dict[str, Any]:
     start = {
         "X": float(position_ue_cm[0]),
@@ -411,6 +663,7 @@ def _line_trace_floor(
         game=game,
         hit=hit,
         owner=owner,
+        raw_hit_journal=raw_hit_journal,
     )
     location = _xyz(_mapping_value(hit, "location"), owner=f"{owner} hit point")
     normal = _xyz(_mapping_value(hit, "normal"), owner=f"{owner} hit normal")
@@ -437,7 +690,11 @@ def _line_trace_floor(
 
 
 def _runtime_ground_contact_readback(
-    *, game: Any, runtimes: Mapping[str, Mapping[str, Any]], actor_id: str
+    *,
+    game: Any,
+    runtimes: Mapping[str, Mapping[str, Any]],
+    actor_id: str,
+    raw_hit_journal: _GroundHitRawJournal | None = None,
 ) -> dict[str, Any]:
     """Measure live Rocketbox foot/toe bones against runtime floor traces.
 
@@ -465,6 +722,7 @@ def _runtime_ground_contact_readback(
                 position_ue_cm=position,
                 actors_to_ignore=ignored_actors,
                 owner=f"{actor_id} {bone_name}",
+                raw_hit_journal=raw_hit_journal,
             )
             clearance_cm = position[2] - float(trace["hit_point_ue_cm"][2])
             _require(np.isfinite(clearance_cm), f"{actor_id} clearance is nonfinite")
@@ -616,6 +874,7 @@ def _apply_runtime_visual_ground_snap(
     declaration: Mapping[str, Any],
     actor_id: str,
     frame_index: int,
+    raw_hit_journal: _GroundHitRawJournal | None = None,
 ) -> dict[str, Any]:
     contract = _runtime_visual_ground_snap_contract(declaration, actor_id=actor_id)
     if contract is None:
@@ -644,6 +903,7 @@ def _apply_runtime_visual_ground_snap(
         position_ue_cm=anchor_before,
         actors_to_ignore=ignored_actors,
         owner=f"{actor_id} root-floor authority",
+        raw_hit_journal=raw_hit_journal,
     )
     floor_z_cm = float(floor_trace["hit_point_ue_cm"][2])
     correction_cm = floor_z_cm - float(bounds_before["bottom_z_ue_cm"])
@@ -710,6 +970,7 @@ def _apply_exact_frame_with_ground_snap(
     runtimes: Mapping[str, Mapping[str, Any]],
     scenario: Mapping[str, Any],
     frame: Mapping[str, Any],
+    raw_hit_journal: _GroundHitRawJournal | None = None,
 ) -> dict[str, Any]:
     declarations = {actor["actor_id"]: actor for actor in scenario["plan"]["actors"]}
     _require(set(declarations) == set(runtimes), "ground-snap actor closure failed")
@@ -723,6 +984,7 @@ def _apply_exact_frame_with_ground_snap(
             declaration=declarations[actor_id],
             actor_id=actor_id,
             frame_index=int(frame["frame_index"]),
+            raw_hit_journal=raw_hit_journal,
         )
         for actor_id in sorted(runtimes)
     }
@@ -737,6 +999,7 @@ def _runtime_asset_readbacks(
     stable_names: Mapping[str, str],
     raw_descriptors: Sequence[Mapping[str, Any]],
     frame: Mapping[str, Any],
+    raw_hit_journal: _GroundHitRawJournal | None = None,
 ) -> dict[str, Any]:
     """Read exact live BP/mesh/skeleton/action and mouth-root bindings."""
 
@@ -956,6 +1219,7 @@ def _runtime_asset_readbacks(
             game=game,
             runtimes=runtimes,
             actor_id=actor_id,
+            raw_hit_journal=raw_hit_journal,
         )
         records[instance_id] = {
             "status": "pass",
@@ -1204,6 +1468,7 @@ def run(args: argparse.Namespace) -> Path:
     args.output.mkdir(parents=True)
     rgb_directory = args.output / "rgb_frames"
     rgb_directory.mkdir()
+    raw_hit_journal = _GroundHitRawJournal(args.output / GROUND_HIT_RAW_JOURNAL_NAME)
 
     configure_args = argparse.Namespace(
         spear_root=args.spear_root,
@@ -1244,6 +1509,7 @@ def run(args: argparse.Namespace) -> Path:
                 runtimes=runtimes,
                 scenario=scenario,
                 frame=frames[0],
+                raw_hit_journal=raw_hit_journal,
             )
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
@@ -1262,6 +1528,7 @@ def run(args: argparse.Namespace) -> Path:
                 runtimes=runtimes,
                 scenario=scenario,
                 frame=frames[0],
+                raw_hit_journal=raw_hit_journal,
             )
         with instance.end_frame():
             pass
@@ -1292,6 +1559,7 @@ def run(args: argparse.Namespace) -> Path:
                     runtimes=runtimes,
                     scenario=scenario,
                     frame=frame,
+                    raw_hit_journal=raw_hit_journal,
                 )
                 if int(frame["frame_index"]) in RUNTIME_ASSET_SAMPLE_FRAME_INDICES:
                     runtime_asset_samples.append(
@@ -1302,6 +1570,7 @@ def run(args: argparse.Namespace) -> Path:
                             stable_names=stable_names,
                             raw_descriptors=raw_descriptors,
                             frame=frame,
+                            raw_hit_journal=raw_hit_journal,
                         )
                     )
             with instance.end_frame():
@@ -1345,6 +1614,7 @@ def run(args: argparse.Namespace) -> Path:
                     runtimes=runtimes,
                     scenario=scenario,
                     frame=frames[0],
+                    raw_hit_journal=raw_hit_journal,
                 )
             with instance.end_frame():
                 pass
@@ -1360,6 +1630,7 @@ def run(args: argparse.Namespace) -> Path:
                         runtimes=runtimes,
                         scenario=scenario,
                         frame=frame,
+                        raw_hit_journal=raw_hit_journal,
                     )
                 with instance.end_frame():
                     depth = _depth_native(components["depth"])
@@ -1370,6 +1641,7 @@ def run(args: argparse.Namespace) -> Path:
                     int(np.count_nonzero(raw_ids != 0))
                 )
         runtime_asset_readbacks = _bundle_runtime_asset_samples(runtime_asset_samples)
+        raw_hit_journal.finalize()
     finally:
         if runtimes:
             try:
@@ -1463,6 +1735,7 @@ def run(args: argparse.Namespace) -> Path:
     )
     runtime_asset_readbacks_path = args.output / "runtime_asset_readbacks.json"
     _write_json(runtime_asset_readbacks_path, runtime_asset_readbacks)
+    raw_hit_journal_path = args.output / GROUND_HIT_RAW_JOURNAL_NAME
 
     visual_path = args.output / "native_rgb_visual_only.mp4"
     muxed_path = args.output / "native_rgb_binaural.mp4"
@@ -1537,6 +1810,7 @@ def run(args: argparse.Namespace) -> Path:
         "pixel_visibility_truth": truth_path,
         "runtime_readbacks": readbacks_path,
         "runtime_asset_readbacks": runtime_asset_readbacks_path,
+        "ground_contact_raw_hit_journal": raw_hit_journal_path,
         "object_id_descriptors": descriptor_path,
     }
     artifact_records = {

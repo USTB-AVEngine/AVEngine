@@ -26,12 +26,20 @@ GROUND_CONTACT_BONES = {
 REQUIRED_BONES = {
     bone_name for side in GROUND_CONTACT_BONES.values() for bone_name in side.values()
 }
-REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v2"
-MUTATION_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_mutation_v2"
-FLOOR_TRACE_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v2"
-FLOOR_TRACE_IDENTITY_AUTHORITY = "OutHit.Component_to_UActorComponent.GetOwner"
-FAILURE_LEDGER_SCHEMA = "avengine_strict_two_human_ground_contact_failure_ledger_v1"
-FAILED_ATTEMPT_FIRST_BLOCKER = "Unreal result is missing actor"
+REQUEST_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_request_v3"
+MUTATION_SCHEMA = "avengine_strict_two_human_ground_contact_diagnostic_mutation_v3"
+FLOOR_TRACE_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v3"
+FLOOR_TRACE_IDENTITY_AUTHORITY = (
+    "UGameplayStatics.BreakHitResult(HitComponent)_to_UActorComponent.GetOwner"
+)
+FAILURE_LEDGER_SCHEMA = "avengine_strict_two_human_ground_contact_failure_ledger_v2"
+PREVIOUS_FAILURE_LEDGER_SCHEMA = (
+    "avengine_strict_two_human_ground_contact_failure_ledger_v1"
+)
+FAILED_V2_OUTER_ERROR = "RuntimeError: ground-contact capture exited 1"
+FAILED_V2_AUDITED_INNER_EXCEPTION = (
+    "source1_actor root-floor authority Component could not resolve to a UObject"
+)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -64,22 +72,28 @@ def _file_record(path: Path) -> dict[str, Any]:
 
 
 def _materialize_failure_ledger(
-    *, final_receipt_path: Path, output: Path, new_capture_output: Path
+    *,
+    final_receipt_path: Path,
+    previous_failure_ledger_path: Path,
+    output: Path,
+    new_capture_output: Path,
 ) -> Path:
     _require(not output.exists(), f"refusing to overwrite failure ledger: {output}")
     final_receipt_path = final_receipt_path.resolve()
     final = _load(final_receipt_path)
     _require(
         final.get("schema")
-        == "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v1"
+        == "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v2"
         and final.get("status") == "failed"
         and final.get("capture_process_exit_code") == 1
         and final.get("attempt_consumed") is True
         and final.get("gpu_started") is True
         and final.get("frame_indices") == FRAME_INDICES
+        and final.get("error") == FAILED_V2_OUTER_ERROR
         and final.get("release_authorized") is False
+        and final.get("qualification_claim") is False
         and final.get("formal_dataset_count") == 0,
-        "superseded ground attempt is not the closed failed attempt01",
+        "superseded revision_v2 attempt is not the closed failed attempt01",
     )
     attempt_root = final_receipt_path.parent
     request_path = attempt_root / "request.json"
@@ -98,14 +112,34 @@ def _materialize_failure_ledger(
     )
     files = sorted(path for path in failed_capture_output.rglob("*") if path.is_file())
     _require(not files, "failed attempt unexpectedly produced capture evidence")
+    previous_failure_ledger_path = previous_failure_ledger_path.resolve()
+    previous = _load(previous_failure_ledger_path)
+    _require(
+        previous_failure_ledger_path == attempt_root.parent / "failure_ledger.json"
+        and previous.get("schema") == PREVIOUS_FAILURE_LEDGER_SCHEMA
+        and previous.get("status") == "closed_failed_attempt_no_same_candidate_retry"
+        and previous.get("failed_attempt", {}).get("attempt_consumed") is True
+        and previous.get("failed_attempt", {}).get("captured_file_count") == 0
+        and previous.get("disposition", {}).get("same_candidate_retry_forbidden")
+        is True
+        and Path(
+            str(previous.get("disposition", {}).get("new_capture_output", ""))
+        ).resolve()
+        == failed_capture_output
+        and previous.get("release_authorized") is False
+        and previous.get("qualification_claim") is False
+        and previous.get("formal_dataset_count") == 0,
+        "revision_v2 failure ledger is not the frozen revision_v1 disposition",
+    )
     _require(
         new_capture_output.resolve() != failed_capture_output,
-        "revision_v2 must use a fresh capture candidate/output",
+        "revision_v3 must use a fresh capture candidate/output",
     )
     ledger = {
         "schema": FAILURE_LEDGER_SCHEMA,
-        "status": "closed_failed_attempt_no_same_candidate_retry",
-        "failed_attempt": {
+        "status": "closed_two_failed_attempts_no_same_candidate_retry",
+        "frozen_revision_v2_failure_ledger": _file_record(previous_failure_ledger_path),
+        "failed_revision_v2_attempt": {
             "request": _file_record(request_path),
             "dry_run_receipt": _file_record(dry_receipt_path),
             "running_receipt": _file_record(running_receipt_path),
@@ -121,12 +155,15 @@ def _materialize_failure_ledger(
         },
         "first_blocker": {
             "stage": "f0_first_visual_root_floor_trace_identity_decode",
-            "message": FAILED_ATTEMPT_FIRST_BLOCKER,
-            "code_precondition": "required_OutHit.Actor",
+            "machine_receipt_message": FAILED_V2_OUTER_ERROR,
+            "audited_inner_exception": FAILED_V2_AUDITED_INNER_EXCEPTION,
+            "audited_inner_exception_machine_persisted": False,
+            "code_precondition": "treated_raw_OutHit.Component_string_as_0x_handle",
             "machine_receipt_error": final.get("error"),
             "evidence_boundary": (
-                "exact inner exception observed in attempt01 terminal traceback; "
-                "immutable final receipt records the enclosing capture exit 1"
+                "immutable revision_v2 final receipt records only the enclosing "
+                "capture exit 1; exact inner exception was observed in terminal "
+                "traceback but was not persisted by revision_v2"
             ),
         },
         "disposition": {
@@ -134,10 +171,15 @@ def _materialize_failure_ledger(
             "failed_attempt_preserved": True,
             "new_capture_output": str(new_capture_output.resolve()),
         },
-        "revision_v2": {
+        "revision_v3": {
             "floor_identity_schema": FLOOR_TRACE_IDENTITY_SCHEMA,
             "floor_identity_authority": FLOOR_TRACE_IDENTITY_AUTHORITY,
-            "component_required": True,
+            "raw_component_required": True,
+            "raw_component_non_handle_string_required": True,
+            "raw_component_key_type_literal_journal_required": True,
+            "raw_component_identity_authority": False,
+            "break_hit_result_required": True,
+            "break_hit_result_hit_component_handle_required": True,
             "owner_derived_via_get_owner": True,
             "raw_out_hit_shape_required": True,
             "legacy_actor_field_identity_authority": False,
@@ -211,6 +253,7 @@ def build_request(
     instrumented_suite_output: Path,
     output: Path,
     failed_attempt_final_receipt: Path,
+    previous_failure_ledger: Path,
     failure_ledger_output: Path,
     rpc_port: int,
     graphics_adapter: int,
@@ -318,6 +361,7 @@ def build_request(
         }
     failure_ledger_path = _materialize_failure_ledger(
         final_receipt_path=failed_attempt_final_receipt,
+        previous_failure_ledger_path=previous_failure_ledger,
         output=failure_ledger_output,
         new_capture_output=capture_output,
     )
@@ -340,6 +384,9 @@ def build_request(
         "floor_trace_identity_schema": FLOOR_TRACE_IDENTITY_SCHEMA,
         "floor_trace_identity_authority": FLOOR_TRACE_IDENTITY_AUTHORITY,
         "raw_out_hit_shape_required": True,
+        "raw_component_key_type_literal_journal_required": True,
+        "raw_component_non_handle_string_required": True,
+        "break_hit_result_required": True,
         "legacy_actor_field_identity_authority": False,
         "hit_object_handle_identity_authority": False,
         "formal": False,
@@ -392,6 +439,11 @@ def build_request(
             "floor_identity_schema": FLOOR_TRACE_IDENTITY_SCHEMA,
             "floor_identity_authority": FLOOR_TRACE_IDENTITY_AUTHORITY,
             "raw_out_hit_shape_required": True,
+            "raw_component_key_type_literal_journal_required": True,
+            "raw_component_non_handle_string_required": True,
+            "raw_component_identity_authority": False,
+            "break_hit_result_required": True,
+            "break_hit_result_hit_component_handle_required": True,
             "legacy_actor_field_identity_authority": False,
             "hit_object_handle_identity_authority": False,
             "actors_to_ignore": "both_runtime_anchor_and_visual_actors",
@@ -425,6 +477,7 @@ def build_request(
             "spear_root": str(spear_root.resolve()),
             "capture_output": str(capture_output.resolve()),
             "failure_ledger": str(failure_ledger_path.resolve()),
+            "frozen_revision_v2_failure_ledger": str(previous_failure_ledger.resolve()),
             "supersedes_failed_final_receipt": str(
                 failed_attempt_final_receipt.resolve()
             ),
@@ -444,6 +497,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--instrumented-suite-output", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--failed-attempt-final-receipt", required=True, type=Path)
+    parser.add_argument("--previous-failure-ledger", required=True, type=Path)
     parser.add_argument("--failure-ledger-output", required=True, type=Path)
     parser.add_argument("--rpc-port", type=int, default=39583)
     parser.add_argument("--graphics-adapter", type=int, default=1)
@@ -466,6 +520,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         instrumented_suite_output=args.instrumented_suite_output.resolve(),
         output=args.output.resolve(),
         failed_attempt_final_receipt=args.failed_attempt_final_receipt.resolve(),
+        previous_failure_ledger=args.previous_failure_ledger.resolve(),
         failure_ledger_output=args.failure_ledger_output.resolve(),
         rpc_port=args.rpc_port,
         graphics_adapter=args.graphics_adapter,

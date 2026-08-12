@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,11 @@ SPEC = importlib.util.spec_from_file_location("strict_runtime_readback", TOOL_PA
 assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
+
+RAW_FLOOR_COMPONENT = (
+    "StaticMeshComponent'/Game/Test/Maps/Test.Test:PersistentLevel."
+    "ApartmentFloorActor_0.FloorComponent0'"
+)
 
 
 class _LoadedMesh:
@@ -62,8 +68,10 @@ class _UnrealService:
         return "ApartmentFloorActor:PersistentLevel.FloorComponent0"
 
     def get_stable_name_for_actor(self, **kwargs: object) -> str:
-        assert isinstance(kwargs["actor"], _FloorOwner)
         assert kwargs["include_unreal_name"] is True
+        if isinstance(kwargs["actor"], _OtherFloorOwner):
+            return "OtherFloorActor:PersistentLevel.OtherFloorActor_0"
+        assert isinstance(kwargs["actor"], _FloorOwner)
         return "ApartmentFloorActor:PersistentLevel.ApartmentFloorActor_0"
 
     def load_object(self, **kwargs: object) -> object:
@@ -82,6 +90,10 @@ class _UnrealService:
 
 
 class _FloorOwner:
+    pass
+
+
+class _OtherFloorOwner:
     pass
 
 
@@ -118,13 +130,53 @@ class _Kismet:
             "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
         }
         if self.component_present:
-            out_hit["Component"] = "0x258"
+            out_hit["Component"] = RAW_FLOOR_COMPONENT
         if self.actor_field_present:
             out_hit["Actor"] = "WrongLegacyActorField"
         return {
             "ReturnValue": self.ground_hit,
             "OutHit": out_hit,
         }
+
+
+class _GameplayStatics:
+    def __init__(
+        self,
+        *,
+        component_handle: str | None = "0x258",
+        actor_handle: str | None = "0x2bc",
+        journal_path: Path | None = None,
+    ) -> None:
+        self.component_handle = component_handle
+        self.actor_handle = actor_handle
+        self.journal_path = journal_path
+
+    def BreakHitResult(self, **kwargs: object) -> dict[str, object]:
+        assert kwargs["as_dict"] is True
+        hit = kwargs["Hit"]
+        assert isinstance(hit, dict)
+        assert hit["Component"] == RAW_FLOOR_COMPONENT
+        if self.journal_path is not None:
+            journal = json.loads(self.journal_path.read_text(encoding="utf-8"))
+            assert journal["status"] == "in_progress"
+            assert journal["entries"][-1]["raw_component"] == {
+                "present": True,
+                "key": "Component",
+                "python_type": "builtins.str",
+                "literal": RAW_FLOOR_COMPONENT,
+                "literal_persisted_exactly": True,
+                "identity_authority": False,
+            }
+            assert journal["entries"][-1]["break_hit_result"] is None
+        result: dict[str, object] = {
+            "Location": hit["location"],
+            "Normal": hit["normal"],
+        }
+        if self.component_handle is not None:
+            result["HitComponent"] = self.component_handle
+        if self.actor_handle is not None:
+            result["HitActor"] = self.actor_handle
+        return result
 
 
 class _Game:
@@ -136,6 +188,9 @@ class _Game:
         component_present: bool = True,
         owner_present: bool = True,
         actor_field_present: bool = False,
+        broken_component_handle: str | None = "0x258",
+        broken_actor_handle: str | None = "0x2bc",
+        journal_path: Path | None = None,
     ) -> None:
         self.unreal_service = _UnrealService(class_match=class_match)
         self.kismet = _Kismet(
@@ -145,19 +200,29 @@ class _Game:
         )
         self.floor_component = _FloorComponent(owner_present=owner_present)
         self.floor_owner = _FloorOwner()
+        self.other_floor_owner = _OtherFloorOwner()
+        self.gameplay_statics = _GameplayStatics(
+            component_handle=broken_component_handle,
+            actor_handle=broken_actor_handle,
+            journal_path=journal_path,
+        )
 
     def get_unreal_object(
         self, *, uobject: int | None = None, uclass: str | None = None
     ) -> object:
         if uclass is not None:
-            assert uclass == "UKismetSystemLibrary"
-            return self.kismet
+            if uclass == "UKismetSystemLibrary":
+                return self.kismet
+            assert uclass == "UGameplayStatics"
+            return self.gameplay_statics
         if uobject == 200:
             return _LoadedMesh()
         if uobject == "0x258":
             return self.floor_component
         if uobject == "0x2bc":
             return self.floor_owner
+        if uobject == "0x3e7":
+            return self.other_floor_owner
         assert uobject == 500
         return _AnimInstance()
 
@@ -436,8 +501,26 @@ def test_runtime_asset_readback_closes_live_identity_and_emitter(
     assert trace["hit_point_ue_cm"] == [-201.0, -101.0, 40.0]
     assert trace["hit_normal_ue"] == [0.0, 0.0, 1.0]
     assert trace["horizontal_error_cm"] == 0.0
-    assert trace["schema"] == "ue_fhitresult_component_owner_floor_identity_v2"
-    assert trace["authority"] == "OutHit.Component_to_UActorComponent.GetOwner"
+    assert trace["schema"] == "ue_fhitresult_component_owner_floor_identity_v3"
+    assert trace["authority"] == (
+        "UGameplayStatics.BreakHitResult(HitComponent)_to_UActorComponent.GetOwner"
+    )
+    assert trace["raw_component_diagnostic"] == {
+        "present": True,
+        "key": "Component",
+        "python_type": "builtins.str",
+        "literal": RAW_FLOOR_COMPONENT,
+        "literal_persisted_exactly": True,
+        "identity_authority": False,
+    }
+    assert trace["break_hit_result_component"] == {
+        "present": True,
+        "key": "HitComponent",
+        "python_type": "builtins.str",
+        "literal": "0x258",
+        "literal_persisted_exactly": True,
+        "identity_authority": True,
+    }
     assert trace["raw_actor_field"] == {
         "present": False,
         "value_type": None,
@@ -582,7 +665,7 @@ def test_runtime_ground_contact_rejects_floor_trace_miss(
         )
 
 
-def test_floor_trace_v2_accepts_component_owner_without_actor_field() -> None:
+def test_floor_trace_v3_accepts_break_component_owner_without_actor_field() -> None:
     result = TOOL._line_trace_floor(
         game=_Game(actor_field_present=False),
         position_ue_cm=[1.0, 2.0, 46.0],
@@ -590,7 +673,7 @@ def test_floor_trace_v2_accepts_component_owner_without_actor_field() -> None:
         owner="source1_actor Bip01 L Foot",
     )
 
-    assert result["schema"] == "ue_fhitresult_component_owner_floor_identity_v2"
+    assert result["schema"] == "ue_fhitresult_component_owner_floor_identity_v3"
     assert result["hit_actor"] == (
         "ApartmentFloorActor:PersistentLevel.ApartmentFloorActor_0"
     )
@@ -601,7 +684,7 @@ def test_floor_trace_v2_accepts_component_owner_without_actor_field() -> None:
     assert result["hit_object_handle_auxiliary"]["identity_authority"] is False
 
 
-def test_floor_trace_v2_ignores_legacy_actor_field_for_identity() -> None:
+def test_floor_trace_v3_ignores_legacy_actor_field_for_identity() -> None:
     result = TOOL._line_trace_floor(
         game=_Game(actor_field_present=True),
         position_ue_cm=[1.0, 2.0, 46.0],
@@ -614,8 +697,24 @@ def test_floor_trace_v2_ignores_legacy_actor_field_for_identity() -> None:
     assert result["hit_actor"] != result["raw_actor_field"]["value"]
 
 
-def test_floor_trace_v2_rejects_missing_component() -> None:
-    with pytest.raises(RuntimeError, match="missing Component.*raw OutHit keys"):
+def test_floor_trace_v3_accepts_null_break_actor_and_uses_component_owner() -> None:
+    result = TOOL._line_trace_floor(
+        game=_Game(broken_actor_handle="0x0"),
+        position_ue_cm=[1.0, 2.0, 46.0],
+        actors_to_ignore=[object(), object()],
+        owner="source1_actor Bip01 L Foot",
+    )
+
+    assert result["hit_actor"] == (
+        "ApartmentFloorActor:PersistentLevel.ApartmentFloorActor_0"
+    )
+    assert result["break_hit_result_actor_auxiliary"]["literal"] == "0x0"
+    assert result["break_hit_result_actor_auxiliary"]["stable_name"] is None
+    assert result["break_hit_result_actor_auxiliary"]["identity_authority"] is False
+
+
+def test_floor_trace_v3_rejects_missing_component() -> None:
+    with pytest.raises(RuntimeError, match="lacks a non-handle Component string"):
         TOOL._line_trace_floor(
             game=_Game(component_present=False),
             position_ue_cm=[1.0, 2.0, 46.0],
@@ -624,7 +723,7 @@ def test_floor_trace_v2_rejects_missing_component() -> None:
         )
 
 
-def test_floor_trace_v2_rejects_component_with_null_owner() -> None:
+def test_floor_trace_v3_rejects_component_with_null_owner() -> None:
     with pytest.raises(RuntimeError, match="Component.GetOwner returned null"):
         TOOL._line_trace_floor(
             game=_Game(owner_present=False),
@@ -632,6 +731,69 @@ def test_floor_trace_v2_rejects_component_with_null_owner() -> None:
             actors_to_ignore=[object(), object()],
             owner="source1_actor Bip01 L Foot",
         )
+
+
+def test_floor_trace_v3_rejects_break_actor_that_differs_from_component_owner() -> None:
+    with pytest.raises(RuntimeError, match="HitActor differs from Component.GetOwner"):
+        TOOL._line_trace_floor(
+            game=_Game(broken_actor_handle="0x3e7"),
+            position_ue_cm=[1.0, 2.0, 46.0],
+            actors_to_ignore=[object(), object()],
+            owner="source1_actor Bip01 L Foot",
+        )
+
+
+def test_floor_trace_v3_persists_raw_literal_before_break_conversion(
+    tmp_path: Path,
+) -> None:
+    journal_path = tmp_path / TOOL.GROUND_HIT_RAW_JOURNAL_NAME
+    journal = TOOL._GroundHitRawJournal(journal_path)
+    result = TOOL._line_trace_floor(
+        game=_Game(journal_path=journal_path),
+        position_ue_cm=[1.0, 2.0, 46.0],
+        actors_to_ignore=[object(), object()],
+        owner="source1_actor Bip01 L Foot",
+        raw_hit_journal=journal,
+    )
+    journal.finalize()
+
+    persisted = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert persisted["schema"] == TOOL.GROUND_HIT_RAW_JOURNAL_SCHEMA
+    assert persisted["status"] == "complete"
+    assert persisted["entry_count"] == 1
+    entry = persisted["entries"][0]
+    assert entry["raw_component"]["key"] == "Component"
+    assert entry["raw_component"]["python_type"] == "builtins.str"
+    assert entry["raw_component"]["literal"] == RAW_FLOOR_COMPONENT
+    assert entry["raw_component"]["identity_authority"] is False
+    assert entry["break_hit_result"]["hit_component"]["literal"] == "0x258"
+    assert entry["stable_identity"]["hit_component"] == result["hit_component"]
+    assert result["raw_hit_journal_sequence"] == 0
+
+
+def test_floor_trace_v3_keeps_raw_journal_when_break_component_is_missing(
+    tmp_path: Path,
+) -> None:
+    journal_path = tmp_path / TOOL.GROUND_HIT_RAW_JOURNAL_NAME
+    journal = TOOL._GroundHitRawJournal(journal_path)
+    with pytest.raises(RuntimeError, match="non-null HitComponent handle"):
+        TOOL._line_trace_floor(
+            game=_Game(
+                broken_component_handle=None,
+                journal_path=journal_path,
+            ),
+            position_ue_cm=[1.0, 2.0, 46.0],
+            actors_to_ignore=[object(), object()],
+            owner="source1_actor Bip01 L Foot",
+            raw_hit_journal=journal,
+        )
+
+    persisted = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert persisted["status"] == "in_progress"
+    assert persisted["entry_count"] == 1
+    assert persisted["entries"][0]["raw_component"]["literal"] == (RAW_FLOOR_COMPONENT)
+    assert persisted["entries"][0]["break_hit_result"] is not None
+    assert persisted["entries"][0]["stable_identity"] is None
 
 
 def test_runtime_asset_samples_close_begin_midpoint_and_end() -> None:

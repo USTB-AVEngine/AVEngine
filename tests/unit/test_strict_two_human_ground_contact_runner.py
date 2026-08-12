@@ -72,7 +72,7 @@ def _source_fixture(tmp_path: Path, monkeypatch):
     _write_json(
         failed_final_receipt,
         {
-            "schema": "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v1",
+            "schema": "avengine_strict_two_human_ground_contact_gpu_launch_receipt_v2",
             "status": "failed",
             "capture_output": str(failed_capture_output),
             "capture_process_exit_code": 1,
@@ -80,7 +80,17 @@ def _source_fixture(tmp_path: Path, monkeypatch):
             "gpu_started": True,
             "frame_indices": [0, 37, 74],
             "release_authorized": False,
+            "qualification_claim": False,
             "formal_dataset_count": 0,
+        },
+    )
+    frozen_failure_ledger_path = repo / "tmp/failed_ground/failure_ledger.json"
+    _write_json(
+        frozen_failure_ledger_path,
+        {
+            "schema": runner.PREVIOUS_FAILURE_LEDGER_SCHEMA,
+            "status": "closed_failed_attempt_no_same_candidate_retry",
+            "disposition": {"new_capture_output": str(failed_capture_output.resolve())},
         },
     )
     failure_ledger_path = diagnostic_root / "failure_ledger.json"
@@ -88,9 +98,13 @@ def _source_fixture(tmp_path: Path, monkeypatch):
         failure_ledger_path,
         {
             "schema": runner.FAILURE_LEDGER_SCHEMA,
-            "status": "closed_failed_attempt_no_same_candidate_retry",
-            "failed_attempt": {
+            "status": "closed_two_failed_attempts_no_same_candidate_retry",
+            "frozen_revision_v2_failure_ledger": runner._file_record(
+                frozen_failure_ledger_path
+            ),
+            "failed_revision_v2_attempt": {
                 "final_receipt": runner._file_record(failed_final_receipt),
+                "capture_output": str(failed_capture_output.resolve()),
                 "capture_process_exit_code": 1,
                 "attempt_consumed": True,
                 "captured_file_count": 0,
@@ -99,18 +113,27 @@ def _source_fixture(tmp_path: Path, monkeypatch):
                 "pixel_frame_count": 0,
             },
             "first_blocker": {
-                "message": runner.FAILED_ATTEMPT_FIRST_BLOCKER,
-                "code_precondition": "required_OutHit.Actor",
+                "machine_receipt_message": runner.FAILED_V2_OUTER_ERROR,
+                "audited_inner_exception": (runner.FAILED_V2_AUDITED_INNER_EXCEPTION),
+                "audited_inner_exception_machine_persisted": False,
+                "code_precondition": (
+                    "treated_raw_OutHit.Component_string_as_0x_handle"
+                ),
             },
             "disposition": {
                 "same_candidate_retry_forbidden": True,
                 "failed_attempt_preserved": True,
                 "new_capture_output": str(capture_output.resolve()),
             },
-            "revision_v2": {
+            "revision_v3": {
                 "floor_identity_schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
                 "floor_identity_authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
-                "component_required": True,
+                "raw_component_required": True,
+                "raw_component_non_handle_string_required": True,
+                "raw_component_key_type_literal_journal_required": True,
+                "raw_component_identity_authority": False,
+                "break_hit_result_required": True,
+                "break_hit_result_hit_component_handle_required": True,
                 "owner_derived_via_get_owner": True,
                 "raw_out_hit_shape_required": True,
                 "legacy_actor_field_identity_authority": False,
@@ -192,6 +215,9 @@ def _source_fixture(tmp_path: Path, monkeypatch):
             "floor_trace_identity_schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
             "floor_trace_identity_authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
             "raw_out_hit_shape_required": True,
+            "raw_component_key_type_literal_journal_required": True,
+            "raw_component_non_handle_string_required": True,
+            "break_hit_result_required": True,
             "legacy_actor_field_identity_authority": False,
             "hit_object_handle_identity_authority": False,
             "failure_ledger": str(failure_ledger_path.resolve()),
@@ -247,6 +273,9 @@ def _source_fixture(tmp_path: Path, monkeypatch):
             "spear_root": str(spear_root.resolve()),
             "capture_output": str(capture_output.resolve()),
             "failure_ledger": str(failure_ledger_path.resolve()),
+            "frozen_revision_v2_failure_ledger": str(
+                frozen_failure_ledger_path.resolve()
+            ),
             "supersedes_failed_final_receipt": str(failed_final_receipt.resolve()),
         },
         "asset_evidence": asset_evidence,
@@ -269,6 +298,11 @@ def _source_fixture(tmp_path: Path, monkeypatch):
             "floor_identity_schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
             "floor_identity_authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
             "raw_out_hit_shape_required": True,
+            "raw_component_key_type_literal_journal_required": True,
+            "raw_component_non_handle_string_required": True,
+            "raw_component_identity_authority": False,
+            "break_hit_result_required": True,
+            "break_hit_result_hit_component_handle_required": True,
             "legacy_actor_field_identity_authority": False,
             "hit_object_handle_identity_authority": False,
             "ue_length_unit": "centimeter",
@@ -416,7 +450,13 @@ def test_real_launch_requires_explicit_one_attempt_authorization(
         runner.run(request_path, dry_run=False, authorize_one_attempt=False)
 
 
-def _floor_trace(runner, *, floor_z: float = 40.0) -> dict[str, object]:
+RAW_FLOOR_COMPONENT = (
+    "StaticMeshComponent'/Game/Test/Maps/Test.Test:PersistentLevel."
+    "ApartmentFloorActor_0.FloorComponent0'"
+)
+
+
+def _floor_trace(runner, *, sequence: int, floor_z: float = 40.0) -> dict[str, object]:
     return {
         "schema": runner.FLOOR_TRACE_IDENTITY_SCHEMA,
         "authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
@@ -427,6 +467,32 @@ def _floor_trace(runner, *, floor_z: float = 40.0) -> dict[str, object]:
         "hit_actor_class": "AStaticMeshActor",
         "hit_component": "ApartmentFloorComponent",
         "hit_component_class": "UStaticMeshComponent",
+        "raw_hit_journal_sequence": sequence,
+        "raw_component_diagnostic": {
+            "present": True,
+            "key": "Component",
+            "python_type": "builtins.str",
+            "literal": RAW_FLOOR_COMPONENT,
+            "literal_persisted_exactly": True,
+            "identity_authority": False,
+        },
+        "break_hit_result_component": {
+            "present": True,
+            "key": "HitComponent",
+            "python_type": "builtins.str",
+            "literal": "0x258",
+            "literal_persisted_exactly": True,
+            "identity_authority": True,
+        },
+        "break_hit_result_actor_auxiliary": {
+            "present": True,
+            "key": "HitActor",
+            "python_type": "builtins.str",
+            "literal": "0x2bc",
+            "literal_persisted_exactly": True,
+            "stable_name": "ApartmentFloorActor",
+            "identity_authority": False,
+        },
         "hit_point_ue_cm": [10.0, 20.0, floor_z],
         "hit_normal_ue": [0.0, 0.0, 1.0],
         "raw_out_hit_shape": {
@@ -446,7 +512,7 @@ def _floor_trace(runner, *, floor_z: float = 40.0) -> dict[str, object]:
     }
 
 
-def _ground_readback(runner) -> dict[str, object]:
+def _ground_readback(runner, next_trace) -> dict[str, object]:
     sides = {}
     for side, bones in runner.GROUND_BONES.items():
         anchors = {}
@@ -457,7 +523,7 @@ def _ground_readback(runner) -> dict[str, object]:
                 "bone_index": index,
                 "world_position_ue_cm": [10.0, 20.0, 40.0 + clearance],
                 "bone_to_floor_clearance_cm": clearance,
-                "floor_trace": _floor_trace(runner),
+                "floor_trace": next_trace(),
             }
         sides[side] = {"status": "observed", "anchors": anchors}
     return {
@@ -468,7 +534,7 @@ def _ground_readback(runner) -> dict[str, object]:
             "schema": "ue_dynamic_ground_snap_v1",
             "status": "passed",
             "target": "attached_visual_actor_root_component",
-            "floor_trace": _floor_trace(runner, floor_z=39.98),
+            "floor_trace": next_trace(floor_z=39.98),
             "floor_z_cm": 39.98,
             "visual_bounds_before": {"bottom_z_ue_cm": 38.5},
             "visual_bounds_after": {"bottom_z_ue_cm": 40.0},
@@ -487,12 +553,77 @@ def _ground_readback(runner) -> dict[str, object]:
 
 def _capture_fixture(tmp_path: Path, runner) -> dict[str, object]:
     capture_root = tmp_path / "capture_attempt_01"
+    raw_hit_journal_path = capture_root / runner.GROUND_HIT_RAW_JOURNAL_NAME
+    journal_entries: list[dict[str, object]] = []
+
+    def next_trace(*, floor_z: float = 40.0) -> dict[str, object]:
+        trace = _floor_trace(
+            runner,
+            sequence=len(journal_entries),
+            floor_z=floor_z,
+        )
+        journal_entries.append(
+            {
+                "sequence": trace["raw_hit_journal_sequence"],
+                "owner": "fixture",
+                "raw_out_hit_shape": trace["raw_out_hit_shape"],
+                "raw_component": trace["raw_component_diagnostic"],
+                "break_hit_result": {
+                    "method": "UGameplayStatics.BreakHitResult",
+                    "shape": {
+                        "keys": ["HitActor", "HitComponent"],
+                        "value_types": {
+                            "HitActor": "str",
+                            "HitComponent": "str",
+                        },
+                    },
+                    "hit_component": trace["break_hit_result_component"],
+                    "hit_actor_auxiliary": trace["break_hit_result_actor_auxiliary"],
+                },
+                "stable_identity": {
+                    "authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
+                    "hit_actor": trace["hit_actor"],
+                    "hit_actor_class": trace["hit_actor_class"],
+                    "hit_component": trace["hit_component"],
+                    "hit_component_class": trace["hit_component_class"],
+                },
+            }
+        )
+        return trace
+
+    sampled_frames = []
+    for frame_index in runner.FRAME_INDICES:
+        per_instance = {}
+        for slot in runner.INSTANCE_IDS:
+            per_instance[slot] = {
+                "live_ground_contact_readback": _ground_readback(runner, next_trace)
+            }
+        sampled_frames.append(
+            {"frame_index": frame_index, "per_instance": per_instance}
+        )
+    _write_json(
+        raw_hit_journal_path,
+        {
+            "schema": runner.GROUND_HIT_RAW_JOURNAL_SCHEMA,
+            "status": "complete",
+            "entry_count": len(journal_entries),
+            "entries": journal_entries,
+            "raw_component_literal_identity_claim": False,
+            "stable_identity_authority": runner.FLOOR_TRACE_IDENTITY_AUTHORITY,
+            "release_authorized": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        },
+    )
     _write_json(
         capture_root / "manifest.json",
         {
             "schema": "avengine_qa_native_spear_pixel_episode_v1",
             "status": "pass",
             "scenario_id": runner.EPISODE_ID,
+            "artifacts": {
+                "ground_contact_raw_hit_journal": str(raw_hit_journal_path.resolve())
+            },
             "frame_contract": {
                 "frame_count": 3,
                 "formal_episode_frame_count": 75,
@@ -507,16 +638,7 @@ def _capture_fixture(tmp_path: Path, runner) -> dict[str, object]:
     readbacks = {
         "schema": "avengine_native_spear_runtime_asset_readbacks_v1",
         "status": "pass",
-        "sampled_frames": [
-            {
-                "frame_index": frame_index,
-                "per_instance": {
-                    slot: {"live_ground_contact_readback": _ground_readback(runner)}
-                    for slot in runner.INSTANCE_IDS
-                },
-            }
-            for frame_index in runner.FRAME_INDICES
-        ],
+        "sampled_frames": sampled_frames,
     }
     _write_json(capture_root / "runtime_asset_readbacks.json", readbacks)
     return {"capture_output": str(capture_root)}
