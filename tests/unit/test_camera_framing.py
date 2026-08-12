@@ -53,7 +53,6 @@ def _bound_aabb(
         "bounds_authority": {
             "status": "pass",
             "authority_id": "bounds-authority-v1",
-            "content_sha256": "a" * 64,
             "source": "live_skinned_component_bounds",
             "asset_id": "registered-asset-v1",
             "revision_id": "runtime-revision-v1",
@@ -62,7 +61,6 @@ def _bound_aabb(
         "coordinate_chain": {
             "status": "pass",
             "authority_id": "coordinate-chain-v1",
-            "content_sha256": "b" * 64,
             "from_frame": "component_local_m",
             "to_frame": "avengine_world_right_handed_y_up_m",
             "operations": ["component_to_world"],
@@ -70,7 +68,6 @@ def _bound_aabb(
         "action_coverage": {
             "status": "pass",
             "authority_id": "action-coverage-v1",
-            "content_sha256": "c" * 64,
             "action_id": action_id,
             "covered_frame_indices": list(covered_frame_indices),
         },
@@ -115,7 +112,6 @@ def _candidate(
         "room_gate": {
             "status": room_status,
             "authority_id": "room-gate-authority-v1",
-            "content_sha256": "d" * 64,
             "hard_gates": {
                 "navigable": {"status": room_status},
                 "collision_clearance": {"status": room_status},
@@ -287,10 +283,8 @@ def test_actor_bounds_authority_coordinate_and_action_coverage_fail_closed() -> 
             )
 
     frames = _frames(1)
-    frames[0]["actor_aabbs"]["source1"]["bounds_authority"]["content_sha256"] = (
-        "not-a-hash"
-    )
-    with pytest.raises(CameraFramingError, match="lowercase SHA-256"):
+    frames[0]["actor_aabbs"]["source1"]["bounds_authority"]["authority_id"] = ""
+    with pytest.raises(CameraFramingError, match="authority_id must be non-empty"):
         evaluate_static_camera_candidate(
             frames=frames,
             candidate=_candidate("camera"),
@@ -366,7 +360,6 @@ def test_duck_typed_candidate_and_invalid_order_closure() -> None:
         room_gate = {
             "status": "pass",
             "authority_id": "room-duck-v1",
-            "content_sha256": "e" * 64,
             "hard_gates": {"navigable": {"passed": True}},
         }
 
@@ -383,10 +376,12 @@ def test_duck_typed_candidate_and_invalid_order_closure() -> None:
         )
 
 
-def test_room_gate_requires_immutable_identity_and_every_declared_gate_passes() -> None:
-    candidate = _candidate("bad-hash")
-    candidate["room_gate"]["content_sha256"] = "bad"
-    with pytest.raises(CameraFramingError, match="lowercase SHA-256"):
+def test_room_gate_requires_structured_identity_and_every_declared_gate_passes() -> (
+    None
+):
+    candidate = _candidate("missing-authority")
+    candidate["room_gate"]["authority_id"] = ""
+    with pytest.raises(CameraFramingError, match="authority_id must be non-empty"):
         _solve(candidates=[candidate])
 
     candidate = _candidate("failed-gate")

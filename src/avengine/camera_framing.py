@@ -13,7 +13,6 @@ SensorRigTrajectory contract through its existing materializer and validator.
 from __future__ import annotations
 
 from copy import deepcopy
-import re
 import math
 from collections.abc import Mapping, Sequence
 from numbers import Integral, Real
@@ -322,7 +321,7 @@ def project_world_aabb(
 
 def _room_gate(value: Any, *, candidate_id: str) -> dict[str, Any]:
     owner = f"candidate {candidate_id!r} room_gate"
-    evidence = _immutable_authority(value, owner=owner)
+    evidence = _structured_authority(value, owner=owner)
     hard_gates = evidence.get("hard_gates")
     if not isinstance(hard_gates, Mapping) or not hard_gates:
         raise CameraFramingError(f"{owner}.hard_gates must be non-empty")
@@ -363,10 +362,7 @@ def _candidate(value: Any) -> dict[str, Any]:
     }
 
 
-_LOWER_SHA256 = re.compile(r"[0-9a-f]{64}")
-
-
-def _immutable_authority(value: Any, *, owner: str) -> dict[str, Any]:
+def _structured_authority(value: Any, *, owner: str) -> dict[str, Any]:
     if not isinstance(value, Mapping) or not value:
         raise CameraFramingError(f"{owner} must be a non-empty evidence object")
     evidence = deepcopy(dict(value))
@@ -377,11 +373,6 @@ def _immutable_authority(value: Any, *, owner: str) -> dict[str, Any]:
     authority_id = evidence.get("authority_id")
     if not isinstance(authority_id, str) or not authority_id.strip():
         raise CameraFramingError(f"{owner}.authority_id must be non-empty")
-    content_sha256 = evidence.get("content_sha256")
-    if not isinstance(content_sha256, str) or not _LOWER_SHA256.fullmatch(
-        content_sha256
-    ):
-        raise CameraFramingError(f"{owner}.content_sha256 must be lowercase SHA-256")
     return evidence
 
 
@@ -392,15 +383,15 @@ def _actor_bounds(value: Any, *, actor_id: str, frame_index: int) -> dict[str, A
         )
     owner = f"actor {actor_id!r} frame {frame_index}"
     low, high = _aabb(value)
-    bounds_authority = _immutable_authority(
+    bounds_authority = _structured_authority(
         _field(value, "bounds_authority", owner=owner),
         owner=f"{owner} bounds_authority",
     )
-    coordinate_chain = _immutable_authority(
+    coordinate_chain = _structured_authority(
         _field(value, "coordinate_chain", owner=owner),
         owner=f"{owner} coordinate_chain",
     )
-    action_coverage = _immutable_authority(
+    action_coverage = _structured_authority(
         _field(value, "action_coverage", owner=owner),
         owner=f"{owner} action_coverage",
     )
