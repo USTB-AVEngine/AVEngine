@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from avengine.contracts.json_io import canonical_json_sha256, sha256_file
+
 REPOSITORY = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPOSITORY / "tools/qa/materialize_strict_two_human_dynamic_canary.py"
 SPEC = importlib.util.spec_from_file_location("dynamic_materializer", TOOL_PATH)
@@ -291,6 +293,14 @@ def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
     preflight_path = batch_root / preflight_relative
     base_suite_path = batch_root / base_suite_relative
     output = tmp_path / candidate_path.stem
+    preflight_document = json.loads(preflight_path.read_text())
+    planning_row = next(
+        row
+        for row in preflight_document["canaries"]
+        if row["execution_order"] == canary_index
+    )
+    planning_path = tmp_path / f"{candidate_path.stem}_planning.json"
+    planning_path.write_text(json.dumps({"episodes": [planning_row]}))
 
     receipt_path = TOOL.materialize(
         preflight_path=preflight_path,
@@ -299,6 +309,10 @@ def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
         audio_template=TOOL.BASE_AUDIO,
         output=output,
         motion_candidate_path=candidate_path,
+        planning_manifest_path=planning_path,
+        planning_manifest_sha256=sha256_file(planning_path),
+        planning_episode_id=planning_row["episode_id"],
+        planning_episode_sha256=canonical_json_sha256(planning_row),
     )
 
     receipt = json.loads(receipt_path.read_text())
@@ -309,6 +323,15 @@ def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
     assert receipt["suite_actor_root_application"]["action_counts"] == expected_actions
     assert receipt["actor_motion_profile"]["derived_action_counts"] == expected_actions
     assert receipt["actor_motion_profile"]["legacy_root_motion_inference_used"] is False
+    assert receipt["planning_episode_authority"] == {
+        "status": "pass_exact_manifest_episode_binding",
+        "path": str(planning_path.resolve()),
+        "document_sha256": sha256_file(planning_path),
+        "json_pointer": "/episodes/0",
+        "canonical_value_sha256": canonical_json_sha256(planning_row),
+        "episode_id": planning_row["episode_id"],
+        "mechanism": planning_row["mechanism"],
+    }
     assert (
         receipt["actor_motion_profile"]["profile_content_sha256"]
         == profile["profile_content_sha256"]
@@ -362,6 +385,74 @@ def test_motion_mechanism_without_candidate_fails_closed(tmp_path: Path) -> None
     failure = json.loads((output / "FAILED.json").read_text())
     assert failure["status"] == "failed"
     assert "requires --motion-candidate" in failure["error"]
+
+
+def test_global_planning_row_without_native_motion_authority_writes_no_output(
+    tmp_path: Path,
+) -> None:
+    batch_root = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
+    planning_path = batch_root / "cpu_plan_global100_v2/manifest.json"
+    manifest = json.loads(planning_path.read_text())
+    planning_row = next(
+        row for row in manifest["episodes"] if row["mechanism"] == "target_moves"
+    )
+    output = tmp_path / "must_not_exist"
+
+    with pytest.raises(RuntimeError, match="lacks a generic native motion authority"):
+        TOOL.materialize(
+            preflight_path=(
+                batch_root
+                / "dynamic_target_moves_v2_cpu_candidate_v1/target_moves_v2_preflight.json"
+            ),
+            canary_index=1,
+            base_suite_path=(
+                batch_root
+                / "dynamic_target_moves_v2_materialized_v1/suite_execution_plan.json"
+            ),
+            audio_template=TOOL.BASE_AUDIO,
+            output=output,
+            planning_manifest_path=planning_path,
+            planning_manifest_sha256=sha256_file(planning_path),
+            planning_episode_id=planning_row["episode_id"],
+            planning_episode_sha256=canonical_json_sha256(planning_row),
+        )
+
+    assert not output.exists()
+
+
+def test_planning_runtime_mismatch_fails_before_output(tmp_path: Path) -> None:
+    batch_root = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
+    preflight_path = (
+        batch_root
+        / "dynamic_target_moves_v2_cpu_candidate_v1/target_moves_v2_preflight.json"
+    )
+    row = json.loads(preflight_path.read_text())["canaries"][0]
+    row["target"]["runtime_revision"] = "forged_revision"
+    planning_path = tmp_path / "planning.json"
+    planning_path.write_text(json.dumps({"episodes": [row]}))
+    output = tmp_path / "must_not_exist"
+
+    with pytest.raises(RuntimeError, match="target runtime binding drift"):
+        TOOL.materialize(
+            preflight_path=preflight_path,
+            canary_index=1,
+            base_suite_path=(
+                batch_root
+                / "dynamic_target_moves_v2_materialized_v1/suite_execution_plan.json"
+            ),
+            audio_template=TOOL.BASE_AUDIO,
+            output=output,
+            motion_candidate_path=(
+                REPOSITORY
+                / "examples/qa/native_strict_two_human_target_moves_native_rate_candidate_v1.json"
+            ),
+            planning_manifest_path=planning_path,
+            planning_manifest_sha256=sha256_file(planning_path),
+            planning_episode_id=row["episode_id"],
+            planning_episode_sha256=canonical_json_sha256(row),
+        )
+
+    assert not output.exists()
 
 
 def test_counterfactual_source_scenarios_bind_each_native_human_path(

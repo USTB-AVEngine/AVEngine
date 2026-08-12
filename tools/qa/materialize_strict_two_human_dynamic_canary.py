@@ -44,6 +44,7 @@ from avengine.optional_backends.spear_visual import (
     habitat_point_to_apartment_ue_cm,
 )
 from avengine.qa.actor_motion_profile import (
+    bind_planning_episode,
     build_actor_motion_profile,
     materialize_profile_frames,
     source_center_paths,
@@ -121,6 +122,133 @@ def _selected_canary(preflight: Mapping[str, Any], index: int) -> dict[str, Any]
     ]
     _require(len(matches) == 1, "canary index must resolve exactly once")
     return deepcopy(matches[0])
+
+
+def _validate_planning_materialization_authority(
+    *,
+    binding: Mapping[str, Any],
+    preflight_path: Path,
+    canary_index: int,
+    motion_candidate_path: Path | None,
+) -> None:
+    """Bind planning identity, runtime, content, camera, roots, and provenance."""
+
+    row = binding["value"]
+    _require(isinstance(row, Mapping), "planning episode row is not an object")
+    mechanism = row.get("mechanism")
+    _require(
+        mechanism in MOTION_PROFILE_REQUIRED_MECHANISMS,
+        "planning entry currently requires an actor-motion-profile mechanism",
+    )
+    _require(
+        motion_candidate_path is not None,
+        "planning dynamic row lacks a generic native motion authority; refusing natural-cadence inference",
+    )
+    preflight_row = _selected_canary(_load(preflight_path), canary_index)
+    for key in ("episode_id", "mechanism", "target_side", "camera"):
+        _require(
+            row.get(key) == preflight_row.get(key),
+            f"planning/preflight {key} binding drift",
+        )
+    required_role_fields = {
+        "identity_key",
+        "runtime_asset_id",
+        "runtime_revision",
+        "source_slot_id",
+        "root_path_m",
+        "frame_index_map",
+    }
+    for role_name in ("target", "distractor"):
+        role = row.get(role_name)
+        old_role = preflight_row.get(role_name)
+        _require(
+            isinstance(role, Mapping) and isinstance(old_role, Mapping),
+            f"planning {role_name} authority is missing",
+        )
+        for key in required_role_fields:
+            _require(
+                key in role and role.get(key) == old_role.get(key),
+                f"planning {role_name} {key} binding drift",
+            )
+        provenance = role.get("path_provenance", row.get("native_source_scenario_id"))
+        old_provenance = old_role.get(
+            "path_provenance", preflight_row.get("native_source_scenario_id")
+        )
+        _require(
+            provenance is not None and provenance == old_provenance,
+            f"planning {role_name} source provenance binding drift",
+        )
+    for key in (
+        "content_id",
+        "sound_asset_id",
+        "voice_id",
+        "voice_policy",
+        "speech_frame_window_inclusive",
+        "speech_sample_count",
+    ):
+        _require(
+            row["target"].get(key) == preflight_row["target"].get(key),
+            f"planning target audio {key} binding drift",
+        )
+    _require(
+        row["distractor"].get("voice_policy") == "silent",
+        "planning distractor must remain silent",
+    )
+    candidate = _load(motion_candidate_path)
+    _require(
+        candidate.get("legacy_episode_id") == row.get("episode_id")
+        and candidate.get("mechanism") == mechanism,
+        "planning/motion candidate episode or mechanism binding drift",
+    )
+    declarations = candidate.get("actor_declarations")
+    actors = candidate.get("actors")
+    _require(
+        isinstance(declarations, Mapping) and isinstance(actors, Mapping),
+        "motion candidate actor authorities are missing",
+    )
+    for role_name in ("target", "distractor"):
+        slot = candidate.get(f"{role_name}_slot")
+        actor = actors.get(slot) if isinstance(slot, str) else None
+        _require(isinstance(actor, Mapping), f"candidate {role_name} actor is missing")
+        declaration = declarations.get(actor.get("actor_id"))
+        _require(
+            isinstance(declaration, Mapping)
+            and actor.get("asset_id") == row[role_name].get("runtime_asset_id")
+            and declaration.get("asset_revision")
+            == row[role_name].get("runtime_revision"),
+            f"planning {role_name} runtime binding drift",
+        )
+        candidate_roots = actor.get("root_path_m")
+        planning_roots = row[role_name].get("root_path_m")
+        _require(
+            isinstance(candidate_roots, list)
+            and len(candidate_roots) == FRAME_COUNT
+            and isinstance(planning_roots, list)
+            and len(planning_roots) == FRAME_COUNT
+            and candidate_roots[0] == planning_roots[0]
+            and candidate_roots[-1] == planning_roots[-1],
+            f"planning {role_name} root endpoint binding drift",
+        )
+        if actor.get("moving") is True:
+            authority = actor.get("native_motion_authority")
+            interval = actor.get("native_rate_active_interval")
+            source_provenance = row[role_name].get("path_provenance", {})
+            _require(
+                isinstance(authority, Mapping)
+                and isinstance(interval, Mapping)
+                and authority.get("native_source_scenario_id")
+                == source_provenance.get("native_source_scenario_id")
+                and interval.get("native_source_frame_range_inclusive")
+                == authority.get("native_source_frame_range_inclusive")
+                and interval.get("time_scale") == 1.0
+                and interval.get("global_time_stretch_applied") is False,
+                f"planning {role_name} lacks native interval/phase authority",
+            )
+        else:
+            _require(
+                candidate_roots == planning_roots,
+                f"planning {role_name} static root binding drift",
+            )
 
 
 def _identity_declarations(base_suite: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1165,6 +1293,7 @@ def _materialize_into(
     output: Path,
     published_output: Path,
     motion_candidate_path: Path | None = None,
+    planning_binding: Mapping[str, Any] | None = None,
 ) -> Path:
     _require(
         output.is_dir() and not any(output.iterdir()),
@@ -1547,6 +1676,21 @@ def _materialize_into(
                 "qualification_claim": False,
             }
         ),
+        "planning_episode_authority": (
+            {
+                "status": "pass_exact_manifest_episode_binding",
+                "path": planning_binding["path"],
+                "document_sha256": planning_binding["document_sha256"],
+                "json_pointer": planning_binding["json_pointer"],
+                "canonical_value_sha256": planning_binding[
+                    "canonical_value_sha256"
+                ],
+                "episode_id": planning_binding["value"]["episode_id"],
+                "mechanism": planning_binding["value"]["mechanism"],
+            }
+            if planning_binding is not None
+            else None
+        ),
         "gpu_launch_authorized": False,
         "formal": False,
         "qualification_claim": False,
@@ -1567,10 +1711,42 @@ def materialize(
     audio_template: Path,
     output: Path,
     motion_candidate_path: Path | None = None,
+    planning_manifest_path: Path | None = None,
+    planning_manifest_sha256: str | None = None,
+    planning_episode_id: str | None = None,
+    planning_episode_sha256: str | None = None,
 ) -> Path:
     """Build in staging and publish either a complete result or one failure receipt."""
 
     _require(not output.exists(), f"refusing to overwrite output: {output}")
+    planning_binding: Mapping[str, Any] | None = None
+    planning_values = (
+        planning_manifest_path,
+        planning_manifest_sha256,
+        planning_episode_id,
+        planning_episode_sha256,
+    )
+    if any(value is not None for value in planning_values):
+        _require(
+            all(value is not None for value in planning_values),
+            "planning manifest reference requires path, document hash, episode selector, and row hash",
+        )
+        assert planning_manifest_path is not None
+        assert planning_manifest_sha256 is not None
+        assert planning_episode_id is not None
+        assert planning_episode_sha256 is not None
+        planning_binding = bind_planning_episode(
+            planning_manifest_path=planning_manifest_path,
+            manifest_sha256=planning_manifest_sha256,
+            episode_id=planning_episode_id,
+            episode_sha256=planning_episode_sha256,
+        )
+        _validate_planning_materialization_authority(
+            binding=planning_binding,
+            preflight_path=preflight_path,
+            canary_index=canary_index,
+            motion_candidate_path=motion_candidate_path,
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{output.name}.staging.", dir=output.parent)
@@ -1584,6 +1760,7 @@ def materialize(
             output=staging,
             published_output=output,
             motion_candidate_path=motion_candidate_path,
+            planning_binding=planning_binding,
         )
     except Exception as exc:
         shutil.rmtree(staging)
@@ -1614,6 +1791,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--base-suite", type=Path, default=BASE_SUITE)
     parser.add_argument("--audio-template", type=Path, default=BASE_AUDIO)
     parser.add_argument("--motion-candidate", type=Path)
+    parser.add_argument("--planning-manifest", type=Path)
+    parser.add_argument("--planning-manifest-sha256")
+    parser.add_argument("--planning-episode-id")
+    parser.add_argument("--planning-episode-sha256")
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)
 
@@ -1629,6 +1810,12 @@ def main() -> int:
         motion_candidate_path=(
             args.motion_candidate.resolve() if args.motion_candidate else None
         ),
+        planning_manifest_path=(
+            args.planning_manifest.resolve() if args.planning_manifest else None
+        ),
+        planning_manifest_sha256=args.planning_manifest_sha256,
+        planning_episode_id=args.planning_episode_id,
+        planning_episode_sha256=args.planning_episode_sha256,
     )
     print(f"STRICT_TWO_HUMAN_DYNAMIC_MATERIALIZATION_OK receipt={receipt}")
     return 0
