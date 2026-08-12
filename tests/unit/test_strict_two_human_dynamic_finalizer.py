@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import struct
 from pathlib import Path
 
@@ -14,6 +15,151 @@ SPEC = importlib.util.spec_from_file_location("dynamic_finalizer", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
+
+MATERIALIZER_PATH = (
+    REPOSITORY / "tools/qa/materialize_strict_two_human_dynamic_canary.py"
+)
+MATERIALIZER_SPEC = importlib.util.spec_from_file_location(
+    "dynamic_materializer_for_finalizer_test", MATERIALIZER_PATH
+)
+assert MATERIALIZER_SPEC is not None and MATERIALIZER_SPEC.loader is not None
+MATERIALIZER = importlib.util.module_from_spec(MATERIALIZER_SPEC)
+MATERIALIZER_SPEC.loader.exec_module(MATERIALIZER)
+
+PROFILE_CASES = {
+    "target_moves": {
+        "candidate": "native_strict_two_human_target_moves_native_rate_candidate_v1.json",
+        "preflight": (
+            "dynamic_target_moves_v2_cpu_candidate_v1/target_moves_v2_preflight.json"
+        ),
+        "base_suite": (
+            "dynamic_target_moves_v2_materialized_v1/suite_execution_plan.json"
+        ),
+        "canary_index": 1,
+        "actions": {
+            "source1": {"idle": 48, "walk": 27},
+            "source2": {"idle": 75, "walk": 0},
+        },
+        "modes": {
+            "source1": {
+                "held_idle_after_native_rate_active_interval_v1": 42,
+                "held_idle_before_native_rate_active_interval_v1": 6,
+                "native_15hz_active_interval_v1": 27,
+            },
+            "source2": {"held_idle_all75_v1": 75},
+        },
+        "transitions": {
+            "source1": [
+                {
+                    "frame_index": 6,
+                    "from_action_id": "idle",
+                    "to_action_id": "walk",
+                },
+                {
+                    "frame_index": 33,
+                    "from_action_id": "walk",
+                    "to_action_id": "idle",
+                },
+            ],
+            "source2": [],
+        },
+        "unique_rirs": 28,
+        "per_slot_rirs": {"source1": 27, "source2": 1},
+    },
+    "distractor_moves": {
+        "candidate": (
+            "native_strict_two_human_distractor_moves_native_rate_candidate_v1.json"
+        ),
+        "preflight": (
+            "dynamic_distractor_moves_v2_geometry_v1/distractor_moves_v2_preflight.json"
+        ),
+        "base_suite": (
+            "dynamic_distractor_moves_v2_materialized_v1/suite_execution_plan.json"
+        ),
+        "canary_index": 2,
+        "actions": {
+            "source1": {"idle": 75, "walk": 0},
+            "source2": {"idle": 59, "walk": 16},
+        },
+        "modes": {
+            "source1": {"held_idle_all75_v1": 75},
+            "source2": {
+                "held_idle_after_native_rate_active_interval_v1": 38,
+                "held_idle_before_native_rate_active_interval_v1": 21,
+                "native_15hz_active_interval_v1": 16,
+            },
+        },
+        "transitions": {
+            "source1": [],
+            "source2": [
+                {
+                    "frame_index": 21,
+                    "from_action_id": "idle",
+                    "to_action_id": "walk",
+                },
+                {
+                    "frame_index": 37,
+                    "from_action_id": "walk",
+                    "to_action_id": "idle",
+                },
+            ],
+        },
+        "unique_rirs": 17,
+        "per_slot_rirs": {"source1": 1, "source2": 16},
+    },
+    "both_move": {
+        "candidate": "native_strict_two_human_both_move_native_rate_candidate_v1.json",
+        "preflight": "dynamic_both_move_v1_adapter_v1/preflight.json",
+        "base_suite": (
+            "dynamic_both_move_v1_materialized_v1/suite_execution_plan.json"
+        ),
+        "canary_index": 3,
+        "actions": {
+            "source1": {"idle": 64, "walk": 11},
+            "source2": {"idle": 63, "walk": 12},
+        },
+        "modes": {
+            "source1": {
+                "held_idle_after_native_rate_active_interval_v1": 50,
+                "held_idle_before_native_rate_active_interval_v1": 14,
+                "native_15hz_active_interval_v1": 11,
+            },
+            "source2": {
+                "held_idle_after_native_rate_active_interval_v1": 49,
+                "held_idle_before_native_rate_active_interval_v1": 14,
+                "native_15hz_active_interval_v1": 12,
+            },
+        },
+        "transitions": {
+            "source1": [
+                {
+                    "frame_index": 14,
+                    "from_action_id": "idle",
+                    "to_action_id": "walk",
+                },
+                {
+                    "frame_index": 25,
+                    "from_action_id": "walk",
+                    "to_action_id": "idle",
+                },
+            ],
+            "source2": [
+                {
+                    "frame_index": 14,
+                    "from_action_id": "idle",
+                    "to_action_id": "walk",
+                },
+                {
+                    "frame_index": 26,
+                    "from_action_id": "walk",
+                    "to_action_id": "idle",
+                },
+            ],
+        },
+        "unique_rirs": 23,
+        "per_slot_rirs": {"source1": 11, "source2": 12},
+    },
+}
 
 
 def _write_float32_wav(path: Path, samples: np.ndarray) -> None:
@@ -33,50 +179,187 @@ def _write_float32_wav(path: Path, samples: np.ndarray) -> None:
     )
 
 
-def test_dynamic_expected_rir_counts_are_not_static_two_job_counts() -> None:
-    assert TOOL.EXPECTED_ACOUSTICS == {
-        "target_moves": {"unique": 76, "source1": 75, "source2": 1, "reuse": 74},
-        "distractor_moves": {
-            "unique": 76,
-            "source1": 1,
-            "source2": 75,
-            "reuse": 74,
-        },
-        "both_move": {"unique": 150, "source1": 75, "source2": 75, "reuse": 0},
-        "camera_pan_both_static": {
-            "unique": 150,
-            "source1": 75,
-            "source2": 75,
-            "reuse": 0,
-        },
+def test_only_camera_pan_retains_a_legacy_acoustic_adapter() -> None:
+    assert TOOL.LEGACY_CAMERA_PAN_ACOUSTICS == {
+        "unique": 150,
+        "source1": 75,
+        "source2": 75,
+        "reuse": 0,
     }
+    assert TOOL.LEGACY_CAMERA_PAN_MECHANISM == "camera_pan_both_static"
+    assert not hasattr(TOOL, "EXPECTED_ACOUSTICS")
 
 
 def test_camera_pan_motion_contract_requires_static_actors_and_75_orientations() -> (
     None
 ):
-    assert TOOL.EXPECTED_MOTION["camera_pan_both_static"] == {
+    assert TOOL.LEGACY_CAMERA_PAN_MOTION == {
         "action_counts": {
             "source1": {"idle": 75, "walk": 0},
             "source2": {"idle": 75, "walk": 0},
         },
-        "interpolated_slots": [],
         "listener_orientation_count": 75,
     }
 
 
-def test_both_move_requires_two_interpolated_walking_slots() -> None:
-    assert TOOL.EXPECTED_MOTION["both_move"] == {
-        "action_counts": {
-            "source1": {"idle": 0, "walk": 75},
-            "source2": {"idle": 0, "walk": 75},
-        },
-        "interpolated_slots": ["source1", "source2"],
-        "listener_orientation_count": 1,
-    }
-    assert "equal_arc_interpolation_of_exact_native_human_polyline_v1" in (
-        TOOL.INTERPOLATED_PATH_METHODS
+def test_profile_mechanisms_have_no_arc_length_slowwalk_constants() -> None:
+    assert not hasattr(TOOL, "EXPECTED_MOTION")
+    assert not hasattr(TOOL, "INTERPOLATED_PATH_METHODS")
+
+
+@pytest.fixture(scope="module")
+def materialized_finalizer_cases(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, Path]:
+    batch_root = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
+    root = tmp_path_factory.mktemp("dynamic_finalizer_materializations")
+    result: dict[str, Path] = {}
+    for mechanism, case in PROFILE_CASES.items():
+        output = root / mechanism
+        receipt = MATERIALIZER.materialize(
+            preflight_path=batch_root / str(case["preflight"]),
+            canary_index=int(case["canary_index"]),
+            base_suite_path=batch_root / str(case["base_suite"]),
+            audio_template=MATERIALIZER.BASE_AUDIO,
+            output=output,
+            motion_candidate_path=(REPOSITORY / "examples/qa" / str(case["candidate"])),
+        )
+        assert receipt == output / "materialization_receipt.json"
+        result[mechanism] = output
+
+    camera_pan = root / "camera_pan_both_static"
+    camera_receipt = MATERIALIZER.materialize(
+        preflight_path=(
+            batch_root
+            / "dynamic_camera_pan_v2_geometry_v1/camera_pan_v2_preflight.json"
+        ),
+        canary_index=4,
+        base_suite_path=(
+            batch_root
+            / "dynamic_camera_pan_v2_materialized_v1/suite_execution_plan.json"
+        ),
+        audio_template=MATERIALIZER.BASE_AUDIO,
+        output=camera_pan,
     )
+    assert camera_receipt == camera_pan / "materialization_receipt.json"
+    result["camera_pan_both_static"] = camera_pan
+    return result
+
+
+@pytest.mark.parametrize("mechanism", list(PROFILE_CASES))
+def test_profile_materialization_closes_exact_frames_actions_modes_and_rir(
+    materialized_finalizer_cases: dict[str, Path], mechanism: str
+) -> None:
+    case = PROFILE_CASES[mechanism]
+
+    result = TOOL._validate_materialization(materialized_finalizer_cases[mechanism])
+
+    assert result["mechanism"] == mechanism
+    assert result["action_counts"] == case["actions"]
+    assert result["motion_profile"]["status"] == (
+        "pass_hash_bound_profile_consumed_exactly"
+    )
+    assert result["motion_profile"]["animation_timing_mode_counts"] == case["modes"]
+    assert result["motion_profile"]["action_transitions"] == case["transitions"]
+    assert result["motion_profile"]["live_skeletal_transition_evidence"] == {
+        "status": "pending_gpu_runtime_readback",
+        "cpu_profile_sequence_validated": True,
+        "qualification_claim": False,
+        "claim_boundary": (
+            "declared Idle/Walk transitions are exact in the CPU profile and suite, "
+            "but live skeletal transition readback remains pending"
+        ),
+    }
+    assert result["rir_stride_frames"] == 1
+    assert result["requested_source_frame_uses"] == 150
+    assert result["expected_unique_rir_job_count"] == case["unique_rirs"]
+    assert result["expected_rir_count_by_source_slot"] == case["per_slot_rirs"]
+    assert result["exact_pose_cache_reuse_count"] == 150 - case["unique_rirs"]
+    rir = result["motion_profile"]["rir_plan"]
+    assert rir["normalized_actual_plan_sha256"] == (rir["profile_expected_plan_sha256"])
+    assert result["motion_profile"]["profile_file_sha256"] == TOOL.sha256_file(
+        materialized_finalizer_cases[mechanism] / "actor_motion_profile.json"
+    )
+
+
+def test_camera_pan_legacy_adapter_regression_is_preserved(
+    materialized_finalizer_cases: dict[str, Path],
+) -> None:
+    result = TOOL._validate_materialization(
+        materialized_finalizer_cases["camera_pan_both_static"]
+    )
+
+    assert result["motion_profile"] == {
+        "status": "explicit_legacy_camera_pan_adapter",
+        "live_skeletal_transition_evidence": {"status": "not_applicable_static_actors"},
+    }
+    assert result["action_counts"] == TOOL.LEGACY_CAMERA_PAN_MOTION["action_counts"]
+    assert result["distinct_listener_orientation_count"] == 75
+    assert result["expected_unique_rir_job_count"] == 150
+    assert result["expected_rir_count_by_source_slot"] == {
+        "source1": 75,
+        "source2": 75,
+    }
+
+
+def _copy_materialization(
+    materialized_finalizer_cases: dict[str, Path], tmp_path: Path
+) -> Path:
+    output = tmp_path / "materialization"
+    shutil.copytree(materialized_finalizer_cases["target_moves"], output)
+    return output
+
+
+def test_profile_mechanism_rejects_missing_profile(
+    materialized_finalizer_cases: dict[str, Path], tmp_path: Path
+) -> None:
+    materialization = _copy_materialization(materialized_finalizer_cases, tmp_path)
+    (materialization / "actor_motion_profile.json").unlink()
+
+    with pytest.raises(RuntimeError, match="actor_motion_profile.json is required"):
+        TOOL._validate_materialization(materialization)
+
+
+def test_profile_authority_file_hash_is_fail_closed(
+    materialized_finalizer_cases: dict[str, Path], tmp_path: Path
+) -> None:
+    materialization = _copy_materialization(materialized_finalizer_cases, tmp_path)
+    profile_path = materialization / "actor_motion_profile.json"
+    profile = json.loads(profile_path.read_text())
+    profile["authorities"]["candidate"]["document_sha256"] = "0" * 64
+    core = dict(profile)
+    core.pop("profile_content_sha256")
+    profile["profile_content_sha256"] = TOOL.canonical_json_sha256(core)
+    profile_path.write_text(json.dumps(profile) + "\n")
+
+    with pytest.raises(ValueError, match="candidate file hash drift"):
+        TOOL._validate_materialization(materialization)
+
+
+def test_suite_actor_state_core_must_equal_materialized_profile_frames(
+    materialized_finalizer_cases: dict[str, Path], tmp_path: Path
+) -> None:
+    materialization = _copy_materialization(materialized_finalizer_cases, tmp_path)
+    suite_path = materialization / "suite_execution_plan.json"
+    suite = json.loads(suite_path.read_text())
+    suite["scenarios"][0]["plan"]["frames"][6]["actor_states"][0]["action_id"] = "idle"
+    suite_path.write_text(json.dumps(suite) + "\n")
+
+    with pytest.raises(RuntimeError, match="actor-state core drift.*f6"):
+        TOOL._validate_materialization(materialization)
+
+
+def test_actual_rir_normalized_hash_must_equal_profile_expectation(
+    materialized_finalizer_cases: dict[str, Path], tmp_path: Path
+) -> None:
+    materialization = _copy_materialization(materialized_finalizer_cases, tmp_path)
+    plan_path = materialization / "rir_job_plan.json"
+    plan = json.loads(plan_path.read_text())
+    plan["jobs"][0]["job_id"] += "_tampered"
+    plan_path.write_text(json.dumps(plan) + "\n")
+
+    with pytest.raises(RuntimeError, match="normalized RIR plan hash drift"):
+        TOOL._validate_materialization(materialization)
 
 
 def test_float32_wav_contract_and_exact_silence(tmp_path: Path) -> None:
