@@ -52,6 +52,234 @@ def _write(path: Path, value: object) -> None:
     path.write_text(json.dumps(value) + "\n", encoding="utf-8")
 
 
+def _write_v7_evidence_fixture(root: Path) -> dict[str, Path]:
+    preflight_root = root / "cpu_preflight_v5"
+    package_root = root / "package"
+    cache_root = root / "cache"
+    paths = {
+        "execution_plan": preflight_root / "execution_plan.json",
+        "preflight": preflight_root / "preflight.json",
+        "room_adapter": preflight_root / "room_adapter.json",
+        "suite_plan": preflight_root / "suite_execution_plan.json",
+        "rir_runtime_probe": preflight_root / "rir_runtime_probe.json",
+        "package_manifest": package_root / "manifest.json",
+        "package_material_coverage": package_root / "coverage.json",
+        "rir_cache_receipt": cache_root / "receipt.json",
+        "rir_cache_index": cache_root / "index.json",
+        "capture_output": root / "native_sparse_f15_v1",
+    }
+    episode_id = "episode"
+    scene_id = "scene"
+    mesh_paths = [f"/Game/mesh_{index:03d}" for index in range(71)]
+    roots = {"source1": [1.0, 1.0, 1.0], "source2": [4.0, 4.0, 4.0]}
+    source_positions = {"source1": [1.0, 2.0, 1.0], "source2": [4.0, 5.0, 4.0]}
+    listener = [7.0, 8.0, 9.0]
+    actor_assets = {"source1": "male_asset", "source2": "female_asset"}
+    plan = {
+        "schema": "avengine_native_strict_two_human_mp3d_execution_plan_v1",
+        "status": "planned_not_run",
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+        "cpu_steps": [
+            {
+                "step_id": "fresh_compile_mp3d_rlr_materials",
+                "argv": ["compile", "--package-id", "package"],
+            }
+        ],
+        "gpu_steps": [
+            {
+                "step_id": "sparse_f15_probe",
+                "argv": ["capture", "--scenario-id", episode_id],
+            }
+        ],
+    }
+    room = {
+        "schema": "avengine_spear_imported_glb_room_adapter_v1",
+        "scene_id": scene_id,
+        "expected_static_mesh_count": 71,
+        "static_mesh_object_paths": mesh_paths,
+        "camera_contract": {
+            "one_camera_actor_for_all_passes": True,
+            "pass_order": [
+                "normal",
+                "source1_target_only",
+                "source2_target_only",
+            ],
+        },
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+    _write(paths["execution_plan"], plan)
+    _write(
+        paths["preflight"],
+        {
+            "schema": "avengine_native_strict_two_human_mp3d_room_preflight_v1",
+            "status": "pass",
+            "episode_id": episode_id,
+            "gpu_started": False,
+            "gpu_f15_request_materialized": True,
+            "gpu_f15_request_ready": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+            "episode_contract": {
+                "frame_count": 75,
+                "frame_rate_hz": 15,
+                "sparse_probe_frame_indices": [15],
+                "static_distinct_human_pair": [
+                    actor_assets["source1"],
+                    actor_assets["source2"],
+                ],
+            },
+            "navigation": {
+                "status": "pass",
+                "fresh_pathfinder_replay_status": "pass",
+                "shared_island_id": 1,
+                "horizontal_source_separation_m": 1.5,
+                "adult_static_pair_gate": {
+                    "clearance_gate_passed": True,
+                    "separation_gate_passed": True,
+                },
+                "selected_positions": {
+                    slot: {
+                        "all_frames_navigable": True,
+                        "island_id": 1,
+                        "fresh_clearance_m": 0.8,
+                        "habitat_root_m": roots[slot],
+                    }
+                    for slot in ("source1", "source2")
+                },
+            },
+            "rir": {
+                "status": "planned_not_run",
+                "compute_device": "CPU",
+                "unique_rir_job_count": 2,
+                "source_positions_m": source_positions,
+                "listener_position_m": listener,
+            },
+        },
+    )
+    _write(paths["room_adapter"], room)
+    _write(
+        paths["suite_plan"],
+        {
+            "schema": "avengine_optional_spear_imported_glb_suite_v1",
+            "native_map": "/Engine/Maps/Entry",
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+            "scenarios": [
+                {
+                    "scenario_id": episode_id,
+                    "plan": {
+                        "frames": [
+                            {
+                                "frame_index": index,
+                                "actor_states": [
+                                    {
+                                        "actor_id": f"{slot}_actor",
+                                        "asset_id": actor_assets[slot],
+                                        "translation_m": roots[slot],
+                                    }
+                                    for slot in ("source1", "source2")
+                                ],
+                                "camera_state": {"habitat_position_m": listener},
+                            }
+                            for index in range(75)
+                        ],
+                        "actors": [
+                            {
+                                "actor_id": "source1_actor",
+                                "template_id": "male",
+                                "asset_id": actor_assets["source1"],
+                                "emitter_offset_m": [0.0, 1.0, 0.0],
+                            },
+                            {
+                                "actor_id": "source2_actor",
+                                "template_id": "female",
+                                "asset_id": actor_assets["source2"],
+                                "emitter_offset_m": [0.0, 1.0, 0.0],
+                            },
+                        ],
+                        "camera": {"habitat_position_m": listener},
+                        "room": {"scene_id": scene_id, "room_adapter": room},
+                    },
+                }
+            ],
+        },
+    )
+    _write(
+        paths["rir_runtime_probe"],
+        {
+            "schema": "avengine_mp3d_rir_runtime_probe_v1",
+            "status": "pass",
+            "compute_device": "CPU",
+            "gpu_required": False,
+            "cuda_initialized": False,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        },
+    )
+    _write(
+        paths["package_manifest"],
+        {
+            "schema": "avengine_acoustic_scene_package_v1",
+            "package_id": "package",
+            "package_mode": "research_candidate",
+            "room_kind": "habitat_native",
+            "geometry": {"triangle_count": 3, "vertex_count": 4},
+        },
+    )
+    _write(
+        paths["package_material_coverage"],
+        {
+            "schema": "avengine_m3_rlr_semantic_material_coverage_v1",
+            "status": "research_candidate",
+            "qualification_claim": False,
+            "compiled_triangle_count": 3,
+            "triangle_coverage": {"triangle_count": 3},
+            "runtime_one_to_one": {"passed": True},
+        },
+    )
+    _write(
+        paths["rir_cache_receipt"],
+        {
+            "schema": "avengine_rlr_rir_cache_receipt_v1",
+            "status": "pass",
+            "compute_device": "CPU",
+            "layout_type": "binaural",
+            "layout_id": "rlr_binaural_lr_v1",
+            "channel_count": 2,
+            "sample_rate_hz": 16000,
+            "selected_job_count": 2,
+            "full_plan_job_count": 2,
+            "full_plan_complete": True,
+            "producer_backend": "RLR Audio Propagation",
+            "dry_audio_independent": True,
+            "qualification_claim": False,
+        },
+    )
+    _write(
+        paths["rir_cache_index"],
+        {
+            "schema": "avengine_rlr_rir_cache_index_v1",
+            "status": "pass",
+            "selected_job_count": 2,
+            "full_plan_complete": True,
+            "entries": [
+                {
+                    "job_index": index,
+                    "job_id": slot,
+                    "sample_count": 8,
+                    "source_position_m": source_positions[slot],
+                    "listener_position_m": listener,
+                    "listener_orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+                }
+                for index, slot in enumerate(("source1", "source2"))
+            ],
+        },
+    )
+    return paths
+
+
 def _idle_snapshot() -> dict[str, object]:
     return {
         "captured_at_utc": "2026-08-12T00:00:00Z",
@@ -548,6 +776,668 @@ class Mp3dF15LauncherTests(unittest.TestCase):
             self.assertFalse(receipt["gpu_query_started"])
             self.assertFalse(receipt["gpu_started"])
             self.assertFalse(receipt["attempt_consumed"])
+
+    def test_v7_retargets_only_fresh_output_and_port(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            atom = root / "tmp/atom"
+            plan = atom / "cpu_preflight_v5/execution_plan.json"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("{}\n", encoding="utf-8")
+            source_output = atom / "native_sparse_f15_v1"
+            source_argv = [
+                str(LAUNCHER.CAPTURE_PYTHON_LOGICAL),
+                str(
+                    LAUNCHER.REPOSITORY
+                    / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
+                ),
+                "--spear-root",
+                str(LAUNCHER.SPEAR_ROOT),
+                "--suite-plan",
+                str(plan.with_name("suite_execution_plan.json")),
+                "--room-adapter",
+                str(plan.with_name("room_adapter.json")),
+                "--graphics-adapter",
+                "1",
+                "--rpc-port",
+                "39631",
+                "--output",
+                str(source_output),
+                "--frame-index",
+                "15",
+            ]
+            base = {
+                "episode_id": "episode",
+                "scene_id": "scene",
+                "execution_plan": str(plan),
+                "evidence_paths": {
+                    "suite_plan": str(plan.with_name("suite_execution_plan.json")),
+                    "room_adapter": str(plan.with_name("room_adapter.json")),
+                },
+                "capture_output": str(source_output),
+                "capture_argv": source_argv,
+            }
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_v7_raw_evidence_paths",
+                    return_value=plan,
+                ),
+                mock.patch.object(
+                    LAUNCHER,
+                    "_execution_plan_artifact_paths",
+                    return_value={"execution_plan": plan},
+                ),
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_v7_execution_plan_evidence",
+                    return_value={
+                        "episode_id": base["episode_id"],
+                        "scene_id": base["scene_id"],
+                        "capture_argv": source_argv,
+                    },
+                ),
+            ):
+                result = LAUNCHER.offline_validate_execution_plan_v7(plan)
+            self.assertEqual(
+                result["capture_output"],
+                str(atom / LAUNCHER.V7_CAPTURE_DIRECTORY),
+            )
+            self.assertEqual(
+                result["capture_argv"][result["capture_argv"].index("--rpc-port") + 1],
+                str(LAUNCHER.V7_RPC_PORT),
+            )
+            self.assertEqual(
+                result["capture_argv"][result["capture_argv"].index("--output") + 1],
+                str(atom / LAUNCHER.V7_CAPTURE_DIRECTORY),
+            )
+            changed = {
+                index
+                for index, (before, after) in enumerate(
+                    zip(source_argv, result["capture_argv"])
+                )
+                if before != after
+            }
+            self.assertEqual(
+                changed,
+                {
+                    source_argv.index("--rpc-port") + 1,
+                    source_argv.index("--output") + 1,
+                },
+            )
+
+    def test_v7_rejects_missing_external_capture_runtime(self) -> None:
+        for missing in ("python", "runner", "spear"):
+            with (
+                self.subTest(missing=missing),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                repo = Path(directory).resolve()
+                atom = repo / "tmp/atom"
+                plan = atom / "cpu_preflight_v5/execution_plan.json"
+                plan.parent.mkdir(parents=True)
+                plan.write_text("{}\n", encoding="utf-8")
+                capture_python = repo / "runtime/python"
+                capture_runner = (
+                    repo
+                    / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
+                )
+                spear_root = repo / "external/SPEAR"
+                if missing != "python":
+                    capture_python.parent.mkdir(parents=True)
+                    capture_python.write_text("runtime\n", encoding="utf-8")
+                if missing != "runner":
+                    capture_runner.parent.mkdir(parents=True)
+                    capture_runner.write_text("runner\n", encoding="utf-8")
+                if missing != "spear":
+                    spear_root.mkdir(parents=True)
+                argv = [
+                    str(capture_python),
+                    str(capture_runner),
+                    "--spear-root",
+                    str(spear_root),
+                    "--graphics-adapter",
+                    "1",
+                    "--rpc-port",
+                    "39631",
+                    "--output",
+                    str(atom / "native_sparse_f15_v1"),
+                    "--frame-index",
+                    "15",
+                ]
+                with (
+                    mock.patch.object(LAUNCHER, "REPOSITORY", repo),
+                    mock.patch.object(
+                        LAUNCHER, "CAPTURE_PYTHON_LOGICAL", capture_python
+                    ),
+                    mock.patch.object(LAUNCHER, "SPEAR_ROOT", spear_root),
+                    mock.patch.object(
+                        LAUNCHER,
+                        "_validate_v7_raw_evidence_paths",
+                        return_value=plan,
+                    ),
+                    mock.patch.object(
+                        LAUNCHER,
+                        "_execution_plan_artifact_paths",
+                        return_value={"execution_plan": plan},
+                    ),
+                    mock.patch.object(
+                        LAUNCHER,
+                        "_validate_v7_execution_plan_evidence",
+                        return_value={
+                            "episode_id": "episode",
+                            "scene_id": "scene",
+                            "capture_argv": argv,
+                        },
+                    ),
+                    self.assertRaisesRegex(RuntimeError, "runtime missing or drifted"),
+                ):
+                    LAUNCHER.offline_validate_execution_plan_v7(plan)
+
+    def test_v7_rejects_wrong_preflight_or_reused_capture(self) -> None:
+        for mutation, message in (
+            ("preflight", "cpu_preflight_v5"),
+            ("capture", "fresh path"),
+        ):
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory).resolve()
+                atom = root / "tmp/atom"
+                preflight = (
+                    "cpu_preflight_v4"
+                    if mutation == "preflight"
+                    else "cpu_preflight_v5"
+                )
+                plan = atom / preflight / "execution_plan.json"
+                plan.parent.mkdir(parents=True)
+                plan.write_text("{}\n", encoding="utf-8")
+                capture_output = atom / LAUNCHER.V7_CAPTURE_DIRECTORY
+                source_argv = [
+                    str(LAUNCHER.CAPTURE_PYTHON_LOGICAL),
+                    str(
+                        LAUNCHER.REPOSITORY
+                        / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
+                    ),
+                    "--spear-root",
+                    str(LAUNCHER.SPEAR_ROOT),
+                    "--graphics-adapter",
+                    "1",
+                    "--rpc-port",
+                    "39631",
+                    "--output",
+                    str(atom / "native_sparse_f15_v1"),
+                    "--frame-index",
+                    "15",
+                ]
+                if mutation == "capture":
+                    capture_output.mkdir()
+                with (
+                    mock.patch.object(
+                        LAUNCHER,
+                        "_validate_v7_raw_evidence_paths",
+                        return_value=plan,
+                    ),
+                    mock.patch.object(
+                        LAUNCHER,
+                        "_execution_plan_artifact_paths",
+                        return_value={"execution_plan": plan},
+                    ),
+                    mock.patch.object(
+                        LAUNCHER,
+                        "_validate_v7_execution_plan_evidence",
+                        return_value={
+                            "episode_id": "episode",
+                            "scene_id": "scene",
+                            "capture_argv": source_argv,
+                        },
+                    ),
+                    self.assertRaisesRegex(RuntimeError, message),
+                ):
+                    LAUNCHER.offline_validate_execution_plan_v7(plan)
+
+    def test_v7_prepare_and_dry_run_bind_head_without_gpu_or_ue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            atom = root / "tmp/atom"
+            plan = atom / "cpu_preflight_v5/execution_plan.json"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("{}\n", encoding="utf-8")
+            capture_output = atom / LAUNCHER.V7_CAPTURE_DIRECTORY
+            evidence_paths = {
+                "suite_plan": str(plan.with_name("suite_execution_plan.json")),
+                "room_adapter": str(plan.with_name("room_adapter.json")),
+            }
+            argv = [
+                "python",
+                "capture.py",
+                "--graphics-adapter",
+                "1",
+                "--rpc-port",
+                str(LAUNCHER.V7_RPC_PORT),
+                "--output",
+                str(capture_output),
+                "--frame-index",
+                "15",
+            ]
+            validation = {
+                "episode_id": "episode",
+                "scene_id": "scene",
+                "execution_plan": str(plan),
+                "evidence_paths": evidence_paths,
+                "capture_output": str(capture_output),
+                "capture_argv": argv,
+            }
+            bound_commit = "7" * 40
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "offline_validate_execution_plan_v7",
+                    return_value=validation,
+                ),
+                mock.patch.object(LAUNCHER, "_git_head", return_value=bound_commit),
+                mock.patch.object(
+                    LAUNCHER, "_git_tracked_and_index_clean", return_value=True
+                ),
+                mock.patch.object(LAUNCHER, "_assert_port_available") as port_check,
+            ):
+                request_path = LAUNCHER.prepare_request_v7(execution_plan_path=plan)
+            port_check.assert_called_once_with(LAUNCHER.V7_RPC_PORT)
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            self.assertEqual(request["schema"], LAUNCHER.REQUEST_SCHEMA_V7)
+            self.assertEqual(request["required_repo_commit"], bound_commit)
+            self.assertEqual(
+                request["attempt_root"], str(atom / LAUNCHER.V7_ATTEMPT_DIRECTORY)
+            )
+            self.assertEqual(request["capture_output"], str(capture_output))
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v7", return_value=(request, argv)
+                ),
+                mock.patch.object(LAUNCHER, "_gpu_snapshot") as gpu_snapshot,
+                mock.patch.object(LAUNCHER.subprocess, "run") as child,
+            ):
+                self.assertEqual(
+                    LAUNCHER.run_v7(
+                        request_path,
+                        offline_validate=False,
+                        dry_run=True,
+                        authorize_gpu_capture=False,
+                    ),
+                    0,
+                )
+            gpu_snapshot.assert_not_called()
+            child.assert_not_called()
+            receipt = json.loads(
+                (request_path.parent / "dry_run_receipt.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(receipt["schema"], LAUNCHER.RECEIPT_SCHEMA_V7)
+            self.assertFalse(receipt["gpu_query_started"])
+            self.assertFalse(receipt["gpu_started"])
+            self.assertFalse(receipt["attempt_consumed"])
+
+    def test_v7_semantic_evidence_ignores_legacy_digest_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            paths = _write_v7_evidence_fixture(Path(directory))
+            source = inspect.getsource(LAUNCHER._validate_v7_execution_plan_evidence)
+            for legacy_field in (
+                "retained_payload_hash_verified",
+                "request_identity_sha256",
+                "acoustic_selection_binding_sha256",
+                "ir_sha256",
+            ):
+                self.assertNotIn(legacy_field, source)
+            evidence = LAUNCHER._validate_v7_execution_plan_evidence(paths)
+            self.assertEqual(evidence["episode_id"], "episode")
+            self.assertEqual(evidence["scene_id"], "scene")
+
+    def test_v7_semantic_evidence_rejects_structural_drift(self) -> None:
+        for mutation, message in (
+            ("layout", "binaural RIR semantic/pose closure drift"),
+            ("status", "execution-plan boundary drift"),
+        ):
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                paths = _write_v7_evidence_fixture(Path(directory))
+                target = (
+                    paths["rir_cache_receipt"]
+                    if mutation == "layout"
+                    else paths["execution_plan"]
+                )
+                document = json.loads(target.read_text(encoding="utf-8"))
+                if mutation == "layout":
+                    document["layout_type"] = "mono"
+                else:
+                    document["status"] = "failed"
+                _write(target, document)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    LAUNCHER._validate_v7_execution_plan_evidence(paths)
+
+    def test_v7_rejects_rir_pose_drift_even_when_index_matches(self) -> None:
+        for mutation in ("source", "listener"):
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                paths = _write_v7_evidence_fixture(Path(directory))
+                preflight = json.loads(paths["preflight"].read_text(encoding="utf-8"))
+                index = json.loads(paths["rir_cache_index"].read_text(encoding="utf-8"))
+                if mutation == "source":
+                    preflight["rir"]["source_positions_m"]["source1"][0] += 0.5
+                    index["entries"][0]["source_position_m"][0] += 0.5
+                else:
+                    preflight["rir"]["listener_position_m"][2] += 0.5
+                    for entry in index["entries"]:
+                        entry["listener_position_m"][2] += 0.5
+                _write(paths["preflight"], preflight)
+                _write(paths["rir_cache_index"], index)
+                with self.assertRaisesRegex(
+                    RuntimeError, "binaural RIR semantic/pose closure drift"
+                ):
+                    LAUNCHER._validate_v7_execution_plan_evidence(paths)
+
+    def test_v7_prepare_rejects_symlinked_execution_plan_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            preflight = repo / "tmp/atom/cpu_preflight_v5"
+            preflight.mkdir(parents=True)
+            real_plan = preflight / "real_execution_plan.json"
+            real_plan.write_text("{}\n", encoding="utf-8")
+            linked_plan = preflight / "execution_plan.json"
+            linked_plan.symlink_to(real_plan.name)
+            with (
+                mock.patch.object(LAUNCHER, "REPOSITORY", repo),
+                mock.patch.object(LAUNCHER, "_load") as load,
+                self.assertRaisesRegex(RuntimeError, "symlink component"),
+            ):
+                LAUNCHER.prepare_request_v7(execution_plan_path=linked_plan)
+            load.assert_not_called()
+            self.assertFalse(
+                (repo / "tmp/atom" / LAUNCHER.V7_ATTEMPT_DIRECTORY).exists()
+            )
+
+    def test_v7_rejects_raw_symlinked_declared_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            preflight = repo / "tmp/atom/cpu_preflight_v5"
+            preflight.mkdir(parents=True)
+            suite_real = preflight / "suite_real.json"
+            suite_real.write_text("{}\n", encoding="utf-8")
+            suite_link = preflight / "suite_execution_plan.json"
+            suite_link.symlink_to(suite_real.name)
+            room = preflight / "room_adapter.json"
+            runtime = preflight / "rir_runtime_probe.json"
+            package = repo / "tmp/atom/package"
+            cache = repo / "tmp/atom/cache"
+            plan_path = preflight / "execution_plan.json"
+            _write(
+                plan_path,
+                {
+                    "cpu_steps": [
+                        {
+                            "step_id": "probe_authoritative_habitat_rir_runtime",
+                            "expected": {"receipt": str(runtime)},
+                        },
+                        {
+                            "step_id": "fresh_compile_mp3d_rlr_materials",
+                            "expected": {
+                                "manifest": str(package / "manifest.json"),
+                                "semantic_material_coverage": str(
+                                    package / "coverage.json"
+                                ),
+                            },
+                        },
+                        {
+                            "step_id": "render_two_exact_rirs",
+                            "expected": {
+                                "receipt": str(cache / "receipt.json"),
+                                "index": str(cache / "index.json"),
+                            },
+                        },
+                    ],
+                    "gpu_steps": [
+                        {
+                            "step_id": "sparse_f15_probe",
+                            "argv": [
+                                "capture",
+                                "--suite-plan",
+                                str(suite_link),
+                                "--room-adapter",
+                                str(room),
+                            ],
+                        }
+                    ],
+                },
+            )
+            with (
+                mock.patch.object(LAUNCHER, "REPOSITORY", repo),
+                self.assertRaisesRegex(RuntimeError, "symlink component"),
+            ):
+                LAUNCHER._validate_v7_raw_evidence_paths(plan_path)
+
+    def test_v7_clean_check_covers_tracked_index_and_untracked_files(self) -> None:
+        cases = (
+            ((0, 0), "", True),
+            ((1, 0), "", False),
+            ((0, 1), "", False),
+            ((0, 0), "?? tools/qa/cv2.py\n", False),
+        )
+        for returncodes, untracked, expected in cases:
+            with self.subTest(returncodes=returncodes, untracked=untracked):
+                calls: list[list[str]] = []
+
+                def fake_run(argv: list[str], **_kwargs: object) -> SimpleNamespace:
+                    calls.append(argv)
+                    if argv[:2] == ["git", "status"]:
+                        return SimpleNamespace(returncode=0, stdout=untracked)
+                    return SimpleNamespace(
+                        returncode=returncodes[len(calls) - 1], stdout=""
+                    )
+
+                with mock.patch.object(
+                    LAUNCHER.subprocess, "run", side_effect=fake_run
+                ):
+                    self.assertEqual(
+                        LAUNCHER._git_tracked_and_index_clean(Path("/repo")),
+                        expected,
+                    )
+                self.assertEqual(
+                    calls,
+                    [
+                        ["git", "diff", "--quiet", "--"],
+                        ["git", "diff", "--cached", "--quiet", "--"],
+                        [
+                            "git",
+                            "status",
+                            "--porcelain=v1",
+                            "--untracked-files=all",
+                        ],
+                    ],
+                )
+
+    def test_v7_rejects_dangling_and_parent_symlinks_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            dangling = root / "dangling"
+            dangling.symlink_to(root / "missing", target_is_directory=True)
+            self.assertFalse(dangling.exists())
+            self.assertTrue(dangling.is_symlink())
+            with self.assertRaisesRegex(RuntimeError, "symlink component"):
+                LAUNCHER._require_v7_nonsymlink_path(
+                    dangling, root, owner="v7 capture output"
+                )
+
+            real = root / "real"
+            real.mkdir()
+            parent_link = root / "linked"
+            parent_link.symlink_to(real, target_is_directory=True)
+            request_path = parent_link / "request.json"
+            request_path.write_text("{}\n", encoding="utf-8")
+            with (
+                mock.patch.object(LAUNCHER, "REPOSITORY", root),
+                mock.patch.object(LAUNCHER, "_load") as load,
+                self.assertRaisesRegex(RuntimeError, "symlink component"),
+            ):
+                LAUNCHER._validate_request_v7(request_path)
+            load.assert_not_called()
+
+    def test_v7_prepare_rejects_dangling_capture_leaf_before_attempt_write(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            atom = Path(directory).resolve()
+            plan = atom / "cpu_preflight_v5/execution_plan.json"
+            plan.parent.mkdir()
+            plan.write_text("{}\n", encoding="utf-8")
+            capture = atom / LAUNCHER.V7_CAPTURE_DIRECTORY
+            capture.symlink_to(atom / "missing", target_is_directory=True)
+            validation = {
+                "execution_plan": str(plan),
+                "episode_id": "episode",
+                "scene_id": "scene",
+            }
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "offline_validate_execution_plan_v7",
+                    return_value=validation,
+                ),
+                self.assertRaisesRegex(RuntimeError, "symlink component"),
+            ):
+                LAUNCHER.prepare_request_v7(execution_plan_path=plan)
+            self.assertFalse((atom / LAUNCHER.V7_ATTEMPT_DIRECTORY).exists())
+
+    def test_v7_capture_closes_hfov_passes_alignment_and_mesh_handles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture = root / "capture"
+            capture.mkdir()
+            suite = root / "suite.json"
+            room_adapter = root / "room.json"
+            _write(
+                suite,
+                {"scenarios": [{"plan": {"camera": {"horizontal_fov_deg": 90.0}}}]},
+            )
+            mesh_paths = [f"/Game/mesh_{index:03d}" for index in range(71)]
+            _write(room_adapter, {"static_mesh_object_paths": mesh_paths})
+            handles = {"rgb": 501, "depth": 502, "object_ids": 503}
+            identities = [
+                {
+                    "pass_id": pass_id,
+                    "camera_actor_handle": 500,
+                    "rgb_component_handle": 501,
+                    "metric_depth_component_handle": 502,
+                    "object_id_component_handle": 503,
+                }
+                for pass_id in (
+                    "normal",
+                    "source1_target_only",
+                    "source2_target_only",
+                )
+            ]
+            manifest = {
+                "camera_contract": {
+                    "pass_identities": identities,
+                    "runtime_alignment": {
+                        "normal_frame_count": 1,
+                        "target_pass_count": 2,
+                        "maximum_location_drift_cm": 0.0,
+                        "maximum_rotation_drift_deg": 0.0,
+                    },
+                    "hfov_readback": {
+                        "status": "pass",
+                        "camera_actor_handle": 500,
+                        "component_handles": handles,
+                        "requested_horizontal_fov_deg": 90.0,
+                        "observed_horizontal_fov_deg_by_component": {
+                            name: 90.0 for name in handles
+                        },
+                        "write_method": (
+                            "named_USpSceneCaptureComponent2D.FOVAngle_property"
+                        ),
+                    },
+                }
+            }
+            meshes = [
+                {
+                    "mesh_index": index,
+                    "object_path": path,
+                    "status": "pass",
+                    "readback_method": "UStaticMeshComponent.StaticMesh_property",
+                    "stable_actor_name": f"AVEngine/ImportedGLB/scene/mesh_{index:03d}",
+                    "expected_object_handle": 1000 + index,
+                    "observed_component_mesh_handle": 1000 + index,
+                }
+                for index, path in enumerate(mesh_paths)
+            ]
+            readback = {
+                "schema": "avengine_spear_imported_glb_live_readback_v1",
+                "status": "pass",
+                "scene_id": "scene",
+                "entry_map": "/Engine/Maps/Entry",
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+                "meshes": meshes,
+            }
+            _write(capture / "manifest.json", manifest)
+            _write(capture / "room_live_readback.json", readback)
+            request = {
+                "capture_output": str(capture),
+                "suite_plan": str(suite),
+                "room_adapter": str(room_adapter),
+                "scene_id": "scene",
+            }
+            with mock.patch.object(
+                LAUNCHER, "_validate_capture", return_value={"status": "pass"}
+            ):
+                result = LAUNCHER._validate_v7_capture(request)
+                self.assertEqual(
+                    result["per_mesh_live_readback_status"], "pass_exact_71_of_71"
+                )
+                manifest["camera_contract"]["hfov_readback"]["camera_actor_handle"] = (
+                    "500"
+                )
+                _write(capture / "manifest.json", manifest)
+                with self.assertRaisesRegex(RuntimeError, "HFOV evidence drift"):
+                    LAUNCHER._validate_v7_capture(request)
+                manifest["camera_contract"]["hfov_readback"]["camera_actor_handle"] = (
+                    500
+                )
+                manifest["camera_contract"]["hfov_readback"][
+                    "observed_horizontal_fov_deg_by_component"
+                ]["depth"] = 89.0
+                _write(capture / "manifest.json", manifest)
+                with self.assertRaisesRegex(RuntimeError, "HFOV values"):
+                    LAUNCHER._validate_v7_capture(request)
+                manifest["camera_contract"]["hfov_readback"][
+                    "observed_horizontal_fov_deg_by_component"
+                ]["depth"] = 90.0
+                meshes[3]["observed_component_mesh_handle"] = 9999
+                _write(capture / "manifest.json", manifest)
+                _write(capture / "room_live_readback.json", readback)
+                with self.assertRaisesRegex(
+                    RuntimeError, "per-mesh live readback drift"
+                ):
+                    LAUNCHER._validate_v7_capture(request)
+                meshes[3]["observed_component_mesh_handle"] = 1003
+                for field, value in (
+                    ("scene_id", "foreign"),
+                    ("formal_dataset_count", 1),
+                ):
+                    with self.subTest(field=field):
+                        original = readback[field]
+                        readback[field] = value
+                        _write(capture / "room_live_readback.json", readback)
+                        with self.assertRaisesRegex(
+                            RuntimeError, "per-mesh live readback drift"
+                        ):
+                            LAUNCHER._validate_v7_capture(request)
+                        readback[field] = original
 
     def test_capture_python_symlink_resolves_to_only_pinned_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
