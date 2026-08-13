@@ -156,6 +156,14 @@ def _semantic_scene_package(tmp_path: Path) -> tuple[Path, Path, Path]:
                     "material_id": 0,
                     "material_key": "wall",
                     "randomized": False,
+                    "rlr_label_normalization": {
+                        "policy": (
+                            "stable_case_insensitive_exact_duplicate_removal_v1"
+                        ),
+                        "removed_exact_duplicates": [],
+                        "runtime_label_count": 1,
+                        "source_label_count": 1,
+                    },
                     "rlr_match": "wall_material",
                     "rlr_material_name": "wall_material",
                     "source_material_name": "wall",
@@ -263,12 +271,61 @@ def test_semantic_scene_rejects_material_structure_drift(
         rir_cache.load_semantic_acoustic_scene(manifest)
 
 
+@pytest.mark.parametrize("drift", ["policy", "count", "duplicates", "null"])
+def test_semantic_scene_rejects_label_normalization_drift(
+    tmp_path: Path, drift: str
+) -> None:
+    manifest, categories_path, database_path = _semantic_scene_package(tmp_path)
+    categories = json.loads(categories_path.read_text())
+    normalization = categories["categories"][0]["rlr_label_normalization"]
+    if drift == "policy":
+        normalization["policy"] = "unreviewed_normalization"
+    elif drift == "count":
+        normalization["source_label_count"] = 2
+    elif drift == "duplicates":
+        database = json.loads(database_path.read_text())
+        database["materials"][0]["labels"] = ["wall", "WALL"]
+        write_json(database_path, database)
+        normalization["runtime_label_count"] = 2
+        normalization["source_label_count"] = 2
+    else:
+        categories["categories"][0]["rlr_label_normalization"] = None
+    write_json(categories_path, categories)
+
+    with pytest.raises(rir_cache.RIRCacheError):
+        rir_cache.load_semantic_acoustic_scene(manifest)
+
+
 def test_semantic_scene_loads_structural_fixture(tmp_path: Path) -> None:
     manifest, _categories, _database = _semantic_scene_package(tmp_path)
     scene = rir_cache.load_semantic_acoustic_scene(manifest)
     assert scene.package_id == "fixture_scene"
     assert scene.material_name_by_category == {"wall": "wall_material"}
     assert scene.triangle_count_by_material == {"wall": 1}
+
+
+def test_semantic_scene_loads_legacy_category_shape(tmp_path: Path) -> None:
+    manifest, categories_path, _database = _semantic_scene_package(tmp_path)
+    categories = json.loads(categories_path.read_text())
+    categories["categories"][0].pop("rlr_label_normalization")
+    write_json(categories_path, categories)
+
+    scene = rir_cache.load_semantic_acoustic_scene(manifest)
+    assert scene.material_name_by_category == {"wall": "wall_material"}
+
+
+def test_semantic_scene_accepts_each_removed_duplicate_occurrence(
+    tmp_path: Path,
+) -> None:
+    manifest, categories_path, _database = _semantic_scene_package(tmp_path)
+    categories = json.loads(categories_path.read_text())
+    normalization = categories["categories"][0]["rlr_label_normalization"]
+    normalization["removed_exact_duplicates"] = ["wall", "WALL"]
+    normalization["source_label_count"] = 3
+    write_json(categories_path, categories)
+
+    scene = rir_cache.load_semantic_acoustic_scene(manifest)
+    assert scene.material_name_by_category == {"wall": "wall_material"}
 
 
 class _EditableLoaderWrapper:

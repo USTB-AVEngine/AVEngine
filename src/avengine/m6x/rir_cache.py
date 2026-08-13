@@ -56,9 +56,7 @@ RIR_CACHE_REQUEST_SCHEMA = "avengine_rlr_rir_cache_request_v1"
 RIR_CACHE_INDEX_SCHEMA = "avengine_rlr_rir_cache_index_v1"
 RIR_CACHE_RECEIPT_SCHEMA = "avengine_rlr_rir_cache_receipt_v1"
 RIR_CACHE_TIMING_SCHEMA = "avengine_rlr_rir_cache_timing_v1"
-RIR_CACHE_ACOUSTIC_SELECTION_INPUT_SCHEMA = (
-    "avengine_rir_cache_acoustic_selection_v1"
-)
+RIR_CACHE_ACOUSTIC_SELECTION_INPUT_SCHEMA = "avengine_rir_cache_acoustic_selection_v1"
 RIR_CACHE_ACOUSTIC_SELECTION_BINDING_SCHEMA = (
     "avengine_rir_cache_acoustic_selection_binding_v1"
 )
@@ -220,7 +218,11 @@ def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...
         )
         raw_listener = raw.get("listener_position_m")
         raw_orientation = raw.get("listener_orientation_wxyz")
-        if raw_listener is None and raw_orientation is None and fixed_listener is not None:
+        if (
+            raw_listener is None
+            and raw_orientation is None
+            and fixed_listener is not None
+        ):
             listener = fixed_listener
             orientation = fixed_orientation
         elif raw_listener is None or raw_orientation is None:
@@ -260,9 +262,7 @@ def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...
                 f"RIR job {job_id} acoustic-state SHA-256 differs from its pose"
             )
         if not legacy_fixed and declared_state_sha256 is None:
-            raise RIRCacheError(
-                f"RIR job {job_id} lacks an acoustic-state SHA-256"
-            )
+            raise RIRCacheError(f"RIR job {job_id} lacks an acoustic-state SHA-256")
         uses = raw.get("uses")
         if not isinstance(uses, list) or not uses:
             raise RIRCacheError(f"RIR job {job_id} has no uses")
@@ -653,9 +653,7 @@ class _NativeRIRBatchRenderer:
         requested_listener = (
             self.current_listener_position_m
             if listener_position_m is None
-            else _finite_vector(
-                listener_position_m, 3, owner="batch listener position"
-            )
+            else _finite_vector(listener_position_m, 3, owner="batch listener position")
         )
         requested_orientation = (
             self.current_listener_orientation_wxyz
@@ -741,15 +739,13 @@ class _NativeRIRBatchRenderer:
         if len(listener_receipts) != 1:
             raise RIRCacheError("native listener receipt count differs from request")
         listener_receipt = listener_receipts[0]
-        expected_listener = np.asarray(
-            requested_listener, dtype=np.float32
-        ).astype(np.float64)
+        expected_listener = np.asarray(requested_listener, dtype=np.float32).astype(
+            np.float64
+        )
         expected_orientation = np.asarray(
             requested_orientation, dtype=np.float32
         ).astype(np.float64)
-        observed_listener = np.asarray(
-            listener_receipt.position, dtype=np.float64
-        )
+        observed_listener = np.asarray(listener_receipt.position, dtype=np.float64)
         observed_orientation = np.asarray(
             listener_receipt.orientation_wxyz, dtype=np.float64
         )
@@ -1152,21 +1148,25 @@ def load_semantic_acoustic_scene(manifest_path: Path) -> SemanticAcousticScene:
     material_names: dict[str, str] = {}
     material_indices: dict[str, int] = {}
     for index, category in enumerate(raw_categories):
+        category_fields = {
+            "category_name",
+            "fallback",
+            "human_override",
+            "mapping_confidence",
+            "mapping_source",
+            "material_id",
+            "material_key",
+            "randomized",
+            "rlr_match",
+            "rlr_material_name",
+            "source_material_name",
+        }
         if (
             not isinstance(category, Mapping)
-            or set(category)
-            != {
-                "category_name",
-                "fallback",
-                "human_override",
-                "mapping_confidence",
-                "mapping_source",
-                "material_id",
-                "material_key",
-                "randomized",
-                "rlr_match",
-                "rlr_material_name",
-                "source_material_name",
+            or frozenset(category)
+            not in {
+                frozenset(category_fields),
+                frozenset(category_fields | {"rlr_label_normalization"}),
             }
             or isinstance(category.get("material_id"), bool)
             or not isinstance(category.get("material_id"), int)
@@ -1178,6 +1178,32 @@ def load_semantic_acoustic_scene(manifest_path: Path) -> SemanticAcousticScene:
             or not category["rlr_material_name"]
         ):
             raise RIRCacheError("semantic acoustic material category is invalid")
+        normalization_present = "rlr_label_normalization" in category
+        normalization = category.get("rlr_label_normalization")
+        if normalization_present and (
+            not isinstance(normalization, Mapping)
+            or set(normalization)
+            != {
+                "policy",
+                "removed_exact_duplicates",
+                "runtime_label_count",
+                "source_label_count",
+            }
+            or normalization.get("policy")
+            != "stable_case_insensitive_exact_duplicate_removal_v1"
+            or isinstance(normalization.get("source_label_count"), bool)
+            or not isinstance(normalization.get("source_label_count"), int)
+            or normalization["source_label_count"] <= 0
+            or isinstance(normalization.get("runtime_label_count"), bool)
+            or not isinstance(normalization.get("runtime_label_count"), int)
+            or normalization["runtime_label_count"] <= 0
+            or not isinstance(normalization.get("removed_exact_duplicates"), list)
+            or any(
+                not isinstance(label, str) or not label
+                for label in normalization["removed_exact_duplicates"]
+            )
+        ):
+            raise RIRCacheError("semantic material label normalization is invalid")
         name = str(category["category_name"])
         matches = [
             material_index
@@ -1190,12 +1216,32 @@ def load_semantic_acoustic_scene(manifest_path: Path) -> SemanticAcousticScene:
             raise RIRCacheError("semantic material category mapping is ambiguous")
         material = database_materials[matches[0]]
         material_name = material.get("name")
+        normalization_drift = False
+        if normalization_present:
+            runtime_labels = material.get("labels")
+            runtime_label_identities = (
+                [label.casefold() for label in runtime_labels]
+                if isinstance(runtime_labels, list)
+                else []
+            )
+            removed_labels = normalization["removed_exact_duplicates"]
+            normalization_drift = (
+                normalization["runtime_label_count"] != len(runtime_label_identities)
+                or len(set(runtime_label_identities)) != len(runtime_label_identities)
+                or normalization["source_label_count"]
+                != len(runtime_label_identities) + len(removed_labels)
+                or any(
+                    label.casefold() not in set(runtime_label_identities)
+                    for label in removed_labels
+                )
+            )
         if (
             not isinstance(material_name, str)
             or not material_name
             or category["rlr_material_name"] != material_name
+            or normalization_drift
         ):
-            raise RIRCacheError("semantic material name declaration is invalid")
+            raise RIRCacheError("semantic material label normalization drifted")
         categories.append(name)
         material_names[name] = material_name
         material_indices[name] = matches[0]
@@ -1599,10 +1645,7 @@ def _read_shard(path: Path) -> dict[str, Any]:
             frozenset(required | listener_pose_fields),
         }:
             raise RIRCacheError(f"RIR shard fields differ from contract: {path}")
-        result = {
-            key: np.asarray(value[key]).copy()
-            for key in observed_fields
-        }
+        result = {key: np.asarray(value[key]).copy() for key in observed_fields}
     count = len(result["job_indices"])
     samples = result["samples"]
     if (
@@ -1680,9 +1723,7 @@ def _verify_shard_request(
         raise RIRCacheError("expected Listener-pose shard fields are incomplete")
     if expected_listener_positions_m is not None:
         if "listener_positions_m" not in retained:
-            raise RIRCacheError(
-                f"retained shard lacks Listener-pose binding: {path}"
-            )
+            raise RIRCacheError(f"retained shard lacks Listener-pose binding: {path}")
         if (
             not np.array_equal(
                 retained["listener_positions_m"],
@@ -1749,11 +1790,7 @@ def _canonical_record_sha256(
     declared = _declared_sha256(value.get(hash_field), owner=owner)
     try:
         observed = canonical_json_sha256(
-            {
-                key: item
-                for key, item in value.items()
-                if key != hash_field
-            }
+            {key: item for key, item in value.items() if key != hash_field}
         )
     except (TypeError, ValueError) as exc:
         raise RIRCacheError(f"{owner} is not canonical JSON") from exc
@@ -1796,8 +1833,7 @@ def _verified_selection_file(
         raise RIRCacheError(f"{owner} selection path cannot be resolved") from exc
     if registry_verified and declared_sha256 != expected_sha256:
         raise RIRCacheError(
-            f"{owner} override SHA-256 differs from the registry-selected "
-            "physical file"
+            f"{owner} override SHA-256 differs from the registry-selected physical file"
         )
     if (
         not path.is_file()
@@ -1826,9 +1862,7 @@ def _validate_acoustic_selection_receipt(
     """Authenticate a tool selection receipt against the actual core inputs."""
 
     if value.get("schema") != RIR_CACHE_ACOUSTIC_SELECTION_INPUT_SCHEMA:
-        raise RIRCacheError(
-            "RIR acoustic selection receipt has an unsupported schema"
-        )
+        raise RIRCacheError("RIR acoustic selection receipt has an unsupported schema")
     _canonical_record_sha256(
         value,
         hash_field="effective_selection_content_sha256",
@@ -1860,13 +1894,15 @@ def _validate_acoustic_selection_receipt(
     applied = value.get("registry_selection_applied_to_effective_inputs")
     if (
         not isinstance(overrides, Mapping)
-        or set(overrides) != {
+        or set(overrides)
+        != {
             "acoustic_package_manifest",
             "simulation_request",
         }
         or any(not isinstance(item, bool) for item in overrides.values())
         or not isinstance(applied, Mapping)
-        or set(applied) != {
+        or set(applied)
+        != {
             "acoustic_package_manifest",
             "simulation_request",
         }
@@ -1901,8 +1937,7 @@ def _validate_acoustic_selection_receipt(
     if not isinstance(registry_resolution, Mapping):
         raise RIRCacheError("registry RIR input lacks its profile selection receipt")
     if (
-        registry_resolution.get("schema")
-        != "avengine_acoustic_profile_selection_v1"
+        registry_resolution.get("schema") != "avengine_acoustic_profile_selection_v1"
         or registry_resolution.get("verification_status") != "verified"
     ):
         raise RIRCacheError(
@@ -1913,9 +1948,7 @@ def _validate_acoustic_selection_receipt(
         hash_field="selection_content_sha256",
         owner="registry acoustic profile selection",
     )
-    if value.get("simulation_profile") != registry_resolution.get(
-        "simulation_profile"
-    ):
+    if value.get("simulation_profile") != registry_resolution.get("simulation_profile"):
         raise RIRCacheError(
             "RIR selection simulation profile differs from registry resolution"
         )
@@ -1928,10 +1961,7 @@ def _validate_acoustic_selection_receipt(
         or any(not isinstance(item, str) or not item for item in room_ref.values())
         or not isinstance(profile_ref, Mapping)
         or set(profile_ref) != {"profile_id", "revision"}
-        or any(
-            not isinstance(item, str) or not item
-            for item in profile_ref.values()
-        )
+        or any(not isinstance(item, str) or not item for item in profile_ref.values())
         or not isinstance(binding_id, str)
         or not binding_id
     ):
@@ -1963,9 +1993,7 @@ def _validate_acoustic_selection_receipt(
     if mode != "registry" and not has_override:
         raise RIRCacheError("registry override mode declares no explicit override")
     expected_applied = {
-        "acoustic_package_manifest": not overrides[
-            "acoustic_package_manifest"
-        ],
+        "acoustic_package_manifest": not overrides["acoustic_package_manifest"],
         "simulation_request": not overrides["simulation_request"],
     }
     if dict(applied) != expected_applied:
@@ -2025,9 +2053,7 @@ def _acoustic_selection_binding(
             ],
             "acoustic_package_manifest_sha256": scene_manifest_sha256,
             "simulation_request_sha256": simulation_request_sha256,
-            "input_receipt_sha256": canonical_json_sha256(
-                normalized_receipt
-            ),
+            "input_receipt_sha256": canonical_json_sha256(normalized_receipt),
         }
     value["binding_content_sha256"] = canonical_json_sha256(value)
     return value
@@ -2055,9 +2081,7 @@ def _verify_acoustic_selection_binding(value: Any) -> str:
     mode = value.get("selection_mode")
     applied = value.get("registry_selection_applied")
     if not isinstance(applied, bool):
-        raise RIRCacheError(
-            "RIR cache registry selection application flag is invalid"
-        )
+        raise RIRCacheError("RIR cache registry selection application flag is invalid")
     receipt_sha256 = value.get("input_receipt_sha256")
     effective_sha256 = value.get("effective_selection_content_sha256")
     if mode == "explicit_legacy":
@@ -2085,10 +2109,14 @@ def _verify_acoustic_selection_binding(value: Any) -> str:
                 owner="RIR effective acoustic selection",
             )
         return binding_sha256
-    if mode not in {
-        "registry",
-        "registry_with_verified_equivalent_overrides",
-    } or not applied:
+    if (
+        mode
+        not in {
+            "registry",
+            "registry_with_verified_equivalent_overrides",
+        }
+        or not applied
+    ):
         raise RIRCacheError("RIR cache registry selection identity is invalid")
     _declared_sha256(
         receipt_sha256,
@@ -2106,10 +2134,7 @@ def _verify_acoustic_selection_binding(value: Any) -> str:
         or any(not isinstance(item, str) or not item for item in room_ref.values())
         or not isinstance(profile_ref, Mapping)
         or set(profile_ref) != {"profile_id", "revision"}
-        or any(
-            not isinstance(item, str) or not item
-            for item in profile_ref.values()
-        )
+        or any(not isinstance(item, str) or not item for item in profile_ref.values())
         or not isinstance(value.get("binding_id"), str)
         or not value["binding_id"]
     ):
@@ -2159,7 +2184,11 @@ def _request_identity_payload(value: Mapping[str, Any]) -> dict[str, Any]:
         owner="RIR cache native batch size",
     )
     job_offset = plan.get("selected_job_offset")
-    if isinstance(job_offset, bool) or not isinstance(job_offset, int) or job_offset < 0:
+    if (
+        isinstance(job_offset, bool)
+        or not isinstance(job_offset, int)
+        or job_offset < 0
+    ):
         raise RIRCacheError("RIR cache selected job offset is invalid")
     job_count = _positive_int(
         plan.get("selected_job_count"),
@@ -2310,8 +2339,7 @@ def _verify_acoustic_selection_sidecar(
     sidecar = load_json(sidecar_path)
     if (
         not isinstance(sidecar, Mapping)
-        or sidecar.get("schema")
-        != RIR_CACHE_ACOUSTIC_SELECTION_SIDECAR_SCHEMA
+        or sidecar.get("schema") != RIR_CACHE_ACOUSTIC_SELECTION_SIDECAR_SCHEMA
     ):
         raise RIRCacheError("RIR cache acoustic selection sidecar is invalid")
     _canonical_record_sha256(
@@ -2320,10 +2348,8 @@ def _verify_acoustic_selection_sidecar(
         owner="RIR cache acoustic selection sidecar",
     )
     if (
-        sidecar.get("request_identity_sha256")
-        != request_identity_sha256
-        or sidecar.get("acoustic_selection_binding_sha256")
-        != binding_sha256
+        sidecar.get("request_identity_sha256") != request_identity_sha256
+        or sidecar.get("acoustic_selection_binding_sha256") != binding_sha256
         or sidecar.get("acoustic_selection_binding") != binding
     ):
         raise RIRCacheError(
@@ -2360,7 +2386,11 @@ def _verified_external_file(
     *,
     owner: str,
 ) -> dict[str, Any]:
-    if not isinstance(raw_path, str) or not raw_path or not Path(raw_path).is_absolute():
+    if (
+        not isinstance(raw_path, str)
+        or not raw_path
+        or not Path(raw_path).is_absolute()
+    ):
         raise RIRCacheError(f"{owner} path must be absolute")
     expected = _declared_sha256(expected_sha256, owner=owner)
     try:
@@ -2394,7 +2424,9 @@ def _verify_request_external_inputs(
         owner="RIR plan",
     )
     if Path(plan_record["resolved_path"]) != expected_plan_path.resolve(strict=True):
-        raise RIRCacheError("RIR cache request plan path differs from the selected plan")
+        raise RIRCacheError(
+            "RIR cache request plan path differs from the selected plan"
+        )
 
     scene = _request_section(value, "acoustic_scene")
     scene_record = _verified_external_file(
@@ -2412,14 +2444,12 @@ def _verify_request_external_inputs(
     try:
         manifest = load_json(Path(scene_record["resolved_path"]))
     except (OSError, ValueError, TypeError) as exc:
-        raise RIRCacheError("RIR cache acoustic package manifest is unreadable") from exc
+        raise RIRCacheError(
+            "RIR cache acoustic package manifest is unreadable"
+        ) from exc
     manifest_content = manifest.get("package_content_sha256")
     recomputed_content = canonical_json_sha256(
-        {
-            key: item
-            for key, item in manifest.items()
-            if key != "package_content_sha256"
-        }
+        {key: item for key, item in manifest.items() if key != "package_content_sha256"}
     )
     if (
         manifest.get("package_id") != package_id
@@ -2445,13 +2475,9 @@ def _verify_request_external_inputs(
     )
     acoustic_selection_binding = value.get("acoustic_selection_binding")
     if acoustic_selection_binding is not None:
-        binding_sha256 = _verify_acoustic_selection_binding(
-            acoustic_selection_binding
-        )
+        binding_sha256 = _verify_acoustic_selection_binding(acoustic_selection_binding)
         if (
-            acoustic_selection_binding.get(
-                "acoustic_package_manifest_sha256"
-            )
+            acoustic_selection_binding.get("acoustic_package_manifest_sha256")
             != scene_record["sha256"]
             or acoustic_selection_binding.get("simulation_request_sha256")
             != simulation_record["sha256"]
@@ -2820,9 +2846,7 @@ def render_rir_cache(
                     "job_indices": absolute_indices,
                     "job_ids": np.asarray([job["job_id"] for job in batch_jobs]),
                     "source_positions_m": np.asarray(positions, dtype="<f8"),
-                    "listener_positions_m": np.asarray(
-                        listener_positions, dtype="<f8"
-                    ),
+                    "listener_positions_m": np.asarray(listener_positions, dtype="<f8"),
                     "listener_orientations_wxyz": np.asarray(
                         listener_orientations, dtype="<f8"
                     ),
@@ -2895,9 +2919,7 @@ def render_rir_cache(
         shard_path = shards_root / f"shard_{batch_index:06d}.npz"
         retained = _read_shard(shard_path)
         batch_jobs = batch_spec["jobs"]
-        expected_indices = np.asarray(
-            batch_spec["absolute_job_indices"], dtype="<u4"
-        )
+        expected_indices = np.asarray(batch_spec["absolute_job_indices"], dtype="<u4")
         expected_positions = [
             (
                 np.asarray(job["source_position_m"], dtype=np.float64)
@@ -2905,9 +2927,9 @@ def render_rir_cache(
             ).tolist()
             for job in batch_jobs
         ]
-        expected_listener_positions = [
-            batch_spec["listener_position_m"]
-        ] * len(batch_jobs)
+        expected_listener_positions = [batch_spec["listener_position_m"]] * len(
+            batch_jobs
+        )
         expected_listener_orientations = [
             batch_spec["listener_orientation_wxyz"]
         ] * len(batch_jobs)
@@ -2937,12 +2959,12 @@ def render_rir_cache(
                     "sample_count": int(retained["lengths"][row]),
                     "ir_sha256": str(retained["ir_sha256"][row]),
                     "source_position_m": retained["source_positions_m"][row].tolist(),
-                    "listener_position_m": retained[
-                        "listener_positions_m"
-                    ][row].tolist(),
-                    "listener_orientation_wxyz": retained[
-                        "listener_orientations_wxyz"
-                    ][row].tolist(),
+                    "listener_position_m": retained["listener_positions_m"][
+                        row
+                    ].tolist(),
+                    "listener_orientation_wxyz": retained["listener_orientations_wxyz"][
+                        row
+                    ].tolist(),
                     "acoustic_state_sha256": str(
                         retained["acoustic_state_sha256"][row]
                     ),
@@ -2959,12 +2981,12 @@ def render_rir_cache(
             "schema": RIR_CACHE_INDEX_SCHEMA,
             "status": "pass",
             "request_identity_sha256": request["request_identity_sha256"],
-            "acoustic_selection_binding_sha256": request[
-                "acoustic_selection_binding"
-            ]["binding_content_sha256"],
-            "acoustic_selection_mode": request[
-                "acoustic_selection_binding"
-            ]["selection_mode"],
+            "acoustic_selection_binding_sha256": request["acoustic_selection_binding"][
+                "binding_content_sha256"
+            ],
+            "acoustic_selection_mode": request["acoustic_selection_binding"][
+                "selection_mode"
+            ],
             "acoustic_state_binding": "source_listener_pose_per_job_v1",
             "full_plan_complete": len(selected_jobs) == len(jobs) and job_offset == 0,
             "selected_job_count": len(selected_jobs),
@@ -3005,12 +3027,12 @@ def render_rir_cache(
             "remains governed by the supplied acoustic package"
         ),
         "request_identity_sha256": request["request_identity_sha256"],
-        "acoustic_selection_binding_sha256": request[
-            "acoustic_selection_binding"
-        ]["binding_content_sha256"],
-        "acoustic_selection_mode": request[
-            "acoustic_selection_binding"
-        ]["selection_mode"],
+        "acoustic_selection_binding_sha256": request["acoustic_selection_binding"][
+            "binding_content_sha256"
+        ],
+        "acoustic_selection_mode": request["acoustic_selection_binding"][
+            "selection_mode"
+        ],
         "full_plan_complete": len(selected_jobs) == len(jobs) and job_offset == 0,
         "full_plan_job_count": len(jobs),
         "selected_job_count": len(selected_jobs),
@@ -3562,9 +3584,7 @@ class RIRCacheSession:
             request,
             request_identity_sha256=request_identity,
         )
-        binding_sha256 = acoustic_selection_binding.get(
-            "binding_content_sha256"
-        )
+        binding_sha256 = acoustic_selection_binding.get("binding_content_sha256")
         self.external_input_identity = _verify_request_external_inputs(
             request,
             expected_plan_path=plan_source,
@@ -3611,10 +3631,8 @@ class RIRCacheSession:
         ):
             raise RIRCacheError("RIR cache request/receipt/index closure is invalid")
         if request.get("acoustic_selection_binding") is not None and (
-            receipt.get("acoustic_selection_binding_sha256")
-            != binding_sha256
-            or index.get("acoustic_selection_binding_sha256")
-            != binding_sha256
+            receipt.get("acoustic_selection_binding_sha256") != binding_sha256
+            or index.get("acoustic_selection_binding_sha256") != binding_sha256
             or receipt.get("acoustic_selection_mode")
             != acoustic_selection_binding["selection_mode"]
             or index.get("acoustic_selection_mode")
@@ -3630,15 +3648,20 @@ class RIRCacheSession:
         self.layout_id = output.get("layout_id")
         self.channel_count = output.get("channel_count")
         self.expected_labels = (
-            ("left", "right") if self.layout_type == "binaural" else
-            ("W", "Y", "Z", "X") if self.layout_type == "ambisonics" else ()
+            ("left", "right")
+            if self.layout_type == "binaural"
+            else ("W", "Y", "Z", "X")
+            if self.layout_type == "ambisonics"
+            else ()
         )
         self.sample_rate_hz = receipt.get("sample_rate_hz")
         if (
-            not self.expected_labels or not isinstance(self.layout_id, str)
+            not self.expected_labels
+            or not isinstance(self.layout_id, str)
             or self.channel_count != len(self.expected_labels)
             or isinstance(self.sample_rate_hz, bool)
-            or not isinstance(self.sample_rate_hz, int) or self.sample_rate_hz < 1
+            or not isinstance(self.sample_rate_hz, int)
+            or self.sample_rate_hz < 1
         ):
             raise RIRCacheError("RIR cache audio contract is invalid")
         runtime_policy = request.get("runtime_policy")
@@ -3676,8 +3699,7 @@ class RIRCacheSession:
                     + self.translation_m
                 )
                 if (
-                    entry.get("acoustic_state_sha256")
-                    != job["acoustic_state_sha256"]
+                    entry.get("acoustic_state_sha256") != job["acoustic_state_sha256"]
                     or not np.array_equal(
                         np.asarray(
                             _finite_vector(
@@ -3708,9 +3730,7 @@ class RIRCacheSession:
                             ),
                             dtype=np.float64,
                         ),
-                        np.asarray(
-                            job["listener_orientation_wxyz"], dtype=np.float64
-                        ),
+                        np.asarray(job["listener_orientation_wxyz"], dtype=np.float64),
                     )
                 ):
                     raise RIRCacheError(
@@ -3729,9 +3749,7 @@ class RIRCacheSession:
                     raise RIRCacheError("episode use resolves to multiple RIR jobs")
                 by_use[key] = job
         self.request_identity_sha256 = request_identity
-        self.acoustic_selection_binding = deepcopy(
-            acoustic_selection_binding
-        )
+        self.acoustic_selection_binding = deepcopy(acoustic_selection_binding)
         self.acoustic_scene_identity = self.external_input_identity["acoustic_scene"]
         self.retained_shards = (
             shared_shard_cache if shared_shard_cache is not None else {}
@@ -3754,7 +3772,9 @@ class RIRCacheSession:
             any(not values for values in frame_sets.values())
             or len({tuple(sorted(values)) for values in frame_sets.values()}) != 1
         ):
-            raise RIRCacheError("episode source slots do not share one RIR keyframe grid")
+            raise RIRCacheError(
+                "episode source slots do not share one RIR keyframe grid"
+            )
         visual_frames = tuple(sorted(frame_sets[source_slots[0]]))
         if visual_frames[0] != 0 or any(
             value < 0 or value >= self.frames for value in visual_frames
@@ -3765,8 +3785,7 @@ class RIRCacheSession:
             for value in visual_frames
         )
         if keyframe_samples[0] != 0 or any(
-            right <= left
-            for left, right in zip(keyframe_samples, keyframe_samples[1:])
+            right <= left for left, right in zip(keyframe_samples, keyframe_samples[1:])
         ):
             raise RIRCacheError("episode RIR sample grid is invalid")
 
@@ -3792,7 +3811,9 @@ class RIRCacheSession:
                 try:
                     shard_path.relative_to(self.root)
                 except ValueError as exc:
-                    raise RIRCacheError("RIR cache shard escapes the cache root") from exc
+                    raise RIRCacheError(
+                        "RIR cache shard escapes the cache root"
+                    ) from exc
                 retained = self.retained_shards.get(shard_path)
                 if retained is None:
                     retained = _read_shard(shard_path)
@@ -3819,9 +3840,7 @@ class RIRCacheSession:
                         )
                         or not np.array_equal(
                             retained["listener_orientations_wxyz"][row],
-                            np.asarray(
-                                job["listener_orientation_wxyz"], dtype="<f8"
-                            ),
+                            np.asarray(job["listener_orientation_wxyz"], dtype="<f8"),
                         )
                         or str(retained["acoustic_state_sha256"][row])
                         != job["acoustic_state_sha256"]
@@ -3849,7 +3868,9 @@ class RIRCacheSession:
                         retained["channel_labels"], np.asarray(self.expected_labels)
                     )
                 ):
-                    raise RIRCacheError("RIR cache episode entry differs from plan/shard")
+                    raise RIRCacheError(
+                        "RIR cache episode entry differs from plan/shard"
+                    )
                 frame_values.append(samples)
                 lengths[frame_ordinal, source_ordinal] = length
                 evidence_jobs.append(
@@ -3863,9 +3884,7 @@ class RIRCacheSession:
                         "listener_orientation_wxyz": list(
                             job["listener_orientation_wxyz"]
                         ),
-                        "acoustic_state_sha256": job[
-                            "acoustic_state_sha256"
-                        ],
+                        "acoustic_state_sha256": job["acoustic_state_sha256"],
                         "realized_source_position_m": (
                             retained["source_positions_m"][row].tolist()
                         ),
@@ -3891,9 +3910,7 @@ class RIRCacheSession:
             "status": "pass",
             "episode_id": episode_id,
             "cache_request_identity_sha256": self.request_identity_sha256,
-            "acoustic_selection_binding": deepcopy(
-                self.acoustic_selection_binding
-            ),
+            "acoustic_selection_binding": deepcopy(self.acoustic_selection_binding),
             "plan_sha256": self.plan_sha256,
             "acoustic_state_binding": (
                 "source_listener_pose_per_job_v1"
@@ -3924,15 +3941,22 @@ class RIRCacheSession:
 
 
 def load_cached_rir_episode(
-    *, cache_root: str | Path, plan_path: str | Path, episode_id: str,
-    frame_count: int, frame_rate_hz: int,
+    *,
+    cache_root: str | Path,
+    plan_path: str | Path,
+    episode_id: str,
+    frame_count: int,
+    frame_rate_hz: int,
     shared_shard_cache: dict[Path, dict[str, Any]] | None = None,
 ) -> CachedRIREpisode:
     """One-shot compatibility wrapper around :class:`RIRCacheSession`."""
 
     return RIRCacheSession(
-        cache_root=cache_root, plan_path=plan_path, frame_count=frame_count,
-        frame_rate_hz=frame_rate_hz, shared_shard_cache=shared_shard_cache,
+        cache_root=cache_root,
+        plan_path=plan_path,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        shared_shard_cache=shared_shard_cache,
     ).load_episode(episode_id)
 
 
