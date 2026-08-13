@@ -1,0 +1,23 @@
+{
+  "description": "每帧目标可见性状态变化",
+  "events": [
+    {
+      "actor_id": "dog_01",
+      "event_type": "occlusion_start",
+      "frame_index": 1
+    },
+    {
+      "actor_id": "dog_01",
+      "event_type": "reappear",
+      "frame_index": 4
+    }
+  ],
+  "frame_count": 5,
+  "per_frame_states": [
+    "visible_clear",
+    "fully_occluded",
+    "fully_occluded",
+    "fully_occluded",
+    "visible_clear"
+  ]
+}

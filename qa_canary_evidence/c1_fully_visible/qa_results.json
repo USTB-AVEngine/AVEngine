@@ -1,0 +1,26 @@
+{
+  "all_passed": true,
+  "canary_id": "c1_fully_visible",
+  "results": [
+    {
+      "answer_text": "是",
+      "answer_unique": true,
+      "canary_id": "c1_fully_visible",
+      "expected_answer": "是",
+      "fact_observable": true,
+      "passed": true,
+      "question_text": "比格犬是否发声？",
+      "question_type": "sound_presence"
+    },
+    {
+      "answer_text": "清晰可见",
+      "answer_unique": true,
+      "canary_id": "c1_fully_visible",
+      "expected_answer": "清晰可见",
+      "fact_observable": true,
+      "passed": true,
+      "question_text": "比格犬叫时是否可见？",
+      "question_type": "sound_visibility"
+    }
+  ]
+}

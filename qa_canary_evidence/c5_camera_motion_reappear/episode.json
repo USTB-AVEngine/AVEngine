@@ -1,0 +1,266 @@
+{
+  "assets_used": {
+    "actors": [
+      {
+        "actor_id": "dog_01",
+        "entity_asset_id": "dog_asset_01",
+        "identity": {
+          "breed_id": "比格犬",
+          "species_id": "狗"
+        },
+        "realized_visual_attributes": {
+          "body_build": "average",
+          "clothing": {
+            "top_color": "棕色"
+          },
+          "life_stage": "adult",
+          "size": "medium"
+        },
+        "semantic_id": 10
+      }
+    ],
+    "sounds": []
+  },
+  "episode_content_sha256": "canary_placeholder",
+  "episode_id": "canary_c5_camera_motion_reappear",
+  "facts": {
+    "events": [
+      {
+        "actor_id": "dog_01",
+        "event_type": "occlusion_start",
+        "frame_index": 1
+      },
+      {
+        "actor_id": "dog_01",
+        "event_type": "reappear",
+        "frame_index": 4
+      }
+    ],
+    "motion_facts": {
+      "per_frame": [
+        {
+          "actor_states": {
+            "dog_01": "idle"
+          },
+          "frame_index": 0
+        },
+        {
+          "actor_states": {
+            "dog_01": "idle"
+          },
+          "frame_index": 1
+        },
+        {
+          "actor_states": {
+            "dog_01": "idle"
+          },
+          "frame_index": 2
+        },
+        {
+          "actor_states": {
+            "dog_01": "idle"
+          },
+          "frame_index": 3
+        },
+        {
+          "actor_states": {
+            "dog_01": "idle"
+          },
+          "frame_index": 4
+        }
+      ]
+    },
+    "sound_facts": [
+      {
+        "actor_id": "dog_01",
+        "end_frame": 3,
+        "end_tick": 9600,
+        "event_id": "evt_01",
+        "sound_asset_id": "bark_01",
+        "start_frame": 1,
+        "start_tick": 3200,
+        "transcript": ""
+      }
+    ],
+    "spatial_facts": {
+      "per_frame": [
+        {
+          "actors": {
+            "dog_01": {
+              "listener_relative": {
+                "azimuth_deg": 0.0
+              }
+            }
+          },
+          "frame_index": 0
+        },
+        {
+          "actors": {
+            "dog_01": {
+              "listener_relative": {
+                "azimuth_deg": 0.0
+              }
+            }
+          },
+          "frame_index": 1
+        },
+        {
+          "actors": {
+            "dog_01": {
+              "listener_relative": {
+                "azimuth_deg": 0.0
+              }
+            }
+          },
+          "frame_index": 2
+        },
+        {
+          "actors": {
+            "dog_01": {
+              "listener_relative": {
+                "azimuth_deg": 0.0
+              }
+            }
+          },
+          "frame_index": 3
+        },
+        {
+          "actors": {
+            "dog_01": {
+              "listener_relative": {
+                "azimuth_deg": 0.0
+              }
+            }
+          },
+          "frame_index": 4
+        }
+      ]
+    },
+    "visibility_facts": {
+      "per_frame": [
+        {
+          "actor_visibility": {
+            "dog_01": {
+              "amodal_pixels": 1024,
+              "bbox_visible": {
+                "x_max": 47,
+                "x_min": 16,
+                "y_max": 47,
+                "y_min": 16
+              },
+              "touches_frame_border": false,
+              "visibility_state": "visible_clear",
+              "visible_fraction": 1.0,
+              "visible_pixels": 1024
+            }
+          },
+          "frame_index": 0
+        },
+        {
+          "actor_visibility": {
+            "dog_01": {
+              "amodal_pixels": 1024,
+              "bbox_visible": {
+                "x_max": 47,
+                "x_min": 16,
+                "y_max": 47,
+                "y_min": 16
+              },
+              "occluders": [
+                {
+                  "instance_id": "table_01",
+                  "occluder_type": "furniture",
+                  "semantic_id": 50,
+                  "semantic_label": "桌子"
+                }
+              ],
+              "touches_frame_border": false,
+              "visibility_state": "fully_occluded",
+              "visible_fraction": 0.0,
+              "visible_pixels": 0
+            }
+          },
+          "frame_index": 1
+        },
+        {
+          "actor_visibility": {
+            "dog_01": {
+              "amodal_pixels": 1024,
+              "bbox_visible": {
+                "x_max": 47,
+                "x_min": 16,
+                "y_max": 47,
+                "y_min": 16
+              },
+              "occluders": [
+                {
+                  "instance_id": "table_01",
+                  "occluder_type": "furniture",
+                  "semantic_id": 50,
+                  "semantic_label": "桌子"
+                }
+              ],
+              "touches_frame_border": false,
+              "visibility_state": "fully_occluded",
+              "visible_fraction": 0.0,
+              "visible_pixels": 0
+            }
+          },
+          "frame_index": 2
+        },
+        {
+          "actor_visibility": {
+            "dog_01": {
+              "amodal_pixels": 1024,
+              "bbox_visible": {
+                "x_max": 47,
+                "x_min": 16,
+                "y_max": 47,
+                "y_min": 16
+              },
+              "occluders": [
+                {
+                  "instance_id": "table_01",
+                  "occluder_type": "furniture",
+                  "semantic_id": 50,
+                  "semantic_label": "桌子"
+                }
+              ],
+              "touches_frame_border": false,
+              "visibility_state": "fully_occluded",
+              "visible_fraction": 0.0,
+              "visible_pixels": 0
+            }
+          },
+          "frame_index": 3
+        },
+        {
+          "actor_visibility": {
+            "dog_01": {
+              "amodal_pixels": 1024,
+              "bbox_visible": {
+                "x_max": 47,
+                "x_min": 16,
+                "y_max": 47,
+                "y_min": 16
+              },
+              "touches_frame_border": false,
+              "visibility_state": "visible_clear",
+              "visible_fraction": 1.0,
+              "visible_pixels": 1024
+            }
+          },
+          "frame_index": 4
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "canary_id": "c5_camera_motion_reappear"
+  },
+  "qa_pairs": [],
+  "scene": {},
+  "schema": "avengine_qa_episode_v1",
+  "sidecars": [],
+  "timeline": {}
+}

@@ -1,0 +1,12 @@
+{
+  "description": "每帧目标可见性状态变化",
+  "events": [],
+  "frame_count": 5,
+  "per_frame_states": [
+    "visible_occluded",
+    "visible_occluded",
+    "visible_occluded",
+    "visible_occluded",
+    "visible_occluded"
+  ]
+}

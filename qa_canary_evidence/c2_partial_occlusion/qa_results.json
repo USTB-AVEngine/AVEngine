@@ -1,0 +1,16 @@
+{
+  "all_passed": true,
+  "canary_id": "c2_partial_occlusion",
+  "results": [
+    {
+      "answer_text": "家具（桌子）",
+      "answer_unique": true,
+      "canary_id": "c2_partial_occlusion",
+      "expected_answer": "家具（桌子）",
+      "fact_observable": true,
+      "passed": true,
+      "question_text": "挡住狗的是什么？",
+      "question_type": "occluder_identity"
+    }
+  ]
+}
