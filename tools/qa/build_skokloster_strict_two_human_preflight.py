@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a hash-free CPU preflight for the Skokloster strict M/F Episode."""
+"""Build a file-evidence-free CPU preflight for the Skokloster strict M/F Episode."""
 
 from __future__ import annotations
 
@@ -9,10 +9,13 @@ import json
 import math
 import os
 import sys
+import wave
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from avengine.m6.audio_program import bind_audio_program_hash
+from avengine.m6x.rir_cache import validate_semantic_rir_job_plan
 from avengine.m7.sensor_rig import validate_m7_rir_listener_alignment
 from avengine.sensor_rig_trajectory import (
     materialize_sensor_rig_trajectory,
@@ -44,6 +47,14 @@ HABITAT_PATH = (
 HABITAT_EDITABLE_BUILD = (
     "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
 )
+REQUEST_SCHEMA = "avengine_native_strict_two_human_skokloster_room_atom_request_v1"
+REQUEST_SCHEMA_V2 = "avengine_native_strict_two_human_skokloster_room_atom_request_v2"
+LEGACY_RIR_EXECUTION_MODE = "legacy"
+SEMANTIC_RIR_EXECUTION_MODE = "semantic_no_file_evidence"
+SEMANTIC_REQUEST_ID = "skokloster_castle_strict_two_human_static_semantic_v2"
+SEMANTIC_EPISODE_ID = "skokloster_castle_male_female_static_semantic_0001"
+SEMANTIC_OUTPUT_ROOT = REMOTE_REPOSITORY / "tmp/lead_a_skokloster_strict_two_human_v2"
+SEMANTIC_PREFLIGHT_ROOT = SEMANTIC_OUTPUT_ROOT / "cpu_preflight_v1"
 
 
 def _require(condition: bool, message: str) -> None:
@@ -182,12 +193,39 @@ def _add(first: Sequence[float], second: Sequence[float]) -> list[float]:
     return [float(a + b) for a, b in zip(first, second, strict=True)]
 
 
+def _semantic_regular_file(value: Any, *, owner: str) -> Path:
+    raw = Path(str(value))
+    _require(raw.is_absolute() and ".." not in raw.parts, f"{owner} path is invalid")
+    _require(
+        not any(candidate.is_symlink() for candidate in (raw, *raw.parents))
+        and raw.is_file()
+        and raw.resolve(strict=True) == raw,
+        f"{owner} must be an absolute regular file without symlink components",
+    )
+    return raw
+
+
+def _semantic_fresh_path(path: Path, *, owner: str) -> Path:
+    _require(path.is_absolute() and ".." not in path.parts, f"{owner} path is invalid")
+    _require(
+        not any(candidate.is_symlink() for candidate in (path, *path.parents))
+        and not path.exists(),
+        f"{owner} must be absent without symlink components",
+    )
+    return path
+
+
 def _validate_request(request: Mapping[str, Any]) -> None:
     _require(
-        request.get("schema")
-        == "avengine_native_strict_two_human_skokloster_room_atom_request_v1",
+        request.get("schema") in {REQUEST_SCHEMA, REQUEST_SCHEMA_V2},
         "request schema drift",
     )
+    if request.get("schema") == REQUEST_SCHEMA_V2:
+        _require(
+            request.get("request_id") == SEMANTIC_REQUEST_ID
+            and request.get("episode_id") == SEMANTIC_EPISODE_ID,
+            "v2 semantic request or episode identity drift",
+        )
     _require(request.get("qualification_claim") is False, "qualification forbidden")
     _require(request.get("formal_dataset_count") == 0, "formal count must remain zero")
     _require(request.get("gpu_capture_authorized") is False, "GPU must remain blocked")
@@ -225,6 +263,52 @@ def _validate_request(request: Mapping[str, Any]) -> None:
         and audio.get("target_sound_rights_status") == "review_required",
         "speech rights caveat must remain explicit",
     )
+    if request.get("schema") == REQUEST_SCHEMA_V2:
+        _require(
+            audio.get("source1_endpoint_id") == "lead_d_source1_mouth"
+            and audio.get("source2_endpoint_id") == "lead_d_source2_mouth"
+            and audio["source1_endpoint_id"] != audio["source2_endpoint_id"],
+            "v2 semantic source endpoint identity drift",
+        )
+
+    execution = request.get("execution")
+    _require(isinstance(execution, Mapping), "execution contract is missing")
+    if request.get("schema") == REQUEST_SCHEMA_V2:
+        _require(
+            execution.get("output_root") == str(SEMANTIC_OUTPUT_ROOT),
+            "v2 semantic output root drift",
+        )
+    if request.get("schema") == REQUEST_SCHEMA_V2:
+        _require(
+            "rir_execution_mode" in execution,
+            "v2 request must explicitly select semantic RIR execution",
+        )
+        rir_execution_mode = execution["rir_execution_mode"]
+        _require(
+            rir_execution_mode == SEMANTIC_RIR_EXECUTION_MODE,
+            "v2 request must select semantic no-file-evidence execution",
+        )
+    else:
+        rir_execution_mode = execution.get(
+            "rir_execution_mode", LEGACY_RIR_EXECUTION_MODE
+        )
+        _require(
+            rir_execution_mode == LEGACY_RIR_EXECUTION_MODE,
+            "v1 request may only use legacy RIR execution",
+        )
+    if rir_execution_mode == SEMANTIC_RIR_EXECUTION_MODE:
+        _require(
+            request.get("schema") == REQUEST_SCHEMA_V2,
+            "semantic RIR execution requires the v2 request shape",
+        )
+        _semantic_regular_file(
+            room.get("acoustic_package_manifest"),
+            owner="semantic acoustic package manifest",
+        )
+        _semantic_regular_file(
+            room.get("simulation_request"), owner="semantic simulation request"
+        )
+        _semantic_regular_file(execution.get("hrtf"), owner="semantic HRTF")
 
 
 def _validate_external_evidence(
@@ -334,6 +418,17 @@ def _validate_external_evidence(
         and simulation.get("simulation", {}).get("thread_count") == 1,
         "simulation request drift",
     )
+    if (
+        request["execution"].get("rir_execution_mode", LEGACY_RIR_EXECUTION_MODE)
+        == SEMANTIC_RIR_EXECUTION_MODE
+    ):
+        effective = simulation.get("simulation")
+        _require(isinstance(effective, Mapping), "semantic simulation is missing")
+        _require(
+            effective.get("channel_layout") == {"type": "binaural", "channel_count": 2}
+            and effective.get("temporal_coherence") is False,
+            "semantic simulation must be binaural and noncoherent",
+        )
     events = audio_program.get("events")
     _require(
         audio_program.get("schema") == "avengine_m6_audio_program_v1"
@@ -448,10 +543,114 @@ def _actor_state(
     }
 
 
+def _semantic_audio_documents(request: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    episode_id = str(request["episode_id"])
+    content_id = "speech_cremad_1001_ieo_neu_v1"
+    target_sound = _semantic_regular_file(
+        request["audio"]["target_sound_path"], owner="semantic target sound"
+    )
+    with wave.open(str(target_sound), "rb") as source_wave:
+        metadata = {
+            "sample_rate_hz": source_wave.getframerate(),
+            "channel_count": source_wave.getnchannels(),
+            "sample_count": source_wave.getnframes(),
+        }
+        pcm_width = source_wave.getsampwidth()
+        compression = source_wave.getcomptype()
+    _require(
+        metadata == {"sample_rate_hz": 16000, "channel_count": 1, "sample_count": 25626}
+        and pcm_width == 2
+        and compression == "NONE",
+        "semantic target sound PCM structure drift",
+    )
+    endpoints = {
+        str(request["audio"]["source1_endpoint_id"]): "source1",
+        str(request["audio"]["source2_endpoint_id"]): "source2",
+    }
+    program = bind_audio_program_hash(
+        {
+            "schema": "avengine_semantic_audio_program_v1",
+            "program_id": f"{episode_id}__semantic_audio_v1",
+            "revision": "planning_v1",
+            "mode": "one_active_of_n",
+            "timeline": {
+                "time_base_hz": 48000,
+                "ticks_per_frame": 3200,
+                "video_fps": 15,
+                "frame_count": 75,
+                "sample_rate_hz": 16000,
+                "ticks_per_sample": 3,
+                "sample_count": 80000,
+            },
+            "candidate_source_endpoint_ids": sorted(endpoints),
+            "events": [
+                {
+                    "event_id": f"{episode_id}__target_speech",
+                    "source_endpoint_id": request["audio"]["source1_endpoint_id"],
+                    "content_id": content_id,
+                    "start_tick": 7467 * 3,
+                    "end_tick_exclusive": 33093 * 3,
+                    "start_sample": 7467,
+                    "end_sample_exclusive": 33093,
+                    "source_start_sample": 0,
+                    "source_end_sample_exclusive": 25626,
+                    "source_sample_rate_hz": metadata["sample_rate_hz"],
+                    "source_channel_count": metadata["channel_count"],
+                    "source_sample_count": metadata["sample_count"],
+                    "linear_gain": 0.18,
+                    "fade_samples": 80,
+                    "render_source_stem": True,
+                }
+            ],
+            "source_specific_stems": True,
+            "admission_state": "research",
+        }
+    )
+    return {
+        "semantic_source_endpoint_registry.json": {
+            "schema": "avengine_semantic_source_endpoint_registry_v1",
+            "registry_id": f"{episode_id}__semantic_endpoints",
+            "revision": "planning_v1",
+            "source_endpoint_ids": endpoints,
+        },
+        "semantic_sound_content_registry.json": {
+            "schema": "avengine_semantic_sound_content_registry_v1",
+            "registry_id": f"{episode_id}__semantic_sound_content",
+            "revision": "planning_v1",
+            "contents": [
+                {
+                    "content_id": content_id,
+                    "sound_asset_id": content_id,
+                    "voice_id": "cremad_1001",
+                    "source_audio_uri": f"semantic://{content_id}",
+                    **metadata,
+                }
+            ],
+        },
+        "semantic_audio_program.json": program,
+        "semantic_audio_binding.json": {
+            "schema": "avengine_semantic_audio_binding_v1",
+            "episode_id": episode_id,
+            "variant_id": "A",
+            "content_bindings": {
+                content_id: {
+                    "content_id": content_id,
+                    "path": str(target_sound),
+                    **metadata,
+                }
+            },
+        },
+    }
+
+
 def _build_documents(
     request: Mapping[str, Any], evidence: Mapping[str, Any]
 ) -> dict[str, dict[str, Any]]:
     episode_id = str(request["episode_id"])
+    semantic_rir = (
+        request["execution"].get("rir_execution_mode", LEGACY_RIR_EXECUTION_MODE)
+        == SEMANTIC_RIR_EXECUTION_MODE
+    )
     camera = evidence["camera_listener_habitat_m"]
     yaw = float(evidence["camera_habitat_yaw_deg"])
     half = math.radians(yaw) / 2.0
@@ -558,6 +757,28 @@ def _build_documents(
             "formal_dataset_count": 0,
         },
     }
+    authoritative_inputs = (
+        {
+            "audio_program": str(
+                SEMANTIC_PREFLIGHT_ROOT / "semantic_audio_program.json"
+            ),
+            "source_endpoint_registry": str(
+                SEMANTIC_PREFLIGHT_ROOT / "semantic_source_endpoint_registry.json"
+            ),
+            "sound_content_registry": str(
+                SEMANTIC_PREFLIGHT_ROOT / "semantic_sound_content_registry.json"
+            ),
+            "audio_binding": str(
+                SEMANTIC_PREFLIGHT_ROOT / "semantic_audio_binding.json"
+            ),
+        }
+        if semantic_rir
+        else {
+            "audio_program": request["audio"]["canonical_audio_program"],
+            "source_endpoint_registry": request["audio"]["source_endpoint_registry"],
+            "sound_asset_registry": request["audio"]["sound_asset_registry"],
+        }
+    )
     scenario = {
         "schema": "avengine_optional_spear_skokloster_scenario_v1",
         "scenario_id": episode_id,
@@ -579,11 +800,7 @@ def _build_documents(
             "camera_warmup_frames": 40,
         },
         "plan": plan,
-        "authoritative_inputs": {
-            "audio_program": request["audio"]["canonical_audio_program"],
-            "source_endpoint_registry": request["audio"]["source_endpoint_registry"],
-            "sound_asset_registry": request["audio"]["sound_asset_registry"],
-        },
+        "authoritative_inputs": authoritative_inputs,
         "authoritative_capture_request": {
             "request_id": f"{episode_id}__native_capture",
             "episode_id": episode_id,
@@ -694,30 +911,64 @@ def _build_documents(
         ]
         for slot in ("source1", "source2")
     }
-    rir_plan = {
-        "schema": "avengine_room_rir_job_plan_v2",
-        "status": "planned_not_run",
-        "producer_backend": "RLR Audio Propagation",
-        "source_acoustic_profile": "omnidirectional_point_source_v1",
-        "listener_position_m": camera,
-        "listener_orientation_wxyz": evidence["listener_orientation_wxyz"],
-        "layout": "binaural",
-        "requested_pair_state_count": 150,
-        "unique_listener_pose_count": 1,
-        "unique_rir_job_count": 2,
-        "cache_reuse_count": 148,
-        "jobs": [
-            {
-                "job_id": f"skokloster_{slot}_static_v1",
-                "source_position_m": centers[slot],
-                "uses": uses[slot],
-            }
-            for slot in ("source1", "source2")
-        ],
-        "claim_boundary": "two exact CPU RIR jobs planned but not run",
-        "qualification_claim": False,
-        "formal_dataset_count": 0,
-    }
+    if semantic_rir:
+        rir_plan = {
+            "schema": "avengine_room_rir_job_plan_v2",
+            "status": "planned_not_run",
+            "listener_pose_mode": "fixed",
+            "listener_position_m": camera,
+            "listener_orientation_wxyz": evidence["listener_orientation_wxyz"],
+            "cache_key_fields": [
+                "source_position_m",
+                "listener_position_m",
+                "listener_orientation_wxyz",
+            ],
+            "stride_frames": 1,
+            "requested_pair_state_count": 150,
+            "unique_rir_job_count": 2,
+            "jobs": [
+                {
+                    "job_id": f"skokloster_{slot}_static_semantic_v1",
+                    "source_position_m": centers[slot],
+                    "uses": uses[slot],
+                }
+                for slot in ("source1", "source2")
+            ],
+            "claim_boundary": "fresh semantic CPU RIR plan; no file evidence",
+            "producer_backend": "RLR Audio Propagation",
+            "cache_artifact": "room impulse response (RIR)",
+            "source_acoustic_profile": "omnidirectional_point_source_v1",
+            "slot_identity_affects_cache_key": False,
+            "dry_audio_independent": True,
+            "unique_listener_pose_count": 1,
+            "cache_reuse_count": 148,
+        }
+        validate_semantic_rir_job_plan(rir_plan)
+    else:
+        rir_plan = {
+            "schema": "avengine_room_rir_job_plan_v2",
+            "status": "planned_not_run",
+            "producer_backend": "RLR Audio Propagation",
+            "source_acoustic_profile": "omnidirectional_point_source_v1",
+            "listener_position_m": camera,
+            "listener_orientation_wxyz": evidence["listener_orientation_wxyz"],
+            "layout": "binaural",
+            "requested_pair_state_count": 150,
+            "unique_listener_pose_count": 1,
+            "unique_rir_job_count": 2,
+            "cache_reuse_count": 148,
+            "jobs": [
+                {
+                    "job_id": f"skokloster_{slot}_static_v1",
+                    "source_position_m": centers[slot],
+                    "uses": uses[slot],
+                }
+                for slot in ("source1", "source2")
+            ],
+            "claim_boundary": "two exact CPU RIR jobs planned but not run",
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        }
     alignment = validate_m7_rir_listener_alignment(
         rir_job_plan=rir_plan,
         sensor_rig_trajectory=rig,
@@ -763,14 +1014,18 @@ def _build_documents(
         "qualification_claim": False,
         "formal_dataset_count": 0,
     }
-    return {
+    documents = {
         "suite_execution_plan.json": suite,
         "sensor_rig_trajectory.json": rig,
         "trajectory_bank.json": trajectory,
         "asset_emitter_binding_report.json": binding_report,
         "rir_job_plan.json": rir_plan,
-        "audio_program_binding.json": audio_plan,
     }
+    if semantic_rir:
+        documents.update(_semantic_audio_documents(request))
+    else:
+        documents["audio_program_binding.json"] = audio_plan
+    return documents
 
 
 def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
@@ -778,9 +1033,15 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     repository = Path(execution["repository"])
     _require(repository == REMOTE_REPOSITORY, "execution repository drift")
     output_root = Path(execution["output_root"])
+    semantic_rir = (
+        execution.get("rir_execution_mode", LEGACY_RIR_EXECUTION_MODE)
+        == SEMANTIC_RIR_EXECUTION_MODE
+    )
     runtime_probe = output / "rir_runtime_probe.json"
-    rir_cache = output_root / "exact_rir_cache_v3"
-    binaural = output_root / "binaural_v4"
+    rir_cache = output_root / (
+        "semantic_exact_rir_cache_v1" if semantic_rir else "exact_rir_cache_v3"
+    )
+    binaural = output_root / ("semantic_binaural_v1" if semantic_rir else "binaural_v4")
     rir_environment = {
         "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
         "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,
@@ -792,26 +1053,75 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
         "CUDA_VISIBLE_DEVICES": "",
     }
     validate_rir_runtime_binding(HABITAT_PYTHON, rir_environment)
-    common_capture = [
-        execution["python"],
-        execution["capture_runner"],
-        "--suite-plan",
-        str(output / "suite_execution_plan.json"),
-        "--scenario-id",
-        request["episode_id"],
-        "--audio-wav",
-        str(binaural / "audio/binaural" / f"{request['episode_id']}__v00.wav"),
-        "--spear-root",
-        execution["spear_root"],
-        "--spear-executable",
-        request["room"]["packaged_executable"],
-        "--output",
+    rir_argv = [
+        str(HABITAT_PYTHON),
+        str(repository / "tools/m6x/render_rir_cache.py"),
+        "--rir-job-plan",
+        str(output / "rir_job_plan.json"),
     ]
-    return {
-        "schema": "avengine_skokloster_strict_two_human_execution_plan_v1",
-        "status": "cpu_ready_gpu_blocked",
-        "attempt_id": output.name,
-        "supersedes": [
+    if semantic_rir:
+        rir_argv.extend(
+            [
+                "--semantic-no-file-evidence",
+                "--acoustic-package-manifest",
+                request["room"]["acoustic_package_manifest"],
+                "--simulation-request",
+                request["room"]["simulation_request"],
+                "--hrtf",
+                execution["hrtf"],
+            ]
+        )
+    else:
+        rir_argv.extend(
+            [
+                "--acoustic-package-manifest",
+                request["room"]["acoustic_package_manifest"],
+                "--simulation-request",
+                request["room"]["simulation_request"],
+                "--hrtf",
+                execution["hrtf"],
+            ]
+        )
+    rir_argv.extend(
+        [
+            "--output",
+            str(rir_cache),
+            "--layout",
+            "binaural",
+            "--batch-size",
+            "2",
+            "--thread-count",
+            str(execution["rir_thread_count"]),
+        ]
+    )
+    rir_step = {
+        "step_id": "render_two_exact_binaural_rirs",
+        **(
+            {"attempt_id": "semantic_exact_rir_cache_v1"}
+            if semantic_rir
+            else {
+                "attempt_id": "exact_rir_cache_v3",
+                "supersedes_failed_attempts": ["exact_rir_cache_v1"],
+                "prior_valid_cache_not_reusable_for_plan_path": str(
+                    output_root / "exact_rir_cache_v2"
+                ),
+            }
+        ),
+        "status": "planned_not_run",
+        "working_directory": str(repository),
+        "environment": rir_environment,
+        "argv": rir_argv,
+        "expected": {
+            "compute_device": "CPU",
+            "selected_job_count": 2,
+            "full_plan_complete": True,
+            "layout": "binaural",
+        },
+    }
+    supersedes = (
+        []
+        if semantic_rir
+        else [
             {
                 "attempt_id": "cpu_preflight_v1",
                 "status": "rejected_before_rir_execution",
@@ -838,7 +1148,80 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
                 "retained_rir_job_count": 2,
                 "failed_audio_attempt": "binaural_v2",
             },
-        ],
+        ]
+    )
+    if semantic_rir:
+        m7_argv = [
+            execution["python"],
+            str(repository / "tools/m7/render_asset_bound_binaural_batch.py"),
+            "--plan-root",
+            str(output),
+            "--rir-cache",
+            str(rir_cache),
+            "--audio-program",
+            str(output / "semantic_audio_program.json"),
+            "--audio-program-variant",
+            "A",
+            "--semantic-source-endpoint-registry",
+            str(output / "semantic_source_endpoint_registry.json"),
+            "--semantic-sound-content-registry",
+            str(output / "semantic_sound_content_registry.json"),
+            "--semantic-audio-binding",
+            str(output / "semantic_audio_binding.json"),
+            "--variants-per-episode",
+            "1",
+            "--retain-stems",
+            "--output",
+            str(binaural),
+        ]
+    else:
+        m7_argv = [
+            execution["python"],
+            str(repository / "tools/m7/render_asset_bound_binaural_batch.py"),
+            "--plan-root",
+            str(output),
+            "--rir-cache",
+            str(rir_cache),
+            "--audio-program",
+            request["audio"]["canonical_audio_program"],
+            "--source-endpoint-registry",
+            request["audio"]["source_endpoint_registry"],
+            "--sound-asset-registry",
+            request["audio"]["sound_asset_registry"],
+            "--source-endpoint-slot",
+            f"{request['audio']['source1_endpoint_id']}=source1",
+            "--source-endpoint-slot",
+            f"{request['audio']['source2_endpoint_id']}=source2",
+            "--sound-audio",
+            "speech_cremad_1001_ieo_neu_v1=" + request["audio"]["target_sound_path"],
+            "--retain-stems",
+            "--output",
+            str(binaural),
+        ]
+    common_capture = [
+        execution["python"],
+        execution["capture_runner"],
+        "--suite-plan",
+        str(output / "suite_execution_plan.json"),
+        "--scenario-id",
+        request["episode_id"],
+        "--audio-wav",
+        str(binaural / "audio/binaural" / f"{request['episode_id']}__v00.wav"),
+        "--spear-root",
+        execution["spear_root"],
+        "--spear-executable",
+        request["room"]["packaged_executable"],
+        "--output",
+    ]
+    return {
+        "schema": (
+            "avengine_skokloster_strict_two_human_execution_plan_v2"
+            if semantic_rir
+            else "avengine_skokloster_strict_two_human_execution_plan_v1"
+        ),
+        "status": "cpu_ready_gpu_blocked",
+        "attempt_id": output.name,
+        "supersedes": supersedes,
         "generated_preflight_root": str(output.resolve()),
         "runtime_output_root": str(output_root),
         "cpu_steps": [
@@ -869,73 +1252,12 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
                     "qualification_claim": False,
                 },
             },
-            {
-                "step_id": "render_two_exact_binaural_rirs",
-                "attempt_id": "exact_rir_cache_v3",
-                "supersedes_failed_attempts": ["exact_rir_cache_v1"],
-                "prior_valid_cache_not_reusable_for_plan_path": str(
-                    output_root / "exact_rir_cache_v2"
-                ),
-                "status": "planned_not_run",
-                "working_directory": str(repository),
-                "environment": rir_environment,
-                "argv": [
-                    str(HABITAT_PYTHON),
-                    str(repository / "tools/m6x/render_rir_cache.py"),
-                    "--rir-job-plan",
-                    str(output / "rir_job_plan.json"),
-                    "--acoustic-package-manifest",
-                    request["room"]["acoustic_package_manifest"],
-                    "--simulation-request",
-                    request["room"]["simulation_request"],
-                    "--hrtf",
-                    execution["hrtf"],
-                    "--output",
-                    str(rir_cache),
-                    "--layout",
-                    "binaural",
-                    "--batch-size",
-                    "2",
-                    "--thread-count",
-                    str(execution["rir_thread_count"]),
-                ],
-                "expected": {
-                    "compute_device": "CPU",
-                    "selected_job_count": 2,
-                    "full_plan_complete": True,
-                    "layout": "binaural",
-                },
-            },
+            rir_step,
             {
                 "step_id": "render_target_speech_silent_distractor_binaural",
                 "status": "blocked_until_exact_rir_pass",
                 "working_directory": str(repository),
-                "argv": [
-                    execution["python"],
-                    str(repository / "tools/m7/render_asset_bound_binaural_batch.py"),
-                    "--plan-root",
-                    str(output),
-                    "--rir-cache",
-                    str(rir_cache),
-                    "--audio-program",
-                    request["audio"]["canonical_audio_program"],
-                    "--source-endpoint-registry",
-                    request["audio"]["source_endpoint_registry"],
-                    "--sound-asset-registry",
-                    request["audio"]["sound_asset_registry"],
-                    "--source-endpoint-slot",
-                    f"{request['audio']['source1_endpoint_id']}=source1",
-                    "--source-endpoint-slot",
-                    f"{request['audio']['source2_endpoint_id']}=source2",
-                    "--sound-audio",
-                    (
-                        "speech_cremad_1001_ieo_neu_v1="
-                        + request["audio"]["target_sound_path"]
-                    ),
-                    "--retain-stems",
-                    "--output",
-                    str(binaural),
-                ],
+                "argv": m7_argv,
                 "expected": {
                     "target_event_count": 1,
                     "distractor_event_count": 0,
@@ -989,6 +1311,10 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
 def _preflight(
     request: Mapping[str, Any], evidence: Mapping[str, Any], attempt_id: str
 ) -> dict[str, Any]:
+    semantic_rir = (
+        request["execution"].get("rir_execution_mode", LEGACY_RIR_EXECUTION_MODE)
+        == SEMANTIC_RIR_EXECUTION_MODE
+    )
     gates = {
         "old_near_listener_rejected": "pass",
         "camera_listener_coupled": "pass",
@@ -1009,10 +1335,16 @@ def _preflight(
         "full75": "blocked_until_sparse_pixel_gate",
     }
     return {
-        "schema": "avengine_skokloster_strict_two_human_cpu_preflight_v1",
+        "schema": (
+            "avengine_skokloster_strict_two_human_cpu_preflight_v2"
+            if semantic_rir
+            else "avengine_skokloster_strict_two_human_cpu_preflight_v1"
+        ),
         "status": "cpu_plan_pass_gpu_sparse_pending",
         "attempt_id": attempt_id,
-        "supersedes": [
+        "supersedes": []
+        if semantic_rir
+        else [
             {
                 "attempt_id": "cpu_preflight_v1",
                 "status": "rejected_before_rir_execution",
@@ -1058,9 +1390,28 @@ def _preflight(
     }
 
 
+def _validate_semantic_selected_paths(
+    request: Mapping[str, Any], paths: Mapping[str, Path]
+) -> None:
+    declared_semantic_paths = {
+        "package": Path(request["room"]["acoustic_package_manifest"]),
+        "simulation": Path(request["room"]["simulation_request"]),
+    }
+    for name, declared in declared_semantic_paths.items():
+        selected = _semantic_regular_file(paths[name], owner=f"semantic {name} input")
+        _require(
+            selected == declared,
+            f"semantic {name} override differs from the declared request path",
+        )
+
+
 def build(args: argparse.Namespace) -> Path:
     request = _load(args.request.resolve())
     _validate_request(request)
+    semantic_rir = (
+        request["execution"].get("rir_execution_mode", LEGACY_RIR_EXECUTION_MODE)
+        == SEMANTIC_RIR_EXECUTION_MODE
+    )
     paths = {
         "search": args.listener_search
         or Path(request["room"]["listener_search_evidence"]),
@@ -1077,6 +1428,8 @@ def build(args: argparse.Namespace) -> Path:
         "audio_binding": args.audio_binding
         or Path(request["audio"]["canonical_audio_binding"]),
     }
+    if semantic_rir:
+        _validate_semantic_selected_paths(request, paths)
     loaded = {name: _load(path.resolve()) for name, path in paths.items()}
     evidence = _validate_external_evidence(
         request=request,
@@ -1099,8 +1452,21 @@ def build(args: argparse.Namespace) -> Path:
     _require(
         all(path.is_file() for path in external_paths), "external runtime input missing"
     )
-    output = args.output.resolve()
-    _require(not output.exists() and not output.is_symlink(), "output already exists")
+    raw_output = args.output
+    if semantic_rir:
+        _require(
+            raw_output == SEMANTIC_PREFLIGHT_ROOT,
+            "v2 semantic preflight output path drift",
+        )
+        _semantic_fresh_path(
+            SEMANTIC_OUTPUT_ROOT, owner="semantic execution output root"
+        )
+        output = raw_output
+    else:
+        output = raw_output.resolve()
+        _require(
+            not output.exists() and not output.is_symlink(), "output already exists"
+        )
     output.mkdir(parents=True)
     documents = _build_documents(request, evidence)
     documents["execution_plan.json"] = _execution_plan(request, output)

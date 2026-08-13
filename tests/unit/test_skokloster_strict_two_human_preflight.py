@@ -345,3 +345,259 @@ def test_rejects_decoupled_camera_listener() -> None:
                 "controlled_content": {"source2": None},
             },
         )
+
+
+def test_semantic_v2_plan_and_execution_are_path_only_and_fresh() -> None:
+    _, _, evidence = fixtures()
+    request = load(
+        layout_path(
+            "config/runtime/native_strict_two_human_skokloster_room_atom_v2.json",
+            "examples/qa/native_strict_two_human_skokloster_room_atom_v2.json",
+        )
+    )
+    MODULE._validate_request(request)
+    documents = MODULE._build_documents(request, evidence)
+    rir_cache = pytest.importorskip("avengine.m6x.rir_cache")
+    jobs = rir_cache.validate_semantic_rir_job_plan(documents["rir_job_plan.json"])
+    assert len(jobs) == 2
+    assert [len(job["uses"]) for job in jobs] == [75, 75]
+
+    semantic_names = {
+        "semantic_audio_program.json",
+        "semantic_source_endpoint_registry.json",
+        "semantic_sound_content_registry.json",
+        "semantic_audio_binding.json",
+    }
+    assert semantic_names <= set(documents)
+    assert "audio_program_binding.json" not in documents
+    endpoints = documents["semantic_source_endpoint_registry.json"][
+        "source_endpoint_ids"
+    ]
+    assert endpoints == {
+        request["audio"]["source1_endpoint_id"]: "source1",
+        request["audio"]["source2_endpoint_id"]: "source2",
+    }
+    events = documents["semantic_audio_program.json"]["events"]
+    assert len(events) == 1
+    assert events[0]["source_endpoint_id"] == request["audio"]["source1_endpoint_id"]
+    assert request["audio"]["source2_endpoint_id"] not in {
+        event["source_endpoint_id"] for event in events
+    }
+    assert (
+        documents["semantic_audio_binding.json"]["episode_id"] == request["episode_id"]
+    )
+
+    scenario = documents["suite_execution_plan.json"]["scenarios"][0]
+    source_logic = {
+        item["source_endpoint_id"]: item["source_slot_id"]
+        for item in scenario["plan"]["source_logic"]["sources"]
+    }
+    assert source_logic == endpoints
+    roots = {
+        actor["actor_id"].removesuffix("_actor"): actor["translation_m"]
+        for actor in scenario["plan"]["frames"][0]["actor_states"]
+    }
+    offsets = {
+        actor["source_slot_id"]: actor["emitter_offset_m"]
+        for actor in scenario["plan"]["actors"]
+    }
+    source_positions = {
+        job["uses"][0]["source_slot_id"]: job["source_position_m"] for job in jobs
+    }
+    assert source_positions == {
+        slot: [root + offset for root, offset in zip(roots[slot], offsets[slot])]
+        for slot in ("source1", "source2")
+    }
+
+    output = MODULE.SEMANTIC_PREFLIGHT_ROOT
+    execution = MODULE._execution_plan(request, output)
+    assert (
+        execution["schema"] == "avengine_skokloster_strict_two_human_execution_plan_v2"
+    )
+    assert execution["supersedes"] == []
+    preflight = MODULE._preflight(request, evidence, output.name)
+    assert (
+        preflight["schema"] == "avengine_skokloster_strict_two_human_cpu_preflight_v2"
+    )
+    assert preflight["supersedes"] == []
+    rir_step = execution["cpu_steps"][1]
+    argv = rir_step["argv"]
+    assert argv.count("--semantic-no-file-evidence") == 1
+    assert (
+        argv[argv.index("--acoustic-package-manifest") + 1]
+        == request["room"]["acoustic_package_manifest"]
+    )
+    assert (
+        argv[argv.index("--simulation-request") + 1]
+        == request["room"]["simulation_request"]
+    )
+    assert argv[argv.index("--hrtf") + 1] == request["execution"]["hrtf"]
+    assert argv[argv.index("--output") + 1].endswith("/semantic_exact_rir_cache_v1")
+    for forbidden in (
+        "--room-id",
+        "--room-revision",
+        "--room-registry",
+        "--acoustic-profile-registry",
+        "--simulation-profile",
+        "--job-offset",
+        "--job-limit",
+    ):
+        assert forbidden not in argv
+    m7_argv = execution["cpu_steps"][2]["argv"]
+    assert m7_argv[m7_argv.index("--rir-cache") + 1].endswith(
+        "/semantic_exact_rir_cache_v1"
+    )
+    assert m7_argv[m7_argv.index("--output") + 1].endswith("/semantic_binaural_v1")
+    semantic_flag_to_key = {
+        "--audio-program": "audio_program",
+        "--semantic-source-endpoint-registry": "source_endpoint_registry",
+        "--semantic-sound-content-registry": "sound_content_registry",
+        "--semantic-audio-binding": "audio_binding",
+    }
+    authority = scenario["authoritative_inputs"]
+    for flag, key in semantic_flag_to_key.items():
+        assert m7_argv.count(flag) == 1
+        assert m7_argv[m7_argv.index(flag) + 1] == authority[key]
+    for forbidden in (
+        "--source-endpoint-registry",
+        "--sound-asset-registry",
+        "--source-endpoint-slot",
+        "--sound-audio",
+    ):
+        assert forbidden not in m7_argv
+    assert m7_argv[m7_argv.index("--audio-program-variant") + 1] == "A"
+    assert m7_argv[m7_argv.index("--variants-per-episode") + 1] == "1"
+    generated_keys = {
+        value
+        for value in walk({"plan": documents, "execution": execution})
+        if isinstance(value, str)
+    }
+    assert "sha256" not in generated_keys
+    assert "byte_size" not in generated_keys
+
+
+def test_generated_semantic_audio_documents_use_the_m7_semantic_preparer(
+    tmp_path: Path,
+) -> None:
+    m7 = pytest.importorskip("tools.m7.render_asset_bound_binaural_batch")
+    _, _, evidence = fixtures()
+    request = load(
+        layout_path(
+            "config/runtime/native_strict_two_human_skokloster_room_atom_v2.json",
+            "examples/qa/native_strict_two_human_skokloster_room_atom_v2.json",
+        )
+    )
+    documents = MODULE._build_documents(request, evidence)
+    names = {
+        "semantic_audio_program.json",
+        "semantic_source_endpoint_registry.json",
+        "semantic_sound_content_registry.json",
+        "semantic_audio_binding.json",
+    }
+    paths = {}
+    for name in names:
+        path = tmp_path / name
+        path.write_text(
+            json.dumps(documents[name], indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        paths[name] = path
+    prepared, library = m7._prepare_semantic_audio_program_variants(
+        specs=(m7.AudioProgramSpec(paths["semantic_audio_program.json"], "A"),),
+        expected_episode_id=request["episode_id"],
+        semantic_source_endpoint_registry_path=paths[
+            "semantic_source_endpoint_registry.json"
+        ],
+        semantic_sound_content_registry_path=paths[
+            "semantic_sound_content_registry.json"
+        ],
+        semantic_audio_binding_path=paths["semantic_audio_binding.json"],
+    )
+    assert library["schema"] == "avengine_m7_semantic_audio_program_dry_bus_library_v1"
+    activity = prepared[0].source_activity_summary
+    assert activity["active_source_slots"] == ["source1"]
+    assert activity["silent_source_slots"] == ["source2"]
+    assert activity["both_sources_have_events"] is False
+
+
+def test_semantic_v2_rejects_mode_and_path_drift(tmp_path: Path) -> None:
+    legacy, _, _ = fixtures()
+    typo = deepcopy(legacy)
+    typo["execution"]["rir_execution_mode"] = "semantic-ish"
+    with pytest.raises(RuntimeError, match="v1 request may only use legacy"):
+        MODULE._validate_request(typo)
+
+    request = load(
+        layout_path(
+            "config/runtime/native_strict_two_human_skokloster_room_atom_v2.json",
+            "examples/qa/native_strict_two_human_skokloster_room_atom_v2.json",
+        )
+    )
+    missing = deepcopy(request)
+    del missing["execution"]["rir_execution_mode"]
+    with pytest.raises(RuntimeError, match="explicitly select semantic"):
+        MODULE._validate_request(missing)
+    legacy_mode = deepcopy(request)
+    legacy_mode["execution"]["rir_execution_mode"] = MODULE.LEGACY_RIR_EXECUTION_MODE
+    with pytest.raises(RuntimeError, match="must select semantic"):
+        MODULE._validate_request(legacy_mode)
+    for owner, key, value in (
+        ("request", "request_id", "foreign"),
+        ("episode", "episode_id", "foreign"),
+    ):
+        drift = deepcopy(request)
+        drift[key] = value
+        with pytest.raises(RuntimeError, match="request or episode identity"):
+            MODULE._validate_request(drift)
+    output_drift = deepcopy(request)
+    output_drift["execution"]["output_root"] += "_old"
+    with pytest.raises(RuntimeError, match="output root"):
+        MODULE._validate_request(output_drift)
+    endpoint_drift = deepcopy(request)
+    endpoint_drift["audio"]["source2_endpoint_id"] = endpoint_drift["audio"][
+        "source1_endpoint_id"
+    ]
+    with pytest.raises(RuntimeError, match="source endpoint identity"):
+        MODULE._validate_request(endpoint_drift)
+
+    package = tmp_path / "package.json"
+    simulation = tmp_path / "simulation.json"
+    alternate = tmp_path / "alternate.json"
+    for path in (package, simulation, alternate):
+        path.write_text("{}\n", encoding="utf-8")
+    local = deepcopy(request)
+    local["room"]["acoustic_package_manifest"] = str(package)
+    local["room"]["simulation_request"] = str(simulation)
+    MODULE._validate_semantic_selected_paths(
+        local, {"package": package, "simulation": simulation}
+    )
+    with pytest.raises(RuntimeError, match="differs from the declared"):
+        MODULE._validate_semantic_selected_paths(
+            local, {"package": alternate, "simulation": simulation}
+        )
+    symlink = tmp_path / "simulation-link.json"
+    symlink.symlink_to(simulation)
+    with pytest.raises(RuntimeError, match="without symlink"):
+        MODULE._validate_semantic_selected_paths(
+            local, {"package": package, "simulation": symlink}
+        )
+    existing = tmp_path / "existing-output"
+    stale = existing / "native_sparse_f15_old"
+    stale.mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="must be absent"):
+        MODULE._semantic_fresh_path(existing, owner="semantic execution output root")
+    assert stale.is_dir()
+    assert list(existing.iterdir()) == [stale]
+
+
+def test_semantic_binaural_simulation_request_is_explicit() -> None:
+    simulation = load(
+        layout_path(
+            "config/acoustics/skokloster_semantic_binaural_rir_request_v1.json",
+            "examples/m3/skokloster_castle/skokloster_semantic_binaural_rir_request_v1.json",
+        )
+    )["simulation"]
+    assert simulation["channel_layout"] == {"type": "binaural", "channel_count": 2}
+    assert simulation["sample_rate_hz"] == 16000
+    assert simulation["temporal_coherence"] is False
+    assert simulation["thread_count"] == 1
