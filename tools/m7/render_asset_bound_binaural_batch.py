@@ -923,11 +923,16 @@ class _SemanticRIRCacheSession:
         binding_path = runtime_paths["binding_module_path"]
         library_path = runtime_paths["rlr_library_path"]
         habitat_path = runtime_paths["habitat_module_path"]
-        try:
-            binding_path.relative_to(habitat_path.parent)
-            binding_within_habitat = True
-        except ValueError:
-            binding_within_habitat = False
+        binding_layout_valid = (
+            habitat_path.name == "__init__.py"
+            and habitat_path.parent.name == "habitat_sim"
+            and binding_path.parent.name == "_ext"
+            and binding_path.parent.parent.name == "habitat_sim"
+            and re.fullmatch(
+                r"habitat_sim_bindings\.[A-Za-z0-9_-]+\.so", binding_path.name
+            )
+            is not None
+        )
         timing_upload = _semantic_exact_mapping(
             timing_setup["upload"],
             {
@@ -1117,7 +1122,7 @@ class _SemanticRIRCacheSession:
             or binding_path.suffix != ".so"
             or library_path.name != "libRLRAudioPropagation.so"
             or library_path.parent != binding_path.parent
-            or not binding_within_habitat
+            or not binding_layout_valid
             or not config_valid
             or timing_upload.get("status") != "pass_structural_native_upload"
         ):

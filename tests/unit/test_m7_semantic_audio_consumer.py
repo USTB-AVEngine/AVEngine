@@ -353,10 +353,18 @@ def _write_semantic_rir_fixture(tmp_path: Path) -> tuple[Path, Path]:
                 "runtime": {
                     "schema": "avengine_semantic_habitat_rlr_runtime_v1",
                     "binding_api": "habitat_sim.RLRAcousticContext_v1",
-                    "quaternion_module_path": "/fixture/quaternion.so",
-                    "habitat_module_path": "/fixture/habitat/__init__.py",
-                    "binding_module_path": "/fixture/habitat/bindings.so",
-                    "rlr_library_path": "/fixture/habitat/libRLRAudioPropagation.so",
+                    "quaternion_module_path": "/fixture/quaternion.py",
+                    "habitat_module_path": (
+                        "/fixture/src_python/habitat_sim/__init__.py"
+                    ),
+                    "binding_module_path": (
+                        "/fixture/build/install/platlib/habitat_sim/_ext/"
+                        "habitat_sim_bindings.cpython-312-x86_64-linux-gnu.so"
+                    ),
+                    "rlr_library_path": (
+                        "/fixture/build/install/platlib/habitat_sim/_ext/"
+                        "libRLRAudioPropagation.so"
+                    ),
                 },
                 "configuration_readback": {
                     key: value
@@ -799,6 +807,24 @@ def test_semantic_rir_rejects_incomplete_or_foreign_episode_grid(
         _open_semantic_rir_fixture(plan, cache)
 
 
+def test_semantic_rir_accepts_editable_split_runtime_roots(tmp_path: Path) -> None:
+    plan, cache = _write_semantic_rir_fixture(tmp_path)
+    timing = json.loads((cache / "timing.json").read_text())
+    runtime = timing["setup"]["runtime"]
+    assert (
+        Path(runtime["habitat_module_path"]).parent
+        != Path(runtime["binding_module_path"]).parent
+    )
+    assert _open_semantic_rir_fixture(plan, cache).load_episode(
+        "episode"
+    ).samples.shape == (
+        75,
+        2,
+        2,
+        2,
+    )
+
+
 def test_semantic_rir_accepts_fixed_jobs_with_top_level_pose_fallback(
     tmp_path: Path,
 ) -> None:
@@ -872,6 +898,7 @@ def test_semantic_rir_rejects_symlinked_inputs(tmp_path: Path, kind: str) -> Non
         "canonical_input_path",
         "config_readback",
         "batch_partition",
+        "runtime_package_tail",
     ],
 )
 def test_semantic_rir_rejects_fabricated_native_or_timing_claims(
@@ -903,6 +930,15 @@ def test_semantic_rir_rejects_fabricated_native_or_timing_claims(
             document["setup"]["configuration_readback"]["direct_ray_count"] += 1
         elif mutation == "batch_cpu_time":
             document["batches"][0]["simulate_process_cpu_seconds"] = 0.2
+        elif mutation == "runtime_package_tail":
+            document["setup"]["runtime"]["binding_module_path"] = (
+                "/fixture/build/install/platlib/not_habitat/_ext/"
+                "habitat_sim_bindings.cpython-312-x86_64-linux-gnu.so"
+            )
+            document["setup"]["runtime"]["rlr_library_path"] = (
+                "/fixture/build/install/platlib/not_habitat/_ext/"
+                "libRLRAudioPropagation.so"
+            )
         else:
             document["run_wall_seconds"] = 0.0
     write_json(path, document)
