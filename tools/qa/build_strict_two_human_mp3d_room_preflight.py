@@ -39,6 +39,7 @@ from spear_imported_glb_room_adapter import (
 
 REQUEST_SCHEMA = "avengine_native_strict_two_human_mp3d_room_atom_request_v1"
 REQUEST_SCHEMA_V2 = "avengine_native_strict_two_human_mp3d_room_atom_request_v2"
+SEMANTIC_RIR_EXECUTION_MODE = "semantic_no_file_evidence"
 PREFLIGHT_SCHEMA = "avengine_native_strict_two_human_mp3d_room_preflight_v1"
 SUITE_SCHEMA = "avengine_optional_spear_imported_glb_suite_v1"
 SCENARIO_SCHEMA = "avengine_optional_spear_imported_glb_scenario_v1"
@@ -258,6 +259,27 @@ def _validate_request(request: Mapping[str, Any]) -> None:
         and capture.get("sparse_frame_indices") == [15],
         "capture must declare one f15 probe and one 75-frame/15-Hz suite",
     )
+    acoustics = request.get("acoustics")
+    _require(isinstance(acoustics, Mapping), "request acoustics must be an object")
+    rir_execution_mode = acoustics.get("rir_execution_mode", "legacy_registry")
+    _require(
+        rir_execution_mode in {"legacy_registry", SEMANTIC_RIR_EXECUTION_MODE},
+        "RIR execution mode is invalid",
+    )
+    if rir_execution_mode == SEMANTIC_RIR_EXECUTION_MODE:
+        _require(
+            request.get("schema") == REQUEST_SCHEMA_V2,
+            "semantic RIR execution requires the v2 request shape",
+        )
+        for field_name in ("simulation_request", "hrtf"):
+            raw = Path(str(acoustics.get(field_name, "")))
+            _require(
+                raw.is_absolute()
+                and not any(candidate.is_symlink() for candidate in (raw, *raw.parents))
+                and raw.is_file()
+                and raw.resolve(strict=True) == raw,
+                f"semantic RIR {field_name} must be an absolute regular file",
+            )
 
 
 @contextmanager
@@ -1532,30 +1554,54 @@ def _execution_plan(
             else "habitat_mp3d_example_17DRP5sb8fy_soundspaces2_strict_two_human_v1"
         ),
     ]
+    semantic_rir = (
+        is_v2 and acoustics.get("rir_execution_mode") == SEMANTIC_RIR_EXECUTION_MODE
+    )
     rir_argv = [
         str(HABITAT_PYTHON),
         str(remote_root / "tools/m6x/render_rir_cache.py"),
         "--rir-job-plan",
         str(rir_plan),
-        "--room-id",
-        request["room"]["room_id"],
-        "--room-revision",
-        request["room"]["room_revision"],
-        "--room-registry",
-        acoustics["room_registry"],
-        "--acoustic-profile-registry",
-        acoustics["acoustic_profile_registry"],
-        "--simulation-profile",
-        acoustics["simulation_profile"],
-        "--output",
-        str(rir_cache),
-        "--layout",
-        "binaural",
-        "--batch-size",
-        "2",
-        "--thread-count",
-        str(acoustics["thread_count"]),
     ]
+    if semantic_rir:
+        rir_argv.extend(
+            [
+                "--semantic-no-file-evidence",
+                "--acoustic-package-manifest",
+                str(fresh_package / "manifest.json"),
+                "--simulation-request",
+                acoustics["simulation_request"],
+                "--hrtf",
+                acoustics["hrtf"],
+            ]
+        )
+    else:
+        rir_argv.extend(
+            [
+                "--room-id",
+                request["room"]["room_id"],
+                "--room-revision",
+                request["room"]["room_revision"],
+                "--room-registry",
+                acoustics["room_registry"],
+                "--acoustic-profile-registry",
+                acoustics["acoustic_profile_registry"],
+                "--simulation-profile",
+                acoustics["simulation_profile"],
+            ]
+        )
+    rir_argv.extend(
+        [
+            "--output",
+            str(rir_cache),
+            "--layout",
+            "binaural",
+            "--batch-size",
+            "2",
+            "--thread-count",
+            str(acoustics["thread_count"]),
+        ]
+    )
     execution_environment = {
         "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
         "AVENGINE_SOUNDSPACES_ROOT": SOUNDSPACES_ROOT,

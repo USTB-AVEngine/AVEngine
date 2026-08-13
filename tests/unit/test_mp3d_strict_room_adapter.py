@@ -757,6 +757,16 @@ class PreflightTests(unittest.TestCase):
                 str(output.parent / "exact_rir_cache_v1"),
                 execution["cpu_steps"][2]["argv"],
             )
+            legacy_rir_argv = execution["cpu_steps"][2]["argv"]
+            self.assertNotIn("--semantic-no-file-evidence", legacy_rir_argv)
+            for option in (
+                "--room-id",
+                "--room-revision",
+                "--room-registry",
+                "--acoustic-profile-registry",
+                "--simulation-profile",
+            ):
+                self.assertIn(option, legacy_rir_argv)
             self.assertEqual(
                 preflight["runtime_camera_framing"]["selected_candidate_id"],
                 "midpoint_grid_000",
@@ -779,6 +789,84 @@ class PreflightTests(unittest.TestCase):
                 24.0,
             )
             factory.assert_called_once()
+
+    def test_v3_request_selects_semantic_rir_and_prioritizes_fresh_rig(self) -> None:
+        request_path = (
+            ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
+        )
+        request = json.loads(request_path.read_text())
+
+        builder._validate_request(request)
+
+        self.assertEqual(request["schema"], builder.REQUEST_SCHEMA_V2)
+        self.assertEqual(
+            request["request_id"],
+            "mp3d_17DRP5sb8fy_strict_two_human_static_rig_v3",
+        )
+        self.assertEqual(
+            request["episode_id"],
+            "mp3d_17DRP5sb8fy_male_female_static_rig_0003",
+        )
+        self.assertEqual(
+            request["camera_framing"]["candidate_generation"]["offsets_xz_m"][0],
+            [4.175, 0.0, 2.35],
+        )
+        self.assertEqual(request["acoustics"]["rir_stride_frames"], 1)
+        self.assertEqual(
+            request["acoustics"]["rir_execution_mode"],
+            builder.SEMANTIC_RIR_EXECUTION_MODE,
+        )
+
+    def test_v3_execution_plan_uses_only_explicit_semantic_rir_inputs(self) -> None:
+        request = json.loads(
+            (
+                ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
+            ).read_text()
+        )
+        _, solution = self._v2_solution()
+        rig = solution["sensor_rig_binding"]["trajectory"]
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "cpu_preflight_v1"
+            with patch.object(
+                builder,
+                "_canonical_sha256",
+                side_effect=AssertionError("semantic execution plan must not hash"),
+            ):
+                execution = builder._execution_plan(request, output, rig=rig)
+
+            argv = execution["cpu_steps"][2]["argv"]
+            self.assertIn("--semantic-no-file-evidence", argv)
+            self.assertEqual(
+                argv[argv.index("--acoustic-package-manifest") + 1],
+                str(Path(temporary) / "fresh_soundspaces2_package_v2/manifest.json"),
+            )
+            self.assertEqual(
+                argv[argv.index("--simulation-request") + 1],
+                request["acoustics"]["simulation_request"],
+            )
+            self.assertEqual(
+                argv[argv.index("--hrtf") + 1], request["acoustics"]["hrtf"]
+            )
+            for option in (
+                "--room-id",
+                "--room-revision",
+                "--room-registry",
+                "--acoustic-profile-registry",
+                "--simulation-profile",
+                "--job-offset",
+                "--job-limit",
+            ):
+                self.assertNotIn(option, argv)
+
+    def test_v3_rejects_unknown_rir_execution_mode(self) -> None:
+        request = json.loads(
+            (
+                ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
+            ).read_text()
+        )
+        request["acoustics"]["rir_execution_mode"] = "semantic_typo"
+        with self.assertRaisesRegex(RuntimeError, "RIR execution mode is invalid"):
+            builder._validate_request(request)
 
     @patch.object(builder, "_runtime_gate_and_solve_full75_actor_framing")
     def test_v2_runtime_gate_failure_creates_no_output(
