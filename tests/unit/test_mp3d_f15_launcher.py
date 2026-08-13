@@ -1865,6 +1865,234 @@ class Mp3dF15LauncherTests(unittest.TestCase):
                     authorize_gpu_capture=True,
                 )
 
+    def test_v8_real_semantic_evidence_and_review_mutations(self) -> None:
+        plan = (
+            LAUNCHER.REPOSITORY
+            / "tmp/lead_a_strict_two_human_mp3d_room_v4"
+            / "cpu_preflight_v1/execution_plan.json"
+        )
+        if not plan.is_file():
+            self.skipTest("fresh v4 semantic CPU evidence is unavailable")
+        paths = LAUNCHER._v8_execution_plan_paths(plan)
+        evidence = LAUNCHER._validate_v8_execution_plan_evidence(paths)
+        self.assertEqual(
+            evidence["episode_id"],
+            "mp3d_17DRP5sb8fy_male_female_static_rig_0003",
+        )
+        self.assertEqual(evidence["scene_id"], "17DRP5sb8fy")
+
+        def mutated(name: str, mutate: object, message: str) -> None:
+            with tempfile.TemporaryDirectory() as directory:
+                source = paths[name]
+                changed = json.loads(source.read_text(encoding="utf-8"))
+                assert callable(mutate)
+                mutate(changed)
+                replacement = Path(directory) / source.name
+                _write(replacement, changed)
+                replacement_paths = {**paths, name: replacement}
+                with self.assertRaisesRegex(RuntimeError, message):
+                    LAUNCHER._validate_v8_execution_plan_evidence(replacement_paths)
+
+        mutated(
+            "execution_plan",
+            lambda value: next(
+                step
+                for step in value["cpu_steps"]
+                if step["step_id"] == "render_two_exact_rirs"
+            )["argv"].extend(["--job-limit", "1"]),
+            "semantic RIR execution argv drift",
+        )
+
+        def replace_all75_listener_rotations(value: object) -> None:
+            assert isinstance(value, dict)
+            frames = value["scenarios"][0]["plan"]["frames"]
+            self.assertEqual(len(frames), 75)
+            for frame in frames:
+                frame["camera_state"]["world_from_rig"]["rotation_xyzw"] = [
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                ]
+
+        mutated(
+            "suite_plan",
+            replace_all75_listener_rotations,
+            "listener orientation",
+        )
+
+        def replace_both_los_anchor_receipts(value: object) -> None:
+            assert isinstance(value, dict)
+            selected = value["results"][0]
+            for hard_gates in (
+                selected["evidence"]["hard_gates"],
+                selected["room_gate"]["hard_gates"],
+            ):
+                hard_gates["line_of_sight_source1_actor"]["anchor_ids"] = [
+                    "declared_emitter_proxy"
+                ]
+
+        mutated(
+            "runtime_camera_gates",
+            replace_both_los_anchor_receipts,
+            "listener runtime/nav/LOS closure drift",
+        )
+        mutated(
+            "camera_framing",
+            lambda value: value["candidate_evaluations"][0]["frame_evaluations"][0][
+                "actors"
+            ][0]["projection"]["projected_bbox_px"].update({"left": 0.0}),
+            "ordinary CPU projection",
+        )
+        mutated(
+            "package_manifest",
+            lambda value: value["source_room"].update({"room_id": "foreign"}),
+            "selected room identity differ",
+        )
+
+    def test_v8_offline_retargets_fresh_output_without_gpu_or_write(self) -> None:
+        plan = (
+            LAUNCHER.REPOSITORY
+            / "tmp/lead_a_strict_two_human_mp3d_room_v4"
+            / "cpu_preflight_v1/execution_plan.json"
+        )
+        if not plan.is_file():
+            self.skipTest("fresh v4 semantic CPU evidence is unavailable")
+        with mock.patch.object(
+            LAUNCHER, "_gpu_snapshot", side_effect=AssertionError("GPU queried")
+        ):
+            result = LAUNCHER.offline_validate_execution_plan_v8(plan)
+        self.assertEqual(result["status"], "pass_offline_no_write_no_gpu_query")
+        self.assertEqual(result["rpc_port"], 39638)
+        self.assertEqual(
+            result["capture_output"],
+            str(plan.parent.parent / LAUNCHER.V8_CAPTURE_DIRECTORY),
+        )
+        self.assertFalse(result["gpu_started"])
+        self.assertFalse(result["writes_performed"])
+
+    def test_v8_prepare_and_dry_run_share_fresh_lifecycle_without_gpu(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            atom = repo / "tmp/fresh_v8_atom"
+            plan = atom / "cpu_preflight_v1/execution_plan.json"
+            _write(plan, {"schema": "fixture_only"})
+            suite = plan.parent / "suite.json"
+            room = plan.parent / "room.json"
+            _write(suite, {})
+            _write(room, {})
+            capture = atom / LAUNCHER.V8_CAPTURE_DIRECTORY
+            argv = [
+                "python",
+                "capture.py",
+                "--rpc-port",
+                str(LAUNCHER.V8_RPC_PORT),
+                "--output",
+                str(capture),
+            ]
+            validation = {
+                "execution_plan": str(plan),
+                "episode_id": "episode_v8",
+                "scene_id": "scene_v8",
+                "evidence_paths": {
+                    "suite_plan": str(suite),
+                    "room_adapter": str(room),
+                },
+                "capture_argv": argv,
+            }
+            with (
+                mock.patch.object(LAUNCHER, "REPOSITORY", repo),
+                mock.patch.object(
+                    LAUNCHER,
+                    "offline_validate_execution_plan_v8",
+                    return_value=validation,
+                ) as offline,
+                mock.patch.object(
+                    LAUNCHER, "_git_tracked_and_index_clean", return_value=True
+                ),
+                mock.patch.object(LAUNCHER, "_git_head", return_value="v8-commit"),
+                mock.patch.object(LAUNCHER, "_assert_port_available") as port,
+            ):
+                request_path = LAUNCHER.prepare_request_v8(execution_plan_path=plan)
+            offline.assert_called_once_with(plan)
+            port.assert_called_once_with(LAUNCHER.V8_RPC_PORT)
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            self.assertEqual(request["schema"], LAUNCHER.REQUEST_SCHEMA_V8)
+            self.assertEqual(request["required_repo_commit"], "v8-commit")
+            self.assertEqual(
+                Path(request["attempt_root"]).name,
+                LAUNCHER.V8_ATTEMPT_DIRECTORY,
+            )
+            self.assertEqual(request["capture_output"], str(capture))
+            self.assertFalse(capture.exists())
+
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v8", return_value=(request, argv)
+                ),
+                mock.patch.object(
+                    LAUNCHER, "_gpu_snapshot", side_effect=AssertionError("GPU queried")
+                ) as snapshot,
+            ):
+                self.assertEqual(
+                    LAUNCHER.run_v8(
+                        request_path,
+                        offline_validate=False,
+                        dry_run=True,
+                        authorize_gpu_capture=False,
+                    ),
+                    0,
+                )
+            snapshot.assert_not_called()
+            receipt = json.loads(
+                (request_path.parent / "dry_run_receipt.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(receipt["schema"], LAUNCHER.RECEIPT_SCHEMA_V8)
+            self.assertEqual(receipt["status"], "dry_run_pass_not_launched")
+            self.assertFalse(receipt["gpu_query_started"])
+            self.assertFalse(receipt["gpu_started"])
+            self.assertFalse(receipt["attempt_consumed"])
+            self.assertFalse((request_path.parent / "running_receipt.json").exists())
+            self.assertFalse((request_path.parent / "final_receipt.json").exists())
+
+            with (
+                mock.patch.object(
+                    LAUNCHER, "_validate_request_v8", return_value=(request, argv)
+                ),
+                mock.patch.object(LAUNCHER, "_gpu_snapshot") as snapshot,
+                self.assertRaisesRegex(RuntimeError, "explicit launch authorization"),
+            ):
+                LAUNCHER.run_v8(
+                    request_path,
+                    offline_validate=False,
+                    dry_run=False,
+                    authorize_gpu_capture=False,
+                )
+            snapshot.assert_not_called()
+            self.assertFalse((request_path.parent / "running_receipt.json").exists())
+
+    def test_v8_cli_subcommands_are_wired_to_v8_only(self) -> None:
+        plan = Path("plan.json")
+        request = Path("request.json")
+        prepared = LAUNCHER.parse_args(["prepare-v8", "--execution-plan", str(plan)])
+        launched = LAUNCHER.parse_args(
+            ["launch-v8", "--request", str(request), "--dry-run"]
+        )
+        offline = LAUNCHER.parse_args(
+            ["offline-validate-v8", "--execution-plan", str(plan)]
+        )
+        self.assertEqual(
+            (prepared.command, prepared.execution_plan), ("prepare-v8", plan)
+        )
+        self.assertEqual((launched.command, launched.request), ("launch-v8", request))
+        self.assertTrue(launched.dry_run)
+        self.assertEqual(
+            (offline.command, offline.execution_plan),
+            ("offline-validate-v8", plan),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

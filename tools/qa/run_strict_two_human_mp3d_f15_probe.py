@@ -36,6 +36,8 @@ REQUEST_SCHEMA_V6 = "avengine_mp3d_strict_two_human_f15_launch_request_v6"
 RECEIPT_SCHEMA_V6 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v6"
 REQUEST_SCHEMA_V7 = "avengine_mp3d_strict_two_human_f15_launch_request_v7"
 RECEIPT_SCHEMA_V7 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v7"
+REQUEST_SCHEMA_V8 = "avengine_mp3d_strict_two_human_f15_launch_request_v8"
+RECEIPT_SCHEMA_V8 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v8"
 FAILURE_LEDGER_SCHEMA = "avengine_mp3d_f15_attempt_failure_ledger_v1"
 CAPTURE_FAILURE_SCHEMA = "avengine_mp3d_f15_capture_failure_v1"
 ATTEMPT01_FAILURE_STATUS = (
@@ -64,6 +66,9 @@ V6_ATTEMPT_DIRECTORY = "diagnostic_f15_execution_plan_v6_launch_attempt_01"
 V7_ATTEMPT_DIRECTORY = "diagnostic_f15_revision_v7_launch_attempt_01"
 V7_CAPTURE_DIRECTORY = "native_sparse_f15_v7"
 V7_RPC_PORT = 39637
+V8_ATTEMPT_DIRECTORY = "diagnostic_f15_revision_v8_launch_attempt_01"
+V8_CAPTURE_DIRECTORY = "native_sparse_f15_v8"
+V8_RPC_PORT = 39638
 PACKAGED_ROOM_READBACK_DIRECTORY = "packaged_room_readback_v1"
 ATTEMPT_POLICY = {
     "attempt_index": 1,
@@ -2494,6 +2499,818 @@ def _validate_v7_execution_plan_evidence(
     }
 
 
+def _v8_execution_plan_paths(execution_plan_path: Path) -> dict[str, Path]:
+    """Resolve the fresh schema-v2 CPU evidence before retargeting its capture."""
+
+    raw_plan = _validate_v7_raw_evidence_paths(execution_plan_path)
+    paths = _execution_plan_artifact_paths(raw_plan)
+    plan = _load(raw_plan)
+    preflight_root = raw_plan.parent
+    atom_root = preflight_root.parent
+    _require(
+        plan.get("schema") == "avengine_native_strict_two_human_mp3d_execution_plan_v2"
+        and raw_plan == atom_root / "cpu_preflight_v1/execution_plan.json",
+        "v8 must bind the fresh schema-v2 cpu_preflight_v1 execution plan",
+    )
+    extras = {
+        "actor_framing": preflight_root / "actor_framing.json",
+        "camera_framing": preflight_root / "camera_framing.json",
+        "runtime_camera_gates": preflight_root / "runtime_camera_gates.json",
+        "rir_job_plan": preflight_root / "rir_job_plan.json",
+    }
+    for owner, path in extras.items():
+        _require_v7_nonsymlink_path(path, atom_root, owner=f"v8 {owner}")
+    return {**paths, **extras}
+
+
+def _validate_v8_execution_plan_evidence(
+    paths: Mapping[str, Path],
+) -> dict[str, Any]:
+    """Close fresh schema-v2 planning, package, and semantic RIR evidence."""
+
+    required = {
+        "execution_plan",
+        "preflight",
+        "room_adapter",
+        "suite_plan",
+        "rir_runtime_probe",
+        "package_manifest",
+        "package_material_coverage",
+        "rir_cache_receipt",
+        "rir_cache_index",
+        "capture_output",
+        "actor_framing",
+        "camera_framing",
+        "runtime_camera_gates",
+        "rir_job_plan",
+    }
+    _require(set(paths) == required, "v8 execution-plan artifact closure drift")
+    for name in required - {"capture_output"}:
+        _require(paths[name].is_file(), f"missing v8 execution-plan evidence: {name}")
+    values = {name: _load(paths[name]) for name in required - {"capture_output"}}
+    plan = values["execution_plan"]
+    preflight = values["preflight"]
+    contract = preflight.get("episode_contract", {})
+    episode_id = preflight.get("episode_id")
+    _require(
+        plan.get("schema") == "avengine_native_strict_two_human_mp3d_execution_plan_v2"
+        and plan.get("status") == "planned_not_run"
+        and plan.get("qualification_claim") is False
+        and plan.get("formal_dataset_count") == 0
+        and preflight.get("schema")
+        == "avengine_native_strict_two_human_mp3d_room_preflight_v1"
+        and preflight.get("status") == "pending_remaining_evidence"
+        and preflight.get("cpu_planning_status") == "pass"
+        and isinstance(episode_id, str)
+        and episode_id
+        and preflight.get("gpu_started") is False
+        and preflight.get("gpu_f15_request_materialized") is True
+        and preflight.get("gpu_f15_request_ready") is False
+        and preflight.get("episode_ready") is False
+        and preflight.get("capture_ready") is False
+        and preflight.get("formal_ready") is False
+        and preflight.get("qualification_claim") is False
+        and preflight.get("formal_dataset_count") == 0
+        and contract.get("frame_count") == 75
+        and contract.get("frame_rate_hz") == 15
+        and contract.get("sparse_probe_frame_indices") == [FRAME_INDEX]
+        and isinstance(contract.get("static_distinct_human_pair"), list)
+        and len(contract["static_distinct_human_pair"]) == 2,
+        "v8 schema-v2 planning boundary drift",
+    )
+    request_record = preflight.get("inputs", {}).get("request", {})
+    raw_request_path = Path(str(request_record.get("path", "")))
+    _require(
+        raw_request_path.is_absolute(), "v8 preflight request path must be absolute"
+    )
+    request_path = _require_v7_nonsymlink_path(
+        raw_request_path, REPOSITORY / "examples/qa", owner="v8 preflight request"
+    )
+    source_request = _load(request_path)
+    request_camera = source_request.get("camera_framing", {})
+    _require(
+        source_request.get("schema")
+        == "avengine_native_strict_two_human_mp3d_room_atom_request_v2"
+        and source_request.get("request_id") == preflight.get("request_id")
+        and source_request.get("episode_id") == episode_id
+        and source_request.get("room", {}).get("scene_id")
+        == preflight.get("ue_import", {}).get("scene_id")
+        and source_request.get("qualification_claim") is False
+        and source_request.get("formal_dataset_count") == 0
+        and isinstance(request_camera, Mapping),
+        "v8 preflight differs from its authoritative request",
+    )
+
+    room = values["room_adapter"]
+    scene_id = room.get("scene_id")
+    meshes = room.get("static_mesh_object_paths")
+    camera_contract = room.get("camera_contract", {})
+    _require(
+        room.get("schema") == "avengine_spear_imported_glb_room_adapter_v1"
+        and isinstance(scene_id, str)
+        and scene_id
+        and room.get("expected_static_mesh_count") == EXPECTED_MESH_COUNT
+        and isinstance(meshes, list)
+        and len(meshes) == EXPECTED_MESH_COUNT
+        and len(set(meshes)) == EXPECTED_MESH_COUNT
+        and camera_contract.get("one_camera_actor_for_all_passes") is True
+        and camera_contract.get("pass_order")
+        == ["normal", "source1_target_only", "source2_target_only"]
+        and room.get("qualification_claim") is False
+        and room.get("formal_dataset_count") == 0,
+        "v8 room and shared-camera contract drift",
+    )
+    suite = values["suite_plan"]
+    scenarios = suite.get("scenarios")
+    _require(
+        suite.get("schema") == "avengine_optional_spear_imported_glb_suite_v1"
+        and suite.get("native_map") == "/Engine/Maps/Entry"
+        and suite.get("qualification_claim") is False
+        and suite.get("formal_dataset_count") == 0
+        and isinstance(scenarios, list)
+        and len(scenarios) == 1,
+        "v8 suite boundary drift",
+    )
+    scenario = scenarios[0]
+    episode = scenario.get("plan", {})
+    frames = episode.get("frames")
+    actors = episode.get("actors")
+    actor_ids = ["source1_actor", "source2_actor"]
+    _require(
+        scenario.get("scenario_id") == episode_id
+        and isinstance(frames, list)
+        and [frame.get("frame_index") for frame in frames] == list(range(75))
+        and isinstance(actors, list)
+        and [actor.get("actor_id") for actor in actors] == actor_ids
+        and actors[0].get("asset_id") != actors[1].get("asset_id")
+        and episode.get("room", {}).get("scene_id") == scene_id
+        and episode.get("room", {})
+        .get("room_adapter", {})
+        .get("static_mesh_object_paths")
+        == meshes
+        and episode.get("room", {}).get("room_adapter", {}).get("camera_contract")
+        == camera_contract,
+        "v8 Episode identity, actor, or room closure drift",
+    )
+    actors_by_id = {actor["actor_id"]: actor for actor in actors}
+    slot_actor_ids = {"source1": "source1_actor", "source2": "source2_actor"}
+    _require(
+        contract["static_distinct_human_pair"]
+        == [
+            actors_by_id[slot_actor_ids[slot]].get("asset_id")
+            for slot in slot_actor_ids
+        ],
+        "v8 declared human pair differs from suite actors",
+    )
+
+    navigation = preflight.get("navigation", {})
+    selected_positions = navigation.get("selected_positions", {})
+    pair_gate = navigation.get("adult_static_pair_gate", {})
+    _require(
+        navigation.get("status") == "pass"
+        and navigation.get("fresh_pathfinder_replay_status") == "pass"
+        and navigation.get("shared_island_id") == 1
+        and float(navigation.get("horizontal_source_separation_m", 0.0)) >= 1.3
+        and pair_gate.get("clearance_gate_passed") is True
+        and pair_gate.get("separation_gate_passed") is True
+        and set(selected_positions) == set(slot_actor_ids)
+        and all(
+            selected_positions[slot].get("all_frames_navigable") is True
+            and selected_positions[slot].get("island_id") == 1
+            and float(selected_positions[slot].get("fresh_clearance_m", 0.0)) >= 0.5
+            for slot in slot_actor_ids
+        ),
+        "v8 fresh navigation closure drift",
+    )
+    roots = {
+        slot: _v7_vector3(
+            selected_positions[slot].get("habitat_root_m"),
+            owner=f"v8 {slot} navigation root",
+        )
+        for slot in slot_actor_ids
+    }
+    episode_camera = episode.get("camera", {})
+    listener = _v7_vector3(
+        episode_camera.get("habitat_position_m"), owner="v8 Episode camera"
+    )
+    selected_id = preflight.get("runtime_camera_framing", {}).get(
+        "selected_candidate_id"
+    )
+    generation = request_camera.get("candidate_generation", {})
+    offsets = generation.get("offsets_xz_m")
+    selected_index = (
+        int(selected_id.rsplit("_", 1)[1])
+        if isinstance(selected_id, str) and selected_id.startswith("midpoint_grid_")
+        else -1
+    )
+    _require(
+        isinstance(offsets, list)
+        and 0 <= selected_index < len(offsets)
+        and selected_id == f"midpoint_grid_{selected_index:03d}",
+        "v8 selected camera candidate identity drift",
+    )
+    offset = _v7_vector3(
+        offsets[selected_index], owner="v8 selected camera candidate offset"
+    )
+    midpoint = tuple(
+        (roots["source1"][axis] + roots["source2"][axis]) / 2.0 for axis in range(3)
+    )
+    expected_candidate_position = (
+        midpoint[0] + offset[0],
+        float(request_camera.get("floor_height_m"))
+        + float(generation.get("eye_height_m")),
+        midpoint[2] + offset[2],
+    )
+    delta_x = midpoint[0] - expected_candidate_position[0]
+    delta_z = midpoint[2] - expected_candidate_position[2]
+    expected_candidate_yaw = math.degrees(math.atan2(-delta_x, -delta_z))
+    _require(
+        all(
+            math.isclose(observed, expected, rel_tol=0.0, abs_tol=1.0e-12)
+            for observed, expected in zip(listener, expected_candidate_position)
+        )
+        and math.isclose(
+            float(episode_camera.get("habitat_yaw_deg")),
+            expected_candidate_yaw,
+            rel_tol=0.0,
+            abs_tol=1.0e-12,
+        ),
+        "v8 selected camera differs from request candidate generation",
+    )
+
+    emitters = {
+        slot: _v7_vector3(
+            actors_by_id[actor_id].get("emitter_offset_m"),
+            owner=f"v8 {slot} emitter offset",
+        )
+        for slot, actor_id in slot_actor_ids.items()
+    }
+    expected_sources = {
+        slot: tuple(roots[slot][axis] + emitters[slot][axis] for axis in range(3))
+        for slot in slot_actor_ids
+    }
+    for frame in frames:
+        states = frame.get("actor_states")
+        states_by_id = (
+            {
+                state.get("actor_id"): state
+                for state in states
+                if isinstance(state, Mapping)
+            }
+            if isinstance(states, list)
+            else {}
+        )
+        _require(set(states_by_id) == set(actor_ids), "v8 frame actor closure drift")
+        for slot, actor_id in slot_actor_ids.items():
+            state = states_by_id[actor_id]
+            _require(
+                _v7_vector3(state.get("translation_m"), owner=f"v8 {slot} frame root")
+                == roots[slot]
+                and state.get("asset_id") == actors_by_id[actor_id].get("asset_id"),
+                "v8 static actor frame differs from navigation authority",
+            )
+        camera_state = frame.get("camera_state", {})
+        world_from_rig = camera_state.get("world_from_rig", {})
+        rotation_xyzw = world_from_rig.get("rotation_xyzw")
+        _require(
+            _v7_vector3(camera_state.get("habitat_position_m"), owner="v8 frame camera")
+            == listener
+            and _v7_vector3(
+                world_from_rig.get("translation_m"), owner="v8 frame rig camera"
+            )
+            == listener
+            and isinstance(rotation_xyzw, list)
+            and len(rotation_xyzw) == 4
+            and all(
+                not isinstance(item, bool)
+                and isinstance(item, (int, float))
+                and math.isfinite(float(item))
+                for item in rotation_xyzw
+            )
+            and camera_state.get("habitat_yaw_deg")
+            == episode_camera.get("habitat_yaw_deg")
+            and camera_state.get("ue_position_cm")
+            == episode_camera.get("ue_position_cm")
+            and camera_state.get("ue_yaw_deg") == episode_camera.get("ue_yaw_deg"),
+            "v8 frame camera pose differs from the selected listener",
+        )
+
+    selected_rotation_xyzw = frames[0]["camera_state"]["world_from_rig"][
+        "rotation_xyzw"
+    ]
+    yaw_radians = math.radians(float(episode_camera.get("habitat_yaw_deg")))
+    expected_rotation_xyzw = [
+        0.0,
+        math.sin(yaw_radians / 2.0),
+        0.0,
+        math.cos(yaw_radians / 2.0),
+    ]
+    _require(
+        all(
+            frame["camera_state"]["world_from_rig"]["rotation_xyzw"]
+            == selected_rotation_xyzw
+            for frame in frames
+        )
+        and math.isclose(
+            sum(float(value) ** 2 for value in selected_rotation_xyzw),
+            1.0,
+            rel_tol=0.0,
+            abs_tol=1.0e-12,
+        )
+        and all(
+            math.isclose(float(observed), float(expected), rel_tol=0.0, abs_tol=1.0e-12)
+            for observed, expected in zip(
+                selected_rotation_xyzw, expected_rotation_xyzw
+            )
+        ),
+        "v8 listener orientation is not the declared Habitat yaw rotation",
+    )
+
+    actor_framing = values["actor_framing"]
+    framing_frames = actor_framing.get("frames")
+    _require(
+        actor_framing.get("schema") == "avengine_actor_framing_inputs_v1"
+        and actor_framing.get("status") == "pass_cpu_sampled_planning_envelopes"
+        and actor_framing.get("frame_count") == 75
+        and actor_framing.get("actor_ids") == actor_ids
+        and isinstance(framing_frames, list)
+        and [item.get("frame_index") for item in framing_frames] == list(range(75))
+        and all(
+            set(item.get("actor_aabbs", {})) == set(actor_ids)
+            and all(
+                item["actor_aabbs"][actor_id]
+                .get("bounds_authority", {})
+                .get("asset_id")
+                == actors_by_id[actor_id].get("asset_id")
+                for actor_id in actor_ids
+            )
+            for item in framing_frames
+        )
+        and actor_framing.get("qualification", {}).get("qualification_claim") is False
+        and actor_framing.get("qualification", {}).get("formal_episode_count") == 0,
+        "v8 actor-framing and suite actor closure drift",
+    )
+    camera_framing = values["camera_framing"]
+    selected_pose = camera_framing.get("selected_camera_pose", {})
+    evaluations = camera_framing.get("candidate_evaluations")
+    selected_evaluations = (
+        [
+            value
+            for value in evaluations
+            if isinstance(value, Mapping) and value.get("candidate_id") == selected_id
+        ]
+        if isinstance(evaluations, list)
+        else []
+    )
+    _require(
+        preflight.get("runtime_camera_framing", {}).get("status")
+        == "pass_cpu_declared_bounds_framing"
+        and camera_framing.get("schema") == "avengine_camera_framing_evidence_v1"
+        and camera_framing.get("status") == "pass_cpu_declared_bounds_framing"
+        and camera_framing.get("frame_count") == 75
+        and camera_framing.get("frame_indices") == list(range(75))
+        and camera_framing.get("actor_ids") == actor_ids
+        and camera_framing.get("ordered_actor_ids") == actor_ids
+        and camera_framing.get("selected_candidate_id") == selected_id
+        and camera_framing.get("ordered_actor_ids")
+        == request_camera.get("ordered_actor_ids")
+        and camera_framing.get("minimum_order_gap_px")
+        == request_camera.get("minimum_order_gap_px")
+        and _v7_vector3(selected_pose.get("position_m"), owner="v8 framing camera")
+        == listener
+        and math.isclose(
+            float(selected_pose.get("yaw_deg")),
+            float(episode_camera.get("habitat_yaw_deg")),
+            rel_tol=0.0,
+            abs_tol=1.0e-9,
+        )
+        and episode_camera.get("ue_position_cm")
+        == [100.0 * listener[0], 100.0 * listener[2], 100.0 * listener[1]]
+        and math.isclose(
+            float(episode_camera.get("ue_yaw_deg")),
+            -90.0 - float(episode_camera.get("habitat_yaw_deg")),
+            rel_tol=0.0,
+            abs_tol=1.0e-9,
+        )
+        and episode_camera.get("horizontal_fov_deg")
+        == request_camera.get("calibration", {}).get("hfov_degrees")
+        and len(selected_evaluations) == 1
+        and selected_evaluations[0].get("selectable") is True
+        and selected_evaluations[0].get("all_frames_hard_gates_pass") is True
+        and [
+            item.get("frame_index")
+            for item in selected_evaluations[0].get("frame_evaluations", [])
+        ]
+        == list(range(75))
+        and camera_framing.get("native_pixel_validation_status") == "pending"
+        and camera_framing.get("qualification_claim") is False
+        and camera_framing.get("formal_episode_count") == 0,
+        "v8 selected camera/framing closure drift",
+    )
+    runtime_gates = values["runtime_camera_gates"]
+    runtime_results = runtime_gates.get("results")
+    selected_runtime = (
+        [
+            value
+            for value in runtime_results
+            if isinstance(value, Mapping) and value.get("candidate_id") == selected_id
+        ]
+        if isinstance(runtime_results, list)
+        else []
+    )
+    _require(
+        runtime_gates.get("schema") == "avengine_mp3d_runtime_camera_gate_batch_v1"
+        and runtime_gates.get("qualification_claim") is False
+        and runtime_gates.get("formal_dataset_count") == 0
+        and len(selected_runtime) == 1,
+        "v8 runtime camera-gate selection drift",
+    )
+    runtime_selected = selected_runtime[0]
+    preflight_hard_gates = runtime_selected.get("evidence", {}).get("hard_gates", {})
+    _require(
+        all(
+            preflight_hard_gates.get(f"line_of_sight_{slot}_actor", {}).get(
+                "anchor_ids"
+            )
+            == ["declared_emitter_proxy", "torso_envelope_center"]
+            and preflight_hard_gates.get(f"line_of_sight_{slot}_actor", {}).get(
+                "tolerance_m"
+            )
+            == request_camera.get("line_of_sight_tolerance_m")
+            for slot in slot_actor_ids
+        ),
+        "v8 listener runtime/nav/LOS closure drift",
+    )
+    from avengine.camera_framing import evaluate_static_camera_candidate
+
+    recomputed_evaluation = evaluate_static_camera_candidate(
+        frames=framing_frames,
+        candidate={
+            "candidate_id": runtime_selected.get("candidate_id"),
+            "priority": runtime_selected.get("priority"),
+            "position_m": runtime_selected.get("position_m"),
+            "yaw_deg": runtime_selected.get("yaw_deg"),
+            "room_gate": runtime_selected.get("room_gate"),
+        },
+        calibration=request_camera.get("calibration"),
+        ordered_actor_ids=request_camera.get("ordered_actor_ids"),
+        minimum_order_gap_px=request_camera.get("minimum_order_gap_px"),
+    )
+    _require(
+        recomputed_evaluation == selected_evaluations[0],
+        "v8 selected framing evidence differs from ordinary CPU projection",
+    )
+    hard_gates = runtime_selected.get("evidence", {}).get("hard_gates", {})
+    _require(
+        runtime_selected.get("status") == "pass"
+        and _v7_vector3(runtime_selected.get("position_m"), owner="v8 runtime camera")
+        == listener
+        and math.isclose(
+            float(runtime_selected.get("yaw_deg")),
+            float(episode_camera.get("habitat_yaw_deg")),
+            rel_tol=0.0,
+            abs_tol=1.0e-9,
+        )
+        and runtime_selected.get("frame_count") == 75
+        and runtime_selected.get("priority") == float(selected_index)
+        and runtime_selected.get("room_gate", {}).get("status") == "pass"
+        and runtime_selected.get("room_gate", {}).get(
+            "native_habitat_validation_status"
+        )
+        == "pass"
+        and runtime_selected.get("room_gate", {}).get("line_of_sight_validation_status")
+        == "pass"
+        and all(
+            hard_gates.get(f"line_of_sight_{slot}_actor", {}).get("status") == "pass"
+            and hard_gates.get(f"line_of_sight_{slot}_actor", {}).get("anchor_ids")
+            == ["declared_emitter_proxy", "torso_envelope_center"]
+            and hard_gates.get(f"line_of_sight_{slot}_actor", {}).get("tolerance_m")
+            == request_camera.get("line_of_sight_tolerance_m")
+            and hard_gates.get(f"line_of_sight_{slot}_actor", {}).get("query_count")
+            == 150
+            and hard_gates.get(f"line_of_sight_{slot}_actor", {}).get(
+                "passed_query_count"
+            )
+            == 150
+            for slot in slot_actor_ids
+        )
+        and hard_gates.get("same_navmesh_island", {}).get("status") == "pass"
+        and hard_gates.get("listener_navmesh", {}).get("status") == "pass"
+        and hard_gates.get("listener_navmesh", {}).get("island") == 1
+        and float(hard_gates.get("listener_navmesh", {}).get("clearance_m", 0.0))
+        >= 0.25,
+        "v8 selected listener runtime/nav/LOS closure drift",
+    )
+
+    runtime_hard_gates = runtime_selected.get("room_gate", {}).get("hard_gates")
+    runtime_context = runtime_selected.get("evidence", {}).get("runtime_context", {})
+    room_bounds = hard_gates.get("room_bounds", {})
+    _require(
+        runtime_hard_gates == hard_gates
+        and runtime_selected.get("evidence", {}).get("provenance")
+        == "habitat_cpu_runtime"
+        and runtime_selected.get("room_gate", {}).get("provenance")
+        == "habitat_cpu_runtime"
+        and runtime_context.get("scene_id") == scene_id
+        and runtime_context.get("pathfinder_loaded") is True
+        and runtime_context.get("raycast_enabled") is True
+        and runtime_context.get("physics_enabled") is True
+        and room_bounds.get("status") == "pass"
+        and _v7_vector3(room_bounds.get("position_m"), owner="v8 room-bounds listener")
+        == listener,
+        "v8 selected listener runtime authority drift",
+    )
+
+    runtime = values["rir_runtime_probe"]
+    _require(
+        runtime.get("schema") == "avengine_mp3d_rir_runtime_probe_v1"
+        and runtime.get("status") == "pass"
+        and runtime.get("compute_device") == "CPU"
+        and runtime.get("gpu_required") is False
+        and runtime.get("cuda_initialized") is False
+        and runtime.get("qualification_claim") is False
+        and runtime.get("formal_dataset_count") == 0,
+        "v8 CPU runtime probe drift",
+    )
+    _validate_execution_plan_package(
+        plan, values["package_manifest"], values["package_material_coverage"]
+    )
+    source_room = values["package_manifest"].get("source_room", {})
+    _require(
+        source_room.get("room_id") == f"habitat_mp3d_example_{scene_id}"
+        and preflight.get("ue_import", {}).get("scene_id") == scene_id,
+        "v8 semantic package and selected room identity differ",
+    )
+
+    from avengine.m6x.rir_cache import (
+        load_semantic_acoustic_scene,
+        validate_semantic_rir_job_plan,
+    )
+
+    rir_step = next(
+        step
+        for step in plan["cpu_steps"]
+        if step.get("step_id") == "render_two_exact_rirs"
+    )
+    rir_argv = rir_step.get("argv")
+    required_flags = {
+        "--rir-job-plan": paths["rir_job_plan"],
+        "--acoustic-package-manifest": paths["package_manifest"],
+        "--simulation-request": Path(
+            str(paths["rir_cache_receipt"].parent.joinpath("request.json"))
+        ),
+        "--hrtf": Path("/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"),
+        "--output": paths["rir_cache_receipt"].parent,
+    }
+    _require(
+        isinstance(rir_argv, list)
+        and rir_argv.count("--semantic-no-file-evidence") == 1
+        and all(rir_argv.count(flag) == 1 for flag in required_flags)
+        and rir_argv.count("--layout") == 1
+        and rir_argv[rir_argv.index("--layout") + 1] == "binaural"
+        and rir_argv.count("--batch-size") == 1
+        and rir_argv[rir_argv.index("--batch-size") + 1] == "2"
+        and rir_argv.count("--thread-count") == 1
+        and rir_argv[rir_argv.index("--thread-count") + 1] == "4"
+        and not {
+            "--acoustic-profile-registry",
+            "--room-registry",
+            "--room-id",
+            "--profile-id",
+            "--offset",
+            "--limit",
+            "--resume",
+            "--room-revision",
+            "--simulation-profile",
+            "--job-offset",
+            "--job-limit",
+        }.intersection(rir_argv),
+        "v8 semantic RIR execution argv drift",
+    )
+    request_document = _load(paths["rir_cache_receipt"].parent / "request.json")
+    simulation_path = Path(
+        str(request_document.get("simulation", {}).get("request_path", ""))
+    ).resolve()
+    required_flags["--simulation-request"] = simulation_path
+    for flag, expected_path in required_flags.items():
+        raw_path = Path(str(rir_argv[rir_argv.index(flag) + 1]))
+        root = REPOSITORY if flag != "--hrtf" else Path("/")
+        _require(raw_path.is_absolute(), f"v8 semantic RIR {flag} must be absolute")
+        _require_v7_nonsymlink_path(raw_path, root, owner=f"v8 semantic RIR {flag}")
+        _require(
+            raw_path.resolve() == expected_path.resolve(),
+            f"v8 semantic RIR {flag} path drift",
+        )
+    expected_rir = rir_step.get("expected", {})
+    cache_root = paths["rir_cache_receipt"].parent.resolve()
+    _require(
+        Path(str(expected_rir.get("receipt", ""))).resolve()
+        == cache_root / "receipt.json"
+        and Path(str(expected_rir.get("index", ""))).resolve()
+        == cache_root / "index.json"
+        and paths["rir_cache_index"].resolve() == cache_root / "index.json",
+        "v8 semantic RIR cache-root declaration drift",
+    )
+    _require(
+        request_document.get("acoustic_scene", {}).get("manifest_path")
+        == str(paths["package_manifest"].resolve())
+        and request_document.get("acoustic_scene", {}).get("package_id")
+        == values["package_manifest"].get("package_id")
+        and request_document.get("plan", {}).get("path")
+        == str(paths["rir_job_plan"].resolve())
+        and request_document.get("output", {}).get("hrtf_path")
+        == str(required_flags["--hrtf"])
+        and request_document.get("output", {}).get("layout_type") == "binaural",
+        "v8 semantic RIR request/package/plan binding drift",
+    )
+
+    scene = load_semantic_acoustic_scene(paths["package_manifest"])
+    _require(
+        scene.package_id == values["package_manifest"].get("package_id")
+        and len(scene.objects) == len(values["package_manifest"].get("objects", []))
+        and len(scene.objects)
+        == values["package_manifest"]
+        .get("geometry", {})
+        .get("source_node_instance_count")
+        and len(scene.objects) > 0
+        and len(scene.material_name_by_category) > 0,
+        "v8 semantic acoustic package structure drift",
+    )
+    normalized_jobs = validate_semantic_rir_job_plan(values["rir_job_plan"])
+    raw_jobs = values["rir_job_plan"].get("jobs")
+    preflight_rir = preflight.get("rir", {})
+    _require(
+        len(normalized_jobs) == 2
+        and isinstance(raw_jobs, list)
+        and len(raw_jobs) == 2
+        and preflight_rir.get("status") == "planned_not_run"
+        and preflight_rir.get("compute_device") == "CPU"
+        and preflight_rir.get("unique_rir_job_count") == 2
+        and preflight_rir.get("requested_pair_state_count") == 150
+        and values["rir_job_plan"].get("stride_frames") == 1
+        and values["rir_job_plan"].get("requested_pair_state_count") == 150,
+        "v8 exact2 semantic RIR plan closure drift",
+    )
+    source_positions = preflight_rir.get("source_positions_m")
+    _require(
+        isinstance(source_positions, Mapping)
+        and set(source_positions) == set(slot_actor_ids)
+        and all(
+            _v7_vector3(source_positions[slot], owner=f"v8 {slot} RIR source")
+            == expected_sources[slot]
+            for slot in slot_actor_ids
+        )
+        and _v7_vector3(
+            preflight_rir.get("listener_position_m"), owner="v8 RIR listener"
+        )
+        == listener,
+        "v8 preflight RIR pose differs from suite/nav actors",
+    )
+    by_slot = {
+        job["uses"][0]["source_slot_id"]: job
+        for job in raw_jobs
+        if isinstance(job, Mapping)
+        and isinstance(job.get("uses"), list)
+        and job["uses"]
+    }
+    expected_wxyz = [
+        expected_rotation_xyzw[3],
+        expected_rotation_xyzw[0],
+        expected_rotation_xyzw[1],
+        expected_rotation_xyzw[2],
+    ]
+    _require(
+        set(by_slot) == set(slot_actor_ids)
+        and all(
+            _v7_vector3(by_slot[slot].get("source_position_m"), owner=f"v8 {slot} job")
+            == expected_sources[slot]
+            and _v7_vector3(
+                by_slot[slot].get("listener_position_m"), owner="v8 job listener"
+            )
+            == listener
+            and by_slot[slot].get("listener_orientation_wxyz") == expected_wxyz
+            and [use.get("frame_index") for use in by_slot[slot]["uses"]]
+            == list(range(75))
+            and all(
+                use.get("episode_id") == episode_id for use in by_slot[slot]["uses"]
+            )
+            for slot in slot_actor_ids
+        ),
+        "v8 semantic RIR job/use/pose closure drift",
+    )
+    if str(REPOSITORY) not in sys.path:
+        sys.path.insert(0, str(REPOSITORY))
+    from tools.m7.render_asset_bound_binaural_batch import _SemanticRIRCacheSession
+
+    cache_root = paths["rir_cache_receipt"].parent
+    session = _SemanticRIRCacheSession(
+        cache_root=cache_root,
+        plan_path=paths["rir_job_plan"],
+        expected_episode_id=episode_id,
+        frame_count=75,
+        frame_rate_hz=15,
+    )
+    cached_episode = session.load_episode(episode_id)
+    _require(
+        cached_episode.samples.shape[0:3] == (75, 2, 2)
+        and cached_episode.lengths.shape == (75, 2)
+        and cached_episode.sample_rate_hz == 16_000
+        and cached_episode.layout_type == "binaural"
+        and cached_episode.layout_id == "rlr_binaural_lr_v1"
+        and cached_episode.source_slot_ids == ("source1", "source2")
+        and cached_episode.visual_frame_indices == tuple(range(75)),
+        "v8 semantic RIR cache consumer closure drift",
+    )
+    sparse = next(
+        step for step in plan["gpu_steps"] if step.get("step_id") == "sparse_f15_probe"
+    )
+    argv = list(sparse["argv"])
+    _require(
+        argv[argv.index("--scenario-id") + 1] == episode_id,
+        "v8 execution plan and Episode ID differ",
+    )
+    return {
+        **values,
+        "episode_id": episode_id,
+        "scene_id": scene_id,
+        "capture_argv": argv,
+    }
+
+
+def offline_validate_execution_plan_v8(
+    execution_plan_path: Path,
+) -> dict[str, Any]:
+    """Retarget the fresh schema-v2 CPU evidence to one sparse v8 attempt."""
+
+    paths = _v8_execution_plan_paths(execution_plan_path)
+    evidence = _validate_v8_execution_plan_evidence(paths)
+    source_argv = evidence["capture_argv"]
+    capture_runner = (
+        REPOSITORY / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
+    )
+    _require(
+        _is_authoritative_capture_python(Path(source_argv[0]))
+        and CAPTURE_PYTHON_LOGICAL.is_file()
+        and Path(source_argv[0]).resolve() == CAPTURE_PYTHON_LOGICAL.resolve()
+        and capture_runner.is_file()
+        and Path(source_argv[1]).resolve() == capture_runner
+        and SPEAR_ROOT.is_dir()
+        and Path(source_argv[source_argv.index("--spear-root") + 1]).resolve()
+        == SPEAR_ROOT,
+        "v8 capture runtime missing or drifted",
+    )
+    plan_path = paths["execution_plan"].resolve()
+    atom_root = plan_path.parent.parent.resolve()
+    _require(
+        plan_path == atom_root / "cpu_preflight_v1/execution_plan.json",
+        "v8 must bind the fresh cpu_preflight_v1 execution plan",
+    )
+    _require(
+        isinstance(source_argv, list)
+        and all(isinstance(item, str) and item for item in source_argv),
+        "v8 source capture argv is invalid",
+    )
+    argv = list(source_argv)
+    capture_output = atom_root / V8_CAPTURE_DIRECTORY
+    for flag, value in (
+        ("--rpc-port", str(V8_RPC_PORT)),
+        ("--output", str(capture_output)),
+    ):
+        _require(argv.count(flag) == 1, f"v8 source argv must contain one {flag}")
+        index = argv.index(flag)
+        _require(index + 1 < len(argv), f"v8 source argv lacks a value for {flag}")
+        argv[index + 1] = value
+    _require(
+        argv[argv.index("--frame-index") + 1] == str(FRAME_INDEX)
+        and argv[argv.index("--graphics-adapter") + 1] == "1"
+        and argv[argv.index("--rpc-port") + 1] == str(V8_RPC_PORT)
+        and argv[argv.index("--output") + 1] == str(capture_output),
+        "v8 sparse capture argv drift",
+    )
+    _require(
+        not capture_output.exists(), "v8 sparse capture output must be a fresh path"
+    )
+    return {
+        "schema": "avengine_mp3d_f15_execution_plan_offline_validation_v8",
+        "status": "pass_offline_no_write_no_gpu_query",
+        "episode_id": evidence["episode_id"],
+        "scene_id": evidence["scene_id"],
+        "execution_plan": str(plan_path),
+        "evidence_paths": {
+            name: str(path) for name, path in paths.items() if name != "capture_output"
+        },
+        "capture_output": str(capture_output),
+        "capture_argv": argv,
+        "candidate_revision": "fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+        "rpc_port": V8_RPC_PORT,
+        "gpu_query_started": False,
+        "gpu_started": False,
+        "writes_performed": False,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+
+
 def offline_validate_execution_plan_v7(
     execution_plan_path: Path,
 ) -> dict[str, Any]:
@@ -2569,25 +3386,37 @@ def offline_validate_execution_plan_v7(
     }
 
 
-def prepare_request_v7(*, execution_plan_path: Path) -> Path:
-    validation = offline_validate_execution_plan_v7(execution_plan_path)
+def _prepare_path_only_sparse_request(
+    *,
+    execution_plan_path: Path,
+    offline_validator: Any,
+    request_schema: str,
+    attempt_directory: str,
+    capture_directory: str,
+    rpc_port: int,
+    candidate_revision: str,
+    owner: str,
+) -> Path:
+    validation = offline_validator(execution_plan_path)
     plan_path = Path(validation["execution_plan"]).resolve()
     atom_root = plan_path.parent.parent.resolve()
     attempt_root = _require_v7_nonsymlink_path(
-        atom_root / V7_ATTEMPT_DIRECTORY, atom_root, owner="v7 launch attempt"
+        atom_root / attempt_directory, atom_root, owner=f"{owner} launch attempt"
     )
     capture_output = _require_v7_nonsymlink_path(
-        atom_root / V7_CAPTURE_DIRECTORY, atom_root, owner="v7 capture output"
+        atom_root / capture_directory, atom_root, owner=f"{owner} capture output"
     )
-    _require(not attempt_root.exists(), "v7 launch attempt must be a fresh path")
-    _require(not capture_output.exists(), "v7 capture output must be a fresh path")
+    _require(not attempt_root.exists(), f"{owner} launch attempt must be a fresh path")
+    _require(
+        not capture_output.exists(), f"{owner} capture output must be a fresh path"
+    )
     _require(
         _git_tracked_and_index_clean(REPOSITORY),
-        "v7 preparation requires a clean tracked worktree and index",
+        f"{owner} preparation requires a clean tracked worktree and index",
     )
-    _assert_port_available(V7_RPC_PORT)
+    _assert_port_available(rpc_port)
     request = {
-        "schema": REQUEST_SCHEMA_V7,
+        "schema": request_schema,
         "status": "prepared_not_launched",
         "episode_id": validation["episode_id"],
         "scene_id": validation["scene_id"],
@@ -2601,10 +3430,10 @@ def prepare_request_v7(*, execution_plan_path: Path) -> Path:
         "room_adapter": validation["evidence_paths"]["room_adapter"],
         "capture_output": str(capture_output),
         "capture_argv": validation["capture_argv"],
-        "rpc_port": V7_RPC_PORT,
+        "rpc_port": rpc_port,
         "attempt_policy": {
             **ATTEMPT_POLICY,
-            "candidate_revision": "corrected_cpu_preflight_v5_sparse_f15_v7",
+            "candidate_revision": candidate_revision,
         },
         "frame_indices": [FRAME_INDEX],
         "full75_allowed": False,
@@ -2623,6 +3452,32 @@ def prepare_request_v7(*, execution_plan_path: Path) -> Path:
     request_path = attempt_root / "request.json"
     _write_json_exclusive(request_path, request)
     return request_path
+
+
+def prepare_request_v7(*, execution_plan_path: Path) -> Path:
+    return _prepare_path_only_sparse_request(
+        execution_plan_path=execution_plan_path,
+        offline_validator=offline_validate_execution_plan_v7,
+        request_schema=REQUEST_SCHEMA_V7,
+        attempt_directory=V7_ATTEMPT_DIRECTORY,
+        capture_directory=V7_CAPTURE_DIRECTORY,
+        rpc_port=V7_RPC_PORT,
+        candidate_revision="corrected_cpu_preflight_v5_sparse_f15_v7",
+        owner="v7",
+    )
+
+
+def prepare_request_v8(*, execution_plan_path: Path) -> Path:
+    return _prepare_path_only_sparse_request(
+        execution_plan_path=execution_plan_path,
+        offline_validator=offline_validate_execution_plan_v8,
+        request_schema=REQUEST_SCHEMA_V8,
+        attempt_directory=V8_ATTEMPT_DIRECTORY,
+        capture_directory=V8_CAPTURE_DIRECTORY,
+        rpc_port=V8_RPC_PORT,
+        candidate_revision="fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+        owner="v8",
+    )
 
 
 def prepare_request_v5(*, execution_plan_path: Path) -> Path:
@@ -2713,10 +3568,20 @@ def prepare_request_v6(*, execution_plan_path: Path) -> Path:
     return request_path
 
 
-def _validate_request_v7(request_path: Path) -> tuple[dict[str, Any], list[str]]:
-    _require_v7_nonsymlink_path(request_path, REPOSITORY, owner="v7 request")
+def _validate_path_only_sparse_request(
+    request_path: Path,
+    *,
+    offline_validator: Any,
+    request_schema: str,
+    attempt_directory: str,
+    capture_directory: str,
+    rpc_port: int,
+    candidate_revision: str,
+    owner: str,
+) -> tuple[dict[str, Any], list[str]]:
+    _require_v7_nonsymlink_path(request_path, REPOSITORY, owner=f"{owner} request")
     request = _load(request_path)
-    _require(request.get("schema") == REQUEST_SCHEMA_V7, "v7 request schema drift")
+    _require(request.get("schema") == request_schema, f"{owner} request schema drift")
     _require(
         request.get("status") == "prepared_not_launched"
         and request.get("frame_indices") == [FRAME_INDEX]
@@ -2730,34 +3595,31 @@ def _validate_request_v7(request_path: Path) -> tuple[dict[str, Any], list[str]]
         and request.get("manual_review_required") is True
         and request.get("qualification_claim") is False
         and request.get("formal_dataset_count") == 0,
-        "v7 request boundary drift",
+        f"{owner} request boundary drift",
     )
     _require(
         request.get("attempt_policy")
-        == {
-            **ATTEMPT_POLICY,
-            "candidate_revision": "corrected_cpu_preflight_v5_sparse_f15_v7",
-        },
-        "v7 attempt policy drift",
+        == {**ATTEMPT_POLICY, "candidate_revision": candidate_revision},
+        f"{owner} attempt policy drift",
     )
     repo_root = Path(str(request.get("repo_root", ""))).resolve()
-    _require(repo_root == REPOSITORY, "v7 repository drift")
+    _require(repo_root == REPOSITORY, f"{owner} repository drift")
     _require(
         _git_tracked_and_index_clean(repo_root),
-        "v7 launch requires a clean tracked worktree and index",
+        f"{owner} launch requires a clean tracked worktree and index",
     )
     _require(
         request.get("required_repo_commit") == _git_head(repo_root),
-        "repository HEAD differs from the v7 request-bound commit",
+        f"repository HEAD differs from the {owner} request-bound commit",
     )
     plan_path = Path(str(request.get("execution_plan", "")))
-    validation = offline_validate_execution_plan_v7(plan_path)
+    validation = offline_validator(plan_path)
     atom_root = plan_path.parent.parent.resolve()
     attempt_root = _require_v7_nonsymlink_path(
-        atom_root / V7_ATTEMPT_DIRECTORY, atom_root, owner="v7 launch attempt"
+        atom_root / attempt_directory, atom_root, owner=f"{owner} launch attempt"
     )
     capture_output = _require_v7_nonsymlink_path(
-        atom_root / V7_CAPTURE_DIRECTORY, atom_root, owner="v7 capture output"
+        atom_root / capture_directory, atom_root, owner=f"{owner} capture output"
     )
     _require(
         Path(str(request.get("atom_root", ""))).resolve() == atom_root
@@ -2765,7 +3627,7 @@ def _validate_request_v7(request_path: Path) -> tuple[dict[str, Any], list[str]]
         and request_path.resolve() == attempt_root / "request.json"
         and not request_path.is_symlink()
         and Path(str(request.get("capture_output", ""))).resolve() == capture_output,
-        "v7 fresh path containment drift",
+        f"{owner} fresh path containment drift",
     )
     argv = validation["capture_argv"]
     _require(
@@ -2775,11 +3637,37 @@ def _validate_request_v7(request_path: Path) -> tuple[dict[str, Any], list[str]]
         and request.get("suite_plan") == validation["evidence_paths"]["suite_plan"]
         and request.get("room_adapter") == validation["evidence_paths"]["room_adapter"]
         and request.get("capture_argv") == argv
-        and request.get("rpc_port") == V7_RPC_PORT,
-        "v7 path-only Episode/capture binding drift",
+        and request.get("rpc_port") == rpc_port,
+        f"{owner} path-only Episode/capture binding drift",
     )
-    _require(not capture_output.exists(), "v7 capture output must remain fresh")
+    _require(not capture_output.exists(), f"{owner} capture output must remain fresh")
     return request, argv
+
+
+def _validate_request_v7(request_path: Path) -> tuple[dict[str, Any], list[str]]:
+    return _validate_path_only_sparse_request(
+        request_path,
+        offline_validator=offline_validate_execution_plan_v7,
+        request_schema=REQUEST_SCHEMA_V7,
+        attempt_directory=V7_ATTEMPT_DIRECTORY,
+        capture_directory=V7_CAPTURE_DIRECTORY,
+        rpc_port=V7_RPC_PORT,
+        candidate_revision="corrected_cpu_preflight_v5_sparse_f15_v7",
+        owner="v7",
+    )
+
+
+def _validate_request_v8(request_path: Path) -> tuple[dict[str, Any], list[str]]:
+    return _validate_path_only_sparse_request(
+        request_path,
+        offline_validator=offline_validate_execution_plan_v8,
+        request_schema=REQUEST_SCHEMA_V8,
+        attempt_directory=V8_ATTEMPT_DIRECTORY,
+        capture_directory=V8_CAPTURE_DIRECTORY,
+        rpc_port=V8_RPC_PORT,
+        candidate_revision="fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+        owner="v8",
+    )
 
 
 def _validate_request_v5(request_path: Path) -> tuple[dict[str, Any], list[str]]:
@@ -3023,45 +3911,49 @@ def _validate_v7_capture(request: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_v7(
+def _run_path_only_sparse_revision(
     request_path: Path,
     *,
+    request_validator: Any,
+    receipt_schema: str,
+    candidate_revision: str,
+    rpc_port: int,
+    owner: str,
     offline_validate: bool,
     dry_run: bool,
     authorize_gpu_capture: bool,
 ) -> int:
-    request, argv = _validate_request_v7(request_path)
+    request, argv = request_validator(request_path)
     if offline_validate:
         _require(not dry_run, "choose offline validation or dry-run, not both")
         return 0
-
     attempt_root = Path(request["attempt_root"])
     dry_receipt = attempt_root / "dry_run_receipt.json"
     running_receipt = attempt_root / "running_receipt.json"
     final_receipt = attempt_root / "final_receipt.json"
     stdout_path = attempt_root / "capture_stdout.log"
     stderr_path = attempt_root / "capture_stderr.log"
-    _require(not final_receipt.exists(), "v7 already has a final receipt")
+    _require(not final_receipt.exists(), f"{owner} already has a final receipt")
     common = {
-        "schema": RECEIPT_SCHEMA_V7,
+        "schema": receipt_schema,
         "episode_id": request["episode_id"],
         "scene_id": request["scene_id"],
-        "candidate_revision": "corrected_cpu_preflight_v5_sparse_f15_v7",
+        "candidate_revision": candidate_revision,
         "required_repo_commit": request["required_repo_commit"],
         "request": str(request_path.resolve()),
         "execution_plan": request["execution_plan"],
         "evidence_paths": request["evidence_paths"],
         "capture_argv": argv,
         "capture_output": request["capture_output"],
-        "rpc_port": V7_RPC_PORT,
+        "rpc_port": rpc_port,
         "frame_indices": [FRAME_INDEX],
         "full75_allowed": False,
         "qualification_claim": False,
         "formal_dataset_count": 0,
     }
     if dry_run:
-        _require(not dry_receipt.exists(), "v7 dry-run receipt exists")
-        _require(not running_receipt.exists(), "v7 already started")
+        _require(not dry_receipt.exists(), f"{owner} dry-run receipt exists")
+        _require(not running_receipt.exists(), f"{owner} already started")
         _write_json_exclusive(
             dry_receipt,
             {
@@ -3074,18 +3966,18 @@ def run_v7(
             },
         )
         return 0
-
     _require(
-        authorize_gpu_capture, "v7 GPU capture lacks explicit launch authorization"
+        authorize_gpu_capture,
+        f"{owner} GPU capture lacks explicit launch authorization",
     )
-    _require(not running_receipt.exists(), "v7 already started")
+    _require(not running_receipt.exists(), f"{owner} already started")
     _require(
         not stdout_path.exists() and not stderr_path.exists(),
-        "v7 exclusive child logs already exist",
+        f"{owner} exclusive child logs already exist",
     )
     before = _gpu_snapshot()
     gpu = _validate_gpu1_idle(before)
-    _assert_port_available(V7_RPC_PORT)
+    _assert_port_available(rpc_port)
     common.update(
         {
             "physical_gpu_index": 1,
@@ -3131,7 +4023,7 @@ def run_v7(
             )
         child_exit_code = int(completed.returncode)
         exit_code = child_exit_code
-        _require(child_exit_code == 0, f"v7 f15 capture exited {exit_code}")
+        _require(child_exit_code == 0, f"{owner} f15 capture exited {exit_code}")
         observability = _collect_v2_capture_observability(
             Path(request["capture_output"])
         )
@@ -3160,6 +4052,46 @@ def run_v7(
             final["postlaunch_snapshot_error"] = f"{type(exc).__name__}: {exc}"
         _write_json_exclusive(final_receipt, final)
     return exit_code
+
+
+def run_v7(
+    request_path: Path,
+    *,
+    offline_validate: bool,
+    dry_run: bool,
+    authorize_gpu_capture: bool,
+) -> int:
+    return _run_path_only_sparse_revision(
+        request_path,
+        request_validator=_validate_request_v7,
+        receipt_schema=RECEIPT_SCHEMA_V7,
+        candidate_revision="corrected_cpu_preflight_v5_sparse_f15_v7",
+        rpc_port=V7_RPC_PORT,
+        owner="v7",
+        offline_validate=offline_validate,
+        dry_run=dry_run,
+        authorize_gpu_capture=authorize_gpu_capture,
+    )
+
+
+def run_v8(
+    request_path: Path,
+    *,
+    offline_validate: bool,
+    dry_run: bool,
+    authorize_gpu_capture: bool,
+) -> int:
+    return _run_path_only_sparse_revision(
+        request_path,
+        request_validator=_validate_request_v8,
+        receipt_schema=RECEIPT_SCHEMA_V8,
+        candidate_revision="fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+        rpc_port=V8_RPC_PORT,
+        owner="v8",
+        offline_validate=offline_validate,
+        dry_run=dry_run,
+        authorize_gpu_capture=authorize_gpu_capture,
+    )
 
 
 def run_v5(
@@ -3514,6 +4446,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     launch_v7.add_argument("--request", required=True, type=Path)
     launch_v7.add_argument("--dry-run", action="store_true")
     launch_v7.add_argument("--authorize-gpu-capture", action="store_true")
+    offline_v8 = subparsers.add_parser("offline-validate-v8")
+    offline_v8_source = offline_v8.add_mutually_exclusive_group(required=True)
+    offline_v8_source.add_argument("--execution-plan", type=Path)
+    offline_v8_source.add_argument("--request", type=Path)
+    prepare_v8 = subparsers.add_parser("prepare-v8")
+    prepare_v8.add_argument("--execution-plan", required=True, type=Path)
+    launch_v8 = subparsers.add_parser("launch-v8")
+    launch_v8.add_argument("--request", required=True, type=Path)
+    launch_v8.add_argument("--dry-run", action="store_true")
+    launch_v8.add_argument("--authorize-gpu-capture", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -3646,6 +4588,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "launch-v7":
         return run_v7(
+            args.request,
+            offline_validate=False,
+            dry_run=args.dry_run,
+            authorize_gpu_capture=args.authorize_gpu_capture,
+        )
+    if args.command == "offline-validate-v8":
+        if args.execution_plan is not None:
+            validation = offline_validate_execution_plan_v8(args.execution_plan)
+        else:
+            request, _ = _validate_request_v8(args.request)
+            validation = {
+                "status": "pass_offline_no_write_no_gpu_query",
+                "episode_id": request["episode_id"],
+                "scene_id": request["scene_id"],
+                "request": str(args.request.resolve()),
+                "candidate_revision": "fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+                "gpu_query_started": False,
+                "gpu_started": False,
+                "writes_performed": False,
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+            }
+        print(json.dumps(validation, ensure_ascii=False, sort_keys=True), flush=True)
+        return 0
+    if args.command == "prepare-v8":
+        path = prepare_request_v8(execution_plan_path=args.execution_plan)
+        print(f"MP3D_F15_V8_REQUEST_PREPARED request={path} formal=0", flush=True)
+        return 0
+    if args.command == "launch-v8":
+        return run_v8(
             args.request,
             offline_validate=False,
             dry_run=args.dry_run,
