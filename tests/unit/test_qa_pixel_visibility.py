@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections.abc import Sequence
 
 import numpy as np
 import pytest
@@ -65,9 +66,7 @@ def _compile(normal: list[np.ndarray], target: list[np.ndarray]) -> dict:
     )
 
 
-def _compile_depth(
-    normal: list[np.ndarray], target: list[np.ndarray]
-) -> dict:
+def _compile_depth(normal: list[np.ndarray], target: list[np.ndarray]) -> dict:
     frame_count = len(normal)
     return compile_depth_pixel_visibility_truth(
         normal_depth_m_frames=normal,
@@ -270,18 +269,21 @@ def test_metric_depth_authority_compiles_all_visibility_states() -> None:
     ]
     assert [frame["visible_pixels"] for frame in frames] == [16, 8, 0, 0]
     assert [frame["target_pixels"] for frame in frames] == [16, 16, 16, 0]
-    assert bind_pixel_visibility_truth(
-        truth,
-        expected_instance_ids=["source1"],
-        expected_frame_count=4,
-        expected_resolution_hw=[HEIGHT, WIDTH],
-        expected_camera_pose_ids=[
-            "camera_pose_000",
-            "camera_pose_001",
-            "camera_pose_002",
-            "camera_pose_003",
-        ],
-    )["authority"] == PIXEL_VISIBILITY_DEPTH_AUTHORITY
+    assert (
+        bind_pixel_visibility_truth(
+            truth,
+            expected_instance_ids=["source1"],
+            expected_frame_count=4,
+            expected_resolution_hw=[HEIGHT, WIDTH],
+            expected_camera_pose_ids=[
+                "camera_pose_000",
+                "camera_pose_001",
+                "camera_pose_002",
+                "camera_pose_003",
+            ],
+        )["authority"]
+        == PIXEL_VISIBILITY_DEPTH_AUTHORITY
+    )
 
 
 @pytest.mark.parametrize(
@@ -309,6 +311,100 @@ def test_metric_depth_authority_rejects_bad_shape_or_nonfinite_values(
 ) -> None:
     with pytest.raises(PixelVisibilityError, match=match):
         _compile_depth(normal, target)
+
+
+class _FrameSequence(Sequence[np.ndarray]):
+    def __init__(self, frames: list[np.ndarray]) -> None:
+        self._frames = frames
+
+    def __len__(self) -> int:
+        return len(self._frames)
+
+    def __getitem__(self, index: int) -> np.ndarray:
+        return self._frames[index]
+
+
+def test_metric_depth_authority_retains_non_list_sequence_support() -> None:
+    depth = np.ones((HEIGHT, WIDTH), dtype=np.float32)
+    truth = _compile_depth(_FrameSequence([depth]), _FrameSequence([depth]))
+    assert truth["per_instance"]["source1"]["state_counts"]["visible_clear"] == 1
+
+
+def test_metric_depth_authority_accepts_numeric_frame_major_ndarrays() -> None:
+    target = np.full((2, HEIGHT, WIDTH), 100.0, dtype=np.float32)
+    target[:, 1:5, 2:6] = 4.0
+    normal = target.copy()
+    truth = compile_depth_pixel_visibility_truth(
+        normal_depth_m_frames=normal,
+        target_only_depth_m_frames_by_instance={"source1": target},
+        semantic_ids_by_instance={"source1": TARGET_ID},
+        normal_context=_context("modal_scene", frame_count=2),
+        target_only_contexts_by_instance={
+            "source1": _context(
+                "target_only", frame_count=2, target_instance_id="source1"
+            )
+        },
+        target_only_background_depth_m=100.0,
+        absolute_tolerance_m=0.01,
+        relative_tolerance=0.002,
+    )
+    assert truth["per_instance"]["source1"]["state_counts"]["visible_clear"] == 2
+
+
+@pytest.mark.parametrize(
+    ("normal", "match"),
+    [
+        (np.empty((0, HEIGHT, WIDTH), dtype=np.float32), "non-empty"),
+        (np.ones((HEIGHT, WIDTH), dtype=np.float32), "frames, height, width"),
+        (np.ones((1, 1, HEIGHT, WIDTH), dtype=np.float32), "frames, height, width"),
+        (np.ones((1, HEIGHT, WIDTH), dtype=object), "numeric dtype"),
+        (
+            np.full((1, HEIGHT, WIDTH), np.nan, dtype=np.float32),
+            "finite positive",
+        ),
+    ],
+)
+def test_metric_depth_authority_rejects_invalid_ndarray_batches(
+    normal: np.ndarray, match: str
+) -> None:
+    target = np.ones((max(1, normal.shape[0]), HEIGHT, WIDTH), dtype=np.float32)
+    with pytest.raises(PixelVisibilityError, match=match):
+        compile_depth_pixel_visibility_truth(
+            normal_depth_m_frames=normal,
+            target_only_depth_m_frames_by_instance={"source1": target},
+            semantic_ids_by_instance={"source1": TARGET_ID},
+            normal_context=_context("modal_scene", frame_count=max(1, normal.shape[0])),
+            target_only_contexts_by_instance={
+                "source1": _context(
+                    "target_only",
+                    frame_count=max(1, normal.shape[0]),
+                    target_instance_id="source1",
+                )
+            },
+            target_only_background_depth_m=100.0,
+            absolute_tolerance_m=0.01,
+            relative_tolerance=0.002,
+        )
+
+
+def test_metric_depth_authority_rejects_ndarray_target_frame_count_drift() -> None:
+    normal = np.ones((2, HEIGHT, WIDTH), dtype=np.float32)
+    target = np.ones((1, HEIGHT, WIDTH), dtype=np.float32)
+    with pytest.raises(PixelVisibilityError, match="numeric array with shape"):
+        compile_depth_pixel_visibility_truth(
+            normal_depth_m_frames=normal,
+            target_only_depth_m_frames_by_instance={"source1": target},
+            semantic_ids_by_instance={"source1": TARGET_ID},
+            normal_context=_context("modal_scene", frame_count=2),
+            target_only_contexts_by_instance={
+                "source1": _context(
+                    "target_only", frame_count=2, target_instance_id="source1"
+                )
+            },
+            target_only_background_depth_m=100.0,
+            absolute_tolerance_m=0.01,
+            relative_tolerance=0.002,
+        )
 
 
 def test_metric_depth_authority_rejects_zero_tolerance_and_pose_mismatch() -> None:

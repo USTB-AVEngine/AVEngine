@@ -156,6 +156,22 @@ def _normalize_mask(
     return np.ascontiguousarray(mask)
 
 
+def _depth_frame_count(value: Any, *, owner: str) -> int:
+    if isinstance(value, np.ndarray):
+        if value.ndim != 3 or value.shape[0] == 0:
+            raise PixelVisibilityError(
+                f"{owner} must be a non-empty [frames, height, width] array"
+            )
+        if value.dtype.kind not in {"f", "i", "u"}:
+            raise PixelVisibilityError(f"{owner} must have a numeric dtype")
+        return int(value.shape[0])
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or not value:
+        raise PixelVisibilityError(
+            f"{owner} must contain one metric-depth frame per context frame"
+        )
+    return len(value)
+
+
 def _normalize_depth_frames(
     value: Any,
     *,
@@ -163,6 +179,25 @@ def _normalize_depth_frames(
     resolution_hw: tuple[int, int],
     owner: str,
 ) -> list[np.ndarray]:
+    if isinstance(value, np.ndarray):
+        if (
+            value.ndim != 3
+            or value.shape != (frame_count, *resolution_hw)
+            or value.dtype.kind not in {"f", "i", "u"}
+        ):
+            raise PixelVisibilityError(
+                f"{owner} must be a numeric array with shape "
+                f"{(frame_count, *resolution_hw)}"
+            )
+        normalized_batch = np.asarray(value, dtype=np.float32)
+        if not np.all(np.isfinite(normalized_batch)) or np.any(normalized_batch <= 0.0):
+            raise PixelVisibilityError(
+                f"{owner} must contain finite positive metric depth"
+            )
+        return [
+            np.ascontiguousarray(normalized_batch[index])
+            for index in range(frame_count)
+        ]
     if (
         isinstance(value, (str, bytes))
         or not isinstance(value, Sequence)
@@ -383,8 +418,8 @@ def compile_pixel_visibility_truth(
 
 def compile_depth_pixel_visibility_truth(
     *,
-    normal_depth_m_frames: Sequence[Any],
-    target_only_depth_m_frames_by_instance: Mapping[str, Sequence[Any]],
+    normal_depth_m_frames: Sequence[Any] | np.ndarray,
+    target_only_depth_m_frames_by_instance: Mapping[str, Sequence[Any] | np.ndarray],
     semantic_ids_by_instance: Mapping[str, int],
     normal_context: Mapping[str, Any],
     target_only_contexts_by_instance: Mapping[str, Mapping[str, Any]],
@@ -402,13 +437,9 @@ def compile_depth_pixel_visibility_truth(
     frame indices and exact camera pose hashes.
     """
 
-    if (
-        isinstance(normal_depth_m_frames, (str, bytes))
-        or not isinstance(normal_depth_m_frames, Sequence)
-        or not normal_depth_m_frames
-    ):
-        raise PixelVisibilityError("normal_depth_m_frames may not be empty")
-    frame_count = len(normal_depth_m_frames)
+    frame_count = _depth_frame_count(
+        normal_depth_m_frames, owner="normal_depth_m_frames"
+    )
     normal = _normalize_context(
         normal_context,
         expected_pass_kind="modal_scene",
@@ -426,9 +457,7 @@ def compile_depth_pixel_visibility_truth(
         owner="target_only_background_depth_m",
     )
     if background_depth_m <= 0.0:
-        raise PixelVisibilityError(
-            "target_only_background_depth_m must be positive"
-        )
+        raise PixelVisibilityError("target_only_background_depth_m must be positive")
     absolute_tolerance = _finite_non_negative(
         absolute_tolerance_m, owner="absolute_tolerance_m"
     )
@@ -439,10 +468,7 @@ def compile_depth_pixel_visibility_truth(
         raise PixelVisibilityError("depth tolerance may not be identically zero")
 
     instance_ids = set(semantic_ids_by_instance)
-    if (
-        not instance_ids
-        or set(target_only_depth_m_frames_by_instance) != instance_ids
-    ):
+    if not instance_ids or set(target_only_depth_m_frames_by_instance) != instance_ids:
         raise PixelVisibilityError(
             "target-only depth instances must exactly match semantic_ids_by_instance"
         )
@@ -480,10 +506,7 @@ def compile_depth_pixel_visibility_truth(
         for normal_depth, target_depth in zip(normal_depths, target_depths):
             footprint = target_depth < background_depth_m
             residual = np.abs(normal_depth - target_depth)
-            tolerance = (
-                absolute_tolerance
-                + relative_tolerance_value * target_depth
-            )
+            tolerance = absolute_tolerance + relative_tolerance_value * target_depth
             visible = footprint & (residual <= tolerance)
             if np.any(visible & ~footprint):
                 raise PixelVisibilityError(

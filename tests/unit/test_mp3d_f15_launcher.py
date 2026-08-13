@@ -1958,6 +1958,9 @@ class Mp3dF15LauncherTests(unittest.TestCase):
         )
         if not plan.is_file():
             self.skipTest("fresh v4 semantic CPU evidence is unavailable")
+        capture = plan.parent.parent / LAUNCHER.V8_CAPTURE_DIRECTORY
+        if capture.exists() or capture.is_symlink():
+            self.skipTest("v8 capture path has been consumed")
         with mock.patch.object(
             LAUNCHER, "_gpu_snapshot", side_effect=AssertionError("GPU queried")
         ):
@@ -2083,6 +2086,15 @@ class Mp3dF15LauncherTests(unittest.TestCase):
         offline = LAUNCHER.parse_args(
             ["offline-validate-v8", "--execution-plan", str(plan)]
         )
+        validation_only = LAUNCHER.parse_args(
+            [
+                "validate-v8-capture",
+                "--request",
+                str(request),
+                "--output-receipt",
+                "validation.json",
+            ]
+        )
         self.assertEqual(
             (prepared.command, prepared.execution_plan), ("prepare-v8", plan)
         )
@@ -2092,6 +2104,242 @@ class Mp3dF15LauncherTests(unittest.TestCase):
             (offline.command, offline.execution_plan),
             ("offline-validate-v8", plan),
         )
+        self.assertEqual(validation_only.command, "validate-v8-capture")
+        self.assertEqual(validation_only.request, request)
+        self.assertEqual(validation_only.output_receipt, Path("validation.json"))
+
+    def test_v8_validation_only_publishes_separate_receipt_without_mutation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            attempt = root / LAUNCHER.V8_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            original_final = attempt / "final_receipt.json"
+            original_final.write_bytes(b"original final bytes\n")
+            original_running = attempt / "running_receipt.json"
+            original_running.write_bytes(b"original running bytes\n")
+            capture = root / LAUNCHER.V8_CAPTURE_DIRECTORY
+            capture.mkdir()
+            request = {
+                "episode_id": "episode",
+                "scene_id": "scene",
+            }
+            context = {
+                "request": request,
+                "request_path": request_path,
+                "attempt_root": attempt,
+                "capture_root": capture,
+                "running_receipt": original_running,
+                "original_final_receipt": original_final,
+                "capture_required_repo_commit": "capture-commit",
+                "validator_repo_commit": "validator-commit",
+            }
+            output = attempt / "validation_only_receipt_v1.json"
+            validation = {
+                "status": "pass_diagnostic_f15_review_ready",
+                "visibility": {
+                    "status": "pass",
+                    "pixel_visibility_truth_status": "compiled_in_memory",
+                },
+            }
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_consumed_request_v8_for_revalidation",
+                    return_value=context,
+                ),
+                mock.patch.object(
+                    LAUNCHER, "_validate_v7_capture", return_value=validation
+                ) as validate,
+                mock.patch.object(
+                    LAUNCHER, "_gpu_snapshot", side_effect=AssertionError("GPU queried")
+                ) as gpu,
+                mock.patch.object(
+                    LAUNCHER.subprocess,
+                    "run",
+                    side_effect=AssertionError("capture subprocess started"),
+                ) as child,
+            ):
+                self.assertEqual(
+                    LAUNCHER.validate_v8_capture_only(
+                        request_path, output_receipt=output
+                    ),
+                    output,
+                )
+            validate.assert_called_once_with(request, publish_visibility_truth=False)
+            gpu.assert_not_called()
+            child.assert_not_called()
+            receipt = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(
+                receipt["schema"], LAUNCHER.VALIDATION_ONLY_RECEIPT_SCHEMA_V8
+            )
+            self.assertEqual(receipt["status"], "pass_diagnostic_f15_review_ready")
+            self.assertEqual(receipt["capture_required_repo_commit"], "capture-commit")
+            self.assertEqual(receipt["validator_repo_commit"], "validator-commit")
+            self.assertFalse(receipt["gpu_query_started"])
+            self.assertFalse(receipt["capture_subprocess_started"])
+            self.assertFalse(receipt["full75_allowed"])
+            self.assertEqual(receipt["formal_dataset_count"], 0)
+            self.assertEqual(original_final.read_bytes(), b"original final bytes\n")
+            self.assertEqual(original_running.read_bytes(), b"original running bytes\n")
+            self.assertEqual(list(capture.iterdir()), [])
+            with mock.patch.object(
+                LAUNCHER,
+                "_validate_consumed_request_v8_for_revalidation",
+                return_value=context,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "fresh attempt-root child"):
+                    LAUNCHER.validate_v8_capture_only(
+                        request_path, output_receipt=output
+                    )
+
+    def test_v8_validation_only_failure_publishes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            attempt = root / LAUNCHER.V8_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            final = attempt / "final_receipt.json"
+            final.write_bytes(b"immutable final\n")
+            running = attempt / "running_receipt.json"
+            running.write_bytes(b"immutable running\n")
+            capture = root / LAUNCHER.V8_CAPTURE_DIRECTORY
+            capture.mkdir()
+            output = attempt / "validation_only_receipt_v1.json"
+            context = {
+                "request": {"episode_id": "episode", "scene_id": "scene"},
+                "request_path": request_path,
+                "attempt_root": attempt,
+                "capture_root": capture,
+                "running_receipt": running,
+                "original_final_receipt": final,
+                "capture_required_repo_commit": "capture-commit",
+                "validator_repo_commit": "validator-commit",
+            }
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_consumed_request_v8_for_revalidation",
+                    return_value=context,
+                ),
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_v7_capture",
+                    side_effect=RuntimeError("bad capture"),
+                ),
+                mock.patch.object(LAUNCHER, "_gpu_snapshot") as gpu,
+                mock.patch.object(LAUNCHER.subprocess, "run") as child,
+                self.assertRaisesRegex(RuntimeError, "without publishing"),
+            ):
+                LAUNCHER.validate_v8_capture_only(request_path, output_receipt=output)
+            gpu.assert_not_called()
+            child.assert_not_called()
+            self.assertFalse(output.exists())
+            self.assertEqual(final.read_bytes(), b"immutable final\n")
+            self.assertEqual(running.read_bytes(), b"immutable running\n")
+            self.assertEqual(list(capture.iterdir()), [])
+
+    def test_v8_consumed_admission_rejects_symlink_capture_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            atom = repo / "tmp/atom"
+            attempt = atom / LAUNCHER.V8_ATTEMPT_DIRECTORY
+            capture = atom / LAUNCHER.V8_CAPTURE_DIRECTORY
+            attempt.mkdir(parents=True)
+            capture.mkdir()
+            request_path = attempt / "request.json"
+            request = {
+                "schema": LAUNCHER.REQUEST_SCHEMA_V8,
+                "status": "prepared_not_launched",
+                "frame_indices": [LAUNCHER.FRAME_INDEX],
+                "full75_allowed": False,
+                "physical_gpu_index": 1,
+                "physical_gpu_uuid": LAUNCHER.GPU1_UUID,
+                "graphics_adapter_argument": 1,
+                "required_idle_compute_process_count": 0,
+                "explicit_gpu_capture_authorization_required": True,
+                "gpu_capture_authorized_at_prepare": False,
+                "manual_review_required": True,
+                "qualification_claim": False,
+                "formal_dataset_count": 0,
+                "attempt_policy": {
+                    **LAUNCHER.ATTEMPT_POLICY,
+                    "candidate_revision": "fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+                },
+                "repo_root": str(repo),
+                "required_repo_commit": "capture-commit",
+                "atom_root": str(atom),
+                "attempt_root": str(attempt),
+                "execution_plan": str(atom / "cpu_preflight_v1/execution_plan.json"),
+                "capture_output": str(capture),
+                "episode_id": "episode",
+                "scene_id": "scene",
+                "evidence_paths": {"suite_plan": "suite", "room_adapter": "room"},
+                "suite_plan": "suite",
+                "room_adapter": "room",
+                "capture_argv": ["capture"],
+                "rpc_port": LAUNCHER.V8_RPC_PORT,
+            }
+            _write(request_path, request)
+            outside = atom / "outside.json"
+            _write(outside, {})
+            (capture / "manifest.json").symlink_to(outside)
+            projection = {
+                "episode_id": "episode",
+                "scene_id": "scene",
+                "execution_plan": request["execution_plan"],
+                "evidence_paths": request["evidence_paths"],
+                "capture_output": str(capture),
+                "capture_argv": ["capture"],
+            }
+            with (
+                mock.patch.object(LAUNCHER, "REPOSITORY", repo),
+                mock.patch.object(
+                    LAUNCHER, "_git_tracked_and_index_clean", return_value=True
+                ),
+                mock.patch.object(LAUNCHER, "_git_head", return_value="validator"),
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_execution_plan_v8_projection",
+                    return_value=projection,
+                ),
+                self.assertRaisesRegex(RuntimeError, "symlink component"),
+            ):
+                LAUNCHER._validate_consumed_request_v8_for_revalidation(request_path)
+
+    def test_v8_validation_only_rejects_symlink_output_before_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            attempt = root / LAUNCHER.V8_ATTEMPT_DIRECTORY
+            attempt.mkdir()
+            request_path = attempt / "request.json"
+            capture = root / LAUNCHER.V8_CAPTURE_DIRECTORY
+            capture.mkdir()
+            context = {
+                "request": {"episode_id": "episode", "scene_id": "scene"},
+                "request_path": request_path,
+                "attempt_root": attempt,
+                "capture_root": capture,
+                "running_receipt": attempt / "running_receipt.json",
+                "original_final_receipt": attempt / "final_receipt.json",
+                "capture_required_repo_commit": "capture-commit",
+                "validator_repo_commit": "validator-commit",
+            }
+            output = attempt / "validation_only_receipt_v1.json"
+            output.symlink_to(attempt / "missing")
+            with (
+                mock.patch.object(
+                    LAUNCHER,
+                    "_validate_consumed_request_v8_for_revalidation",
+                    return_value=context,
+                ),
+                mock.patch.object(LAUNCHER, "_validate_v7_capture") as validate,
+                self.assertRaisesRegex(RuntimeError, "symlink component"),
+            ):
+                LAUNCHER.validate_v8_capture_only(request_path, output_receipt=output)
+            validate.assert_not_called()
 
 
 if __name__ == "__main__":

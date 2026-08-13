@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import math
 import socket
 import subprocess
 import sys
+import tempfile
 import traceback
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
@@ -38,6 +40,9 @@ REQUEST_SCHEMA_V7 = "avengine_mp3d_strict_two_human_f15_launch_request_v7"
 RECEIPT_SCHEMA_V7 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v7"
 REQUEST_SCHEMA_V8 = "avengine_mp3d_strict_two_human_f15_launch_request_v8"
 RECEIPT_SCHEMA_V8 = "avengine_mp3d_strict_two_human_f15_launch_receipt_v8"
+VALIDATION_ONLY_RECEIPT_SCHEMA_V8 = (
+    "avengine_mp3d_strict_two_human_f15_validation_only_receipt_v8"
+)
 FAILURE_LEDGER_SCHEMA = "avengine_mp3d_f15_attempt_failure_ledger_v1"
 CAPTURE_FAILURE_SCHEMA = "avengine_mp3d_f15_capture_failure_v1"
 ATTEMPT01_FAILURE_STATUS = (
@@ -104,6 +109,37 @@ def _write_json_exclusive(path: Path, value: Mapping[str, Any]) -> None:
     with path.open("x", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
         stream.write("\n")
+
+
+def _write_json_atomic_no_replace(path: Path, value: Mapping[str, Any]) -> None:
+    """Publish one complete JSON receipt without replacing an existing path."""
+
+    _require(
+        not path.exists() and not path.is_symlink(),
+        f"output receipt already exists: {path}",
+    )
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary_path, path)
+        except FileExistsError as error:
+            raise RuntimeError(f"output receipt already exists: {path}") from error
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _file_record(path: Path) -> dict[str, Any]:
@@ -1470,7 +1506,10 @@ def _validate_request_v2(
 
 
 def _compile_and_validate_visibility(
-    request: Mapping[str, Any], capture_root: Path
+    request: Mapping[str, Any],
+    capture_root: Path,
+    *,
+    publish_truth: bool = True,
 ) -> dict[str, Any]:
     import numpy as np
 
@@ -1544,9 +1583,7 @@ def _compile_and_validate_visibility(
         int(target["visible_pixels"]) > 0 and int(distractor["visible_pixels"]) > 0,
         "f15 target or distractor has no modal-visible pixels",
     )
-    truth_path = capture_root / "pixel_visibility_truth.json"
-    _write_json_exclusive(truth_path, truth)
-    return {
+    result = {
         "status": "pass",
         "target_instance_id": "source1",
         "distractor_instance_id": "source2",
@@ -1554,11 +1591,17 @@ def _compile_and_validate_visibility(
         "distractor_visible_fraction": distractor_fraction,
         "target_visible_pixels": int(target["visible_pixels"]),
         "distractor_visible_pixels": int(distractor["visible_pixels"]),
-        "pixel_visibility_truth": _file_record(truth_path),
     }
+    if publish_truth:
+        truth_path = capture_root / "pixel_visibility_truth.json"
+        _write_json_exclusive(truth_path, truth)
+        result["pixel_visibility_truth"] = _file_record(truth_path)
+    return result
 
 
-def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_capture(
+    request: Mapping[str, Any], *, publish_visibility_truth: bool = True
+) -> dict[str, Any]:
     capture_root = Path(request["capture_output"])
     manifest = _load(capture_root / "manifest.json")
     _require(
@@ -1620,7 +1663,9 @@ def _validate_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         == adapter["static_mesh_object_paths"],
         "live cooked UStaticMesh path/handle closure drift",
     )
-    visibility = _compile_and_validate_visibility(request, capture_root)
+    visibility = _compile_and_validate_visibility(
+        request, capture_root, publish_truth=publish_visibility_truth
+    )
     return {
         "status": "pass_diagnostic_f15_review_ready",
         "capture_manifest": _file_record(capture_root / "manifest.json"),
@@ -3237,10 +3282,10 @@ def _validate_v8_execution_plan_evidence(
     }
 
 
-def offline_validate_execution_plan_v8(
-    execution_plan_path: Path,
+def _validate_execution_plan_v8_projection(
+    execution_plan_path: Path, *, capture_must_be_fresh: bool
 ) -> dict[str, Any]:
-    """Retarget the fresh schema-v2 CPU evidence to one sparse v8 attempt."""
+    """Project schema-v2 CPU evidence onto the exact sparse v8 argv."""
 
     paths = _v8_execution_plan_paths(execution_plan_path)
     evidence = _validate_v8_execution_plan_evidence(paths)
@@ -3287,12 +3332,23 @@ def offline_validate_execution_plan_v8(
         and argv[argv.index("--output") + 1] == str(capture_output),
         "v8 sparse capture argv drift",
     )
-    _require(
-        not capture_output.exists(), "v8 sparse capture output must be a fresh path"
-    )
+    if capture_must_be_fresh:
+        _require(
+            not capture_output.exists(),
+            "v8 sparse capture output must be a fresh path",
+        )
+    else:
+        _require(
+            capture_output.is_dir(),
+            "v8 consumed sparse capture output is missing",
+        )
     return {
         "schema": "avengine_mp3d_f15_execution_plan_offline_validation_v8",
-        "status": "pass_offline_no_write_no_gpu_query",
+        "status": (
+            "pass_offline_no_write_no_gpu_query"
+            if capture_must_be_fresh
+            else "pass_consumed_capture_evidence"
+        ),
         "episode_id": evidence["episode_id"],
         "scene_id": evidence["scene_id"],
         "execution_plan": str(plan_path),
@@ -3309,6 +3365,16 @@ def offline_validate_execution_plan_v8(
         "qualification_claim": False,
         "formal_dataset_count": 0,
     }
+
+
+def offline_validate_execution_plan_v8(
+    execution_plan_path: Path,
+) -> dict[str, Any]:
+    """Validate a fresh schema-v2 plan without querying a GPU or writing."""
+
+    return _validate_execution_plan_v8_projection(
+        execution_plan_path, capture_must_be_fresh=True
+    )
 
 
 def offline_validate_execution_plan_v7(
@@ -3788,10 +3854,14 @@ def _validate_request_v6(request_path: Path) -> tuple[dict[str, Any], list[str]]
     return request, argv
 
 
-def _validate_v7_capture(request: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_v7_capture(
+    request: Mapping[str, Any], *, publish_visibility_truth: bool = True
+) -> dict[str, Any]:
     """Close the existing v4 camera and per-mesh readback semantics for v7."""
 
-    validation = _validate_capture(request)
+    validation = _validate_capture(
+        request, publish_visibility_truth=publish_visibility_truth
+    )
     capture_root = Path(str(request["capture_output"]))
     manifest = _load(capture_root / "manifest.json")
     camera = manifest.get("camera_contract")
@@ -3909,6 +3979,229 @@ def _validate_v7_capture(request: Mapping[str, Any]) -> dict[str, Any]:
         },
         "per_mesh_live_readback_status": "pass_exact_71_of_71",
     }
+
+
+def _validate_consumed_request_v8_for_revalidation(
+    request_path: Path,
+) -> dict[str, Any]:
+    request_path = _require_v7_nonsymlink_path(
+        request_path, REPOSITORY, owner="v8 validation-only request"
+    )
+    request = _load(request_path)
+    _require(
+        request.get("schema") == REQUEST_SCHEMA_V8
+        and request.get("status") == "prepared_not_launched"
+        and request.get("frame_indices") == [FRAME_INDEX]
+        and request.get("full75_allowed") is False
+        and request.get("physical_gpu_index") == 1
+        and request.get("physical_gpu_uuid") == GPU1_UUID
+        and request.get("graphics_adapter_argument") == 1
+        and request.get("required_idle_compute_process_count") == 0
+        and request.get("explicit_gpu_capture_authorization_required") is True
+        and request.get("gpu_capture_authorized_at_prepare") is False
+        and request.get("manual_review_required") is True
+        and request.get("qualification_claim") is False
+        and request.get("formal_dataset_count") == 0,
+        "v8 validation-only request boundary drift",
+    )
+    _require(
+        request.get("attempt_policy")
+        == {
+            **ATTEMPT_POLICY,
+            "candidate_revision": "fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+        },
+        "v8 validation-only attempt policy drift",
+    )
+    repo_root = Path(str(request.get("repo_root", ""))).resolve()
+    _require(repo_root == REPOSITORY, "v8 validation-only repository drift")
+    _require(
+        _git_tracked_and_index_clean(repo_root),
+        "v8 validation-only requires a clean tracked worktree and index",
+    )
+    capture_commit = request.get("required_repo_commit")
+    _require(
+        isinstance(capture_commit, str) and capture_commit,
+        "v8 validation-only capture commit is missing",
+    )
+    validator_commit = _git_head(repo_root)
+    atom_root = _require_v7_nonsymlink_path(
+        Path(str(request.get("atom_root", ""))),
+        REPOSITORY,
+        owner="v8 validation-only atom",
+    )
+    plan_path = _require_v7_nonsymlink_path(
+        Path(str(request.get("execution_plan", ""))),
+        atom_root,
+        owner="v8 validation-only execution plan",
+    )
+    projection = _validate_execution_plan_v8_projection(
+        plan_path, capture_must_be_fresh=False
+    )
+    attempt_root = _require_v7_nonsymlink_path(
+        Path(str(request.get("attempt_root", ""))),
+        atom_root,
+        owner="v8 validation-only attempt",
+    )
+    capture_root = _require_v7_nonsymlink_path(
+        Path(str(request.get("capture_output", ""))),
+        atom_root,
+        owner="v8 validation-only capture",
+    )
+    _require(
+        attempt_root == atom_root / V8_ATTEMPT_DIRECTORY
+        and request_path == attempt_root / "request.json"
+        and capture_root == atom_root / V8_CAPTURE_DIRECTORY
+        and request.get("episode_id") == projection["episode_id"]
+        and request.get("scene_id") == projection["scene_id"]
+        and request.get("execution_plan") == projection["execution_plan"]
+        and request.get("evidence_paths") == projection["evidence_paths"]
+        and request.get("suite_plan") == projection["evidence_paths"]["suite_plan"]
+        and request.get("room_adapter") == projection["evidence_paths"]["room_adapter"]
+        and request.get("capture_output") == projection["capture_output"]
+        and request.get("capture_argv") == projection["capture_argv"]
+        and request.get("rpc_port") == V8_RPC_PORT,
+        "v8 consumed request/evidence/capture binding drift",
+    )
+    common = {
+        "schema": RECEIPT_SCHEMA_V8,
+        "episode_id": request["episode_id"],
+        "scene_id": request["scene_id"],
+        "candidate_revision": "fresh_schema_v2_cpu_semantic_sparse_f15_v8",
+        "required_repo_commit": capture_commit,
+        "request": str(request_path),
+        "execution_plan": request["execution_plan"],
+        "evidence_paths": request["evidence_paths"],
+        "capture_argv": request["capture_argv"],
+        "capture_output": str(capture_root),
+        "rpc_port": V8_RPC_PORT,
+        "frame_indices": [FRAME_INDEX],
+        "full75_allowed": False,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+    }
+    running_path = _require_v7_nonsymlink_path(
+        attempt_root / "running_receipt.json",
+        attempt_root,
+        owner="v8 original running receipt",
+    )
+    final_path = _require_v7_nonsymlink_path(
+        attempt_root / "final_receipt.json",
+        attempt_root,
+        owner="v8 original final receipt",
+    )
+    for name in (
+        "manifest.json",
+        "room_live_readback.json",
+        "metric_depth_native.npz",
+    ):
+        artifact = _require_v7_nonsymlink_path(
+            capture_root / name,
+            capture_root,
+            owner=f"v8 validation-only capture artifact {name}",
+        )
+        _require(
+            artifact.is_file(),
+            f"v8 validation-only capture artifact is missing: {name}",
+        )
+    for field in ("suite_plan", "room_adapter"):
+        artifact = _require_v7_nonsymlink_path(
+            Path(str(request.get(field, ""))),
+            atom_root,
+            owner=f"v8 validation-only {field}",
+        )
+        _require(artifact.is_file(), f"v8 validation-only {field} is missing")
+    running = _load(running_path)
+    original_final = _load(final_path)
+    _require(
+        all(running.get(key) == value for key, value in common.items())
+        and running.get("status") == "running"
+        and running.get("attempt_consumed") is True
+        and running.get("gpu_started") is False
+        and running.get("child_exit_code") is None,
+        "v8 original running receipt capture provenance drift",
+    )
+    _require(
+        all(original_final.get(key) == value for key, value in common.items())
+        and original_final.get("status") == "failed"
+        and original_final.get("attempt_consumed") is True
+        and original_final.get("gpu_started") is True
+        and original_final.get("child_exit_code") == 0
+        and original_final.get("capture_process_exit_code") == 0
+        and isinstance(original_final.get("error"), str)
+        and bool(original_final["error"].strip())
+        and original_final.get("validation") is None,
+        "v8 original final receipt is not the completed capture validator failure",
+    )
+    observability = original_final.get("capture_observability")
+    _require(
+        isinstance(observability, Mapping)
+        and observability.get("capture_failure_artifact") is None,
+        "v8 original capture failure observability drift",
+    )
+    _validate_complete_v2_phase_sequence(observability)
+    return {
+        "request": request,
+        "request_path": request_path,
+        "attempt_root": attempt_root,
+        "capture_root": capture_root,
+        "running_receipt": running_path,
+        "original_final_receipt": final_path,
+        "capture_required_repo_commit": capture_commit,
+        "validator_repo_commit": validator_commit,
+    }
+
+
+def validate_v8_capture_only(request_path: Path, *, output_receipt: Path) -> Path:
+    """Revalidate a consumed v8 capture without launching or mutating it."""
+
+    context = _validate_consumed_request_v8_for_revalidation(request_path)
+    request = context["request"]
+    attempt_root = context["attempt_root"]
+    output_receipt = _require_v7_nonsymlink_path(
+        output_receipt,
+        attempt_root,
+        owner="v8 validation-only output receipt",
+    )
+    _require(
+        output_receipt.parent == attempt_root
+        and not output_receipt.exists()
+        and not output_receipt.is_symlink(),
+        "v8 validation-only receipt must be a fresh attempt-root child",
+    )
+    common = {
+        "schema": VALIDATION_ONLY_RECEIPT_SCHEMA_V8,
+        "episode_id": request["episode_id"],
+        "scene_id": request["scene_id"],
+        "capture_required_repo_commit": context["capture_required_repo_commit"],
+        "validator_repo_commit": context["validator_repo_commit"],
+        "request": str(context["request_path"]),
+        "original_running_receipt": str(context["running_receipt"]),
+        "original_final_receipt": str(context["original_final_receipt"]),
+        "original_final_status": "failed",
+        "capture_output": str(context["capture_root"]),
+        "gpu_query_started": False,
+        "gpu_started": False,
+        "capture_subprocess_started": False,
+        "pixel_visibility_truth_publication": "not_written_validation_only",
+        "git_read_only_checks_performed": True,
+        "attempt_consumed_by_validation": False,
+        "full75_allowed": False,
+        "manual_sparse_f15_visual_review_required": True,
+        "qualification_claim": False,
+        "formal_dataset_count": 0,
+        "validated_at_utc": _utc_now(),
+    }
+    try:
+        validation = _validate_v7_capture(request, publish_visibility_truth=False)
+    except Exception as error:
+        raise RuntimeError("v8 validation-only failed without publishing") from error
+    receipt = {
+        **common,
+        "status": "pass_diagnostic_f15_review_ready",
+        "validation": validation,
+    }
+    _write_json_atomic_no_replace(output_receipt, receipt)
+    return output_receipt
 
 
 def _run_path_only_sparse_revision(
@@ -4456,6 +4749,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     launch_v8.add_argument("--request", required=True, type=Path)
     launch_v8.add_argument("--dry-run", action="store_true")
     launch_v8.add_argument("--authorize-gpu-capture", action="store_true")
+    validate_v8 = subparsers.add_parser("validate-v8-capture")
+    validate_v8.add_argument("--request", required=True, type=Path)
+    validate_v8.add_argument("--output-receipt", required=True, type=Path)
     return parser.parse_args(argv)
 
 
@@ -4615,6 +4911,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "prepare-v8":
         path = prepare_request_v8(execution_plan_path=args.execution_plan)
         print(f"MP3D_F15_V8_REQUEST_PREPARED request={path} formal=0", flush=True)
+        return 0
+    if args.command == "validate-v8-capture":
+        path = validate_v8_capture_only(
+            args.request, output_receipt=args.output_receipt
+        )
+        print(f"MP3D_F15_V8_VALIDATION_ONLY_PASS receipt={path} formal=0", flush=True)
         return 0
     if args.command == "launch-v8":
         return run_v8(
