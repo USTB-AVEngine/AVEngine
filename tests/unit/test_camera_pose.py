@@ -9,16 +9,22 @@ from avengine.camera_pose import (
     CameraPoseError,
     apply_camera_listener_pose,
     normalized_yaw_degrees,
+    yaw_rotation_xyzw,
 )
 from avengine.contracts.json_io import load_json
 from avengine.m1.contracts import validate_capture_request
 from avengine.m6x.apartment import listener_yaw_degrees_from_request
 
-
 ROOT = Path(__file__).resolve().parents[2]
-BASE_REQUEST = (
-    ROOT / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
-)
+BASE_REQUEST = ROOT / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
+
+
+def test_yaw_quaternion_uses_one_canonical_hemisphere() -> None:
+    expected = [0.0, 1.0, 0.0, 0.0]
+    assert yaw_rotation_xyzw(180.0) == expected
+    assert yaw_rotation_xyzw(-180.0) == expected
+    assert yaw_rotation_xyzw(540.0) == expected
+    assert yaw_rotation_xyzw(-540.0) == expected
 
 
 def test_arbitrary_camera_pose_remains_a_valid_colocated_listener_request():

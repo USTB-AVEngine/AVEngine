@@ -3,11 +3,12 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import wave
 from itertools import pairwise
 from pathlib import Path
 
+import numpy as np
 import pytest
-
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPOSITORY / "tools/qa/materialize_strict_two_human_dynamic_canary.py"
@@ -15,6 +16,46 @@ SPEC = importlib.util.spec_from_file_location("dynamic_materializer", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
+LEGACY_BATCH_ROOT = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
+LEGACY_AUDIO_AVAILABLE = (
+    TOOL.CONTROLLED_SOUND_CONTENT_REGISTRY.is_file()
+    and (TOOL.BASE_AUDIO / "audio_program.json").is_file()
+)
+
+
+def _nested_keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return set(value) | {
+            key for item in value.values() for key in _nested_keys(item)
+        }
+    if isinstance(value, list):
+        return {key for item in value for key in _nested_keys(item)}
+    return set()
+
+
+def test_legacy_cli_arguments_remain_available() -> None:
+    args = TOOL.parse_args(
+        [
+            "--preflight",
+            "legacy_preflight.json",
+            "--canary-index",
+            "3",
+            "--base-suite",
+            "legacy_suite.json",
+            "--audio-template",
+            "legacy_audio",
+            "--motion-candidate",
+            "legacy_candidate.json",
+            "--output",
+            "legacy_output",
+        ]
+    )
+
+    assert args.preflight == Path("legacy_preflight.json")
+    assert args.canary_index == 3
+    assert args.base_suite == Path("legacy_suite.json")
+    assert args.motion_candidate == Path("legacy_candidate.json")
+    assert args.planning_manifest is None
 
 
 def _audio_row(*, female_target: bool) -> dict[str, object]:
@@ -59,6 +100,25 @@ def _audio_row(*, female_target: bool) -> dict[str, object]:
     }
 
 
+@pytest.mark.skipif(
+    not LEGACY_AUDIO_AVAILABLE,
+    reason="legacy controlled-audio workspace artifacts are not mounted",
+)
+@pytest.mark.parametrize(
+    "field",
+    ["speech_sample_rate_hz", "speech_channel_count", "speech_audio_uri"],
+)
+def test_explicit_null_audio_metadata_is_rejected(field: str) -> None:
+    row = _audio_row(female_target=False)
+    row["target"][field] = None
+    with pytest.raises(RuntimeError, match="metadata drift"):
+        TOOL._controlled_target_sound(row)
+
+
+@pytest.mark.skipif(
+    not LEGACY_AUDIO_AVAILABLE,
+    reason="legacy controlled-audio workspace artifacts are not mounted",
+)
 def test_audio_program_has_exact_declared_activity_window(tmp_path: Path) -> None:
     row = _audio_row(female_target=False)
     TOOL._copy_audio_contracts(TOOL.BASE_AUDIO, tmp_path, row)
@@ -85,6 +145,10 @@ def test_audio_program_has_exact_declared_activity_window(tmp_path: Path) -> Non
     assert program["events"][0]["end_sample_exclusive"] == 33221
 
 
+@pytest.mark.skipif(
+    not LEGACY_AUDIO_AVAILABLE,
+    reason="legacy controlled-audio workspace artifacts are not mounted",
+)
 def test_audio_program_supports_female_static_target_and_silent_moving_source2(
     tmp_path: Path,
 ) -> None:
@@ -141,6 +205,59 @@ def test_materializer_publishes_only_failure_receipt_on_error(tmp_path: Path) ->
     assert failure["formal"] is False
     assert failure["qualification_claim"] is False
     assert not list(tmp_path.glob(".failed_materialization.staging.*"))
+
+
+def test_materializer_atomic_publish_does_not_replace_racing_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "racing_materialization"
+    original_publish = TOOL.atomic_publish_directory
+
+    def create_destination_then_publish(policy, staging, destination):
+        destination.mkdir()
+        (destination / "concurrent_marker").write_text("preserve")
+        return original_publish(policy, staging, destination)
+
+    monkeypatch.setattr(
+        TOOL, "atomic_publish_directory", create_destination_then_publish
+    )
+    with pytest.raises(FileExistsError, match="refusing to replace"):
+        TOOL.materialize(
+            preflight_path=tmp_path / "missing_preflight.json",
+            canary_index=1,
+            base_suite_path=tmp_path / "missing_suite.json",
+            audio_template=tmp_path / "missing_audio",
+            output=output,
+        )
+
+    assert sorted(path.name for path in output.iterdir()) == ["concurrent_marker"]
+    assert (output / "concurrent_marker").read_text() == "preserve"
+    assert not list(tmp_path.glob(".racing_materialization.staging.*"))
+
+
+@pytest.mark.parametrize("kind", ["dangling_leaf", "symlink_parent"])
+def test_materializer_rejects_symlinked_output_path(tmp_path: Path, kind: str) -> None:
+    outside = tmp_path / "outside"
+    if kind == "dangling_leaf":
+        target = outside / "materialized"
+        output = tmp_path / "output_link"
+        output.symlink_to(target, target_is_directory=True)
+    else:
+        outside.mkdir()
+        parent = tmp_path / "linked_parent"
+        parent.symlink_to(outside, target_is_directory=True)
+        output = parent / "materialized"
+        target = outside / "materialized"
+
+    with pytest.raises(RuntimeError, match="symlinks"):
+        TOOL.materialize(
+            preflight_path=tmp_path / "missing_preflight.json",
+            canary_index=1,
+            base_suite_path=tmp_path / "missing_suite.json",
+            audio_template=tmp_path / "missing_audio",
+            output=output,
+        )
+    assert not target.exists()
 
 
 def test_arc_length_interpolation_binds_phase_and_forward_to_motion() -> None:
@@ -292,6 +409,12 @@ def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
     preflight_path = batch_root / preflight_relative
     base_suite_path = batch_root / base_suite_relative
     output = tmp_path / candidate_path.stem
+    if not (
+        LEGACY_AUDIO_AVAILABLE
+        and preflight_path.is_file()
+        and base_suite_path.is_file()
+    ):
+        pytest.skip("legacy canary workspace artifacts are not mounted")
     preflight_document = json.loads(preflight_path.read_text())
     planning_row = next(
         row
@@ -361,6 +484,11 @@ def test_real_motion_candidate_is_consumed_and_published_frame_by_frame(
 
 def test_motion_mechanism_without_candidate_fails_closed(tmp_path: Path) -> None:
     batch_root = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
+    if not (
+        batch_root
+        / "dynamic_target_moves_v2_cpu_candidate_v1/target_moves_v2_preflight.json"
+    ).is_file():
+        pytest.skip("legacy canary workspace artifacts are not mounted")
     output = tmp_path / "missing_motion_candidate"
     with pytest.raises(RuntimeError, match="requires --motion-candidate"):
         TOOL.materialize(
@@ -387,6 +515,8 @@ def test_global_planning_row_without_native_motion_authority_writes_no_output(
 ) -> None:
     batch_root = REPOSITORY / "tmp/lead_a_strict_two_human_full_episode_batch_v1"
     planning_path = batch_root / "cpu_plan_global100_v2/manifest.json"
+    if not planning_path.is_file():
+        pytest.skip("legacy global planning workspace artifact is not mounted")
     manifest = json.loads(planning_path.read_text())
     planning_row = next(
         row for row in manifest["episodes"] if row["mechanism"] == "target_moves"
@@ -419,6 +549,8 @@ def test_planning_runtime_mismatch_fails_before_output(tmp_path: Path) -> None:
         batch_root
         / "dynamic_target_moves_v2_cpu_candidate_v1/target_moves_v2_preflight.json"
     )
+    if not preflight_path.is_file():
+        pytest.skip("legacy canary workspace artifacts are not mounted")
     row = json.loads(preflight_path.read_text())["canaries"][0]
     row["target"]["runtime_revision"] = "forged_revision"
     planning_path = tmp_path / "planning.json"
@@ -499,3 +631,162 @@ def test_equal_arc_native_human_method_binds_animation_phase() -> None:
     assert timing["status"] == "pass"
     assert timing["phase_cycle_count"] == pytest.approx(0.625)
     assert timing["path_provenance"]["method"].startswith("equal_arc")
+
+
+def test_planning_only_path_builds_profile_without_legacy_preflight_or_base_suite(
+    tmp_path: Path,
+) -> None:
+    fixture_path = REPOSITORY / "tests/unit/test_actor_motion_profile.py"
+    fixture_spec = importlib.util.spec_from_file_location(
+        "planning_motion_profile_fixture", fixture_path
+    )
+    assert fixture_spec is not None and fixture_spec.loader is not None
+    fixture_module = importlib.util.module_from_spec(fixture_spec)
+    fixture_spec.loader.exec_module(fixture_module)
+
+    manifest_path, _, row = fixture_module._write_planning_fixture(tmp_path)
+    planning_binding = TOOL.bind_planning_episode(
+        planning_manifest_path=manifest_path,
+        episode_id=row["episode_id"],
+    )
+    profile, base_suite = TOOL._planning_materialization_authorities(planning_binding)
+    declarations, frames, roots, emitters, semantics = (
+        TOOL._actor_materialization_from_profile(profile)
+    )
+
+    assert profile["schema"] == "avengine_actor_motion_profile_v2"
+    assert (
+        profile["authorities"]["planning_episode"]["value"]["episode_id"]
+        == row["episode_id"]
+    )
+    assert base_suite["scenarios"][0]["scenario_id"] == "PENDING_PLANNING_EPISODE"
+    serialized_shell = json.dumps(base_suite, sort_keys=True).lower()
+    assert "native_static" not in serialized_shell
+    assert "native_moving" not in serialized_shell
+    assert "fixture_native_source" not in serialized_shell
+    assert base_suite["authority"]["qualification_claim"] is False
+    assert [declaration["actor_id"] for declaration in declarations] == [
+        "source1_actor",
+        "source2_actor",
+    ]
+    assert len(frames) == 75
+    assert frames[19]["actor_states"][0]["action_phase"] == 0.0
+    assert frames[19]["actor_states"][0]["action_time_ticks"] == 19 * 3200
+    assert roots["source1"] == row["target"]["root_path_m"]
+    assert emitters["source1"][0] == pytest.approx([0.0, 1.97, 3.0])
+    assert semantics["source1"]["native_rate_action_segments"][0][
+        "output_frame_range_inclusive"
+    ] == [0, 74]
+
+
+def test_planning_audio_keeps_exact_samples_and_uses_semantic_m7_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture_path = REPOSITORY / "tests/unit/test_actor_motion_profile.py"
+    fixture_spec = importlib.util.spec_from_file_location(
+        "planning_audio_fixture", fixture_path
+    )
+    assert fixture_spec is not None and fixture_spec.loader is not None
+    fixture_module = importlib.util.module_from_spec(fixture_spec)
+    fixture_spec.loader.exec_module(fixture_module)
+    _, _, row = fixture_module._write_planning_fixture(tmp_path)
+    audio_path = tmp_path / "fixture_speech.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16_000)
+        handle.writeframes(np.full(45_912, 4_000, dtype="<i2").tobytes())
+    event = dict(row["audio_program"]["target_event"])
+    monkeypatch.setattr(
+        TOOL, "_planning_target_audio", lambda _row: (event, audio_path)
+    )
+    output = tmp_path / "materialized"
+    output.mkdir()
+
+    TOOL._copy_audio_contracts(
+        tmp_path / "legacy_base_audio_must_not_exist",
+        output,
+        row,
+        planning_mode=True,
+    )
+    result = TOOL._validate_planning_audio_contracts(output, expected_event=event)
+
+    assert result["start_sample"] == 7_467
+    assert result["end_sample_exclusive"] == 53_379
+    assert result["target_active_sample_count"] == 45_912
+    generated = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (output / "controlled_audio_program").glob("*.json")
+    ]
+    forbidden = {
+        "file_sha256",
+        "input_sha256",
+        "audio_sha256",
+        "sidecar_sha256",
+        "byte_size",
+        "audio_byte_size",
+        "sample_width_bytes",
+    }
+    assert not (_nested_keys(generated) & forbidden)
+
+    request = TOOL._acoustic_execution_request(
+        output=output,
+        episode_id=row["episode_id"],
+        rir_plan={
+            "requested_pair_state_count": 150,
+            "unique_rir_job_count": 76,
+            "cache_reuse_count": 74,
+        },
+        target_sound_asset_id=row["target"]["sound_asset_id"],
+        target_audio=audio_path,
+        planning_mode=True,
+    )
+    argv = request["binaural_render_argv"]
+    assert "--semantic-source-endpoint-registry" in argv
+    assert "--semantic-sound-content-registry" in argv
+    assert "--semantic-audio-binding" in argv
+    assert "--source-endpoint-registry" not in argv
+    assert "--sound-asset-registry" not in argv
+    assert "--sound-audio" not in argv
+
+
+def test_planning_audio_rejects_joint_event_and_target_uri_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture_path = REPOSITORY / "tests/unit/test_actor_motion_profile.py"
+    fixture_spec = importlib.util.spec_from_file_location(
+        "planning_uri_fixture", fixture_path
+    )
+    assert fixture_spec is not None and fixture_spec.loader is not None
+    fixture_module = importlib.util.module_from_spec(fixture_spec)
+    fixture_spec.loader.exec_module(fixture_module)
+    _, _, row = fixture_module._write_planning_fixture(tmp_path)
+    forged = "semantic://forged-but-mutually-consistent"
+    row["target"]["speech_audio_uri"] = forged
+    row["audio_program"]["target_event"]["source_audio_uri"] = forged
+    catalog = {
+        "assets": [
+            {
+                "sound_asset_id": row["target"]["sound_asset_id"],
+                "content": {
+                    "speaker_id": row["target"]["voice_id"],
+                    "statement_id": row["target"]["content_id"],
+                    "transcript": "fixture transcript",
+                },
+                "audio": {
+                    "uri": "semantic://fixture_speech",
+                    "sample_count": row["target"]["speech_sample_count"],
+                    "sample_rate_hz": 16_000,
+                    "channel_count": 1,
+                },
+            }
+        ]
+    }
+    row["target"]["transcript"] = "fixture transcript"
+    catalog_path = tmp_path / "controlled_sound_catalog.json"
+    catalog_path.write_text(json.dumps(catalog))
+    monkeypatch.setattr(TOOL, "CONTROLLED_SOUND_CONTENT_REGISTRY", catalog_path)
+    monkeypatch.setattr(TOOL, "CONTROLLED_AUDIO_ROOT", tmp_path)
+    with pytest.raises(RuntimeError, match="controlled sound metadata drift"):
+        TOOL._planning_target_audio(row)

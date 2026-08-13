@@ -23,10 +23,14 @@ from typing import Any
 
 import numpy as np
 
+from avengine.camera_pose import yaw_rotation_xyzw
 from avengine.contracts.json_io import canonical_json_sha256, write_json
 from avengine.m5_1.source_contracts import sample_boundary
 from avengine.m6.audio_program import bind_audio_program_hash, validate_audio_program
-from avengine.m6.audio_render import assemble_audio_program_dry_buses
+from avengine.m6.audio_render import (
+    assemble_audio_program_dry_buses,
+    assemble_semantic_audio_program_dry_buses,
+)
 from avengine.m6.registry import bind_content_hash
 from avengine.m6.sources import (
     validate_sound_asset_registry,
@@ -46,11 +50,17 @@ from avengine.optional_backends.spear_visual import (
 from avengine.qa.actor_motion_profile import (
     bind_planning_episode,
     build_actor_motion_profile,
+    build_actor_motion_profile_from_planning,
+    is_planning_actor_motion_profile,
     materialize_profile_frames,
     source_center_paths,
     validate_actor_motion_profile,
 )
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
+from avengine.security import (
+    WorkspacePathPolicy,
+    atomic_publish_directory,
+)
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 FRAME_COUNT = 75
@@ -85,6 +95,9 @@ CONTROLLED_SOUND_CONTENT_REGISTRY = Path(
 CONTROLLED_AUDIO_ROOT = Path(
     "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/media"
 )
+RUNTIME_REGISTRY = REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"
+# Retained exclusively for the legacy template adapter.  Planning rows carry
+# exact half-open sample bounds and never derive them from a frame-local offset.
 SPEECH_INTRA_FRAME_OFFSET_SAMPLES = 128
 ANIMATION_TICKS_PER_PHASE_CYCLE = 51_200
 INTERPOLATED_PATH_METHODS = {
@@ -185,6 +198,9 @@ def _validate_planning_materialization_authority(
         "voice_policy",
         "speech_frame_window_inclusive",
         "speech_sample_count",
+        "speech_sample_rate_hz",
+        "speech_channel_count",
+        "speech_audio_uri",
     ):
         _require(
             row["target"].get(key) == preflight_row["target"].get(key),
@@ -259,6 +275,154 @@ def _identity_declarations(base_suite: Mapping[str, Any]) -> dict[str, dict[str,
     return by_identity
 
 
+def _planning_base_suite(
+    row: Mapping[str, Any],
+    *,
+    suite_cache: Mapping[Path, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a clean human-only Apartment suite shell.
+
+    The native animal suite is read only to bind the room/map shell.  No actor,
+    source, qualification, authoritative-input, or reuse claim is copied.
+    """
+
+    target = row.get("target")
+    _require(isinstance(target, Mapping), "planning target authority is missing")
+    authority = target.get("motion_profile_authority")
+    _require(
+        isinstance(authority, Mapping),
+        "planning target motion profile authority is missing",
+    )
+    source = authority.get("source_path")
+    _require(isinstance(source, Mapping), "planning target source authority is missing")
+    suite_path = Path(str(source.get("source_suite", ""))).resolve()
+    _require(suite_path.is_file(), f"planning source suite is missing: {suite_path}")
+    suite = (
+        deepcopy(dict(suite_cache[suite_path]))
+        if suite_cache is not None and suite_path in suite_cache
+        else _load(suite_path)
+    )
+    scenarios = suite.get("scenarios")
+    scenario_id = source.get("native_source_scenario_id")
+    matches = (
+        [
+            scenario
+            for scenario in scenarios
+            if isinstance(scenarios, list)
+            and isinstance(scenario, Mapping)
+            and scenario.get("scenario_id") == scenario_id
+        ]
+        if isinstance(scenarios, list)
+        else []
+    )
+    _require(
+        len(matches) == 1,
+        "planning source suite scenario must resolve exactly once",
+    )
+    source_scenario = matches[0]
+    source_plan = source_scenario.get("plan")
+    _require(isinstance(source_plan, Mapping), "planning source plan is missing")
+    source_room = source_plan.get("room")
+    source_coordinate = source_plan.get("coordinate_contract")
+    source_render = source_scenario.get("render")
+    source_native_scene = source_scenario.get("native_scene")
+    _require(
+        isinstance(source_room, Mapping)
+        and isinstance(source_coordinate, Mapping)
+        and isinstance(source_render, Mapping)
+        and isinstance(source_native_scene, Mapping),
+        "planning source Apartment shell is incomplete",
+    )
+    return {
+        "schema": "avengine_optional_spear_apartment_suite_v1",
+        "backend_role": "planning_human_materialization",
+        "native_map": suite.get("native_map"),
+        "lighting_profile": deepcopy(source_native_scene.get("lighting_profile")),
+        "authority": {
+            "room_layout": "native Apartment map selected by source authority",
+            "actor_state": "planning row plus runtime human registry",
+            "audio": "planning semantic AudioProgram",
+            "qualification_claim": False,
+        },
+        "scenarios": [
+            {
+                "schema": "avengine_optional_spear_apartment_scenario_v1",
+                "scenario_id": "PENDING_PLANNING_EPISODE",
+                "scenario_directory": "PENDING_PLANNING_EPISODE",
+                "variant_id": "A",
+                "backend_role": "planning_human_materialization",
+                "native_scene": {
+                    "map": source_native_scene.get("map"),
+                    "layout": source_native_scene.get("layout"),
+                    "lighting": source_native_scene.get("lighting"),
+                    "lighting_profile": deepcopy(
+                        source_native_scene.get("lighting_profile")
+                    ),
+                    "outdoor_view": source_native_scene.get("outdoor_view"),
+                },
+                "render": deepcopy(dict(source_render)),
+                "authoritative_inputs": {},
+                "reuse_contract": {
+                    "room_and_map_only": "selected native Apartment shell",
+                    "actor_or_source_authority_reused": False,
+                    "qualification_claim": False,
+                },
+                "plan": {
+                    "schema": "avengine_optional_spear_visual_plan_v1",
+                    "backend_role": "planning_human_materialization",
+                    "authority": {
+                        "actor_state": "planning actor motion profile v2",
+                        "backend_may_replan": False,
+                        "room_identity_and_layout": "selected native Apartment shell",
+                        "source_center_placement": "runtime human emitter declarations",
+                        "source_logic": "planning semantic AudioProgram",
+                        "qualification_claim": False,
+                    },
+                    "room": deepcopy(dict(source_room)),
+                    "render": {
+                        "fps_den": 1,
+                        "fps_num": FRAME_RATE_HZ,
+                        "frame_count": FRAME_COUNT,
+                        "ticks_per_frame": TICKS_PER_FRAME,
+                    },
+                    "camera": {},
+                    "coordinate_contract": deepcopy(dict(source_coordinate)),
+                    "actors": [],
+                    "frames": [],
+                    "source_logic": {
+                        "schema": "avengine_planning_human_source_logic_v1",
+                        "scenario_id": "PENDING_PLANNING_EPISODE",
+                        "variant_id": "A",
+                        "sources": [],
+                        "clip_flags": {},
+                    },
+                    "qualification": {
+                        "status": "not_claimed",
+                        "qualification_claim": False,
+                        "claim_boundary": "pending native human capture and review",
+                    },
+                },
+            }
+        ],
+    }
+
+
+def _planning_materialization_authorities(
+    binding: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build the planning profile once and reuse its loaded suite as template."""
+
+    suite_cache: dict[Path, Mapping[str, Any]] = {}
+    profile = build_actor_motion_profile_from_planning(
+        planning_manifest_path=str(binding["path"]),
+        episode_id=str(binding["value"]["episode_id"]),
+        source_suite_cache=suite_cache,
+    )
+    validate_actor_motion_profile(profile)
+    base_suite = _planning_base_suite(binding["value"], suite_cache=suite_cache)
+    return profile, base_suite
+
+
 def _source_scenarios(row: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     suite = _load(Path(row["source_suite"]))
     by_id = {str(scenario["scenario_id"]): scenario for scenario in suite["scenarios"]}
@@ -296,8 +460,8 @@ def _rotation_from_forward(forward: Sequence[float]) -> list[float]:
     z = float(forward[2])
     norm = math.hypot(x, z)
     _require(norm > 1.0e-8, "actor forward vector is degenerate")
-    yaw = math.atan2(x / norm, z / norm)
-    return [0.0, math.sin(yaw / 2.0), 0.0, math.cos(yaw / 2.0)]
+    yaw_deg = math.degrees(math.atan2(x / norm, z / norm))
+    return yaw_rotation_xyzw(yaw_deg)
 
 
 def _face_camera(root: Sequence[float], camera: Sequence[float]) -> list[float]:
@@ -726,6 +890,9 @@ def _actor_materialization_from_profile(
             "native_rate_active_interval": deepcopy(
                 actor["native_rate_active_interval"]
             ),
+            "native_rate_action_segments": deepcopy(
+                actor.get("native_rate_action_segments", [])
+            ),
             "trajectory_preflight": deepcopy(actor["trajectory_preflight"]),
             "action_counts": action_counts[str(slot)],
         }
@@ -745,9 +912,12 @@ def _validate_rir_plan_against_profile(
 ) -> dict[str, Any]:
     expectation = profile["rir_expectation"]
     candidate = profile["authorities"]["candidate"]["value"]
-    old_row = profile["authorities"]["selected_old_row"]["value"]
-    output_episode_id = str(old_row["episode_id"])
     candidate_episode_id = str(candidate["candidate_episode_id"])
+    if is_planning_actor_motion_profile(profile):
+        output_episode_id = candidate_episode_id
+    else:
+        old_row = profile["authorities"]["selected_old_row"]["value"]
+        output_episode_id = str(old_row["episode_id"])
 
     def normalize_episode_id(value: Any) -> Any:
         if isinstance(value, str):
@@ -832,7 +1002,10 @@ def _suite(
         )
     template["scenario_id"] = row["episode_id"]
     template["scenario_directory"] = row["episode_id"]
-    template["variant_id"] = row["mechanism"]
+    planning_profile = motion_profile is not None and is_planning_actor_motion_profile(
+        motion_profile
+    )
+    template["variant_id"] = "A" if planning_profile else row["mechanism"]
     template["plan"]["actors"] = declarations
     template["plan"]["frames"] = frames
     template["plan"]["camera"] = {
@@ -847,18 +1020,8 @@ def _suite(
         "sensor_rig_trajectory_id": sensor_rig["trajectory_id"],
         "dynamic": len(set(row["camera"]["yaw_path_deg"])) > 1,
     }
-    native_source_scenario_ids = row.get("native_source_scenario_ids")
-    if native_source_scenario_ids is None:
-        native_source_scenario_ids = [row["native_source_scenario_id"]]
-    if len(native_source_scenario_ids) == 1:
-        template["plan"]["source_logic"]["scenario_id"] = native_source_scenario_ids[0]
-    else:
-        template["plan"]["source_logic"]["scenario_id"] = (
-            "counterfactual_cross_scenario_pair"
-        )
-        template["plan"]["source_logic"]["native_source_scenario_ids"] = deepcopy(
-            native_source_scenario_ids
-        )
+    template["plan"]["source_logic"]["scenario_id"] = row["episode_id"]
+    template["plan"]["source_logic"]["variant_id"] = "A"
     template["plan"]["source_logic"]["sources"] = [
         {
             "activation": "active",
@@ -880,13 +1043,26 @@ def _suite(
         "scenario_type": row["mechanism"],
         "target_source_slot_id": "source1",
         "fact_path": "PENDING_NATIVE_CAPTURE",
-        "fact_sha256": "PENDING_NATIVE_CAPTURE",
     }
-    template["authoritative_inputs"] = {
-        "source_endpoint_registry": "controlled_audio_program/source_endpoint_registry.json",
-        "sound_asset_registry": "controlled_audio_program/sound_asset_registry.json",
-        "audio_program": "controlled_audio_program/audio_program.json",
-    }
+    template["authoritative_inputs"] = (
+        {
+            "semantic_sound_content_registry": (
+                "controlled_audio_program/semantic_sound_content_registry.json"
+            ),
+            "semantic_source_endpoint_registry": (
+                "controlled_audio_program/semantic_source_endpoint_registry.json"
+            ),
+            "audio_program": "controlled_audio_program/audio_program.json",
+        }
+        if planning_profile
+        else {
+            "source_endpoint_registry": (
+                "controlled_audio_program/source_endpoint_registry.json"
+            ),
+            "sound_asset_registry": "controlled_audio_program/sound_asset_registry.json",
+            "audio_program": "controlled_audio_program/audio_program.json",
+        }
+    )
     camera_pan = row["mechanism"] == "camera_pan_both_static"
     profile_bound = motion_profile is not None
     template["reuse_contract"] = {
@@ -897,14 +1073,14 @@ def _suite(
             else "retained Apartment native room; selected independent camera cluster"
         ),
         "actor_roots": (
-            "all roots are consumed frame-by-frame from the hash-bound actor "
+            "all roots are consumed frame-by-frame from the semantic actor "
             "motion profile"
             if profile_bound
             else "both actor roots are held at exact retained native human readbacks"
         ),
         "actor_yaws": (
             "all actions, phases, native indices, and headings are consumed "
-            "frame-by-frame from the hash-bound actor motion profile"
+            "frame-by-frame from the semantic actor motion profile"
             if profile_bound
             else "both held actors face the camera center and remain static"
         ),
@@ -916,15 +1092,13 @@ def _suite(
         "frame_count": FRAME_COUNT,
     }
     if motion_profile is not None:
-        template["actor_motion_profile_binding"] = {
+        profile_binding = {
             "schema": motion_profile["schema"],
             "profile_content_sha256": motion_profile["profile_content_sha256"],
-            "candidate_document_sha256": motion_profile["authorities"]["candidate"][
-                "document_sha256"
-            ],
             "frame_count": len(motion_profile["frames"]),
             "qualification_claim": False,
         }
+        template["actor_motion_profile_binding"] = profile_binding
     template.pop("static_camera_upgrade", None)
     suite = deepcopy(base_suite)
     suite["scenarios"] = [template]
@@ -934,7 +1108,61 @@ def _suite(
         "frame_count": FRAME_COUNT,
         "qualification_claim": False,
     }
+    if planning_profile:
+        suite["authority"] = {
+            "room_layout": "native Apartment map selected by source authority",
+            "actor_state": "planning row plus runtime human registry",
+            "audio": "planning semantic AudioProgram",
+            "qualification_claim": False,
+        }
     return suite
+
+
+def _emitter_offset_space_from_registry(
+    declaration: Mapping[str, Any],
+) -> str:
+    """Bind emitter offset space to the exact runtime-registry actor/anchor."""
+
+    registry = _load(RUNTIME_REGISTRY)
+    assets = registry.get("assets")
+    _require(
+        registry.get("schema") == "avengine_source_asset_runtime_registry_v1"
+        and isinstance(assets, list),
+        "runtime registry authority is invalid",
+    )
+    matches = [
+        record
+        for record in assets
+        if isinstance(record, Mapping)
+        and record.get("asset_id") == declaration.get("asset_id")
+        and record.get("revision") == declaration.get("asset_revision")
+    ]
+    _require(
+        len(matches) == 1,
+        "actor declaration must resolve exactly once in runtime registry",
+    )
+    record = matches[0]
+    anchors = record.get("emitter_anchors")
+    default_anchor_id = record.get("default_emitter_anchor_id")
+    anchor_matches = [
+        anchor
+        for anchor in anchors
+        if isinstance(anchors, list)
+        and isinstance(anchor, Mapping)
+        and anchor.get("anchor_id") == declaration.get("emitter_anchor_id")
+        and anchor.get("anchor_id") == default_anchor_id
+    ]
+    _require(
+        len(anchor_matches) == 1
+        and anchor_matches[0].get("offset_m") == declaration.get("emitter_offset_m")
+        and anchor_matches[0].get("offset_space") == "final_scaled_asset_root"
+        and (
+            "emitter_offset_space" not in declaration
+            or declaration["emitter_offset_space"] == anchor_matches[0]["offset_space"]
+        ),
+        "actor emitter declaration/runtime registry drift",
+    )
+    return str(anchor_matches[0]["offset_space"])
 
 
 def _binding_report(
@@ -953,7 +1181,7 @@ def _binding_report(
                 "asset_revision": declaration["asset_revision"],
                 "semantic_anchor_id": declaration["emitter_anchor_id"],
                 "emitter_offset_m": deepcopy(declaration["emitter_offset_m"]),
-                "offset_space": "final_scaled_asset_root",
+                "offset_space": _emitter_offset_space_from_registry(declaration),
                 "native_readback": "pending_full75_required",
                 "emitter_frame_count": len(emitter_paths[slot]),
             }
@@ -1001,12 +1229,31 @@ def _controlled_target_sound(
     ]
     _require(len(matches) == 1, "target controlled sound must resolve exactly once")
     sound = matches[0]
+    target = row["target"]
+    sample_rate_hz = int(sound["audio"]["sample_rate_hz"])
+    channel_count = int(sound["audio"]["channel_count"])
+    audio_uri = sound["audio"]["uri"]
+    declared_sample_rate_hz = target.get("speech_sample_rate_hz")
+    declared_channel_count = target.get("speech_channel_count")
+    declared_audio_uri = target.get("speech_audio_uri")
     _require(
-        sound["content"]["speaker_id"] == row["target"]["voice_id"]
-        and sound["content"]["statement_id"] == row["target"]["content_id"]
-        and sound["content"]["transcript"] == row["target"]["transcript"]
-        and int(sound["audio"]["sample_count"])
-        == int(row["target"]["speech_sample_count"]),
+        sound["content"]["speaker_id"] == target["voice_id"]
+        and sound["content"]["statement_id"] == target["content_id"]
+        and sound["content"]["transcript"] == target["transcript"]
+        and int(sound["audio"]["sample_count"]) == int(target["speech_sample_count"])
+        and sample_rate_hz == 16_000
+        and (
+            "speech_sample_rate_hz" not in target
+            or declared_sample_rate_hz == sample_rate_hz
+        )
+        and channel_count == 1
+        and (
+            "speech_channel_count" not in target
+            or declared_channel_count == channel_count
+        )
+        and isinstance(audio_uri, str)
+        and audio_uri
+        and ("speech_audio_uri" not in target or declared_audio_uri == audio_uri),
         "target controlled sound metadata drift",
     )
     audio_path = CONTROLLED_AUDIO_ROOT / f"{sound_asset_id}.wav"
@@ -1014,9 +1261,54 @@ def _controlled_target_sound(
     return sound, audio_path
 
 
+def _planning_target_audio(
+    row: Mapping[str, Any],
+) -> tuple[dict[str, Any], Path]:
+    """Resolve one planning event by semantic IDs and exact row sample bounds."""
+
+    target = row.get("target")
+    audio = row.get("audio_program")
+    _require(isinstance(target, Mapping), "planning target audio role is missing")
+    _require(isinstance(audio, Mapping), "planning AudioProgram is missing")
+    event = audio.get("target_event")
+    _require(isinstance(event, Mapping), "planning target audio event is missing")
+    start = event.get("start_sample")
+    end = event.get("end_sample_exclusive")
+    source_count = event.get("source_sample_count")
+    _require(
+        audio.get("mode") == "one_active_of_n"
+        and audio.get("active_source_slots") == ["source1"]
+        and audio.get("silent_source_slots") == ["source2"]
+        and event.get("sound_asset_id") == target.get("sound_asset_id")
+        and event.get("voice_id") == target.get("voice_id")
+        and event.get("content_id") == target.get("content_id")
+        and type(start) is int
+        and type(end) is int
+        and type(source_count) is int
+        and 0 <= start < end <= 80_000
+        and end - start == source_count == target.get("speech_sample_count")
+        and event.get("source_sample_rate_hz")
+        == target.get("speech_sample_rate_hz")
+        == 16_000
+        and event.get("source_channel_count") == target.get("speech_channel_count") == 1
+        and event.get("source_audio_uri") == target.get("speech_audio_uri"),
+        "planning target audio semantic/sample authority drift",
+    )
+    _, path = _controlled_target_sound(row)
+    return deepcopy(dict(event)), path
+
+
 def _copy_audio_contracts(
-    audio_template: Path, output: Path, row: Mapping[str, Any]
+    audio_template: Path | None,
+    output: Path,
+    row: Mapping[str, Any],
+    *,
+    planning_mode: bool = False,
 ) -> None:
+    if planning_mode:
+        _write_planning_audio_contracts(output, row)
+        return
+    _require(audio_template is not None, "legacy audio template is required")
     target = output / "controlled_audio_program"
     target.mkdir()
     controlled_sound, target_audio = _controlled_target_sound(row)
@@ -1092,6 +1384,103 @@ def _copy_audio_contracts(
         ("sound_asset_registry.json", sounds),
         ("audio_program.json", program),
         ("controlled_audio_binding.json", binding),
+    ):
+        write_json(target / name, value)
+
+
+def _write_planning_audio_contracts(output: Path, row: Mapping[str, Any]) -> None:
+    target = output / "controlled_audio_program"
+    target.mkdir()
+    event_authority, target_audio = _planning_target_audio(row)
+    endpoint_ids = {
+        "source1_emitter": "source1",
+        "source2_emitter": "source2",
+    }
+    endpoint_registry = {
+        "schema": "avengine_semantic_source_endpoint_registry_v1",
+        "registry_id": f"{row['episode_id']}__semantic_endpoints",
+        "revision": "planning_v1",
+        "source_endpoint_ids": endpoint_ids,
+    }
+    content_id = str(event_authority["content_id"])
+    content_registry = {
+        "schema": "avengine_semantic_sound_content_registry_v1",
+        "registry_id": f"{row['episode_id']}__semantic_sound_content",
+        "revision": "planning_v1",
+        "contents": [
+            {
+                "content_id": content_id,
+                "sound_asset_id": event_authority["sound_asset_id"],
+                "voice_id": event_authority["voice_id"],
+                "source_audio_uri": event_authority["source_audio_uri"],
+                "sample_rate_hz": event_authority["source_sample_rate_hz"],
+                "channel_count": event_authority["source_channel_count"],
+                "sample_count": event_authority["source_sample_count"],
+            }
+        ],
+    }
+    start = int(event_authority["start_sample"])
+    end = int(event_authority["end_sample_exclusive"])
+    program = {
+        "schema": "avengine_semantic_audio_program_v1",
+        "program_id": f"{row['episode_id']}__semantic_audio",
+        "revision": "planning_v1",
+        "mode": "one_active_of_n",
+        "timeline": {
+            "time_base_hz": 48_000,
+            "ticks_per_frame": TICKS_PER_FRAME,
+            "video_fps": FRAME_RATE_HZ,
+            "frame_count": FRAME_COUNT,
+            "sample_rate_hz": 16_000,
+            "ticks_per_sample": 3,
+            "sample_count": 80_000,
+        },
+        "candidate_source_endpoint_ids": sorted(endpoint_ids),
+        "events": [
+            {
+                "event_id": f"{row['episode_id']}__target_speech",
+                "source_endpoint_id": "source1_emitter",
+                "content_id": content_id,
+                "start_tick": start * 3,
+                "end_tick_exclusive": end * 3,
+                "start_sample": start,
+                "end_sample_exclusive": end,
+                "source_start_sample": 0,
+                "source_end_sample_exclusive": int(
+                    event_authority["source_sample_count"]
+                ),
+                "source_sample_rate_hz": int(event_authority["source_sample_rate_hz"]),
+                "source_channel_count": int(event_authority["source_channel_count"]),
+                "source_sample_count": int(event_authority["source_sample_count"]),
+                "linear_gain": 1.0,
+                "fade_samples": 0,
+                "render_source_stem": True,
+            }
+        ],
+        "source_specific_stems": True,
+        "admission_state": "research",
+        "program_content_sha256": "PENDING",
+    }
+    program = bind_audio_program_hash(program)
+    binding = {
+        "schema": "avengine_semantic_audio_binding_v1",
+        "episode_id": row["episode_id"],
+        "variant_id": "A",
+        "content_bindings": {
+            content_id: {
+                "content_id": content_id,
+                "path": str(target_audio.resolve()),
+                "sample_rate_hz": event_authority["source_sample_rate_hz"],
+                "channel_count": event_authority["source_channel_count"],
+                "sample_count": event_authority["source_sample_count"],
+            }
+        },
+    }
+    for name, value in (
+        ("semantic_source_endpoint_registry.json", endpoint_registry),
+        ("semantic_sound_content_registry.json", content_registry),
+        ("audio_program.json", program),
+        ("semantic_audio_binding.json", binding),
     ):
         write_json(target / name, value)
 
@@ -1195,6 +1584,57 @@ def _validate_audio_contracts(
     }
 
 
+def _validate_planning_audio_contracts(
+    output: Path,
+    *,
+    expected_event: Mapping[str, Any],
+) -> dict[str, Any]:
+    root = output / "controlled_audio_program"
+    endpoints = _load(root / "semantic_source_endpoint_registry.json")
+    contents = _load(root / "semantic_sound_content_registry.json")
+    program = _load(root / "audio_program.json")
+    binding = _load(root / "semantic_audio_binding.json")
+    assembled = assemble_semantic_audio_program_dry_buses(
+        program,
+        "A",
+        source_endpoint_ids=endpoints["source_endpoint_ids"],
+        semantic_content_registry=contents,
+        content_bindings=binding["content_bindings"],
+    )
+    compiled = assembled.compiled_program
+    _require(len(compiled.events) == 1, "planning target must have one audio event")
+    event = compiled.events[0]
+    _require(
+        event.start_sample == expected_event["start_sample"]
+        and event.end_sample_exclusive == expected_event["end_sample_exclusive"]
+        and event.sound_asset_id == expected_event["content_id"],
+        "planning AudioProgram exact event authority drift",
+    )
+    buses = bind_endpoint_buses_to_source_slots(
+        assembled.dry_audio.buses,
+        endpoint_to_source_slot=endpoints["source_endpoint_ids"],
+        source_slots=("source1", "source2"),
+    )
+    _require(
+        not np.any(buses["source1"][: event.start_sample])
+        and np.any(buses["source1"][event.start_sample : event.end_sample_exclusive])
+        and not np.any(buses["source1"][event.end_sample_exclusive :])
+        and not np.any(buses["source2"]),
+        "planning semantic dry-bus activity drift",
+    )
+    return {
+        "status": "pass_semantic_content_exact_event_no_file_digest",
+        "target_event_count": 1,
+        "distractor_event_count": 0,
+        "target_content_id": expected_event["content_id"],
+        "start_sample": event.start_sample,
+        "end_sample_exclusive": event.end_sample_exclusive,
+        "target_active_sample_count": event.end_sample_exclusive - event.start_sample,
+        "sample_count": 80_000,
+        "binding_mode": "semantic_content_id_and_declared_audio_metadata_v1",
+    }
+
+
 def _acoustic_execution_request(
     *,
     output: Path,
@@ -1202,9 +1642,60 @@ def _acoustic_execution_request(
     rir_plan: Mapping[str, Any],
     target_sound_asset_id: str,
     target_audio: Path,
+    planning_mode: bool = False,
 ) -> dict[str, Any]:
     cache = output / "rir_cache_v3"
     audio_output = output / "binaural_v1"
+    audio_root = output / "controlled_audio_program"
+    binaural_argv = [
+        "env",
+        f"PYTHONPATH={REPOSITORY / 'src'}",
+        str(HABITAT_PYTHON),
+        "tools/m7/render_asset_bound_binaural_batch.py",
+        "--plan-root",
+        str(output.resolve()),
+        "--rir-cache",
+        str(cache.resolve()),
+        "--audio-program",
+        str((audio_root / "audio_program.json").resolve()),
+        "--audio-program-variant",
+        "A",
+    ]
+    if planning_mode:
+        binaural_argv.extend(
+            [
+                "--semantic-source-endpoint-registry",
+                str((audio_root / "semantic_source_endpoint_registry.json").resolve()),
+                "--semantic-sound-content-registry",
+                str((audio_root / "semantic_sound_content_registry.json").resolve()),
+                "--semantic-audio-binding",
+                str((audio_root / "semantic_audio_binding.json").resolve()),
+            ]
+        )
+    else:
+        binaural_argv.extend(
+            [
+                "--source-endpoint-registry",
+                str((audio_root / "source_endpoint_registry.json").resolve()),
+                "--sound-asset-registry",
+                str((audio_root / "sound_asset_registry.json").resolve()),
+                "--source-endpoint-slot",
+                "lead_d_source1_mouth=source1",
+                "--source-endpoint-slot",
+                "lead_d_source2_mouth=source2",
+                "--sound-audio",
+                f"{target_sound_asset_id}={target_audio}",
+            ]
+        )
+    binaural_argv.extend(
+        [
+            "--variants-per-episode",
+            "1",
+            "--retain-stems",
+            "--output",
+            str(audio_output.resolve()),
+        ]
+    )
     return {
         "schema": "avengine_strict_two_human_dynamic_cpu_acoustic_execution_request_v1",
         "status": "ready_cpu_not_run",
@@ -1244,108 +1735,103 @@ def _acoustic_execution_request(
             "--thread-count",
             "32",
         ],
-        "binaural_render_argv": [
-            "env",
-            f"PYTHONPATH={REPOSITORY / 'src'}",
-            str(HABITAT_PYTHON),
-            "tools/m7/render_asset_bound_binaural_batch.py",
-            "--plan-root",
-            str(output.resolve()),
-            "--rir-cache",
-            str(cache.resolve()),
-            "--audio-program",
-            str((output / "controlled_audio_program/audio_program.json").resolve()),
-            "--audio-program-variant",
-            "A",
-            "--source-endpoint-registry",
-            str(
-                (
-                    output / "controlled_audio_program/source_endpoint_registry.json"
-                ).resolve()
-            ),
-            "--sound-asset-registry",
-            str(
-                (
-                    output / "controlled_audio_program/sound_asset_registry.json"
-                ).resolve()
-            ),
-            "--source-endpoint-slot",
-            "lead_d_source1_mouth=source1",
-            "--source-endpoint-slot",
-            "lead_d_source2_mouth=source2",
-            "--sound-audio",
-            f"{target_sound_asset_id}={target_audio}",
-            "--variants-per-episode",
-            "1",
-            "--retain-stems",
-            "--output",
-            str(audio_output.resolve()),
-        ],
+        "binaural_render_argv": binaural_argv,
     }
 
 
 def _materialize_into(
     *,
-    preflight_path: Path,
+    preflight_path: Path | None,
     canary_index: int,
-    base_suite_path: Path,
+    base_suite_path: Path | None,
     audio_template: Path,
     output: Path,
     published_output: Path,
     motion_candidate_path: Path | None = None,
     planning_binding: Mapping[str, Any] | None = None,
+    planning_profile: Mapping[str, Any] | None = None,
+    planning_suite: Mapping[str, Any] | None = None,
 ) -> Path:
     _require(
         output.is_dir() and not any(output.iterdir()),
         f"materialization staging must be an empty directory: {output}",
     )
-    preflight = _load(preflight_path)
-    _require(preflight.get("schema") == PREFLIGHT_SCHEMA, "preflight schema drift")
-    row = _selected_canary(preflight, canary_index)
+    planning_mode = planning_binding is not None and motion_candidate_path is None
+    if planning_mode:
+        assert planning_binding is not None
+        _require(
+            planning_profile is not None and planning_suite is not None,
+            "planning materialization authorities were not prepared",
+        )
+        row = deepcopy(dict(planning_binding["value"]))
+    else:
+        _require(
+            preflight_path is not None, "legacy materialization requires preflight"
+        )
+        preflight = _load(preflight_path)
+        _require(preflight.get("schema") == PREFLIGHT_SCHEMA, "preflight schema drift")
+        row = _selected_canary(preflight, canary_index)
     mechanism = str(row["mechanism"])
     _require(
         mechanism in MOTION_PROFILE_REQUIRED_MECHANISMS
-        or mechanism == "camera_pan_both_static",
+        or mechanism in {"both_static", "camera_pan_both_static"},
         "unsupported dynamic mechanism",
     )
     _require(
         mechanism not in MOTION_PROFILE_REQUIRED_MECHANISMS
-        or motion_candidate_path is not None,
+        or motion_candidate_path is not None
+        or planning_mode,
         f"{mechanism} requires --motion-candidate; legacy root inference is disabled",
     )
-    _require(
-        {row["target"]["identity_key"], row["distractor"]["identity_key"]}
-        == {"M", "F"},
-        "dynamic canary requires the reviewed M/F runtime pair",
-    )
-    _, target_audio = _controlled_target_sound(row)
+    if not planning_mode:
+        _require(
+            {row["target"]["identity_key"], row["distractor"]["identity_key"]}
+            == {"M", "F"},
+            "dynamic canary requires the reviewed M/F runtime pair",
+        )
+    target_event: Mapping[str, Any] | None = None
+    if planning_mode:
+        target_event, target_audio = _planning_target_audio(row)
+    else:
+        _, target_audio = _controlled_target_sound(row)
     required_paths = [
-        base_suite_path,
-        audio_template / "audio_program.json",
         CONTROLLED_SOUND_CONTENT_REGISTRY,
         ACOUSTIC_PACKAGE,
         SIMULATION_REQUEST,
         HABITAT_PYTHON,
         target_audio,
     ]
+    if not planning_mode:
+        required_paths.append(audio_template / "audio_program.json")
+    if not planning_mode:
+        assert base_suite_path is not None
+        required_paths.append(base_suite_path)
     if motion_candidate_path is not None:
         required_paths.append(motion_candidate_path)
     for path in required_paths:
         _require(path.is_file(), f"required input is missing: {path}")
 
-    base_suite = _load(base_suite_path)
+    base_suite = (
+        deepcopy(dict(planning_suite)) if planning_mode else _load(base_suite_path)  # type: ignore[arg-type]
+    )
     motion_profile: dict[str, Any] | None = None
-    if mechanism in MOTION_PROFILE_REQUIRED_MECHANISMS:
-        assert motion_candidate_path is not None
-        motion_candidate = _load(motion_candidate_path)
-        motion_profile = build_actor_motion_profile(
-            candidate_path=motion_candidate_path,
-            candidate=motion_candidate,
-            old_preflight_path=preflight_path,
-            selected_old_row=row,
-            base_suite_path=base_suite_path,
-            base_suite=base_suite,
-        )
+    if planning_mode or mechanism in MOTION_PROFILE_REQUIRED_MECHANISMS:
+        if planning_mode:
+            motion_profile = deepcopy(dict(planning_profile))
+            motion_candidate = motion_profile["authorities"]["candidate"]["value"]
+        else:
+            assert motion_candidate_path is not None
+            assert preflight_path is not None
+            assert base_suite_path is not None
+            motion_candidate = _load(motion_candidate_path)
+            motion_profile = build_actor_motion_profile(
+                candidate_path=motion_candidate_path,
+                candidate=motion_candidate,
+                old_preflight_path=preflight_path,
+                selected_old_row=row,
+                base_suite_path=base_suite_path,
+                base_suite=base_suite,
+            )
         validate_actor_motion_profile(motion_profile)
         (
             declarations,
@@ -1428,22 +1914,42 @@ def _materialize_into(
     trajectory_bank = bank.record()
     if motion_profile is not None:
         motion_candidate = motion_profile["authorities"]["candidate"]["value"]
-        root_path_provenance = {
-            str(slot): {
-                "method": "hash_bound_actor_motion_profile_v1",
-                "profile_content_sha256": motion_profile["profile_content_sha256"],
-                "candidate_document_sha256": motion_profile["authorities"]["candidate"][
-                    "document_sha256"
-                ],
-                "native_motion_authority": deepcopy(
-                    actor.get("native_motion_authority")
-                ),
-                "native_rate_active_interval": deepcopy(
-                    actor.get("native_rate_active_interval")
-                ),
+        if is_planning_actor_motion_profile(motion_profile):
+            root_path_provenance = {
+                str(slot): {
+                    "method": "planning_row_runtime_profile_v1",
+                    "planning_source_path_authority": deepcopy(
+                        actor.get("planning_source_path_authority")
+                    ),
+                    "runtime_motion_authority": deepcopy(
+                        actor.get("runtime_motion_authority")
+                    ),
+                    "native_rate_active_interval": deepcopy(
+                        actor.get("native_rate_active_interval")
+                    ),
+                    "native_rate_action_segments": deepcopy(
+                        actor.get("native_rate_action_segments", [])
+                    ),
+                }
+                for slot, actor in motion_candidate["actors"].items()
             }
-            for slot, actor in motion_candidate["actors"].items()
-        }
+        else:
+            root_path_provenance = {
+                str(slot): {
+                    "method": "hash_bound_actor_motion_profile_v1",
+                    "profile_content_sha256": motion_profile["profile_content_sha256"],
+                    "native_motion_authority": deepcopy(
+                        actor.get("native_motion_authority")
+                    ),
+                    "native_rate_active_interval": deepcopy(
+                        actor.get("native_rate_active_interval")
+                    ),
+                    "native_rate_action_segments": deepcopy(
+                        actor.get("native_rate_action_segments", [])
+                    ),
+                }
+                for slot, actor in motion_candidate["actors"].items()
+            }
     else:
         root_path_provenance = {
             "source1": deepcopy(
@@ -1521,11 +2027,23 @@ def _materialize_into(
         rir_profile_comparison = None
 
     output.mkdir(parents=True, exist_ok=True)
-    _copy_audio_contracts(audio_template, output, row)
-    audio_validation = _validate_audio_contracts(
+    _copy_audio_contracts(
+        None if planning_mode else audio_template,
         output,
-        target_audio=target_audio,
-        expected_speech_window=row["target"]["speech_frame_window_inclusive"],
+        row,
+        planning_mode=planning_mode,
+    )
+    audio_validation = (
+        _validate_planning_audio_contracts(
+            output,
+            expected_event=target_event,
+        )
+        if planning_mode and target_event is not None
+        else _validate_audio_contracts(
+            output,
+            target_audio=target_audio,
+            expected_speech_window=row["target"]["speech_frame_window_inclusive"],
+        )
     )
     binding_report = _binding_report(
         row=row, declarations=declarations, emitter_paths=emitter_paths
@@ -1558,6 +2076,7 @@ def _materialize_into(
         rir_plan=rir_plan,
         target_sound_asset_id=row["target"]["sound_asset_id"],
         target_audio=target_audio,
+        planning_mode=planning_mode,
     )
     write_json(work_paths["cpu_acoustic_execution_request"], request)
 
@@ -1641,8 +2160,12 @@ def _materialize_into(
             "distractor_source_slot": "source2",
             "distractor_event_count": 0,
             "target_speech_start_sample": (
-                sample_boundary(int(row["target"]["speech_frame_window_inclusive"][0]))
-                + SPEECH_INTRA_FRAME_OFFSET_SAMPLES
+                target_event["start_sample"]
+                if target_event is not None
+                else sample_boundary(
+                    int(row["target"]["speech_frame_window_inclusive"][0])
+                )
+                + 128
             ),
             "target_sound_asset_id": row["target"]["sound_asset_id"],
             "target_audio_path": str(target_audio),
@@ -1650,25 +2173,38 @@ def _materialize_into(
             "sample_count": 80000,
         },
         "actor_motion_profile": (
-            {
-                "status": "pass_bound_and_consumed_frame_by_frame",
-                "schema": motion_profile["schema"],
-                "profile_content_sha256": motion_profile["profile_content_sha256"],
-                "candidate_document_sha256": motion_profile["authorities"]["candidate"][
-                    "document_sha256"
-                ],
-                "candidate_value_sha256": motion_profile["authorities"]["candidate"][
-                    "canonical_value_sha256"
-                ],
-                "canonical_frame_sha256": [
-                    frame["canonical_frame_sha256"]
-                    for frame in motion_profile["frames"]
-                ],
-                "derived_action_counts": action_counts,
-                "derived_rir_counts": rir_profile_comparison["compared_counts"],
-                "legacy_root_motion_inference_used": False,
-                "qualification_claim": False,
-            }
+            (
+                {
+                    "status": "pass_bound_and_consumed_frame_by_frame",
+                    "schema": motion_profile["schema"],
+                    "profile_content_sha256": motion_profile["profile_content_sha256"],
+                    "canonical_frame_sha256": [
+                        frame["canonical_frame_sha256"]
+                        for frame in motion_profile["frames"]
+                    ],
+                    "derived_action_counts": action_counts,
+                    "derived_rir_counts": rir_profile_comparison["compared_counts"],
+                    "legacy_root_motion_inference_used": False,
+                    "qualification_claim": False,
+                }
+                if is_planning_actor_motion_profile(motion_profile)
+                else {
+                    "status": "pass_bound_and_consumed_frame_by_frame",
+                    "schema": motion_profile["schema"],
+                    "profile_content_sha256": motion_profile["profile_content_sha256"],
+                    "candidate_value_sha256": motion_profile["authorities"][
+                        "candidate"
+                    ]["canonical_value_sha256"],
+                    "canonical_frame_sha256": [
+                        frame["canonical_frame_sha256"]
+                        for frame in motion_profile["frames"]
+                    ],
+                    "derived_action_counts": action_counts,
+                    "derived_rir_counts": rir_profile_comparison["compared_counts"],
+                    "legacy_root_motion_inference_used": False,
+                    "qualification_claim": False,
+                }
+            )
             if motion_profile is not None and rir_profile_comparison is not None
             else {
                 "status": "explicit_legacy_camera_pan_adapter",
@@ -1699,11 +2235,43 @@ def _materialize_into(
     return work_paths["materialization_receipt"]
 
 
+def _fresh_output_path(raw_output: Path) -> Path:
+    """Return an absolute output path after rejecting lexical symlink traversal."""
+
+    output = Path(raw_output)
+    if not output.is_absolute():
+        output = Path.cwd() / output
+    _require(".." not in output.parts, "output path may not contain parent traversal")
+    current = Path(output.anchor)
+    for part in output.parts[1:]:
+        current /= part
+        _require(
+            not current.is_symlink(),
+            f"output path may not contain symlinks: {current}",
+        )
+    _require(
+        not output.exists(),
+        f"refusing to overwrite output: {output}",
+    )
+    return output
+
+
+def _publish_staging(staging: Path, output: Path) -> Path:
+    """Publish without replacement and remove unpublished staging on failure."""
+
+    publish_policy = WorkspacePathPolicy.from_roots([output.parent])
+    try:
+        return atomic_publish_directory(publish_policy, staging, output)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def materialize(
     *,
-    preflight_path: Path,
+    preflight_path: Path | None,
     canary_index: int,
-    base_suite_path: Path,
+    base_suite_path: Path | None,
     audio_template: Path,
     output: Path,
     motion_candidate_path: Path | None = None,
@@ -1712,8 +2280,10 @@ def materialize(
 ) -> Path:
     """Build in staging and publish either a complete result or one failure receipt."""
 
-    _require(not output.exists(), f"refusing to overwrite output: {output}")
+    output = _fresh_output_path(output)
     planning_binding: Mapping[str, Any] | None = None
+    planning_profile: dict[str, Any] | None = None
+    planning_suite: dict[str, Any] | None = None
     planning_values = (
         planning_manifest_path,
         planning_episode_id,
@@ -1729,12 +2299,42 @@ def materialize(
             planning_manifest_path=planning_manifest_path,
             episode_id=planning_episode_id,
         )
-        _validate_planning_materialization_authority(
-            binding=planning_binding,
-            preflight_path=preflight_path,
-            canary_index=canary_index,
-            motion_candidate_path=motion_candidate_path,
-        )
+        if motion_candidate_path is not None:
+            _require(
+                preflight_path is not None,
+                "legacy planning binding with motion candidate requires preflight",
+            )
+            _validate_planning_materialization_authority(
+                binding=planning_binding,
+                preflight_path=preflight_path,
+                canary_index=canary_index,
+                motion_candidate_path=motion_candidate_path,
+            )
+        else:
+            row = planning_binding["value"]
+            mechanism = row.get("mechanism")
+            if mechanism in MOTION_PROFILE_REQUIRED_MECHANISMS:
+                roles = (row.get("target"), row.get("distractor"))
+                _require(
+                    all(
+                        isinstance(role, Mapping)
+                        and isinstance(role.get("motion_profile_authority"), Mapping)
+                        for role in roles
+                    ),
+                    (
+                        "planning dynamic row lacks a generic native motion "
+                        "authority; refusing natural-cadence inference"
+                    ),
+                )
+            _require(
+                row.get("mechanism")
+                in MOTION_PROFILE_REQUIRED_MECHANISMS
+                | {"both_static", "camera_pan_both_static"},
+                "planning-only materialization requires a supported mechanism",
+            )
+            planning_profile, planning_suite = _planning_materialization_authorities(
+                planning_binding
+            )
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{output.name}.staging.", dir=output.parent)
@@ -1749,6 +2349,8 @@ def materialize(
             published_output=output,
             motion_candidate_path=motion_candidate_path,
             planning_binding=planning_binding,
+            planning_profile=planning_profile,
+            planning_suite=planning_suite,
         )
     except Exception as exc:
         shutil.rmtree(staging)
@@ -1766,9 +2368,9 @@ def materialize(
                 "qualification_claim": False,
             },
         )
-        staging.replace(output)
+        _publish_staging(staging, output)
         raise
-    staging.replace(output)
+    _publish_staging(staging, output)
     return output / "materialization_receipt.json"
 
 
@@ -1788,11 +2390,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     receipt = materialize(
-        preflight_path=args.preflight.resolve(),
+        preflight_path=(
+            args.preflight.resolve()
+            if args.preflight
+            and not (
+                args.planning_manifest is not None and args.motion_candidate is None
+            )
+            else None
+        ),
         canary_index=args.canary_index,
-        base_suite_path=args.base_suite.resolve(),
+        base_suite_path=(
+            args.base_suite.resolve()
+            if args.base_suite
+            and not (
+                args.planning_manifest is not None and args.motion_candidate is None
+            )
+            else None
+        ),
         audio_template=args.audio_template.resolve(),
-        output=args.output.resolve(),
+        output=args.output,
         motion_candidate_path=(
             args.motion_candidate.resolve() if args.motion_candidate else None
         ),

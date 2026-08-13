@@ -14,16 +14,20 @@ asset identity, sound asset identity, and RIR source-slot identity explicit.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
-from copy import deepcopy
-from dataclasses import dataclass
+import math
 import os
-from pathlib import Path
 import re
 import shutil
+import struct
 import time
-from typing import Any, Mapping, Sequence
 import wave
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
+from dataclasses import dataclass
+from itertools import pairwise
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -39,7 +43,10 @@ from avengine.m5.audio import (
     M5_AUDIO_SAMPLE_RATE_HZ,
     raised_cosine_partition,
 )
-from avengine.m6.audio_render import assemble_audio_program_dry_buses
+from avengine.m6.audio_render import (
+    assemble_audio_program_dry_buses,
+    assemble_semantic_audio_program_dry_buses,
+)
 from avengine.m6.sources import (
     load_sound_asset_registry,
     load_source_endpoint_registry,
@@ -60,11 +67,15 @@ from avengine.m7.sensor_rig import (
     m7_sensor_rig_pose_series,
     validate_m7_rir_listener_alignment,
 )
-
+from avengine.security import (
+    WorkspacePathPolicy,
+    atomic_publish_directory,
+)
 
 SCHEMA = "avengine_m7_asset_bound_binaural_batch_delivery_v1"
 SOURCE_SLOTS = ("source1", "source2")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_STABLE_PATH_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _ACOUSTIC_SELECTION_FIELDS = {
     "schema",
     "selection_mode",
@@ -88,13 +99,10 @@ def _validated_acoustic_selection_binding(
 
     if (
         not isinstance(value, Mapping)
-        or value.get("schema")
-        != "avengine_rir_cache_acoustic_selection_binding_v1"
+        or value.get("schema") != "avengine_rir_cache_acoustic_selection_binding_v1"
         or set(value) != _ACOUSTIC_SELECTION_FIELDS
     ):
-        raise AssetBoundAudioError(
-            "RIR cache acoustic_selection_binding is invalid"
-        )
+        raise AssetBoundAudioError("RIR cache acoustic_selection_binding is invalid")
     binding = deepcopy(dict(value))
     mode = binding.get("selection_mode")
     binding_sha256 = binding.get("binding_content_sha256")
@@ -134,6 +142,22 @@ def _validated_acoustic_selection_binding(
     return binding, binding_sha256
 
 
+def _semantic_acoustic_selection_summary(
+    binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project an already validated RIR selection without file evidence."""
+
+    return {
+        "schema": "avengine_m7_semantic_rir_selection_summary_v1",
+        "selection_mode": binding["selection_mode"],
+        "registry_selection_applied": binding["registry_selection_applied"],
+        "room_ref": deepcopy(binding["room_ref"]),
+        "profile_ref": deepcopy(binding["profile_ref"]),
+        "binding_id": binding["binding_id"],
+        "qualification_claim": False,
+    }
+
+
 @dataclass(frozen=True)
 class AudioProgramSpec:
     """One M6 program document and the exact route variant to materialize."""
@@ -142,15 +166,615 @@ class AudioProgramSpec:
     variant_id: str = "A"
 
 
+@dataclass(frozen=True)
+class _SemanticRIREpisode:
+    """One digest-free RIR episode closed by schema and sample metadata."""
+
+    samples: np.ndarray
+    lengths: np.ndarray
+    source_slot_ids: tuple[str, ...]
+    visual_frame_indices: tuple[int, ...]
+    keyframe_samples: tuple[int, ...]
+    sample_rate_hz: int
+    layout_type: str
+    layout_id: str
+    channel_labels: tuple[str, ...]
+    evidence: Mapping[str, Any]
+
+
+def _semantic_finite_vector(value: Any, length: int, *, owner: str) -> list[float]:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != length
+        or any(
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or not math.isfinite(float(item))
+            for item in value
+        )
+    ):
+        raise AssetBoundAudioError(f"{owner} must contain {length} finite numbers")
+    return [float(item) for item in value]
+
+
+def _semantic_unit_orientation(value: Any, *, owner: str) -> list[float]:
+    result = _semantic_finite_vector(value, 4, owner=owner)
+    if not math.isclose(
+        math.sqrt(sum(component * component for component in result)),
+        1.0,
+        rel_tol=0.0,
+        abs_tol=1.0e-6,
+    ):
+        raise AssetBoundAudioError(f"{owner} must be unit normalized")
+    return result
+
+
+def _semantic_acoustic_selection_binding(value: Any) -> dict[str, Any]:
+    """Project selection identity without consuming legacy digest evidence."""
+
+    if (
+        not isinstance(value, Mapping)
+        or value.get("schema") != "avengine_rir_cache_acoustic_selection_binding_v1"
+    ):
+        raise AssetBoundAudioError("semantic RIR acoustic selection is invalid")
+    mode = value.get("selection_mode")
+    applied = value.get("registry_selection_applied")
+    room_ref = value.get("room_ref")
+    profile_ref = value.get("profile_ref")
+    binding_id = value.get("binding_id")
+    if mode in {"registry", "registry_with_verified_equivalent_overrides"}:
+        if (
+            applied is not True
+            or not isinstance(room_ref, Mapping)
+            or set(room_ref) != {"registry_id", "room_id", "revision"}
+            or not all(isinstance(item, str) and item for item in room_ref.values())
+            or not isinstance(profile_ref, Mapping)
+            or set(profile_ref) != {"profile_id", "revision"}
+            or not all(isinstance(item, str) and item for item in profile_ref.values())
+            or not isinstance(binding_id, str)
+            or not binding_id
+        ):
+            raise AssetBoundAudioError(
+                "semantic registry RIR acoustic selection is incomplete"
+            )
+    elif mode in {"explicit_legacy", "explicit_legacy_unbound"}:
+        if (
+            applied is not False
+            or room_ref is not None
+            or profile_ref is not None
+            or binding_id is not None
+        ):
+            raise AssetBoundAudioError(
+                "semantic explicit RIR acoustic selection fabricated an identity"
+            )
+    else:
+        raise AssetBoundAudioError("semantic RIR acoustic selection mode is invalid")
+    return {
+        "schema": value["schema"],
+        "selection_mode": mode,
+        "registry_selection_applied": applied,
+        "room_ref": deepcopy(room_ref),
+        "profile_ref": deepcopy(profile_ref),
+        "binding_id": binding_id,
+    }
+
+
+def _read_semantic_rir_shard(path: Path) -> dict[str, np.ndarray]:
+    """Read structural/sample fields while ignoring legacy digest/size arrays."""
+
+    required = {
+        "job_indices",
+        "job_ids",
+        "source_positions_m",
+        "listener_positions_m",
+        "listener_orientations_wxyz",
+        "lengths",
+        "samples",
+        "sample_rate_hz",
+        "layout_id",
+        "channel_labels",
+    }
+    try:
+        with np.load(path, allow_pickle=False) as archive:
+            if not required.issubset(archive.files):
+                raise AssetBoundAudioError(
+                    f"semantic RIR shard lacks structural fields: {path}"
+                )
+            result = {name: np.asarray(archive[name]).copy() for name in required}
+    except AssetBoundAudioError:
+        raise
+    except Exception as exc:
+        raise AssetBoundAudioError(f"semantic RIR shard is unreadable: {path}") from exc
+    samples = result["samples"]
+    lengths = result["lengths"]
+    count = samples.shape[0] if samples.ndim == 3 else 0
+    if (
+        count < 1
+        or samples.shape[1] != 2
+        or result["job_indices"].shape != (count,)
+        or result["job_ids"].shape != (count,)
+        or result["source_positions_m"].shape != (count, 3)
+        or result["listener_positions_m"].shape != (count, 3)
+        or result["listener_orientations_wxyz"].shape != (count, 4)
+        or lengths.shape != (count,)
+        or samples.dtype != np.dtype("<f4")
+        or result["job_indices"].dtype != np.dtype("<u4")
+        or lengths.dtype != np.dtype("<u4")
+        or result["source_positions_m"].dtype != np.dtype("<f8")
+        or result["listener_positions_m"].dtype != np.dtype("<f8")
+        or result["listener_orientations_wxyz"].dtype != np.dtype("<f8")
+        or result["job_ids"].dtype.kind != "U"
+        or np.any(lengths < 2)
+        or np.any(lengths > samples.shape[2])
+        or not np.all(np.isfinite(samples))
+        or not np.all(np.isfinite(result["source_positions_m"]))
+        or not np.all(np.isfinite(result["listener_positions_m"]))
+        or not np.all(np.isfinite(result["listener_orientations_wxyz"]))
+        or not np.allclose(
+            np.linalg.norm(result["listener_orientations_wxyz"], axis=1),
+            1.0,
+            rtol=0.0,
+            atol=1.0e-6,
+        )
+        or result["sample_rate_hz"].shape != ()
+        or result["sample_rate_hz"].dtype != np.dtype("<u4")
+        or int(result["sample_rate_hz"].item()) != M5_AUDIO_SAMPLE_RATE_HZ
+        or result["layout_id"].shape != ()
+        or result["layout_id"].dtype.kind != "U"
+        or str(result["layout_id"].item()) != "rlr_binaural_lr_v1"
+        or result["channel_labels"].shape != (2,)
+        or result["channel_labels"].dtype.kind != "U"
+        or tuple(str(item) for item in result["channel_labels"]) != ("left", "right")
+    ):
+        raise AssetBoundAudioError(f"semantic RIR shard metadata is invalid: {path}")
+    for row, raw_length in enumerate(lengths):
+        length = int(raw_length)
+        if not np.any(samples[row, :, :length]) or np.any(samples[row, :, length:]):
+            raise AssetBoundAudioError(
+                f"semantic RIR shard active/padding samples are invalid: {path} row {row}"
+            )
+    return result
+
+
+class _SemanticRIRCacheSession:
+    """Digest-free reader for planning RIR caches.
+
+    This path validates schema, selected paths, job/use bijections, poses, and
+    decoded sample metadata.  It intentionally neither reads nor verifies any
+    file digest or byte-size field retained by the legacy cache producer.
+    """
+
+    def __init__(
+        self,
+        *,
+        cache_root: Path,
+        plan_path: Path,
+        expected_episode_id: str,
+        frame_count: int,
+        frame_rate_hz: int,
+        shared_shard_cache: dict[Path, dict[str, np.ndarray]] | None = None,
+    ) -> None:
+        self.root = cache_root.resolve()
+        self.plan_path = plan_path.resolve()
+        if (
+            cache_root.is_symlink()
+            or not self.root.is_dir()
+            or plan_path.is_symlink()
+            or not self.plan_path.is_file()
+        ):
+            raise AssetBoundAudioError(
+                "semantic RIR cache requires a cache root and selected plan"
+            )
+        if frame_count != 75 or frame_rate_hz != 15:
+            raise AssetBoundAudioError("semantic RIR cache requires full75/15Hz")
+        self.frames = frame_count
+        self.fps = frame_rate_hz
+
+        def fixed_json(path: Path, root: Path, *, owner: str) -> Mapping[str, Any]:
+            resolved = path.resolve()
+            try:
+                resolved.relative_to(root.resolve())
+            except ValueError as exc:
+                raise AssetBoundAudioError(
+                    f"{owner} escapes its selected root"
+                ) from exc
+            if (
+                path.is_symlink()
+                or resolved != path.absolute()
+                or not resolved.is_file()
+            ):
+                raise AssetBoundAudioError(
+                    f"{owner} must be one fixed regular JSON file"
+                )
+            value = load_json(resolved)
+            if not isinstance(value, Mapping):
+                raise AssetBoundAudioError(f"{owner} must contain an object")
+            return value
+
+        plan = fixed_json(
+            self.plan_path, self.plan_path.parent, owner="semantic RIR plan"
+        )
+        request = fixed_json(
+            self.root / "request.json", self.root, owner="semantic RIR request"
+        )
+        receipt = fixed_json(
+            self.root / "receipt.json", self.root, owner="semantic RIR receipt"
+        )
+        index = fixed_json(
+            self.root / "index.json", self.root, owner="semantic RIR index"
+        )
+        raw_jobs = plan.get("jobs") if isinstance(plan, Mapping) else None
+        if (
+            not isinstance(plan, Mapping)
+            or plan.get("schema") != "avengine_room_rir_job_plan_v2"
+            or plan.get("status") != "planned_not_run"
+            or plan.get("listener_pose_mode") not in {"fixed", "per_episode_frame"}
+            or plan.get("stride_frames") != 1
+            or plan.get("cache_key_fields")
+            != [
+                "source_position_m",
+                "listener_position_m",
+                "listener_orientation_wxyz",
+            ]
+            or not isinstance(raw_jobs, list)
+            or not raw_jobs
+            or plan.get("unique_rir_job_count") != len(raw_jobs)
+        ):
+            raise AssetBoundAudioError("semantic RIR job plan is invalid")
+        pose_mode = plan["listener_pose_mode"]
+        fixed_listener: tuple[float, ...] | None = None
+        fixed_orientation: tuple[float, ...] | None = None
+        if pose_mode == "fixed":
+            fixed_listener = _semantic_finite_vector(
+                plan.get("listener_position_m"),
+                3,
+                owner="semantic RIR fixed listener position",
+            )
+            fixed_orientation = _semantic_unit_orientation(
+                plan.get("listener_orientation_wxyz"),
+                owner="semantic RIR fixed listener orientation",
+            )
+        elif "listener_position_m" in plan or "listener_orientation_wxyz" in plan:
+            raise AssetBoundAudioError(
+                "per-episode semantic RIR plan may not declare a top-level pose"
+            )
+        self.jobs_by_id: dict[str, dict[str, Any]] = {}
+        self.jobs_by_episode: dict[str, dict[tuple[str, int], dict[str, Any]]] = {}
+        acoustic_states: set[tuple[float, ...]] = set()
+        use_count = 0
+        for ordinal, raw_job in enumerate(raw_jobs):
+            if not isinstance(raw_job, Mapping):
+                raise AssetBoundAudioError("semantic RIR plan job is invalid")
+            job_id = raw_job.get("job_id")
+            if not isinstance(job_id, str) or not job_id or job_id in self.jobs_by_id:
+                raise AssetBoundAudioError("semantic RIR plan job IDs are invalid")
+            source = _semantic_finite_vector(
+                raw_job.get("source_position_m"),
+                3,
+                owner=f"semantic RIR job {job_id} source position",
+            )
+            listener = _semantic_finite_vector(
+                raw_job.get("listener_position_m"),
+                3,
+                owner=f"semantic RIR job {job_id} listener position",
+            )
+            orientation = _semantic_unit_orientation(
+                raw_job.get("listener_orientation_wxyz"),
+                owner=f"semantic RIR job {job_id} listener orientation",
+            )
+            if pose_mode == "fixed" and (
+                listener != fixed_listener or orientation != fixed_orientation
+            ):
+                raise AssetBoundAudioError(
+                    f"semantic RIR job {job_id} differs from fixed plan pose"
+                )
+            acoustic_state = (*source, *listener, *orientation)
+            if acoustic_state in acoustic_states:
+                raise AssetBoundAudioError(
+                    "semantic RIR plan contains a duplicate acoustic pose"
+                )
+            acoustic_states.add(acoustic_state)
+            raw_uses = raw_job.get("uses")
+            if not isinstance(raw_uses, list) or not raw_uses:
+                raise AssetBoundAudioError("semantic RIR plan job lacks uses")
+            job = {
+                "job_id": job_id,
+                "job_index": ordinal,
+                "source_position_m": source,
+                "listener_position_m": listener,
+                "listener_orientation_wxyz": orientation,
+            }
+            self.jobs_by_id[job_id] = job
+            for raw_use in raw_uses:
+                if not isinstance(raw_use, Mapping):
+                    raise AssetBoundAudioError("semantic RIR plan use is invalid")
+                episode_id = raw_use.get("episode_id")
+                slot = raw_use.get("source_slot_id")
+                frame = raw_use.get("frame_index")
+                if (
+                    not isinstance(episode_id, str)
+                    or not episode_id
+                    or slot not in SOURCE_SLOTS
+                    or isinstance(frame, bool)
+                    or not isinstance(frame, int)
+                    or not 0 <= frame < self.frames
+                ):
+                    raise AssetBoundAudioError("semantic RIR plan use is invalid")
+                key = (str(slot), frame)
+                episode_uses = self.jobs_by_episode.setdefault(episode_id, {})
+                if key in episode_uses:
+                    raise AssetBoundAudioError(
+                        "semantic RIR plan maps one use more than once"
+                    )
+                episode_uses[key] = job
+                use_count += 1
+        if (
+            plan.get("requested_pair_state_count") != use_count
+            or use_count != self.frames * len(SOURCE_SLOTS)
+            or set(self.jobs_by_episode) != {expected_episode_id}
+        ):
+            raise AssetBoundAudioError("semantic RIR plan use count is invalid")
+
+        request_plan = request.get("plan") if isinstance(request, Mapping) else None
+        request_output = request.get("output") if isinstance(request, Mapping) else None
+        runtime = (
+            request.get("runtime_policy") if isinstance(request, Mapping) else None
+        )
+        if (
+            not isinstance(request, Mapping)
+            or request.get("schema") != "avengine_rlr_rir_cache_request_v1"
+            or not isinstance(request_plan, Mapping)
+            or not isinstance(request_plan.get("path"), str)
+            or not Path(request_plan["path"]).is_absolute()
+            or Path(request_plan["path"]).resolve() != self.plan_path
+            or request_plan.get("full_job_count") != len(raw_jobs)
+            or request_plan.get("selected_job_offset") != 0
+            or request_plan.get("selected_job_count") != len(raw_jobs)
+            or request_plan.get("acoustic_state_binding")
+            != "source_listener_pose_per_job_v1"
+            or not isinstance(request_output, Mapping)
+            or request_output.get("layout_type") != "binaural"
+            or request_output.get("channel_count") != 2
+            or request_output.get("layout_id") != "rlr_binaural_lr_v1"
+            or not isinstance(runtime, Mapping)
+            or runtime.get("compute_device") != "CPU"
+            or runtime.get("gpu_acceleration") is not False
+            or runtime.get("listener_pose_update_policy")
+            != "set_listener_pose_on_change_v1"
+        ):
+            raise AssetBoundAudioError("semantic RIR cache request is invalid")
+        translation = _semantic_finite_vector(
+            runtime.get("coordinate_translation_m"),
+            3,
+            owner="semantic RIR cache coordinate translation",
+        )
+        self.translation_m = np.asarray(translation, dtype=np.float64)
+        self.acoustic_selection_binding = _semantic_acoustic_selection_binding(
+            request.get("acoustic_selection_binding")
+        )
+        selection_mode = self.acoustic_selection_binding["selection_mode"]
+        if (
+            not isinstance(receipt, Mapping)
+            or receipt.get("schema") != "avengine_rlr_rir_cache_receipt_v1"
+            or receipt.get("status") != "pass"
+            or receipt.get("qualification_claim") is not False
+            or receipt.get("full_plan_complete") is not True
+            or receipt.get("full_plan_job_count") != len(raw_jobs)
+            or receipt.get("selected_job_count") != len(raw_jobs)
+            or receipt.get("sample_rate_hz") != M5_AUDIO_SAMPLE_RATE_HZ
+            or receipt.get("layout_type") != "binaural"
+            or receipt.get("layout_id") != "rlr_binaural_lr_v1"
+            or receipt.get("channel_count") != 2
+            or receipt.get("dry_audio_independent") is not True
+            or receipt.get("compute_device") != "CPU"
+            or receipt.get("acoustic_state_binding")
+            != "source_listener_pose_per_job_v1"
+            or receipt.get("listener_pose_update_policy")
+            != "set_listener_pose_on_change_v1"
+            or receipt.get("acoustic_selection_mode") != selection_mode
+        ):
+            raise AssetBoundAudioError("semantic RIR cache receipt is invalid")
+        raw_entries = index.get("entries") if isinstance(index, Mapping) else None
+        if (
+            not isinstance(index, Mapping)
+            or index.get("schema") != "avengine_rlr_rir_cache_index_v1"
+            or index.get("status") != "pass"
+            or index.get("full_plan_complete") is not True
+            or index.get("selected_job_count") != len(raw_jobs)
+            or index.get("acoustic_state_binding") != "source_listener_pose_per_job_v1"
+            or index.get("acoustic_selection_mode") != selection_mode
+            or not isinstance(raw_entries, list)
+            or len(raw_entries) != len(raw_jobs)
+        ):
+            raise AssetBoundAudioError("semantic RIR cache index is invalid")
+        self.entries_by_id: dict[str, dict[str, Any]] = {}
+        referenced_rows: set[tuple[Path, int]] = set()
+        for ordinal, raw_entry in enumerate(raw_entries):
+            if not isinstance(raw_entry, Mapping):
+                raise AssetBoundAudioError("semantic RIR cache entry is invalid")
+            job_id = raw_entry.get("job_id")
+            job = self.jobs_by_id.get(str(job_id))
+            shard_relative = raw_entry.get("shard")
+            row = raw_entry.get("row")
+            sample_count = raw_entry.get("sample_count")
+            if (
+                job is None
+                or job["job_index"] != ordinal
+                or raw_entry.get("job_index") != ordinal
+                or not isinstance(shard_relative, str)
+                or not shard_relative
+                or Path(shard_relative).is_absolute()
+                or isinstance(row, bool)
+                or not isinstance(row, int)
+                or row < 0
+                or isinstance(sample_count, bool)
+                or not isinstance(sample_count, int)
+                or sample_count < 2
+            ):
+                raise AssetBoundAudioError(
+                    "semantic RIR cache entry reference is invalid"
+                )
+            shard_candidate = self.root / shard_relative
+            if shard_candidate.is_symlink():
+                raise AssetBoundAudioError(
+                    "semantic RIR cache shard may not be a symlink"
+                )
+            shard_path = shard_candidate.resolve()
+            try:
+                shard_path.relative_to(self.root)
+            except ValueError as exc:
+                raise AssetBoundAudioError(
+                    "semantic RIR cache shard escapes its root"
+                ) from exc
+            if not shard_path.is_file() or (shard_path, row) in referenced_rows:
+                raise AssetBoundAudioError("semantic RIR cache shard row is invalid")
+            referenced_rows.add((shard_path, row))
+            expected_source = (
+                np.asarray(job["source_position_m"], dtype=np.float64)
+                + self.translation_m
+            ).tolist()
+            expected_listener = (
+                np.asarray(job["listener_position_m"], dtype=np.float64)
+                + self.translation_m
+            ).tolist()
+            if (
+                raw_entry.get("source_position_m") != expected_source
+                or raw_entry.get("listener_position_m") != expected_listener
+                or raw_entry.get("listener_orientation_wxyz")
+                != job["listener_orientation_wxyz"]
+            ):
+                raise AssetBoundAudioError(
+                    "semantic RIR cache entry pose differs from its plan"
+                )
+            self.entries_by_id[str(job_id)] = {
+                "job_index": ordinal,
+                "shard_path": shard_path,
+                "row": row,
+                "sample_count": sample_count,
+                "source_position_m": expected_source,
+                "listener_position_m": expected_listener,
+                "listener_orientation_wxyz": job["listener_orientation_wxyz"],
+            }
+        if set(self.entries_by_id) != set(self.jobs_by_id):
+            raise AssetBoundAudioError(
+                "semantic RIR cache job/index closure is invalid"
+            )
+        self.retained_shards = (
+            shared_shard_cache if shared_shard_cache is not None else {}
+        )
+
+    def load_episode(self, episode_id: str) -> _SemanticRIREpisode:
+        jobs_by_use = self.jobs_by_episode.get(episode_id)
+        if not jobs_by_use:
+            raise AssetBoundAudioError(
+                f"semantic RIR cache lacks episode {episode_id!r}"
+            )
+        frame_sets = {
+            slot: {frame for source, frame in jobs_by_use if source == slot}
+            for slot in SOURCE_SLOTS
+        }
+        if (
+            any(not values for values in frame_sets.values())
+            or len({tuple(sorted(values)) for values in frame_sets.values()}) != 1
+            or any(values != set(range(self.frames)) for values in frame_sets.values())
+        ):
+            raise AssetBoundAudioError(
+                "semantic RIR source slots do not share one keyframe grid"
+            )
+        visual_frames = tuple(sorted(frame_sets[SOURCE_SLOTS[0]]))
+        keyframe_samples = tuple(
+            round(frame * M5_AUDIO_SAMPLE_RATE_HZ / self.fps) for frame in visual_frames
+        )
+        if keyframe_samples[0] != 0 or any(
+            right <= left for left, right in pairwise(keyframe_samples)
+        ):
+            raise AssetBoundAudioError("semantic RIR keyframe sample grid is invalid")
+        rows: list[list[np.ndarray]] = []
+        lengths = np.empty((len(visual_frames), len(SOURCE_SLOTS)), dtype="<u4")
+        for frame_ordinal, frame in enumerate(visual_frames):
+            frame_values: list[np.ndarray] = []
+            for source_ordinal, slot in enumerate(SOURCE_SLOTS):
+                job = jobs_by_use[(slot, frame)]
+                entry = self.entries_by_id[job["job_id"]]
+                shard_path = entry["shard_path"]
+                retained = self.retained_shards.get(shard_path)
+                if retained is None:
+                    retained = _read_semantic_rir_shard(shard_path)
+                    self.retained_shards[shard_path] = retained
+                row = entry["row"]
+                if row >= len(retained["job_ids"]):
+                    raise AssetBoundAudioError("semantic RIR row is outside its shard")
+                length = int(retained["lengths"][row])
+                if (
+                    str(retained["job_ids"][row]) != job["job_id"]
+                    or int(retained["job_indices"][row]) != entry["job_index"]
+                    or length != entry["sample_count"]
+                    or not np.array_equal(
+                        retained["source_positions_m"][row],
+                        np.asarray(entry["source_position_m"], dtype=np.float64),
+                    )
+                    or not np.array_equal(
+                        retained["listener_positions_m"][row],
+                        np.asarray(entry["listener_position_m"], dtype=np.float64),
+                    )
+                    or not np.array_equal(
+                        retained["listener_orientations_wxyz"][row],
+                        np.asarray(
+                            entry["listener_orientation_wxyz"], dtype=np.float64
+                        ),
+                    )
+                ):
+                    raise AssetBoundAudioError(
+                        "semantic RIR shard row differs from plan/index metadata"
+                    )
+                frame_values.append(
+                    np.ascontiguousarray(retained["samples"][row, :, :length])
+                )
+                lengths[frame_ordinal, source_ordinal] = length
+            rows.append(frame_values)
+        maximum_length = max(value.shape[1] for row in rows for value in row)
+        samples = np.zeros(
+            (len(visual_frames), len(SOURCE_SLOTS), 2, maximum_length),
+            dtype="<f4",
+        )
+        for frame_ordinal, frame_values in enumerate(rows):
+            for source_ordinal, value in enumerate(frame_values):
+                samples[frame_ordinal, source_ordinal, :, : value.shape[1]] = value
+        evidence = {
+            "schema": "avengine_m7_semantic_cached_rir_episode_v1",
+            "status": "pass",
+            "episode_id": episode_id,
+            "verification_scope": "schema_path_job_and_sample_metadata_v1",
+            "qualification_claim": False,
+            "source_slot_ids": list(SOURCE_SLOTS),
+            "visual_frame_indices": list(visual_frames),
+            "keyframe_samples": list(keyframe_samples),
+            "layout_type": "binaural",
+            "layout_id": "rlr_binaural_lr_v1",
+            "channel_labels": ["left", "right"],
+            "sample_rate_hz": M5_AUDIO_SAMPLE_RATE_HZ,
+        }
+        return _SemanticRIREpisode(
+            samples=np.ascontiguousarray(samples),
+            lengths=np.ascontiguousarray(lengths),
+            source_slot_ids=SOURCE_SLOTS,
+            visual_frame_indices=visual_frames,
+            keyframe_samples=keyframe_samples,
+            sample_rate_hz=M5_AUDIO_SAMPLE_RATE_HZ,
+            layout_type="binaural",
+            layout_id="rlr_binaural_lr_v1",
+            channel_labels=("left", "right"),
+            evidence=evidence,
+        )
+
+
 def _load_sensor_rig_contract(plan_root: Path) -> dict[str, Any] | None:
     """Load the optional plan-side rig and close it against every RIR use."""
 
     rir_plan = load_json(plan_root / "rir_job_plan.json")
     pose_mode = rir_plan.get("listener_pose_mode", "fixed")
     if pose_mode not in {"fixed", "per_episode_frame"}:
-        raise AssetBoundAudioError(
-            f"unsupported RIR listener_pose_mode: {pose_mode!r}"
-        )
+        raise AssetBoundAudioError(f"unsupported RIR listener_pose_mode: {pose_mode!r}")
     trajectory_path = plan_root / "sensor_rig_trajectory.json"
     trajectory_declared = trajectory_path.exists() or trajectory_path.is_symlink()
     if not trajectory_declared:
@@ -160,9 +784,7 @@ def _load_sensor_rig_contract(plan_root: Path) -> dict[str, Any] | None:
             )
         return None
     if not trajectory_path.is_file():
-        raise AssetBoundAudioError(
-            "sensor_rig_trajectory.json must be a regular file"
-        )
+        raise AssetBoundAudioError("sensor_rig_trajectory.json must be a regular file")
     trajectory = load_json(trajectory_path)
     try:
         binding = m7_sensor_rig_binding(trajectory)
@@ -176,9 +798,7 @@ def _load_sensor_rig_contract(plan_root: Path) -> dict[str, Any] | None:
             f"sensor-rig/RIR alignment is invalid: {exc}"
         ) from exc
     if len(poses.pose_hashes) != 75:
-        raise AssetBoundAudioError(
-            "sensor rig must contain the 75 formal M7 frames"
-        )
+        raise AssetBoundAudioError("sensor rig must contain the 75 formal M7 frames")
     return {
         "trajectory": dict(trajectory),
         "binding": dict(binding),
@@ -290,7 +910,7 @@ def variant_start_samples(
     if variant_count == 1:
         return (0,)
     values = tuple(
-        int(round(value))
+        round(value)
         for value in np.linspace(0, maximum_start, variant_count, endpoint=True)
     )
     if len(set(values)) != len(values):
@@ -306,10 +926,14 @@ def _binding_assets(plan_root: Path) -> dict[str, dict[str, str]]:
         raise AssetBoundAudioError("asset-bound plan binding report is invalid")
     result: dict[str, dict[str, str]] = {}
     for raw in report["scenarios"]:
-        if not isinstance(raw, Mapping) or not isinstance(
-            raw.get("output_episode_id"), str
+        episode_id = raw.get("output_episode_id") if isinstance(raw, Mapping) else None
+        if (
+            not isinstance(episode_id, str)
+            or _STABLE_PATH_ID_RE.fullmatch(episode_id) is None
         ):
-            raise AssetBoundAudioError("asset-bound scenario report is malformed")
+            raise AssetBoundAudioError(
+                "asset-bound scenario requires a path-safe stable output episode ID"
+            )
         binding = raw.get("binding_report")
         raw_bindings = binding.get("bindings") if isinstance(binding, Mapping) else None
         if not isinstance(raw_bindings, list) or len(raw_bindings) != len(SOURCE_SLOTS):
@@ -324,11 +948,12 @@ def _binding_assets(plan_root: Path) -> dict[str, dict[str, str]]:
                 or not isinstance(asset_id, str)
                 or not asset_id
             ):
-                raise AssetBoundAudioError("asset-bound scenario contains an invalid asset")
+                raise AssetBoundAudioError(
+                    "asset-bound scenario contains an invalid asset"
+                )
             assets[slot] = asset_id
         if set(assets) != set(SOURCE_SLOTS):
             raise AssetBoundAudioError("asset-bound scenario omits a source binding")
-        episode_id = raw["output_episode_id"]
         if episode_id in result:
             raise AssetBoundAudioError("asset-bound report repeats an episode ID")
         result[episode_id] = assets
@@ -367,6 +992,76 @@ def _write_and_verify(
     }
 
 
+def _write_semantic_and_verify(
+    path: Path,
+    samples: np.ndarray,
+    *,
+    role: str,
+) -> dict[str, Any]:
+    """Write an exact float32 WAVE without a file-digest sidecar.
+
+    The semantic planning branch validates the decoded samples directly.  It
+    deliberately emits no file SHA or byte-size field; legacy delivery keeps
+    using ``_write_and_verify`` and its authenticated sidecar unchanged.
+    """
+
+    expected = np.asarray(samples, dtype=np.float32)
+    if expected.ndim != 2 or expected.shape[0] < 1 or expected.shape[1] < 1:
+        raise AssetBoundAudioError("semantic WAVE samples must be channel-major")
+    if not np.all(np.isfinite(expected)):
+        raise AssetBoundAudioError("semantic WAVE samples must be finite")
+    channel_count, frame_count = expected.shape
+    block_align = channel_count * 4
+    byte_rate = M5_AUDIO_SAMPLE_RATE_HZ * block_align
+    if channel_count > 65_535 or block_align > 65_535:
+        raise AssetBoundAudioError("semantic WAVE channel count is too large")
+    converted = np.ascontiguousarray(expected.T, dtype="<f4")
+
+    def chunk(chunk_id: bytes, payload: bytes) -> bytes:
+        padding = b"\x00" if len(payload) % 2 else b""
+        return chunk_id + struct.pack("<I", len(payload)) + payload + padding
+
+    fmt = struct.pack(
+        "<HHIIHH",
+        3,
+        channel_count,
+        M5_AUDIO_SAMPLE_RATE_HZ,
+        byte_rate,
+        block_align,
+        32,
+    )
+    body = (
+        b"WAVE"
+        + chunk(b"fmt ", fmt)
+        + chunk(b"fact", struct.pack("<I", frame_count))
+        + chunk(b"data", converted.tobytes(order="C"))
+    )
+    payload = b"RIFF" + struct.pack("<I", len(body)) + body
+    if len(body) > (1 << 32) - 1:
+        raise AssetBoundAudioError("semantic WAVE exceeds RIFF limits")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("xb") as handle:
+            handle.write(payload)
+    except OSError as exc:
+        raise AssetBoundAudioError(f"cannot write semantic WAVE: {exc}") from exc
+    readback = read_float32_wav(path, verify_sidecar=False)
+    if readback.samples.shape != expected.shape or not np.array_equal(
+        readback.samples, expected
+    ):
+        raise AssetBoundAudioError(f"semantic float32 WAVE readback differs: {path}")
+    return {
+        "path": path.name,
+        "role": role,
+        "sample_rate_hz": M5_AUDIO_SAMPLE_RATE_HZ,
+        "sample_count": frame_count,
+        "channel_count": channel_count,
+        "sample_encoding": "IEEE_FLOAT32_LE",
+        "peak_absolute": float(np.max(np.abs(expected))),
+        "verification": "exact_decoded_sample_equality_no_file_digest_v1",
+    }
+
+
 def _prepare_asset_variants(
     *,
     asset_audio: Mapping[str, str],
@@ -383,9 +1078,13 @@ def _prepare_asset_variants(
             f"asset-audio IDs must exactly match bound assets; missing={missing}, extra={extra}"
         )
     if set(asset_channel_policies) != required_asset_ids:
-        raise AssetBoundAudioError("asset-channel-policy IDs must exactly match bound assets")
+        raise AssetBoundAudioError(
+            "asset-channel-policy IDs must exactly match bound assets"
+        )
     if set(asset_gains) != required_asset_ids:
-        raise AssetBoundAudioError("asset-linear-gain IDs must exactly match bound assets")
+        raise AssetBoundAudioError(
+            "asset-linear-gain IDs must exactly match bound assets"
+        )
     prepared: dict[tuple[str, int], PreparedDryAudio] = {}
     records: dict[str, Any] = {}
     for asset_id in sorted(required_asset_ids):
@@ -443,9 +1142,7 @@ def _source_activity_summary(
     program: Mapping[str, Any],
     endpoint_to_source_slot: Mapping[str, str],
 ) -> dict[str, Any]:
-    intervals: dict[str, list[tuple[int, int]]] = {
-        slot: [] for slot in SOURCE_SLOTS
-    }
+    intervals: dict[str, list[tuple[int, int]]] = {slot: [] for slot in SOURCE_SLOTS}
     for event in program["events"]:
         intervals[endpoint_to_source_slot[event["source_endpoint_id"]]].append(
             (event["start_sample"], event["end_sample_exclusive"])
@@ -502,7 +1199,9 @@ def _prepare_audio_program_variants(
             for event in events
             if isinstance(event, Mapping)
         )
-        loaded.append((AudioProgramSpec(path=path, variant_id=spec.variant_id), program))
+        loaded.append(
+            (AudioProgramSpec(path=path, variant_id=spec.variant_id), program)
+        )
     if set(endpoint_to_source_slot) != required_endpoints:
         raise AssetBoundAudioError(
             "source-endpoint-slot keys must exactly match all AudioProgram candidates"
@@ -541,8 +1240,7 @@ def _prepare_audio_program_variants(
         if (
             compiled.frame_count != 75
             or materialized["timeline"]["sample_count"] != M5_AUDIO_SAMPLE_COUNT
-            or materialized["timeline"]["sample_rate_hz"]
-            != M5_AUDIO_SAMPLE_RATE_HZ
+            or materialized["timeline"]["sample_rate_hz"] != M5_AUDIO_SAMPLE_RATE_HZ
         ):
             raise AssetBoundAudioError(
                 "M7 requires a 75-frame, 16 kHz, 80,000-sample AudioProgram"
@@ -576,9 +1274,9 @@ def _prepare_audio_program_variants(
             {
                 **dict(event),
                 "source_slot_id": mapping[event["source_endpoint_id"]],
-                "semantic_sound_class": sound_records[
-                    event["sound_asset_id"]
-                ]["semantic_sound_class"],
+                "semantic_sound_class": sound_records[event["sound_asset_id"]][
+                    "semantic_sound_class"
+                ],
             }
             for event in materialized["events"]
         ]
@@ -628,6 +1326,204 @@ def _prepare_audio_program_variants(
     }
 
 
+def _prepare_semantic_audio_program_variants(
+    *,
+    specs: Sequence[AudioProgramSpec],
+    expected_episode_id: str,
+    semantic_source_endpoint_registry_path: Path,
+    semantic_sound_content_registry_path: Path,
+    semantic_audio_binding_path: Path,
+) -> tuple[dict[int, PreparedAudioProgramVariant], dict[str, Any]]:
+    """Prepare planning buses through semantic IDs, never file digests."""
+
+    endpoint_path = semantic_source_endpoint_registry_path.resolve()
+    content_path = semantic_sound_content_registry_path.resolve()
+    binding_path = semantic_audio_binding_path.resolve()
+    endpoints = load_json(endpoint_path)
+    contents = load_json(content_path)
+    binding = load_json(binding_path)
+    if (
+        endpoints.get("schema") != "avengine_semantic_source_endpoint_registry_v1"
+        or set(endpoints)
+        != {"schema", "registry_id", "revision", "source_endpoint_ids"}
+        or not isinstance(endpoints.get("source_endpoint_ids"), Mapping)
+    ):
+        raise AssetBoundAudioError("semantic source endpoint registry is invalid")
+    endpoint_to_source_slot = dict(endpoints["source_endpoint_ids"])
+    if set(endpoint_to_source_slot.values()) != set(SOURCE_SLOTS) or len(
+        set(endpoint_to_source_slot.values())
+    ) != len(endpoint_to_source_slot):
+        raise AssetBoundAudioError(
+            "semantic endpoints must form an exact source-slot bijection"
+        )
+    if contents.get(
+        "schema"
+    ) != "avengine_semantic_sound_content_registry_v1" or not isinstance(
+        contents.get("contents"), list
+    ):
+        raise AssetBoundAudioError("semantic sound content registry is invalid")
+    if (
+        binding.get("schema") != "avengine_semantic_audio_binding_v1"
+        or set(binding) != {"schema", "episode_id", "variant_id", "content_bindings"}
+        or binding.get("episode_id") != expected_episode_id
+        or binding.get("variant_id") != "A"
+        or not isinstance(binding.get("content_bindings"), Mapping)
+    ):
+        raise AssetBoundAudioError("semantic audio binding is invalid")
+    registry_content_ids = {
+        record.get("content_id")
+        for record in contents["contents"]
+        if isinstance(record, Mapping)
+    }
+    if (
+        len(registry_content_ids) != len(contents["contents"])
+        or None in registry_content_ids
+        or set(binding["content_bindings"]) != registry_content_ids
+    ):
+        raise AssetBoundAudioError(
+            "semantic registry and local content binding IDs differ"
+        )
+    prepared: dict[int, PreparedAudioProgramVariant] = {}
+    library: list[dict[str, Any]] = []
+    for variant_index, spec in enumerate(specs):
+        path = spec.path.resolve()
+        if not path.is_file():
+            raise AssetBoundAudioError(f"semantic AudioProgram is missing: {path}")
+        if spec.variant_id != binding["variant_id"]:
+            raise AssetBoundAudioError(
+                "semantic AudioProgram variant differs from its binding"
+            )
+        program = load_json(path)
+        assembled = assemble_semantic_audio_program_dry_buses(
+            program,
+            spec.variant_id,
+            source_endpoint_ids=endpoint_to_source_slot,
+            semantic_content_registry=contents,
+            content_bindings=binding["content_bindings"],
+        )
+        compiled = assembled.compiled_program
+        mapping = {
+            endpoint_id: endpoint_to_source_slot[endpoint_id]
+            for endpoint_id in compiled.candidate_source_endpoint_ids
+        }
+        dry_by_slot = bind_endpoint_buses_to_source_slots(
+            assembled.dry_audio.buses,
+            endpoint_to_source_slot=mapping,
+            source_slots=SOURCE_SLOTS,
+        )
+        activity = _source_activity_summary(assembled.materialized_program, mapping)
+        program_binding = {
+            "binding_mode": ("semantic_content_id_and_declared_audio_metadata_v1"),
+            "audio_program_ref": {
+                "program_id": program["program_id"],
+                "revision": program["revision"],
+                "program_content_sha256": program["program_content_sha256"],
+            },
+            "variant_id": spec.variant_id,
+            "source_endpoint_to_source_slot": mapping,
+            "dry_audio_assembly_content_sha256": (
+                assembled.dry_audio.assembly_content_sha256
+            ),
+        }
+        content_by_id = {
+            record["content_id"]: record for record in contents["contents"]
+        }
+        instance = {
+            "schema": "avengine_m7_semantic_audio_program_instance_v1",
+            "status": "pass",
+            "qualification_claim": False,
+            "audio_program_binding": program_binding,
+            "semantic_source_endpoint_registry_ref": {
+                "schema": endpoints["schema"],
+                "registry_id": endpoints["registry_id"],
+                "revision": endpoints["revision"],
+            },
+            "semantic_sound_content_registry_ref": {
+                "schema": contents["schema"],
+                "registry_id": contents["registry_id"],
+                "revision": contents["revision"],
+            },
+            "semantic_audio_binding_ref": {
+                "episode_id": binding["episode_id"],
+                "variant_id": binding["variant_id"],
+            },
+            "materialized_audio_program": dict(assembled.materialized_program),
+            "mapped_events": [
+                {
+                    **dict(event),
+                    "source_slot_id": mapping[event["source_endpoint_id"]],
+                    "semantic_content": dict(content_by_id[event["content_id"]]),
+                }
+                for event in assembled.materialized_program["events"]
+            ],
+            "source_activity_summary": activity,
+            "dry_audio_assembly": assembled.dry_audio.metadata(),
+        }
+        prepared[variant_index] = PreparedAudioProgramVariant(
+            dry_by_source_slot=dry_by_slot,
+            audio_program_binding=program_binding,
+            instance_record=instance,
+            source_activity_summary=activity,
+        )
+        library.append(
+            {
+                "variant_index": variant_index,
+                "audio_program_binding": program_binding,
+                "source_activity_summary": activity,
+                "dry_audio_assembly": assembled.dry_audio.metadata(),
+            }
+        )
+    return prepared, {
+        "schema": "avengine_m7_semantic_audio_program_dry_bus_library_v1",
+        "status": "pass",
+        "qualification_claim": False,
+        "binding_mode": "semantic_content_id_and_declared_audio_metadata_v1",
+        "semantic_source_endpoint_registry_ref": {
+            "schema": endpoints["schema"],
+            "registry_id": endpoints["registry_id"],
+            "revision": endpoints["revision"],
+        },
+        "semantic_sound_content_registry_ref": {
+            "schema": contents["schema"],
+            "registry_id": contents["registry_id"],
+            "revision": contents["revision"],
+        },
+        "programs": library,
+        "normalization": False,
+        "limiting": False,
+        "looping": False,
+    }
+
+
+def _fresh_output_path(raw_output: Path) -> Path:
+    """Return an absolute output path after rejecting lexical symlink traversal."""
+
+    output = Path(raw_output)
+    if not output.is_absolute():
+        output = Path.cwd() / output
+    if ".." in output.parts:
+        raise AssetBoundAudioError("output path may not contain parent traversal")
+    current = Path(output.anchor)
+    for part in output.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise AssetBoundAudioError(
+                f"output path may not contain symlinks: {current}"
+            )
+    if output.exists():
+        raise FileExistsError(f"refusing to replace output: {output}")
+    return output
+
+
+def _derived_output_path(root: Path, filename: str) -> Path:
+    """Return one direct child and reject any derived lexical escape."""
+
+    candidate = root / filename
+    if candidate.parent != root:
+        raise AssetBoundAudioError("derived audio output escapes its selected root")
+    return candidate
+
+
 def render_batch(
     *,
     plan_root: Path,
@@ -645,24 +1541,74 @@ def render_batch(
     sound_asset_registry_path: Path | None = None,
     endpoint_to_source_slot: Mapping[str, str] | None = None,
     sound_audio: Mapping[str, str] | None = None,
+    semantic_source_endpoint_registry_path: Path | None = None,
+    semantic_sound_content_registry_path: Path | None = None,
+    semantic_audio_binding_path: Path | None = None,
 ) -> Path:
     started = time.perf_counter()
-    plan_root = plan_root.resolve()
-    rir_cache_root = rir_cache_root.resolve()
-    output = output.resolve()
-    if output.exists() or output.is_symlink():
-        raise FileExistsError(f"refusing to replace output: {output}")
+    raw_plan_root = Path(plan_root)
+    raw_rir_cache_root = Path(rir_cache_root)
+    output = _fresh_output_path(output)
+    program_mode = bool(audio_program_specs)
+    semantic_paths = (
+        semantic_source_endpoint_registry_path,
+        semantic_sound_content_registry_path,
+        semantic_audio_binding_path,
+    )
+    semantic_program_mode = program_mode and all(
+        value is not None for value in semantic_paths
+    )
+    partial_semantic_mode = any(
+        value is not None for value in semantic_paths
+    ) and not all(value is not None for value in semantic_paths)
+    legacy_program_values = (
+        source_endpoint_registry_path,
+        sound_asset_registry_path,
+        endpoint_to_source_slot,
+        sound_audio,
+    )
+    if partial_semantic_mode:
+        raise AssetBoundAudioError(
+            "semantic AudioPrograms require all three semantic inputs"
+        )
+    if semantic_program_mode and any(
+        value is not None and value != {} for value in legacy_program_values
+    ):
+        raise AssetBoundAudioError(
+            "semantic and legacy AudioProgram inputs are mutually exclusive"
+        )
+    if semantic_program_mode:
+        raw_plan_path = raw_plan_root / "rir_job_plan.json"
+        if (
+            raw_plan_root.is_symlink()
+            or not raw_plan_root.is_dir()
+            or raw_rir_cache_root.is_symlink()
+            or not raw_rir_cache_root.is_dir()
+            or raw_plan_path.is_symlink()
+            or not raw_plan_path.is_file()
+        ):
+            raise AssetBoundAudioError(
+                "semantic RIR plan root, cache root, and selected plan must be "
+                "regular non-symlink inputs"
+            )
+        resolved_plan_root = raw_plan_root.resolve()
+        resolved_plan_path = raw_plan_path.resolve()
+        try:
+            resolved_plan_path.relative_to(resolved_plan_root)
+        except ValueError as exc:
+            raise AssetBoundAudioError(
+                "semantic selected RIR plan escapes its plan root"
+            ) from exc
+    plan_root = raw_plan_root.resolve()
+    rir_cache_root = raw_rir_cache_root.resolve()
     if not np.isfinite(maximum_mixture_peak) or not 0.0 < maximum_mixture_peak <= 1.0:
         raise AssetBoundAudioError("maximum_mixture_peak must be in (0, 1]")
     bindings = _binding_assets(plan_root)
     sensor_rig_contract = _load_sensor_rig_contract(plan_root)
     sensor_rig_binding = (
-        None
-        if sensor_rig_contract is None
-        else dict(sensor_rig_contract["binding"])
+        None if sensor_rig_contract is None else dict(sensor_rig_contract["binding"])
     )
     required_assets = {asset for slots in bindings.values() for asset in slots.values()}
-    program_mode = bool(audio_program_specs)
     legacy_prepared: dict[tuple[str, int], PreparedDryAudio] = {}
     program_prepared: dict[int, PreparedAudioProgramVariant] = {}
     if program_mode:
@@ -670,15 +1616,15 @@ def render_batch(
             raise AssetBoundAudioError(
                 "asset-audio declarations cannot be mixed with M6 AudioPrograms"
             )
-        if (
+        if not semantic_program_mode and (
             source_endpoint_registry_path is None
             or sound_asset_registry_path is None
             or endpoint_to_source_slot is None
             or sound_audio is None
         ):
             raise AssetBoundAudioError(
-                "M6 AudioPrograms require both registries, endpoint-slot mappings, "
-                "and explicit sound-audio paths"
+                "M6 AudioPrograms require either the semantic input triple or both "
+                "legacy registries, endpoint-slot mappings, and sound-audio paths"
             )
         program_variant_count = len(audio_program_specs)
         if program_variant_count != 1:
@@ -694,13 +1640,39 @@ def render_batch(
                 "variants_per_episode must equal the number of AudioProgram specs"
             )
         variants_per_episode = program_variant_count
-        program_prepared, dry_library_record = _prepare_audio_program_variants(
-            specs=audio_program_specs,
-            source_endpoint_registry_path=source_endpoint_registry_path,
-            sound_asset_registry_path=sound_asset_registry_path,
-            endpoint_to_source_slot=endpoint_to_source_slot,
-            sound_audio=sound_audio,
-        )
+        if semantic_program_mode:
+            if len(bindings) != 1:
+                raise AssetBoundAudioError(
+                    "semantic AudioProgram mode requires exactly one bound episode"
+                )
+            assert semantic_source_endpoint_registry_path is not None
+            assert semantic_sound_content_registry_path is not None
+            assert semantic_audio_binding_path is not None
+            program_prepared, dry_library_record = (
+                _prepare_semantic_audio_program_variants(
+                    specs=audio_program_specs,
+                    expected_episode_id=next(iter(bindings)),
+                    semantic_source_endpoint_registry_path=(
+                        semantic_source_endpoint_registry_path
+                    ),
+                    semantic_sound_content_registry_path=(
+                        semantic_sound_content_registry_path
+                    ),
+                    semantic_audio_binding_path=semantic_audio_binding_path,
+                )
+            )
+        else:
+            assert source_endpoint_registry_path is not None
+            assert sound_asset_registry_path is not None
+            assert endpoint_to_source_slot is not None
+            assert sound_audio is not None
+            program_prepared, dry_library_record = _prepare_audio_program_variants(
+                specs=audio_program_specs,
+                source_endpoint_registry_path=source_endpoint_registry_path,
+                sound_asset_registry_path=sound_asset_registry_path,
+                endpoint_to_source_slot=endpoint_to_source_slot,
+                sound_audio=sound_audio,
+            )
     else:
         if (
             not asset_audio
@@ -710,6 +1682,7 @@ def render_batch(
             or sound_asset_registry_path is not None
             or endpoint_to_source_slot
             or sound_audio
+            or any(value is not None for value in semantic_paths)
         ):
             raise AssetBoundAudioError(
                 "legacy mode requires asset audio/channel/gain declarations and "
@@ -780,22 +1753,35 @@ def render_batch(
                 path = staging / relative
                 write_json(path, prepared_program.instance_record)
                 program_instance_paths[variant_index] = relative.as_posix()
-                program_instance_sha256s[variant_index] = sha256_file(path)
+                if not semantic_program_mode:
+                    program_instance_sha256s[variant_index] = sha256_file(path)
         mixture_root = staging / "audio" / "binaural"
         stem_root = mixture_root / "stems"
-        rir_session = RIRCacheSession(
-            cache_root=rir_cache_root,
-            plan_path=plan_root / "rir_job_plan.json",
-            frame_count=75,
-            frame_rate_hz=15,
-            shared_shard_cache=shared_rir_shards,
-        )
-        (
-            acoustic_selection_binding,
-            acoustic_selection_binding_sha256,
-        ) = _validated_acoustic_selection_binding(
-            rir_session.acoustic_selection_binding
-        )
+        if semantic_program_mode:
+            rir_session = _SemanticRIRCacheSession(
+                cache_root=rir_cache_root,
+                plan_path=plan_root / "rir_job_plan.json",
+                expected_episode_id=next(iter(bindings)),
+                frame_count=75,
+                frame_rate_hz=15,
+                shared_shard_cache=shared_rir_shards,
+            )
+            acoustic_selection_binding = rir_session.acoustic_selection_binding
+            acoustic_selection_binding_sha256 = None
+        else:
+            rir_session = RIRCacheSession(
+                cache_root=rir_cache_root,
+                plan_path=plan_root / "rir_job_plan.json",
+                frame_count=75,
+                frame_rate_hz=15,
+                shared_shard_cache=shared_rir_shards,
+            )
+            (
+                acoustic_selection_binding,
+                acoustic_selection_binding_sha256,
+            ) = _validated_acoustic_selection_binding(
+                rir_session.acoustic_selection_binding
+            )
         cache_load_count = 0
         for episode_ordinal, episode_id in enumerate(sorted(bindings)):
             cache_started = time.perf_counter()
@@ -809,7 +1795,7 @@ def render_batch(
                 or cached.source_slot_ids != SOURCE_SLOTS
             ):
                 raise AssetBoundAudioError("cache is not 16 kHz two-channel binaural")
-            if (
+            if not semantic_program_mode and (
                 cached.evidence.get("acoustic_selection_binding")
                 != acoustic_selection_binding
             ):
@@ -823,23 +1809,38 @@ def render_batch(
                     partition_key, M5_AUDIO_SAMPLE_COUNT
                 )
                 partitions_by_keyframe_grid[partition_key] = partition_weights
-            episode_record = {
+            episode_record: dict[str, Any] = {
                 "episode_id": episode_id,
                 "episode_ordinal": episode_ordinal,
                 "asset_ids_by_source_slot": bindings[episode_id],
-                "rir_cache": cached.evidence,
-                "acoustic_selection_binding_sha256": (
-                    acoustic_selection_binding_sha256
-                ),
                 "cache_load_policy": "loaded_once_then_reused_for_all_episode_variants",
             }
-            if sensor_rig_binding is not None:
-                episode_record["sensor_rig_trajectory"] = dict(
-                    sensor_rig_binding
+            if semantic_program_mode:
+                episode_record["rir_cache"] = {
+                    "binding_mode": "schema_path_job_and_sample_metadata_v1",
+                    "layout_type": cached.layout_type,
+                    "sample_rate_hz": cached.sample_rate_hz,
+                    "channel_labels": list(cached.channel_labels),
+                    "source_slot_ids": list(cached.source_slot_ids),
+                    "keyframe_samples": list(cached.keyframe_samples),
+                    "verification_scope": ("schema_path_job_and_sample_metadata_v1"),
+                    "qualification_claim": False,
+                }
+            else:
+                episode_record["rir_cache"] = cached.evidence
+                episode_record["acoustic_selection_binding_sha256"] = (
+                    acoustic_selection_binding_sha256
                 )
+            if sensor_rig_binding is not None:
+                episode_record["sensor_rig_trajectory"] = dict(sensor_rig_binding)
             episode_records.append(episode_record)
             for variant_index in range(variants_per_episode):
                 sample_id = f"{episode_id}__v{variant_index:02d}"
+                mixture_path = _derived_output_path(mixture_root, f"{sample_id}.wav")
+                stem_paths = {
+                    slot: _derived_output_path(stem_root / slot, f"{sample_id}.wav")
+                    for slot in SOURCE_SLOTS
+                }
                 prepared_program = (
                     program_prepared[variant_index] if program_mode else None
                 )
@@ -865,7 +1866,9 @@ def render_batch(
                 stored_stems, stored_mixture = float32_stems_and_exact_mix(
                     stems, source_ids=cached.source_slot_ids
                 )
-                phase_seconds["dynamic_convolution"] += time.perf_counter() - render_started
+                phase_seconds["dynamic_convolution"] += (
+                    time.perf_counter() - render_started
+                )
                 peak = float(np.max(np.abs(stored_mixture)))
                 if peak > maximum_mixture_peak:
                     raise AssetBoundAudioError(
@@ -880,10 +1883,11 @@ def render_batch(
                     "mixture": "exact_source1_plus_source2_stem_sum",
                     "normalization": False,
                     "limiting": False,
-                    "acoustic_selection_binding_sha256": (
-                        acoustic_selection_binding_sha256
-                    ),
                 }
+                if not semantic_program_mode:
+                    mixture_metadata["acoustic_selection_binding_sha256"] = (
+                        acoustic_selection_binding_sha256
+                    )
                 if prepared_program is not None:
                     mixture_metadata.update(
                         {
@@ -894,16 +1898,25 @@ def render_batch(
                             "audio_program_instance_path": (
                                 program_instance_paths[variant_index]
                             ),
-                            "audio_program_instance_sha256": (
-                                program_instance_sha256s[variant_index]
-                            ),
                         }
                     )
-                mixture_record = _write_and_verify(
-                    mixture_root / f"{sample_id}.wav",
-                    stored_mixture,
-                    role="m7_asset_bound_binaural_training_mixture",
-                    metadata=mixture_metadata,
+                    if not semantic_program_mode:
+                        mixture_metadata["audio_program_instance_sha256"] = (
+                            program_instance_sha256s[variant_index]
+                        )
+                mixture_record = (
+                    _write_semantic_and_verify(
+                        mixture_path,
+                        stored_mixture,
+                        role="m7_asset_bound_binaural_training_mixture",
+                    )
+                    if semantic_program_mode
+                    else _write_and_verify(
+                        mixture_path,
+                        stored_mixture,
+                        role="m7_asset_bound_binaural_training_mixture",
+                        metadata=mixture_metadata,
+                    )
                 )
                 stem_records: dict[str, Any] = {}
                 if retain_stems:
@@ -913,10 +1926,11 @@ def render_batch(
                             "episode_id": episode_id,
                             "variant_index": variant_index,
                             "source_slot_id": slot,
-                            "acoustic_selection_binding_sha256": (
-                                acoustic_selection_binding_sha256
-                            ),
                         }
+                        if not semantic_program_mode:
+                            stem_metadata["acoustic_selection_binding_sha256"] = (
+                                acoustic_selection_binding_sha256
+                            )
                         if prepared_program is not None:
                             stem_metadata.update(
                                 {
@@ -927,26 +1941,34 @@ def render_batch(
                                     "audio_program_instance_path": (
                                         program_instance_paths[variant_index]
                                     ),
-                                    "audio_program_instance_sha256": (
-                                        program_instance_sha256s[variant_index]
-                                    ),
                                 }
                             )
-                        stem_records[slot] = _write_and_verify(
-                            stem_root / slot / f"{sample_id}.wav",
-                            stored_stems[slot],
-                            role="m7_asset_bound_binaural_training_stem",
-                            metadata=stem_metadata,
+                            if not semantic_program_mode:
+                                stem_metadata["audio_program_instance_sha256"] = (
+                                    program_instance_sha256s[variant_index]
+                                )
+                        stem_records[slot] = (
+                            _write_semantic_and_verify(
+                                stem_paths[slot],
+                                stored_stems[slot],
+                                role="m7_asset_bound_binaural_training_stem",
+                            )
+                            if semantic_program_mode
+                            else _write_and_verify(
+                                stem_paths[slot],
+                                stored_stems[slot],
+                                role="m7_asset_bound_binaural_training_stem",
+                                metadata=stem_metadata,
+                            )
                         )
-                phase_seconds["wave_write_and_readback"] += time.perf_counter() - write_started
+                phase_seconds["wave_write_and_readback"] += (
+                    time.perf_counter() - write_started
+                )
                 sample_record: dict[str, Any] = {
                     "sample_id": sample_id,
                     "episode_id": episode_id,
                     "variant_index": variant_index,
                     "asset_ids_by_source_slot": bindings[episode_id],
-                    "acoustic_selection_binding_sha256": (
-                        acoustic_selection_binding_sha256
-                    ),
                     "audio": {
                         "sample_rate_hz": M5_AUDIO_SAMPLE_RATE_HZ,
                         "sample_count": M5_AUDIO_SAMPLE_COUNT,
@@ -959,10 +1981,12 @@ def render_batch(
                         "peak_absolute": peak,
                     },
                 }
-                if sensor_rig_binding is not None:
-                    sample_record["sensor_rig_trajectory"] = dict(
-                        sensor_rig_binding
+                if not semantic_program_mode:
+                    sample_record["acoustic_selection_binding_sha256"] = (
+                        acoustic_selection_binding_sha256
                     )
+                if sensor_rig_binding is not None:
+                    sample_record["sensor_rig_trajectory"] = dict(sensor_rig_binding)
                 if prepared_program is None:
                     sample_record.update(
                         {
@@ -978,41 +2002,50 @@ def render_batch(
                     )
                 else:
                     activity = dict(prepared_program.source_activity_summary)
-                    sample_record.update(
-                        {
-                            "audio_program_binding": dict(
-                                prepared_program.audio_program_binding
-                            ),
-                            "audio_program_instance_path": (
-                                program_instance_paths[variant_index]
-                            ),
-                            "audio_program_instance_sha256": (
-                                program_instance_sha256s[variant_index]
-                            ),
-                            "source_activity_summary": activity,
-                            "both_sources_active": activity[
-                                "both_sources_active"
-                            ],
-                            "source_activity_contract": (
-                                "m6_audio_program_event_windows_v1"
-                            ),
-                        }
-                    )
+                    program_fields = {
+                        "audio_program_binding": dict(
+                            prepared_program.audio_program_binding
+                        ),
+                        "audio_program_instance_path": (
+                            program_instance_paths[variant_index]
+                        ),
+                        "source_activity_summary": activity,
+                        "both_sources_active": activity["both_sources_active"],
+                        "source_activity_contract": (
+                            "m6_audio_program_event_windows_v1"
+                        ),
+                    }
+                    if not semantic_program_mode:
+                        program_fields["audio_program_instance_sha256"] = (
+                            program_instance_sha256s[variant_index]
+                        )
+                    sample_record.update(program_fields)
                 sample_records.append(sample_record)
         write_json(staging / "dry_audio_variants.json", dry_library_record)
-        write_json(staging / "episodes.json", {
-            "schema": "avengine_m7_asset_bound_episode_cache_index_v1",
-            "status": "pass",
-            "acoustic_selection_binding": acoustic_selection_binding,
-            "episodes": episode_records,
-        })
-        write_json(staging / "samples.json", {
-            "schema": "avengine_m7_asset_bound_binaural_training_samples_v1",
-            "status": "pass",
-            "acoustic_selection_binding": acoustic_selection_binding,
-            "sample_count": len(sample_records),
-            "samples": sample_records,
-        })
+        acoustic_output = (
+            _semantic_acoustic_selection_summary(acoustic_selection_binding)
+            if semantic_program_mode
+            else acoustic_selection_binding
+        )
+        write_json(
+            staging / "episodes.json",
+            {
+                "schema": "avengine_m7_asset_bound_episode_cache_index_v1",
+                "status": "pass",
+                "acoustic_selection_binding": acoustic_output,
+                "episodes": episode_records,
+            },
+        )
+        write_json(
+            staging / "samples.json",
+            {
+                "schema": "avengine_m7_asset_bound_binaural_training_samples_v1",
+                "status": "pass",
+                "acoustic_selection_binding": acoustic_output,
+                "sample_count": len(sample_records),
+                "samples": sample_records,
+            },
+        )
         total_wall = time.perf_counter() - started
         timing = {
             "schema": "avengine_m7_asset_bound_binaural_batch_timing_v1",
@@ -1022,11 +2055,12 @@ def render_batch(
             "rir_cache_load_count": cache_load_count,
             "rir_cache_load_policy": "one_load_per_route_then_all_its_variants",
             "rir_shard_residency": {
-                "policy": "verify_each_native_RIR_shard_once_then_reuse_in_process",
-                "resident_shard_count": len(shared_rir_shards),
-                "resident_sample_payload_bytes": int(
-                    sum(value["samples"].nbytes for value in shared_rir_shards.values())
+                "policy": (
+                    "validate_schema_job_and_sample_metadata_once_then_reuse_v1"
+                    if semantic_program_mode
+                    else "verify_each_native_RIR_shard_once_then_reuse_in_process"
                 ),
+                "resident_shard_count": len(shared_rir_shards),
             },
             "episode_count": len(bindings),
             "variants_per_episode": variants_per_episode,
@@ -1034,8 +2068,13 @@ def render_batch(
             "phase_seconds": dict(phase_seconds),
             "wall_seconds": total_wall,
             "samples_per_wall_second": len(sample_records) / total_wall,
-            "projected_1000_sample_seconds": 1000.0 / (len(sample_records) / total_wall),
+            "projected_1000_sample_seconds": 1000.0
+            / (len(sample_records) / total_wall),
         }
+        if not semantic_program_mode:
+            timing["rir_shard_residency"]["resident_sample_payload_bytes"] = int(
+                sum(value["samples"].nbytes for value in shared_rir_shards.values())
+            )
         write_json(staging / "timing.json", timing)
         delivery = {
             "schema": SCHEMA,
@@ -1049,7 +2088,7 @@ def render_batch(
             "episode_count": len(bindings),
             "variants_per_episode": variants_per_episode,
             "sample_count": len(sample_records),
-            "acoustic_selection_binding": acoustic_selection_binding,
+            "acoustic_selection_binding": acoustic_output,
             "both_sources_active": (
                 all(record["both_sources_active"] for record in sample_records)
                 if program_mode
@@ -1074,14 +2113,18 @@ def render_batch(
                 "labels/sensor_rig_trajectory.json"
             )
         if program_mode:
-            delivery["source_activity_contract"] = (
-                "m6_audio_program_event_windows_v1"
+            delivery["source_activity_contract"] = "m6_audio_program_event_windows_v1"
+            delivery["audio_program_binding_mode"] = (
+                "semantic_content_id_and_declared_audio_metadata_v1"
+                if semantic_program_mode
+                else "authenticated_m6_registry_file_binding_v1"
             )
             delivery["outputs"]["audio_program_instances"] = (
                 "labels/audio_program_instances/"
             )
         write_json(staging / "delivery.json", delivery)
-        os.rename(staging, output)
+        publish_policy = WorkspacePathPolicy.from_roots([output.parent])
+        output = atomic_publish_directory(publish_policy, staging, output)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -1101,6 +2144,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sound-asset-registry", type=Path)
     parser.add_argument("--source-endpoint-slot", action="append")
     parser.add_argument("--sound-audio", action="append")
+    parser.add_argument("--semantic-source-endpoint-registry", type=Path)
+    parser.add_argument("--semantic-sound-content-registry", type=Path)
+    parser.add_argument("--semantic-audio-binding", type=Path)
     parser.add_argument("--variants-per-episode", type=int)
     parser.add_argument("--fade-samples", type=int, default=80)
     parser.add_argument("--maximum-mixture-peak", type=float, default=0.95)
@@ -1111,9 +2157,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    programs = audio_program_specs(
-        args.audio_program, args.audio_program_variant
-    )
+    programs = audio_program_specs(args.audio_program, args.audio_program_variant)
     result = render_batch(
         plan_root=args.plan_root,
         rir_cache_root=args.rir_cache,
@@ -1138,6 +2182,9 @@ def main(argv: list[str] | None = None) -> int:
             args.source_endpoint_slot, name="source-endpoint-slot"
         ),
         sound_audio=_optional_slot_mapping(args.sound_audio, name="sound-audio"),
+        semantic_source_endpoint_registry_path=(args.semantic_source_endpoint_registry),
+        semantic_sound_content_registry_path=(args.semantic_sound_content_registry),
+        semantic_audio_binding_path=args.semantic_audio_binding,
     )
     print(result)
     return 0

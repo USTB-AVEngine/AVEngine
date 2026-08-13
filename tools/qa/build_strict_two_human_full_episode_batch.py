@@ -20,6 +20,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from avengine.camera_pose import yaw_rotation_xyzw
+
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_REQUEST = (
     REPOSITORY / "examples/qa/native_strict_two_human_full_episode_batch_v1.json"
@@ -31,6 +33,35 @@ ASSIGNMENT_VALIDATION_SCHEMA = (
 )
 FRAME_COUNT = 75
 TICKS_PER_FRAME = 3200
+
+_HUMAN_UE_IMPORT_IDENTITIES: dict[tuple[str, str], dict[str, str]] = {
+    (
+        "rocketbox_human_male_adult_01_m5_1_candidate",
+        "native_runtime_ue_v3",
+    ): {
+        "schema": "rocketbox_native_ue_import_v3",
+        "tag": "rocketbox_male_adult_01_original_ue_v3",
+        "import_asset_id": "rocketbox_male_adult_01",
+    },
+    (
+        "lead_b_rocketbox_adults_female_adult_01_original_v1",
+        "native_runtime_ue_v1",
+    ): {
+        "schema": "rocketbox_batch_native_ue_import_v1",
+        "tag": "rocketbox_adults_female_adult_01_original_ue_v1",
+        "import_asset_id": "rocketbox_female_adult_01",
+        "base_avatar_id": "rocketbox_adults_female_adult_01",
+    },
+    (
+        "lead_b_rocketbox_professions_construction_male_01_original_v1",
+        "native_runtime_ue_v1",
+    ): {
+        "schema": "rocketbox_batch_native_ue_import_v1",
+        "tag": "rocketbox_professions_construction_male_01_original_ue_v1",
+        "import_asset_id": "rocketbox_construction_male_01",
+        "base_avatar_id": "rocketbox_professions_construction_male_01",
+    },
+}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -61,6 +92,98 @@ def _resolve(value: str) -> Path:
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _validated_ue_import_manifest_ref(
+    *, record: Mapping[str, Any], spear: Mapping[str, Any], actor_scale: float
+) -> dict[str, Any]:
+    """Validate decoded UE identity/runtime fields without file byte evidence."""
+
+    identity = _HUMAN_UE_IMPORT_IDENTITIES.get(
+        (str(record.get("asset_id")), str(record.get("revision")))
+    )
+    _require(identity is not None, "runtime asset lacks audited UE import identity")
+    raw_ref = spear.get("ue_import_manifest_ref")
+    _require(isinstance(raw_ref, Mapping), "runtime asset lacks UE import manifest ref")
+    _require(
+        set(raw_ref) == {"path", *identity}
+        and all(raw_ref.get(key) == value for key, value in identity.items()),
+        "runtime UE import manifest ref identity drift",
+    )
+    raw_path = raw_ref.get("path")
+    _require(
+        isinstance(raw_path, str) and raw_path and Path(raw_path).is_absolute(),
+        "runtime UE import manifest ref path is invalid",
+    )
+    path = Path(raw_path)
+    _require(
+        not path.is_symlink() and path.is_file(),
+        f"runtime UE import manifest is missing or not regular: {path}",
+    )
+    manifest = _load_cached(path.resolve())
+    runtime = manifest.get("runtime_contract")
+    bounds = runtime.get("bounds") if isinstance(runtime, Mapping) else None
+    glb = manifest.get("glb_contract")
+    content = manifest.get("content")
+    animations = content.get("animations") if isinstance(content, Mapping) else None
+    source_glb = manifest.get("source_glb")
+    source_path = Path(source_glb) if isinstance(source_glb, str) else Path()
+    expected_runtime_root = (
+        "rocketbox_native_runtime_ue_v3"
+        if identity["schema"] == "rocketbox_native_ue_import_v3"
+        else "rocketbox_batch_native_runtime_ue_v1"
+    )
+    _require(
+        manifest.get("schema") == identity["schema"]
+        and manifest.get("tag") == identity["tag"]
+        and manifest.get("asset_id") == identity["import_asset_id"]
+        and (
+            "base_avatar_id" not in identity
+            or manifest.get("base_avatar_id") == identity["base_avatar_id"]
+        )
+        and manifest.get("usage_scope") == "research_candidate"
+        and manifest.get("formal_registration_authorized") is False
+        and isinstance(manifest.get("reload_verification"), Mapping)
+        and manifest["reload_verification"].get("status") == "passed"
+        and source_path.name == "runtime.glb"
+        and source_path.parent.name == identity["tag"]
+        and source_path.parent.parent.name == expected_runtime_root
+        and isinstance(runtime, Mapping)
+        and runtime.get("actor_scale") == actor_scale
+        and runtime.get("bone_count") == 80
+        and isinstance(bounds, Mapping)
+        and bounds.get("height_passed") is True
+        and bounds.get("ground_passed") is True
+        and isinstance(glb, Mapping)
+        and glb.get("armature_scale") == [1.0, 1.0, 1.0]
+        and glb.get("armature_translation") == [0.0, 0.0, 0.0]
+        and glb.get("animation_names") == ["Standing_Idle", "Walking"]
+        and glb.get("joint_count") == 80
+        and glb.get("skin_count") == 1
+        and glb.get("mesh_count") == 1
+        and glb.get("mesh_is_scene_root") is True,
+        "runtime UE import manifest semantic contract drift",
+    )
+    _require(
+        isinstance(content, Mapping)
+        and isinstance(animations, Mapping)
+        and set(animations) == {"Standing_Idle", "Walking"}
+        and animations.get("Standing_Idle") == spear.get("idle_animation")
+        and animations.get("Walking") == spear.get("walking_animation"),
+        "runtime UE import animation binding drift",
+    )
+    blueprint = content.get("blueprint")
+    _require(isinstance(blueprint, str) and blueprint, "runtime UE blueprint missing")
+    blueprint_leaf = blueprint.rsplit("/", 1)[-1]
+    mesh_directory = str(spear["idle_animation"]).rsplit("/", 1)[0]
+    _require(
+        spear.get("blueprint_class_path") == f"{blueprint}.{blueprint_leaf}_C"
+        and content.get("skeletal_mesh") == f"{mesh_directory}/runtime.runtime"
+        and content.get("skeleton")
+        == f"{mesh_directory}/runtime_Skeleton.runtime_Skeleton",
+        "runtime UE object binding drift",
+    )
+    return deepcopy(dict(raw_ref))
 
 
 def _round_point(values: Sequence[float], digits: int = 9) -> list[float]:
@@ -299,8 +422,7 @@ def _camera_yaw_deg(
 
 
 def _camera_rotation_xyzw(yaw_deg: float) -> list[float]:
-    half = math.radians(yaw_deg) / 2.0
-    return [0.0, math.sin(half), 0.0, math.cos(half)]
+    return yaw_rotation_xyzw(yaw_deg)
 
 
 def _project(
@@ -631,6 +753,9 @@ def _identity_metadata(
             "content_id": sound["content"]["statement_id"],
             "transcript": sound["content"]["transcript"],
             "speech_sample_count": int(sound["audio"]["sample_count"]),
+            "speech_sample_rate_hz": int(sound["audio"]["sample_rate_hz"]),
+            "speech_channel_count": int(sound["audio"]["channel_count"]),
+            "speech_audio_uri": sound["audio"]["uri"],
             "speech_frame_window_inclusive": identity[
                 "expected_speech_frame_window_inclusive"
             ],
@@ -638,6 +763,221 @@ def _identity_metadata(
             "rights_status": sound["license"]["rights_status"],
         }
     return result
+
+
+def _runtime_motion_profiles(
+    registry_path: Path, registry: Mapping[str, Any]
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Resolve the exact per-asset motion declarations needed by planning rows."""
+
+    _require(
+        registry.get("schema") == "avengine_source_asset_runtime_registry_v1",
+        "runtime registry schema drift",
+    )
+    assets = registry.get("assets")
+    _require(isinstance(assets, list) and assets, "runtime registry assets missing")
+    resolved_registry_path = str(registry_path.resolve())
+    profiles: dict[tuple[str, str], dict[str, Any]] = {}
+    for raw in assets:
+        _require(isinstance(raw, Mapping), "runtime registry asset is not an object")
+        asset_id = raw.get("asset_id")
+        asset_revision = raw.get("revision")
+        _require(
+            isinstance(asset_id, str)
+            and asset_id
+            and isinstance(asset_revision, str)
+            and asset_revision,
+            "runtime registry asset identity missing",
+        )
+        if not (
+            raw.get("entity_class") == "articulated_human"
+            and isinstance(raw.get("identity"), Mapping)
+            and raw["identity"].get("species_id") == "human"
+        ):
+            continue
+        key = (asset_id, asset_revision)
+        _require(key not in profiles, f"duplicate runtime asset profile: {key!r}")
+        # Only identities with a decoded, audited UE import authority are
+        # usable.  Other human registry rows remain visible to selection and
+        # fail there as missing authority; they are never assigned defaults.
+        if key not in _HUMAN_UE_IMPORT_IDENTITIES:
+            continue
+        timeline = raw.get("timeline")
+        backends = raw.get("runtime_backends")
+        spear = backends.get("spear_unreal") if isinstance(backends, Mapping) else None
+        anchors = raw.get("emitter_anchors")
+        default_anchor = raw.get("default_emitter_anchor_id")
+        if not (
+            isinstance(timeline, Mapping)
+            and isinstance(spear, Mapping)
+            and isinstance(anchors, list)
+        ):
+            continue
+        anchor_matches = [
+            anchor
+            for anchor in anchors
+            if isinstance(anchor, Mapping) and anchor.get("anchor_id") == default_anchor
+        ]
+        _require(
+            len(anchor_matches) == 1,
+            f"runtime asset {asset_id!r} has no unique default emitter",
+        )
+        idle_action_id = timeline.get("idle_action_id")
+        walking_action_id = timeline.get("walking_action_id")
+        walk_period = timeline.get("walk_phase_period_frames")
+        idle_animation = spear.get("idle_animation")
+        walking_animation = spear.get("walking_animation")
+        _require(
+            isinstance(idle_action_id, str)
+            and idle_action_id
+            and isinstance(walking_action_id, str)
+            and walking_action_id
+            and idle_action_id != walking_action_id
+            and type(walk_period) is int
+            and walk_period > 1
+            and isinstance(idle_animation, str)
+            and idle_animation
+            and isinstance(walking_animation, str)
+            and walking_animation,
+            f"runtime asset {asset_id!r} lacks honest action/period authority",
+        )
+        anchor = anchor_matches[0]
+        geometry = raw.get("geometry")
+        forward_axis = timeline.get("local_anatomical_forward_axis")
+        emitter_offset = anchor.get("offset_m")
+        actor_scale = spear.get("actor_scale")
+        component_delta = spear.get("ue_component_frame_delta")
+        _require(
+            isinstance(forward_axis, list)
+            and len(forward_axis) == 3
+            and all(
+                type(value) in {int, float} and math.isfinite(float(value))
+                for value in forward_axis
+            )
+            and math.sqrt(sum(float(value) ** 2 for value in forward_axis)) > 1.0e-9,
+            f"runtime asset {asset_id!r} forward axis is invalid",
+        )
+        _require(
+            isinstance(emitter_offset, list)
+            and len(emitter_offset) == 3
+            and all(
+                type(value) in {int, float} and math.isfinite(float(value))
+                for value in emitter_offset
+            )
+            and anchor.get("offset_space") == "final_scaled_asset_root",
+            f"runtime asset {asset_id!r} emitter offset/space is invalid",
+        )
+        _require(
+            type(actor_scale) in {int, float}
+            and math.isfinite(float(actor_scale))
+            and float(actor_scale) > 0.0,
+            f"runtime asset {asset_id!r} actor scale is invalid",
+        )
+        _require(
+            isinstance(spear.get("blueprint_class_path"), str)
+            and spear.get("blueprint_class_path")
+            and spear.get("skeletal_mesh_binding")
+            in {"blueprint_component", "explicit_path"}
+            and (
+                spear.get("skeletal_mesh_binding") != "explicit_path"
+                or isinstance(spear.get("skeletal_mesh_path"), str)
+                and spear.get("skeletal_mesh_path")
+            )
+            and type(spear.get("ue_anatomical_forward_yaw_deg")) in {int, float}
+            and math.isfinite(float(spear["ue_anatomical_forward_yaw_deg"]))
+            and isinstance(component_delta, Mapping)
+            and set(component_delta)
+            == {
+                "schema",
+                "composition",
+                "reason",
+                "rotation_deg",
+                "translation_cm",
+            }
+            and component_delta.get("schema")
+            == "avengine_spear_component_frame_delta_v1"
+            and component_delta.get("composition")
+            == "add_relative_preserving_blueprint_transform"
+            and isinstance(component_delta.get("reason"), str)
+            and component_delta.get("reason")
+            and isinstance(component_delta.get("rotation_deg"), list)
+            and isinstance(component_delta.get("translation_cm"), list)
+            and all(
+                len(component_delta[field]) == 3
+                and all(
+                    type(value) in {int, float} and math.isfinite(float(value))
+                    for value in component_delta[field]
+                )
+                for field in ("rotation_deg", "translation_cm")
+            )
+            and type(spear.get("floor_contact_gate")) is bool
+            and isinstance(geometry, Mapping)
+            and isinstance(geometry.get("source_mesh_uri"), str)
+            and geometry.get("source_mesh_uri")
+            and raw.get("admission_state") in {"formal", "research"},
+            f"runtime asset {asset_id!r} runtime declaration is incomplete",
+        )
+        ue_import_manifest_ref = _validated_ue_import_manifest_ref(
+            record=raw, spear=spear, actor_scale=float(actor_scale)
+        )
+        profiles[key] = {
+            "schema": "avengine_global100_runtime_motion_declaration_v1",
+            "runtime_registry": resolved_registry_path,
+            "registry_id": registry.get("registry_id"),
+            "registry_revision": registry.get("revision"),
+            "asset_id": asset_id,
+            "asset_revision": asset_revision,
+            "body_plan_id": timeline.get("body_plan_id"),
+            "template_id": timeline.get("template_id"),
+            "local_anatomical_forward_axis": deepcopy(
+                timeline.get("local_anatomical_forward_axis")
+            ),
+            "idle_action_id": idle_action_id,
+            "walking_action_id": walking_action_id,
+            "walk_phase_period_frames": walk_period,
+            "actor_scale": float(actor_scale),
+            "ue_import_manifest_ref": ue_import_manifest_ref,
+            "animation_paths_by_action_id": {
+                idle_action_id: idle_animation,
+                walking_action_id: walking_animation,
+            },
+            "blueprint_class_path": spear.get("blueprint_class_path"),
+            "skeletal_mesh_binding": spear.get("skeletal_mesh_binding"),
+            "skeletal_mesh_path": spear.get("skeletal_mesh_path"),
+            "ue_anatomical_forward_yaw_deg": spear.get("ue_anatomical_forward_yaw_deg"),
+            "ue_component_frame_delta": deepcopy(spear.get("ue_component_frame_delta")),
+            "floor_contact_gate": spear.get("floor_contact_gate"),
+            "source_mesh_uri": geometry.get("source_mesh_uri"),
+            "emitter_anchor_id": anchor.get("anchor_id"),
+            "emitter_offset_m": deepcopy(anchor.get("offset_m")),
+            "emitter_offset_space": anchor.get("offset_space"),
+            "admission_state": raw.get("admission_state"),
+        }
+    return profiles
+
+
+def _role_motion_profile_authority(
+    *,
+    source_suite: Path,
+    scenario_id: str,
+    source_actor_id: str,
+    frame_index_map: Sequence[int],
+    runtime_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind one output role to its source rows and concrete runtime motion."""
+
+    _require(len(frame_index_map) == FRAME_COUNT, "role frame map is not full75")
+    return {
+        "schema": "avengine_global100_role_motion_profile_authority_v1",
+        "source_path": {
+            "source_suite": str(source_suite.resolve()),
+            "native_source_scenario_id": scenario_id,
+            "source_actor_id": source_actor_id,
+            "frame_index_map": [int(value) for value in frame_index_map],
+            "root_path_policy": "planning_row_exact_selected_native_roots_v1",
+        },
+        "runtime": deepcopy(dict(runtime_profile)),
+    }
 
 
 def _candidate_cases(
@@ -1218,6 +1558,10 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
     publication = _load(_resolve(request["inputs"]["strict_sparse_publication"]))
     sounds = _load(_resolve(request["inputs"]["controlled_sound_registry"]))
     identities = _identity_metadata(strict, sounds)
+    runtime_registry_path = _resolve(request["inputs"]["runtime_registry"])
+    runtime_profiles = _runtime_motion_profiles(
+        runtime_registry_path, _load(runtime_registry_path)
+    )
     suite_path = _resolve(request["inputs"]["native_floor_point_suite"])
     suite = _load(suite_path)
     _require(
@@ -1258,6 +1602,37 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         episode_id = f"strict2h_full75_{episode_number:04d}_v1"
         target = identities[target_key]
         distractor = identities[distractor_key]
+        target_runtime_key = (
+            str(target["runtime_asset_id"]),
+            str(target["runtime_revision"]),
+        )
+        distractor_runtime_key = (
+            str(distractor["runtime_asset_id"]),
+            str(distractor["runtime_revision"]),
+        )
+        _require(
+            target_runtime_key in runtime_profiles,
+            f"{episode_id}: target runtime motion authority missing",
+        )
+        _require(
+            distractor_runtime_key in runtime_profiles,
+            f"{episode_id}: distractor runtime motion authority missing",
+        )
+        source_scenario_id = str(found["trajectory"]["scenario_id"])
+        target_motion_authority = _role_motion_profile_authority(
+            source_suite=suite_path,
+            scenario_id=source_scenario_id,
+            source_actor_id=str(found["target_actor_id"]),
+            frame_index_map=found["target_map"],
+            runtime_profile=runtime_profiles[target_runtime_key],
+        )
+        distractor_motion_authority = _role_motion_profile_authority(
+            source_suite=suite_path,
+            scenario_id=source_scenario_id,
+            source_actor_id=str(found["distractor_actor_id"]),
+            frame_index_map=found["distractor_map"],
+            runtime_profile=runtime_profiles[distractor_runtime_key],
+        )
         target_binding = (
             f"{found['trajectory']['scenario_id']}/{found['target_actor_id']}/"
             f"{'full75' if len(set(found['target_map'])) > 1 else 'hold_f' + str(found['target_map'][0])}"
@@ -1334,6 +1709,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                     "source_actor_id": found["target_actor_id"],
                     "frame_index_map": found["target_map"],
                     "root_path_m": found["target_path"],
+                    "motion_profile_authority": target_motion_authority,
                 },
                 "distractor": {
                     "identity_key": distractor["identity_key"],
@@ -1349,6 +1725,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                     "source_actor_id": found["distractor_actor_id"],
                     "frame_index_map": found["distractor_map"],
                     "root_path_m": found["distractor_path"],
+                    "motion_profile_authority": distractor_motion_authority,
                 },
                 "timeline": request["timeline"],
                 "audio_program": {
@@ -1359,6 +1736,10 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
                         "sound_asset_id": target["sound_asset_id"],
                         "voice_id": target["voice_id"],
                         "content_id": target["content_id"],
+                        "source_sample_rate_hz": target["speech_sample_rate_hz"],
+                        "source_channel_count": target["speech_channel_count"],
+                        "source_sample_count": target["speech_sample_count"],
+                        "source_audio_uri": target["speech_audio_uri"],
                         "start_sample": request["timeline"][
                             "target_speech_start_sample"
                         ],
@@ -1454,6 +1835,7 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "request_id": request["request_id"],
         "assignment_mode": assignment_validation["assignment_mode"],
         "frozen_assignment": str(assignment_path),
+        "runtime_registry": str(runtime_registry_path),
         "assignment_validation_status": assignment_validation["status"],
         "episode_count": 100,
         "single_room_mechanism_pilot_count": 20,

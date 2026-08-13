@@ -963,6 +963,13 @@
       ],
       "runtime_backends": {
         "spear_unreal": {
+          "actor_scale": 1.0,
+          "ue_import_manifest_ref": {
+            "path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_original_ue_v3/ue_import_manifest.json",
+            "schema": "rocketbox_native_ue_import_v3",
+            "tag": "rocketbox_male_adult_01_original_ue_v3",
+            "import_asset_id": "rocketbox_male_adult_01"
+          },
           "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_male_adult_01_original_ue_v3/BP_gate_rocketbox_male_adult_01_original_ue_v3.BP_gate_rocketbox_male_adult_01_original_ue_v3_C",
           "skeletal_mesh_binding": "blueprint_component",
           "skeletal_mesh_path": null,
@@ -1018,6 +1025,14 @@
       ],
       "runtime_backends": {
         "spear_unreal": {
+          "actor_scale": 1.0,
+          "ue_import_manifest_ref": {
+            "path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_adults_female_adult_01_original_ue_v1/ue_import_manifest.json",
+            "schema": "rocketbox_batch_native_ue_import_v1",
+            "tag": "rocketbox_adults_female_adult_01_original_ue_v1",
+            "import_asset_id": "rocketbox_female_adult_01",
+            "base_avatar_id": "rocketbox_adults_female_adult_01"
+          },
           "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_adults_female_adult_01_original_ue_v1/BP_gate_rocketbox_adults_female_adult_01_original_ue_v1.BP_gate_rocketbox_adults_female_adult_01_original_ue_v1_C",
           "skeletal_mesh_binding": "blueprint_component",
           "skeletal_mesh_path": null,
@@ -1073,6 +1088,14 @@
       ],
       "runtime_backends": {
         "spear_unreal": {
+          "actor_scale": 1.0,
+          "ue_import_manifest_ref": {
+            "path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_ue_import_v1/rocketbox_professions_construction_male_01_original_ue_v1/ue_import_manifest.json",
+            "schema": "rocketbox_batch_native_ue_import_v1",
+            "tag": "rocketbox_professions_construction_male_01_original_ue_v1",
+            "import_asset_id": "rocketbox_construction_male_01",
+            "base_avatar_id": "rocketbox_professions_construction_male_01"
+          },
           "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_professions_construction_male_01_original_ue_v1/BP_gate_rocketbox_professions_construction_male_01_original_ue_v1.BP_gate_rocketbox_professions_construction_male_01_original_ue_v1_C",
           "skeletal_mesh_binding": "blueprint_component",
           "skeletal_mesh_path": null,

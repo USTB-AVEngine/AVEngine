@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,10 +13,19 @@ from avengine.m5_1.dry_audio import (
     RESAMPLING_ALGORITHM,
     DryAudioClipSpec,
     assemble_dry_audio_buses,
+    assemble_semantic_dry_audio_buses,
     deterministic_resample_mono,
     parse_dry_audio_events,
     read_authenticated_mono_pcm_wav,
 )
+
+
+def _keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return set(value) | {key for item in value.values() for key in _keys(item)}
+    if isinstance(value, (list, tuple)):
+        return {key for item in value for key in _keys(item)}
+    return set()
 
 
 def _write_pcm16(
@@ -94,9 +103,7 @@ def test_authenticated_mono_read_and_deterministic_linear_resample(
     _write_pcm16(source_path, [0, 16384, -16384, 8192])
     digest = sha256_file(source_path)
 
-    decoded = read_authenticated_mono_pcm_wav(
-        source_path, expected_sha256=digest
-    )
+    decoded = read_authenticated_mono_pcm_wav(source_path, expected_sha256=digest)
     assert decoded.sample_rate_hz == 4
     assert decoded.sample_width_bytes == 2
     assert np.array_equal(decoded.samples, [0.0, 0.5, -0.5, 0.25])
@@ -207,8 +214,7 @@ def test_assembly_supports_simultaneous_overlap_crop_padding_gain_and_fade(
     assert primary["resampling"]["algorithm"] == RESAMPLING_ALGORITHM
     assert primary["resampling"]["performed"] is True
     assert result.bus_float64_le_sha256 == {
-        source_id: _float64_hash(bus)
-        for source_id, bus in result.buses.items()
+        source_id: _float64_hash(bus) for source_id, bus in result.buses.items()
     }
     assert len(result.assembly_content_sha256) == 64
     metadata = result.metadata()
@@ -264,9 +270,7 @@ def test_silent_declared_source_still_has_exact_length_hashed_bus(
     )
     assert result.buses["human_source"].shape == (8,)
     assert np.count_nonzero(result.buses["human_source"]) == 0
-    assert result.bus_float64_le_sha256["human_source"] == _float64_hash(
-        np.zeros(8)
-    )
+    assert result.bus_float64_le_sha256["human_source"] == _float64_hash(np.zeros(8))
 
 
 def test_hash_and_mono_contract_fail_closed(tmp_path: Path) -> None:
@@ -278,9 +282,7 @@ def test_hash_and_mono_contract_fail_closed(tmp_path: Path) -> None:
     with pytest.raises(AudioContractError, match="SHA-256 differs"):
         read_authenticated_mono_pcm_wav(mono, expected_sha256="0" * 64)
     with pytest.raises(AudioContractError, match="exactly one channel"):
-        read_authenticated_mono_pcm_wav(
-            stereo, expected_sha256=sha256_file(stereo)
-        )
+        read_authenticated_mono_pcm_wav(stereo, expected_sha256=sha256_file(stereo))
 
 
 def test_parser_rejects_alias_binding_boundary_and_identity_conflicts(
@@ -331,9 +333,7 @@ def test_parser_rejects_alias_binding_boundary_and_identity_conflicts(
             [base],
             source_ids=("dog_source", "human_source"),
             clip=clip,
-            asset_bindings={
-                "asset0": {"path": first, "sha256": second_hash}
-            },
+            asset_bindings={"asset0": {"path": first, "sha256": second_hash}},
         )
 
     with pytest.raises(AudioContractError, match="start_frame conflicts"):
@@ -395,4 +395,104 @@ def test_assembly_rejects_fake_event_hash_and_invalid_native_clip(
             source_ids=("dog_source", "human_source"),
             clip=clip,
             asset_bindings={"asset0": source},
+        )
+
+
+def test_semantic_assembly_uses_declared_audio_shape_without_file_digest(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "semantic.wav"
+    _write_pcm16(source, [100, 200, 300, 400], sample_rate_hz=8)
+    clip = DryAudioClipSpec.from_values(
+        frame_count=2,
+        fps_numerator=2,
+        sample_rate_hz=8,
+    )
+    bindings = {
+        "spoken_content": {
+            "content_id": "spoken_content",
+            "path": str(source),
+            "sample_rate_hz": 8,
+            "channel_count": 1,
+            "sample_count": 4,
+        }
+    }
+    event = {
+        "event_id": "event0",
+        "source_id": "source1",
+        "start_sample": 2,
+        "end_sample_exclusive": 6,
+        "content_id": "spoken_content",
+        "dry_clip_start_sample": 0,
+        "dry_clip_end_sample_exclusive": 4,
+        "linear_gain": 1.0,
+        "fade_samples": 0,
+    }
+
+    first = assemble_semantic_dry_audio_buses(
+        [event],
+        source_ids=("source1", "source2"),
+        clip=clip,
+        content_bindings=bindings,
+    )
+    assert not np.any(first.buses["source1"][:2])
+    assert np.any(first.buses["source1"][2:6])
+    assert not np.any(first.buses["source1"][6:])
+    assert not np.any(first.buses["source2"])
+    assert first.metadata()["schema"] == (
+        "avengine_m5_1_semantic_dry_audio_assembly_v1"
+    )
+    metadata = first.metadata()
+    declared_content_id = metadata.pop("assembly_content_sha256")
+    assert canonical_json_sha256(metadata) == declared_content_id
+    forbidden = {
+        "sha256",
+        "file_sha256",
+        "input_sha256",
+        "byte_size",
+        "audio_byte_size",
+        "bus_float64_le_sha256",
+    }
+    assert not (_keys(first.metadata()) & forbidden)
+
+    _write_pcm16(source, [-100, -200, -300, -400], sample_rate_hz=8)
+    second = assemble_semantic_dry_audio_buses(
+        [event],
+        source_ids=("source1", "source2"),
+        clip=clip,
+        content_bindings=bindings,
+    )
+    assert np.array_equal(second.buses["source1"], -first.buses["source1"])
+
+
+def test_semantic_assembly_fails_closed_on_declared_metadata_drift(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "semantic.wav"
+    _write_pcm16(source, [1, 2, 3, 4], sample_rate_hz=8)
+    clip = DryAudioClipSpec.from_values(
+        frame_count=2,
+        fps_numerator=2,
+        sample_rate_hz=8,
+    )
+    event = {
+        "event_id": "event0",
+        "source_id": "source1",
+        "start_sample": 0,
+        "end_sample_exclusive": 4,
+        "content_id": "spoken_content",
+    }
+    binding = {
+        "content_id": "spoken_content",
+        "path": str(source),
+        "sample_rate_hz": 8,
+        "channel_count": 1,
+        "sample_count": 5,
+    }
+    with pytest.raises(AudioContractError, match="metadata differs"):
+        assemble_semantic_dry_audio_buses(
+            [event],
+            source_ids=("source1", "source2"),
+            clip=clip,
+            content_bindings={"spoken_content": binding},
         )
