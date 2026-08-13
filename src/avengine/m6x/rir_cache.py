@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-from importlib.machinery import ExtensionFileLoader
 import json
 import math
 import os
@@ -1331,6 +1330,18 @@ def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
         raise RIRCacheError("RLR library escapes the selected binding directory")
     habitat_spec = getattr(habitat_module, "__spec__", None)
     binding_spec = getattr(binding_module, "__spec__", None)
+    binding_loader = getattr(binding_spec, "loader", None)
+    binding_get_filename = getattr(binding_loader, "get_filename", None)
+    if not callable(binding_get_filename):
+        raise RIRCacheError("semantic Habitat binding loader lacks file resolution")
+    try:
+        loader_binding_path = _semantic_regular_file(
+            Path(str(binding_get_filename(binding_module.__name__))),
+            owner="Habitat binding loader path",
+            absolute_required=True,
+        )
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        raise RIRCacheError("semantic Habitat binding loader path is invalid") from exc
     habitat_search = getattr(habitat_spec, "submodule_search_locations", None)
     habitat_roots = (
         tuple(Path(os.path.abspath(str(location))) for location in habitat_search)
@@ -1352,7 +1363,7 @@ def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
         != "habitat_sim._ext.habitat_sim_bindings"
         or Path(str(getattr(binding_spec, "origin", ""))) != binding_path
         or getattr(binding_spec, "parent", None) != "habitat_sim._ext"
-        or not isinstance(getattr(binding_spec, "loader", None), ExtensionFileLoader)
+        or loader_binding_path != binding_path
     ):
         raise RIRCacheError("semantic Habitat import specifications are invalid")
     return (

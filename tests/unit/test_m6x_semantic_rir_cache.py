@@ -271,6 +271,14 @@ def test_semantic_scene_loads_structural_fixture(tmp_path: Path) -> None:
     assert scene.triangle_count_by_material == {"wall": 1}
 
 
+class _EditableLoaderWrapper:
+    def __init__(self, loader: object) -> None:
+        self._loader = loader
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._loader, name)
+
+
 def _semantic_runtime_modules(tmp_path: Path) -> dict[str, ModuleType]:
     package = tmp_path / "src_python/habitat_sim"
     binding_dir = (
@@ -301,7 +309,9 @@ def _semantic_runtime_modules(tmp_path: Path) -> dict[str, ModuleType]:
         name=binding_name,
         origin=str(binding_file),
         parent="habitat_sim._ext",
-        loader=ExtensionFileLoader(binding_name, str(binding_file)),
+        loader=_EditableLoaderWrapper(
+            ExtensionFileLoader(binding_name, str(binding_file))
+        ),
     )
     quaternion = ModuleType("quaternion")
     quaternion.__file__ = str(quaternion_file)
@@ -334,7 +344,14 @@ def test_semantic_runtime_accepts_editable_split_module_roots(
 
 
 @pytest.mark.parametrize(
-    "drift", ["binding_origin", "binding_loader", "package_search", "symbol_identity"]
+    "drift",
+    [
+        "binding_origin",
+        "binding_loader",
+        "binding_loader_filename",
+        "package_search",
+        "symbol_identity",
+    ],
 )
 def test_semantic_runtime_rejects_unrelated_import_structure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
@@ -346,6 +363,12 @@ def test_semantic_runtime_rejects_unrelated_import_structure(
         binding.__spec__.origin = str(tmp_path / "unrelated.so")
     elif drift == "binding_loader":
         binding.__spec__.loader = object()
+    elif drift == "binding_loader_filename":
+        unrelated = tmp_path / "unrelated.so"
+        unrelated.write_bytes(b"unrelated-loader-fixture")
+        binding.__spec__.loader = SimpleNamespace(
+            get_filename=lambda _name: str(unrelated)
+        )
     elif drift == "package_search":
         habitat.__spec__.submodule_search_locations = [str(tmp_path / "build")]
     else:
