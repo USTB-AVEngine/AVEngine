@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+from importlib.machinery import ExtensionFileLoader
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -267,6 +269,94 @@ def test_semantic_scene_loads_structural_fixture(tmp_path: Path) -> None:
     assert scene.package_id == "fixture_scene"
     assert scene.material_name_by_category == {"wall": "wall_material"}
     assert scene.triangle_count_by_material == {"wall": 1}
+
+
+def _semantic_runtime_modules(tmp_path: Path) -> dict[str, ModuleType]:
+    package = tmp_path / "src_python/habitat_sim"
+    binding_dir = (
+        tmp_path / "build/cp312-cp312-linux_x86_64/install/platlib/habitat_sim/_ext"
+    )
+    package.mkdir(parents=True)
+    binding_dir.mkdir(parents=True)
+    habitat_file = package / "__init__.py"
+    binding_file = binding_dir / "habitat_sim_bindings.cpython-312-x86_64-linux-gnu.so"
+    quaternion_file = tmp_path / "quaternion.py"
+    habitat_file.write_text("")
+    binding_file.write_bytes(b"compiled-fixture")
+    (binding_dir / "libRLRAudioPropagation.so").write_bytes(b"native-fixture")
+    quaternion_file.write_text("")
+
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    habitat = ModuleType("habitat_sim")
+    habitat.__file__ = str(habitat_file)
+    habitat.__path__ = [str(package), str(binding_dir.parent)]
+    habitat.__spec__ = SimpleNamespace(
+        name="habitat_sim",
+        origin=str(habitat_file),
+        submodule_search_locations=habitat.__path__,
+    )
+    binding = ModuleType(binding_name)
+    binding.__file__ = str(binding_file)
+    binding.__spec__ = SimpleNamespace(
+        name=binding_name,
+        origin=str(binding_file),
+        parent="habitat_sim._ext",
+        loader=ExtensionFileLoader(binding_name, str(binding_file)),
+    )
+    quaternion = ModuleType("quaternion")
+    quaternion.__file__ = str(quaternion_file)
+    for name in (
+        "RLRContextConfiguration",
+        "RLRAcousticContext",
+        "RLRChannelLayoutType",
+    ):
+        symbol = type(name, (), {"__module__": binding_name})
+        setattr(binding, name, symbol)
+        setattr(habitat, name, symbol)
+    habitat.audio_enabled = True
+    return {
+        "quaternion": quaternion,
+        "habitat_sim": habitat,
+        binding_name: binding,
+    }
+
+
+def test_semantic_runtime_accepts_editable_split_module_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    modules = _semantic_runtime_modules(tmp_path)
+    monkeypatch.setattr(rir_cache.importlib, "import_module", modules.__getitem__)
+    habitat, binding, report = rir_cache._load_semantic_habitat_runtime()
+    assert habitat is modules["habitat_sim"]
+    assert binding is modules["habitat_sim._ext.habitat_sim_bindings"]
+    assert report["habitat_module_path"].endswith("src_python/habitat_sim/__init__.py")
+    assert "/install/platlib/habitat_sim/_ext/" in report["binding_module_path"]
+
+
+@pytest.mark.parametrize(
+    "drift", ["binding_origin", "binding_loader", "package_search", "symbol_identity"]
+)
+def test_semantic_runtime_rejects_unrelated_import_structure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    modules = _semantic_runtime_modules(tmp_path)
+    habitat = modules["habitat_sim"]
+    binding = modules["habitat_sim._ext.habitat_sim_bindings"]
+    if drift == "binding_origin":
+        binding.__spec__.origin = str(tmp_path / "unrelated.so")
+    elif drift == "binding_loader":
+        binding.__spec__.loader = object()
+    elif drift == "package_search":
+        habitat.__spec__.submodule_search_locations = [str(tmp_path / "build")]
+    else:
+        habitat.RLRAcousticContext = type(
+            "RLRAcousticContext",
+            (),
+            {"__module__": "habitat_sim._ext.habitat_sim_bindings"},
+        )
+    monkeypatch.setattr(rir_cache.importlib, "import_module", modules.__getitem__)
+    with pytest.raises(rir_cache.RIRCacheError):
+        rir_cache._load_semantic_habitat_runtime()
 
 
 class _Renderer:

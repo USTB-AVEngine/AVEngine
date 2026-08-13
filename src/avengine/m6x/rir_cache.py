@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+from importlib.machinery import ExtensionFileLoader
 import json
 import math
 import os
@@ -1328,10 +1329,32 @@ def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
     )
     if library.parent != binding_path.parent:
         raise RIRCacheError("RLR library escapes the selected binding directory")
-    try:
-        binding_path.relative_to(habitat_path.parent)
-    except ValueError as exc:
-        raise RIRCacheError("Habitat binding escapes the selected module root") from exc
+    habitat_spec = getattr(habitat_module, "__spec__", None)
+    binding_spec = getattr(binding_module, "__spec__", None)
+    habitat_search = getattr(habitat_spec, "submodule_search_locations", None)
+    habitat_roots = (
+        tuple(Path(os.path.abspath(str(location))) for location in habitat_search)
+        if habitat_search
+        else ()
+    )
+    if (
+        getattr(habitat_spec, "name", None) != "habitat_sim"
+        or Path(str(getattr(habitat_spec, "origin", ""))) != habitat_path
+        or habitat_path.parent not in habitat_roots
+        or not any(binding_path.is_relative_to(root) for root in habitat_roots)
+        or any(
+            _semantic_path_has_symlink_component(root)
+            or not root.is_absolute()
+            or not root.is_dir()
+            for root in habitat_roots
+        )
+        or getattr(binding_spec, "name", None)
+        != "habitat_sim._ext.habitat_sim_bindings"
+        or Path(str(getattr(binding_spec, "origin", ""))) != binding_path
+        or getattr(binding_spec, "parent", None) != "habitat_sim._ext"
+        or not isinstance(getattr(binding_spec, "loader", None), ExtensionFileLoader)
+    ):
+        raise RIRCacheError("semantic Habitat import specifications are invalid")
     return (
         habitat_module,
         binding_module,
