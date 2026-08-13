@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -17,7 +19,9 @@ from avengine.m3.runtime import load_compiled_acoustic_scene
 from avengine.m4.runtime import M4SimulationConfig
 from avengine.m6x.rir_cache import (
     RIR_CACHE_ACOUSTIC_SELECTION_NAME,
+    load_semantic_acoustic_scene,
     render_rir_cache,
+    render_semantic_rir_cache,
 )
 
 
@@ -198,9 +202,18 @@ def resolve_effective_acoustic_inputs(
         explicit_simulation_override=explicit_simulation,
     )
 
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rir-job-plan", type=Path, required=True)
+    parser.add_argument(
+        "--semantic-no-file-evidence",
+        action="store_true",
+        help=(
+            "Render one fresh structural/sample cache from explicit inputs "
+            "without entering legacy file-digest or byte-size evidence paths"
+        ),
+    )
     parser.add_argument(
         "--acoustic-package-manifest",
         type=Path,
@@ -270,7 +283,91 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _semantic_cli_regular_file(path: Path | None, *, owner: str) -> Path:
+    if path is None:
+        raise ValueError(f"{owner} is required in semantic mode")
+    raw = Path(path)
+    if ".." in raw.parts:
+        raise ValueError(f"{owner} may not contain parent traversal")
+    absolute = Path(os.path.abspath(raw))
+    if any(candidate.is_symlink() for candidate in (absolute, *absolute.parents)):
+        raise ValueError(f"{owner} may not contain symlink components")
+    if not absolute.is_file() or absolute.resolve(strict=True) != absolute:
+        raise ValueError(f"{owner} must be a selected regular file")
+    return absolute
+
+
+def _run_semantic(args: argparse.Namespace) -> Path:
+    if (
+        args.room_id is not None
+        or args.room_revision is not None
+        or args.acoustic_profile_registry is not None
+        or args.simulation_profile != "production"
+        or args.room_registry != DEFAULT_ROOM_REGISTRY
+    ):
+        raise ValueError(
+            "semantic no-file-evidence mode requires explicit package and "
+            "simulation inputs; registry selection remains a legacy mode"
+        )
+    if args.job_offset != 0 or args.job_limit is not None:
+        raise ValueError(
+            "semantic no-file-evidence mode renders the complete selected plan"
+        )
+    if args.layout != "binaural":
+        raise ValueError("semantic no-file-evidence mode supports binaural only")
+    plan_path = _semantic_cli_regular_file(args.rir_job_plan, owner="--rir-job-plan")
+    package_path = _semantic_cli_regular_file(
+        args.acoustic_package_manifest, owner="--acoustic-package-manifest"
+    )
+    simulation_path = _semantic_cli_regular_file(
+        args.simulation_request, owner="--simulation-request"
+    )
+    hrtf_path = _semantic_cli_regular_file(args.hrtf, owner="--hrtf")
+    simulation_document = load_json(simulation_path)
+    if not isinstance(simulation_document, ABCMapping) or not isinstance(
+        simulation_document.get("simulation"), ABCMapping
+    ):
+        raise ValueError("semantic simulation request is invalid")
+    simulation_value = dict(simulation_document["simulation"])
+    if args.thread_count is not None:
+        simulation_value["thread_count"] = args.thread_count
+    simulation = M4SimulationConfig.from_mapping(simulation_value)
+    scene = load_semantic_acoustic_scene(package_path)
+    result = render_semantic_rir_cache(
+        plan_path=plan_path,
+        scene=scene,
+        simulation_request_path=simulation_path,
+        simulation=simulation,
+        output=args.output,
+        acoustic_selection={
+            "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+            "selection_mode": "explicit_legacy_unbound",
+            "registry_selection_applied": False,
+            "room_ref": None,
+            "profile_ref": None,
+            "binding_id": None,
+        },
+        layout_type="binaural",
+        hrtf_file_path=hrtf_path,
+        batch_size=args.batch_size,
+        coordinate_translation_m=args.coordinate_translation_m,
+        source_radius_m=args.source_radius_m,
+        listener_radius_m=args.listener_radius_m,
+        compressed=not args.uncompressed,
+    )
+    print(
+        "SEMANTIC_RIR_CACHE_OK "
+        f"output={result.output} "
+        f"jobs={result.receipt['selected_job_count']} "
+        f"full_plan_complete={result.receipt['full_plan_complete']}",
+        flush=True,
+    )
+    return result.output
+
+
 def run(args: argparse.Namespace) -> Path:
+    if args.semantic_no_file_evidence:
+        return _run_semantic(args)
     inputs = resolve_effective_acoustic_inputs(args)
     selection_receipt = inputs.receipt()
     simulation_request = inputs.simulation_request

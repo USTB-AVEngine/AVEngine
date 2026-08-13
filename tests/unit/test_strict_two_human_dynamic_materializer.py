@@ -749,6 +749,20 @@ def test_planning_audio_keeps_exact_samples_and_uses_semantic_m7_inputs(
     assert "--source-endpoint-registry" not in argv
     assert "--sound-asset-registry" not in argv
     assert "--sound-audio" not in argv
+    assert "--semantic-no-file-evidence" in request["rir_render_argv"]
+    legacy_request = TOOL._acoustic_execution_request(
+        output=output,
+        episode_id=row["episode_id"],
+        rir_plan={
+            "requested_pair_state_count": 150,
+            "unique_rir_job_count": 76,
+            "cache_reuse_count": 74,
+        },
+        target_sound_asset_id=row["target"]["sound_asset_id"],
+        target_audio=audio_path,
+        planning_mode=False,
+    )
+    assert "--semantic-no-file-evidence" not in legacy_request["rir_render_argv"]
 
 
 def test_planning_audio_rejects_joint_event_and_target_uri_drift(

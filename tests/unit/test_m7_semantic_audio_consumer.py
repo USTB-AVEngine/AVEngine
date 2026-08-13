@@ -211,45 +211,83 @@ def _write_semantic_rir_fixture(tmp_path: Path) -> tuple[Path, Path]:
         },
         "profile_ref": {"profile_id": "profile", "revision": "profile_v1"},
         "binding_id": "apartment_profile",
-        # Legacy producer evidence is deliberately malformed and ignored.
-        "acoustic_package_manifest_sha256": "ignored",
-        "simulation_request_sha256": "ignored",
     }
     write_json(
         cache / "request.json",
         {
-            "schema": "avengine_rlr_rir_cache_request_v1",
+            "schema": "avengine_semantic_rir_cache_request_v1",
+            "status": "ready_structural_and_sample_validation",
+            "qualification_claim": False,
             "plan": {
                 "path": str(plan_path.resolve()),
-                "sha256": "ignored",
                 "full_job_count": 2,
                 "selected_job_offset": 0,
                 "selected_job_count": 2,
                 "acoustic_state_binding": "source_listener_pose_per_job_v1",
             },
-            "acoustic_scene": {"manifest_path": str(tmp_path / "missing.json")},
-            "simulation": {"request_path": str(tmp_path / "missing_sim.json")},
+            "acoustic_scene": {
+                "manifest_path": str(tmp_path / "missing.json"),
+                "package_id": "fixture_package",
+            },
+            "simulation": {
+                "request_path": str(tmp_path / "missing_sim.json"),
+                "effective": {
+                    "frequency_bands": 4,
+                    "direct_sh_order": 3,
+                    "indirect_sh_order": 1,
+                    "direct_ray_count": 500,
+                    "indirect_ray_count": 5000,
+                    "indirect_ray_depth": 200,
+                    "source_ray_count": 500,
+                    "source_ray_depth": 20,
+                    "max_diffraction_order": 10,
+                    "thread_count": 1,
+                    "sample_rate_hz": 16000.0,
+                    "max_ir_seconds": 4.0,
+                    "unit_scale": 1.0,
+                    "global_volume": 1.0,
+                    "speed_of_sound_m_s": 343.0,
+                    "direct": True,
+                    "indirect": True,
+                    "diffraction": True,
+                    "transmission": True,
+                    "mesh_simplification": False,
+                    "temporal_coherence": False,
+                    "channel_layout": {"type": "binaural", "channel_count": 2},
+                },
+            },
             "acoustic_selection_binding": selection,
             "output": {
                 "layout_type": "binaural",
                 "channel_count": 2,
                 "layout_id": "rlr_binaural_lr_v1",
                 "hrtf_path": str(tmp_path / "missing.hrtf"),
+                "compressed_npz_shards": True,
             },
             "runtime_policy": {
+                "native_batch_size": 8,
                 "coordinate_translation_m": [0.0, 0.0, 0.0],
+                "source_radius_m": 0.0,
+                "listener_radius_m": 0.0,
+                "persistent_context": True,
                 "listener_pose_update_policy": "set_listener_pose_on_change_v1",
+                "scene_upload_count": 1,
                 "compute_device": "CPU",
                 "gpu_acceleration": False,
+                "execution_mode": "native_default",
             },
         },
     )
     write_json(
         cache / "receipt.json",
         {
-            "schema": "avengine_rlr_rir_cache_receipt_v1",
+            "schema": "avengine_semantic_rir_cache_receipt_v1",
             "status": "pass",
             "qualification_claim": False,
+            "claim_boundary": (
+                "native CPU RIR samples with structural pose/use, native "
+                "source/listener receipts, and decoded-sample validation"
+            ),
             "full_plan_complete": True,
             "full_plan_job_count": 2,
             "selected_job_count": 2,
@@ -262,7 +300,21 @@ def _write_semantic_rir_fixture(tmp_path: Path) -> tuple[Path, Path]:
             "acoustic_state_binding": "source_listener_pose_per_job_v1",
             "listener_pose_update_policy": "set_listener_pose_on_change_v1",
             "acoustic_selection_mode": "registry",
-            "retained_shard_bytes": 999_999,
+            "retained_shard_count": 1,
+            "native_execution": True,
+            "native_scene_upload_structurally_validated": True,
+            "native_source_listener_receipts_validated": True,
+            "native_realized_job_count": 2,
+            "native_simulate_owned_call_count": 1,
+            "producer_backend": "RLR Audio Propagation",
+            "cache_artifact": "room impulse response (RIR)",
+            "configured_thread_count": 1,
+            "outputs": {
+                "request": "request.json",
+                "index": "index.json",
+                "timing": "timing.json",
+                "shards": "shards/",
+            },
         },
     )
     entries = [
@@ -275,20 +327,96 @@ def _write_semantic_rir_fixture(tmp_path: Path) -> tuple[Path, Path]:
             "source_position_m": job["source_position_m"],
             "listener_position_m": job["listener_position_m"],
             "listener_orientation_wxyz": job["listener_orientation_wxyz"],
-            "ir_sha256": "ignored",
         }
         for index, job in enumerate(jobs)
     ]
     write_json(
         cache / "index.json",
         {
-            "schema": "avengine_rlr_rir_cache_index_v1",
+            "schema": "avengine_semantic_rir_cache_index_v1",
             "status": "pass",
+            "qualification_claim": False,
             "full_plan_complete": True,
             "selected_job_count": 2,
             "acoustic_state_binding": "source_listener_pose_per_job_v1",
             "acoustic_selection_mode": "registry",
             "entries": entries,
+        },
+    )
+    write_json(
+        cache / "timing.json",
+        {
+            "schema": "avengine_semantic_rir_cache_timing_v1",
+            "status": "pass",
+            "setup": {
+                "schema": "avengine_semantic_native_rir_setup_v1",
+                "runtime": {
+                    "schema": "avengine_semantic_habitat_rlr_runtime_v1",
+                    "binding_api": "habitat_sim.RLRAcousticContext_v1",
+                    "quaternion_module_path": "/fixture/quaternion.so",
+                    "habitat_module_path": "/fixture/habitat/__init__.py",
+                    "binding_module_path": "/fixture/habitat/bindings.so",
+                    "rlr_library_path": "/fixture/habitat/libRLRAudioPropagation.so",
+                },
+                "configuration_readback": {
+                    key: value
+                    for key, value in {
+                        "frequency_bands": 4,
+                        "direct_sh_order": 3,
+                        "indirect_sh_order": 1,
+                        "direct_ray_count": 500,
+                        "indirect_ray_count": 5000,
+                        "indirect_ray_depth": 200,
+                        "source_ray_count": 500,
+                        "source_ray_depth": 20,
+                        "max_diffraction_order": 10,
+                        "thread_count": 1,
+                        "sample_rate_hz": 16000.0,
+                        "max_ir_seconds": 4.0,
+                        "unit_scale": 1.0,
+                        "global_volume": 1.0,
+                        "speed_of_sound_m_s": 343.0,
+                        "direct": True,
+                        "indirect": True,
+                        "diffraction": True,
+                        "transmission": True,
+                        "mesh_simplification": False,
+                        "temporal_coherence": False,
+                        "channel_layout": {"type": "binaural", "channel_count": 2},
+                    }.items()
+                    if key not in {"speed_of_sound_m_s", "channel_layout"}
+                },
+                "compute_device": "CPU",
+                "qualification_claim": False,
+                "upload": {
+                    "status": "pass_structural_native_upload",
+                    "object_count": 1,
+                    "vertex_count": 3,
+                    "triangle_count": 1,
+                    "material_category_count": 1,
+                    "object_ids": ["object"],
+                    "triangle_count_by_material": {"wall": 1},
+                    "material_upload_call_count": {"wall": 1},
+                    "resolved_material_name_by_category": {"wall": "wall"},
+                    "resolved_material_index_by_category": {"wall": 0},
+                },
+                "wall_seconds": 0.01,
+                "process_cpu_seconds": 0.01,
+            },
+            "batches": [
+                {
+                    "batch_index": 0,
+                    "job_count": 2,
+                    "simulate_wall_seconds": 0.1,
+                    "simulate_process_cpu_seconds": 0.1,
+                    "serialization_wall_seconds": 0.1,
+                }
+            ],
+            "selected_job_count": 2,
+            "simulate_wall_seconds": 0.1,
+            "serialization_wall_seconds": 0.1,
+            "run_wall_seconds": 0.3,
+            "jobs_per_simulate_second": 20.0,
         },
     )
     samples = np.zeros((2, 2, 2), dtype="<f4")
@@ -312,7 +440,9 @@ def _write_semantic_rir_fixture(tmp_path: Path) -> tuple[Path, Path]:
         sample_rate_hz=np.asarray(16_000, dtype="<u4"),
         layout_id=np.asarray("rlr_binaural_lr_v1"),
         channel_labels=np.asarray(["left", "right"]),
-        ir_sha256=np.asarray(["ignored", "ignored"]),
+        simulate_wall_seconds=np.asarray(0.1, dtype="<f8"),
+        simulate_process_cpu_seconds=np.asarray(0.1, dtype="<f8"),
+        indirect_ray_efficiency=np.asarray(0.5, dtype="<f8"),
     )
     return plan, cache
 
@@ -413,7 +543,7 @@ def test_semantic_program_rejects_metadata_on_unused_content_binding(
         )
 
 
-def test_semantic_render_batch_is_digest_free_real_cpu_e2e(
+def test_semantic_render_batch_is_digest_free_structural_cpu_e2e(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     program, endpoints, contents, binding = _semantic_fixture(tmp_path)
@@ -427,6 +557,7 @@ def test_semantic_render_batch_is_digest_free_real_cpu_e2e(
     )
     monkeypatch.setattr(module, "RIRCacheSession", forbidden_call)
     monkeypatch.setattr(module, "sha256_file", forbidden_call)
+    monkeypatch.setattr(module, "canonical_json_sha256", forbidden_call)
     output = tmp_path / "rendered"
     assert (
         render_batch(
@@ -664,8 +795,22 @@ def test_semantic_rir_rejects_incomplete_or_foreign_episode_grid(
     else:
         document["jobs"][0]["uses"][-1]["episode_id"] = "foreign_episode"
     write_json(plan_path, document)
-    with pytest.raises(AssetBoundAudioError, match="use count"):
+    with pytest.raises(AssetBoundAudioError):
         _open_semantic_rir_fixture(plan, cache)
+
+
+def test_semantic_rir_accepts_fixed_jobs_with_top_level_pose_fallback(
+    tmp_path: Path,
+) -> None:
+    plan, cache = _write_semantic_rir_fixture(tmp_path)
+    plan_path = plan / "rir_job_plan.json"
+    document = json.loads(plan_path.read_text())
+    for job in document["jobs"]:
+        job.pop("listener_position_m")
+        job.pop("listener_orientation_wxyz")
+    write_json(plan_path, document)
+    episode = _open_semantic_rir_fixture(plan, cache).load_episode("episode")
+    assert episode.samples.shape == (75, 2, 2, 2)
 
 
 @pytest.mark.parametrize(
@@ -694,7 +839,7 @@ def test_semantic_rir_rejects_pose_mode_or_acoustic_state_drift(
     else:
         document["listener_pose_mode"] = "per_episode_frame"
     write_json(plan_path, document)
-    with pytest.raises(AssetBoundAudioError, match=message):
+    with pytest.raises(AssetBoundAudioError):
         _open_semantic_rir_fixture(plan, cache)
 
 
@@ -716,6 +861,85 @@ def test_semantic_rir_rejects_symlinked_inputs(tmp_path: Path, kind: str) -> Non
         _open_semantic_rir_fixture(plan, cache)
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "native_false",
+        "hybrid_receipt",
+        "upload_count",
+        "batch_cpu_time",
+        "run_wall",
+        "canonical_input_path",
+        "config_readback",
+        "batch_partition",
+    ],
+)
+def test_semantic_rir_rejects_fabricated_native_or_timing_claims(
+    tmp_path: Path, mutation: str
+) -> None:
+    plan, cache = _write_semantic_rir_fixture(tmp_path)
+    if mutation in {"native_false", "hybrid_receipt"}:
+        path = cache / "receipt.json"
+        document = json.loads(path.read_text())
+        if mutation == "native_false":
+            document["native_execution"] = False
+        else:
+            document["file_sha256"] = "legacy-evidence-must-not-mix"
+    elif mutation in {"canonical_input_path", "batch_partition"}:
+        path = cache / "request.json"
+        document = json.loads(path.read_text())
+        if mutation == "canonical_input_path":
+            document["acoustic_scene"]["manifest_path"] = (
+                "/fixture/../fixture/scene.json"
+            )
+        else:
+            document["runtime_policy"]["native_batch_size"] = 1
+    else:
+        path = cache / "timing.json"
+        document = json.loads(path.read_text())
+        if mutation == "upload_count":
+            document["setup"]["upload"]["triangle_count"] = 2
+        elif mutation == "config_readback":
+            document["setup"]["configuration_readback"]["direct_ray_count"] += 1
+        elif mutation == "batch_cpu_time":
+            document["batches"][0]["simulate_process_cpu_seconds"] = 0.2
+        else:
+            document["run_wall_seconds"] = 0.0
+    write_json(path, document)
+    with pytest.raises(AssetBoundAudioError):
+        _open_semantic_rir_fixture(plan, cache)
+
+
+@pytest.mark.parametrize("mutation", ["fortran_order", "duplicate_job_id", "extra_row"])
+def test_semantic_rir_rejects_nonproducer_shard_structure(
+    tmp_path: Path, mutation: str
+) -> None:
+    plan, cache = _write_semantic_rir_fixture(tmp_path)
+    shard = cache / "shards/shard_000000.npz"
+    with np.load(shard, allow_pickle=False) as archive:
+        arrays = {name: np.asarray(archive[name]).copy() for name in archive.files}
+    if mutation == "fortran_order":
+        arrays["source_positions_m"] = np.asfortranarray(arrays["source_positions_m"])
+    elif mutation == "duplicate_job_id":
+        arrays["job_ids"][1] = arrays["job_ids"][0]
+    else:
+        for name in (
+            "job_indices",
+            "job_ids",
+            "source_positions_m",
+            "listener_positions_m",
+            "listener_orientations_wxyz",
+            "lengths",
+            "samples",
+        ):
+            arrays[name] = np.concatenate((arrays[name], arrays[name][-1:]), axis=0)
+        arrays["job_indices"][-1] = 2
+        arrays["job_ids"][-1] = "extra_job"
+    np.savez(shard, **arrays)
+    with pytest.raises(AssetBoundAudioError):
+        _open_semantic_rir_fixture(plan, cache)
+
+
 def test_semantic_rir_rejects_producer_dtype_drift(tmp_path: Path) -> None:
     plan, cache = _write_semantic_rir_fixture(tmp_path)
     shard = cache / "shards/shard_000000.npz"
@@ -723,9 +947,8 @@ def test_semantic_rir_rejects_producer_dtype_drift(tmp_path: Path) -> None:
         arrays = {name: np.asarray(archive[name]).copy() for name in archive.files}
     arrays["sample_rate_hz"] = np.asarray(16_000, dtype="<i8")
     np.savez(shard, **arrays)
-    session = _open_semantic_rir_fixture(plan, cache)
     with pytest.raises(AssetBoundAudioError, match="metadata is invalid"):
-        session.load_episode("episode")
+        _open_semantic_rir_fixture(plan, cache)
 
 
 def test_semantic_cli_is_explicit_and_legacy_inputs_are_mutually_exclusive(

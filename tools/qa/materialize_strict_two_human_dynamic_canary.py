@@ -1720,6 +1720,7 @@ def _acoustic_execution_request(
             "NUMBA_DISABLE_JIT=1",
             str(HABITAT_PYTHON),
             "tools/m6x/render_rir_cache.py",
+            *(["--semantic-no-file-evidence"] if planning_mode else []),
             "--rir-job-plan",
             str((output / "rir_job_plan.json").resolve()),
             "--acoustic-package-manifest",

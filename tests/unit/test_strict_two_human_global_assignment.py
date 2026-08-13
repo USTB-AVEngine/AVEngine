@@ -227,6 +227,47 @@ class FrozenGlobalAssignmentTest(unittest.TestCase):
         ):
             BUILDER._validate_frozen_assignment_structure(self.request, broken)
 
+    def test_single_episode_selection_is_honest_and_exact(self) -> None:
+        episodes = [
+            {"episode_id": "episode_1", "formal": False},
+            {"episode_id": "episode_2", "formal": False},
+        ]
+        selection = BUILDER._episode_selection(
+            episodes=episodes,
+            selected_episode_id="episode_2",
+            candidate_manifest_status="pass_interim_single_room_cpu_plan",
+        )
+        self.assertEqual(
+            set(selection),
+            {
+                "schema",
+                "status",
+                "selection_mode",
+                "candidate_manifest_status",
+                "candidate_episode_count",
+                "selected_episode_count",
+                "selected_episode_id",
+                "selected_candidate_index",
+                "formal_episode_count",
+                "qualification_claim",
+                "episodes",
+            },
+        )
+        self.assertEqual(selection["candidate_episode_count"], 2)
+        self.assertEqual(selection["selected_episode_count"], 1)
+        self.assertEqual(selection["selected_candidate_index"], 1)
+        self.assertEqual(selection["episodes"], [episodes[1]])
+        self.assertEqual(selection["formal_episode_count"], 0)
+        self.assertFalse(selection["qualification_claim"])
+        selection["episodes"][0]["episode_id"] = "mutated"
+        self.assertEqual(episodes[1]["episode_id"], "episode_2")
+        with self.assertRaisesRegex(RuntimeError, "resolve exactly once"):
+            BUILDER._episode_selection(
+                episodes=episodes,
+                selected_episode_id="missing",
+                candidate_manifest_status="pass",
+            )
+
     def test_builder_has_no_scipy_runtime_import(self) -> None:
         source = BUILDER_PATH.read_text(encoding="utf-8").lower()
         self.assertNotIn("import scipy", source)
@@ -265,12 +306,36 @@ class FrozenGlobalAssignmentTest(unittest.TestCase):
     )
     def test_real_assignment_recomputes_all_100_cpu_gates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            paths = BUILDER.build(REQUEST_PATH, Path(directory) / "global100")
+            paths = BUILDER.build(
+                REQUEST_PATH,
+                Path(directory) / "global100",
+                selected_episode_id="strict2h_full75_0002_v1",
+            )
             validation = json.loads(
                 paths["assignment_validation"].read_text(encoding="utf-8")
             )
             manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
             summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+            selection = json.loads(
+                paths["episode_selection"].read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["episode_count"], 100)
+            self.assertEqual(len(manifest["episodes"]), 100)
+            self.assertEqual(selection["candidate_episode_count"], 100)
+            self.assertEqual(selection["selected_episode_count"], 1)
+            self.assertEqual(
+                selection["selected_episode_id"], "strict2h_full75_0002_v1"
+            )
+            self.assertEqual(selection["selected_candidate_index"], 1)
+            self.assertEqual(
+                selection["episodes"][0],
+                manifest["episodes"][1],
+            )
+            selected_profile = build_actor_motion_profile_from_planning(
+                planning_manifest_path=paths["episode_selection"],
+                episode_id="strict2h_full75_0002_v1",
+            )
+            validate_actor_motion_profile(selected_profile)
             construction_row = next(
                 episode
                 for episode in manifest["episodes"]

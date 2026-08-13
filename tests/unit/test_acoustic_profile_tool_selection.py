@@ -115,6 +115,122 @@ def test_rir_tool_preserves_explicit_legacy_cli_paths_and_request_default(
     )
 
 
+def test_rir_tool_semantic_mode_uses_only_explicit_structural_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = tmp_path / "plan.json"
+    package = tmp_path / "manifest.json"
+    simulation = tmp_path / "simulation.json"
+    hrtf = tmp_path / "fixture.sofa"
+    write_json(plan, {"schema": "fixture_plan"})
+    write_json(package, {"schema": "fixture_package"})
+    write_json(
+        simulation,
+        load_json(
+            rir_tool.REPOSITORY
+            / "examples/runtime/rir_cache_simulation_request_v2.json"
+        ),
+    )
+    hrtf.write_bytes(b"fixture")
+    scene = object()
+    calls: dict[str, object] = {}
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("semantic CLI entered a legacy file-evidence path")
+
+    def load_scene(path):
+        calls["scene_path"] = path
+        return scene
+
+    def render(**kwargs):
+        calls["render"] = kwargs
+        return SimpleNamespace(
+            output=Path(kwargs["output"]),
+            receipt={"selected_job_count": 2, "full_plan_complete": True},
+        )
+
+    for name in (
+        "resolve_effective_acoustic_inputs",
+        "sha256_file",
+        "canonical_json_sha256",
+        "load_compiled_acoustic_scene",
+        "render_rir_cache",
+    ):
+        monkeypatch.setattr(rir_tool, name, forbidden)
+    monkeypatch.setattr(rir_tool, "load_semantic_acoustic_scene", load_scene)
+    monkeypatch.setattr(rir_tool, "render_semantic_rir_cache", render)
+    output = tmp_path / "cache"
+    args = rir_tool.parse_args(
+        [
+            "--semantic-no-file-evidence",
+            "--rir-job-plan",
+            str(plan),
+            "--acoustic-package-manifest",
+            str(package),
+            "--simulation-request",
+            str(simulation),
+            "--hrtf",
+            str(hrtf),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert rir_tool.run(args) == output
+    assert calls["scene_path"] == package.resolve()
+    render_call = calls["render"]
+    assert isinstance(render_call, dict)
+    assert render_call["scene"] is scene
+    assert render_call["plan_path"] == plan.resolve()
+    assert render_call["simulation_request_path"] == simulation.resolve()
+    assert render_call["acoustic_selection"] == {
+        "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+        "selection_mode": "explicit_legacy_unbound",
+        "registry_selection_applied": False,
+        "room_ref": None,
+        "profile_ref": None,
+        "binding_id": None,
+    }
+
+
+@pytest.mark.parametrize("failure", ["registry", "profile", "partial", "symlink"])
+def test_rir_tool_semantic_mode_rejects_mixed_or_aliased_inputs(
+    tmp_path: Path, failure: str
+) -> None:
+    plan = tmp_path / "plan.json"
+    package = tmp_path / "manifest.json"
+    simulation = tmp_path / "simulation.json"
+    hrtf = tmp_path / "fixture.sofa"
+    for path in (plan, package, simulation):
+        write_json(path, {"simulation": {}} if path == simulation else {})
+    hrtf.write_bytes(b"fixture")
+    arguments = [
+        "--semantic-no-file-evidence",
+        "--rir-job-plan",
+        str(plan),
+        "--acoustic-package-manifest",
+        str(package),
+        "--simulation-request",
+        str(simulation),
+        "--hrtf",
+        str(hrtf),
+        "--output",
+        str(tmp_path / "cache"),
+    ]
+    if failure == "registry":
+        arguments.extend(["--room-id", "room", "--room-revision", "v1"])
+    elif failure == "profile":
+        arguments.extend(["--simulation-profile", "reference"])
+    elif failure == "partial":
+        arguments.extend(["--job-limit", "1"])
+    else:
+        target = tmp_path / "real_manifest.json"
+        package.rename(target)
+        package.symlink_to(target)
+    with pytest.raises(ValueError):
+        rir_tool.run(rir_tool.parse_args(arguments))
+
+
 def test_rir_tool_selects_reference_request_and_allows_equivalent_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

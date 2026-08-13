@@ -1501,7 +1501,47 @@ def _dynamic_mechanism_canary_plan(
     }
 
 
-def build(request_path: Path, output: Path) -> dict[str, Path]:
+def _episode_selection(
+    *,
+    episodes: Sequence[Mapping[str, Any]],
+    selected_episode_id: str,
+    candidate_manifest_status: str,
+) -> dict[str, Any]:
+    _require(
+        isinstance(selected_episode_id, str) and selected_episode_id,
+        "selected episode ID must be nonempty",
+    )
+    matches = [
+        (index, episode)
+        for index, episode in enumerate(episodes)
+        if episode.get("episode_id") == selected_episode_id
+    ]
+    _require(
+        len(matches) == 1,
+        f"episode selector must resolve exactly once: {selected_episode_id!r}",
+    )
+    selected_index, selected = matches[0]
+    return {
+        "schema": "avengine_strict2h_full75_episode_selection_v1",
+        "status": "ready_research_single_episode_materialization_not_final_suite",
+        "selection_mode": "user_supplied_exact_episode_id_v1",
+        "candidate_manifest_status": candidate_manifest_status,
+        "candidate_episode_count": len(episodes),
+        "selected_episode_count": 1,
+        "selected_episode_id": selected_episode_id,
+        "selected_candidate_index": selected_index,
+        "formal_episode_count": 0,
+        "qualification_claim": False,
+        "episodes": [deepcopy(dict(selected))],
+    }
+
+
+def build(
+    request_path: Path,
+    output: Path,
+    *,
+    selected_episode_id: str | None = None,
+) -> dict[str, Path]:
     _require(not output.exists(), f"refusing to overwrite output: {output}")
     request = _load(request_path)
     _require(
@@ -1827,6 +1867,17 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         exact_rir_state_count=exact_rir_state_count_required,
     )
 
+    selection_document = (
+        _episode_selection(
+            episodes=episodes,
+            selected_episode_id=selected_episode_id,
+            candidate_manifest_status=(
+                "pass_interim_single_room_cpu_feasibility_not_final_multi_room_100"
+            ),
+        )
+        if selected_episode_id is not None
+        else None
+    )
     output.mkdir(parents=True)
     manifest = {
         "schema": OUTPUT_SCHEMA,
@@ -1928,6 +1979,8 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         "canary_plan": output / "canary_plan.json",
         "dynamic_mechanism_canary_plan": output / "dynamic_mechanism_canary_plan.json",
     }
+    if selected_episode_id is not None:
+        paths["episode_selection"] = output / "episode_selection.json"
     _write(paths["manifest"], manifest)
     _write(paths["summary"], summary)
     _write(paths["dedup_audit"], dedup)
@@ -1937,6 +1990,8 @@ def build(request_path: Path, output: Path) -> dict[str, Path]:
         paths["dynamic_mechanism_canary_plan"],
         _dynamic_mechanism_canary_plan(request, episodes),
     )
+    if selection_document is not None:
+        _write(paths["episode_selection"], selection_document)
     for batch_number in range(1, 11):
         rows = [
             item for item in episodes if item["batch_id"] == f"batch_{batch_number:02d}"
@@ -1965,8 +2020,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request", type=Path, default=DEFAULT_REQUEST)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--episode-id",
+        help=(
+            "Write a separate one-row research selection after revalidating all "
+            "100 candidates; the global manifest remains unchanged"
+        ),
+    )
     args = parser.parse_args()
-    paths = build(args.request.resolve(), args.output.resolve())
+    paths = build(
+        args.request.resolve(),
+        args.output.resolve(),
+        selected_episode_id=args.episode_id,
+    )
     print(
         "STRICT_TWO_HUMAN_FULL_EPISODE_CPU_PLAN_OK "
         f"manifest={paths['manifest']} summary={paths['summary']}"
