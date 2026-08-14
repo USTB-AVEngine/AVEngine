@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import replace
+import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,6 +35,15 @@ from avengine.runtime_profiles import load_source_asset_runtime_registry
 
 EPISODE = "mp3d_two_human_0004"
 ROOT = Path(__file__).resolve().parents[2]
+CLI_PATH = ROOT / "tools/m5_1/capture_two_human_mp3d.py"
+CLI_SPEC = importlib.util.spec_from_file_location(
+    "capture_two_human_mp3d_cli", CLI_PATH
+)
+assert CLI_SPEC is not None and CLI_SPEC.loader is not None
+CLI = importlib.util.module_from_spec(CLI_SPEC)
+CLI_SPEC.loader.exec_module(CLI)
+
+
 MALE_ID = "rocketbox_human_male_adult_01_m5_1_candidate"
 MALE_REVISION = "native_runtime_ue_v3"
 FEMALE_ID = "lead_b_rocketbox_adults_female_adult_01_original_v1"
@@ -1527,3 +1537,110 @@ def test_capture_lifecycle_failure_never_publishes_pass_evidence(
     assert not (output / "evidence.json").exists()
     assert not (output / "frame_readback.json").exists()
     assert not (output / "arrays").exists()
+
+
+def _two_human_cli_argv(tmp_path: Path, *, include_runtime_root: bool) -> list[str]:
+    argv = [
+        "--atom-request",
+        str(tmp_path / "atom.json"),
+        "--suite-plan",
+        str(tmp_path / "suite.json"),
+        "--sensor-rig",
+        str(tmp_path / "rig.json"),
+        "--trajectory-bank",
+        str(tmp_path / "trajectory.json"),
+        "--rir-plan",
+        str(tmp_path / "rir.json"),
+        "--room-manifest",
+        str(tmp_path / "room.json"),
+        "--m1-request",
+        str(tmp_path / "m1.json"),
+        "--output",
+        str(tmp_path / "capture"),
+    ]
+    if include_runtime_root:
+        argv.extend(["--runtime-root", str(tmp_path / "runtime")])
+    return argv
+
+
+def test_two_human_cli_maps_all_kernel_arguments_and_reports_plain_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[dict[str, object]] = []
+    output = tmp_path / "capture"
+    evidence = {
+        "status": "pass",
+        "status_scope": "native_capture_execution",
+        "backend_role": "production_visual",
+        "frame_count": 75,
+        "research_only": True,
+        "manual_review_status": "pending",
+        "formal_dataset_count": 0,
+        "semantic_visible_frame_count": {
+            "source1_actor": 75,
+            "source2_actor": 75,
+        },
+    }
+
+    def fake_capture(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(output_dir=output, evidence=evidence)
+
+    monkeypatch.setattr(CLI, "capture_two_human_mp3d", fake_capture)
+    assert CLI.main(_two_human_cli_argv(tmp_path, include_runtime_root=True)) == 0
+    assert calls == [
+        {
+            "atom_request_path": tmp_path / "atom.json",
+            "suite_plan_path": tmp_path / "suite.json",
+            "sensor_rig_path": tmp_path / "rig.json",
+            "trajectory_bank_path": tmp_path / "trajectory.json",
+            "rir_plan_path": tmp_path / "rir.json",
+            "room_manifest_path": tmp_path / "room.json",
+            "m1_request_path": tmp_path / "m1.json",
+            "output_dir": output,
+            "runtime_root": tmp_path / "runtime",
+        }
+    ]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "status": "pass",
+        "status_scope": "native_capture_execution",
+        "backend_role": "production_visual",
+        "output": str(output),
+        "evidence": str(output / "evidence.json"),
+        "frame_count": 75,
+        "research_only": True,
+        "manual_review_status": "pending",
+        "formal_dataset_count": 0,
+        "semantic_visible_frame_count": {
+            "source1_actor": 75,
+            "source2_actor": 75,
+        },
+    }
+    assert all("hash" not in key and "sha" not in key for key in payload)
+
+
+@pytest.mark.parametrize("error_type", [TwoHumanCaptureError, RuntimeError])
+def test_two_human_cli_reports_capture_error_as_exit_two(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    error_type: type[RuntimeError],
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fail_capture(**kwargs):
+        calls.append(kwargs)
+        raise error_type("injected CLI capture failure")
+
+    monkeypatch.setattr(CLI, "capture_two_human_mp3d", fail_capture)
+    with pytest.raises(SystemExit) as raised:
+        CLI.main(_two_human_cli_argv(tmp_path, include_runtime_root=False))
+    assert raised.value.code == 2
+    assert len(calls) == 1
+    assert calls[0]["runtime_root"] is None
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "injected CLI capture failure" in captured.err
