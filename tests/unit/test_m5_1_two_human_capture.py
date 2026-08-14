@@ -182,6 +182,7 @@ def _documents(tmp_path: Path) -> dict[str, dict[str, object]]:
     return {
         "atom": {
             "schema": "avengine_native_strict_two_human_mp3d_room_atom_request_v2",
+            "visual_execution_mode": "habitat_native_production",
             "episode_id": EPISODE,
             "room": {
                 "room_id": "habitat_mp3d_example_17DRP5sb8fy",
@@ -702,6 +703,16 @@ def test_fake_single_simulator_captures_75_two_human_frames_and_detects_mutation
     ("mutate", "message"),
     [
         (
+            lambda value: value["atom"].pop("visual_execution_mode"),
+            "explicitly select Habitat-native production",
+        ),
+        (
+            lambda value: value["atom"].update(
+                {"visual_execution_mode": "habitat_native_typo"}
+            ),
+            "explicitly select Habitat-native production",
+        ),
+        (
             lambda value: value["suite"].update({"backend_role": "production_visual"}),
             "schemas/roles must remain exact",
         ),
@@ -1029,10 +1040,10 @@ def test_solver_and_render_agent_radii_are_independent_positive_values() -> None
 
 def test_real_v4_authority_loader_with_projected_m1_request(tmp_path: Path) -> None:
     preflight = ROOT / "tmp/lead_a_strict_two_human_mp3d_room_v4/cpu_preflight_v1"
-    atom = ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
+    source_atom = ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
     room = ROOT / "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json"
     required = [
-        atom,
+        source_atom,
         room,
         preflight / "suite_execution_plan.json",
         preflight / "sensor_rig_trajectory.json",
@@ -1041,6 +1052,10 @@ def test_real_v4_authority_loader_with_projected_m1_request(tmp_path: Path) -> N
     ]
     if not all(path.is_file() for path in required):
         pytest.skip("real v4 CPU authority is unavailable")
+    atom_payload = json.loads(source_atom.read_text(encoding="utf-8"))
+    atom_payload["visual_execution_mode"] = "habitat_native_production"
+    atom = tmp_path / "explicit_habitat_production_atom.json"
+    atom.write_text(json.dumps(atom_payload), encoding="utf-8")
     suite = json.loads(required[2].read_text(encoding="utf-8"))
     rig = json.loads(required[3].read_text(encoding="utf-8"))
     bank = json.loads(required[4].read_text(encoding="utf-8"))

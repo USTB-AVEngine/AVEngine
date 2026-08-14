@@ -68,6 +68,7 @@ SOURCE_SLOTS = ("source1", "source2")
 SEMANTIC_IDS = (62_000, 62_001)
 PACKAGE_STEMS = ("human0", "human1")
 COMPARISON_VISUAL_ROLE = "comparison_visual"
+HABITAT_NATIVE_PRODUCTION_MODE = "habitat_native_production"
 
 
 class TwoHumanCaptureError(RuntimeError):
@@ -967,6 +968,10 @@ def validate_two_human_authority_documents(
         atom.get("schema")
         == "avengine_native_strict_two_human_mp3d_room_atom_request_v2",
         "atom request schema drift",
+    )
+    _require(
+        atom.get("visual_execution_mode") == HABITAT_NATIVE_PRODUCTION_MODE,
+        "atom request must explicitly select Habitat-native production",
     )
     _require(
         atom.get("qualification_claim") is False

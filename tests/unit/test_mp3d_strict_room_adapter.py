@@ -213,6 +213,22 @@ def _v2_args(output: Path) -> argparse.Namespace:
     )
 
 
+def _v4_args(output: Path) -> argparse.Namespace:
+    request = ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v4.json"
+    value = json.loads(request.read_text())
+    return argparse.Namespace(
+        request=request,
+        template_suite=Path(value["template_suite"]),
+        ue_import_manifest=Path(value["room"]["ue_import_manifest"]),
+        ue_runtime_evidence=Path(value["room"]["ue_runtime_evidence"]),
+        fresh_navmesh_probe=Path(value["room"]["fresh_navmesh_probe"]),
+        acoustic_manifest=Path(value["acoustics"]["package_manifest"]),
+        room_registry=Path(value["acoustics"]["room_registry"]),
+        acoustic_profiles=Path(value["acoustics"]["acoustic_profile_registry"]),
+        output=output,
+    )
+
+
 class RoomAdapterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -258,9 +274,7 @@ class RoomAdapterTests(unittest.TestCase):
             scenario["plan"]["backend_role"],
             "comparison_visual",
         )
-        self.assertFalse(
-            scenario["plan"]["authority"]["backend_may_replan"]
-        )
+        self.assertFalse(scenario["plan"]["authority"]["backend_may_replan"])
 
     def test_hfov_uses_exact_named_scene_capture_components(self) -> None:
         camera = FakeObject(5000)
@@ -812,6 +826,102 @@ class PreflightTests(unittest.TestCase):
             )
             factory.assert_called_once()
 
+    @patch.object(builder, "_runtime_gate_and_solve_full75_actor_framing")
+    def test_v4_build_materializes_habitat_m1_production_request(
+        self, runtime_solve: object
+    ) -> None:
+        actor, solution = self._v2_solution()
+        solution["sensor_rig_binding"]["trajectory"]["trajectory_id"] = (
+            "mp3d_17DRP5sb8fy_male_female_static_rig_0004__sensor_rig"
+        )
+        runtime_solve.return_value = (  # type: ignore[attr-defined]
+            actor,
+            solution,
+            [
+                {
+                    "candidate_id": "midpoint_grid_000",
+                    "status": "pass",
+                    "room_gate": {"status": "pass"},
+                }
+            ],
+        )
+        factory = MagicMock()
+        factory.return_value.__enter__.return_value = object()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "cpu_preflight_v1"
+            builder.build(_v4_args(output), runtime_provider_factory=factory)
+            suite = json.loads((output / "suite_execution_plan.json").read_text())
+            rig = json.loads((output / "sensor_rig_trajectory.json").read_text())
+            trajectory = json.loads((output / "trajectory_bank.json").read_text())
+            m1_request = json.loads(
+                (output / "habitat_m1_capture_request.json").read_text()
+            )
+            execution = json.loads((output / "execution_plan.json").read_text())
+            preflight = json.loads((output / "preflight.json").read_text())
+
+            self.assertEqual(suite["backend_role"], "comparison_visual")
+            self.assertEqual(
+                m1_request["request_id"],
+                "mp3d_17DRP5sb8fy_strict_two_human_static_rig_v4__habitat_m1_capture",
+            )
+            self.assertEqual(
+                m1_request["primary_camera_rig"]["world_from_rig"],
+                rig["frames"][0]["world_from_rig"],
+            )
+            self.assertEqual(
+                builder.validate_capture_request(
+                    m1_request,
+                    room_id="habitat_mp3d_example_17DRP5sb8fy",
+                ),
+                [],
+            )
+            self.assertEqual(
+                [source["source_id"] for source in m1_request["sources"]],
+                ["source1", "source2"],
+            )
+            centers = trajectory["episodes"][0]["source_center_paths_m"]
+            self.assertEqual(
+                m1_request["sources"][0]["world_from_source"]["translation_m"],
+                centers["source1"][0],
+            )
+            self.assertEqual(
+                m1_request["sources"][1]["world_from_source"]["translation_m"],
+                centers["source2"][0],
+            )
+            self.assertEqual(
+                execution["gpu_steps"][0]["backend_role"], "production_visual"
+            )
+            self.assertEqual(len(execution["comparison_gpu_steps"]), 2)
+            self.assertEqual(preflight["production_visual"]["backend"], "habitat_sim")
+            self.assertEqual(
+                preflight["comparison_visual"]["backend_role"],
+                "comparison_visual",
+            )
+            self.assertEqual(
+                preflight["ue_import"]["backend_role"], "comparison_visual"
+            )
+            self.assertFalse(preflight["ue_import"]["admission_authority"])
+            self.assertEqual(
+                preflight["episode_contract"]["camera_listener_coupling"],
+                "rigid_colocated_cooriented",
+            )
+            self.assertTrue(
+                preflight["episode_contract"]["one_render_per_formal_frame"]
+            )
+            self.assertEqual(
+                preflight["episode_contract"]["formal_frame_render_count"], 75
+            )
+            self.assertEqual(
+                preflight["episode_contract"]["semantic_preflight_render_count"],
+                1,
+            )
+            self.assertNotIn("packaged-SPEAR", " ".join(preflight["blockers"]))
+            self.assertFalse(preflight["qualification_claim"])
+            self.assertEqual(preflight["formal_dataset_count"], 0)
+            self.assertIn("habitat_m1_request_template", preflight["inputs"])
+            self.assertIn("habitat_m1_room_manifest", preflight["inputs"])
+            factory.assert_called_once()
+
     def test_v3_request_selects_semantic_rir_and_prioritizes_fresh_rig(self) -> None:
         request_path = (
             ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
@@ -838,6 +948,246 @@ class PreflightTests(unittest.TestCase):
             request["acoustics"]["rir_execution_mode"],
             builder.SEMANTIC_RIR_EXECUTION_MODE,
         )
+
+    def test_v4_projects_selected_suite_state_into_existing_m1_shape(self) -> None:
+        request = json.loads(
+            (
+                ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v4.json"
+            ).read_text()
+        )
+        template = json.loads(
+            (ROOT / "examples/m1/requests/habitat_mp3d_example.json").read_text()
+        )
+        original_template = deepcopy(template)
+        pose = {
+            "translation_m": [0.0, 1.572447, -0.5],
+            "rotation_xyzw": [0.0, 0.5, 0.0, 0.8660254037844386],
+        }
+        source1_rotation = [0.0, 0.25, 0.0, 0.9682458365518543]
+        source2_rotation = [0.0, -0.25, 0.0, 0.9682458365518543]
+        suite_frames = [
+            {
+                "frame_index": frame_index,
+                "camera_state": {"world_from_rig": deepcopy(pose)},
+                "actor_states": [
+                    {
+                        "actor_id": "source1_actor",
+                        "rotation_xyzw": source1_rotation,
+                    },
+                    {
+                        "actor_id": "source2_actor",
+                        "rotation_xyzw": source2_rotation,
+                    },
+                ],
+            }
+            for frame_index in range(75)
+        ]
+        suite = {
+            "scenarios": [
+                {
+                    "scenario_id": request["episode_id"],
+                    "render": {
+                        "frame_count": 75,
+                        "frame_rate_hz": 15,
+                        "height": 720,
+                        "width": 1280,
+                        "horizontal_fov_deg": 90.0,
+                    },
+                    "plan": {"frames": suite_frames},
+                }
+            ]
+        }
+        rig = {
+            "frames": [
+                {
+                    "frame_index": frame_index,
+                    "world_from_rig": deepcopy(pose),
+                }
+                for frame_index in range(75)
+            ]
+        }
+        source1 = [[-4.6, 1.682447, -2.35] for _ in range(75)]
+        source2 = [[-3.75, 1.641459451171875, -3.35] for _ in range(75)]
+        trajectory = {
+            "episodes": [
+                {
+                    "episode_id": request["episode_id"],
+                    "source_center_paths_m": {
+                        "source1": source1,
+                        "source2": source2,
+                    },
+                }
+            ]
+        }
+
+        projected = builder._project_habitat_m1_capture_request(
+            request, template, suite, rig, trajectory
+        )
+
+        self.assertEqual(template, original_template)
+        self.assertEqual(
+            projected["request_id"], f"{request['request_id']}__habitat_m1_capture"
+        )
+        self.assertEqual(projected["room_id"], request["room"]["room_id"])
+        self.assertEqual(projected["primary_camera_rig"]["world_from_rig"], pose)
+        self.assertEqual(
+            projected["primary_camera_rig"]["shared_calibration"]["resolution_hw"],
+            [720, 1280],
+        )
+        self.assertEqual(
+            [source["source_id"] for source in projected["sources"]],
+            ["source1", "source2"],
+        )
+        self.assertEqual(
+            projected["sources"][0]["world_from_source"],
+            {"translation_m": source1[0], "rotation_xyzw": source1_rotation},
+        )
+        self.assertEqual(
+            projected["sources"][1]["world_from_source"],
+            {"translation_m": source2[0], "rotation_xyzw": source2_rotation},
+        )
+        self.assertEqual(projected["qa_views"], template["qa_views"])
+
+        rotation_drift = deepcopy(suite)
+        rotation_drift["scenarios"][0]["plan"]["frames"][74]["actor_states"][1][
+            "rotation_xyzw"
+        ] = [0.0, 0.0, 0.0, 1.0]
+        with self.assertRaisesRegex(RuntimeError, "rotations must remain frozen"):
+            builder._project_habitat_m1_capture_request(
+                request, template, rotation_drift, rig, trajectory
+            )
+
+        malformed_template = deepcopy(template)
+        malformed_template["primary_camera_rig"]["modalities"] = [None]
+        with self.assertRaisesRegex(RuntimeError, "camera/listener template drift"):
+            builder._project_habitat_m1_capture_request(
+                request, malformed_template, suite, rig, trajectory
+            )
+
+        missing_sensor_uuid = deepcopy(template)
+        missing_sensor_uuid["primary_camera_rig"]["modalities"][0].pop("sensor_uuid")
+        with self.assertRaisesRegex(RuntimeError, "camera/listener template drift"):
+            builder._project_habitat_m1_capture_request(
+                request, missing_sensor_uuid, suite, rig, trajectory
+            )
+
+        invalid_center = deepcopy(trajectory)
+        invalid_center["episodes"][0]["source_center_paths_m"]["source1"] = [
+            ["not-a-number", 1.0, 2.0] for _ in range(75)
+        ]
+        with self.assertRaisesRegex(RuntimeError, "source1 source center"):
+            builder._project_habitat_m1_capture_request(
+                request, template, suite, rig, invalid_center
+            )
+
+        nonunit_rotation = deepcopy(suite)
+        for frame in nonunit_rotation["scenarios"][0]["plan"]["frames"]:
+            frame["actor_states"][0]["rotation_xyzw"] = [0.0, 0.0, 0.0, 2.0]
+        with self.assertRaisesRegex(RuntimeError, "unit normalized"):
+            builder._project_habitat_m1_capture_request(
+                request, template, nonunit_rotation, rig, trajectory
+            )
+
+    def test_v3_is_not_implicitly_promoted_to_habitat_production(self) -> None:
+        request = json.loads(
+            (
+                ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
+            ).read_text()
+        )
+        self.assertFalse(builder._is_habitat_native_production(request))
+        builder._validate_request(request)
+
+        request["visual_execution_mode"] = "habitat_native_typo"
+        with self.assertRaisesRegex(RuntimeError, "visual execution mode is invalid"):
+            builder._validate_request(request)
+
+        request["visual_execution_mode"] = None
+        with self.assertRaisesRegex(RuntimeError, "visual execution mode is invalid"):
+            builder._validate_request(request)
+
+    def test_v4_execution_plan_routes_habitat_and_keeps_spear_comparison(self) -> None:
+        request_path = (
+            ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v4.json"
+        )
+        request = json.loads(request_path.read_text())
+        builder._validate_request(request)
+        self.assertTrue(builder._is_habitat_native_production(request))
+        _, solution = self._v2_solution()
+        rig = solution["sensor_rig_binding"]["trajectory"]
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "cpu_preflight_v1"
+            execution = builder._execution_plan(
+                request,
+                output,
+                rig=rig,
+                request_path=request_path,
+            )
+            legacy_request = deepcopy(request)
+            legacy_request.pop("visual_execution_mode")
+            legacy = builder._execution_plan(legacy_request, output, rig=rig)
+
+            self.assertEqual(execution["comparison_gpu_steps"], legacy["gpu_steps"])
+            self.assertNotIn("comparison_gpu_steps", legacy)
+            self.assertEqual(len(execution["gpu_steps"]), 1)
+            production = execution["gpu_steps"][0]
+            self.assertEqual(production["step_id"], "full75_habitat_production_episode")
+            self.assertEqual(production["backend_role"], "production_visual")
+            self.assertEqual(
+                production["environment"],
+                {
+                    "AVENGINE_HABITAT_RUNTIME_ROOT": builder.HABITAT_RUNTIME_ROOT,
+                    "CUDA_VISIBLE_DEVICES": "1",
+                    "NUMBA_DISABLE_JIT": "1",
+                    "PATH": builder.HABITAT_PATH,
+                    "PYTHONPATH": str(builder.REMOTE_REPOSITORY / "src"),
+                    "SKBUILD_EDITABLE_SKIP": builder.HABITAT_EDITABLE_BUILD,
+                },
+            )
+            self.assertEqual(
+                production["argv"],
+                [
+                    str(builder.HABITAT_PYTHON),
+                    str(builder.HABITAT_TWO_HUMAN_CAPTURE),
+                    "--atom-request",
+                    str(request_path),
+                    "--suite-plan",
+                    str(output / "suite_execution_plan.json"),
+                    "--sensor-rig",
+                    str(output / "sensor_rig_trajectory.json"),
+                    "--trajectory-bank",
+                    str(output / "trajectory_bank.json"),
+                    "--rir-plan",
+                    str(output / "rir_job_plan.json"),
+                    "--room-manifest",
+                    str(builder.HABITAT_M1_ROOM_MANIFEST),
+                    "--m1-request",
+                    str(output / "habitat_m1_capture_request.json"),
+                    "--output",
+                    str(Path(temporary) / "native_full75_habitat_v1"),
+                    "--runtime-root",
+                    builder.HABITAT_RUNTIME_ROOT,
+                ],
+            )
+            for forbidden in (
+                "--room-adapter",
+                "--spear-root",
+                "--graphics-adapter",
+                "--rpc-port",
+            ):
+                self.assertNotIn(forbidden, production["argv"])
+            self.assertEqual(production["expected"]["formal_dataset_count"], 0)
+            self.assertTrue(production["expected"]["research_only"])
+
+            (Path(temporary) / "native_full75_habitat_v1").mkdir()
+            with self.assertRaisesRegex(
+                RuntimeError, "Habitat full75 production capture target already exists"
+            ):
+                builder._execution_plan(
+                    request,
+                    output,
+                    rig=rig,
+                    request_path=request_path,
+                )
 
     def test_v3_execution_plan_uses_only_explicit_semantic_rir_inputs(self) -> None:
         request = json.loads(

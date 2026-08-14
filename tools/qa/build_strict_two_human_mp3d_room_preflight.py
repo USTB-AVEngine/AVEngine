@@ -24,6 +24,7 @@ from avengine.m5_1.camera_candidate_gate import (
     HabitatRuntimeCameraProvider,
     evaluate_camera_candidates,
 )
+from avengine.m1.contracts import validate_capture_request
 from avengine.m6x.room_feasibility import (
     TrajectoryBank,
     TrajectoryEpisode,
@@ -59,6 +60,15 @@ HABITAT_PATH = (
 HABITAT_EDITABLE_BUILD = (
     "/data/jzy/code/habitat-sim-AVEngine/build/cp312-cp312-linux_x86_64"
 )
+HABITAT_NATIVE_PRODUCTION_MODE = "habitat_native_production"
+HABITAT_M1_REQUEST_TEMPLATE = (
+    REMOTE_REPOSITORY / "examples/m1/requests/habitat_mp3d_example.json"
+)
+HABITAT_M1_ROOM_MANIFEST = (
+    REMOTE_REPOSITORY
+    / "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json"
+)
+HABITAT_TWO_HUMAN_CAPTURE = REMOTE_REPOSITORY / "tools/m5_1/capture_two_human_mp3d.py"
 MP3D_SCENE = Path(
     "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/"
     "mp3d_example_scene_1.1/17DRP5sb8fy/17DRP5sb8fy.glb"
@@ -232,8 +242,43 @@ def _vector3(value: Any, *, owner: str) -> list[float]:
     return [float(item) for item in value]
 
 
+def _quaternion_xyzw(value: Any, *, owner: str) -> list[float]:
+    _require(
+        isinstance(value, list)
+        and len(value) == 4
+        and all(
+            not isinstance(item, bool)
+            and isinstance(item, (int, float))
+            and math.isfinite(float(item))
+            for item in value
+        ),
+        f"{owner} must be four finite numbers",
+    )
+    result = [float(item) for item in value]
+    _require(
+        abs(sum(item * item for item in result) - 1.0) <= 1.0e-6,
+        f"{owner} must be unit normalized",
+    )
+    return result
+
+
 def _habitat_to_ue_cm(position: Sequence[float]) -> list[float]:
     return [100.0 * position[0], 100.0 * position[2], 100.0 * position[1]]
+
+
+def _is_habitat_native_production(request: Mapping[str, Any]) -> bool:
+    if "visual_execution_mode" not in request:
+        return False
+    mode = request.get("visual_execution_mode")
+    _require(
+        mode == HABITAT_NATIVE_PRODUCTION_MODE,
+        "visual execution mode is invalid",
+    )
+    _require(
+        request.get("schema") == REQUEST_SCHEMA_V2,
+        "Habitat-native production requires the v2 request shape",
+    )
+    return True
 
 
 def _validate_request(request: Mapping[str, Any]) -> None:
@@ -281,6 +326,209 @@ def _validate_request(request: Mapping[str, Any]) -> None:
                 and raw.resolve(strict=True) == raw,
                 f"semantic RIR {field_name} must be an absolute regular file",
             )
+    _is_habitat_native_production(request)
+
+
+def _project_habitat_m1_capture_request(
+    request: Mapping[str, Any],
+    template: Mapping[str, Any],
+    suite: Mapping[str, Any],
+    rig: Mapping[str, Any],
+    trajectory_bank: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project the selected static suite state into the existing M1 request shape."""
+
+    _require(
+        _is_habitat_native_production(request),
+        "M1 projection requires Habitat-native production mode",
+    )
+    _require(
+        template.get("schema") == "avengine_m1_capture_request_v1",
+        "M1 capture template schema drift",
+    )
+    scenarios = suite.get("scenarios")
+    _require(
+        isinstance(scenarios, list)
+        and len(scenarios) == 1
+        and isinstance(scenarios[0], Mapping)
+        and scenarios[0].get("scenario_id") == request.get("episode_id"),
+        "suite episode differs from Habitat production request",
+    )
+    scenario = scenarios[0]
+    plan = scenario.get("plan")
+    render = scenario.get("render")
+    _require(
+        isinstance(plan, Mapping) and isinstance(render, Mapping),
+        "suite lacks plan/render for M1 projection",
+    )
+    suite_frames = plan.get("frames")
+    rig_frames = rig.get("frames")
+    _require(
+        isinstance(suite_frames, list)
+        and isinstance(rig_frames, list)
+        and len(suite_frames) == len(rig_frames) == FRAME_COUNT,
+        "M1 projection requires exact 75-frame suite and rig",
+    )
+    _require(isinstance(rig_frames[0], Mapping), "selected rig frame is invalid")
+    first_rig = rig_frames[0].get("world_from_rig")
+    _require(isinstance(first_rig, Mapping), "selected rig pose is missing")
+    selected_rig = {
+        "translation_m": _vector3(
+            first_rig.get("translation_m"), owner="selected rig translation"
+        ),
+        "rotation_xyzw": _quaternion_xyzw(
+            first_rig.get("rotation_xyzw"), owner="selected rig rotation"
+        ),
+    }
+    for frame_index, (suite_frame, rig_frame) in enumerate(
+        zip(suite_frames, rig_frames, strict=True)
+    ):
+        _require(
+            isinstance(suite_frame, Mapping)
+            and isinstance(rig_frame, Mapping)
+            and suite_frame.get("frame_index") == frame_index
+            and rig_frame.get("frame_index") == frame_index
+            and isinstance(suite_frame.get("camera_state"), Mapping)
+            and suite_frame["camera_state"].get("world_from_rig")
+            == rig_frame.get("world_from_rig")
+            == first_rig,
+            "suite/rig HOLD camera projection drift",
+        )
+    episodes = trajectory_bank.get("episodes")
+    _require(
+        isinstance(episodes, list)
+        and len(episodes) == 1
+        and isinstance(episodes[0], Mapping)
+        and episodes[0].get("episode_id") == request.get("episode_id"),
+        "trajectory episode differs from Habitat production request",
+    )
+    centers = episodes[0].get("source_center_paths_m")
+    _require(isinstance(centers, Mapping), "trajectory lacks source centers")
+    actor_states = suite_frames[0].get("actor_states")
+    _require(
+        isinstance(actor_states, list) and len(actor_states) == 2,
+        "suite frame must contain exactly two actor states",
+    )
+    states_by_actor = {
+        state.get("actor_id"): state
+        for state in actor_states
+        if isinstance(state, Mapping)
+    }
+    actor_id_by_slot = {"source1": "source1_actor", "source2": "source2_actor"}
+    _require(
+        set(states_by_actor) == set(actor_id_by_slot.values()),
+        "suite frame actor identities drift",
+    )
+    rotations_by_actor: dict[str, list[float]] = {}
+    for actor_id in actor_id_by_slot.values():
+        rotations_by_actor[actor_id] = _quaternion_xyzw(
+            states_by_actor[actor_id].get("rotation_xyzw"),
+            owner=f"{actor_id} rotation",
+        )
+    for frame in suite_frames:
+        frame_states = frame.get("actor_states")
+        _require(
+            isinstance(frame_states, list)
+            and len(frame_states) == 2
+            and all(isinstance(state, Mapping) for state in frame_states),
+            "suite must keep two actor states in every frame",
+        )
+        frame_by_actor = {state.get("actor_id"): state for state in frame_states}
+        _require(
+            set(frame_by_actor) == set(rotations_by_actor)
+            and all(
+                frame_by_actor[actor_id].get("rotation_xyzw") == rotation
+                for actor_id, rotation in rotations_by_actor.items()
+            ),
+            "suite actor rotations must remain frozen for Habitat capture",
+        )
+    projected_sources: list[dict[str, Any]] = []
+    for slot in ("source1", "source2"):
+        path = centers.get(slot)
+        state = states_by_actor.get(actor_id_by_slot[slot])
+        _require(
+            isinstance(path, list)
+            and len(path) == FRAME_COUNT
+            and all(position == path[0] for position in path)
+            and isinstance(state, Mapping),
+            f"{slot} static trajectory/actor state drift",
+        )
+        translation = _vector3(path[0], owner=f"{slot} source center")
+        projected_sources.append(
+            {
+                "source_id": slot,
+                "world_from_source": {
+                    "translation_m": translation,
+                    "rotation_xyzw": deepcopy(
+                        rotations_by_actor[actor_id_by_slot[slot]]
+                    ),
+                },
+            }
+        )
+    result = deepcopy(dict(template))
+    result["request_id"] = f"{request['request_id']}__habitat_m1_capture"
+    result["room_id"] = request["room"]["room_id"]
+    camera_rig = result.get("primary_camera_rig")
+    _require(isinstance(camera_rig, dict), "M1 template lacks primary camera rig")
+    calibration = camera_rig.get("shared_calibration")
+    _require(isinstance(calibration, dict), "M1 template lacks calibration")
+    modalities = camera_rig.get("modalities")
+    listener = result.get("listener")
+    identity = {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+    raw_hfov = render.get("horizontal_fov_deg")
+    _require(
+        render.get("frame_count") == FRAME_COUNT
+        and render.get("frame_rate_hz") == FPS
+        and render.get("height") == 720
+        and render.get("width") == 1280
+        and not isinstance(raw_hfov, bool)
+        and isinstance(raw_hfov, (int, float))
+        and math.isfinite(float(raw_hfov))
+        and float(raw_hfov) == 90.0,
+        "suite render differs from Habitat production capture",
+    )
+    _require(
+        camera_rig.get("rig_id") == "camera_rig_0"
+        and camera_rig.get("view_id") == "view0"
+        and isinstance(modalities, list)
+        and all(isinstance(item, Mapping) for item in modalities)
+        and [(item.get("modality"), item.get("sensor_uuid")) for item in modalities]
+        == [
+            ("rgb", "rig_rgb"),
+            ("depth", "rig_depth"),
+            ("semantic", "rig_semantic"),
+        ]
+        and calibration.get("projection") == "pinhole"
+        and calibration.get("near_m") == 0.05
+        and calibration.get("far_m") == 100.0
+        and calibration.get("rig_from_sensor") == identity
+        and isinstance(listener, Mapping)
+        and listener.get("listener_id") == "listener0"
+        and listener.get("attached_to") == "camera_rig_0"
+        and listener.get("rig_from_listener") == identity,
+        "M1 camera/listener template drift",
+    )
+    camera_rig["world_from_rig"] = selected_rig
+    calibration["resolution_hw"] = [int(render["height"]), int(render["width"])]
+    calibration["hfov_degrees"] = float(raw_hfov)
+    result["sources"] = projected_sources
+    _require(
+        result.get("seed") == template.get("seed")
+        and isinstance(result.get("qa_views"), list)
+        and len(result["qa_views"]) > 0,
+        "M1 seed/QA views must remain inherited from the template",
+    )
+    validation_errors = validate_capture_request(
+        result, room_id=request["room"]["room_id"]
+    )
+    _require(
+        not validation_errors,
+        "projected M1 capture request is invalid: " + "; ".join(validation_errors),
+    )
+    return result
 
 
 @contextmanager
@@ -1468,9 +1716,11 @@ def _execution_plan(
     output: Path,
     *,
     rig: Mapping[str, Any] | None = None,
+    request_path: Path | None = None,
 ) -> dict[str, Any]:
     remote_root = REMOTE_REPOSITORY
     is_v2 = request.get("schema") == REQUEST_SCHEMA_V2
+    habitat_production = _is_habitat_native_production(request)
     if is_v2:
         preflight_output = output.resolve()
         remote_output = preflight_output.parent
@@ -1478,6 +1728,7 @@ def _execution_plan(
         rir_cache = remote_output / "exact_rir_cache_v1"
         sparse_capture = remote_output / "native_sparse_f15_v1"
         full_capture = remote_output / "native_full75_v1"
+        habitat_capture = remote_output / "native_full75_habitat_v1"
         _require(
             isinstance(rig, Mapping)
             and isinstance(rig.get("frames"), list)
@@ -1488,12 +1739,15 @@ def _execution_plan(
             rig["frames"][0]["world_from_rig"]["translation_m"],
             owner="selected RIR probe origin",
         )
-        for owner, target in {
+        fresh_targets = {
             "fresh acoustic package": fresh_package,
             "exact RIR cache": rir_cache,
             "sparse capture": sparse_capture,
             "full75 capture": full_capture,
-        }.items():
+        }
+        if habitat_production:
+            fresh_targets["Habitat full75 production capture"] = habitat_capture
+        for owner, target in fresh_targets.items():
             _require(not target.exists(), f"{owner} target already exists: {target}")
     else:
         remote_output = remote_root / "tmp/lead_a_mp3d_strict_two_human_room_atom_v1"
@@ -1502,11 +1756,15 @@ def _execution_plan(
         rir_cache = remote_output / "exact_rir_cache_v4"
         sparse_capture = remote_output / "native_sparse_f15_v1"
         full_capture = remote_output / "native_full75_v1"
+        habitat_capture = remote_output / "native_full75_habitat_v1"
         probe_origin = [-4.1499128342, 1.572447, -1.2454376221]
     runtime_probe = preflight_output / "rir_runtime_probe.json"
     suite = preflight_output / "suite_execution_plan.json"
     room_adapter = preflight_output / "room_adapter.json"
     rir_plan = preflight_output / "rir_job_plan.json"
+    trajectory_bank = preflight_output / "trajectory_bank.json"
+    sensor_rig = preflight_output / "sensor_rig_trajectory.json"
+    habitat_m1_request = preflight_output / "habitat_m1_capture_request.json"
     capture = request["capture"]
     acoustics = request["acoustics"]
     common_capture = [
@@ -1528,6 +1786,49 @@ def _execution_plan(
         "--rpc-port",
         str(capture["rpc_port"]),
     ]
+    habitat_capture_argv: list[str] = []
+    habitat_gpu_environment: dict[str, str] = {}
+    if habitat_production:
+        _require(
+            isinstance(request_path, Path)
+            and request_path.is_absolute()
+            and request_path.is_file(),
+            "Habitat production execution requires the tracked atom request path",
+        )
+        _require(
+            capture.get("graphics_adapter") == 1,
+            "Habitat production must map physical GPU1 to logical GPU0",
+        )
+        habitat_capture_argv = [
+            str(HABITAT_PYTHON),
+            str(HABITAT_TWO_HUMAN_CAPTURE),
+            "--atom-request",
+            str(request_path),
+            "--suite-plan",
+            str(suite),
+            "--sensor-rig",
+            str(sensor_rig),
+            "--trajectory-bank",
+            str(trajectory_bank),
+            "--rir-plan",
+            str(rir_plan),
+            "--room-manifest",
+            str(HABITAT_M1_ROOM_MANIFEST),
+            "--m1-request",
+            str(habitat_m1_request),
+            "--output",
+            str(habitat_capture),
+            "--runtime-root",
+            HABITAT_RUNTIME_ROOT,
+        ]
+        habitat_gpu_environment = {
+            "AVENGINE_HABITAT_RUNTIME_ROOT": HABITAT_RUNTIME_ROOT,
+            "CUDA_VISIBLE_DEVICES": "1",
+            "NUMBA_DISABLE_JIT": "1",
+            "PATH": HABITAT_PATH,
+            "PYTHONPATH": str(remote_root / "src"),
+            "SKBUILD_EDITABLE_SKIP": HABITAT_EDITABLE_BUILD,
+        }
     compile_argv = [
         str(HABITAT_PYTHON),
         "-m",
@@ -1616,7 +1917,66 @@ def _execution_plan(
         "CUDA_VISIBLE_DEVICES": "",
     }
     validate_rir_runtime_binding(HABITAT_PYTHON, execution_environment)
-    return {
+    comparison_gpu_steps = [
+        {
+            "step_id": "sparse_f15_probe",
+            "working_directory": str(remote_root),
+            "request_status": "materialized_pending_live_bbox_and_mouth_review",
+            "requires_physical_gpu1_idle": True,
+            "cpu_preconditions": {
+                "fresh_navmesh_each_root_clearance_at_least_0_5m": True,
+                "fresh_navmesh_horizontal_separation_at_least_1_3m": True,
+            },
+            "argv": common_capture
+            + [
+                "--output",
+                str(sparse_capture),
+                "--frame-index",
+                "15",
+            ],
+        },
+        {
+            "step_id": "full75_episode",
+            "working_directory": str(remote_root),
+            "requires_physical_gpu1_idle": True,
+            "blocked_until": [
+                "fresh acoustic compile passes",
+                "2/2 exact CPU RIRs pass",
+                "sparse f15 room/actor/pixel review passes",
+            ],
+            "argv": common_capture
+            + [
+                "--output",
+                str(full_capture),
+            ],
+        },
+    ]
+    gpu_steps = comparison_gpu_steps
+    if habitat_production:
+        gpu_steps = [
+            {
+                "step_id": "full75_habitat_production_episode",
+                "backend_role": "production_visual",
+                "working_directory": str(remote_root),
+                "environment": habitat_gpu_environment,
+                "requires_physical_gpu1_idle": True,
+                "blocked_until": [
+                    "fresh acoustic compile passes",
+                    "2/2 exact CPU RIRs pass",
+                ],
+                "argv": habitat_capture_argv,
+                "expected": {
+                    "evidence": str(habitat_capture / "evidence.json"),
+                    "frame_count": FRAME_COUNT,
+                    "status_scope": "native_capture_execution",
+                    "research_only": True,
+                    "manual_review_status": "pending",
+                    "qualification_claim": False,
+                    "formal_dataset_count": 0,
+                },
+            }
+        ]
+    execution_plan = {
         "schema": (
             "avengine_native_strict_two_human_mp3d_execution_plan_v2"
             if is_v2
@@ -1692,43 +2052,13 @@ def _execution_plan(
                 },
             },
         ],
-        "gpu_steps": [
-            {
-                "step_id": "sparse_f15_probe",
-                "working_directory": str(remote_root),
-                "request_status": "materialized_pending_live_bbox_and_mouth_review",
-                "requires_physical_gpu1_idle": True,
-                "cpu_preconditions": {
-                    "fresh_navmesh_each_root_clearance_at_least_0_5m": True,
-                    "fresh_navmesh_horizontal_separation_at_least_1_3m": True,
-                },
-                "argv": common_capture
-                + [
-                    "--output",
-                    str(sparse_capture),
-                    "--frame-index",
-                    "15",
-                ],
-            },
-            {
-                "step_id": "full75_episode",
-                "working_directory": str(remote_root),
-                "requires_physical_gpu1_idle": True,
-                "blocked_until": [
-                    "fresh acoustic compile passes",
-                    "2/2 exact CPU RIRs pass",
-                    "sparse f15 room/actor/pixel review passes",
-                ],
-                "argv": common_capture
-                + [
-                    "--output",
-                    str(full_capture),
-                ],
-            },
-        ],
+        "gpu_steps": gpu_steps,
         "qualification_claim": False,
         "formal_dataset_count": 0,
     }
+    if habitat_production:
+        execution_plan["comparison_gpu_steps"] = comparison_gpu_steps
+    return execution_plan
 
 
 def build(
@@ -1738,6 +2068,7 @@ def build(
 ) -> Path:
     request = load_json_object(args.request.resolve(), owner="atom request")
     _validate_request(request)
+    habitat_production = _is_habitat_native_production(request)
     template_path = (args.template_suite or Path(request["template_suite"])).resolve()
     import_path = (
         args.ue_import_manifest or Path(request["room"]["ue_import_manifest"])
@@ -1774,6 +2105,9 @@ def build(
             request["actor_framing"]["runtime_profile_registry"]
         ).resolve()
         inputs["runtime_profile_registry"] = profile_registry_path
+    if habitat_production:
+        inputs["habitat_m1_request_template"] = HABITAT_M1_REQUEST_TEMPLATE
+        inputs["habitat_m1_room_manifest"] = HABITAT_M1_ROOM_MANIFEST
     for owner, path in inputs.items():
         _require(path.is_file(), f"{owner} is missing: {path}")
     template = load_json_object(template_path, owner="strict template suite")
@@ -1796,6 +2130,13 @@ def build(
             inputs["runtime_profile_registry"], owner="source runtime profile registry"
         )
         if is_v2
+        else None
+    )
+    habitat_m1_template = (
+        load_json_object(
+            inputs["habitat_m1_request_template"], owner="Habitat M1 request template"
+        )
+        if habitat_production
         else None
     )
     room_adapter = build_room_adapter_record(
@@ -1832,7 +2173,22 @@ def build(
     else:
         trajectory_bank, rir_plan = _build_rir_plan(request, rig)
         projection = _project_mouth_proxies(request)
-    execution = _execution_plan(request, args.output, rig=rig)
+    habitat_m1_request = None
+    if habitat_production:
+        assert habitat_m1_template is not None
+        habitat_m1_request = _project_habitat_m1_capture_request(
+            request,
+            habitat_m1_template,
+            suite,
+            rig,
+            trajectory_bank,
+        )
+    execution = _execution_plan(
+        request,
+        args.output,
+        rig=rig,
+        request_path=args.request.resolve(),
+    )
     _require(not args.output.exists(), f"refusing to replace output: {args.output}")
     args.output.mkdir(parents=True)
     artifacts = {
@@ -1856,9 +2212,67 @@ def build(
                 },
             }
         )
+    if habitat_production:
+        artifacts["habitat_m1_capture_request.json"] = habitat_m1_request
     for name, value in artifacts.items():
         _write_json(args.output / name, value)
     adult_pair_ready = navigation["adult_static_pair_gate"]["status"] == "pass"
+    episode_contract = {
+        "frame_count": FRAME_COUNT,
+        "frame_rate_hz": FPS,
+        "duration_seconds": 5.0,
+        "static_distinct_human_pair": [
+            suite["scenarios"][0]["plan"]["actors"][0]["asset_id"],
+            suite["scenarios"][0]["plan"]["actors"][1]["asset_id"],
+        ],
+        "sparse_probe_frame_indices": [15],
+        "normal_rgb_metric_depth_and_two_target_only_passes": True,
+        "shared_bp_camera_sensor": True,
+    }
+    navigation_blockers = (
+        []
+        if adult_pair_ready
+        else [
+            "current roots are only 0.9m apart; adult-pair gate requires 1.3m",
+            "source2 root clearance is 0.3566m; adult-pair gate requires 0.5m",
+            "fresh navmesh pair search must replace the current candidate",
+        ]
+    )
+    blockers = [
+        *navigation_blockers,
+        "fresh CPU acoustic compile has not run",
+        "2 exact CPU RIR jobs have not run",
+        "fresh packaged-SPEAR 71-mesh load/readback has not run",
+        "f15 normal/target-only pixel review has not run",
+        "live M/F bbox, mouth location, full-body clearance and visual review remain pending",
+        "MP3D material semantics remain an unqualified research placeholder",
+    ]
+    if habitat_production:
+        episode_contract = {
+            "frame_count": FRAME_COUNT,
+            "frame_rate_hz": FPS,
+            "duration_seconds": 5.0,
+            "static_distinct_human_pair": episode_contract[
+                "static_distinct_human_pair"
+            ],
+            "production_visual_backend": "habitat_sim",
+            "source_suite_backend_role": COMPARISON_VISUAL_ROLE,
+            "modalities": ["rgb", "metric_depth", "semantic"],
+            "camera_listener_coupling": "rigid_colocated_cooriented",
+            "single_simulator_two_humans": True,
+            "one_render_per_formal_frame": True,
+            "formal_frame_render_count": FRAME_COUNT,
+            "semantic_preflight_render_count": 1,
+        }
+        blockers = [
+            *navigation_blockers,
+            "fresh CPU acoustic compile has not run",
+            "2 exact CPU RIR jobs have not run",
+            "fresh Habitat two-human full75 production capture has not run",
+            "Habitat planned/live camera and two-human readback have not run",
+            "MP3D Habitat full75 visual review remains pending",
+            "MP3D material semantics remain an unqualified research placeholder",
+        ]
     preflight = {
         "schema": PREFLIGHT_SCHEMA,
         "status": (
@@ -1906,18 +2320,7 @@ def build(
             else {"status": "legacy_v1_not_runtime_gated"}
         ),
         "acoustic_registration": acoustic,
-        "episode_contract": {
-            "frame_count": FRAME_COUNT,
-            "frame_rate_hz": FPS,
-            "duration_seconds": 5.0,
-            "static_distinct_human_pair": [
-                suite["scenarios"][0]["plan"]["actors"][0]["asset_id"],
-                suite["scenarios"][0]["plan"]["actors"][1]["asset_id"],
-            ],
-            "sparse_probe_frame_indices": [15],
-            "normal_rgb_metric_depth_and_two_target_only_passes": True,
-            "shared_bp_camera_sensor": True,
-        },
+        "episode_contract": episode_contract,
         "rir": {
             "status": "planned_not_run",
             "unique_rir_job_count": rir_plan["unique_rir_job_count"],
@@ -1939,24 +2342,31 @@ def build(
         "gpu_started": False,
         "formal_dataset_count": 0,
         "qualification_claim": False,
-        "blockers": [
-            *(
-                []
-                if adult_pair_ready
-                else [
-                    "current roots are only 0.9m apart; adult-pair gate requires 1.3m",
-                    "source2 root clearance is 0.3566m; adult-pair gate requires 0.5m",
-                    "fresh navmesh pair search must replace the current candidate",
-                ]
-            ),
-            "fresh CPU acoustic compile has not run",
-            "2 exact CPU RIR jobs have not run",
-            "fresh packaged-SPEAR 71-mesh load/readback has not run",
-            "f15 normal/target-only pixel review has not run",
-            "live M/F bbox, mouth location, full-body clearance and visual review remain pending",
-            "MP3D material semantics remain an unqualified research placeholder",
-        ],
+        "blockers": blockers,
     }
+    if habitat_production:
+        preflight["ue_import"]["backend_role"] = COMPARISON_VISUAL_ROLE
+        preflight["ue_import"]["admission_authority"] = False
+        preflight["production_visual"] = {
+            "backend": "habitat_sim",
+            "backend_role": "production_visual",
+            "request": str(args.output / "habitat_m1_capture_request.json"),
+            "output": str(args.output.parent / "native_full75_habitat_v1"),
+            "status": "planned_not_run",
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+        }
+        preflight["comparison_visual"] = {
+            "backend": "spear_unreal_imported_glb",
+            "backend_role": COMPARISON_VISUAL_ROLE,
+            "gpu_step_count": len(execution["comparison_gpu_steps"]),
+            "admission_authority": False,
+            "pending": [
+                "fresh packaged-SPEAR 71-mesh load/readback",
+                "f15 normal/target-only pixel review",
+                "live M/F bbox and mouth comparison review",
+            ],
+        }
     _write_json(args.output / "preflight.json", preflight)
     print(
         "STRICT_TWO_HUMAN_MP3D_PREFLIGHT_BUILT "
