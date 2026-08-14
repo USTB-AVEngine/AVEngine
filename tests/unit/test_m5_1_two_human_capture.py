@@ -10,8 +10,10 @@ import numpy as np
 import pytest
 
 from avengine.m5_1.two_human_capture import (
+    _CapturedTwoHumanFrame,
     TwoHumanCaptureError,
     _HumanFrameBinding,
+    _TwoHumanCaptureDependencies,
     _action_sample_index,
     _capture_two_human_frame,
     _planned_actor_world_matrix,
@@ -23,6 +25,7 @@ from avengine.m5_1.two_human_capture import (
     _semantic_absence_record,
     _validate_formal_capture_arrays,
     _validate_camera_runtime_navigation,
+    capture_two_human_mp3d,
     load_two_human_capture_authority,
     validate_two_human_authority_documents,
 )
@@ -1108,3 +1111,419 @@ def test_real_v4_authority_loader_with_projected_m1_request(tmp_path: Path) -> N
 
     assert authority.episode_id == scenario["scenario_id"]
     assert authority.resolution_hw == (720, 1280)
+
+
+def _lifecycle_dependencies(
+    tmp_path: Path, *, fail_frame: int | None = None
+) -> tuple[_TwoHumanCaptureDependencies, dict[str, object]]:
+    authority_root = tmp_path / "authority"
+    authority_root.mkdir()
+    authority = replace(
+        _validate(_documents(authority_root)),
+        resolution_hw=(2, 3),
+        horizontal_fov_deg=90.0,
+    )
+    runtime_root = tmp_path / "habitat_runtime"
+    scene = runtime_root / "scene.glb"
+    dataset = runtime_root / "dataset.scene_dataset_config.json"
+    navmesh = runtime_root / "scene.navmesh"
+    physics = runtime_root / "data/default.physics_config.json"
+    for path in (scene, dataset, navmesh, physics):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(path.name, encoding="utf-8")
+    resolved_scene = {
+        "scene_id": scene,
+        "dataset_config": dataset,
+        "navmesh": navmesh,
+        "navmesh_policy": "load_declared",
+        "load_semantic_mesh": True,
+        "enable_physics": True,
+    }
+    request = {
+        "seed": 17,
+        "primary_camera_rig": {
+            "rig_id": "camera_rig_0",
+            "view_id": "view0",
+            "shared_calibration": {
+                "resolution_hw": [2, 3],
+                "hfov_degrees": 90.0,
+            },
+        },
+        "listener": {"listener_id": "listener0"},
+    }
+    m1_inputs = SimpleNamespace(request=request, room={})
+    counters: dict[str, object] = {
+        "factory": 0,
+        "prepare": [],
+        "instantiate": [],
+        "render": 0,
+        "physics": 0,
+        "frames": [],
+        "seed": None,
+        "events": [],
+        "camera_sensor_sets": [],
+    }
+
+    class FakeActions:
+        def __init__(self, walking_count: int) -> None:
+            self.walking_count = walking_count
+
+        def action(self, action_id: str) -> SimpleNamespace:
+            assert action_id == "walk"
+            return SimpleNamespace(sample_count=self.walking_count)
+
+    def prepare_runtime(
+        source_glb,
+        output_dir,
+        *,
+        package_stem,
+        walking_profile_sample_count,
+        anatomical_forward_source,
+    ):
+        output = Path(output_dir)
+        output.mkdir(parents=True)
+        ao_config = output / f"{package_stem}.ao_config.json"
+        ao_config.write_text("{}", encoding="utf-8")
+        manifest = output / "human_runtime_manifest.json"
+        manifest.write_text(
+            json.dumps({"anatomical_frame": {"source": anatomical_forward_source}}),
+            encoding="utf-8",
+        )
+        walking_count = walking_profile_sample_count or 16
+        counters["prepare"].append(
+            (
+                Path(source_glb),
+                package_stem,
+                walking_profile_sample_count,
+                anatomical_forward_source,
+            )
+        )
+        return SimpleNamespace(
+            actions=FakeActions(walking_count),
+            habitat_ao_config=ao_config,
+            package_manifest=manifest,
+        )
+
+    sim_cfg = SimpleNamespace(
+        scene_id=str(scene),
+        scene_dataset_config_file=str(dataset),
+        load_semantic_mesh=True,
+        enable_physics=True,
+        enable_hbao=False,
+    )
+    configuration = SimpleNamespace(sim_cfg=sim_cfg)
+    modality_to_uuid = {
+        "rgb": "rig_rgb",
+        "depth": "rig_depth",
+        "semantic": "rig_semantic",
+    }
+
+    class FakeAgentState:
+        def __init__(self) -> None:
+            self.position = None
+            self.rotation = None
+
+    class FakePathfinder:
+        def __init__(self) -> None:
+            self.is_loaded = False
+
+        def load_nav_mesh(self, path: str) -> bool:
+            assert Path(path) == navmesh
+            self.is_loaded = True
+            return True
+
+    class FakeSimulator:
+        def __init__(self, requested_configuration) -> None:
+            assert requested_configuration is configuration
+            self.config = requested_configuration
+            self.pathfinder = FakePathfinder()
+            self.sensors = {uuid: object() for uuid in modality_to_uuid.values()}
+            self.world_time = 0.0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def seed(self, value: int) -> None:
+            counters["seed"] = value
+
+        def initialize_agent(self, index: int, state):
+            assert index == 0
+            assert state.position is not None and state.rotation is not None
+            return SimpleNamespace(simulator=self)
+
+        def get_world_time(self) -> float:
+            return self.world_time
+
+        def step_physics(self, _seconds: float) -> None:
+            counters["physics"] += 1
+
+        def render_sensors(self, wrappers):
+            assert len(wrappers) == 3
+            counters["render"] += 1
+            counters["events"].append(
+                "preflight_render" if not counters["instantiate"] else "formal_render"
+            )
+            semantic = np.zeros((2, 3), dtype=np.int32)
+            if counters["instantiate"]:
+                semantic[0, 0] = 62000
+                semantic[0, 1] = 62001
+            return {
+                "rig_rgb": np.zeros((2, 3, 4), dtype=np.uint8),
+                "rig_depth": np.ones((2, 3), dtype=np.float32),
+                "rig_semantic": semantic,
+            }
+
+    simulator_instances: list[FakeSimulator] = []
+
+    def simulator_factory(_habitat_sim, requested_configuration):
+        counters["factory"] += 1
+        counters["events"].append("factory")
+        simulator = FakeSimulator(requested_configuration)
+        simulator_instances.append(simulator)
+        return simulator
+
+    def instantiate_human(
+        simulator,
+        *,
+        package,
+        habitat_sim,
+        semantic_id,
+        light_setup_key,
+        shader_type,
+    ):
+        del habitat_sim, light_setup_key, shader_type
+        counters["instantiate"].append(
+            (id(simulator), package.habitat_ao_config.name, semantic_id)
+        )
+        counters["events"].append(f"instantiate:{semantic_id}")
+        actor = SimpleNamespace(simulator=simulator, semantic_id=semantic_id)
+        return actor, SimpleNamespace(), (SimpleNamespace(),)
+
+    def state_snapshot(simulator, agent, sensor_uuids, quat_to_coeffs):
+        del agent, quat_to_coeffs
+        pose = deepcopy(authority.rig_frames[0]["world_from_rig"])
+        return {
+            "world_time_seconds": simulator.world_time,
+            "agent": deepcopy(pose),
+            "sensors": {uuid: deepcopy(pose) for uuid in sensor_uuids},
+        }
+
+    def frame_capture(**kwargs):
+        frame_index = kwargs["frame_index"]
+        counters["frames"].append(frame_index)
+        if fail_frame == frame_index:
+            raise TwoHumanCaptureError("injected frame failure")
+        simulator = kwargs["simulator"]
+        runtimes = kwargs["runtimes"]
+        assert len(runtimes) == 2
+        assert all(
+            runtime.articulated_object.simulator is simulator for runtime in runtimes
+        )
+        sensor_uuids = tuple(kwargs["camera_sensor_uuids"])
+        assert set(sensor_uuids) == {
+            "rig_rgb",
+            "rig_depth",
+            "rig_semantic",
+            "listener0",
+        }
+        snapshot = kwargs["camera_snapshot"]()
+        assert set(snapshot["sensors"]) == set(sensor_uuids)
+        counters["camera_sensor_sets"].append(sensor_uuids)
+        observation = simulator.render_sensors(kwargs["sensor_wrappers"])
+        semantic = observation["rig_semantic"]
+        roots = np.stack((np.eye(4), np.eye(4)))
+        return _CapturedTwoHumanFrame(
+            rgb=observation["rig_rgb"][..., :3].copy(),
+            depth_m=observation["rig_depth"].copy(),
+            semantic=semantic.copy(),
+            actor_root_world_matrices=roots.copy(),
+            skin_root_world_matrices=roots.copy(),
+            anchor_positions_m=np.zeros((2, 2, 3), dtype=np.float64),
+            semantic_visibility_pixels=np.asarray([1, 1], dtype=np.int64),
+            record={"frame_index": frame_index, "physics_steps": 0},
+        )
+
+    fake_habitat = SimpleNamespace(AgentState=FakeAgentState)
+
+    def fake_quaternion(w, x, y, z):
+        return np.asarray([x, y, z, w])
+
+    dependencies = _TwoHumanCaptureDependencies(
+        authority_loader=lambda **_kwargs: authority,
+        m1_loader=lambda _room, _request: m1_inputs,
+        prepare_runtime=prepare_runtime,
+        package_manifest_loader=lambda path: json.loads(
+            Path(path).read_text(encoding="utf-8")
+        ),
+        runtime_discover=lambda _root: runtime_root,
+        make_configuration=lambda _inputs, _runtime, _scratch: (
+            configuration,
+            modality_to_uuid,
+            "listener0",
+            resolved_scene,
+        ),
+        import_habitat=lambda: (
+            SimpleNamespace(quaternion=fake_quaternion),
+            fake_habitat,
+            SimpleNamespace(),
+            lambda value: np.asarray(value),
+        ),
+        simulator_factory=simulator_factory,
+        bind_lighting=lambda *_args, **_kwargs: {"status": "pass"},
+        instantiate_human=instantiate_human,
+        actor_render_evidence=lambda *_args, **_kwargs: {"status": "pass"},
+        link_id_by_name=lambda _actor, name: name,
+        state_snapshot=state_snapshot,
+        observation_validator=lambda observation, mapping: {
+            modality: observation[uuid] for modality, uuid in mapping.items()
+        },
+        frame_capture=frame_capture,
+    )
+    context = {
+        "authority": authority,
+        "runtime_root": runtime_root,
+        "counters": counters,
+        "simulator_instances": simulator_instances,
+    }
+    return dependencies, context
+
+
+def _run_fake_lifecycle(tmp_path: Path, *, fail_frame: int | None = None):
+    dependencies, context = _lifecycle_dependencies(tmp_path, fail_frame=fail_frame)
+    output = tmp_path / "capture"
+    result = capture_two_human_mp3d(
+        atom_request_path=tmp_path / "atom.json",
+        suite_plan_path=tmp_path / "suite.json",
+        sensor_rig_path=tmp_path / "rig.json",
+        trajectory_bank_path=tmp_path / "trajectory.json",
+        rir_plan_path=tmp_path / "rir.json",
+        room_manifest_path=tmp_path / "room.json",
+        m1_request_path=tmp_path / "m1.json",
+        output_dir=output,
+        runtime_root=context["runtime_root"],
+        _dependencies=dependencies,
+    )
+    return result, output, context
+
+
+def test_capture_lifecycle_uses_one_simulator_and_publishes_plain_evidence(
+    tmp_path: Path,
+) -> None:
+    result, output, context = _run_fake_lifecycle(tmp_path)
+    counters = context["counters"]
+    authority = context["authority"]
+    assert counters["factory"] == 1
+    assert counters["render"] == 76
+    assert counters["physics"] == 0
+    assert counters["seed"] == 17
+    assert counters["frames"] == list(range(75))
+    assert counters["prepare"] == [
+        (
+            authority.actors[0].source_glb,
+            "human0",
+            None,
+            authority.actors[0].anatomical_forward_source,
+        ),
+        (
+            authority.actors[1].source_glb,
+            "human1",
+            19,
+            authority.actors[1].anatomical_forward_source,
+        ),
+    ]
+    assert [item[1:] for item in counters["instantiate"]] == [
+        ("human0.ao_config.json", 62000),
+        ("human1.ao_config.json", 62001),
+    ]
+    assert len({item[0] for item in counters["instantiate"]}) == 1
+    assert counters["events"][:4] == [
+        "factory",
+        "preflight_render",
+        "instantiate:62000",
+        "instantiate:62001",
+    ]
+    assert counters["events"][4:] == ["formal_render"] * 75
+    assert len(counters["camera_sensor_sets"]) == 75
+    assert result.rgb.shape == (75, 2, 3, 3)
+    assert result.depth_m.shape == (75, 2, 3)
+    assert result.semantic.shape == (75, 2, 3)
+    evidence = result.evidence
+    assert evidence["backend_role"] == "production_visual"
+    assert evidence["source_suite_role"] == "comparison_visual"
+    assert evidence["research_only"] is True
+    assert evidence["manual_review_status"] == "pending"
+    assert evidence["qualification_claim"] is False
+    assert evidence["formal_dataset_count"] == 0
+    assert evidence["simulator_instances"] == 1
+    assert evidence["preflight_render_calls"] == 1
+    assert evidence["formal_render_calls"] == 75
+    assert evidence["seed"] == 17
+    assert evidence["camera"] == {
+        "rig_id": "camera_rig_0",
+        "view_id": "view0",
+        "listener_id": "listener0",
+        "resolution_hw": [2, 3],
+        "hfov_degrees": 90.0,
+        "modality_to_sensor_uuid": {
+            "rgb": "rig_rgb",
+            "depth": "rig_depth",
+            "semantic": "rig_semantic",
+        },
+    }
+    assert set(evidence["preflight_semantic_absence"]["semantic_ids"]) == {
+        "source1_actor",
+        "source2_actor",
+    }
+    assert evidence["semantic_visible_frame_count"] == {
+        "source1_actor": 75,
+        "source2_actor": 75,
+    }
+    assert [item["asset_id"] for item in evidence["actors"]] == [
+        authority.actors[0].asset_id,
+        authority.actors[1].asset_id,
+    ]
+    assert (output / "evidence.json").is_file()
+    assert (output / "frame_readback.json").is_file()
+    assert len(evidence["array_artifacts"]) == 7
+    assert all(
+        (output / record["path"]).is_file() and record["readback_verified"] is True
+        for record in evidence["array_artifacts"].values()
+    )
+
+    def forbidden_keys(value):
+        if isinstance(value, dict):
+            return {
+                key for key, child in value.items() if key in {"sha256", "byte_size"}
+            } | set().union(*(forbidden_keys(child) for child in value.values()))
+        if isinstance(value, list):
+            return set().union(*(forbidden_keys(child) for child in value))
+        return set()
+
+    assert forbidden_keys(evidence) == set()
+
+
+def test_capture_lifecycle_failure_never_publishes_pass_evidence(
+    tmp_path: Path,
+) -> None:
+    dependencies, context = _lifecycle_dependencies(tmp_path, fail_frame=4)
+    output = tmp_path / "capture"
+    with pytest.raises(TwoHumanCaptureError, match="injected frame failure"):
+        capture_two_human_mp3d(
+            atom_request_path=tmp_path / "atom.json",
+            suite_plan_path=tmp_path / "suite.json",
+            sensor_rig_path=tmp_path / "rig.json",
+            trajectory_bank_path=tmp_path / "trajectory.json",
+            rir_plan_path=tmp_path / "rir.json",
+            room_manifest_path=tmp_path / "room.json",
+            m1_request_path=tmp_path / "m1.json",
+            output_dir=output,
+            runtime_root=context["runtime_root"],
+            _dependencies=dependencies,
+        )
+    assert output.is_dir()
+    assert not (output / "evidence.json").exists()
+    assert not (output / "frame_readback.json").exists()
+    assert not (output / "arrays").exists()

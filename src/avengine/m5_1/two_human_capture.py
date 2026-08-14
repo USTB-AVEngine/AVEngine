@@ -7,6 +7,7 @@ It remains comparison evidence; this module never promotes its visual role.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -16,12 +17,38 @@ import numpy as np
 from avengine.contracts.json_io import load_json
 from avengine.contracts.transforms import transform_error
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
-from avengine.m1.habitat_capture import _resolved_scene, discover_runtime_root
-from avengine.m2.habitat_capture import quaternion_xyzw_to_matrix
+from avengine.m1.habitat_capture import (
+    _import_habitat,
+    _make_configuration,
+    _resolved_scene,
+    _state_snapshot,
+    discover_runtime_root,
+)
+from avengine.m2.contracts import FORMAL_MODALITIES
+from avengine.m2.habitat_capture import (
+    _apply_root_with_habitat,
+    _validate_observation_arrays,
+    quaternion_xyzw_to_matrix,
+)
+from avengine.m2.local_tr_review import mixed_joint_readback_errors
+from avengine.m5.visual import _link_id_by_name, _node_world_position
+from avengine.m5_1.human_runtime import (
+    HEAD_LINK_NAME,
+    MOUTH_LINK_NAME,
+    HumanRuntimeError,
+    prepare_rocketbox_habitat_runtime,
+)
 from avengine.m5_1.mixed_capture import (
     _JOINT_READBACK_ATOL,
     _LINK_MATRIX_READBACK_ATOL,
     _ROOT_READBACK_ATOL,
+    M5_1_ACTOR_SHADER_TYPE,
+    M5_1_LIGHT_SETUP_KEY,
+    MixedCaptureError,
+    _actor_render_creation_evidence,
+    _bind_m5_1_scene_lighting,
+    _human_skin_link_readback_error,
+    _instantiate_human,
 )
 from avengine.m6x.rir_cache import RIRCacheError, validate_semantic_rir_job_plan
 from avengine.runtime_profiles import (
@@ -109,6 +136,41 @@ class _CapturedTwoHumanFrame:
     anchor_positions_m: np.ndarray
     semantic_visibility_pixels: np.ndarray
     record: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class TwoHumanCaptureResult:
+    output_dir: Path
+    rgb: np.ndarray
+    depth_m: np.ndarray
+    semantic: np.ndarray
+    actor_root_world_matrices: np.ndarray
+    skin_root_world_matrices: np.ndarray
+    anchor_positions_m: np.ndarray
+    semantic_visibility_pixels: np.ndarray
+    records: tuple[Mapping[str, Any], ...]
+    evidence: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class _TwoHumanCaptureDependencies:
+    authority_loader: Callable[..., TwoHumanCaptureAuthority]
+    m1_loader: Callable[[Any, Any], Any]
+    prepare_runtime: Callable[..., Any]
+    package_manifest_loader: Callable[[Any], Mapping[str, Any]]
+    runtime_discover: Callable[[Any], Path]
+    make_configuration: Callable[
+        ..., tuple[Any, Mapping[str, str], str, Mapping[str, Any]]
+    ]
+    import_habitat: Callable[[], tuple[Any, Any, Any, Any]]
+    simulator_factory: Callable[[Any, Any], Any]
+    bind_lighting: Callable[..., Mapping[str, Any]]
+    instantiate_human: Callable[..., tuple[Any, Any, tuple[Any, ...]]]
+    actor_render_evidence: Callable[..., Mapping[str, Any]]
+    link_id_by_name: Callable[[Any, str], Any]
+    state_snapshot: Callable[..., Mapping[str, Any]]
+    observation_validator: Callable[..., Mapping[str, Any]]
+    frame_capture: Callable[..., _CapturedTwoHumanFrame]
 
 
 def _action_sample_index(action: Any, action_time_ticks: int) -> int:
@@ -1311,11 +1373,462 @@ def load_two_human_capture_authority(
     return authority
 
 
+def _plain_human_runtime_snapshot(simulator: Any, actor: Any) -> dict[str, Any]:
+    root = np.asarray(
+        actor.root_scene_node.absolute_transformation(), dtype=np.float64
+    ).copy()
+    joints = np.asarray(actor.joint_positions, dtype=np.float64).reshape(-1).copy()
+    _require(
+        root.shape == (4, 4)
+        and np.all(np.isfinite(root))
+        and np.all(np.isfinite(joints)),
+        "human runtime readback is invalid",
+    )
+    return {
+        "world_time_seconds": float(simulator.get_world_time()),
+        "world_from_skin_root": root,
+        "mixed_joint_positions": joints,
+    }
+
+
+def _write_plain_json(path: Path, value: Any) -> None:
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def _production_capture_dependencies() -> _TwoHumanCaptureDependencies:
+    return _TwoHumanCaptureDependencies(
+        authority_loader=load_two_human_capture_authority,
+        m1_loader=load_m1_inputs,
+        prepare_runtime=prepare_rocketbox_habitat_runtime,
+        package_manifest_loader=load_json,
+        runtime_discover=discover_runtime_root,
+        make_configuration=_make_configuration,
+        import_habitat=_import_habitat,
+        simulator_factory=lambda habitat_sim, configuration: habitat_sim.Simulator(
+            configuration
+        ),
+        bind_lighting=_bind_m5_1_scene_lighting,
+        instantiate_human=_instantiate_human,
+        actor_render_evidence=_actor_render_creation_evidence,
+        link_id_by_name=_link_id_by_name,
+        state_snapshot=_state_snapshot,
+        observation_validator=_validate_observation_arrays,
+        frame_capture=_capture_two_human_frame,
+    )
+
+
+def _live_scene_readback(
+    simulator: Any, configuration: Any, resolved_scene: Mapping[str, Any]
+) -> dict[str, Any]:
+    requested = configuration.sim_cfg
+    live = simulator.config.sim_cfg
+    expected = {
+        "scene_id": str(resolved_scene["scene_id"]),
+        "scene_dataset_config_file": str(resolved_scene["dataset_config"]),
+        "load_semantic_mesh": bool(resolved_scene["load_semantic_mesh"]),
+        "enable_physics": bool(resolved_scene["enable_physics"]),
+    }
+    requested_values = {key: getattr(requested, key) for key in expected}
+    live_values = {key: getattr(live, key) for key in expected}
+    _require(
+        requested_values == expected and live_values == expected,
+        "Simulator live scene configuration differs from resolved M1 room",
+    )
+    return {
+        "requested": requested_values,
+        "live": live_values,
+        "matches_resolved_room": True,
+    }
+
+
+def capture_two_human_mp3d(
+    *,
+    atom_request_path: str | Path,
+    suite_plan_path: str | Path,
+    sensor_rig_path: str | Path,
+    trajectory_bank_path: str | Path,
+    rir_plan_path: str | Path,
+    room_manifest_path: str | Path,
+    m1_request_path: str | Path,
+    output_dir: str | Path,
+    runtime_root: str | Path | None = None,
+    _dependencies: _TwoHumanCaptureDependencies | None = None,
+) -> TwoHumanCaptureResult:
+    """Run one fresh Habitat Simulator for the complete 75-frame MP3D capture."""
+
+    dependencies = _dependencies or _production_capture_dependencies()
+    authority = dependencies.authority_loader(
+        atom_request_path=atom_request_path,
+        suite_plan_path=suite_plan_path,
+        sensor_rig_path=sensor_rig_path,
+        trajectory_bank_path=trajectory_bank_path,
+        rir_plan_path=rir_plan_path,
+        room_manifest_path=room_manifest_path,
+        m1_request_path=m1_request_path,
+        runtime_root=runtime_root,
+    )
+    m1_inputs = dependencies.m1_loader(room_manifest_path, m1_request_path)
+    output = _prepare_fresh_output(output_dir)
+    try:
+        packages: list[Any] = []
+        package_records: list[dict[str, Any]] = []
+        for actor in authority.actors:
+            package = dependencies.prepare_runtime(
+                actor.source_glb,
+                output / "runtime" / actor.package_stem,
+                package_stem=actor.package_stem,
+                walking_profile_sample_count=actor.walking_profile_sample_count,
+                anatomical_forward_source=actor.anatomical_forward_source,
+            )
+            expected_walk_count = actor.walking_profile_sample_count or 16
+            walk = package.actions.action("walk")
+            manifest = dependencies.package_manifest_loader(package.package_manifest)
+            _require(
+                walk.sample_count == expected_walk_count
+                and package.habitat_ao_config.stem.removesuffix(".ao_config")
+                == actor.package_stem
+                and manifest.get("anatomical_frame", {}).get("source")
+                == actor.anatomical_forward_source,
+                f"{actor.actor_id} prepared runtime identity differs from authority",
+            )
+            packages.append(package)
+            package_records.append(
+                {
+                    "actor_id": actor.actor_id,
+                    "source_slot_id": actor.source_slot_id,
+                    "asset_id": actor.asset_id,
+                    "asset_revision": actor.asset_revision,
+                    "source_glb": str(actor.source_glb),
+                    "package_stem": actor.package_stem,
+                    "package_manifest_path": Path(package.package_manifest)
+                    .relative_to(output)
+                    .as_posix(),
+                    "walking_sample_count": walk.sample_count,
+                    "anatomical_forward_source": actor.anatomical_forward_source,
+                }
+            )
+        _require(
+            packages[0].habitat_ao_config != packages[1].habitat_ao_config,
+            "two human runtime packages must remain distinct",
+        )
+
+        runtime = dependencies.runtime_discover(runtime_root)
+        configuration, modality_to_uuid, listener_uuid, resolved_scene = (
+            dependencies.make_configuration(
+                m1_inputs, runtime, output / "scene_scratch"
+            )
+        )
+        required_runtime_paths = {
+            "scene": resolved_scene.get("scene_id"),
+            "dataset": resolved_scene.get("dataset_config"),
+            "navmesh": resolved_scene.get("navmesh"),
+            "physics": runtime / "data/default.physics_config.json",
+        }
+        _require(
+            all(Path(str(path)).is_file() for path in required_runtime_paths.values()),
+            "resolved M1 room has missing runtime files",
+        )
+        configuration.sim_cfg.enable_hbao = True
+        _require(
+            bool(configuration.sim_cfg.enable_hbao)
+            and bool(configuration.sim_cfg.enable_physics),
+            "two-human configuration requires HBAO and Bullet for kinematic actors",
+        )
+        _require(
+            tuple(modality_to_uuid) == tuple(FORMAL_MODALITIES),
+            "M1 visual modality order changed from rgb/depth/semantic",
+        )
+        qt, habitat_sim, mn, quat_to_coeffs = dependencies.import_habitat()
+        visual_sensor_uuids = [
+            modality_to_uuid[modality] for modality in FORMAL_MODALITIES
+        ]
+        all_sensor_uuids = sorted([*visual_sensor_uuids, listener_uuid])
+        semantic_ids = {actor.actor_id: actor.semantic_id for actor in authority.actors}
+        captured: list[_CapturedTwoHumanFrame] = []
+        lighting_evidence: Mapping[str, Any]
+        actor_rendering: list[Mapping[str, Any]] = []
+        scene_readback: Mapping[str, Any]
+        preflight_absence: Mapping[str, Any]
+        initial_world_time = 0.0
+        final_world_time = 0.0
+
+        with dependencies.simulator_factory(habitat_sim, configuration) as simulator:
+            scene_readback = _live_scene_readback(
+                simulator, configuration, resolved_scene
+            )
+            navmesh_path = Path(str(resolved_scene["navmesh"])).resolve()
+            _require(navmesh_path.is_file(), "resolved M1 navmesh is missing")
+            navmesh_loaded = bool(simulator.pathfinder.load_nav_mesh(str(navmesh_path)))
+            _require(
+                navmesh_loaded and bool(simulator.pathfinder.is_loaded),
+                "Simulator failed to load the declared M1 navmesh",
+            )
+            scene_readback = {
+                **scene_readback,
+                "navmesh_path": str(navmesh_path),
+                "pathfinder_is_loaded": True,
+            }
+            simulator.seed(int(m1_inputs.request["seed"]))
+            selected_rig = authority.rig_frames[0]["world_from_rig"]
+            camera_state = habitat_sim.AgentState()
+            camera_state.position = np.asarray(
+                selected_rig["translation_m"], dtype=np.float64
+            )
+            qx, qy, qz, qw = _quat(
+                selected_rig["rotation_xyzw"], owner="selected HOLD camera quaternion"
+            )
+            camera_state.rotation = qt.quaternion(qw, qx, qy, qz)
+            agent = simulator.initialize_agent(0, camera_state)
+            sensors = [simulator.sensors[uuid] for uuid in visual_sensor_uuids]
+
+            def camera_snapshot() -> Mapping[str, Any]:
+                return dependencies.state_snapshot(
+                    simulator, agent, all_sensor_uuids, quat_to_coeffs
+                )
+
+            initial_world_time = float(simulator.get_world_time())
+            _camera_readback_record(
+                camera_snapshot(),
+                planned_world_from_rig=selected_rig,
+                sensor_uuids=all_sensor_uuids,
+            )
+            preflight_observation = simulator.render_sensors(sensors)
+            preflight_arrays = _validate_formal_capture_arrays(
+                dependencies.observation_validator(
+                    preflight_observation, modality_to_uuid
+                ),
+                resolution_hw=authority.resolution_hw,
+            )
+            preflight_absence = _semantic_absence_record(
+                preflight_arrays["semantic"],
+                resolution_hw=authority.resolution_hw,
+                semantic_ids=semantic_ids,
+            )
+            _camera_readback_record(
+                camera_snapshot(),
+                planned_world_from_rig=selected_rig,
+                sensor_uuids=all_sensor_uuids,
+            )
+            _require(
+                float(simulator.get_world_time()) == initial_world_time,
+                "no-actor preflight advanced Habitat world time",
+            )
+            lighting_evidence = dependencies.bind_lighting(
+                simulator,
+                configuration,
+                light_setup_key=M5_1_LIGHT_SETUP_KEY,
+            )
+            runtime_bindings: list[_HumanFrameBinding] = []
+            for actor_authority, package in zip(
+                authority.actors, packages, strict=True
+            ):
+                actor, joint_binding, link_blocks = dependencies.instantiate_human(
+                    simulator,
+                    package=package,
+                    habitat_sim=habitat_sim,
+                    semantic_id=actor_authority.semantic_id,
+                    light_setup_key=M5_1_LIGHT_SETUP_KEY,
+                    shader_type=M5_1_ACTOR_SHADER_TYPE,
+                )
+                actor_rendering.append(
+                    dependencies.actor_render_evidence(
+                        actor,
+                        actor_id=actor_authority.actor_id,
+                        requested_shader_type=M5_1_ACTOR_SHADER_TYPE,
+                        light_setup_key=M5_1_LIGHT_SETUP_KEY,
+                    )
+                )
+                runtime_bindings.append(
+                    _HumanFrameBinding(
+                        authority=actor_authority,
+                        package=package,
+                        articulated_object=actor,
+                        joint_binding=joint_binding,
+                        link_blocks=tuple(link_blocks),
+                        head_link_id=dependencies.link_id_by_name(
+                            actor, HEAD_LINK_NAME
+                        ),
+                        mouth_link_id=dependencies.link_id_by_name(
+                            actor, MOUTH_LINK_NAME
+                        ),
+                    )
+                )
+
+            def apply_root(actor: Any, matrix: np.ndarray) -> None:
+                _apply_root_with_habitat(actor, matrix, qt=qt, mn=mn)
+
+            for frame_index in range(FRAME_COUNT):
+                captured.append(
+                    dependencies.frame_capture(
+                        authority=authority,
+                        frame_index=frame_index,
+                        simulator=simulator,
+                        runtimes=tuple(runtime_bindings),
+                        modality_to_uuid=modality_to_uuid,
+                        sensor_wrappers=tuple(sensors),
+                        camera_sensor_uuids=all_sensor_uuids,
+                        camera_snapshot=camera_snapshot,
+                        apply_root=apply_root,
+                        runtime_snapshot=_plain_human_runtime_snapshot,
+                        joint_readback_errors=mixed_joint_readback_errors,
+                        fk_readback_error=_human_skin_link_readback_error,
+                        node_world_position=_node_world_position,
+                        observation_validator=dependencies.observation_validator,
+                    )
+                )
+            final_world_time = float(simulator.get_world_time())
+            _require(
+                final_world_time == initial_world_time,
+                "two-human capture advanced Habitat world time",
+            )
+
+        _require(len(captured) == FRAME_COUNT, "two-human capture frame count drift")
+        rgb = np.ascontiguousarray(np.stack([item.rgb for item in captured]))
+        depth_m = np.ascontiguousarray(np.stack([item.depth_m for item in captured]))
+        semantic = np.ascontiguousarray(np.stack([item.semantic for item in captured]))
+        actor_roots = np.ascontiguousarray(
+            np.stack([item.actor_root_world_matrices for item in captured])
+        )
+        skin_roots = np.ascontiguousarray(
+            np.stack([item.skin_root_world_matrices for item in captured])
+        )
+        anchors = np.ascontiguousarray(
+            np.stack([item.anchor_positions_m for item in captured])
+        )
+        visibility = np.ascontiguousarray(
+            np.stack([item.semantic_visibility_pixels for item in captured])
+        )
+        records = tuple(item.record for item in captured)
+        artifacts = {
+            "rgb": _save_plain_array(output, "rgb", rgb),
+            "depth_m": _save_plain_array(output, "depth_m", depth_m),
+            "semantic": _save_plain_array(output, "semantic", semantic),
+            "actor_root_world_matrices": _save_plain_array(
+                output, "actor_root_world_matrices", actor_roots
+            ),
+            "skin_root_world_matrices": _save_plain_array(
+                output, "skin_root_world_matrices", skin_roots
+            ),
+            "anchor_positions_m": _save_plain_array(
+                output, "anchor_positions_m", anchors
+            ),
+            "semantic_visibility_pixels": _save_plain_array(
+                output, "semantic_visibility_pixels", visibility
+            ),
+        }
+        frame_path = output / "frame_readback.json"
+        _write_plain_json(frame_path, records)
+        evidence: dict[str, Any] = {
+            "schema": "avengine_m5_1_two_human_mp3d_capture_v1",
+            "status": "pass",
+            "status_scope": "native_capture_execution",
+            "backend_role": "production_visual",
+            "source_suite_role": authority.suite_visual_role,
+            "research_only": True,
+            "qualification_claim": False,
+            "formal_dataset_count": 0,
+            "manual_review_required": True,
+            "manual_review_status": "pending",
+            "episode_promotion": False,
+            "episode_id": authority.episode_id,
+            "room_id": authority.room_id,
+            "room_revision": authority.room_revision,
+            "frame_count": FRAME_COUNT,
+            "frame_rate_hz": FRAME_RATE_HZ,
+            "time_base_hz": TIME_BASE_HZ,
+            "seed": int(m1_inputs.request["seed"]),
+            "camera": {
+                "rig_id": m1_inputs.request["primary_camera_rig"]["rig_id"],
+                "view_id": m1_inputs.request["primary_camera_rig"]["view_id"],
+                "listener_id": listener_uuid,
+                "resolution_hw": list(authority.resolution_hw),
+                "hfov_degrees": authority.horizontal_fov_deg,
+                "modality_to_sensor_uuid": dict(modality_to_uuid),
+            },
+            "physics_steps": 0,
+            "simulator_instances": 1,
+            "preflight_render_calls": 1,
+            "formal_render_calls": FRAME_COUNT,
+            "formal_render_calls_per_frame": 1,
+            "inputs": {
+                "atom_request": str(Path(atom_request_path).resolve()),
+                "suite_plan": str(Path(suite_plan_path).resolve()),
+                "sensor_rig": str(Path(sensor_rig_path).resolve()),
+                "trajectory_bank": str(Path(trajectory_bank_path).resolve()),
+                "rir_plan": str(Path(rir_plan_path).resolve()),
+                "room_manifest": str(Path(room_manifest_path).resolve()),
+                "m1_request": str(Path(m1_request_path).resolve()),
+                "runtime_root": str(runtime),
+            },
+            "preflight_semantic_absence": dict(preflight_absence),
+            "scene_readback": dict(scene_readback),
+            "lighting": dict(lighting_evidence),
+            "actors": [
+                {
+                    **package_record,
+                    "semantic_id": actor.semantic_id,
+                    "rendering": dict(actor_rendering[index]),
+                }
+                for index, (actor, package_record) in enumerate(
+                    zip(authority.actors, package_records, strict=True)
+                )
+            ],
+            "world_time": {
+                "initial_seconds": initial_world_time,
+                "final_seconds": final_world_time,
+                "unchanged": True,
+            },
+            "array_artifacts": artifacts,
+            "frame_readback": {
+                "path": frame_path.relative_to(output).as_posix(),
+                "record_count": len(records),
+            },
+            "semantic_visible_frame_count": {
+                actor.actor_id: int(np.count_nonzero(visibility[:, index] > 0))
+                for index, actor in enumerate(authority.actors)
+            },
+            "claim_boundary": (
+                "Habitat-native MP3D production visual capture; the retained SPEAR "
+                "suite supplies comparison-only frozen state and is not visual evidence"
+            ),
+        }
+        evidence_path = output / "evidence.json"
+        _write_plain_json(evidence_path, evidence)
+        return TwoHumanCaptureResult(
+            output_dir=output,
+            rgb=rgb,
+            depth_m=depth_m,
+            semantic=semantic,
+            actor_root_world_matrices=actor_roots,
+            skin_root_world_matrices=skin_roots,
+            anchor_positions_m=anchors,
+            semantic_visibility_pixels=visibility,
+            records=records,
+            evidence=evidence,
+        )
+    except (
+        HumanRuntimeError,
+        MixedCaptureError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        if isinstance(exc, TwoHumanCaptureError):
+            raise
+        raise TwoHumanCaptureError(str(exc)) from exc
+
+
 __all__ = [
     "HumanActorAuthority",
     "PlannedHumanFrame",
     "TwoHumanCaptureAuthority",
     "TwoHumanCaptureError",
+    "TwoHumanCaptureResult",
+    "capture_two_human_mp3d",
     "load_two_human_capture_authority",
     "validate_two_human_authority_documents",
 ]
