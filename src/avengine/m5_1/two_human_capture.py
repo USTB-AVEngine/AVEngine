@@ -9,13 +9,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 
 from avengine.contracts.json_io import load_json
+from avengine.contracts.transforms import transform_error
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import _resolved_scene, discover_runtime_root
+from avengine.m2.habitat_capture import quaternion_xyzw_to_matrix
+from avengine.m5_1.mixed_capture import (
+    _JOINT_READBACK_ATOL,
+    _LINK_MATRIX_READBACK_ATOL,
+    _ROOT_READBACK_ATOL,
+)
 from avengine.m6x.rir_cache import RIRCacheError, validate_semantic_rir_job_plan
 from avengine.runtime_profiles import (
     RuntimeProfileError,
@@ -51,6 +58,7 @@ class HumanActorAuthority:
     package_stem: str
     walking_profile_sample_count: int | None
     emitter_offset_m: tuple[float, float, float]
+    emitter_offset_space: str
     anatomical_forward_axis: tuple[float, float, float]
     anatomical_forward_source: str
 
@@ -78,6 +86,472 @@ class TwoHumanCaptureAuthority:
     suite_visual_role: str
     qualification_claim: bool
     formal_dataset_count: int
+
+
+@dataclass(frozen=True)
+class _HumanFrameBinding:
+    authority: HumanActorAuthority
+    package: Any
+    articulated_object: Any
+    joint_binding: Any
+    link_blocks: tuple[Any, ...]
+    head_link_id: Any
+    mouth_link_id: Any
+
+
+@dataclass(frozen=True)
+class _CapturedTwoHumanFrame:
+    rgb: np.ndarray
+    depth_m: np.ndarray
+    semantic: np.ndarray
+    actor_root_world_matrices: np.ndarray
+    skin_root_world_matrices: np.ndarray
+    anchor_positions_m: np.ndarray
+    semantic_visibility_pixels: np.ndarray
+    record: Mapping[str, Any]
+
+
+def _action_sample_index(action: Any, action_time_ticks: int) -> int:
+    """Resolve a Timeline tick only when it lands on an authored action sample."""
+
+    _require(
+        isinstance(action_time_ticks, int)
+        and not isinstance(action_time_ticks, bool)
+        and action_time_ticks >= 0,
+        "action_time_ticks must be a nonnegative integer",
+    )
+    loop_duration = getattr(action, "loop_duration_ticks", None)
+    sample_ticks = tuple(getattr(action, "sample_ticks", ()))
+    _require(
+        isinstance(loop_duration, int)
+        and not isinstance(loop_duration, bool)
+        and loop_duration > 0
+        and sample_ticks
+        and len(set(sample_ticks)) == len(sample_ticks)
+        and all(
+            isinstance(item, int)
+            and not isinstance(item, bool)
+            and 0 <= item < loop_duration
+            for item in sample_ticks
+        ),
+        "runtime action sample ticks are invalid",
+    )
+    requested_tick = action_time_ticks % loop_duration
+    try:
+        return sample_ticks.index(requested_tick)
+    except ValueError as exc:
+        raise TwoHumanCaptureError(
+            f"action_time_ticks resolves to unauthored sample tick {requested_tick}"
+        ) from exc
+
+
+def _planned_actor_world_matrix(frame: PlannedHumanFrame) -> np.ndarray:
+    """Use the frozen suite quaternion directly; do not derive trajectory heading."""
+
+    result = np.eye(4, dtype=np.float64)
+    result[:3, :3] = quaternion_xyzw_to_matrix(frame.rotation_xyzw)
+    result[:3, 3] = np.asarray(frame.translation_m, dtype=np.float64)
+    return result
+
+
+def _planned_emitter_world_position(
+    actor: HumanActorAuthority, frame: PlannedHumanFrame
+) -> np.ndarray:
+    _require(
+        actor.emitter_offset_space == "final_scaled_asset_root",
+        f"{actor.actor_id} emitter offset space is unsupported",
+    )
+    local = np.asarray((*actor.emitter_offset_m, 1.0), dtype=np.float64)
+    return (_planned_actor_world_matrix(frame) @ local)[:3]
+
+
+def _validate_formal_capture_arrays(
+    arrays: Mapping[str, Any], *, resolution_hw: tuple[int, int]
+) -> dict[str, np.ndarray]:
+    """Normalize one co-located RGB/metric-depth/semantic observation."""
+
+    _require(set(arrays) == {"rgb", "depth", "semantic"}, "formal modalities drift")
+    rgb = np.asarray(arrays["rgb"])
+    depth = np.asarray(arrays["depth"])
+    semantic = np.asarray(arrays["semantic"])
+    _require(
+        rgb.ndim == 3
+        and rgb.shape[-1] in {3, 4}
+        and rgb.shape[:2] == resolution_hw
+        and rgb.dtype == np.dtype(np.uint8),
+        "RGB observation must be uint8 HxWx3/4 at the selected resolution",
+    )
+    _require(
+        depth.shape == resolution_hw
+        and np.issubdtype(depth.dtype, np.floating)
+        and np.all(np.isfinite(depth)),
+        "depth observation must be finite floating-point metric depth",
+    )
+    _require(
+        semantic.shape == resolution_hw and np.issubdtype(semantic.dtype, np.integer),
+        "semantic observation must be an integer image at the selected resolution",
+    )
+    return {
+        "rgb": np.ascontiguousarray(rgb[..., :3]).copy(),
+        "depth": np.ascontiguousarray(depth).copy(),
+        "semantic": np.ascontiguousarray(semantic).copy(),
+    }
+
+
+def _semantic_absence_record(
+    semantic: Any,
+    *,
+    resolution_hw: tuple[int, int],
+    semantic_ids: Mapping[str, int],
+) -> dict[str, Any]:
+    image = np.asarray(semantic)
+    _require(
+        image.shape == resolution_hw and np.issubdtype(image.dtype, np.integer),
+        "preflight semantic observation differs from the selected sensor",
+    )
+    counts = {
+        actor_id: int(np.count_nonzero(image == semantic_id))
+        for actor_id, semantic_id in semantic_ids.items()
+    }
+    _require(
+        not any(counts.values()),
+        "two-human semantic IDs collide with the no-actor MP3D observation",
+    )
+    return {
+        "observation_calls": 1,
+        "shape": list(image.shape),
+        "dtype": image.dtype.str,
+        "semantic_ids": dict(semantic_ids),
+        "pixel_counts": counts,
+        "all_absent": True,
+    }
+
+
+def _prepare_fresh_output(output_dir: str | Path) -> Path:
+    requested = Path(output_dir).expanduser()
+    _require(
+        not requested.exists() and not requested.is_symlink(),
+        f"refusing to replace capture output: {requested}",
+    )
+    output = requested.resolve()
+    _require(
+        not output.exists() and not output.is_symlink(),
+        f"refusing to replace capture output: {output}",
+    )
+    output.mkdir(parents=True, exist_ok=False)
+    return output
+
+
+def _save_plain_array(output: Path, name: str, value: np.ndarray) -> dict[str, Any]:
+    path = output / "arrays" / f"{name}.npy"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    array = np.ascontiguousarray(value)
+    np.save(path, array, allow_pickle=False)
+    readback = np.load(path, mmap_mode="r", allow_pickle=False)
+    _require(
+        readback.dtype == array.dtype
+        and readback.shape == array.shape
+        and np.array_equal(readback, array),
+        f"saved {name} array differs on readback",
+    )
+    return {
+        "path": path.relative_to(output).as_posix(),
+        "dtype": array.dtype.str,
+        "shape": list(array.shape),
+        "readback_verified": True,
+    }
+
+
+def _camera_readback_record(
+    snapshot: Mapping[str, Any],
+    *,
+    planned_world_from_rig: Mapping[str, Any],
+    sensor_uuids: Sequence[str],
+) -> dict[str, Any]:
+    agent_pose = _mapping(snapshot.get("agent"), owner="camera agent readback")
+    sensor_poses = _mapping(snapshot.get("sensors"), owner="camera sensor readback")
+    _require(
+        set(sensor_poses) == set(sensor_uuids),
+        "camera readback does not contain every selected sensor and listener",
+    )
+    errors = {
+        "agent": float(transform_error(planned_world_from_rig, agent_pose)),
+        **{
+            sensor_uuid: float(
+                transform_error(
+                    planned_world_from_rig,
+                    _mapping(sensor_poses[sensor_uuid], owner=f"sensor {sensor_uuid}"),
+                )
+            )
+            for sensor_uuid in sensor_uuids
+        },
+    }
+    maximum_error = max(errors.values())
+    _require(
+        maximum_error <= _ROOT_READBACK_ATOL,
+        "camera/listener planned-live transform readback failed",
+    )
+    return {
+        "planned_world_from_rig": {
+            "translation_m": list(planned_world_from_rig["translation_m"]),
+            "rotation_xyzw": list(planned_world_from_rig["rotation_xyzw"]),
+        },
+        "live_agent": dict(agent_pose),
+        "live_sensors": {
+            sensor_uuid: dict(sensor_poses[sensor_uuid]) for sensor_uuid in sensor_uuids
+        },
+        "transform_errors": errors,
+        "maximum_transform_error": maximum_error,
+    }
+
+
+def _capture_two_human_frame(
+    *,
+    authority: TwoHumanCaptureAuthority,
+    frame_index: int,
+    simulator: Any,
+    runtimes: Sequence[_HumanFrameBinding],
+    modality_to_uuid: Mapping[str, str],
+    sensor_wrappers: Sequence[Any],
+    camera_sensor_uuids: Sequence[str],
+    camera_snapshot: Callable[[], Mapping[str, Any]],
+    apply_root: Callable[[Any, np.ndarray], None],
+    runtime_snapshot: Callable[[Any, Any], Mapping[str, Any]],
+    joint_readback_errors: Callable[[Any, Any, Sequence[Any]], tuple[float, float]],
+    fk_readback_error: Callable[..., float],
+    node_world_position: Callable[[Any, Any], np.ndarray],
+    observation_validator: Callable[
+        [Mapping[str, Any], Mapping[str, str]], Mapping[str, Any]
+    ],
+) -> _CapturedTwoHumanFrame:
+    """Apply both humans, read back both, and issue exactly one formal render."""
+
+    _require(0 <= frame_index < FRAME_COUNT, "capture frame index is invalid")
+    _require(
+        len(runtimes) == 2
+        and tuple(item.authority for item in runtimes) == authority.actors,
+        "capture runtimes must match both authority actors in order",
+    )
+    _require(
+        tuple(modality_to_uuid) == ("rgb", "depth", "semantic")
+        and len(sensor_wrappers) == 3,
+        "formal capture requires one ordered RGB/depth/semantic sensor set",
+    )
+    initial_world_time = float(simulator.get_world_time())
+    prepared: list[dict[str, Any]] = []
+    for actor_index, runtime in enumerate(runtimes):
+        planned = authority.actor_frames[actor_index][frame_index]
+        action = runtime.package.actions.action(planned.action_id)
+        sample_index = _action_sample_index(action, planned.action_time_ticks)
+        translations = np.asarray(action.translations_m[sample_index], dtype=np.float64)
+        rotations = np.asarray(action.rotations_xyzw[sample_index], dtype=np.float64)
+        joints = np.asarray(
+            runtime.joint_binding.map_pose(translations, rotations), dtype=np.float64
+        ).reshape(-1)
+        actor_world = _planned_actor_world_matrix(planned)
+        actor_from_skin = np.asarray(
+            runtime.package.actor_from_skin_root, dtype=np.float64
+        )
+        _require(
+            actor_from_skin.shape == (4, 4)
+            and np.all(np.isfinite(actor_from_skin))
+            and np.all(np.isfinite(joints)),
+            f"{runtime.authority.actor_id} runtime pose is invalid",
+        )
+        skin_world = actor_world @ actor_from_skin
+        apply_root(runtime.articulated_object, skin_world)
+        runtime.articulated_object.joint_positions = joints.copy()
+        prepared.append(
+            {
+                "runtime": runtime,
+                "planned": planned,
+                "action": action,
+                "sample_index": sample_index,
+                "translations": translations,
+                "rotations": rotations,
+                "joints": joints,
+                "actor_world": actor_world,
+                "actor_from_skin": actor_from_skin,
+                "skin_world": skin_world,
+            }
+        )
+
+    before: list[Mapping[str, Any]] = []
+    actor_roots: list[np.ndarray] = []
+    skin_roots: list[np.ndarray] = []
+    anchors: list[np.ndarray] = []
+    actor_records: list[dict[str, Any]] = []
+    for item in prepared:
+        runtime = item["runtime"]
+        snapshot = runtime_snapshot(simulator, runtime.articulated_object)
+        actual_skin = np.asarray(snapshot["world_from_skin_root"], dtype=np.float64)
+        actual_joints = np.asarray(
+            snapshot["mixed_joint_positions"], dtype=np.float64
+        ).reshape(-1)
+        _require(
+            actual_skin.shape == (4, 4)
+            and np.all(np.isfinite(actual_skin))
+            and np.all(np.isfinite(actual_joints)),
+            f"{runtime.authority.actor_id} runtime readback is invalid",
+        )
+        actual_actor = actual_skin @ np.linalg.inv(item["actor_from_skin"])
+        skin_error = float(np.max(np.abs(actual_skin - item["skin_world"])))
+        actor_error = float(np.max(np.abs(actual_actor - item["actor_world"])))
+        prismatic_error, spherical_error = joint_readback_errors(
+            actual_joints, item["joints"], runtime.link_blocks
+        )
+        fk_error = float(
+            fk_readback_error(
+                runtime.articulated_object,
+                runtime.package,
+                world_from_skin_root=item["skin_world"],
+                translations_m=item["translations"],
+                rotations_xyzw=item["rotations"],
+            )
+        )
+        _require(
+            max(skin_error, actor_error) <= _ROOT_READBACK_ATOL
+            and prismatic_error <= _JOINT_READBACK_ATOL
+            and spherical_error <= _JOINT_READBACK_ATOL
+            and fk_error <= _LINK_MATRIX_READBACK_ATOL,
+            f"{runtime.authority.actor_id} articulated readback failed",
+        )
+        head = np.asarray(
+            node_world_position(runtime.articulated_object, runtime.head_link_id),
+            dtype=np.float64,
+        )
+        mouth = np.asarray(
+            node_world_position(runtime.articulated_object, runtime.mouth_link_id),
+            dtype=np.float64,
+        )
+        _require(
+            head.shape == mouth.shape == (3,)
+            and np.all(np.isfinite(head))
+            and np.all(np.isfinite(mouth)),
+            f"{runtime.authority.actor_id} head/mouth readback is invalid",
+        )
+        planned_emitter = _planned_emitter_world_position(
+            runtime.authority, item["planned"]
+        )
+        mouth_delta = mouth - planned_emitter
+        before.append(
+            {
+                "world_from_skin_root": actual_skin.copy(),
+                "mixed_joint_positions": actual_joints.copy(),
+            }
+        )
+        actor_roots.append(actual_actor)
+        skin_roots.append(actual_skin)
+        anchors.append(np.stack((head, mouth)))
+        actor_records.append(
+            {
+                "actor_id": runtime.authority.actor_id,
+                "package_stem": runtime.authority.package_stem,
+                "action_id": item["planned"].action_id,
+                "action_time_ticks": item["planned"].action_time_ticks,
+                "action_sample_index": item["sample_index"],
+                "planned_actor_world_matrix": item["actor_world"].tolist(),
+                "live_actor_world_matrix": actual_actor.tolist(),
+                "live_skin_root_world_matrix": actual_skin.tolist(),
+                "head_link_origin_m": head.tolist(),
+                "planned_emitter_world_position_m": planned_emitter.tolist(),
+                "planned_emitter_authority": (
+                    "final_scaled_asset_root offset joined to trajectory/RIR source"
+                ),
+                "live_mouth_link_origin_diagnostic_m": mouth.tolist(),
+                "live_mouth_minus_planned_emitter_diagnostic_m": mouth_delta.tolist(),
+                "live_mouth_is_authoritative": False,
+                "readback_errors": {
+                    "actor_root": actor_error,
+                    "skin_root": skin_error,
+                    "joint_prismatic": float(prismatic_error),
+                    "joint_spherical": float(spherical_error),
+                    "skin_link_fk": fk_error,
+                },
+            }
+        )
+
+    rig_frame = authority.rig_frames[frame_index]
+    _require(
+        rig_frame.get("frame_index") == frame_index
+        and rig_frame.get("pts_ticks") == frame_index * TICKS_PER_FRAME,
+        "capture rig frame differs from Timeline",
+    )
+    planned_rig = _mapping(rig_frame.get("world_from_rig"), owner="planned rig")
+    camera_before = _camera_readback_record(
+        camera_snapshot(),
+        planned_world_from_rig=planned_rig,
+        sensor_uuids=camera_sensor_uuids,
+    )
+
+    observation = simulator.render_sensors(list(sensor_wrappers))
+    arrays = _validate_formal_capture_arrays(
+        observation_validator(observation, modality_to_uuid),
+        resolution_hw=authority.resolution_hw,
+    )
+    visibility = np.asarray(
+        [
+            np.count_nonzero(arrays["semantic"] == runtime.authority.semantic_id)
+            for runtime in runtimes
+        ],
+        dtype=np.int64,
+    )
+    _require(
+        bool(np.all(visibility > 0)),
+        "formal semantic frame must contain both human semantic IDs",
+    )
+
+    for item, retained in zip(prepared, before, strict=True):
+        runtime = item["runtime"]
+        after = runtime_snapshot(simulator, runtime.articulated_object)
+        root_error = float(
+            np.max(
+                np.abs(
+                    np.asarray(after["world_from_skin_root"], dtype=np.float64)
+                    - np.asarray(retained["world_from_skin_root"], dtype=np.float64)
+                )
+            )
+        )
+        prismatic_error, spherical_error = joint_readback_errors(
+            after["mixed_joint_positions"],
+            retained["mixed_joint_positions"],
+            runtime.link_blocks,
+        )
+        _require(
+            root_error <= _ROOT_READBACK_ATOL
+            and prismatic_error <= _JOINT_READBACK_ATOL
+            and spherical_error <= _JOINT_READBACK_ATOL,
+            f"frame {frame_index} render changed {runtime.authority.actor_id} state",
+        )
+    camera_after = _camera_readback_record(
+        camera_snapshot(),
+        planned_world_from_rig=planned_rig,
+        sensor_uuids=camera_sensor_uuids,
+    )
+    final_world_time = float(simulator.get_world_time())
+    _require(
+        final_world_time == initial_world_time,
+        f"frame {frame_index} advanced Habitat world time",
+    )
+    return _CapturedTwoHumanFrame(
+        rgb=arrays["rgb"],
+        depth_m=arrays["depth"],
+        semantic=arrays["semantic"],
+        actor_root_world_matrices=np.stack(actor_roots),
+        skin_root_world_matrices=np.stack(skin_roots),
+        anchor_positions_m=np.stack(anchors),
+        semantic_visibility_pixels=visibility,
+        record={
+            "frame_index": frame_index,
+            "pts_ticks": frame_index * TICKS_PER_FRAME,
+            "physics_steps": 0,
+            "formal_render_calls": 1,
+            "world_time_seconds_before": initial_world_time,
+            "world_time_seconds_after": final_world_time,
+            "actors": actor_records,
+            "camera": {"before": camera_before, "after": camera_after},
+        },
+    )
 
 
 def _require(condition: bool, message: str) -> None:
@@ -287,7 +761,8 @@ def _build_actor_authorities(
         _require(len(anchor) == 1, f"{actor_id} default emitter anchor is not unique")
         emitter = _vec3(anchor[0].get("offset_m"), owner=f"{actor_id} emitter offset")
         _require(
-            tuple(declaration.get("emitter_offset_m", ())) == emitter,
+            tuple(declaration.get("emitter_offset_m", ())) == emitter
+            and anchor[0].get("offset_space") == "final_scaled_asset_root",
             f"{actor_id} suite emitter differs from runtime profile",
         )
         source_glb = _safe_regular_path(
@@ -311,6 +786,7 @@ def _build_actor_authorities(
                 package_stem=package_stem,
                 walking_profile_sample_count=19 if period == 19 else None,
                 emitter_offset_m=emitter,
+                emitter_offset_space="final_scaled_asset_root",
                 anatomical_forward_axis=axis,
                 anatomical_forward_source=(
                     f"runtime_profile:{registry.get('registry_id')}/{asset_id}@{revision}"
@@ -583,8 +1059,8 @@ def validate_two_human_authority_documents(
     for index, actor in enumerate(actors):
         expected_roots = [list(frame.translation_m) for frame in actor_frames[index]]
         expected_centers[actor.source_slot_id] = [
-            [root[axis] + actor.emitter_offset_m[axis] for axis in range(3)]
-            for root in expected_roots
+            _planned_emitter_world_position(actor, frame).tolist()
+            for frame in actor_frames[index]
         ]
         _require(
             roots.get(actor.source_slot_id) == expected_roots,

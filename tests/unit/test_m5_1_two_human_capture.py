@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from avengine.m5_1.two_human_capture import (
     TwoHumanCaptureError,
+    _HumanFrameBinding,
+    _action_sample_index,
+    _capture_two_human_frame,
+    _planned_actor_world_matrix,
+    _planned_emitter_world_position,
+    _prepare_fresh_output,
     _require_same_runtime_file,
     _safe_regular_path,
+    _save_plain_array,
+    _semantic_absence_record,
+    _validate_formal_capture_arrays,
     _validate_camera_runtime_navigation,
     load_two_human_capture_authority,
     validate_two_human_authority_documents,
@@ -376,6 +388,301 @@ def test_authority_join_keeps_ue_comparison_and_frozen_habitat_state(
         0.9797958971132712,
     )
     assert authority.actor_frames[0][-1].pts_ticks == 236800
+
+
+def test_exact_action_tick_and_frozen_quaternion_helpers(tmp_path: Path) -> None:
+    action = SimpleNamespace(loop_duration_ticks=6400, sample_ticks=(0, 3200))
+    assert _action_sample_index(action, 0) == 0
+    assert _action_sample_index(action, 3200) == 1
+    assert _action_sample_index(action, 6400) == 0
+    with pytest.raises(TwoHumanCaptureError, match="unauthored sample tick"):
+        _action_sample_index(action, 1600)
+
+    authority = _validate(_documents(tmp_path))
+    frame = replace(
+        authority.actor_frames[0][0],
+        translation_m=(1.0, 2.0, 3.0),
+        rotation_xyzw=(0.0, 1.0, 0.0, 0.0),
+    )
+    matrix = _planned_actor_world_matrix(frame)
+    assert np.array_equal(matrix[:3, 3], np.asarray([1.0, 2.0, 3.0]))
+    assert np.allclose(matrix[:3, :3], np.diag([-1.0, 1.0, -1.0]))
+
+    actor = replace(
+        authority.actors[0],
+        emitter_offset_m=(1.0, 0.0, 0.0),
+        emitter_offset_space="final_scaled_asset_root",
+    )
+    rotated = replace(
+        frame,
+        rotation_xyzw=(0.0, 2**-0.5, 0.0, 2**-0.5),
+    )
+    assert np.allclose(
+        _planned_emitter_world_position(actor, rotated),
+        np.asarray([1.0, 2.0, 2.0]),
+        atol=1.0e-12,
+    )
+    with pytest.raises(TwoHumanCaptureError, match="offset space"):
+        _planned_emitter_world_position(
+            replace(actor, emitter_offset_space="mouth_link_local"), rotated
+        )
+
+
+def test_formal_arrays_and_semantic_absence_are_plain_runtime_readbacks(
+    tmp_path: Path,
+) -> None:
+    resolution = (2, 3)
+    arrays = _validate_formal_capture_arrays(
+        {
+            "rgb": np.zeros((*resolution, 4), dtype=np.uint8),
+            "depth": np.full(resolution, 1.25, dtype=np.float32),
+            "semantic": np.zeros(resolution, dtype=np.int32),
+        },
+        resolution_hw=resolution,
+    )
+    assert arrays["rgb"].shape == (2, 3, 3)
+    assert arrays["rgb"].dtype == np.uint8
+    assert np.all(arrays["depth"] == np.float32(1.25))
+
+    absence = _semantic_absence_record(
+        arrays["semantic"],
+        resolution_hw=resolution,
+        semantic_ids={"human0": 62000, "human1": 62001},
+    )
+    assert absence["pixel_counts"] == {"human0": 0, "human1": 0}
+    collision = arrays["semantic"].copy()
+    collision[0, 0] = 62000
+    with pytest.raises(TwoHumanCaptureError, match="collide"):
+        _semantic_absence_record(
+            collision,
+            resolution_hw=resolution,
+            semantic_ids={"human0": 62000, "human1": 62001},
+        )
+
+    output = _prepare_fresh_output(tmp_path / "capture")
+    record = _save_plain_array(output, "depth_m", arrays["depth"])
+    assert set(record) == {"path", "dtype", "shape", "readback_verified"}
+    assert record["readback_verified"] is True
+    with pytest.raises(TwoHumanCaptureError, match="refusing to replace"):
+        _prepare_fresh_output(output)
+
+
+@pytest.mark.parametrize(
+    "arrays,message",
+    [
+        (
+            {
+                "rgb": np.zeros((2, 3, 3), dtype=np.float32),
+                "depth": np.ones((2, 3), dtype=np.float32),
+                "semantic": np.zeros((2, 3), dtype=np.int32),
+            },
+            "RGB observation",
+        ),
+        (
+            {
+                "rgb": np.zeros((2, 3, 3), dtype=np.uint8),
+                "depth": np.full((2, 3), np.inf, dtype=np.float32),
+                "semantic": np.zeros((2, 3), dtype=np.int32),
+            },
+            "metric depth",
+        ),
+        (
+            {
+                "rgb": np.zeros((2, 3, 3), dtype=np.uint8),
+                "depth": np.ones((2, 3), dtype=np.float32),
+                "semantic": np.zeros((2, 3), dtype=np.float32),
+            },
+            "semantic observation",
+        ),
+    ],
+)
+def test_formal_array_mutations_fail_closed(arrays, message: str) -> None:
+    with pytest.raises(TwoHumanCaptureError, match=message):
+        _validate_formal_capture_arrays(arrays, resolution_hw=(2, 3))
+
+
+def test_fake_single_simulator_captures_75_two_human_frames_and_detects_mutation(
+    tmp_path: Path,
+) -> None:
+    authority = replace(_validate(_documents(tmp_path)), resolution_hw=(2, 3))
+    event_log: list[tuple[str, int | None]] = []
+
+    class FakeAction:
+        loop_duration_ticks = 3200
+        sample_ticks = (0,)
+        translations_m = (((0.0, 0.0, 0.0),),)
+        rotations_xyzw = (((0.0, 0.0, 0.0, 1.0),),)
+
+    class FakeActions:
+        def action(self, action_id: str):
+            assert action_id == "idle"
+            return FakeAction()
+
+    class FakeJointBinding:
+        def map_pose(self, translations, rotations):
+            assert np.asarray(translations).shape == (1, 3)
+            assert np.asarray(rotations).shape == (1, 4)
+            return np.asarray([0.0, 0.0, 0.0, 1.0])
+
+    class FakeActor:
+        def __init__(self, actor_index: int, actor_from_skin: np.ndarray) -> None:
+            self.actor_index = actor_index
+            self.actor_from_skin = actor_from_skin
+            self.skin_world = np.eye(4, dtype=np.float64)
+            self.joint_positions = np.asarray([0.0, 0.0, 0.0, 1.0])
+
+    actor_from_skin = np.eye(4, dtype=np.float64)
+    actor_from_skin[0, 3] = 0.25
+    actors = [FakeActor(index, actor_from_skin.copy()) for index in range(2)]
+    packages = [
+        SimpleNamespace(
+            actions=FakeActions(),
+            actor_from_skin_root=tuple(tuple(row) for row in actor_from_skin),
+        )
+        for _ in range(2)
+    ]
+    runtimes = tuple(
+        _HumanFrameBinding(
+            authority=authority.actors[index],
+            package=packages[index],
+            articulated_object=actors[index],
+            joint_binding=FakeJointBinding(),
+            link_blocks=(
+                SimpleNamespace(joint_position_offset=0, joint_position_count=4),
+            ),
+            head_link_id="head",
+            mouth_link_id="mouth",
+        )
+        for index in range(2)
+    )
+
+    class FakeSimulator:
+        def __init__(self, *, mutate_on_render: bool = False) -> None:
+            self.world_time = 0.0
+            self.render_calls = 0
+            self.physics_steps = 0
+            self.mutate_on_render = mutate_on_render
+
+        def get_world_time(self) -> float:
+            return self.world_time
+
+        def step_physics(self, _seconds: float) -> None:
+            self.physics_steps += 1
+
+        def render_sensors(self, _wrappers):
+            self.render_calls += 1
+            event_log.append(("render", None))
+            if self.mutate_on_render:
+                actors[0].joint_positions[0] = 1.0
+            semantic = np.zeros((2, 3), dtype=np.int32)
+            semantic[0, 0] = 62000
+            semantic[0, 1] = 62001
+            return {
+                "rgb_uuid": np.zeros((2, 3, 4), dtype=np.uint8),
+                "depth_uuid": np.ones((2, 3), dtype=np.float32),
+                "semantic_uuid": semantic,
+            }
+
+    def apply_root(actor: FakeActor, matrix: np.ndarray) -> None:
+        event_log.append(("apply", actor.actor_index))
+        actor.skin_world = np.asarray(matrix, dtype=np.float64).copy()
+
+    def runtime_snapshot(simulator: FakeSimulator, actor: FakeActor):
+        return {
+            "world_time_seconds": simulator.world_time,
+            "world_from_skin_root": actor.skin_world,
+            "mixed_joint_positions": actor.joint_positions,
+        }
+
+    def joint_errors(actual, expected, _blocks):
+        error = float(
+            np.max(
+                np.abs(
+                    np.asarray(actual, dtype=float) - np.asarray(expected, dtype=float)
+                )
+            )
+        )
+        return 0.0, error
+
+    def node_position(actor: FakeActor, link_id: str) -> np.ndarray:
+        actor_world = actor.skin_world @ np.linalg.inv(actor.actor_from_skin)
+        if link_id == "head":
+            return (actor_world @ np.asarray([0.0, 1.7, 0.0, 1.0]))[:3]
+        planned = (
+            actor_world
+            @ np.asarray(
+                [
+                    *authority.actors[actor.actor_index].emitter_offset_m,
+                    1.0,
+                ]
+            )
+        )[:3]
+        return planned + np.asarray([0.01, 0.0, 0.0])
+
+    modality_to_uuid = {
+        "rgb": "rgb_uuid",
+        "depth": "depth_uuid",
+        "semantic": "semantic_uuid",
+    }
+    camera_uuids = ("rgb_uuid", "depth_uuid", "semantic_uuid", "listener0")
+
+    def camera_snapshot():
+        pose = deepcopy(authority.rig_frames[0]["world_from_rig"])
+        return {
+            "world_time_seconds": 0.0,
+            "agent": deepcopy(pose),
+            "sensors": {sensor_uuid: deepcopy(pose) for sensor_uuid in camera_uuids},
+        }
+
+    def validate_observation(observation, mapping):
+        return {
+            modality: observation[sensor_uuid]
+            for modality, sensor_uuid in mapping.items()
+        }
+
+    def capture(simulator: FakeSimulator, frame_index: int):
+        return _capture_two_human_frame(
+            authority=authority,
+            frame_index=frame_index,
+            simulator=simulator,
+            runtimes=runtimes,
+            modality_to_uuid=modality_to_uuid,
+            sensor_wrappers=(object(), object(), object()),
+            camera_sensor_uuids=camera_uuids,
+            camera_snapshot=camera_snapshot,
+            apply_root=apply_root,
+            runtime_snapshot=runtime_snapshot,
+            joint_readback_errors=joint_errors,
+            fk_readback_error=lambda *args, **kwargs: 0.0,
+            node_world_position=node_position,
+            observation_validator=validate_observation,
+        )
+
+    simulator = FakeSimulator()
+    captured = [capture(simulator, frame_index) for frame_index in range(75)]
+    assert simulator.render_calls == 75
+    assert simulator.physics_steps == 0
+    assert len(event_log) == 75 * 3
+    assert all(
+        event_log[frame_index * 3 : frame_index * 3 + 3]
+        == [("apply", 0), ("apply", 1), ("render", None)]
+        for frame_index in range(75)
+    )
+    assert all(item.record["physics_steps"] == 0 for item in captured)
+    assert all(item.record["formal_render_calls"] == 1 for item in captured)
+    assert all(np.all(item.semantic_visibility_pixels > 0) for item in captured)
+    assert captured[0].actor_root_world_matrices.shape == (2, 4, 4)
+    assert captured[0].skin_root_world_matrices.shape == (2, 4, 4)
+    assert captured[0].anchor_positions_m.shape == (2, 2, 3)
+    assert captured[0].record["actors"][0]["live_mouth_is_authoritative"] is False
+    assert captured[0].record["actors"][0][
+        "live_mouth_minus_planned_emitter_diagnostic_m"
+    ] == pytest.approx([0.01, 0.0, 0.0])
+
+    actors[0].joint_positions[:] = [0.0, 0.0, 0.0, 1.0]
+    actors[1].joint_positions[:] = [0.0, 0.0, 0.0, 1.0]
+    with pytest.raises(TwoHumanCaptureError, match="render changed"):
+        capture(FakeSimulator(mutate_on_render=True), 0)
 
 
 @pytest.mark.parametrize(
