@@ -1,5 +1,10 @@
 # Legacy Deprecation Plan
 
+Status: historical M0--M7 sequence. ADR-0010 supersedes its repository and
+production-backend assumptions. It remains useful for interpreting old
+milestone records, but it is not the active single-repository execution plan;
+see `SINGLE_REPOSITORY_EQUIVALENCE_PLAN.md`.
+
 Deprecation is milestone-gated. Old evidence is preserved at immutable Git
 commits; an entrypoint stops being production-supported before it is archived.
 
