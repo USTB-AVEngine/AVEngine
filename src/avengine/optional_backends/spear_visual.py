@@ -1,13 +1,13 @@
-"""Compile authoritative AVEngine records into a SPEAR visual-only plan.
+"""Compile authoritative AVEngine records into a room-selected SPEAR visual plan.
 
 This module is deliberately a pure-Python boundary: importing or compiling a
 plan never imports SPEAR or Unreal bindings and never starts a native runtime.
 Timeline v2 owns every actor state and binds each SensorRig pose hash, the
 SensorRigTrajectory owns exact camera/listener state, the RoomCapsule owns the
 room identity and layout, and native room qualification owns the source-center
-gate. A SPEAR consumer may render the resulting plan only as
-``comparison_visual``; it is not a second navigation, source-logic, audio, or
-admission authority.
+gate. A room adapter explicitly selects whether SPEAR supplies production
+pixels or a comparison diagnostic. Neither role grants SPEAR a second
+navigation, source-logic, audio, or admission authority.
 """
 
 from __future__ import annotations
@@ -24,7 +24,14 @@ from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
 
 
 PLAN_SCHEMA = "avengine_optional_spear_visual_plan_v1"
-BACKEND_ROLE = "comparison_visual"
+COMPARISON_VISUAL_ROLE = "comparison_visual"
+PRODUCTION_VISUAL_ROLE = "production_visual"
+VISUAL_BACKEND_ROLES = frozenset(
+    {COMPARISON_VISUAL_ROLE, PRODUCTION_VISUAL_ROLE}
+)
+# Backward-compatible public default. Existing callers remain comparison-only
+# until a room-specific adapter opts into production pixels explicitly.
+BACKEND_ROLE = COMPARISON_VISUAL_ROLE
 TIMELINE_SCHEMA = "avengine_authoritative_timeline_v2"
 ROOM_CAPSULE_SCHEMA = "avengine_m6x_room_capsule_v1"
 FRAME_COUNT = 75
@@ -42,7 +49,7 @@ DEFAULT_BODY_PLAN_FORWARD_AXES: Mapping[str, tuple[float, float, float]] = {
 
 
 class SpearVisualPlanError(ValueError):
-    """An input cannot produce a closed comparison-visual plan."""
+    """An input cannot produce a closed room-selected visual plan."""
 
 
 @dataclass(frozen=True)
@@ -574,6 +581,7 @@ def build_spear_visual_plan(
     actor_bindings: Mapping[str, SpearActorBinding | Mapping[str, Any]],
     body_plan_forward_axes: Mapping[str, Sequence[float]] | None = None,
     sensor_rig_trajectory: Mapping[str, Any] | None = None,
+    backend_role: str = BACKEND_ROLE,
 ) -> dict[str, Any]:
     """Build a detached 75-frame visual plan without loading SPEAR.
 
@@ -599,6 +607,10 @@ def build_spear_visual_plan(
         raise SpearVisualPlanError("room_capsule schema is not M6.x RoomCapsule v1")
     if not isinstance(actor_bindings, Mapping):
         raise SpearVisualPlanError("actor_bindings must be keyed by asset_id")
+    if not isinstance(backend_role, str) or backend_role not in VISUAL_BACKEND_ROLES:
+        raise SpearVisualPlanError(
+            "backend_role must be comparison_visual or production_visual"
+        )
 
     video = timeline.get("video")
     if not isinstance(video, Mapping) or video.get("frame_count") != FRAME_COUNT:
@@ -836,7 +848,7 @@ def build_spear_visual_plan(
 
     return {
         "schema": PLAN_SCHEMA,
-        "backend_role": BACKEND_ROLE,
+        "backend_role": backend_role,
         "authority": {
             "actor_state": "Timeline_v2",
             "room_identity_and_layout": "RoomCapsule",
@@ -922,6 +934,7 @@ def build_spear_visual_plan_from_files(
     actor_bindings: Mapping[str, SpearActorBinding | Mapping[str, Any]],
     body_plan_forward_axes: Mapping[str, Sequence[float]] | None = None,
     sensor_rig_trajectory_path: str | Path | None = None,
+    backend_role: str = BACKEND_ROLE,
 ) -> dict[str, Any]:
     """Load bounded JSON inputs and compile a path-free plan."""
 
@@ -935,6 +948,7 @@ def build_spear_visual_plan_from_files(
         qualification=_load_mapping(qualification_path, owner="qualification"),
         actor_bindings=actor_bindings,
         body_plan_forward_axes=body_plan_forward_axes,
+        backend_role=backend_role,
         sensor_rig_trajectory=(
             None
             if sensor_rig_trajectory_path is None

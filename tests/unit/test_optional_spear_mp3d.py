@@ -678,6 +678,7 @@ def test_media_probe_and_audio_packet_hash_survive_stream_copy(tmp_path: Path) -
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
+        ("role", "backend role"),
         ("room", "room_id"),
         ("frames", "75-frame"),
         ("replan", "replanning"),
@@ -689,7 +690,9 @@ def test_mp3d_execution_fails_closed_on_authority_or_import_drift(
 ) -> None:
     visual = _visual_plan()
     imported = _import_manifest()
-    if mutation == "room":
+    if mutation == "role":
+        visual["backend_role"] = "production_visual"
+    elif mutation == "room":
         visual["room"]["room_id"] = "another_room"
     elif mutation == "frames":
         visual["frames"].pop()
