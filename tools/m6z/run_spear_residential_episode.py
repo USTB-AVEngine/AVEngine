@@ -256,7 +256,9 @@ def _finalize_native_pixel_artifacts(
         and isinstance(timeline_frames, list),
         "episode native-pixel authorities are incomplete",
     )
-    actor_ids = [str(actor.get("actor_id")) for actor in actors if isinstance(actor, Mapping)]
+    actor_ids = [
+        str(actor.get("actor_id")) for actor in actors if isinstance(actor, Mapping)
+    ]
     _require(
         len(actor_ids) == 2 and len(set(actor_ids)) == 2,
         "native-pixel capture requires exactly two distinct actor IDs",
@@ -266,7 +268,10 @@ def _finalize_native_pixel_artifacts(
         "native-pixel frame authority is not full75",
     )
     _require(
-        len(normal_depths) == len(normal_object_ids) == len(normal_readbacks) == FRAME_COUNT,
+        len(normal_depths)
+        == len(normal_object_ids)
+        == len(normal_readbacks)
+        == FRAME_COUNT,
         "normal native-pixel frame count drift",
     )
     _require(
@@ -346,9 +351,7 @@ def _finalize_native_pixel_artifacts(
         target_depths_by_actor=target_depths_by_actor,
         semantic_ids_by_actor=semantic_ids,
     )
-    alignment = _maximum_multimodal_readback_drift(
-        normal_readbacks, target_readbacks
-    )
+    alignment = _maximum_multimodal_readback_drift(normal_readbacks, target_readbacks)
     normal_depth_array = np.stack(normal_depths)
     normal_object_ids_array = np.stack(normal_object_ids)
     target_depth_arrays = {
@@ -375,10 +378,7 @@ def _finalize_native_pixel_artifacts(
             f"modal_visible_{actor_id}": modal_masks == semantic_ids[actor_id]
             for actor_id in actor_ids
         },
-        **{
-            f"target_only_{actor_id}": target_masks[actor_id]
-            for actor_id in actor_ids
-        },
+        **{f"target_only_{actor_id}": target_masks[actor_id] for actor_id in actor_ids},
     )
     _write(truth_path, truth)
     _write(
@@ -416,9 +416,29 @@ def _load(path: Path) -> dict[str, Any]:
     return value
 
 
+def _audio_claim_boundary(episode_root: Path, episode: Mapping[str, Any]) -> Any:
+    """Prefer the actual semantic-cache claim while retaining legacy evidence."""
+
+    audio_evidence_path = episode_root / "audio_evidence.json"
+    if not audio_evidence_path.exists():
+        return episode["acoustic_proxy"]
+    audio_evidence = _load(audio_evidence_path)
+    audio_mode = audio_evidence.get("audio_mode")
+    if audio_mode is None or audio_mode == "review_proxy":
+        return episode["acoustic_proxy"]
+    if audio_mode != "semantic_cached_rlr":
+        raise RuntimeError(f"unsupported audio_mode in audio evidence: {audio_mode!r}")
+    claim_boundary = audio_evidence.get("claim_boundary")
+    if not isinstance(claim_boundary, str) or not claim_boundary.strip():
+        raise RuntimeError("semantic cached RLR audio evidence lacks a claim_boundary")
+    return claim_boundary
+
+
 def _write(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def _light_plan(episode: Mapping[str, Any]) -> dict[str, Any]:
@@ -434,7 +454,8 @@ def _light_plan(episode: Mapping[str, Any]) -> dict[str, Any]:
                 "attenuation_radius_cm": 100.0 * float(raw["attenuation_radius_m"]),
                 "temperature_kelvin": float(raw["temperature_kelvin"]),
                 "source_radius_cm": 100.0 * float(raw.get("source_radius_m", 0.0)),
-                "soft_source_radius_cm": 100.0 * float(raw.get("soft_source_radius_m", 0.0)),
+                "soft_source_radius_cm": 100.0
+                * float(raw.get("soft_source_radius_m", 0.0)),
             }
         )
     return {"review_lights": lights}
@@ -445,12 +466,19 @@ def _probe(
 ) -> dict[str, Any]:
     result = subprocess.run(
         [
-            "ffprobe", "-v", "error", "-count_frames",
+            "ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
             "-show_entries",
             "stream=codec_type,codec_name,width,height,avg_frame_rate,nb_read_frames,sample_rate,channels:format=duration",
-            "-of", "json", str(path),
+            "-of",
+            "json",
+            str(path),
         ],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     value = json.loads(result.stdout)
     video = [item for item in value["streams"] if item["codec_type"] == "video"]
@@ -487,11 +515,31 @@ def _probe(
 def _mux_clean(video: Path, audio: Path, output: Path) -> None:
     subprocess.run(
         [
-            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-i", str(video), "-i", str(audio),
-            "-map", "0:v:0", "-map", "1:a:0", "-frames:v", str(FRAME_COUNT),
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-movflags", "+faststart", str(output),
+            "ffmpeg",
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(video),
+            "-i",
+            str(audio),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-frames:v",
+            str(FRAME_COUNT),
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            str(output),
         ],
         check=True,
     )
@@ -505,12 +553,41 @@ def _mux_topdown(video: Path, topdown: Path, audio: Path, output: Path) -> None:
     )
     subprocess.run(
         [
-            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-i", str(video), "-i", str(topdown), "-i", str(audio),
-            "-filter_complex", graph, "-map", "[video]", "-map", "2:a:0",
-            "-frames:v", str(FRAME_COUNT), "-c:v", "libx264", "-preset", "medium",
-            "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-            "-movflags", "+faststart", str(output),
+            "ffmpeg",
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(video),
+            "-i",
+            str(topdown),
+            "-i",
+            str(audio),
+            "-filter_complex",
+            graph,
+            "-map",
+            "[video]",
+            "-map",
+            "2:a:0",
+            "-frames:v",
+            str(FRAME_COUNT),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            str(output),
         ],
         check=True,
     )
@@ -581,7 +658,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             for state in plan["frames"][0]["actor_states"]:
                 _apply_actor_state(runtimes[state["actor_id"]], state, 0)
             light_records = _spawn_review_lights(game, _light_plan(episode))
-            game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(bPaused=False)
+            game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
+                bPaused=False
+            )
         with instance.end_frame():
             pass
         instance.step(num_frames=args.streaming_warmup_frames)
@@ -645,10 +724,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         _actor_bounds_readback(runtime["visual_actor"], frame_index)
                     )
             if native_multimodal:
-                _require(native_frame_readback is not None, "native readback is missing")
+                _require(
+                    native_frame_readback is not None, "native readback is missing"
+                )
                 normal_multimodal_readbacks.append(native_frame_readback)
             frame_path = frames_dir / f"frame_{frame_index:04d}.png"
-            if image.shape[:2] != (HEIGHT, WIDTH) or not cv2.imwrite(str(frame_path), image):
+            if image.shape[:2] != (HEIGHT, WIDTH) or not cv2.imwrite(
+                str(frame_path), image
+            ):
                 raise RuntimeError(f"could not write frame: {frame_path}")
             if frame_index % FPS == 0:
                 print(
@@ -754,7 +837,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     media = {
         "ue_visual_only": _probe(visual, width=1280, height=720, expect_audio=False),
         "ue_clean_binaural": _probe(clean, width=1280, height=720, expect_audio=True),
-        "ue_topdown_binaural": _probe(combined, width=1280, height=480, expect_audio=True),
+        "ue_topdown_binaural": _probe(
+            combined, width=1280, height=480, expect_audio=True
+        ),
     }
     if not args.keep_frames:
         shutil.rmtree(frames_dir)
@@ -771,15 +856,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "visual_bounds_readback": bounds_gate,
         "media": media,
         "authority": {
-            "ue_pixels": (
-                f"optional room {episode['visual_plan']['backend_role']}"
-            ),
+            "ue_pixels": (f"optional room {episode['visual_plan']['backend_role']}"),
             "timeline_source_logic_audio_topdown_metadata": "AVEngine",
             "backend_replanned_route": False,
             "audio_camera_fov_cutoff": False,
             "source_center_gate": "center_only_not_body_volume",
         },
-        "audio_claim_boundary": episode["acoustic_proxy"],
+        "audio_claim_boundary": _audio_claim_boundary(episode_root, episode),
     }
     if native_pixel is not None:
         evidence.update(

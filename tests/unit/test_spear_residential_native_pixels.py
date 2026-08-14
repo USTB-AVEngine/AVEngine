@@ -597,3 +597,87 @@ def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
     assert not any(
         event[0] == "allowed" for event in events if isinstance(event, tuple)
     )
+
+
+def test_audio_claim_boundary_prefers_semantic_cached_rlr_evidence(
+    tmp_path: Path,
+) -> None:
+    episode_root = tmp_path / "episode"
+    episode_root.mkdir()
+    (episode_root / "audio_evidence.json").write_text(
+        json.dumps(
+            {
+                "audio_mode": "semantic_cached_rlr",
+                "claim_boundary": "fresh native RLR cache over the selected USD room",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        TOOL._audio_claim_boundary(
+            episode_root, {"acoustic_proxy": {"label": "legacy proxy"}}
+        )
+        == "fresh native RLR cache over the selected USD room"
+    )
+
+
+@pytest.mark.parametrize(
+    "audio_evidence",
+    [None, {"audio_mode": "review_proxy", "claim_boundary": "legacy audio"}],
+)
+def test_audio_claim_boundary_keeps_legacy_proxy_fallback(
+    tmp_path: Path, audio_evidence: dict[str, object] | None
+) -> None:
+    episode_root = tmp_path / "episode"
+    episode_root.mkdir()
+    if audio_evidence is not None:
+        (episode_root / "audio_evidence.json").write_text(
+            json.dumps(audio_evidence), encoding="utf-8"
+        )
+    fallback = {"label": "legacy proxy", "rir_stride_frames": 3}
+
+    assert (
+        TOOL._audio_claim_boundary(episode_root, {"acoustic_proxy": fallback})
+        == fallback
+    )
+
+
+@pytest.mark.parametrize("claim_boundary", [None, "", 7])
+def test_audio_claim_boundary_rejects_incomplete_semantic_evidence(
+    tmp_path: Path, claim_boundary: object
+) -> None:
+    episode_root = tmp_path / "episode"
+    episode_root.mkdir()
+    (episode_root / "audio_evidence.json").write_text(
+        json.dumps(
+            {
+                "audio_mode": "semantic_cached_rlr",
+                "claim_boundary": claim_boundary,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="lacks a claim_boundary"):
+        TOOL._audio_claim_boundary(episode_root, {"acoustic_proxy": {}})
+
+
+@pytest.mark.parametrize("audio_mode", ["semantic_cached_rlr_v2", 7])
+def test_audio_claim_boundary_rejects_unknown_explicit_mode(
+    tmp_path: Path, audio_mode: object
+) -> None:
+    episode_root = tmp_path / "episode"
+    episode_root.mkdir()
+    (episode_root / "audio_evidence.json").write_text(
+        json.dumps(
+            {
+                "audio_mode": audio_mode,
+                "claim_boundary": "must not be silently treated as legacy",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="unsupported audio_mode"):
+        TOOL._audio_claim_boundary(episode_root, {"acoustic_proxy": {}})
