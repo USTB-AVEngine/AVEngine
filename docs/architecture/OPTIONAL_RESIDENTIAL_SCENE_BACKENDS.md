@@ -4,7 +4,32 @@ AVEngine does not need one renderer to be best for every room family. The
 maintained policy is to choose the visual presentation backend per room while
 keeping one episode authority. Habitat-native AVEngine owns Timeline state,
 navigation, source centers, source programs, audio, Topdown, flags and
-metadata. UE/SPEAR is optional and has the bounded role `comparison_visual`.
+metadata. UE/SPEAR's visual role is room-family-specific: `comparison_visual`
+for MP3D, but the production visual backend for Apartment and
+InteriorAgent/Kujiale as routed below.
+
+## Canonical production invariant
+
+The room family determines the production backend. Retained experiments,
+optional comparison plans and previously passing evidence do not override this
+routing:
+
+- MP3D scene execution, visual pixels, sensors and articulated pose are
+  Habitat-Sim outputs. Its acoustics are RLR using SoundSpaces material
+  authority on the same Habitat scene and state. The corrected MP3D UE import
+  remains a `comparison_visual` diagnostic and must never be used as production
+  output, admission evidence or a counted Episode.
+- SPEAR `apartment_0000` uses its native UE/SPEAR map for production visual
+  execution.
+- InteriorAgent/Kujiale uses the UE/SPEAR external-USD adapter and its audited
+  MDL-to-USD material adaptation for production visual execution.
+- Skokloster is not a production room family. Do not execute or count it unless
+  the project owner explicitly reauthorizes it for a named task.
+
+Before running an Episode, confirm that its scene, capture command and declared
+backend all match this table. Do not run or count backend-mismatched Episodes;
+in particular, a SPEAR-based MP3D capture remains a diagnostic even when its
+ordinary structural checks pass.
 
 ## Recommended routing
 

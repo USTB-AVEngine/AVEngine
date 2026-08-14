@@ -13,6 +13,38 @@ Read `README.md`, `docs/architecture/SYSTEM_OVERVIEW.md`,
 before changing architecture. Historical SPEAR/UE instructions are archived
 under `docs/legacy/` and are never default authority.
 
+## Canonical production routing and work-copy policy
+
+These owner decisions override older runbooks, retained attempts and optional
+backend examples:
+
+- MP3D production scene execution, visual pixels, sensors and articulated pose
+  run in Habitat-Sim. MP3D acoustics use RLR with the SoundSpaces material
+  authority on that same Habitat scene and state. An MP3D UE import is only a
+  `comparison_visual` diagnostic; it is never production output, admission
+  evidence or a counted Episode.
+- `apartment_0000` production visual execution uses its native UE/SPEAR map.
+- InteriorAgent/Kujiale production visual execution uses the UE/SPEAR USD/MDL
+  adapter for the explicitly selected external scene.
+- Skokloster is excluded from production execution and dataset counting unless
+  the project owner explicitly reauthorizes it for a named task.
+- Do not run or count an Episode whose selected backend conflicts with these
+  room-family routes. A retained artifact or passing validator from another
+  backend does not change the route.
+
+Server code has one working copy: the server repository. Make, test and repair
+server changes directly there against the real dependencies and retained data.
+A local checkout may transfer a patch or perform a read-only audit, but it must
+not become a separate completed implementation that is later copied to the
+server.
+
+By default, do not add a hash, frozen contract, baseline or gate. Such a
+mechanism is allowed only when the change identifies one concrete failure and
+explains why Git identity, versioning, primary keys, transactions, uniqueness,
+types and ordinary tests do not prevent it. Preserve existing safety controls:
+authentication, data safety, irreversible operations and formal publication
+continue to follow their project requirements.
+
 Repository `tmp` is a compatibility symlink whose physical data lives under
 `/data/datasets/avengine_workspaces/`. Keep tools and stored evidence using
 repository-relative `tmp/...` paths so existing manifests remain readable.
