@@ -30,7 +30,9 @@ from avengine.optional_backends.interioragent_kujiale import (  # noqa: E402
 from run_spear_mp3d_canary import _read_frame, _spawn_camera  # noqa: E402
 
 
-def _write_montage(output: Path, records: list[dict[str, Any]]) -> Path:
+def _write_montage(
+    output: Path, records: list[dict[str, Any]], *, backend_role: str
+) -> Path:
     panels = []
     for record in records:
         frame = cv2.imread(record["path"], cv2.IMREAD_COLOR)
@@ -38,7 +40,7 @@ def _write_montage(output: Path, records: list[dict[str, Any]]) -> Path:
             raise RuntimeError(f"cannot reopen captured frame: {record['path']}")
         label = (
             f"{record['view_id']}  yaw={record['yaw_deg']:.0f} deg  "
-            f"comparison_visual"
+            f"{backend_role}"
         )
         cv2.rectangle(frame, (0, 0), (frame.shape[1], 46), (20, 20, 20), -1)
         cv2.putText(
@@ -265,10 +267,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     finally:
         instance.close(force=True)
 
-    montage = _write_montage(output, records)
+    montage = _write_montage(output, records, backend_role=plan["backend_role"])
     evidence = {
         "status": "pass",
         "schema_version": "avengine_optional_spear_kujiale_runtime_evidence_v1",
+        "backend_role": plan["backend_role"],
         "plan": plan,
         "stage_actor_count": stage_actor_count,
         "runtime_review_lights": light_records,

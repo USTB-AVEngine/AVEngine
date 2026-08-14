@@ -1,5 +1,6 @@
 {
   "schema": "avengine_optional_residential_source_profile_v1",
+  "backend_role": "production_visual",
   "dataset_id": "spatialverse/InteriorAgent",
   "scene_id": "kujiale_0020",
   "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",

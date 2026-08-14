@@ -24,7 +24,11 @@ from avengine.optional_backends.spear_apartment import (
     HUMAN_ASSET_ID,
     component_frame_delta_for_asset,
 )
-from avengine.optional_backends.spear_visual import build_spear_visual_plan
+from avengine.optional_backends.spear_visual import (
+    BACKEND_ROLE as DEFAULT_VISUAL_ROLE,
+    VISUAL_BACKEND_ROLES,
+    build_spear_visual_plan,
+)
 
 
 EPISODE_SCHEMA = "avengine_optional_residential_two_source_episode_v1"
@@ -444,6 +448,11 @@ def build_residential_source_episode(
     map_path = _nonempty(profile.get("map_path"), owner="map_path")
     if not map_path.startswith("/Game/"):
         raise ResidentialEpisodeError("map_path must be a /Game asset path")
+    backend_role = profile.get("backend_role", DEFAULT_VISUAL_ROLE)
+    if not isinstance(backend_role, str) or backend_role not in VISUAL_BACKEND_ROLES:
+        raise ResidentialEpisodeError(
+            "backend_role must select a supported SPEAR visual role"
+        )
     polygon = scene_metadata.get("room_polygon_xy_m")
     if not isinstance(polygon, Sequence) or len(polygon) < 3:
         raise ResidentialEpisodeError("scene metadata lacks a room polygon")
@@ -731,6 +740,7 @@ def build_residential_source_episode(
         room_capsule=room_capsule,
         qualification=qualification,
         actor_bindings=DEFAULT_ACTOR_BINDINGS,
+        backend_role=backend_role,
     )
     for actor in visual_plan["actors"]:
         actor["ue_component_frame_delta"] = component_frame_delta_for_asset(actor["asset_id"])
@@ -784,7 +794,7 @@ def build_residential_source_episode(
         "visual_plan": visual_plan,
         "authority": {
             "timeline_navigation_source_logic_audio_topdown_metadata": "AVEngine",
-            "room_backend": "comparison_visual_only",
+            "room_backend": backend_role,
             "backend_may_replan": False,
             "source_center_gate": "center_only_not_body_volume",
             "audio_camera_fov_cutoff": False,

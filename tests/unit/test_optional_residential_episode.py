@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+from pathlib import Path
 
 import pytest
 
@@ -51,6 +53,7 @@ def _metadata() -> dict:
 def _profile() -> dict:
     return {
         "schema": PROFILE_SCHEMA,
+        "backend_role": "production_visual",
         "scene_id": "room0",
         "map_path": "/Game/AVEngine/Test/room0",
         "camera": {
@@ -98,6 +101,8 @@ def test_builds_schema_valid_closed_two_source_episode() -> None:
     assert result["visual_plan"]["camera"]["ue_position_cm"] == [0.0, -250.0, 155.0]
     assert result["visual_plan"]["camera"]["ue_yaw_deg"] == 90.0
     assert result["visual_plan"]["authority"]["backend_may_replan"] is False
+    assert result["visual_plan"]["backend_role"] == "production_visual"
+    assert result["authority"]["room_backend"] == "production_visual"
     assert result["visual_lighting"] == {
         "profile_id": "explicit_review_lights",
         "native_usd_rendering_scope_retained": True,
@@ -224,3 +229,45 @@ def test_profile_scene_mismatch_is_rejected() -> None:
     profile["scene_id"] = "different"
     with pytest.raises(ResidentialEpisodeError, match="scene_id differ"):
         build_residential_source_episode(scene_metadata=_metadata(), profile=profile)
+
+
+def test_legacy_profile_defaults_to_comparison_visual() -> None:
+    profile = _profile()
+    del profile["backend_role"]
+
+    result = build_residential_source_episode(
+        scene_metadata=_metadata(), profile=profile
+    )
+
+    assert result["visual_plan"]["backend_role"] == "comparison_visual"
+    assert result["authority"]["room_backend"] == "comparison_visual"
+
+
+@pytest.mark.parametrize("backend_role", ["unknown", [], None, True])
+def test_profile_rejects_unknown_or_non_string_backend_role(
+    backend_role: object,
+) -> None:
+    profile = _profile()
+    profile["backend_role"] = backend_role
+
+    with pytest.raises(ResidentialEpisodeError, match="backend_role"):
+        build_residential_source_episode(scene_metadata=_metadata(), profile=profile)
+
+
+def test_checked_in_profiles_declare_room_specific_visual_roles() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    expected = {
+        "interioragent_kujiale_0020_source_episode.json": "production_visual",
+        "interioragent_kujiale_0020_kitchen_source_episode.json": (
+            "production_visual"
+        ),
+        "3d_front_official_toolbox_sample_source_episode.json": (
+            "comparison_visual"
+        ),
+    }
+
+    for name, backend_role in expected.items():
+        profile = json.loads(
+            (repository / "examples/m6z" / name).read_text(encoding="utf-8")
+        )
+        assert profile["backend_role"] == backend_role

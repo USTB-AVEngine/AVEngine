@@ -375,6 +375,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     evidence = {
         "status": "pass",
         "schema": "avengine_optional_residential_episode_build_evidence_v1",
+        "backend_role": episode["visual_plan"]["backend_role"],
         "scene": episode["scene"],
         "clock": episode["clock"],
         "route_speeds_mps": {
@@ -386,7 +387,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "topdown": str(topdown),
         "topdown_probe": _probe(topdown),
         "audio": audio,
-        "next_stage": "SPEAR_UE_comparison_visual_render_and_mux",
+        "next_stage": (
+            f"SPEAR_UE_{episode['visual_plan']['backend_role']}_render_and_mux"
+        ),
     }
     _write(output / "evidence.json", evidence)
     return evidence

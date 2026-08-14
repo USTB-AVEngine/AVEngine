@@ -284,7 +284,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     evidence = {
         "schema": "avengine_optional_spear_residential_episode_evidence_v1",
         "status": "pass",
-        "backend_role": "comparison_visual",
+        "backend_role": episode["visual_plan"]["backend_role"],
         "scene": episode["scene"],
         "stage_actor_count": stage_actor_count,
         "runtime_review_lights": light_records,
@@ -294,7 +294,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "visual_bounds_readback": bounds_gate,
         "media": media,
         "authority": {
-            "ue_pixels": "optional room comparison visual",
+            "ue_pixels": (
+                f"optional room {episode['visual_plan']['backend_role']}"
+            ),
             "timeline_source_logic_audio_topdown_metadata": "AVEngine",
             "backend_replanned_route": False,
             "audio_camera_fov_cutoff": False,

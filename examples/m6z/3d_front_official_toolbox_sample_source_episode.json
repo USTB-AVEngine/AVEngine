@@ -48,5 +48,6 @@
   },
   "scene_id": "3d_front_official_toolbox_sample_proxy",
   "schema": "avengine_optional_residential_source_profile_v1",
+  "backend_role": "comparison_visual",
   "source_center_margin_m": 0.03
 }

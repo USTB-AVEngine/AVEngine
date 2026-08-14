@@ -55,7 +55,7 @@ actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
 if actor is None:
     raise RuntimeError("could not spawn UsdStageActor")
 actor.set_actor_label(f"AVEngine_{request['scene_id']}_external_USD")
-actor.tags = ["avengine_comparison_visual", "avengine_external_usd"]
+actor.tags = ["avengine_production_visual", "avengine_external_usd"]
 actor.set_initial_load_set(unreal.UsdInitialLoadSet.LOAD_ALL)
 actor.set_root_layer(str(usd_path))
 actor.set_stage_state(unreal.UsdStageState.OPENED_AND_LOADED)
@@ -70,7 +70,7 @@ for item in unreal.EditorLevelLibrary.get_all_level_actors():
 
 result = {
     "status": "pass",
-    "backend_role": "comparison_visual",
+    "backend_role": "production_visual",
     "scene_id": str(request["scene_id"]),
     "map_path": map_path,
     "usd_path": str(usd_path),
