@@ -9,6 +9,7 @@ import pytest
 
 from avengine.contracts.json_io import write_json
 from avengine.m6.audio_program import AudioProgramError, bind_audio_program_hash
+from avengine.m6x.semantic_rir_cache import SemanticRIRCacheSession
 from avengine.m7.asset_bound_audio import (
     AssetBoundAudioError,
     float32_stems_and_exact_mix,
@@ -787,6 +788,39 @@ def _open_semantic_rir_fixture(plan: Path, cache: Path):
         frame_count=75,
         frame_rate_hz=15,
     )
+
+
+def test_owned_semantic_reader_matches_m7_compatibility_adapter(
+    tmp_path: Path,
+) -> None:
+    plan, cache = _write_semantic_rir_fixture(tmp_path)
+    arguments = {
+        "cache_root": cache,
+        "plan_path": plan / "rir_job_plan.json",
+        "expected_episode_id": "episode",
+        "frame_count": 75,
+        "frame_rate_hz": 15,
+    }
+    owned_session = SemanticRIRCacheSession(**arguments)
+    adapted_session = _open_semantic_rir_fixture(plan, cache)
+    assert isinstance(adapted_session, SemanticRIRCacheSession)
+    assert (
+        adapted_session.acoustic_selection_binding
+        == owned_session.acoustic_selection_binding
+    )
+
+    owned = owned_session.load_episode("episode")
+    adapted = adapted_session.load_episode("episode")
+    np.testing.assert_array_equal(adapted.samples, owned.samples)
+    np.testing.assert_array_equal(adapted.lengths, owned.lengths)
+    assert adapted.source_slot_ids == owned.source_slot_ids
+    assert adapted.visual_frame_indices == owned.visual_frame_indices
+    assert adapted.keyframe_samples == owned.keyframe_samples
+    assert adapted.sample_rate_hz == owned.sample_rate_hz
+    assert adapted.layout_type == owned.layout_type
+    assert adapted.layout_id == owned.layout_id
+    assert adapted.channel_labels == owned.channel_labels
+    assert adapted.evidence == owned.evidence
 
 
 @pytest.mark.parametrize("mutation", ["single_frame", "extra_episode"])
