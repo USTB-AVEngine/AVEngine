@@ -29,6 +29,7 @@ from avengine.m6x.room_feasibility import (
     TrajectoryEpisode,
     build_rir_job_plan,
 )
+from avengine.optional_backends.spear_visual import COMPARISON_VISUAL_ROLE
 
 from spear_imported_glb_room_adapter import (
     ENTRY_MAP,
@@ -774,6 +775,7 @@ def _build_suite(
     plan = deepcopy(template_scenario["plan"])
     plan["actors"] = actors
     plan["frames"] = frames
+    plan["backend_role"] = COMPARISON_VISUAL_ROLE
     plan["camera"] = {
         "dynamic": False,
         "habitat_position_m": camera_h,
@@ -816,6 +818,7 @@ def _build_suite(
             "scenario_id": episode_id,
             "scenario_directory": episode_id,
             "variant_id": "mp3d_strict_two_human_static_v1",
+            "backend_role": COMPARISON_VISUAL_ROLE,
             "plan": plan,
             "native_scene": {
                 "layout": "spawn_reload_verified_imported_glb_mesh_closure",
@@ -850,7 +853,7 @@ def _build_suite(
     )
     suite = {
         "schema": SUITE_SCHEMA,
-        "backend_role": "comparison_visual",
+        "backend_role": COMPARISON_VISUAL_ROLE,
         "native_map": ENTRY_MAP,
         "room_adapter": room_adapter,
         "authority": {

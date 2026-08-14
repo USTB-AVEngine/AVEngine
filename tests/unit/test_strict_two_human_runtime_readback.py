@@ -19,6 +19,79 @@ RAW_FLOOR_COMPONENT = (
 )
 
 
+@pytest.mark.parametrize(
+    "backend_role",
+    ["production_visual", "comparison_visual"],
+)
+def test_native_capture_resolves_the_suite_role_when_mirrors_agree(
+    backend_role: str,
+) -> None:
+    suite = {"backend_role": backend_role}
+    scenario = {
+        "backend_role": backend_role,
+        "plan": {"backend_role": backend_role},
+    }
+
+    assert TOOL._resolve_suite_backend_role(suite, scenario) == backend_role
+
+
+def test_native_capture_keeps_a_roleless_legacy_suite_as_comparison() -> None:
+    assert (
+        TOOL._resolve_suite_backend_role({}, {"plan": {}})
+        == "comparison_visual"
+    )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        {
+            "backend_role": "comparison_visual",
+            "plan": {"backend_role": "production_visual"},
+        },
+        {
+            "backend_role": "production_visual",
+            "plan": {"backend_role": "comparison_visual"},
+        },
+    ],
+)
+def test_native_capture_rejects_role_mirrors_that_differ_from_the_suite(
+    scenario: dict,
+) -> None:
+    with pytest.raises(RuntimeError, match="differs from suite authority"):
+        TOOL._resolve_suite_backend_role(
+            {"backend_role": "production_visual"}, scenario
+        )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        {"backend_role": None, "plan": {}},
+        {"plan": {"backend_role": None}},
+    ],
+)
+def test_native_capture_rejects_an_explicit_null_role_mirror(
+    scenario: dict,
+) -> None:
+    with pytest.raises(RuntimeError, match="differs from suite authority"):
+        TOOL._resolve_suite_backend_role(
+            {"backend_role": "comparison_visual"}, scenario
+        )
+
+
+def test_native_capture_claim_distinguishes_production_and_diagnostic_pixels() -> None:
+    production = TOOL._native_pixel_claim_boundary("production_visual")
+    comparison = TOOL._native_pixel_claim_boundary("comparison_visual")
+
+    assert "suite-selected production visual route" in production
+    assert "diagnostic comparison visual" not in production
+    assert "diagnostic comparison visual" in comparison
+    assert "production visual route" not in comparison
+    assert "does not replace AVEngine Timeline" in production
+    assert "does not replace AVEngine Timeline" in comparison
+
+
 class _LoadedMesh:
     def GetSkeleton(self, *, as_handle: bool) -> int:
         assert as_handle is True

@@ -19,6 +19,72 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_recipe_projects_apartment_production_role_without_replanning() -> None:
+    suite = {
+        "native_map": TOOL.NATIVE_APARTMENT_MAP,
+        "backend_role": "comparison_visual",
+        "authority": {
+            "habitat_native": ["Timeline_v2", "binaural audio"],
+            "spear_unreal": ["final RGB pixels"],
+        },
+        "scenarios": [
+            {
+                "backend_role": "comparison_visual",
+                "native_scene": {"map": TOOL.NATIVE_APARTMENT_MAP},
+                "plan": {
+                    "backend_role": "comparison_visual",
+                    "authority": {
+                        "backend_may_replan": True,
+                        "actor_state": "Timeline_v2",
+                    },
+                },
+            }
+        ],
+    }
+    suite_authority = deepcopy(suite["authority"])
+
+    TOOL._project_native_apartment_production_role(suite)
+
+    scenario = suite["scenarios"][0]
+    assert suite["backend_role"] == "production_visual"
+    assert scenario["backend_role"] == "production_visual"
+    assert scenario["plan"]["backend_role"] == "production_visual"
+    assert scenario["plan"]["authority"]["backend_may_replan"] is False
+    assert scenario["plan"]["authority"]["actor_state"] == "Timeline_v2"
+    assert suite["authority"] == suite_authority
+
+
+@pytest.mark.parametrize("drift_owner", ["suite", "scenario"])
+def test_recipe_rejects_non_apartment_map_before_role_promotion(
+    drift_owner: str,
+) -> None:
+    suite = {
+        "native_map": TOOL.NATIVE_APARTMENT_MAP,
+        "backend_role": "comparison_visual",
+        "scenarios": [
+            {
+                "backend_role": "comparison_visual",
+                "native_scene": {"map": TOOL.NATIVE_APARTMENT_MAP},
+                "plan": {
+                    "backend_role": "comparison_visual",
+                    "authority": {"backend_may_replan": False},
+                },
+            }
+        ],
+    }
+    if drift_owner == "suite":
+        suite["native_map"] = "/Engine/Maps/Entry"
+    else:
+        suite["scenarios"][0]["native_scene"]["map"] = "/Engine/Maps/Entry"
+
+    with pytest.raises(RuntimeError, match="native Apartment map"):
+        TOOL._project_native_apartment_production_role(suite)
+
+    assert suite["backend_role"] == "comparison_visual"
+    assert suite["scenarios"][0]["backend_role"] == "comparison_visual"
+    assert suite["scenarios"][0]["plan"]["backend_role"] == "comparison_visual"
+
+
 def test_static_two_human_geometry_recomputes_both_human_yaws() -> None:
     plan = _load(REPOSITORY / "examples/qa/native_strict_two_human_canary_v1.json")
     registry = _load(REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json")

@@ -27,7 +27,9 @@ from avengine.m6.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )
+from avengine.optional_backends.spear_apartment import NATIVE_APARTMENT_MAP
 from avengine.optional_backends.spear_visual import (
+    PRODUCTION_VISUAL_ROLE,
     actor_ue_yaw_degrees,
     habitat_point_to_apartment_ue_cm,
 )
@@ -59,6 +61,31 @@ EPISODE_ID = "rocketbox_male_female__strict_two_human_canary_v1"
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _project_native_apartment_production_role(suite: dict[str, Any]) -> None:
+    """Project the current Apartment visual role onto one detached recipe suite."""
+
+    scenarios = suite["scenarios"]
+    _require(len(scenarios) == 1, "recipe suite must contain exactly one scenario")
+    scenario = scenarios[0]
+    _require(
+        suite.get("native_map") == NATIVE_APARTMENT_MAP,
+        "recipe suite must bind the native Apartment map",
+    )
+    native_scene = scenario.get("native_scene")
+    _require(
+        isinstance(native_scene, Mapping)
+        and native_scene.get("map") == NATIVE_APARTMENT_MAP,
+        "recipe scenario must bind the native Apartment map",
+    )
+    plan = scenario["plan"]
+    authority = plan.setdefault("authority", {})
+    _require(isinstance(authority, dict), "scenario plan authority must be an object")
+    suite["backend_role"] = PRODUCTION_VISUAL_ROLE
+    scenario["backend_role"] = PRODUCTION_VISUAL_ROLE
+    plan["backend_role"] = PRODUCTION_VISUAL_ROLE
+    authority["backend_may_replan"] = False
 
 
 def target_speech_sample_window(source_sample_count: int) -> tuple[int, int]:
@@ -751,6 +778,7 @@ def build(
     }
     suite = deepcopy(source_suite)
     suite["scenarios"] = [scenario]
+    _project_native_apartment_production_role(suite)
     suite["camera_upgrade"] = {
         "schema": "avengine_static_spear_suite_camera_upgrade_v1",
         "source_suite": str(source_suite_path.resolve()),

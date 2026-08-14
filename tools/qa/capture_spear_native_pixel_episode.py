@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Capture a full native SPEAR RGB/depth/pixel-truth Episode.
 
-The tool replays every formal frame from an existing native Apartment suite
-plan.  A normal pass records RGB, metric depth and raw object IDs.  One
+The tool replays every formal frame from an existing SPEAR visual suite plan.
+A normal pass records RGB, metric depth and raw object IDs.  One
 show-only pass per controlled source records target-only metric depth from the
 same ``BP_CameraSensor``.  The QA pixel compiler derives visibility from exact
 normal-vs-target depth agreement and verifies renderer/camera/frame identity.
@@ -29,6 +29,11 @@ sys.path.insert(0, str(REPOSITORY / "src"))
 from avengine.qa.pixel_visibility import (  # noqa: E402
     PIXEL_VISIBILITY_DEPTH_AUTHORITY,
     compile_depth_pixel_visibility_truth,
+)
+from avengine.optional_backends.spear_visual import (  # noqa: E402
+    COMPARISON_VISUAL_ROLE,
+    PRODUCTION_VISUAL_ROLE,
+    VISUAL_BACKEND_ROLES,
 )
 from avengine.qa.spear_unreal_capabilities import (  # noqa: E402
     resolve_component_bone_names,
@@ -66,6 +71,50 @@ GROUND_FLOOR_IDENTITY_AUTHORITY = (
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _resolve_suite_backend_role(
+    suite: Mapping[str, Any], scenario: Mapping[str, Any]
+) -> str:
+    """Resolve one suite-selected visual role without upgrading legacy suites."""
+
+    backend_role = suite.get("backend_role", COMPARISON_VISUAL_ROLE)
+    _require(
+        isinstance(backend_role, str) and backend_role in VISUAL_BACKEND_ROLES,
+        "suite backend_role must be comparison_visual or production_visual",
+    )
+    plan = scenario.get("plan")
+    _require(isinstance(plan, Mapping), "scenario plan is missing")
+    for owner, container in (
+        ("scenario", scenario),
+        ("scenario plan", plan),
+    ):
+        if "backend_role" in container:
+            _require(
+                container["backend_role"] == backend_role,
+                f"{owner} backend_role differs from suite authority",
+            )
+    return backend_role
+
+
+def _native_pixel_claim_boundary(backend_role: str) -> str:
+    """Describe the selected visual role without changing AVEngine authority."""
+
+    _require(
+        backend_role in VISUAL_BACKEND_ROLES,
+        "backend_role must be comparison_visual or production_visual",
+    )
+    visual_scope = (
+        "the suite-selected production visual route"
+        if backend_role == PRODUCTION_VISUAL_ROLE
+        else "a diagnostic comparison visual"
+    )
+    return (
+        "native SPEAR/UE RGB/depth/pixel evidence bound to an existing "
+        f"controlled Episode as {visual_scope}; this capture is not a release "
+        "qualification claim and does not replace AVEngine Timeline, source "
+        "logic, audio, Topdown, flags, or metadata authority"
+    )
 
 
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -1459,6 +1508,7 @@ def run(args: argparse.Namespace) -> Path:
     scenarios = {item["scenario_id"]: item for item in suite["scenarios"]}
     _require(args.scenario_id in scenarios, "scenario is absent from suite plan")
     scenario = scenarios[args.scenario_id]
+    backend_role = _resolve_suite_backend_role(suite, scenario)
     all_frames = scenario["plan"]["frames"]
     _require(
         len(all_frames) == RUNNER.FRAME_COUNT,
@@ -1838,11 +1888,8 @@ def run(args: argparse.Namespace) -> Path:
         "status": "pass",
         "benchmark_qualification_claim": False,
         "native_pixel_fact_binding_claim": True,
-        "claim_boundary": (
-            "native SPEAR Apartment RGB/depth/pixel evidence bound to an existing "
-            "controlled Episode; this optional comparison render is not a release "
-            "qualification claim"
-        ),
+        "backend_role": backend_role,
+        "claim_boundary": _native_pixel_claim_boundary(backend_role),
         "scenario_id": args.scenario_id,
         "authoritative_capture_request": scenario.get("authoritative_capture_request"),
         "static_camera_upgrade": scenario.get("static_camera_upgrade"),

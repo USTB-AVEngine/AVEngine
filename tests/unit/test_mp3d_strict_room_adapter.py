@@ -240,6 +240,28 @@ class RoomAdapterTests(unittest.TestCase):
             {adapter_module.DEPTH_COMPONENT},
         )
 
+    def test_mp3d_suite_projects_a_production_template_to_comparison(self) -> None:
+        request_path, inputs = _declared_inputs()
+        request = json.loads(request_path.read_text())
+        template = json.loads(inputs["template_suite"].read_text())
+        template["backend_role"] = "production_visual"
+        template_scenario = template["scenarios"][0]
+        template_scenario["backend_role"] = "production_visual"
+        template_scenario["plan"]["backend_role"] = "production_visual"
+
+        suite, _ = builder._build_suite(request, template, self.adapter)
+
+        scenario = suite["scenarios"][0]
+        self.assertEqual(suite["backend_role"], "comparison_visual")
+        self.assertEqual(scenario["backend_role"], "comparison_visual")
+        self.assertEqual(
+            scenario["plan"]["backend_role"],
+            "comparison_visual",
+        )
+        self.assertFalse(
+            scenario["plan"]["authority"]["backend_may_replan"]
+        )
+
     def test_hfov_uses_exact_named_scene_capture_components(self) -> None:
         camera = FakeObject(5000)
         components = {
