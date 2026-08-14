@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from tools.m6y.build_review_index import _replicacad_section, build_page
+from tools.m6y.build_review_index import (
+    _apartment_section,
+    _replicacad_section,
+    build_page,
+)
 
 
 def _media(name: str) -> dict[str, object]:
@@ -37,6 +41,7 @@ def test_lighting_review_reports_corrected_profiles(tmp_path: Path) -> None:
         tmp_path / "ue_apartment",
         {
             "status": "pass",
+            "backend_role": "production_visual",
             "scenarios": [
                 {"scenario_id": item, "status": "pass", "media": {}}
                 for item in ("S0", "S3", "S4")
@@ -91,6 +96,25 @@ def test_lighting_review_reports_corrected_profiles(tmp_path: Path) -> None:
     assert "white/grey result was an import-color-space error" in page
     assert "active room-local lights (IDs 0, 1, 2; excluded 3, 4" in page
     assert "no_lights + HBAO" in page
+    assert "room-selected production visual pixels" in page
+    assert "retained MP3D and ReplicaCAD" in page
+
+
+def test_retained_apartment_comparison_is_not_relabelled_production(
+    tmp_path: Path,
+) -> None:
+    section = _apartment_section(
+        tmp_path,
+        {
+            "status": "pass",
+            "backend_role": "comparison_visual",
+            "scenarios": [],
+        },
+        tmp_path / "REVIEW_INDEX.html",
+    )
+
+    assert "Retained evidence role: comparison_visual" in section
+    assert "production visual pixels" not in section
 
 
 def test_replicacad_review_reports_generated_fill_without_claiming_source_light(

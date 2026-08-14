@@ -214,13 +214,29 @@ def _apartment_section(root: Path, value: Mapping[str, Any], output: Path) -> st
                     )
                 )
     suite_state = _status(value.get("status"))
+    backend_role = _status(value.get("backend_role"))
+    if backend_role == "production_visual":
+        authority_text = (
+            "UE supplies room-selected production visual pixels. Timeline, "
+            "source logic, audio, Topdown, flags and metadata remain AVEngine "
+            "authority."
+        )
+    elif backend_role == "comparison_visual":
+        authority_text = (
+            "Retained evidence role: comparison_visual. It is not upgraded by "
+            "the current Apartment production route."
+        )
+    else:
+        authority_text = (
+            f"Evidence backend role is {backend_role}; no production role is "
+            "claimed."
+        )
     return (
         "<section><h2>Native SPEAR Apartment</h2>"
         f'<p>Suite <span class="status {escape(suite_state)}">'
         f"{escape(suite_state)}</span> · "
         f"{_evidence_link(root / 'evidence.json', output=output)}</p>"
-        "<p>UE owns only comparison pixels. Timeline, source logic, audio, "
-        "Topdown, flags and metadata remain Habitat-native authority.</p>"
+        f"<p>{escape(authority_text)}</p>"
         "<table><thead><tr><th>Scenario</th><th>Status</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table>"
         f'<div class="media-grid">{"".join(cards)}</div></section>'
@@ -437,9 +453,10 @@ def build_page(
 </head>
 <body>
   <h1>AVEngine M6.x/M6.y Lighting and Comparison Review</h1>
-  <p>Habitat-native AVEngine owns episode state, navigation, source centers,
-  source logic, binaural audio, Topdown, flags and metadata. SPEAR/UE is a
-  <code>comparison_visual</code> backend only.</p>
+  <p>AVEngine owns episode state, navigation, source centers, source logic,
+  binaural audio, Topdown, flags and metadata. SPEAR/UE is room-selected:
+  Apartment uses <code>production_visual</code>; retained MP3D and ReplicaCAD
+  routes remain <code>comparison_visual</code>.</p>
   {body}
 </body>
 </html>

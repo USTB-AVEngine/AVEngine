@@ -1,4 +1,4 @@
-"""Native SPEAR Apartment comparison-visual execution contracts.
+"""Native SPEAR Apartment production-visual execution contracts.
 
 The Habitat-native bundle remains authoritative for Timeline actor state,
 source logic, source-center qualification, flags, binaural audio, and the QA
@@ -21,9 +21,9 @@ from typing import Any, Mapping, Sequence
 
 from avengine.contracts.json_io import canonical_json_sha256
 from avengine.optional_backends.spear_visual import (
-    BACKEND_ROLE,
     FRAME_COUNT,
     PLAN_SCHEMA,
+    PRODUCTION_VISUAL_ROLE,
     build_spear_visual_plan_from_files,
     camera_ue_yaw_degrees,
     habitat_point_to_apartment_ue_cm,
@@ -40,6 +40,7 @@ from avengine.runtime_profiles import (
 
 SUITE_SCHEMA = "avengine_optional_spear_apartment_suite_v1"
 SCENARIO_SCHEMA = "avengine_optional_spear_apartment_scenario_v1"
+BACKEND_ROLE = PRODUCTION_VISUAL_ROLE
 
 DEFAULT_SOURCE_ASSET_RUNTIME_REGISTRY = (
     load_default_source_asset_runtime_registry()
@@ -160,7 +161,7 @@ DEFAULT_ACTOR_BINDINGS: Mapping[str, Mapping[str, Any]] = spear_actor_bindings(
 
 
 class SpearApartmentError(ValueError):
-    """The native Apartment comparison cannot preserve its authority boundary."""
+    """The Apartment production visual cannot preserve its authority boundary."""
 
 
 def _validated_room_ref(value: Any, *, owner: str) -> dict[str, str]:
@@ -1304,7 +1305,7 @@ def _validate_native_plan(
     room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> None:
     if plan.get("schema") != PLAN_SCHEMA or plan.get("backend_role") != BACKEND_ROLE:
-        raise SpearApartmentError("input did not compile to a comparison-visual plan")
+        raise SpearApartmentError("input did not compile to a production-visual plan")
     authority = plan.get("authority")
     if (
         not isinstance(authority, Mapping)
@@ -1345,10 +1346,12 @@ def _validate_native_plan(
         raise SpearApartmentError("compiled plan has no camera")
     if camera.get("horizontal_fov_deg") != 105.0:
         raise SpearApartmentError(
-            "native comparison requires the frozen 105 degree HFOV"
+            "native Apartment production visual requires the frozen 105 degree HFOV"
         )
     if len(plan.get("frames", ())) != FRAME_COUNT:
-        raise SpearApartmentError("native comparison requires exactly 75 frames")
+        raise SpearApartmentError(
+            "native Apartment production visual requires exactly 75 frames"
+        )
     materialize_camera_states(plan)
     actor_ids = [actor.get("actor_id") for actor in plan.get("actors", ())]
     if actor_ids not in (
@@ -1381,6 +1384,7 @@ def _build_native_apartment_scenario_from_paths(
         room_capsule_path=paths["room_capsule"],
         qualification_path=paths["qualification"],
         actor_bindings=actor_bindings,
+        backend_role=BACKEND_ROLE,
         sensor_rig_trajectory_path=paths.get("sensor_rig_trajectory"),
     )
     room_profile = _validated_room_runtime_profile(room_runtime_profile)
@@ -1585,7 +1589,7 @@ def build_native_apartment_suite(
     lighting_profile: Mapping[str, Any] = NATIVE_LIGHTING_PROFILE,
     room_runtime_profile: Mapping[str, Any] = DEFAULT_ROOM_RUNTIME_PROFILE,
 ) -> dict[str, Any]:
-    """Compile the requested native Apartment comparison scenarios."""
+    """Compile the requested native Apartment production-visual scenarios."""
 
     selected = tuple(scenario_ids)
     if not selected or len(selected) != len(set(selected)):
@@ -1615,7 +1619,7 @@ def build_native_apartment_suite(
                 "Topdown",
                 "flags and metadata",
             ],
-            "spear_unreal": ["comparison visual pixels only"],
+            "spear_unreal": ["production RGB pixels"],
         },
         "scenarios": scenarios,
     }
@@ -1659,7 +1663,7 @@ def build_native_apartment_motion_pilot_suite(
                 "Topdown",
                 "flags and metadata",
             ],
-            "spear_unreal": ["final RGB pixels"],
+            "spear_unreal": ["production RGB pixels"],
         },
         "scenarios": scenarios,
     }
@@ -1718,7 +1722,7 @@ def build_native_apartment_asset_bound_suite(
                 "Topdown",
                 "flags and metadata",
             ],
-            "spear_unreal": ["final RGB pixels"],
+            "spear_unreal": ["production RGB pixels"],
         },
         "scenarios": scenarios,
     }

@@ -74,7 +74,7 @@ def _plan(scenario_id: str = "S3") -> dict:
         )
     return {
         "schema": apartment.PLAN_SCHEMA,
-        "backend_role": "comparison_visual",
+        "backend_role": apartment.BACKEND_ROLE,
         "authority": {"backend_may_replan": False},
         "room": {
             "source_scene_provenance": {
@@ -411,6 +411,9 @@ def test_asset_bound_suite_carries_one_identity_and_checks_episode_sha(
 
     identity = suite["acoustic_visual_identity"]
     assert identity["status"] == "pass"
+    assert suite["backend_role"] == "production_visual"
+    assert suite["scenarios"][0]["backend_role"] == "production_visual"
+    assert suite["scenarios"][0]["plan"]["backend_role"] == "production_visual"
     assert suite["scenarios"][0]["acoustic_visual_identity"] == identity
     assert (
         suite["scenarios"][0]["native_scene"]["room_ref"]
@@ -444,11 +447,11 @@ def test_motion_pilot_path_discovery_and_suite_use_p0_to_p3(
     with pytest.raises(apartment.SpearApartmentError, match="unsupported"):
         apartment.motion_pilot_input_paths(tmp_path, "S0")
 
-    monkeypatch.setattr(
-        apartment,
-        "build_spear_visual_plan_from_files",
-        lambda **_: _plan("P0"),
-    )
+    def build_plan(**kwargs: object) -> dict:
+        assert kwargs["backend_role"] == apartment.BACKEND_ROLE
+        return _plan("P0")
+
+    monkeypatch.setattr(apartment, "build_spear_visual_plan_from_files", build_plan)
     suite = apartment.build_native_apartment_motion_pilot_suite(
         tmp_path, scenario_ids=("P0",)
     )
@@ -456,7 +459,9 @@ def test_motion_pilot_path_discovery_and_suite_use_p0_to_p3(
     assert scenario["scenario_id"] == "P0"
     assert scenario["scenario_directory"] == "00_static_static"
     assert scenario["variant_id"] == "A"
-    assert suite["authority"]["spear_unreal"] == ["final RGB pixels"]
+    assert scenario["backend_role"] == "production_visual"
+    assert suite["backend_role"] == "production_visual"
+    assert suite["authority"]["spear_unreal"] == ["production RGB pixels"]
 
 
 def test_asset_bound_path_discovery_carries_optional_sensor_rig_sidecar(
@@ -702,6 +707,7 @@ def test_apartment_lighting_profiles_keep_native_map_and_validate_photometry() -
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
+        ("role", "production-visual"),
         ("map", "not the native"),
         ("scenario", "disagrees"),
         ("replan", "must not replan"),
@@ -711,7 +717,9 @@ def test_apartment_lighting_profiles_keep_native_map_and_validate_photometry() -
 )
 def test_native_plan_validation_fails_closed(mutation: str, message: str) -> None:
     plan = _plan("S3")
-    if mutation == "map":
+    if mutation == "role":
+        plan["backend_role"] = "comparison_visual"
+    elif mutation == "map":
         plan["room"]["source_scene_provenance"]["scene_id"] = "proxy"
     elif mutation == "scenario":
         plan["source_logic"]["scenario_id"] = "S4"

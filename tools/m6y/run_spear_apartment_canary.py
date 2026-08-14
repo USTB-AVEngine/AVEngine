@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render M6.x S0/S3/S4 through the native SPEAR Apartment map.
 
-This is an optional comparison-visual runner.  It reads the Habitat-native
+This is the room-selected production-visual runner. It reads the AVEngine
 Timeline/protocol bundle, teleports the already-imported UE actors to those
 exact roots, samples the declared animation phase, and captures native UE
 pixels.  It never replans a route or creates a second audio/flag authority.
@@ -1397,10 +1397,10 @@ def _render_scenario(
             "camera_fov_cutoff": False,
         },
         "authority": {
-            "ue_pixels": "native SPEAR Apartment comparison visual",
-            "audio": "copied from Habitat-native scenario",
-            "topdown": "right panel copied from Habitat-native diagnostic",
-            "source_logic_flags_metadata": "unchanged Habitat-native inputs",
+            "ue_pixels": "native SPEAR Apartment production visual",
+            "audio": "copied from AVEngine authoritative scenario",
+            "topdown": "right panel copied from AVEngine diagnostic",
+            "source_logic_flags_metadata": "unchanged AVEngine authoritative inputs",
         },
         "timing": {
             "schema": TIMING_SCHEMA,
@@ -1896,7 +1896,7 @@ def run(args: argparse.Namespace) -> Path:
     evidence = {
         "schema": EVIDENCE_SCHEMA,
         "status": "pass",
-        "backend_role": "comparison_visual",
+        "backend_role": suite["backend_role"],
         "native_map": suite["native_map"],
         "room_runtime_profile": suite["room_runtime_profile"],
         "source_asset_runtime_registry": suite[
