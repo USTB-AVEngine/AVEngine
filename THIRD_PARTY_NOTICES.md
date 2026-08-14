@@ -1,24 +1,40 @@
 # Third-Party Notices and Release Holds
 
-This file records known third-party foundations, optional legacy paths, and
-asset-policy constraints for the AVEngine research project. It is an M0 audit,
-not a complete software bill of materials and not legal advice.
+This file records known third-party foundations, room-specific backend paths,
+and asset-policy constraints for the AVEngine research project. It is not a
+complete software bill of materials and not legal advice.
 
 The original AVEngine repository is currently private and all-rights-reserved;
 see `LICENSE`. Do not describe the complete project, its data, or all of its
 dependencies as MIT-licensed.
 
-## Primary runtime foundations
+## Primary runtime foundations and source transition
 
 AVEngine is designed as an extension of, not a replacement for, the following
-projects. Their code is kept in the separate runtime fork.
+projects. During the current migration their selected runtime code is still
+executed from the pinned Habitat fork. The target architecture selectively
+integrates required distributable source into the canonical AVEngine repository
+without changing the upstream terms.
 
 | Component | Pinned revision | Terms | Required treatment |
 | --- | --- | --- | --- |
 | Habitat-Sim | `57ee4941dc4765240f0f91f70b2c97a919bf9038` | MIT | preserve Meta copyright, license, history, and citations |
-| RLR Audio Propagation | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | non-commercial use only; attribution, license link, and modification notice required |
+| RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | this pin provides headers, configuration and a precompiled shared library rather than propagation-engine source; keep the library external, retain attribution and terms, and do not claim source integration |
+| SPEAR-owned runtime source | `684789cc71eaaf39e362d9d7a7b4b0b7f0af8568` (runtime source unchanged from `3f741db4414f6c68bd26865f197752935a01af6e`) | MIT | preserve SPEAR copyright and license; integrate only selected client/plugin/control source and record path provenance |
 
-The Habitat fork contains additional vendored/submodule dependencies with
+The root AVEngine all-rights-reserved notice does not relicense imported
+third-party code. When selected source lands, its applicable license text and
+path mapping must land with it. Until then,
+`docs/provenance/UPSTREAM_ADAPTATIONS.md` reports the migration state rather
+than claiming that the code is already integrated.
+
+SPEAR-owned source also calls Boost (BSL-1.0), rpclib (MIT) and yaml-cpp (MIT).
+Keep their notices and build them or resolve them as external dependencies;
+do not migrate precompiled third-party libraries into Git. The SPEAR MIT grant
+does not cover Unreal Engine, Epic content, room assets or dependencies under
+a different license.
+
+The current Habitat transition fork contains additional vendored/submodule dependencies with
 their own notices, including Corrade, Magnum and plugins, RapidJSON, pybind11,
 Assimp, GLFW, Recast Navigation, Bullet3, OpenEXR, zstd, tinyobjloader, and
 m.css. Consult the fork's `THIRD_PARTY_NOTICES.md` and each dependency's own
@@ -30,13 +46,14 @@ MIT BRDF lookup table and ProggyClean font, CC0 Poly Haven HDR content, and CC
 BY 4.0 King's Hall and Van Gogh Room assets. Code licensing does not override
 asset licensing.
 
-## Legacy and optional routes
+## Other foundations and external content
 
 | Component or content | Known terms/status | AVEngine policy |
 | --- | --- | --- |
-| SPEAR code | MIT; accompanying asset claims require asset-level verification | optional frozen UE comparison backend |
-| Unreal Engine, Epic content, Marketplace content | Epic EULA/proprietary terms; not covered by SPEAR MIT | optional legacy backend only; infer no right to redistribute engine binaries, editor content, examples, or assets |
-| Kujiale/SPEAR apartment | asset-level evidence incomplete | hold redistribution and dataset admission |
+| SPEAR-owned code | MIT; accompanying asset claims require asset-level verification | selectively integrate required client/plugin/control source; Apartment and Kujiale use it for production visual execution, while MP3D UE remains comparison-only |
+| Unreal Engine, Epic content, Marketplace content | Epic EULA/proprietary terms; not covered by SPEAR MIT | external installation only; infer no right to redistribute engine binaries, editor content, examples, or assets |
+| Native SPEAR `apartment_0000` content | asset-level redistribution evidence incomplete | production visual runtime input; keep scene content outside Git and hold redistribution |
+| InteriorAgent/Kujiale content | non-commercial research/education terms and no-redistribution boundary; asset-level evidence remains external | production visual runtime input through the USD/MDL adapter; keep the downloaded dataset outside Git and hold redistribution |
 | gpuRIR | AGPL-3.0 | optional comparison backend; never call the combined stack “all MIT” |
 | ReplicaCAD | CC BY-NC 4.0 | non-commercial, attribution-required use only |
 | Rocketbox tooling/content snapshot | local route records MIT | verify each distributed asset and retain source evidence |

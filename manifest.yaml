@@ -1,6 +1,8 @@
-# AVEngine Habitat-native bootstrap manifest.
-# This file intentionally contains no SPEAR, UE, gpuRIR or generative-model
-# dependency. Historical backends require the explicit legacy_optional profile.
+# AVEngine transition bootstrap manifest.
+# The fast bootstrap does not install UE, download datasets or configure
+# gpuRIR/generative models. The external Habitat repository entry remains only
+# until the selected runtime source is integrated into the canonical AVEngine
+# repository; this file does not claim that migration is already complete.
 
 schema: avengine_bootstrap_manifest_v2
 version: 2
@@ -20,7 +22,7 @@ repositories:
     upstream_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
     rlr_commit: 4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
     install_by_default: false
-    reason: native builds are a separate test layer; fast bootstrap only validates the checkout when present
+    reason: transitional external source for native builds; fast bootstrap only validates the checkout when present
 
 python:
   requires: ">=3.10"
@@ -38,7 +40,7 @@ profiles:
     explicit_opt_in_required: true
     documentation: docs/legacy/OPTIONAL_BACKENDS.md
     automatic_backends: []
-    note: Historical UE, SPEAR, gpuRIR and generative-asset dependencies are never installed by the current setup script.
+    note: The current setup does not install UE, datasets, gpuRIR or generative models; Apartment and Kujiale remain UE/SPEAR production visual routes.
 
 fast_checkout_contract:
   editable_install: true

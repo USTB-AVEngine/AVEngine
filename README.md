@@ -1,11 +1,13 @@
 # AVEngine
 
-AVEngine 是一个以 Habitat 为默认运行时的研究工具，用于从明确的声源
-资产、房间、动作程序和证据合同构建可复现的视听 episode。
+AVEngine 是一个按房间家族选择生产视觉后端的研究工具，用于从明确的
+声源资产、房间、动作程序和证据合同构建可复现的视听 episode。
 
-Habitat-Sim 提供场景状态、导航、传感器和关节对象运行能力；RLR Audio
-Propagation 提供几何声学传播。AVEngine 负责资产与房间包、权威时间线、
-多声源音频组装、质量检查、来源记录和数据准入。
+MP3D 的场景、视觉、传感器和姿态执行由 Habitat-Sim 提供；原生
+`apartment_0000` 与 InteriorAgent/Kujiale 的生产视觉由 UE/SPEAR
+提供。RLR Audio Propagation 提供几何声学传播，MP3D 使用同一 Habitat
+场景上的 SoundSpaces 材质权威。AVEngine 统一负责资产与房间包、权威
+时间线、多声源音频组装、质量检查、来源记录和数据准入。
 
 ## 主要能力
 
@@ -26,7 +28,7 @@ AVEngine 不是新的模拟器、渲染器或声学求解器，也不会根据�
 任务请求
   → 资产、房间和声学场景包
   → 声源程序、Camera/Listener 轨迹和权威时间线
-  → Habitat 状态、传感器与 RLR 传播
+  → 按房间路由的 Habitat 或 UE/SPEAR 视觉执行 + RLR 传播
   → 每源音频、混合音频、RGB、Topdown、DOA、距离和标签
   → 质量检查、来源记录和数据索引
 ```
@@ -64,8 +66,9 @@ cd "${AVENGINE_CODE_ROOT}/AVEngine"
 ```
 
 Linux、Git 和 Python 3.10 或更新版本是上层最低要求；当前原生参考环境
-使用 Python 3.12。Habitat/RLR、场景数据、Blender 和可选 UE/SPEAR
-属于独立测试层。
+使用 Python 3.12。Habitat/RLR 原生构建、外部 UE 安装、场景数据、
+Blender 和媒体读回属于独立测试层。Apartment/Kujiale 的 UE 层是对应
+房间的生产视觉层，不因为它不是 fast bootstrap 的默认依赖而变成对照层。
 
 ## 当前状态
 
@@ -74,6 +77,12 @@ Linux、Git 和 Python 3.10 或更新版本是上层最低要求；当前原生�
 Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 训练/验证/测试划分。
 
+源码单仓迁移仍在进行。本仓库的最终目标是包含运行所需的精选 Habitat 与
+SPEAR 集成源码、AVEngine 自有的 RLR 适配源码和小配置；当前原生执行仍
+使用 manifest 固定的 Habitat fork、其中固定的 RLR 分发件与维护中的
+SPEAR checkout。迁移完成必须由迁移前后相同房间路由的实际结果确认，不能
+由这段目标说明或一次单元测试替代。
+
 这些结果保留各自的证据边界，不代表所有生成动物、房间声学或数据集已经
 正式准入。请以以下记录为准：
 
@@ -81,19 +90,26 @@ Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 - [里程碑与证据状态](docs/roadmap/MILESTONES.md)
 - [发布清单](release/avengine_release_manifest_v1.json)
 
-发布清单是跨仓库发布状态的唯一依据。分支、数据结构、预览文件或单元
-测试通过都不能单独代表正式发布。
+当前 release manifest 在源码迁移期间仍是正式发布状态的唯一依据。分支、
+数据结构、预览文件、文档目标或单元测试通过都不能单独代表单仓迁移完成或
+正式发布。
 
 ## 仓库职责
 
-| 仓库 | 职责 |
-| --- | --- |
-| `Eastforward/AVEngine` | 任务包、注册表、时间线、音频组装、质量检查、来源记录、命令行和数据准入 |
-| `Eastforward/habitat-sim-AVEngine` | 有边界的 Habitat 运行时扩展、关节对象回放、显式声学包上传和 RLR 适配 |
+唯一目标源码仓库是
+[`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine)。它
+包含 AVEngine 任务包、注册表、时间线、音频组装、质量检查、来源记录、
+命令行，以及最终精选迁入的 Habitat 与 SPEAR 集成源码、RLR 适配源码和
+小配置。RLR 传播引擎源码不在当前固定分发件中，因此在取得并审计可迁源码
+前不得宣称其已内迁。来源映射与许可证分别记录在
+[`UPSTREAM_ADAPTATIONS.md`](docs/provenance/UPSTREAM_ADAPTATIONS.md) 和
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
-RLR 已作为 Habitat 派生仓库的递归子模块固定版本，不需要单独克隆。
-旧 SPEAR/UE 和 gpuRIR 是可选迁移或对照后端，不是默认运行架构。私有
-模型实验、权重和评估环境不进入本仓库。
+这不表示把所有依赖和数据塞进 Git。Unreal Engine 安装、Epic 内容、
+MP3D、InteriorAgent/Kujiale、原生 Apartment 地图、模型权重、环境、
+构建目录和生成媒体始终留在仓库外。迁移期间仍存在的 Habitat 与 SPEAR
+代码 checkout 是过渡来源；最终 build、setup 和 run 不再克隆或引用第二
+个产品代码仓库。gpuRIR 和私有生成模型路线仍是显式可选研究工具。
 
 ## 文档
 

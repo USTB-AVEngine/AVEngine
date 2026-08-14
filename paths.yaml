@@ -1,6 +1,7 @@
-# Machine-local paths for the Habitat-native route. Defaults are relative to
-# this repository; optional datasets are supplied only through environment
-# variables. No private-server absolute path is part of the public default.
+# Machine-local paths for the current source-migration layout. Defaults are
+# relative to this repository; external installations and datasets are supplied
+# only through environment variables. No private-server absolute path is part
+# of the public default.
 
 schema: avengine_workspace_paths_v2
 version: 2
@@ -12,6 +13,8 @@ paths:
     kind: directory
     required_for: [fast_unit]
   AVENGINE_HABITAT_RUNTIME_ROOT:
+    # Transitional sibling source root; remove or repoint inside this repository
+    # only when the selected Habitat/RLR source has landed and passed cutover.
     default: ../habitat-sim-AVEngine
     kind: directory
     required_for: [native_habitat, rlr_audio, release_canary]
@@ -28,6 +31,8 @@ paths:
     kind: directory
     required_for: [mp3d_room]
   AVENGINE_LEGACY_APARTMENT_ROOT:
+    # Compatibility name for an external Apartment data/project root. Apartment
+    # production pixels use UE/SPEAR; the asset root itself never moves into Git.
     default: null
     kind: directory
     required_for: [legacy_room]
@@ -41,5 +46,7 @@ workspace_root_entries:
   - AVENGINE_LEGACY_APARTMENT_ROOT
 
 optional_backends:
+  # Optional here means not loaded by fast bootstrap. It does not turn the
+  # Apartment/Kujiale UE production visual routes into comparison backends.
   enabled_by_default: false
   documentation: docs/legacy/OPTIONAL_BACKENDS.md

@@ -1,17 +1,27 @@
-# AVEngine Habitat-native contributor rules
+# AVEngine single-source contributor rules
 
 ## Authority and scope
 
-This repository is the primary AVEngine implementation. Habitat-Sim is the
-visual/runtime foundation and RLR Audio Propagation is the acoustic backend.
-The sibling `habitat-sim-AVEngine` repository owns bounded runtime changes;
-this repository owns contracts, registries, assets, room compilation,
-timelines, audio assembly, evidence, QA and CLI behavior.
+This repository is the canonical AVEngine source repository:
+`https://github.com/USTB-AVEngine/AVEngine.git`. The target architecture keeps
+all required distributable source code and small configuration here, including
+the selected Habitat-Sim and SPEAR integration source plus the AVEngine-owned
+RLR adapter source and small interface configuration. It does not put Unreal
+Engine installations, datasets, room assets, model weights, generated media or
+build products in Git.
+
+That target is still being migrated. Until the selected runtime code has landed
+and pre/post behavior has been checked, the manifest-pinned sibling Habitat
+fork and the maintained SPEAR checkout remain transition workspaces. They are
+sources and execution dependencies for the migration, not the final repository
+architecture and not authority to claim that integration is already complete.
 
 Read `README.md`, `docs/architecture/SYSTEM_OVERVIEW.md`,
 `docs/architecture/REPOSITORY_BOUNDARIES.md` and the current milestone status
-before changing architecture. Historical SPEAR/UE instructions are archived
-under `docs/legacy/` and are never default authority.
+before changing architecture. Historical SPEAR/UE operating notes are archived
+under `docs/legacy/`; current Apartment and Kujiale production routing is
+documented under `docs/architecture/` and is not made historical by that
+archive.
 
 ## Canonical production routing and work-copy policy
 
@@ -50,9 +60,11 @@ Repository `tmp` is a compatibility symlink whose physical data lives under
 repository-relative `tmp/...` paths so existing manifests remain readable.
 Never replace the symlink with a physical output directory inside this
 repository. Git-internal paths such as `.git/lfs/tmp` are not project outputs.
-Apply the same output-storage rule to checked-out SPEAR, Hunyuan3D and
-SkinTokens workspaces: keep their project `tmp/...` compatibility paths, and
-do not move Git-internal temporary paths.
+During the migration, apply the same output-storage rule to checked-out SPEAR,
+Hunyuan3D and SkinTokens workspaces: keep their project `tmp/...`
+compatibility paths, and do not move Git-internal temporary paths. The final
+single-source layout must not require a separate SPEAR, Habitat or RLR Git
+checkout.
 Invoke tools and report artifacts through those repository `tmp/...` paths,
 but normalize logical and resolved paths consistently inside any hash-bound
 lineage contract. If a producer stores resolved absolute file descriptors,
@@ -68,8 +80,8 @@ finishes or the owner changes direction.
 
 ## Current Apartment and generated-animal invariants
 
-These rules are project-owner decisions for the active Habitat-native
-Apartment training-data route. Do not replace them with an easier canary:
+These rules are project-owner decisions for the active AVEngine Apartment
+training-data route. Do not replace them with an easier canary:
 
 - A species template or motion donor is never the final instance mesh.
   Quaternius may donate animation and may be used for diagnostics, but a
@@ -126,15 +138,25 @@ Apartment training-data route. Do not replace them with an easier canary:
 
 ## Repository boundaries
 
-- Do not copy Habitat-Sim source into this repository.
-- Runtime C++/binding changes belong in the sibling runtime fork and must keep
-  upstream behavior as the default unless a reviewed AVEngine opt-in is used.
-- Generated media, native evidence and large assets belong under ignored
-  output roots, not in Git. Track schemas, compact fixtures, requests, one
-  authoritative bundle identity and human-readable status records; do not
-  duplicate leaf hashes in prose or unrelated lock files.
-- UE, SPEAR, gpuRIR and generative-asset tooling are legacy or optional
-  backends. Default imports, tests, bootstrap and admission must not load them.
+- The final product has one source repository. Selectively adapted third-party
+  code must live in a clearly owned path with its upstream mapping and license;
+  do not import an entire repository merely to avoid choosing the required
+  files.
+- Preserve upstream behavior by default. AVEngine-specific Habitat, RLR or
+  SPEAR behavior remains an explicit adapter or opt-in even after its source is
+  integrated here.
+- Unreal Engine itself, Epic content, MP3D, InteriorAgent/Kujiale, native
+  Apartment scene assets and other external datasets remain runtime inputs.
+  They are not source-repository dependencies and are never copied into Git.
+- Generated media, native evidence, model weights, caches, build trees and
+  large assets belong under ignored output/data roots, not in Git. Track
+  schemas, small configuration, compact fixtures, requests, one authoritative
+  bundle identity and human-readable status records only where they are
+  required.
+- SPEAR-backed execution is production visual for Apartment and Kujiale, but
+  the external UE installation is loaded only for those explicitly selected
+  routes. MP3D remains Habitat-Sim production visual; its UE path is comparison
+  only. gpuRIR and generative-asset tooling remain optional research tools.
 
 ## Current contracts
 
@@ -185,10 +207,12 @@ for native Habitat, RLR, Blender or media-readback execution.
 
 ## Change discipline
 
-- Preserve unrelated user changes and inspect both worktrees before editing.
+- Preserve unrelated user changes and inspect every participating transition
+  worktree before editing.
 - Never use destructive cleanup or broad staging to make a worktree look tidy.
-- Keep changes within the repository that owns them; commits in the two repos
-  are independent.
+- Land final product code in this repository. Treat the current Habitat and
+  SPEAR workspaces as read-only migration sources except for separately scoped
+  fixes required to establish or verify the pre-migration reference.
 - Prefer repository-relative paths and environment/config overrides. Do not add
   private-server absolute paths to current configuration or examples.
 - Do not weaken a validator, mock real evidence or edit a hash merely to make a
@@ -206,7 +230,8 @@ Use the smallest relevant layer first, then run broader regression tests:
 4. `rlr-audio` — native RLR propagation and readback.
 5. `blender-assets` — Blender-dependent compilation or mesh validation.
 6. `media-readback` — encoded video/audio inspection.
-7. `release-canary` — cross-repository, hash-bound milestone evidence.
+7. `release-canary` — full-runtime, media-readback and hash-bound milestone
+   evidence.
 
 Mark unavailable native layers `not_run` with a reason. A clean fast suite is
 required before handoff, but it proves only the hermetic software boundary.

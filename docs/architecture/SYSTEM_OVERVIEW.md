@@ -9,12 +9,20 @@ Authoritative milestone outcomes are recorded in
 qualification, event-time dynamic-anchor qualification, dataset registration
 and end-to-end dataset claims remain later gates.
 
+The single-source architecture in
+[REPOSITORY_BOUNDARIES.md](REPOSITORY_BOUNDARIES.md) is an accepted migration
+target, not a completed-state claim. Native execution still uses the pinned
+Habitat fork and maintained SPEAR checkout until the selected source is
+integrated and checked.
+
 ## Purpose
 
-AVEngine is a Habitat-native dataset engine for synchronized,
-identity-preserving, counterfactual articulated audio-visual source grounding.
-It is an independent research extension built on a pinned Habitat-Sim fork and
-RLR-Audio-Propagation, not a simulator implemented from scratch.
+AVEngine is a room-routed dataset engine for synchronized, identity-preserving,
+counterfactual articulated audio-visual source grounding. MP3D uses
+Habitat-Sim production visual execution; Apartment and Kujiale use UE/SPEAR
+production visual execution. RLR-Audio-Propagation provides the acoustic
+foundation. AVEngine is not a simulator or propagation solver implemented from
+scratch.
 
 ## System flow
 
@@ -22,13 +30,14 @@ RLR-Audio-Propagation, not a simulator implemented from scratch.
 Dataset request
   -> AVEngine asset and room compilers
   -> canonical animal, room, acoustic-scene and episode packages
-  -> habitat-sim-AVEngine deterministic runtime
+  -> room-selected Habitat-Sim or UE/SPEAR visual execution + RLR propagation
   -> one formal view's co-located RGB/depth/semantic frames + per-source/listener-pair RIRs
   -> AVEngine dry-audio/stem/mix assembly, QA, provenance and registry admission
 ```
 
-Offline Blender tools may compile assets, but the official episode clock and
-runtime observations are owned by the Habitat-native path.
+Offline Blender tools may compile assets, but the official episode clock,
+source state, audio, labels and admission are owned by AVEngine across all
+production visual routes.
 Profile-bound motion retargeting is one such offline compiler and is never a
 runtime fallback; see [MOTION_RETARGETING.md](MOTION_RETARGETING.md).
 
@@ -36,10 +45,11 @@ runtime fallback; see [MOTION_RETARGETING.md](MOTION_RETARGETING.md).
 
 | Capability | Owner | AVEngine claim |
 |---|---|---|
-| Scene graph, GLB loading, PBR rendering, sensors, physics, navigation and articulated-object foundations | Habitat-Sim | Reused |
+| MP3D scene graph, GLB loading, PBR rendering, sensors, physics, navigation and articulated-object foundations | Habitat-Sim | Reused |
+| Apartment and Kujiale production visual execution | SPEAR client/plugin over an external Unreal Engine installation | Reused and adapted; UE and room data remain outside Git |
 | Geometric acoustic propagation and modern multi-source/listener C API | RLR / SoundSpaces 2.0 | Reused algorithm/API |
-| Deterministic non-human pose playback, strict RLR context lifecycle, explicit acoustic package ingestion/readback and named endpoint/native-receipt adapter | Habitat runtime fork | Runtime extension; not a new propagation solver |
-| Single-view same-state multimodal capture profiles, audited animal/room/acoustic compilation, named source identity, FOA/binaural stem and mixture assembly, authoritative timeline, counterfactuals, QA, provenance and registry | AVEngine main repository | System contribution over stable Habitat/RLR APIs |
+| Deterministic non-human pose playback, strict RLR context lifecycle, explicit acoustic package ingestion/readback and named endpoint/native-receipt adapter | AVEngine Habitat/RLR integration layer | Runtime extension; currently sourced from the transition fork, not a new propagation solver |
+| Single-view same-state multimodal capture profiles, audited animal/room/acoustic compilation, named source identity, FOA/binaural stem and mixture assembly, authoritative timeline, counterfactuals, QA, provenance and registry | AVEngine repository | System contribution over stable Habitat/RLR and room-specific visual APIs |
 
 ## Initial scientific scope
 
@@ -89,8 +99,9 @@ the emitted geometry, object partitions, per-triangle material IDs and
 resolved materials. Production geometry cannot be an AABB proxy and every
 triangle must be assigned without fallback.
 
-RLR supplies ray tracing and impulse-response synthesis. The Habitat fork
-provides a strict modern context/ingestion adapter and native readback;
+RLR supplies ray tracing and impulse-response synthesis. The AVEngine
+Habitat/RLR integration layer provides a strict modern context/ingestion
+adapter and native readback;
 AVEngine provides the explicit compiler, adapter inputs and evidence verifier.
 See [ACOUSTIC_SCENE_AND_MATERIALS.md](ACOUSTIC_SCENE_AND_MATERIALS.md).
 
@@ -166,9 +177,13 @@ The system exchanges five package families:
 4. Authoritative Timeline and Episode Package.
 5. QA, provenance and registry records.
 
-Every package records its schema version and content hashes. Runtime and sample
-manifests record the AVEngine, Habitat fork, upstream Habitat, RLR, scene,
-asset and schema revisions used to produce the result.
+Every package records its schema version and the existing content hashes and
+result-changing identities required by its evidence rules. Historical runtime
+and sample
+manifests record the AVEngine, Habitat fork, upstream Habitat, RLR, scene, asset
+and schema revisions that produced them. After source cutover, checked-in
+product code is identified by the AVEngine commit and upstream origin is
+reported through the adaptation record.
 
 Timeline v2 remains structurally extensible to more than one `view_id`, but
 M1, M2, M5 and the initial M6 MVP semantically require exactly `["view0"]`.

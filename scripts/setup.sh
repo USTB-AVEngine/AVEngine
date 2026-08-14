@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Reproducible fast bootstrap for the Habitat-native AVEngine repository.
-# Native Habitat/RLR builds and external datasets are separate opt-in layers.
+# Reproducible fast bootstrap for the current AVEngine migration layout.
+# Native builds, external UE installations and datasets are separate layers.
+# --clone-runtime is a transition-only compatibility path and must disappear
+# after selected Habitat/RLR source is integrated and cutover is verified.
 
 set -euo pipefail
 
@@ -47,7 +49,7 @@ run() {
 
 echo "[setup] profile=$PROFILE"
 if [ "$PROFILE" = "legacy_optional" ]; then
-    echo "[setup] legacy_optional is documentation-only; no UE/SPEAR/gpuRIR dependency is installed."
+    echo "[setup] legacy_optional does not install UE, datasets, gpuRIR or generative-model dependencies."
     echo "[setup] see docs/legacy/OPTIONAL_BACKENDS.md"
 fi
 
@@ -62,7 +64,7 @@ fi
 
 if [ "$CLONE_RUNTIME" = "1" ]; then
     if [ "$DRY_RUN" = "1" ]; then
-        echo "[setup] DRY-RUN: would clone/verify the manifest-pinned Habitat runtime"
+        echo "[setup] DRY-RUN: would clone/verify the transitional manifest-pinned Habitat runtime"
     else
         readarray -t RUNTIME_VALUES < <("$VENV_PYTHON" - "$REPOSITORY_ROOT/manifest.yaml" <<'PY'
 import pathlib, sys, yaml
@@ -95,5 +97,5 @@ if [ "$SKIP_TESTS" = "0" ]; then
     run "$VENV_PYTHON" -m pytest -q tests/unit -m "not integration and not canary"
 fi
 
-echo "[setup] fast Habitat-native bootstrap complete."
-echo "[setup] Native Habitat/RLR, Blender and media canaries remain separate test layers."
+echo "[setup] fast AVEngine bootstrap complete."
+echo "[setup] Native Habitat/RLR, external UE, Blender and media canaries remain separate test layers."
