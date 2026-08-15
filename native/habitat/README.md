@@ -1,12 +1,13 @@
-# Habitat-Sim H1/S3 staging and H4a isolated build slice
+# Habitat-Sim H1/S3 staging and H4a/H4c static build slices
 
 This directory holds the bounded, source-only Habitat-Sim staging needed for
 AVEngine's MP3D native runtime. H1 stages the selected C++ runtime closure;
 S3 adds the selected Python package under `python/habitat_sim/`, `gfx_batch`
-shader sources, and four generated-header input templates. H4a adds only an
-AVEngine-owned standalone CMake build of `gfx_batch`; existing builds and
-executions still use the manifest-pinned transition fork. H4a does not change
-a runtime path or claim a completed native-runtime cutover.
+shader sources, and four generated-header input templates. H4a adds an
+AVEngine-owned standalone CMake build of `gfx_batch`; H4c adds a non-binding
+core static target over the selected source closure. Existing executions still
+use the manifest-pinned transition fork. Neither target changes the selected
+build/runtime path or claims a completed cutover.
 
 ## Origin and treatment
 
@@ -79,6 +80,36 @@ Python/bindings, or a runtime package. CUDA is default-off here because the
 selected source excludes the CUDA helper headers; that is not a final CPU-only
 decision for a later native integration.
 
+## H4c non-binding core static build
+
+`CMakeLists.txt` and `cmake/CoreSources.cmake` define
+`AVEngine::HabitatCore` as a non-binding static target with an explicit
+112-translation-unit C++ closure. It depends on
+`AVEngine::HabitatGfxBatch` and embeds the staged `GfxShaderResources` from
+`shaders/gfx/Shaders.conf`. The selected closure covers `core`, `geo`, `gfx`,
+`assets`, `metadata`, `io`, `scene`, non-Bullet `physics`, `nav`, `sensor`,
+and `sim`.
+
+The target resolves Corrade/Magnum, RapidJSON, tinyxml2, and RecastNavigation
+as externally installed CMake packages. A fresh H10 CPU-only validation
+against temporary external H5/H6/H9 dependency prefixes completed all 122
+Ninja steps for `avengine_habitat_core`. Those temporary dependencies and
+outputs are validation inputs only: no dependency source or library is
+vendored, and no private temporary path is committed as build configuration.
+`URDFParser.cpp` adapts the transition vendored include spelling to the
+installed tinyxml2 public header `<tinyxml2.h>`.
+
+H4c contains no `BackgroundRenderer`, RLR/audio adapter source, Bullet source,
+bindings, CUDA noise source, PBR image resource, PBR asset, or default PBR
+configuration. In particular, it adds `GfxShaderResources` only and does not
+recreate `PbrIBlImageResources`. The existing external PBR asset-root behavior
+below remains unchanged.
+
+This is static compilation evidence, not a runtime/package/build cutover.
+Dynamic importer plugins, scene assets, bindings, the RLR SDK, and end-to-end
+native execution remain separate work; the manifest-pinned transition runtime
+is still selected.
+
 ## H1 exclusions
 
 H1 itself intentionally excluded upstream Python code; S3's separate
@@ -112,7 +143,7 @@ does not claim a native build or runtime cutover.
 
 ## Next integration layer
 
-H4a proves only one source-owned static build slice. A later, separately
+H4a/H4c provide source-owned static build slices only. A later, separately
 reviewed change must supply the remaining build and compatibility integration,
 then remove the external Habitat source-path dependency and run the required
 fresh native equivalence checks.

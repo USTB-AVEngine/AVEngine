@@ -17,7 +17,7 @@
 #include "esp/core/Logging.h"
 #include "esp/io/Json.h"
 
-#include "tinyxml2/tinyxml2.h"
+#include <tinyxml2.h>
 
 // using namespace tinyxml2;
 using tinyxml2::XMLDocument;

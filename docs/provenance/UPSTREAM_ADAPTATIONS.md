@@ -1,8 +1,8 @@
 # Upstream Adaptations
 
-Status: Habitat H1/S3 staging and the H4a isolated `gfx_batch` build slice
-have landed; runtime/build cutover and the remaining third-party source
-migration are still pending.
+Status: Habitat H1/S3 staging and H4a/H4c static build slices have landed;
+runtime/build cutover and the remaining third-party source migration are still
+pending.
 
 The canonical product source repository is
 [`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine).
@@ -26,7 +26,7 @@ production output or grant redistribution rights for an external asset.
 
 | Foundation | Upstream source | Intended bounded scope | Current migration state |
 | --- | --- | --- | --- |
-| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds only standalone `gfx_batch`, and the current runtime remains on the manifest-pinned fork pending cutover |
+| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch` and H4c a non-binding core static slice, while the current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
 | SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements one launch-settings helper and S2 stages only the selected python_ext source under native/spear/python_ext; the SPEAR Python runtime, extension build, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
@@ -93,6 +93,32 @@ It finds installed Corrade/Magnum packages only; it adds no dependency source,
 audio/Python/binding configuration, runtime selection, or cutover. CUDA is
 default-off solely because the selected source excludes its helper headers; a
 later CUDA integration requires explicit source selection and native validation.
+
+## Habitat H4c non-binding core static wiring
+
+| AVEngine target | Reference examined | Treatment |
+| --- | --- | --- |
+| `native/habitat/CMakeLists.txt`, `native/habitat/cmake/CoreSources.cmake` | `src/esp/CMakeLists.txt` at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | **reimplemented** AVEngine-owned CMake wiring and an explicit 112-C++ source selection for the staged non-binding core; no upstream CMake file is copied |
+| `native/habitat/esp/metadata/URDFParser.cpp` | matching `src/esp/metadata/URDFParser.cpp` at the same revision | **adapted** one include-path normalization from the transition vendored layout to the installed tinyxml2 public header |
+
+H4c makes `AVEngine::HabitatCore` a static target over the selected `core`,
+`geo`, `gfx`, `assets`, `metadata`, `io`, `scene`, non-Bullet `physics`,
+`nav`, `sensor`, and `sim` closure. It depends on the H4a
+`AVEngine::HabitatGfxBatch` target and embeds the staged `GfxShaderResources`
+declaration only.
+
+It resolves Corrade/Magnum, RapidJSON, tinyxml2, and RecastNavigation as
+external CMake packages; it adds no dependency source, `FetchContent`,
+submodule, checkout path, package installation, or vendored dependency bytes.
+A fresh H10 CPU-only validation against temporary external H5/H6/H9 prefixes
+completed all 122 Ninja steps for `avengine_habitat_core`. That result is static
+compilation evidence only, not a selected build/runtime path or a cutover.
+
+H4c intentionally excludes `BackgroundRenderer`, the RLR/audio adapter source,
+Bullet source, bindings, CUDA noise source, and all PBR image resources. It
+does not recreate `PbrIBlImageResources` or add PBR assets/default
+configuration; the separate external PBR IBL adapter below remains the
+renderer asset-resolution behavior.
 
 ## Habitat external PBR IBL adapter
 
