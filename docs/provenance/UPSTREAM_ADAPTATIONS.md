@@ -1,7 +1,7 @@
 # Upstream Adaptations
 
-Status: migration source map; selected third-party source has not yet been
-integrated into the canonical repository.
+Status: Habitat H1 source-only staging has landed; runtime/build cutover and
+the remaining third-party source migration are still pending.
 
 The canonical product source repository is
 [`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine).
@@ -25,28 +25,47 @@ production output or grant redistribution rights for an external asset.
 
 | Foundation | Upstream source | Intended bounded scope | Current migration state |
 | --- | --- | --- | --- |
-| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required runtime, bindings, articulated-pose opt-in and acoustic-context integration | Still executed from the manifest-pinned transition fork; no integrated-source claim yet |
-| RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source, headers and small interface/build configuration required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the library remains external unless source is independently obtained and reviewed |
+| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in and acoustic-context adapter source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; current runtime remains on the manifest-pinned fork pending cutover |
+| RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
 | SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | Still executed from the maintained transition checkout; no integrated-source claim yet |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
 | MP3D, native Apartment and InteriorAgent/Kujiale | Their separately authorized dataset/project sources | Scene and room inputs for their declared production routes | External data only; no dataset or native room package is imported |
 
-The exact revisions currently used by the transition runtime are recorded in
-`manifest.yaml` and `THIRD_PARTY_NOTICES.md`. This file does not duplicate
-those values or create another lock.
+The manifest and notices retain the transition runtime revisions. This H1
+record identifies the checked-in source origin and does not claim a separate
+runtime lock or a completed cutover.
+
+## Habitat-Sim H1 staged source
+
+The H1 import is **adapted** MIT-licensed source, not a repository-history
+merge or a runtime dependency declaration. The compact module map is:
+
+| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | H1 treatment |
+| --- | --- | --- |
+| `native/habitat/esp/{assets,core,geo,gfx,gfx_batch,io,metadata,nav,physics,scene,sensor,sim}/**` | matching `src/esp/**` | adapted selected Habitat C++ closure |
+| `native/habitat/esp/audio/**` | `src/esp/audio/**` | adapted AVEngine RLR context source; RLR engine source is not present |
+| `native/habitat/esp/bindings/**` | `src/esp/bindings/**` | adapted bindings including the audio binding entry point; no H1 build registration |
+| `native/habitat/esp/physics/bullet/BulletPhysicsManager.cpp` | matching source path | adapted opt-in `avengine_native_gltf_skin_frame` fork change |
+| `native/habitat/shaders/gfx/**` | `src/shaders/gfx/**` | adapted shader source only |
+| `native/habitat/config/default.physics_config.json` | `data/default.physics_config.json` | adapted small configuration |
+
+`native/habitat/README.md` records the same source map, MIT text location,
+and exclusions. H1 excludes CMake/build/package/Python wiring, vendored
+dependencies, tests/docs/examples, binaries, PBR assets, and all
+`RedwoodNoiseModel.{cpp,h,cu,cuh}` files. The RLR engine, headers, material
+configuration, and library remain a legal user-installed external CC-BY-NC
+SDK; H1 includes neither a solver source nor a bundled binary.
 
 ## AVEngine-owned adapter code already present
 
 `src/avengine/optional_backends/` and the corresponding tools contain
 AVEngine-owned planners, route validators and evidence builders. At the current
 transition point they call or prepare external Habitat/SPEAR/UE execution; their
-presence does not mean the upstream runtime/client/plugin source has already
-been integrated.
+presence does not by itself complete the native build/runtime cutover.
 
-When selected source lands, extend this document with the checked-in target
-path, upstream source path and one treatment label. Use AVEngine naming and
-style for AVEngine-owned interfaces rather than preserving an unrelated
-upstream repository layout merely for appearance.
+The H1 map above supplies the target path, original source path, treatment,
+and license boundary for the staged Habitat modules. Apply the same mapping
+discipline when other selected third-party source lands.
 
 ## Production role mapping
 

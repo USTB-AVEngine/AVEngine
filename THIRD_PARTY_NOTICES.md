@@ -18,15 +18,20 @@ without changing the upstream terms.
 
 | Component | Pinned revision | Terms | Required treatment |
 | --- | --- | --- | --- |
-| Habitat-Sim | `57ee4941dc4765240f0f91f70b2c97a919bf9038` | MIT | preserve Meta copyright, license, history, and citations |
-| RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | this pin provides headers, configuration and a precompiled shared library rather than propagation-engine source; keep the library external, retain attribution and terms, and do not claim source integration |
+| Habitat-Sim selected H1 source | upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038`; transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b` | MIT | source-only staging at `native/habitat/`; preserve Meta copyright, MIT text, provenance, and citations; build/runtime cutover remains pending |
+| RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | the engine, headers, configuration, and precompiled library remain a legal user-installed external SDK; retain attribution and terms, and do not claim propagation-engine source integration |
 | SPEAR-owned runtime source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (current maintained transition checkout; source is not yet integrated) | MIT | preserve SPEAR copyright and license; integrate only selected client/plugin/control source and record path provenance |
 
 The root AVEngine all-rights-reserved notice does not relicense imported
-third-party code. When selected source lands, its applicable license text and
-path mapping must land with it. Until then,
-`docs/provenance/UPSTREAM_ADAPTATIONS.md` reports the migration state rather
-than claiming that the code is already integrated.
+third-party code. H1 retains the Habitat MIT text at
+`LICENSES/Habitat-Sim-MIT.txt`; `native/habitat/README.md` and
+`docs/provenance/UPSTREAM_ADAPTATIONS.md` record its per-module source map.
+The staged Habitat files are source-only; existing native builds and runtime
+paths still use the manifest-pinned transition fork until a later cutover.
+
+H1 imports no RLR header, material configuration, shared library, or solver
+source. The AVEngine/Habitat adapter source is staged under `native/habitat`,
+while the RLR engine remains an external user-provided CC-BY-NC 4.0 SDK.
 
 SPEAR-owned source also calls Boost (BSL-1.0), rpclib (MIT) and yaml-cpp (MIT).
 Keep their notices and build them or resolve them as external dependencies;
