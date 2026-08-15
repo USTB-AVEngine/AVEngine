@@ -78,10 +78,11 @@ Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 训练/验证/测试划分。
 
 源码单仓迁移仍在进行。本仓库的最终目标是包含运行所需的精选 Habitat 与
-SPEAR 集成源码、AVEngine 自有的 RLR 适配源码和小配置；当前原生执行仍
-使用 manifest 固定的 Habitat fork、其中固定的 RLR 分发件与维护中的
-SPEAR checkout。迁移完成必须由迁移前后相同房间路由的实际结果确认，不能
-由这段目标说明或一次单元测试替代。
+SPEAR 集成源码、AVEngine 自有的 RLR 调用/适配源码和小型 AVEngine 配置。
+RLR 传播引擎、头文件、库和 SDK 配置是用户合法安装的 CC BY-NC 4.0 外部
+SDK，永不进入 AVEngine Git；当前原生参考仍使用 manifest 固定的 Habitat
+fork、已安装的 RLR SDK 与维护中的 SPEAR checkout。迁移完成必须由迁移前后
+相同房间路由的实际结果确认，不能由这段目标说明或一次单元测试替代。
 
 这些结果保留各自的证据边界，不代表所有生成动物、房间声学或数据集已经
 正式准入。请以以下记录为准：
@@ -100,8 +101,10 @@ SPEAR checkout。迁移完成必须由迁移前后相同房间路由的实际结
 [`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine)。它
 包含 AVEngine 任务包、注册表、时间线、音频组装、质量检查、来源记录、
 命令行，以及最终精选迁入的 Habitat 与 SPEAR 集成源码、RLR 适配源码和
-小配置。RLR 传播引擎源码不在当前固定分发件中，因此在取得并审计可迁源码
-前不得宣称其已内迁。来源映射与许可证分别记录在
+小型 AVEngine 配置。RLR 传播引擎、头文件、库和 SDK 配置是用户合法安装的
+CC BY-NC 4.0 外部 SDK，永不捆绑进 AVEngine Git。单仓完成后不再需要 RLR
+Git checkout、submodule 或源码路径；这不表示迁入 RLR engine。来源映射与
+许可证分别记录在
 [`UPSTREAM_ADAPTATIONS.md`](docs/provenance/UPSTREAM_ADAPTATIONS.md) 和
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
@@ -109,7 +112,8 @@ SPEAR checkout。迁移完成必须由迁移前后相同房间路由的实际结
 MP3D、InteriorAgent/Kujiale、原生 Apartment 地图、模型权重、环境、
 构建目录和生成媒体始终留在仓库外。迁移期间仍存在的 Habitat 与 SPEAR
 代码 checkout 是过渡来源；最终 build、setup 和 run 不再克隆或引用第二
-个产品代码仓库。gpuRIR 和私有生成模型路线仍是显式可选研究工具。
+个产品代码仓库。RLR 则继续由用户安装的外部 SDK 提供，而非第二个源码仓库。
+gpuRIR 和私有生成模型路线仍是显式可选研究工具。
 
 ## 文档
 

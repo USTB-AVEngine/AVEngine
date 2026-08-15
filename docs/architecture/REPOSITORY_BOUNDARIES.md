@@ -7,10 +7,13 @@ Status: accepted target architecture; source migration is in progress.
 The final AVEngine product has one source repository:
 [`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine).
 It contains AVEngine-owned code and small configuration together with the
-selected Habitat-Sim and SPEAR source, AVEngine-owned RLR adapter source and
-small interface configuration required by supported production routes.
+selected Habitat-Sim and SPEAR source, AVEngine-owned RLR call/adapter source
+and small AVEngine-side interface configuration required by supported
+production routes.
 
 This is a source boundary, not a claim that every runtime input belongs in Git.
+The RLR propagation engine, headers, library and SDK configuration are a legal
+user-installed CC-BY-NC 4.0 SDK, not source that AVEngine bundles in Git.
 The repository does not contain Unreal Engine installations, Epic content,
 datasets, native room packages, model weights, generated media, caches, build
 trees or packaged binaries.
@@ -34,9 +37,9 @@ The target repository may include:
 - AVEngine packages, CLI, schemas, examples, tests and small runtime
   configuration;
 - the selected Habitat-Sim runtime and binding changes required by AVEngine;
-- the AVEngine/Habitat RLR adapter source, headers and small interface/build
-  configuration required by the supported acoustic path, but not a precompiled
-  RLR library represented as source;
+- the AVEngine/Habitat RLR adapter source and small AVEngine-side interface
+  configuration required by the supported acoustic path; the RLR engine,
+  headers, SDK configuration and library remain external and are never bundled;
 - the selected SPEAR client, UE plugin and project-control source required by
   Apartment and Kujiale production visual execution; and
 - third-party license texts and per-path upstream adaptation records.
@@ -52,8 +55,9 @@ The following remain external inputs even after source integration:
 - Unreal Engine and all Epic-distributed engine/editor content;
 - MP3D, InteriorAgent/Kujiale, native Apartment and other room/dataset assets;
 - HRTF, model weights, licensed source media and other data assets;
-- the RLR shared library unless redistributable propagation-engine source is
-  separately obtained, reviewed and selected for integration;
+- the RLR propagation engine, headers, SDK configuration and shared library: a
+  legal user-installed CC-BY-NC 4.0 SDK that remains external by policy and
+  never requires an RLR Git checkout, submodule or source path after cutover;
 - Conda/virtual environments, compiled libraries, object files, UE packages and
   other build products; and
 - generated images, audio, video, native evidence bundles and caches.
@@ -73,11 +77,19 @@ The target above is not yet the current checkout layout. During migration:
 - those workspaces remain available long enough to establish the
   pre-migration reference and compare the integrated implementation.
 
+The current manifest-pinned Habitat fork consumes the RLR distribution through
+its `src/deps/rlr-audio-propagation` submodule; that distribution has no
+propagation-engine solver source. At cutover AVEngine will replace that
+transition submodule with the legal user-installed external CC-BY-NC 4.0 SDK,
+so it no longer needs an RLR Git checkout, submodule or source path.
+
 Do not remove those transition paths or describe the source migration as
 complete until the selected code has landed and the same production routes have
 passed the planned pre/post checks. After cutover, setup, build and runtime must
-not clone, initialize a submodule for, or resolve code from a second AVEngine,
-Habitat, RLR or SPEAR Git checkout.
+not clone, initialize a submodule for, or resolve source code from a second
+AVEngine, Habitat, RLR or SPEAR Git checkout. This prohibits an RLR source
+checkout, submodule or source path; it does not prohibit use of the legal
+user-installed RLR SDK.
 
 ## Upstream attribution and change placement
 
