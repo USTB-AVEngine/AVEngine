@@ -20,7 +20,7 @@ without changing the upstream terms.
 | --- | --- | --- | --- |
 | Habitat-Sim | `57ee4941dc4765240f0f91f70b2c97a919bf9038` | MIT | preserve Meta copyright, license, history, and citations |
 | RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | this pin provides headers, configuration and a precompiled shared library rather than propagation-engine source; keep the library external, retain attribution and terms, and do not claim source integration |
-| SPEAR-owned runtime source | `684789cc71eaaf39e362d9d7a7b4b0b7f0af8568` (runtime source unchanged from `3f741db4414f6c68bd26865f197752935a01af6e`) | MIT | preserve SPEAR copyright and license; integrate only selected client/plugin/control source and record path provenance |
+| SPEAR-owned runtime source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (current maintained transition checkout; source is not yet integrated) | MIT | preserve SPEAR copyright and license; integrate only selected client/plugin/control source and record path provenance |
 
 The root AVEngine all-rights-reserved notice does not relicense imported
 third-party code. When selected source lands, its applicable license text and
