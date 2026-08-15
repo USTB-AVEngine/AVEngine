@@ -353,8 +353,17 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
     camera = object()
     episode_root = tmp_path / "episode"
     (episode_root / "audio").mkdir(parents=True)
+    episode = _native_episode()
+    frames = episode["visual_plan"]["frames"]
+    for frame_index, frame in enumerate(frames):
+        frame["camera_state"] = {
+            "frame_index": frame_index,
+            "ue_position_cm": [0.0, 0.0, 0.0],
+            "ue_yaw_deg": 0.0,
+            "pose_hash": f"pose-{frame_index}",
+        }
     (episode_root / "episode_plan.json").write_text(
-        json.dumps(_native_episode()), encoding="utf-8"
+        json.dumps(episode), encoding="utf-8"
     )
 
     monkeypatch.setattr(TOOL, "_configure_spear", lambda *_: instance)
@@ -395,6 +404,20 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
 
     monkeypatch.setattr(TOOL, "_apply_camera", apply_camera)
     monkeypatch.setattr(TOOL, "_actor_readback", actor_readback)
+    camera_state_calls: list[tuple[int, str]] = []
+
+    def apply_camera_state_and_readback(
+        observed_camera: object, state: dict[str, object], frame_index: int
+    ) -> dict[str, object]:
+        camera_arguments.append(observed_camera)
+        camera_state_calls.append((frame_index, str(state["pose_hash"])))
+        result = _readback(frame_index=frame_index)
+        result["expected_pose_hash"] = state["pose_hash"]
+        return result
+
+    monkeypatch.setattr(
+        TOOL, "_apply_camera_state_and_readback", apply_camera_state_and_readback
+    )
     monkeypatch.setattr(
         TOOL,
         "_actor_bounds_readback",
@@ -466,6 +489,25 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
             ("depth_read", "PRM_UseShowOnlyList", (actor_id,))
         )
         assert target_settle < target_first_depth
+    expected_hashes = [f"pose-{frame_index}" for frame_index in range(75)]
+    assert camera_state_calls == [
+        (frame_index, f"pose-{frame_index}")
+        for _pass_index in range(1 + len(actors))
+        for frame_index in range(75)
+    ]
+    readbacks = json.loads(
+        (tmp_path / "output" / "native_pixel_runtime_readbacks.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert [
+        record["camera"]["expected_pose_hash"] for record in readbacks["normal"]
+    ] == expected_hashes
+    for actor_id in actors:
+        assert [
+            record["camera"]["expected_pose_hash"]
+            for record in readbacks["target_only"][actor_id]
+        ] == expected_hashes
 
 
 @pytest.mark.parametrize("native_multimodal", [False, True])

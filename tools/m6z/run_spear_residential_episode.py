@@ -37,6 +37,7 @@ from run_spear_apartment_canary import (  # noqa: E402
     _actor_readback,
     _apply_actor_state,
     _apply_camera,
+    _apply_camera_state_and_readback,
     _destroy_runtime_actors,
     _read_frame,
     _spawn_camera,
@@ -58,6 +59,29 @@ DEPTH_RELATIVE_TOLERANCE = 0.002
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _apply_camera_for_frame(
+    camera: Any,
+    plan: Mapping[str, Any],
+    frame_index: int,
+    *,
+    readback: bool,
+) -> dict[str, Any] | None:
+    """Apply one declared frame camera, preserving legacy fixed-camera plans."""
+
+    frame = plan["frames"][frame_index]
+    _require(isinstance(frame, Mapping), "visual plan frame is invalid")
+    camera_state = frame.get("camera_state")
+    if isinstance(camera_state, Mapping):
+        if readback:
+            return _apply_camera_state_and_readback(camera, camera_state, frame_index)
+        _apply_camera(camera, camera_state)
+        return None
+    _apply_camera(camera, plan["camera"])
+    if readback:
+        return _actor_readback(camera, frame_index)
+    return None
 
 
 def _raw_object_ids(component: Any) -> np.ndarray:
@@ -673,7 +697,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 components["depth"].ShowOnlyActors = []
                 for state in plan["frames"][0]["actor_states"]:
                     _apply_actor_state(runtimes[state["actor_id"]], state, 0)
-                _apply_camera(camera, plan["camera"])
+                _apply_camera_for_frame(camera, plan, 0, readback=False)
             with instance.end_frame():
                 pass
             instance.step(num_frames=2)
@@ -702,8 +726,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     animation_readbacks[actor_id].append(animation)
                     if native_multimodal:
                         native_actor_readbacks[actor_id] = root
-                _apply_camera(camera, plan["camera"])
-                camera_readback = _actor_readback(camera, frame_index)
+                camera_readback = _apply_camera_for_frame(
+                    camera, plan, frame_index, readback=True
+                )
+                assert camera_readback is not None
                 camera_readbacks.append(camera_readback)
                 if native_multimodal:
                     native_frame_readback = {
@@ -756,7 +782,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     ]
                     for state in plan["frames"][0]["actor_states"]:
                         _apply_actor_state(runtimes[state["actor_id"]], state, 0)
-                    _apply_camera(camera, plan["camera"])
+                    _apply_camera_for_frame(camera, plan, 0, readback=False)
                 with instance.end_frame():
                     pass
                 instance.step(num_frames=2)
@@ -770,10 +796,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                                 runtimes[actor_id], state, frame_index
                             )
                             target_frame_readback["actors"][actor_id] = root
-                        _apply_camera(camera, plan["camera"])
-                        target_frame_readback["camera"] = _actor_readback(
-                            camera, frame_index
+                        camera_readback = _apply_camera_for_frame(
+                            camera, plan, frame_index, readback=True
                         )
+                        assert camera_readback is not None
+                        target_frame_readback["camera"] = camera_readback
                     with instance.end_frame():
                         target_depth = _depth_native(components["depth"])
                     target_depths_by_actor[target_actor_id].append(target_depth)
