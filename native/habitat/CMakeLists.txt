@@ -38,6 +38,9 @@ find_package(Corrade REQUIRED PluginManager Utility)
 find_package(
   Magnum
   REQUIRED
+  AnyImageConverter
+  AnyImageImporter
+  AnySceneImporter
   DebugTools
   GL
   MaterialTools
@@ -47,6 +50,15 @@ find_package(
   SceneTools
   Shaders
   Trade
+)
+find_package(
+  MagnumPlugins
+  REQUIRED
+  GltfImporter
+  PrimitiveImporter
+  StanfordImporter
+  StbImageImporter
+  StbImageConverter
 )
 find_package(RapidJSON CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
@@ -111,9 +123,25 @@ target_link_libraries(
     Magnum::WindowlessApplication
 )
 
-# The selected non-binding core source closure uses dynamically discovered
-# importer plugins at runtime, so this static target deliberately links the
-# Corrade plugin manager but does not pull a MagnumPlugins source checkout.
+# An installed EGL application target can exist without defining this macro in
+# Magnum/configure.h. Keep the source platform branch aligned with the selected
+# CMake platform target and propagate it to HabitatCore through this public
+# dependency.
+if(MAGNUM_TARGET_EGL)
+  target_compile_definitions(
+    avengine_habitat_gfx_batch
+    PUBLIC
+      MAGNUM_TARGET_EGL
+  )
+endif()
+
+# Keep static importer registration in the final consuming executable. Under a
+# static Magnum/MagnumPlugins installation, each exact plugin target provides
+# its importStaticPlugin.cpp through INTERFACE_SOURCES. These targets belong to
+# this static core's usage interface, rather than its archive implementation:
+# a binding or consumer that links AVEngine::HabitatCore compiles the
+# registration units itself. No importer source checkout or handwritten
+# CORRADE_PLUGIN_IMPORT is required.
 add_library(
   avengine_habitat_core
   STATIC
@@ -164,6 +192,22 @@ target_link_libraries(
     RecastNavigation::Detour
     RecastNavigation::Recast
 )
+# These targets must stay in the static core's consumer interface. Placing
+# their registration translation units inside this archive would allow a final
+# static link to omit them as unreferenced archive members.
+target_link_libraries(
+  avengine_habitat_core
+  INTERFACE
+    Magnum::AnyImageConverter
+    Magnum::AnyImageImporter
+    Magnum::AnySceneImporter
+    MagnumPlugins::GltfImporter
+    MagnumPlugins::PrimitiveImporter
+    MagnumPlugins::StanfordImporter
+    MagnumPlugins::StbImageImporter
+    MagnumPlugins::StbImageConverter
+)
+
 if(OpenMP_CXX_FOUND)
   target_link_libraries(avengine_habitat_core PUBLIC OpenMP::OpenMP_CXX)
 endif()

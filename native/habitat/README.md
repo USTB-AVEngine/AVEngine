@@ -1,4 +1,4 @@
-# Habitat-Sim H1/S3 staging and H4a/H4c static build slices
+# Habitat-Sim H1/S3 staging and H4a/H4c/H4d static build slices
 
 This directory holds the bounded, source-only Habitat-Sim staging needed for
 AVEngine's MP3D native runtime. H1 stages the selected C++ runtime closure;
@@ -106,9 +106,18 @@ recreate `PbrIBlImageResources`. The existing external PBR asset-root behavior
 below remains unchanged.
 
 This is static compilation evidence, not a runtime/package/build cutover.
-Dynamic importer plugins, scene assets, bindings, the RLR SDK, and end-to-end
-native execution remain separate work; the manifest-pinned transition runtime
-is still selected.
+H4d exposes exactly eight user-installed static importer/converter targets to
+the final consumer of AVEngine::HabitatCore. Their exported CMake
+INTERFACE_SOURCES compile registration units in that consumer; AVEngine supplies
+no handwritten import macro, importer source checkout, plugin asset, or runtime
+source path. When MAGNUM_TARGET_EGL selects the installed WindowlessEglApplication,
+the gfx_batch public interface propagates the same source-platform definition
+to its core consumer. A fresh H14 CPU-only 132-step validation against
+temporary H11/H6/H9 external prefixes linked only AVEngine::HabitatCore, compiled
+all eight registration units in that final consumer, and decoded the MP3D GLB,
+semantic PLY, PBR PNG, and PBR HDR inputs. Scene assets, bindings, the RLR SDK,
+and end-to-end native execution remain separate work; the manifest-pinned
+transition runtime is still selected.
 
 ## H1 exclusions
 
@@ -143,7 +152,8 @@ does not claim a native build or runtime cutover.
 
 ## Next integration layer
 
-H4a/H4c provide source-owned static build slices only. A later, separately
-reviewed change must supply the remaining build and compatibility integration,
-then remove the external Habitat source-path dependency and run the required
-fresh native equivalence checks.
+H4a/H4c/H4d provide source-owned static build slices and an importer consumer
+interface only. A later, separately reviewed change must supply the remaining
+build, bindings, and compatibility integration, then remove the external
+Habitat source-path dependency and run the required fresh native equivalence
+checks.

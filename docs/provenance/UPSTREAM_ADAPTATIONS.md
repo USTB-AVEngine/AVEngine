@@ -1,6 +1,6 @@
 # Upstream Adaptations
 
-Status: Habitat H1/S3 staging and H4a/H4c static build slices have landed;
+Status: Habitat H1/S3 staging and H4a/H4c/H4d static build slices have landed;
 runtime/build cutover and the remaining third-party source migration are still
 pending.
 
@@ -26,7 +26,7 @@ production output or grant redistribution rights for an external asset.
 
 | Foundation | Upstream source | Intended bounded scope | Current migration state |
 | --- | --- | --- | --- |
-| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch` and H4c a non-binding core static slice, while the current runtime remains on the manifest-pinned fork pending cutover |
+| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch`, H4c a non-binding core static slice, and H4d its static importer consumer interface, while the current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
 | SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements one launch-settings helper and S2 stages only the selected python_ext source under native/spear/python_ext; the SPEAR Python runtime, extension build, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
@@ -119,6 +119,21 @@ Bullet source, bindings, CUDA noise source, and all PBR image resources. It
 does not recreate `PbrIBlImageResources` or add PBR assets/default
 configuration; the separate external PBR IBL adapter below remains the
 renderer asset-resolution behavior.
+
+## Habitat H4d static importer consumer wiring
+
+H4d is reimplemented AVEngine-owned CMake usage-interface wiring. It resolves
+only the installed Magnum AnySceneImporter, AnyImageImporter, and
+AnyImageConverter targets plus the installed MagnumPlugins GltfImporter,
+PrimitiveImporter, StanfordImporter, StbImageImporter, and StbImageConverter
+targets. For a static installation their exported INTERFACE_SOURCES register
+each plugin in a final executable or binding that links AVEngine::HabitatCore.
+H4d writes no manual plugin-import macro and adds no dependency source, archive,
+checkout path, runtime source path, plugin data, PBR asset, or cutover claim.
+A fresh H14 CPU-only 132-step validation against temporary H11/H6/H9 prefixes
+linked only AVEngine::HabitatCore, compiled all eight registrations in the final
+consumer, and decoded the MP3D GLB, semantic PLY, PBR PNG, and PBR HDR inputs.
+That is static build and decoder evidence only, not a runtime or build cutover.
 
 ## Habitat external PBR IBL adapter
 
