@@ -1,9 +1,12 @@
-# Habitat-Sim H1 source staging
+# Habitat-Sim H1/S3 source staging
 
 This directory holds the bounded, source-only Habitat-Sim staging needed for
-AVEngine's MP3D native runtime. Existing builds and executions still use the
-manifest-pinned transition fork. H1 does not add build wiring, change a
-runtime path, or claim a completed native-runtime cutover.
+AVEngine's MP3D native runtime. H1 stages the selected C++ runtime closure;
+S3 adds the selected Python package under `python/habitat_sim/`, `gfx_batch`
+shader sources, and four generated-header input templates. Existing builds and
+executions still use the manifest-pinned transition fork. Neither staging step
+adds build wiring, changes a runtime path, or claims a completed native-runtime
+cutover.
 
 ## Origin and treatment
 
@@ -36,11 +39,38 @@ and library remain an external user-provided CC-BY-NC 4.0 dependency.
 `RLRAcousticContext.cpp` includes it for an internal parser seam; it is not
 an imported test directory or test suite.
 
-## Explicitly deferred from H1
+## S3 selected Python, shader, and generated-header source
 
-H1 intentionally excludes:
+S3 is a second source-only staging step from the same transition revision. It
+copies the complete tracked Python source closure (56 `.py` files), the one
+`gfx_batch/Shaders.conf` resource declaration and its 11 tracked GLSL/GLSL-like
+shader sources, plus the four `configure.h.cmake` templates that future native
+build wiring uses to generate headers.
 
-- upstream root and per-module CMake files/templates, packaging, and Python code;
+| AVEngine target | Original path at the staging revision | S3 scope |
+| --- | --- | --- |
+| `python/habitat_sim/**/*.py` | `src_python/habitat_sim/**/*.py` | **adapted** complete tracked Python source closure, held under a non-importable staging root until later native installation; no copied package metadata, extension binary, or runtime-path change |
+| `shaders/gfx_batch/{Shaders.conf,**/*.{frag,vert,geom,glsl}}` | matching `src/shaders/gfx_batch/**` paths | **adapted** shader resource declaration and source-only `gfx_batch` closure |
+| `esp/{core,gfx,physics,sensor}/configure.h.cmake` | matching `src/esp/*/configure.h.cmake` paths | **adapted** four pure configuration-template inputs for later generated headers; no CMake build script is staged |
+
+`python/habitat_sim/` deliberately remains below `native/habitat/`, rather
+than the repository `src/` import root: existing transition runs with
+`PYTHONPATH=src` must continue to resolve the installed external
+`habitat_sim` package until an AVEngine-owned build installs its matching
+compiled binding. The only non-Python tracked item in the upstream Python
+package is `sensors/noise_models/data/redwood-depth-dist-model.npy`; it is data
+and is intentionally not copied. `redwood_depth_noise_model.py` remains
+unmodified source, but S3 does not configure or claim runtime availability of
+that omitted noise-model data. Likewise, `python/habitat_sim/_ext/__init__.py`
+is source only: no compiled `habitat_sim_bindings` extension is included.
+
+## H1 exclusions
+
+H1 itself intentionally excluded upstream Python code; S3's separate
+source-only Python selection is documented above. The combined staging still
+intentionally excludes:
+
+- upstream root and per-module CMake build scripts, packaging, and build wiring;
 - vendored/submodule dependencies, `.git` metadata, build trees, binaries, and caches;
 - documentation, examples, test directories, datasets, generated output, and scene assets;
 - all `RedwoodNoiseModel.{cpp,h,cu,cuh}` sources;

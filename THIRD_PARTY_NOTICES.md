@@ -18,20 +18,22 @@ without changing the upstream terms.
 
 | Component | Pinned revision | Terms | Required treatment |
 | --- | --- | --- | --- |
-| Habitat-Sim selected H1 source | upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038`; transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b` | MIT | source-only staging at `native/habitat/`; preserve Meta copyright, MIT text, provenance, and citations; build/runtime cutover remains pending |
+| Habitat-Sim selected H1/S3 source | upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038`; transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b` | MIT | source-only staging at `native/habitat/`; preserve Meta copyright, MIT text, provenance, and citations; build/runtime cutover remains pending |
 | RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | the engine, headers, configuration, and precompiled library remain a legal user-installed external SDK; retain attribution and terms, and do not claim propagation-engine source integration |
 | SPEAR-owned runtime source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements the Apartment launch helper; S2 stages selected source-only python_ext files at native/spear/python_ext. Retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`; all remaining client/plugin/control source and extension build/runtime stay in the transition checkout |
 
 The root AVEngine all-rights-reserved notice does not relicense imported
-third-party code. H1 retains the Habitat MIT text at
+third-party code. H1/S3 retain the Habitat MIT text at
 `LICENSES/Habitat-Sim-MIT.txt`; `native/habitat/README.md` and
 `docs/provenance/UPSTREAM_ADAPTATIONS.md` record its per-module source map.
 The staged Habitat files are source-only; existing native builds and runtime
 paths still use the manifest-pinned transition fork until a later cutover.
 
-H1 imports no RLR header, material configuration, shared library, or solver
+H1/S3 import no RLR header, material configuration, shared library, or solver
 source. The AVEngine/Habitat adapter source is staged under `native/habitat`,
-while the RLR engine remains an external user-provided CC-BY-NC 4.0 SDK.
+while the RLR engine remains an external user-provided CC-BY-NC 4.0 SDK. S3
+adds Python/shader/template source only; it includes no compiled extension,
+CMake build wiring, PBR configuration/image, dependency source, or data asset.
 
 SPEAR S1 contains only the reimplemented launch-settings behavior named above.
 SPEAR S2 adds only the selected python_ext source files and their provenance

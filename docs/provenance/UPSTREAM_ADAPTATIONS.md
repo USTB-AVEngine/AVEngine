@@ -1,7 +1,7 @@
 # Upstream Adaptations
 
-Status: Habitat H1 source-only staging has landed; runtime/build cutover and
-the remaining third-party source migration are still pending.
+Status: Habitat H1 and S3 source-only staging have landed; runtime/build
+cutover and the remaining third-party source migration are still pending.
 
 The canonical product source repository is
 [`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine).
@@ -25,7 +25,7 @@ production output or grant redistribution rights for an external asset.
 
 | Foundation | Upstream source | Intended bounded scope | Current migration state |
 | --- | --- | --- | --- |
-| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in and acoustic-context adapter source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; current runtime remains on the manifest-pinned fork pending cutover |
+| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
 | SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements one launch-settings helper and S2 stages only the selected python_ext source under native/spear/python_ext; the SPEAR Python runtime, extension build, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
@@ -55,6 +55,29 @@ dependencies, tests/docs/examples, binaries, PBR assets, and all
 `RedwoodNoiseModel.{cpp,h,cu,cuh}` files. The RLR engine, headers, material
 configuration, and library remain a legal user-installed external CC-BY-NC
 SDK; H1 includes neither a solver source nor a bundled binary.
+
+## Habitat-Sim S3 staged Python, shader, and configuration-template source
+
+S3 is **adapted** MIT-licensed source from the same stated transition revision.
+It is source-only staging, not a package/build/runtime cutover. The exact map
+is:
+
+| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | S3 treatment |
+| --- | --- | --- |
+| `native/habitat/python/habitat_sim/**/*.py` | `src_python/habitat_sim/**/*.py` | adapted complete 56-file tracked Python source closure held outside the active `src/` import root; no package metadata, compiled extension, or runtime-selection change |
+| `native/habitat/shaders/gfx_batch/{Shaders.conf,**/*.{frag,vert,geom,glsl}}` | matching `src/shaders/gfx_batch/**` paths | adapted one shader resource declaration plus 11 tracked source shaders |
+| `native/habitat/esp/{core,gfx,physics,sensor}/configure.h.cmake` | matching `src/esp/*/configure.h.cmake` paths | adapted four pure configuration-template inputs for later generated headers; no CMake build script or wiring |
+
+The non-importable staging root preserves current transition behavior: existing
+`PYTHONPATH=src` runs continue to load the installed external `habitat_sim`
+package until later AVEngine-owned build/install work supplies the matching
+compiled binding. The one non-Python tracked item below upstream
+`src_python/habitat_sim/` is `sensors/noise_models/data/redwood-depth-dist-model.npy`;
+it is data and is intentionally excluded. S3 leaves its associated Python
+source unchanged and does not claim that the omitted data or the compiled
+`habitat_sim_bindings` extension is available. It imports no PBR default
+configuration/images, RLR header/configuration/library, dependency source,
+binary, cache, build tree, test, example, or dataset.
 
 ## SPEAR S1 launch-settings adaptation
 
@@ -88,7 +111,7 @@ AVEngine-owned planners, route validators and evidence builders. At the current
 transition point they call or prepare external Habitat/SPEAR/UE execution; their
 presence does not by itself complete the native build/runtime cutover.
 
-The H1 map above supplies the target path, original source path, treatment,
+The H1/S3 maps above supply the target path, original source path, treatment,
 and license boundary for the staged Habitat modules. Apply the same mapping
 discipline when other selected third-party source lands.
 
