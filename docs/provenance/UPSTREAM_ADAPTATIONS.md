@@ -94,6 +94,21 @@ audio/Python/binding configuration, runtime selection, or cutover. CUDA is
 default-off solely because the selected source excludes its helper headers; a
 later CUDA integration requires explicit source selection and native validation.
 
+## Habitat external PBR IBL adapter
+
+| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | Treatment |
+| --- | --- | --- |
+| `native/habitat/esp/assets/ResourceManager.{cpp,h}` | `src/esp/assets/ResourceManager.{cpp,h}` | **adapted** Habitat PBR IBL loading: replace the compiled `PbrIBlImageResources` group with user-provided external files resolved through `AVENGINE_HABITAT_PBR_ASSET_ROOT` |
+
+This narrow source change preserves the upstream `PbrShaderAttributes`
+fallback names and lighting/map flags. Only an enabled renderer IBL request
+needs the external root; it resolves logical BRDF-LUT and environment-map names
+below `bluts/` and `env_maps/`, while an explicit absolute path remains
+user-managed. Missing roots, files, or decodable 2D images fail that enabled
+render request rather than silently dropping IBL. No PBR configuration, image,
+HDR, BRDF table, resource group, dependency source, build wiring, or runtime
+cutover is included.
+
 ## SPEAR S1 launch-settings adaptation
 
 | AVEngine target | Original path at `spear-sim/spear@251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | Treatment |

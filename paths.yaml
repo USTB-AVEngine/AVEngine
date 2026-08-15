@@ -18,6 +18,12 @@ paths:
     default: ../habitat-sim-AVEngine
     kind: directory
     required_for: [native_habitat, rlr_audio, release_canary]
+  AVENGINE_HABITAT_PBR_ASSET_ROOT:
+    # Required only when a Habitat renderer uses PbrShaderAttributes with
+    # enable_ibl=true. Relative logical names resolve below bluts/ or env_maps/;
+    # rendererless and enable_ibl=false paths remain valid without it.
+    default: null
+    kind: directory
   AVENGINE_EVIDENCE_ROOT:
     default: tmp
     kind: output_directory
@@ -40,6 +46,7 @@ paths:
 workspace_root_entries:
   - AVENGINE_REPOSITORY_ROOT
   - AVENGINE_HABITAT_RUNTIME_ROOT
+  - AVENGINE_HABITAT_PBR_ASSET_ROOT
   - AVENGINE_EVIDENCE_ROOT
   - AVENGINE_REPLICACAD_ROOT
   - AVENGINE_MP3D_ROOT

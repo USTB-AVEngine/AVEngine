@@ -95,6 +95,21 @@ intentionally excludes:
 This directory contains PBR renderer and shader source only; no separately
 licensed PBR asset is included.
 
+## External PBR IBL assets
+
+The staged renderer does not embed a Corrade PBR image resource group. When a
+Habitat renderer uses `PbrShaderAttributes` with `enable_ibl=true`, set
+`AVENGINE_HABITAT_PBR_ASSET_ROOT` to a user-provided asset directory. Relative
+BRDF-LUT and environment-map names resolve under `bluts/` and `env_maps/`
+respectively; an explicitly absolute name remains a user-managed asset path.
+The existing `PbrShaderAttributes` fallback names (including
+`brdflut_ldr_512x512.png` and `lythwood_room_1k.hdr`) and its lighting/map
+flags are unchanged. A missing root, image, or decodable 2D image is a clear
+renderer failure when IBL is enabled; rendererless and `enable_ibl=false`
+paths do not require this variable. No PBR image, HDR, BRDF table, or default
+PBR configuration is added to this repository, and this source-only change
+does not claim a native build or runtime cutover.
+
 ## Next integration layer
 
 H4a proves only one source-owned static build slice. A later, separately

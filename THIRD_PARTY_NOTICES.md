@@ -37,6 +37,12 @@ adds Python/shader/template source only. H4a adds no compiled extension,
 PBR configuration/image, dependency source, data asset, RLR/audio/Python
 configuration, or runtime path.
 
+The staged Habitat PBR adapter removes the compiled PBR image resource group:
+enabled renderer IBL resolves only user-provided images from
+`AVENGINE_HABITAT_PBR_ASSET_ROOT` (or an explicit absolute user path). It
+adds no PBR configuration/image, HDR, BRDF table, dependency source, data
+asset, compiled extension, or runtime cutover.
+
 SPEAR S1 contains only the reimplemented launch-settings behavior named above.
 SPEAR S2 adds only the selected python_ext source files and their provenance
 README; it adds no build wiring or installed package.

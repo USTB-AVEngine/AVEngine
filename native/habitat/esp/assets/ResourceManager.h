@@ -665,30 +665,33 @@ class ResourceManager {
           pbrShaderAttr);
 
   /**
-   * @brief Load images by filename into a properly formatted texture, cache
-   * them and return them. This function will retrieve a loaded texture
-   * constructed from the requested image given by @p imageFilename if it
-   * exists. If it does not exist, it will load the image, either using the
-   * passed resource file if it exists there or else loading the image from disk
-   * and then convert it to an appropriately configured texture, based on
-   * whether it is a brdf look-up table or an environment map, save this
-   * texture in @ref iblBLUTsAndEnvMaps_, and return it.
+   * @brief Resolve an enabled PBR IBL image to a canonical full path.
    *
-   * Use this function to retrieve existing IBL bLUT/EnvMap textures as well as
-   * to create new ones.
+   * Relative logical filenames resolve below the user-provided
+   * @p AVENGINE_HABITAT_PBR_ASSET_ROOT in @p bluts or @p env_maps. Explicit
+   * absolute paths remain user-managed. Missing roots, files, or invalid paths
+   * fail the renderer request instead of silently disabling enabled IBL.
+   */
+  std::string resolveIBLImagePath(const std::string& imageFilename,
+                                  bool useImageTxtrFormat) const;
+
+  /**
+   * @brief Load a canonical external PBR IBL image into a texture and cache it.
    *
-   * @param imageFilename The image's filename, either fully qualified or else
-   * as it appears in the resource file.
-   * @param useImageTxtrFormat Whether to use the image's texture format or use
-   * RGBA8 as the format (i.e. for brdfLUTs).
-   * @param rs A Corrade resource file holding the available precompiled image
-   * resources.
-   * @return A shared pointer to the 2d texture built from the loaded image.
+   * The @p imageFilename must be the canonical full path returned by
+   * resolveIBLImagePath(). The cache key is that resolved path, so equivalent
+   * logical names do not create duplicate textures. A missing importer or an
+   * image that cannot be opened or decoded fails an enabled IBL render request.
+   *
+   * @param imageFilename Canonical full image path returned by
+   *        resolveIBLImagePath().
+   * @param useImageTxtrFormat Whether to use the image texture format or RGBA8
+   *        for a BRDF LUT.
+   * @return A shared pointer to the 2d texture built from the external image.
    */
   std::shared_ptr<Mn::GL::Texture2D> loadIBLImageIntoTexture(
       const std::string& imageFilename,
-      bool useImageTxtrFormat,
-      const Cr::Utility::Resource& rs);
+      bool useImageTxtrFormat);
 
   /**
    * @brief Load the requested mesh info into @ref meshInfo corresponding to
@@ -1336,7 +1339,8 @@ class ResourceManager {
 
   /**
    * @brief Map of brdf Lookup table textures and environment map textures
-   * loaded already to be used for IBL.
+   * loaded already to be used for IBL. Keys are canonical full paths to
+   * externally supplied images.
    */
   std::unordered_map<std::string, std::shared_ptr<Mn::GL::Texture2D>>
       iblBLUTsAndEnvMaps_{};

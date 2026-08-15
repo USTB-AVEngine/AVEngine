@@ -20,7 +20,6 @@
 #include <Corrade/Utility/DebugStl.h>
 #include <Corrade/Utility/FormatStl.h>
 #include <Corrade/Utility/Path.h>
-#include <Corrade/Utility/Resource.h>
 #include <Magnum/GL/Context.h>
 #include <Magnum/GL/Extensions.h>
 #include <Magnum/GL/TextureFormat.h>
@@ -49,6 +48,8 @@
 #include <Magnum/Trade/TextureData.h>
 #include <Magnum/VertexFormat.h>
 
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <utility>
 
@@ -57,6 +58,7 @@
 #include "esp/assets/GenericSemanticMeshData.h"
 #include "esp/assets/MeshMetaData.h"
 #include "esp/assets/RenderAssetInstanceCreationInfo.h"
+#include "esp/core/Check.h"
 #include "esp/geo/Geo.h"
 #include "esp/gfx/DrawableConfiguration.h"
 #include "esp/gfx/GenericDrawable.h"
@@ -81,13 +83,6 @@
 #include "GenericMeshData.h"
 #include "GenericSemanticMeshData.h"
 #include "MeshData.h"
-
-// This is to import the "resources" at runtime. When the resource is
-// compiled into static library, it must be explicitly initialized via this
-// macro, and should be called *outside* of any namespace.
-static void importPbrImageResources() {
-  CORRADE_RESOURCE_INITIALIZE(PbrIBlImageResources)
-}
 
 namespace Cr = Corrade;
 namespace Mn = Magnum;
@@ -3262,11 +3257,25 @@ std::shared_ptr<gfx::PbrIBLHelper> ResourceManager::getOrBuildPBRIBLHelper(
     return nullptr;
   }
 
-  auto helperKey = pbrShaderAttr->getPbrShaderHelperKey();
+  // Disabled IBL must not require an external asset root. PbrDrawable keeps
+  // the existing enable_ibl flag semantics and will not set its IBL flag when
+  // this helper is absent.
+  if (!pbrShaderAttr->getEnableIBL()) {
+    return nullptr;
+  }
+
+  const std::string bLUTImageFilename =
+      resolveIBLImagePath(pbrShaderAttr->getIBLBrdfLUTAssetHandle(), false);
+  const std::string envMapFilename =
+      resolveIBLImagePath(pbrShaderAttr->getIBLEnvMapAssetHandle(), true);
+  // The root can be supplied by the user, so cache helpers by the actual
+  // resolved asset paths rather than only by logical PbrShaderAttributes names.
+  const std::string helperKey =
+      Cr::Utility::formatString("{}_{}", bLUTImageFilename, envMapFilename);
 
   ESP_DEBUG(Mn::Debug::Flag::NoSpace)
       << "Handle :`" << pbrShaderAttr->getHandle()
-      << "` : PbrIBLHelper key : (brdfLUT Handle)_(envMap Handle) `"
+      << "` : PbrIBLHelper key : (resolved brdfLUT)_(resolved envMap) `"
       << helperKey << "`";
   // Try to find image in IBL texture library
   std::unordered_map<
@@ -3279,30 +3288,18 @@ std::shared_ptr<gfx::PbrIBLHelper> ResourceManager::getOrBuildPBRIBLHelper(
     pbrIBLHelper = mapIter->second;
   } else {
     // PbrIBLHelper not found so build it.
-    // First verify that pbr image resources are available, and load if not
-    // TODO should we consider this resource as a method variable?
-    if (!Cr::Utility::Resource::hasGroup("pbr-images")) {
-      importPbrImageResources();
-    }
-    const Cr::Utility::Resource rs{"pbr-images"};
 
     std::shared_ptr<Mn::GL::Texture2D> blutTexture = nullptr;
     std::shared_ptr<Mn::GL::Texture2D> envMapTexture = nullptr;
     // ==== load the brdf lookup table texture ====
-    auto bLUTImageFilename = pbrShaderAttr->getIBLBrdfLUTAssetHandle();
-    if (!bLUTImageFilename.empty()) {
-      // Only loads if bLUTImageFilename hasn't been loaded already.
-      // Also caches texture
-      blutTexture = loadIBLImageIntoTexture(bLUTImageFilename, false, rs);
-    }
+    // Only loads if bLUTImageFilename has not been loaded already. Also
+    // caches the texture by its resolved full path.
+    blutTexture = loadIBLImageIntoTexture(bLUTImageFilename, false);
 
     // ==== load the equirectangular texture ====
-    auto envMapFilename = pbrShaderAttr->getIBLEnvMapAssetHandle();
-    if (!envMapFilename.empty()) {
-      // Only loads if envMapFilename hasn't been loaded already.
-      // Also caches texture
-      envMapTexture = loadIBLImageIntoTexture(envMapFilename, true, rs);
-    }
+    // Only loads if envMapFilename has not been loaded already. Also caches
+    // the texture by its resolved full path.
+    envMapTexture = loadIBLImageIntoTexture(envMapFilename, true);
 
     // ==== build helper for these assets ====
     // This helper uses shaders to perform the calculations required to
@@ -3320,18 +3317,117 @@ std::shared_ptr<gfx::PbrIBLHelper> ResourceManager::getOrBuildPBRIBLHelper(
 
 }  // ResourceManager::buildPBRIBLHelper
 
-std::shared_ptr<Mn::GL::Texture2D> ResourceManager::loadIBLImageIntoTexture(
+std::string ResourceManager::resolveIBLImagePath(
     const std::string& imageFilename,
-    bool useImageTxtrFormat,
-    const Cr::Utility::Resource& rs) {
-  if (imageFilename.empty()) {
-    ESP_ERROR(Mn::Debug::Flag::NoSpace)
-        << "Failed loading "
-        << (useImageTxtrFormat ? "Environment Map" : "BRDF Lookup Table")
-        << " image file due to empty name, so aborting.";
-    return nullptr;
+    bool useImageTxtrFormat) const {
+  const char* const assetKind =
+      useImageTxtrFormat ? "environment map" : "BRDF lookup table";
+  ESP_CHECK(!imageFilename.empty(),
+            "PBR IBL is enabled but its " << assetKind
+                                           << " filename is empty.");
+
+  const std::filesystem::path requestedPath{imageFilename};
+  const bool relativeRequest = !requestedPath.is_absolute();
+  std::filesystem::path canonicalAssetRoot;
+  std::filesystem::path allowedAssetDirectory;
+  std::filesystem::path candidatePath;
+  std::error_code error;
+  if (!relativeRequest) {
+    // Explicit absolute paths remain supported for a user-managed asset.
+    candidatePath = requestedPath;
+  } else {
+    const char* const assetRoot =
+        std::getenv("AVENGINE_HABITAT_PBR_ASSET_ROOT");
+    const char* const assetSubdirectory =
+        useImageTxtrFormat ? "env_maps" : "bluts";
+    ESP_CHECK(assetRoot && *assetRoot,
+              "PBR IBL is enabled but AVENGINE_HABITAT_PBR_ASSET_ROOT is "
+              "unset. Set it to a directory containing `"
+                  << assetSubdirectory << "/" << imageFilename << "`.");
+
+    const std::filesystem::path assetRootPath{assetRoot};
+    ESP_CHECK(std::filesystem::is_directory(assetRootPath, error) && !error,
+              "PBR IBL is enabled but AVENGINE_HABITAT_PBR_ASSET_ROOT `"
+                  << assetRootPath.string() << "` is not an existing "
+                  << "directory.");
+
+    error.clear();
+    canonicalAssetRoot = std::filesystem::canonical(assetRootPath, error);
+    ESP_CHECK(!error,
+              "PBR IBL asset root `" << assetRootPath.string()
+                                      << "` cannot be resolved: "
+                                      << error.message());
+
+    error.clear();
+    allowedAssetDirectory = std::filesystem::canonical(
+        canonicalAssetRoot / assetSubdirectory, error);
+    ESP_CHECK(!error,
+              "PBR IBL asset directory `"
+                  << (canonicalAssetRoot / assetSubdirectory).string()
+                  << "` cannot be resolved: " << error.message());
+
+    error.clear();
+    const bool allowedDirectoryExists =
+        std::filesystem::is_directory(allowedAssetDirectory, error);
+    ESP_CHECK(allowedDirectoryExists && !error,
+              "PBR IBL asset directory `" << allowedAssetDirectory.string()
+                                           << "` is not a directory.");
+
+    bool subdirectoryIsContained = true;
+    auto rootIt = canonicalAssetRoot.begin();
+    auto allowedIt = allowedAssetDirectory.begin();
+    for (; rootIt != canonicalAssetRoot.end(); ++rootIt, ++allowedIt) {
+      if (allowedIt == allowedAssetDirectory.end() || *rootIt != *allowedIt) {
+        subdirectoryIsContained = false;
+        break;
+      }
+    }
+    ESP_CHECK(subdirectoryIsContained,
+              "PBR IBL asset directory `" << allowedAssetDirectory.string()
+                                            << "` resolves outside configured "
+                                            << "root `"
+                                            << canonicalAssetRoot.string()
+                                            << "`.");
+    candidatePath = allowedAssetDirectory / requestedPath;
   }
 
+  error.clear();
+  const std::filesystem::path resolvedPath =
+      std::filesystem::canonical(candidatePath, error);
+  ESP_CHECK(!error,
+            "Required PBR IBL " << assetKind << " asset `" << imageFilename
+                                << "` resolves to `" << candidatePath.string()
+                                << "` but is missing or cannot be resolved: "
+                                << error.message());
+
+  if (relativeRequest) {
+    bool isContained = true;
+    auto allowedIt = allowedAssetDirectory.begin();
+    auto resolvedIt = resolvedPath.begin();
+    for (; allowedIt != allowedAssetDirectory.end();
+         ++allowedIt, ++resolvedIt) {
+      if (resolvedIt == resolvedPath.end() || *allowedIt != *resolvedIt) {
+        isContained = false;
+        break;
+      }
+    }
+    ESP_CHECK(isContained,
+              "Relative PBR IBL " << assetKind << " asset `" << imageFilename
+                                  << "` resolves outside required directory `"
+                                  << allowedAssetDirectory.string() << "`.");
+  }
+
+  error.clear();
+  ESP_CHECK(std::filesystem::is_regular_file(resolvedPath, error) && !error,
+            "Required PBR IBL " << assetKind << " asset `"
+                                << resolvedPath.string()
+                                << "` is not a regular file.");
+  return resolvedPath.string();
+}  // ResourceManager::resolveIBLImagePath
+
+std::shared_ptr<Mn::GL::Texture2D> ResourceManager::loadIBLImageIntoTexture(
+    const std::string& imageFilename,
+    bool useImageTxtrFormat) {
   // Try to find image in IBL texture library
   std::unordered_map<
       std::string, std::shared_ptr<Mn::GL::Texture2D>>::const_iterator mapIter =
@@ -3342,55 +3438,27 @@ std::shared_ptr<Mn::GL::Texture2D> ResourceManager::loadIBLImageIntoTexture(
     // If found don't reload
     resTexture = mapIter->second;
   } else {
-    // load image
     ESP_VERY_VERBOSE(Mn::Debug::Flag::NoSpace)
-        << "Checking if IBL "
+        << "Loading external IBL "
         << (useImageTxtrFormat ? "Environment Map" : "BRDF Lookup Table")
-        << " image file `" << imageFilename << "` is in compiled resource.";
-    if (rs.hasFile(imageFilename)) {
-      ESP_VERY_VERBOSE(Mn::Debug::Flag::NoSpace)
-          << "IBL "
-          << (useImageTxtrFormat ? "Environment Map" : "BRDF Lookup Table")
-          << " image file `" << imageFilename
-          << "` exists in compiled resource.";
-      imageImporter_->openData(rs.getRaw(imageFilename));
-    } else {
-      // Not found as-is in resource, try with directory prefix and then
-      // search in filesystem
-      const std::string prefixedImageFilename = Cr::Utility::formatString(
-          "{}/{}", (useImageTxtrFormat ? "env_maps" : "bluts"), imageFilename);
-      if (rs.hasFile(prefixedImageFilename)) {
-        ESP_VERY_VERBOSE(Mn::Debug::Flag::NoSpace)
-            << "IBL "
-            << (useImageTxtrFormat ? "Environment Map" : "BRDF Lookup Table")
-            << " image file `" << prefixedImageFilename
-            << "` exists in compiled resource.";
-        imageImporter_->openData(rs.getRaw(prefixedImageFilename));
-      } else {
-        ESP_VERY_VERBOSE(Mn::Debug::Flag::NoSpace)
-            << "IBL "
-            << (useImageTxtrFormat ? "Environment Map" : "BRDF Lookup Table")
-            << " image file `" << imageFilename
-            << "` was not found in resource so attempting to load from disk.";
-        // TODO verify file exists on disk before attempting to load.
-
-        if (!imageImporter_->openFile(imageFilename)) {
-          // If unable to load then not found
-          ESP_ERROR(Mn::Debug::Flag::NoSpace)
-              << "Requested IBL "
-              << (useImageTxtrFormat ? "Environment Map" : "BRDF Lookup Table")
-              << " image file (required for IBL rendering) named `"
-              << imageFilename
-              << "` not found in resource file or on disk, so skipping load.";
-          return nullptr;
-        }
-      }
-    }
+        << " image file `" << imageFilename << "`.";
+    ESP_CHECK(imageImporter_,
+              "PBR IBL requires an image importer for `" << imageFilename
+                                                          << "`.");
+    ESP_CHECK(imageImporter_->openFile(imageFilename),
+              "Required PBR IBL "
+                  << (useImageTxtrFormat ? "environment map"
+                                         : "BRDF lookup table")
+                  << " `" << imageFilename
+                  << "` could not be opened or decoded.");
     Cr::Containers::Optional<Mn::Trade::ImageData2D> imageData =
         imageImporter_->image2D(0);
-
-    // sanity check
-    CORRADE_INTERNAL_ASSERT(imageData);
+    ESP_CHECK(bool(imageData),
+              "Required PBR IBL "
+                  << (useImageTxtrFormat ? "environment map"
+                                         : "BRDF lookup table")
+                  << " `" << imageFilename
+                  << "` did not decode to a 2D image.");
 
     // brdfLUT should use RGBA8, based on past work
     // envMap should use image's format
@@ -3423,12 +3491,7 @@ void ResourceManager::loadAllIBLAssets() {
 
   // Only load if rendering is enabled.
   if (requiresTextures_) {
-    // Load BLUTs and Envmaps specified in scene dataset
-    // First verify that pbr image resources are available, and load if not
-    if (!Cr::Utility::Resource::hasGroup("pbr-images")) {
-      importPbrImageResources();
-    }
-    const Cr::Utility::Resource rs{"pbr-images"};
+    // Build enabled PBR/IBL helpers from external assets only.
 
     ESP_DEBUG() << "PBR/IBL asset file sets (IBL brdf LUTs and environment "
                    "maps) being loaded :"

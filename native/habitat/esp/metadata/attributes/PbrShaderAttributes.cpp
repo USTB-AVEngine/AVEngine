@@ -22,9 +22,10 @@ PbrShaderAttributes::PbrShaderAttributes(const std::string& handle)
   init("skip_specular_layer_calc", false);
   init("skip_anisotropy_layer_calc", false);
 
-  // These asset files are fallbacks/defaults incase such files are not included
-  // in a dataset, and must be found in /data/pbr and specified in
-  // data/pbr/PbrImages.conf
+  // These asset filenames are fallback/defaults when a dataset does not
+  // override them. When a renderer enables IBL, relative BRDF-LUT and
+  // environment-map names resolve through the user-provided
+  // AVENGINE_HABITAT_PBR_ASSET_ROOT under bluts/ and env_maps/.
 
   // Default brdf lookup table is the brdflut from here:
   // https://github.com/SaschaWillems/Vulkan-glTF-PBR/blob/master/screenshots/tex_brdflut.png
