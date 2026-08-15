@@ -27,7 +27,7 @@ production output or grant redistribution rights for an external asset.
 | --- | --- | --- | --- |
 | Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in and acoustic-context adapter source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
-| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | Still executed from the maintained transition checkout; no integrated-source claim yet |
+| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements only one launch-settings helper at `src/avengine/backends/spear_ue/launch.py`; the SPEAR Python runtime, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
 | MP3D, native Apartment and InteriorAgent/Kujiale | Their separately authorized dataset/project sources | Scene and room inputs for their declared production routes | External data only; no dataset or native room package is imported |
 
@@ -55,6 +55,19 @@ dependencies, tests/docs/examples, binaries, PBR assets, and all
 `RedwoodNoiseModel.{cpp,h,cu,cuh}` files. The RLR engine, headers, material
 configuration, and library remain a legal user-installed external CC-BY-NC
 SDK; H1 includes neither a solver source nor a bundled binary.
+
+## SPEAR S1 launch-settings adaptation
+
+| AVEngine target | Original path at `spear-sim/spear@251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | Treatment |
+| --- | --- | --- |
+| `src/avengine/backends/spear_ue/launch.py::parallel_instance_settings` | `examples/render_in_apartment.py::parallel_instance_settings` | **reimplemented** only the port/adapter validation and collision-free per-worker setting dictionary used by the Apartment runner |
+
+The S1 helper retains the upstream MIT attribution and text at
+`LICENSES/SPEAR-MIT.txt`. It intentionally does not import the upstream
+`examples/` directory. The runner still imports the external `spear` Python
+runtime and still receives an external SPEAR/UE project through `--spear-root`;
+this selected helper does not claim client, plugin, project-control or runtime
+cutover.
 
 ## AVEngine-owned adapter code already present
 

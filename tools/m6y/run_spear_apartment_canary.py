@@ -26,6 +26,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.backends.spear_ue.launch import parallel_instance_settings
 from avengine.optional_backends.spear_apartment import (
     ACOUSTIC_VISUAL_IDENTITY_SCHEMA,
     ANIMATION_TOLERANCE_SECONDS,
@@ -1455,11 +1456,6 @@ def _configure_instance(
     )
     if not executable.is_file():
         raise RuntimeError(f"cooked SPEAR executable is missing: {executable}")
-    examples = spear_root / "examples"
-    if not examples.is_dir():
-        raise RuntimeError(f"SPEAR examples directory is missing: {examples}")
-    sys.path.insert(0, str(examples))
-    from render_in_apartment import parallel_instance_settings
     import spear
 
     settings = parallel_instance_settings(
