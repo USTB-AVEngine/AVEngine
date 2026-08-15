@@ -1,12 +1,12 @@
-# Habitat-Sim H1/S3 source staging
+# Habitat-Sim H1/S3 staging and H4a isolated build slice
 
 This directory holds the bounded, source-only Habitat-Sim staging needed for
 AVEngine's MP3D native runtime. H1 stages the selected C++ runtime closure;
 S3 adds the selected Python package under `python/habitat_sim/`, `gfx_batch`
-shader sources, and four generated-header input templates. Existing builds and
-executions still use the manifest-pinned transition fork. Neither staging step
-adds build wiring, changes a runtime path, or claims a completed native-runtime
-cutover.
+shader sources, and four generated-header input templates. H4a adds only an
+AVEngine-owned standalone CMake build of `gfx_batch`; existing builds and
+executions still use the manifest-pinned transition fork. H4a does not change
+a runtime path or claim a completed native-runtime cutover.
 
 ## Origin and treatment
 
@@ -64,6 +64,21 @@ unmodified source, but S3 does not configure or claim runtime availability of
 that omitted noise-model data. Likewise, `python/habitat_sim/_ext/__init__.py`
 is source only: no compiled `habitat_sim_bindings` extension is included.
 
+## H4a isolated `gfx_batch` build
+
+`CMakeLists.txt` and `cmake/GfxBatchSources.cmake` are AVEngine-owned,
+reimplemented build wiring for only the selected `esp/gfx_batch` sources.
+They generate the four staged `configure.h` templates in the build tree and
+embed the staged `shaders/gfx_batch` resource through Corrade. The target
+resolves installed Corrade/Magnum CMake packages and builds only
+`avengine_habitat_gfx_batch`; it adds no dependency source, checkout path,
+package installation, or runtime resolution.
+
+This slice does not configure Habitat core, PBR resources/assets, RLR/audio,
+Python/bindings, or a runtime package. CUDA is default-off here because the
+selected source excludes the CUDA helper headers; that is not a final CPU-only
+decision for a later native integration.
+
 ## H1 exclusions
 
 H1 itself intentionally excluded upstream Python code; S3's separate
@@ -82,6 +97,7 @@ licensed PBR asset is included.
 
 ## Next integration layer
 
-A later, separately reviewed change must supply AVEngine-owned build wiring
-and compatibility integration, then remove the external Habitat source-path
-dependency and run the required fresh native equivalence checks.
+H4a proves only one source-owned static build slice. A later, separately
+reviewed change must supply the remaining build and compatibility integration,
+then remove the external Habitat source-path dependency and run the required
+fresh native equivalence checks.

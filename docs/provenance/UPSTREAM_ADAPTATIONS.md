@@ -1,7 +1,8 @@
 # Upstream Adaptations
 
-Status: Habitat H1 and S3 source-only staging have landed; runtime/build
-cutover and the remaining third-party source migration are still pending.
+Status: Habitat H1/S3 staging and the H4a isolated `gfx_batch` build slice
+have landed; runtime/build cutover and the remaining third-party source
+migration are still pending.
 
 The canonical product source repository is
 [`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine).
@@ -25,7 +26,7 @@ production output or grant redistribution rights for an external asset.
 
 | Foundation | Upstream source | Intended bounded scope | Current migration state |
 | --- | --- | --- | --- |
-| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; current runtime remains on the manifest-pinned fork pending cutover |
+| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds only standalone `gfx_batch`, and the current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
 | SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements one launch-settings helper and S2 stages only the selected python_ext source under native/spear/python_ext; the SPEAR Python runtime, extension build, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
@@ -78,6 +79,20 @@ source unchanged and does not claim that the omitted data or the compiled
 `habitat_sim_bindings` extension is available. It imports no PBR default
 configuration/images, RLR header/configuration/library, dependency source,
 binary, cache, build tree, test, example, or dataset.
+
+## Habitat H4a isolated `gfx_batch` build wiring
+
+| AVEngine target | Reference examined | Treatment |
+| --- | --- | --- |
+| `native/habitat/CMakeLists.txt`, `native/habitat/cmake/GfxBatchSources.cmake` | `src/esp/gfx_batch/CMakeLists.txt` at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | **reimplemented** AVEngine-owned CMake wiring for the staged `gfx_batch` source; no upstream CMake file is copied |
+
+H4a explicitly lists only the four `gfx_batch` translation units, generates
+the four staged configuration headers, and embeds the staged shader resource.
+It finds installed Corrade/Magnum packages only; it adds no dependency source,
+`FetchContent`, submodule, checkout path, package installation, core/PBR/RLR/
+audio/Python/binding configuration, runtime selection, or cutover. CUDA is
+default-off solely because the selected source excludes its helper headers; a
+later CUDA integration requires explicit source selection and native validation.
 
 ## SPEAR S1 launch-settings adaptation
 
