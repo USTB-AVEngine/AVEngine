@@ -27,7 +27,7 @@ production output or grant redistribution rights for an external asset.
 | --- | --- | --- | --- |
 | Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in and acoustic-context adapter source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
-| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements only one launch-settings helper at `src/avengine/backends/spear_ue/launch.py`; the SPEAR Python runtime, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
+| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements one launch-settings helper and S2 stages only the selected python_ext source under native/spear/python_ext; the SPEAR Python runtime, extension build, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
 | MP3D, native Apartment and InteriorAgent/Kujiale | Their separately authorized dataset/project sources | Scene and room inputs for their declared production routes | External data only; no dataset or native room package is imported |
 
@@ -68,6 +68,18 @@ The S1 helper retains the upstream MIT attribution and text at
 runtime and still receives an external SPEAR/UE project through `--spear-root`;
 this selected helper does not claim client, plugin, project-control or runtime
 cutover.
+
+## SPEAR S2 python_ext source staging
+
+| AVEngine target | Original path at spear-sim/spear@251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7 | Treatment |
+| --- | --- | --- |
+| native/spear/python_ext/cpp/{assert.h,client.h,func_signature_registry.h,msgpack_adaptors.h,msgpack_utils.h,spear_ext.cpp,std.h,types.h} | matching python_ext/cpp paths | **adapted** selected C++ extension source, with upstream MIT headers retained |
+| native/spear/python_ext/python/spear_ext/__init__.py | python_ext/python/spear_ext/__init__.py | **adapted** upstream package wrapper |
+
+S2 is source-only staging. It excludes upstream CMakeLists.txt, pyproject.toml,
+checkout-relative rpclib paths, dependency source, build trees, and compiled
+extension artifacts. It does not change Python imports, package installation,
+extension build wiring, or the external SPEAR/UE runtime path.
 
 ## AVEngine-owned adapter code already present
 

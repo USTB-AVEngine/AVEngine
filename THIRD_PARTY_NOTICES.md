@@ -20,7 +20,7 @@ without changing the upstream terms.
 | --- | --- | --- | --- |
 | Habitat-Sim selected H1 source | upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038`; transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b` | MIT | source-only staging at `native/habitat/`; preserve Meta copyright, MIT text, provenance, and citations; build/runtime cutover remains pending |
 | RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | the engine, headers, configuration, and precompiled library remain a legal user-installed external SDK; retain attribution and terms, and do not claim propagation-engine source integration |
-| SPEAR-owned runtime source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements `examples/render_in_apartment.py::parallel_instance_settings` at `src/avengine/backends/spear_ue/launch.py`; retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`. All remaining client/plugin/control source stays in the transition checkout |
+| SPEAR-owned runtime source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements the Apartment launch helper; S2 stages selected source-only python_ext files at native/spear/python_ext. Retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`; all remaining client/plugin/control source and extension build/runtime stay in the transition checkout |
 
 The root AVEngine all-rights-reserved notice does not relicense imported
 third-party code. H1 retains the Habitat MIT text at
@@ -34,7 +34,10 @@ source. The AVEngine/Habitat adapter source is staged under `native/habitat`,
 while the RLR engine remains an external user-provided CC-BY-NC 4.0 SDK.
 
 SPEAR S1 contains only the reimplemented launch-settings behavior named above.
-It contains no upstream examples, UE plugins, UE project configuration,
+SPEAR S2 adds only the selected python_ext source files and their provenance
+README; it adds no build wiring or installed package.
+Together, S1/S2 contain no upstream examples, UE plugins, UE project
+configuration, CMake or pyproject wiring, dependency source, compiled
 extensions, binaries, assets, or build products.
 
 SPEAR-owned source also calls Boost (BSL-1.0), rpclib (MIT) and yaml-cpp (MIT).
