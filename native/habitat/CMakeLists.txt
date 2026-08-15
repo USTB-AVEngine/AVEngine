@@ -15,6 +15,12 @@ if(AVENGINE_HABITAT_GFX_BATCH_WITH_CUDA)
   )
 endif()
 
+option(
+  AVENGINE_HABITAT_BUILD_RLR_ADAPTER
+  "Build the optional static RLR acoustic-context adapter with a user-installed SDK"
+  OFF
+)
+
 # Generate the four staged template inputs in the include layout used by
 # Habitat sources. This target only consumes esp/core/configure.h.
 set(ESP_BUILD_ASSIMP_SUPPORT OFF)
@@ -64,6 +70,11 @@ find_package(RapidJSON CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
 find_package(recastnavigation CONFIG REQUIRED)
 find_package(OpenMP QUIET)
+
+if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/RlrSdk.cmake")
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/RlrAudioSources.cmake")
+endif()
 
 if(MAGNUM_TARGET_EGL)
   find_package(Magnum REQUIRED WindowlessEglApplication)
@@ -210,4 +221,39 @@ target_link_libraries(
 
 if(OpenMP_CXX_FOUND)
   target_link_libraries(avengine_habitat_core PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER)
+  add_library(
+    avengine_habitat_rlr_audio
+    STATIC
+    ${AVENGINE_HABITAT_RLR_AUDIO_SOURCES}
+  )
+  add_library(AVEngine::HabitatRlrAudio ALIAS avengine_habitat_rlr_audio)
+  set_target_properties(
+    avengine_habitat_rlr_audio
+    PROPERTIES
+      CXX_STANDARD 17
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+      POSITION_INDEPENDENT_CODE ON
+  )
+  target_include_directories(
+    avengine_habitat_rlr_audio
+    PUBLIC
+      "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
+  )
+  target_include_directories(
+    avengine_habitat_rlr_audio
+    SYSTEM
+    PRIVATE
+      "${RapidJSON_INCLUDE_DIRS}"
+  )
+  target_link_libraries(
+    avengine_habitat_rlr_audio
+    PUBLIC
+      AVEngine::RlrSdk
+    PRIVATE
+      Corrade::Utility
+  )
 endif()

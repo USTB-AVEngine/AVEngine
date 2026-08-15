@@ -99,11 +99,11 @@ vendored, and no private temporary path is committed as build configuration.
 `URDFParser.cpp` adapts the transition vendored include spelling to the
 installed tinyxml2 public header `<tinyxml2.h>`.
 
-H4c contains no `BackgroundRenderer`, RLR/audio adapter source, Bullet source,
-bindings, CUDA noise source, PBR image resource, PBR asset, or default PBR
-configuration. In particular, it adds `GfxShaderResources` only and does not
-recreate `PbrIBlImageResources`. The existing external PBR asset-root behavior
-below remains unchanged.
+H4c contains no `BackgroundRenderer`, RLR/audio adapter in its core archive,
+Bullet source, bindings, CUDA noise source, PBR image resource, PBR asset, or
+default PBR configuration. In particular, it adds `GfxShaderResources` only
+and does not recreate `PbrIBlImageResources`. The existing external PBR
+asset-root behavior below remains unchanged.
 
 This is static compilation evidence, not a runtime/package/build cutover.
 H4d exposes exactly eight user-installed static importer/converter targets to
@@ -118,6 +118,29 @@ all eight registration units in that final consumer, and decoded the MP3D GLB,
 semantic PLY, PBR PNG, and PBR HDR inputs. Scene assets, bindings, the RLR SDK,
 and end-to-end native execution remain separate work; the manifest-pinned
 transition runtime is still selected.
+
+## Optional external RLR SDK adapter
+
+`AVENGINE_HABITAT_BUILD_RLR_ADAPTER` is OFF by default. When enabled, it adds
+the PIC static `AVEngine::HabitatRlrAudio` target for only
+`esp/audio/RLRAcousticContext.cpp`. Its sole RLR dependency is the imported
+`AVEngine::RlrSdk` target; `AVENGINE_RLR_SDK_ROOT` must name the user-installed
+official `RLRAudioPropagationPkg` directory containing
+`headers/RLRAudioPropagation.h` and
+`libs/linux/x64/libRLRAudioPropagation.so`.
+
+The CMake module never searches a Habitat/RLR checkout or arbitrary system
+paths, and it neither copies nor installs the RLR library or adds an RLR
+RPATH. On Linux, launch a consumer with its own SDK loader path, for example:
+
+```bash
+export LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
+This layer keeps `ESP_BUILD_WITH_AUDIO` OFF, does not alter legacy
+`AudioSensor`, Python bindings, package installation, or runtime resolvers,
+and is not a runtime cutover. RLR material JSON and other SDK data remain
+caller-provided external inputs.
 
 ## H1 exclusions
 

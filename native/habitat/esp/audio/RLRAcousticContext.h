@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "rlr-audio-propagation/RLRAudioPropagationPkg/headers/RLRAudioPropagation.h"
+#include <RLRAudioPropagation.h>
 
 namespace esp {
 namespace audio {

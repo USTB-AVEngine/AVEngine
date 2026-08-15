@@ -115,6 +115,15 @@ MP3D、InteriorAgent/Kujiale、原生 Apartment 地图、模型权重、环境�
 个产品代码仓库。RLR 则继续由用户安装的外部 SDK 提供，而非第二个源码仓库。
 gpuRIR 和私有生成模型路线仍是显式可选研究工具。
 
+已接线的 Habitat RLR adapter 默认关闭。启用其静态 C++ target 时，
+`AVENGINE_RLR_SDK_ROOT` 必须指向用户安装的官方
+`RLRAudioPropagationPkg` 目录（其中含 `headers/` 与
+`libs/linux/x64/`）；AVEngine 不会搜索 RLR checkout、复制或安装该 `.so`。
+Linux 运行依赖 adapter 的可执行文件或未来 binding 前，用户应让动态加载器
+解析自己的 SDK，例如
+`LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"`。
+这只是外部 SDK 的加载方式，不迁入 RLR engine、头文件、库或 material data。
+
 Habitat 的 PBR IBL 图片同样是外部数据，不会嵌入源码或构建产物。
 只有创建渲染器且 `PbrShaderAttributes.enable_ibl=true` 时，用户才需提供
 `AVENGINE_HABITAT_PBR_ASSET_ROOT`；相对的 BRDF-LUT 和环境图名称分别从

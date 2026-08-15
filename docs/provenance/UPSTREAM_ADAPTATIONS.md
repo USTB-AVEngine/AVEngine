@@ -120,6 +120,21 @@ does not recreate `PbrIBlImageResources` or add PBR assets/default
 configuration; the separate external PBR IBL adapter below remains the
 renderer asset-resolution behavior.
 
+## Habitat external RLR SDK adapter wiring
+
+The optional AVEngine-owned `AVEngine::HabitatRlrAudio` static target selects
+only the staged `esp/audio/RLRAcousticContext.cpp` adapter. It resolves the
+legal user-installed RLR distribution strictly through
+`AVENGINE_RLR_SDK_ROOT`, whose documented official package layout contains
+`headers/RLRAudioPropagation.h` and
+`libs/linux/x64/libRLRAudioPropagation.so`. The CMake imported target exposes
+those external include and library paths without a checkout search,
+`FetchContent`, submodule, copied binary, install rule, or RPATH. The adapter
+source remains adapted MIT code; the RLR engine, header, shared library,
+material configuration, and solver data remain external CC-BY-NC 4.0 SDK
+inputs. This default-off static target does not enable legacy `AudioSensor`,
+Python bindings, package installation, or a runtime cutover.
+
 ## Habitat H4d static importer consumer wiring
 
 H4d is reimplemented AVEngine-owned CMake usage-interface wiring. It resolves

@@ -49,6 +49,14 @@ adds Python/shader/template source only. H4c/H4d add no RLR/audio adapter,
 Bullet, bindings, BackgroundRenderer, CUDA noise, PBR image resource, PBR
 asset/default configuration, compiled extension, importer source, or runtime path.
 
+The default-off `AVEngine::HabitatRlrAudio` static adapter target resolves the
+same external RLR SDK only through `AVENGINE_RLR_SDK_ROOT`. That root is the
+user-installed official `RLRAudioPropagationPkg` layout, not a Git checkout;
+AVEngine neither copies nor installs `libRLRAudioPropagation.so` and adds no
+RLR RPATH. Users remain responsible for the platform loader configuration
+(for Linux, the SDK `libs/linux/x64` directory on `LD_LIBRARY_PATH`). This
+does not change the external license boundary or claim a Python/runtime cutover.
+
 The staged Habitat PBR adapter removes the compiled PBR image resource group:
 enabled renderer IBL resolves only user-provided images from
 `AVENGINE_HABITAT_PBR_ASSET_ROOT` (or an explicit absolute user path). It
