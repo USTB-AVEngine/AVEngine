@@ -17,7 +17,9 @@ set(
 if(NOT AVENGINE_RLR_SDK_ROOT)
   message(
     FATAL_ERROR
-    "AVENGINE_RLR_SDK_ROOT is required when AVENGINE_HABITAT_BUILD_RLR_ADAPTER=ON. "
+    "AVENGINE_RLR_SDK_ROOT is required when either "
+    "AVENGINE_HABITAT_BUILD_RLR_ADAPTER or "
+    "AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR is ON. "
     "Set it to the official RLRAudioPropagationPkg directory containing headers/ "
     "and libs/linux/x64/."
   )

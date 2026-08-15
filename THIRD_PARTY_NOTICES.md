@@ -54,8 +54,14 @@ same external RLR SDK only through `AVENGINE_RLR_SDK_ROOT`. That root is the
 user-installed official `RLRAudioPropagationPkg` layout, not a Git checkout;
 AVEngine neither copies nor installs `libRLRAudioPropagation.so` and adds no
 RLR RPATH. Users remain responsible for the platform loader configuration
-(for Linux, the SDK `libs/linux/x64` directory on `LD_LIBRARY_PATH`). This
-does not change the external license boundary or claim a Python/runtime cutover.
+(for Linux, the SDK `libs/linux/x64` directory on `LD_LIBRARY_PATH`).
+
+The independent default-off `AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR`
+option uses that same external SDK for the selected legacy `AudioSensor`
+C++ wrapper. It changes no license boundary and adds no RLR source, copied
+library, Python binding, runtime resolver, package installation, or runtime
+cutover. The wrapper is deprecated by its own SDK header, so this opt-in is
+limited to the existing legacy call path and its ABI-compatible user SDK.
 
 The staged Habitat PBR adapter removes the compiled PBR image resource group:
 enabled renderer IBL resolves only user-provided images from

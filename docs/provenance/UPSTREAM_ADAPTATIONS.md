@@ -132,8 +132,15 @@ those external include and library paths without a checkout search,
 `FetchContent`, submodule, copied binary, install rule, or RPATH. The adapter
 source remains adapted MIT code; the RLR engine, header, shared library,
 material configuration, and solver data remain external CC-BY-NC 4.0 SDK
-inputs. This default-off static target does not enable legacy `AudioSensor`,
-Python bindings, package installation, or a runtime cutover.
+inputs. The adapter option alone leaves `ESP_BUILD_WITH_AUDIO` disabled.
+
+A separate default-off `AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR` option
+regenerates the staged sensor configure header and links
+`AVEngine::HabitatCore` publicly to the same imported SDK. It preserves the
+selected legacy `AudioSensor` source through the SDK deprecated C++ wrapper;
+its public C++ types require the transitive include/link interface. It adds no
+bindings, package installation, runtime resolver, copied library, scene
+propagation claim, or runtime cutover.
 
 ## Habitat H4d static importer consumer wiring
 

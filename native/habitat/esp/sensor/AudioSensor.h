@@ -12,7 +12,7 @@
 #include "esp/sensor/Sensor.h"
 
 #ifdef ESP_BUILD_WITH_AUDIO
-#include "rlr-audio-propagation/RLRAudioPropagationPkg/headers/RLRAudioPropagation.h"
+#include <RLRAudioPropagation.h>
 #else
 #include "esp/sensor/AudioSensorStubs.h"
 #endif  // ESP_BUILD_WITH_AUDIO

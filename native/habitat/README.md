@@ -137,10 +137,15 @@ RPATH. On Linux, launch a consumer with its own SDK loader path, for example:
 export LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
-This layer keeps `ESP_BUILD_WITH_AUDIO` OFF, does not alter legacy
-`AudioSensor`, Python bindings, package installation, or runtime resolvers,
-and is not a runtime cutover. RLR material JSON and other SDK data remain
-caller-provided external inputs.
+With `AVENGINE_HABITAT_BUILD_RLR_ADAPTER` alone, this layer keeps
+`ESP_BUILD_WITH_AUDIO` OFF and does not alter legacy `AudioSensor`. The
+separate default-off `AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR` option
+regenerates that macro for the whole core and links the core publicly to the
+same `AVEngine::RlrSdk` target. It preserves the existing legacy
+`AudioSensor` calls through the SDK deprecated C++ wrapper; this is a
+compile/link and setup boundary, not Python bindings, package installation,
+runtime resolver, scene propagation, or runtime cutover. RLR material JSON and
+other SDK data remain caller-provided external inputs.
 
 ## H1 exclusions
 

@@ -20,11 +20,16 @@ option(
   "Build the optional static RLR acoustic-context adapter with a user-installed SDK"
   OFF
 )
+option(
+  AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR
+  "Build the optional legacy Habitat AudioSensor with a user-installed RLR SDK"
+  OFF
+)
 
 # Generate the four staged template inputs in the include layout used by
 # Habitat sources. This target only consumes esp/core/configure.h.
 set(ESP_BUILD_ASSIMP_SUPPORT OFF)
-set(ESP_BUILD_WITH_AUDIO OFF)
+set(ESP_BUILD_WITH_AUDIO ${AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR})
 set(ESP_BUILD_WITH_BACKGROUND_RENDERER OFF)
 set(ESP_BUILD_WITH_BULLET OFF)
 set(ESP_BUILD_WITH_CUDA OFF)
@@ -71,8 +76,13 @@ find_package(tinyxml2 CONFIG REQUIRED)
 find_package(recastnavigation CONFIG REQUIRED)
 find_package(OpenMP QUIET)
 
-if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER)
+if(
+  AVENGINE_HABITAT_BUILD_RLR_ADAPTER
+  OR AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR
+)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/RlrSdk.cmake")
+endif()
+if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER)
   include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/RlrAudioSources.cmake")
 endif()
 
@@ -203,6 +213,9 @@ target_link_libraries(
     RecastNavigation::Detour
     RecastNavigation::Recast
 )
+if(AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR)
+  target_link_libraries(avengine_habitat_core PUBLIC AVEngine::RlrSdk)
+endif()
 # These targets must stay in the static core's consumer interface. Placing
 # their registration translation units inside this archive would allow a final
 # static link to omit them as unreferenced archive members.

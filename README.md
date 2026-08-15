@@ -122,6 +122,11 @@ gpuRIR 和私有生成模型路线仍是显式可选研究工具。
 Linux 运行依赖 adapter 的可执行文件或未来 binding 前，用户应让动态加载器
 解析自己的 SDK，例如
 `LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"`。
+
+A adapter 单独启用时仍保持 `ESP_BUILD_WITH_AUDIO` 关闭。独立且默认关闭的
+`AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR` 才会在 Habitat core 中启用旧
+`AudioSensor`，并使用同一外置 SDK 的 deprecated C++ wrapper；它不启用
+Python bindings、package installation、runtime resolver 或完整传播运行时。
 这只是外部 SDK 的加载方式，不迁入 RLR engine、头文件、库或 material data。
 
 Habitat 的 PBR IBL 图片同样是外部数据，不会嵌入源码或构建产物。

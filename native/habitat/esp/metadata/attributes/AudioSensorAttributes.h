@@ -8,7 +8,7 @@
 #include "AbstractSensorAttributes.h"
 
 #ifdef ESP_BUILD_WITH_AUDIO
-#include "rlr-audio-propagation/RLRAudioPropagationPkg/headers/RLRAudioPropagation.h"
+#include <RLRAudioPropagation.h>
 #endif  // ESP_BUILD_WITH_AUDIO
 
 namespace esp {
