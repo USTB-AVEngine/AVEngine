@@ -33,12 +33,14 @@ from avengine.m1.contracts import (
     validate_loaded_scene_asset_graph,
 )
 from avengine.m1.habitat_capture import (
+    InstalledHabitatRuntime,
     _make_configuration,
     _resolved_scene,
-    discover_runtime_root,
+    prepare_installed_habitat_runtime,
 )
 from avengine.m5_1.legacy_route import FRAME_COUNT, FRAME_RATE_HZ
 from avengine.m5_1.mixed_capture import (
+    MIXED_CAPTURE_INSTALLED_SCHEMA_V2,
     MixedCaptureResult,
     capture_human_beagle_paths,
 )
@@ -396,7 +398,11 @@ def validate_mp3d_paths_with_declared_navmesh(
     route: Mapping[str, Any],
     room_manifest_path: str | Path,
     m1_request_path: str | Path,
+    runtime_prefix: str | Path | None = None,
     runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
 ) -> MP3DNavigationEvidence:
     """Load the declared MP3D navmesh and validate every actor center."""
 
@@ -405,8 +411,28 @@ def validate_mp3d_paths_with_declared_navmesh(
         raise MP3DCaptureError("MP3D route room_id differs from room manifest")
     if inputs.request["request_id"] != route["request_id"]:
         raise MP3DCaptureError("MP3D route request_id differs from M1 request")
-    runtime = discover_runtime_root(runtime_root)
-    resolved_scene = _resolved_scene(inputs, runtime)
+    if installed_runtime is not None and any(
+        value is not None
+        for value in (runtime_prefix, runtime_root, mp3d_root, magnum_python_site)
+    ):
+        raise MP3DCaptureError(
+            "installed_runtime cannot be combined with runtime-prefix/root, "
+            "mp3d-root, or magnum-python-site"
+        )
+    selected_runtime = installed_runtime or prepare_installed_habitat_runtime(
+        runtime_prefix=runtime_prefix,
+        runtime_root=runtime_root,
+        mp3d_root=mp3d_root,
+        magnum_python_site=magnum_python_site,
+    )
+    if selected_runtime.mp3d_root is None:
+        raise MP3DCaptureError(
+            "MP3D navigation requires an explicit --mp3d-root or "
+            "AVENGINE_MP3D_ROOT"
+        )
+    resolved_scene = _resolved_scene(
+        inputs, None, mp3d_root=selected_runtime.mp3d_root
+    )
     raw_navmesh = resolved_scene.get("navmesh")
     if raw_navmesh is None:
         raise MP3DCaptureError("MP3D room does not resolve a declared navmesh")
@@ -414,10 +440,8 @@ def validate_mp3d_paths_with_declared_navmesh(
     if not navmesh_path.is_file():
         raise MP3DCaptureError(f"declared MP3D navmesh is missing: {navmesh_path}")
 
-    # The pinned editable Habitat build imports numpy-quaternion first.
-    import quaternion as qt
-
-    import habitat_sim
+    qt = selected_runtime.quaternion
+    habitat_sim = selected_runtime.habitat_sim
 
     paths = derive_mp3d_route_paths(route)
     geometry = _assert_route_geometry(route, paths)
@@ -429,8 +453,10 @@ def validate_mp3d_paths_with_declared_navmesh(
     configuration, modality_to_uuid, _listener_uuid, configured_scene = (
         _make_configuration(
             inputs,
-            runtime,
+            None,
             Path(m1_request_path).resolve().parent / ".mp3d_preflight_not_retained",
+            mp3d_root=selected_runtime.mp3d_root,
+            physics_config_path=selected_runtime.physics_config_path,
         )
     )
     if Path(configured_scene["navmesh"]).resolve() != navmesh_path:
@@ -443,9 +469,10 @@ def validate_mp3d_paths_with_declared_navmesh(
             )
         graph_errors, loaded_graph = validate_loaded_scene_asset_graph(
             inputs,
-            runtime,
+            None,
             simulator,
             declared_navmesh_loaded=loaded,
+            mp3d_root=selected_runtime.mp3d_root,
         )
         if graph_errors:
             raise MP3DCaptureError(
@@ -697,17 +724,30 @@ def capture_mp3d_route(
     beagle_animal_manifest_path: str | Path,
     beagle_m2_request_path: str | Path,
     output_dir: str | Path,
+    runtime_prefix: str | Path | None = None,
     runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
 ) -> MP3DCaptureResult:
     """Run the independent 270-frame MP3D mixed visual gate."""
 
     route_path = Path(route_manifest_path).resolve()
     route = load_mp3d_route_manifest(route_path)
+    installed_runtime = prepare_installed_habitat_runtime(
+        runtime_prefix=runtime_prefix,
+        runtime_root=runtime_root,
+        mp3d_root=mp3d_root,
+        magnum_python_site=magnum_python_site,
+    )
+    if installed_runtime.mp3d_root is None:
+        raise MP3DCaptureError(
+            "MP3D capture requires an explicit --mp3d-root or AVENGINE_MP3D_ROOT"
+        )
     navigation = validate_mp3d_paths_with_declared_navmesh(
         route=route,
         room_manifest_path=room_manifest_path,
         m1_request_path=m1_request_path,
-        runtime_root=runtime_root,
+        installed_runtime=installed_runtime,
     )
     route_provenance = {
         "route_manifest": _input_record(route_path),
@@ -731,8 +771,9 @@ def capture_mp3d_route(
         human_root_path_m=navigation.paths.human,
         beagle_root_path_m=navigation.paths.beagle,
         output_dir=output_dir,
-        runtime_root=runtime_root,
+        installed_runtime=installed_runtime,
         route_provenance=route_provenance,
+        research_capture_schema=MIXED_CAPTURE_INSTALLED_SCHEMA_V2,
         require_legacy_camera=False,
         human_semantic_id=int(route["semantic_ids"]["human0"]),
         beagle_semantic_id=int(route["semantic_ids"]["dog0"]),

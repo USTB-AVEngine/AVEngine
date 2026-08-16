@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.machinery import EXTENSION_SUFFIXES
 import os
@@ -57,6 +58,20 @@ PROCESS_STARTED_AT_UTC = datetime.now(timezone.utc).isoformat()
 PROCESS_INITIAL_PID = os.getpid()
 
 
+@dataclass(frozen=True)
+class InstalledHabitatRuntime:
+    """One explicitly selected installed Habitat runtime and its external inputs."""
+
+    prefix: Path
+    mp3d_root: Path | None
+    magnum_python_site: Path
+    physics_config_path: Path
+    quaternion: Any
+    habitat_sim: Any
+    magnum: Any
+    quat_to_coeffs: Any
+
+
 def _producer_process_identity() -> dict[str, Any]:
     return {
         "process_instance_id": PROCESS_INSTANCE_ID,
@@ -79,6 +94,19 @@ def discover_runtime_root(explicit: str | Path | None = None) -> Path:
     raise FileNotFoundError("Set AVENGINE_HABITAT_RUNTIME_ROOT or pass --runtime-root")
 
 
+def _git_checkout_ancestor(path: Path) -> Path | None:
+    """Return a containing Git worktree marker without invoking Git itself."""
+
+    candidate = path.resolve()
+    while True:
+        if os.path.lexists(candidate / ".git"):
+            return candidate
+        parent = candidate.parent
+        if parent == candidate:
+            return None
+        candidate = parent
+
+
 def discover_runtime_prefix(explicit: str | Path | None = None) -> Path:
     configured = explicit if explicit is not None else os.environ.get(
         "AVENGINE_HABITAT_RUNTIME_PREFIX"
@@ -90,7 +118,29 @@ def discover_runtime_prefix(explicit: str | Path | None = None) -> Path:
     prefix = Path(configured).resolve()
     if not prefix.is_dir():
         raise FileNotFoundError(f"Habitat installed runtime prefix is missing: {prefix}")
+    checkout_root = _git_checkout_ancestor(prefix)
+    if checkout_root is not None:
+        raise ValueError(
+            "Habitat installed runtime prefix must not be inside a Git checkout: "
+            f"{prefix} (found .git at {checkout_root})"
+        )
     return prefix
+
+
+def resolve_installed_runtime_prefix(
+    runtime_prefix: str | Path | None = None,
+    *,
+    runtime_root: str | Path | None = None,
+) -> Path:
+    """Resolve a non-Git installed prefix; ``runtime_root`` is an alias only."""
+
+    if runtime_prefix is not None and runtime_root is not None:
+        raise ValueError(
+            "Specify only one of runtime_prefix or runtime_root; runtime_root "
+            "is an installed-prefix compatibility alias"
+        )
+    selected = runtime_prefix if runtime_prefix is not None else runtime_root
+    return discover_runtime_prefix(selected)
 
 
 def _required_magnum_site_file(
@@ -318,15 +368,21 @@ def _validate_magnum_python_origins(site: Path, magnum: Any) -> None:
         _module_file_under(module, site, module_name=module_name)
 
 
-def _import_installed_habitat(prefix: Path) -> tuple[Any, Any, Any, Any]:
+def _import_installed_habitat(
+    prefix: Path, *, magnum_python_site: str | Path | None = None
+) -> tuple[Any, Any, Any, Any]:
     _remove_editable_habitat_sim_meta_finders()
     _validate_loaded_habitat_sim_origins(prefix)
-    magnum_python_site = discover_magnum_python_site()
-    _activate_runtime_prefix(prefix, magnum_python_site=magnum_python_site)
-    _validate_preloaded_magnum_python_origins(magnum_python_site)
+    selected_magnum_site = (
+        discover_magnum_python_site()
+        if magnum_python_site is None
+        else discover_magnum_python_site(magnum_python_site)
+    )
+    _activate_runtime_prefix(prefix, magnum_python_site=selected_magnum_site)
+    _validate_preloaded_magnum_python_origins(selected_magnum_site)
     imported = _import_habitat()
     _validate_loaded_habitat_sim_origins(prefix)
-    _validate_magnum_python_origins(magnum_python_site, imported[2])
+    _validate_magnum_python_origins(selected_magnum_site, imported[2])
     return imported
 
 
@@ -351,6 +407,45 @@ def _installed_runtime_paths(
             f"config/default.physics_config.json under {prefix}"
         )
     return module_path, binding_path, physics_path
+
+
+def prepare_installed_habitat_runtime(
+    *,
+    runtime_prefix: str | Path | None = None,
+    runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+) -> InstalledHabitatRuntime:
+    """Activate one non-Git installed prefix for a new Habitat writer.
+
+    The runtime library, binding, and physics config live in ``prefix``. MP3D
+    assets remain separately supplied through ``mp3d_root`` and Magnum remains
+    an explicit external Python site. No sibling checkout fallback is involved.
+    """
+
+    prefix = resolve_installed_runtime_prefix(
+        runtime_prefix, runtime_root=runtime_root
+    )
+    selected_magnum_site = discover_magnum_python_site(magnum_python_site)
+    selected_mp3d_root = discover_mp3d_root(mp3d_root)
+    qt, habitat_sim, mn, quat_to_coeffs = _import_installed_habitat(
+        prefix, magnum_python_site=selected_magnum_site
+    )
+    from habitat_sim._ext import habitat_sim_bindings
+
+    _module_path, _binding_path, physics_config_path = _installed_runtime_paths(
+        prefix, habitat_sim, habitat_sim_bindings
+    )
+    return InstalledHabitatRuntime(
+        prefix=prefix,
+        mp3d_root=selected_mp3d_root,
+        magnum_python_site=selected_magnum_site,
+        physics_config_path=physics_config_path,
+        quaternion=qt,
+        habitat_sim=habitat_sim,
+        magnum=mn,
+        quat_to_coeffs=quat_to_coeffs,
+    )
 
 
 def _git_value(repository: Path, *arguments: str) -> str | None:

@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
+from avengine.m1.habitat_capture import resolve_installed_runtime_prefix
 from avengine.m2.glb import extract_actions, extract_skins, parse_glb
 from avengine.m2.glb_write import build_glb
 from avengine.m5_1.human_runtime import (
@@ -23,7 +25,9 @@ from avengine.m5_1.mixed_capture import (
     _beagle_anatomical_forward_binding,
     _continuous_beagle_walk_states,
     _human_anatomical_forward_binding,
+    _select_mixed_capture_runtime,
     _validate_used_action_render_evidence,
+    capture_human_beagle_paths,
     capture_legacy_route,
     locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
@@ -465,7 +469,348 @@ def test_legacy_wrapper_consumes_manifest_habitat_paths_verbatim(
     assert retained["beagle_root_path_m"] == route["routes"]["dog_path"][
         "habitat_trajectory_m"
     ]
+    assert retained["legacy_runtime_root"] is None
+    assert "runtime_root" not in retained
     assert retained["require_legacy_camera"] is True
     assert retained["route_provenance"]["path_consumption"] == (
         "verbatim_manifest_routes_habitat_trajectory_m"
     )
+
+
+def _migrated_mp3d_room() -> dict[str, object]:
+    return {
+        "scene": {
+            "scene_id": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/a.glb",
+            "dataset_config_path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+            "navmesh_path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/a.navmesh",
+        },
+        "assets": [
+            {"path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/a.glb"}
+        ],
+    }
+
+
+def _legacy_runtime_room() -> dict[str, object]:
+    return {
+        "scene": {
+            "scene_id": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene.glb",
+            "dataset_config_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/config.json",
+            "navmesh_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene.navmesh",
+        },
+        "assets": [
+            {"path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene.glb"}
+        ],
+    }
+
+
+def _retained_replicacad_room() -> dict[str, object]:
+    return {
+        "scene": {
+            "scene_id": "apt_0",
+            "dataset_config_path": "${AVENGINE_REPLICACAD_ROOT}/replicaCAD.scene_dataset_config.json",
+            "navmesh_path": "${AVENGINE_REPLICACAD_ROOT}/navmeshes/apt_0.navmesh",
+        },
+        "assets": [
+            {
+                "path": "${AVENGINE_REPLICACAD_ROOT}/configs/scenes/apt_0.scene_instance.json"
+            }
+        ],
+    }
+
+
+def _clear_installed_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in (
+        "AVENGINE_HABITAT_RUNTIME_PREFIX",
+        "AVENGINE_MP3D_ROOT",
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+
+def test_mixed_capture_runtime_root_is_installed_alias_for_migrated_room(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_installed_runtime_environment(monkeypatch)
+    expected = object()
+    calls: list[dict[str, object]] = []
+
+    def fake_prepare(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return expected
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        fake_prepare,
+    )
+
+    result = _select_mixed_capture_runtime(
+        room=_migrated_mp3d_room(),
+        runtime_prefix=None,
+        runtime_root=tmp_path / "installed-prefix",
+        legacy_runtime_root=None,
+        mp3d_root=None,
+        magnum_python_site=None,
+        installed_runtime=None,
+    )
+
+    assert result is expected
+    assert calls == [
+        {
+            "runtime_prefix": None,
+            "runtime_root": tmp_path / "installed-prefix",
+            "mp3d_root": None,
+            "magnum_python_site": None,
+        }
+    ]
+
+
+def test_mixed_capture_prefix_environment_preempts_legacy_room(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    expected = object()
+    calls: list[dict[str, object]] = []
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", str(tmp_path / "prefix"))
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", str(tmp_path / "mp3d"))
+    monkeypatch.setenv(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", str(tmp_path / "magnum")
+    )
+
+    def fake_prepare(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return expected
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        fake_prepare,
+    )
+
+    result = _select_mixed_capture_runtime(
+        room=_legacy_runtime_room(),
+        runtime_prefix=None,
+        runtime_root=None,
+        legacy_runtime_root=None,
+        mp3d_root=None,
+        magnum_python_site=None,
+        installed_runtime=None,
+    )
+
+    assert result is expected
+    assert calls == [
+        {
+            "runtime_prefix": None,
+            "runtime_root": None,
+            "mp3d_root": None,
+            "magnum_python_site": None,
+        }
+    ]
+
+
+def test_mixed_capture_prepared_runtime_accepts_its_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    expected = object()
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", str(tmp_path / "prefix"))
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", str(tmp_path / "mp3d"))
+    monkeypatch.setenv(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", str(tmp_path / "magnum")
+    )
+
+    def unexpected_prepare(**kwargs: object) -> object:
+        raise AssertionError(f"prepared runtime was not reused: {kwargs}")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        unexpected_prepare,
+    )
+
+    assert (
+        _select_mixed_capture_runtime(
+            room=_migrated_mp3d_room(),
+            runtime_prefix=None,
+            runtime_root=None,
+            legacy_runtime_root=None,
+            mp3d_root=None,
+            magnum_python_site=None,
+            installed_runtime=expected,  # type: ignore[arg-type]
+        )
+        is expected
+    )
+
+
+def test_mixed_capture_runtime_root_alias_rejects_git_checkout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_installed_runtime_environment(monkeypatch)
+    checkout = tmp_path / "old-habitat"
+    checkout.mkdir()
+    (checkout / ".git").mkdir()
+
+    def resolve_prefix_alias(**kwargs: object) -> object:
+        return resolve_installed_runtime_prefix(
+            kwargs["runtime_prefix"], runtime_root=kwargs["runtime_root"]
+        )
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        resolve_prefix_alias,
+    )
+
+    with pytest.raises(ValueError, match="must not be inside a Git checkout"):
+        _select_mixed_capture_runtime(
+            room=_migrated_mp3d_room(),
+            runtime_prefix=None,
+            runtime_root=checkout,
+            legacy_runtime_root=None,
+            mp3d_root=None,
+            magnum_python_site=None,
+            installed_runtime=None,
+        )
+
+
+def test_mixed_capture_legacy_room_keeps_checkout_branch_without_new_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_installed_runtime_environment(monkeypatch)
+
+    def unexpected_prepare(**kwargs: object) -> object:
+        raise AssertionError(f"legacy caller unexpectedly selected installed runtime: {kwargs}")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        unexpected_prepare,
+    )
+
+    assert (
+        _select_mixed_capture_runtime(
+            room=_legacy_runtime_room(),
+            runtime_prefix=None,
+            runtime_root=tmp_path / "legacy-runtime",
+            legacy_runtime_root=None,
+            mp3d_root=None,
+            magnum_python_site=None,
+            installed_runtime=None,
+        )
+        is None
+    )
+
+
+def test_mixed_capture_replicacad_room_keeps_legacy_branch_without_new_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_installed_runtime_environment(monkeypatch)
+
+    def unexpected_prepare(**kwargs: object) -> object:
+        raise AssertionError(
+            f"ReplicaCAD caller unexpectedly selected installed runtime: {kwargs}"
+        )
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        unexpected_prepare,
+    )
+
+    assert (
+        _select_mixed_capture_runtime(
+            room=_retained_replicacad_room(),
+            runtime_prefix=None,
+            runtime_root=tmp_path / "legacy-runtime",
+            legacy_runtime_root=None,
+            mp3d_root=None,
+            magnum_python_site=None,
+            installed_runtime=None,
+        )
+        is None
+    )
+
+
+def _runtime_selection_capture_arguments(tmp_path: Path) -> dict[str, object]:
+    paths = np.zeros((75, 3), dtype=np.float64)
+    return {
+        "room_manifest_path": tmp_path / "room.json",
+        "m1_request_path": tmp_path / "request.json",
+        "human_runtime_glb_path": tmp_path / "human.glb",
+        "beagle_animal_manifest_path": tmp_path / "beagle.json",
+        "beagle_m2_request_path": tmp_path / "beagle_request.json",
+        "human_root_path_m": paths,
+        "beagle_root_path_m": paths,
+        "output_dir": tmp_path / "capture",
+    }
+
+
+def test_mixed_capture_direct_runtime_root_alias_uses_installed_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_installed_runtime_environment(monkeypatch)
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_rocketbox_habitat_runtime",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.load_m1_inputs",
+        lambda *args, **kwargs: SimpleNamespace(room=_migrated_mp3d_room()),
+    )
+
+    def selected_installed_runtime(**kwargs: object) -> object:
+        calls.append(kwargs)
+        raise ValueError("installed runtime selected")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        selected_installed_runtime,
+    )
+
+    with pytest.raises(MixedCaptureError, match="installed runtime selected"):
+        capture_human_beagle_paths(
+            **_runtime_selection_capture_arguments(tmp_path),
+            runtime_root=tmp_path / "installed-prefix",
+        )
+
+    assert calls == [
+        {
+            "runtime_prefix": None,
+            "runtime_root": tmp_path / "installed-prefix",
+            "mp3d_root": None,
+            "magnum_python_site": None,
+        }
+    ]
+
+
+def test_mixed_capture_direct_prefix_environment_uses_installed_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", str(tmp_path / "prefix"))
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", str(tmp_path / "mp3d"))
+    monkeypatch.setenv(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", str(tmp_path / "magnum")
+    )
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_rocketbox_habitat_runtime",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.load_m1_inputs",
+        lambda *args, **kwargs: SimpleNamespace(room=_legacy_runtime_room()),
+    )
+
+    def selected_installed_runtime(**kwargs: object) -> object:
+        calls.append(kwargs)
+        raise ValueError("installed environment selected")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        selected_installed_runtime,
+    )
+
+    with pytest.raises(MixedCaptureError, match="installed environment selected"):
+        capture_human_beagle_paths(**_runtime_selection_capture_arguments(tmp_path))
+
+    assert calls == [
+        {
+            "runtime_prefix": None,
+            "runtime_root": None,
+            "mp3d_root": None,
+            "magnum_python_site": None,
+        }
+    ]

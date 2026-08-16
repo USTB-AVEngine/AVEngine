@@ -20,6 +20,8 @@ from avengine.m1.habitat_capture import (
     _validate_magnum_python_origins,
     _ue_project_asset_package_closure,
     discover_magnum_python_site,
+    discover_runtime_prefix,
+    resolve_installed_runtime_prefix,
 )
 
 
@@ -341,6 +343,30 @@ def _module_at(module_name: str, path: Path) -> ModuleType:
     module = ModuleType(module_name)
     module.__file__ = str(path)
     return module
+
+
+def test_installed_prefix_rejects_a_git_checkout_and_accepts_root_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "installed-prefix"
+    prefix.mkdir()
+
+    assert resolve_installed_runtime_prefix(prefix) == prefix.resolve()
+    assert resolve_installed_runtime_prefix(runtime_root=prefix) == prefix.resolve()
+    with pytest.raises(ValueError, match="Specify only one"):
+        resolve_installed_runtime_prefix(prefix, runtime_root=prefix)
+
+    checkout = tmp_path / "legacy-checkout"
+    checkout.mkdir()
+    (checkout / ".git").mkdir()
+    nested_prefix = checkout / "build" / "installed-prefix"
+    nested_prefix.mkdir(parents=True)
+    with pytest.raises(ValueError, match="must not be inside a Git checkout"):
+        discover_runtime_prefix(nested_prefix)
+
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", str(nested_prefix))
+    with pytest.raises(ValueError, match="must not be inside a Git checkout"):
+        resolve_installed_runtime_prefix()
 
 
 def test_discover_magnum_python_site_checks_layout_and_current_abi(

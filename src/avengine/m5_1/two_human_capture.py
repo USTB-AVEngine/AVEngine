@@ -18,11 +18,13 @@ from avengine.contracts.json_io import load_json
 from avengine.contracts.transforms import transform_error
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import (
-    _import_habitat,
+    InstalledHabitatRuntime,
     _make_configuration,
     _resolved_scene,
     _state_snapshot,
-    discover_runtime_root,
+    discover_mp3d_root,
+    prepare_installed_habitat_runtime,
+    resolve_installed_runtime_prefix,
 )
 from avengine.m2.contracts import FORMAL_MODALITIES
 from avengine.m2.habitat_capture import (
@@ -1333,7 +1335,9 @@ def load_two_human_capture_authority(
     rir_plan_path: str | Path,
     room_manifest_path: str | Path,
     m1_request_path: str | Path,
+    runtime_prefix: str | Path | None = None,
     runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
 ) -> TwoHumanCaptureAuthority:
     atom = load_json(atom_request_path)
     registry_path = _safe_regular_path(
@@ -1341,6 +1345,25 @@ def load_two_human_capture_authority(
         owner="runtime profile registry",
     )
     m1_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
+    selected_prefix = resolve_installed_runtime_prefix(
+        runtime_prefix, runtime_root=runtime_root
+    )
+    selected_mp3d_root = discover_mp3d_root(mp3d_root)
+    if selected_mp3d_root is None:
+        raise TwoHumanCaptureError(
+            "MP3D two-human capture requires an explicit --mp3d-root or "
+            "AVENGINE_MP3D_ROOT"
+        )
+    declared_scene_paths = [
+        str(m1_inputs.room["scene"].get(field, ""))
+        for field in ("scene_id", "dataset_config_path", "navmesh_path")
+    ]
+    if any("AVENGINE_HABITAT_RUNTIME_ROOT" in value for value in declared_scene_paths):
+        raise TwoHumanCaptureError(
+            "MP3D two-human capture requires a room manifest declaring "
+            "AVENGINE_MP3D_ROOT; do not map the legacy runtime-root template "
+            "onto a data root"
+        )
     authority = validate_two_human_authority_documents(
         atom=atom,
         suite=load_json(suite_plan_path),
@@ -1351,8 +1374,9 @@ def load_two_human_capture_authority(
         room=m1_inputs.room,
         m1_request=m1_inputs.request,
     )
-    selected_runtime = discover_runtime_root(runtime_root)
-    resolved = _resolved_scene(m1_inputs, selected_runtime)
+    resolved = _resolved_scene(
+        m1_inputs, None, mp3d_root=selected_mp3d_root
+    )
     camera_runtime = _mapping(atom.get("camera_runtime"), owner="atom camera runtime")
     atom_room = _mapping(atom.get("room"), owner="atom room")
     path_pairs = {
@@ -1364,7 +1388,7 @@ def load_two_human_capture_authority(
         "navmesh": (atom_room.get("navmesh_path"), resolved.get("navmesh")),
         "physics": (
             camera_runtime.get("physics_config_path"),
-            selected_runtime / "data/default.physics_config.json",
+            selected_prefix / "config/default.physics_config.json",
         ),
     }
     for owner, (declared, expected) in path_pairs.items():
@@ -1404,15 +1428,30 @@ def _write_plain_json(path: Path, value: Any) -> None:
     )
 
 
-def _production_capture_dependencies() -> _TwoHumanCaptureDependencies:
+def _production_capture_dependencies(
+    runtime: InstalledHabitatRuntime,
+) -> _TwoHumanCaptureDependencies:
+    if runtime.mp3d_root is None:
+        raise TwoHumanCaptureError("installed MP3D runtime lacks AVENGINE_MP3D_ROOT")
     return _TwoHumanCaptureDependencies(
         authority_loader=load_two_human_capture_authority,
         m1_loader=load_m1_inputs,
         prepare_runtime=prepare_rocketbox_habitat_runtime,
         package_manifest_loader=load_json,
-        runtime_discover=discover_runtime_root,
-        make_configuration=_make_configuration,
-        import_habitat=_import_habitat,
+        runtime_discover=lambda _ignored: runtime.prefix,
+        make_configuration=lambda inputs, _ignored, output: _make_configuration(
+            inputs,
+            None,
+            output,
+            mp3d_root=runtime.mp3d_root,
+            physics_config_path=runtime.physics_config_path,
+        ),
+        import_habitat=lambda: (
+            runtime.quaternion,
+            runtime.habitat_sim,
+            runtime.magnum,
+            runtime.quat_to_coeffs,
+        ),
         simulator_factory=lambda habitat_sim, configuration: habitat_sim.Simulator(
             configuration
         ),
@@ -1460,12 +1499,30 @@ def capture_two_human_mp3d(
     room_manifest_path: str | Path,
     m1_request_path: str | Path,
     output_dir: str | Path,
+    runtime_prefix: str | Path | None = None,
     runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
     _dependencies: _TwoHumanCaptureDependencies | None = None,
 ) -> TwoHumanCaptureResult:
     """Run one fresh Habitat Simulator for the complete 75-frame MP3D capture."""
 
-    dependencies = _dependencies or _production_capture_dependencies()
+    installed_runtime: InstalledHabitatRuntime | None = None
+    if _dependencies is None:
+        installed_runtime = prepare_installed_habitat_runtime(
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+        )
+        if installed_runtime.mp3d_root is None:
+            raise TwoHumanCaptureError(
+                "MP3D two-human capture requires an explicit --mp3d-root or "
+                "AVENGINE_MP3D_ROOT"
+            )
+        dependencies = _production_capture_dependencies(installed_runtime)
+    else:
+        dependencies = _dependencies
     authority = dependencies.authority_loader(
         atom_request_path=atom_request_path,
         suite_plan_path=suite_plan_path,
@@ -1474,7 +1531,13 @@ def capture_two_human_mp3d(
         rir_plan_path=rir_plan_path,
         room_manifest_path=room_manifest_path,
         m1_request_path=m1_request_path,
-        runtime_root=runtime_root,
+        runtime_prefix=(
+            installed_runtime.prefix if installed_runtime is not None else runtime_prefix
+        ),
+        runtime_root=None if installed_runtime is not None else runtime_root,
+        mp3d_root=(
+            installed_runtime.mp3d_root if installed_runtime is not None else mp3d_root
+        ),
     )
     m1_inputs = dependencies.m1_loader(room_manifest_path, m1_request_path)
     output = _prepare_fresh_output(output_dir)
@@ -1521,7 +1584,11 @@ def capture_two_human_mp3d(
             "two human runtime packages must remain distinct",
         )
 
-        runtime = dependencies.runtime_discover(runtime_root)
+        runtime = (
+            installed_runtime.prefix
+            if installed_runtime is not None
+            else dependencies.runtime_discover(runtime_root)
+        )
         configuration, modality_to_uuid, listener_uuid, resolved_scene = (
             dependencies.make_configuration(
                 m1_inputs, runtime, output / "scene_scratch"
@@ -1531,7 +1598,11 @@ def capture_two_human_mp3d(
             "scene": resolved_scene.get("scene_id"),
             "dataset": resolved_scene.get("dataset_config"),
             "navmesh": resolved_scene.get("navmesh"),
-            "physics": runtime / "data/default.physics_config.json",
+            "physics": (
+                installed_runtime.physics_config_path
+                if installed_runtime is not None
+                else runtime / "data/default.physics_config.json"
+            ),
         }
         _require(
             all(Path(str(path)).is_file() for path in required_runtime_paths.values()),
@@ -1728,7 +1799,7 @@ def capture_two_human_mp3d(
         frame_path = output / "frame_readback.json"
         _write_plain_json(frame_path, records)
         evidence: dict[str, Any] = {
-            "schema": "avengine_m5_1_two_human_mp3d_capture_v1",
+            "schema": "avengine_m5_1_two_human_mp3d_capture_v2",
             "status": "pass",
             "status_scope": "native_capture_execution",
             "backend_role": "production_visual",
@@ -1767,7 +1838,24 @@ def capture_two_human_mp3d(
                 "rir_plan": str(Path(rir_plan_path).resolve()),
                 "room_manifest": str(Path(room_manifest_path).resolve()),
                 "m1_request": str(Path(m1_request_path).resolve()),
-                "runtime_root": str(runtime),
+                "runtime": (
+                    {
+                        "kind": "installed_prefix",
+                        "habitat_runtime_prefix": str(installed_runtime.prefix),
+                        "mp3d_root": str(installed_runtime.mp3d_root),
+                        "magnum_python_site": str(
+                            installed_runtime.magnum_python_site
+                        ),
+                        "physics_config_path": str(
+                            installed_runtime.physics_config_path
+                        ),
+                    }
+                    if installed_runtime is not None
+                    else {
+                        "kind": "injected_test_dependency",
+                        "habitat_runtime_prefix": str(runtime),
+                    }
+                ),
             },
             "preflight_semantic_absence": dict(preflight_absence),
             "scene_readback": dict(scene_readback),

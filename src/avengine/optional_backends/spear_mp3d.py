@@ -30,6 +30,11 @@ EXPECTED_SCENE_TEXTURE_COUNT = 23
 M5_1_EXECUTION_SCHEMA = "avengine_optional_spear_mp3d_m5_1_execution_v1"
 M5_1_ROUTE_SCHEMA = "avengine_m5_1_mp3d_center_route_v1"
 M5_1_CAPTURE_SCHEMA = "avengine_m5_1_human_beagle_capture_v1"
+M5_1_CAPTURE_INSTALLED_SCHEMA_V2 = "avengine_m5_1_human_beagle_capture_v2"
+M5_1_CAPTURE_SCHEMAS = (
+    M5_1_CAPTURE_SCHEMA,
+    M5_1_CAPTURE_INSTALLED_SCHEMA_V2,
+)
 M5_1_GATE_SCHEMA = "avengine_m5_1_mp3d_mixed_visual_gate_v1"
 M5_1_SOURCE_PROGRAM_SCHEMA = "avengine_m5_1_mp3d_source_program_reuse_v1"
 M5_1_EMITTER_SCHEMA = "avengine_m5_1_actual_emitter_trajectories_v1"
@@ -766,9 +771,17 @@ def build_m5_1_mp3d_execution_plan(
         != "pass"
     ):
         raise MP3DExecutionError("MP3D room qualification boundary changed")
+    capture_schema = capture_evidence.get("schema")
+    if capture_schema not in M5_1_CAPTURE_SCHEMAS:
+        raise MP3DExecutionError(
+            "M5.1 MP3D capture evidence schema is unsupported; expected one of "
+            f"{sorted(M5_1_CAPTURE_SCHEMAS)!r}"
+        )
+    # v1 and installed-prefix v2 share the visual authority fields below.
+    # v2 runtime provenance remains opaque to this UE comparison reader: it
+    # neither resolves nor reinterprets the Habitat runtime.
     if (
-        capture_evidence.get("schema") != M5_1_CAPTURE_SCHEMA
-        or capture_evidence.get("status") != "pass"
+        capture_evidence.get("status") != "pass"
         or capture_evidence.get("frame_count") != M5_1_FRAME_COUNT
         or capture_evidence.get("frame_rate_hz") != M5_1_FPS
         or capture_evidence.get("time_base_hz") != M5_1_TIME_BASE_HZ

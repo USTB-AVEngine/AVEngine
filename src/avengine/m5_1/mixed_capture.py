@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -33,9 +34,11 @@ from avengine.contracts.transforms import normalized_quaternion_xyzw
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.evidence import array_sha256
 from avengine.m1.habitat_capture import (
+    InstalledHabitatRuntime,
     _make_configuration,
     _resolved_assets,
     discover_runtime_root,
+    prepare_installed_habitat_runtime,
 )
 from avengine.m2.contracts import (
     FORMAL_MODALITIES,
@@ -77,6 +80,7 @@ from avengine.m5_1.legacy_route import (
 
 
 MIXED_CAPTURE_SCHEMA = "avengine_m5_1_human_beagle_capture_v1"
+MIXED_CAPTURE_INSTALLED_SCHEMA_V2 = "avengine_m5_1_human_beagle_capture_v2"
 HEADING_ALIGNMENT_SCHEMA = "avengine_m5_1_actor_heading_gate_v1"
 HUMAN_SEMANTIC_ID = 220
 BEAGLE_SEMANTIC_ID = 221
@@ -875,6 +879,105 @@ def _write_json(path: Path, value: Any) -> None:
     )
 
 
+_INSTALLED_RUNTIME_ENVIRONMENT_VARIABLES = (
+    "AVENGINE_HABITAT_RUNTIME_PREFIX",
+    "AVENGINE_MP3D_ROOT",
+    "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+)
+
+
+def _installed_runtime_inputs_requested(
+    *,
+    runtime_prefix: str | Path | None,
+    mp3d_root: str | Path | None,
+    magnum_python_site: str | Path | None,
+) -> bool:
+    """Whether a caller selected an installed runtime without its old alias.
+
+    Empty exported values remain a selection.  They must fail through the
+    installed resolver instead of accidentally falling back to a checkout.
+    """
+
+    return any(
+        value is not None
+        for value in (runtime_prefix, mp3d_root, magnum_python_site)
+    ) or any(name in os.environ for name in _INSTALLED_RUNTIME_ENVIRONMENT_VARIABLES)
+
+
+def _room_declares_external_mp3d_root(room: Mapping[str, Any]) -> bool:
+    """Return whether a room is migrated to the external MP3D root."""
+
+    scene = room.get("scene")
+    declared_paths: list[object] = []
+    if isinstance(scene, Mapping):
+        declared_paths.extend(
+            scene.get(key) for key in ("scene_id", "dataset_config_path", "navmesh_path")
+        )
+    assets = room.get("assets")
+    if isinstance(assets, Sequence) and not isinstance(assets, (str, bytes)):
+        for asset in assets:
+            if isinstance(asset, Mapping):
+                declared_paths.append(asset.get("path"))
+    return any(
+        isinstance(path, str) and "${AVENGINE_MP3D_ROOT}" in path
+        for path in declared_paths
+    )
+
+
+def _select_mixed_capture_runtime(
+    *,
+    room: Mapping[str, Any],
+    runtime_prefix: str | Path | None,
+    runtime_root: str | Path | None,
+    legacy_runtime_root: str | Path | None,
+    mp3d_root: str | Path | None,
+    magnum_python_site: str | Path | None,
+    installed_runtime: InstalledHabitatRuntime | None,
+) -> InstalledHabitatRuntime | None:
+    """Resolve new MP3D callers before any checkout-oriented import.
+
+    ``runtime_root`` is an installed-prefix compatibility alias only for a
+    room already migrated to ``AVENGINE_MP3D_ROOT``.  Other retained routes
+    keep the legacy branch only when no newer prefix, MP3D, or Magnum input
+    exists.  The internal ``legacy_runtime_root`` argument is reserved for the
+    retained legacy wrapper, whose room manifest remains checkout-based.
+    """
+
+    installed_requested = _installed_runtime_inputs_requested(
+        runtime_prefix=runtime_prefix,
+        mp3d_root=mp3d_root,
+        magnum_python_site=magnum_python_site,
+    )
+    explicit_installed_inputs = any(
+        value is not None
+        for value in (runtime_prefix, runtime_root, mp3d_root, magnum_python_site)
+    )
+    if legacy_runtime_root is not None:
+        if installed_runtime is not None or explicit_installed_inputs or installed_requested:
+            raise MixedCaptureError(
+                "legacy-runtime-root cannot be combined with installed runtime "
+                "prefix, MP3D, or Magnum inputs"
+            )
+        return None
+    if installed_runtime is not None:
+        if explicit_installed_inputs:
+            raise MixedCaptureError(
+                "installed_runtime cannot be combined with runtime-root/prefix, "
+                "mp3d-root, or magnum-python-site"
+            )
+        return installed_runtime
+    if installed_requested or (
+        runtime_root is not None and _room_declares_external_mp3d_root(room)
+    ):
+        return prepare_installed_habitat_runtime(
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+        )
+    return None
+
+
 def capture_human_beagle_paths(
     *,
     room_manifest_path: str | Path,
@@ -886,6 +989,11 @@ def capture_human_beagle_paths(
     beagle_root_path_m: Any,
     output_dir: str | Path,
     runtime_root: str | Path | None = None,
+    runtime_prefix: str | Path | None = None,
+    legacy_runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
     route_provenance: Mapping[str, Any] | None = None,
     require_legacy_camera: bool = False,
     human_semantic_id: int = HUMAN_SEMANTIC_ID,
@@ -956,10 +1064,30 @@ def capture_human_beagle_paths(
     output.mkdir(parents=True)
 
     try:
+        room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
+        installed_runtime = _select_mixed_capture_runtime(
+            room=room_inputs.room,
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            legacy_runtime_root=legacy_runtime_root,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+            installed_runtime=installed_runtime,
+        )
+        if installed_runtime is not None:
+            if installed_runtime.mp3d_root is None:
+                raise MixedCaptureError(
+                    "installed MP3D capture requires an explicit --mp3d-root or "
+                    "AVENGINE_MP3D_ROOT"
+                )
+            if research_capture_schema != MIXED_CAPTURE_INSTALLED_SCHEMA_V2:
+                raise MixedCaptureError(
+                    "installed MP3D capture must use "
+                    f"{MIXED_CAPTURE_INSTALLED_SCHEMA_V2}"
+                )
         human_package = prepare_rocketbox_habitat_runtime(
             human_runtime_glb_path, output / "runtime" / "human"
         )
-        room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
         if require_legacy_camera:
             _validate_legacy_camera(room_inputs)
         m2_inputs = (
@@ -1034,24 +1162,52 @@ def capture_human_beagle_paths(
                 key: value.sample_count for key, value in beagle_actions.items()
             },
         )
-        runtime = discover_runtime_root(runtime_root)
-        missing = [
-            record
-            for record in _resolved_assets(room_inputs, runtime)
-            if not record["exists"]
-        ]
-        if missing:
-            raise MixedCaptureError("validated legacy room has missing runtime assets")
+        if installed_runtime is None:
+            runtime = discover_runtime_root(
+                legacy_runtime_root
+                if legacy_runtime_root is not None
+                else runtime_root
+            )
+            missing = [
+                record
+                for record in _resolved_assets(room_inputs, runtime)
+                if not record["exists"]
+            ]
+            if missing:
+                raise MixedCaptureError("validated legacy room has missing runtime assets")
 
-        # The pinned Habitat build requires numpy-quaternion before habitat_sim.
-        import quaternion as qt
+            # Legacy callers retain the historical checkout-only branch until
+            # their own writer slice is migrated.
+            import quaternion as qt
 
-        import habitat_sim
-        import magnum as mn
+            import habitat_sim
+            import magnum as mn
 
-        configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
-            _make_configuration(room_inputs, runtime, output / "scene_scratch")
-        )
+            configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
+                _make_configuration(room_inputs, runtime, output / "scene_scratch")
+            )
+        else:
+            missing = [
+                record
+                for record in _resolved_assets(
+                    room_inputs, None, mp3d_root=installed_runtime.mp3d_root
+                )
+                if not record["exists"]
+            ]
+            if missing:
+                raise MixedCaptureError("validated MP3D room has missing external assets")
+            qt = installed_runtime.quaternion
+            habitat_sim = installed_runtime.habitat_sim
+            mn = installed_runtime.magnum
+            configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
+                _make_configuration(
+                    room_inputs,
+                    None,
+                    output / "scene_scratch",
+                    mp3d_root=installed_runtime.mp3d_root,
+                    physics_config_path=installed_runtime.physics_config_path,
+                )
+            )
         configuration.sim_cfg.enable_hbao = True
         if not bool(configuration.sim_cfg.enable_hbao):
             raise MixedCaptureError("M5.1 HBAO could not be enabled in configuration")
@@ -1611,6 +1767,23 @@ def capture_human_beagle_paths(
                 f"{secondary_record_key}_validated_source_request_sha256": sha256_file(
                     beagle_m2_request_path
                 ),
+                **(
+                    {
+                        "installed_habitat_runtime": {
+                            "kind": "installed_prefix",
+                            "prefix": str(installed_runtime.prefix),
+                            "mp3d_root": str(installed_runtime.mp3d_root),
+                            "magnum_python_site": str(
+                                installed_runtime.magnum_python_site
+                            ),
+                            "physics_config_path": str(
+                                installed_runtime.physics_config_path
+                            ),
+                        }
+                    }
+                    if installed_runtime is not None
+                    else {}
+                ),
             },
             "readback": {
                 "maximum_errors": maximum_errors,
@@ -1695,7 +1868,7 @@ def capture_legacy_route(
         human_root_path_m=human_path,
         beagle_root_path_m=beagle_path,
         output_dir=output_dir,
-        runtime_root=runtime_root,
+        legacy_runtime_root=runtime_root,
         route_provenance=provenance,
         require_legacy_camera=True,
     )
@@ -1709,6 +1882,7 @@ __all__ = [
     "LOCOMOTION_POLICY_ID",
     "LOCOMOTION_WALK_ENTER_SPEED_M_S",
     "MIXED_CAPTURE_SCHEMA",
+    "MIXED_CAPTURE_INSTALLED_SCHEMA_V2",
     "LocomotionFrameState",
     "MixedCaptureError",
     "MixedCaptureResult",

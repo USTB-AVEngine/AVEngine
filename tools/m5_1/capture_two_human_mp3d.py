@@ -24,7 +24,27 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--room-manifest", type=Path, required=True)
     parser.add_argument("--m1-request", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--runtime-root", type=Path)
+    runtime = parser.add_mutually_exclusive_group()
+    runtime.add_argument(
+        "--runtime-prefix",
+        type=Path,
+        help="Non-Git installed Habitat runtime prefix",
+    )
+    runtime.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Compatibility alias for --runtime-prefix; Git checkouts are rejected",
+    )
+    parser.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="External MP3D data root containing scene_datasets",
+    )
+    parser.add_argument(
+        "--magnum-python-site",
+        type=Path,
+        help="External Corrade/Magnum Python site; otherwise AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+    )
     return parser
 
 
@@ -41,7 +61,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             room_manifest_path=args.room_manifest,
             m1_request_path=args.m1_request,
             output_dir=args.output,
+            runtime_prefix=args.runtime_prefix,
             runtime_root=args.runtime_root,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
         )
     except (TwoHumanCaptureError, RuntimeError, OSError, ValueError) as exc:
         parser.error(str(exc))

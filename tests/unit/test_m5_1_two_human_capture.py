@@ -994,6 +994,66 @@ def test_authority_join_rejects_symlinked_source_glb(tmp_path: Path) -> None:
         _validate(documents)
 
 
+def test_authority_rejects_legacy_runtime_root_manifest_without_data_alias(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    registry = tmp_path / "runtime_profiles.json"
+    registry.write_text("{}", encoding="utf-8")
+    atom = tmp_path / "atom.json"
+    atom.write_text(
+        json.dumps(
+            {
+                "actor_framing": {"runtime_profile_registry": str(registry)},
+                "camera_runtime": {},
+                "room": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    companion = tmp_path / "companion.json"
+    companion.write_text("{}", encoding="utf-8")
+    prefix = tmp_path / "installed-prefix"
+    prefix.mkdir()
+    mp3d_root = tmp_path / "mp3d"
+    (mp3d_root / "scene_datasets").mkdir(parents=True)
+    monkeypatch.setattr(
+        "avengine.m5_1.two_human_capture.load_m1_inputs",
+        lambda *_args: SimpleNamespace(
+            room={
+                "scene": {
+                    "scene_id": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene.glb",
+                    "dataset_config_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/dataset.json",
+                    "navmesh_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene.navmesh",
+                }
+            },
+            request={},
+        ),
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.two_human_capture.load_source_asset_runtime_registry",
+        lambda _path: {},
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.two_human_capture.validate_two_human_authority_documents",
+        lambda **_kwargs: pytest.fail(
+            "legacy room must be rejected before authority validation"
+        ),
+    )
+
+    with pytest.raises(TwoHumanCaptureError, match="do not map the legacy runtime-root"):
+        load_two_human_capture_authority(
+            atom_request_path=atom,
+            suite_plan_path=companion,
+            sensor_rig_path=companion,
+            trajectory_bank_path=companion,
+            rir_plan_path=companion,
+            room_manifest_path=companion,
+            m1_request_path=companion,
+            runtime_prefix=prefix,
+            mp3d_root=mp3d_root,
+        )
+
+
 def test_runtime_profile_registry_path_rejects_symlink(tmp_path: Path) -> None:
     registry = tmp_path / "profiles.json"
     registry.write_text("{}", encoding="utf-8")
@@ -1615,7 +1675,10 @@ def test_two_human_cli_maps_all_kernel_arguments_and_reports_plain_json(
             "room_manifest_path": tmp_path / "room.json",
             "m1_request_path": tmp_path / "m1.json",
             "output_dir": output,
+            "runtime_prefix": None,
             "runtime_root": tmp_path / "runtime",
+            "mp3d_root": None,
+            "magnum_python_site": None,
         }
     ]
     payload = json.loads(capsys.readouterr().out)
@@ -1637,6 +1700,67 @@ def test_two_human_cli_maps_all_kernel_arguments_and_reports_plain_json(
     assert all("hash" not in key and "sha" not in key for key in payload)
 
 
+def test_two_human_cli_rejects_prefix_and_root_together(
+    tmp_path: Path,
+) -> None:
+    parser = CLI._parser()
+    argv = _two_human_cli_argv(tmp_path, include_runtime_root=False)
+    argv.extend(
+        [
+            "--runtime-prefix",
+            str(tmp_path / "prefix"),
+            "--runtime-root",
+            str(tmp_path / "root"),
+        ]
+    )
+    with pytest.raises(SystemExit):
+        parser.parse_args(argv)
+
+
+def test_two_human_cli_accepts_prefix_and_external_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_capture(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            output_dir=tmp_path / "capture",
+            evidence={
+                "status": "pass",
+                "status_scope": "native_capture_execution",
+                "backend_role": "production_visual",
+                "frame_count": 75,
+                "research_only": True,
+                "manual_review_status": "pending",
+                "formal_dataset_count": 0,
+                "semantic_visible_frame_count": {
+                    "source1_actor": 75,
+                    "source2_actor": 75,
+                },
+            },
+        )
+
+    monkeypatch.setattr(CLI, "capture_two_human_mp3d", fake_capture)
+    argv = _two_human_cli_argv(tmp_path, include_runtime_root=False)
+    argv.extend(
+        [
+            "--runtime-prefix",
+            str(tmp_path / "prefix"),
+            "--mp3d-root",
+            str(tmp_path / "mp3d"),
+            "--magnum-python-site",
+            str(tmp_path / "magnum"),
+        ]
+    )
+    assert CLI.main(argv) == 0
+    assert calls[0]["runtime_prefix"] == tmp_path / "prefix"
+    assert calls[0]["runtime_root"] is None
+    assert calls[0]["mp3d_root"] == tmp_path / "mp3d"
+    assert calls[0]["magnum_python_site"] == tmp_path / "magnum"
+
+
 @pytest.mark.parametrize("error_type", [TwoHumanCaptureError, RuntimeError])
 def test_two_human_cli_reports_capture_error_as_exit_two(
     monkeypatch: pytest.MonkeyPatch,
@@ -1655,7 +1779,10 @@ def test_two_human_cli_reports_capture_error_as_exit_two(
         CLI.main(_two_human_cli_argv(tmp_path, include_runtime_root=False))
     assert raised.value.code == 2
     assert len(calls) == 1
+    assert calls[0]["runtime_prefix"] is None
     assert calls[0]["runtime_root"] is None
+    assert calls[0]["mp3d_root"] is None
+    assert calls[0]["magnum_python_site"] is None
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "injected CLI capture failure" in captured.err
