@@ -79,6 +79,9 @@ def test_build_wiring_uses_only_explicit_installed_sdk_roots() -> None:
     # declaring it static makes UBT's C# rules compilation fail with CS0120.
     assert "private string RequireStaticLibrary(" in build_rules
     assert "private static string RequireStaticLibrary(" not in build_rules
+    # Assert.cpp calls Boost.Test's non-header debugger implementation; omitting
+    # this archive causes the actual SpCore module link to fail.
+    assert "lib/libboost_unit_test_framework.a" in build_rules
 
 
 def test_project_and_asset_boundary_are_source_only() -> None:

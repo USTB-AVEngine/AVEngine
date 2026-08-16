@@ -52,7 +52,16 @@ public class SpModuleRules : ModuleRules
         // These roots are intentionally explicit. Do not search a SPEAR checkout, a sibling repository,
         // or an ambient package prefix: a user installs these ordinary C++ SDKs outside AVEngine.
         string boostRoot = RequireSdkRoot("AVENGINE_SPEAR_BOOST_ROOT", "include/boost/predef.h");
-        PublicIncludePaths.Add(Path.Combine(boostRoot, "include"));
+        string boostIncludePath = Path.GetFullPath(Path.Combine(boostRoot, "include"));
+        RejectLinuxHostIncludePath("AVENGINE_SPEAR_BOOST_ROOT", boostIncludePath, readOnlyTargetRules.Platform);
+        PublicIncludePaths.Add(boostIncludePath);
+        PublicAdditionalLibraries.Add(RequireStaticLibrary(
+            "AVENGINE_SPEAR_BOOST_ROOT",
+            boostRoot,
+            readOnlyTargetRules.Platform,
+            "lib/boost_unit_test_framework.lib",
+            "lib/libboost_unit_test_framework.a",
+            "lib/libboost_unit_test_framework.a"));
 
         string rpclibRoot = RequireSdkRoot("AVENGINE_SPEAR_RPCLIB_ROOT", "include/rpc/client.h");
         PublicIncludePaths.Add(Path.Combine(rpclibRoot, "include"));
@@ -102,6 +111,22 @@ public class SpModuleRules : ModuleRules
                 environmentVariable + " lacks required installed SDK file: " + requiredPath);
         }
         return root;
+    }
+
+    private static void RejectLinuxHostIncludePath(
+        string environmentVariable,
+        string includePath,
+        UnrealTargetPlatform platform)
+    {
+        if (platform != UnrealTargetPlatform.Linux
+            || !String.Equals(includePath, "/usr/include", StringComparison.Ordinal)) {
+            return;
+        }
+
+        throw new Exception(
+            environmentVariable + "=/usr is unsupported for Linux UE builds because it adds /usr/include "
+            + "ahead of UE's bundled sysroot and mixes host glibc headers. Install Boost in a dedicated "
+            + "prefix containing include/boost/predef.h instead.");
     }
 
     private string RequireStaticLibrary(

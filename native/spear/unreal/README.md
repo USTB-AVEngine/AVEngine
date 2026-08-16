@@ -35,16 +35,33 @@ repository, or a vendored dependency tree.
 
 | Variable | Required installed layout |
 | --- | --- |
-| AVENGINE_SPEAR_BOOST_ROOT | include/boost/predef.h |
+| AVENGINE_SPEAR_BOOST_ROOT | include/boost/predef.h, lib/libboost_unit_test_framework.a on Linux/macOS or lib/boost_unit_test_framework.lib on Windows |
 | AVENGINE_SPEAR_RPCLIB_ROOT | include/rpc/client.h, lib/librpc.a on Linux/macOS or lib/rpc.lib on Windows |
 | AVENGINE_SPEAR_YAML_CPP_ROOT | include/yaml-cpp/yaml.h, lib/libyaml-cpp.a on Linux/macOS or lib/yaml-cpp.lib on Windows |
 
-Boost is retained as an external headers SDK because this selected closure uses
-Boost headers/inline facilities and has no selected boost::filesystem or
-Boost.UnitTest link use. rpclib and yaml-cpp must be installed as static
+On Linux, AVENGINE_SPEAR_BOOST_ROOT must be an isolated Boost-only prefix, for
+example /opt/avengine-sdk/boost-<version>, whose include/ directory contains
+only the Boost header tree. Do not set it to /usr: that would inject
+-I/usr/include ahead of UE's bundled sysroot and mix host glibc headers. The
+build rule rejects that exact root; avoid /usr/local and other broad host
+prefixes as well. The same prefix must provide the matching static Boost.Test
+archive: Assert.cpp calls boost::debug::under_debugger(), whose implementation
+is not header-only. The selected source has no boost::filesystem use, so this
+does not require a Boost.Filesystem archive.
+
+Boost is retained as an external C++ SDK because this selected closure uses
+Boost headers/inline facilities plus the Boost.Test archive. It has no selected
+boost::filesystem link use. rpclib and yaml-cpp must be installed as static
 archives for the current UBT rule. The currently exercised production platform
 is Linux; Windows/macOS path branches are source support, not validation
 evidence.
+
+On Linux, every non-header-only static C++ archive in these SDK roots must be
+built against UE 5.5's selected target/sysroot and LibCxx ABI, rather than host
+GCC/libstdc++. This specifically includes librpc.a: a host archive exposes
+std::__cxx11 references and cannot link into UE modules, whereas a compatible
+archive exposes std::__1. UBT's Linux final link already supplies pthread for
+rpclib; non-UE consumers must arrange Threads/pthread themselves.
 
 With an external UE 5.5 installation, first copy this source-only directory
 into a fresh external project stage and assemble legal assets there. A normal
