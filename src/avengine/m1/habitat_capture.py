@@ -30,7 +30,7 @@ from avengine.contracts.transforms import (
     transform_error,
 )
 from avengine.m1.contracts import (
-    EVIDENCE_SCHEMA,
+    EVIDENCE_SCHEMA_V2,
     ValidatedM1Inputs,
     validate_loaded_scene_asset_graph,
     validate_scene_asset_graph,
@@ -78,6 +78,60 @@ def discover_runtime_root(explicit: str | Path | None = None) -> Path:
     raise FileNotFoundError("Set AVENGINE_HABITAT_RUNTIME_ROOT or pass --runtime-root")
 
 
+def discover_runtime_prefix(explicit: str | Path | None = None) -> Path:
+    configured = explicit if explicit is not None else os.environ.get(
+        "AVENGINE_HABITAT_RUNTIME_PREFIX"
+    )
+    if configured is None:
+        raise FileNotFoundError(
+            "Set AVENGINE_HABITAT_RUNTIME_PREFIX or pass --runtime-prefix"
+        )
+    prefix = Path(configured).resolve()
+    if not prefix.is_dir():
+        raise FileNotFoundError(f"Habitat installed runtime prefix is missing: {prefix}")
+    return prefix
+
+
+def discover_mp3d_root(explicit: str | Path | None = None) -> Path | None:
+    configured = explicit if explicit is not None else os.environ.get("AVENGINE_MP3D_ROOT")
+    if configured is None:
+        return None
+    root = Path(configured).resolve()
+    if not (root / "scene_datasets").is_dir():
+        raise FileNotFoundError(
+            f"AVENGINE_MP3D_ROOT must contain scene_datasets: {root}"
+        )
+    return root
+
+
+def _activate_runtime_prefix(prefix: Path) -> None:
+    resolved = str(prefix.resolve())
+    sys.path[:] = [resolved, *(entry for entry in sys.path if entry != resolved)]
+
+
+def _installed_runtime_paths(
+    prefix: Path, habitat_sim: Any, habitat_sim_bindings: Any
+) -> tuple[Path, Path, Path]:
+    module_path = Path(habitat_sim.__file__).resolve()
+    binding_path = Path(habitat_sim_bindings.__file__).resolve()
+    physics_path = (prefix / "config" / "default.physics_config.json").resolve()
+    try:
+        module_path.relative_to(prefix)
+        binding_path.relative_to(prefix)
+        physics_path.relative_to(prefix)
+    except ValueError as error:
+        raise RuntimeError(
+            "Installed Habitat module, native binding, or physics config is not "
+            "from --runtime-prefix"
+        ) from error
+    if not module_path.is_file() or not binding_path.is_file() or not physics_path.is_file():
+        raise FileNotFoundError(
+            "Installed Habitat runtime must provide module, native binding, and "
+            f"config/default.physics_config.json under {prefix}"
+        )
+    return module_path, binding_path, physics_path
+
+
 def _git_value(repository: Path, *arguments: str) -> str | None:
     result = subprocess.run(
         ["git", "-C", str(repository), *arguments],
@@ -116,15 +170,29 @@ def _import_habitat() -> tuple[Any, Any, Any, Any]:
     return qt, habitat_sim, mn, quat_to_coeffs
 
 
-def _environment_for_paths(runtime_root: Path) -> dict[str, str]:
+def _environment_for_paths(
+    runtime_root: Path | None = None,
+    *,
+    mp3d_root: Path | None = None,
+) -> dict[str, str]:
     environment = dict(os.environ)
-    environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(runtime_root)
+    environment.pop("AVENGINE_HABITAT_RUNTIME_ROOT", None)
+    environment.pop("AVENGINE_MP3D_ROOT", None)
+    if runtime_root is not None:
+        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(runtime_root)
+    if mp3d_root is not None:
+        environment["AVENGINE_MP3D_ROOT"] = str(mp3d_root)
     return environment
 
 
-def _resolved_scene(inputs: ValidatedM1Inputs, runtime_root: Path) -> dict[str, Any]:
+def _resolved_scene(
+    inputs: ValidatedM1Inputs,
+    runtime_root: Path | None,
+    *,
+    mp3d_root: Path | None = None,
+) -> dict[str, Any]:
     scene = inputs.room["scene"]
-    environment = _environment_for_paths(runtime_root)
+    environment = _environment_for_paths(runtime_root, mp3d_root=mp3d_root)
     manifest_dir = inputs.room_path.parent
 
     dataset_raw = scene["dataset_config_path"]
@@ -161,9 +229,12 @@ def _resolved_scene(inputs: ValidatedM1Inputs, runtime_root: Path) -> dict[str, 
 
 
 def _resolved_assets(
-    inputs: ValidatedM1Inputs, runtime_root: Path
+    inputs: ValidatedM1Inputs,
+    runtime_root: Path | None,
+    *,
+    mp3d_root: Path | None = None,
 ) -> list[dict[str, Any]]:
-    environment = _environment_for_paths(runtime_root)
+    environment = _environment_for_paths(runtime_root, mp3d_root=mp3d_root)
     records: list[dict[str, Any]] = []
     for asset in inputs.room["assets"]:
         path = resolve_declared_path(
@@ -556,12 +627,16 @@ def _surface_provenance_check(
 
 def _make_configuration(
     inputs: ValidatedM1Inputs,
-    runtime_root: Path,
+    runtime_root: Path | None,
     output_dir: Path,
+    *,
+    mp3d_root: Path | None = None,
+    include_audio_sensor: bool = True,
+    physics_config_path: Path | None = None,
 ) -> tuple[Any, dict[str, str], str, dict[str, Any]]:
     qt, habitat_sim, mn, _ = _import_habitat()
     del qt
-    resolved = _resolved_scene(inputs, runtime_root)
+    resolved = _resolved_scene(inputs, runtime_root, mp3d_root=mp3d_root)
     rig = inputs.request["primary_camera_rig"]
     calibration = rig["shared_calibration"]
     height, width = calibration["resolution_hw"]
@@ -597,20 +672,22 @@ def _make_configuration(
         sensor_specs.append(spec)
 
     listener = inputs.request["listener"]
-    audio_spec = habitat_sim.AudioSensorSpec()
-    audio_spec.uuid = listener["listener_id"]
-    audio_spec.position = local_position
-    audio_spec.orientation = local_orientation
-    # This sensor is a pose anchor in M1. It is deliberately excluded from
-    # render_sensors(), so the deprecated one-source RLR wrapper never runs.
-    audio_spec.outputDirectory = str(output_dir / "audio_not_run")
-    sensor_specs.append(audio_spec)
+    if include_audio_sensor:
+        audio_spec = habitat_sim.AudioSensorSpec()
+        audio_spec.uuid = listener["listener_id"]
+        audio_spec.position = local_position
+        audio_spec.orientation = local_orientation
+        # Kept for downstream M2/M5 callers that still require an audio sensor.
+        audio_spec.outputDirectory = str(output_dir / "audio_not_run")
+        sensor_specs.append(audio_spec)
 
     sim_cfg = habitat_sim.SimulatorConfiguration()
     sim_cfg.scene_id = str(resolved["scene_id"])
     sim_cfg.scene_dataset_config_file = str(resolved["dataset_config"])
     sim_cfg.load_semantic_mesh = resolved["load_semantic_mesh"]
     sim_cfg.enable_physics = resolved["enable_physics"]
+    if physics_config_path is not None:
+        sim_cfg.physics_config_file = str(physics_config_path.resolve())
     sim_cfg.random_seed = int(inputs.request["seed"])
     sim_cfg.gpu_device_id = 0
 
@@ -666,6 +743,12 @@ def _state_snapshot(
             for uuid in sorted(sensor_uuids)
         },
     }
+
+
+def _logical_listener_pose(snapshot: dict[str, Any], listener: dict[str, Any]) -> dict[str, Any]:
+    """Derive the M1 logical listener from the actual agent/rig state."""
+
+    return compose_transforms(snapshot["agent"], listener["rig_from_listener"])
 
 
 def _repeat_hashes(
@@ -886,12 +969,14 @@ def _independent_process_repeatability_check(
     inputs: ValidatedM1Inputs,
     observation_records: dict[str, dict[str, Any]],
     state_hash: str,
-    runtime_commit: str | None,
-    native_binding_sha256: str,
+    runtime_prefix: Path,
+    mp3d_root: Path | None,
+    habitat_module_path: Path,
+    native_binding_path: Path,
+    physics_config_path: Path,
     asset_records: list[dict[str, Any]],
     avengine_commit: str | None,
     repository_clean: bool,
-    runtime_clean: bool,
     output_dir: Path,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     if reference_path is None:
@@ -946,7 +1031,7 @@ def _independent_process_repeatability_check(
         comparisons = {
             "reference_fully_verified": reference_verification_status == "pass",
             "content_hash_valid": expected_hash == actual_hash,
-            "schema_matches": reference.get("schema") == EVIDENCE_SCHEMA,
+            "schema_matches": reference.get("schema") == EVIDENCE_SCHEMA_V2,
             "evidence_kind_matches": reference.get("evidence_kind")
             == "completed_capture",
             "reference_is_first_run": reference.get("overall_status") == "not_run"
@@ -962,15 +1047,24 @@ def _independent_process_repeatability_check(
                 "sha256"
             )
             == sha256_file(inputs.request_path),
-            "runtime_commit_matches": reference.get("runtime", {}).get(
-                "habitat_runtime_commit"
+            "runtime_prefix_matches": reference.get("runtime", {}).get(
+                "habitat_runtime_prefix"
             )
-            == runtime_commit,
-            "runtime_was_and_is_clean": reference.get("runtime", {}).get(
-                "habitat_runtime_worktree_dirty"
+            == str(runtime_prefix),
+            "mp3d_root_matches": reference.get("runtime", {}).get("mp3d_root")
+            == (str(mp3d_root) if mp3d_root is not None else None),
+            "module_path_matches": reference.get("runtime", {}).get(
+                "habitat_module_path"
             )
-            is False
-            and runtime_clean,
+            == str(habitat_module_path),
+            "native_binding_path_matches": reference.get("runtime", {}).get(
+                "native_binding_path"
+            )
+            == str(native_binding_path),
+            "physics_config_path_matches": reference.get("runtime", {}).get(
+                "physics_config_path"
+            )
+            == str(physics_config_path),
             "avengine_commit_matches": reference.get("runtime", {}).get(
                 "avengine_commit"
             )
@@ -980,10 +1074,6 @@ def _independent_process_repeatability_check(
             )
             is False
             and repository_clean,
-            "native_binding_matches": reference.get("runtime", {}).get(
-                "native_binding_sha256"
-            )
-            == native_binding_sha256,
             "scene_assets_match": reference_assets == current_assets,
             "initial_state_matches": reference.get("capture_state", {}).get(
                 "before_sha256"
@@ -1052,7 +1142,7 @@ def capture_m1(
     inputs: ValidatedM1Inputs,
     output_dir: str | Path,
     *,
-    runtime_root: str | Path | None = None,
+    runtime_prefix: str | Path | None = None,
     repeat_count: int = 3,
     reference_evidence: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -1066,23 +1156,37 @@ def capture_m1(
         if stale.is_dir():
             shutil.rmtree(stale)
     (output / "evidence.json").unlink(missing_ok=True)
-    runtime = discover_runtime_root(runtime_root)
+    prefix = discover_runtime_prefix(runtime_prefix)
+    mp3d_root = discover_mp3d_root()
+    _activate_runtime_prefix(prefix)
     repository_root = Path(__file__).resolve().parents[3]
     qt, habitat_sim, _, quat_to_coeffs = _import_habitat()
     from habitat_sim._ext import habitat_sim_bindings
 
+    habitat_module_path, native_binding_path, physics_config_path = _installed_runtime_paths(
+        prefix, habitat_sim, habitat_sim_bindings
+    )
     configuration, modality_to_uuid, listener_uuid, resolved_scene = (
-        _make_configuration(inputs, runtime, output)
+        _make_configuration(
+            inputs,
+            None,
+            output,
+            mp3d_root=mp3d_root,
+            include_audio_sensor=False,
+            physics_config_path=physics_config_path,
+        )
     )
     repeat_count = max(2, int(repeat_count))
-    asset_records = _resolved_assets(inputs, runtime)
+    asset_records = _resolved_assets(inputs, None, mp3d_root=mp3d_root)
     missing_assets = [record for record in asset_records if not record["exists"]]
     if missing_assets:
         raise FileNotFoundError(
             "Required room assets are missing: "
             + ", ".join(record["declared_path"] for record in missing_assets)
         )
-    scene_graph_errors = validate_scene_asset_graph(inputs, runtime)
+    scene_graph_errors = validate_scene_asset_graph(
+        inputs, None, mp3d_root=mp3d_root
+    )
 
     formal_view_passed = (
         inputs.request["primary_camera_rig"]["rig_id"] == "camera_rig_0"
@@ -1124,35 +1228,6 @@ def capture_m1(
         else "Habitat scene selection diverges from the declared asset closure",
     )
     checks.append(scene_graph_check)
-    runtime_commit = _git_value(runtime, "rev-parse", "HEAD")
-    locked_runtime_commit = _runtime_lock_commit(repository_root)
-    runtime_matches = (
-        runtime_commit is not None and runtime_commit == locked_runtime_commit
-    )
-    checks.append(
-        make_check(
-            "runtime_commit_matches_lock",
-            "pass" if runtime_matches else "fail",
-            measured=runtime_commit,
-            threshold=locked_runtime_commit,
-            failure_reason=None
-            if runtime_matches
-            else "Runtime checkout differs from lock",
-        )
-    )
-    runtime_status = _git_value(runtime, "status", "--porcelain")
-    runtime_clean = runtime_status == ""
-    checks.append(
-        make_check(
-            "runtime_worktree_clean",
-            "pass" if runtime_clean else "fail",
-            measured={"git_status": runtime_status},
-            threshold={"dirty": False},
-            failure_reason=None
-            if runtime_clean
-            else "Pinned Habitat runtime worktree is dirty",
-        )
-    )
     repository_status = _git_value(repository_root, "status", "--porcelain")
     repository_clean = repository_status == ""
     avengine_commit = _git_value(repository_root, "rev-parse", "HEAD")
@@ -1167,28 +1242,16 @@ def capture_m1(
             else "AVEngine worktree is dirty; final evidence must bind a clean commit",
         )
     )
-    habitat_module_path = Path(habitat_sim.__file__).resolve()
-    native_binding_path = Path(habitat_sim_bindings.__file__).resolve()
-    try:
-        habitat_module_path.relative_to(runtime)
-        native_binding_path.relative_to(runtime)
-        binary_origin_passed = True
-    except ValueError:
-        binary_origin_passed = False
-    native_binding_sha256 = sha256_file(native_binding_path)
     checks.append(
         make_check(
             "runtime_binary_origin",
-            "pass" if binary_origin_passed else "fail",
+            "pass",
             measured={
                 "habitat_module": str(habitat_module_path),
                 "native_binding": str(native_binding_path),
-                "native_binding_sha256": native_binding_sha256,
+                "physics_config": str(physics_config_path),
             },
-            threshold={"both_paths_within_runtime_root": str(runtime)},
-            failure_reason=None
-            if binary_origin_passed
-            else "Imported Habitat Python/native binding is not from --runtime-root",
+            threshold={"all_paths_within_runtime_prefix": str(prefix)},
         )
     )
     checks.append(
@@ -1218,7 +1281,9 @@ def capture_m1(
     state.rotation = _numpy_quaternion(world_from_rig["rotation_xyzw"], qt)
 
     visual_uuids = [modality_to_uuid[key] for key in ("rgb", "depth", "semantic")]
-    all_sensor_uuids = visual_uuids + [listener_uuid]
+    expected_world_from_listener = compose_transforms(
+        world_from_rig, inputs.request["listener"]["rig_from_listener"]
+    )
     with habitat_sim.Simulator(configuration) as sim:
         navmesh_path = resolved_scene["navmesh"]
         declared_navmesh_loaded = False
@@ -1231,9 +1296,10 @@ def capture_m1(
 
         loaded_graph_errors, loaded_graph = validate_loaded_scene_asset_graph(
             inputs,
-            runtime,
+            None,
             sim,
             declared_navmesh_loaded=declared_navmesh_loaded,
+            mp3d_root=mp3d_root,
         )
         combined_scene_graph_errors = scene_graph_errors + loaded_graph_errors
         scene_graph_check.clear()
@@ -1272,7 +1338,10 @@ def capture_m1(
 
         sim.seed(int(inputs.request["seed"]))
         agent = sim.initialize_agent(0, state)
-        before = _state_snapshot(sim, agent, all_sensor_uuids, quat_to_coeffs)
+        before = _state_snapshot(sim, agent, visual_uuids, quat_to_coeffs)
+        before["listener_pose"] = _logical_listener_pose(
+            before, inputs.request["listener"]
+        )
         before_hash = canonical_json_sha256(before)
 
         captures: list[dict[str, np.ndarray]] = []
@@ -1285,7 +1354,10 @@ def capture_m1(
                     for uuid in visual_uuids
                 }
             )
-        after = _state_snapshot(sim, agent, all_sensor_uuids, quat_to_coeffs)
+        after = _state_snapshot(sim, agent, visual_uuids, quat_to_coeffs)
+        after["listener_pose"] = _logical_listener_pose(
+            after, inputs.request["listener"]
+        )
         after_hash = canonical_json_sha256(after)
 
         observation_records = save_observations(captures[0], modality_to_uuid, output)
@@ -1317,8 +1389,11 @@ def capture_m1(
         readback_poses = before["sensors"]
         pose_errors = {
             uuid: transform_error(readback_poses[uuid], expected_world_from_sensor)
-            for uuid in all_sensor_uuids
+            for uuid in visual_uuids
         }
+        pose_errors[listener_uuid] = transform_error(
+            before["listener_pose"], expected_world_from_listener
+        )
         maximum_pose_error = max(pose_errors.values())
         alignment_passed = maximum_pose_error <= 1e-7
         checks.append(
@@ -1447,19 +1522,20 @@ def capture_m1(
         inputs=inputs,
         observation_records=observation_records,
         state_hash=before_hash,
-        runtime_commit=runtime_commit,
-        native_binding_sha256=native_binding_sha256,
+        runtime_prefix=prefix,
+        mp3d_root=mp3d_root,
+        habitat_module_path=habitat_module_path,
+        native_binding_path=native_binding_path,
+        physics_config_path=physics_config_path,
         asset_records=asset_records,
         avengine_commit=avengine_commit,
         repository_clean=repository_clean,
-        runtime_clean=runtime_clean,
         output_dir=output,
     )
     checks.append(independent_check)
 
-    lock_path = resolve_runtime_profile(repository_root, "m1")
     evidence: dict[str, Any] = {
-        "schema": EVIDENCE_SCHEMA,
+        "schema": EVIDENCE_SCHEMA_V2,
         "evidence_kind": "completed_capture",
         "room_id": inputs.room["room_id"],
         "room_kind": inputs.room["room_kind"],
@@ -1471,8 +1547,11 @@ def capture_m1(
                 "capture_request_sha256": sha256_file(inputs.request_path),
                 "scene_assets": asset_records,
                 "avengine_commit": avengine_commit,
-                "habitat_runtime_commit": runtime_commit,
-                "native_binding_sha256": native_binding_sha256,
+                "habitat_runtime_prefix": str(prefix),
+                "mp3d_root": str(mp3d_root) if mp3d_root is not None else None,
+                "habitat_module_path": str(habitat_module_path),
+                "native_binding_path": str(native_binding_path),
+                "physics_config_path": str(physics_config_path),
                 "state": before,
                 "repeat_count": repeat_count,
             }
@@ -1489,14 +1568,11 @@ def capture_m1(
         "runtime": {
             "avengine_commit": avengine_commit,
             "avengine_worktree_dirty": not repository_clean,
-            "habitat_runtime_root": str(runtime),
-            "habitat_runtime_commit": runtime_commit,
-            "habitat_runtime_worktree_dirty": not runtime_clean,
-            "locked_habitat_runtime_commit": locked_runtime_commit,
-            "runtime_lock_sha256": sha256_file(lock_path),
+            "habitat_runtime_prefix": str(prefix),
+            "mp3d_root": str(mp3d_root) if mp3d_root is not None else None,
             "habitat_module_path": str(habitat_module_path),
             "native_binding_path": str(native_binding_path),
-            "native_binding_sha256": native_binding_sha256,
+            "physics_config_path": str(physics_config_path),
             "habitat_python_version": getattr(habitat_sim, "__version__", None),
             "habitat_audio_enabled": bool(habitat_sim.audio_enabled),
             "habitat_bullet_enabled": bool(habitat_sim.built_with_bullet),
@@ -1515,7 +1591,9 @@ def capture_m1(
             "modalities": rig["modalities"],
             "listener": inputs.request["listener"],
             "audio_propagation_status": "not_run",
-            "audio_propagation_reason": "M1 listener is a pose anchor; multi-source RLR is M4",
+            "audio_propagation_reason": (
+                "M1 listener is derived from agent/rig state; multi-source RLR is M4"
+            ),
         },
         "capture_state": {
             "before": before,
@@ -1552,15 +1630,27 @@ def capture_m1(
 def build_navmesh(
     inputs: ValidatedM1Inputs,
     *,
-    runtime_root: str | Path | None = None,
+    runtime_prefix: str | Path | None = None,
     output_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    runtime = discover_runtime_root(runtime_root)
+    prefix = discover_runtime_prefix(runtime_prefix)
+    mp3d_root = discover_mp3d_root()
+    _activate_runtime_prefix(prefix)
     temporary_output = inputs.room_path.parent / "tmp" / "m1_navmesh_build"
-    configuration, _, _, resolved_scene = _make_configuration(
-        inputs, runtime, temporary_output
-    )
     _, habitat_sim, _, _ = _import_habitat()
+    from habitat_sim._ext import habitat_sim_bindings
+
+    _, _, physics_config_path = _installed_runtime_paths(
+        prefix, habitat_sim, habitat_sim_bindings
+    )
+    configuration, _, _, resolved_scene = _make_configuration(
+        inputs,
+        None,
+        temporary_output,
+        mp3d_root=mp3d_root,
+        include_audio_sensor=False,
+        physics_config_path=physics_config_path,
+    )
     destination = (
         Path(output_path).resolve()
         if output_path is not None

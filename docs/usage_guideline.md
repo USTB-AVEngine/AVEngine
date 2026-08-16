@@ -123,7 +123,7 @@ M7 目前主要是显式工具链，还没有统一成一个总命令：
 "${AVENGINE_ENV_PREFIX}/bin/avengine" m1 capture \
   --room examples/m1/rooms/blender_custom/room_manifest.json \
   --request examples/m1/requests/blender_custom.json \
-  --runtime-root "${AVENGINE_HABITAT_RUNTIME_ROOT}" \
+  --runtime-prefix "${AVENGINE_HABITAT_RUNTIME_PREFIX}" \
   --output "tmp/m1/${AVENGINE_RUN_ID}"
 ```
 

@@ -147,6 +147,12 @@ native 默认路径在 configure 时固定到此 prefix，因此不可在 `cmake
 `SimulatorConfiguration` 的默认值，不再硬编码调用者 CWD 下的
 `data/default.physics_config.json`。
 
+M1 installed-runtime capture uses --runtime-prefix for that prefix. MP3D
+manifest assets resolve only from AVENGINE_MP3D_ROOT, an external data root
+containing scene_datasets/. M1 v2 evidence remains readable alongside v1, does
+not treat the installed prefix as a Git checkout, and does not instantiate
+AudioSensorSpec.
+
 已用 fresh ordinary CMake configure 验证两个 H5 开关默认均为 OFF；另用 fresh
 EGL/PIC Recast 外置依赖完整构建并安装此模式。无关 CWD 下的 `python -S` 隔离
 import 只从安装 prefix 载入 facade 和 binding，并确认 native

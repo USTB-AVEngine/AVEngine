@@ -4,8 +4,15 @@ import copy
 from pathlib import Path
 import subprocess
 
+import pytest
+
 from avengine.contracts.json_io import sha256_file
-from avengine.m1.habitat_capture import _ue_project_asset_package_closure
+from avengine.m1.habitat_capture import (
+    _installed_runtime_paths,
+    _logical_listener_pose,
+    _make_configuration,
+    _ue_project_asset_package_closure,
+)
 
 
 MESH_OBJECT_PATH = "/Game/Test/SM_Test.SM_Test"
@@ -155,3 +162,177 @@ def test_ue_project_asset_package_closure_rejects_existing_untracked_package(
         f"package path is not the tracked expected file: {package_name}",
         "selected /Game actor assets differ from the package closure",
     ]
+
+
+def test_m1_audio_off_configuration_never_constructs_audio_sensor(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class CameraSensorSpec:
+        pass
+
+    class AudioSensorSpec:
+        def __init__(self) -> None:
+            raise AssertionError("AudioSensorSpec must not be constructed for M1")
+
+    class SimulatorConfiguration:
+        pass
+
+    class AgentConfiguration:
+        pass
+
+    class NavMeshSettings:
+        def set_defaults(self) -> None:
+            return None
+
+    class Configuration:
+        def __init__(self, sim_cfg, agent_configs) -> None:
+            self.sim_cfg = sim_cfg
+            self.agent_configs = agent_configs
+
+    class SensorType:
+        COLOR = "COLOR"
+        DEPTH = "DEPTH"
+        SEMANTIC = "SEMANTIC"
+
+    class SensorSubType:
+        PINHOLE = "PINHOLE"
+
+    FakeHabitat = type(
+        "FakeHabitat",
+        (),
+        {
+            "CameraSensorSpec": CameraSensorSpec,
+            "AudioSensorSpec": AudioSensorSpec,
+            "SimulatorConfiguration": SimulatorConfiguration,
+            "AgentConfiguration": AgentConfiguration,
+            "NavMeshSettings": NavMeshSettings,
+            "Configuration": Configuration,
+            "SensorType": SensorType,
+            "SensorSubType": SensorSubType,
+        },
+    )
+
+    class FakeMagnum:
+        @staticmethod
+        def Vector2i(value):
+            return tuple(value)
+
+        @staticmethod
+        def Vector3(*value):
+            return tuple(value[0]) if len(value) == 1 else tuple(value)
+
+    identity = {
+        "translation_m": [0.0, 0.0, 0.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+    inputs = type(
+        "Inputs",
+        (),
+        {
+            "room": {
+                "scene": {
+                    "scene_id_kind": "handle",
+                    "scene_id": "fixture_scene",
+                    "dataset_config_path": "default",
+                    "navmesh_policy": "load_declared",
+                    "load_semantic_mesh": False,
+                    "enable_physics": False,
+                },
+                "navigation": {
+                    "agent_height_m": 1.5,
+                    "agent_radius_m": 0.2,
+                    "include_static_objects": False,
+                },
+            },
+            "request": {
+                "seed": 7,
+                "primary_camera_rig": {
+                    "shared_calibration": {
+                        "resolution_hw": [2, 3],
+                        "rig_from_sensor": identity,
+                        "hfov_degrees": 90.0,
+                        "near_m": 0.05,
+                        "far_m": 10.0,
+                    },
+                    "modalities": [
+                        {"modality": "rgb", "sensor_uuid": "rig_rgb"},
+                        {"modality": "depth", "sensor_uuid": "rig_depth"},
+                        {"modality": "semantic", "sensor_uuid": "rig_semantic"},
+                    ],
+                },
+                "listener": {
+                    "listener_id": "listener0",
+                    "rig_from_listener": identity,
+                },
+            },
+            "room_path": tmp_path / "room.json",
+        },
+    )()
+    physics_path = tmp_path / "default.physics_config.json"
+    physics_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat",
+        lambda: (object(), FakeHabitat, FakeMagnum, object()),
+    )
+
+    configuration, modalities, listener_id, _ = _make_configuration(
+        inputs,
+        None,
+        tmp_path,
+        mp3d_root=tmp_path,
+        include_audio_sensor=False,
+        physics_config_path=physics_path,
+    )
+
+    specs = configuration.agent_configs[0].sensor_specifications
+    assert [spec.uuid for spec in specs] == ["rig_rgb", "rig_depth", "rig_semantic"]
+    assert modalities == {
+        "rgb": "rig_rgb",
+        "depth": "rig_depth",
+        "semantic": "rig_semantic",
+    }
+    assert listener_id == "listener0"
+    assert configuration.sim_cfg.physics_config_file == str(physics_path.resolve())
+
+
+def test_logical_listener_pose_is_composed_from_actual_agent_state() -> None:
+    snapshot = {
+        "agent": {
+            "translation_m": [1.0, 2.0, 3.0],
+            "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+    listener = {
+        "rig_from_listener": {
+            "translation_m": [0.0, 0.5, 0.0],
+            "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    assert _logical_listener_pose(snapshot, listener) == {
+        "translation_m": [1.0, 2.5, 3.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+
+
+def test_installed_runtime_rejects_physics_config_symlink_outside_prefix(
+    tmp_path: Path,
+) -> None:
+    prefix = tmp_path / "prefix"
+    module_path = prefix / "habitat_sim" / "__init__.py"
+    binding_path = prefix / "habitat_sim" / "_ext" / "bindings.so"
+    physics_path = prefix / "config" / "default.physics_config.json"
+    module_path.parent.mkdir(parents=True)
+    binding_path.parent.mkdir(parents=True)
+    physics_path.parent.mkdir(parents=True)
+    module_path.write_text("# module\n", encoding="utf-8")
+    binding_path.write_bytes(b"binding")
+    outside = tmp_path / "outside.physics_config.json"
+    outside.write_text("{}\n", encoding="utf-8")
+    physics_path.symlink_to(outside)
+
+    habitat_module = type("HabitatModule", (), {"__file__": str(module_path)})()
+    bindings_module = type("BindingsModule", (), {"__file__": str(binding_path)})()
+
+    with pytest.raises(RuntimeError, match="physics config"):
+        _installed_runtime_paths(prefix, habitat_module, bindings_module)

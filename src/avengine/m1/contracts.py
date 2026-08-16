@@ -21,7 +21,9 @@ from avengine.contracts.transforms import transform_error, validate_transform
 
 ROOM_SCHEMA = "avengine_room_package_v1"
 CAPTURE_SCHEMA = "avengine_m1_capture_request_v1"
-EVIDENCE_SCHEMA = "avengine_m1_visual_evidence_v1"
+EVIDENCE_SCHEMA_V1 = "avengine_m1_visual_evidence_v1"
+EVIDENCE_SCHEMA_V2 = "avengine_m1_visual_evidence_v2"
+EVIDENCE_SCHEMA = EVIDENCE_SCHEMA_V1
 STATUS_VALUES = {"pass", "fail", "blocked", "not_run"}
 ROOM_KINDS = {
     "habitat_native",
@@ -69,11 +71,30 @@ class ValidatedM1Inputs:
     request: dict[str, Any]
 
 
-def _resolved_room_asset_paths(
-    inputs: ValidatedM1Inputs, runtime_root: str | Path
-) -> dict[str, Path]:
+def _path_environment(
+    runtime_root: str | Path | None = None,
+    *,
+    mp3d_root: str | Path | None = None,
+) -> dict[str, str]:
+    """Resolve exactly the declared runtime/data roots, never ambient leftovers."""
+
     environment = dict(os.environ)
-    environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(Path(runtime_root).resolve())
+    environment.pop("AVENGINE_HABITAT_RUNTIME_ROOT", None)
+    environment.pop("AVENGINE_MP3D_ROOT", None)
+    if runtime_root is not None:
+        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(Path(runtime_root).resolve())
+    if mp3d_root is not None:
+        environment["AVENGINE_MP3D_ROOT"] = str(Path(mp3d_root).resolve())
+    return environment
+
+
+def _resolved_room_asset_paths(
+    inputs: ValidatedM1Inputs,
+    runtime_root: str | Path | None,
+    *,
+    mp3d_root: str | Path | None = None,
+) -> dict[str, Path]:
+    environment = _path_environment(runtime_root, mp3d_root=mp3d_root)
     return {
         asset["role"]: resolve_declared_path(
             asset["path"],
@@ -174,15 +195,19 @@ def _config_handle(path: Path, suffix: str) -> str:
 
 
 def validate_scene_asset_graph(
-    inputs: ValidatedM1Inputs, runtime_root: str | Path
+    inputs: ValidatedM1Inputs,
+    runtime_root: str | Path | None,
+    *,
+    mp3d_root: str | Path | None = None,
 ) -> list[str]:
     """Replay Habitat's config search graph to the hashed room assets."""
 
     errors: list[str] = []
-    environment = dict(os.environ)
-    environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(Path(runtime_root).resolve())
+    environment = _path_environment(runtime_root, mp3d_root=mp3d_root)
     try:
-        roles = _resolved_room_asset_paths(inputs, runtime_root)
+        roles = _resolved_room_asset_paths(
+            inputs, runtime_root, mp3d_root=mp3d_root
+        )
         scene = inputs.room["scene"]
         dataset_path = resolve_declared_path(
             scene["dataset_config_path"],
@@ -527,15 +552,17 @@ def validate_scene_asset_graph(
 
 def validate_recorded_scene_asset_graph(
     inputs: ValidatedM1Inputs,
-    runtime_root: str | Path,
+    runtime_root: str | Path | None,
     snapshot: Any,
+    *,
+    mp3d_root: str | Path | None = None,
 ) -> list[str]:
     """Validate a captured Simulator metadata snapshot against declared assets."""
 
     if not isinstance(snapshot, dict):
         return ["loaded Habitat scene graph snapshot must be an object"]
     errors: list[str] = []
-    roles = _resolved_room_asset_paths(inputs, runtime_root)
+    roles = _resolved_room_asset_paths(inputs, runtime_root, mp3d_root=mp3d_root)
     scene = inputs.room["scene"]
     expected_dataset = roles.get("scene_dataset_config")
     expected_navmesh = roles.get("navmesh")
@@ -727,14 +754,15 @@ def validate_recorded_scene_asset_graph(
 
 def validate_loaded_scene_asset_graph(
     inputs: ValidatedM1Inputs,
-    runtime_root: str | Path,
+    runtime_root: str | Path | None,
     simulator: Any,
     *,
     declared_navmesh_loaded: bool,
+    mp3d_root: str | Path | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     """Read the final Simulator templates and bind them to declared assets."""
 
-    roles = _resolved_room_asset_paths(inputs, runtime_root)
+    roles = _resolved_room_asset_paths(inputs, runtime_root, mp3d_root=mp3d_root)
     scene = inputs.room["scene"]
 
     def normalized_path(value: Any, *, base_dir: Path | None = None) -> str | None:
@@ -989,7 +1017,9 @@ def validate_loaded_scene_asset_graph(
             "current_light_count": len(simulator.get_current_light_setup()),
         }
 
-    errors = validate_recorded_scene_asset_graph(inputs, runtime_root, snapshot)
+    errors = validate_recorded_scene_asset_graph(
+        inputs, runtime_root, snapshot, mp3d_root=mp3d_root
+    )
     return errors, snapshot
 
 

@@ -33,6 +33,8 @@ paths:
     kind: directory
     required_for: [replicacad_room]
   AVENGINE_MP3D_ROOT:
+    # External MP3D data root containing scene_datasets/, separate from the
+    # installed Habitat runtime prefix.
     default: null
     kind: directory
     required_for: [mp3d_room]

@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from avengine.cli import _aggregate
+from avengine.cli import _aggregate, _capture, build_parser
+from avengine.m1.contracts import EVIDENCE_SCHEMA_V2
+from avengine.m1.evidence import verify_evidence_artifacts
 
 
 ROOM_KINDS = [
@@ -117,3 +119,113 @@ def test_m1_aggregate_rejects_one_failed_room_verification(
     paths = _valid_three(tmp_path)
 
     assert _run_aggregate(paths, monkeypatch, failed_path=paths[1]) == 1
+
+
+def test_m1_capture_uses_runtime_prefix_and_writes_v2_blocked_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room_path = tmp_path / "room.json"
+    request_path = tmp_path / "request.json"
+    room_path.write_text("{}", encoding="utf-8")
+    request_path.write_text("{}", encoding="utf-8")
+    output = tmp_path / "blocked"
+    prefix = tmp_path / "installed_prefix"
+    prefix.mkdir()
+    inputs = type(
+        "Inputs",
+        (),
+        {
+            "room": {
+                "room_id": "room0",
+                "room_kind": "habitat_native",
+            },
+            "request": {"request_id": "request0"},
+            "room_path": room_path,
+            "request_path": request_path,
+        },
+    )()
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "avengine.cli.load_and_validate_inputs", lambda *_: inputs
+    )
+
+    def fail_capture(_inputs, capture_output, **kwargs):
+        seen.update(kwargs)
+        Path(capture_output).mkdir(parents=True, exist_ok=True)
+        raise RuntimeError("prefix import fixture failure")
+
+    monkeypatch.setattr("avengine.cli.capture_m1", fail_capture)
+    exit_code = _capture(
+        argparse.Namespace(
+            room=str(room_path),
+            request=str(request_path),
+            output=str(output),
+            runtime_prefix=str(prefix),
+            repeat=2,
+            reference_evidence=None,
+        )
+    )
+
+    evidence_path = output / "evidence.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    status, checks = verify_evidence_artifacts(evidence_path)
+
+    assert exit_code == 3
+    assert seen["runtime_prefix"] == str(prefix)
+    assert evidence["schema"] == EVIDENCE_SCHEMA_V2
+    assert status == "blocked"
+    assert _checks_by_id(checks)["evidence_json_schema"]["status"] == "pass"
+
+
+def test_m1_parser_requires_runtime_prefix_and_rejects_legacy_runtime_root() -> None:
+    parser = build_parser()
+
+    capture = parser.parse_args(
+        [
+            "m1",
+            "capture",
+            "--room",
+            "room.json",
+            "--request",
+            "request.json",
+            "--output",
+            "out",
+            "--runtime-prefix",
+            "/installed/prefix",
+        ]
+    )
+    navmesh = parser.parse_args(
+        [
+            "m1",
+            "build-navmesh",
+            "--room",
+            "room.json",
+            "--request",
+            "request.json",
+            "--runtime-prefix",
+            "/installed/prefix",
+        ]
+    )
+
+    assert capture.runtime_prefix == "/installed/prefix"
+    assert navmesh.runtime_prefix == "/installed/prefix"
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "m1",
+                "capture",
+                "--room",
+                "room.json",
+                "--request",
+                "request.json",
+                "--output",
+                "out",
+                "--runtime-root",
+                "/legacy/checkout",
+            ]
+        )
+
+
+def _checks_by_id(checks: list[dict]) -> dict[str, dict]:
+    return {check["check_id"]: check for check in checks}

@@ -12,9 +12,9 @@
   },
   "scene": {
     "scene_id_kind": "path",
-    "scene_id": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
-    "dataset_config_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
-    "navmesh_path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+    "scene_id": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
+    "dataset_config_path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+    "navmesh_path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
     "navmesh_policy": "load_declared",
     "load_semantic_mesh": true,
     "enable_physics": false
@@ -22,31 +22,31 @@
   "assets": [
     {
       "role": "render_surface_mesh",
-      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
+      "path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
       "license": "Matterport3D Terms of Use",
       "redistribution": "external_test_asset_not_committed"
     },
     {
       "role": "semantic_surface_mesh",
-      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply",
+      "path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply",
       "license": "Matterport3D Terms of Use",
       "redistribution": "external_test_asset_not_committed"
     },
     {
       "role": "semantic_descriptor",
-      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house",
+      "path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house",
       "license": "Matterport3D Terms of Use",
       "redistribution": "external_test_asset_not_committed"
     },
     {
       "role": "scene_dataset_config",
-      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+      "path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
       "license": "Habitat-Sim/Matterport3D package terms",
       "redistribution": "external_test_asset_not_committed"
     },
     {
       "role": "navmesh",
-      "path": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+      "path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
       "license": "Matterport3D Terms of Use",
       "redistribution": "external_test_asset_not_committed"
     }

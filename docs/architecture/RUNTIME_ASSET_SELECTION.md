@@ -104,10 +104,12 @@ exists beneath the position, the eye height is plausible, and all three
 Habitat sensors render:
 
 ```bash
-PYTHONPATH=src python tools/m1/probe_camera_pose_native.py \
+HABITAT_PREFIX=/path/to/installed/habitat-runtime \
+AVENGINE_MP3D_ROOT=/path/to/mp3d-data \
+PYTHONPATH="$HABITAT_PREFIX:src" python tools/m1/probe_camera_pose_native.py \
   --room tmp/m1/legacy_apartment_package/room_manifest.json \
   --request tmp/camera_pose_test/request.json \
-  --runtime-root ../habitat-sim-AVEngine \
+  --runtime-prefix "$HABITAT_PREFIX" \
   --output tmp/camera_pose_test/native_probe
 ```
 

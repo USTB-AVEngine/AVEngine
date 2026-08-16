@@ -24,9 +24,13 @@ from avengine.contracts.json_io import file_record, write_json
 from avengine.m1.contracts import load_and_validate_inputs
 from avengine.m1.evidence import array_sha256
 from avengine.m1.habitat_capture import (
+    _activate_runtime_prefix,
     _import_habitat,
+    _installed_runtime_paths,
     _make_configuration,
     _numpy_quaternion,
+    discover_mp3d_root,
+    discover_runtime_prefix,
 )
 
 
@@ -40,14 +44,26 @@ def run_probe(args: argparse.Namespace) -> Path:
         raise FileExistsError(f"refusing to replace output: {output}")
     output.mkdir(parents=True)
     inputs = load_and_validate_inputs(args.room, args.request)
-    runtime = args.runtime_root.resolve()
+    prefix = discover_runtime_prefix(args.runtime_prefix)
+    mp3d_root = discover_mp3d_root()
+    _activate_runtime_prefix(prefix)
     request = inputs.request
     rig = request["primary_camera_rig"]
     transform = rig["world_from_rig"]
 
     qt, habitat_sim, _, _ = _import_habitat()
+    from habitat_sim._ext import habitat_sim_bindings
+
+    _, _, physics_config_path = _installed_runtime_paths(
+        prefix, habitat_sim, habitat_sim_bindings
+    )
     configuration, modality_to_uuid, _, resolved_scene = _make_configuration(
-        inputs, runtime, output
+        inputs,
+        None,
+        output,
+        mp3d_root=mp3d_root,
+        include_audio_sensor=False,
+        physics_config_path=physics_config_path,
     )
     state = habitat_sim.AgentState()
     state.position = np.asarray(transform["translation_m"], dtype=np.float64)
@@ -173,7 +189,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--room", type=Path, required=True)
     parser.add_argument("--request", type=Path, required=True)
-    parser.add_argument("--runtime-root", type=Path, required=True)
+    parser.add_argument("--runtime-prefix", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-horizontal-snap-m", type=float, default=0.15)
     parser.add_argument("--min-eye-height-m", type=float, default=0.8)

@@ -23,7 +23,7 @@ from avengine.acoustic_profiles import (
 from avengine.contracts.json_io import file_record, load_json, sha256_file, write_json
 from avengine.m1.contracts import (
     ContractError,
-    EVIDENCE_SCHEMA,
+    EVIDENCE_SCHEMA_V2,
     ValidatedM1Inputs,
     aggregate_status,
     load_and_validate_inputs,
@@ -162,10 +162,12 @@ def _blocked_evidence(
     output: Path,
     inputs: ValidatedM1Inputs,
     error: Exception,
+    *,
+    schema_name: str = EVIDENCE_SCHEMA_V2,
 ) -> dict[str, Any]:
     message = str(error) or repr(error)
     evidence: dict[str, Any] = {
-        "schema": EVIDENCE_SCHEMA,
+        "schema": schema_name,
         "evidence_kind": "blocked_attempt",
         "room_id": inputs.room["room_id"],
         "room_kind": inputs.room["room_kind"],
@@ -212,12 +214,14 @@ def _capture(args: argparse.Namespace) -> int:
         evidence = capture_m1(
             inputs,
             output,
-            runtime_root=args.runtime_root,
+            runtime_prefix=args.runtime_prefix,
             repeat_count=args.repeat,
             reference_evidence=args.reference_evidence,
         )
     except Exception as error:
-        evidence = _blocked_evidence(output, inputs, error)
+        evidence = _blocked_evidence(
+            output, inputs, error, schema_name=EVIDENCE_SCHEMA_V2
+        )
     summary = {
         "status": evidence["overall_status"],
         "evidence": str(output / "evidence.json"),
@@ -236,7 +240,7 @@ def _build_navmesh(args: argparse.Namespace) -> int:
         inputs = load_and_validate_inputs(args.room, args.request)
         result = build_navmesh(
             inputs,
-            runtime_root=args.runtime_root,
+            runtime_prefix=args.runtime_prefix,
             output_path=args.output,
         )
     except ContractError as error:
@@ -1154,7 +1158,7 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--room", required=True)
     capture.add_argument("--request", required=True)
     capture.add_argument("--output", required=True)
-    capture.add_argument("--runtime-root")
+    capture.add_argument("--runtime-prefix", required=True)
     capture.add_argument("--repeat", type=int, default=3)
     capture.add_argument(
         "--reference-evidence",
@@ -1165,7 +1169,7 @@ def build_parser() -> argparse.ArgumentParser:
     navmesh = m1_commands.add_parser("build-navmesh")
     navmesh.add_argument("--room", required=True)
     navmesh.add_argument("--request", required=True)
-    navmesh.add_argument("--runtime-root")
+    navmesh.add_argument("--runtime-prefix", required=True)
     navmesh.add_argument("--output")
     navmesh.set_defaults(handler=_build_navmesh)
 
