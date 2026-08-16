@@ -13,7 +13,7 @@
 #include "std.h"
 #include "types.h"
 
-NB_MODULE(spear_ext, module)
+NB_MODULE(avengine_spear_ext, module)
 {
     //
     // Client

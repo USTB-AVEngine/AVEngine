@@ -42,12 +42,13 @@ public:
         T t;
         object.convert(t);
         return t;
-    };
-
-    template <>
-    std::span<uint8_t> to<std::span<uint8_t>>(clmdep_msgpack::object const& object)
-    {
-        SP_ASSERT(object.type == clmdep_msgpack::type::BIN);
-        return std::span<uint8_t>(reinterpret_cast<uint8_t*>(const_cast<char*>(object.via.bin.ptr)), object.via.bin.size);
     }
+
 };
+
+template <>
+inline std::span<uint8_t> MsgpackUtils::to<std::span<uint8_t>>(clmdep_msgpack::object const& object)
+{
+    SP_ASSERT(object.type == clmdep_msgpack::type::BIN);
+    return std::span<uint8_t>(reinterpret_cast<uint8_t*>(const_cast<char*>(object.via.bin.ptr)), object.via.bin.size);
+}

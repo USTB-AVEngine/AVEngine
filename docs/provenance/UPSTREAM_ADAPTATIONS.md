@@ -28,7 +28,7 @@ production output or grant redistribution rights for an external asset.
 | --- | --- | --- | --- |
 | Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch`, H4c a non-binding core static slice, H4d its static importer consumer interface, and H5a an optional staged Python extension, while the current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
-| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements one launch-settings helper and S2 stages only the selected python_ext source under native/spear/python_ext; the SPEAR Python runtime, extension build, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
+| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected host/game client and optional native module source, plus UE plugin/control source and project configuration required by Apartment and Kujiale | S1 reimplements one launch-settings helper, S2 stages selected extension source, S3a stages the namespaced host/game client, and S3b adds an AVEngine-owned optional native build through external rpclib/Python/nanobind dependencies; the maintained transition checkout still supplies the full SPEAR runtime, UE plugin/control source, project configuration and build helpers pending a later runtime cutover |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
 | MP3D, native Apartment and InteriorAgent/Kujiale | Their separately authorized dataset/project sources | Scene and room inputs for their declared production routes | External data only; no dataset or native room package is imported |
 
@@ -235,12 +235,39 @@ cutover.
 | AVEngine target | Original path at spear-sim/spear@251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7 | Treatment |
 | --- | --- | --- |
 | native/spear/python_ext/cpp/{assert.h,client.h,func_signature_registry.h,msgpack_adaptors.h,msgpack_utils.h,spear_ext.cpp,std.h,types.h} | matching python_ext/cpp paths | **adapted** selected C++ extension source, with upstream MIT headers retained |
-| native/spear/python_ext/python/spear_ext/__init__.py | python_ext/python/spear_ext/__init__.py | **adapted** upstream package wrapper |
+| native/spear/python_ext/python/spear_ext/__init__.py (removed by S3b) | python_ext/python/spear_ext/__init__.py | **adapted** upstream wrapper staged only by S2; S3b deliberately removes it rather than install a global alias |
 
 S2 is source-only staging. It excludes upstream CMakeLists.txt, pyproject.toml,
 checkout-relative rpclib paths, dependency source, build trees, and compiled
 extension artifacts. It does not change Python imports, package installation,
 extension build wiring, or the external SPEAR/UE runtime path.
+
+## SPEAR S3b optional native extension build
+
+| AVEngine target | Reference examined | Treatment |
+| --- | --- | --- |
+| native/spear/python_ext/CMakeLists.txt | upstream python_ext build assumptions at spear-sim/spear@251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7 | **reimplemented** AVEngine-owned CMake build for only the selected C++ extension source |
+| native/spear/python_ext/cpp/spear_ext.cpp | python_ext/cpp/spear_ext.cpp | **adapted** module initializer renamed from spear_ext to avengine_spear_ext |
+| native/spear/python_ext/cpp/msgpack_utils.h | python_ext/cpp/msgpack_utils.h | **adapted** GCC-standard C++20 portability adjustment: move the span explicit specialization to namespace scope and normalize the primary template closing brace, retaining the conversion body byte-for-byte |
+
+S3b requires an explicit external rpclib SDK root with an installed CMake
+export, an explicit nanobind CMake directory, Python 3.11, and Threads. Both
+rpclib and nanobind lookups are constrained to those supplied roots; it neither
+uses an ambient package nor records a checkout path. It installs only the
+top-level AVEngine-local module avengine_spear_ext to an explicit external
+staging prefix, and installs neither a spear package nor a spear_ext
+compatibility alias.
+
+The focused native evidence is a temporary standard-C++20 MessagePack
+BIN-to-span byte/size smoke plus a fresh Make build, install, dynamic-link
+inspection, and Python -S import of the staged module and AVEngine client.
+Those checks make no RPC or UE call. The non-owning span's full retention
+behavior remains limited to the selected client conversion path and is not a
+claim of UE protocol or runtime compatibility.
+
+S3b adds no upstream build metadata, dependency source, prebuilt extension,
+wheel, RPATH, runtime resolver, runner, UE/plugin/project/content path, or
+runtime cutover claim.
 
 ## SPEAR S3a namespaced host/game Python client closure
 

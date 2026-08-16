@@ -22,7 +22,9 @@ without changing the upstream terms.
 | RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | the engine, headers, configuration, and precompiled library remain a legal user-installed external SDK; retain attribution and terms, and do not claim propagation-engine source integration |
 | pybind11 temporary H19 validation dependency | `a2e59f0e7065404b44dfe92a28aca47ba1378dc4` | BSD-3-Clause | externally installed Python-binding support used by H5a validation only; do not vendor its source, binary, package, or license claim into the Habitat source slice without a separately reviewed distribution decision |
 | MagnumBindings temporary H19 validation dependency | `45811bb52e749677d5bc43d62b384ec546ed93bc` | MIT | externally installed Corrade/Magnum Python-binding headers/runtime used by H5a validation only; do not vendor its source, binary, package, or installed prefix into AVEngine Git |
-| SPEAR-owned runtime source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements the Apartment launch helper; S2 stages selected source-only python_ext files at native/spear/python_ext. Retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`; all remaining client/plugin/control source and extension build/runtime stay in the transition checkout |
+| SPEAR-selected S1/S2/S3a/S3b source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements the Apartment launch helper; S2/S3a stage selected client and extension source; S3b builds only the selected extension under the AVEngine-local avengine_spear_ext name. Retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`; client/plugin/control and UE runtime cutover remain pending |
+| rpclib external S3b build SDK | 2.3.0 | MIT | user-installed external C++ SDK used to build the optional S3b extension; its source, headers, archive, CMake export, and any compiled result are not imported into AVEngine Git |
+| nanobind external S3b build dependency | 2.7.0 | BSD-3-Clause | user-installed external Python binding support used to build the optional S3b extension; no nanobind source, package, shared library, or wheel is imported into AVEngine Git |
 
 The root AVEngine all-rights-reserved notice does not relicense imported
 third-party code. H1/S3/H4a/H4c/H4d/H5a retain the Habitat MIT text at
@@ -91,17 +93,26 @@ adds no PBR configuration/image, HDR, BRDF table, dependency source, data
 asset, compiled extension, or runtime cutover.
 
 SPEAR S1 contains only the reimplemented launch-settings behavior named above.
-SPEAR S2 adds only the selected python_ext source files and their provenance
-README; it adds no build wiring or installed package.
-Together, S1/S2 contain no upstream examples, UE plugins, UE project
-configuration, CMake or pyproject wiring, dependency source, compiled
-extensions, binaries, assets, or build products.
+SPEAR S2 adds selected extension source, S3a adds the selected namespaced
+host/game Python client closure, and S3b adds AVEngine-owned CMake wiring for
+the optional top-level avengine_spear_ext module. S3b accepts only an explicit
+external rpclib SDK CMake export and external Python/nanobind support; it
+installs no spear package or spear_ext alias and copies no SDK or prebuilt
+extension into Git.
+
+Together, S1/S2/S3a/S3b contain no upstream examples, UE plugins, UE project
+configuration, upstream CMake or pyproject wiring, dependency source,
+precompiled extension, binary, asset, or build product. The optional extension
+build/import is native host-side validation only and does not change a runner,
+perform RPC/UE execution, or complete a runtime cutover.
 
 SPEAR-owned source also calls Boost (BSL-1.0), rpclib (MIT) and yaml-cpp (MIT).
-Keep their notices and build them or resolve them as external dependencies;
-do not migrate precompiled third-party libraries into Git. The SPEAR MIT grant
-does not cover Unreal Engine, Epic content, room assets or dependencies under
-a different license.
+S3b uses rpclib and nanobind only as external build dependencies; its fresh
+module has no RPATH/RUNPATH or dynamic librpc dependency. Keep the applicable
+rpclib, bundled MessagePack/Asio, nanobind, and other transitive notices with
+any redistributed built module; do not migrate their source, archive, prefix,
+or precompiled library into Git. The SPEAR MIT grant does not cover Unreal
+Engine, Epic content, room assets, or dependencies under a different license.
 
 The current Habitat transition fork contains additional vendored/submodule dependencies with
 their own notices, including Corrade, Magnum and plugins, RapidJSON, pybind11,
