@@ -1,8 +1,8 @@
 # Upstream Adaptations
 
-Status: Habitat H1/S3 staging and H4a/H4c/H4d/H5a build slices have landed;
-runtime/build cutover and the remaining third-party source migration are still
-pending.
+Status: Habitat H1/S3 staging and H4a/H4c/H4d/H5a build slices, plus the
+source-only SPEAR UE closure, have landed; runtime/build cutover and remaining
+third-party source migration are still pending.
 
 The canonical product source repository is
 [`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine).
@@ -28,7 +28,7 @@ production output or grant redistribution rights for an external asset.
 | --- | --- | --- | --- |
 | Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch`, H4c a non-binding core static slice, H4d its static importer consumer interface, and H5a an optional staged Python extension, while the current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
-| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected host/game client and optional native module source, plus UE plugin/control source and project configuration required by Apartment and Kujiale | S1 reimplements one launch-settings helper, S2 stages selected extension source, S3a stages the namespaced host/game client, and S3b adds an AVEngine-owned optional native build through external rpclib/Python/nanobind dependencies; the maintained transition checkout still supplies the full SPEAR runtime, UE plugin/control source, project configuration and build helpers pending a later runtime cutover |
+| SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected host/game client and optional native module source, plus the source-only UE plugin/control and project-configuration closure required by Apartment and Kujiale | S1 reimplements one launch-settings helper, S2 stages selected extension source, S3a stages the namespaced host/game client, and S3b adds an AVEngine-owned optional native build through external rpclib/Python/nanobind dependencies. The selected UE source/configuration/build-rule closure now lives at `native/spear/unreal/` with an explicit-SDK rule and narrow Editor-game bridge. It excludes UE, Content/assets, generated output and binaries; current runners still require their external runtime/project assembly pending a separate runtime cutover. |
 | Eastforward SPEAR fork helper slice | [Eastforward/spear](https://github.com/Eastforward/spear) behavior origins `0a9ba3ded8ffa07a3bc3684279845da22dc123e0`, `c8ba04076a32060e35020deb8f706c4b13951cae`, `ff6e44736f68c72ce4140152e2dadb4b58dc0b28`, and `a5168b8c357afa494f6200dedb03b93c3a59be57`; local MIT transition snapshot `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (SPEAR-lead-b) carries the selected bytes | Three rig-query and two lighting RPC helpers written in the maintained transition fork | S3d adapts only those helper closures into `avengine.backends.spear_ue`; the local carrier is not described as a public fork ref, and neither helper path is attributed to `spear-sim/spear` |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
 | MP3D, native Apartment and InteriorAgent/Kujiale | Their separately authorized dataset/project sources | Scene and room inputs for their declared production routes | External data only; no dataset or native room package is imported |
@@ -36,6 +36,25 @@ production output or grant redistribution rights for an external asset.
 The manifest and notices retain the transition runtime revisions. This H1
 record identifies the checked-in source origin and does not claim a separate
 runtime lock or a completed cutover.
+
+## SPEAR UE source-only closure
+
+`native/spear/unreal/` is adapted source, not a repository-history merge or a
+runtime/package claim. `native/spear/unreal/PROVENANCE.md` records the public
+`spear-sim/spear@2d4575587a9be39a40ba89c4259836a85ccd3f3f` baseline, the
+transition carrier from which the bytes were selected, every retained module,
+and its bounded AVEngine changes. It keeps only the game-side runtime modules,
+the limited Editor-game launch bridge required by the existing `UnrealEditor
+-game` route, UE project/configuration inputs, and a Build.cs rule that accepts
+only explicit user-installed Boost/rpclib/yaml-cpp prefixes.
+
+The closure contains no UE installation, UE Content, room data, generated
+files, compiled libraries or packaged runtime. It does not change a runner or
+retire an external SPEAR/UE runtime assembly. Most selected code retains the
+SPEAR/Intel MIT notice; `Assert.{h,cpp}` additionally retain the PPK_ASSERT
+WTFPLv2 notice and `SuppressCompilerWarnings.h` the Microsoft MIT notice. See
+the leaf provenance record, `THIRD_PARTY_NOTICES.md`,
+`LICENSES/PPK_ASSERT-WTFPLv2.txt`, and `LICENSES/Microsoft-MIT.txt`.
 
 ## Habitat-Sim H1 staged source
 

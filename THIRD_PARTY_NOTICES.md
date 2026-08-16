@@ -22,7 +22,9 @@ without changing the upstream terms.
 | RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | the engine, headers, configuration, and precompiled library remain a legal user-installed external SDK; retain attribution and terms, and do not claim propagation-engine source integration |
 | pybind11 temporary H19 validation dependency | `a2e59f0e7065404b44dfe92a28aca47ba1378dc4` | BSD-3-Clause | externally installed Python-binding support used by H5a validation only; do not vendor its source, binary, package, or license claim into the Habitat source slice without a separately reviewed distribution decision |
 | MagnumBindings temporary H19 validation dependency | `45811bb52e749677d5bc43d62b384ec546ed93bc` | MIT | externally installed Corrade/Magnum Python-binding headers/runtime used by H5a validation only; do not vendor its source, binary, package, or installed prefix into AVEngine Git |
-| SPEAR-selected S1/S2/S3a/S3b source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements the Apartment launch helper; S2/S3a stage selected client and extension source; S3b builds only the selected extension under the AVEngine-local avengine_spear_ext name. Retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`; client/plugin/control and UE runtime cutover remain pending |
+| SPEAR-selected S1/S2/S3a/S3b source and UE source-only closure | public `spear-sim/spear@2d4575587a9be39a40ba89c4259836a85ccd3f3f`; selected bytes carried by `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | SPEAR/Intel MIT, with the limited embedded PPK_ASSERT WTFPLv2 and Microsoft MIT notices below | S1 reimplements the Apartment launch helper; S2/S3a stage selected client and extension source; S3b builds only the selected extension under the AVEngine-local avengine_spear_ext name. `native/spear/unreal/` now stages the selected UE plugin/project/configuration/build-rule source closure. It imports no UE, Content/assets, generated output or binaries; runtime/project cutover remains pending. Retain `LICENSES/SPEAR-MIT.txt`, `LICENSES/PPK_ASSERT-WTFPLv2.txt`, and `LICENSES/Microsoft-MIT.txt`. |
+| PPK_ASSERT fragments in the SPEAR UE closure | source URL preserved in `native/spear/unreal/plugins/SpCore/Source/SpCore/Assert.{h,cpp}`: `https://github.com/gpakosz/PPK_ASSERT`; no separate source revision is asserted | WTFPLv2 | limited to the two retained Assert files; preserve Gregory Pakosz attribution and `LICENSES/PPK_ASSERT-WTFPLv2.txt` |
+| Microsoft compiler-warning helper in the SPEAR UE closure | Microsoft copyright/ MIT notice preserved in `native/spear/unreal/plugins/SpCore/Source/SpCore/SuppressCompilerWarnings.h`; no separate source revision is asserted | MIT | limited to that retained header; preserve the Microsoft attribution and `LICENSES/Microsoft-MIT.txt` |
 | Eastforward SPEAR S3d helper slice | reachable Eastforward fork commits `0a9ba3ded8ffa07a3bc3684279845da22dc123e0`, `c8ba04076a32060e35020deb8f706c4b13951cae`, `ff6e44736f68c72ce4140152e2dadb4b58dc0b28`, and `a5168b8c357afa494f6200dedb03b93c3a59be57`; selected bytes carried by local MIT transition snapshot `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (SPEAR-lead-b) | MIT | source for exactly three rig-query and two lighting helpers; retain `LICENSES/SPEAR-MIT.txt`. The local carrier is not a public fork ref, and this helper slice is not attributed to official `spear-sim/spear`; UE/project/assets remain external |
 | rpclib external S3b build SDK | 2.3.0 | MIT | user-installed external C++ SDK used to build the optional S3b extension; its source, headers, archive, CMake export, and any compiled result are not imported into AVEngine Git |
 | nanobind external S3b build dependency | 2.7.0 | BSD-3-Clause | user-installed external Python binding support used to build the optional S3b extension; no nanobind source, package, shared library, or wheel is imported into AVEngine Git |
@@ -103,11 +105,13 @@ S3b accepts only an explicit external rpclib SDK CMake export and external
 Python/nanobind support; it installs no spear package or spear_ext alias and
 copies no SDK or prebuilt extension into Git.
 
-Together, S1/S2/S3a/S3b contain no upstream examples, UE plugins, UE project
-configuration, upstream CMake or pyproject wiring, dependency source,
-precompiled extension, binary, asset, or build product. The optional extension
-build/import is native host-side validation only and does not change a runner,
-perform RPC/UE execution, or complete a runtime cutover.
+Separately, `native/spear/unreal/` contains the selected source-only UE
+plugin/project/configuration/build-rule closure described in the table above.
+Together, the selected SPEAR source slices contain no upstream examples,
+general SPEAR CMake or pyproject wiring, dependency source, precompiled
+extension, binary, asset, or build product. The optional extension build/import
+and the UE source slice do not change a runner, perform RPC/UE execution, or
+complete a runtime cutover.
 
 SPEAR-owned source also calls Boost (BSL-1.0), rpclib (MIT) and yaml-cpp (MIT).
 S3b uses rpclib and nanobind only as external build dependencies; its fresh
@@ -133,7 +137,7 @@ asset licensing.
 
 | Component or content | Known terms/status | AVEngine policy |
 | --- | --- | --- |
-| SPEAR-owned code | MIT; accompanying asset claims require asset-level verification | selectively integrate required client/plugin/control source; Apartment and Kujiale use it for production visual execution, while MP3D UE remains comparison-only |
+| SPEAR-owned and adapted code | SPEAR/Intel MIT; the retained PPK_ASSERT and Microsoft fragments keep their own WTFPLv2/MIT notices; accompanying asset claims require asset-level verification | selectively integrate required client/plugin/control source; Apartment and Kujiale use it for production visual execution, while MP3D UE remains comparison-only |
 | Unreal Engine, Epic content, Marketplace content | Epic EULA/proprietary terms; not covered by SPEAR MIT | external installation only; infer no right to redistribute engine binaries, editor content, examples, or assets |
 | Native SPEAR `apartment_0000` content | asset-level redistribution evidence incomplete | production visual runtime input; keep scene content outside Git and hold redistribution |
 | InteriorAgent/Kujiale content | non-commercial research/education terms and no-redistribution boundary; asset-level evidence remains external | production visual runtime input through the USD/MDL adapter; keep the downloaded dataset outside Git and hold redistribution |

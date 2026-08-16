@@ -1,0 +1,14 @@
+# UE build products and user-provided legal assets never belong in AVEngine Git.
+SpearSim/Binaries/
+SpearSim/DerivedDataCache/
+SpearSim/Intermediate/
+SpearSim/Saved/
+plugins/*/Binaries/
+plugins/*/DerivedDataCache/
+plugins/*/Intermediate/
+plugins/*/Saved/
+
+# Source-only tree: all maps, Blueprints, materials, meshes, textures and other
+# room/plugin content are supplied in an external authorized data/staging root.
+SpearSim/Content/
+plugins/*/Content/
