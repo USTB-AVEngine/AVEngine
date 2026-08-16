@@ -16,6 +16,7 @@ from avengine.m1.habitat_capture import (
     _installed_runtime_paths,
     _logical_listener_pose,
     _make_configuration,
+    _validate_loaded_habitat_sim_origins,
     _validate_magnum_python_origins,
     _ue_project_asset_package_closure,
     discover_magnum_python_site,
@@ -406,6 +407,218 @@ def test_validate_magnum_python_origins_rejects_preloaded_outside_module(
         _validate_magnum_python_origins(site, modules["magnum"])
 
 
+def test_import_installed_habitat_removes_only_editable_habitat_meta_finder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    site = _magnum_python_site(tmp_path)
+    imported = (object(), object(), object(), object())
+
+    class EditableHabitatFinder:
+        calls = 0
+
+        def find_spec(self, *_args: object, **_kwargs: object) -> None:
+            type(self).calls += 1
+            raise AssertionError("editable Habitat finder must not be invoked")
+
+    EditableHabitatFinder.__module__ = "_editable_skbc_habitat_sim"
+
+    class RetainedFinder:
+        def find_spec(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("test does not import through retained finders")
+
+    RetainedFinder.__module__ = "_editable_unrelated_package"
+
+    class HabitatOnlyFinder:
+        def find_spec(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("test does not import through retained finders")
+
+    HabitatOnlyFinder.__module__ = "habitat_sim_runtime"
+
+    removable = EditableHabitatFinder()
+    retained = RetainedFinder()
+    habitat_only = HabitatOnlyFinder()
+    monkeypatch.setattr(sys, "meta_path", [retained, removable, habitat_only])
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda: site,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._activate_runtime_prefix",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_loaded_habitat_sim_origins",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_preloaded_magnum_python_origins",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_magnum_python_origins",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def fake_import_habitat() -> tuple[object, object, object, object]:
+        assert sys.meta_path == [retained, habitat_only]
+        return imported
+
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat", fake_import_habitat
+    )
+
+    assert _import_installed_habitat(prefix) == imported
+    assert sys.meta_path == [retained, habitat_only]
+    assert EditableHabitatFinder.calls == 0
+
+
+@pytest.mark.parametrize("module_name", ["habitat_sim", "habitat_sim.utils.common"])
+def test_import_installed_habitat_rejects_preloaded_module_outside_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module_name: str
+) -> None:
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    site = _magnum_python_site(tmp_path)
+    outside = tmp_path / "old-checkout" / f"{module_name.rsplit('.', 1)[-1]}.py"
+    outside.parent.mkdir()
+    outside.write_text("# wrong habitat module\n", encoding="utf-8")
+    for existing_name in tuple(sys.modules):
+        if existing_name == "habitat_sim" or existing_name.startswith("habitat_sim."):
+            monkeypatch.delitem(sys.modules, existing_name, raising=False)
+    monkeypatch.setitem(sys.modules, module_name, _module_at(module_name, outside))
+    monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda: site,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._activate_runtime_prefix",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_preloaded_magnum_python_origins",
+        lambda *_args, **_kwargs: None,
+    )
+    imported = False
+
+    def should_not_import() -> tuple[object, object, object, object]:
+        nonlocal imported
+        imported = True
+        raise AssertionError("wrong preloaded Habitat module must fail before import")
+
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat", should_not_import
+    )
+
+    with pytest.raises(RuntimeError, match="outside the required --runtime-prefix"):
+        _import_installed_habitat(prefix)
+    assert imported is False
+
+
+def test_validate_loaded_habitat_origins_accepts_originless_native_binding_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    child_name = f"{binding_name}.core"
+    binding_path = prefix / "habitat_sim" / "_ext" / f"habitat_sim_bindings{EXTENSION_SUFFIXES[0]}"
+    binding_path.parent.mkdir(parents=True)
+    binding_path.write_bytes(b"binding")
+    binding = _module_at(binding_name, binding_path)
+    child = ModuleType(child_name)
+    setattr(binding, "core", child)
+    monkeypatch.setitem(sys.modules, binding_name, binding)
+    monkeypatch.setitem(sys.modules, child_name, child)
+
+    _validate_loaded_habitat_sim_origins(prefix)
+
+
+def test_validate_loaded_habitat_origins_rejects_originless_child_without_binding_relation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    child_name = f"{binding_name}.core"
+    binding_path = prefix / "habitat_sim" / "_ext" / f"habitat_sim_bindings{EXTENSION_SUFFIXES[0]}"
+    binding_path.parent.mkdir(parents=True)
+    binding_path.write_bytes(b"binding")
+    binding = _module_at(binding_name, binding_path)
+    child = ModuleType(child_name)
+    setattr(binding, "core", ModuleType(child_name))
+    monkeypatch.setitem(sys.modules, binding_name, binding)
+    monkeypatch.setitem(sys.modules, child_name, child)
+
+    with pytest.raises(RuntimeError, match="no filesystem origin"):
+        _validate_loaded_habitat_sim_origins(prefix)
+
+
+def test_validate_loaded_habitat_origins_rejects_originless_child_of_external_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    child_name = f"{binding_name}.geo"
+    binding_path = tmp_path / "old-checkout" / f"habitat_sim_bindings{EXTENSION_SUFFIXES[0]}"
+    binding_path.parent.mkdir()
+    binding_path.write_bytes(b"binding")
+    binding = _module_at(binding_name, binding_path)
+    child = ModuleType(child_name)
+    setattr(binding, "geo", child)
+    monkeypatch.setitem(sys.modules, binding_name, binding)
+    monkeypatch.setitem(sys.modules, child_name, child)
+
+    with pytest.raises(RuntimeError, match="outside the required --runtime-prefix"):
+        _validate_loaded_habitat_sim_origins(prefix)
+
+
+def test_import_installed_habitat_rejects_wrong_module_loaded_during_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    site = _magnum_python_site(tmp_path)
+    outside = tmp_path / "old-checkout" / "bindings.py"
+    outside.parent.mkdir()
+    outside.write_text("# wrong habitat module\n", encoding="utf-8")
+    for existing_name in tuple(sys.modules):
+        if existing_name == "habitat_sim" or existing_name.startswith("habitat_sim."):
+            monkeypatch.delitem(sys.modules, existing_name, raising=False)
+    monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda: site,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._activate_runtime_prefix",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_preloaded_magnum_python_origins",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_magnum_python_origins",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def import_wrong_habitat() -> tuple[object, object, object, object]:
+        monkeypatch.setitem(
+            sys.modules,
+            "habitat_sim._ext.habitat_sim_bindings",
+            _module_at("habitat_sim._ext.habitat_sim_bindings", outside),
+        )
+        return object(), object(), object(), object()
+
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat", import_wrong_habitat
+    )
+
+    with pytest.raises(RuntimeError, match="outside the required --runtime-prefix"):
+        _import_installed_habitat(prefix)
+
+
 def test_import_installed_habitat_activates_site_before_habitat_import(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -416,6 +629,14 @@ def test_import_installed_habitat_activates_site_before_habitat_import(
     monkeypatch.setattr(
         "avengine.m1.habitat_capture.discover_magnum_python_site",
         lambda: site,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._remove_editable_habitat_sim_meta_finders",
+        lambda: calls.append(("remove_editable_habitat_finder", None)),
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_loaded_habitat_sim_origins",
+        lambda active_prefix: calls.append(("validate_habitat", active_prefix)),
     )
     monkeypatch.setattr(
         "avengine.m1.habitat_capture._activate_runtime_prefix",
@@ -440,9 +661,12 @@ def test_import_installed_habitat_activates_site_before_habitat_import(
 
     assert _import_installed_habitat(prefix) == imported
     assert calls == [
+        ("remove_editable_habitat_finder", None),
+        ("validate_habitat", prefix),
         ("activate", (prefix, site)),
         ("preloaded", site),
         ("import", None),
+        ("validate_habitat", prefix),
         ("validate", (site, imported[2])),
     ]
 

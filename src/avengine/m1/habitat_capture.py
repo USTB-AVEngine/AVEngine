@@ -189,6 +189,92 @@ def _activate_runtime_prefix(
     ]
 
 
+def _is_editable_habitat_sim_meta_finder(finder: object) -> bool:
+    finder_class = finder if isinstance(finder, type) else type(finder)
+    class_module = getattr(finder_class, "__module__", "")
+    if not isinstance(class_module, str):
+        return False
+    normalized_module = class_module.casefold()
+    return "editable" in normalized_module and "habitat_sim" in normalized_module
+
+
+def _remove_editable_habitat_sim_meta_finders() -> None:
+    """Keep an installed-prefix import from being redirected to an editable checkout."""
+    sys.meta_path[:] = [
+        finder
+        for finder in sys.meta_path
+        if not _is_editable_habitat_sim_meta_finder(finder)
+    ]
+
+
+def _originless_native_habitat_child_parent(
+    module: Any, *, module_name: str
+) -> tuple[str, Any] | None:
+    parent_name, separator, child_name = module_name.rpartition(".")
+    if not separator or not child_name:
+        return None
+    parent = sys.modules.get(parent_name)
+    if parent is None:
+        return None
+    parent_origin = getattr(parent, "__file__", None)
+    if not isinstance(parent_origin, (str, os.PathLike)):
+        return None
+    if not any(str(parent_origin).endswith(suffix) for suffix in EXTENSION_SUFFIXES):
+        return None
+    try:
+        parent_child = vars(parent).get(child_name)
+    except TypeError:
+        return None
+    if parent_child is not module:
+        return None
+    return parent_name, parent
+
+
+def _habitat_sim_module_origin_under(
+    module: Any, prefix: Path, *, module_name: str
+) -> Path:
+    origin = getattr(module, "__file__", None)
+    if not origin:
+        module_spec = getattr(module, "__spec__", None)
+        origin = getattr(module_spec, "origin", None)
+    if not origin:
+        native_parent = _originless_native_habitat_child_parent(
+            module, module_name=module_name
+        )
+        if native_parent is not None:
+            parent_name, parent = native_parent
+            return _habitat_sim_module_origin_under(
+                parent, prefix, module_name=parent_name
+            )
+    if not isinstance(origin, (str, os.PathLike)):
+        raise RuntimeError(
+            "Loaded Habitat module has no filesystem origin to validate against "
+            f"--runtime-prefix: {module_name}"
+        )
+    resolved = Path(origin).resolve()
+    try:
+        resolved.relative_to(prefix)
+    except ValueError as error:
+        raise RuntimeError(
+            "Loaded Habitat module is outside the required --runtime-prefix "
+            f"{prefix}: {module_name} -> {resolved}"
+        ) from error
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            "Loaded Habitat module file is missing under --runtime-prefix "
+            f"{prefix}: {module_name} -> {resolved}"
+        )
+    return resolved
+
+
+def _validate_loaded_habitat_sim_origins(prefix: Path) -> None:
+    for module_name, module in tuple(sys.modules.items()):
+        if module_name == "habitat_sim" or module_name.startswith("habitat_sim."):
+            _habitat_sim_module_origin_under(
+                module, prefix, module_name=module_name
+            )
+
+
 def _module_file_under(module: Any, root: Path, *, module_name: str) -> Path:
     module_file = getattr(module, "__file__", None)
     if not module_file:
@@ -233,10 +319,13 @@ def _validate_magnum_python_origins(site: Path, magnum: Any) -> None:
 
 
 def _import_installed_habitat(prefix: Path) -> tuple[Any, Any, Any, Any]:
+    _remove_editable_habitat_sim_meta_finders()
+    _validate_loaded_habitat_sim_origins(prefix)
     magnum_python_site = discover_magnum_python_site()
     _activate_runtime_prefix(prefix, magnum_python_site=magnum_python_site)
     _validate_preloaded_magnum_python_origins(magnum_python_site)
     imported = _import_habitat()
+    _validate_loaded_habitat_sim_origins(prefix)
     _validate_magnum_python_origins(magnum_python_site, imported[2])
     return imported
 
