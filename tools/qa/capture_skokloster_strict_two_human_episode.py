@@ -7,7 +7,7 @@ import argparse
 import importlib.util
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +27,72 @@ from avengine.backends.spear_ue.launch import parallel_instance_settings
 PACKAGED_MAP = (
     "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict"
 )
+PRODUCTION_VISUAL_ROLE = "production_visual"
 
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _reject_production_role(value: Mapping[str, Any], *, owner: str) -> None:
+    _require(
+        value.get("backend_role") != PRODUCTION_VISUAL_ROLE,
+        f"Skokloster {owner} backend_role cannot be production_visual",
+    )
+
+
+def _reject_qualification_or_formal_claim(
+    value: Mapping[str, Any], *, owner: str
+) -> None:
+    _require(
+        value.get("qualification_claim") is not True,
+        f"Skokloster {owner} qualification_claim must not be true",
+    )
+    formal_dataset_count = value.get("formal_dataset_count")
+    _require(
+        formal_dataset_count is not True
+        and not (
+            isinstance(formal_dataset_count, (int, float))
+            and not isinstance(formal_dataset_count, bool)
+            and formal_dataset_count != 0
+        ),
+        f"Skokloster {owner} formal_dataset_count must not be nonzero",
+    )
+
+
+def validate_diagnostic_suite(suite: Mapping[str, Any], *, scenario_id: str) -> None:
+    """Keep the selected Skokloster capture diagnostic-only.
+
+    Structural validation and scenario selection remain the shared runner's
+    responsibility. This wrapper merely rejects a production label or an
+    affirmative qualification/formal claim on the suite, selected scenario,
+    or selected plan.
+    """
+
+    _reject_production_role(suite, owner="suite")
+    _reject_qualification_or_formal_claim(suite, owner="suite")
+
+    # Use the shared runner's selection semantics without adding a uniqueness
+    # requirement to the existing suite format.
+    scenarios = {item["scenario_id"]: item for item in suite["scenarios"]}
+    scenario = scenarios.get(scenario_id)
+    if scenario is None:
+        return
+
+    _reject_production_role(scenario, owner="scenario")
+    _reject_qualification_or_formal_claim(scenario, owner="scenario")
+    plan = scenario.get("plan")
+    if not isinstance(plan, Mapping):
+        return
+
+    _reject_production_role(plan, owner="plan")
+    _reject_qualification_or_formal_claim(plan, owner="plan")
+    qualification = plan.get("qualification")
+    if isinstance(qualification, Mapping):
+        _reject_qualification_or_formal_claim(
+            qualification, owner="plan qualification"
+        )
 
 
 def _configure_explicit_archive(
@@ -121,6 +182,7 @@ def run(args: argparse.Namespace) -> Path:
     _require(args.authorize_gpu_capture, "GPU capture authorization flag is absent")
     _require(not args.output.exists(), f"refusing to replace output: {args.output}")
     suite = json.loads(args.suite_plan.read_text(encoding="utf-8"))
+    validate_diagnostic_suite(suite, scenario_id=args.scenario_id)
     _require(suite.get("native_map") == PACKAGED_MAP, "suite map drift")
     _require(
         suite.get("packaged_executable") == str(args.spear_executable.resolve()),
