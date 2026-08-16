@@ -1,8 +1,9 @@
 # Explicit non-binding Habitat core source closure. Keep this list source-only:
 # 112 C++ translation units across core (6), geo (3), gfx (27), assets (7),
 # metadata (32), io (5), scene (8), physics (7), nav (2), sensor (8), and
-# sim (7). Audio, bindings, Bullet, BackgroundRenderer, CUDA noise, and PBR
-# image resources are intentionally not part of this static compilation slice.
+# sim (7). Audio, bindings, BackgroundRenderer, CUDA noise, and PBR image
+# resources are intentionally not part of this static compilation slice.
+# The seven existing Bullet translation units are appended only by its opt-in.
 set(
   AVENGINE_HABITAT_CORE_SOURCES
   esp/core/Buffer.cpp
@@ -128,3 +129,17 @@ set(
   esp/sim/SimulatorConfiguration.cpp
   esp/sim/RenderInstanceHelper.cpp
 )
+
+if(AVENGINE_HABITAT_BUILD_BULLET)
+  list(
+    APPEND
+    AVENGINE_HABITAT_CORE_SOURCES
+    esp/physics/bullet/BulletArticulatedObject.cpp
+    esp/physics/bullet/BulletBase.cpp
+    esp/physics/bullet/BulletCollisionHelper.cpp
+    esp/physics/bullet/BulletPhysicsManager.cpp
+    esp/physics/bullet/BulletRigidObject.cpp
+    esp/physics/bullet/BulletRigidStage.cpp
+    esp/physics/bullet/BulletURDFImporter.cpp
+  )
+endif()

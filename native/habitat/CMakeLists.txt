@@ -25,6 +25,11 @@ option(
   "Build the optional legacy Habitat AudioSensor with a user-installed RLR SDK"
   OFF
 )
+option(
+  AVENGINE_HABITAT_BUILD_BULLET
+  "Build optional Habitat Bullet physics with externally installed dependencies"
+  OFF
+)
 
 option(
   AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS
@@ -42,7 +47,7 @@ set(
 set(ESP_BUILD_ASSIMP_SUPPORT OFF)
 set(ESP_BUILD_WITH_AUDIO ${AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR})
 set(ESP_BUILD_WITH_BACKGROUND_RENDERER OFF)
-set(ESP_BUILD_WITH_BULLET OFF)
+set(ESP_BUILD_WITH_BULLET ${AVENGINE_HABITAT_BUILD_BULLET})
 set(ESP_BUILD_WITH_CUDA OFF)
 set(ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH "")
 set(ESP_DEFAULT_PBRSHADER_CONFIG "")
@@ -86,6 +91,16 @@ find_package(RapidJSON CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
 find_package(recastnavigation CONFIG REQUIRED)
 find_package(OpenMP QUIET)
+if(AVENGINE_HABITAT_BUILD_BULLET)
+  find_package(MagnumIntegration CONFIG REQUIRED COMPONENTS Bullet)
+  find_package(Bullet REQUIRED Dynamics)
+  target_include_directories(
+    MagnumIntegration::Bullet
+    SYSTEM
+    INTERFACE
+      "${MAGNUMINTEGRATION_INCLUDE_DIR}"
+  )
+endif()
 
 if(
   AVENGINE_HABITAT_BUILD_RLR_ADAPTER
@@ -224,6 +239,14 @@ target_link_libraries(
     RecastNavigation::Detour
     RecastNavigation::Recast
 )
+if(AVENGINE_HABITAT_BUILD_BULLET)
+  target_link_libraries(
+    avengine_habitat_core
+    PUBLIC
+      MagnumIntegration::Bullet
+      Bullet::Dynamics
+  )
+endif()
 if(AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR)
   target_link_libraries(avengine_habitat_core PUBLIC AVEngine::RlrSdk)
 endif()
