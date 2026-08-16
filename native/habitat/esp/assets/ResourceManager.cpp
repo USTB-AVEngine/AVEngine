@@ -3485,35 +3485,12 @@ std::shared_ptr<Mn::GL::Texture2D> ResourceManager::loadIBLImageIntoTexture(
 }  // ResourceManager::loadIBLImageIntoTexture
 
 void ResourceManager::loadAllIBLAssets() {
-  // map is keyed by config name, value is PbrShaderAttributes, describing the
-  // desired configuration of the PBR shader.
-  auto mapOfPbrConfigs = metadataMediator_->getAllPbrShaderConfigs();
-
-  // Only load if rendering is enabled.
+  // Only the current scene PBR config can create drawables. Inactive
+  // metadata configs must not require external IBL assets for this scene.
   if (requiresTextures_) {
-    // Build enabled PBR/IBL helpers from external assets only.
-
-    ESP_DEBUG() << "PBR/IBL asset file sets (IBL brdf LUTs and environment "
-                   "maps) being loaded :"
-                << mapOfPbrConfigs.size();
-    for (const auto& entry : mapOfPbrConfigs) {
-      // Build required pbrIBL Helpers
-      getOrBuildPBRIBLHelper(entry.second);
-
-    }  // for each PbrShaderAttributes defined
-
-  } else {
-    if (mapOfPbrConfigs.size() > 1) {
-      // There will always be 1 config (default) but if more than 1 exist then
-      // perhaps having no renderer was not desired.
-      ESP_WARNING() << "Unable to load and convert" << mapOfPbrConfigs.size()
-                    << "PBR/IBL asset sets specified in the Scene Dataset due "
-                       "to no renderer being instantiated; "
-                       "simConfig.requiresTextures_ is false.";
-    }
+    getOrBuildPBRIBLHelper(metadataMediator_->getCurrentPbrConfiguration());
   }
-  //
-}  // ResourceManager::loadAndBuildAllIBLAssets
+}  // ResourceManager::loadAllIBLAssets
 
 bool ResourceManager::isLightSetupCompatible(
     const LoadedAssetData& loadedAssetData,

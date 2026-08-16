@@ -49,7 +49,10 @@ set(ESP_BUILD_WITH_AUDIO ${AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR})
 set(ESP_BUILD_WITH_BACKGROUND_RENDERER OFF)
 set(ESP_BUILD_WITH_BULLET ${AVENGINE_HABITAT_BUILD_BULLET})
 set(ESP_BUILD_WITH_CUDA OFF)
-set(ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH "")
+# This is a stable metadata registry handle, not an on-disk PBR config.
+# MetadataMediator registers it as the builtin no-IBL fallback; scene
+# configurations retain their own IBL settings and external asset paths.
+set(ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH "__avengine_builtin_pbr__")
 set(ESP_DEFAULT_PBRSHADER_CONFIG "")
 set(ESP_DEFAULT_PHYSICS_CONFIG_REL_PATH "./config/default.physics_config.json")
 set(ESP_DEFAULT_PHYSICS_CONFIG "${ESP_DEFAULT_PHYSICS_CONFIG_REL_PATH}")

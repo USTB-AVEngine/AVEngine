@@ -37,13 +37,16 @@ void MetadataMediator::buildAttributesManagers() {
     physicsAttributesManager_->setLock(ESP_DEFAULT_PHYSICS_CONFIG_REL_PATH,
                                        true);
   }
-  // should always have default PBRConfig
+  // Always register a built-in PBR fallback. Only this fallback disables
+  // IBL, so default and rendererless paths do not require external images.
   success = createPbrAttributes(ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH);
-  // Lock this so it is always available
-  pbrShaderAttributesManager_->setLock(ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH,
-                                       true);
-  // set as default and current
   if (success) {
+    auto builtinPbrAttributes = pbrShaderAttributesManager_->getObjectByHandle(
+        ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH);
+    builtinPbrAttributes->setEnableIBL(false);
+    // Lock the registered fallback before making it current.
+    pbrShaderAttributesManager_->setLock(
+        ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH, true);
     setCurrDefaultPbrAttributesHandle(ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH);
   }
   // after this setSimulatorConfiguration will be called
