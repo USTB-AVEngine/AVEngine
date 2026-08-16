@@ -242,6 +242,26 @@ checkout-relative rpclib paths, dependency source, build trees, and compiled
 extension artifacts. It does not change Python imports, package installation,
 extension build wiring, or the external SPEAR/UE runtime path.
 
+## SPEAR S3a namespaced host/game Python client closure
+
+| AVEngine target | Original path at spear-sim/spear@251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7 | Treatment |
+| --- | --- | --- |
+| src/avengine/backends/spear_ue/client selected instance, unreal_object, five utils and fourteen services | selected matching python/spear modules | **adapted** 21-file host/game client closure with imports retargeted to the AVEngine namespace |
+| src/avengine/backends/spear_ue/client/config/default_config*.yaml | matching python/spear/config files | **adapted** three default configuration inputs packaged with that client |
+
+The selected upstream implementation files also receive seven mechanical trailing-whitespace removals only; no code path or behavior is changed by that formatting normalization.
+
+S3a excludes the upstream root package initializer, editor helpers,
+pipeline/tool/math utilities, initialize_world_service, examples, tests, build
+metadata, C++ build wiring, rpclib and every UE/project/content path. AVEngine
+supplies a new package initializer: it registers neither a global spear nor a
+spear_ext alias, and uses the future AVEngine-native module name
+avengine_spear_ext. Importing configuration and service definitions does not
+require that optional extension; constructing client.Instance produces a clear
+error until the later extension build/install layer supplies it. This is not a
+native-extension build, a UE/editor compatibility claim, a runner cutover, or
+a replacement for the maintained transition runtime.
+
 ## AVEngine-owned adapter code already present
 
 `src/avengine/optional_backends/` and the corresponding tools contain

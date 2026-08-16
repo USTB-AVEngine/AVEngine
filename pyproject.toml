@@ -12,6 +12,8 @@ dependencies = [
   "numpy>=1.24",
   "Pillow>=9",
   "PyYAML>=6",
+  "psutil>=5.9",
+  "yacs>=0.1.8",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +24,9 @@ avengine = "avengine.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"avengine.backends.spear_ue.client" = ["config/*.yaml"]
 
 [tool.setuptools.data-files]
 "share/avengine/schemas" = ["schemas/*.json"]
