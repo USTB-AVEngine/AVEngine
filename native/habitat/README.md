@@ -217,7 +217,9 @@ export LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+
 ```
 
 With `AVENGINE_HABITAT_BUILD_RLR_ADAPTER` alone, this layer keeps
-`ESP_BUILD_WITH_AUDIO` OFF and does not alter legacy `AudioSensor`. The
+`ESP_BUILD_WITH_AUDIO` OFF and does not alter legacy `AudioSensor`. When the
+separate opt-in Python binding target is also selected, only the modern
+`RLRAcousticContext` API is exposed; `audio_enabled` remains false. The
 separate default-off `AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR` option
 regenerates that macro for the whole core and links the core publicly to the
 same `AVEngine::RlrSdk` target. It preserves the existing legacy
@@ -225,6 +227,11 @@ same `AVEngine::RlrSdk` target. It preserves the existing legacy
 compile/link and setup boundary, not Python bindings, package installation,
 runtime resolver, scene propagation, or runtime cutover. RLR material JSON and
 other SDK data remain caller-provided external inputs.
+
+Python callers must consult `habitat_sim.RLR_ADAPTER_ENABLED` before using
+the modern API. When it is false, the legacy-compatible RLR attributes are
+`None` and omitted from the facade and `habitat_sim.audio` star exports; this
+does not treat a disabled adapter as an available audio backend.
 
 ## H1 exclusions
 

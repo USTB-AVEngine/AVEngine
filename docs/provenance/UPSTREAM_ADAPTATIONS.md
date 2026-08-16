@@ -153,6 +153,30 @@ those external include and library paths without a checkout search,
 source remains adapted MIT code; the RLR engine, header, shared library,
 material configuration, and solver data remain external CC-BY-NC 4.0 SDK
 inputs. The adapter option alone leaves `ESP_BUILD_WITH_AUDIO` disabled.
+When the separately default-off Python binding target is also selected, the
+independent `ESP_BUILD_WITH_RLR_ADAPTER` macro exposes only the modern
+`RLRAcousticContext` API; it does not construct or enable legacy `AudioSensor`.
+
+| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@5641931245a76439cc1493d87d79dc518c6f453a` | Treatment |
+| --- | --- | --- |
+| `native/habitat/tests/RLRAcousticContextTest.cpp`, `native/habitat/tests/configure.h.cmake`, `native/habitat/tests/data/audio/avengine_m3_materials.json` | `src/tests/RLRAcousticContextTest.cpp`, `src/tests/configure.h.cmake`, `data/test_assets/audio/avengine_m3_materials.json` | **adapted** selected 13-case native adapter regression test and its 720-byte AVEngine material fixture; enabled only by `AVENGINE_HABITAT_BUILD_RLR_ADAPTER_TESTS=ON`, with no external RLR SDK source or package data staged |
+
+The same selected Python facade remains MIT-adapted source, but now reports
+the modern adapter separately from legacy `AudioSensor`. With the adapter
+OFF, all ten legacy-compatible modern-RLR attributes deliberately remain
+`None`; `RLR_ADAPTER_ENABLED` is false and those attributes are omitted from
+the root and `habitat_sim.audio` star exports. This prevents a facade import
+from treating a compiled default-off compatibility stub as a usable RLR API.
+
+| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | Treatment |
+| --- | --- | --- |
+| `native/habitat/esp/bindings/AudioPropagationBindings.cpp`, `native/habitat/esp/sensor/configure.h.cmake` | `src/esp/bindings/AudioPropagationBindings.cpp`, `src/esp/sensor/configure.h.cmake` | **adapted** a distinct `ESP_BUILD_WITH_RLR_ADAPTER` compile path for the modern context; legacy audio remains independently controlled, while a disabled modern adapter preserves `None` compatibility attributes |
+| `native/habitat/python/habitat_sim/{bindings/__init__.py,audio.py,__init__.py}` | matching `src_python/habitat_sim/` paths | **adapted** concrete-binding capability detection and `None` propagation, with unavailable modern names excluded from star exports |
+| `native/habitat/tests/DefaultOffPythonBindingsImportTest.py` | none | **AVEngine-authored** isolated `python -S` regression for a default-off installed prefix; it verifies the facade and extension come only from the requested prefix and no loaded Python module comes from the old Habitat checkout |
+
+The imported regression deliberately has no literal output hash or frozen baseline.
+It checks scene/material cardinality, identity, channel metadata, rejection
+behavior, and real RLR upload/readback consistency instead.
 
 A separate default-off `AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR` option
 regenerates the staged sensor configure header and links

@@ -21,6 +21,21 @@ option(
   OFF
 )
 option(
+  AVENGINE_HABITAT_BUILD_RLR_ADAPTER_TESTS
+  "Build the optional native RLR acoustic-context adapter regression test"
+  OFF
+)
+if(
+  AVENGINE_HABITAT_BUILD_RLR_ADAPTER_TESTS
+  AND NOT AVENGINE_HABITAT_BUILD_RLR_ADAPTER
+)
+  message(
+    FATAL_ERROR
+    "AVENGINE_HABITAT_BUILD_RLR_ADAPTER_TESTS=ON requires "
+    "AVENGINE_HABITAT_BUILD_RLR_ADAPTER=ON."
+  )
+endif()
+option(
   AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR
   "Build the optional legacy Habitat AudioSensor with a user-installed RLR SDK"
   OFF
@@ -237,6 +252,7 @@ endif()
 # Habitat sources. This target only consumes esp/core/configure.h.
 set(ESP_BUILD_ASSIMP_SUPPORT OFF)
 set(ESP_BUILD_WITH_AUDIO ${AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR})
+set(ESP_BUILD_WITH_RLR_ADAPTER ${AVENGINE_HABITAT_BUILD_RLR_ADAPTER})
 set(ESP_BUILD_WITH_BACKGROUND_RENDERER OFF)
 set(ESP_BUILD_WITH_BULLET ${AVENGINE_HABITAT_BUILD_BULLET})
 set(ESP_BUILD_WITH_CUDA OFF)
@@ -697,6 +713,13 @@ if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
       AVEngine::HabitatCore
       AVEngine::MagnumBindingsPython
   )
+  if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER)
+    target_link_libraries(
+      avengine_habitat_python_bindings
+      PRIVATE
+        AVEngine::HabitatRlrAudio
+    )
+  endif()
 
   if(AVENGINE_HABITAT_INSTALL_RUNTIME)
     install(
@@ -716,4 +739,47 @@ if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
       DESTINATION "${_avengine_habitat_runtime_prefix}/config"
     )
   endif()
+endif()
+
+
+if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER_TESTS)
+  find_package(Corrade REQUIRED TestSuite)
+  enable_testing()
+  set(
+    AVENGINE_HABITAT_RLR_TEST_ASSETS
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
+  )
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tests")
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/configure.h.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/tests/configure.h"
+    @ONLY
+  )
+  add_executable(
+    avengine_habitat_rlr_audio_test
+    tests/RLRAcousticContextTest.cpp
+  )
+  set_target_properties(
+    avengine_habitat_rlr_audio_test
+    PROPERTIES
+      CXX_STANDARD 17
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+  )
+  target_include_directories(
+    avengine_habitat_rlr_audio_test
+    PRIVATE
+      "${CMAKE_CURRENT_BINARY_DIR}/tests"
+  )
+  target_link_libraries(
+    avengine_habitat_rlr_audio_test
+    PRIVATE
+      AVEngine::HabitatRlrAudio
+      Corrade::TestSuite
+      Corrade::Utility
+  )
+  add_test(
+    NAME avengine_habitat_rlr_audio_test
+    COMMAND avengine_habitat_rlr_audio_test
+  )
 endif()

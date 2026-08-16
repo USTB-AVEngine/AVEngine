@@ -17,7 +17,7 @@
 
 #include "esp/sensor/configure.h"
 
-#ifdef ESP_BUILD_WITH_AUDIO
+#ifdef ESP_BUILD_WITH_RLR_ADAPTER
 #include "esp/audio/RLRAcousticContext.h"
 #endif
 
@@ -27,7 +27,7 @@ using py::literals::operator""_a;
 namespace esp {
 namespace audio {
 
-#ifdef ESP_BUILD_WITH_AUDIO
+#ifdef ESP_BUILD_WITH_RLR_ADAPTER
 namespace {
 
 template <class Function>
@@ -128,7 +128,7 @@ py::array_t<float> ownedIRSamples(const RLROwnedIR& ir) {
 #endif
 
 void initAudioPropagationBindings(pybind11::module& module) {
-#ifdef ESP_BUILD_WITH_AUDIO
+#ifdef ESP_BUILD_WITH_RLR_ADAPTER
   py::class_<RLRContextConfiguration>(module, "RLRContextConfiguration")
       .def(py::init<>())
       .def_readwrite("frequency_bands",

@@ -64,6 +64,7 @@ if not getattr(builtins, "__HSIM_SETUP__", False):
     )
     from habitat_sim.audio import (  # noqa: F401
         RLRAcousticContext,
+        RLR_ADAPTER_ENABLED,
         RLRChannelLayoutType,
         RLRContextConfiguration,
         RLRListenerReceipt,
@@ -126,15 +127,21 @@ if not getattr(builtins, "__HSIM_SETUP__", False):
         "simulator",
         "utils",
         "MapStringString",
-        "RLRAcousticContext",
-        "RLRChannelLayoutType",
-        "RLRContextConfiguration",
-        "RLRListenerReceipt",
-        "RLRMaterialUploadReceipt",
-        "RLROwnedIR",
-        "RLRRayResult",
-        "RLRSceneReadbackReport",
-        "RLRSceneUploadReport",
-        "RLRSourceReceipt",
+        "RLR_ADAPTER_ENABLED",
         "registry",
     ]
+    if RLR_ADAPTER_ENABLED:
+        __all__.extend(
+            [
+                "RLRAcousticContext",
+                "RLRChannelLayoutType",
+                "RLRContextConfiguration",
+                "RLRListenerReceipt",
+                "RLRMaterialUploadReceipt",
+                "RLROwnedIR",
+                "RLRRayResult",
+                "RLRSceneReadbackReport",
+                "RLRSceneUploadReport",
+                "RLRSourceReceipt",
+            ]
+        )

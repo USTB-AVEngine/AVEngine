@@ -7,13 +7,18 @@
 
 """Modern, explicit RLR acoustic-scene bindings used by AVEngine.
 
-These bindings are independent of the legacy :class:`AudioSensor`. In builds
-without ``HABITAT_WITH_AUDIO=ON``, the exported names are ``None`` and
-``habitat_sim.audio_enabled`` remains the authoritative capability flag.
+These bindings are independent of the legacy :class:`AudioSensor`. The
+``RLR_ADAPTER_ENABLED`` capability is true only when
+``AVENGINE_HABITAT_BUILD_RLR_ADAPTER=ON`` produced concrete modern bindings.
+With the adapter off, compatibility attributes are ``None`` and the modern
+names are omitted from ``__all__``. That option does not enable legacy
+``AudioSensor``; ``habitat_sim.audio_enabled`` therefore remains ``False``
+unless the separate legacy-audio option is enabled.
 """
 
-from habitat_sim._ext.habitat_sim_bindings import (
+from habitat_sim.bindings import (
     RLRAcousticContext,
+    RLR_ADAPTER_ENABLED,
     RLRChannelLayoutType,
     RLRContextConfiguration,
     RLRListenerReceipt,
@@ -25,15 +30,19 @@ from habitat_sim._ext.habitat_sim_bindings import (
     RLRSourceReceipt,
 )
 
-__all__ = [
-    "RLRAcousticContext",
-    "RLRChannelLayoutType",
-    "RLRContextConfiguration",
-    "RLRListenerReceipt",
-    "RLRMaterialUploadReceipt",
-    "RLROwnedIR",
-    "RLRRayResult",
-    "RLRSceneReadbackReport",
-    "RLRSceneUploadReport",
-    "RLRSourceReceipt",
-]
+__all__ = ["RLR_ADAPTER_ENABLED"]
+if RLR_ADAPTER_ENABLED:
+    __all__.extend(
+        [
+            "RLRAcousticContext",
+            "RLRChannelLayoutType",
+            "RLRContextConfiguration",
+            "RLRListenerReceipt",
+            "RLRMaterialUploadReceipt",
+            "RLROwnedIR",
+            "RLRRayResult",
+            "RLRSceneReadbackReport",
+            "RLRSceneUploadReport",
+            "RLRSourceReceipt",
+        ]
+    )
