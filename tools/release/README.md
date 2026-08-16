@@ -21,6 +21,12 @@ snapshot actually verified.
 The build request is local input and is not part of the release schema. Keep it
 under an ignored evidence directory after A exists. Its shape is:
 
+For a new request generated from the current AVEngine worktree, set
+`expected_avengine_repository` to
+`https://github.com/USTB-AVEngine/AVEngine.git`. The checked-in M6 manifest
+retains the former Eastforward repository identity that actually produced it;
+do not rewrite that manifest or its matching test assertions.
+
 For the two `m6_evidence` role bundles, list only the authority entry
 (`evidence.json` or `attempt_manifest.json`). `prepare` runs the corresponding
 semantic verifier and expands that entry into an exact per-file closure in the
@@ -50,7 +56,7 @@ side read.
     "upstream_commit": "<upstream-habitat-commit>",
     "expected_rlr_commit": "<RLR-gitlink-commit>",
     "rlr_submodule_path": "src/deps/rlr-audio-propagation",
-    "expected_avengine_repository": "https://github.com/Eastforward/AVEngine.git",
+    "expected_avengine_repository": "https://github.com/USTB-AVEngine/AVEngine.git",
     "expected_habitat_repository": "https://github.com/Eastforward/habitat-sim-AVEngine.git",
     "expected_upstream_repository": "https://github.com/facebookresearch/habitat-sim.git",
     "expected_rlr_repository": "https://github.com/facebookresearch/rlr-audio-propagation.git"
