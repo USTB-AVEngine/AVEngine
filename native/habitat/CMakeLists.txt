@@ -26,6 +26,17 @@ option(
   OFF
 )
 
+option(
+  AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS
+  "Build optional Habitat Python 3.12 bindings into an explicit staging root"
+  OFF
+)
+set(
+  AVENGINE_HABITAT_PYTHON_OUTPUT_DIR
+  ""
+  CACHE PATH
+  "Explicit non-source package staging root for optional habitat_sim_bindings"
+)
 # Generate the four staged template inputs in the include layout used by
 # Habitat sources. This target only consumes esp/core/configure.h.
 set(ESP_BUILD_ASSIMP_SUPPORT OFF)
@@ -268,5 +279,187 @@ if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER)
       AVEngine::RlrSdk
     PRIVATE
       Corrade::Utility
+  )
+endif()
+
+if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
+  if(NOT AVENGINE_HABITAT_PYTHON_OUTPUT_DIR)
+    message(
+      FATAL_ERROR
+      "AVENGINE_HABITAT_PYTHON_OUTPUT_DIR is required when "
+      "AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS=ON. Set it to an explicit "
+      "non-source package staging root."
+    )
+  endif()
+
+  get_filename_component(
+    _avengine_habitat_python_output_requested
+    "${AVENGINE_HABITAT_PYTHON_OUTPUT_DIR}"
+    ABSOLUTE
+    BASE_DIR "${CMAKE_BINARY_DIR}"
+  )
+  # Resolve every existing output-path component before any output directory is
+  # created. This makes an existing symlink back into native/habitat visible to
+  # the containment check while still allowing a new output leaf.
+  set(
+    _avengine_habitat_python_output_existing_parent
+    "${_avengine_habitat_python_output_requested}"
+  )
+  set(_avengine_habitat_python_output_missing_components)
+  while(NOT EXISTS "${_avengine_habitat_python_output_existing_parent}")
+    get_filename_component(
+      _avengine_habitat_python_output_component
+      "${_avengine_habitat_python_output_existing_parent}"
+      NAME
+    )
+    get_filename_component(
+      _avengine_habitat_python_output_parent
+      "${_avengine_habitat_python_output_existing_parent}"
+      DIRECTORY
+    )
+    if(
+      "${_avengine_habitat_python_output_parent}" STREQUAL
+      "${_avengine_habitat_python_output_existing_parent}"
+      OR "${_avengine_habitat_python_output_component}" STREQUAL ""
+    )
+      message(
+        FATAL_ERROR
+        "Could not resolve an existing parent for "
+        "AVENGINE_HABITAT_PYTHON_OUTPUT_DIR: "
+        "${_avengine_habitat_python_output_requested}"
+      )
+    endif()
+    list(
+      PREPEND
+      _avengine_habitat_python_output_missing_components
+      "${_avengine_habitat_python_output_component}"
+    )
+    set(
+      _avengine_habitat_python_output_existing_parent
+      "${_avengine_habitat_python_output_parent}"
+    )
+  endwhile()
+  get_filename_component(
+    _avengine_habitat_python_output_root
+    "${_avengine_habitat_python_output_existing_parent}"
+    REALPATH
+  )
+  foreach(
+    _avengine_habitat_python_output_component
+    IN LISTS _avengine_habitat_python_output_missing_components
+  )
+    set(
+      _avengine_habitat_python_output_root
+      "${_avengine_habitat_python_output_root}/${_avengine_habitat_python_output_component}"
+    )
+  endforeach()
+  get_filename_component(
+    _avengine_habitat_source_root
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    REALPATH
+  )
+  file(
+    RELATIVE_PATH
+    _avengine_habitat_python_output_relative
+    "${_avengine_habitat_source_root}"
+    "${_avengine_habitat_python_output_root}"
+  )
+  # The output is outside only if its first relative-path component is the
+  # exact parent component `..`. A source child named `..output` must not be
+  # mistaken for an outside path by a string-prefix check.
+  string(
+    REPLACE "/"
+    ";"
+    _avengine_habitat_python_output_relative_components
+    "${_avengine_habitat_python_output_relative}"
+  )
+  list(
+    GET
+    _avengine_habitat_python_output_relative_components
+    0
+    _avengine_habitat_python_output_first_component
+  )
+  if(NOT "${_avengine_habitat_python_output_first_component}" STREQUAL "..")
+    message(
+      FATAL_ERROR
+      "AVENGINE_HABITAT_PYTHON_OUTPUT_DIR must be outside "
+      "native/habitat source; refusing source-tree extension output: "
+      "${_avengine_habitat_python_output_root}"
+    )
+  endif()
+
+  find_package(
+    Python
+    3.12
+    EXACT
+    REQUIRED
+    COMPONENTS Interpreter Development.Module
+  )
+  set(PYBIND11_FINDPYTHON ON)
+  find_package(pybind11 CONFIG REQUIRED)
+  find_package(MagnumBindings CONFIG REQUIRED)
+  find_path(
+    AVENGINE_MAGNUM_BINDINGS_PYTHON_INCLUDE_DIR
+    NAMES Magnum/PythonBindings.h
+    HINTS "${MAGNUMBINDINGS_INCLUDE_DIR}"
+    NO_DEFAULT_PATH
+  )
+  if(NOT AVENGINE_MAGNUM_BINDINGS_PYTHON_INCLUDE_DIR)
+    message(
+      FATAL_ERROR
+      "Installed MagnumBindings is missing Magnum/PythonBindings.h below "
+      "its configured include root: ${MAGNUMBINDINGS_INCLUDE_DIR}"
+    )
+  endif()
+  add_library(avengine_magnum_bindings_python INTERFACE)
+  add_library(
+    AVEngine::MagnumBindingsPython
+    ALIAS avengine_magnum_bindings_python
+  )
+  target_include_directories(
+    avengine_magnum_bindings_python
+    SYSTEM
+    INTERFACE
+      "${AVENGINE_MAGNUM_BINDINGS_PYTHON_INCLUDE_DIR}"
+  )
+  target_link_libraries(
+    avengine_magnum_bindings_python
+    INTERFACE
+      Magnum::Magnum
+  )
+  include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PythonBindingSources.cmake")
+
+  set(
+    _avengine_habitat_python_module_dir
+    "${_avengine_habitat_python_output_root}/habitat_sim/_ext"
+  )
+  file(MAKE_DIRECTORY "${_avengine_habitat_python_module_dir}")
+  pybind11_add_module(
+    avengine_habitat_python_bindings
+    MODULE
+    ${AVENGINE_HABITAT_PYTHON_BINDING_SOURCES}
+  )
+  add_library(
+    AVEngine::HabitatPythonBindings
+    ALIAS avengine_habitat_python_bindings
+  )
+  set_target_properties(
+    avengine_habitat_python_bindings
+    PROPERTIES
+      CXX_STANDARD 17
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+      POSITION_INDEPENDENT_CODE ON
+      OUTPUT_NAME habitat_sim_bindings
+      LIBRARY_OUTPUT_DIRECTORY "${_avengine_habitat_python_module_dir}"
+      RUNTIME_OUTPUT_DIRECTORY "${_avengine_habitat_python_module_dir}"
+  )
+  # HabitatCore carries the eight selected static importer registration sources
+  # through its usage interface. The final Python extension is the consumer.
+  target_link_libraries(
+    avengine_habitat_python_bindings
+    PRIVATE
+      AVEngine::HabitatCore
+      AVEngine::MagnumBindingsPython
   )
 endif()

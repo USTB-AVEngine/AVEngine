@@ -18,17 +18,21 @@ without changing the upstream terms.
 
 | Component | Pinned revision | Terms | Required treatment |
 | --- | --- | --- | --- |
-| Habitat-Sim selected H1/S3 source and H4a/H4c/H4d build wiring | upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038`; transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b` | MIT | H1/S3 stage selected source at `native/habitat/`; H4a reimplements a standalone `gfx_batch` slice, H4c a non-binding `AVEngine::HabitatCore` static slice, and H4d its consumer-facing static importer interface. Preserve Meta copyright, MIT text, provenance, and citations; build/runtime cutover remains pending |
+| Habitat-Sim selected H1/S3 source and H4a/H4c/H4d/H5a build wiring | upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038`; transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b` | MIT | H1/S3 stage selected source at `native/habitat/`; H4a reimplements a standalone `gfx_batch` slice, H4c a non-binding `AVEngine::HabitatCore` static slice, H4d its consumer-facing static importer interface, and H5a an optional Python extension selection. Preserve Meta copyright, MIT text, provenance, and citations; build/runtime cutover remains pending |
 | RLR Audio Propagation distribution | `4fd446b4abb5c71fb7a232a083bbddd65f25fc6f` | CC BY-NC 4.0 | the engine, headers, configuration, and precompiled library remain a legal user-installed external SDK; retain attribution and terms, and do not claim propagation-engine source integration |
+| pybind11 temporary H19 validation dependency | `a2e59f0e7065404b44dfe92a28aca47ba1378dc4` | BSD-3-Clause | externally installed Python-binding support used by H5a validation only; do not vendor its source, binary, package, or license claim into the Habitat source slice without a separately reviewed distribution decision |
+| MagnumBindings temporary H19 validation dependency | `45811bb52e749677d5bc43d62b384ec546ed93bc` | MIT | externally installed Corrade/Magnum Python-binding headers/runtime used by H5a validation only; do not vendor its source, binary, package, or installed prefix into AVEngine Git |
 | SPEAR-owned runtime source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements the Apartment launch helper; S2 stages selected source-only python_ext files at native/spear/python_ext. Retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`; all remaining client/plugin/control source and extension build/runtime stay in the transition checkout |
 
 The root AVEngine all-rights-reserved notice does not relicense imported
-third-party code. H1/S3/H4a/H4c/H4d retain the Habitat MIT text at
+third-party code. H1/S3/H4a/H4c/H4d/H5a retain the Habitat MIT text at
 `LICENSES/Habitat-Sim-MIT.txt`; `native/habitat/README.md` and
 `docs/provenance/UPSTREAM_ADAPTATIONS.md` record its per-module source map.
 H4a/H4c build source-owned static slices; H4d only exposes installed static
-importer targets to their final consumers. Existing runtime and selected build
-paths still use the manifest-pinned transition fork until a later cutover.
+importer targets to their final consumers; H5a optionally builds the selected
+binding closure against external Python dependencies. Existing runtime and
+selected build paths still use the manifest-pinned transition fork until a
+later cutover.
 
 H4c is an explicit 112-C++ non-binding `AVEngine::HabitatCore` slice layered
 on H4a `gfx_batch` and `GfxShaderResources`. Its H10 fresh 122/122 static
@@ -42,12 +46,29 @@ validation linked only the core target, then compiled the registrations and
 decoded external GLB/PLY/PNG/HDR data; this remains static evidence rather than
 a runtime or build cutover.
 
+H5a adds a default-off Python 3.12 extension target over 17 selected adapted
+binding translation units. It requires an explicit non-source output root and
+writes only `habitat_sim/_ext/habitat_sim_bindings`; it does not install or copy
+the staged Python facade, alter the runtime resolver, add a RLR/Bullet
+capability, copy a shared library, or add RPATH. H23 rejected a symlink-to-source
+output and H24 rejected the source child `..output`, both before they could
+write there; H24 then compiled 148/148 Ninja steps against external H19/H11/H6/H9
+prefixes and imported the
+staged facade with external `quaternion`, Corrade and Magnum runtime packages;
+that is isolated build/import evidence, not a runtime cutover or redistribution
+of pybind11/MagnumBindings packages.
+
 H1/S3 import no RLR header, material configuration, shared library, or solver
 source. The AVEngine/Habitat adapter source is staged under `native/habitat`,
 while the RLR engine remains an external user-provided CC-BY-NC 4.0 SDK. S3
 adds Python/shader/template source only. H4c/H4d add no RLR/audio adapter,
 Bullet, bindings, BackgroundRenderer, CUDA noise, PBR image resource, PBR
 asset/default configuration, compiled extension, importer source, or runtime path.
+
+H5a adds only opt-in binding build wiring and no RLR SDK/header/library,
+Bullet source, package copy, install rule, source checkout path, or runtime
+resolver/cutover. The H24 module readback had no RPATH/RUNPATH and no RLR
+library dependency.
 
 The default-off `AVEngine::HabitatRlrAudio` static adapter target resolves the
 same external RLR SDK only through `AVENGINE_RLR_SDK_ROOT`. That root is the

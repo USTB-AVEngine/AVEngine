@@ -1,6 +1,6 @@
 # Upstream Adaptations
 
-Status: Habitat H1/S3 staging and H4a/H4c/H4d static build slices have landed;
+Status: Habitat H1/S3 staging and H4a/H4c/H4d/H5a build slices have landed;
 runtime/build cutover and the remaining third-party source migration are still
 pending.
 
@@ -26,7 +26,7 @@ production output or grant redistribution rights for an external asset.
 
 | Foundation | Upstream source | Intended bounded scope | Current migration state |
 | --- | --- | --- | --- |
-| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch`, H4c a non-binding core static slice, and H4d its static importer consumer interface, while the current runtime remains on the manifest-pinned fork pending cutover |
+| Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch`, H4c a non-binding core static slice, H4d its static importer consumer interface, and H5a an optional staged Python extension, while the current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
 | SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected Python client, UE plugin/control source, project configuration and build helpers required by Apartment and Kujiale | S1 reimplements one launch-settings helper and S2 stages only the selected python_ext source under native/spear/python_ext; the SPEAR Python runtime, extension build, UE plugin/control source, project configuration and build helpers remain in the maintained transition checkout |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
@@ -45,7 +45,7 @@ merge or a runtime dependency declaration. The compact module map is:
 | --- | --- | --- |
 | `native/habitat/esp/{assets,core,geo,gfx,gfx_batch,io,metadata,nav,physics,scene,sensor,sim}/**` | matching `src/esp/**` | adapted selected Habitat C++ closure |
 | `native/habitat/esp/audio/**` | `src/esp/audio/**` | adapted AVEngine RLR context source; RLR engine source is not present |
-| `native/habitat/esp/bindings/**` | `src/esp/bindings/**` | adapted bindings including the audio binding entry point; no H1 build registration |
+| `native/habitat/esp/bindings/**` | `src/esp/bindings/**` | adapted bindings including the audio binding entry point; only H5a's explicit opt-in registers its selected binding translation units |
 | `native/habitat/esp/physics/bullet/BulletPhysicsManager.cpp` | matching source path | adapted opt-in `avengine_native_gltf_skin_frame` fork change |
 | `native/habitat/shaders/gfx/**` | `src/shaders/gfx/**` | adapted shader source only |
 | `native/habitat/config/default.physics_config.json` | `data/default.physics_config.json` | adapted small configuration |
@@ -156,6 +156,51 @@ A fresh H14 CPU-only 132-step validation against temporary H11/H6/H9 prefixes
 linked only AVEngine::HabitatCore, compiled all eight registrations in the final
 consumer, and decoded the MP3D GLB, semantic PLY, PBR PNG, and PBR HDR inputs.
 That is static build and decoder evidence only, not a runtime or build cutover.
+
+## Habitat H5a optional M1 Python binding wiring
+
+| AVEngine target | Reference examined | Treatment |
+| --- | --- | --- |
+| `native/habitat/CMakeLists.txt`, `native/habitat/cmake/PythonBindingSources.cmake` | transition `src/esp/bindings/CMakeLists.txt` and the selected `src/esp/bindings/*.cpp` files at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | **reimplemented** AVEngine-owned Python 3.12 module wiring plus an explicit selection of 17 already adapted binding translation units; no upstream CMake file is copied |
+
+H5a makes the default-off `AVEngine::HabitatPythonBindings` module target over
+exactly `Bindings`, `AudioPropagationBindings`, `AttributesBindings`,
+`AttributesManagersBindings`, `ConfigBindings`, `CoreBindings`, `GeoBindings`,
+`GfxBindings`, `MetadataMediatorBindings`, `GfxReplayBindings`,
+`PhysicsBindings`, `PhysicsObjectBindings`, `PhysicsWrapperManagerBindings`,
+`SceneBindings`, `SensorBindings`, `ShortestPathBindings`, and `SimBindings`.
+It requires external Python 3.12 development, pybind11, and MagnumBindings;
+the H19 temporary validation used official `pybind11@a2e59f0e7065404b44dfe92a28aca47ba1378dc4`
+and `magnum-bindings@45811bb52e749677d5bc43d62b384ec546ed93bc` archives, neither
+of which is vendored or recorded as a runtime path.
+
+The examined installed MagnumBindings layout contains
+`<include>/Magnum/PythonBindings.h`, while its installed config-component
+lookup cannot discover a `Python` component at that nested location. H5a calls
+`find_package(MagnumBindings CONFIG REQUIRED)` without a component, then owns
+`AVEngine::MagnumBindingsPython` solely to find that public header under the
+configured include root and link `Magnum::Magnum`. It neither modifies the
+external prefix nor presents an AVEngine target as `MagnumBindings::Python`.
+
+The module links `AVEngine::HabitatCore`; H4d's already exported static plugin
+INTERFACE_SOURCES therefore compile the eight importer/converter registration
+units in the final extension without a handwritten plugin macro. It requires
+an explicit non-source `AVENGINE_HABITAT_PYTHON_OUTPUT_DIR`, resolves every
+existing path component (including symlinks) before containment, and permits
+only a relative path whose first component is exact `..`, emits only
+`habitat_sim/_ext/habitat_sim_bindings`, has no
+install/facade-copy/RPATH rule, and does not change the existing resolver. Fresh
+H24 validation against
+external H19/H11/H6/H9 prefixes and explicit H9 Recast completed 148/148
+Ninja steps, ran an isolated import of `quaternion`, `corrade`,
+`magnum.scenegraph`, and `habitat_sim`, and constructed visual configuration,
+`NavMeshSettings`, and `ShortestPath` objects. RLR adapter and legacy audio
+were OFF; `audio_enabled` and `built_with_bullet` were both false. H23 rejected
+a symlink-to-source output and H24 rejected the source child `..output`, both
+before any source-tree output was created. This is not a full Simulator run,
+package installation, runtime/build
+cutover, or a claim
+that external assets or dependencies were migrated.
 
 ## Habitat external PBR IBL adapter
 

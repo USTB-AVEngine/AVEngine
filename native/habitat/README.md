@@ -1,13 +1,15 @@
-# Habitat-Sim H1/S3 staging and H4a/H4c/H4d static build slices
+# Habitat-Sim H1/S3 staging and H4a/H4c/H4d/H5a build slices
 
 This directory holds the bounded, source-only Habitat-Sim staging needed for
 AVEngine's MP3D native runtime. H1 stages the selected C++ runtime closure;
 S3 adds the selected Python package under `python/habitat_sim/`, `gfx_batch`
 shader sources, and four generated-header input templates. H4a adds an
 AVEngine-owned standalone CMake build of `gfx_batch`; H4c adds a non-binding
-core static target over the selected source closure. Existing executions still
-use the manifest-pinned transition fork. Neither target changes the selected
-build/runtime path or claims a completed cutover.
+core static target; H4d forwards selected static importer registrations; and
+H5a optionally builds the selected Python binding closure into an explicit
+external staging root. Existing executions still use the manifest-pinned
+transition fork. None of these targets changes the selected build/runtime path
+or claims a completed cutover.
 
 ## Origin and treatment
 
@@ -28,7 +30,7 @@ terms for every direct adapted file or module.
 | --- | --- | --- |
 | `esp/{assets,core,geo,gfx,gfx_batch,io,metadata,nav,physics,scene,sensor,sim}/**` | matching `src/esp/**` paths | **adapted** Habitat runtime closure; no H1 behavior change |
 | `esp/audio/**` | `src/esp/audio/**` | **adapted** AVEngine RLR context adapter plus `RLRAcousticContextTestAccess.h`, a retained MIT internal parser test seam included by runtime source; no RLR engine source is included |
-| `esp/bindings/**` | `src/esp/bindings/**` | **adapted** native bindings, including the transition fork's audio binding entry point; build registration is deliberately deferred |
+| `esp/bindings/**` | `src/esp/bindings/**` | **adapted** native bindings, including the transition fork's audio binding entry point; only H5a's explicit opt-in registers its selected binding translation units |
 | `esp/physics/bullet/BulletPhysicsManager.cpp` | matching `src/esp/physics/bullet/BulletPhysicsManager.cpp` | **adapted** upstream Bullet manager with the fork's opt-in `avengine_native_gltf_skin_frame` behavior |
 | `shaders/gfx/**` | `src/shaders/gfx/**` | **adapted** shader source only |
 | `config/default.physics_config.json` | `data/default.physics_config.json` | **adapted** small default physics configuration |
@@ -119,6 +121,51 @@ semantic PLY, PBR PNG, and PBR HDR inputs. Scene assets, bindings, the RLR SDK,
 and end-to-end native execution remain separate work; the manifest-pinned
 transition runtime is still selected.
 
+## H5a optional M1 Python binding build
+
+`AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS` is OFF by default. When enabled, the
+AVEngine-owned `CMakeLists.txt` and `cmake/PythonBindingSources.cmake` build
+`AVEngine::HabitatPythonBindings` as the Python 3.12 module
+`habitat_sim_bindings`. The explicit list has 17 adapted staging translation
+units: `Bindings`, `AudioPropagationBindings`, `AttributesBindings`,
+`AttributesManagersBindings`, `ConfigBindings`, `CoreBindings`, `GeoBindings`,
+`GfxBindings`, `MetadataMediatorBindings`, `GfxReplayBindings`,
+`PhysicsBindings`, `PhysicsObjectBindings`, `PhysicsWrapperManagerBindings`,
+`SceneBindings`, `SensorBindings`, `ShortestPathBindings`, and `SimBindings`.
+The final extension links `AVEngine::HabitatCore`, so H4d's eight static
+Magnum/MagnumPlugins registration sources are compiled automatically through
+the existing usage interface; it writes no `CORRADE_PLUGIN_IMPORT` macro.
+
+This build requires externally installed Python 3.12 development, pybind11,
+and MagnumBindings. The examined installed MagnumBindings package exposes the
+Python binding headers under `Magnum/PythonBindings.h`, but its config-component
+lookup cannot locate that path as a `Python` component. H5a therefore makes no
+provider modification and does not invent `MagnumBindings::Python`: its own
+`AVEngine::MagnumBindingsPython` interface target finds that public header below
+the configured MagnumBindings include root and links `Magnum::Magnum`.
+
+`AVENGINE_HABITAT_PYTHON_OUTPUT_DIR` is mandatory and must resolve outside
+`native/habitat/`: before directory creation, CMake resolves every existing
+path component (including symlinks) and permits only a relative path whose
+first component is the exact parent component `..`; a source child named
+`..output` is rejected. H5a emits
+only the extension under
+`<output>/habitat_sim/_ext/`; it has no install rule, no facade copy, no RPATH,
+and no runtime resolver change. A caller stages the already selected
+`python/habitat_sim` facade and its external Corrade/Magnum Python packages in
+its own test or installation root. Fresh H24 validation used exactly that
+temporary staging arrangement with H19/H11/H6/H9 external prefixes, completed
+148/148 Ninja steps, imported `quaternion`, `corrade`, `magnum.scenegraph`, and
+`habitat_sim`, and constructed a visual configuration, `NavMeshSettings`, and
+`ShortestPath`. It kept the RLR adapter and legacy audio sensor OFF, observed
+`audio_enabled=False` and `built_with_bullet=False`, and found no checkout/RLR
+or H6 Recast/Detour path in the generated build metadata. H23 rejected an
+output symlink to `native/habitat/`, and H24 rejected the source child
+`native/habitat/..output`, both before any source-tree output was created. This
+is build and import evidence only, not a
+package installation, runtime resolver switch,
+full Simulator run, or cutover.
+
 ## Optional external RLR SDK adapter
 
 `AVENGINE_HABITAT_BUILD_RLR_ADAPTER` is OFF by default. When enabled, it adds
@@ -180,8 +227,8 @@ does not claim a native build or runtime cutover.
 
 ## Next integration layer
 
-H4a/H4c/H4d provide source-owned static build slices and an importer consumer
-interface only. A later, separately reviewed change must supply the remaining
-build, bindings, and compatibility integration, then remove the external
-Habitat source-path dependency and run the required fresh native equivalence
-checks.
+H4a/H4c/H4d/H5a provide source-owned static build slices, an importer consumer
+interface, and an optional staged Python extension only. A later, separately
+reviewed change must supply package installation, runtime resolver and full
+compatibility integration, then remove the external Habitat source-path
+dependency and run the required fresh native equivalence checks.

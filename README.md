@@ -129,6 +129,17 @@ A adapter 单独启用时仍保持 `ESP_BUILD_WITH_AUDIO` 关闭。独立且默�
 Python bindings、package installation、runtime resolver 或完整传播运行时。
 这只是外部 SDK 的加载方式，不迁入 RLR engine、头文件、库或 material data。
 
+默认关闭的 `AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS` 是独立的 M1 Python 3.12
+扩展构建层。启用时必须把 `AVENGINE_HABITAT_PYTHON_OUTPUT_DIR` 指到
+`native/habitat/` 外的显式 staging 根；CMake 会先解析已有路径组件（含
+symlink）并拒绝任何回到源码树的输出，随后才会写入
+`habitat_sim/_ext/` 的 `habitat_sim_bindings`；它不复制 package、不安装、也不
+改变现有 runtime resolver。调用者仍须自行把已暂存的
+`native/habitat/python/habitat_sim` facade 与外置 Corrade/Magnum Python runtime
+放到自己的测试/安装环境中。该层使用外置 Python 3.12 development、pybind11 和
+MagnumBindings；没有 RLR copy/RPATH/adjacency，没有 Bullet，也不宣称已切换
+运行时或完成 cutover。
+
 Habitat 的 PBR IBL 图片同样是外部数据，不会嵌入源码或构建产物。
 只有创建渲染器且 `PbrShaderAttributes.enable_ibl=true` 时，用户才需提供
 `AVENGINE_HABITAT_PBR_ASSET_ROOT`；相对的 BRDF-LUT 和环境图名称分别从
