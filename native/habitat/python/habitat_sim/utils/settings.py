@@ -10,7 +10,7 @@ BLACK = mn.Color4.from_linear_rgb_int(0)
 
 import habitat_sim
 import habitat_sim.agent
-from habitat_sim.bindings import built_with_bullet
+from habitat_sim.bindings import SimulatorConfiguration, built_with_bullet
 
 # [default_sim_settings]
 default_sim_settings: Dict[str, Any] = {
@@ -49,7 +49,8 @@ default_sim_settings: Dict[str, Any] = {
     # random seed
     "seed": 1,
     # path to .physics_config.json file
-    "physics_config_file": "data/default.physics_config.json",
+    # Read the selected native default instead of assuming the caller's CWD.
+    "physics_config_file": SimulatorConfiguration().physics_config_file,
     # use bullet physics for dyanimcs or not - make default value whether or not
     # Simulator was built with bullet enabled
     "enable_physics": built_with_bullet,

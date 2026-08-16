@@ -1,4 +1,4 @@
-# Habitat-Sim H1/S3 staging and H4a/H4c/H4d/H5a build slices
+# Habitat-Sim H1/S3 staging and H4a/H4c/H4d/H5a/H5b build slices
 
 This directory holds the bounded, source-only Habitat-Sim staging needed for
 AVEngine's MP3D native runtime. H1 stages the selected C++ runtime closure;
@@ -7,9 +7,10 @@ shader sources, and four generated-header input templates. H4a adds an
 AVEngine-owned standalone CMake build of `gfx_batch`; H4c adds a non-binding
 core static target; H4d forwards selected static importer registrations; and
 H5a optionally builds the selected Python binding closure into an explicit
-external staging root. Existing executions still use the manifest-pinned
-transition fork. None of these targets changes the selected build/runtime path
-or claims a completed cutover.
+external staging root. H5b can additionally install that selected facade,
+binding, and small default physics configuration into an explicit external
+prefix. Existing executions still use the manifest-pinned transition fork.
+Neither mode changes the selected runtime path or claims a completed cutover.
 
 ## Origin and treatment
 
@@ -121,7 +122,7 @@ semantic PLY, PBR PNG, and PBR HDR inputs. Scene assets, bindings, the RLR SDK,
 and end-to-end native execution remain separate work; the manifest-pinned
 transition runtime is still selected.
 
-## H5a optional M1 Python binding build
+## H5a staged binding and H5b opt-in installed prefix
 
 `AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS` is OFF by default. When enabled, the
 AVEngine-owned `CMakeLists.txt` and `cmake/PythonBindingSources.cmake` build
@@ -148,23 +149,54 @@ the configured MagnumBindings include root and links `Magnum::Magnum`.
 `native/habitat/`: before directory creation, CMake resolves every existing
 path component (including symlinks) and permits only a relative path whose
 first component is the exact parent component `..`; a source child named
-`..output` is rejected. H5a emits
-only the extension under
-`<output>/habitat_sim/_ext/`; it has no install rule, no facade copy, no RPATH,
-and no runtime resolver change. A caller stages the already selected
-`python/habitat_sim` facade and its external Corrade/Magnum Python packages in
-its own test or installation root. Fresh H24 validation used exactly that
-temporary staging arrangement with H19/H11/H6/H9 external prefixes, completed
-148/148 Ninja steps, imported `quaternion`, `corrade`, `magnum.scenegraph`, and
-`habitat_sim`, and constructed a visual configuration, `NavMeshSettings`, and
-`ShortestPath`. It kept the RLR adapter and legacy audio sensor OFF, observed
-`audio_enabled=False` and `built_with_bullet=False`, and found no checkout/RLR
-or H6 Recast/Detour path in the generated build metadata. H23 rejected an
-output symlink to `native/habitat/`, and H24 rejected the source child
-`native/habitat/..output`, both before any source-tree output was created. This
-is build and import evidence only, not a
-package installation, runtime resolver switch,
-full Simulator run, or cutover.
+`..output` is rejected. In normal H5a staging mode it emits only the extension
+under `<output>/habitat_sim/_ext/`; a caller supplies the already selected
+`python/habitat_sim` facade and external Corrade/Magnum Python runtime.
+
+`AVENGINE_HABITAT_INSTALL_RUNTIME=ON` is a separate default-off H5b mode. It
+requires `AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS=ON` and an explicit
+`AVENGINE_HABITAT_RUNTIME_PREFIX` outside both `native/habitat/` and the CMake
+build tree. Configure rejects existing or symlinked canonical
+`<prefix>/habitat_sim` and `<prefix>/config` target roots (`_ext` is covered by
+`habitat_sim`), plus an existing or symlinked complete build-intermediate
+package target; install therefore cannot follow a pre-seeded deep symlink. The
+extension remains a build-tree intermediate; `cmake --install` then installs
+only:
+
+```text
+<prefix>/habitat_sim/**/*.py
+<prefix>/habitat_sim/_ext/habitat_sim_bindings.<platform suffix>
+<prefix>/config/default.physics_config.json
+```
+
+Do not pass a different `--prefix` to `cmake --install`: the selected native
+default physics path is compiled as
+`<prefix>/config/default.physics_config.json` so it does not depend on the
+caller's current working directory. The selected Python
+`utils/settings.py` reads that native default through `SimulatorConfiguration`
+instead of retaining its historical CWD-relative `data/default.physics_config.json`
+literal. This does not install Corrade, Magnum, pybind11, Python, RLR, PBR
+assets, datasets, an RPATH, or an additional source checkout; those remain
+external caller-provided dependencies or data.
+
+Fresh H24 validation used H5a staging with H19/H11/H6/H9 external prefixes,
+completed 148/148 Ninja steps, imported `quaternion`, `corrade`,
+`magnum.scenegraph`, and `habitat_sim`, and constructed a visual configuration,
+`NavMeshSettings`, and `ShortestPath`. It kept the RLR adapter and legacy audio
+sensor OFF, observed `audio_enabled=False` and `built_with_bullet=False`, and
+found no checkout/RLR or H6 Recast/Detour path in generated build metadata.
+H23 rejected an output symlink to `native/habitat/`, and H24 rejected the
+source child `native/habitat/..output`, both before source-tree output. A fresh
+ordinary CMake configure with no H5 options left both binding and install modes
+OFF. A separate fresh H5b configure retained the H24 external dependency layout
+and EGL setting, selected a fresh PIC RecastNavigation 1.6.0 prefix with the
+same virtual-query-filter setting, built the full extension, and installed 56
+facade `.py` files, the extension, and the default physics config. An isolated
+`python -S` import from an unrelated CWD loaded the facade and binding from that
+installed prefix using the external H19 Corrade/Magnum Python packages, kept
+`built_with_bullet=False`, and verified that both `SimulatorConfiguration` and
+`default_sim_settings` resolve the installed config's absolute path. Neither
+mode is a full Simulator run or cutover.
 
 ## Optional external RLR SDK adapter
 
@@ -227,8 +259,9 @@ does not claim a native build or runtime cutover.
 
 ## Next integration layer
 
-H4a/H4c/H4d/H5a provide source-owned static build slices, an importer consumer
-interface, and an optional staged Python extension only. A later, separately
-reviewed change must supply package installation, runtime resolver and full
-compatibility integration, then remove the external Habitat source-path
-dependency and run the required fresh native equivalence checks.
+H4a/H4c/H4d/H5a/H5b provide source-owned static build slices, an importer
+consumer interface, an optional staged Python extension, and an opt-in
+installed-prefix package. A later, separately reviewed change must select that
+runtime prefix in AVEngine, complete compatibility integration, remove the
+external Habitat source-path dependency, and run the required fresh native
+equivalence checks.

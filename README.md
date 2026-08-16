@@ -130,15 +130,33 @@ Python bindings、package installation、runtime resolver 或完整传播运行�
 这只是外部 SDK 的加载方式，不迁入 RLR engine、头文件、库或 material data。
 
 默认关闭的 `AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS` 是独立的 M1 Python 3.12
-扩展构建层。启用时必须把 `AVENGINE_HABITAT_PYTHON_OUTPUT_DIR` 指到
-`native/habitat/` 外的显式 staging 根；CMake 会先解析已有路径组件（含
-symlink）并拒绝任何回到源码树的输出，随后才会写入
-`habitat_sim/_ext/` 的 `habitat_sim_bindings`；它不复制 package、不安装、也不
-改变现有 runtime resolver。调用者仍须自行把已暂存的
-`native/habitat/python/habitat_sim` facade 与外置 Corrade/Magnum Python runtime
-放到自己的测试/安装环境中。该层使用外置 Python 3.12 development、pybind11 和
-MagnumBindings；没有 RLR copy/RPATH/adjacency，没有 Bullet，也不宣称已切换
-运行时或完成 cutover。
+扩展构建层。普通 staging 模式要求 `AVENGINE_HABITAT_PYTHON_OUTPUT_DIR` 位于
+`native/habitat/` 外；它只写入 `habitat_sim/_ext/habitat_sim_bindings`，调用者
+仍须自行提供 facade 与外置 Corrade/Magnum Python runtime。
+
+另有默认关闭的 `AVENGINE_HABITAT_INSTALL_RUNTIME` 安装模式。它要求
+`AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS=ON` 和一个显式的
+`AVENGINE_HABITAT_RUNTIME_PREFIX`，该 prefix 必须在 Habitat source 与 CMake
+build tree 之外。`cmake --install` 会安装精选 `habitat_sim` facade、其 binding
+和小型 default physics config；binding 本身先留在 build tree。configure 会拒绝
+canonical prefix 下已有或为符号链接的 `habitat_sim` 与 `config` 目标根（`_ext`
+由前者覆盖），也拒绝已有或为符号链接的完整 build-intermediate package target，
+所以 install 不会沿预置深层符号链接写入。该 config 的
+native 默认路径在 configure 时固定到此 prefix，因此不可在 `cmake --install`
+时用另一个 `--prefix` 覆盖。Python `utils/settings.py` 读取 native
+`SimulatorConfiguration` 的默认值，不再硬编码调用者 CWD 下的
+`data/default.physics_config.json`。
+
+已用 fresh ordinary CMake configure 验证两个 H5 开关默认均为 OFF；另用 fresh
+EGL/PIC Recast 外置依赖完整构建并安装此模式。无关 CWD 下的 `python -S` 隔离
+import 只从安装 prefix 载入 facade 和 binding，并确认 native
+`SimulatorConfiguration` 与 `utils/settings.py` 都指向该 prefix 下的绝对 physics
+config 路径。
+
+这仍不安装 Corrade、Magnum、pybind11、Python、RLR、PBR assets、数据集或
+RPATH，也不改变 AVEngine runtime resolver；现有 manifest 固定 fork 仍是当前
+执行路径。安装层完成和其 build/import 验证不等同于完整 Simulator 验证、
+source cutover 或正式发布。
 
 Habitat 的 PBR IBL 图片同样是外部数据，不会嵌入源码或构建产物。
 只有创建渲染器且 `PbrShaderAttributes.enable_ibl=true` 时，用户才需提供

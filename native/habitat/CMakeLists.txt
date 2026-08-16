@@ -42,6 +42,197 @@ set(
   CACHE PATH
   "Explicit non-source package staging root for optional habitat_sim_bindings"
 )
+option(
+  AVENGINE_HABITAT_INSTALL_RUNTIME
+  "Install the selected facade, binding, and default physics config into an explicit prefix"
+  OFF
+)
+set(
+  AVENGINE_HABITAT_RUNTIME_PREFIX
+  ""
+  CACHE PATH
+  "Explicit non-source/non-build prefix for the optional installed Habitat runtime"
+)
+
+# Resolve a path even if its final components do not yet exist. Existing
+# components are canonicalized so a symlink into source or build is visible
+# before any installation output is created.
+function(_avengine_habitat_resolve_future_path input_path output_variable)
+  get_filename_component(
+    _avengine_habitat_requested_path
+    "${input_path}"
+    ABSOLUTE
+    BASE_DIR "${CMAKE_BINARY_DIR}"
+  )
+  set(
+    _avengine_habitat_existing_parent
+    "${_avengine_habitat_requested_path}"
+  )
+  set(_avengine_habitat_missing_components)
+  while(NOT EXISTS "${_avengine_habitat_existing_parent}")
+    get_filename_component(
+      _avengine_habitat_path_component
+      "${_avengine_habitat_existing_parent}"
+      NAME
+    )
+    get_filename_component(
+      _avengine_habitat_parent_candidate
+      "${_avengine_habitat_existing_parent}"
+      DIRECTORY
+    )
+    if(
+      "${_avengine_habitat_parent_candidate}" STREQUAL
+      "${_avengine_habitat_existing_parent}"
+      OR "${_avengine_habitat_path_component}" STREQUAL ""
+    )
+      message(
+        FATAL_ERROR
+        "Could not resolve an existing parent for Habitat runtime prefix: "
+        "${_avengine_habitat_requested_path}"
+      )
+    endif()
+    list(
+      PREPEND
+      _avengine_habitat_missing_components
+      "${_avengine_habitat_path_component}"
+    )
+    set(
+      _avengine_habitat_existing_parent
+      "${_avengine_habitat_parent_candidate}"
+    )
+  endwhile()
+  get_filename_component(
+    _avengine_habitat_resolved_path
+    "${_avengine_habitat_existing_parent}"
+    REALPATH
+  )
+  foreach(
+    _avengine_habitat_path_component
+    IN LISTS _avengine_habitat_missing_components
+  )
+    set(
+      _avengine_habitat_resolved_path
+      "${_avengine_habitat_resolved_path}/${_avengine_habitat_path_component}"
+    )
+  endforeach()
+  set(
+    "${output_variable}"
+    "${_avengine_habitat_resolved_path}"
+    PARENT_SCOPE
+  )
+endfunction()
+
+function(_avengine_habitat_path_is_outside candidate_path root_path output_variable)
+  file(
+    RELATIVE_PATH
+    _avengine_habitat_relative_path
+    "${root_path}"
+    "${candidate_path}"
+  )
+  if("${_avengine_habitat_relative_path}" STREQUAL "")
+    set(_avengine_habitat_is_outside FALSE)
+  else()
+    string(
+      REPLACE "/"
+      ";"
+      _avengine_habitat_relative_components
+      "${_avengine_habitat_relative_path}"
+    )
+    list(
+      GET
+      _avengine_habitat_relative_components
+      0
+      _avengine_habitat_relative_first_component
+    )
+    if("${_avengine_habitat_relative_first_component}" STREQUAL "..")
+      set(_avengine_habitat_is_outside TRUE)
+    else()
+      set(_avengine_habitat_is_outside FALSE)
+    endif()
+  endif()
+  set("${output_variable}" "${_avengine_habitat_is_outside}" PARENT_SCOPE)
+endfunction()
+
+# H5b writes only into a new, explicit package root. Checking the two
+# top-level install targets is sufficient: habitat_sim owns _ext and a
+# pre-existing target could otherwise contain a deeper symlink.
+function(_avengine_habitat_require_absent_nonlink target_path target_name)
+  if(EXISTS "${target_path}" OR IS_SYMLINK "${target_path}")
+    message(
+      FATAL_ERROR
+      "${target_name} must not already exist or be a symlink when "
+      "AVENGINE_HABITAT_INSTALL_RUNTIME=ON: ${target_path}"
+    )
+  endif()
+endfunction()
+
+if(AVENGINE_HABITAT_INSTALL_RUNTIME)
+  if(NOT AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
+    message(
+      FATAL_ERROR
+      "AVENGINE_HABITAT_INSTALL_RUNTIME=ON requires "
+      "AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS=ON."
+    )
+  endif()
+  if(NOT AVENGINE_HABITAT_RUNTIME_PREFIX)
+    message(
+      FATAL_ERROR
+      "AVENGINE_HABITAT_RUNTIME_PREFIX is required when "
+      "AVENGINE_HABITAT_INSTALL_RUNTIME=ON."
+    )
+  endif()
+  _avengine_habitat_resolve_future_path(
+    "${AVENGINE_HABITAT_RUNTIME_PREFIX}"
+    _avengine_habitat_runtime_prefix
+  )
+  get_filename_component(
+    _avengine_habitat_source_root
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    REALPATH
+  )
+  get_filename_component(
+    _avengine_habitat_build_root
+    "${CMAKE_BINARY_DIR}"
+    REALPATH
+  )
+  _avengine_habitat_path_is_outside(
+    "${_avengine_habitat_runtime_prefix}"
+    "${_avengine_habitat_source_root}"
+    _avengine_habitat_runtime_outside_source
+  )
+  _avengine_habitat_path_is_outside(
+    "${_avengine_habitat_runtime_prefix}"
+    "${_avengine_habitat_build_root}"
+    _avengine_habitat_runtime_outside_build
+  )
+  if(
+    NOT _avengine_habitat_runtime_outside_source
+    OR NOT _avengine_habitat_runtime_outside_build
+  )
+    message(
+      FATAL_ERROR
+      "AVENGINE_HABITAT_RUNTIME_PREFIX must be outside both native/habitat "
+      "source and the CMake build tree: ${_avengine_habitat_runtime_prefix}"
+    )
+  endif()
+  _avengine_habitat_require_absent_nonlink(
+    "${_avengine_habitat_runtime_prefix}/habitat_sim"
+    "Habitat facade install target"
+  )
+  _avengine_habitat_require_absent_nonlink(
+    "${_avengine_habitat_runtime_prefix}/config"
+    "Habitat physics-config install target"
+  )
+  set(
+    _avengine_habitat_runtime_build_package_target
+    "${_avengine_habitat_build_root}/avengine_habitat_runtime_build_package"
+  )
+  _avengine_habitat_require_absent_nonlink(
+    "${_avengine_habitat_runtime_build_package_target}"
+    "Habitat build-intermediate package target"
+  )
+endif()
+
 # Generate the four staged template inputs in the include layout used by
 # Habitat sources. This target only consumes esp/core/configure.h.
 set(ESP_BUILD_ASSIMP_SUPPORT OFF)
@@ -55,6 +246,12 @@ set(ESP_BUILD_WITH_CUDA OFF)
 set(ESP_DEFAULT_PBRSHADER_CONFIG_REL_PATH "__avengine_builtin_pbr__")
 set(ESP_DEFAULT_PBRSHADER_CONFIG "")
 set(ESP_DEFAULT_PHYSICS_CONFIG_REL_PATH "./config/default.physics_config.json")
+if(AVENGINE_HABITAT_INSTALL_RUNTIME)
+  set(
+    ESP_DEFAULT_PHYSICS_CONFIG_REL_PATH
+    "${_avengine_habitat_runtime_prefix}/config/default.physics_config.json"
+  )
+endif()
 set(ESP_DEFAULT_PHYSICS_CONFIG "${ESP_DEFAULT_PHYSICS_CONFIG_REL_PATH}")
 foreach(_avengine_habitat_config_dir core gfx physics sensor)
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/esp/${_avengine_habitat_config_dir}")
@@ -309,7 +506,19 @@ if(AVENGINE_HABITAT_BUILD_RLR_ADAPTER)
 endif()
 
 if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
-  if(NOT AVENGINE_HABITAT_PYTHON_OUTPUT_DIR)
+  if(AVENGINE_HABITAT_INSTALL_RUNTIME)
+    set(
+      _avengine_habitat_python_output_dir
+      "${_avengine_habitat_runtime_build_package_target}"
+    )
+  else()
+    set(
+      _avengine_habitat_python_output_dir
+      "${AVENGINE_HABITAT_PYTHON_OUTPUT_DIR}"
+    )
+  endif()
+
+  if(NOT _avengine_habitat_python_output_dir)
     message(
       FATAL_ERROR
       "AVENGINE_HABITAT_PYTHON_OUTPUT_DIR is required when "
@@ -320,7 +529,7 @@ if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
 
   get_filename_component(
     _avengine_habitat_python_output_requested
-    "${AVENGINE_HABITAT_PYTHON_OUTPUT_DIR}"
+    "${_avengine_habitat_python_output_dir}"
     ABSOLUTE
     BASE_DIR "${CMAKE_BINARY_DIR}"
   )
@@ -488,4 +697,23 @@ if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
       AVEngine::HabitatCore
       AVEngine::MagnumBindingsPython
   )
+
+  if(AVENGINE_HABITAT_INSTALL_RUNTIME)
+    install(
+      DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/python/habitat_sim/"
+      DESTINATION "${_avengine_habitat_runtime_prefix}/habitat_sim"
+      FILES_MATCHING
+      PATTERN "*.py"
+      PATTERN "__pycache__" EXCLUDE
+    )
+    install(
+      TARGETS avengine_habitat_python_bindings
+      LIBRARY DESTINATION "${_avengine_habitat_runtime_prefix}/habitat_sim/_ext"
+      RUNTIME DESTINATION "${_avengine_habitat_runtime_prefix}/habitat_sim/_ext"
+    )
+    install(
+      FILES "${CMAKE_CURRENT_SOURCE_DIR}/config/default.physics_config.json"
+      DESTINATION "${_avengine_habitat_runtime_prefix}/config"
+    )
+  endif()
 endif()

@@ -181,7 +181,7 @@ That is static build and decoder evidence only, not a runtime or build cutover.
 
 | AVEngine target | Reference examined | Treatment |
 | --- | --- | --- |
-| `native/habitat/CMakeLists.txt`, `native/habitat/cmake/PythonBindingSources.cmake` | transition `src/esp/bindings/CMakeLists.txt` and the selected `src/esp/bindings/*.cpp` files at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | **reimplemented** AVEngine-owned Python 3.12 module wiring plus an explicit selection of 17 already adapted binding translation units; no upstream CMake file is copied |
+| `native/habitat/CMakeLists.txt`, `native/habitat/cmake/PythonBindingSources.cmake` | transition `src/esp/bindings/CMakeLists.txt` and the selected `src/esp/bindings/*.cpp` files at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | **reimplemented** AVEngine-owned Python 3.12 module wiring, optional explicit-prefix facade/binding/config installation, and an explicit selection of 17 already adapted binding translation units; no upstream CMake file is copied |
 
 H5a makes the default-off `AVEngine::HabitatPythonBindings` module target over
 exactly `Bindings`, `AudioPropagationBindings`, `AttributesBindings`,
@@ -208,19 +208,40 @@ units in the final extension without a handwritten plugin macro. It requires
 an explicit non-source `AVENGINE_HABITAT_PYTHON_OUTPUT_DIR`, resolves every
 existing path component (including symlinks) before containment, and permits
 only a relative path whose first component is exact `..`, emits only
-`habitat_sim/_ext/habitat_sim_bindings`, has no
-install/facade-copy/RPATH rule, and does not change the existing resolver. Fresh
-H24 validation against
-external H19/H11/H6/H9 prefixes and explicit H9 Recast completed 148/148
-Ninja steps, ran an isolated import of `quaternion`, `corrade`,
-`magnum.scenegraph`, and `habitat_sim`, and constructed visual configuration,
-`NavMeshSettings`, and `ShortestPath` objects. RLR adapter and legacy audio
-were OFF; `audio_enabled` and `built_with_bullet` were both false. H23 rejected
-a symlink-to-source output and H24 rejected the source child `..output`, both
-before any source-tree output was created. This is not a full Simulator run,
-package installation, runtime/build
-cutover, or a claim
-that external assets or dependencies were migrated.
+`habitat_sim/_ext/habitat_sim_bindings` in staging mode. The default-off H5b
+`AVENGINE_HABITAT_INSTALL_RUNTIME` mode instead requires an explicit
+`AVENGINE_HABITAT_RUNTIME_PREFIX` outside both source and build trees.
+Configure rejects existing or symlinked canonical `<prefix>/habitat_sim` and
+`<prefix>/config` roots (with `_ext` covered by `habitat_sim`) and an existing
+or symlinked complete build-intermediate package target, so a pre-seeded deep
+symlink cannot become an install path. The extension remains a build-tree
+intermediate and installs only the selected facade, binding, and
+`config/default.physics_config.json` into that prefix. It
+sets the selected native default physics path to the installed config's absolute
+path so the `MetadataMediator` no longer resolves it through a caller CWD. It
+does not install an RPATH, dependencies, RLR, PBR assets, or data, and does not
+change AVEngine's current resolver. Fresh H24 validation against external
+H19/H11/H6/H9 prefixes and explicit H9 Recast completed 148/148 Ninja steps,
+ran an isolated import of `quaternion`, `corrade`, `magnum.scenegraph`, and
+`habitat_sim`, and constructed visual configuration, `NavMeshSettings`, and
+`ShortestPath` objects. RLR adapter and legacy audio were OFF;
+`audio_enabled` and `built_with_bullet` were both false. H23 rejected an
+output symlink to `native/habitat/`, and H24 rejected the source child
+`native/habitat/..output`, both before any source-tree output was created. A
+fresh ordinary CMake configure kept both H5 modes OFF by default. A separate
+fresh H5b configure retained the H24 external package layout and EGL setting,
+selected a fresh PIC RecastNavigation 1.6.0 prefix with the same
+`DT_VIRTUAL_QUERYFILTER` setting, built the complete extension, and installed
+the 56 selected facade `.py` files, its binding, and the default physics config.
+An isolated `python -S` import from an unrelated CWD loaded facade and binding
+only from that prefix and proved that `SimulatorConfiguration` and
+`default_sim_settings` both select its absolute physics-config path. This is
+not a full Simulator run, runtime/build cutover, or a claim that external
+assets or dependencies were migrated.
+
+| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e054b` | Treatment |
+| --- | --- | --- |
+| `native/habitat/python/habitat_sim/utils/settings.py` | `src_python/habitat_sim/utils/settings.py` | **adapted** default physics-config selection to read the selected native `SimulatorConfiguration` value rather than a CWD-relative literal, so an H5b prefix uses its installed config |
 
 ## Habitat external PBR IBL adapter
 
