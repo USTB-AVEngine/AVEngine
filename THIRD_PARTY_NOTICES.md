@@ -23,6 +23,7 @@ without changing the upstream terms.
 | pybind11 temporary H19 validation dependency | `a2e59f0e7065404b44dfe92a28aca47ba1378dc4` | BSD-3-Clause | externally installed Python-binding support used by H5a validation only; do not vendor its source, binary, package, or license claim into the Habitat source slice without a separately reviewed distribution decision |
 | MagnumBindings temporary H19 validation dependency | `45811bb52e749677d5bc43d62b384ec546ed93bc` | MIT | externally installed Corrade/Magnum Python-binding headers/runtime used by H5a validation only; do not vendor its source, binary, package, or installed prefix into AVEngine Git |
 | SPEAR-selected S1/S2/S3a/S3b source | `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` | MIT | S1 reimplements the Apartment launch helper; S2/S3a stage selected client and extension source; S3b builds only the selected extension under the AVEngine-local avengine_spear_ext name. Retain SPEAR attribution and `LICENSES/SPEAR-MIT.txt`; client/plugin/control and UE runtime cutover remain pending |
+| Eastforward SPEAR S3d helper slice | reachable Eastforward fork commits `0a9ba3ded8ffa07a3bc3684279845da22dc123e0`, `c8ba04076a32060e35020deb8f706c4b13951cae`, `ff6e44736f68c72ce4140152e2dadb4b58dc0b28`, and `a5168b8c357afa494f6200dedb03b93c3a59be57`; selected bytes carried by local MIT transition snapshot `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (SPEAR-lead-b) | MIT | source for exactly three rig-query and two lighting helpers; retain `LICENSES/SPEAR-MIT.txt`. The local carrier is not a public fork ref, and this helper slice is not attributed to official `spear-sim/spear`; UE/project/assets remain external |
 | rpclib external S3b build SDK | 2.3.0 | MIT | user-installed external C++ SDK used to build the optional S3b extension; its source, headers, archive, CMake export, and any compiled result are not imported into AVEngine Git |
 | nanobind external S3b build dependency | 2.7.0 | BSD-3-Clause | user-installed external Python binding support used to build the optional S3b extension; no nanobind source, package, shared library, or wheel is imported into AVEngine Git |
 
@@ -95,10 +96,12 @@ asset, compiled extension, or runtime cutover.
 SPEAR S1 contains only the reimplemented launch-settings behavior named above.
 SPEAR S2 adds selected extension source, S3a adds the selected namespaced
 host/game Python client closure, and S3b adds AVEngine-owned CMake wiring for
-the optional top-level avengine_spear_ext module. S3b accepts only an explicit
-external rpclib SDK CMake export and external Python/nanobind support; it
-installs no spear package or spear_ext alias and copies no SDK or prebuilt
-extension into Git.
+the optional top-level avengine_spear_ext module. S3d separately adapts the
+Eastforward-fork helper slice recorded in the table above; it does not change
+the client, native extension, UE Editor, project, asset, or runtime boundary.
+S3b accepts only an explicit external rpclib SDK CMake export and external
+Python/nanobind support; it installs no spear package or spear_ext alias and
+copies no SDK or prebuilt extension into Git.
 
 Together, S1/S2/S3a/S3b contain no upstream examples, UE plugins, UE project
 configuration, upstream CMake or pyproject wiring, dependency source,

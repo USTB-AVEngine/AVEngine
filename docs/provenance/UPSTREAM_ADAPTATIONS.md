@@ -29,6 +29,7 @@ production output or grant redistribution rights for an external asset.
 | Habitat-Sim | [facebookresearch/habitat-sim](https://github.com/facebookresearch/habitat-sim) | AVEngine-required C++ runtime closure, bindings, articulated-pose opt-in, acoustic-context adapter, Python package, shader and generated-header input source | Selected source is staged at `native/habitat/` from upstream `57ee4941dc4765240f0f91f70b2c97a919bf9038` through transition fork `e9c81c10834f7e89f33f4e0602c75535a84e054b`; H4a builds standalone `gfx_batch`, H4c a non-binding core static slice, H4d its static importer consumer interface, and H5a an optional staged Python extension, while the current runtime remains on the manifest-pinned fork pending cutover |
 | RLR Audio Propagation | [facebookresearch/rlr-audio-propagation](https://github.com/facebookresearch/rlr-audio-propagation) | AVEngine/Habitat adapter source plus a legal user-installed header/library SDK required for FOA and binaural propagation | The pinned distribution provides headers/configuration and a precompiled shared library, not propagation-engine source; the engine remains an external CC-BY-NC 4.0 SDK and is not integrated as source |
 | SPEAR | [spear-sim/spear](https://github.com/spear-sim/spear) | Selected host/game client and optional native module source, plus UE plugin/control source and project configuration required by Apartment and Kujiale | S1 reimplements one launch-settings helper, S2 stages selected extension source, S3a stages the namespaced host/game client, and S3b adds an AVEngine-owned optional native build through external rpclib/Python/nanobind dependencies; the maintained transition checkout still supplies the full SPEAR runtime, UE plugin/control source, project configuration and build helpers pending a later runtime cutover |
+| Eastforward SPEAR fork helper slice | [Eastforward/spear](https://github.com/Eastforward/spear) behavior origins `0a9ba3ded8ffa07a3bc3684279845da22dc123e0`, `c8ba04076a32060e35020deb8f706c4b13951cae`, `ff6e44736f68c72ce4140152e2dadb4b58dc0b28`, and `a5168b8c357afa494f6200dedb03b93c3a59be57`; local MIT transition snapshot `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (SPEAR-lead-b) carries the selected bytes | Three rig-query and two lighting RPC helpers written in the maintained transition fork | S3d adapts only those helper closures into `avengine.backends.spear_ue`; the local carrier is not described as a public fork ref, and neither helper path is attributed to `spear-sim/spear` |
 | Unreal Engine | Epic-distributed installation | Editor/runtime used by the selected SPEAR integration | External runtime only; engine code, binaries, content and examples are not imported |
 | MP3D, native Apartment and InteriorAgent/Kujiale | Their separately authorized dataset/project sources | Scene and room inputs for their declared production routes | External data only; no dataset or native room package is imported |
 
@@ -303,9 +304,34 @@ actual external runtime inputs.
 
 This is import wiring only. The optional `avengine_spear_ext` extension must
 still be built and installed before an Instance can start, and no UE Editor
-Python compatibility is claimed. The selected external `rig_direction_check`
-and `render_in_gpurir_room` helpers remain explicit transition boundaries for
-the runners that use them; S3c does not claim a checkout-free SPEAR runtime.
+Python compatibility is claimed. S3d subsequently adapts the five exact
+runner-facing helpers from the Eastforward fork into AVEngine; S3c/S3d still
+do not claim a checkout-free
+SPEAR runtime because UE, its project, and room assets remain external.
+
+## SPEAR S3d retained runner-helper closure
+
+S3d adapts the small helper closure used directly by the retained Apartment,
+MP3D, and packaged-GLB runners.  Its source is the maintained
+reachable Eastforward fork commits, not `spear-sim/spear`: the rig helper
+was introduced in `0a9ba3ded8ffa07a3bc3684279845da22dc123e0`, gained the runner-facing component
+selection in `c8ba04076a32060e35020deb8f706c4b13951cae`, and carries behavior through `ff6e44736f68c72ce4140152e2dadb4b58dc0b28`;
+the lighting helper was introduced in `a5168b8c357afa494f6200dedb03b93c3a59be57`. The selected
+bytes are carried by local MIT transition snapshot `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7`
+(SPEAR-lead-b), which is not represented as a public fork ref. The
+Eastforward fork carries the retained SPEAR MIT notice at
+`LICENSES/SPEAR-MIT.txt`.
+
+| AVEngine target | Original path at the Eastforward fork snapshot | Treatment |
+| --- | --- | --- |
+| `src/avengine/backends/spear_ue/rig_direction.py` | `tools/spike_rlr/rig_direction_check.py` | **adapted** bounded support closure for exactly `select_skeletal_mesh_component`, `sample_body_bone_position_in_frame`, and `sample_body_basis_in_frame`; calibration, CLI, file-writing, and other rig helpers are excluded |
+| `src/avengine/backends/spear_ue/lighting.py` | `examples/render_in_gpurir_room.py` | **adapted** exactly `spawn_directional_light` and `spawn_sky`; room construction, point/reflection lights, asset selection, rendering, CLI, and all other example behavior are excluded |
+| Apartment, MP3D, and packaged-GLB runner call sites | their former `sys.path` imports of the two external helper files | **rewired** to AVEngine-local modules; `--spear-root` remains only where it identifies the external UE runtime/project/assets, and the ReplicaCAD route reaches the same packaged-GLB adapter without a direct change |
+
+S3d changes no client/native-extension wiring, UE Editor behavior, project,
+asset, or runtime boundary.  It removes only the helper-source directory
+injection; a real UE session still requires its explicitly supplied external
+runtime inputs.
 
 ## AVEngine-owned adapter code already present
 

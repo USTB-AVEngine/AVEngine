@@ -581,7 +581,7 @@ def _run_impl(args: argparse.Namespace, journal: CapturePhaseJournal) -> Path:
         rpc_port=args.rpc_port,
         graphics_adapter=args.graphics_adapter,
     )
-    instance, spear_root = runner._configure_instance(
+    instance, _spear_root = runner._configure_instance(
         configure_args, native_map=ENTRY_MAP
     )
     game = instance.get_game()
@@ -608,7 +608,7 @@ def _run_impl(args: argparse.Namespace, journal: CapturePhaseJournal) -> Path:
             )
             journal.enter("lighting")
             lighting_readback = spawn_review_lighting(
-                game, spear_root, room_adapter["review_lighting"]
+                game, room_adapter["review_lighting"]
             )
             journal.enter("camera")
             camera, components = spike._spawn_multimodal_camera(game)
@@ -622,7 +622,7 @@ def _run_impl(args: argparse.Namespace, journal: CapturePhaseJournal) -> Path:
                 float(scenario["plan"]["camera"]["horizontal_fov_deg"]),
             )
             journal.enter("actor")
-            runtimes = runner._spawn_runtime_actors(game, scenario, spear_root)
+            runtimes = runner._spawn_runtime_actors(game, scenario, _spear_root)
             spike._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False

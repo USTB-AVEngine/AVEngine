@@ -9,8 +9,8 @@ pixels.  It never replans a route or creates a second audio/flag authority.
 ``--dry-run`` needs only the AVEngine Python package.  A real render must run
 inside ``spear-env`` and uses AVEngine's optional host/game client.
 ``--spear-root`` identifies external UE runtime, project, and assets. It is not
-used to import global ``spear`` or launch settings; its separate rig-check helper is
-still an explicit transition boundary.
+used to import global ``spear`` or launch settings; rig checks use AVEngine's
+selected local helper slice.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ import math
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import time
 from typing import Any, Mapping, Sequence
 
@@ -30,6 +29,11 @@ import numpy as np
 
 from avengine.backends.spear_ue import client as spear_client
 from avengine.backends.spear_ue.launch import parallel_instance_settings
+from avengine.backends.spear_ue.rig_direction import (
+    sample_body_basis_in_frame,
+    sample_body_bone_position_in_frame,
+    select_skeletal_mesh_component,
+)
 from avengine.optional_backends.spear_apartment import (
     ACOUSTIC_VISUAL_IDENTITY_SCHEMA,
     ANIMATION_TOLERANCE_SECONDS,
@@ -279,11 +283,7 @@ def _read_frame(capture: Any) -> Any:
     return capture.read_pixels()["arrays"]["data"][:, :, [0, 1, 2]]
 
 
-def _load_skeletal_component(game: Any, actor: Any, spear_root: Path) -> Any:
-    spike_dir = spear_root / "tools/spike_rlr"
-    sys.path.insert(0, str(spike_dir))
-    from rig_direction_check import select_skeletal_mesh_component
-
+def _load_skeletal_component(game: Any, actor: Any) -> Any:
     component = select_skeletal_mesh_component(
         unreal_service=game.unreal_service, actor=actor
     )
@@ -314,11 +314,6 @@ def _sample_anatomical_forward(
     explicit_quadruped_bones: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Read the rendered skeleton's semantic forward inside an active frame."""
-
-    from rig_direction_check import (
-        sample_body_basis_in_frame,
-        sample_body_bone_position_in_frame,
-    )
 
     diagnostics: list[dict[str, Any]] = []
     if explicit_quadruped_bones is None:
@@ -414,6 +409,8 @@ def _sample_anatomical_forward(
 def _spawn_runtime_actors(
     game: Any, scenario: Mapping[str, Any], spear_root: Path
 ) -> dict[str, dict[str, Any]]:
+    # Keep this argument for residential and QA callers that supply the
+    # external UE runtime boundary. It is no longer a Python import root.
     plan = scenario["plan"]
     first_states = {
         item["actor_id"]: item for item in plan["frames"][0]["actor_states"]
@@ -500,7 +497,7 @@ def _spawn_runtime_actors(
         if observed_parent != anchor_root.uobject:
             raise RuntimeError(f"{actor_id} visual root attached to the wrong parent")
 
-        component = _load_skeletal_component(game, visual_actor, spear_root)
+        component = _load_skeletal_component(game, visual_actor)
         component_frame_correction = apply_ue_component_frame_delta(
             visual_root, declaration
         )

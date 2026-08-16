@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from avengine.backends.spear_ue.lighting import spawn_directional_light, spawn_sky
 from avengine.qa.spear_unreal_capabilities import read_handle_capability
 
 SCHEMA = "avengine_spear_imported_glb_room_adapter_v1"
@@ -285,15 +286,8 @@ def spawn_scene_meshes_with_readback(
     }
 
 
-def spawn_review_lighting(
-    game: Any, spear_root: Path, profile: Mapping[str, Any]
-) -> dict[str, Any]:
-    """Reuse the retained MP3D Entry-map sky/key-light implementation."""
-
-    import sys
-
-    sys.path.insert(0, str(spear_root / "examples"))
-    from render_in_gpurir_room import spawn_directional_light, spawn_sky
+def spawn_review_lighting(game: Any, profile: Mapping[str, Any]) -> dict[str, Any]:
+    """Reuse the AVEngine-local MP3D Entry-map sky/key-light helper."""
 
     sky = spawn_sky(game=game)
     key = profile["directional_key"]
