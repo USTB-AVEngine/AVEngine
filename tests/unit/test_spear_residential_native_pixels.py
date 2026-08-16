@@ -375,14 +375,16 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
             {"rgb": rgb, "depth": depth, "object_ids": object_ids},
         ),
     )
-    monkeypatch.setattr(
-        TOOL,
-        "_spawn_runtime_actors",
-        lambda *_args: (
-            events.append(("spawn_runtime_actors",)),
-            {actor_id: {"visual_actor": actor} for actor_id, actor in actors.items()},
-        )[1],
-    )
+    spawn_arguments: list[tuple[object, ...]] = []
+
+    def spawn_runtime_actors(*args: object) -> dict[str, dict[str, object]]:
+        spawn_arguments.append(args)
+        events.append(("spawn_runtime_actors",))
+        return {
+            actor_id: {"visual_actor": actor} for actor_id, actor in actors.items()
+        }
+
+    monkeypatch.setattr(TOOL, "_spawn_runtime_actors", spawn_runtime_actors)
     monkeypatch.setattr(
         TOOL,
         "_apply_actor_state",
@@ -458,6 +460,7 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
 
     assert evidence["research_only"] is True
     assert evidence["formal_dataset_count"] == 0
+    assert spawn_arguments == [(game, {"plan": episode["visual_plan"]})]
     assert evidence["native_pixel"]["semantic_ids_by_actor"] == {
         "canine_alpha": 1,
         "person_beta": 2,

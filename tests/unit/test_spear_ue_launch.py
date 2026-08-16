@@ -95,17 +95,13 @@ def _fake_config(events: list[object]) -> types.SimpleNamespace:
 
 
 @pytest.mark.fast_unit
-def test_apartment_runner_uses_namespaced_client_without_examples_directory(
+def test_apartment_runner_uses_explicit_launcher_without_checkout_layout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    spear_root = tmp_path / "spear-root"
-    executable = (
-        spear_root
-        / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
-    )
+    executable = tmp_path / "external-packaged-game" / "SpearSim.sh"
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
-    assert not (spear_root / "examples").exists()
+    assert not (executable.parent / "examples").exists()
 
     events: list[object] = []
     config = _fake_config(events)
@@ -118,9 +114,9 @@ def test_apartment_runner_uses_namespaced_client_without_examples_directory(
     monkeypatch.setattr(_RUNNER, "spear_client", fake_spear)
 
     original_sys_path = list(sys.path)
-    result, returned_root = _RUNNER._configure_instance(
+    result = _RUNNER._configure_instance(
         argparse.Namespace(
-            spear_root=spear_root,
+            spear_executable=executable,
             rpc_port="24567",
             graphics_adapter="3",
         ),
@@ -128,9 +124,8 @@ def test_apartment_runner_uses_namespaced_client_without_examples_directory(
     )
 
     assert result is instance
-    assert returned_root == spear_root.resolve()
     assert sys.path == original_sys_path
-    assert str(spear_root / "examples") not in sys.path
+    assert str(executable.parent / "examples") not in sys.path
     assert events == [
         ("get_config", {"user_config_files": []}),
         "defrost",
@@ -167,6 +162,23 @@ def test_apartment_runner_uses_namespaced_client_without_examples_directory(
         config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES
         == "/etc/vulkan/icd.d/nvidia_icd.json"
     )
+
+
+@pytest.mark.fast_unit
+def test_apartment_runner_cli_requires_explicit_spear_executable(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "external-packaged-game" / "SpearSim.sh"
+    assert not executable.exists()
+    common_args = ["--output-dir", str(tmp_path / "output"), "--dry-run"]
+    parsed = _RUNNER.parse_args(
+        ["--spear-executable", str(executable), *common_args]
+    )
+    assert parsed.spear_executable == executable
+    assert not hasattr(parsed, "spear_root")
+
+    with pytest.raises(SystemExit, match="2"):
+        _RUNNER.parse_args(common_args)
 
 
 _DIRECT_HOST_GAME_RUNNERS = (

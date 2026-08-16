@@ -1,6 +1,6 @@
 # Current Apartment execution
 
-Last updated: 2026-07-29
+Last updated: 2026-08-16
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
@@ -48,6 +48,11 @@ closure. Scene data must be shared rather than copied once per example.
 
 ## Current checkpoint
 
+- 2026-08-16 source-migration boundary: the direct packaged Apartment canary
+  now requires explicit --spear-executable and no longer derives SpearSim.sh
+  from an external SPEAR checkout. UE, the packaged runtime, and authorized
+  assets remain external inputs; this CLI cutover alone is not a fresh full75
+  equivalence result.
 - The Border Collie generated mesh and animation have been visually accepted.
 - The generated Abyssinian Pixel3D/TokenRig animation has been visually
   accepted and imported into the standalone SPEAR/UE runtime with its own

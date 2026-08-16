@@ -577,11 +577,14 @@ def _run_impl(args: argparse.Namespace, journal: CapturePhaseJournal) -> Path:
     runner = native.RUNNER
     spike = native.SPIKE
     configure_args = argparse.Namespace(
-        spear_root=args.spear_root,
+        spear_executable=(
+            args.spear_root
+            / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
+        ),
         rpc_port=args.rpc_port,
         graphics_adapter=args.graphics_adapter,
     )
-    instance, _spear_root = runner._configure_instance(
+    instance = runner._configure_instance(
         configure_args, native_map=ENTRY_MAP
     )
     game = instance.get_game()
@@ -622,7 +625,7 @@ def _run_impl(args: argparse.Namespace, journal: CapturePhaseJournal) -> Path:
                 float(scenario["plan"]["camera"]["horizontal_fov_deg"]),
             )
             journal.enter("actor")
-            runtimes = runner._spawn_runtime_actors(game, scenario, _spear_root)
+            runtimes = runner._spawn_runtime_actors(game, scenario)
             spike._apply_exact_frame(camera=camera, runtimes=runtimes, frame=frames[0])
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False

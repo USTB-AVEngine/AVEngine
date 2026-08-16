@@ -676,9 +676,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             if abs(observed_fov - float(plan["camera"]["horizontal_fov_deg"])) > 1.0e-4:
                 raise RuntimeError(f"camera HFOV readback failed: {observed_fov}")
             _apply_camera(camera, plan["camera"])
-            runtimes = _spawn_runtime_actors(
-                game, {"plan": plan}, args.spear_root.expanduser().resolve()
-            )
+            runtimes = _spawn_runtime_actors(game, {"plan": plan})
             for state in plan["frames"][0]["actor_states"]:
                 _apply_actor_state(runtimes[state["actor_id"]], state, 0)
             light_records = _spawn_review_lights(game, _light_plan(episode))

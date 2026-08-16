@@ -6,11 +6,12 @@ Timeline/protocol bundle, teleports the already-imported UE actors to those
 exact roots, samples the declared animation phase, and captures native UE
 pixels.  It never replans a route or creates a second audio/flag authority.
 
-``--dry-run`` needs only the AVEngine Python package.  A real render must run
-inside ``spear-env`` and uses AVEngine's optional host/game client.
-``--spear-root`` identifies external UE runtime, project, and assets. It is not
-used to import global ``spear`` or launch settings; rig checks use AVEngine's
-selected local helper slice.
+``--dry-run`` needs only the AVEngine Python package and does not read or
+start the supplied launcher, but it still requires an explicit
+``--spear-executable`` identity parameter. A real render must run inside
+``spear-env`` and uses AVEngine's optional host/game client. The launcher path
+is not used to import global ``spear`` or infer a project/package layout; rig
+checks use AVEngine's selected local helper slice.
 """
 
 from __future__ import annotations
@@ -73,7 +74,6 @@ from avengine.runtime_profiles import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE = REPOSITORY / "tmp/m6x/fixed_apartment_canary_20260720_02"
-DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_LIGHTING_PROFILES = (
     REPOSITORY / "examples/m6y/spear_apartment_lighting_profiles.json"
 )
@@ -429,10 +429,8 @@ def _sample_anatomical_forward(
 
 
 def _spawn_runtime_actors(
-    game: Any, scenario: Mapping[str, Any], spear_root: Path
+    game: Any, scenario: Mapping[str, Any]
 ) -> dict[str, dict[str, Any]]:
-    # Keep this argument for residential and QA callers that supply the
-    # external UE runtime boundary. It is no longer a Python import root.
     plan = scenario["plan"]
     first_states = {
         item["actor_id"]: item for item in plan["frames"][0]["actor_states"]
@@ -1470,14 +1468,10 @@ def _destroy_runtime_actors(
 
 def _configure_instance(
     args: argparse.Namespace, *, native_map: str
-) -> tuple[Any, Path]:
-    spear_root = args.spear_root.resolve()
-    executable = (
-        spear_root
-        / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
-    )
+) -> Any:
+    executable = args.spear_executable.expanduser().resolve()
     if not executable.is_file():
-        raise RuntimeError(f"cooked SPEAR executable is missing: {executable}")
+        raise RuntimeError(f"SPEAR executable is missing: {executable}")
     settings = parallel_instance_settings(
         args.rpc_port, graphics_adapter=args.graphics_adapter
     )
@@ -1527,7 +1521,7 @@ def _configure_instance(
             temporary_directory=Path(settings["temp_dir"]),
         )
         raise
-    return instance, spear_root
+    return instance
 
 
 def _cleanup_failed_constructor(*, executable: Path, temporary_directory: Path) -> None:
@@ -1767,9 +1761,7 @@ def run(args: argparse.Namespace) -> Path:
         return evidence_path
 
     phase_started = time.perf_counter()
-    instance, spear_root = _configure_instance(
-        args, native_map=str(suite["native_map"])
-    )
+    instance = _configure_instance(args, native_map=str(suite["native_map"]))
     phase_wall_seconds["runtime_initialize"] = _elapsed_seconds(phase_started)
     game = instance.get_game()
     scenario_records = list(resumed_records.values())
@@ -1810,7 +1802,7 @@ def run(args: argparse.Namespace) -> Path:
                 scenario["plan"]
             )[0]
             with instance.begin_frame():
-                runtimes = _spawn_runtime_actors(game, scenario, spear_root)
+                runtimes = _spawn_runtime_actors(game, scenario)
                 _apply_camera(camera, scenario_camera_state)
                 for state in scenario["plan"]["frames"][0]["actor_states"]:
                     _apply_actor_state(runtimes[state["actor_id"]], state, 0)
@@ -1984,7 +1976,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "asset-bound-batch consumes generic source1/source2 episode IDs."
         ),
     )
-    parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--spear-executable", type=Path, required=True)
     parser.add_argument(
         "--lighting-profiles", type=Path, default=DEFAULT_LIGHTING_PROFILES
     )

@@ -1110,6 +1110,8 @@ def test_resume_requires_the_same_retained_execution_plan(
             str(bundle),
             "--input-layout",
             "asset-bound-batch",
+            "--spear-executable",
+            str(tmp_path / "SpearSim.sh"),
             "--output-dir",
             str(output),
             "--resume",
@@ -1211,6 +1213,8 @@ def test_runner_dry_run_records_only_its_exact_manifest_shard(
             str(bundle),
             "--input-layout",
             "asset-bound-batch",
+            "--spear-executable",
+            str(tmp_path / "SpearSim.sh"),
             "--output-dir",
             str(output),
             "--shard-count",
@@ -1253,6 +1257,8 @@ def test_runner_rejects_incomplete_or_overlapping_shard_selection(
             [
                 "--input-layout",
                 "asset-bound-batch",
+                "--spear-executable",
+                str(tmp_path / "SpearSim.sh"),
                 "--output-dir",
                 str(tmp_path / "output"),
                 *argv,
@@ -1472,7 +1478,7 @@ def test_runner_closes_shared_camera_before_instance_after_render_error(
     monkeypatch.setattr(
         _RUNNER,
         "_configure_instance",
-        lambda *_args, **_kwargs: (instance, tmp_path),
+        lambda *_args, **_kwargs: instance,
     )
     monkeypatch.setattr(
         _RUNNER, "_spawn_camera", lambda *_args: (camera, capture)
@@ -1506,6 +1512,8 @@ def test_runner_closes_shared_camera_before_instance_after_render_error(
             "m6x-canary",
             "--scenario",
             "S3",
+            "--spear-executable",
+            str(tmp_path / "SpearSim.sh"),
             "--output-dir",
             str(tmp_path / "output"),
         ]

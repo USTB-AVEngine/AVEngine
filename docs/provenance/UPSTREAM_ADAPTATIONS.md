@@ -347,7 +347,10 @@ still be built and installed before an Instance can start, and no UE Editor
 Python compatibility is claimed. S3d subsequently adapts the five exact
 runner-facing helpers from the Eastforward fork into AVEngine; S3c/S3d still
 do not claim a checkout-free
-SPEAR runtime because UE, its project, and room assets remain external.
+SPEAR runtime because UE, its project, and room assets remain external.  The
+direct packaged Apartment canary now accepts ``--spear-executable`` rather than
+inferring a launcher from ``--spear-root``; this removes only that checkout
+layout inference and does not package UE or its authorized content.
 
 ## SPEAR S3d retained runner-helper closure
 

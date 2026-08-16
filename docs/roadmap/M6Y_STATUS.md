@@ -126,7 +126,7 @@ default, or pass `native` for an untouched control):
 ```bash
 PYTHONPATH=src python tools/m6y/run_spear_apartment_canary.py \
   --bundle-root tmp/m6x/fixed_apartment_canary_20260720_02 \
-  --spear-root /path/to/legacy/AVEngine/external/SPEAR \
+  --spear-executable /path/to/external/packaged/SpearSim.sh \
   --lighting-profiles examples/m6y/spear_apartment_lighting_profiles.json \
   --lighting-profile warm_indoor_fill \
   --scenario S3 \

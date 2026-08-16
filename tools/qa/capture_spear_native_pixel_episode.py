@@ -1533,11 +1533,14 @@ def run(args: argparse.Namespace) -> Path:
     raw_hit_journal = _GroundHitRawJournal(args.output / GROUND_HIT_RAW_JOURNAL_NAME)
 
     configure_args = argparse.Namespace(
-        spear_root=args.spear_root,
+        spear_executable=(
+            args.spear_root
+            / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
+        ),
         rpc_port=args.rpc_port,
         graphics_adapter=args.graphics_adapter,
     )
-    instance, spear_root = RUNNER._configure_instance(
+    instance = RUNNER._configure_instance(
         configure_args, native_map=str(suite["native_map"])
     )
     game = instance.get_game()
@@ -1558,7 +1561,7 @@ def run(args: argparse.Namespace) -> Path:
     try:
         with instance.begin_frame():
             camera, components = SPIKE._spawn_multimodal_camera(game)
-            runtimes = RUNNER._spawn_runtime_actors(game, scenario, spear_root)
+            runtimes = RUNNER._spawn_runtime_actors(game, scenario)
             for actor_id, runtime in runtimes.items():
                 stable_name = f"lead_a_native_{actor_id}"
                 game.unreal_service.set_stable_name_for_actor(

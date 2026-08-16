@@ -317,7 +317,6 @@ def test_runners_need_no_external_examples_or_rig_tools(tmp_path: Path) -> None:
     assert list(inspect.signature(apartment._spawn_runtime_actors).parameters) == [
         "game",
         "scenario",
-        "spear_root",
     ]
     assert list(inspect.signature(mp3d._spawn_runtime_actors).parameters) == [
         "game",
@@ -327,7 +326,7 @@ def test_runners_need_no_external_examples_or_rig_tools(tmp_path: Path) -> None:
     packaged_capture = (
         REPOSITORY / "tools/qa/capture_spear_imported_glb_strict_two_human_episode.py"
     ).read_text(encoding="utf-8")
-    assert "runner._spawn_runtime_actors(game, scenario, _spear_root)" in packaged_capture
+    assert "runner._spawn_runtime_actors(game, scenario)" in packaged_capture
 
     service = _FakeUnrealService([_human_rig()])
     game = _FakeGame(service)

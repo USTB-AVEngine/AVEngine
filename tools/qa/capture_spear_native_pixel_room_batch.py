@@ -79,11 +79,14 @@ class SpearNativeRoomBatchSession:
         self.spike = self.backend.SPIKE
         self.runner = self.backend.RUNNER
         configure = argparse.Namespace(
-            spear_root=self.spear_root,
+            spear_executable=(
+                self.spear_root
+                / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
+            ),
             rpc_port=self.rpc_port,
             graphics_adapter=int(batch.request["graphics_adapter_argument"]),
         )
-        self.instance, self.runtime_spear_root = self.runner._configure_instance(
+        self.instance = self.runner._configure_instance(
             configure, native_map=batch.native_map
         )
         self.game = self.instance.get_game()
@@ -153,7 +156,7 @@ class SpearNativeRoomBatchSession:
         with RAW_SPOOL.RawSpoolWriter(attempt_root) as writer:
             with self.instance.begin_frame():
                 runtimes = self.runner._spawn_runtime_actors(
-                    self.game, scenario, self.runtime_spear_root
+                    self.game, scenario
                 )
                 stable_names = self._stable_names(episode, runtimes)
                 self.backend._apply_exact_frame_with_ground_snap(

@@ -145,6 +145,7 @@ Select it with:
 
 ```bash
 PYTHONPATH=src python tools/m6y/run_spear_apartment_canary.py \
+  --spear-executable PATH_TO_EXTERNAL_SPEARSIM_SH \
   --input-layout asset-bound-batch \
   --bundle-root PATH_TO_UE_INPUT_BUNDLE \
   --source-asset-registry examples/runtime/source_asset_runtime_profiles.json \
