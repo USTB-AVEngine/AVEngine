@@ -11,6 +11,7 @@ import pytest
 from avengine.contracts.json_io import canonical_json_sha256
 from avengine.m4.contracts import (
     AUDIO_BUNDLE_SCHEMA,
+    CURRENT_INSTALLED_EVIDENCE_SCHEMA,
     EVIDENCE_SCHEMA,
     FOA_CONTRACT,
     IDENTITY_SCHEMA,
@@ -20,6 +21,7 @@ from avengine.m4.contracts import (
     json_schema_errors,
     load_and_validate_multi_source_canary_request,
     validate_audio_bundle,
+    validate_current_installed_multi_source_canary_evidence,
     validate_multi_source_canary_evidence,
     validate_multi_source_canary_request,
     validate_source_identity_manifest,
@@ -903,3 +905,60 @@ def test_endpoint_receipts_require_native_readback_and_realization(
     assert any("authority is not native readback" in error for error in errors)
     assert any("sources are not native-realized" in error for error in errors)
     assert any("listener is not native-realized" in error for error in errors)
+
+
+def test_current_installed_v2_evidence_schema_has_no_historical_runtime_lock(
+    tmp_path: Path,
+) -> None:
+    evidence_path, evidence = _evidence(tmp_path)
+    identity = {
+        "identity_schema": "avengine_current_installed_rlr_runtime_v1",
+        "mode": "current-installed",
+        "habitat_runtime_prefix": "/current/habitat",
+        "habitat_sim_module": "/current/habitat/python/habitat_sim/__init__.py",
+        "habitat_sim_binding": "/current/habitat/python/habitat_sim/_ext.so",
+        "magnum_python_site": "/current/magnum/python",
+        "rlr_sdk_root": "/current/sdk",
+        "rlr_sdk_header": "/current/sdk/include/RLRAcousticContext.h",
+        "rlr_sdk_library": "/current/sdk/lib/libRLR.so",
+        "rlr_adapter_enabled": True,
+        "binding_api": "habitat_sim.RLRAcousticContext_v1",
+    }
+    evidence["schema"] = CURRENT_INSTALLED_EVIDENCE_SCHEMA
+    evidence["qualification_claim"] = False
+    evidence["inputs"].pop("runtime_lock_role")
+    evidence["execution"]["runtime_mode"] = "current-installed"
+    for condition in ("one_source", "multi_source"):
+        for run in evidence["performance"][condition]["runs"]:
+            run["runtime_identity"] = copy.deepcopy(identity)
+    records = [copy.deepcopy(identity) for _ in range(11)]
+    evidence["runtime"].pop("native_binaries")
+    evidence["runtime"].update(
+        {
+            "runtime_mode": "current-installed",
+            "current_installed_identity": copy.deepcopy(identity),
+            "current_installed_identity_records": records,
+        }
+    )
+    evidence["checks"].append(
+        {
+            "check_id": "runtime_current_installed_identity",
+            "required": True,
+            "status": "pass",
+            "measured": {
+                "record_count": len(records),
+                "unique_identity_count": 1,
+                "identities": copy.deepcopy(records),
+            },
+            "threshold": {
+                "same_runtime_identity_every_native_call": True,
+                "runtime_mode": "current-installed",
+            },
+        }
+    )
+    _rehash(evidence, "evidence_content_sha256")
+
+    assert json_schema_errors(evidence, CURRENT_INSTALLED_EVIDENCE_SCHEMA) == []
+    assert validate_current_installed_multi_source_canary_evidence(
+        evidence, evidence_path=evidence_path
+    ) == []

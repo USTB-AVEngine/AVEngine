@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import shutil
@@ -94,6 +95,52 @@ EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
 def _print(value: Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False))
 
+
+@contextmanager
+def _temporary_native_audio_environment(
+    *,
+    runtime_prefix: str | None,
+    rlr_sdk_root: str | None,
+    magnum_python_site: str | None = None,
+):
+    """Apply explicit M3/M4 native-runtime inputs only for one CLI invocation."""
+
+    updates = {
+        "AVENGINE_HABITAT_RUNTIME_PREFIX": runtime_prefix,
+        "AVENGINE_RLR_SDK_ROOT": rlr_sdk_root,
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE": magnum_python_site,
+    }
+    previous = {key: os.environ.get(key) for key in updates}
+    try:
+        for key, value in updates.items():
+            if value is not None:
+                os.environ[key] = str(Path(value).resolve())
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+
+def _require_current_installed_runtime_inputs(args: argparse.Namespace) -> None:
+    if getattr(args, "runtime_mode", "historical") != "current-installed":
+        return
+    missing = [
+        option
+        for option, value in (
+            ("--runtime-prefix", getattr(args, "runtime_prefix", None)),
+            ("--rlr-sdk-root", getattr(args, "rlr_sdk_root", None)),
+            ("--magnum-python-site", getattr(args, "magnum_python_site", None)),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(
+            "current-installed mode requires explicit " + ", ".join(missing)
+        )
 
 def _require_ignored_or_external_output(path: str | Path) -> Path:
     resolved = Path(path).resolve()
@@ -415,12 +462,22 @@ def _m3_verify_compile(args: argparse.Namespace) -> int:
 
 def _m3_run_canary(args: argparse.Namespace) -> int:
     try:
+        _require_current_installed_runtime_inputs(args)
         output = _require_ignored_or_external_output(args.output)
-        evidence_path = run_material_activation_canary(
-            args.request,
-            args.compile_evidence,
-            output,
-        )
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            evidence_path = run_material_activation_canary(
+                args.request,
+                args.compile_evidence,
+                output,
+                runtime_mode=args.runtime_mode,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+            )
         result = load_and_verify_canary_evidence(evidence_path)
         if result.errors:
             _print(
@@ -432,6 +489,9 @@ def _m3_run_canary(args: argparse.Namespace) -> int:
             )
             return 2
         status = result.evidence["overall_status"]
+    except RuntimeUnavailableError as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
     except (OSError, ValueError, RuntimeError) as error:
         _print({"status": "fail", "error": str(error)})
         return 2
@@ -959,15 +1019,49 @@ def _m4_run_canary(args: argparse.Namespace) -> int:
         )
         return 3
     try:
+        _require_current_installed_runtime_inputs(args)
+        m4_runtime_kwargs: dict[str, Any] = {}
+        runtime_lock: str | None = args.runtime_lock
+        if args.runtime_mode == "current-installed":
+            missing_hrtf_metadata = [
+                option
+                for option, value in (
+                    ("--current-hrtf-sample-rate-hz", args.current_hrtf_sample_rate_hz),
+                    ("--current-hrtf-license-id", args.current_hrtf_license_id),
+                    ("--current-hrtf-citation", args.current_hrtf_citation),
+                )
+                if value is None or not str(value).strip()
+            ]
+            if missing_hrtf_metadata:
+                raise ValueError(
+                    "current-installed mode requires explicit "
+                    + ", ".join(missing_hrtf_metadata)
+                )
+            runtime_lock = None
+            m4_runtime_kwargs = {
+                "runtime_mode": args.runtime_mode,
+                "runtime_prefix": args.runtime_prefix,
+                "rlr_sdk_root": args.rlr_sdk_root,
+                "magnum_python_site": args.magnum_python_site,
+                "current_hrtf_sample_rate_hz": args.current_hrtf_sample_rate_hz,
+                "current_hrtf_license_id": args.current_hrtf_license_id,
+                "current_hrtf_citation": args.current_hrtf_citation,
+            }
         output = _require_ignored_or_external_output(args.output)
-        evidence = run_m4_canary(
-            args.request,
-            args.package_manifest,
-            args.runtime_lock,
-            output,
-            hrtf_path=args.hrtf,
-            hrtf_license_path=args.hrtf_license,
-        )
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            evidence = run_m4_canary(
+                args.request,
+                args.package_manifest,
+                runtime_lock,
+                output,
+                hrtf_path=args.hrtf,
+                hrtf_license_path=args.hrtf_license,
+                **m4_runtime_kwargs,
+            )
     except RuntimeUnavailableError as error:
         _print({"status": "blocked", "error": str(error)})
         return 3
@@ -1210,6 +1304,30 @@ def build_parser() -> argparse.ArgumentParser:
     m3_run_canary.add_argument("--request", required=True)
     m3_run_canary.add_argument("--compile-evidence", required=True)
     m3_run_canary.add_argument("--output", required=True)
+    m3_run_canary.add_argument(
+        "--runtime-prefix",
+        help=(
+            "Explicit installed non-checkout Habitat prefix required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m3_run_canary.add_argument(
+        "--rlr-sdk-root",
+        help=(
+            "Explicit external non-checkout RLRAudioPropagationPkg required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m3_run_canary.add_argument(
+        "--runtime-mode",
+        choices=["historical", "current-installed"],
+        default="historical",
+        help="historical verifies the v1 lock; current-installed records only one fresh external runtime identity",
+    )
+    m3_run_canary.add_argument(
+        "--magnum-python-site",
+        help="External Corrade/Magnum Python site; required with --runtime-mode current-installed",
+    )
     m3_run_canary.set_defaults(handler=_m3_run_canary)
 
     m3_verify_canary = m3_commands.add_parser("verify-canary")
@@ -1472,6 +1590,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m4_run.add_argument("--hrtf-license", default="/usr/share/doc/libmysofa1/copyright")
     m4_run.add_argument("--output", required=True)
+    m4_run.add_argument(
+        "--runtime-prefix",
+        help=(
+            "Explicit installed non-checkout Habitat prefix required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m4_run.add_argument(
+        "--rlr-sdk-root",
+        help=(
+            "Explicit external non-checkout RLRAudioPropagationPkg required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m4_run.add_argument(
+        "--runtime-mode",
+        choices=("historical", "current-installed"),
+        default="historical",
+        help="historical verifies m4_runtime_v1; current-installed writes a fresh v2 receipt",
+    )
+    m4_run.add_argument(
+        "--magnum-python-site",
+        help="Explicit external Magnum Python site required by current-installed mode",
+    )
+    m4_run.add_argument(
+        "--current-hrtf-sample-rate-hz",
+        type=int,
+        help="Explicit HRTF sample rate required by current-installed mode",
+    )
+    m4_run.add_argument(
+        "--current-hrtf-license-id",
+        help="Explicit HRTF license identifier required by current-installed mode",
+    )
+    m4_run.add_argument(
+        "--current-hrtf-citation",
+        help="Explicit HRTF citation required by current-installed mode",
+    )
     m4_run.set_defaults(handler=_m4_run_canary)
 
     m4_verify = m4_commands.add_parser("verify-canary")

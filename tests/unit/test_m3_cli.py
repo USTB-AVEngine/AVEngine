@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+
+import pytest
 
 from avengine.contracts.json_io import load_json, write_json
 
 from avengine.cli import build_parser, main
+from avengine.m3.runtime import RuntimeUnavailableError
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +46,25 @@ def test_m3_compile_validate_and_verify_cli(tmp_path: Path, capsys) -> None:
     assert main(["m3", "verify-compile", str(output / "compile_evidence.json")]) == 0
     rendered = capsys.readouterr().out
     assert '"status": "pass"' in rendered
+
+
+def test_m3_current_installed_help_requires_explicit_runtime_paths(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        build_parser().parse_args(["m3", "run-canary", "--help"])
+    assert exit_info.value.code == 0
+    rendered = " ".join(capsys.readouterr().out.split())
+    assert (
+        "Explicit installed non-checkout Habitat prefix required with "
+        "--runtime-mode current-installed"
+    ) in rendered
+    assert (
+        "Explicit external non-checkout RLRAudioPropagationPkg required with "
+        "--runtime-mode current-installed"
+    ) in rendered
+    assert "AVENGINE_HABITAT_RUNTIME_PREFIX" not in rendered
+    assert "AVENGINE_RLR_SDK_ROOT" not in rendered
 
 
 def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
@@ -150,6 +174,45 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     assert leakage.m3_command == "inspect-mesh-leakage"
     assert canary.m3_command == "run-canary"
     assert verified.m3_command == "verify-canary"
+
+
+def test_m3_native_runtime_unavailable_is_blocked_and_flags_are_scoped(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    arguments = [
+        "m3",
+        "run-canary",
+        "--request",
+        "request.json",
+        "--compile-evidence",
+        "compile.json",
+        "--runtime-prefix",
+        "/external/habitat-prefix",
+        "--rlr-sdk-root",
+        "/external/rlr-sdk",
+        "--output",
+        str(tmp_path / "output"),
+    ]
+    parsed = build_parser().parse_args(arguments)
+    assert parsed.runtime_prefix == "/external/habitat-prefix"
+    assert parsed.rlr_sdk_root == "/external/rlr-sdk"
+    seen: dict[str, str | None] = {}
+
+    def unavailable(*_args, **_kwargs):
+        seen["prefix"] = os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX")
+        seen["sdk"] = os.environ.get("AVENGINE_RLR_SDK_ROOT")
+        raise RuntimeUnavailableError("RLR adapter is unavailable")
+
+    monkeypatch.setattr("avengine.cli.run_material_activation_canary", unavailable)
+    assert main(arguments) == 3
+    assert seen == {
+        "prefix": "/external/habitat-prefix",
+        "sdk": "/external/rlr-sdk",
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "error": "RLR adapter is unavailable",
+        "status": "blocked",
+    }
 
 
 def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -> None:
@@ -296,3 +359,70 @@ def test_m3_material_profile_cli_refuses_unknown_selector(
         == 2
     )
     assert "unknown source_material_name" in capsys.readouterr().out
+
+
+def test_m3_current_installed_cli_requires_and_forwards_all_runtime_inputs(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    arguments = [
+        "m3",
+        "run-canary",
+        "--request",
+        "request.json",
+        "--compile-evidence",
+        "compile.json",
+        "--runtime-mode",
+        "current-installed",
+        "--runtime-prefix",
+        "/external/habitat-prefix",
+        "--rlr-sdk-root",
+        "/external/rlr-sdk",
+        "--magnum-python-site",
+        "/external/magnum-site",
+        "--output",
+        str(tmp_path / "output"),
+    ]
+    parsed = build_parser().parse_args(arguments)
+    assert parsed.runtime_mode == "current-installed"
+    assert parsed.magnum_python_site == "/external/magnum-site"
+    seen: dict[str, object] = {}
+
+    def unavailable(*_args, **kwargs):
+        seen["kwargs"] = kwargs
+        seen["magnum_env"] = os.environ.get("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE")
+        raise RuntimeUnavailableError("current RLR adapter is unavailable")
+
+    monkeypatch.setattr("avengine.cli.run_material_activation_canary", unavailable)
+    assert main(arguments) == 3
+    assert seen == {
+        "kwargs": {
+            "runtime_mode": "current-installed",
+            "runtime_prefix": "/external/habitat-prefix",
+            "rlr_sdk_root": "/external/rlr-sdk",
+            "magnum_python_site": "/external/magnum-site",
+        },
+        "magnum_env": "/external/magnum-site",
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "error": "current RLR adapter is unavailable",
+        "status": "blocked",
+    }
+
+    assert (
+        main(
+            [
+                "m3",
+                "run-canary",
+                "--request",
+                "request.json",
+                "--compile-evidence",
+                "compile.json",
+                "--runtime-mode",
+                "current-installed",
+                "--output",
+                str(tmp_path / "missing-output"),
+            ]
+        )
+        == 2
+    )
+    assert "current-installed mode requires explicit" in capsys.readouterr().out

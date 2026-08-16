@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,25 @@ def test_m4_parser_exposes_commands_and_pins_default_runtime_lock() -> None:
     assert DEFAULT_RUNTIME_LOCK.is_file()
     assert verify.m4_command == "verify-canary"
     assert bundle.m4_command == "verify-bundle"
+
+
+def test_m4_current_installed_help_requires_explicit_runtime_paths(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        build_parser().parse_args(["m4", "run-canary", "--help"])
+    assert exit_info.value.code == 0
+    rendered = " ".join(capsys.readouterr().out.split())
+    assert (
+        "Explicit installed non-checkout Habitat prefix required with "
+        "--runtime-mode current-installed"
+    ) in rendered
+    assert (
+        "Explicit external non-checkout RLRAudioPropagationPkg required with "
+        "--runtime-mode current-installed"
+    ) in rendered
+    assert "AVENGINE_HABITAT_RUNTIME_PREFIX" not in rendered
+    assert "AVENGINE_RLR_SDK_ROOT" not in rendered
 
 
 def test_m4_validate_request_passes_for_checked_in_request(
@@ -118,6 +138,10 @@ def test_m4_run_canary_mocked_pass_does_not_invoke_native(
         hrtf_path: str,
         hrtf_license_path: str,
     ) -> Path:
+        calls["external_env"] = (
+            os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX"),
+            os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+        )
         calls["run"] = (
             request,
             package_manifest,
@@ -134,6 +158,8 @@ def test_m4_run_canary_mocked_pass_does_not_invoke_native(
 
     monkeypatch.setattr("avengine.cli.run_m4_canary", fake_run)
     monkeypatch.setattr("avengine.cli.verify_m4_canary_evidence", fake_verify)
+    monkeypatch.delenv("AVENGINE_HABITAT_RUNTIME_PREFIX", raising=False)
+    monkeypatch.delenv("AVENGINE_RLR_SDK_ROOT", raising=False)
 
     output = tmp_path / "canary"
     exit_code = main(
@@ -148,6 +174,10 @@ def test_m4_run_canary_mocked_pass_does_not_invoke_native(
             str(hrtf),
             "--hrtf-license",
             str(license_path),
+            "--runtime-prefix",
+            "/external/habitat-prefix",
+            "--rlr-sdk-root",
+            "/external/rlr-sdk",
             "--output",
             str(output),
         ]
@@ -162,6 +192,12 @@ def test_m4_run_canary_mocked_pass_does_not_invoke_native(
         str(hrtf),
         str(license_path),
     )
+    assert calls["external_env"] == (
+        "/external/habitat-prefix",
+        "/external/rlr-sdk",
+    )
+    assert os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX") is None
+    assert os.environ.get("AVENGINE_RLR_SDK_ROOT") is None
     assert calls["verify"] == evidence
     assert _output(capsys) == {
         "canary_evidence": str(evidence),
@@ -229,3 +265,126 @@ def test_m4_verify_bundle_maps_contract_result_to_stable_exit(
     assert main(["m4", "verify-bundle", "bundle.json"]) == expected_exit
     assert calls["validation"] == (bundle, "bundle.json")
     assert _output(capsys) == {"errors": errors, "status": expected_status}
+
+def test_m4_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hrtf = tmp_path / "fixture.sofa"
+    license_path = tmp_path / "COPYING"
+    hrtf.write_bytes(b"fixture hrtf")
+    license_path.write_text("fixture license", encoding="utf-8")
+    evidence = tmp_path / "canary" / "m4_canary_evidence.json"
+    calls: dict[str, Any] = {}
+
+    def fake_run(
+        request: str,
+        package_manifest: str,
+        runtime_lock: str | None,
+        output: Path,
+        *,
+        hrtf_path: str,
+        hrtf_license_path: str,
+        **kwargs: Any,
+    ) -> Path:
+        calls["run"] = (
+            request,
+            package_manifest,
+            runtime_lock,
+            output,
+            hrtf_path,
+            hrtf_license_path,
+            kwargs,
+        )
+        calls["environment"] = (
+            os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX"),
+            os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+            os.environ.get("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"),
+        )
+        return evidence
+
+    monkeypatch.setattr("avengine.cli.run_m4_canary", fake_run)
+    monkeypatch.setattr(
+        "avengine.cli.verify_m4_canary_evidence",
+        lambda _path: ("pass", ({"check_id": "contract", "status": "pass"},)),
+    )
+
+    output = tmp_path / "canary"
+    command = [
+        "m4",
+        "run-canary",
+        "--request",
+        "request.json",
+        "--package-manifest",
+        "manifest.json",
+        "--hrtf",
+        str(hrtf),
+        "--hrtf-license",
+        str(license_path),
+        "--runtime-mode",
+        "current-installed",
+        "--runtime-prefix",
+        "/current/habitat",
+        "--rlr-sdk-root",
+        "/current/sdk",
+        "--magnum-python-site",
+        "/current/magnum/python",
+        "--current-hrtf-sample-rate-hz",
+        "48000",
+        "--current-hrtf-license-id",
+        "fixture-license",
+        "--current-hrtf-citation",
+        "fixture citation",
+        "--output",
+        str(output),
+    ]
+    assert main(command) == 0
+    assert calls["run"] == (
+        "request.json",
+        "manifest.json",
+        None,
+        output.resolve(),
+        str(hrtf),
+        str(license_path),
+        {
+            "runtime_mode": "current-installed",
+            "runtime_prefix": "/current/habitat",
+            "rlr_sdk_root": "/current/sdk",
+            "magnum_python_site": "/current/magnum/python",
+            "current_hrtf_sample_rate_hz": 48000,
+            "current_hrtf_license_id": "fixture-license",
+            "current_hrtf_citation": "fixture citation",
+        },
+    )
+    assert calls["environment"] == (
+        "/current/habitat",
+        "/current/sdk",
+        "/current/magnum/python",
+    )
+    assert _output(capsys) == {
+        "canary_evidence": str(evidence),
+        "failed_checks": [],
+        "status": "pass",
+    }
+
+    incomplete = [
+        "m4",
+        "run-canary",
+        "--request",
+        "request.json",
+        "--package-manifest",
+        "manifest.json",
+        "--hrtf",
+        str(hrtf),
+        "--hrtf-license",
+        str(license_path),
+        "--runtime-mode",
+        "current-installed",
+        "--output",
+        str(tmp_path / "second-output"),
+    ]
+    assert main(incomplete) == 2
+    rendered = _output(capsys)
+    assert rendered["status"] == "fail"
+    assert "--runtime-prefix" in rendered["error"]

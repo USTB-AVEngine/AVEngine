@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import hashlib
 import importlib.util
 import math
@@ -28,6 +29,8 @@ from avengine.m3.canary import (
     load_and_verify_canary_evidence,
     run_material_activation_canary,
     verify_canary_evidence,
+    RUNTIME_MODE_CURRENT_INSTALLED,
+    RuntimeUnavailableError,
 )
 from avengine.m3.compiler import compile_canary_request
 from avengine.m3.runtime import (
@@ -79,6 +82,27 @@ def _matching_fake_runtime_lock(
         encoding="utf-8",
     )
     monkeypatch.setattr(canary_module, "_runtime_lock_path", lambda: runtime_lock)
+    monkeypatch.setattr(
+        canary_module,
+        "load_habitat_runtime",
+        lambda: (
+            object(),
+            {
+                "native_binaries": {
+                    "habitat_sim_bindings": {
+                        "path": "/fixture/habitat_sim_bindings.so",
+                        "byte_size": len(_FAKE_BINDING_BYTES),
+                        "sha256": _FAKE_BINDING_SHA256,
+                    },
+                    "rlr_audio_propagation": {
+                        "path": "/fixture/libRLRAudioPropagation.so",
+                        "byte_size": len(_FAKE_RLR_BYTES),
+                        "sha256": _FAKE_RLR_SHA256,
+                    },
+                }
+            },
+        ),
+    )
     return runtime_lock
 
 
@@ -586,7 +610,7 @@ def test_native_binary_pins_reject_rehashed_evidence_and_lock(
     )
 
 
-def test_invalid_runtime_lock_pin_fails_binary_identity_check(
+def test_invalid_historical_runtime_lock_stops_before_runner(
     tmp_path: Path,
     _matching_fake_runtime_lock: Path,
 ) -> None:
@@ -596,19 +620,17 @@ def test_invalid_runtime_lock_pin_fails_binary_identity_check(
         encoding="utf-8",
     )
     compile_evidence = compile_canary_request(REQUEST, tmp_path / "compile")
-    evidence_path = run_material_activation_canary(
-        REQUEST,
-        compile_evidence,
-        tmp_path / "runtime",
-        runner=_DeterministicRunner(tmp_path / "native"),
-    )
-    evidence = load_json(evidence_path)
-    binary_check = _binary_identity_check(evidence)
-
-    assert evidence["overall_status"] == "fail"
-    assert binary_check["status"] == "fail"
-    assert binary_check["measured"]["native_binaries"] is None
-    assert verify_canary_evidence(evidence_path) == []
+    output = tmp_path / "runtime"
+    with pytest.raises(
+        RuntimeUnavailableError, match="before executing an RLR job"
+    ):
+        run_material_activation_canary(
+            REQUEST,
+            compile_evidence,
+            output,
+            runner=_DeterministicRunner(tmp_path / "native"),
+        )
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(
@@ -649,3 +671,284 @@ def test_run_tool_exit_code_follows_evidence_status(
         )
         == expected_exit
     )
+
+
+def _current_installed_identity(
+    root: Path,
+    suffix: str,
+    *,
+    canonical_paths: bool = True,
+) -> dict[str, Any]:
+    prefix = root / f"installed-habitat-{suffix}"
+    sdk_root = root / f"external-rlr-{suffix}"
+    magnum_site = root / f"magnum-{suffix}"
+    module = prefix / "habitat_sim/__init__.py"
+    binding = prefix / "habitat_sim/_ext/habitat_sim_bindings.so"
+    header = sdk_root / "headers/RLRAudioPropagation.h"
+    library = sdk_root / "libs/linux/x64/libRLRAudioPropagation.so"
+    for path in (module, binding, header, library):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    magnum_site.mkdir(parents=True, exist_ok=True)
+
+    def identity_path(path: Path) -> str:
+        return str(path.resolve() if canonical_paths else path.absolute())
+
+    return {
+        "identity_schema": "avengine_current_installed_rlr_runtime_v1",
+        "mode": "current-installed",
+        "habitat_runtime_prefix": identity_path(prefix),
+        "habitat_sim_module": identity_path(module),
+        "habitat_sim_binding": identity_path(binding),
+        "magnum_python_site": identity_path(magnum_site),
+        "rlr_sdk_root": identity_path(sdk_root),
+        "rlr_sdk_header": identity_path(header),
+        "rlr_sdk_library": identity_path(library),
+        "rlr_adapter_enabled": True,
+        "binding_api": "habitat_sim.RLRAcousticContext_v1",
+    }
+
+
+def test_current_installed_m3_identity_is_same_across_repeats_or_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compile_evidence = compile_canary_request(REQUEST, tmp_path / "compile")
+
+    def no_historical_lock() -> Path:
+        raise AssertionError("current-installed mode must not read a historical lock")
+
+    monkeypatch.setattr(canary_module, "_runtime_lock_path", no_historical_lock)
+
+    def run_with_identities(output_name: str, *, differ: bool) -> tuple[Path, list[dict[str, Any]]]:
+        base = _DeterministicRunner(tmp_path / f"native-{output_name}")
+        same = _current_installed_identity(tmp_path, "same")
+        different = _current_installed_identity(tmp_path, "different")
+        seen: list[dict[str, Any]] = []
+
+        def runner(
+            scene: CompiledAcousticScene,
+            simulation: RLRSimulationConfig,
+            **kwargs: Any,
+        ) -> RuntimeIRResult:
+            current_inputs = {
+                key: kwargs[key]
+                for key in (
+                    "runtime_mode",
+                    "runtime_prefix",
+                    "rlr_sdk_root",
+                    "magnum_python_site",
+                )
+            }
+            seen.append(current_inputs)
+            legacy_kwargs = {
+                key: kwargs[key]
+                for key in (
+                    "source",
+                    "listener",
+                    "scene_readback_obj",
+                    "ray_checks",
+                    "ray_distance_tolerance_m",
+                )
+            }
+            result = base(scene, simulation, **legacy_kwargs)
+            runtime = copy.deepcopy(result.runtime)
+            runtime.pop("native_binaries")
+            runtime["runtime_mode"] = RUNTIME_MODE_CURRENT_INSTALLED
+            runtime["runtime_identity"] = (
+                different if differ and len(seen) == 2 else same
+            )
+            return replace(result, runtime=runtime)
+
+        evidence_path = run_material_activation_canary(
+            REQUEST,
+            compile_evidence,
+            tmp_path / output_name,
+            runner=runner,
+            runtime_mode=RUNTIME_MODE_CURRENT_INSTALLED,
+            runtime_prefix="/external/current-habitat",
+            rlr_sdk_root="/external/current-rlr",
+            magnum_python_site="/external/current-magnum",
+        )
+        return evidence_path, seen
+
+    matching_path, matching_inputs = run_with_identities("current-matching", differ=False)
+    matching = load_json(matching_path)
+    assert matching["overall_status"] == "pass"
+    assert "runtime_lock" not in matching["inputs"]
+    assert matching["runtime"]["current_installed_identity"] == _current_installed_identity(
+        tmp_path, "same"
+    )
+    assert all(
+        "native_binaries" not in run["runtime"]
+        for condition in matching["conditions"].values()
+        for run in condition["runs"]
+    )
+    assert all(
+        item
+        == {
+            "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+            "runtime_prefix": "/external/current-habitat",
+            "rlr_sdk_root": "/external/current-rlr",
+            "magnum_python_site": "/external/current-magnum",
+        }
+        for item in matching_inputs
+    )
+    assert verify_canary_evidence(matching_path) == []
+
+    differing_path, _ = run_with_identities("current-differing", differ=True)
+    differing = load_json(differing_path)
+    identity_check = next(
+        check
+        for check in differing["checks"]
+        if check["check_id"] == "runtime_current_installed_identity"
+    )
+    assert differing["overall_status"] == "fail"
+    assert identity_check["status"] == "fail"
+    assert identity_check["measured"]["unique_identity_count"] == 2
+    assert verify_canary_evidence(differing_path) == []
+
+
+
+def test_current_installed_m3_recomputes_fresh_artifacts_and_semantics(
+    tmp_path: Path,
+) -> None:
+    """A rehashed v2 JSON cannot relabel a changed fresh receipt as pass."""
+
+    compile_evidence = compile_canary_request(REQUEST, tmp_path / "compile")
+    base = _DeterministicRunner(tmp_path / "native-current")
+    identity = _current_installed_identity(tmp_path, "consistent")
+
+    def runner(
+        scene: CompiledAcousticScene,
+        simulation: RLRSimulationConfig,
+        **kwargs: Any,
+    ) -> RuntimeIRResult:
+        result = base(
+            scene,
+            simulation,
+            **{
+                key: kwargs[key]
+                for key in (
+                    "source",
+                    "listener",
+                    "scene_readback_obj",
+                    "ray_checks",
+                    "ray_distance_tolerance_m",
+                )
+            },
+        )
+        runtime = copy.deepcopy(result.runtime)
+        runtime.pop("native_binaries")
+        runtime["runtime_mode"] = RUNTIME_MODE_CURRENT_INSTALLED
+        runtime["runtime_identity"] = copy.deepcopy(identity)
+        return replace(result, runtime=runtime)
+
+    evidence_path = run_material_activation_canary(
+        REQUEST,
+        compile_evidence,
+        tmp_path / "current",
+        runner=runner,
+        runtime_mode=RUNTIME_MODE_CURRENT_INSTALLED,
+        runtime_prefix="/external/current-habitat",
+        rlr_sdk_root="/external/current-rlr",
+        magnum_python_site="/external/current-magnum",
+    )
+    assert verify_canary_evidence(evidence_path) == []
+
+    changed_artifact_path = _clone_evidence(
+        evidence_path, tmp_path, "changed-artifact"
+    )
+    changed_artifact = load_json(changed_artifact_path)
+    raw_ir = (
+        changed_artifact_path.parent
+        / changed_artifact["conditions"]["low_absorption"]["runs"][0][
+            "ir_artifact"
+        ]["path"]
+    )
+    payload = raw_ir.read_bytes()
+    raw_ir.write_bytes(payload[:-1] + bytes([payload[-1] ^ 1]))
+    assert any(
+        "low_absorption_repeat_000.ir.sha256 does not match" in error
+        for error in verify_canary_evidence(changed_artifact_path)
+    )
+
+    def assert_rehashed_forgery_rejected(
+        name: str,
+        mutate: Any,
+        expected_fragment: str,
+    ) -> None:
+        forged_path = _clone_evidence(evidence_path, tmp_path, name)
+        forged = load_json(forged_path)
+        mutate(forged)
+        _rehash_evidence(forged_path, forged)
+        assert any(
+            expected_fragment in error
+            for error in verify_canary_evidence(forged_path)
+        )
+
+    assert_rehashed_forgery_rejected(
+        "changed-metrics",
+        lambda value: value["conditions"]["low_absorption"]["runs"][0][
+            "metrics"
+        ].__setitem__("drr_db", 123.0),
+        "metrics differ from raw IR recomputation",
+    )
+    assert_rehashed_forgery_rejected(
+        "changed-readback",
+        lambda value: value["conditions"]["low_absorption"]["runs"][0][
+            "runtime"
+        ]["scene_mesh_readback"].__setitem__("vertex_count", 999),
+        "scene_mesh_readback record differs from artifact",
+    )
+    assert_rehashed_forgery_rejected(
+        "changed-ray",
+        lambda value: value["conditions"]["low_absorption"]["runs"][0][
+            "ray_checks"
+        ][0].__setitem__("cpu_first_hit_distance_m", 0.123),
+        "ray_checks",
+    )
+    assert_rehashed_forgery_rejected(
+        "changed-comparison",
+        lambda value: value["comparisons"]["drr_db"].__setitem__(
+            "high_median", 321.0
+        ),
+        "comparison drr_db differs from run metrics",
+    )
+
+    historical_root = tmp_path / "historical-checkout"
+    historical_root.mkdir()
+    (historical_root / ".git").mkdir()
+    historical = _current_installed_identity(historical_root, "forged")
+    historical_alias = tmp_path / "historical-checkout-alias"
+    historical_alias.symlink_to(historical_root, target_is_directory=True)
+    historical_symlink = _current_installed_identity(
+        historical_alias,
+        "forged",
+        canonical_paths=False,
+    )
+
+    def replace_all_runtime_identities(
+        value: dict[str, Any],
+        replacement: dict[str, Any],
+    ) -> None:
+        for condition in value["conditions"].values():
+            for run in condition["runs"]:
+                run["runtime"]["runtime_identity"] = copy.deepcopy(replacement)
+        value["runtime"]["current_installed_identity"] = copy.deepcopy(replacement)
+        for check in value["checks"]:
+            if check["check_id"] == "runtime_current_installed_identity":
+                check["measured"]["current_installed_identity"] = copy.deepcopy(
+                    replacement
+                )
+
+    for name, replacement in (
+        ("checkout-identity", historical),
+        ("checkout-symlink-identity", historical_symlink),
+    ):
+        assert_rehashed_forgery_rejected(
+            name,
+            lambda value, replacement=replacement: replace_all_runtime_identities(
+                value, replacement
+            ),
+            "runtime_current_installed_identity check differs from recomputation",
+        )

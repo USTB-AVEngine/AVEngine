@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import math
+import statistics
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,6 +20,9 @@ from avengine.contracts.json_io import (
 from avengine.contracts.transforms import (
     compose_transforms,
     normalized_quaternion_xyzw,
+)
+from avengine.current_installed_runtime import (
+    is_current_installed_runtime_identity as _is_current_installed_runtime_identity,
 )
 from avengine.m1.contracts import (
     validate_capture_request as validate_m1_capture_request,
@@ -43,13 +47,16 @@ from avengine.m4.binaural import (
     validate_binaural_cardinals,
 )
 from avengine.m4.contracts import (
+    CURRENT_INSTALLED_EVIDENCE_SCHEMA,
     EVIDENCE_SCHEMA,
     IDENTITY_SCHEMA,
     REQUEST_SCHEMA,
     canonical_source_ids,
     json_schema_errors,
+    validate_current_installed_multi_source_canary_evidence,
     validate_multi_source_canary_evidence,
 )
+from avengine.m4.runtime import LIFECYCLE_MOVED_DISTANCE_M
 from avengine.m4.spatial import (
     SpatialContractError,
     rlr_foa_contract,
@@ -675,6 +682,55 @@ def _input_authority(
     return authority, errors
 
 
+def _runtime_configuration_readback_errors(
+    authority: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+) -> list[str]:
+    """Rebuild native configuration readback from the retained M4 request."""
+
+    request = authority.get("request")
+    if not isinstance(request, Mapping):
+        return ["retained M4 request is unavailable for configuration replay"]
+    simulation = request.get("simulation")
+    if not isinstance(simulation, Mapping):
+        return ["retained M4 simulation is unavailable for configuration replay"]
+    fields = (
+        "frequency_bands",
+        "direct_sh_order",
+        "indirect_sh_order",
+        "direct_ray_count",
+        "indirect_ray_count",
+        "indirect_ray_depth",
+        "source_ray_count",
+        "source_ray_depth",
+        "max_diffraction_order",
+        "thread_count",
+        "sample_rate_hz",
+        "max_ir_seconds",
+        "unit_scale",
+        "global_volume",
+        "direct",
+        "indirect",
+        "diffraction",
+        "transmission",
+        "mesh_simplification",
+        "temporal_coherence",
+    )
+    if any(field not in simulation for field in fields):
+        return ["retained M4 simulation is incomplete for configuration replay"]
+    expected = {field: simulation[field] for field in fields}
+    runtime = evidence.get("runtime")
+    if not isinstance(runtime, Mapping):
+        return ["runtime receipt is missing for configuration replay"]
+    errors: list[str] = []
+    for layout in ("foa", "binaural"):
+        if runtime.get(f"{layout}_configuration_readback") != expected:
+            errors.append(
+                f"{layout} native configuration readback differs from retained M4 request"
+            )
+    return errors
+
+
 def _load_array(paths: Mapping[str, Path], role: Any, *, channels: int) -> np.ndarray:
     if not isinstance(role, str) or role not in paths:
         raise M4EvidenceError(f"unknown array artifact role {role!r}")
@@ -906,6 +962,108 @@ def _binaural_lock_errors(
     return errors
 
 
+def _current_binaural_preflight_errors(
+    paths: Mapping[str, Path],
+    evidence: Mapping[str, Any],
+    *,
+    sample_rate_hz: int | None,
+) -> list[str]:
+    """Rebuild v2 HRTF preflight from this receipt's verified input bytes.
+
+    The current-installed route has no historical HRTF or native-binary pin.
+    It authenticates only the HRTF/license copies retained in this fresh bundle,
+    then requires strict render-rate matching without native adaptation.
+    """
+
+    errors: list[str] = []
+    inputs = evidence.get("inputs")
+    audio_contracts = evidence.get("audio_contracts")
+    if not isinstance(inputs, Mapping) or not isinstance(audio_contracts, Mapping):
+        return ["current-installed HRTF inputs or audio contracts are missing"]
+    if "runtime_lock_role" in inputs:
+        errors.append("current-installed evidence must not retain a historical runtime lock")
+    hrtf_role = inputs.get("hrtf_role")
+    license_role = inputs.get("hrtf_license_role")
+    for owner, role in (("HRTF", hrtf_role), ("HRTF license", license_role)):
+        if not isinstance(role, str) or role not in paths:
+            errors.append(f"{owner} artifact role is missing")
+    if sample_rate_hz is None:
+        errors.append("render sample rate cannot be derived from retained WAVE bytes")
+    binaural = audio_contracts.get("binaural")
+    if not isinstance(binaural, Mapping):
+        errors.append("audio_contracts.binaural is missing")
+    if errors:
+        return errors
+    assert isinstance(hrtf_role, str) and isinstance(license_role, str)
+    assert sample_rate_hz is not None and isinstance(binaural, Mapping)
+
+    hrtf = binaural.get("hrtf")
+    rights = binaural.get("rights")
+    binding = binaural.get("sample_rate_binding")
+    if not isinstance(hrtf, Mapping) or not isinstance(rights, Mapping):
+        return ["current-installed HRTF or license metadata is missing"]
+    if not isinstance(binding, Mapping):
+        return ["current-installed HRTF rate binding is missing"]
+    if binding.get("policy") != "strict_match":
+        errors.append("current-installed HRTF rate policy must be strict_match")
+    if binding.get("native_rate_adaptation") != "not_required":
+        errors.append("current-installed HRTF receipt must not claim native adaptation")
+    if "rlr_binary_sha256" in binding:
+        errors.append("current-installed HRTF receipt must not retain a binary hash")
+    try:
+        current_hrtf_sha256 = sha256_file(paths[hrtf_role])
+        current_license_sha256 = sha256_file(paths[license_role])
+    except OSError as exc:
+        return [f"current-installed HRTF/license bytes are unreadable: {exc}"]
+    try:
+        preflight = build_rlr_native_binaural_metadata(
+            sample_rate_hz,
+            hrtf_path=paths[hrtf_role],
+            expected_hrtf_sha256=current_hrtf_sha256,
+            hrtf_sample_rate_hz=hrtf.get("sample_rate_hz"),
+            license_id=rights.get("license_id"),
+            citation=rights.get("citation"),
+            license_text_path=paths[license_role],
+            expected_license_sha256=current_license_sha256,
+            asset_id=hrtf.get("asset_id", "current_installed_explicit_sofa_hrtf"),
+            sample_rate_policy="strict_match",
+        )
+    except BinauralContractError as exc:
+        return [f"current-installed HRTF preflight could not be reconstructed: {exc}"]
+    if preflight.get("status") != "pass":
+        return [
+            "reconstructed current-installed HRTF preflight did not pass: "
+            + str(preflight.get("reason", preflight.get("reason_code", "unknown")))
+        ]
+    expected = _portable_binaural_metadata(
+        preflight,
+        hrtf_role=hrtf_role,
+        license_role=license_role,
+    )
+    expected["native_cardinal_validation"] = "pass"
+    actual_without_report = copy.deepcopy(dict(binaural))
+    report = actual_without_report.pop("native_cardinal_report", None)
+    if not isinstance(report, Mapping):
+        errors.append("binaural native cardinal report is missing")
+    if actual_without_report != expected:
+        errors.append(
+            "audio_contracts.binaural differs from current HRTF/license artifact bytes"
+        )
+    if audio_contracts.get("avengine_resampling_performed") is not False:
+        errors.append("AVEngine resampling must be explicitly recorded as false")
+    if audio_contracts.get("implicit_normalization") is not False:
+        errors.append("implicit normalization must be explicitly recorded as false")
+    if audio_contracts.get("limiter") is not False:
+        errors.append("limiter must be explicitly recorded as false")
+    if "implicit_resampling" in audio_contracts:
+        errors.append("ambiguous implicit_resampling field is forbidden")
+    if audio_contracts.get("native_rate_adaptation") != expected.get(
+        "sample_rate_binding"
+    ):
+        errors.append("native rate-adaptation receipt differs from reconstructed preflight")
+    return errors
+
+
 def _runtime_lock_errors(
     paths: Mapping[str, Path], evidence: Mapping[str, Any]
 ) -> list[str]:
@@ -1019,32 +1177,305 @@ def _direct_arrival_errors(
     return errors
 
 
-def verify_m4_canary_evidence(
+def _performance_replay_errors(
+    authority: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+) -> list[str]:
+    """Recompute M4 performance summaries and comparison from retained runs."""
+
+    request = authority.get("request")
+    source_ids = authority.get("canonical_source_ids")
+    thresholds = request.get("thresholds") if isinstance(request, Mapping) else None
+    if not isinstance(source_ids, tuple) or not isinstance(thresholds, Mapping):
+        return ["retained M4 performance authority is incomplete"]
+    try:
+        expected_repeat_count = int(thresholds["performance_repeat_count"])
+    except (KeyError, TypeError, ValueError):
+        return ["retained M4 performance repeat count is invalid"]
+    if (
+        isinstance(thresholds.get("performance_repeat_count"), bool)
+        or expected_repeat_count < 1
+    ):
+        return ["retained M4 performance repeat count is invalid"]
+    performance = evidence.get("performance")
+    if not isinstance(performance, Mapping):
+        return ["performance receipt is missing"]
+    errors: list[str] = []
+    medians: dict[str, float] = {}
+    for name, expected_pair_count in (
+        ("one_source", 1),
+        ("multi_source", len(source_ids)),
+    ):
+        condition = performance.get(name)
+        if not isinstance(condition, Mapping):
+            errors.append(f"performance.{name} is missing")
+            continue
+        runs = condition.get("runs")
+        if not isinstance(runs, list):
+            errors.append(f"performance.{name}.runs is missing")
+            continue
+        if condition.get("source_count") != expected_pair_count:
+            errors.append(f"performance.{name}.source_count differs from retained inputs")
+        if condition.get("pair_count") != expected_pair_count:
+            errors.append(f"performance.{name}.pair_count differs from retained inputs")
+        if condition.get("repeat_count") != expected_repeat_count:
+            errors.append(f"performance.{name}.repeat_count differs from retained request")
+        if len(runs) != expected_repeat_count:
+            errors.append(f"performance.{name}.runs count differs from retained request")
+        wall: list[float] = []
+        cpu: list[float] = []
+        peak_after: list[int] = []
+        payload: list[int] = []
+        for repeat_index, run in enumerate(runs):
+            if not isinstance(run, Mapping):
+                errors.append(f"performance.{name}.runs[{repeat_index}] is malformed")
+                continue
+            if run.get("repeat_index") != repeat_index:
+                errors.append(
+                    f"performance.{name}.runs[{repeat_index}].repeat_index differs"
+                )
+            if run.get("pair_count") != expected_pair_count:
+                errors.append(
+                    f"performance.{name}.runs[{repeat_index}].pair_count differs"
+                )
+            try:
+                current_wall = float(run["wall_seconds"])
+                current_cpu = float(run["process_cpu_seconds"])
+                current_before = run["peak_rss_before_bytes"]
+                current_after = run["peak_rss_after_bytes"]
+                current_payload = run["ir_payload_bytes"]
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"performance.{name}.runs[{repeat_index}]: {exc}")
+                continue
+            if (
+                not math.isfinite(current_wall)
+                or current_wall <= 0.0
+                or not math.isfinite(current_cpu)
+                or current_cpu < 0.0
+                or isinstance(current_before, bool)
+                or not isinstance(current_before, int)
+                or current_before < 0
+                or isinstance(current_after, bool)
+                or not isinstance(current_after, int)
+                or current_after < 0
+                or isinstance(current_payload, bool)
+                or not isinstance(current_payload, int)
+                or current_payload < 1
+            ):
+                errors.append(
+                    f"performance.{name}.runs[{repeat_index}] has invalid timing data"
+                )
+                continue
+            wall.append(current_wall)
+            cpu.append(current_cpu)
+            peak_after.append(current_after)
+            payload.append(current_payload)
+        if len(wall) != expected_repeat_count:
+            continue
+        sorted_wall = sorted(wall)
+        expected_summary = {
+            "median_wall_seconds": statistics.median(sorted_wall),
+            "p95_wall_seconds": sorted_wall[
+                min(len(sorted_wall) - 1, math.ceil(0.95 * len(sorted_wall)) - 1)
+            ],
+            "median_process_cpu_seconds": statistics.median(sorted(cpu)),
+            "maximum_peak_rss_bytes": max(peak_after),
+            "median_ir_payload_bytes": int(statistics.median(payload)),
+        }
+        for field, expected in expected_summary.items():
+            if condition.get(field) != expected:
+                errors.append(
+                    f"performance.{name}.{field} differs from retained runs"
+                )
+        medians[name] = expected_summary["median_wall_seconds"]
+    if set(medians) == {"one_source", "multi_source"}:
+        one = medians["one_source"]
+        multi = medians["multi_source"]
+        expected_comparison = {
+            "multi_to_one_median_wall_ratio": multi / one,
+            "multi_pair_throughput_pairs_per_second": len(source_ids) / multi,
+            "hard_speed_gate": None,
+            "interpretation": "measurement_only_platform_dependent",
+        }
+        if performance.get("comparison") != expected_comparison:
+            errors.append("performance.comparison differs from retained runs")
+    return errors
+
+
+def _lifecycle_replay_errors(
+    authority: Mapping[str, Any],
+    lifecycle: Mapping[str, Any],
+) -> list[str]:
+    """Rebuild lifecycle movement, native receipt, and upload claims from inputs."""
+
+    request = authority.get("request")
+    sources = authority.get("sources")
+    listener = authority.get("listener")
+    source_ids = authority.get("canonical_source_ids")
+    scene = authority.get("scene")
+    if not all(
+        isinstance(value, Mapping) for value in (request, sources, listener)
+    ) or not isinstance(source_ids, tuple) or not source_ids:
+        return ["retained M4 lifecycle authority is incomplete"]
+    if scene is None:
+        return ["retained M4 package is unavailable for lifecycle upload replay"]
+    assert isinstance(request, Mapping)
+    assert isinstance(sources, Mapping)
+    assert isinstance(listener, Mapping)
+    thresholds = request.get("thresholds")
+    if not isinstance(thresholds, Mapping):
+        return ["retained M4 lifecycle geometry threshold is missing"]
+    try:
+        geometry_tolerance = float(thresholds["maximum_anchor_transform_error"])
+    except (KeyError, TypeError, ValueError):
+        return ["retained M4 lifecycle geometry threshold is invalid"]
+    if (
+        isinstance(thresholds.get("maximum_anchor_transform_error"), bool)
+        or not math.isfinite(geometry_tolerance)
+        or geometry_tolerance < 0.0
+    ):
+        return ["retained M4 lifecycle geometry threshold is invalid"]
+    moved_source_id = source_ids[0]
+    source = sources.get(moved_source_id)
+    if not isinstance(source, Mapping):
+        return ["retained M4 moved source is missing"]
+    try:
+        original = np.asarray(source["position_m"], dtype=np.float64)
+        listener_position = np.asarray(listener["position_m"], dtype=np.float64)
+    except (KeyError, TypeError, ValueError) as exc:
+        return [f"retained M4 lifecycle geometry is invalid: {exc}"]
+    if (
+        original.shape != (3,)
+        or listener_position.shape != (3,)
+        or not np.all(np.isfinite(original))
+        or not np.all(np.isfinite(listener_position))
+    ):
+        return ["retained M4 lifecycle geometry is invalid"]
+    direction = original - listener_position
+    source_distance = float(np.linalg.norm(direction))
+    if not math.isfinite(source_distance) or source_distance <= 0.0:
+        return ["retained M4 lifecycle source is co-located with listener"]
+    expected_updated = (
+        original
+        + direction / source_distance * float(LIFECYCLE_MOVED_DISTANCE_M)
+    )
+    errors: list[str] = []
+    if lifecycle.get("moved_source_id") != moved_source_id:
+        errors.append("lifecycle moved source differs from canonical first source")
+    try:
+        moved_distance = float(lifecycle.get("moved_distance_m"))
+    except (TypeError, ValueError):
+        moved_distance = math.nan
+    if not math.isclose(
+        moved_distance,
+        float(LIFECYCLE_MOVED_DISTANCE_M),
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        errors.append("lifecycle moved distance differs from the executed policy")
+    if _maximum_vector_error(
+        lifecycle.get("original_position_m"), original, length=3
+    ) > geometry_tolerance:
+        errors.append("lifecycle original position differs from retained source")
+    if _maximum_vector_error(
+        lifecycle.get("updated_position_m"), expected_updated, length=3
+    ) > geometry_tolerance:
+        errors.append("lifecycle updated position differs from retained geometry")
+    receipts = lifecycle.get("source_registration_receipts_after_update")
+    if not isinstance(receipts, list) or len(receipts) != len(source_ids):
+        errors.append("lifecycle updated source receipt count differs from retained inputs")
+    else:
+        for index, source_id in enumerate(source_ids):
+            observed = receipts[index]
+            expected_source = sources.get(source_id)
+            if not isinstance(observed, Mapping) or not isinstance(
+                expected_source, Mapping
+            ):
+                errors.append(f"lifecycle updated receipt {source_id} is malformed")
+                continue
+            expected_position = (
+                expected_updated
+                if source_id == moved_source_id
+                else expected_source.get("position_m")
+            )
+            if (
+                observed.get("source_id") != source_id
+                or observed.get("canonical_native_index") != index
+                or observed.get("native_realized") is not True
+            ):
+                errors.append(
+                    f"lifecycle updated receipt {source_id} identity/index differs"
+                )
+            try:
+                expected_native_position = np.asarray(
+                    expected_position, dtype=np.float32
+                ).astype(np.float64)
+                expected_native_radius = float(
+                    np.float32(float(expected_source["radius_m"]))
+                )
+                observed_radius = float(observed.get("radius_m"))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                errors.append(
+                    f"lifecycle updated receipt {source_id} is not a native readback"
+                )
+                continue
+            if _maximum_vector_error(
+                observed.get("position_m"), expected_native_position, length=3
+            ) > 0.0:
+                errors.append(
+                    f"lifecycle updated receipt {source_id} position differs"
+                )
+            if (
+                not math.isfinite(observed_radius)
+                or observed_radius != expected_native_radius
+            ):
+                errors.append(
+                    f"lifecycle updated receipt {source_id} radius differs"
+                )
+    try:
+        _verify_upload_report(scene, lifecycle.get("upload_report"))
+    except (TypeError, ValueError, RuntimeContractError) as exc:
+        errors.append(f"lifecycle upload receipt differs from retained package: {exc}")
+    return errors
+
+
+def _verify_historical_m4_canary_evidence(
     evidence_path: str | Path,
+    *,
+    current_installed: bool = False,
+    evidence: Mapping[str, Any] | None = None,
 ) -> tuple[str, tuple[dict[str, Any], ...]]:
-    """Recompute the M4 gate from confined bytes, never declared booleans."""
+    """Recompute shared M4 claims from confined v1 or v2 receipt bytes."""
 
     path = Path(evidence_path).resolve()
     checks: list[dict[str, Any]] = []
-    try:
-        evidence = load_json(path)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        return "fail", (
-            _derived_check(
-                "evidence_json",
-                False,
-                str(exc),
-                "Evidence is missing or invalid JSON",
-            ),
-        )
+    if evidence is None:
+        try:
+            evidence = load_json(path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return "fail", (
+                _derived_check(
+                    "evidence_json",
+                    False,
+                    str(exc),
+                    "Evidence is missing or invalid JSON",
+                ),
+            )
 
-    contract_errors = validate_multi_source_canary_evidence(
-        evidence, evidence_path=path
+    contract_errors = (
+        validate_current_installed_multi_source_canary_evidence(
+            evidence, evidence_path=path
+        )
+        if current_installed
+        else validate_multi_source_canary_evidence(evidence, evidence_path=path)
+    )
+    expected_schema = (
+        CURRENT_INSTALLED_EVIDENCE_SCHEMA if current_installed else EVIDENCE_SCHEMA
     )
     checks.append(
         _derived_check(
             "evidence_contract",
-            not contract_errors and evidence.get("schema") == EVIDENCE_SCHEMA,
+            not contract_errors and evidence.get("schema") == expected_schema,
             contract_errors,
             "Evidence violates the M4 schema or semantic contract",
         )
@@ -1088,6 +1519,18 @@ def verify_m4_canary_evidence(
             not authority_errors,
             authority_errors,
             "Retained M4/M1/M3/identity/package inputs do not bind the evidence",
+        )
+    )
+
+    configuration_readback_errors = _runtime_configuration_readback_errors(
+        authority, evidence
+    )
+    checks.append(
+        _derived_check(
+            "runtime_configuration_readback",
+            not configuration_readback_errors,
+            configuration_readback_errors,
+            "Native configuration readback differs from retained M4 request",
         )
     )
 
@@ -1432,56 +1875,68 @@ def verify_m4_canary_evidence(
         )
     )
 
-    lock_errors = _runtime_lock_errors(paths, evidence)
-    checks.append(
-        _derived_check(
-            "runtime_binary_lock",
-            not lock_errors,
-            lock_errors,
-            "Observed native binaries differ from the immutable M4 runtime lock",
+    if current_installed:
+        runtime_errors = _current_runtime_identity_errors(evidence)
+        checks.append(
+            _derived_check(
+                "current_runtime_identity",
+                not runtime_errors,
+                runtime_errors,
+                "Current-installed runtime identity is invalid, mixed, or lock-backed",
+            )
         )
-    )
-    binaural_lock_errors = _binaural_lock_errors(
-        paths,
-        evidence,
-        sample_rate_hz=sample_rate,
-    )
-    checks.append(
-        _derived_check(
-            "hrtf_license_and_rate_binding",
-            not binaural_lock_errors,
-            binaural_lock_errors,
-            "HRTF, license, or native sample-rate binding differs from the lock",
+        binaural_errors = _current_binaural_preflight_errors(
+            paths,
+            evidence,
+            sample_rate_hz=sample_rate,
         )
-    )
+        checks.append(
+            _derived_check(
+                "hrtf_license_and_rate_binding",
+                not binaural_errors,
+                binaural_errors,
+                "HRTF/license preflight does not reconstruct from current receipt bytes",
+            )
+        )
+    else:
+        lock_errors = _runtime_lock_errors(paths, evidence)
+        checks.append(
+            _derived_check(
+                "runtime_binary_lock",
+                not lock_errors,
+                lock_errors,
+                "Observed native binaries differ from the immutable M4 runtime lock",
+            )
+        )
+        binaural_lock_errors = _binaural_lock_errors(
+            paths,
+            evidence,
+            sample_rate_hz=sample_rate,
+        )
+        checks.append(
+            _derived_check(
+                "hrtf_license_and_rate_binding",
+                not binaural_lock_errors,
+                binaural_lock_errors,
+                "HRTF, license, or native sample-rate binding differs from the lock",
+            )
+        )
 
-    performance_errors: list[str] = []
-    performance = evidence.get("performance", {})
-    try:
-        comparison = performance["comparison"]
-        for key in (
-            "multi_to_one_median_wall_ratio",
-            "multi_pair_throughput_pairs_per_second",
-        ):
-            value = float(comparison[key])
-            if not math.isfinite(value) or value <= 0.0:
-                performance_errors.append(f"performance.{key} is not finite positive")
-        for condition in ("one_source", "multi_source"):
-            if int(performance[condition]["repeat_count"]) < 1:
-                performance_errors.append(f"performance.{condition} has no repeats")
-    except (KeyError, TypeError, ValueError) as exc:
-        performance_errors.append(str(exc))
+
+    performance_errors = _performance_replay_errors(authority, evidence)
     checks.append(
         _derived_check(
             "performance_report",
             not performance_errors,
             performance_errors,
-            "One-source/multi-source performance evidence is incomplete",
+            "One-source/multi-source performance evidence does not replay from runs",
         )
     )
 
     lifecycle = evidence.get("lifecycle", {})
     lifecycle_errors: list[str] = []
+    if isinstance(lifecycle, Mapping):
+        lifecycle_errors.extend(_lifecycle_replay_errors(authority, lifecycle))
     lifecycle_passed = False
     if isinstance(lifecycle, Mapping) and isinstance(source_ids, list):
         try:
@@ -1524,7 +1979,12 @@ def verify_m4_canary_evidence(
                 and lifecycle.get("counts_after_reset")
                 == {"object_count": 0, "source_count": 0, "listener_count": 0}
             )
-            lifecycle_passed = reset_exact and moved_changed and declared_consistent
+            lifecycle_passed = (
+                reset_exact
+                and moved_changed
+                and declared_consistent
+                and not lifecycle_errors
+            )
             if not lifecycle_passed:
                 lifecycle_errors.append(
                     f"reset_exact={reset_exact}, moved_changed={moved_changed}, "
@@ -1569,6 +2029,146 @@ def verify_m4_canary_evidence(
     status = "pass" if all(check["status"] == "pass" for check in checks) else "fail"
     return status, tuple(checks)
 
+
+
+
+def _current_runtime_identity_errors(evidence: Mapping[str, Any]) -> list[str]:
+    errors: list[str] = []
+    inputs = evidence.get("inputs")
+    if not isinstance(inputs, Mapping):
+        errors.append("current-installed evidence inputs are missing")
+    elif "runtime_lock_role" in inputs:
+        errors.append("current-installed evidence must not retain a historical runtime lock")
+
+    execution = evidence.get("execution")
+    if not isinstance(execution, Mapping):
+        errors.append("current-installed execution is missing")
+    elif execution.get("runtime_mode") != "current-installed":
+        errors.append("current-installed execution mode is invalid")
+
+    runtime = evidence.get("runtime")
+    if not isinstance(runtime, Mapping):
+        return [*errors, "current-installed runtime receipt is missing"]
+    if runtime.get("runtime_mode") != "current-installed":
+        errors.append("current-installed runtime receipt mode is invalid")
+    if "native_binaries" in runtime:
+        errors.append(
+            "current-installed runtime receipt must not retain native binary hashes"
+        )
+    records = runtime.get("current_installed_identity_records")
+    if not isinstance(records, list) or not records:
+        return [*errors, "current-installed identity records are missing"]
+    unique: list[Any] = []
+    for record in records:
+        if record not in unique:
+            unique.append(record)
+    passed = all(
+        _is_current_installed_runtime_identity(record) and record == records[0]
+        for record in records
+    )
+    expected_identity = records[0] if passed else None
+    if runtime.get("current_installed_identity") != expected_identity:
+        errors.append(
+            "current-installed summary identity differs from the fresh-call records"
+        )
+
+    performance = evidence.get("performance")
+    performance_records: list[Any] = []
+    if isinstance(performance, Mapping):
+        for condition in ("one_source", "multi_source"):
+            summary = performance.get(condition)
+            runs = summary.get("runs") if isinstance(summary, Mapping) else None
+            if not isinstance(runs, list):
+                errors.append(
+                    f"current-installed performance.{condition}.runs is missing"
+                )
+                continue
+            for run in runs:
+                if not isinstance(run, Mapping):
+                    errors.append(
+                        f"current-installed performance.{condition} has a non-object run"
+                    )
+                    continue
+                performance_records.append(run.get("runtime_identity"))
+    else:
+        errors.append("current-installed performance receipt is missing")
+    if len(records) != 7 + len(performance_records):
+        errors.append(
+            "current-installed runtime identity record count differs from native calls"
+        )
+    elif records[7:] != performance_records:
+        errors.append(
+            "current-installed runtime identity records differ from performance repeats"
+        )
+
+    declared_checks = evidence.get("checks")
+    matching = [
+        check
+        for check in declared_checks
+        if isinstance(check, Mapping)
+        and check.get("check_id") == "runtime_current_installed_identity"
+    ] if isinstance(declared_checks, list) else []
+    if len(matching) != 1:
+        errors.append(
+            "current-installed evidence requires exactly one runtime identity check"
+        )
+    else:
+        declared = matching[0]
+        expected_measured = {
+            "record_count": len(records),
+            "unique_identity_count": len(unique),
+            "identities": records,
+        }
+        if declared.get("status") != ("pass" if passed else "fail"):
+            errors.append(
+                "current-installed runtime identity check status differs from repeats"
+            )
+        if declared.get("measured") != expected_measured:
+            errors.append(
+                "current-installed runtime identity check measurements differ"
+            )
+        if declared.get("threshold") != {
+            "same_runtime_identity_every_native_call": True,
+            "runtime_mode": "current-installed",
+        }:
+            errors.append(
+                "current-installed runtime identity check threshold differs"
+            )
+    return errors
+
+
+def _verify_current_installed_m4_canary_evidence(
+    path: Path, evidence: Mapping[str, Any]
+) -> tuple[str, tuple[dict[str, Any], ...]]:
+    """Reuse every v1 artifact/semantic reconstruction under v2 runtime policy."""
+
+    return _verify_historical_m4_canary_evidence(
+        path,
+        current_installed=True,
+        evidence=evidence,
+    )
+
+
+def verify_m4_canary_evidence(
+    evidence_path: str | Path,
+) -> tuple[str, tuple[dict[str, Any], ...]]:
+    """Dispatch v2 fresh receipts without invoking the v1 lock reader."""
+
+    path = Path(evidence_path).resolve()
+    try:
+        evidence = load_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return "fail", (
+            _derived_check(
+                "evidence_json",
+                False,
+                str(exc),
+                "Evidence is missing or invalid JSON",
+            ),
+        )
+    if evidence.get("schema") == CURRENT_INSTALLED_EVIDENCE_SCHEMA:
+        return _verify_current_installed_m4_canary_evidence(path, evidence)
+    return _verify_historical_m4_canary_evidence(path)
 
 __all__ = [
     "M4EvidenceError",

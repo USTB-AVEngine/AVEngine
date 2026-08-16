@@ -4,12 +4,14 @@ from copy import deepcopy
 from dataclasses import replace
 import json
 from pathlib import Path
+import sys
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 
+from avengine.backends.rlr.sdk import ExternalRlrSdk
 from avengine.contracts.json_io import (
     canonical_json_sha256,
     file_record,
@@ -20,6 +22,7 @@ from avengine.m3.compiler import compile_custom_acoustic_scene
 from avengine.m3.contracts import load_and_validate_acoustic_scene_package
 from avengine.m3.runtime import (
     RLRSimulationConfig,
+    RuntimeIRResult,
     RuntimeAnchor,
     RuntimeContractError,
     RuntimeUnavailableError,
@@ -271,55 +274,160 @@ def _compiled_package(tmp_path: Path) -> Path:
     return manifest_path
 
 
-def test_runtime_imports_quaternion_before_habitat(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    order: list[str] = []
-    quaternion = ModuleType("quaternion")
+def _mock_installed_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    adapter_enabled: bool,
+    prefix: Path | None = None,
+) -> tuple[Path, ExternalRlrSdk, ModuleType]:
+    prefix = prefix if prefix is not None else tmp_path / "installed-habitat"
+    module_path = prefix / "habitat_sim" / "__init__.py"
+    binding_path = prefix / "habitat_sim" / "_ext" / "habitat_sim_bindings.unit.so"
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    binding_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text("# fixture habitat\n", encoding="utf-8")
+    binding_path.write_bytes(b"unit binding")
+    neighbor_rlr = binding_path.parent / "libRLRAudioPropagation.so"
+    neighbor_rlr.write_bytes(b"forbidden neighbor")
+
+    sdk_root = tmp_path / "external-rlr-sdk"
+    header = sdk_root / "headers" / "RLRAudioPropagation.h"
+    library = sdk_root / "libs" / "linux" / "x64" / "libRLRAudioPropagation.so"
+    header.parent.mkdir(parents=True, exist_ok=True)
+    library.parent.mkdir(parents=True, exist_ok=True)
+    header.write_text("// fixture header\n", encoding="utf-8")
+    library.write_bytes(b"declared external rlr")
+    sdk = ExternalRlrSdk(
+        root=sdk_root.resolve(), header=header.resolve(), library=library.resolve()
+    )
+
     habitat = ModuleType("habitat_sim")
     habitat.RLRContextConfiguration = object
     habitat.RLRAcousticContext = object
     habitat.RLRChannelLayoutType = object
-    habitat.audio_enabled = True
+    habitat.RLR_ADAPTER_ENABLED = adapter_enabled
+    # M3/M4 must not require the separate legacy AudioSensor option.
+    habitat.audio_enabled = False
+    habitat.__file__ = str(module_path)
     binding = ModuleType("habitat_sim._ext.habitat_sim_bindings")
-    binding_path = tmp_path / "habitat_sim_bindings.unit.so"
-    binding_path.write_bytes(b"unit binding")
-    (tmp_path / "libRLRAudioPropagation.so").write_bytes(b"unit rlr")
     binding.__file__ = str(binding_path)
+    quaternion = ModuleType("quaternion")
+    quaternion.__file__ = str(tmp_path / "quaternion.py")
 
-    def import_module(name: str) -> ModuleType:
-        order.append(name)
-        if name == "quaternion":
-            return quaternion
-        if name == "habitat_sim":
-            return habitat
-        return binding
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_runtime_prefix",
+        lambda _explicit=None: prefix,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "discover_external_rlr_sdk",
+        lambda _explicit=None: sdk,
+    )
+    monkeypatch.setattr(runtime_module, "preload_external_rlr_sdk", lambda _sdk: None)
+    monkeypatch.setattr(
+        runtime_module, "validate_loaded_external_rlr_sdk", lambda _sdk: None
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "_load_installed_habitat_runtime",
+        lambda _prefix, **_kwargs: (
+            habitat,
+            binding,
+            module_path.resolve(),
+            binding_path.resolve(),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "quaternion", quaternion)
+    return prefix.resolve(), sdk, habitat
 
-    monkeypatch.setattr(runtime_module.importlib, "import_module", import_module)
+
+def test_runtime_uses_installed_prefix_and_declared_external_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix, sdk, habitat = _mock_installed_runtime(
+        tmp_path, monkeypatch, adapter_enabled=True
+    )
 
     observed, report = load_habitat_runtime()
 
     assert observed is habitat
-    assert order[:2] == ["quaternion", "habitat_sim"]
-    assert order[2] == "habitat_sim._ext.habitat_sim_bindings"
-    assert report["import_workaround"]["required_import_order"] == order[:2]
-    assert report["native_binaries"]["habitat_sim_bindings"]["sha256"]
+    assert report["installed_habitat_runtime"]["prefix"] == str(prefix)
+    assert report["external_rlr_sdk"] == {
+        "root": str(sdk.root),
+        "header": str(sdk.header),
+        "library": str(sdk.library),
+    }
+    assert report["native_binaries"]["rlr_audio_propagation"]["path"] == str(
+        sdk.library
+    )
+    assert "forbidden neighbor" not in str(report["native_binaries"])
+    assert report["import_workaround"]["required_import_order"] == [
+        "quaternion",
+        "habitat_sim",
+    ]
 
 
-def test_missing_quaternion_never_attempts_unsafe_habitat_import(
-    monkeypatch: pytest.MonkeyPatch,
+def test_current_runtime_uses_explicit_inputs_and_records_identity_without_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    order: list[str] = []
+    prefix, sdk, habitat = _mock_installed_runtime(
+        tmp_path, monkeypatch, adapter_enabled=True
+    )
+    magnum_site = tmp_path / "external-magnum"
+    magnum_site.mkdir()
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda explicit: magnum_site,
+    )
 
-    def import_module(name: str) -> ModuleType:
-        order.append(name)
-        raise ImportError(name)
+    observed, report = load_habitat_runtime(
+        runtime_mode="current-installed",
+        runtime_prefix=prefix,
+        rlr_sdk_root=sdk.root,
+        magnum_python_site=magnum_site,
+    )
 
-    monkeypatch.setattr(runtime_module.importlib, "import_module", import_module)
+    assert observed is habitat
+    assert "native_binaries" not in report
+    assert report["runtime_identity"] == {
+        "identity_schema": "avengine_current_installed_rlr_runtime_v1",
+        "mode": "current-installed",
+        "habitat_runtime_prefix": str(prefix),
+        "habitat_sim_module": str(prefix / "habitat_sim" / "__init__.py"),
+        "habitat_sim_binding": str(
+            prefix / "habitat_sim" / "_ext" / "habitat_sim_bindings.unit.so"
+        ),
+        "magnum_python_site": str(magnum_site),
+        "rlr_sdk_root": str(sdk.root),
+        "rlr_sdk_header": str(sdk.header),
+        "rlr_sdk_library": str(sdk.library),
+        "rlr_adapter_enabled": True,
+        "binding_api": "habitat_sim.RLRAcousticContext_v1",
+    }
 
-    with pytest.raises(RuntimeUnavailableError, match="quaternion"):
+
+def test_runtime_marks_adapter_off_unavailable_without_using_audio_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_installed_runtime(tmp_path, monkeypatch, adapter_enabled=False)
+
+    with pytest.raises(RuntimeUnavailableError, match="RLR_ADAPTER=OFF"):
         load_habitat_runtime()
-    assert order == ["quaternion"]
+
+
+def test_runtime_rejects_installed_prefix_inside_git_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "historical-habitat"
+    (checkout / ".git").mkdir(parents=True)
+    prefix = checkout / "installed-prefix"
+    _mock_installed_runtime(
+        tmp_path, monkeypatch, adapter_enabled=True, prefix=prefix
+    )
+
+    with pytest.raises(RuntimeUnavailableError, match="outside a Git checkout"):
+        load_habitat_runtime()
 
 
 def test_simulation_contract_requires_every_field_and_independent_repeats() -> None:
@@ -337,23 +445,6 @@ def test_simulation_contract_requires_every_field_and_independent_repeats() -> N
         RLRSimulationConfig.from_mapping({**complete, "mesh_simplification": True})
     with pytest.raises(RuntimeContractError, match="unit_scale"):
         RLRSimulationConfig.from_mapping({**complete, "unit_scale": 0.01})
-
-
-def test_audio_disabled_build_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    quaternion = ModuleType("quaternion")
-    habitat = ModuleType("habitat_sim")
-    habitat.RLRContextConfiguration = object
-    habitat.RLRAcousticContext = object
-    habitat.RLRChannelLayoutType = object
-    habitat.audio_enabled = False
-    monkeypatch.setattr(
-        runtime_module.importlib,
-        "import_module",
-        lambda name: quaternion if name == "quaternion" else habitat,
-    )
-
-    with pytest.raises(RuntimeUnavailableError, match="HABITAT_WITH_AUDIO"):
-        load_habitat_runtime()
 
 
 def test_compiled_package_is_hash_checked_and_rebased(tmp_path: Path) -> None:
@@ -846,3 +937,74 @@ def test_readback_parser_rejects_malformed_coefficients_and_cross_object_faces(
     escaping.write_text(payload + second + "\n", encoding="utf-8")
     with pytest.raises(RuntimeContractError, match="escape their object block"):
         runtime_module._parse_scene_obj(escaping)
+
+
+def test_historical_m3_lock_mismatch_stops_before_any_rir_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from avengine.m3 import canary
+
+    lock = tmp_path / "historical-m3-runtime.yml"
+    lock.write_text(
+        "\n".join(
+            [
+                "runtime_test_environment:",
+                "  required_m3_native_binding_sha256: " + "a" * 64,
+                "  required_m3_rlr_library_sha256: " + "b" * 64,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    request = load_json(
+        REPOSITORY / "examples/m3/blender_custom/canary_request.json"
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        canary,
+        "_load_inputs",
+        lambda *_args, **_kwargs: (request, {}, {}, {}, [], {}),
+    )
+    monkeypatch.setattr(
+        canary, "_input_invariant_checks", lambda *_args, **_kwargs: []
+    )
+    monkeypatch.setattr(canary, "_runtime_lock_path", lambda: lock)
+    monkeypatch.setattr(
+        canary,
+        "load_habitat_runtime",
+        lambda: (
+            object(),
+            {
+                "native_binaries": {
+                    "habitat_sim_bindings": {
+                        "path": "/current/habitat.so",
+                        "byte_size": 1,
+                        "sha256": "c" * 64,
+                    },
+                    "rlr_audio_propagation": {
+                        "path": "/current/rlr.so",
+                        "byte_size": 1,
+                        "sha256": "d" * 64,
+                    },
+                }
+            },
+        ),
+    )
+
+    def runner(*_args: Any, **_kwargs: Any) -> RuntimeIRResult:
+        calls.append("rir")
+        raise AssertionError("historical preflight must stop before this runner")
+
+    output = tmp_path / "fresh-output"
+    with pytest.raises(
+        RuntimeUnavailableError, match="before executing an RLR job"
+    ):
+        canary.run_material_activation_canary(
+            tmp_path / "request.json",
+            tmp_path / "compile.json",
+            output,
+            runner=runner,
+        )
+
+    assert calls == []
+    assert not output.exists()

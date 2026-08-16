@@ -221,11 +221,22 @@ official `RLRAudioPropagationPkg` directory containing
 
 The CMake module never searches a Habitat/RLR checkout or arbitrary system
 paths, and it neither copies nor installs the RLR library or adds an RLR
-RPATH. On Linux, launch a consumer with its own SDK loader path, for example:
+RPATH. AVEngine M3/M4 callers provide all runtime inputs explicitly:
 
 ```bash
-export LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export AVENGINE_HABITAT_RUNTIME_PREFIX=/external/installed-habitat
+export AVENGINE_HABITAT_MAGNUM_PYTHON_SITE=/external/magnum-python-site
+export AVENGINE_RLR_SDK_ROOT=/external/RLRAudioPropagationPkg
 ```
+
+The M3/M4 loader resolves each path, rejects a Git-checkout root or a symlink
+escape, preloads exactly
+`$AVENGINE_RLR_SDK_ROOT/libs/linux/x64/libRLRAudioPropagation.so` before the
+installed Python binding imports, then verifies that Linux process mappings use
+only that declared library. It never probes for a binding-neighbor RLR library
+or falls back to `AVENGINE_HABITAT_RUNTIME_ROOT`. A missing SDK, an incompatible
+installed prefix, or `RLR_ADAPTER_ENABLED=False` is a native-runtime
+`blocked` condition for the M3/M4 CLI; it is not a legacy AudioSensor fallback.
 
 With `AVENGINE_HABITAT_BUILD_RLR_ADAPTER` alone, this layer keeps
 `ESP_BUILD_WITH_AUDIO` OFF and does not alter legacy `AudioSensor`. When the

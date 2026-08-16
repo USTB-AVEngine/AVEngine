@@ -14,8 +14,10 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import load_json, write_json
+from avengine.current_installed_runtime import (
+    is_current_installed_runtime_identity as _is_current_installed_runtime_identity,
+)
 from avengine.m3.metrics import analyze_ir
-from avengine.m3.runtime import RuntimeAnchor, load_compiled_acoustic_scene
 from avengine.m4.audio import (
     generate_sine_wave,
     read_float32_wav,
@@ -28,6 +30,7 @@ from avengine.m4.binaural import (
     validate_binaural_cardinals,
 )
 from avengine.m4.contracts import (
+    CURRENT_INSTALLED_EVIDENCE_SCHEMA,
     EVIDENCE_SCHEMA,
     M4ContractError,
     load_and_validate_multi_source_canary_request,
@@ -38,6 +41,15 @@ from avengine.m4.evidence import (
     finalize_evidence,
     make_check,
     verify_m4_canary_evidence,
+)
+from avengine.m3.runtime import (
+    RUNTIME_MODE_CURRENT_INSTALLED,
+    RUNTIME_MODE_HISTORICAL,
+    RuntimeAnchor,
+    RuntimeUnavailableError,
+    load_compiled_acoustic_scene,
+    load_habitat_runtime,
+    require_runtime_mode,
 )
 from avengine.m4.runtime import (
     M4SimulationConfig,
@@ -75,6 +87,53 @@ _DIRECTION_VECTOR = {
     "-Z": (0.0, 0.0, -1.0),
 }
 
+
+
+
+def _current_installed_identity_summary(
+    records: Sequence[Any],
+) -> tuple[bool, dict[str, Any] | None, int]:
+    unique: list[Any] = []
+    for record in records:
+        if record not in unique:
+            unique.append(record)
+    passed = bool(records) and all(
+        _is_current_installed_runtime_identity(record)
+        and record == records[0]
+        for record in records
+    )
+    identity = copy.deepcopy(records[0]) if passed else None
+    return passed, identity, len(unique)
+
+
+def _current_runtime_call_kwargs(
+    *,
+    runtime_mode: str,
+    runtime_prefix: str | Path | None,
+    rlr_sdk_root: str | Path | None,
+    magnum_python_site: str | Path | None,
+) -> dict[str, str | Path]:
+    if runtime_mode == RUNTIME_MODE_HISTORICAL:
+        return {}
+    missing = [
+        name
+        for name, value in (
+            ("runtime_prefix", runtime_prefix),
+            ("rlr_sdk_root", rlr_sdk_root),
+            ("magnum_python_site", magnum_python_site),
+        )
+        if value is None or not str(value).strip()
+    ]
+    if missing:
+        raise M4CanaryError(
+            "current-installed M4 requires explicit " + ", ".join(missing)
+        )
+    return {
+        "runtime_mode": runtime_mode,
+        "runtime_prefix": runtime_prefix,
+        "rlr_sdk_root": rlr_sdk_root,
+        "magnum_python_site": magnum_python_site,
+    }
 
 def _copy_artifact(
     source: Path,
@@ -194,6 +253,45 @@ def _runtime_lock(path: Path) -> dict[str, Any]:
     return value
 
 
+def _runtime_binary_mismatches(
+    lock: Mapping[str, Any], observed: Mapping[str, Any]
+) -> list[str]:
+    expected = lock.get("native_binaries")
+    if not isinstance(expected, Mapping):
+        return ["native_binaries"]
+    errors: list[str] = []
+    for name in ("habitat_sim_bindings", "rlr_audio_propagation"):
+        expected_record = expected.get(name)
+        observed_record = observed.get(name)
+        if not isinstance(expected_record, Mapping) or not isinstance(
+            observed_record, Mapping
+        ):
+            errors.append(name)
+            continue
+        for field in ("byte_size", "sha256"):
+            if observed_record.get(field) != expected_record.get(field):
+                errors.append(f"{name}.{field}")
+    return errors
+
+
+def _preflight_runtime_binary_lock(lock: Mapping[str, Any]) -> None:
+    """Stop before an RLR job when a historical lock names other binaries."""
+
+    _, runtime = load_habitat_runtime()
+    observed = runtime.get("native_binaries")
+    if not isinstance(observed, Mapping):
+        raise RuntimeUnavailableError(
+            "Installed Habitat runtime did not report native binary identity before "
+            "the M4 RLR preflight."
+        )
+    mismatches = _runtime_binary_mismatches(lock, observed)
+    if mismatches:
+        raise RuntimeUnavailableError(
+            "Installed Habitat/RLR binaries do not match the selected historical M4 "
+            "runtime lock before executing an RLR job: " + ", ".join(mismatches)
+        )
+
+
 def _anchors(
     request: Mapping[str, Any],
 ) -> tuple[tuple[RuntimeAnchor, ...], RuntimeAnchor]:
@@ -257,25 +355,61 @@ def _direction_arrays(result: Any, directions: Sequence[str]) -> dict[str, np.nd
 def run_m4_canary(
     request_path: str | Path,
     package_manifest_path: str | Path,
-    runtime_lock_path: str | Path,
+    runtime_lock_path: str | Path | None,
     output_directory: str | Path,
     *,
     hrtf_path: str | Path,
     hrtf_license_path: str | Path,
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    current_hrtf_sample_rate_hz: int | None = None,
+    current_hrtf_license_id: str | None = None,
+    current_hrtf_citation: str | None = None,
 ) -> Path:
     """Run M4 and publish only a self-verifying, atomic evidence bundle."""
 
+    runtime_mode = require_runtime_mode(runtime_mode)
+    runtime_call_kwargs = _current_runtime_call_kwargs(
+        runtime_mode=runtime_mode,
+        runtime_prefix=runtime_prefix,
+        rlr_sdk_root=rlr_sdk_root,
+        magnum_python_site=magnum_python_site,
+    )
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        missing_current_hrtf_inputs = [
+            name
+            for name, value in (
+                ("current_hrtf_sample_rate_hz", current_hrtf_sample_rate_hz),
+                ("current_hrtf_license_id", current_hrtf_license_id),
+                ("current_hrtf_citation", current_hrtf_citation),
+            )
+            if value is None or not str(value).strip()
+        ]
+        if missing_current_hrtf_inputs:
+            raise M4CanaryError(
+                "current-installed M4 requires explicit "
+                + ", ".join(missing_current_hrtf_inputs)
+            )
     request_file = Path(request_path).resolve()
     package_manifest = Path(package_manifest_path).resolve()
-    lock_file = Path(runtime_lock_path).resolve()
     source_hrtf = Path(hrtf_path).resolve()
     source_license = Path(hrtf_license_path).resolve()
+    lock_file: Path | None = None
+    lock: dict[str, Any] | None = None
+    if runtime_mode == RUNTIME_MODE_HISTORICAL:
+        if runtime_lock_path is None:
+            raise M4CanaryError("historical M4 requires a runtime lock path")
+        lock_file = Path(runtime_lock_path).resolve()
     try:
         validated = load_and_validate_multi_source_canary_request(request_file)
     except M4ContractError as exc:
         raise M4CanaryError(str(exc)) from exc
     request = validated.request
-    lock = _runtime_lock(lock_file)
+    if runtime_mode == RUNTIME_MODE_HISTORICAL:
+        assert lock_file is not None
+        lock = _runtime_lock(lock_file)
     # Validate the source package completely before it is copied, then consume
     # only the private copy below.
     source_scene = load_compiled_acoustic_scene(package_manifest)
@@ -285,6 +419,9 @@ def run_m4_canary(
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         raise M4CanaryError(f"refusing to replace existing output: {destination}")
+    if runtime_mode == RUNTIME_MODE_HISTORICAL:
+        assert lock is not None
+        _preflight_runtime_binary_lock(lock)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
     ).resolve()
@@ -315,14 +452,16 @@ def run_m4_canary(
                 artifacts=artifacts,
             )
             input_roles[f"{name}_role"] = role
-        _copy_artifact(
-            lock_file,
-            input_root / "runtime_lock.json",
-            role="input_runtime_lock",
-            root=staging,
-            artifacts=artifacts,
-        )
-        input_roles["runtime_lock_role"] = "input_runtime_lock"
+        if runtime_mode == RUNTIME_MODE_HISTORICAL:
+            assert lock_file is not None
+            _copy_artifact(
+                lock_file,
+                input_root / "runtime_lock.json",
+                role="input_runtime_lock",
+                root=staging,
+                artifacts=artifacts,
+            )
+            input_roles["runtime_lock_role"] = "input_runtime_lock"
         staged_hrtf = _copy_artifact(
             source_hrtf,
             input_root / "hrtf.sofa",
@@ -372,6 +511,7 @@ def run_m4_canary(
             listener=listener,
             layout_type="ambisonics",
             channel_count=4,
+            **runtime_call_kwargs,
         )
         foa_b = render_named_sources(
             scene,
@@ -380,6 +520,7 @@ def run_m4_canary(
             listener=listener,
             layout_type="ambisonics",
             channel_count=4,
+            **runtime_call_kwargs,
         )
         foa_a_by_id = {
             pair.source_id: np.ascontiguousarray(pair.samples, dtype="<f4")
@@ -415,38 +556,52 @@ def run_m4_canary(
             )
         )
 
-        observed_binaries = copy.deepcopy(foa_a.runtime["native_binaries"])
-        binary_errors: list[str] = []
-        for name in ("habitat_sim_bindings", "rlr_audio_propagation"):
-            expected = lock["native_binaries"].get(name, {})
-            observed = observed_binaries.get(name, {})
-            for field in ("byte_size", "sha256"):
-                if observed.get(field) != expected.get(field):
-                    binary_errors.append(f"{name}.{field}")
-        checks.append(
-            make_check(
-                "runtime_binary_lock",
-                not binary_errors,
-                measured={"mismatches": binary_errors, "observed": observed_binaries},
-                threshold=lock["native_binaries"],
-                failure_reason="Loaded Habitat/RLR binaries differ from M4 lock",
+        observed_binaries: Mapping[str, Any] | None = None
+        if runtime_mode == RUNTIME_MODE_HISTORICAL:
+            assert lock is not None
+            observed_binaries = copy.deepcopy(foa_a.runtime["native_binaries"])
+            binary_errors = _runtime_binary_mismatches(lock, observed_binaries)
+            checks.append(
+                make_check(
+                    "runtime_binary_lock",
+                    not binary_errors,
+                    measured={"mismatches": binary_errors, "observed": observed_binaries},
+                    threshold=lock["native_binaries"],
+                    failure_reason="Loaded Habitat/RLR binaries differ from M4 lock",
+                )
             )
-        )
-
-        hrtf_lock = lock["hrtf"]
-        preflight = build_rlr_native_binaural_metadata(
-            int(simulation.sample_rate_hz),
-            hrtf_path=staged_hrtf,
-            expected_hrtf_sha256=hrtf_lock.get("sha256"),
-            hrtf_sample_rate_hz=hrtf_lock.get("sample_rate_hz"),
-            license_id=hrtf_lock.get("license_id"),
-            citation=hrtf_lock.get("citation"),
-            license_text_path=staged_license,
-            expected_license_sha256=hrtf_lock.get("license_text_sha256"),
-            asset_id=hrtf_lock.get("asset_id", "explicit_sofa_hrtf"),
-            sample_rate_policy=hrtf_lock.get("sample_rate_policy", "strict_match"),
-            rlr_binary_sha256=observed_binaries["rlr_audio_propagation"]["sha256"],
-        )
+            hrtf_lock = lock["hrtf"]
+            preflight = build_rlr_native_binaural_metadata(
+                int(simulation.sample_rate_hz),
+                hrtf_path=staged_hrtf,
+                expected_hrtf_sha256=hrtf_lock.get("sha256"),
+                hrtf_sample_rate_hz=hrtf_lock.get("sample_rate_hz"),
+                license_id=hrtf_lock.get("license_id"),
+                citation=hrtf_lock.get("citation"),
+                license_text_path=staged_license,
+                expected_license_sha256=hrtf_lock.get("license_text_sha256"),
+                asset_id=hrtf_lock.get("asset_id", "explicit_sofa_hrtf"),
+                sample_rate_policy=hrtf_lock.get("sample_rate_policy", "strict_match"),
+                rlr_binary_sha256=observed_binaries["rlr_audio_propagation"]["sha256"],
+            )
+            hrtf_threshold = {"status": "pass", "explicit_hash_and_license": True}
+        else:
+            # The v2 receipt has no external HRTF/binary lock. These hashes only
+            # authenticate fresh copied inputs inside this output bundle; they are
+            # not retained as a reusable baseline or runtime identity.
+            preflight = build_rlr_native_binaural_metadata(
+                int(simulation.sample_rate_hz),
+                hrtf_path=staged_hrtf,
+                expected_hrtf_sha256=artifacts["input_hrtf"]["sha256"],
+                hrtf_sample_rate_hz=current_hrtf_sample_rate_hz,
+                license_id=current_hrtf_license_id,
+                citation=current_hrtf_citation,
+                license_text_path=staged_license,
+                expected_license_sha256=artifacts["input_hrtf_license"]["sha256"],
+                asset_id="current_installed_explicit_sofa_hrtf",
+                sample_rate_policy="strict_match",
+            )
+            hrtf_threshold = {"status": "pass", "current_explicit_inputs": True}
         checks.append(
             make_check(
                 "explicit_hrtf_preflight",
@@ -456,7 +611,7 @@ def run_m4_canary(
                     hrtf_role="input_hrtf",
                     license_role="input_hrtf_license",
                 ),
-                threshold={"status": "pass", "explicit_hash_and_license": True},
+                threshold=hrtf_threshold,
                 failure_reason=str(preflight.get("reason", "HRTF preflight failed")),
                 blocked=preflight.get("status") == "blocked",
             )
@@ -474,6 +629,7 @@ def run_m4_canary(
             layout_type="binaural",
             channel_count=2,
             hrtf_file_path=str(staged_hrtf),
+            **runtime_call_kwargs,
         )
         binaural_by_id = {
             pair.source_id: np.ascontiguousarray(pair.samples, dtype="<f4")
@@ -659,12 +815,14 @@ def run_m4_canary(
             direct_foa,
             sources=cardinal_sources,
             listener=identity_listener,
+            **runtime_call_kwargs,
         )
         foa_rotated_probe = render_named_sources(
             scene,
             direct_foa,
             sources=cardinal_sources,
             listener=rotated_listener,
+            **runtime_call_kwargs,
         )
         foa_cardinals = _direction_arrays(foa_identity_probe, directions)
         foa_rotated = _direction_arrays(foa_rotated_probe, directions)
@@ -703,6 +861,7 @@ def run_m4_canary(
             sources=binaural_probe_sources,
             listener=identity_listener,
             hrtf_file_path=str(staged_hrtf),
+            **runtime_call_kwargs,
         )
         binaural_cardinals = _direction_arrays(
             binaural_probe_render, binaural_directions
@@ -752,6 +911,7 @@ def run_m4_canary(
             simulation,
             sources=_ordered_sources(canonical_ids, sources),
             listener=listener,
+            **runtime_call_kwargs,
         )
         lifecycle_roles: dict[str, dict[str, str]] = {
             "fresh_first_roles": {},
@@ -802,6 +962,7 @@ def run_m4_canary(
             sources=_ordered_sources(canonical_ids, sources),
             listener=listener,
             repeat_count=int(request["thresholds"]["performance_repeat_count"]),
+            **runtime_call_kwargs,
         )
         checks.append(
             make_check(
@@ -822,6 +983,52 @@ def run_m4_canary(
                 failure_reason="One-source/multi-source performance report is invalid",
             )
         )
+
+        current_identity_records: list[Any] = []
+        current_identity_passed = True
+        current_identity: dict[str, Any] | None = None
+        current_identity_count = 0
+        if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+            current_identity_records = [
+                foa_a.runtime.get("runtime_identity"),
+                foa_b.runtime.get("runtime_identity"),
+                binaural_render.runtime.get("runtime_identity"),
+                foa_identity_probe.runtime.get("runtime_identity"),
+                foa_rotated_probe.runtime.get("runtime_identity"),
+                binaural_probe_render.runtime.get("runtime_identity"),
+                lifecycle_result.get("runtime", {}).get("runtime_identity"),
+            ]
+            for condition in ("one_source", "multi_source"):
+                for run in performance.get(condition, {}).get("runs", []):
+                    current_identity_records.append(
+                        run.get("runtime_identity")
+                        if isinstance(run, Mapping)
+                        else None
+                    )
+            (
+                current_identity_passed,
+                current_identity,
+                current_identity_count,
+            ) = _current_installed_identity_summary(current_identity_records)
+            checks.append(
+                make_check(
+                    "runtime_current_installed_identity",
+                    current_identity_passed,
+                    measured={
+                        "record_count": len(current_identity_records),
+                        "unique_identity_count": current_identity_count,
+                        "identities": copy.deepcopy(current_identity_records),
+                    },
+                    threshold={
+                        "same_runtime_identity_every_native_call": True,
+                        "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+                    },
+                    failure_reason=(
+                        "Current-installed Habitat/RLR SDK/binding identity changed "
+                        "between fresh M4 native calls"
+                    ),
+                )
+            )
 
         binaural_metadata["native_cardinal_validation"] = "pass"
         binaural_metadata["native_cardinal_report"] = binaural_probe_report
@@ -872,10 +1079,52 @@ def run_m4_canary(
             root=staging,
             artifacts=artifacts,
         )
+        execution: dict[str, Any] = {
+            "one_context_per_output_layout": True,
+            "foa_context_listener_count": 1,
+            "binaural_context_listener_count": 1,
+            "requested_registration_orders": [
+                copy.deepcopy(orders[0]),
+                copy.deepcopy(orders[1]),
+            ],
+            "canonical_native_source_order": list(foa_a.canonical_native_source_order),
+            "static_authority_policy": "fresh_context_temporal_false",
+            "independent_episode_policy": "reset_reload_before_first_frame",
+        }
+        runtime_evidence: dict[str, Any] = {
+            "binding_api": foa_a.runtime.get("binding_api"),
+            "foa_configuration_readback": foa_a.runtime.get(
+                "configuration_readback"
+            ),
+            "binaural_configuration_readback": binaural_render.runtime.get(
+                "configuration_readback"
+            ),
+            "foa_upload_report": foa_a.upload_report,
+            "foa_endpoint_receipts": foa_a.endpoint_receipts,
+            "binaural_endpoint_receipts": binaural_render.endpoint_receipts,
+        }
+        if runtime_mode == RUNTIME_MODE_HISTORICAL:
+            runtime_evidence["native_binaries"] = observed_binaries
+        else:
+            execution["runtime_mode"] = RUNTIME_MODE_CURRENT_INSTALLED
+            runtime_evidence.update(
+                {
+                    "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+                    "current_installed_identity": current_identity,
+                    "current_installed_identity_records": copy.deepcopy(
+                        current_identity_records
+                    ),
+                }
+            )
+
         evidence: dict[str, Any] = {
-            "schema": EVIDENCE_SCHEMA,
+            "schema": (
+                CURRENT_INSTALLED_EVIDENCE_SCHEMA
+                if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED
+                else EVIDENCE_SCHEMA
+            ),
             "request_id": request["request_id"],
-            "qualification_claim": True,
+            "qualification_claim": runtime_mode == RUNTIME_MODE_HISTORICAL,
             "overall_status": "fail",
             "failure_reasons": [],
             "artifacts": artifacts,
@@ -908,20 +1157,7 @@ def run_m4_canary(
                     for source_id in canonical_ids
                 },
             },
-            "execution": {
-                "one_context_per_output_layout": True,
-                "foa_context_listener_count": 1,
-                "binaural_context_listener_count": 1,
-                "requested_registration_orders": [
-                    copy.deepcopy(orders[0]),
-                    copy.deepcopy(orders[1]),
-                ],
-                "canonical_native_source_order": list(
-                    foa_a.canonical_native_source_order
-                ),
-                "static_authority_policy": "fresh_context_temporal_false",
-                "independent_episode_policy": "reset_reload_before_first_frame",
-            },
+            "execution": execution,
             "audio_contracts": {
                 "foa": rlr_foa_contract(),
                 "binaural": binaural_metadata,
@@ -961,31 +1197,28 @@ def run_m4_canary(
             },
             "lifecycle": lifecycle_evidence,
             "performance": performance,
-            "runtime": {
-                "binding_api": foa_a.runtime.get("binding_api"),
-                "native_binaries": observed_binaries,
-                "foa_configuration_readback": foa_a.runtime.get(
-                    "configuration_readback"
-                ),
-                "binaural_configuration_readback": binaural_render.runtime.get(
-                    "configuration_readback"
-                ),
-                "foa_upload_report": foa_a.upload_report,
-                "foa_endpoint_receipts": foa_a.endpoint_receipts,
-                "binaural_endpoint_receipts": binaural_render.endpoint_receipts,
-            },
+            "runtime": runtime_evidence,
             "checks": checks,
             "evidence_content_sha256": "0" * 64,
         }
         finalize_evidence(evidence)
-        if evidence["overall_status"] != "pass":
+        if (
+            runtime_mode == RUNTIME_MODE_HISTORICAL
+            and evidence["overall_status"] != "pass"
+        ):
             raise M4CanaryError("M4 checks did not all pass")
         evidence_path = staging / "m4_canary_evidence.json"
         write_json(evidence_path, evidence)
         verification_status, verification_checks = verify_m4_canary_evidence(
             evidence_path
         )
-        if verification_status != "pass":
+        verification_valid = all(
+            check.get("status") == "pass" for check in verification_checks
+        )
+        if not verification_valid or (
+            runtime_mode == RUNTIME_MODE_HISTORICAL
+            and verification_status != "pass"
+        ):
             failures = [
                 check.get("failure_reason", check["check_id"])
                 for check in verification_checks

@@ -4,8 +4,10 @@ M4 is the executable named multi-source spatial-audio gate. It consumes one
 independently verified M3 Acoustic Scene Package, realizes at least two stable
 source IDs and exactly one formal camera-co-located listener, and retains
 per-pair IRs, independent stems, canary mixtures and native lifecycle evidence.
-The commands below are templates; the authoritative retained result is recorded
-in [M4_STATUS.md](M4_STATUS.md).
+The historical v1 record remains available only for schema/reader verification;
+this runbook does not provide a new v1 native execution path. Every executable
+native command uses the separately marked current-installed v2 prefix, SDK and
+Magnum site, never an old checkout or its runtime lock.
 
 ## Fixed boundary
 
@@ -22,8 +24,10 @@ in [M4_STATUS.md](M4_STATUS.md).
   right-handed `avengine_world` (+X right, +Y up, +Z back, -Z forward).
 - Native binaural is `[left, right]` and uses the explicit MIT KEMAR
   normal-pinna SOFA asset and its retained license evidence.
-- Rendering is 16 kHz. The pinned HRTF input is 44.1 kHz; any adaptation occurs
-  only inside the exact RLR binary bound by the runtime lock. AVEngine does not
+- For the historical v1 formal profile, rendering is 16 kHz and the pinned
+  HRTF input is 44.1 kHz; any adaptation occurs only inside the exact RLR binary
+  bound by the runtime lock. A current-installed v2 receipt instead requires a
+  strict matching-rate HRTF and retains no binary hash. AVEngine does not
   resample, normalize, limit or crop these M4 canary signals.
 - Per-source stems are full linear convolutions. Mixtures use canonical source
   order and retain the complete tail.
@@ -33,36 +37,29 @@ The checked-in identity fixture binds source identity to formal M1 static source
 poses. M2 event-time dynamic-anchor evidence is explicitly `not_run`; this
 runbook cannot promote it into animal-asset or dataset admission.
 
-## Prerequisites
+## Current execution setup
 
-Use the final audio-enabled M4 Habitat fork build and the dedicated M4 runtime
-lock. The environment below mirrors the local development layout; replace paths
-without changing the tracked inputs:
+Use the current AVEngine checkout for validation, verification and v2 execution:
 
 ```bash
-export REPO=/data/jzy/code/AVEngine-habitat-native
-export RUNTIME=/data/jzy/code/habitat-sim-AVEngine
+export REPO=/data/jzy/code/AVEngine-lead-a
 export HABPY=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python
 export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
-export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$REPO/src"
 cd "$REPO"
 ```
 
-The runtime bridge owns the required `quaternion`-before-`habitat_sim` import
-order. Do not replace it with an unrecorded import workaround.
+Do not set `AVENGINE_HABITAT_RUNTIME_ROOT`, `--runtime-prefix`, SDK or Magnum
+site to an old checkout. Current-installed native execution requires all three
+explicit CLI path arguments.
 
-Before producing formal evidence:
+## Archived v1 evidence (verification only)
 
-1. build/install the exact `feature/m4-multisource-rlr` Habitat fork with audio
-   enabled;
-2. run the fork's focused C++ and Python acoustic-context tests;
-3. ensure [`locks/m4_runtime_v1.json`](../../locks/m4_runtime_v1.json) names the
-   exact installed binding, RLR library and MIT KEMAR dependency bytes;
-4. independently verify the M3 package selected for this run;
-5. use a new ignored M4 output directory that does not already exist.
-
-A runtime lock is an immutable experiment input. Do not write canary outcomes
-back into it or silently update it after a run.
+[`locks/m4_runtime_v1.json`](../../locks/m4_runtime_v1.json) and the completed
+v1 record remain to support the v1 schema/reader for already retained evidence.
+They are not an executable runtime profile. Do not build, import, `cd` into or
+run a native canary from the historical checkout. The original fork test results
+are provenance recorded in [M4_STATUS.md](M4_STATUS.md), not current commands.
 
 ## Tracked M4 inputs
 
@@ -73,9 +70,10 @@ locks/m4_runtime_v1.json
 ```
 
 The request also closes its referenced formal M1 capture request and M3
-acoustic canary request by path, size and SHA-256. The runtime copies the
-selected M3 Acoustic Scene Package, request graph, lock, HRTF and license
-evidence into the private evidence tree before using them.
+acoustic canary request by path, size and SHA-256. Archived v1 evidence retains
+its lock; a current-installed v2 run copies the selected M3 Acoustic Scene
+Package, request graph, HRTF and license evidence but neither reads nor copies
+the v1 runtime lock.
 
 ## 1. Validate contracts and run focused tests
 
@@ -90,94 +88,102 @@ evidence into the private evidence tree before using them.
   tests/test_m4_evidence_hardening.py \
   tests/test_m4_spatial.py \
   tests/unit/test_m4_cli.py \
-  tests/unit/test_m4_runtime.py
+  tests/unit/test_m4_runtime.py \
+  tests/unit/test_m4_runtime_preflight.py \
+  tests/unit/test_m4_current_v2_replay.py
 ```
 
 These tests cover contracts, deterministic audio arithmetic, strict
 IEEE-float WAV readback, spatial probes, native receipt rejection and evidence
-tamper cases. They do not replace a real RLR canary.
-
-In the Habitat fork, run the configured build's focused
-`RLRAcousticContextTest` and:
-
-```bash
-cd "$RUNTIME"
-"$HABPY" -m pytest -q tests/test_avengine_acoustic_scene.py
-cd "$REPO"
-```
-
-Record the exact build/test commands and results in `M4_STATUS.md`; do not infer
-them from source presence.
+tamper cases. They do not replace a real RLR canary. The historical fork's C++
+and Python results remain archived in `M4_STATUS.md`; do not execute that
+checkout from this runbook.
 
 ## 2. Verify the selected M3 package
 
 Point `M3_PACKAGE` at an already compiled and independently verified explicit
-Acoustic Scene Package. The retained M3 low-absorption package is suitable for
-the bounded software canary; its synthetic coefficients are not physical room
-truth.
+Acoustic Scene Package. Its synthetic coefficients are not physical room truth.
 
 ```bash
-export M3_PACKAGE="$REPO/tmp/m3/formal_20260717_01/compile/low_absorption/manifest.json"
+export M3_PACKAGE=/path/to/verified/m3_package/manifest.json
+export M3_COMPILE_EVIDENCE=/path/to/verified/m3_compile/compile_evidence.json
 
 "$HABPY" -m avengine.cli m3 validate-package "$M3_PACKAGE"
-"$HABPY" -m avengine.cli m3 verify-compile \
-  "$REPO/tmp/m3/formal_20260717_01/compile/compile_evidence.json"
+"$HABPY" -m avengine.cli m3 verify-compile "$M3_COMPILE_EVIDENCE"
 ```
 
 Successful package validation alone does not complete M4; it only establishes
 the M3 input boundary.
 
-## 3. Run the native M4 canary
+## 3. Run the current-installed M4 receipt (v2, non-qualification)
 
-Choose a new output root. `run-canary` must refuse to merge into an existing
-directory.
+This is the only executable native M4 route. Choose a new output root; all
+runtime components are explicit and must be current installations rather than
+Git checkouts.
 
 ```bash
-export M4_FORMAL="$REPO/tmp/m4/formal_<RUN_ID>"
+export M4_CURRENT="$REPO/tmp/m4/current_installed_<RUN_ID>"
 
 "$HABPY" -m avengine.cli m4 run-canary \
+  --runtime-mode current-installed \
+  --runtime-prefix /external/installed-habitat \
+  --rlr-sdk-root /external/RLRAudioPropagationPkg \
+  --magnum-python-site /external/magnum-python-site \
   --request "$REPO/examples/m4/blender_custom/multi_source_canary_request.json" \
   --package-manifest "$M3_PACKAGE" \
-  --runtime-lock "$REPO/locks/m4_runtime_v1.json" \
-  --hrtf /usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa \
-  --hrtf-license /usr/share/doc/libmysofa1/copyright \
-  --output "$M4_FORMAL"
+  --hrtf /external/hrtf/explicit.sofa \
+  --hrtf-license /external/hrtf/LICENSE \
+  --current-hrtf-sample-rate-hz 16000 \
+  --current-hrtf-license-id explicit-hrtf-license \
+  --current-hrtf-citation "Provider and asset citation" \
+  --output "$M4_CURRENT"
+
+"$HABPY" -m avengine.cli m4 verify-canary \
+  "$M4_CURRENT/m4_canary_evidence.json"
 ```
 
-The run must execute, rather than merely declare:
+The prefix, SDK and Magnum site must be explicit accessible canonical paths
+outside every Git checkout. The Habitat module/binding must be within the
+prefix, and the RLR header/library within the SDK root. This v2 path neither
+parses nor copies the historical M4 lock. It requires strict HRTF/render
+sample-rate matching, records only fresh-run identity consistency, and retains
+no binary hash, baseline or lock.
 
-- full-indirect FOA renders for canonical and reversed caller source order;
-- explicit-HRTF native binaural all-pair rendering;
-- independent dry signals, FOA/binaural stems and canonical mixtures;
-- six-cardinal direct-only FOA and listener-rotation probes;
-- direct-only horizontal binaural probes;
-- stable-ID source update, temporal-coherence sequence and reset/reload replay;
-- fresh-context one-source versus multi-source performance measurement.
+Its verifier replays retained IR/dry/stem/mix artifacts, FOA/binaural and
+direct-arrival probes, runtime configuration readback, and HRTF/license
+preflight from current copied bytes. It also rebuilds lifecycle movement from
+retained endpoints (moved source, executed distance, original/updated positions,
+post-update native source receipts and package upload receipt), and recomputes
+each performance condition from its runs (source/pair/repeat counts, summary
+statistics and comparison throughput). A v2 receipt is diagnostic only: it does
+not replace the retained v1 formal record or unblock historical-root consumers.
 
-Any missing native API, runtime/HRTF lock mismatch, incomplete pair set,
-malformed receipt or failed spatial/lifecycle check prevents publication of a
-passing destination.
-
-## 4. Independently verify retained evidence
+## 4. Independently verify archived v1 evidence
 
 ```bash
-"$HABPY" -m avengine.cli m4 verify-canary \
-  "$M4_FORMAL/m4_canary_evidence.json"
+export M4_ARCHIVED_V1_EVIDENCE=/path/to/retained/m4_v1/m4_canary_evidence.json
+"$HABPY" -m avengine.cli m4 verify-canary "$M4_ARCHIVED_V1_EVIDENCE"
 ```
+
+This invokes the v1 reader over retained evidence; it does not start or import
+the historical checkout.
 
 Verification must reread confined artifacts and independently check their
 sizes/hashes, request and identity binding, exact order equality, direct-arrival
-geometry, dry/IR/stem/mix reconstruction, FOA/binaural probes, runtime/HRTF
-pins, lifecycle arrays and performance receipts. Rewriting a declared status or
-recomputing only the top-level JSON hash must not turn tampered evidence into a
-pass.
+geometry, dry/IR/stem/mix reconstruction and FOA/binaural probes. It replays
+lifecycle arrays plus movement geometry, updated native receipt and package
+upload receipt, and recomputes performance runs into their condition summaries
+and comparison. v1 reconstructs runtime/HRTF lock pins; v2 instead reconstructs
+current HRTF/license preflight bytes and fresh runtime identity. Rewriting a
+declared status or recomputing only the top-level JSON hash must not turn
+tampered evidence into a pass.
 
 The evidence is published atomically only after this self-verification passes.
 A compiler/unit-test pass cannot substitute for native evidence.
 
 ## 5. Inspect the retained audio correctly
 
-The formal tree contains paths of this form:
+The retained tree contains paths of this form:
 
 ```text
 audio/dry/<source_id>.wav
@@ -199,32 +205,23 @@ ordinary four-speaker PCM. The two-channel binaural mixture is the direct
 headphone-review artifact. Neither file is an M5 final episode: both retain the
 full convolution tail and are not video-muxed.
 
-## 6. Freeze the formal record
+## 6. Retain the current diagnostic separately
 
-After native verification, run the complete AVEngine suite:
+After v2 verification, run the complete AVEngine suite:
 
 ```bash
 "$HABPY" -m pytest -q
 ```
 
-Then update [M4_STATUS.md](M4_STATUS.md), the README milestone table and
-[MILESTONES.md](MILESTONES.md) using values read from retained evidence:
+Retain the fresh v2 evidence path, current identity, M3 lineage and test totals
+with its ignored output. Do not use a v2 result to update the retained v1 formal
+record, lock hashes, [M4_STATUS.md](M4_STATUS.md), the README milestone table or
+[MILESTONES.md](MILESTONES.md).
 
-- gate status and formal run date;
-- AVEngine and Habitat fork commits;
-- runtime-lock, binding, RLR, HRTF and license hashes;
-- evidence path, file hash and canonical content hash;
-- independent verifier result and test totals;
-- measured lifecycle/performance summaries.
+A bounded v2 `pass` is diagnostic only. M2 dynamic-anchor qualification,
+physical acoustic room admission, exact timeline assembly, counterfactual
+episode generation and video mux remain separate gates.
 
-Do not record guessed values. A bounded `pass` applies only to this fixed
-software/source-pose canary. M2 dynamic-anchor qualification, physical acoustic
-room admission, exact timeline assembly, counterfactual episode generation and
-video mux remain separate gates.
-
-The completed formal run is retained at `tmp/m4/formal_20260717_01`. It passed
-10/10 declared formal checks, 14/14 independently recomputed verifier checks,
-the 85-test focused AVEngine M4 suite, the fork's 13-case/213-check C++ suite
-and 21-test Python suite, and both 1001-test AVEngine regression environments.
-Exact commits, hashes and measurements are frozen in
-[M4_STATUS.md](M4_STATUS.md).
+The completed v1 formal run remains retained at
+`tmp/m4/formal_20260717_01`; its commits, hashes and measurements are frozen
+in [M4_STATUS.md](M4_STATUS.md).

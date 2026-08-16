@@ -38,6 +38,7 @@ REQUEST_SCHEMA = "avengine_m4_multi_source_canary_request_v1"
 IDENTITY_SCHEMA = "avengine_m4_source_identity_manifest_v1"
 AUDIO_BUNDLE_SCHEMA = "avengine_m4_audio_bundle_v1"
 EVIDENCE_SCHEMA = "avengine_m4_multi_source_canary_evidence_v1"
+CURRENT_INSTALLED_EVIDENCE_SCHEMA = "avengine_m4_multi_source_canary_evidence_v2"
 FOA_FORMAT_ID = "rlr_foa_acn_n3d_world_v1"
 
 _SCHEMA_FILES = {
@@ -45,6 +46,7 @@ _SCHEMA_FILES = {
     IDENTITY_SCHEMA: "m4_source_identity_manifest_v1.schema.json",
     AUDIO_BUNDLE_SCHEMA: "m4_audio_bundle_v1.schema.json",
     EVIDENCE_SCHEMA: "m4_multi_source_canary_evidence_v1.schema.json",
+    CURRENT_INSTALLED_EVIDENCE_SCHEMA: "m4_multi_source_canary_evidence_v2.schema.json",
 }
 _STABLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -53,6 +55,7 @@ _CONTENT_HASH_FIELDS = {
     IDENTITY_SCHEMA: "manifest_content_sha256",
     AUDIO_BUNDLE_SCHEMA: "bundle_content_sha256",
     EVIDENCE_SCHEMA: "evidence_content_sha256",
+    CURRENT_INSTALLED_EVIDENCE_SCHEMA: "evidence_content_sha256",
 }
 
 FOA_CONTRACT: dict[str, Any] = {
@@ -1193,11 +1196,12 @@ def validate_multi_source_canary_evidence(
     evidence: Mapping[str, Any],
     *,
     evidence_path: str | Path | None = None,
+    _schema_name: str = EVIDENCE_SCHEMA,
 ) -> list[str]:
-    errors = json_schema_errors(evidence, EVIDENCE_SCHEMA)
+    errors = json_schema_errors(evidence, _schema_name)
     if not _all_numbers_finite(evidence):
         errors.append("M4 canary evidence contains a non-finite number")
-    errors.extend(_content_hash_errors(evidence, EVIDENCE_SCHEMA))
+    errors.extend(_content_hash_errors(evidence, _schema_name))
     status = evidence.get("overall_status")
     checks = evidence.get("checks")
     checks = checks if isinstance(checks, list) else []
@@ -1207,8 +1211,16 @@ def validate_multi_source_canary_evidence(
     if len(check_ids) != len(set(check_ids)):
         errors.append("evidence checks must have unique check_id values")
     if status == "pass":
-        if evidence.get("qualification_claim") is not True:
+        if _schema_name == EVIDENCE_SCHEMA and evidence.get(
+            "qualification_claim"
+        ) is not True:
             errors.append("passing M4 evidence must explicitly make its bounded claim")
+        if _schema_name == CURRENT_INSTALLED_EVIDENCE_SCHEMA and evidence.get(
+            "qualification_claim"
+        ) is not False:
+            errors.append(
+                "current-installed evidence must not claim historical qualification"
+            )
         if evidence.get("failure_reasons"):
             errors.append("passing M4 evidence cannot contain failure reasons")
         if any(
@@ -1421,13 +1433,26 @@ def validate_multi_source_canary_evidence(
     ) != rights.get("expected_license_sha256"):
         errors.append("audio_contracts binaural license hash binding differs")
     rate_binding = binaural.get("sample_rate_binding")
-    rlr_binary = _child(runtime.get("native_binaries"), "rlr_audio_propagation")
-    if (
+    if _schema_name == EVIDENCE_SCHEMA:
+        rlr_binary = _child(
+            runtime.get("native_binaries"), "rlr_audio_propagation"
+        )
+        if (
+            isinstance(rate_binding, Mapping)
+            and rate_binding.get("policy") == "rlr_native_internal_bound_to_binary"
+            and rate_binding.get("rlr_binary_sha256")
+            != _child(rlr_binary, "sha256")
+        ):
+            errors.append(
+                "binaural rate adaptation is not bound to the runtime RLR binary"
+            )
+    elif (
         isinstance(rate_binding, Mapping)
         and rate_binding.get("policy") == "rlr_native_internal_bound_to_binary"
-        and rate_binding.get("rlr_binary_sha256") != _child(rlr_binary, "sha256")
     ):
-        errors.append("binaural rate adaptation is not bound to the runtime RLR binary")
+        errors.append(
+            "current-installed evidence must not claim hash-bound native rate adaptation"
+        )
 
     artifacts = evidence.get("artifacts")
     artifacts = artifacts if isinstance(artifacts, Mapping) else {}
@@ -1461,11 +1486,26 @@ def validate_multi_source_canary_evidence(
     return errors
 
 
+
+def validate_current_installed_multi_source_canary_evidence(
+    evidence: Mapping[str, Any],
+    *,
+    evidence_path: str | Path | None = None,
+) -> list[str]:
+    """Validate a one-time current-installed receipt without a v1 runtime lock."""
+
+    return validate_multi_source_canary_evidence(
+        evidence,
+        evidence_path=evidence_path,
+        _schema_name=CURRENT_INSTALLED_EVIDENCE_SCHEMA,
+    )
+
 validate_evidence = validate_multi_source_canary_evidence
 
 
 __all__ = [
     "AUDIO_BUNDLE_SCHEMA",
+    "CURRENT_INSTALLED_EVIDENCE_SCHEMA",
     "EVIDENCE_SCHEMA",
     "FOA_CONTRACT",
     "FOA_FORMAT_ID",
@@ -1481,6 +1521,7 @@ __all__ = [
     "load_and_validate_request",
     "validate_audio_bundle",
     "validate_canary_request",
+    "validate_current_installed_multi_source_canary_evidence",
     "validate_evidence",
     "validate_multi_source_canary_evidence",
     "validate_multi_source_canary_request",
