@@ -209,6 +209,28 @@ def _spawn_camera(game: Any) -> tuple[Any, Any]:
     return camera, capture
 
 
+def _close_shared_camera(
+    *, instance: Any, game: Any, camera: Any | None, capture: Any | None
+) -> None:
+    """Release camera shared-memory resources before Instance.close()."""
+
+    if camera is None and capture is None:
+        return
+    with instance.begin_frame():
+        pass
+    with instance.end_frame():
+        try:
+            if capture is not None:
+                capture.terminate_sp_funcs()
+        finally:
+            try:
+                if capture is not None:
+                    capture.Terminate()
+            finally:
+                if camera is not None:
+                    game.unreal_service.destroy_actor(actor=camera)
+
+
 def _spawn_generated_lights(
     game: Any, lighting_profile: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
@@ -1759,6 +1781,9 @@ def run(args: argparse.Namespace) -> Path:
     )
     light_records: list[dict[str, Any]] = []
     runtime_close_seconds = 0.0
+    camera: Any | None = None
+    capture: Any | None = None
+    runtime_failed = False
     try:
         phase_started = time.perf_counter()
         first = pending_scenarios[0]
@@ -1841,9 +1866,23 @@ def run(args: argparse.Namespace) -> Path:
             )
             _write_json(output_root / scenario["scenario_id"] / "evidence.json", record)
             scenario_records.append(record)
+    except BaseException:
+        runtime_failed = True
+        raise
     finally:
         phase_started = time.perf_counter()
-        instance.close(force=True)
+        try:
+            _close_shared_camera(
+                instance=instance,
+                game=game,
+                camera=camera,
+                capture=capture,
+            )
+        except Exception:
+            if not runtime_failed:
+                raise
+        finally:
+            instance.close(force=True)
         runtime_close_seconds = _elapsed_seconds(phase_started)
     phase_wall_seconds["runtime_close"] = runtime_close_seconds
     records_by_id = {
