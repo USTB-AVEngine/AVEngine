@@ -1,5 +1,9 @@
 # M6.y Optional SPEAR/UE Comparison Visuals
 
+Status: historical optional-comparison workstream. It preserves retained
+M5.1/M6.y evidence but does not define current production routing; see
+`docs/architecture/OPTIONAL_RESIDENTIAL_SCENE_BACKENDS.md` and ADR-0010.
+
 M6.y is an optional visual-comparison workstream. It answers a narrow question:
 can the old SPEAR/Unreal presentation layer render the same actor states and
 rooms while the current Habitat-native AVEngine keeps control of the episode?

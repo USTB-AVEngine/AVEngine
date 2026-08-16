@@ -1,6 +1,8 @@
 # ADR-0001: Habitat-Native Primary Runtime
 
-- Status: Accepted
+- Status: Superseded for production-room routing by
+  [ADR-0010](ADR-0010-single-source-repository.md) and the canonical
+  [room-family matrix](../architecture/OPTIONAL_RESIDENTIAL_SCENE_BACKENDS.md)
 - Date: 2026-07-16
 
 ## Context
@@ -12,9 +14,24 @@ prove.
 
 ## Decision
 
-Use the pinned `habitat-sim-AVEngine` fork as the primary visual, scene,
-sensor, articulated-pose and RLR runtime. Blender remains an offline asset
-compiler. UE/SPEAR remains an optional legacy comparison backend.
+The 2026-07 decision was to use the pinned `habitat-sim-AVEngine` fork as the
+primary visual, scene, sensor, articulated-pose and RLR runtime. Blender
+remained an offline asset compiler and UE/SPEAR a comparison backend.
+
+## Supersession note
+
+This all-Habitat visual-routing decision no longer defines the production
+surface. The active room-family matrix is:
+
+- MP3D: Habitat-Sim scene execution, pixels, sensors and articulated pose;
+  RLR uses SoundSpaces material authority on the same Habitat scene/state.
+  Any MP3D UE import is `comparison_visual` only.
+- `apartment_0000`: native UE/SPEAR production pixels; AVEngine owns Timeline,
+  task/source state, navigation semantics, audio, Topdown, labels and
+  admission.
+- InteriorAgent/Kujiale: UE/SPEAR USD/MDL production pixels over the selected
+  external scene; AVEngine retains the same episode authority.
+- Skokloster: excluded unless explicitly reauthorized for a named task.
 
 ## Alternatives considered
 
