@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import copy
+from importlib.machinery import EXTENSION_SUFFIXES
 from pathlib import Path
 import subprocess
+import sys
+from types import ModuleType
 
 import pytest
 
 from avengine.contracts.json_io import sha256_file
 from avengine.m1.habitat_capture import (
+    _activate_runtime_prefix,
+    _import_installed_habitat,
     _installed_runtime_paths,
     _logical_listener_pose,
     _make_configuration,
+    _validate_magnum_python_origins,
     _ue_project_asset_package_closure,
+    discover_magnum_python_site,
 )
 
 
@@ -313,6 +320,131 @@ def test_logical_listener_pose_is_composed_from_actual_agent_state() -> None:
         "translation_m": [1.0, 2.5, 3.0],
         "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
     }
+
+
+def _magnum_python_site(tmp_path: Path) -> Path:
+    site = tmp_path / "magnum-site"
+    for package in ("corrade", "magnum"):
+        package_path = site / package
+        package_path.mkdir(parents=True)
+        (package_path / "__init__.py").write_text(
+            f"# {package}\n", encoding="utf-8"
+        )
+    suffix = EXTENSION_SUFFIXES[0]
+    for module_name in ("_corrade", "_magnum"):
+        (site / f"{module_name}{suffix}").write_bytes(b"extension")
+    return site
+
+
+def _module_at(module_name: str, path: Path) -> ModuleType:
+    module = ModuleType(module_name)
+    module.__file__ = str(path)
+    return module
+
+
+def test_discover_magnum_python_site_checks_layout_and_current_abi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", raising=False)
+    with pytest.raises(FileNotFoundError, match="AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"):
+        discover_magnum_python_site()
+
+    site = _magnum_python_site(tmp_path)
+    monkeypatch.setenv("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", str(site))
+    assert discover_magnum_python_site() == site.resolve()
+
+    extension = site / f"_magnum{EXTENSION_SUFFIXES[0]}"
+    extension.unlink()
+    with pytest.raises(FileNotFoundError, match="_magnum"):
+        discover_magnum_python_site()
+
+    outside = tmp_path / "outside.so"
+    outside.write_bytes(b"extension")
+    extension.symlink_to(outside)
+    with pytest.raises(RuntimeError, match="site root"):
+        discover_magnum_python_site()
+
+
+def test_activate_runtime_prefix_places_magnum_site_after_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    site = tmp_path / "site"
+    prefix.mkdir()
+    site.mkdir()
+    prefix_alias = tmp_path / "prefix-alias"
+    prefix_alias.symlink_to(prefix)
+    monkeypatch.setattr(sys, "path", [str(site), str(prefix_alias), "retained"])
+
+    _activate_runtime_prefix(prefix, magnum_python_site=site)
+
+    assert sys.path == [str(prefix.resolve()), str(site.resolve()), "retained"]
+
+
+def test_validate_magnum_python_origins_rejects_preloaded_outside_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = _magnum_python_site(tmp_path)
+    modules = {
+        "corrade": _module_at("corrade", site / "corrade" / "__init__.py"),
+        "magnum": _module_at("magnum", site / "magnum" / "__init__.py"),
+        "_corrade": _module_at(
+            "_corrade", site / f"_corrade{EXTENSION_SUFFIXES[0]}"
+        ),
+        "_magnum": _module_at("_magnum", site / f"_magnum{EXTENSION_SUFFIXES[0]}"),
+    }
+    for module_name, module in modules.items():
+        monkeypatch.setitem(sys.modules, module_name, module)
+
+    _validate_magnum_python_origins(site, modules["magnum"])
+
+    outside = tmp_path / "old-checkout" / "magnum.py"
+    outside.parent.mkdir()
+    outside.write_text("# wrong module\n", encoding="utf-8")
+    monkeypatch.setitem(sys.modules, "_magnum", _module_at("_magnum", outside))
+    with pytest.raises(RuntimeError, match="outside the required external site"):
+        _validate_magnum_python_origins(site, modules["magnum"])
+
+
+def test_import_installed_habitat_activates_site_before_habitat_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    site = _magnum_python_site(tmp_path)
+    calls: list[tuple[str, object]] = []
+    imported = (object(), object(), object(), object())
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda: site,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._activate_runtime_prefix",
+        lambda active_prefix, *, magnum_python_site: calls.append(
+            ("activate", (active_prefix, magnum_python_site))
+        ),
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_preloaded_magnum_python_origins",
+        lambda active_site: calls.append(("preloaded", active_site)),
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat",
+        lambda: calls.append(("import", None)) or imported,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_magnum_python_origins",
+        lambda active_site, active_magnum: calls.append(
+            ("validate", (active_site, active_magnum))
+        ),
+    )
+
+    assert _import_installed_habitat(prefix) == imported
+    assert calls == [
+        ("activate", (prefix, site)),
+        ("preloaded", site),
+        ("import", None),
+        ("validate", (site, imported[2])),
+    ]
 
 
 def test_installed_runtime_rejects_physics_config_symlink_outside_prefix(

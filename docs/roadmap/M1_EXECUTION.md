@@ -32,6 +32,7 @@ assume this external layout:
 ```bash
 export REPO=/data/jzy/code/AVEngine-habitat-native
 export HABITAT_PREFIX=/data/jzy/opt/avengine-habitat-runtime
+export HABITAT_MAGNUM_PYTHON_SITE=/data/jzy/opt/magnum-python/site-packages
 export MP3D_ROOT=/data/jzy/datasets/habitat
 export HABPY=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python
 export SPEAR=/data/jzy/code/AVEngine/external/SPEAR
@@ -39,17 +40,24 @@ export SPEARPY=/data/jzy/miniconda3/envs/spear-env/bin/python
 export UE=/data/UE_5.5
 export BLENDER=/data/jzy/.local/bin/blender
 export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
-export PYTHONPATH="$HABITAT_PREFIX:$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
+export AVENGINE_HABITAT_MAGNUM_PYTHON_SITE="$HABITAT_MAGNUM_PYTHON_SITE"
 export AVENGINE_MP3D_ROOT="$MP3D_ROOT"
 cd "$REPO"
 ```
 
 
 The runtime environment must provide the installed Habitat bindings,
-numpy-quaternion, NumPy, Pillow, and a working headless GPU/EGL context. The
-capture adapter activates $HABITAT_PREFIX before importing quaternion then
-habitat_sim, and requires its absolute
-$HABITAT_PREFIX/config/default.physics_config.json.
+numpy-quaternion, NumPy, Pillow, a working headless GPU/EGL context, and an
+external Corrade/Magnum Python site compatible with the active interpreter.
+That site must contain `corrade/__init__.py`, `magnum/__init__.py`, and
+top-level `_corrade` and `_magnum` extensions with a suffix accepted by that
+interpreter. The capture, navmesh, and native-probe adapters activate
+$HABITAT_PREFIX first and that site second before importing quaternion then
+habitat_sim; they reject preloaded or imported Corrade/Magnum modules outside
+the selected site and require the installed
+$HABITAT_PREFIX/config/default.physics_config.json. Do not encode this
+caller-provided site in CMake or the installed prefix.
 
 Provision the official licensed MP3D data separately; do not copy a Habitat
 checkout to create it. AVENGINE_MP3D_ROOT is the data root that contains

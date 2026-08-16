@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from importlib.machinery import EXTENSION_SUFFIXES
 import os
 import platform
 import re
@@ -92,6 +93,68 @@ def discover_runtime_prefix(explicit: str | Path | None = None) -> Path:
     return prefix
 
 
+def _required_magnum_site_file(
+    site: Path, relative_path: str, *, description: str
+) -> Path:
+    candidate = site / relative_path
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(site)
+    except ValueError as error:
+        raise RuntimeError(
+            "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE must keep "
+            f"{description} under its site root: {candidate}"
+        ) from error
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE is missing "
+            f"{description}: {candidate}"
+        )
+    return resolved
+
+
+def _required_magnum_extension(site: Path, module_name: str) -> Path:
+    for suffix in EXTENSION_SUFFIXES:
+        candidate = site / f"{module_name}{suffix}"
+        if candidate.exists() or candidate.is_symlink():
+            return _required_magnum_site_file(
+                site,
+                candidate.name,
+                description=(
+                    f"the current interpreter ABI extension for {module_name}"
+                ),
+            )
+    expected = ", ".join(f"{module_name}{suffix}" for suffix in EXTENSION_SUFFIXES)
+    raise FileNotFoundError(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE must contain one current "
+        f"interpreter ABI extension for {module_name}; expected one of: {expected}"
+    )
+
+
+def discover_magnum_python_site(explicit: str | Path | None = None) -> Path:
+    configured = explicit if explicit is not None else os.environ.get(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"
+    )
+    if not configured:
+        raise FileNotFoundError(
+            "Set AVENGINE_HABITAT_MAGNUM_PYTHON_SITE to an external "
+            "Corrade/Magnum Python site before importing Habitat"
+        )
+    site = Path(configured).resolve()
+    if not site.is_dir():
+        raise FileNotFoundError(
+            "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE is not a directory: "
+            f"{site}"
+        )
+    _required_magnum_site_file(
+        site, "corrade/__init__.py", description="corrade package"
+    )
+    _required_magnum_site_file(site, "magnum/__init__.py", description="magnum package")
+    _required_magnum_extension(site, "_corrade")
+    _required_magnum_extension(site, "_magnum")
+    return site
+
+
 def discover_mp3d_root(explicit: str | Path | None = None) -> Path | None:
     configured = explicit if explicit is not None else os.environ.get("AVENGINE_MP3D_ROOT")
     if configured is None:
@@ -104,9 +167,78 @@ def discover_mp3d_root(explicit: str | Path | None = None) -> Path | None:
     return root
 
 
-def _activate_runtime_prefix(prefix: Path) -> None:
-    resolved = str(prefix.resolve())
-    sys.path[:] = [resolved, *(entry for entry in sys.path if entry != resolved)]
+def _activate_runtime_prefix(
+    prefix: Path, *, magnum_python_site: Path | None = None
+) -> None:
+    activated_roots = [prefix.resolve()]
+    if magnum_python_site is not None:
+        activated_roots.append(magnum_python_site.resolve())
+    activated_root_strings = [str(root) for root in activated_roots]
+
+    def is_activated_root(entry: object) -> bool:
+        if not isinstance(entry, str):
+            return False
+        try:
+            return Path(entry).resolve() in activated_roots
+        except OSError:
+            return entry in activated_root_strings
+
+    sys.path[:] = [
+        *activated_root_strings,
+        *(entry for entry in sys.path if not is_activated_root(entry)),
+    ]
+
+
+def _module_file_under(module: Any, root: Path, *, module_name: str) -> Path:
+    module_file = getattr(module, "__file__", None)
+    if not module_file:
+        raise RuntimeError(
+            f"Imported {module_name} has no file to validate against {root}"
+        )
+    resolved = Path(module_file).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise RuntimeError(
+            f"Imported {module_name} is outside the required external site {root}: "
+            f"{resolved}"
+        ) from error
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            f"Imported {module_name} file is missing under {root}: {resolved}"
+        )
+    return resolved
+
+
+def _validate_preloaded_magnum_python_origins(site: Path) -> None:
+    for module_name in ("corrade", "magnum", "_corrade", "_magnum"):
+        module = sys.modules.get(module_name)
+        if module is not None:
+            _module_file_under(module, site, module_name=module_name)
+
+
+def _validate_magnum_python_origins(site: Path, magnum: Any) -> None:
+    import _corrade
+    import _magnum
+    import corrade
+
+    modules = {
+        "corrade": corrade,
+        "magnum": magnum,
+        "_corrade": _corrade,
+        "_magnum": _magnum,
+    }
+    for module_name, module in modules.items():
+        _module_file_under(module, site, module_name=module_name)
+
+
+def _import_installed_habitat(prefix: Path) -> tuple[Any, Any, Any, Any]:
+    magnum_python_site = discover_magnum_python_site()
+    _activate_runtime_prefix(prefix, magnum_python_site=magnum_python_site)
+    _validate_preloaded_magnum_python_origins(magnum_python_site)
+    imported = _import_habitat()
+    _validate_magnum_python_origins(magnum_python_site, imported[2])
+    return imported
 
 
 def _installed_runtime_paths(
@@ -1158,9 +1290,8 @@ def capture_m1(
     (output / "evidence.json").unlink(missing_ok=True)
     prefix = discover_runtime_prefix(runtime_prefix)
     mp3d_root = discover_mp3d_root()
-    _activate_runtime_prefix(prefix)
     repository_root = Path(__file__).resolve().parents[3]
-    qt, habitat_sim, _, quat_to_coeffs = _import_habitat()
+    qt, habitat_sim, _, quat_to_coeffs = _import_installed_habitat(prefix)
     from habitat_sim._ext import habitat_sim_bindings
 
     habitat_module_path, native_binding_path, physics_config_path = _installed_runtime_paths(
@@ -1635,9 +1766,8 @@ def build_navmesh(
 ) -> dict[str, Any]:
     prefix = discover_runtime_prefix(runtime_prefix)
     mp3d_root = discover_mp3d_root()
-    _activate_runtime_prefix(prefix)
     temporary_output = inputs.room_path.parent / "tmp" / "m1_navmesh_build"
-    _, habitat_sim, _, _ = _import_habitat()
+    _, habitat_sim, _, _ = _import_installed_habitat(prefix)
     from habitat_sim._ext import habitat_sim_bindings
 
     _, _, physics_config_path = _installed_runtime_paths(

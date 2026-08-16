@@ -216,7 +216,10 @@ exactly `Bindings`, `AudioPropagationBindings`, `AttributesBindings`,
 It requires external Python 3.12 development, pybind11, and MagnumBindings;
 the H19 temporary validation used official `pybind11@a2e59f0e7065404b44dfe92a28aca47ba1378dc4`
 and `magnum-bindings@45811bb52e749677d5bc43d62b384ec546ed93bc` archives, neither
-of which is vendored or recorded as a runtime path.
+of which is vendored. Installed-prefix M1 instead accepts the caller-provided
+`AVENGINE_HABITAT_MAGNUM_PYTHON_SITE` runtime interface; it records no
+concrete host path or CMake setting and validates the selected package and
+extension origins at import time.
 
 The examined installed MagnumBindings layout contains
 `<include>/Magnum/PythonBindings.h`, while its installed config-component
@@ -244,7 +247,16 @@ intermediate and installs only the selected facade, binding, and
 sets the selected native default physics path to the installed config's absolute
 path so the `MetadataMediator` no longer resolves it through a caller CWD. It
 does not install an RPATH, dependencies, RLR, PBR assets, or data, and does not
-change AVEngine's current resolver. Fresh H24 validation against external
+change AVEngine's current resolver.
+
+H5b M1 callers must provide `AVENGINE_HABITAT_MAGNUM_PYTHON_SITE` separately:
+its resolved root contains the `corrade` and `magnum` packages plus
+ABI-compatible top-level `_corrade` and `_magnum` extensions. The adapter
+places the installed prefix before that site and rejects preloaded or imported
+bindings outside it. No external site path is embedded in CMake, the installed
+prefix, or AVEngine Git.
+
+Fresh H24 validation against external
 H19/H11/H6/H9 prefixes and explicit H9 Recast completed 148/148 Ninja steps,
 ran an isolated import of `quaternion`, `corrade`, `magnum.scenegraph`, and
 `habitat_sim`, and constructed visual configuration, `NavMeshSettings`, and

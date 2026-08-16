@@ -179,6 +179,17 @@ literal. This does not install Corrade, Magnum, pybind11, Python, RLR, PBR
 assets, datasets, an RPATH, or an additional source checkout; those remain
 external caller-provided dependencies or data.
 
+Installed-prefix M1 entry points require
+`AVENGINE_HABITAT_MAGNUM_PYTHON_SITE` before importing Habitat. It names an
+external site-packages directory compatible with the selected interpreter; the
+resolved site must contain `corrade/__init__.py`, `magnum/__init__.py`, and
+top-level `_corrade` and `_magnum` extensions carrying one of that
+interpreter's extension suffixes. The M1 adapter activates the installed prefix
+first and this site second, then rejects preloaded or imported Corrade/Magnum
+package or extension paths outside the site. This runtime variable names no
+specific host path, is not CMake/install metadata, and does not vendor the
+external site.
+
 Fresh H24 validation used H5a staging with H19/H11/H6/H9 external prefixes,
 completed 148/148 Ninja steps, imported `quaternion`, `corrade`,
 `magnum.scenegraph`, and `habitat_sim`, and constructed a visual configuration,

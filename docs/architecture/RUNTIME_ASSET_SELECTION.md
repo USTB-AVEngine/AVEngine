@@ -105,8 +105,9 @@ Habitat sensors render:
 
 ```bash
 HABITAT_PREFIX=/path/to/installed/habitat-runtime \
+AVENGINE_HABITAT_MAGNUM_PYTHON_SITE=/path/to/magnum-python/site-packages \
 AVENGINE_MP3D_ROOT=/path/to/mp3d-data \
-PYTHONPATH="$HABITAT_PREFIX:src" python tools/m1/probe_camera_pose_native.py \
+PYTHONPATH=src python tools/m1/probe_camera_pose_native.py \
   --room tmp/m1/legacy_apartment_package/room_manifest.json \
   --request tmp/camera_pose_test/request.json \
   --runtime-prefix "$HABITAT_PREFIX" \

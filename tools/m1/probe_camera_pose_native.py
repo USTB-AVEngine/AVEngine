@@ -24,8 +24,7 @@ from avengine.contracts.json_io import file_record, write_json
 from avengine.m1.contracts import load_and_validate_inputs
 from avengine.m1.evidence import array_sha256
 from avengine.m1.habitat_capture import (
-    _activate_runtime_prefix,
-    _import_habitat,
+    _import_installed_habitat,
     _installed_runtime_paths,
     _make_configuration,
     _numpy_quaternion,
@@ -46,12 +45,11 @@ def run_probe(args: argparse.Namespace) -> Path:
     inputs = load_and_validate_inputs(args.room, args.request)
     prefix = discover_runtime_prefix(args.runtime_prefix)
     mp3d_root = discover_mp3d_root()
-    _activate_runtime_prefix(prefix)
     request = inputs.request
     rig = request["primary_camera_rig"]
     transform = rig["world_from_rig"]
 
-    qt, habitat_sim, _, _ = _import_habitat()
+    qt, habitat_sim, _, _ = _import_installed_habitat(prefix)
     from habitat_sim._ext import habitat_sim_bindings
 
     _, _, physics_config_path = _installed_runtime_paths(
