@@ -1882,7 +1882,7 @@ def run(args: argparse.Namespace) -> Path:
             if not runtime_failed:
                 raise
         finally:
-            instance.close(force=True)
+            instance.close(force=False)
         runtime_close_seconds = _elapsed_seconds(phase_started)
     phase_wall_seconds["runtime_close"] = runtime_close_seconds
     records_by_id = {

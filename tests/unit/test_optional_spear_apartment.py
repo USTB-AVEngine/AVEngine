@@ -1418,7 +1418,7 @@ def test_runner_closes_shared_camera_before_instance_after_render_error(
 
         @staticmethod
         def close(*, force: bool) -> None:
-            assert force is True
+            assert force is False
             events.append(("instance", "close"))
 
     instance = FakeInstance()
