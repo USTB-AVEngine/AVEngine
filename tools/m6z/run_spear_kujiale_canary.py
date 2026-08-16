@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Capture an external InteriorAgent/Kujiale room through SPEAR and UE.
 
-This is a bounded four-view visual canary.  It deliberately has no alternate
-navigation, Timeline, source-program or acoustic implementation.
+This is a bounded four-view visual canary. It deliberately has no alternate
+navigation, Timeline, source-program or acoustic implementation. Its host/game
+client is AVEngine-owned; the external Unreal editor and project remain inputs.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 sys.path.insert(0, str(REPOSITORY / "tools/m6y"))
 
+from avengine.backends.spear_ue import client as spear_client  # noqa: E402
+from avengine.backends.spear_ue.launch import parallel_instance_settings  # noqa: E402
 from avengine.optional_backends.interioragent_kujiale import (  # noqa: E402
     build_kujiale_review_plan,
     load_profile,
@@ -129,16 +132,10 @@ def _build_plan(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _configure_spear(args: argparse.Namespace, plan: dict[str, Any]) -> Any:
-    spear_root = args.spear_root.expanduser().resolve()
-    sys.path.insert(0, str(spear_root / "examples"))
-    sys.path.insert(0, str(spear_root / "python"))
-    import spear
-    from render_in_apartment import parallel_instance_settings
-
     settings = parallel_instance_settings(
         args.rpc_port, graphics_adapter=args.graphics_adapter
     )
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "editor"
     config.SPEAR.INSTANCE.EDITOR_EXECUTABLE = str(
@@ -183,8 +180,8 @@ def _configure_spear(args: argparse.Namespace, plan: dict[str, Any]) -> Any:
     if Path(vulkan_icd).is_file():
         config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = vulkan_icd
     config.freeze()
-    spear.configure_system(config=config)
-    return spear.Instance(config=config)
+    spear_client.configure_system(config=config)
+    return spear_client.Instance(config=config)
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
@@ -295,7 +292,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--spear-root", type=Path, required=True)
     parser.add_argument("--uproject", type=Path, required=True)
     parser.add_argument("--unreal-editor", type=Path, required=True)
     parser.add_argument("--source-stage", type=Path, required=True)

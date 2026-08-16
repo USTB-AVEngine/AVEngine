@@ -299,11 +299,13 @@ def _load_handle(game: Any, uclass: str, path: str) -> int:
 def _worker(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.resolve()
     result_path = run_dir / "RESULT.json"
-    spear_root = args.spear_root.resolve()
-    sys.path.insert(0, str(spear_root / "python"))
-    import spear
+    repository = Path(__file__).resolve().parents[2]
+    source_root = repository / "src"
+    if str(source_root) not in sys.path:
+        sys.path.insert(0, str(source_root))
+    from avengine.backends.spear_ue import client as spear_client
 
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "game"
     config.SPEAR.INSTANCE.GAME_EXECUTABLE = str(args.executable.resolve())
@@ -322,11 +324,11 @@ def _worker(args: argparse.Namespace) -> int:
     config.SP_SERVICES.RPC_SERVICE.RPC_SERVER_PORT = args.rpc_port
     config.SP_CORE.SHARED_MEMORY_INITIAL_UNIQUE_ID = args.rpc_port * 10000
     config.freeze()
-    spear.configure_system(config=config)
+    spear_client.configure_system(config=config)
 
     instance = None
     try:
-        instance = spear.Instance(config=config)
+        instance = spear_client.Instance(config=config)
         game = instance.get_game()
         with instance.begin_frame():
             mesh_actors = game.unreal_service.find_actors_by_class(

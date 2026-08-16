@@ -8,9 +8,10 @@ PathFinder, captured actor roots, source programs, animated emitter links,
 binaural audio and Topdown remain authoritative.  UE only renders the already
 imported 71-mesh MP3D scene and the bound human/Beagle visuals.
 
-The legacy SPEAR checkout supplied by ``--spear-root`` is imported read-only.
-All plans, frames and evidence are written under ``--output-dir`` in this
-repository.
+``--spear-root`` supplies the external UE runtime, project, and retained assets.
+The AVEngine-owned host/game client and launch settings stay in this repository;
+the separately scoped lighting and rig helpers remain transition boundaries.
+All plans, frames and evidence are written under ``--output-dir``.
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.backends.spear_ue import client as spear_client
+from avengine.backends.spear_ue.launch import parallel_instance_settings
 from avengine.optional_backends.spear_mp3d import (
     DOG_BP_CLASS_PATH,
     HUMAN_BP_CLASS_PATH,
@@ -931,15 +934,10 @@ def _configure_instance(
         raise RuntimeError(
             "refusing to render MP3D through the old dirty SPEAR project"
         )
-    sys.path.insert(0, str(spear_root / "examples"))
-    from render_in_apartment import parallel_instance_settings
-
-    import spear
-
     settings = parallel_instance_settings(
         args.rpc_port, graphics_adapter=args.graphics_adapter
     )
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "editor"
     config.SPEAR.INSTANCE.EDITOR_EXECUTABLE = str(editor)
@@ -972,9 +970,9 @@ def _configure_instance(
     if Path(vulkan_icd).is_file():
         config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = vulkan_icd
     config.freeze()
-    spear.configure_system(config=config)
+    spear_client.configure_system(config=config)
     try:
-        instance = spear.Instance(config=config)
+        instance = spear_client.Instance(config=config)
     except BaseException:
         _cleanup_failed_constructor(
             executable=editor, temporary_directory=Path(settings["temp_dir"])

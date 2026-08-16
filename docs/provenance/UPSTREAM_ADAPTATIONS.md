@@ -225,9 +225,9 @@ cutover is included.
 
 The S1 helper retains the upstream MIT attribution and text at
 `LICENSES/SPEAR-MIT.txt`. It intentionally does not import the upstream
-`examples/` directory. The runner still imports the external `spear` Python
-runtime and still receives an external SPEAR/UE project through `--spear-root`;
-this selected helper does not claim client, plugin, project-control or runtime
+`examples/` directory. S1 itself did not move any client import; S3c later
+retargets the direct host/game runner imports to AVEngine's namespaced client.
+Neither change claims plugin, project-control, UE Editor Python, or runtime
 cutover.
 
 ## SPEAR S2 python_ext source staging
@@ -288,6 +288,24 @@ require that optional extension; constructing client.Instance produces a clear
 error until the later extension build/install layer supplies it. This is not a
 native-extension build, a UE/editor compatibility claim, a runner cutover, or
 a replacement for the maintained transition runtime.
+
+## SPEAR S3c host/game runner import retargeting
+
+S3c changes the direct host/game configuration call sites in the Apartment,
+MP3D, ReplicaCAD, Kujiale, Skokloster diagnostic, and packaged probe runners
+to use `avengine.backends.spear_ue.client`. The launchers that need
+per-worker settings use AVEngine's `parallel_instance_settings`. Those
+paths no longer inject a
+SPEAR checkout `python/` or `examples/` directory merely to obtain the host
+client or launch settings. The standalone Kujiale canary removes its stale
+`--spear-root` CLI option because its explicit Unreal editor and project are the
+actual external runtime inputs.
+
+This is import wiring only. The optional `avengine_spear_ext` extension must
+still be built and installed before an Instance can start, and no UE Editor
+Python compatibility is claimed. The selected external `rig_direction_check`
+and `render_in_gpurir_room` helpers remain explicit transition boundaries for
+the runners that use them; S3c does not claim a checkout-free SPEAR runtime.
 
 ## AVEngine-owned adapter code already present
 

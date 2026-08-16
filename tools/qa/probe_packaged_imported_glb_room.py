@@ -242,9 +242,8 @@ def _worker(args: argparse.Namespace) -> int:
     repository = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repository / "tools/qa"))
     sys.path.insert(0, str(repository / "src"))
-    sys.path.insert(0, str(args.spear_root.resolve() / "python"))
 
-    import spear
+    from avengine.backends.spear_ue import client as spear_client
     from spear_imported_glb_room_adapter import (
         destroy_scene_meshes,
         load_json_object,
@@ -256,7 +255,7 @@ def _worker(args: argparse.Namespace) -> int:
     validate_room_adapter(adapter)
     _adapter_paths(adapter)
 
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "game"
     config.SPEAR.INSTANCE.GAME_EXECUTABLE = str(args.executable.resolve())
@@ -277,13 +276,13 @@ def _worker(args: argparse.Namespace) -> int:
     config.SP_SERVICES.RPC_SERVICE.RPC_SERVER_PORT = args.rpc_port
     config.SP_CORE.SHARED_MEMORY_INITIAL_UNIQUE_ID = args.rpc_port * 10000
     config.freeze()
-    spear.configure_system(config=config)
+    spear_client.configure_system(config=config)
 
     instance = None
     actors: Sequence[Any] = []
     actors_destroyed = False
     try:
-        instance = spear.Instance(config=config)
+        instance = spear_client.Instance(config=config)
         game = instance.get_game()
         with instance.begin_frame():
             actors, readback = spawn_scene_meshes_with_readback(game, adapter)

@@ -7,8 +7,10 @@ exact roots, samples the declared animation phase, and captures native UE
 pixels.  It never replans a route or creates a second audio/flag authority.
 
 ``--dry-run`` needs only the AVEngine Python package.  A real render must run
-inside ``spear-env`` and receives the old SPEAR checkout through
-``--spear-root``; that checkout is imported read-only.
+inside ``spear-env`` and uses AVEngine's optional host/game client.
+``--spear-root`` identifies external UE runtime, project, and assets. It is not
+used to import global ``spear`` or launch settings; its separate rig-check helper is
+still an explicit transition boundary.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.backends.spear_ue import client as spear_client
 from avengine.backends.spear_ue.launch import parallel_instance_settings
 from avengine.optional_backends.spear_apartment import (
     ACOUSTIC_VISUAL_IDENTITY_SCHEMA,
@@ -1456,12 +1459,10 @@ def _configure_instance(
     )
     if not executable.is_file():
         raise RuntimeError(f"cooked SPEAR executable is missing: {executable}")
-    import spear
-
     settings = parallel_instance_settings(
         args.rpc_port, graphics_adapter=args.graphics_adapter
     )
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "game"
     config.SPEAR.INSTANCE.GAME_EXECUTABLE = str(executable)
@@ -1494,9 +1495,9 @@ def _configure_instance(
         ]
     config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = "/etc/vulkan/icd.d/nvidia_icd.json"
     config.freeze()
-    spear.configure_system(config=config)
+    spear_client.configure_system(config=config)
     try:
-        instance = spear.Instance(config=config)
+        instance = spear_client.Instance(config=config)
     except BaseException:
         # Instance.__init__ launches UE before it waits for RPC.  If its
         # constructor itself fails, no Instance object exists for close().

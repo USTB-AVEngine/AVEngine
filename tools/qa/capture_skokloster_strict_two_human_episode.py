@@ -19,6 +19,11 @@ if BASE_SPEC is None or BASE_SPEC.loader is None:
 BASE = importlib.util.module_from_spec(BASE_SPEC)
 BASE_SPEC.loader.exec_module(BASE)
 
+# The shared runner establishes the repository source import root before this
+# standalone archive wrapper imports AVEngine's namespaced host/game client.
+from avengine.backends.spear_ue import client as spear_client
+from avengine.backends.spear_ue.launch import parallel_instance_settings
+
 PACKAGED_MAP = (
     "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict"
 )
@@ -42,16 +47,12 @@ def _configure_explicit_archive(
         "Standalone-Skokloster-Development" in str(executable),
         "only the isolated Skokloster archive is allowed",
     )
-    examples = spear_root / "examples"
-    _require(examples.is_dir(), f"SPEAR examples are missing: {examples}")
-    sys.path.insert(0, str(examples))
-    import spear
-    from render_in_apartment import parallel_instance_settings
+    _require(spear_root.is_dir(), f"SPEAR root is missing: {spear_root}")
 
     settings = parallel_instance_settings(
         args.rpc_port, graphics_adapter=args.graphics_adapter
     )
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "game"
     config.SPEAR.INSTANCE.GAME_EXECUTABLE = str(executable)
@@ -79,9 +80,9 @@ def _configure_explicit_archive(
         ]
     config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = "/etc/vulkan/icd.d/nvidia_icd.json"
     config.freeze()
-    spear.configure_system(config=config)
+    spear_client.configure_system(config=config)
     try:
-        instance = spear.Instance(config=config)
+        instance = spear_client.Instance(config=config)
     except BaseException:
         BASE.RUNNER._cleanup_failed_constructor(
             executable=executable,
