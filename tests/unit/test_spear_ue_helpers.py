@@ -11,6 +11,11 @@ from typing import Any
 import numpy as np
 
 from avengine.backends.spear_ue import lighting, rig_direction
+from avengine.runtime_profiles import (
+    load_default_source_asset_runtime_registry,
+    resolve_source_asset_alias,
+    spear_actor_bindings,
+)
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -219,6 +224,44 @@ def test_rig_helpers_use_only_fake_unreal_service() -> None:
         "sample_body_bone_position_in_frame",
         "sample_body_basis_in_frame",
     ]
+
+
+def test_beagle_profile_selects_explicit_world_z_anatomical_basis() -> None:
+    registry = load_default_source_asset_runtime_registry()
+    beagle = resolve_source_asset_alias(registry, "legacy_beagle")
+    bones = spear_actor_bindings(registry)[beagle["asset_id"]][
+        "ue_anatomical_basis_bones"
+    ]
+    runner = _load_tool(
+        "s3e_beagle_basis_runner", "tools/m6y/run_spear_apartment_canary.py"
+    )
+    game = _FakeGame(
+        _FakeUnrealService(
+            [
+                _FakeRigComponent(
+                    {
+                        "beagle-Pelvis": (0.0, 0.0, 45.0),
+                        "beagle-Spine2": (120.0, 0.0, 125.0),
+                        "beagle-L-Foot": (0.0, -25.0, 0.0),
+                        "beagle-R-Foot": (0.0, 25.0, 0.0),
+                    }
+                )
+            ]
+        )
+    )
+
+    record = runner._sample_anatomical_forward(
+        game,
+        object(),
+        0,
+        explicit_quadruped_bones=bones,
+    )
+
+    assert record["basis_kind"] == (
+        "asset_bound_quadruped_world_z_head_projection_v1"
+    )
+    assert record["bone_names"] == bones
+    np.testing.assert_allclose(record["forward_vector_ue"], [1.0, 0.0, 0.0])
 
 
 def test_lighting_helpers_issue_expected_fake_rpc_calls() -> None:
