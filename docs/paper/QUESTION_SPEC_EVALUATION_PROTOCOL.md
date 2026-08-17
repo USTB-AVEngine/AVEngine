@@ -21,6 +21,12 @@ Overlay 仅用于人审：绿色是 normal pass 中可见目标像素，红色�
 
 ## 可重复执行
 
+2026-08-17：官方 `compile` 在 `_load_native_episode` 被
+`source_asset_runtime_profiles.json` 的 size/sha 锁挡住，还不能发布
+`paper_ready_v3`。修复任务、禁止改 hash 过门、以及已完成的 RGB overlay
+提交见
+[`docs/qa/QUESTION_PROTOCOL_RECOMPILE_BLOCKER_20260817.md`](../qa/QUESTION_PROTOCOL_RECOMPILE_BLOCKER_20260817.md)。
+
 ```bash
 /data/jzy/.local/bin/uv run python tools/qa/compile_question_protocol_coverage.py compile \
   --output tmp/lead_a_question_protocol_v1

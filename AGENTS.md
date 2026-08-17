@@ -78,6 +78,13 @@ owner decisions; that file contains the current checkpoint, unfinished work
 and the exact next action. Update the checkpoint whenever a meaningful stage
 finishes or the owner changes direction.
 
+For the QuestionSpec paper-protocol coverage delivery, the official
+`compile` is currently `blocked`. Read
+`docs/qa/QUESTION_PROTOCOL_RECOMPILE_BLOCKER_20260817.md` before claiming
+`paper_ready` or touching binding-manifest hashes. The RGB canary overlay
+renderer is already landed on `cc-qa-overlay-rgb` (`6e43273`); do not
+confuse that with an official recompile.
+
 ## Current Apartment and generated-animal invariants
 
 These rules are project-owner decisions for the active AVEngine Apartment
