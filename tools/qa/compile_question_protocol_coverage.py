@@ -28,6 +28,7 @@ def _parser() -> argparse.ArgumentParser:
     compile_parser.add_argument("--output", required=True, type=Path)
     compile_parser.add_argument("--protocol", type=Path, default=DEFAULT_PROTOCOL)
     compile_parser.add_argument("--episodes", type=Path, default=DEFAULT_EPISODES)
+    compile_parser.add_argument("--ffmpeg", default="ffmpeg")
     validate_parser = subparsers.add_parser("validate", help="validate compiled bytes")
     validate_parser.add_argument("--input", required=True, type=Path)
     validate_parser.add_argument(
@@ -47,6 +48,7 @@ def main() -> int:
                 protocol_path=args.protocol.resolve(),
                 episode_catalog_path=args.episodes.resolve(),
                 output=args.output.resolve(),
+                ffmpeg=args.ffmpeg,
             )
         else:
             result = validate_compiled_delivery(

@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
+import numpy as np
 import pytest
 from test_qa_question_spec import _controlled_inputs
 
@@ -12,6 +14,9 @@ from avengine.qa.question_protocol import (
     COVERAGE_SCHEMA,
     DELIVERY_SCHEMA,
     QuestionProtocolError,
+    _compose_overlay_panel,
+    _decode_rgb_frame,
+    _OVERLAY_HEADER_HEIGHT,
     _qa_case_matches_canary,
     enumerate_episode_specs,
     validate_compiled_delivery,
@@ -180,3 +185,84 @@ def test_compiled_validator_accepts_minimum_and_keeps_paper_gate_separate(
     assert validate_compiled_delivery(output)["minimum_protocol_status"] == "pass"
     with pytest.raises(QuestionProtocolError, match="paper-balance"):
         validate_compiled_delivery(output, require_paper_ready=True)
+
+
+def _overlay_fixture() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    rgb = np.zeros((40, 60, 3), dtype=np.uint8)
+    rgb[:] = (100, 110, 120)
+    visible = np.zeros((40, 60), dtype=bool)
+    visible[5:15, 5:15] = True
+    target = visible.copy()
+    target[20:30, 20:30] = True
+    return rgb, visible, target
+
+
+@pytest.mark.fast_unit
+def test_overlay_keeps_the_native_scene_under_and_around_the_masks() -> None:
+    rgb, visible, target = _overlay_fixture()
+    panel = _compose_overlay_panel(
+        rgb,
+        visible,
+        target,
+        episode_id="episode",
+        instance_id="source1",
+        frame_index=28,
+        state="fully_occluded",
+    )
+    pixels = np.asarray(panel)
+    assert pixels.shape == (40 + _OVERLAY_HEADER_HEIGHT, 60, 3)
+    body = pixels[_OVERLAY_HEADER_HEIGHT:]
+
+    # A reviewer must still see the room: unmasked pixels stay byte-identical.
+    assert tuple(body[0, 0]) == (100, 110, 120)
+    assert tuple(body[39, 59]) == (100, 110, 120)
+
+    # The occluded footprint is tinted, not painted over: the scene shows through.
+    occluded_interior = tuple(int(value) for value in body[25, 25])
+    assert occluded_interior != (236, 92, 92)
+    assert occluded_interior != (100, 110, 120)
+    assert occluded_interior[0] > 100
+
+    visible_interior = tuple(int(value) for value in body[10, 10])
+    assert visible_interior != (74, 222, 128)
+    assert visible_interior != (100, 110, 120)
+    assert visible_interior[1] > 110
+
+    # Contours stay full opacity so thin structures survive the blend.
+    assert tuple(body[5, 5]) == (74, 222, 128)
+    assert tuple(body[20, 20]) == (236, 92, 92)
+
+
+@pytest.mark.fast_unit
+def test_overlay_rejects_masks_that_do_not_match_the_native_frame() -> None:
+    rgb, visible, target = _overlay_fixture()
+    with pytest.raises(QuestionProtocolError, match="do not match native RGB"):
+        _compose_overlay_panel(
+            rgb[:, :30],
+            visible,
+            target,
+            episode_id="episode",
+            instance_id="source1",
+            frame_index=0,
+            state="visible_clear",
+        )
+
+
+@pytest.mark.fast_unit
+def test_native_rgb_decode_rejects_a_truncated_payload(monkeypatch) -> None:
+    def _short(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=b"\x00" * 11, stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", _short)
+    with pytest.raises(QuestionProtocolError, match="expected 12"):
+        _decode_rgb_frame(Path("clip.mp4"), 0, width=2, height=2)
+
+
+@pytest.mark.fast_unit
+def test_native_rgb_decode_reports_a_failing_ffmpeg(monkeypatch) -> None:
+    def _failure(command, **kwargs):
+        return subprocess.CompletedProcess(command, 1, stdout=b"", stderr=b"no such frame")
+
+    monkeypatch.setattr(subprocess, "run", _failure)
+    with pytest.raises(QuestionProtocolError, match="no such frame"):
+        _decode_rgb_frame(Path("clip.mp4"), 99, width=2, height=2)

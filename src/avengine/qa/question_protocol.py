@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
@@ -28,6 +29,11 @@ PROTOCOL_SCHEMA = "avengine_question_spec_paper_protocol_v1"
 EPISODE_CATALOG_SCHEMA = "avengine_native_question_episode_catalog_v1"
 COVERAGE_SCHEMA = "avengine_question_spec_native_coverage_v1"
 DELIVERY_SCHEMA = "avengine_question_spec_protocol_delivery_v1"
+
+_VISIBLE_RGB = (74, 222, 128)
+_OCCLUDED_RGB = (236, 92, 92)
+_OVERLAY_ALPHA = 0.45
+_OVERLAY_HEADER_HEIGHT = 48
 
 _APPEARANCE_FIELDS = (
     "breed_id",
@@ -584,6 +590,150 @@ def _qa_case_matches_canary(
     return isinstance(evidence, Mapping) and evidence.get("instance_id") == target_instance_id
 
 
+def _overlay_font(size: int) -> Any:
+    from PIL import ImageFont
+
+    candidates = (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    )
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return ImageFont.truetype(candidate, size=size)
+    return ImageFont.load_default()
+
+
+def _decode_rgb_frame(
+    video_path: Path,
+    frame_index: int,
+    *,
+    width: int,
+    height: int,
+    ffmpeg: str | Path = "ffmpeg",
+) -> Any:
+    """Decode exactly one RGB frame so overlays sit on the real native pixels."""
+
+    import numpy as np
+
+    executable = os.fspath(ffmpeg)
+    command = [
+        executable,
+        "-nostdin",
+        "-v",
+        "error",
+        "-xerror",
+        "-i",
+        str(video_path),
+        "-vf",
+        f"select=eq(n\\,{frame_index})",
+        "-vsync",
+        "0",
+        "-frames:v",
+        "1",
+        "-pix_fmt",
+        "rgb24",
+        "-f",
+        "rawvideo",
+        "pipe:1",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120.0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise QuestionProtocolError(
+            f"native RGB decode could not run {executable!r} for {video_path}"
+        ) from error
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", "replace").strip()
+        raise QuestionProtocolError(
+            f"native RGB decode failed for {video_path} frame {frame_index}: {detail}"
+        )
+    payload = completed.stdout
+    expected = width * height * 3
+    if not isinstance(payload, bytes) or len(payload) != expected:
+        raise QuestionProtocolError(
+            f"native RGB decode returned {len(payload)} bytes for {video_path} "
+            f"frame {frame_index}; expected {expected}"
+        )
+    return np.frombuffer(payload, dtype=np.uint8).reshape(height, width, 3)
+
+
+def _compose_overlay_panel(
+    rgb: Any,
+    visible: Any,
+    target: Any,
+    *,
+    episode_id: str,
+    instance_id: str,
+    frame_index: int,
+    state: str,
+) -> Any:
+    """Blend the visible/occluded masks over the native frame.
+
+    Pixels outside both masks keep their exact native bytes.  A reviewer must be
+    able to see the occluder itself, not only the target footprint.
+    """
+
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    rgb = np.asarray(rgb)
+    if rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.dtype != np.uint8:
+        raise QuestionProtocolError("overlay base frame must be uint8 [height,width,3]")
+    if visible.shape != rgb.shape[:2] or target.shape != rgb.shape[:2]:
+        raise QuestionProtocolError(
+            f"canary masks {visible.shape} do not match native RGB {rgb.shape[:2]}"
+        )
+    height, width = rgb.shape[:2]
+    occluded = target & ~visible
+    pixels = rgb.astype(np.float32).copy()
+    for mask, colour in ((visible, _VISIBLE_RGB), (occluded, _OCCLUDED_RGB)):
+        if not mask.any():
+            continue
+        tint = np.asarray(colour, dtype=np.float32)
+        pixels[mask] = (
+            pixels[mask] * (1.0 - _OVERLAY_ALPHA) + tint * _OVERLAY_ALPHA
+        )
+    blended = np.clip(pixels, 0, 255).astype(np.uint8)
+    # Stroke full-opacity outlines so thin structures survive the blend.
+    for mask, colour in ((visible, _VISIBLE_RGB), (occluded, _OCCLUDED_RGB)):
+        blended[_mask_edge(mask)] = colour
+    panel = Image.fromarray(blended, mode="RGB")
+
+    canvas = Image.new("RGB", (width, height + _OVERLAY_HEADER_HEIGHT), (10, 15, 23))
+    canvas.paste(panel, (0, _OVERLAY_HEADER_HEIGHT))
+    draw = ImageDraw.Draw(canvas)
+    draw.text(
+        (12, 8),
+        f"{episode_id} · {instance_id} · frame {frame_index}",
+        fill=(232, 238, 247),
+        font=_overlay_font(17),
+    )
+    draw.text(
+        (12, 30),
+        f"state={state}  green=visible  red=occluded target footprint",
+        fill=(154, 174, 199),
+        font=_overlay_font(14),
+    )
+    return canvas
+
+
+def _mask_edge(mask: Any) -> Any:
+    """Return the one-pixel boundary of a boolean mask."""
+
+    interior = mask.copy()
+    interior[1:, :] &= mask[:-1, :]
+    interior[:-1, :] &= mask[1:, :]
+    interior[:, 1:] &= mask[:, :-1]
+    interior[:, :-1] &= mask[:, 1:]
+    return mask & ~interior
+
+
 def _render_canary_overlay(
     *,
     episode: Mapping[str, Any],
@@ -591,10 +741,11 @@ def _render_canary_overlay(
     frame_indices: Sequence[int],
     expected_states: Sequence[str],
     output_path: Path,
+    ffmpeg: str | Path = "ffmpeg",
 ) -> dict[str, Any]:
     try:
         import numpy as np
-        from PIL import Image, ImageDraw
+        from PIL import Image
     except ImportError as error:  # pragma: no cover - declared runtime dependencies
         raise QuestionProtocolError("native overlay rendering needs numpy and Pillow") from error
     instances = episode["facts"].get("instances")
@@ -609,6 +760,7 @@ def _render_canary_overlay(
         )
     slot = matches[0]["source_slot_id"]
     mask_path = Path(episode["native_files"]["pixel_masks"]["path"])
+    rgb_path = Path(episode["native_files"]["native_rgb_binaural"]["path"])
     panels: list[Any] = []
     counts: list[dict[str, int]] = []
     with np.load(mask_path, allow_pickle=False) as archive:
@@ -625,27 +777,25 @@ def _render_canary_overlay(
                 raise QuestionProtocolError("canary frame lies outside native mask archive")
             visible = modal[frame_index].astype(bool)
             target = target_only[frame_index].astype(bool)
-            pixels = np.zeros((*visible.shape, 3), dtype=np.uint8)
-            pixels[:] = (18, 24, 34)
-            pixels[target & ~visible] = (236, 92, 92)
-            pixels[visible] = (74, 222, 128)
-            panel = Image.fromarray(pixels, mode="RGB")
-            panel.thumbnail((640, 360), Image.Resampling.NEAREST)
-            canvas = Image.new("RGB", (640, 408), (10, 15, 23))
-            left = (640 - panel.width) // 2
-            canvas.paste(panel, (left, 48))
-            draw = ImageDraw.Draw(canvas)
-            draw.text(
-                (12, 10),
-                f"{episode['episode_id']} · {target_instance_id} · frame {frame_index}",
-                fill=(232, 238, 247),
+            height, width = visible.shape
+            rgb = _decode_rgb_frame(
+                rgb_path,
+                frame_index,
+                width=width,
+                height=height,
+                ffmpeg=ffmpeg,
             )
-            draw.text(
-                (12, 28),
-                f"state={expected_state}  green=visible  red=occluded target footprint",
-                fill=(154, 174, 199),
+            panels.append(
+                _compose_overlay_panel(
+                    rgb,
+                    visible,
+                    target,
+                    episode_id=episode["episode_id"],
+                    instance_id=target_instance_id,
+                    frame_index=frame_index,
+                    state=expected_state,
+                )
             )
-            panels.append(canvas)
             counts.append(
                 {
                     "frame_index": frame_index,
@@ -654,9 +804,14 @@ def _render_canary_overlay(
                     "occluded_target_pixels": int((target & ~visible).sum()),
                 }
             )
-    sheet = Image.new("RGB", (640, 408 * len(panels)), (10, 15, 23))
-    for index, panel in enumerate(panels):
-        sheet.paste(panel, (0, index * 408))
+    sheet_width = max(panel.width for panel in panels)
+    sheet = Image.new(
+        "RGB", (sheet_width, sum(panel.height for panel in panels)), (10, 15, 23)
+    )
+    offset = 0
+    for panel in panels:
+        sheet.paste(panel, (0, offset))
+        offset += panel.height
     output_path.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(output_path)
     return {"path": output_path.name, "frames": counts}
@@ -850,6 +1005,7 @@ def compile_question_protocol_coverage(
     protocol_path: Path,
     episode_catalog_path: Path,
     output: Path,
+    ffmpeg: str | Path = "ffmpeg",
 ) -> dict[str, Any]:
     """Atomically compile current-code native coverage and human overlays."""
 
@@ -907,6 +1063,7 @@ def compile_question_protocol_coverage(
                 frame_indices=selected,
                 expected_states=canary["expected_state_sequence"],
                 output_path=temporary / overlay_relative,
+                ffmpeg=ffmpeg,
             )
             canary_results.append(
                 {
