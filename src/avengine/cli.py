@@ -97,6 +97,10 @@ from avengine.m5.current_mp3d_route import (
     CurrentMP3DRouteError,
     author_current_mp3d_two_beagle_route,
 )
+from avengine.m5.current_m1_research_audio import (
+    CurrentM1ResearchAudioError,
+    render_current_m1_research_audio,
+)
 from avengine.m5.current_visual_review import (
     CurrentVisualReviewError,
     generate_current_visual_review,
@@ -1319,6 +1323,35 @@ def _m5_validate_request(args: argparse.Namespace) -> int:
     return 0 if not errors else 2
 
 
+def _m5_render_current_m1_research_audio(args: argparse.Namespace) -> int:
+    """Assemble existing current-M1 pair IRs without activating native code."""
+
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        receipt = render_current_m1_research_audio(
+            args.foa_receipt,
+            args.binaural_receipt,
+            output,
+        )
+    except (CurrentM1ResearchAudioError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "formal_dataset_count": receipt["formal_dataset_count"],
+            "qualification_claim": receipt["qualification_claim"],
+            "sample_rate_hz": receipt["audio"]["sample_rate_hz"],
+            "sample_count": receipt["audio"]["sample_count"],
+            "output": str(output),
+            "receipt": str(output / "research_receipt.json"),
+        }
+    )
+    return 0
+
+
 def _m5_run_canary(args: argparse.Namespace) -> int:
     try:
         output = _require_ignored_or_external_output(args.output)
@@ -2161,6 +2194,18 @@ def build_parser() -> argparse.ArgumentParser:
     m5_validate = m5_commands.add_parser("validate-request")
     m5_validate.add_argument("request")
     m5_validate.set_defaults(handler=_m5_validate_request)
+
+    m5_current_audio = m5_commands.add_parser(
+        "render-current-m1-research-audio",
+        help=(
+            "Offline-assemble existing matching current-M1 FOA/binaural "
+            "pair receipts into five-second research WAVs"
+        ),
+    )
+    m5_current_audio.add_argument("--foa-receipt", required=True)
+    m5_current_audio.add_argument("--binaural-receipt", required=True)
+    m5_current_audio.add_argument("--output", required=True)
+    m5_current_audio.set_defaults(handler=_m5_render_current_m1_research_audio)
 
     m5_run = m5_commands.add_parser("run-canary")
     m5_run.add_argument("--request", required=True)

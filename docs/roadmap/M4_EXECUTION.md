@@ -326,6 +326,25 @@ audio, stems, mix, dynamic-emitter evidence, formal M4 qualification, Episode,
 or dataset admission is claimed. Every receipt keeps
 `episode_counted=false`, `formal_dataset_count=0`, and `qualification=false`.
 
+### Offline M5 handoff from the current pair receipts
+
+After both current pair writers have completed, M5 can assemble their retained
+IR WAVs without another native render:
+
+```bash
+"$HABPY" -m avengine.cli m5 render-current-m1-research-audio \
+  --foa-receipt /external/review/current_m1_foa/research_receipt.json \
+  --binaural-receipt /external/review/current_m1_binaural/research_receipt.json \
+  --output /external/review/current_m1_audio_<RUN_ID>
+```
+
+This handoff refuses mismatched M1/simulation/package/endpoints/propagation,
+runtime identity or research-QA boundaries and requires the binaural HRTF/SOFA
+preflights to have passed. Pair-list order is irrelevant; `source_id` plus the
+existing sidecar binds each IR. See [M5_EXECUTION.md](M5_EXECUTION.md) for the
+five-second dry, stem, mixture, tail-recording and no-clobber behavior. The
+offline result remains research-only and does not upgrade either M4 receipt.
+
 ## 4. Independently verify archived v1 evidence
 
 ```bash

@@ -115,6 +115,55 @@ contract, or formal gate, and it makes no body-volume collision, audio/RLR,
 formal episode, or equivalence claim.
 
 
+## Offline current-M1 research audio assembly
+
+`render-current-m1-research-audio` joins one completed current-M1 FOA receipt
+and one completed current-M1 native-binaural receipt. It is a CPU-only offline
+handoff: the command has no runtime, SDK, HRTF, native, UE, or GPU argument and
+does not activate RLR again.
+
+Before writing output it requires both receipts to agree on their M1 request,
+simulation request, acoustic package and room, listener pose, `source0` and
+`source1` positions, propagation switches, current installed-runtime identity,
+package-QA report, 16 kHz rate, and non-formal research boundary. FOA must say
+`hrtf_used=false`; binaural must retain passing HRTF and native-SOFA preflights.
+Each pair is joined by `source_id` and its authenticated existing WAV sidecar,
+not by JSON-list position, and both the WAV and sidecar must remain inside the
+receipt directory.
+
+```bash
+export FOA_RECEIPT=/external/review/current_m1_foa/research_receipt.json
+export BINAURAL_RECEIPT=/external/review/current_m1_binaural/research_receipt.json
+export M5_AUDIO=/external/review/current_m1_audio_<RUN_ID>
+
+"$HABPY" -m avengine.cli m5 render-current-m1-research-audio \
+  --foa-receipt "$FOA_RECEIPT" \
+  --binaural-receipt "$BINAURAL_RECEIPT" \
+  --output "$M5_AUDIO"
+```
+
+The deterministic dry buses are exactly 80,000 samples: `source0` is a 440 Hz,
+0.25-amplitude sine at phase 0 and `source1` is a 660 Hz, 0.25-amplitude sine
+at phase pi/2. A single sample-0 static keyframe reuses the ordinary M5 dynamic
+stem assembler for FOA and binaural separately. It records each full linear
+convolution length but writes only the explicit five-second `[0,80000)` episode
+crop, with no resampling, normalization, or limiter:
+
+```text
+dry/{source0,source1}.wav
+foa/stems/{source0,source1}.wav
+foa/mix.wav
+binaural/stems/{source0,source1}.wav
+binaural/mix.wav
+research_receipt.json
+```
+
+All eight float32 WAVs retain the existing adjacent WAV sidecar format. The
+ordinary research receipt has no new schema, baseline, or verifier gate and
+keeps `research_only=true`, `episode_counted=false`,
+`formal_dataset_count=0`, and `qualification=false`.
+
+
 ### Offline human review
 
 Only after a completed `research_only` receipt exists, generate a fresh local
