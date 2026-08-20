@@ -79,6 +79,7 @@ from avengine.m4.contracts import (
 )
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
+from avengine.m5.current_visual import CurrentVisualError, capture_current_visual
 from avengine.m5.timeline import validate_episode_request
 from avengine.m6.rooms import load_room_registry
 from avengine.m6.canary import (
@@ -1162,6 +1163,40 @@ def _m5_run_canary(args: argparse.Namespace) -> int:
     return 0 if status == "pass" else 1
 
 
+def _m5_capture_current_visual(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        receipt = capture_current_visual(
+            animal_manifest_path=args.animal_manifest,
+            m2_request_path=args.m2_request,
+            room_manifest_path=args.room_manifest,
+            m1_request_path=args.m1_request,
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            output_directory=output,
+        )
+    except (CurrentVisualError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    status = receipt["status"]
+    _print(
+        {
+            "status": status,
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "output": str(output),
+            "receipt": str(output / "research_receipt.json"),
+            **(
+                {"reason": receipt["reason"]}
+                if status == "not_run"
+                else {"frame_count": receipt["capture"]["frame_count"]}
+            ),
+        }
+    )
+    return 0 if status == "research_only" else EXIT_BY_STATUS.get(status, 2)
+
+
 def _m5_verify_canary(args: argparse.Namespace) -> int:
     try:
         status, checks = verify_m5_canary_evidence(args.evidence)
@@ -1667,6 +1702,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m5_run.add_argument("--output", required=True)
     m5_run.set_defaults(handler=_m5_run_canary)
+
+    m5_current_visual = m5_commands.add_parser(
+        "capture-current-visual",
+        help="Run a visual-only installed-prefix MP3D research capture",
+    )
+    m5_current_visual.add_argument("--animal-manifest", required=True)
+    m5_current_visual.add_argument("--m2-request", required=True)
+    m5_current_visual.add_argument("--room-manifest", required=True)
+    m5_current_visual.add_argument("--m1-request", required=True)
+    m5_current_visual.add_argument("--runtime-prefix", required=True)
+    m5_current_visual.add_argument("--mp3d-root", required=True)
+    m5_current_visual.add_argument("--magnum-python-site", required=True)
+    m5_current_visual.add_argument("--output", required=True)
+    m5_current_visual.set_defaults(handler=_m5_capture_current_visual)
 
     m5_verify = m5_commands.add_parser("verify-canary")
     m5_verify.add_argument("evidence")
