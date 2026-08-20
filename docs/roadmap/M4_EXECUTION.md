@@ -191,6 +191,93 @@ schema, baseline, runtime lock, evidence hash, or verify-canary reader.
 A successful raw-FOA render is not a v2 canary, HRTF/binaural validation,
 formal M4 qualification, or historical-equivalence claim.
 
+## Current M1 static pair-IR research slice
+
+`run-current-m1-foa` and `run-current-m1-binaural` are additive writers for a
+current M1 request whose two static sources are named `source0` and `source1`.
+They do not read the retained M4 canary request, accept repeated `--source`
+arguments, or manufacture M2/Beagle anchor evidence. The shared loader:
+
+1. validates the M1 request before loading the larger M3 package;
+2. obtains room identity from the package's `source_room.room_id` and requires
+   exact equality with the M1 `room_id`;
+3. composes `world_from_rig` with `rig_from_listener` for the listener pose and
+   takes each source position directly from M1 `world_from_source`;
+4. loads an existing `avengine_rir_cache_simulation_request_v1`, requires
+   `qualification_claim=false`, validates its full `M4SimulationConfig`, and
+   requires native 16 kHz ambisonics/4 as the declared base configuration; and
+5. loads the M3 package with the existing nonpassing-research-QA override.
+
+The last item is not package qualification. In particular, a current package
+whose geometry status is `fail` and ray status is `not_run` remains usable only
+for this research slice. The ordinary receipt records the observed package QA
+statuses, `qualification=false`, `qualification_claim=false`,
+`research_only=true`, `episode_counted=false`, and `formal_dataset_count=0`.
+It also states that static M1 source positions are the only endpoint authority,
+with dynamic-actor and M2-anchor claims both false.
+
+Use a fresh Git-ignored repository output or an external output. The installed
+Habitat prefix, RLR SDK package root and Magnum Python site must each be an
+explicit accessible canonical directory outside every Git checkout:
+
+```bash
+export M1_CURRENT=/external/review/current-room/research_m1_request.json
+export RIR_SIMULATION="$REPO/examples/runtime/rir_cache_simulation_request_v2.json"
+export M3_PACKAGE=/external/acoustic/current-room/manifest.json
+export HABITAT_PREFIX=/external/runtime/installed-habitat
+export RLR_SDK=/external/sdk/RLRAudioPropagationPkg
+export MAGNUM_SITE=/external/runtime/magnum-python-site
+
+"$HABPY" -m avengine.cli m4 run-current-m1-foa \
+  --m1-request "$M1_CURRENT" \
+  --simulation-request "$RIR_SIMULATION" \
+  --package-manifest "$M3_PACKAGE" \
+  --runtime-prefix "$HABITAT_PREFIX" \
+  --rlr-sdk-root "$RLR_SDK" \
+  --magnum-python-site "$MAGNUM_SITE" \
+  --output /external/review/current_m1_foa_fresh
+```
+
+The FOA command always requests four native channels in `[W, Y, Z, X]` order,
+ACN indices `[0, 1, 2, 3]`, N3D normalization and AVEngine's right-handed
+world axes. It passes no HRTF to RLR and performs no resampling,
+normalization, limiting or binaural conversion.
+
+The binaural command uses the same package, propagation configuration and M1
+endpoints, but derives a fixed two-channel `[left, right]` native listener. It
+requires the existing strict HRTF/license preflight inputs explicitly:
+
+```bash
+export HRTF=/external/hrtf/derived-16k.sofa
+export HRTF_SHA256=<lowercase-sha256-of-sofa>
+export HRTF_LICENSE=/external/hrtf/LICENSE.txt
+export HRTF_LICENSE_SHA256=<lowercase-sha256-of-license>
+
+"$HABPY" -m avengine.cli m4 run-current-m1-binaural \
+  --m1-request "$M1_CURRENT" \
+  --simulation-request "$RIR_SIMULATION" \
+  --package-manifest "$M3_PACKAGE" \
+  --runtime-prefix "$HABITAT_PREFIX" \
+  --rlr-sdk-root "$RLR_SDK" \
+  --magnum-python-site "$MAGNUM_SITE" \
+  --hrtf "$HRTF" \
+  --hrtf-sha256 "$HRTF_SHA256" \
+  --hrtf-sample-rate-hz 16000 \
+  --hrtf-license "$HRTF_LICENSE" \
+  --hrtf-license-sha256 "$HRTF_LICENSE_SHA256" \
+  --hrtf-license-id <license-id> \
+  --hrtf-citation "<provider and asset citation>" \
+  --output /external/review/current_m1_binaural_fresh
+```
+
+Strict mode blocks a non-16-kHz SOFA instead of implicitly adapting its rate.
+The HRTF and license hashes are the already-established binaural dependency
+preflight boundary, not a new package hash, runtime lock, baseline or gate.
+`native_cardinal_validation=not_run` in this raw-pair receipt means the command
+does not claim the separate left/right cardinal canary. Neither command adds a
+schema or changes the retained `run-current-foa`, `run-canary`, or evidence
+reader behavior.
+
 ## 4. Independently verify archived v1 evidence
 
 ```bash

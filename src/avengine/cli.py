@@ -74,6 +74,12 @@ from avengine.m3.rlr_material_import import (
 from avengine.m3.runtime import RuntimeUnavailableError
 from avengine.m4.canary import M4CanaryError, run_m4_canary
 from avengine.m4.current_foa import CurrentFOAError, run_current_foa
+from avengine.m4.current_m1_pair_ir import (
+    CurrentM1PairIRBlockedError,
+    CurrentM1PairIRError,
+    run_current_m1_binaural,
+    run_current_m1_foa,
+)
 from avengine.m4.contracts import (
     M4ContractError,
     load_and_validate_multi_source_canary_request,
@@ -1181,6 +1187,95 @@ def _m4_run_current_foa(args: argparse.Namespace) -> int:
     return 0 if receipt["status"] == "pass" else 2
 
 
+def _m4_run_current_m1_foa(args: argparse.Namespace) -> int:
+    """Write raw current RLR FOA pair IRs from static M1 endpoints."""
+
+    try:
+        _require_current_installed_runtime_inputs(args)
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = run_current_m1_foa(
+                args.m1_request,
+                args.simulation_request,
+                args.package_manifest,
+                output,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+            )
+    except (CurrentM1PairIRBlockedError, RuntimeUnavailableError) as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (CurrentM1PairIRError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_status": receipt["research_status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "formal_dataset_count": receipt["formal_dataset_count"],
+            "qualification_claim": receipt["qualification_claim"],
+            "output": str(output),
+            "foa_pair_count": len(receipt["pairs"]),
+        }
+    )
+    return 0 if receipt["status"] == "pass" else 2
+
+
+def _m4_run_current_m1_binaural(args: argparse.Namespace) -> int:
+    """Write native current RLR binaural pair IRs from static M1 endpoints."""
+
+    try:
+        _require_current_installed_runtime_inputs(args)
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = run_current_m1_binaural(
+                args.m1_request,
+                args.simulation_request,
+                args.package_manifest,
+                output,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+                hrtf_path=args.hrtf,
+                expected_hrtf_sha256=args.hrtf_sha256,
+                hrtf_sample_rate_hz=args.hrtf_sample_rate_hz,
+                hrtf_license_path=args.hrtf_license,
+                expected_hrtf_license_sha256=args.hrtf_license_sha256,
+                hrtf_license_id=args.hrtf_license_id,
+                hrtf_citation=args.hrtf_citation,
+            )
+    except (CurrentM1PairIRBlockedError, RuntimeUnavailableError) as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (CurrentM1PairIRError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_status": receipt["research_status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "formal_dataset_count": receipt["formal_dataset_count"],
+            "qualification_claim": receipt["qualification_claim"],
+            "output": str(output),
+            "binaural_pair_count": len(receipt["pairs"]),
+        }
+    )
+    return 0 if receipt["status"] == "pass" else 2
+
+
 def _m4_verify_canary(args: argparse.Namespace) -> int:
     try:
         status, checks = verify_m4_canary_evidence(args.evidence)
@@ -1973,6 +2068,82 @@ def build_parser() -> argparse.ArgumentParser:
         handler=_m4_run_current_foa,
         runtime_mode="current-installed",
     )
+
+    def add_current_m1_pair_ir_arguments(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--m1-request", required=True)
+        parser.add_argument("--simulation-request", required=True)
+        parser.add_argument("--package-manifest", required=True)
+        parser.add_argument(
+            "--runtime-prefix",
+            required=True,
+            help="Explicit installed non-checkout Habitat prefix",
+        )
+        parser.add_argument(
+            "--rlr-sdk-root",
+            required=True,
+            help="Explicit external non-checkout RLRAudioPropagationPkg",
+        )
+        parser.add_argument(
+            "--magnum-python-site",
+            required=True,
+            help="Explicit external non-checkout Magnum Python site",
+        )
+        parser.add_argument(
+            "--output",
+            required=True,
+            help="Fresh Git-ignored repository or external output path",
+        )
+        parser.set_defaults(runtime_mode="current-installed")
+
+    m4_current_m1_foa = m4_commands.add_parser(
+        "run-current-m1-foa",
+        help="Write research-only native 16 kHz FOA pair IRs from static M1",
+    )
+    add_current_m1_pair_ir_arguments(m4_current_m1_foa)
+    m4_current_m1_foa.set_defaults(handler=_m4_run_current_m1_foa)
+
+    m4_current_m1_binaural = m4_commands.add_parser(
+        "run-current-m1-binaural",
+        help="Write research-only native 16 kHz binaural pair IRs from static M1",
+    )
+    add_current_m1_pair_ir_arguments(m4_current_m1_binaural)
+    m4_current_m1_binaural.add_argument(
+        "--hrtf",
+        required=True,
+        help="Explicit 16 kHz SOFA HRTF",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-sha256",
+        required=True,
+        help="Expected lowercase SHA-256 of the selected SOFA file",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-sample-rate-hz",
+        required=True,
+        type=int,
+        help="Declared and upstream-verified SOFA sample rate (must be 16000)",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-license",
+        required=True,
+        help="Explicit HRTF license evidence file",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-license-sha256",
+        required=True,
+        help="Expected lowercase SHA-256 of the HRTF license evidence",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-license-id",
+        required=True,
+        help="Explicit HRTF license identifier",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-citation",
+        required=True,
+        help="Explicit HRTF citation",
+    )
+    m4_current_m1_binaural.set_defaults(handler=_m4_run_current_m1_binaural)
 
     m4_verify = m4_commands.add_parser("verify-canary")
     m4_verify.add_argument("evidence")
