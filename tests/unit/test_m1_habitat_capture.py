@@ -17,6 +17,7 @@ from avengine.m1.habitat_capture import (
     _activate_runtime_prefix,
     _import_installed_habitat,
     _import_prepared_installed_habitat,
+    _import_prepared_installed_habitat_dependencies,
     _import_prepared_installed_habitat_with_rlr,
     _prepare_installed_habitat_import,
     _installed_runtime_paths,
@@ -553,6 +554,11 @@ def test_explicit_rlr_sdk_preloads_before_prepared_habitat_import(
         "discover_external_rlr_sdk",
         lambda root: events.append(("discover", root)) or sdk,
     )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_prepared_installed_habitat_dependencies",
+        lambda observed: events.append(("dependencies", observed))
+        or (object(), object()),
+    )
 
     def preload(observed_sdk: ExternalRlrSdk) -> None:
         assert binding_name not in sys.modules
@@ -577,11 +583,43 @@ def test_explicit_rlr_sdk_preloads_before_prepared_habitat_import(
     assert observed_import == imported
     assert observed_sdk == sdk
     assert events == [
+        ("dependencies", prepared),
         ("discover", sdk.root),
         ("preload", sdk),
         ("import", prepared),
         ("validate", sdk),
     ]
+
+
+def test_prepared_dependencies_load_before_habitat_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = tmp_path / "magnum-site"
+    prepared = type(
+        "Prepared",
+        (),
+        {"prefix": tmp_path / "prefix", "magnum_python_site": site},
+    )()
+    quaternion = ModuleType("quaternion")
+    magnum = ModuleType("magnum")
+    monkeypatch.setitem(sys.modules, "quaternion", quaternion)
+    monkeypatch.setitem(sys.modules, "magnum", magnum)
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    monkeypatch.delitem(sys.modules, binding_name, raising=False)
+    validations: list[tuple[Path, ModuleType]] = []
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_magnum_python_origins",
+        lambda observed_site, observed_magnum: validations.append(
+            (observed_site, observed_magnum)
+        ),
+    )
+
+    assert _import_prepared_installed_habitat_dependencies(prepared) == (
+        quaternion,
+        magnum,
+    )
+    assert validations == [(site, magnum)]
+    assert binding_name not in sys.modules
 
 
 def test_explicit_rlr_sdk_rejects_loaded_binding_mismatch_before_cdll(
@@ -600,6 +638,10 @@ def test_explicit_rlr_sdk_rejects_loaded_binding_mismatch_before_cdll(
         rlr_sdk_module,
         "discover_external_rlr_sdk",
         lambda _root: events.append("discover") or sdk,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_prepared_installed_habitat_dependencies",
+        lambda _prepared: events.append("dependencies") or (object(), object()),
     )
 
     def reject_mapping(_sdk: ExternalRlrSdk) -> None:
@@ -627,7 +669,7 @@ def test_explicit_rlr_sdk_rejects_loaded_binding_mismatch_before_cdll(
             rlr_sdk_root=sdk.root,
         )
 
-    assert events == ["discover", "validate"]
+    assert events == ["dependencies", "discover", "validate"]
 
 
 def test_adapter_linked_import_without_sdk_has_explicit_remediation(

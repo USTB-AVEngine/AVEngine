@@ -378,6 +378,16 @@ def _prepare_installed_habitat_runtime_import(
     )
 
 
+def _prepare_installed_habitat_runtime_dependencies(prepared: Any) -> None:
+    """Initialize quaternion/Magnum before process-global RLR symbols."""
+
+    from avengine.m1.habitat_capture import (
+        _import_prepared_installed_habitat_dependencies,
+    )
+
+    _import_prepared_installed_habitat_dependencies(prepared)
+
+
 def _import_prepared_installed_habitat_runtime(
     prefix: Path, prepared: Any, *, rlr_sdk_root: str | Path
 ) -> tuple[ModuleType, ModuleType, Path, Path, Any]:
@@ -483,7 +493,13 @@ def load_habitat_runtime(
                 )
             )
         else:
-            # Historical v1 keeps its retained import/preload sequence.
+            # Historical inputs retain their environment/default selection,
+            # but numerical/Magnum dependencies must initialize before RLR's
+            # process-global C++ symbols for the same reason as current mode.
+            prepared_import = _prepare_installed_habitat_runtime_import(
+                prefix, magnum_python_site=None
+            )
+            _prepare_installed_habitat_runtime_dependencies(prepared_import)
             sdk = discover_external_rlr_sdk(rlr_sdk_root)
             preload_external_rlr_sdk(sdk)
             habitat_module, _binding_module, module_path, binding_path = (

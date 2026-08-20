@@ -430,6 +430,18 @@ def _habitat_binding_is_loaded() -> bool:
     )
 
 
+def _import_prepared_installed_habitat_dependencies(
+    prepared: _PreparedInstalledHabitatImport,
+) -> tuple[Any, Any]:
+    """Load numerical/Magnum dependencies before process-global RLR symbols."""
+
+    import quaternion as qt
+    import magnum as mn
+
+    _validate_magnum_python_origins(prepared.magnum_python_site, mn)
+    return qt, mn
+
+
 def _import_prepared_installed_habitat_with_rlr(
     prepared: _PreparedInstalledHabitatImport,
     *,
@@ -438,6 +450,11 @@ def _import_prepared_installed_habitat_with_rlr(
     """Select one explicit external RLR SDK before importing the binding."""
 
     from avengine.backends.rlr import sdk as rlr_sdk_module
+
+    # RLR exports process-global C++ symbols. Import quaternion/llvmlite and
+    # Magnum first so their one-time native initialization cannot bind against
+    # the RLR SDK's C++ runtime symbols.
+    _import_prepared_installed_habitat_dependencies(prepared)
 
     sdk = rlr_sdk_module.discover_external_rlr_sdk(rlr_sdk_root)
     # Repeats may reuse an imported binding only when its process mapping is

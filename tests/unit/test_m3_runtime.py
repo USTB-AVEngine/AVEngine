@@ -342,6 +342,11 @@ def _mock_installed_runtime(
     )
     monkeypatch.setattr(
         runtime_module,
+        "_prepare_installed_habitat_runtime_dependencies",
+        lambda _prepared: None,
+    )
+    monkeypatch.setattr(
+        runtime_module,
         "_import_prepared_installed_habitat_runtime",
         lambda _prefix, _prepared, **_kwargs: (
             habitat,
@@ -1265,6 +1270,12 @@ def test_historical_runtime_keeps_preload_before_prefix_import(
     events: list[str] = []
     original_loader = runtime_module._load_installed_habitat_runtime
 
+    monkeypatch.setattr(
+        runtime_module,
+        "_prepare_installed_habitat_runtime_dependencies",
+        lambda _prepared: events.append("dependencies"),
+    )
+
     def load_prefix(
         observed_prefix: Path, *, magnum_python_site: Path | None = None
     ) -> tuple[ModuleType, ModuleType, Path, Path]:
@@ -1285,4 +1296,4 @@ def test_historical_runtime_keeps_preload_before_prefix_import(
 
     load_habitat_runtime(runtime_prefix=prefix, rlr_sdk_root=sdk.root)
 
-    assert events == ["preload", "load_installed", "validate"]
+    assert events == ["dependencies", "preload", "load_installed", "validate"]
