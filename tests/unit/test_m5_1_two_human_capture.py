@@ -4,12 +4,17 @@ from copy import deepcopy
 from dataclasses import replace
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from avengine.m1.habitat_capture import (
+    discover_mp3d_root,
+    resolve_installed_runtime_prefix,
+)
 from avengine.m5_1.two_human_capture import (
     _CapturedTwoHumanFrame,
     TwoHumanCaptureError,
@@ -64,6 +69,125 @@ ACTOR_ROTATIONS = {
     "source1": [0.0, 0.2, 0.0, 0.9797958971132712],
     "source2": [0.0, -0.1, 0.0, 0.99498743710662],
 }
+
+_REAL_V4_AUTHORITY_ENVIRONMENT = (
+    "AVENGINE_M5_1_V4_AUTHORITY_ROOT",
+    "AVENGINE_HABITAT_RUNTIME_PREFIX",
+    "AVENGINE_MP3D_ROOT",
+)
+_REAL_V4_AUTHORITY_FILES = {
+    "atom": Path("atom_request.json"),
+    "room": Path("room_manifest.json"),
+    "suite": Path("cpu_preflight_v1/suite_execution_plan.json"),
+    "sensor_rig": Path("cpu_preflight_v1/sensor_rig_trajectory.json"),
+    "trajectory_bank": Path("cpu_preflight_v1/trajectory_bank.json"),
+    "rir_plan": Path("cpu_preflight_v1/rir_job_plan.json"),
+}
+
+
+def _external_v4_authority_inputs_or_skip() -> dict[str, Path]:
+    if not any(name in os.environ for name in _REAL_V4_AUTHORITY_ENVIRONMENT):
+        pytest.skip(
+            "real v4 authority loader requires all explicit selectors: "
+            + ", ".join(_REAL_V4_AUTHORITY_ENVIRONMENT)
+        )
+    missing = [
+        name for name in _REAL_V4_AUTHORITY_ENVIRONMENT if name not in os.environ
+    ]
+    assert not missing, (
+        "configured real v4 authority loader is missing companion selectors: "
+        + ", ".join(missing)
+    )
+    values = {name: os.environ[name] for name in _REAL_V4_AUTHORITY_ENVIRONMENT}
+    blank = [name for name, value in values.items() if not value.strip()]
+    assert not blank, (
+        "configured real v4 authority loader selectors must be non-empty: "
+        + ", ".join(blank)
+    )
+    return {
+        name: Path(value).expanduser().resolve()
+        for name, value in values.items()
+    }
+
+
+def _configured_v4_authority_fixture(authority_root: Path) -> dict[str, Path]:
+    assert authority_root.is_dir(), (
+        "configured AVENGINE_M5_1_V4_AUTHORITY_ROOT is not a directory: "
+        f"{authority_root}"
+    )
+    files = {
+        name: authority_root / relative_path
+        for name, relative_path in _REAL_V4_AUTHORITY_FILES.items()
+    }
+    missing = [str(path) for path in files.values() if not path.is_file()]
+    assert not missing, "configured real v4 authority fixture is incomplete: " + ", ".join(
+        missing
+    )
+    return files
+
+
+def _assert_current_v4_authority_fixture_semantics(
+    atom: object,
+    room: object,
+    *,
+    runtime_prefix: Path,
+    mp3d_root: Path,
+) -> None:
+    assert isinstance(atom, dict), "configured v4 atom request must be an object"
+    assert atom.get("schema") == "avengine_native_strict_two_human_mp3d_room_atom_request_v2", (
+        "configured atom request schema is not current"
+    )
+    assert atom.get("request_id") == "mp3d_17DRP5sb8fy_strict_two_human_static_rig_v4", (
+        "configured atom request is not the v4 authority token"
+    )
+    assert atom.get("visual_execution_mode") == "habitat_native_production", (
+        "configured atom request must select Habitat-native production"
+    )
+    assert atom.get("qualification_claim") is False and atom.get(
+        "formal_dataset_count"
+    ) == 0, "configured atom request must remain non-formal"
+    atom_room = atom.get("room")
+    camera_runtime = atom.get("camera_runtime")
+    assert isinstance(atom_room, dict) and isinstance(camera_runtime, dict), (
+        "configured atom request lacks room/camera runtime semantics"
+    )
+    assert camera_runtime.get("loaded_scene_id") == atom_room.get("scene_id") == "17DRP5sb8fy", (
+        "configured atom request scene identity drifted"
+    )
+    for owner, path in {
+        "scene": camera_runtime.get("scene_path"),
+        "dataset": camera_runtime.get("dataset_config_path"),
+        "navmesh": atom_room.get("navmesh_path"),
+    }.items():
+        assert isinstance(path, str) and "AVENGINE_HABITAT_RUNTIME_ROOT" not in path, (
+            f"configured atom {owner} path retains the legacy runtime-root token"
+        )
+        assert Path(path).resolve().is_relative_to(mp3d_root), (
+            f"configured atom {owner} path is outside AVENGINE_MP3D_ROOT"
+        )
+    assert Path(str(camera_runtime.get("physics_config_path"))).resolve() == (
+        runtime_prefix / "config/default.physics_config.json"
+    ).resolve(), "configured atom physics path differs from the installed prefix"
+
+    assert isinstance(room, dict), "configured v4 room manifest must be an object"
+    assert room.get("room_kind") == "habitat_native" and room.get(
+        "geometry_representation"
+    ) == "real_surface_mesh", "configured room is not Habitat-native real geometry"
+    scene = room.get("scene")
+    assets = room.get("assets")
+    assert isinstance(scene, dict) and isinstance(assets, list), (
+        "configured room manifest lacks scene/assets semantics"
+    )
+    room_paths = [
+        scene.get("scene_id"),
+        scene.get("dataset_config_path"),
+        scene.get("navmesh_path"),
+        *(asset.get("path") for asset in assets if isinstance(asset, dict)),
+    ]
+    assert all(
+        isinstance(path, str) and "${AVENGINE_MP3D_ROOT}" in path
+        for path in room_paths
+    ), "configured room must declare every MP3D asset through AVENGINE_MP3D_ROOT"
 
 
 def _documents(tmp_path: Path) -> dict[str, dict[str, object]]:
@@ -1098,27 +1222,85 @@ def test_solver_and_render_agent_radii_are_independent_positive_values() -> None
             _validate_camera_runtime_navigation(camera, navigation)
 
 
+def test_real_v4_authority_loader_skips_only_when_all_selectors_are_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in _REAL_V4_AUTHORITY_ENVIRONMENT:
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(pytest.skip.Exception, match="all explicit selectors"):
+        _external_v4_authority_inputs_or_skip()
+
+
+@pytest.mark.parametrize("missing_name", _REAL_V4_AUTHORITY_ENVIRONMENT)
+def test_real_v4_authority_loader_rejects_partial_selector_configuration(
+    monkeypatch: pytest.MonkeyPatch, missing_name: str
+) -> None:
+    for name in _REAL_V4_AUTHORITY_ENVIRONMENT:
+        monkeypatch.setenv(name, f"/configured/{name}")
+    monkeypatch.delenv(missing_name)
+
+    with pytest.raises(AssertionError, match=missing_name):
+        _external_v4_authority_inputs_or_skip()
+
+
+@pytest.mark.parametrize("blank_name", _REAL_V4_AUTHORITY_ENVIRONMENT)
+@pytest.mark.parametrize("blank_value", ("", " \t "))
+def test_real_v4_authority_loader_rejects_blank_selector_configuration(
+    monkeypatch: pytest.MonkeyPatch, blank_name: str, blank_value: str
+) -> None:
+    for name in _REAL_V4_AUTHORITY_ENVIRONMENT:
+        monkeypatch.setenv(name, f"/configured/{name}")
+    monkeypatch.setenv(blank_name, blank_value)
+
+    with pytest.raises(AssertionError, match=f"non-empty: {blank_name}"):
+        _external_v4_authority_inputs_or_skip()
+
+
+def test_configured_v4_fixture_rejects_legacy_visual_mode(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="Habitat-native production"):
+        _assert_current_v4_authority_fixture_semantics(
+            {
+                "schema": "avengine_native_strict_two_human_mp3d_room_atom_request_v2",
+                "request_id": "mp3d_17DRP5sb8fy_strict_two_human_static_rig_v4",
+                "visual_execution_mode": "comparison_visual",
+            },
+            {},
+            runtime_prefix=tmp_path,
+            mp3d_root=tmp_path,
+        )
+
+
 def test_real_v4_authority_loader_with_projected_m1_request(tmp_path: Path) -> None:
-    preflight = ROOT / "tmp/lead_a_strict_two_human_mp3d_room_v4/cpu_preflight_v1"
-    source_atom = ROOT / "examples/qa/native_strict_two_human_mp3d_room_atom_v3.json"
-    room = ROOT / "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json"
-    required = [
-        source_atom,
-        room,
-        preflight / "suite_execution_plan.json",
-        preflight / "sensor_rig_trajectory.json",
-        preflight / "trajectory_bank.json",
-        preflight / "rir_job_plan.json",
-    ]
-    if not all(path.is_file() for path in required):
-        pytest.skip("real v4 CPU authority is unavailable")
-    atom_payload = json.loads(source_atom.read_text(encoding="utf-8"))
-    atom_payload["visual_execution_mode"] = "habitat_native_production"
-    atom = tmp_path / "explicit_habitat_production_atom.json"
-    atom.write_text(json.dumps(atom_payload), encoding="utf-8")
-    suite = json.loads(required[2].read_text(encoding="utf-8"))
-    rig = json.loads(required[3].read_text(encoding="utf-8"))
-    bank = json.loads(required[4].read_text(encoding="utf-8"))
+    """Load an explicit external v4 bundle; this is not an equivalence claim.
+
+    The authority fixture, installed Habitat prefix, and MP3D data root are
+    intentionally supplied by the caller.  Only the absence of all selectors
+    means unavailable external fixture data; partial or malformed configuration
+    and any configured integrity or semantic defect are ordinary test failures
+    rather than skips.
+    """
+
+    configured = _external_v4_authority_inputs_or_skip()
+    fixture = _configured_v4_authority_fixture(
+        configured["AVENGINE_M5_1_V4_AUTHORITY_ROOT"]
+    )
+    runtime_prefix = resolve_installed_runtime_prefix(
+        configured["AVENGINE_HABITAT_RUNTIME_PREFIX"]
+    )
+    mp3d_root = discover_mp3d_root(configured["AVENGINE_MP3D_ROOT"])
+    assert mp3d_root is not None
+    atom_payload = json.loads(fixture["atom"].read_text(encoding="utf-8"))
+    room_payload = json.loads(fixture["room"].read_text(encoding="utf-8"))
+    _assert_current_v4_authority_fixture_semantics(
+        atom_payload,
+        room_payload,
+        runtime_prefix=runtime_prefix,
+        mp3d_root=mp3d_root,
+    )
+    suite = json.loads(fixture["suite"].read_text(encoding="utf-8"))
+    rig = json.loads(fixture["sensor_rig"].read_text(encoding="utf-8"))
+    bank = json.loads(fixture["trajectory_bank"].read_text(encoding="utf-8"))
     scenario = suite["scenarios"][0]
     first_frame = scenario["plan"]["frames"][0]
     centers = bank["episodes"][0]["source_center_paths_m"]
@@ -1184,14 +1366,15 @@ def test_real_v4_authority_loader_with_projected_m1_request(tmp_path: Path) -> N
     request.write_text(json.dumps(projected), encoding="utf-8")
 
     authority = load_two_human_capture_authority(
-        atom_request_path=atom,
-        suite_plan_path=required[2],
-        sensor_rig_path=required[3],
-        trajectory_bank_path=required[4],
-        rir_plan_path=required[5],
-        room_manifest_path=room,
+        atom_request_path=fixture["atom"],
+        suite_plan_path=fixture["suite"],
+        sensor_rig_path=fixture["sensor_rig"],
+        trajectory_bank_path=fixture["trajectory_bank"],
+        rir_plan_path=fixture["rir_plan"],
+        room_manifest_path=fixture["room"],
         m1_request_path=request,
-        runtime_root="/data/jzy/code/habitat-sim-AVEngine",
+        runtime_prefix=runtime_prefix,
+        mp3d_root=mp3d_root,
     )
 
     assert authority.episode_id == scenario["scenario_id"]
