@@ -101,6 +101,7 @@ def test_apartment_runner_uses_explicit_launcher_without_checkout_layout(
     executable = tmp_path / "external-packaged-game" / "SpearSim.sh"
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o755)
     assert not (executable.parent / "examples").exists()
 
     events: list[object] = []

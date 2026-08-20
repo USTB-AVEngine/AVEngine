@@ -82,6 +82,11 @@ from avengine.m4.contracts import (
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
 from avengine.m5.current_visual import CurrentVisualError, capture_current_visual
+from avengine.m5.current_apartment_visual import (
+    CurrentApartmentVisualError,
+    author_current_apartment_visual_timeline,
+    capture_current_apartment_visual,
+)
 from avengine.m5.current_mp3d_route import (
     CurrentMP3DRouteError,
     author_current_mp3d_two_beagle_route,
@@ -1291,6 +1296,81 @@ def _m5_capture_current_visual(args: argparse.Namespace) -> int:
     return 0 if status == "research_only" else EXIT_BY_STATUS.get(status, 2)
 
 
+
+def _m5_author_current_apartment_visual_timeline(
+    args: argparse.Namespace,
+) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        timeline = author_current_apartment_visual_timeline(
+            actor_selection_path=args.actor_selection,
+            source_asset_registry_path=args.source_asset_registry,
+            output_path=output,
+            camera_position_ue_cm=args.camera_position_ue_cm,
+            camera_yaw_deg=args.camera_yaw_deg,
+            human_start_ue_cm=args.human_start_ue_cm,
+            human_end_ue_cm=args.human_end_ue_cm,
+            beagle_start_ue_cm=args.beagle_start_ue_cm,
+            beagle_end_ue_cm=args.beagle_end_ue_cm,
+            width=args.width,
+            height=args.height,
+            hfov_degrees=args.hfov_degrees,
+        )
+    except (CurrentApartmentVisualError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": timeline["status"],
+            "research_only": timeline["research_only"],
+            "episode_counted": timeline["episode_counted"],
+            "qualification_claim": timeline["qualification_claim"],
+            "asset_authorization": timeline["asset_authorization"],
+            "frame_count": timeline["render"]["frame_count"],
+            "output": str(output),
+        }
+    )
+    return 0
+
+
+def _m5_capture_current_apartment_visual(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        receipt = capture_current_apartment_visual(
+            actor_selection_path=args.actor_selection,
+            source_asset_registry_path=args.source_asset_registry,
+            timeline_path=args.timeline,
+            closure_report_path=args.closure_report,
+            stage_root=args.stage_root,
+            spear_executable=args.spear_executable,
+            output_directory=output,
+            rpc_port=args.rpc_port,
+            graphics_adapter=args.graphics_adapter,
+        )
+    except (CurrentApartmentVisualError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "qualification_claim": receipt["qualification_claim"],
+            "asset_authorization": receipt["asset_authorization"],
+            "output": str(output),
+            "receipt": str(output / "research_receipt.json"),
+            **(
+                {"reason": receipt["reason"]}
+                if receipt["status"] == "not_run"
+                else {"frame_count": receipt["capture"]["frame_count"]}
+            ),
+        }
+    )
+    return 0 if receipt["status"] == "research_only" else EXIT_BY_STATUS.get(
+        receipt["status"], 2
+    )
+
+
 def _m5_author_current_mp3d_two_beagle_route(args: argparse.Namespace) -> int:
     try:
         result = author_current_mp3d_two_beagle_route(
@@ -1946,6 +2026,43 @@ def build_parser() -> argparse.ArgumentParser:
     m5_current_visual.add_argument("--magnum-python-site", required=True)
     m5_current_visual.add_argument("--output", required=True)
     m5_current_visual.set_defaults(handler=_m5_capture_current_visual)
+
+    m5_current_apartment_author = m5_commands.add_parser(
+        "author-current-apartment-visual-timeline",
+        help="Author one free-design 75-frame current Apartment RGB research timeline",
+    )
+    m5_current_apartment_author.add_argument("--actor-selection", required=True)
+    m5_current_apartment_author.add_argument("--source-asset-registry", required=True)
+    m5_current_apartment_author.add_argument("--camera-position-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--camera-yaw-deg", type=float, required=True)
+    m5_current_apartment_author.add_argument("--human-start-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--human-end-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--beagle-start-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--beagle-end-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--width", type=int, default=1280)
+    m5_current_apartment_author.add_argument("--height", type=int, default=720)
+    m5_current_apartment_author.add_argument("--hfov-degrees", type=float, default=105.0)
+    m5_current_apartment_author.add_argument("--output", required=True)
+    m5_current_apartment_author.set_defaults(
+        handler=_m5_author_current_apartment_visual_timeline
+    )
+
+    m5_current_apartment_capture = m5_commands.add_parser(
+        "capture-current-apartment-visual",
+        help="Run a preflighted external SPEAR RGB-only Apartment research capture",
+    )
+    m5_current_apartment_capture.add_argument("--actor-selection", required=True)
+    m5_current_apartment_capture.add_argument("--source-asset-registry", required=True)
+    m5_current_apartment_capture.add_argument("--timeline", required=True)
+    m5_current_apartment_capture.add_argument("--closure-report", required=True)
+    m5_current_apartment_capture.add_argument("--stage-root", required=True)
+    m5_current_apartment_capture.add_argument("--spear-executable", required=True)
+    m5_current_apartment_capture.add_argument("--rpc-port", type=int, default=39511)
+    m5_current_apartment_capture.add_argument("--graphics-adapter", type=int)
+    m5_current_apartment_capture.add_argument("--output", required=True)
+    m5_current_apartment_capture.set_defaults(
+        handler=_m5_capture_current_apartment_visual
+    )
 
     m5_current_route = m5_commands.add_parser(
         "author-current-mp3d-two-beagle-route",

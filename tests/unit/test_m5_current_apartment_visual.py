@@ -1,0 +1,488 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+import avengine.cli as cli
+import avengine.m5.current_apartment_visual as apartment_visual
+
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+REGISTRY = REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"
+
+
+def _profile_selection(
+    tmp_path: Path, *, asset_authorization: str = "unverified"
+) -> Path:
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    records = {
+        (record["asset_id"], record["revision"]): record
+        for record in registry["assets"]
+    }
+    graph_meshes = {
+        "legacy_human": (
+            "/Game/MyAssets/Audioset/Meshes/"
+            "gate_rocketbox_male_adult_01_original_ue_v3/runtime"
+        ),
+        "legacy_beagle": (
+            "/Game/MyAssets/Audioset/Meshes/gate_m2_beagle_v7_world_contact_r5/visual"
+        ),
+    }
+    slots = {"legacy_human": "source1", "legacy_beagle": "source2"}
+    actors = []
+    for alias in ("legacy_human", "legacy_beagle"):
+        reference = registry["aliases"][alias]
+        record = records[(reference["asset_id"], reference["revision"])]
+        binding = record["runtime_backends"]["spear_unreal"]
+        mesh_package = graph_meshes[alias]
+        actors.append(
+            {
+                "source_slot_id": slots[alias],
+                "asset_id": record["asset_id"],
+                "revision": record["revision"],
+                "ue_binding": {
+                    "blueprint_object_path": binding["blueprint_class_path"],
+                    "profile_skeletal_mesh_binding": binding["skeletal_mesh_binding"],
+                    "profile_skeletal_mesh_path": binding["skeletal_mesh_path"],
+                    "idle_object_path": binding["idle_animation"],
+                    "walking_object_path": binding["walking_animation"],
+                    "graph_derived_mesh": {
+                        "package": mesh_package,
+                        "object_path": mesh_package
+                        + "."
+                        + mesh_package.rsplit("/", 1)[1],
+                    },
+                },
+            }
+        )
+    value = {
+        "document_type": "test_current_apartment_actor_selection",
+        "asset_authorization": asset_authorization,
+        "actors": actors,
+    }
+    path = tmp_path / "actor_selection.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    return path
+
+
+def _author_timeline(tmp_path: Path, *, authorization: str = "unverified") -> Path:
+    selection = _profile_selection(tmp_path, asset_authorization=authorization)
+    path = tmp_path / "timeline.json"
+    timeline = apartment_visual.author_current_apartment_visual_timeline(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+        output_path=path,
+        camera_position_ue_cm=(0.0, -600.0, 240.0),
+        camera_yaw_deg=0.0,
+        human_start_ue_cm=(-150.0, 70.0, 0.0),
+        human_end_ue_cm=(150.0, 70.0, 0.0),
+        beagle_start_ue_cm=(150.0, -70.0, 0.0),
+        beagle_end_ue_cm=(-150.0, -70.0, 0.0),
+    )
+    assert timeline["asset_authorization"] == authorization
+    return path
+
+
+def test_author_writes_free_75_frame_research_timeline(tmp_path: Path) -> None:
+    timeline_path = _author_timeline(tmp_path)
+    value = json.loads(timeline_path.read_text(encoding="utf-8"))
+
+    assert value["status"] == "research_only"
+    assert value["research_only"] is True
+    assert value["episode_counted"] is False
+    assert value["qualification_claim"] is False
+    assert value["asset_authorization"] == "unverified"
+    assert value["render"] == {
+        "frame_count": 75,
+        "frame_rate_hz": 15,
+        "ticks_per_frame": 3200,
+        "resolution_hw": [720, 1280],
+        "hfov_degrees": 105.0,
+    }
+    assert [frame["frame_index"] for frame in value["frames"]] == list(range(75))
+    assert [frame["pts_ticks"] for frame in value["frames"]] == [
+        index * 3200 for index in range(75)
+    ]
+    assert all(
+        [state["source_slot_id"] for state in frame["actor_states"]]
+        == ["source1", "source2"]
+        for frame in value["frames"]
+    )
+    declarations = {
+        actor["source_slot_id"]: actor["walk_phase_period_frames"]
+        for actor in value["actors"]
+    }
+    assert declarations == {"source1": 16, "source2": 25}
+    anatomical_forward_yaws = {
+        actor["source_slot_id"]: actor["ue_anatomical_forward_yaw_deg"]
+        for actor in value["actors"]
+    }
+    assert anatomical_forward_yaws == {"source1": 90.0, "source2": 180.0}
+    starts = {
+        "source1": [-150.0, 70.0, 0.0],
+        "source2": [150.0, -70.0, 0.0],
+    }
+    ends = {
+        "source1": [150.0, 70.0, 0.0],
+        "source2": [-150.0, -70.0, 0.0],
+    }
+    for frame_index in (0, 14):
+        states = {
+            state["source_slot_id"]: state
+            for state in value["frames"][frame_index]["actor_states"]
+        }
+        for slot, start in starts.items():
+            assert states[slot]["translation_ue_cm"] == start
+            assert states[slot]["action_id"] == "idle"
+            assert states[slot]["action_phase"] == 0.0
+    states_at_walk_start = {
+        state["source_slot_id"]: state for state in value["frames"][15]["actor_states"]
+    }
+    for slot, start in starts.items():
+        assert states_at_walk_start[slot]["translation_ue_cm"] == start
+        assert states_at_walk_start[slot]["action_id"] == "walk"
+        assert states_at_walk_start[slot]["action_phase"] == 0.0
+    states_at_walk_end = {
+        state["source_slot_id"]: state for state in value["frames"][74]["actor_states"]
+    }
+    for slot, end in ends.items():
+        assert states_at_walk_end[slot]["translation_ue_cm"] == end
+        assert states_at_walk_end[slot]["action_id"] == "walk"
+    assert all(
+        value["frames"][frame_index]["actor_states"][0]["translation_ue_cm"]
+        == pytest.approx(
+            [
+                starts["source1"][axis]
+                + (ends["source1"][axis] - starts["source1"][axis])
+                * (frame_index - 15)
+                / (74 - 15)
+                for axis in range(3)
+            ]
+        )
+        for frame_index in (16, 31, 74)
+    )
+    frame_31 = {
+        state["source_slot_id"]: state for state in value["frames"][31]["actor_states"]
+    }
+    assert frame_31["source1"]["action_phase"] == pytest.approx(0.0)
+    assert frame_31["source2"]["action_phase"] == pytest.approx(16.0 / 25.0)
+    frame_40 = {
+        state["source_slot_id"]: state for state in value["frames"][40]["actor_states"]
+    }
+    assert frame_40["source1"]["action_phase"] == pytest.approx(9.0 / 16.0)
+    assert frame_40["source2"]["action_phase"] == pytest.approx(0.0)
+    assert all(
+        state["walk_phase_period_frames"] == declarations[state["source_slot_id"]]
+        for frame in value["frames"]
+        for state in frame["actor_states"]
+    )
+    assert all(
+        frame["actor_states"][0]["yaw_ue_deg"] == pytest.approx(-90.0)
+        and frame["actor_states"][1]["yaw_ue_deg"] == pytest.approx(0.0)
+        for frame in value["frames"]
+    )
+    encoded = json.dumps(value, sort_keys=True)
+    assert "schema" not in encoded
+    assert "sha256" not in encoded
+    assert "audio" not in value
+    assert "rlr" not in value
+    assert "m6_m7_bundle" not in value
+
+
+def test_timeline_state_keeps_static_actor_idle_at_start() -> None:
+    binding = {
+        "actor_id": "source1_actor",
+        "source_slot_id": "source1",
+        "asset_id": "asset",
+        "revision": "v1",
+        "walk_phase_period_frames": 16,
+        "ue_anatomical_forward_yaw_deg": 90.0,
+    }
+    start = (25.0, -40.0, 0.0)
+    for frame_index in (0, 14, 15, 74):
+        state = apartment_visual._timeline_state(
+            binding=binding,
+            start=start,
+            end=start,
+            frame_index=frame_index,
+        )
+        assert state["translation_ue_cm"] == list(start)
+        assert state["action_id"] == "idle"
+        assert state["action_phase"] == 0.0
+
+
+def test_unverified_myassets_returns_not_run_without_stage_or_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    selection = _profile_selection(tmp_path, asset_authorization="unverified")
+    timeline = _author_timeline(tmp_path, authorization="unverified")
+    monkeypatch.setattr(
+        apartment_visual,
+        "launch_external_game_instance",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unverified MyAssets launched SPEAR")
+        ),
+    )
+
+    result = apartment_visual.capture_current_apartment_visual(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+        timeline_path=timeline,
+        closure_report_path=tmp_path / "must_not_be_read.json",
+        stage_root=tmp_path / "must_not_be_read_stage",
+        spear_executable=tmp_path / "must_not_be_read_stage/SpearSim.sh",
+        output_directory=tmp_path / "not_run",
+    )
+
+    assert result["status"] == "not_run"
+    assert result["research_only"] is True
+    assert result["episode_counted"] is False
+    assert result["asset_authorization"] == "unverified"
+    assert "no SPEAR launch" in result["reason"]
+    assert (tmp_path / "not_run/research_receipt.json").is_file()
+
+
+def test_timeline_rejects_selection_drift(tmp_path: Path) -> None:
+    selection = _profile_selection(tmp_path)
+    timeline = _author_timeline(tmp_path)
+    value = json.loads(timeline.read_text(encoding="utf-8"))
+    value["actors"][0]["revision"] = "wrong"
+    timeline.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(
+        apartment_visual.CurrentApartmentVisualError,
+        match="differs from actor selection",
+    ):
+        apartment_visual.capture_current_apartment_visual(
+            actor_selection_path=selection,
+            source_asset_registry_path=REGISTRY,
+            timeline_path=timeline,
+            closure_report_path=tmp_path / "unused.json",
+            stage_root=tmp_path / "unused",
+            spear_executable=tmp_path / "unused/SpearSim.sh",
+            output_directory=tmp_path / "output",
+        )
+
+
+def test_cli_exposes_separate_research_commands_without_audio_inputs() -> None:
+    parser = cli.build_parser()
+    author = parser.parse_args(
+        [
+            "m5",
+            "author-current-apartment-visual-timeline",
+            "--actor-selection",
+            "selection.json",
+            "--source-asset-registry",
+            "registry.json",
+            "--camera-position-ue-cm",
+            "0",
+            "0",
+            "100",
+            "--camera-yaw-deg",
+            "0",
+            "--human-start-ue-cm",
+            "0",
+            "0",
+            "0",
+            "--human-end-ue-cm",
+            "100",
+            "0",
+            "0",
+            "--beagle-start-ue-cm",
+            "0",
+            "100",
+            "0",
+            "--beagle-end-ue-cm",
+            "100",
+            "100",
+            "0",
+            "--output",
+            "/tmp/current-apartment-timeline.json",
+        ]
+    )
+    capture = parser.parse_args(
+        [
+            "m5",
+            "capture-current-apartment-visual",
+            "--actor-selection",
+            "selection.json",
+            "--source-asset-registry",
+            "registry.json",
+            "--timeline",
+            "timeline.json",
+            "--closure-report",
+            "closure.json",
+            "--stage-root",
+            "/external/stage",
+            "--spear-executable",
+            "/external/stage/SpearSim.sh",
+            "--output",
+            "/tmp/current-apartment-capture",
+        ]
+    )
+    assert author.m5_command == "author-current-apartment-visual-timeline"
+    assert capture.m5_command == "capture-current-apartment-visual"
+    assert not hasattr(author, "hrtf")
+    assert not hasattr(capture, "beagle_dry")
+    assert not hasattr(capture, "m4_request")
+
+
+def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bindings = {
+        "source1": {"actor_id": "source1_actor"},
+        "source2": {"actor_id": "source2_actor"},
+    }
+    frames = []
+    for frame_index in range(apartment_visual.FRAME_COUNT):
+        frames.append(
+            {
+                "frame_index": frame_index,
+                "pts_ticks": frame_index * apartment_visual.TICKS_PER_FRAME,
+                "camera": {
+                    "translation_ue_cm": [0.0, 0.0, 0.0],
+                    "yaw_ue_deg": 0.0,
+                },
+                "actor_states": [
+                    {
+                        "source_slot_id": "source1",
+                        "actor_id": "source1_actor",
+                        "action_id": "idle",
+                        "action_phase": 0.0,
+                        "walk_phase_period_frames": 16,
+                        "translation_ue_cm": [0.0, 0.0, 0.0],
+                        "yaw_ue_deg": 0.0,
+                    },
+                    {
+                        "source_slot_id": "source2",
+                        "actor_id": "source2_actor",
+                        "action_id": "idle",
+                        "action_phase": 0.0,
+                        "walk_phase_period_frames": 25,
+                        "translation_ue_cm": [0.0, 0.0, 0.0],
+                        "yaw_ue_deg": 0.0,
+                    },
+                ],
+            }
+        )
+    timeline = {
+        "render": {
+            "resolution_hw": [2, 3],
+            "hfov_degrees": 105.0,
+        },
+        "frames": frames,
+    }
+    monkeypatch.setattr(
+        apartment_visual,
+        "_selection_bindings",
+        lambda **_kwargs: (tmp_path / "selection.json", bindings, "verified_internal"),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "_load_timeline",
+        lambda **_kwargs: (tmp_path / "timeline.json", timeline),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "_closure_mappings",
+        lambda **_kwargs: (tmp_path / "closure.json", []),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "_validate_stage",
+        lambda **_kwargs: (tmp_path, tmp_path / "SpearSim.sh"),
+    )
+
+    class _Frame:
+        def __init__(self, events: list[str], name: str) -> None:
+            self.events = events
+            self.name = name
+
+        def __enter__(self) -> "_Frame":
+            self.events.append(self.name + ":enter")
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            self.events.append(self.name + ":exit")
+
+    events: list[str] = []
+
+    class _Instance:
+        def begin_frame(self) -> _Frame:
+            return _Frame(events, "begin")
+
+        def end_frame(self) -> _Frame:
+            return _Frame(events, "end")
+
+        def get_game(self) -> object:
+            return object()
+
+        def close(self, *, force: bool) -> None:
+            events.append(f"instance.close:{force}")
+
+    monkeypatch.setattr(
+        apartment_visual,
+        "launch_external_game_instance",
+        lambda **_kwargs: _Instance(),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "spawn_scene_capture",
+        lambda *_args, **_kwargs: (object(), object()),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "_spawn_runtime_actors",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "run_frame_transaction",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("frame boom")),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "_destroy_runtime_actors",
+        lambda *_args, **_kwargs: (
+            events.append("actor.cleanup")
+            or (_ for _ in ()).throw(RuntimeError("actor cleanup boom"))
+        ),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "close_scene_capture",
+        lambda **_kwargs: (
+            events.append("camera.cleanup")
+            or (_ for _ in ()).throw(RuntimeError("camera cleanup boom"))
+        ),
+    )
+
+    output = tmp_path / "failed-capture"
+    with pytest.raises(RuntimeError, match="frame boom"):
+        apartment_visual.capture_current_apartment_visual(
+            actor_selection_path=tmp_path / "selection.json",
+            source_asset_registry_path=REGISTRY,
+            timeline_path=tmp_path / "timeline.json",
+            closure_report_path=tmp_path / "closure.json",
+            stage_root=tmp_path,
+            spear_executable=tmp_path / "SpearSim.sh",
+            output_directory=output,
+        )
+
+    receipt = json.loads((output / "research_receipt.json").read_text(encoding="utf-8"))
+    assert receipt["status"] == "fail"
+    assert receipt["partial"] is True
+    assert receipt["research_only"] is True
+    assert receipt["episode_counted"] is False
+    assert receipt["qualification_claim"] is False
+    assert receipt["capture"]["completed_frame_count"] == 0
+    assert receipt["error_type"] == "RuntimeError"
+    assert receipt["error_text"] == "frame boom"
+    encoded = json.dumps(receipt, sort_keys=True).lower()
+    assert all(word not in encoded for word in ("schema", "evidence", "hash", "gate"))
+    assert "actor.cleanup" not in events
+    assert "camera.cleanup" not in events
+    assert events[-1] == "instance.close:True"

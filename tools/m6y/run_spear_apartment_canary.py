@@ -29,7 +29,13 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.backends.spear_ue import client as spear_client
-from avengine.backends.spear_ue.launch import parallel_instance_settings
+from avengine.backends.spear_ue.research_runtime import (
+    cleanup_failed_constructor as _cleanup_external_constructor,
+    close_scene_capture as _close_external_scene_capture,
+    launch_external_game_instance,
+    read_rgb_bgr,
+    spawn_scene_capture,
+)
 from avengine.backends.spear_ue.rig_direction import (
     sample_body_basis_in_frame,
     sample_body_bone_position_in_frame,
@@ -181,54 +187,25 @@ def _actor_bounds_readback(actor: Any, frame_index: int) -> dict[str, Any]:
 
 
 def _spawn_camera(game: Any) -> tuple[Any, Any]:
-    """Spawn a SceneCapture without altering native-map lights or geometry."""
-
-    camera_class = game.unreal_service.load_class(
-        uclass="AActor", name=CAMERA_BLUEPRINT
-    )
-    camera = game.unreal_service.spawn_actor(uclass=camera_class)
-    capture = game.unreal_service.get_component_by_name(
-        actor=camera,
+    return spawn_scene_capture(
+        game,
+        camera_blueprint=CAMERA_BLUEPRINT,
         component_name=CAPTURE_COMPONENT_NAME,
-        uclass="USpSceneCaptureComponent2D",
+        width=WIDTH,
+        height=HEIGHT,
+        hfov_degrees=105.0,
     )
-    viewport = game.rendering_service.get_current_viewport_desc()
-    game.rendering_service.align_camera_with_viewport(
-        camera_sensor=camera,
-        camera_components=[capture],
-        viewport_desc=viewport,
-        widths=WIDTH,
-        heights=HEIGHT,
-    )
-    capture.Initialize()
-    capture.initialize_sp_funcs()
-    capture.set_property_value(property_name="FOVAngle", property_value=105.0)
-    observed_fov = float(capture.get_property_value(property_name="FOVAngle"))
-    if abs(observed_fov - 105.0) > 1.0e-4:
-        raise RuntimeError(f"camera HFOV readback {observed_fov} != 105")
-    return camera, capture
 
 
 def _close_shared_camera(
     *, instance: Any, game: Any, camera: Any | None, capture: Any | None
 ) -> None:
-    """Release camera shared-memory resources before Instance.close()."""
-
-    if camera is None and capture is None:
-        return
-    with instance.begin_frame():
-        pass
-    with instance.end_frame():
-        try:
-            if capture is not None:
-                capture.terminate_sp_funcs()
-        finally:
-            try:
-                if capture is not None:
-                    capture.Terminate()
-            finally:
-                if camera is not None:
-                    game.unreal_service.destroy_actor(actor=camera)
+    _close_external_scene_capture(
+        instance=instance,
+        game=game,
+        camera=camera,
+        capture=capture,
+    )
 
 
 def _spawn_generated_lights(
@@ -302,7 +279,7 @@ def _spawn_generated_lights(
 
 
 def _read_frame(capture: Any) -> Any:
-    return capture.read_pixels()["arrays"]["data"][:, :, [0, 1, 2]]
+    return read_rgb_bgr(capture)
 
 
 def _load_skeletal_component(game: Any, actor: Any) -> Any:
@@ -1469,99 +1446,23 @@ def _destroy_runtime_actors(
 def _configure_instance(
     args: argparse.Namespace, *, native_map: str
 ) -> Any:
-    executable = args.spear_executable.expanduser().resolve()
-    if not executable.is_file():
-        raise RuntimeError(f"SPEAR executable is missing: {executable}")
-    settings = parallel_instance_settings(
-        args.rpc_port, graphics_adapter=args.graphics_adapter
+    return launch_external_game_instance(
+        spear_executable=args.spear_executable,
+        native_map=native_map,
+        frame_rate_hz=FPS,
+        rpc_port=args.rpc_port,
+        graphics_adapter=args.graphics_adapter,
+        initialize_client_max_time_seconds=INITIALIZE_CLIENT_MAX_TIME_SECONDS,
+        client_internal_timeout_seconds=CLIENT_INTERNAL_TIMEOUT_SECONDS,
+        spear_client_module=spear_client,
     )
-    config = spear_client.get_config(user_config_files=[])
-    config.defrost()
-    config.SPEAR.LAUNCH_MODE = "game"
-    config.SPEAR.INSTANCE.GAME_EXECUTABLE = str(executable)
-    # The native Apartment is large and lives on comparatively slow storage.
-    # A cold launch has already exceeded the upstream 120-second default while
-    # legitimately loading this exact map, so the optional runner gives only
-    # initialization (not individual RPC calls) a bounded ten-minute window.
-    config.SPEAR.INSTANCE.INITIALIZE_CLIENT_MAX_TIME_SECONDS = (
-        INITIALIZE_CLIENT_MAX_TIME_SECONDS
-    )
-    # A cold 1280x720 native frame can compile PSOs for longer than SPEAR's
-    # interactive 2-second RPC default.  Keep the timeout finite but large
-    # enough for that first real frame; subsequent readbacks remain checked.
-    config.SPEAR.INSTANCE.CLIENT_INTERNAL_TIMEOUT_SECONDS = (
-        CLIENT_INTERNAL_TIMEOUT_SECONDS
-    )
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.OVERRIDE_GAME_DEFAULT_MAP = True
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = native_map
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / FPS
-    config.SP_SERVICES.RPC_SERVICE.RPC_SERVER_PORT = settings["rpc_port"]
-    config.SPEAR.INSTANCE.TEMP_DIR = settings["temp_dir"]
-    config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.log = settings["log"]
-    config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.renderoffscreen = None
-    config.SP_CORE.SHARED_MEMORY_INITIAL_UNIQUE_ID = settings[
-        "shared_memory_initial_unique_id"
-    ]
-    if settings["graphics_adapter"] is not None:
-        config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.graphicsadapter = settings[
-            "graphics_adapter"
-        ]
-    config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = "/etc/vulkan/icd.d/nvidia_icd.json"
-    config.freeze()
-    spear_client.configure_system(config=config)
-    try:
-        instance = spear_client.Instance(config=config)
-    except BaseException:
-        # Instance.__init__ launches UE before it waits for RPC.  If its
-        # constructor itself fails, no Instance object exists for close().
-        # Kill only the uniquely configured process tree for this RPC worker;
-        # never use a broad pkill that could affect another agent's renderer.
-        _cleanup_failed_constructor(
-            executable=executable,
-            temporary_directory=Path(settings["temp_dir"]),
-        )
-        raise
-    return instance
 
 
 def _cleanup_failed_constructor(*, executable: Path, temporary_directory: Path) -> None:
-    try:
-        import psutil
-    except ImportError:
-        return
-    config_suffix = str(temporary_directory / "config.yaml")
-    executable_text = str(executable.resolve())
-    matched = []
-    for process in psutil.process_iter(("pid", "cmdline")):
-        try:
-            command = process.info.get("cmdline") or []
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-        joined = " ".join(str(value) for value in command)
-        if executable_text not in joined and "SpearSim" not in joined:
-            continue
-        if not any(
-            str(value).startswith("-sp-config-file=")
-            and str(value).endswith(config_suffix)
-            for value in command
-        ):
-            continue
-        try:
-            matched.extend(process.children(recursive=True))
-            matched.append(process)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    for process in reversed(matched):
-        try:
-            process.terminate()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    _, alive = psutil.wait_procs(matched, timeout=10.0)
-    for process in alive:
-        try:
-            process.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+    _cleanup_external_constructor(
+        executable=executable,
+        temporary_directory=temporary_directory,
+    )
 
 
 def run(args: argparse.Namespace) -> Path:
