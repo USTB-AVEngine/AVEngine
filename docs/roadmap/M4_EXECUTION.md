@@ -281,6 +281,51 @@ does not claim the separate left/right cardinal canary. Neither command adds a
 schema or changes the retained `run-current-foa`, `run-canary`, or evidence
 reader behavior.
 
+### Retained current research result (2026-08-20)
+
+The server-side current route has now completed one fresh/no-clobber run for
+each raw pair layout and a separate direct-only cardinal classifier:
+
+- `m4_current_m1_foa_db0a4aa_20260820T2100Z`: two 16 kHz float32 FOA pair
+  IRs, with `source0=[4,19227]` and `source1=[4,19078]` in channel-major
+  `[W,Y,Z,X]` form;
+- `m4_current_m1_binaural_daffc6d_v2_20260820T2300Z`: two 16 kHz float32
+  native-binaural pair IRs, with `source0=[2,19227]` and
+  `source1=[2,19078]`; and
+- `m4_current_cardinal_audit_daffc6d_20260820T2330Z`: six direct-only FOA
+  axis probes, identity-versus-rotated-listener world-alignment comparison,
+  and native-binaural `+X/-X` probes.
+
+The installed binding used for these runs has `NEEDED
+libRLRAudioPropagation.so` but no `RPATH` or `RUNPATH`. It was built against
+one external SDK package and, in a fresh scrubbed process, selected a second
+explicit non-Git SDK package by absolute preload before importing the binding.
+The Magnum Python modules likewise came from a durable external CPython 3.12
+site rather than a checkout or temporary editable install.
+
+The first hand-written 16 kHz SOFA derivative was rejected after RLR printed
+`SOFA decode error: 10000`: its NetCDF dimension-scale references were invalid,
+even though its IR samples and declared rate looked plausible. That directory
+is retained with `invalid_native_hrtf_audit.json` and must not be used. The
+replacement was written with `sofar 1.2.3`, verifies as
+`SimpleFreeFieldHRIR 1.0` with `Data.IR=[710,2,186]` and
+`Data.SamplingRate=16000`, and loads through libmysofa before RLR is allowed to
+create a context. The current command now performs the same structural check
+before package loading or output creation.
+
+The cardinal audit passed the existing validators. All six FOA directions
+arrived at sample 12 with zero off-axis energy and the expected signed
+directional-to-W magnitude. Rotating the listener changed raw world-aligned FOA
+by exactly zero. Binaural `+X` produced right-ear dominance of about 9.44 dB;
+`-X` produced the mirrored left-ear dominance of about 9.44 dB.
+
+These results remain research-only. The package records geometry QA `fail` and
+ray leakage `not_run`; its parity and material-coverage checks pass. The M1
+sources are static abstract endpoints, not Beagle muzzle anchors, and no dry
+audio, stems, mix, dynamic-emitter evidence, formal M4 qualification, Episode,
+or dataset admission is claimed. Every receipt keeps
+`episode_counted=false`, `formal_dataset_count=0`, and `qualification=false`.
+
 ## 4. Independently verify archived v1 evidence
 
 ```bash
