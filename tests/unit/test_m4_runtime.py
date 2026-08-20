@@ -528,3 +528,20 @@ def test_current_installed_render_forwards_only_explicit_runtime_inputs(
         "magnum_python_site": "/current/magnum/python",
     }
     assert result.runtime["runtime_identity"]["mode"] == "current-installed"
+
+
+def test_foa_render_rejects_an_hrtf_before_native_context(monkeypatch) -> None:
+    _install_fake_runtime(monkeypatch)
+
+    with pytest.raises(RuntimeContractError, match="HRTF file is valid only"):
+        runtime.render_named_sources(
+            _scene(),
+            _simulation(),
+            sources=(RuntimeAnchor("source", (1.0, 0.0, 0.0)),),
+            listener=RuntimeAnchor("listener", (0.0, 0.0, 0.0)),
+            layout_type="ambisonics",
+            channel_count=4,
+            hrtf_file_path="unexpected.sofa",
+        )
+
+    assert not _FakeContext.instances

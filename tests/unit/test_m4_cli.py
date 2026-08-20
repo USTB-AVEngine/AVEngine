@@ -388,3 +388,118 @@ def test_m4_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
     rendered = _output(capsys)
     assert rendered["status"] == "fail"
     assert "--runtime-prefix" in rendered["error"]
+
+def test_m4_current_foa_parser_requires_only_current_runtime_inputs() -> None:
+    command = [
+        "m4",
+        "run-current-foa",
+        "--request",
+        "request.json",
+        "--package-manifest",
+        "manifest.json",
+        "--runtime-prefix",
+        "/current/habitat",
+        "--rlr-sdk-root",
+        "/current/sdk",
+        "--magnum-python-site",
+        "/current/magnum/python",
+        "--output",
+        "/tmp/current-foa",
+    ]
+    parser = build_parser()
+    parsed = parser.parse_args(command)
+
+    assert parsed.m4_command == "run-current-foa"
+    assert parsed.runtime_mode == "current-installed"
+    assert not hasattr(parsed, "hrtf")
+    with pytest.raises(SystemExit) as exit_info:
+        parser.parse_args([*command, "--hrtf", "unexpected.sofa"])
+    assert exit_info.value.code == 2
+
+
+def test_m4_current_foa_cli_forwards_explicit_inputs_without_hrtf(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_run(
+        request: str,
+        package_manifest: str,
+        output: Path,
+        *,
+        runtime_prefix: str,
+        rlr_sdk_root: str,
+        magnum_python_site: str,
+    ) -> dict[str, Any]:
+        calls["run"] = (
+            request,
+            package_manifest,
+            output,
+            runtime_prefix,
+            rlr_sdk_root,
+            magnum_python_site,
+        )
+        calls["environment"] = (
+            os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX"),
+            os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+            os.environ.get("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"),
+        )
+        return {
+            "status": "pass",
+            "research_status": "research_candidate",
+            "qualification_claim": False,
+            "binaural": "not_requested",
+            "pairs": [{"source_id": "source0"}, {"source_id": "source1"}],
+        }
+
+    monkeypatch.setattr("avengine.cli.run_current_foa", fake_run)
+    monkeypatch.delenv("AVENGINE_HABITAT_RUNTIME_PREFIX", raising=False)
+    monkeypatch.delenv("AVENGINE_RLR_SDK_ROOT", raising=False)
+    monkeypatch.delenv("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", raising=False)
+    output = tmp_path / "current-foa"
+
+    assert main(
+        [
+            "m4",
+            "run-current-foa",
+            "--request",
+            "request.json",
+            "--package-manifest",
+            "manifest.json",
+            "--runtime-prefix",
+            "/current/habitat",
+            "--rlr-sdk-root",
+            "/current/sdk",
+            "--magnum-python-site",
+            "/current/magnum/python",
+            "--output",
+            str(output),
+        ]
+    ) == 0
+
+    assert calls["run"] == (
+        "request.json",
+        "manifest.json",
+        output.resolve(),
+        "/current/habitat",
+        "/current/sdk",
+        "/current/magnum/python",
+    )
+    assert calls["environment"] == (
+        "/current/habitat",
+        "/current/sdk",
+        "/current/magnum/python",
+    )
+    assert os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX") is None
+    assert os.environ.get("AVENGINE_RLR_SDK_ROOT") is None
+    assert os.environ.get("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE") is None
+    assert _output(capsys) == {
+        "binaural": "not_requested",
+        "foa_pair_count": 2,
+        "output": str(output.resolve()),
+        "qualification_claim": False,
+        "research_status": "research_candidate",
+        "status": "pass",
+    }

@@ -73,6 +73,7 @@ from avengine.m3.rlr_material_import import (
 )
 from avengine.m3.runtime import RuntimeUnavailableError
 from avengine.m4.canary import M4CanaryError, run_m4_canary
+from avengine.m4.current_foa import CurrentFOAError, run_current_foa
 from avengine.m4.contracts import (
     M4ContractError,
     load_and_validate_multi_source_canary_request,
@@ -1137,6 +1138,44 @@ def _m4_run_canary(args: argparse.Namespace) -> int:
     return EXIT_BY_STATUS.get(status, 2)
 
 
+def _m4_run_current_foa(args: argparse.Namespace) -> int:
+    """Write raw current RLR FOA research output without a binaural branch."""
+
+    try:
+        _require_current_installed_runtime_inputs(args)
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = run_current_foa(
+                args.request,
+                args.package_manifest,
+                output,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+            )
+    except RuntimeUnavailableError as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (CurrentFOAError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_status": receipt["research_status"],
+            "qualification_claim": receipt["qualification_claim"],
+            "binaural": receipt["binaural"],
+            "output": str(output),
+            "foa_pair_count": len(receipt["pairs"]),
+        }
+    )
+    return 0 if receipt["status"] == "pass" else 2
+
+
 def _m4_verify_canary(args: argparse.Namespace) -> int:
     try:
         status, checks = verify_m4_canary_evidence(args.evidence)
@@ -1827,6 +1866,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicit HRTF citation required by current-installed mode",
     )
     m4_run.set_defaults(handler=_m4_run_canary)
+
+    m4_foa = m4_commands.add_parser(
+        "run-current-foa",
+        help="Write raw native 16 kHz RLR FOA research pair IR WAVs",
+    )
+    m4_foa.add_argument("--request", required=True)
+    m4_foa.add_argument("--package-manifest", required=True)
+    m4_foa.add_argument(
+        "--runtime-prefix",
+        required=True,
+        help="Explicit installed non-checkout Habitat prefix",
+    )
+    m4_foa.add_argument(
+        "--rlr-sdk-root",
+        required=True,
+        help="Explicit external non-checkout RLRAudioPropagationPkg",
+    )
+    m4_foa.add_argument(
+        "--magnum-python-site",
+        required=True,
+        help="Explicit external non-checkout Magnum Python site",
+    )
+    m4_foa.add_argument("--output", required=True)
+    m4_foa.set_defaults(
+        handler=_m4_run_current_foa,
+        runtime_mode="current-installed",
+    )
 
     m4_verify = m4_commands.add_parser("verify-canary")
     m4_verify.add_argument("evidence")

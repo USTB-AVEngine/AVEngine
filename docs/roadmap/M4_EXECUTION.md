@@ -89,6 +89,7 @@ the v1 runtime lock.
   tests/test_m4_spatial.py \
   tests/unit/test_m4_cli.py \
   tests/unit/test_m4_runtime.py \
+  tests/unit/test_m4_current_foa.py \
   tests/unit/test_m4_runtime_preflight.py \
   tests/unit/test_m4_current_v2_replay.py
 ```
@@ -117,8 +118,9 @@ the M3 input boundary.
 
 ## 3. Run the current-installed M4 receipt (v2, non-qualification)
 
-This is the only executable native M4 route. Choose a new output root; all
-runtime components are explicit and must be current installations rather than
+This is the native M4 route that writes a self-verifying v2 canary receipt.
+Choose a new output root; all runtime components are explicit. They must be
+current installations rather than
 Git checkouts.
 
 ```bash
@@ -157,6 +159,37 @@ post-update native source receipts and package upload receipt), and recomputes
 each performance condition from its runs (source/pair/repeat counts, summary
 statistics and comparison throughput). A v2 receipt is diagnostic only: it does
 not replace the retained v1 formal record or unblock historical-root consumers.
+
+## Raw current FOA research output (separate from v2)
+
+run-current-foa is an additive writer for a raw native RLR FOA pair IR when
+a binaural artifact is not requested. It accepts no HRTF argument and never
+starts a binaural listener, runs an HRTF preflight, or calls a raw FOA result an
+HRTF conversion. It fixes the output to native 16 kHz four-channel
+[W, Y, Z, X] FOA (ACN indices [0, 1, 2, 3], N3D, avengine_world).
+
+    export M4_FOA_CURRENT=/external/review/m4_current_foa_<RUN_ID>
+
+    "$HABPY" -m avengine.cli m4 run-current-foa \
+      --runtime-prefix /external/installed-habitat \
+      --rlr-sdk-root /external/RLRAudioPropagationPkg \
+      --magnum-python-site /external/magnum-python-site \
+      --request "$REPO/examples/m4/blender_custom/multi_source_canary_request.json" \
+      --package-manifest "$M3_PACKAGE" \
+      --output "$M4_FOA_CURRENT"
+
+The command rejects a non-16-kHz request rather than resampling it. It requires
+the same explicit canonical non-Git installed prefix, RLR SDK and Magnum site
+as the v2 route, then records only observed current-installed adapter identity.
+Each raw_ir/foa/<source_id>.wav is a raw four-channel RLR pair IR with
+the normal AVEngine float32 WAV sidecar carrying the existing FOA metadata.
+
+Its research_receipt.json is an ordinary research result record:
+status=pass, research_status=research_candidate,
+qualification_claim=false, and binaural=not_requested. It has no new
+schema, baseline, runtime lock, evidence hash, or verify-canary reader.
+A successful raw-FOA render is not a v2 canary, HRTF/binaural validation,
+formal M4 qualification, or historical-equivalence claim.
 
 ## 4. Independently verify archived v1 evidence
 
