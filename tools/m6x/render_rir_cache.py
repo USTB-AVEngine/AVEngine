@@ -262,6 +262,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=Path("/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"),
     )
+    parser.add_argument(
+        "--runtime-prefix",
+        type=Path,
+        help="Explicit non-Git installed Habitat runtime prefix",
+    )
+    parser.add_argument(
+        "--magnum-python-site",
+        type=Path,
+        help="Explicit non-Git Corrade/Magnum Python site",
+    )
+    parser.add_argument(
+        "--rlr-sdk-root",
+        type=Path,
+        help="Explicit non-Git RLRAudioPropagationPkg root",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--layout", choices=("binaural", "ambisonics"), default="binaural"
@@ -353,6 +368,9 @@ def _run_semantic(args: argparse.Namespace) -> Path:
         coordinate_translation_m=args.coordinate_translation_m,
         source_radius_m=args.source_radius_m,
         listener_radius_m=args.listener_radius_m,
+        runtime_prefix=args.runtime_prefix,
+        magnum_python_site=args.magnum_python_site,
+        rlr_sdk_root=args.rlr_sdk_root,
         compressed=not args.uncompressed,
     )
     print(
@@ -395,6 +413,9 @@ def run(args: argparse.Namespace) -> Path:
         coordinate_translation_m=args.coordinate_translation_m,
         source_radius_m=args.source_radius_m,
         listener_radius_m=args.listener_radius_m,
+        runtime_prefix=args.runtime_prefix,
+        magnum_python_site=args.magnum_python_site,
+        rlr_sdk_root=args.rlr_sdk_root,
         compressed=not args.uncompressed,
     )
     print(

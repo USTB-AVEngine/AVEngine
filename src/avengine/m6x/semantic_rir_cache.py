@@ -19,6 +19,9 @@ from typing import Any, Mapping
 import numpy as np
 
 from avengine.contracts.json_io import load_json
+from avengine.current_installed_runtime import (
+    is_current_installed_runtime_identity,
+)
 from avengine.m4.runtime import M4SimulationConfig
 from avengine.m5.audio import M5_AUDIO_SAMPLE_RATE_HZ
 from avengine.m6x.rir_cache import RIRCacheError, validate_semantic_rir_job_plan
@@ -723,18 +726,30 @@ class SemanticRIRCacheSession:
             },
             owner="semantic RIR native setup",
         )
-        timing_runtime = _semantic_exact_mapping(
-            timing_setup["runtime"],
-            {
-                "schema",
-                "binding_api",
-                "quaternion_module_path",
-                "habitat_module_path",
-                "binding_module_path",
-                "rlr_library_path",
-            },
-            owner="semantic RIR native runtime",
-        )
+        legacy_runtime_fields = {
+            "schema",
+            "binding_api",
+            "quaternion_module_path",
+            "habitat_module_path",
+            "binding_module_path",
+            "rlr_library_path",
+        }
+        current_runtime_fields = legacy_runtime_fields | {
+            "runtime_mode",
+            "runtime_identity",
+        }
+        raw_timing_runtime = timing_setup["runtime"]
+        if not isinstance(raw_timing_runtime, Mapping):
+            raise RIRCacheError("semantic RIR native runtime must be an object")
+        if set(raw_timing_runtime) == legacy_runtime_fields:
+            legacy_runtime_layout = True
+        elif set(raw_timing_runtime) == current_runtime_fields:
+            legacy_runtime_layout = False
+        else:
+            raise RIRCacheError(
+                "semantic RIR native runtime fields differ from semantic contract"
+            )
+        timing_runtime = raw_timing_runtime
         config_fields = {
             "frequency_bands",
             "direct_sh_order",
@@ -786,6 +801,52 @@ class SemanticRIRCacheSession:
             )
             is not None
         )
+        runtime_identity = timing_runtime.get("runtime_identity")
+        if legacy_runtime_layout or not isinstance(runtime_identity, Mapping):
+            identity_runtime_prefix = None
+            identity_sdk_root = None
+            identity_sdk_header = None
+        else:
+            identity_runtime_prefix = _semantic_canonical_absolute_path(
+                runtime_identity.get("habitat_runtime_prefix"),
+                owner="semantic RIR installed runtime prefix",
+            )
+            identity_sdk_root = _semantic_canonical_absolute_path(
+                runtime_identity.get("rlr_sdk_root"),
+                owner="semantic RIR external RLR SDK root",
+            )
+            identity_sdk_header = _semantic_canonical_absolute_path(
+                runtime_identity.get("rlr_sdk_header"),
+                owner="semantic RIR external RLR SDK header",
+            )
+        current_runtime_layout_valid = (
+            not legacy_runtime_layout
+            and timing_runtime.get("runtime_mode") == "current-installed"
+            and is_current_installed_runtime_identity(runtime_identity)
+            and isinstance(runtime_identity, Mapping)
+            and identity_runtime_prefix is not None
+            and habitat_path
+            == identity_runtime_prefix / "habitat_sim" / "__init__.py"
+            and binding_path.parent
+            == identity_runtime_prefix / "habitat_sim" / "_ext"
+            and identity_sdk_root is not None
+            and identity_sdk_header
+            == identity_sdk_root / "headers" / "RLRAudioPropagation.h"
+            and library_path
+            == identity_sdk_root
+            / "libs"
+            / "linux"
+            / "x64"
+            / "libRLRAudioPropagation.so"
+            and runtime_identity.get("habitat_sim_module") == str(habitat_path)
+            and runtime_identity.get("habitat_sim_binding") == str(binding_path)
+            and runtime_identity.get("rlr_sdk_library") == str(library_path)
+            and runtime_identity.get("binding_api")
+            == timing_runtime.get("binding_api")
+        )
+        runtime_layout_valid = (
+            legacy_runtime_layout and library_path.parent == binding_path.parent
+        ) or current_runtime_layout_valid
         timing_upload = _semantic_exact_mapping(
             timing_setup["upload"],
             {
@@ -974,7 +1035,7 @@ class SemanticRIRCacheSession:
             or timing_runtime.get("binding_api") != "habitat_sim.RLRAcousticContext_v1"
             or binding_path.suffix != ".so"
             or library_path.name != "libRLRAudioPropagation.so"
-            or library_path.parent != binding_path.parent
+            or not runtime_layout_valid
             or not binding_layout_valid
             or not config_valid
             or timing_upload.get("status") != "pass_structural_native_upload"

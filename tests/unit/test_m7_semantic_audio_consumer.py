@@ -841,7 +841,7 @@ def test_semantic_rir_rejects_incomplete_or_foreign_episode_grid(
         _open_semantic_rir_fixture(plan, cache)
 
 
-def test_semantic_rir_accepts_editable_split_runtime_roots(tmp_path: Path) -> None:
+def test_semantic_rir_accepts_legacy_colocated_runtime_receipt(tmp_path: Path) -> None:
     plan, cache = _write_semantic_rir_fixture(tmp_path)
     timing = json.loads((cache / "timing.json").read_text())
     runtime = timing["setup"]["runtime"]
@@ -849,6 +849,9 @@ def test_semantic_rir_accepts_editable_split_runtime_roots(tmp_path: Path) -> No
         Path(runtime["habitat_module_path"]).parent
         != Path(runtime["binding_module_path"]).parent
     )
+    assert Path(runtime["rlr_library_path"]).parent == Path(
+        runtime["binding_module_path"]
+    ).parent
     assert _open_semantic_rir_fixture(plan, cache).load_episode(
         "episode"
     ).samples.shape == (
@@ -857,6 +860,130 @@ def test_semantic_rir_accepts_editable_split_runtime_roots(tmp_path: Path) -> No
         2,
         2,
     )
+
+
+def _upgrade_semantic_fixture_to_current_installed(
+    tmp_path: Path, cache: Path
+) -> dict[str, object]:
+    runtime_prefix = tmp_path / "installed_runtime"
+    habitat_module = runtime_prefix / "habitat_sim/__init__.py"
+    habitat_binding = (
+        runtime_prefix
+        / "habitat_sim/_ext/"
+        "habitat_sim_bindings.cpython-312-x86_64-linux-gnu.so"
+    )
+    magnum_python_site = tmp_path / "magnum_python_site"
+    sdk_root = tmp_path / "rlr_sdk"
+    sdk_header = sdk_root / "headers/RLRAudioPropagation.h"
+    sdk_library = sdk_root / "libs/linux/x64/libRLRAudioPropagation.so"
+    quaternion_module = tmp_path / "quaternion.py"
+    for path in (habitat_module, habitat_binding, sdk_header, sdk_library):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    magnum_python_site.mkdir()
+    quaternion_module.write_bytes(b"fixture")
+    identity: dict[str, object] = {
+        "identity_schema": "avengine_current_installed_rlr_runtime_v1",
+        "mode": "current-installed",
+        "habitat_runtime_prefix": str(runtime_prefix),
+        "habitat_sim_module": str(habitat_module),
+        "habitat_sim_binding": str(habitat_binding),
+        "magnum_python_site": str(magnum_python_site),
+        "rlr_sdk_root": str(sdk_root),
+        "rlr_sdk_header": str(sdk_header),
+        "rlr_sdk_library": str(sdk_library),
+        "rlr_adapter_enabled": True,
+        "binding_api": "habitat_sim.RLRAcousticContext_v1",
+    }
+    timing_path = cache / "timing.json"
+    timing = json.loads(timing_path.read_text())
+    timing["setup"]["runtime"] = {
+        "schema": "avengine_semantic_habitat_rlr_runtime_v1",
+        "binding_api": "habitat_sim.RLRAcousticContext_v1",
+        "quaternion_module_path": str(quaternion_module),
+        "habitat_module_path": str(habitat_module),
+        "binding_module_path": str(habitat_binding),
+        "rlr_library_path": str(sdk_library),
+        "runtime_mode": "current-installed",
+        "runtime_identity": identity,
+    }
+    write_json(timing_path, timing)
+    return identity
+
+
+def test_semantic_rir_accepts_current_installed_external_sdk_layout(
+    tmp_path: Path,
+) -> None:
+    plan, cache = _write_semantic_rir_fixture(tmp_path)
+    identity = _upgrade_semantic_fixture_to_current_installed(tmp_path, cache)
+
+    episode = _open_semantic_rir_fixture(plan, cache).load_episode("episode")
+
+    assert episode.samples.shape == (75, 2, 2, 2)
+    assert Path(str(identity["rlr_sdk_library"])).parent != Path(
+        str(identity["habitat_sim_binding"])
+    ).parent
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "identity_library",
+        "sdk_git_checkout",
+        "binding_outside_prefix",
+        "coherent_split_habitat",
+        "coherent_sdk_alias",
+    ],
+)
+def test_semantic_rir_rejects_invalid_current_installed_runtime_identity(
+    tmp_path: Path, mutation: str
+) -> None:
+    plan, cache = _write_semantic_rir_fixture(tmp_path)
+    identity = _upgrade_semantic_fixture_to_current_installed(tmp_path, cache)
+    timing_path = cache / "timing.json"
+    timing = json.loads(timing_path.read_text())
+    runtime = timing["setup"]["runtime"]
+    if mutation == "identity_library":
+        replacement = Path(str(identity["rlr_sdk_root"])) / "other/libRLRAudioPropagation.so"
+        replacement.parent.mkdir()
+        replacement.write_bytes(b"other")
+        runtime["runtime_identity"]["rlr_sdk_library"] = str(replacement)
+    elif mutation == "sdk_git_checkout":
+        (Path(str(identity["rlr_sdk_root"])) / ".git").mkdir()
+    elif mutation == "binding_outside_prefix":
+        replacement = tmp_path / "outside/habitat_sim_bindings.cpython-312-x86_64-linux-gnu.so"
+        replacement.parent.mkdir()
+        replacement.write_bytes(b"outside")
+        runtime["binding_module_path"] = str(replacement)
+        runtime["runtime_identity"]["habitat_sim_binding"] = str(replacement)
+    elif mutation == "coherent_split_habitat":
+        replacement = (
+            Path(str(identity["habitat_runtime_prefix"]))
+            / "alternate/habitat_sim/_ext/"
+            "habitat_sim_bindings.cpython-312-x86_64-linux-gnu.so"
+        )
+        replacement.parent.mkdir(parents=True)
+        replacement.write_bytes(b"split")
+        runtime["binding_module_path"] = str(replacement)
+        runtime["runtime_identity"]["habitat_sim_binding"] = str(replacement)
+    else:
+        sdk_root = Path(str(identity["rlr_sdk_root"]))
+        replacement_header = sdk_root / "alternate/headers/RLRAudioPropagation.h"
+        replacement_library = (
+            sdk_root
+            / "alternate/libs/linux/x64/libRLRAudioPropagation.so"
+        )
+        replacement_header.parent.mkdir(parents=True)
+        replacement_library.parent.mkdir(parents=True)
+        replacement_header.write_bytes(b"alias-header")
+        replacement_library.write_bytes(b"alias-library")
+        runtime["rlr_library_path"] = str(replacement_library)
+        runtime["runtime_identity"]["rlr_sdk_header"] = str(replacement_header)
+        runtime["runtime_identity"]["rlr_sdk_library"] = str(replacement_library)
+    write_json(timing_path, timing)
+
+    with pytest.raises(AssetBoundAudioError):
+        _open_semantic_rir_fixture(plan, cache)
 
 
 def test_semantic_rir_accepts_fixed_jobs_with_top_level_pose_fallback(

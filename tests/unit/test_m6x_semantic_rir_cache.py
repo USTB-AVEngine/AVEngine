@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 from importlib.machinery import ExtensionFileLoader
 from pathlib import Path
+import sys
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -12,6 +13,7 @@ import pytest
 from avengine.contracts.json_io import write_json
 from avengine.m4.runtime import M4SimulationConfig
 from avengine.m6x import rir_cache
+from tools.m6x import render_rir_cache as rir_tool
 
 
 def _full_plan() -> dict[str, object]:
@@ -336,25 +338,34 @@ class _EditableLoaderWrapper:
         return getattr(self._loader, name)
 
 
-def _semantic_runtime_modules(tmp_path: Path) -> dict[str, ModuleType]:
-    package = tmp_path / "src_python/habitat_sim"
-    binding_dir = (
-        tmp_path / "build/cp312-cp312-linux_x86_64/install/platlib/habitat_sim/_ext"
-    )
+def _semantic_runtime_modules(
+    tmp_path: Path,
+) -> tuple[dict[str, ModuleType], dict[str, Path], dict[str, object]]:
+    runtime_prefix = tmp_path / "installed_runtime"
+    package = runtime_prefix / "habitat_sim"
+    binding_dir = package / "_ext"
+    magnum_python_site = tmp_path / "magnum_python_site"
+    rlr_sdk_root = tmp_path / "rlr_sdk"
+    rlr_header = rlr_sdk_root / "headers/RLRAudioPropagation.h"
+    rlr_library = rlr_sdk_root / "libs/linux/x64/libRLRAudioPropagation.so"
     package.mkdir(parents=True)
     binding_dir.mkdir(parents=True)
+    magnum_python_site.mkdir()
+    rlr_header.parent.mkdir(parents=True)
+    rlr_library.parent.mkdir(parents=True)
     habitat_file = package / "__init__.py"
     binding_file = binding_dir / "habitat_sim_bindings.cpython-312-x86_64-linux-gnu.so"
     quaternion_file = tmp_path / "quaternion.py"
     habitat_file.write_text("")
     binding_file.write_bytes(b"compiled-fixture")
-    (binding_dir / "libRLRAudioPropagation.so").write_bytes(b"native-fixture")
+    rlr_header.write_bytes(b"header-fixture")
+    rlr_library.write_bytes(b"native-fixture")
     quaternion_file.write_text("")
 
     binding_name = "habitat_sim._ext.habitat_sim_bindings"
     habitat = ModuleType("habitat_sim")
     habitat.__file__ = str(habitat_file)
-    habitat.__path__ = [str(package), str(binding_dir.parent)]
+    habitat.__path__ = [str(package)]
     habitat.__spec__ = SimpleNamespace(
         name="habitat_sim",
         origin=str(habitat_file),
@@ -380,24 +391,88 @@ def _semantic_runtime_modules(tmp_path: Path) -> dict[str, ModuleType]:
         symbol = type(name, (), {"__module__": binding_name})
         setattr(binding, name, symbol)
         setattr(habitat, name, symbol)
-    habitat.audio_enabled = True
-    return {
+    habitat.RLR_ADAPTER_ENABLED = True
+    modules = {
         "quaternion": quaternion,
         "habitat_sim": habitat,
         binding_name: binding,
     }
+    runtime_inputs = {
+        "runtime_prefix": runtime_prefix,
+        "magnum_python_site": magnum_python_site,
+        "rlr_sdk_root": rlr_sdk_root,
+    }
+    runtime_identity = {
+        "identity_schema": "avengine_current_installed_rlr_runtime_v1",
+        "mode": "current-installed",
+        "habitat_runtime_prefix": str(runtime_prefix),
+        "habitat_sim_module": str(habitat_file),
+        "habitat_sim_binding": str(binding_file),
+        "magnum_python_site": str(magnum_python_site),
+        "rlr_sdk_root": str(rlr_sdk_root),
+        "rlr_sdk_header": str(rlr_header),
+        "rlr_sdk_library": str(rlr_library),
+        "rlr_adapter_enabled": True,
+        "binding_api": "habitat_sim.RLRAcousticContext_v1",
+    }
+    loader_report = {
+        "runtime_mode": "current-installed",
+        "quaternion_module": {"path": str(quaternion_file)},
+        "habitat_sim_module": {"path": str(habitat_file)},
+        "binding_api": "habitat_sim.RLRAcousticContext_v1",
+        "installed_habitat_runtime": {
+            "prefix": str(runtime_prefix),
+            "binding_path": str(binding_file),
+        },
+        "external_rlr_sdk": {
+            "root": str(rlr_sdk_root),
+            "header": str(rlr_header),
+            "library": str(rlr_library),
+        },
+        "runtime_identity": runtime_identity,
+    }
+    return modules, runtime_inputs, loader_report
 
 
-def test_semantic_runtime_accepts_editable_split_module_roots(
+def _install_semantic_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[dict[str, ModuleType], dict[str, Path], dict[str, object], list[dict]]:
+    modules, runtime_inputs, loader_report = _semantic_runtime_modules(tmp_path)
+    calls: list[dict] = []
+
+    def load_runtime(**kwargs):
+        calls.append(dict(kwargs))
+        return modules["habitat_sim"], loader_report
+
+    def import_module(name: str):
+        assert name == "habitat_sim._ext.habitat_sim_bindings"
+        return modules[name]
+
+    monkeypatch.setitem(sys.modules, "quaternion", modules["quaternion"])
+    monkeypatch.setattr(rir_cache, "load_habitat_runtime", load_runtime)
+    monkeypatch.setattr(rir_cache.importlib, "import_module", import_module)
+    return modules, runtime_inputs, loader_report, calls
+
+
+def test_semantic_runtime_uses_explicit_installed_loader_and_external_sdk(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    modules = _semantic_runtime_modules(tmp_path)
-    monkeypatch.setattr(rir_cache.importlib, "import_module", modules.__getitem__)
-    habitat, binding, report = rir_cache._load_semantic_habitat_runtime()
+    modules, runtime_inputs, _loader_report, calls = _install_semantic_runtime(
+        tmp_path, monkeypatch
+    )
+    habitat, binding, report = rir_cache._load_semantic_habitat_runtime(
+        **runtime_inputs
+    )
     assert habitat is modules["habitat_sim"]
     assert binding is modules["habitat_sim._ext.habitat_sim_bindings"]
-    assert report["habitat_module_path"].endswith("src_python/habitat_sim/__init__.py")
-    assert "/install/platlib/habitat_sim/_ext/" in report["binding_module_path"]
+    assert calls == [{"runtime_mode": "current-installed", **runtime_inputs}]
+    assert report["runtime_mode"] == "current-installed"
+    assert report["runtime_identity"]["rlr_sdk_root"] == str(
+        runtime_inputs["rlr_sdk_root"]
+    )
+    assert Path(report["rlr_library_path"]).parent != Path(
+        report["binding_module_path"]
+    ).parent
 
 
 @pytest.mark.parametrize(
@@ -408,12 +483,15 @@ def test_semantic_runtime_accepts_editable_split_module_roots(
         "binding_loader_filename",
         "package_search",
         "symbol_identity",
+        "loader_library",
     ],
 )
 def test_semantic_runtime_rejects_unrelated_import_structure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
 ) -> None:
-    modules = _semantic_runtime_modules(tmp_path)
+    modules, runtime_inputs, loader_report, _calls = _install_semantic_runtime(
+        tmp_path, monkeypatch
+    )
     habitat = modules["habitat_sim"]
     binding = modules["habitat_sim._ext.habitat_sim_bindings"]
     if drift == "binding_origin":
@@ -428,15 +506,19 @@ def test_semantic_runtime_rejects_unrelated_import_structure(
         )
     elif drift == "package_search":
         habitat.__spec__.submodule_search_locations = [str(tmp_path / "build")]
-    else:
+    elif drift == "symbol_identity":
         habitat.RLRAcousticContext = type(
             "RLRAcousticContext",
             (),
             {"__module__": "habitat_sim._ext.habitat_sim_bindings"},
         )
-    monkeypatch.setattr(rir_cache.importlib, "import_module", modules.__getitem__)
+    else:
+        unrelated = tmp_path / "unrelated_rlr/libRLRAudioPropagation.so"
+        unrelated.parent.mkdir()
+        unrelated.write_bytes(b"unrelated-library")
+        loader_report["external_rlr_sdk"]["library"] = str(unrelated)
     with pytest.raises(rir_cache.RIRCacheError):
-        rir_cache._load_semantic_habitat_runtime()
+        rir_cache._load_semantic_habitat_runtime(**runtime_inputs)
 
 
 class _Renderer:
@@ -496,6 +578,132 @@ def _nested_keys(value: object) -> set[str]:
     if isinstance(value, (list, tuple)):
         return {key for item in value for key in _nested_keys(item)}
     return set()
+
+
+@pytest.mark.parametrize(
+    "runtime_inputs",
+    [
+        {"runtime_prefix": "/runtime"},
+        {
+            "runtime_prefix": "/runtime",
+            "magnum_python_site": "/magnum",
+        },
+        {"rlr_sdk_root": "/sdk"},
+    ],
+)
+def test_semantic_writer_rejects_partial_current_runtime_before_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_inputs: dict[str, str],
+) -> None:
+    plan, simulation_path, hrtf, scene, simulation = _producer_inputs(tmp_path)
+    output = tmp_path / "cache"
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("partial runtime selection reached native import")
+
+    monkeypatch.setattr(rir_cache, "load_habitat_runtime", forbidden)
+    with pytest.raises(rir_cache.RIRCacheError, match="supplied together"):
+        rir_cache.render_semantic_rir_cache(
+            plan_path=plan,
+            scene=scene,
+            simulation_request_path=simulation_path,
+            simulation=simulation,
+            output=output,
+            hrtf_file_path=hrtf,
+            batch_size=2,
+            **runtime_inputs,
+        )
+    assert not output.exists()
+
+
+def test_semantic_native_default_requires_current_runtime_without_ambient_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, simulation_path, hrtf, scene, simulation = _producer_inputs(tmp_path)
+    output = tmp_path / "cache"
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("missing current runtime reached ambient native import")
+
+    monkeypatch.setattr(rir_cache, "load_habitat_runtime", forbidden)
+    with pytest.raises(rir_cache.RIRCacheError, match="requires explicit"):
+        rir_cache.render_semantic_rir_cache(
+            plan_path=plan,
+            scene=scene,
+            simulation_request_path=simulation_path,
+            simulation=simulation,
+            output=output,
+            hrtf_file_path=hrtf,
+            batch_size=2,
+        )
+    assert not output.exists()
+
+
+def test_semantic_cli_forwards_complete_current_runtime_and_preserves_stdout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plan, simulation_path, hrtf, scene, _simulation = _producer_inputs(tmp_path)
+    package = tmp_path / "manifest.json"
+    write_json(package, {"schema": "fixture"})
+    runtime_prefix = tmp_path / "runtime"
+    magnum_python_site = tmp_path / "magnum"
+    rlr_sdk_root = tmp_path / "rlr_sdk"
+    for path in (runtime_prefix, magnum_python_site, rlr_sdk_root):
+        path.mkdir()
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        rir_tool,
+        "load_semantic_acoustic_scene",
+        lambda path: calls.setdefault("scene_path", path) and scene,
+    )
+
+    def render(**kwargs):
+        calls["render"] = kwargs
+        return SimpleNamespace(
+            output=Path(kwargs["output"]),
+            receipt={"selected_job_count": 2, "full_plan_complete": True},
+        )
+
+    monkeypatch.setattr(rir_tool, "render_semantic_rir_cache", render)
+    output = tmp_path / "cache"
+    result = rir_tool.run(
+        rir_tool.parse_args(
+            [
+                "--semantic-no-file-evidence",
+                "--rir-job-plan",
+                str(plan),
+                "--acoustic-package-manifest",
+                str(package),
+                "--simulation-request",
+                str(simulation_path),
+                "--hrtf",
+                str(hrtf),
+                "--runtime-prefix",
+                str(runtime_prefix),
+                "--magnum-python-site",
+                str(magnum_python_site),
+                "--rlr-sdk-root",
+                str(rlr_sdk_root),
+                "--output",
+                str(output),
+            ]
+        )
+    )
+
+    assert result == output
+    render_call = calls["render"]
+    assert isinstance(render_call, dict)
+    assert render_call["runtime_prefix"] == runtime_prefix
+    assert render_call["magnum_python_site"] == magnum_python_site
+    assert render_call["rlr_sdk_root"] == rlr_sdk_root
+    assert capsys.readouterr().out == (
+        f"SEMANTIC_RIR_CACHE_OK output={output} jobs=2 "
+        "full_plan_complete=True\n"
+    )
 
 
 def test_semantic_writer_atomically_publishes_fake_cache_without_native_claims(

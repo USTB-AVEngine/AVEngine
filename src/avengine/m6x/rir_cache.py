@@ -9,6 +9,7 @@ import math
 import os
 import resource
 import shutil
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -25,8 +26,12 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
+from avengine.current_installed_runtime import (
+    is_current_installed_runtime_identity,
+)
 from avengine.m3.runtime import (
     CompiledAcousticScene,
+    RUNTIME_MODE_CURRENT_INSTALLED,
     RuntimeContractError,
     _native_configuration,
     _upload_report,
@@ -120,6 +125,49 @@ class CachedRIREpisode:
     layout_id: str
     channel_labels: tuple[str, ...]
     evidence: Mapping[str, Any]
+
+
+def _native_runtime_loader_kwargs(
+    *,
+    runtime_prefix: str | Path | None,
+    magnum_python_site: str | Path | None,
+    rlr_sdk_root: str | Path | None,
+    require_current: bool,
+) -> dict[str, str | Path]:
+    """Select legacy defaults or one complete explicit current runtime.
+
+    Runtime locations are loader inputs, not cache-request identity fields.
+    Rejecting a partial trio here keeps native import, context construction,
+    and output creation behind one unambiguous runtime selection.
+    """
+
+    values = {
+        "runtime_prefix": runtime_prefix,
+        "magnum_python_site": magnum_python_site,
+        "rlr_sdk_root": rlr_sdk_root,
+    }
+    provided = {
+        name
+        for name, value in values.items()
+        if value is not None and str(value).strip()
+    }
+    if provided and len(provided) != len(values):
+        missing = ", ".join(name for name in values if name not in provided)
+        raise RIRCacheError(
+            "current-installed RIR runtime inputs must be supplied together; "
+            f"missing {missing}"
+        )
+    if require_current and len(provided) != len(values):
+        raise RIRCacheError(
+            "semantic native RIR rendering requires explicit runtime_prefix, "
+            "magnum_python_site, and rlr_sdk_root"
+        )
+    if len(provided) != len(values):
+        return {}
+    return {
+        "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+        **{name: value for name, value in values.items() if value is not None},
+    }
 
 
 def _finite_vector(value: Any, length: int, *, owner: str) -> tuple[float, ...]:
@@ -542,6 +590,9 @@ class _NativeRIRBatchRenderer:
         hrtf_file_path: str,
         source_radius_m: float,
         listener_radius_m: float,
+        runtime_prefix: str | Path | None = None,
+        magnum_python_site: str | Path | None = None,
+        rlr_sdk_root: str | Path | None = None,
     ) -> None:
         if not isinstance(scene, CompiledAcousticScene):
             raise RIRCacheError("scene must be a CompiledAcousticScene")
@@ -576,7 +627,15 @@ class _NativeRIRBatchRenderer:
 
         setup_wall_start = time.perf_counter()
         setup_cpu_start = time.process_time()
-        habitat_module, runtime_report = load_habitat_runtime()
+        runtime_loader_kwargs = _native_runtime_loader_kwargs(
+            runtime_prefix=runtime_prefix,
+            magnum_python_site=magnum_python_site,
+            rlr_sdk_root=rlr_sdk_root,
+            require_current=False,
+        )
+        habitat_module, runtime_report = load_habitat_runtime(
+            **runtime_loader_kwargs
+        )
         native_configuration, config_readback = _native_configuration(
             habitat_module, self.selected
         )
@@ -1324,16 +1383,31 @@ def load_semantic_acoustic_scene(manifest_path: Path) -> SemanticAcousticScene:
     )
 
 
-def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
-    """Load the required native API and validate paths without file evidence."""
+def _load_semantic_habitat_runtime(
+    *,
+    runtime_prefix: str | Path | None,
+    magnum_python_site: str | Path | None,
+    rlr_sdk_root: str | Path | None,
+) -> tuple[Any, Any, dict[str, Any]]:
+    """Load one explicit installed Habitat/RLR runtime without file digests."""
 
+    runtime_loader_kwargs = _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=True,
+    )
     try:
-        quaternion_module = importlib.import_module("quaternion")
-        habitat_module = importlib.import_module("habitat_sim")
+        habitat_module, loader_report = load_habitat_runtime(
+            **runtime_loader_kwargs
+        )
+        quaternion_module = sys.modules.get("quaternion")
+        if quaternion_module is None:
+            raise ImportError("quaternion was not initialized by the runtime loader")
         binding_module = importlib.import_module(
             "habitat_sim._ext.habitat_sim_bindings"
         )
-    except (ImportError, OSError) as exc:
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
         raise RIRCacheError("semantic Habitat/RLR runtime is unavailable") from exc
     required = (
         "RLRContextConfiguration",
@@ -1341,7 +1415,7 @@ def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
         "RLRChannelLayoutType",
     )
     if (
-        getattr(habitat_module, "audio_enabled", None) is not True
+        getattr(habitat_module, "RLR_ADAPTER_ENABLED", None) is not True
         or any(getattr(habitat_module, name, None) is None for name in required)
         or any(getattr(binding_module, name, None) is None for name in required)
         or any(
@@ -1367,13 +1441,29 @@ def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
     binding_path = regular_module_path(binding_module, owner="Habitat binding")
     if binding_path.suffix != ".so":
         raise RIRCacheError("semantic Habitat binding is not a compiled extension")
+    external_sdk = loader_report.get("external_rlr_sdk")
+    installed_runtime = loader_report.get("installed_habitat_runtime")
+    habitat_report = loader_report.get("habitat_sim_module")
+    quaternion_report = loader_report.get("quaternion_module")
+    if not all(
+        isinstance(value, Mapping)
+        for value in (
+            external_sdk,
+            installed_runtime,
+            habitat_report,
+            quaternion_report,
+        )
+    ):
+        raise RIRCacheError("semantic runtime loader report is incomplete")
+    assert isinstance(external_sdk, Mapping)
+    assert isinstance(installed_runtime, Mapping)
+    assert isinstance(habitat_report, Mapping)
+    assert isinstance(quaternion_report, Mapping)
     library = _semantic_regular_file(
-        binding_path.parent / "libRLRAudioPropagation.so",
+        Path(str(external_sdk.get("library", ""))),
         owner="RLR library path",
         absolute_required=True,
     )
-    if library.parent != binding_path.parent:
-        raise RIRCacheError("RLR library escapes the selected binding directory")
     habitat_spec = getattr(habitat_module, "__spec__", None)
     binding_spec = getattr(binding_module, "__spec__", None)
     binding_loader = getattr(binding_spec, "loader", None)
@@ -1412,6 +1502,22 @@ def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
         or loader_binding_path != binding_path
     ):
         raise RIRCacheError("semantic Habitat import specifications are invalid")
+    runtime_identity = loader_report.get("runtime_identity")
+    if (
+        loader_report.get("runtime_mode") != RUNTIME_MODE_CURRENT_INSTALLED
+        or not is_current_installed_runtime_identity(runtime_identity)
+        or habitat_report.get("path") != str(habitat_path)
+        or quaternion_report.get("path") != str(quaternion_path)
+        or installed_runtime.get("binding_path") != str(binding_path)
+        or external_sdk.get("library") != str(library)
+        or not isinstance(runtime_identity, Mapping)
+        or runtime_identity.get("habitat_sim_module") != str(habitat_path)
+        or runtime_identity.get("habitat_sim_binding") != str(binding_path)
+        or runtime_identity.get("rlr_sdk_library") != str(library)
+    ):
+        raise RIRCacheError(
+            "semantic current-installed runtime differs from loader readback"
+        )
     return (
         habitat_module,
         binding_module,
@@ -1422,6 +1528,8 @@ def _load_semantic_habitat_runtime() -> tuple[Any, Any, dict[str, Any]]:
             "habitat_module_path": str(habitat_path),
             "binding_module_path": str(binding_path),
             "rlr_library_path": str(library),
+            "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+            "runtime_identity": deepcopy(dict(runtime_identity)),
         },
     )
 
@@ -1507,6 +1615,9 @@ class _SemanticNativeRIRBatchRenderer(_NativeRIRBatchRenderer):
         hrtf_file_path: str,
         source_radius_m: float,
         listener_radius_m: float,
+        runtime_prefix: str | Path | None = None,
+        magnum_python_site: str | Path | None = None,
+        rlr_sdk_root: str | Path | None = None,
     ) -> None:
         if not isinstance(scene, SemanticAcousticScene):
             raise RIRCacheError("semantic scene type is invalid")
@@ -1543,7 +1654,11 @@ class _SemanticNativeRIRBatchRenderer(_NativeRIRBatchRenderer):
         setup_wall_start = time.perf_counter()
         setup_cpu_start = time.process_time()
         habitat_module, binding_module, runtime_report = (
-            _load_semantic_habitat_runtime()
+            _load_semantic_habitat_runtime(
+                runtime_prefix=runtime_prefix,
+                magnum_python_site=magnum_python_site,
+                rlr_sdk_root=rlr_sdk_root,
+            )
         )
         native_configuration, config_readback = _native_configuration(
             habitat_module, self.selected
@@ -2617,6 +2732,9 @@ def render_rir_cache(
     coordinate_translation_m: Sequence[float] = (0.0, 0.0, 0.0),
     source_radius_m: float = 0.0,
     listener_radius_m: float = 0.0,
+    runtime_prefix: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
     compressed: bool = True,
     renderer_factory: Callable[..., Any] = _NativeRIRBatchRenderer,
 ) -> RIRCacheResult:
@@ -2626,6 +2744,17 @@ def render_rir_cache(
     plan_path = Path(plan_path).resolve()
     simulation_request_path = Path(simulation_request_path).resolve()
     output = Path(output).resolve()
+    runtime_loader_kwargs = _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=False,
+    )
+    runtime_renderer_kwargs = {
+        name: runtime_loader_kwargs[name]
+        for name in ("runtime_prefix", "magnum_python_site", "rlr_sdk_root")
+        if name in runtime_loader_kwargs
+    }
     if layout_type not in {"binaural", "ambisonics"}:
         raise RIRCacheError("layout_type must be binaural or ambisonics")
     channel_count = 2 if layout_type == "binaural" else 4
@@ -2813,6 +2942,7 @@ def render_rir_cache(
                     hrtf_file_path=str(hrtf) if hrtf else "",
                     source_radius_m=float(source_radius_m),
                     listener_radius_m=float(listener_radius_m),
+                    **runtime_renderer_kwargs,
                 )
                 setup_report = dict(renderer.setup_report)
             if plan.get("listener_pose_mode") in {None, "fixed"}:
@@ -3082,12 +3212,27 @@ def _render_semantic_rir_cache_staging(
     coordinate_translation_m: Sequence[float] = (0.0, 0.0, 0.0),
     source_radius_m: float = 0.0,
     listener_radius_m: float = 0.0,
+    runtime_prefix: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
     compressed: bool = True,
     renderer_factory: Callable[..., Any] = _SemanticNativeRIRBatchRenderer,
 ) -> RIRCacheResult:
     """Render a fresh structural/sample cache without file evidence."""
 
     started = time.perf_counter()
+    native_execution = renderer_factory is _SemanticNativeRIRBatchRenderer
+    runtime_loader_kwargs = _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=False,
+    )
+    runtime_renderer_kwargs = {
+        name: runtime_loader_kwargs[name]
+        for name in ("runtime_prefix", "magnum_python_site", "rlr_sdk_root")
+        if name in runtime_loader_kwargs
+    }
     raw_plan = Path(plan_path)
     raw_simulation = Path(simulation_request_path)
     raw_output = Path(output)
@@ -3127,7 +3272,6 @@ def _render_semantic_rir_cache_staging(
     plan = load_json(plan_path)
     jobs = validate_semantic_rir_job_plan(plan)
     binding = _semantic_selection_binding(acoustic_selection)
-    native_execution = renderer_factory is _SemanticNativeRIRBatchRenderer
     if hrtf_file_path is None:
         raise RIRCacheError("semantic binaural RIR mode requires an HRTF")
     effective_simulation = simulation_with_layout(
@@ -3240,6 +3384,7 @@ def _render_semantic_rir_cache_staging(
                     hrtf_file_path=str(hrtf) if hrtf else "",
                     source_radius_m=float(source_radius_m),
                     listener_radius_m=float(listener_radius_m),
+                    **runtime_renderer_kwargs,
                 )
                 setup_report = deepcopy(dict(renderer.setup_report))
             if plan.get("listener_pose_mode") == "fixed":
@@ -3507,11 +3652,20 @@ def render_semantic_rir_cache(
     coordinate_translation_m: Sequence[float] = (0.0, 0.0, 0.0),
     source_radius_m: float = 0.0,
     listener_radius_m: float = 0.0,
+    runtime_prefix: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
     compressed: bool = True,
     renderer_factory: Callable[..., Any] = _SemanticNativeRIRBatchRenderer,
 ) -> RIRCacheResult:
     """Render privately and atomically publish a fresh semantic cache."""
 
+    _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=False,
+    )
     destination = Path(os.path.abspath(output))
     if (
         _semantic_path_has_symlink_component(destination)
@@ -3538,6 +3692,9 @@ def render_semantic_rir_cache(
             coordinate_translation_m=coordinate_translation_m,
             source_radius_m=source_radius_m,
             listener_radius_m=listener_radius_m,
+            runtime_prefix=runtime_prefix,
+            magnum_python_site=magnum_python_site,
+            rlr_sdk_root=rlr_sdk_root,
             compressed=compressed,
             renderer_factory=renderer_factory,
         )
