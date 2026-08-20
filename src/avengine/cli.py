@@ -84,6 +84,10 @@ from avengine.m5.current_mp3d_route import (
     CurrentMP3DRouteError,
     author_current_mp3d_two_beagle_route,
 )
+from avengine.m5.current_visual_review import (
+    CurrentVisualReviewError,
+    generate_current_visual_review,
+)
 from avengine.m5.timeline import validate_episode_request
 from avengine.m6.rooms import load_room_registry
 from avengine.m6.canary import (
@@ -1221,6 +1225,33 @@ def _m5_author_current_mp3d_two_beagle_route(args: argparse.Namespace) -> int:
     return 0
 
 
+def _m5_review_current_visual(args: argparse.Namespace) -> int:
+    try:
+        review = generate_current_visual_review(
+            args.research_output,
+            review_directory=args.review_output,
+        )
+    except (CurrentVisualReviewError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "research_only",
+            "research_only": True,
+            "episode_counted": False,
+            "research_output": str(Path(args.research_output).resolve()),
+            "review": str(review.html_path),
+            "frame_count": review.frame_count,
+            "notes_storage": "browser localStorage only",
+            "claim_boundary": (
+                "offline review only; no receipt mutation, verdict, admission, "
+                "or formal evidence"
+            ),
+        }
+    )
+    return 0
+
+
 def _m5_verify_canary(args: argparse.Namespace) -> int:
     try:
         status, checks = verify_m5_canary_evidence(args.evidence)
@@ -1756,6 +1787,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--minimum-center-separation-m", type=float, default=0.75
     )
     m5_current_route.set_defaults(handler=_m5_author_current_mp3d_two_beagle_route)
+
+    m5_current_review = m5_commands.add_parser(
+        "review-current-visual",
+        help=(
+            "Generate an offline research-only review page for one completed "
+            "M5 visual output"
+        ),
+    )
+    m5_current_review.add_argument("--research-output", required=True)
+    m5_current_review.add_argument(
+        "--review-output",
+        help=(
+            "Optional new local/external review directory; defaults to "
+            "<research-output>/review"
+        ),
+    )
+    m5_current_review.set_defaults(handler=_m5_review_current_visual)
 
     m5_verify = m5_commands.add_parser("verify-canary")
     m5_verify.add_argument("evidence")

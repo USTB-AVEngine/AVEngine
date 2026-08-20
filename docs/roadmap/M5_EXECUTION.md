@@ -114,6 +114,25 @@ This is research-only: it adds no new schema, persistent route hash, baseline,
 contract, or formal gate, and it makes no body-volume collision, audio/RLR,
 formal episode, or equivalence claim.
 
+
+### Offline human review
+
+Only after a completed `research_only` receipt exists, generate a fresh local
+review directory with synchronized RGB, depth and semantic panels:
+
+```bash
+python -m avengine.cli m5 review-current-visual \
+  --research-output /external/fresh/m5_current_visual \
+  --review-output /external/review/m5_current_visual
+```
+
+Omit `--review-output` to create the no-clobber `review/` directory beneath the
+research output. The page presents frame/time, planned actor pose, runtime
+source readback and semantic visibility when those arrays are supplied. Its
+free-text notes stay in browser-local storage unless the reviewer explicitly
+downloads them. It never rewrites `research_receipt.json`, creates a pass or
+review decision, or changes formal/admission evidence.
+
 ## Historical M5 v1 counterfactual
 
 Run from the AVEngine Habitat-native repository with the pinned Habitat Python
