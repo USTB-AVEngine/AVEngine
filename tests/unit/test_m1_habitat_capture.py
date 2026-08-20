@@ -718,3 +718,84 @@ def test_installed_runtime_rejects_physics_config_symlink_outside_prefix(
 
     with pytest.raises(RuntimeError, match="physics config"):
         _installed_runtime_paths(prefix, habitat_module, bindings_module)
+
+
+def test_import_installed_habitat_real_import_bypasses_editable_redirector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "installed-prefix"
+    habitat_root = prefix / "habitat_sim"
+    utils_root = habitat_root / "utils"
+    utils_root.mkdir(parents=True)
+    (habitat_root / "__init__.py").write_text(
+        "RLR_ADAPTER_ENABLED = True\n", encoding="utf-8"
+    )
+    (utils_root / "__init__.py").write_text("", encoding="utf-8")
+    (utils_root / "common.py").write_text(
+        "def quat_to_coeffs(value):\n    return value\n", encoding="utf-8"
+    )
+    site = tmp_path / "external-magnum"
+    magnum_root = site / "magnum"
+    magnum_root.mkdir(parents=True)
+    (magnum_root / "__init__.py").write_text("", encoding="utf-8")
+    old_checkout = tmp_path / "habitat-sim-AVEngine"
+    old_habitat = old_checkout / "habitat_sim"
+    old_habitat.mkdir(parents=True)
+    (old_habitat / "__init__.py").write_text(
+        "RLR_ADAPTER_ENABLED = False\n", encoding="utf-8"
+    )
+
+    class EditableHabitatFinder:
+        calls = 0
+
+        def find_spec(self, *_args: object, **_kwargs: object) -> None:
+            type(self).calls += 1
+            raise AssertionError("editable Habitat finder must be removed before import")
+
+    EditableHabitatFinder.__module__ = "_editable_skbc_habitat_sim"
+    finder = EditableHabitatFinder()
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    for module_name in tuple(sys.modules):
+        if module_name == "habitat_sim" or module_name.startswith("habitat_sim."):
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+        if module_name == "magnum":
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+    quaternion = ModuleType("quaternion")
+    quaternion.__file__ = str(tmp_path / "quaternion.py")
+    monkeypatch.setitem(sys.modules, "quaternion", quaternion)
+    monkeypatch.setattr(sys, "meta_path", [finder, *sys.meta_path])
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda _explicit=None: site,
+    )
+
+    def validate_magnum(active_site: Path, magnum: ModuleType) -> None:
+        assert Path(magnum.__file__).resolve().is_relative_to(active_site.resolve())
+
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_magnum_python_origins",
+        validate_magnum,
+    )
+
+    _qt, habitat, _magnum, _quat_to_coeffs = _import_installed_habitat(
+        prefix, magnum_python_site=site
+    )
+
+    assert EditableHabitatFinder.calls == 0
+    assert finder not in sys.meta_path
+    assert habitat.RLR_ADAPTER_ENABLED is True
+    origins = [
+        Path(module.__file__).resolve()
+        for name, module in sys.modules.items()
+        if name == "habitat_sim" or name.startswith("habitat_sim.")
+        if getattr(module, "__file__", None)
+    ]
+    assert origins
+    assert all(path.is_relative_to(prefix.resolve()) for path in origins)
+    assert all(not path.is_relative_to(old_checkout.resolve()) for path in origins)
+    assert sys.path[:2] == [str(prefix.resolve()), str(site.resolve())]
+    for module_name in tuple(sys.modules):
+        if module_name == "habitat_sim" or module_name.startswith("habitat_sim."):
+            sys.modules.pop(module_name, None)
+        if module_name == "magnum":
+            sys.modules.pop(module_name, None)

@@ -429,9 +429,6 @@ def load_habitat_runtime(
             prefix, owner="AVENGINE_HABITAT_RUNTIME_PREFIX"
         )
         sdk = discover_external_rlr_sdk(rlr_sdk_root)
-        # Preload before the extension import: this makes the only permitted
-        # RLR ELF object explicit rather than accepting a binding-neighbor copy.
-        preload_external_rlr_sdk(sdk)
         if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
             from avengine.m1.habitat_capture import discover_magnum_python_site
 
@@ -444,7 +441,13 @@ def load_habitat_runtime(
                     prefix, magnum_python_site=magnum_site
                 )
             )
+            # M1 removes editable Habitat finders and verifies prefix-only
+            # imports. Run that isolation before global SDK preloading: a
+            # preload first can let an editable extension win native linkage.
+            preload_external_rlr_sdk(sdk)
         else:
+            # Historical v1 keeps its retained import/preload sequence.
+            preload_external_rlr_sdk(sdk)
             habitat_module, _binding_module, module_path, binding_path = (
                 _load_installed_habitat_runtime(prefix)
             )
