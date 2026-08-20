@@ -48,6 +48,22 @@ closure. Scene data must be shared rather than copied once per example.
 
 ## Current checkpoint
 
+- 2026-08-21 single-source research checkpoint: commit `76d130e` adds the
+  explicit current Apartment visual author/capture path and commit `e0a1f87`
+  lets the optional host extension use the selected Python 3.11+ minor ABI.
+  A fresh non-Git project assembled from `native/spear/unreal` and authorized
+  external Apartment/Human/Beagle/SpContent inputs completed UE 5.5
+  BuildCookRun. Its packaged `SpearSim.sh` then produced one native 75-frame,
+  15 fps, 1280x720 RGB research capture on GPU0. Camera and both actor-root
+  readbacks have zero position/yaw error; Human/Beagle animation readback
+  errors are at most `4.8e-7` seconds. The receipt is `research_only`,
+  `episode_counted=false` and `qualification_claim=false`; it requests no
+  audio, RLR, M6/M7 bundle or formal admission. The server review entry is
+  `/data/avengine_external/review/apartment_current_visual_capture_cp312_retry1_b9150cb_20260821T0100Z/review/index.html`.
+  Two earlier fresh attempts remain preserved as failures (missing cp312 host
+  extension, then the nested UE pose-readback shape); neither counted a frame
+  or Episode. Human visual review of the successful output remains pending.
+
 - 2026-08-16 source-migration boundary: the direct packaged Apartment canary
   now requires explicit --spear-executable and no longer derives SpearSim.sh
   from an external SPEAR checkout. UE, the packaged runtime, and authorized
