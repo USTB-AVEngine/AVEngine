@@ -747,6 +747,12 @@ def verify_current_receipt_payload(document: Mapping[str, Any]) -> list[str]:
         return errors
     try:
         command = document["command"]
+        normalized_command = _normalize_current_test_command(command)
+        if list(command) != normalized_command:
+            raise CurrentReleaseReceiptError(
+                "recorded command executable must use its canonical absolute "
+                "non-checkout path"
+            )
         declared_path = document["junit_xml"]["declared_path"]
         declared_relative = _repository_relative_path(
             declared_path,

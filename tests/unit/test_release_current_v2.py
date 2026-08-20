@@ -23,6 +23,7 @@ from avengine.release_current_receipt import (
     CURRENT_CHILD_REPLACED_ENVIRONMENT_VARIABLES,
     CurrentReleaseReceiptError,
     LEGACY_CHILD_ENVIRONMENT_VARIABLES,
+    validate_current_receipt_document,
     validate_current_runtime_inputs,
     verify_current_receipt_payload,
 )
@@ -708,6 +709,82 @@ def test_current_receipt_rejects_git_checkout_executable(
     error = json.loads(capsys.readouterr().out)["error"]
     assert "command executable must resolve outside a Git checkout" in error
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("command_kind", "expected"),
+    [
+        ("bare-python", "command executable must be an absolute path"),
+        (
+            "git-checkout",
+            "command executable must resolve outside a Git checkout",
+        ),
+        (
+            "noncanonical-symlink",
+            "recorded command executable must use its canonical absolute",
+        ),
+    ],
+)
+def test_current_prepare_and_verify_reject_schema_valid_manual_receipt_command(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    command_kind: str,
+    expected: str,
+) -> None:
+    fixture = _make_fixture(tmp_path)
+    receipt_path = fixture.workspace / "tmp" / "current" / "fast-unit.json"
+    junit_path = "tmp/current/fast-unit.junit.xml"
+    assert release_tool_main(
+        _current_receipt_arguments(
+            fixture,
+            output=receipt_path,
+            junit_path=junit_path,
+        )
+    ) == 0
+    capsys.readouterr()
+    valid_receipt = load_json_strict(receipt_path)
+    assert valid_receipt["command"][0] == str(Path(sys.executable).resolve())
+    assert validate_current_receipt_document(valid_receipt) == []
+
+    manual_receipt = json.loads(json.dumps(valid_receipt))
+    if command_kind == "bare-python":
+        manual_receipt["command"][0] = "python"
+    elif command_kind == "git-checkout":
+        legacy_checkout = tmp_path / "legacy-command-checkout"
+        legacy_checkout.mkdir()
+        _git(legacy_checkout, "init", "--quiet")
+        runner = legacy_checkout / "runner"
+        runner.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        runner.chmod(0o755)
+        manual_receipt["command"][0] = str(runner)
+    else:
+        executable_link = tmp_path / "noncanonical-python"
+        executable_link.symlink_to(Path(sys.executable))
+        manual_receipt["command"][0] = str(executable_link)
+    assert validate_current_receipt_document(manual_receipt) == []
+
+    request = fixture.workspace / "tmp" / "current" / "request.json"
+    _write_json(request, _current_build_request(fixture))
+    _write_json(receipt_path, manual_receipt)
+    assert release_tool_main(_current_prepare_arguments(fixture, request=request)) == 2
+    assert expected in json.loads(capsys.readouterr().out)["error"]
+
+    _write_json(receipt_path, valid_receipt)
+    assert release_tool_main(_current_prepare_arguments(fixture, request=request)) == 0
+    manifest_path = Path(json.loads(capsys.readouterr().out)["manifest"])
+    assert release_tool_main(
+        _current_verify_arguments(fixture, manifest=manifest_path)
+    ) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "pass"
+
+    _write_json(receipt_path, manual_receipt)
+    assert release_tool_main(
+        _current_verify_arguments(fixture, manifest=manifest_path)
+    ) == 1
+    report = json.loads(capsys.readouterr().out)
+    checks = {item["check_id"]: item for item in report["checks"]}
+    assert checks["ordinary_test_receipt"]["status"] == "fail"
+    assert any(expected in error for error in checks["ordinary_test_receipt"]["errors"])
 
 
 @pytest.mark.parametrize(
