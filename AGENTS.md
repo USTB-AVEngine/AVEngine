@@ -52,8 +52,8 @@ By default, do not add a hash, frozen contract, baseline or gate. Such a
 mechanism is allowed only when the change identifies one concrete failure and
 explains why Git identity, versioning, primary keys, transactions, uniqueness,
 types and ordinary tests do not prevent it. Preserve existing safety controls:
-authentication, data safety, irreversible operations and formal publication
-continue to follow their project requirements.
+rights, authentication, data safety, irreversible operations and formal
+publication continue to follow their project requirements.
 
 Repository `tmp` is a compatibility symlink whose physical data lives under
 `/data/datasets/avengine_workspaces/`. Keep tools and stored evidence using
@@ -196,19 +196,44 @@ training-data route. Do not replace them with an easier canary:
 
 The default trust mode is `trusted_research_workspace`, documented in
 `docs/security/FILESYSTEM_TRUST_MODEL.md`. Inputs and outputs must resolve
-inside declared roots; missing inputs, root escapes, hash mismatches and
-replacement of immutable evidence are errors. Publish complete bundles with a
-temporary sibling plus atomic no-replace commit where supported.
+inside declared roots; missing inputs and root escapes are errors. A hash
+mismatch is an error when the relevant input or output is explicitly part of a
+hash-bound formal artifact, and unauthorized replacement of formal immutable
+evidence remains an error. Publish complete bundles with a temporary sibling
+plus atomic no-replace commit where supported.
 
 This mode does not claim protection from a malicious local symlink race,
 portable `O_NOFOLLOW` directory semantics or general TOCTOU attacks. Do not
 describe it as an untrusted-upload sandbox.
 
+External datasets, UE assets, models, textures, audio, HRTFs, SDKs and runtime
+stages are iterative runtime inputs. Do not default them to a byte snapshot of
+one copied instance. An owner-authorized replacement at the same path is
+allowed, and a legal additional asset must not by itself make a run reject.
+Ordinary validation should prefer declared roots, package/object paths,
+registered ID/revision/type/provenance and live runtime/readback/visual/audio
+behavior. If semantic identity changes, update the ordinary revision and
+provenance and rerun the relevant validation; do not freeze old bytes merely
+to preserve an earlier copy.
+
+Fresh staging should copy only the inputs needed for the selected run where
+practical. Its minimal closure is normally build/rights hygiene, not a
+universal runtime contract. A one-off pre/post byte comparison may diagnose a
+transition, but it must not automatically become a permanent hash, baseline or
+gate.
+
+The pipeline must never modify third-party source data in place. Rights,
+authentication, data-safety and formal immutable-evidence boundaries remain in
+force. The exception above is the only route to adding a hash, frozen contract,
+baseline or gate.
+
 Every formal claim must bind exact result-changing inputs, code/runtime
-identity, checks and status. Git supplies the identity of checked-in files;
-content hashes are reserved for external assets, generated closures, execution
-receipts and other formal artifacts outside that Git identity. Use `pass`,
-`fail`, `blocked`, `not_run`,
+identity, checks and status. Git supplies the identity of checked-in files.
+For ordinary runtime inputs, use the declared roots, package/object paths and
+registered identity and provenance above; content hashes may be used when an
+external asset, generated closure, execution receipt or other formal artifact
+is explicitly hash-bound outside that Git identity. Use `pass`, `fail`,
+`blocked`, `not_run`,
 `research_only` and `qualified` precisely. Python-only tests cannot substitute
 for native Habitat, RLR, Blender or media-readback execution.
 
@@ -224,8 +249,12 @@ for native Habitat, RLR, Blender or media-readback execution.
   private-server absolute paths to current configuration or examples.
 - Do not weaken a validator, mock real evidence or edit a hash merely to make a
   gate pass. Record an exact blocker instead.
-- Raw third-party room assets are immutable. Derived proxies need explicit
-  source identity, operations, hashes and qualification status.
+- Do not let a pipeline modify third-party source data in place. An authorized
+  replacement of an external runtime copy must update its ordinary revision
+  and provenance and trigger relevant validation. Formal immutable evidence
+  and rights/auth/data-safety controls remain protected. Derived proxies need
+  explicit source identity, operations and qualification status; add a hash only
+  under the concrete-failure exception above.
 
 ## Test layers
 
