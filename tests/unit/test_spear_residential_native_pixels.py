@@ -445,7 +445,6 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
     evidence = TOOL.run(
         argparse.Namespace(
             episode_root=episode_root,
-            spear_root=tmp_path / "spear",
             uproject=tmp_path / "project.uproject",
             unreal_editor=tmp_path / "UnrealEditor",
             output=tmp_path / "output",
@@ -521,8 +520,6 @@ def test_parse_args_exposes_opt_in_native_multimodal_flag(
         "run_spear_residential_episode.py",
         "--episode-root",
         "/tmp/episode",
-        "--spear-root",
-        "/tmp/spear",
         "--uproject",
         "/tmp/project.uproject",
         "--unreal-editor",
@@ -533,7 +530,9 @@ def test_parse_args_exposes_opt_in_native_multimodal_flag(
     if native_multimodal:
         argv.append("--native-multimodal")
     monkeypatch.setattr(sys, "argv", argv)
-    assert TOOL.parse_args().native_multimodal is native_multimodal
+    parsed = TOOL.parse_args()
+    assert parsed.native_multimodal is native_multimodal
+    assert not hasattr(parsed, "spear_root")
 
 
 def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
@@ -624,7 +623,6 @@ def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
     evidence = TOOL.run(
         argparse.Namespace(
             episode_root=episode_root,
-            spear_root=tmp_path / "spear",
             uproject=tmp_path / "project.uproject",
             unreal_editor=tmp_path / "UnrealEditor",
             output=tmp_path / "output",

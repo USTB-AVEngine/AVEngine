@@ -26,6 +26,9 @@ import numpy as np
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
+from avengine.backends.spear_ue.launch import (  # noqa: E402
+    validate_current_production_spear_executable,
+)
 from avengine.qa.pixel_visibility import (  # noqa: E402
     PIXEL_VISIBILITY_DEPTH_AUTHORITY,
     compile_depth_pixel_visibility_truth,
@@ -65,6 +68,9 @@ GROUND_HIT_RAW_JOURNAL_SCHEMA = "avengine_ue_fhitresult_raw_component_journal_v1
 GROUND_FLOOR_IDENTITY_SCHEMA = "ue_fhitresult_component_owner_floor_identity_v3"
 GROUND_FLOOR_IDENTITY_AUTHORITY = (
     "UGameplayStatics.BreakHitResult(HitComponent)_to_UActorComponent.GetOwner"
+)
+LEGACY_SPEAR_EXECUTABLE_RELATIVE_PATH = Path(
+    "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
 )
 
 
@@ -115,6 +121,53 @@ def _native_pixel_claim_boundary(backend_role: str) -> str:
         "qualification claim and does not replace AVEngine Timeline, source "
         "logic, audio, Topdown, flags, or metadata authority"
     )
+
+
+def _resolve_spear_executable(
+    args: argparse.Namespace, *, backend_role: str
+) -> Path:
+    """Resolve the packaged game without making a production root fallback.
+
+    Current Apartment production callers must name the external packaged game
+    directly. The root option survives only so retained diagnostic wrappers can
+    continue reading their historical checkout-shaped requests.
+    """
+
+    spear_executable = getattr(args, "spear_executable", None)
+    spear_root = getattr(args, "spear_root", None)
+    _require(
+        (spear_executable is None) != (spear_root is None),
+        "provide exactly one of --spear-executable or deprecated --spear-root",
+    )
+    if spear_executable is not None:
+        return Path(spear_executable).expanduser()
+    _require(
+        backend_role == COMPARISON_VISUAL_ROLE,
+        "production_visual capture requires --spear-executable; "
+        "--spear-root is diagnostic-only compatibility",
+    )
+    return (
+        Path(spear_root).expanduser() / LEGACY_SPEAR_EXECUTABLE_RELATIVE_PATH
+    ).resolve()
+
+
+def _configure_current_production_instance(
+    *,
+    spear_executable: Path,
+    rpc_port: int,
+    graphics_adapter: int,
+    native_map: str,
+) -> Any:
+    """Validate one external packaged game immediately before direct launch."""
+
+    configure_args = argparse.Namespace(
+        spear_executable=validate_current_production_spear_executable(
+            spear_executable
+        ),
+        rpc_port=rpc_port,
+        graphics_adapter=graphics_adapter,
+    )
+    return RUNNER._configure_instance(configure_args, native_map=native_map)
 
 
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -1509,6 +1562,7 @@ def run(args: argparse.Namespace) -> Path:
     _require(args.scenario_id in scenarios, "scenario is absent from suite plan")
     scenario = scenarios[args.scenario_id]
     backend_role = _resolve_suite_backend_role(suite, scenario)
+    spear_executable = _resolve_spear_executable(args, backend_role=backend_role)
     all_frames = scenario["plan"]["frames"]
     _require(
         len(all_frames) == RUNNER.FRAME_COUNT,
@@ -1532,17 +1586,22 @@ def run(args: argparse.Namespace) -> Path:
     rgb_directory.mkdir()
     raw_hit_journal = _GroundHitRawJournal(args.output / GROUND_HIT_RAW_JOURNAL_NAME)
 
-    configure_args = argparse.Namespace(
-        spear_executable=(
-            args.spear_root
-            / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
-        ),
-        rpc_port=args.rpc_port,
-        graphics_adapter=args.graphics_adapter,
-    )
-    instance = RUNNER._configure_instance(
-        configure_args, native_map=str(suite["native_map"])
-    )
+    if backend_role == PRODUCTION_VISUAL_ROLE:
+        instance = _configure_current_production_instance(
+            spear_executable=spear_executable,
+            rpc_port=args.rpc_port,
+            graphics_adapter=args.graphics_adapter,
+            native_map=str(suite["native_map"]),
+        )
+    else:
+        configure_args = argparse.Namespace(
+            spear_executable=spear_executable,
+            rpc_port=args.rpc_port,
+            graphics_adapter=args.graphics_adapter,
+        )
+        instance = RUNNER._configure_instance(
+            configure_args, native_map=str(suite["native_map"])
+        )
     game = instance.get_game()
     runtimes: dict[str, Any] = {}
     components: dict[str, Any] = {}
@@ -1975,7 +2034,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--suite-plan", required=True, type=Path)
     parser.add_argument("--scenario-id", required=True)
     parser.add_argument("--audio-wav", required=True, type=Path)
-    parser.add_argument("--spear-root", required=True, type=Path)
+    runtime = parser.add_mutually_exclusive_group(required=True)
+    runtime.add_argument(
+        "--spear-executable",
+        type=Path,
+        help="explicit external packaged SpearSim.sh executable",
+    )
+    runtime.add_argument(
+        "--spear-root",
+        type=Path,
+        help=(
+            "DEPRECATED diagnostic-only compatibility for retained historical "
+            "requests; production_visual requires --spear-executable"
+        ),
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--rpc-port", type=int, default=39474)
     parser.add_argument("--graphics-adapter", type=int, default=1)

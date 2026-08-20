@@ -57,12 +57,40 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_dynamic_launcher_uses_explicit_spear_executable_only(
+    tmp_path: Path,
+) -> None:
+    runner = _load_runner()
+    executable = tmp_path / "external-runtime" / "SpearSim.sh"
+    argv = runner._capture_argv(
+        {
+            "capture_python": "/runtime/spear-python",
+            "capture_script": "/repo/capture.py",
+            "suite_plan": "/tmp/suite.json",
+            "episode_id": "episode",
+            "audio_wav": "/tmp/audio.wav",
+            "spear_executable": str(executable),
+            "capture_output": "/tmp/output",
+            "rpc_port": 39701,
+        }
+    )
+    assert argv[argv.index("--spear-executable") + 1] == str(executable)
+    assert "--spear-root" not in argv
+
+
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_executable(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
 
 
 def _build_profile(mechanism: str) -> dict:
@@ -123,7 +151,21 @@ def _per_slot_rir_counts(profile: dict) -> dict[str, int]:
     }
 
 
-def _common_request(root: Path, episode_id: str, mechanism: str) -> dict:
+def _common_request(
+    root: Path,
+    episode_id: str,
+    mechanism: str,
+    *,
+    spear_executable: Path | None = None,
+    spear_root: str | None = None,
+) -> dict:
+    if (spear_executable is None) == (spear_root is None):
+        raise ValueError("fixture requires exactly one runtime form")
+    runtime = (
+        {"spear_executable": str(spear_executable)}
+        if spear_executable is not None
+        else {"spear_root": spear_root}
+    )
     suite_path = root / "suite_execution_plan.json"
     audio_path = root / "binaural_v1/audio/binaural" / f"{episode_id}__v00.wav"
     audio_path.parent.mkdir(parents=True)
@@ -149,7 +191,7 @@ def _common_request(root: Path, episode_id: str, mechanism: str) -> dict:
         ),
         "suite_plan": str(suite_path),
         "audio_wav": str(audio_path),
-        "spear_root": "/data/jzy/code/SPEAR-lead-b",
+        **runtime,
         "rpc_port": 39701,
         "physical_gpu_index": 1,
         "graphics_adapter_argument": 1,
@@ -166,6 +208,7 @@ def _profile_request_fixture(tmp_path: Path, mechanism: str) -> tuple[Path, dict
     candidate = candidate_binding["value"]
     episode_id = candidate["legacy_episode_id"]
     root = tmp_path / f"{mechanism}_materialized"
+    spear_executable = _write_executable(root / "runtime" / "SpearSim.sh")
     profile_path = root / "actor_motion_profile.json"
     _write_json(profile_path, profile)
     action_counts = _action_counts(profile)
@@ -235,7 +278,9 @@ def _profile_request_fixture(tmp_path: Path, mechanism: str) -> tuple[Path, dict
             },
         },
     )
-    request = _common_request(root, episode_id, mechanism)
+    request = _common_request(
+        root, episode_id, mechanism, spear_executable=spear_executable
+    )
     request.update(
         {
             "schema": "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v3",
@@ -308,7 +353,9 @@ def _camera_pan_request_fixture(tmp_path: Path) -> Path:
             },
         },
     )
-    request = _common_request(root, episode_id, mechanism)
+    request = _common_request(
+        root, episode_id, mechanism, spear_root="/historical/SPEAR"
+    )
     request.update(
         {
             "schema": "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v2",
@@ -317,6 +364,29 @@ def _camera_pan_request_fixture(tmp_path: Path) -> Path:
             "capture_output": str(
                 root.parent / "dynamic_camera_pan_v2_capture_attempt_01"
             ),
+        }
+    )
+    request_path = root / "gpu_launch_attempt_01/request.json"
+    _write_json(request_path, request)
+    return request_path
+
+
+def _historical_v2_request_fixture(tmp_path: Path, mechanism: str) -> Path:
+    """Create one direct root-shaped v2 record for retained comparison reads."""
+
+    root = tmp_path / f"historical_{mechanism}_materialized"
+    request = _common_request(
+        root,
+        f"historical_{mechanism}_episode",
+        mechanism,
+        spear_root="/historical/SPEAR",
+    )
+    request.update(
+        {
+            "schema": (
+                "avengine_native_strict_two_human_dynamic_full75_gpu_launch_request_v2"
+            ),
+            "capture_output": str(root.parent / f"historical_{mechanism}_capture"),
         }
     )
     request_path = root / "gpu_launch_attempt_01/request.json"
@@ -357,14 +427,15 @@ def test_prepare_profile_request_is_derived_deterministic_and_no_clobber(
         lambda: pytest.fail("prepare must not query GPU state"),
     )
 
-    first_path, first = runner.build_launch_request(source)
-    second_path, second = runner.build_launch_request(source)
+    spear_executable = Path(expected["spear_executable"])
+    first_path, first = runner.build_launch_request(source, spear_executable)
+    second_path, second = runner.build_launch_request(source, spear_executable)
     assert first_path == second_path == request_path
     assert first == second == expected
-    assert runner.prepare_launch_request(source) == request_path
+    assert runner.prepare_launch_request(source, spear_executable) == request_path
     original_bytes = request_path.read_bytes()
     with pytest.raises(FileExistsError):
-        runner.prepare_launch_request(source)
+        runner.prepare_launch_request(source, spear_executable)
     assert request_path.read_bytes() == original_bytes
 
 
@@ -373,6 +444,7 @@ def test_prepare_rejects_authority_drift_before_creating_request(
 ) -> None:
     runner = _load_runner()
     request_path, _ = _profile_request_fixture(tmp_path, "target_moves")
+    expected = _load(request_path)
     request_path.unlink()
     finalization_path = request_path.parents[1] / (
         "pre_capture_finalization_v1/finalization.json"
@@ -382,7 +454,9 @@ def test_prepare_rejects_authority_drift_before_creating_request(
     _write_json(finalization_path, finalization)
 
     with pytest.raises(RuntimeError, match="identity drift"):
-        runner.prepare_launch_request(finalization_path)
+        runner.prepare_launch_request(
+            finalization_path, Path(expected["spear_executable"])
+        )
     assert not request_path.exists()
 
 
@@ -394,14 +468,19 @@ def test_prepare_keeps_camera_pan_as_the_only_profileless_legacy_boundary(
     request_path.unlink()
     root = request_path.parents[1]
 
-    built_path, request = runner.build_launch_request(root)
+    supplied_executable = root / "caller-supplied" / "SpearSim.sh"
+    built_path, request = runner.build_launch_request(root, supplied_executable)
     assert built_path == request_path
     assert request["schema"] == runner.REQUEST_SCHEMA
+    assert request["spear_executable"] == str(supplied_executable)
     assert "motion_authority" not in request
     assert request["capture_output"].endswith(
         "/dynamic_camera_pan_v2_capture_attempt_01"
     )
-    assert runner.prepare_launch_request(root) == request_path
+    assert runner.prepare_launch_request(root, supplied_executable) == request_path
+    assert not supplied_executable.exists()
+    with pytest.raises(RuntimeError, match="SPEAR executable is missing"):
+        runner._validate_request(request_path)
 
     request_path.unlink()
     finalization_path = root / "pre_capture_finalization_v1/finalization.json"
@@ -409,7 +488,7 @@ def test_prepare_keeps_camera_pan_as_the_only_profileless_legacy_boundary(
     finalization["mechanism"] = "target_moves"
     _write_json(finalization_path, finalization)
     with pytest.raises(RuntimeError, match="missing actor_motion_profile"):
-        runner.prepare_launch_request(root)
+        runner.prepare_launch_request(root, supplied_executable)
     assert not request_path.exists()
 
 
@@ -443,6 +522,8 @@ def test_profile_backed_runner_derives_real_motion_chain(
         f"/{candidate['candidate_episode_id']}__capture_attempt_01"
     )
     assert "--frame-index" not in receipt["capture_argv"]
+    assert "--spear-executable" in receipt["capture_argv"]
+    assert "--spear-root" not in receipt["capture_argv"]
 
 
 def test_runner_rejects_request_motion_hash_drift(tmp_path: Path) -> None:
@@ -503,27 +584,112 @@ def test_runner_rejects_mutated_profile_even_with_updated_file_hash(
         runner._validate_request(request_path)
 
 
-def test_only_camera_pan_accepts_profileless_legacy_adapter(
-    tmp_path: Path, monkeypatch
+@pytest.mark.parametrize(
+    "mechanism",
+    ("target_moves", "distractor_moves", "both_move", "camera_pan_both_static"),
+)
+def test_historical_v2_reader_preserves_all_retained_root_shapes_and_refuses_launch(
+    tmp_path: Path, monkeypatch, mechanism: str
+) -> None:
+    runner = _load_runner()
+    request_path = _historical_v2_request_fixture(tmp_path, mechanism)
+    request, argv, authority = runner._validate_request(request_path)
+    assert request["schema"] == runner.LEGACY_REQUEST_SCHEMA
+    assert request["mechanism"] == mechanism
+    assert request["spear_root"] == "/historical/SPEAR"
+    assert "spear_executable" not in request
+    assert argv == []
+    assert authority == {
+        "status": "historical_v2_comparison_reader",
+        "backend_role": "comparison_visual",
+        "historical_mechanism": mechanism,
+        "legacy_adapter_used": mechanism == runner.LEGACY_CAMERA_PAN_MECHANISM,
+        "qualification_claim": False,
+    }
+
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: pytest.fail("historical v2 reader must not query GPU state"),
+    )
+    receipt_path = request_path.parent / "dry_run_receipt.json"
+    with pytest.raises(RuntimeError, match="comparison-only"):
+        runner.run(request_path, receipt_path, dry_run=True)
+    assert not receipt_path.exists()
+
+
+def test_current_v3_rejects_injected_legacy_spear_root(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request_path = _camera_pan_request_fixture(tmp_path)
+    request_path.unlink()
+    root = request_path.parents[1]
+    current_path, request = runner.build_launch_request(
+        root,
+        _write_executable(tmp_path / "current-runtime" / "SpearSim.sh"),
+    )
+    request["spear_root"] = "/historical/SPEAR"
+    _write_json(current_path, request)
+
+    with pytest.raises(RuntimeError, match="must not mix legacy spear_root"):
+        runner._validate_request(current_path)
+
+
+def test_current_v3_accepts_external_executable(tmp_path: Path) -> None:
+    runner = _load_runner()
+    request_path = _camera_pan_request_fixture(tmp_path)
+    request_path.unlink()
+    external_executable = _write_executable(
+        tmp_path / "external-runtime" / "SpearSim.sh"
+    )
+    current_path, request = runner.build_launch_request(
+        request_path.parents[1], external_executable
+    )
+    _write_json(current_path, request)
+
+    _, argv, _ = runner._validate_request(current_path)
+
+    assert argv[argv.index("--spear-executable") + 1] == str(external_executable)
+
+
+@pytest.mark.parametrize(
+    ("runtime_form", "expected_error"),
+    (
+        ("lexical", "lexical path is inside a Git checkout"),
+        ("resolved", "resolved path is inside a Git checkout"),
+    ),
+)
+def test_current_v3_rejects_git_checkout_executable_before_gpu_launch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_form: str,
+    expected_error: str,
 ) -> None:
     runner = _load_runner()
     request_path = _camera_pan_request_fixture(tmp_path)
-    monkeypatch.setattr(runner, "_gpu_snapshot", lambda: _idle_gpu(runner))
-    receipt_path = request_path.parent / "dry_run_receipt.json"
-
-    assert runner.run(request_path, receipt_path, dry_run=True) == 0
-    receipt = _load(receipt_path)
-    assert receipt["motion_authority"]["status"] == (
-        "explicit_legacy_camera_pan_adapter"
+    request_path.unlink()
+    checkout_executable = _write_executable(tmp_path / "checkout" / "SpearSim.sh")
+    (checkout_executable.parent / ".git").mkdir()
+    if runtime_form == "lexical":
+        supplied_executable = checkout_executable
+    else:
+        supplied_executable = tmp_path / "external-link" / "SpearSim.sh"
+        supplied_executable.parent.mkdir()
+        supplied_executable.symlink_to(checkout_executable)
+    current_path, request = runner.build_launch_request(
+        request_path.parents[1], supplied_executable
     )
-    assert receipt["motion_authority"]["legacy_adapter_used"] is True
+    _write_json(current_path, request)
+    receipt_path = current_path.parent / "dry_run_receipt.json"
+    monkeypatch.setattr(
+        runner,
+        "_gpu_snapshot",
+        lambda: pytest.fail("Git checkout executable must fail before GPU probing"),
+    )
 
-    request = _load(request_path)
-    request["mechanism"] = "target_moves"
-    request["schema"] = runner.REQUEST_SCHEMA
-    _write_json(request_path, request)
-    with pytest.raises(RuntimeError, match="motion_authority is required"):
-        runner._validate_request(request_path)
+    with pytest.raises(RuntimeError, match=expected_error):
+        runner.run(current_path, receipt_path, dry_run=True)
+
+    assert not receipt_path.exists()
 
 
 def test_runner_rejects_capture_output_not_derived_fresh_sibling(

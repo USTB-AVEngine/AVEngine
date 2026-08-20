@@ -228,7 +228,9 @@ def _candidate_suite(
     return suite
 
 
-def build(plan_path: Path, output: Path) -> Path:
+def build(
+    plan_path: Path, output: Path, *, spear_executable: Path
+) -> Path:
     _require(not output.exists(), f"refusing to overwrite output: {output}")
     plan = _load(plan_path)
     _require(
@@ -295,8 +297,8 @@ def build(plan_path: Path, output: Path) -> Path:
                 episode_id,
                 "--audio-wav",
                 str(silence.resolve()),
-                "--spear-root",
-                "/data/jzy/code/SPEAR-lead-b",
+                "--spear-executable",
+                str(spear_executable),
                 "--output",
                 str(visual_output.resolve()),
                 "--rpc-port",
@@ -394,8 +396,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--spear-executable", type=Path, required=True)
     args = parser.parse_args()
-    result = build(args.plan.resolve(), args.output.resolve())
+    result = build(
+        args.plan.resolve(),
+        args.output.resolve(),
+        spear_executable=args.spear_executable,
+    )
     print(f"STRICT_TWO_HUMAN_DEBUG_ROOM_PREFLIGHT_OK preflight={result}")
     return 0
 

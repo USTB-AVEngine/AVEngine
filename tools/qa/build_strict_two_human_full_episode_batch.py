@@ -1346,7 +1346,10 @@ def _question(index: int, side: str, episode_id: str) -> dict[str, Any]:
 
 
 def _canary_plan(
-    request: Mapping[str, Any], publication: Mapping[str, Any]
+    request: Mapping[str, Any],
+    publication: Mapping[str, Any],
+    *,
+    spear_executable: Path,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for row in publication["rows"][:4]:
@@ -1416,8 +1419,8 @@ def _canary_plan(
                     row["episode_id"],
                     "--audio-wav",
                     str(audio.resolve()),
-                    "--spear-root",
-                    "/data/jzy/code/SPEAR-lead-b",
+                    "--spear-executable",
+                    str(spear_executable),
                     "--output",
                     str(output.resolve()),
                     "--rpc-port",
@@ -1540,6 +1543,7 @@ def build(
     request_path: Path,
     output: Path,
     *,
+    spear_executable: Path,
     selected_episode_id: str | None = None,
 ) -> dict[str, Path]:
     _require(not output.exists(), f"refusing to overwrite output: {output}")
@@ -1985,7 +1989,12 @@ def build(
     _write(paths["summary"], summary)
     _write(paths["dedup_audit"], dedup)
     _write(paths["assignment_validation"], assignment_validation)
-    _write(paths["canary_plan"], _canary_plan(request, publication))
+    _write(
+        paths["canary_plan"],
+        _canary_plan(
+            request, publication, spear_executable=spear_executable
+        ),
+    )
     _write(
         paths["dynamic_mechanism_canary_plan"],
         _dynamic_mechanism_canary_plan(request, episodes),
@@ -2020,6 +2029,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request", type=Path, default=DEFAULT_REQUEST)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--spear-executable", type=Path, required=True)
     parser.add_argument(
         "--episode-id",
         help=(
@@ -2031,6 +2041,7 @@ def main() -> int:
     paths = build(
         args.request.resolve(),
         args.output.resolve(),
+        spear_executable=args.spear_executable,
         selected_episode_id=args.episode_id,
     )
     print(

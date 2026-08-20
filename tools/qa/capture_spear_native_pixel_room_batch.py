@@ -62,12 +62,12 @@ class SpearNativeRoomBatchSession:
         self,
         *,
         batch: Any,
-        spear_root: Path,
+        spear_executable: Path,
         rpc_port: int,
         warmup_frames: int,
     ) -> None:
         self.batch = batch
-        self.spear_root = spear_root.resolve()
+        self.spear_executable = spear_executable.expanduser()
         self.rpc_port = rpc_port
         self.warmup_frames = warmup_frames
         self.closed = False
@@ -78,16 +78,11 @@ class SpearNativeRoomBatchSession:
         )
         self.spike = self.backend.SPIKE
         self.runner = self.backend.RUNNER
-        configure = argparse.Namespace(
-            spear_executable=(
-                self.spear_root
-                / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
-            ),
+        self.instance = self.backend._configure_current_production_instance(
+            spear_executable=self.spear_executable,
             rpc_port=self.rpc_port,
             graphics_adapter=int(batch.request["graphics_adapter_argument"]),
-        )
-        self.instance = self.runner._configure_instance(
-            configure, native_map=batch.native_map
+            native_map=batch.native_map,
         )
         self.game = self.instance.get_game()
         self.camera: Any | None = None
@@ -382,7 +377,7 @@ def run(args: argparse.Namespace) -> Path:
     def session_factory(resolved: Any) -> SpearNativeRoomBatchSession:
         return SpearNativeRoomBatchSession(
             batch=resolved,
-            spear_root=args.spear_root,
+            spear_executable=args.spear_executable,
             rpc_port=args.rpc_port,
             warmup_frames=args.warmup_frames,
         )
@@ -406,7 +401,7 @@ def run(args: argparse.Namespace) -> Path:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request", type=Path, required=True)
-    parser.add_argument("--spear-root", type=Path, required=True)
+    parser.add_argument("--spear-executable", type=Path, required=True)
     parser.add_argument("--rpc-port", type=int, default=39486)
     parser.add_argument("--warmup-frames", type=int, default=40)
     parser.add_argument("--resume", action="store_true")

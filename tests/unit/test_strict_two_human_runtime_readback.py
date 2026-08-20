@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,10 +14,123 @@ assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
 
+
+def _write_executable(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 RAW_FLOOR_COMPONENT = (
     "StaticMeshComponent'/Game/Test/Maps/Test.Test:PersistentLevel."
     "ApartmentFloorActor_0.FloorComponent0'"
 )
+
+
+def test_current_production_executable_validator_requires_external_executable(
+    tmp_path: Path,
+) -> None:
+    plain = _write_executable(tmp_path / "external" / "SpearSim.sh")
+    assert TOOL.validate_current_production_spear_executable(plain) == plain.resolve()
+
+    non_executable = tmp_path / "external" / "not-executable.sh"
+    non_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="is not executable"):
+        TOOL.validate_current_production_spear_executable(non_executable)
+
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    checkout_executable = _write_executable(checkout / "SpearSim.sh")
+    with pytest.raises(RuntimeError, match="lexical path is inside a Git checkout"):
+        TOOL.validate_current_production_spear_executable(checkout_executable)
+
+    symlink = tmp_path / "external-link" / "SpearSim.sh"
+    symlink.parent.mkdir()
+    symlink.symlink_to(checkout_executable)
+    with pytest.raises(RuntimeError, match="resolved path is inside a Git checkout"):
+        TOOL.validate_current_production_spear_executable(symlink)
+
+
+def test_direct_production_launch_validates_at_configure_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured: list[tuple[object, str]] = []
+    instance = object()
+
+    def fake_configure(args, *, native_map: str):
+        configured.append((args, native_map))
+        return instance
+
+    monkeypatch.setattr(TOOL.RUNNER, "_configure_instance", fake_configure)
+    executable = _write_executable(tmp_path / "external" / "SpearSim.sh")
+    assert TOOL._configure_current_production_instance(
+        spear_executable=executable,
+        rpc_port=39701,
+        graphics_adapter=1,
+        native_map="/Game/SPEAR/Maps/Apartment",
+    ) is instance
+    assert configured[0][0].spear_executable == executable.resolve()
+    assert configured[0][1] == "/Game/SPEAR/Maps/Apartment"
+
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="lexical path is inside a Git checkout"):
+        TOOL._configure_current_production_instance(
+            spear_executable=_write_executable(checkout / "SpearSim.sh"),
+            rpc_port=39701,
+            graphics_adapter=1,
+            native_map="/Game/SPEAR/Maps/Apartment",
+        )
+    assert len(configured) == 1
+
+
+def test_room_batch_launch_boundary_delegates_to_current_production_helper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room_path = (
+        REPOSITORY / "tools/qa/capture_spear_native_pixel_room_batch.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "room_batch_launch_boundary", room_path
+    )
+    assert spec is not None and spec.loader is not None
+    room = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(room)
+
+    calls: list[dict] = []
+
+    def stop_at_current_production_boundary(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("stop before UE launch")
+
+    backend = SimpleNamespace(
+        SPIKE=object(),
+        RUNNER=object(),
+        _configure_current_production_instance=stop_at_current_production_boundary,
+    )
+    monkeypatch.setattr(room, "_load_module", lambda _name, _path: backend)
+    batch = SimpleNamespace(
+        request={"graphics_adapter_argument": 1},
+        native_map="/Game/SPEAR/Maps/Apartment",
+    )
+    executable = _write_executable(tmp_path / "external" / "SpearSim.sh")
+
+    with pytest.raises(RuntimeError, match="stop before UE launch"):
+        room.SpearNativeRoomBatchSession(
+            batch=batch,
+            spear_executable=executable,
+            rpc_port=39701,
+            warmup_frames=0,
+        )
+    assert calls == [
+        {
+            "spear_executable": executable,
+            "rpc_port": 39701,
+            "graphics_adapter": 1,
+            "native_map": "/Game/SPEAR/Maps/Apartment",
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -40,6 +154,45 @@ def test_native_capture_keeps_a_roleless_legacy_suite_as_comparison() -> None:
         TOOL._resolve_suite_backend_role({}, {"plan": {}})
         == "comparison_visual"
     )
+
+
+def test_native_capture_requires_explicit_executable_for_production(
+    tmp_path: Path,
+) -> None:
+    common = [
+        "--suite-plan",
+        str(tmp_path / "suite.json"),
+        "--scenario-id",
+        "episode",
+        "--audio-wav",
+        str(tmp_path / "audio.wav"),
+        "--output",
+        str(tmp_path / "output"),
+    ]
+    executable = tmp_path / "external-runtime" / "SpearSim.sh"
+    parsed = TOOL.parse_args(["--spear-executable", str(executable), *common])
+    assert parsed.spear_executable == executable
+    assert parsed.spear_root is None
+    assert (
+        TOOL._resolve_spear_executable(
+            parsed, backend_role=TOOL.PRODUCTION_VISUAL_ROLE
+        )
+        == executable.resolve()
+    )
+
+    legacy_root = tmp_path / "legacy-spear"
+    legacy = TOOL.parse_args(["--spear-root", str(legacy_root), *common])
+    assert legacy.spear_executable is None
+    assert (
+        TOOL._resolve_spear_executable(
+            legacy, backend_role=TOOL.COMPARISON_VISUAL_ROLE
+        )
+        == (legacy_root / TOOL.LEGACY_SPEAR_EXECUTABLE_RELATIVE_PATH).resolve()
+    )
+    with pytest.raises(RuntimeError, match="requires --spear-executable"):
+        TOOL._resolve_spear_executable(
+            legacy, backend_role=TOOL.PRODUCTION_VISUAL_ROLE
+        )
 
 
 @pytest.mark.parametrize(

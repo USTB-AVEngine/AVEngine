@@ -24,6 +24,7 @@ Run:
 
 ```bash
 python3 tools/qa/build_strict_two_human_full_episode_batch.py \
+  --spear-executable /absolute/path/to/SpearSim.sh \
   --output tmp/lead_a_strict_two_human_full_episode_batch_v1/cpu_plan_v1
 ```
 
@@ -51,6 +52,7 @@ Conda environment (the checkout-local `.venv` is not a supported runtime):
 ```bash
 /data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python \
   tools/qa/build_strict_two_human_debug_room_preflight.py \
+  --spear-executable /absolute/path/to/SpearSim.sh \
   --output tmp/lead_a_strict_two_human_full_episode_batch_v1/debug_room_cpu_preflight_v1
 ```
 

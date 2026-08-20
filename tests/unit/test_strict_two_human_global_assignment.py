@@ -309,6 +309,7 @@ class FrozenGlobalAssignmentTest(unittest.TestCase):
             paths = BUILDER.build(
                 REQUEST_PATH,
                 Path(directory) / "global100",
+                spear_executable=Path(directory) / "SpearSim.sh",
                 selected_episode_id="strict2h_full75_0002_v1",
             )
             validation = json.loads(

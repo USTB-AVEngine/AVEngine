@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from avengine.backends.spear_ue.launch import (
+    validate_current_production_spear_executable,
+)
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.qa.actor_motion_profile import validate_actor_motion_profile
 
@@ -22,6 +25,14 @@ RECEIPT_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_gpu_launch_rec
 FINALIZATION_SCHEMA = "avengine_native_strict_two_human_dynamic_full75_finalization_v1"
 MOTION_AUTHORITY_SCHEMA = "avengine_actor_motion_profile_launch_authority_v1"
 LEGACY_CAMERA_PAN_MECHANISM = "camera_pan_both_static"
+HISTORICAL_V2_MECHANISMS = frozenset(
+    {
+        "target_moves",
+        "distractor_moves",
+        "both_move",
+        LEGACY_CAMERA_PAN_MECHANISM,
+    }
+)
 GPU1_UUID = "GPU-6d3e273e-58c6-2a5b-480a-4816fef6c581"
 ATTEMPT_POLICY = {
     "attempt_index": 1,
@@ -136,8 +147,8 @@ def _capture_argv(request: dict[str, Any]) -> list[str]:
         str(request["episode_id"]),
         "--audio-wav",
         str(request["audio_wav"]),
-        "--spear-root",
-        str(request["spear_root"]),
+        "--spear-executable",
+        str(request["spear_executable"]),
         "--output",
         str(request["capture_output"]),
         "--rpc-port",
@@ -403,20 +414,55 @@ def _validate_legacy_camera_pan_chain(
     }
 
 
-def _validate_request_value(
-    request_path: Path, request: dict[str, Any]
+def _decode_historical_v2_request(
+    request: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str], dict[str, Any]]:
+    """Read the retained v2 root-shaped request without making it runnable."""
+
     mechanism = request.get("mechanism")
-    if mechanism == LEGACY_CAMERA_PAN_MECHANISM:
-        _require(
-            request.get("schema") in {REQUEST_SCHEMA, LEGACY_REQUEST_SCHEMA},
-            "legacy camera-pan launch request schema drift",
-        )
-    else:
-        _require(
-            request.get("schema") == REQUEST_SCHEMA,
-            "profile-backed dynamic launch request schema drift",
-        )
+    _require(
+        mechanism in HISTORICAL_V2_MECHANISMS,
+        "historical v2 request mechanism drift",
+    )
+    _require(
+        request.get("backend_role", "comparison_visual") == "comparison_visual",
+        "historical v2 request must remain comparison_visual",
+    )
+    spear_root = request.get("spear_root")
+    _require(
+        isinstance(spear_root, str) and bool(spear_root),
+        "historical v2 request is missing spear_root",
+    )
+    _require(
+        "spear_executable" not in request,
+        "historical v2 request must retain spear_root rather than current executable",
+    )
+    return request, [], {
+        "status": "historical_v2_comparison_reader",
+        "backend_role": "comparison_visual",
+        "historical_mechanism": mechanism,
+        "legacy_adapter_used": mechanism == LEGACY_CAMERA_PAN_MECHANISM,
+        "qualification_claim": False,
+    }
+
+
+def _validate_request_value(
+    request_path: Path,
+    request: dict[str, Any],
+    *,
+    require_launch_executable: bool,
+) -> tuple[dict[str, Any], list[str], dict[str, Any]]:
+    if request.get("schema") == LEGACY_REQUEST_SCHEMA:
+        return _decode_historical_v2_request(request)
+    mechanism = request.get("mechanism")
+    _require(
+        request.get("schema") == REQUEST_SCHEMA,
+        "current dynamic launch request schema drift",
+    )
+    _require(
+        "spear_root" not in request,
+        "current v3 request must not mix legacy spear_root",
+    )
     _require(
         isinstance(mechanism, str) and bool(mechanism), "runner mechanism is missing"
     )
@@ -546,20 +592,22 @@ def _validate_request_value(
         == Path("/data/jzy/miniconda3/envs/spear-env/bin/python"),
         "capture Python drift",
     )
+    spear_executable = request.get("spear_executable")
     _require(
-        Path(request["spear_root"]) == Path("/data/jzy/code/SPEAR-lead-b"),
-        "SPEAR root drift",
+        isinstance(spear_executable, str) and bool(spear_executable),
+        "current production launch request requires explicit spear_executable",
     )
     for key in (
         "capture_python",
         "capture_script",
         "suite_plan",
         "audio_wav",
-        "spear_root",
     ):
         _require(
             Path(request[key]).exists(), f"missing launch input {key}: {request[key]}"
         )
+    if require_launch_executable:
+        validate_current_production_spear_executable(Path(spear_executable))
     suite = _load(suite_path)
     _require(
         suite.get("schema") == "avengine_optional_spear_apartment_suite_v1",
@@ -586,7 +634,7 @@ def _validate_request_value(
         "--suite-plan",
         "--scenario-id",
         "--audio-wav",
-        "--spear-root",
+        "--spear-executable",
         "--output",
         "--rpc-port",
         "--graphics-adapter",
@@ -598,10 +646,14 @@ def _validate_request_value(
 def _validate_request(
     request_path: Path,
 ) -> tuple[dict[str, Any], list[str], dict[str, Any]]:
-    return _validate_request_value(request_path, _load(request_path))
+    return _validate_request_value(
+        request_path, _load(request_path), require_launch_executable=True
+    )
 
 
-def build_launch_request(source: Path) -> tuple[Path, dict[str, Any]]:
+def build_launch_request(
+    source: Path, spear_executable: Path
+) -> tuple[Path, dict[str, Any]]:
     """Derive a canonical attempt-01 request from finalized materialization state."""
     source = source.resolve()
     finalization_path = (
@@ -650,7 +702,7 @@ def build_launch_request(source: Path) -> tuple[Path, dict[str, Any]]:
             / "binaural"
             / f"{episode_id}__v00.wav"
         ),
-        "spear_root": "/data/jzy/code/SPEAR-lead-b",
+        "spear_executable": str(spear_executable),
         "rpc_port": 39701,
         "physical_gpu_index": 1,
         "graphics_adapter_argument": 1,
@@ -692,13 +744,15 @@ def build_launch_request(source: Path) -> tuple[Path, dict[str, Any]]:
         capture_basename = LEGACY_CAMERA_PAN_ADAPTER["capture_basename"]
     request["capture_output"] = str(materialization_root.parent / capture_basename)
     request_path = materialization_root / "gpu_launch_attempt_01" / "request.json"
-    _validate_request_value(request_path, request)
+    _validate_request_value(
+        request_path, request, require_launch_executable=False
+    )
     return request_path, request
 
 
-def prepare_launch_request(source: Path) -> Path:
+def prepare_launch_request(source: Path, spear_executable: Path) -> Path:
     """Validate all CPU authorities, then exclusively create the request."""
-    request_path, request = build_launch_request(source)
+    request_path, request = build_launch_request(source, spear_executable)
     _write_exclusive(request_path, request)
     return request_path
 
@@ -706,6 +760,10 @@ def prepare_launch_request(source: Path) -> Path:
 def run(request_path: Path, receipt_path: Path, *, dry_run: bool) -> int:
     _require(not receipt_path.exists(), "launch receipt must be new")
     request, argv, motion_authority = _validate_request(request_path)
+    _require(
+        request.get("schema") == REQUEST_SCHEMA,
+        "historical v2 request is comparison-only and cannot launch as current production",
+    )
     materialization_root = (
         Path(request["pre_capture_finalization"]).resolve().parents[1]
     )
@@ -783,6 +841,7 @@ def run(request_path: Path, receipt_path: Path, *, dry_run: bool) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepare-from", type=Path)
+    parser.add_argument("--spear-executable", type=Path)
     parser.add_argument("--request", type=Path)
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--dry-run", action="store_true")
@@ -792,8 +851,16 @@ def main() -> int:
             args.request is None and args.receipt is None and not args.dry_run,
             "--prepare-from cannot be combined with launch arguments",
         )
-        print(prepare_launch_request(args.prepare_from))
+        _require(
+            args.spear_executable is not None,
+            "--spear-executable is required with --prepare-from",
+        )
+        print(prepare_launch_request(args.prepare_from, args.spear_executable))
         return 0
+    _require(
+        args.spear_executable is None,
+        "--spear-executable is only accepted with --prepare-from",
+    )
     _require(args.request is not None, "--request is required for launch")
     _require(args.receipt is not None, "--receipt is required for launch")
     return run(args.request.resolve(), args.receipt.resolve(), dry_run=args.dry_run)

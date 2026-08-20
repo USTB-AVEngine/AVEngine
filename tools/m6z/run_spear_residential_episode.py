@@ -908,7 +908,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episode-root", type=Path, required=True)
-    parser.add_argument("--spear-root", type=Path, required=True)
     parser.add_argument("--uproject", type=Path, required=True)
     parser.add_argument("--unreal-editor", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

@@ -259,7 +259,126 @@ def test_builder_rejects_ground_contact_release_gate_drift(tmp_path: Path) -> No
     request_path.write_text(json.dumps(request), encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="ground-contact release gate drift"):
-        BUILDER.build(request_path, tmp_path / "output")
+        BUILDER.build(
+            request_path,
+            tmp_path / "output",
+            spear_executable=tmp_path / "SpearSim.sh",
+        )
+
+
+def test_full_batch_canary_plan_keeps_caller_spear_executable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(BUILDER, "REPOSITORY", tmp_path)
+    suite = (
+        tmp_path
+        / "tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/"
+        "suite_execution_plan.json"
+    )
+    suite.parent.mkdir(parents=True)
+    suite.write_text("{}", encoding="utf-8")
+    audio = (
+        tmp_path
+        / "tmp/lead_d_strict_two_human_canary_v1/binaural_v5/audio/binaural/"
+        "rocketbox_male_female__strict_two_human_canary_v1__v00.wav"
+    )
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"")
+    supplied_executable = Path("externally-provided/SpearSim.sh")
+
+    plan = BUILDER._canary_plan(
+        {"gpu_policy": {"physical_gpu_index": 1}},
+        {
+            "rows": [
+                {
+                    "row_index": 1,
+                    "row_id": "row-1",
+                    "episode_id": "episode-1",
+                    "target_identity_key": "target",
+                    "distractor_identity_key": "distractor",
+                    "target_side": "left",
+                    "speech_frame_window_inclusive": [7, 31],
+                }
+            ]
+        },
+        spear_executable=supplied_executable,
+    )
+
+    argv = plan["canaries"][0]["capture_argv"]
+    assert argv[argv.index("--spear-executable") + 1] == str(supplied_executable)
+    assert "--spear-root" not in argv
+    assert not supplied_executable.exists()
+
+
+def test_debug_preflight_keeps_caller_spear_executable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    package_manifest = tmp_path / "Manifest.txt"
+    package_manifest.write_text("debug_0000", encoding="utf-8")
+    base_suite = tmp_path / "base_suite.json"
+    base_suite.write_text('{"scenarios": [{}]}', encoding="utf-8")
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "schema": (
+                    "avengine_native_strict_two_human_debug_room_canary_plan_v1"
+                ),
+                "formal_episode_count": 0,
+                "qualification_claim": False,
+                "gpu_policy": {
+                    "physical_gpu_index": 1,
+                    "graphics_adapter_argument": 1,
+                    "required_idle_compute_process_count": 0,
+                    "forbidden_physical_gpu_indices": [0, 3],
+                },
+                "package_manifest": str(package_manifest),
+                "base_strict_suite": str(base_suite),
+                "candidates": [
+                    {
+                        "candidate_id": "debug_0000",
+                        "proposed_room_id": "debug-room",
+                        "map_package_fragment": "debug_0000",
+                        "scene_id": "debug_0000",
+                        "map_path": "/Game/SPEAR/Scenes/debug_0000",
+                        "provisional_floor_y_m": 0.0,
+                        "camera_translation_m": [0.0, 1.5, 0.0],
+                        "actors": {
+                            "source1": {"root_translation_m": [-1.0, 0.0, 0.0]},
+                            "source2": {"root_translation_m": [1.0, 0.0, 0.0]},
+                        },
+                    }
+                ],
+                "visual_probe_contract": {
+                    "frame_indices": [0, 15, 74],
+                    "audio_policy": "transport_silence_only",
+                },
+                "final_multi_room_target_allocation_if_both_pass": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        DEBUG_BUILDER,
+        "_candidate_suite",
+        lambda **_: {"scenarios": [{"scenario_id": "debug-probe"}]},
+    )
+    supplied_executable = Path("externally-provided/SpearSim.sh")
+
+    result_path = DEBUG_BUILDER.build(
+        plan_path,
+        tmp_path / "output",
+        spear_executable=supplied_executable,
+    )
+
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    request = json.loads(
+        Path(result["rows"][0]["visual_probe_request"]).read_text(encoding="utf-8")
+    )
+    argv = request["capture_argv"]
+    assert argv[argv.index("--spear-executable") + 1] == str(supplied_executable)
+    assert "--spear-root" not in argv
+    assert not supplied_executable.exists()
 
 
 def test_projection_and_answer_order_balance() -> None:
@@ -336,7 +455,11 @@ def test_debug_room_target_allocation_requires_both_room_gates() -> None:
 def test_real_debug_room_preflight_is_visual_only_and_fail_closed(
     tmp_path: Path,
 ) -> None:
-    result_path = DEBUG_BUILDER.build(DEBUG_PLAN_PATH, tmp_path / "debug_rooms")
+    result_path = DEBUG_BUILDER.build(
+        DEBUG_PLAN_PATH,
+        tmp_path / "debug_rooms",
+        spear_executable=tmp_path / "SpearSim.sh",
+    )
     result = json.loads(result_path.read_text(encoding="utf-8"))
     assert result["candidate_count"] == 2
     assert result["cooked_map_count"] == 2
