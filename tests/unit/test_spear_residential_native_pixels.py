@@ -512,6 +512,159 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
         ] == expected_hashes
 
 
+def test_run_visual_only_native_multimodal_needs_no_audio_and_keeps_frames(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    events: list[object] = []
+    actors = {"canine_alpha": object(), "person_beta": object()}
+    game = _FakeGame(events, actors)
+    instance = _FakeInstance(game, events)
+    depth = _FakeDepthComponent(events, actors)
+    rgb = _FakeColorComponent(object_ids=False)
+    object_ids = _FakeColorComponent(object_ids=True)
+    camera = object()
+    episode_root = tmp_path / "episode"
+    episode_root.mkdir()
+    episode = _native_episode()
+    for frame_index, frame in enumerate(episode["visual_plan"]["frames"]):
+        frame["camera_state"] = {
+            "frame_index": frame_index,
+            "ue_position_cm": [0.0, 0.0, 0.0],
+            "ue_yaw_deg": 0.0,
+            "pose_hash": f"pose-{frame_index}",
+        }
+    (episode_root / "episode_plan.json").write_text(
+        json.dumps(episode), encoding="utf-8"
+    )
+
+    monkeypatch.setattr(TOOL, "_configure_spear", lambda *_: instance)
+    monkeypatch.setattr(
+        TOOL,
+        "_spawn_multimodal_camera",
+        lambda *_args, **_kwargs: (
+            camera,
+            {"rgb": rgb, "depth": depth, "object_ids": object_ids},
+        ),
+    )
+    monkeypatch.setattr(
+        TOOL,
+        "_spawn_runtime_actors",
+        lambda *_args: {
+            actor_id: {"visual_actor": actor} for actor_id, actor in actors.items()
+        },
+    )
+    monkeypatch.setattr(
+        TOOL,
+        "_apply_actor_state",
+        lambda _runtime, state, frame_index: (
+            _readback(
+                float(state["actor_id"] == "person_beta"), frame_index=frame_index
+            ),
+            {"absolute_error_seconds": 0.0, "action_id": state["action_id"]},
+        ),
+    )
+    monkeypatch.setattr(TOOL, "_apply_camera", lambda *_args: None)
+    monkeypatch.setattr(
+        TOOL,
+        "_actor_readback",
+        lambda _camera, frame_index: _readback(frame_index=frame_index),
+    )
+
+    def camera_state_readback(
+        _camera: object, state: dict[str, object], frame_index: int
+    ) -> dict[str, object]:
+        result = _readback(frame_index=frame_index)
+        result["expected_pose_hash"] = state["pose_hash"]
+        return result
+
+    monkeypatch.setattr(
+        TOOL, "_apply_camera_state_and_readback", camera_state_readback
+    )
+    monkeypatch.setattr(
+        TOOL,
+        "_actor_bounds_readback",
+        lambda _actor, frame_index: {"frame_index": frame_index},
+    )
+    monkeypatch.setattr(TOOL, "_spawn_review_lights", lambda *_args: [])
+    monkeypatch.setattr(TOOL, "_destroy_runtime_actors", lambda *_args: None)
+    monkeypatch.setattr(
+        TOOL,
+        "summarize_root_readbacks",
+        lambda **_kwargs: {
+            "status": "pass",
+            "schema": "must_not_enter_receipt",
+            "checked_pose_hash_count": 75,
+        },
+    )
+    monkeypatch.setattr(
+        TOOL, "summarize_actor_bounds", lambda **_kwargs: {"status": "pass"}
+    )
+
+    def unexpected_audio(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("visual-only research must not touch audio or mux")
+
+    monkeypatch.setattr(TOOL, "_mux_clean", unexpected_audio)
+    monkeypatch.setattr(TOOL, "_mux_topdown", unexpected_audio)
+    monkeypatch.setattr(TOOL, "_audio_claim_boundary", unexpected_audio)
+    monkeypatch.setattr(TOOL, "_probe", lambda *_args, **_kwargs: {"status": "pass"})
+    monkeypatch.setattr(TOOL, "build_png_encode_command", lambda **_kwargs: ["fake"])
+    monkeypatch.setattr(TOOL.subprocess, "run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys.modules["cv2"], "imwrite", lambda *_args: True, raising=False
+    )
+
+    receipt = TOOL.run(
+        argparse.Namespace(
+            episode_root=episode_root,
+            uproject=tmp_path / "project.uproject",
+            unreal_editor=tmp_path / "UnrealEditor",
+            output=tmp_path / "output",
+            rpc_port=39000,
+            graphics_adapter=1,
+            streaming_warmup_frames=3,
+            expected_stage_actor_count=1,
+            keep_frames=True,
+            native_multimodal=True,
+            visual_only_research=True,
+        )
+    )
+
+    assert receipt["status"] == "research_only"
+    assert receipt["research_only"] is True
+    assert receipt["episode_counted"] is False
+    assert receipt["formal_dataset_count"] == 0
+    assert receipt["qualification"] is False
+    assert receipt["audio"] == {"status": "not_requested"}
+    assert receipt["rlr"] == {"status": "not_requested"}
+    assert receipt["clock"] == {
+        "frame_count": 75,
+        "frame_rate_hz": 15,
+        "ticks_per_frame": 3200,
+    }
+    assert receipt["root_readback"] == {"status": "pass"}
+    assert receipt["animation_phase_readback"]
+    assert receipt["visual_bounds_readback"] == {"status": "pass"}
+    assert receipt["native_pixel"]["frame_count"] == 75
+    truth = json.loads(
+        (tmp_path / "output/pixel_visibility_truth.json").read_text(encoding="utf-8")
+    )
+    assert truth["camera_pose_ids"] == [
+        f"current_visual_frame_{index:04d}" for index in range(75)
+    ]
+    assert rgb.read_count == 75
+    assert object_ids.read_count == 75
+    assert depth.read_count == 225
+    assert (tmp_path / "output/frames").is_dir()
+    assert not (episode_root / "audio").exists()
+    assert not (tmp_path / "output/evidence.json").exists()
+    persisted = json.loads(
+        (tmp_path / "output/research_receipt.json").read_text(encoding="utf-8")
+    )
+    assert persisted == receipt
+    encoded = json.dumps(receipt, sort_keys=True).lower()
+    assert all(word not in encoded for word in ("schema", "hash", "audio_claim"))
+
+
 @pytest.mark.parametrize("native_multimodal", [False, True])
 def test_parse_args_exposes_opt_in_native_multimodal_flag(
     monkeypatch: pytest.MonkeyPatch, native_multimodal: bool
@@ -533,6 +686,32 @@ def test_parse_args_exposes_opt_in_native_multimodal_flag(
     parsed = TOOL.parse_args()
     assert parsed.native_multimodal is native_multimodal
     assert not hasattr(parsed, "spear_root")
+
+
+@pytest.mark.parametrize("visual_only_research", [False, True])
+def test_parse_args_exposes_visual_only_research_flag(
+    monkeypatch: pytest.MonkeyPatch, visual_only_research: bool
+) -> None:
+    argv = [
+        "run_spear_residential_episode.py",
+        "--episode-root",
+        "/tmp/episode",
+        "--uproject",
+        "/tmp/project.uproject",
+        "--unreal-editor",
+        "/tmp/UnrealEditor",
+        "--output",
+        "/tmp/output",
+    ]
+    if visual_only_research:
+        argv.append("--visual-only-research")
+    monkeypatch.setattr(sys, "argv", argv)
+
+    parsed = TOOL.parse_args()
+
+    assert parsed.visual_only_research is visual_only_research
+    assert not hasattr(parsed, "spear_root")
+    assert not hasattr(parsed, "runtime_root")
 
 
 def test_run_legacy_mode_keeps_native_multimodal_path_unreached(

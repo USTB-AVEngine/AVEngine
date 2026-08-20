@@ -19,6 +19,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 sys.path.insert(0, str(REPOSITORY / "tools/m6y"))
 from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth  # noqa: E402
+from avengine.optional_backends.residential_episode import TICKS_PER_FRAME  # noqa: E402
 
 from avengine.optional_backends.spear_apartment import (  # noqa: E402
     ANIMATION_TOLERANCE_SECONDS,
@@ -264,20 +265,16 @@ def _finalize_native_pixel_artifacts(
     target_depths_by_actor: Mapping[str, list[np.ndarray]],
     normal_readbacks: list[Mapping[str, Any]],
     target_readbacks: Mapping[str, list[Mapping[str, Any]]],
+    camera_pose_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Persist one completed same-camera native-pixel capture without hashes."""
 
     plan = episode.get("visual_plan")
-    timeline = episode.get("timeline")
     _require(isinstance(plan, Mapping), "episode visual plan is missing")
-    _require(isinstance(timeline, Mapping), "episode timeline is missing")
     actors = plan.get("actors")
     frames = plan.get("frames")
-    timeline_frames = timeline.get("frames")
     _require(
-        isinstance(actors, list)
-        and isinstance(frames, list)
-        and isinstance(timeline_frames, list),
+        isinstance(actors, list) and isinstance(frames, list),
         "episode native-pixel authorities are incomplete",
     )
     actor_ids = [
@@ -288,8 +285,8 @@ def _finalize_native_pixel_artifacts(
         "native-pixel capture requires exactly two distinct actor IDs",
     )
     _require(
-        len(frames) == FRAME_COUNT == len(timeline_frames),
-        "native-pixel frame authority is not full75",
+        len(frames) == FRAME_COUNT,
+        "native-pixel visual-plan frame authority is not full75",
     )
     _require(
         len(normal_depths)
@@ -335,15 +332,30 @@ def _finalize_native_pixel_artifacts(
         ),
         "normal object-ID arrays are invalid",
     )
-    camera_pose_ids = []
-    for frame_index, frame in enumerate(timeline_frames):
-        _require(isinstance(frame, Mapping), "timeline frame is invalid")
-        poses = frame.get("view_pose_hashes")
+    if camera_pose_ids is None:
+        timeline = episode.get("timeline")
+        _require(isinstance(timeline, Mapping), "episode timeline is missing")
+        timeline_frames = timeline.get("frames")
         _require(
-            isinstance(poses, Mapping) and isinstance(poses.get("view0"), str),
-            f"timeline frame {frame_index} lacks view0 pose hash",
+            isinstance(timeline_frames, list) and len(timeline_frames) == FRAME_COUNT,
+            "native-pixel timeline frame authority is not full75",
         )
-        camera_pose_ids.append(poses["view0"])
+        camera_pose_ids = []
+        for frame_index, frame in enumerate(timeline_frames):
+            _require(isinstance(frame, Mapping), "timeline frame is invalid")
+            poses = frame.get("view_pose_hashes")
+            _require(
+                isinstance(poses, Mapping) and isinstance(poses.get("view0"), str),
+                f"timeline frame {frame_index} lacks view0 pose hash",
+            )
+            camera_pose_ids.append(poses["view0"])
+    else:
+        _require(
+            len(camera_pose_ids) == FRAME_COUNT
+            and all(isinstance(value, str) and value for value in camera_pose_ids),
+            "explicit camera pose IDs must contain 75 non-empty strings",
+        )
+        camera_pose_ids = list(camera_pose_ids)
     common_context = {
         "renderer_backend": "spear_unreal_native_kujiale",
         "rgb_renderer_backend": "spear_unreal_native_kujiale",
@@ -463,6 +475,28 @@ def _write(path: Path, value: Any) -> None:
     path.write_text(
         json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+
+
+def _research_root_readback_summary(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Select ordinary numeric root-readback results for a plain receipt."""
+
+    allowed = (
+        "status",
+        "maximum_position_error_cm",
+        "maximum_yaw_error_deg",
+        "per_frame_camera_state",
+    )
+
+    def one(record: Mapping[str, Any]) -> dict[str, Any]:
+        return {key: record[key] for key in allowed if key in record}
+
+    if "status" in value:
+        return one(value)
+    return {
+        owner: one(record)
+        for owner, record in value.items()
+        if isinstance(record, Mapping)
+    }
 
 
 def _light_plan(episode: Mapping[str, Any]) -> dict[str, Any]:
@@ -633,6 +667,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "residential capture requires exactly two distinct plan actor IDs",
     )
     native_multimodal = bool(getattr(args, "native_multimodal", False))
+    visual_only_research = bool(getattr(args, "visual_only_research", False))
     output = args.output.expanduser().resolve()
     if output.exists():
         raise FileExistsError(f"refusing to replace output: {output}")
@@ -821,6 +856,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             target_depths_by_actor=target_depths_by_actor,
             normal_readbacks=normal_multimodal_readbacks,
             target_readbacks=target_readbacks,
+            camera_pose_ids=(
+                [f"current_visual_frame_{index:04d}" for index in range(FRAME_COUNT)]
+                if visual_only_research
+                else None
+            ),
         )
 
     root_gate = summarize_root_readbacks(
@@ -853,6 +893,38 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         ),
         check=True,
     )
+    if visual_only_research:
+        visual_probe = _probe(visual, width=1280, height=720, expect_audio=False)
+        if not args.keep_frames:
+            shutil.rmtree(frames_dir)
+        receipt = {
+            "status": "research_only",
+            "research_only": True,
+            "episode_counted": False,
+            "formal_dataset_count": 0,
+            "qualification": False,
+            "qualification_claim": False,
+            "clock": {
+                "frame_count": FRAME_COUNT,
+                "frame_rate_hz": FPS,
+                "ticks_per_frame": TICKS_PER_FRAME,
+            },
+            "backend_role": episode["visual_plan"]["backend_role"],
+            "scene": episode["scene"],
+            "stage_actor_count": stage_actor_count,
+            "root_readback": _research_root_readback_summary(root_gate),
+            "animation_phase_readback": animation_gate,
+            "visual_bounds_readback": bounds_gate,
+            "media": {"ue_visual_only": visual_probe},
+            "audio": {"status": "not_requested"},
+            "rlr": {"status": "not_requested"},
+        }
+        if native_pixel is not None:
+            receipt["native_pixel"] = native_pixel
+        _write(output / "research_receipt.json", receipt)
+        print(visual, flush=True)
+        return receipt
+
     audio = episode_root / "audio/mixture.wav"
     topdown = episode_root / "topdown_only.mp4"
     clean = output / "ue_clean_binaural.mp4"
@@ -860,7 +932,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     _mux_clean(visual, audio, clean)
     _mux_topdown(visual, topdown, audio, combined)
     media = {
-        "ue_visual_only": _probe(visual, width=1280, height=720, expect_audio=False),
+        "ue_visual_only": _probe(
+            visual, width=1280, height=720, expect_audio=False
+        ),
         "ue_clean_binaural": _probe(clean, width=1280, height=720, expect_audio=True),
         "ue_topdown_binaural": _probe(
             combined, width=1280, height=480, expect_audio=True
@@ -920,6 +994,11 @@ def parse_args() -> argparse.Namespace:
         "--native-multimodal",
         action="store_true",
         help="capture native RGB/depth/object-ID and two target-only depth passes",
+    )
+    parser.add_argument(
+        "--visual-only-research",
+        action="store_true",
+        help="encode current UE pixels without reading, claiming or muxing audio",
     )
     return parser.parse_args()
 
