@@ -237,6 +237,15 @@ legacy AudioSensor, and passes the same current runtime prefix, RLR SDK, and
 Magnum site to the FOA and binaural simulations. It does not add a new schema,
 baseline, hash gate, or admission claim.
 
+The existing 5 us ITD ambiguity threshold applies to raw side-median sign
+interpretation as well as individual frame votes. The aggregator retains the
+unfiltered raw median: a value strictly inside that band is ambiguous rather
+than standalone proof of reversal, while a missing median or a wrong sign at
+or beyond the boundary is rejected. It does not discard ambiguous values and
+recompute the median. Per-frame non-ambiguous ITD voting and coverage, ILD
+signs and separation, ITD left/right separation, GCC-boundary rejection, and
+channel-swap/all-zero rejection remain unchanged.
+
 The public M5 entrypoint does not yet enforce the already available M4 SOFA
 structure/sample-rate preflight before native context creation. An invalid v1
 SOFA was observed to let RLR fall back instead of making the native call fail.
