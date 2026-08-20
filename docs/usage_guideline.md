@@ -155,20 +155,12 @@ Depth、Semantic 和 Listener 使用同一个相机位姿。Topdown 是质量检
   "tmp/m3/${AVENGINE_RUN_ID}/manifest.json"
 ```
 
-按房间注册表自动选择来源配置时使用：
-
-```bash
-export AVENGINE_ROOM_MANIFEST="/path/to/room_manifest.json"
-export AVENGINE_ROOM_ID="registered_room_id"
-export AVENGINE_ROOM_REVISION="registered_room_revision"
-
-"${AVENGINE_ENV_PREFIX}/bin/avengine" m3 compile-registered-scene \
-  --room "${AVENGINE_ROOM_MANIFEST}" \
-  --room-id "${AVENGINE_ROOM_ID}" \
-  --room-revision "${AVENGINE_ROOM_REVISION}" \
-  --runtime-root "${AVENGINE_HABITAT_RUNTIME_ROOT}" \
-  --output "tmp/m3/${AVENGINE_RUN_ID}_registered"
-```
+保留的 v1 `compile-registered-scene --runtime-root` 只用于读取或复核
+checkout-era artifact，不是当前新运行入口；`paths.yaml` 和 `setup.sh` 已不再
+提供该 root。需要 current installed-prefix Habitat/RLR 时，应使用 M3/M4 current
+路线显式传入 runtime prefix、Magnum Python site 和 RLR SDK，并先完成
+[`M3 execution`](roadmap/M3_EXECUTION.md) 中的外置 SDK/运行时要求。不得以
+旧 checkout 路径补齐一个新的房间运行。
 
 可选声学检查包括：
 

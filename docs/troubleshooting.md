@@ -40,83 +40,64 @@ command -v conda
 
 不要使用不带路径约束的共享环境，也不要修改他人的 `.condarc`。
 
-## 无法克隆 Eastforward 仓库
+## 无法克隆 AVEngine
 
-确认当前账号拥有两个仓库的 GitHub 权限，并配置了自己的 SSH 密钥：
+当前入口只需要 AVEngine 的读取权限和自己的 SSH 密钥：
 
 ```bash
 ssh -T git@github.com
-git ls-remote git@github.com:Eastforward/AVEngine.git HEAD
-git ls-remote \
-  git@github.com:Eastforward/habitat-sim-AVEngine.git \
-  refs/heads/feature/m6-release-state
+git ls-remote git@github.com:USTB-AVEngine/AVEngine.git HEAD
 ```
 
-同服务器账号权限不会自动赋予 GitHub 仓库权限。
+同服务器账号权限不会自动赋予 GitHub 仓库权限。不要为了 bootstrap 另外
+clone `habitat-sim-AVEngine`、SPEAR 或 RLR；`scripts/setup.sh --clone-runtime`
+已撤销并会以退出码 2 停止。
 
-## Habitat 运行时提交不正确
+## Native external 输入缺失或被拒绝
 
-`habitat-sim-AVEngine` 的默认 `main` 当前仍是上游基线。必须检出
-`manifest.yaml` 固定的提交：
+当前 bootstrap 必须使用项目指定的 Conda Python；它不会创建 venv。先激活
+对应环境（或在非交互 shell 中使用同一 prefix 的 --python）：
 
-```bash
-git -C "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine" fetch origin
-git -C "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine" checkout --detach \
-  e9c81c10834f7e89f33f4e0602c75535a84e054b
-```
+~~~bash
+source "${AVENGINE_MINICONDA_PREFIX}/etc/profile.d/conda.sh"
+conda activate "${AVENGINE_ENV_PREFIX}"
+test "$CONDA_PREFIX" = "${AVENGINE_ENV_PREFIX}"
 
-不要使用 `git reset --hard` 清理不属于自己的改动。
+export AVENGINE_HABITAT_RUNTIME_PREFIX="/path/to/installed-habitat-runtime"
+export AVENGINE_HABITAT_MAGNUM_PYTHON_SITE="/path/to/magnum-python/site-packages"
+export AVENGINE_MP3D_ROOT="/path/to/licensed-mp3d-data"
+export AVENGINE_RLR_SDK_ROOT="/path/to/RLRAudioPropagationPkg"
 
-## RLR 或其他子模块缺失
+cd /path/to/AVEngine
+./scripts/setup.sh --profile native_external --dry-run --skip-tests
+~~~
 
-初始化 Habitat 的全部递归子模块：
+如果报 selected Python must resolve to a Conda environment，选择/激活正确的
+Conda prefix；不要安装 python3-venv 或让 bootstrap 创建新环境。去掉
+--dry-run 后，预检仍先确认目录存在；这一检查始终发生在 pip/editable install 之前，并拒绝 runtime prefix、Magnum site 或
+RLR SDK 位于 Git checkout 内（包括经符号链接进入旧 checkout 的情况）。MP3D
+是授权外部数据而非源码 checkout；其具体场景闭包由 writer 在运行前验证。
+不要设置已退役的 AVENGINE_HABITAT_RUNTIME_ROOT；setup 会忽略它。
 
-```bash
-git -C "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine" \
-  submodule sync --recursive
-git -C "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine" \
-  submodule update --init --recursive --jobs 8
-```
+## RLR SDK 缺失
 
-核对 RLR：
+不要初始化旧 Habitat 子模块。本服务器批准的 runtime SDK 根是 /data/avengine_external/rlr-sdk/RLRAudioPropagationPkg；它是非 Git 目录，含 header、library、LICENSE 和 README。其他用户可从官方 Git 获取或核对来源，但必须把运行 SDK 放在非 Git 根。`AVENGINE_RLR_SDK_ROOT` 必须指向用户合法安装
+的 `RLRAudioPropagationPkg`，其中应有 `headers/RLRAudioPropagation.h` 和
+`libs/linux/x64/libRLRAudioPropagation.so`。M3/M4 current runtime 会在 native
+调用前验证该布局和动态加载来源；缺失时应保持 `not_run`/`blocked` 边界，而
+不是回退到一个 Git checkout 的 `.so`。
 
-```bash
-git -C "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine/src/deps/rlr-audio-propagation" \
-  rev-parse HEAD
-```
+## Habitat 安装 prefix 不能导入或能力不足
 
-预期固定提交是
-`4fd446b4abb5c71fb7a232a083bbddd65f25fc6f`。
-
-## Habitat 能导入但没有音频能力
-
-原生构建必须显式设置：
-
-```bash
-HABITAT_BUILD_GUI_VIEWERS=OFF \
-HABITAT_WITH_BULLET=ON \
-HABITAT_WITH_AUDIO=ON \
-HABITAT_WITH_CUDA=OFF \
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install \
-  -e "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine" \
-  --no-build-isolation
-```
-
-验证：
-
-```bash
-"${AVENGINE_ENV_PREFIX}/bin/python" - <<'PY'
-import quaternion
-import habitat_sim
-assert habitat_sim.audio_enabled
-assert habitat_sim.built_with_bullet
-print(habitat_sim.__file__)
-PY
-```
+不要执行 `pip install -e` 指向旧 Habitat checkout。确认 prefix 是一次显式
+安装产物，并按具体 current writer 的 `--runtime-prefix`、`--magnum-python-site`
+及外部 SDK 参数运行。若 prefix 缺少 facade、binding、physics config 或所需
+adapter，应重新在 AVEngine 的 native-source 迁移路径中构建/安装，或将该 native
+阶段记录为未运行；快速单元测试不能替代它。
 
 ## 直接导入 habitat_sim 时进程崩溃
 
-当前固定运行时存在已知导入顺序问题。始终先：
+已安装 Habitat prefix 仍可能有已知导入顺序问题。始终先：
 
 ```python
 import quaternion
@@ -141,20 +122,10 @@ CMake 和 Ninja 安装在个人 Conda 环境中。C/C++ 编译器、EGL/Mesa 库
 
 ## 原生构建内存不足
 
-降低并行度后重新执行个人构建：
-
-```bash
-CMAKE_BUILD_PARALLEL_LEVEL=1 \
-HABITAT_BUILD_GUI_VIEWERS=OFF \
-HABITAT_WITH_BULLET=ON \
-HABITAT_WITH_AUDIO=ON \
-HABITAT_WITH_CUDA=OFF \
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install \
-  -e "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine" \
-  --no-build-isolation
-```
-
-不要删除或覆盖别人的 build 目录来释放空间。
+不要通过删除或覆盖其他人的 build 目录、或重新启用旧 checkout 的 editable
+install 来绕过内存不足。记录可用内存、并发度和首次真实错误；当前 bootstrap
+可以继续运行 fast-unit，native 阶段则保持未运行，直到 AVEngine 的 native-source
+构建路径和合法外置输入可用。
 
 ## 原生视觉无法创建 EGL 上下文
 

@@ -149,194 +149,98 @@ test "${CONDA_PREFIX}" = "${AVENGINE_ENV_PREFIX}"
 `"${AVENGINE_ENV_PREFIX}/bin/python"`，防止终端激活失败后误写系统 Python
 或其他人的环境。
 
-## 需要克隆的仓库
+## 当前只克隆 AVEngine
+
+当前 bootstrap 的源码输入只有 AVEngine：
 
 | 仓库 | 职责 | 当前入口 |
 | --- | --- | --- |
-| `Eastforward/AVEngine` | 任务、时间线、资产/房间配置、音频组装、质量检查、命令行 | `main` |
-| `Eastforward/habitat-sim-AVEngine` | Habitat 原生视觉、动作和 RLR 适配 | `feature/m6-release-state` |
+| `USTB-AVEngine/AVEngine` | 任务、时间线、资产/房间配置、已精选纳入的适配源码、音频组装、质量检查和命令行 | `main` |
 
-RLR Audio Propagation 已经是 Habitat 派生仓库的递归子模块，不要单独
-克隆。SPEAR、UE、Blender、生成模型仓库和模型权重都不是默认构建依赖。
-
-当前固定版本为：
-
-```text
-habitat-sim-AVEngine:
-  e9c81c10834f7e89f33f4e0602c75535a84e054b
-rlr-audio-propagation:
-  4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
-```
-
-固定版本的机器可读依据是
-[`manifest.yaml`](../manifest.yaml)。更新原生运行时时，必须同时更新
-版本清单、相关测试和本文档。
-
-## 克隆仓库
-
-先确认本人拥有两个 `Eastforward` 仓库的读取权限、自己的 GitHub 账号
-以及可用的 SSH 密钥。不需要、也不应依赖 `Eastforward` 上游仓库的
-直接写权限。
-
-在 GitHub 页面先完成以下两个 Fork：
-
-```text
-Eastforward/AVEngine
-  → <自己的 GitHub 账号>/AVEngine
-
-Eastforward/habitat-sim-AVEngine
-  → <自己的 GitHub 账号>/habitat-sim-AVEngine
-```
-
-然后克隆自己的 Fork，并添加上游远端：
+在 GitHub 页面只需 Fork AVEngine，并在自己的工作目录克隆该 Fork：
 
 ```bash
 export AVENGINE_GITHUB_USER="your-github-user"
-
 cd "${AVENGINE_CODE_ROOT}"
-
-git clone \
-  "git@github.com:${AVENGINE_GITHUB_USER}/AVEngine.git"
+git clone "git@github.com:${AVENGINE_GITHUB_USER}/AVEngine.git"
 git -C AVEngine remote add upstream \
-  git@github.com:Eastforward/AVEngine.git
+  git@github.com:USTB-AVEngine/AVEngine.git
 git -C AVEngine fetch upstream --prune
-
-git clone \
-  --recurse-submodules \
-  "git@github.com:${AVENGINE_GITHUB_USER}/habitat-sim-AVEngine.git"
-git -C habitat-sim-AVEngine remote add upstream \
-  git@github.com:Eastforward/habitat-sim-AVEngine.git
-git -C habitat-sim-AVEngine fetch upstream --prune
-
-git -C habitat-sim-AVEngine checkout --detach \
-  e9c81c10834f7e89f33f4e0602c75535a84e054b
-git -C habitat-sim-AVEngine submodule sync --recursive
-git -C habitat-sim-AVEngine submodule update \
-  --init --recursive --jobs 8
 ```
 
-核对远端职责：
+`habitat-sim-AVEngine`、SPEAR 和 RLR 的 checkout-era 工作树仅保留为迁移
+历史或只读对照，不能作为新的 build、setup 或 run 输入。
+scripts/setup.sh --clone-runtime 已撤销并以退出码 2 停止；它不会下载、clone、
+fetch 或初始化任何外部仓库。
 
-```bash
-git -C AVEngine remote -v
-git -C habitat-sim-AVEngine remote -v
-```
+## Fast-unit bootstrap
 
-两个仓库都必须满足：
+只修改数据结构约束、任务、时间线、注册表或质量检查逻辑时，先选择项目
+指定的 Conda 环境，再使用默认 fast_unit profile：
 
-```text
-origin    自己的 GitHub Fork，用于推送个人任务分支
-upstream  Eastforward 原仓库，只用于获取基线和提交 Pull Request
-```
-
-核对原生运行时和 RLR：
-
-```bash
-test "$(git -C "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine" rev-parse HEAD)" = \
-  "e9c81c10834f7e89f33f4e0602c75535a84e054b"
-
-test "$(git -C "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine/src/deps/rlr-audio-propagation" \
-  rev-parse HEAD)" = \
-  "4fd446b4abb5c71fb7a232a083bbddd65f25fc6f"
-```
-
-`habitat-sim-AVEngine` 的远端默认 `main` 目前仍是上游 Habitat 基线，
-不能替代上述固定版本。全新环境暂时不要使用
-`./scripts/setup.sh --clone-runtime`：当前脚本不会自动从原生运行时的
-默认 `main` 切换到固定功能分支，也不会完成全部递归子模块初始化。
-
-## 仅安装 AVEngine 上层
-
-只修改数据结构约束、任务、时间线、注册表或质量检查逻辑时，可以先只
-安装 AVEngine：
-
-```bash
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install --upgrade pip
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install \
-  -e "${AVENGINE_CODE_ROOT}/AVEngine[test]"
+~~~bash
+source "${AVENGINE_MINICONDA_PREFIX}/etc/profile.d/conda.sh"
+conda activate "${AVENGINE_ENV_PREFIX}"
+test "$CONDA_PREFIX" = "${AVENGINE_ENV_PREFIX}"
 
 cd "${AVENGINE_CODE_ROOT}/AVEngine"
-"${AVENGINE_ENV_PREFIX}/bin/python" scripts/load_paths.py \
-  --validate \
-  --layer fast_unit
-"${AVENGINE_ENV_PREFIX}/bin/python" scripts/validate_schemas.py
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pytest -q \
-  tests/unit \
-  -m 'not integration and not canary'
-"${AVENGINE_ENV_PREFIX}/bin/avengine" --help
-```
+./scripts/setup.sh --profile fast_unit
+~~~
 
-这一层不需要 Habitat、RLR、场景数据、HRTF、UE 或模型权重。协作者
-交接路线不再创建第二套共享或隐式 `.venv`；统一使用上面明确位于个人
-目录的 Conda 环境。
+非交互 shell 可以保留同一个 Conda prefix、但明确指向其解释器：
 
-## 构建 Habitat/RLR 原生环境
+~~~bash
+./scripts/setup.sh --profile fast_unit --python "${AVENGINE_ENV_PREFIX}/bin/python"
+~~~
 
-需要运行 Habitat 视觉、动作或 RLR 声学时，在同一个个人环境中继续：
+bootstrap 会验证所选解释器的 sys.prefix/conda-meta，拒绝系统 Python、普通
+venv 及与已激活 CONDA_PREFIX 不一致的解释器。它直接向所选 Conda 环境安装
+AVEngine/test 依赖、校验路径/schema 并运行普通 unit tests；不会创建 .venv。
+可先加 --dry-run --skip-tests 查看精确命令；dry-run 不安装包或写输出。
 
-```bash
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install \
-  -r "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine/requirements.txt"
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install \
-  'scikit-build-core>=0.10' \
-  'pybind11>=2.10'
+## 显式 native-external 输入
 
-cd "${AVENGINE_CODE_ROOT}"
+需要 current installed-prefix 路线时，bootstrap 不替用户构建或选择一个
+checkout，而是要求四个明确输入：
 
-CMAKE_BUILD_PARALLEL_LEVEL=4 \
-HABITAT_BUILD_GUI_VIEWERS=OFF \
-HABITAT_WITH_BULLET=ON \
-HABITAT_WITH_AUDIO=ON \
-HABITAT_WITH_CUDA=OFF \
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install \
-  -e ./habitat-sim-AVEngine \
-  --no-build-isolation
-```
+- AVENGINE_HABITAT_RUNTIME_PREFIX：非 Git 的已安装 Habitat facade、binding
+  和 physics-config prefix；
+- AVENGINE_HABITAT_MAGNUM_PYTHON_SITE：与当前 Python ABI 兼容的外置
+  Corrade/Magnum site；
+- AVENGINE_MP3D_ROOT：授权的外部 MP3D 数据根（其中有 scene_datasets/）；
+- AVENGINE_RLR_SDK_ROOT：非 Git 的用户安装 RLRAudioPropagationPkg SDK；官方 Git checkout 仅用于获取或来源核对，不能作为 runtime root。
 
-参考环境是 Python 3.12、CMake 3.27、Ninja 和 Linux x86-64。原生构建
-约需 8 GB，建议个人目录至少预留 10 GB。该构建不需要 CUDA toolkit。
-系统层需要可用的 C/C++ 编译器、EGL/Mesa 开发库和 `pkg-config`；若
-缺失，应联系管理员。
+~~~bash
+source "${AVENGINE_MINICONDA_PREFIX}/etc/profile.d/conda.sh"
+conda activate "${AVENGINE_ENV_PREFIX}"
+test "$CONDA_PREFIX" = "${AVENGINE_ENV_PREFIX}"
 
-设置当前终端使用的仓库路径：
-
-```bash
-export AVENGINE_HABITAT_RUNTIME_ROOT="${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine"
-export AVENGINE_SOUNDSPACES_ROOT="${AVENGINE_HABITAT_RUNTIME_ROOT}/src/deps/rlr-audio-propagation/RLRAudioPropagationPkg"
-```
-
-当前 SoundSpaces MP3D 材质 JSON 已包含在固定 RLR 子模块中，因此默认
-AVEngine 路线不需要额外克隆 SoundSpaces。只有运行 SoundSpaces 自身的
-官方基线和示例时，才需要其独立仓库。
-
-## 验证原生环境
-
-固定原生运行时存在已知导入顺序问题，必须先导入 `quaternion`：
-
-```bash
-"${AVENGINE_ENV_PREFIX}/bin/python" - <<'PY'
-import quaternion
-import habitat_sim
-
-print("habitat_sim:", habitat_sim.__file__)
-print("audio:", habitat_sim.audio_enabled)
-print("bullet:", habitat_sim.built_with_bullet)
-print("cuda:", habitat_sim.cuda_enabled)
-
-assert habitat_sim.audio_enabled
-assert habitat_sim.built_with_bullet
-PY
+export AVENGINE_HABITAT_RUNTIME_PREFIX="/path/to/installed-habitat-runtime"
+export AVENGINE_HABITAT_MAGNUM_PYTHON_SITE="/path/to/magnum-python/site-packages"
+export AVENGINE_MP3D_ROOT="/path/to/licensed-mp3d-data"
+export AVENGINE_RLR_SDK_ROOT="/path/to/RLRAudioPropagationPkg"
 
 cd "${AVENGINE_CODE_ROOT}/AVEngine"
-"${AVENGINE_ENV_PREFIX}/bin/python" scripts/load_paths.py \
-  --validate \
-  --layer native_habitat \
-  --layer rlr_audio
-"${AVENGINE_ENV_PREFIX}/bin/python" scripts/validate_schemas.py
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pytest -q \
-  tests/unit \
-  -m 'not integration and not canary'
-```
+./scripts/setup.sh --profile native_external
+~~~
+
+该 profile 会在任何 pip/editable install 之前（包括 dry-run）进行只读输入预检：它拒绝把 runtime、Magnum site
+或 RLR SDK 放在 Git checkout 内，但不会执行原生渲染、RLR 作业、UE、下载或
+覆盖既有输出。具体 writer 还会在启动前验证 prefix 的 module、binding、SDK
+布局、MP3D 场景和所需的房间资产；预检成功不等同于 native capture 或等价验证。
+
+旧 --profile habitat_native 仍可解析为 native_external，以便现有脚本调用
+得到清晰的显式输入错误，而不是回落到 sibling checkout。旧 v1 reader、schema
+和历史 artifact 保持可读；它们不授权新运行重用旧 checkout 路径。
+
+## Checkout-era 历史记录
+
+此前的双仓库 clone、固定 Habitat commit、RLR submodule 和
+`AVENGINE_HABITAT_RUNTIME_ROOT` 命令是迁移前的留档。需要审计其来源时查看
+[`migration/LEGACY_SOURCE_LOCATIONS.md`](migration/LEGACY_SOURCE_LOCATIONS.md)
+和 Git history；不要把这些命令复制到新的机器或当前 runbook。当前原生执行
+请使用对应里程碑的 installed-prefix 命令，例如
+[`M5.1 execution`](roadmap/M5_1_EXECUTION.md)。
 
 构建成功或快速单元测试通过，不代表原生场景、RLR、媒体回读或发布冒烟
 验证已经通过。应根据改动范围运行对应测试层，并如实记录未执行的测试。
@@ -471,38 +375,19 @@ RLR、Blender 或媒体层已通过。无法运行的层应如实写 `not_run`�
 目录。PR 合并或关闭后，下一项任务必须重新获取负责人指定的最新基线，
 再创建另一个新分支，禁止复用旧任务分支。
 
-只有必须发生在 Habitat C++/Python 运行时内部、且无法通过稳定接口实现
-的变化，才修改原生运行时仓库。其功能分支应从固定提交创建：
+### Checkout-era 原生运行时协作记录（归档）
 
-```bash
-export AVENGINE_RUNTIME_GIT_BRANCH="${AVENGINE_GIT_BRANCH}-runtime"
+原先要求在 habitat-sim-AVEngine fork、新分支和 RLR submodule 中修改原生
+运行时的步骤，只描述迁移前的协作历史。它们不构成当前入口，不能被复制到
+新的机器、bootstrap 或新的 native run。历史来源、固定提交和已留存 artifact
+可通过 docs/migration/LEGACY_SOURCE_LOCATIONS.md 与 Git history 审计。
 
-cd "${AVENGINE_CODE_ROOT}/habitat-sim-AVEngine"
-git fetch upstream --prune
-git switch -c "${AVENGINE_RUNTIME_GIT_BRANCH}" \
-  e9c81c10834f7e89f33f4e0602c75535a84e054b
-
-test "$(git branch --show-current)" = \
-  "${AVENGINE_RUNTIME_GIT_BRANCH}"
-test "$(git branch --show-current)" != \
-  "feature/m6-release-state"
-
-git push -u origin "${AVENGINE_RUNTIME_GIT_BRANCH}"
-```
-
-原生运行时分支同样只能推送到个人 Fork 的 `origin`，再向
-`Eastforward/habitat-sim-AVEngine:feature/m6-release-state` 提交 Pull
-Request。不能从该仓库的 `main` 创建 AVEngine 运行时改动，因为当前
-权威基线是上面的固定提交。
-
-跨仓库改动按以下顺序交付：
-
-1. 原生运行时改动单独评审并形成新提交；
-2. AVEngine 更新 `manifest.yaml` 的运行时固定版本和相应测试；
-3. AVEngine 功能分支通过测试后再合并到 `main`。
-
-提交协作结果时至少报告：两个仓库的提交、工作树是否干净、实际运行的
-测试、未运行的原生/数据测试层，以及生成产物的仓库相对路径。
+当前任何 AVEngine 所需的纯 C++、Python binding、RLR adapter 或 UE/SPEAR
+集成代码，都应选择性迁入 AVEngine 自有路径并记录来源/许可证；不得以新增
+外部 checkout、submodule 或 checkout-relative runtime root 代替迁移。若所需
+代码尚未迁入或合法外置 runtime 尚未可用，相关 native 阶段应保持 not_run，
+而不是在旧仓库新建分支。报告时列出 AVEngine commit、工作树状态、实际测试、
+未运行的 native/data 层和仓库相对输出路径即可。
 
 ## 使用与许可边界
 

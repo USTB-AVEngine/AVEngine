@@ -53,17 +53,20 @@ AVEngine 不是新的模拟器、渲染器或声学求解器，也不会根据�
 - [同服务器协作与个人环境构建](docs/quickstart.md)
 - [功能与使用指南](docs/usage_guideline.md)
 
-完成个人环境安装后：
+完成项目指定 Conda 环境的选择/激活后，直接在其中 bootstrap：
 
-```bash
+~~~bash
+source "${AVENGINE_MINICONDA_PREFIX}/etc/profile.d/conda.sh"
+conda activate "${AVENGINE_ENV_PREFIX}"
+test "$CONDA_PREFIX" = "${AVENGINE_ENV_PREFIX}"
+
 cd "${AVENGINE_CODE_ROOT}/AVEngine"
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install -e '.[test]'
-"${AVENGINE_ENV_PREFIX}/bin/python" scripts/validate_schemas.py
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pytest -q \
-  tests/unit \
-  -m 'not integration and not canary'
-"${AVENGINE_ENV_PREFIX}/bin/avengine" --help
-```
+./scripts/setup.sh --profile fast_unit
+~~~
+
+正常 bootstrap 只使用已激活的 Conda Python；也可在非交互 shell 中显式传入
+--python "${AVENGINE_ENV_PREFIX}/bin/python"。它会拒绝系统 Python、普通
+venv 和与已激活 CONDA_PREFIX 不一致的解释器，并且不会创建 .venv。
 
 Linux、Git 和 Python 3.10 或更新版本是上层最低要求；当前原生参考环境
 使用 Python 3.12。Habitat/RLR 原生构建、外部 UE 安装、场景数据、
@@ -80,8 +83,10 @@ Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 源码单仓迁移仍在进行。本仓库的最终目标是包含运行所需的精选 Habitat 与
 SPEAR 集成源码、AVEngine 自有的 RLR 调用/适配源码和小型 AVEngine 配置。
 RLR 传播引擎、头文件、库和 SDK 配置是用户合法安装的 CC BY-NC 4.0 外部
-SDK，永不进入 AVEngine Git；当前原生参考仍使用 manifest 固定的 Habitat
-fork、已安装的 RLR SDK 与维护中的 SPEAR checkout。迁移完成必须由迁移前后
+SDK，永不进入 AVEngine Git。当前 bootstrap 不再 clone、fetch 或默认解析
+Habitat/SPEAR/RLR checkout；需要原生执行时，必须显式提供非 Git 的 installed
+Habitat prefix、Magnum Python site、MP3D 数据与 RLR SDK。保留的 checkout-era
+证据和 v1 reader 只用于历史兼容，不能替代当前入口。迁移完成仍须由迁移前后
 相同房间路由的实际结果确认，不能由这段目标说明或一次单元测试替代。
 
 这些结果保留各自的证据边界，不代表所有生成动物、房间声学或数据集已经
@@ -110,15 +115,17 @@ Git checkout、submodule 或源码路径；这不表示迁入 RLR engine。来�
 
 这不表示把所有依赖和数据塞进 Git。Unreal Engine 安装、Epic 内容、
 MP3D、InteriorAgent/Kujiale、原生 Apartment 地图、模型权重、环境、
-构建目录和生成媒体始终留在仓库外。迁移期间仍存在的 Habitat 与 SPEAR
-代码 checkout 是过渡来源；最终 build、setup 和 run 不再克隆或引用第二
-个产品代码仓库。RLR 则继续由用户安装的外部 SDK 提供，而非第二个源码仓库。
-gpuRIR 和私有生成模型路线仍是显式可选研究工具。
+构建目录和生成媒体始终留在仓库外。保留的 Habitat/SPEAR checkout 可以作为
+迁移历史或只读对照来源，但不是当前 `setup`、installed-prefix writer 或新的
+运行输入；新的 build/setup/run 不得克隆或解析第二个产品代码仓库。RLR 则继续
+由用户安装的外部 SDK 提供，而非第二个源码仓库。gpuRIR 和私有生成模型路线仍是
+显式可选研究工具。
 
 已接线的 Habitat RLR adapter 默认关闭。启用其静态 C++ target 时，
 `AVENGINE_RLR_SDK_ROOT` 必须指向用户安装的官方
 `RLRAudioPropagationPkg` 目录（其中含 `headers/` 与
-`libs/linux/x64/`）；AVEngine 不会搜索 RLR checkout、复制或安装该 `.so`。
+`libs/linux/x64/`）；
+Runtime root 必须解析到非 Git 目录；官方 Git checkout 只用于获取或来源核对，不能作为 runtime root。AVEngine 不会搜索 RLR checkout、复制或安装该 `.so`。
 Linux 运行依赖 adapter 的可执行文件或未来 binding 前，用户应让动态加载器
 解析自己的 SDK，例如
 `LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"`。
@@ -160,9 +167,9 @@ import 只从安装 prefix 载入 facade 和 binding，并确认 native
 config 路径。
 
 这仍不安装 Corrade、Magnum、pybind11、Python、RLR、PBR assets、数据集或
-RPATH，也不改变 AVEngine runtime resolver；现有 manifest 固定 fork 仍是当前
-执行路径。安装层完成和其 build/import 验证不等同于完整 Simulator 验证、
-source cutover 或正式发布。
+RPATH，也不改变 AVEngine runtime resolver；当前 bootstrap 只接受显式安装
+prefix，不再以 manifest 固定 fork 作为执行路径。安装层完成和其 build/import
+验证不等同于完整 Simulator 验证、source cutover 或正式发布。
 
 Habitat 的 PBR IBL 图片同样是外部数据，不会嵌入源码或构建产物。
 只有创建渲染器且 `PbrShaderAttributes.enable_ibl=true` 时，用户才需提供
