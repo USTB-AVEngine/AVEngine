@@ -339,6 +339,18 @@ UNAVAILABLE` labels are subject facts, not cosmetic warnings.
 
 ## 7. Release manifest verification
 
+> Current migration note: this section documents the historical v1
+> checkout/submodule release process. It remains the only reader for the
+> retained v1 manifest and is not a current-installed command. The additive
+> current v2 commands in [tools/release/README.md](../../tools/release/README.md)
+> accept an explicit non-Git prefix, external SDK, scene-data root and Magnum
+> site, but their output is an ordinary candidate with formal_release_status
+> equal to not_run. A current-v2 verification pass is not a native RLR run,
+> formal release, or replacement for this historical closeout. Its ignored
+> request, JUnit and receipt stay under logical `tmp/`; the only `release/`
+> artifact is the candidate manifest, whose per-candidate receipt record
+> detects a later byte replacement without creating a baseline or gate.
+
 The manifest is intentionally created after the implementation commit. The
 metadata commit containing it must be a direct child that changes only its
 allowlisted release paths; the annotated tag points to that metadata commit.

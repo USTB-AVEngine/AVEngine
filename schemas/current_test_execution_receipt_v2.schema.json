@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/current_test_execution_receipt_v2.schema.json",
+  "title": "AVEngine current-installed ordinary test receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "receipt_id",
+    "test_layer_id",
+    "status",
+    "claim_scope",
+    "runtime_inputs",
+    "runtime_observation",
+    "command",
+    "execution_cwd",
+    "exit_code",
+    "implementation_commit",
+    "captured_output",
+    "junit_xml",
+    "result_totals"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avengine_current_test_execution_receipt_v2"
+    },
+    "receipt_id": {
+      "$ref": "#/$defs/stableId"
+    },
+    "test_layer_id": {
+      "enum": [
+        "fast-unit",
+        "slow-hermetic"
+      ]
+    },
+    "status": {
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "claim_scope": {
+      "const": "ordinary_current_candidate"
+    },
+    "runtime_inputs": {
+      "$ref": "#/$defs/runtimeInputs"
+    },
+    "runtime_observation": {
+      "$ref": "#/$defs/runtimeObservation"
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "execution_cwd": {
+      "const": "."
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "implementation_commit": {
+      "$ref": "#/$defs/gitCommit"
+    },
+    "captured_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "stdout_base64",
+        "stderr_base64"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "base64"
+        },
+        "stdout_base64": {
+          "$ref": "#/$defs/base64"
+        },
+        "stderr_base64": {
+          "$ref": "#/$defs/base64"
+        }
+      }
+    },
+    "junit_xml": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declared_path",
+        "encoding",
+        "raw_bytes_base64"
+      ],
+      "properties": {
+        "declared_path": {
+          "$ref": "#/$defs/tmpRepositoryPath"
+        },
+        "encoding": {
+          "const": "base64"
+        },
+        "raw_bytes_base64": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/base64"
+            },
+            {
+              "minLength": 4
+            }
+          ]
+        }
+      }
+    },
+    "result_totals": {
+      "$ref": "#/$defs/resultTotals"
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "tmpRepositoryPath": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/repositoryPath"
+        },
+        {
+          "pattern": "^tmp/"
+        }
+      ]
+    },
+    "absolutePath": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^/"
+    },
+    "base64": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "runtimeInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "habitat_runtime_prefix",
+        "rlr_sdk_root",
+        "scene_data_root",
+        "magnum_python_site"
+      ],
+      "properties": {
+        "habitat_runtime_prefix": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "rlr_sdk_root": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "scene_data_root": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "magnum_python_site": {
+          "$ref": "#/$defs/absolutePath"
+        }
+      }
+    },
+    "runtimeObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "native_rlr_execution",
+        "formal_release_status"
+      ],
+      "properties": {
+        "mode": {
+          "const": "path_topology_only"
+        },
+        "native_rlr_execution": {
+          "const": false
+        },
+        "formal_release_status": {
+          "const": "not_run"
+        }
+      }
+    },
+    "resultTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executed",
+        "passed",
+        "failed",
+        "skipped",
+        "errors"
+      ],
+      "properties": {
+        "executed": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

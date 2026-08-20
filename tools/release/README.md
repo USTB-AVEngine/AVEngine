@@ -1,5 +1,131 @@
 # M6 release manifest tool
 
+## Current-installed v2 ordinary candidate
+
+The v1 workflow below is retained unchanged as a historical reader and
+validator for the checkout/submodule release manifest it actually produced.
+Do not supply an installed Habitat prefix to v1, and do not rewrite its
+manifest, schema, receipt or Git assertions to make it accept one.
+
+The additive v2 commands use only explicit current-installed inputs:
+
+- a non-Git, non-symlink Habitat runtime prefix;
+- a non-Git, non-symlink external RLRAudioPropagationPkg SDK with its required
+  header and shared library;
+- a non-Git, non-symlink external scene-data root; and
+- a non-Git, non-symlink external Magnum Python site.
+
+No current-v2 command accepts --habitat-runtime-root, a Habitat checkout, an
+RLR submodule path, or an environment fallback. The generated receipt records
+the exact current input paths only in ignored evidence; the Git-trackable v2
+candidate stores role names instead of private server paths. It does not add a
+runtime binary hash, data hash, baseline or release gate. The only SHA-256 in
+the candidate is the ordinary receipt's file record, which is needed to detect
+replacement of that one concrete output after preparation.
+
+Concretely, a candidate can be prepared from
+`tmp/current-release/fast-unit.json` and that ignored file can later be
+replaced at the same pathname with different valid receipt bytes. Git and the
+source version identify the tracked implementation and candidate, not those
+ignored bytes; a primary key, transaction or unique constraint only protects
+metadata storage; types only validate shape; and ordinary tests ran before the
+later replacement. The fresh file record lets `current-verify` detect that
+specific per-candidate byte swap. It is regenerated for each candidate, is not
+a permanent content baseline, frozen contract or gate, and makes no claim
+beyond the candidate currently being checked.
+
+For current-v2 only, the receipt output, generated JUnit file, build request,
+and bound receipt path must all be below the logical Git-ignored `tmp/` root;
+only the candidate manifest itself may be under `release/`. Before executing
+the child argv, the writer removes inherited Habitat checkout, RLR, SPEAR,
+legacy-source, dataset-root, loader and Python-source selectors, including
+`LD_PRELOAD` and `DYLD_INSERT_LIBRARIES`. It materializes the private source
+snapshot exactly from regular files in the clean Git index: ignored or
+untracked source, caches, startup hooks and any tracked `tmp/` content do not
+enter it. Source symlinks and other non-regular index entries fail closed. The
+writer shares only the logical `tmp/` evidence path, checks that the snapshot
+parent has no `habitat-sim-AVEngine` sibling, and runs the child with its cwd
+and replacement `PYTHONPATH` in that snapshot. The child argv executable must
+be an absolute, canonical non-Git executable; bare `python` or another
+PATH-resolved name is rejected, its canonical path is recorded, and both the
+receipt's Git inspection and child receive a fixed system `PATH` with inherited
+`GIT_*` selectors removed. This isolates current-v2 child execution
+without changing the historical v1 reader; pass any needed ordinary-test
+configuration explicitly in the command itself.
+
+This path is deliberately not a formal release process. The receipt records
+path-topology inspection and a self-derived JUnit test result; it does not
+import Habitat, load RLR, prove an adapter-on prefix, or execute an RLR canary.
+Both the receipt and manifest fix formal_release_status to not_run. Therefore
+a current-verify pass means only that the ordinary candidate and its exact
+receipt still agree. It must never be described as a native RLR pass, a formal
+release, or an equivalence result. If a legal external SDK is absent, do not
+create a candidate by substituting an old checkout.
+
+Keep the local build request under ignored evidence. It has this minimal
+shape; current input paths belong only to the explicit command-line flags:
+
+~~~json
+{
+  "schema": "avengine_current_release_build_request_v2",
+  "release": {
+    "release_id": "avengine-current-review",
+    "current_milestone": "integration-refactor",
+    "manifest_path": "release/avengine_release_manifest_v2.json",
+    "formal_release_reason": "Native adapter-on RLR evidence has not run."
+  },
+  "repositories": {
+    "implementation_commit": "<clean-AVEngine-commit-A>",
+    "expected_avengine_repository": "https://github.com/USTB-AVEngine/AVEngine.git"
+  },
+  "ordinary_test_receipt": {
+    "root_id": "avengine",
+    "path": "tmp/current-release/fast-unit.json"
+  }
+}
+~~~
+
+For a legal user-provided SDK, create a fresh receipt and candidate. Set
+`PYTHON_EXECUTABLE` to a trusted canonical absolute interpreter path; the
+current receipt writer rejects a bare command name and a path inside a Git
+checkout:
+
+~~~bash
+PYTHON_EXECUTABLE="$(realpath "$(command -v python)")"
+"$PYTHON_EXECUTABLE" tools/release/build_manifest.py current-receipt \
+  --output tmp/current-release/fast-unit.json \
+  --workspace-root . \
+  --runtime-prefix /external/installed-habitat \
+  --rlr-sdk-root /external/RLRAudioPropagationPkg \
+  --scene-data-root /external/scene-data \
+  --magnum-python-site /external/magnum-python-site \
+  --receipt-id current-fast-unit \
+  --layer-id fast-unit \
+  --junit-xml tmp/current-release/fast-unit.junit.xml \
+  -- "$PYTHON_EXECUTABLE" -m pytest -q tests/unit \
+       --junitxml tmp/current-release/fast-unit.junit.xml
+
+"$PYTHON_EXECUTABLE" tools/release/build_manifest.py current-prepare \
+  --request tmp/current-release/request.json \
+  --avengine-root . \
+  --runtime-prefix /external/installed-habitat \
+  --rlr-sdk-root /external/RLRAudioPropagationPkg \
+  --scene-data-root /external/scene-data \
+  --magnum-python-site /external/magnum-python-site
+
+"$PYTHON_EXECUTABLE" tools/release/build_manifest.py current-verify \
+  --manifest release/avengine_release_manifest_v2.json \
+  --avengine-root . \
+  --runtime-prefix /external/installed-habitat \
+  --rlr-sdk-root /external/RLRAudioPropagationPkg \
+  --scene-data-root /external/scene-data \
+  --magnum-python-site /external/magnum-python-site
+~~~
+
+These commands never copy SDK/data/runtime files into Git. The future formal
+release path still needs separately reviewed, real adapter-on native evidence,
+the full pre/post equivalence matrix, and the project publication process.
+
 The release is intentionally assembled in two Git commits:
 
 1. Commit **A** contains all implementation, schemas and documentation. The

@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schema/avengine_release_manifest_v2.schema.json",
+  "title": "AVEngine current-installed ordinary release candidate v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "release",
+    "repositories",
+    "runtime_inputs",
+    "ordinary_test_receipt",
+    "ordinary_test_status"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avengine_release_manifest_v2"
+    },
+    "release": {
+      "$ref": "#/$defs/release"
+    },
+    "repositories": {
+      "$ref": "#/$defs/repositories"
+    },
+    "runtime_inputs": {
+      "$ref": "#/$defs/runtimeInputRoles"
+    },
+    "ordinary_test_receipt": {
+      "$ref": "#/$defs/receiptRecord"
+    },
+    "ordinary_test_status": {
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
+    },
+    "releasePath": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/relativePath"
+        },
+        {
+          "pattern": "^release/"
+        }
+      ]
+    },
+    "fileRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_id",
+        "path",
+        "byte_size",
+        "sha256"
+      ],
+      "properties": {
+        "root_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "receiptRecord": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/fileRecord"
+        },
+        {
+          "properties": {
+            "root_id": {
+              "const": "avengine"
+            },
+            "path": {
+              "pattern": "^tmp/"
+            }
+          }
+        }
+      ]
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_id",
+        "state",
+        "claim_scope",
+        "formal_release_status",
+        "formal_release_reason",
+        "current_milestone",
+        "manifest_path"
+      ],
+      "properties": {
+        "release_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "state": {
+          "const": "candidate"
+        },
+        "claim_scope": {
+          "const": "ordinary_current_candidate"
+        },
+        "formal_release_status": {
+          "const": "not_run"
+        },
+        "formal_release_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_milestone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_path": {
+          "$ref": "#/$defs/releasePath"
+        }
+      }
+    },
+    "avengineRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "implementation_commit"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation_commit": {
+          "$ref": "#/$defs/gitCommit"
+        }
+      }
+    },
+    "repositories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "avengine"
+      ],
+      "properties": {
+        "avengine": {
+          "$ref": "#/$defs/avengineRepository"
+        }
+      }
+    },
+    "runtimeInputRoles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "habitat_runtime_prefix",
+        "rlr_sdk_root",
+        "scene_data_root",
+        "magnum_python_site"
+      ],
+      "properties": {
+        "mode": {
+          "const": "current-installed"
+        },
+        "habitat_runtime_prefix": {
+          "const": "external-habitat-runtime-prefix"
+        },
+        "rlr_sdk_root": {
+          "const": "external-rlr-sdk"
+        },
+        "scene_data_root": {
+          "const": "external-scene-data"
+        },
+        "magnum_python_site": {
+          "const": "external-magnum-python-site"
+        }
+      }
+    }
+  }
+}
