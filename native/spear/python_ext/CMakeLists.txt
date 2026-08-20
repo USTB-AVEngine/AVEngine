@@ -94,7 +94,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 find_package(
   Python
   3.11
-  EXACT
   REQUIRED
   COMPONENTS Interpreter Development.Module
 )

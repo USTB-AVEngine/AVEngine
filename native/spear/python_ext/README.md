@@ -38,8 +38,10 @@ The retained upstream C++ files are:
 - cpp/types.h
 
 CMakeLists.txt is AVEngine-owned. It resolves a user-supplied installed rpclib
-SDK, Python 3.11, nanobind, and Threads; it does not use an upstream SPEAR
-checkout, dependency source tree, package metadata, or binary.
+SDK, an explicit Python 3.11-or-newer interpreter, nanobind, and Threads. The
+selected interpreter owns the extension's minor-version ABI; the build does
+not use an upstream SPEAR checkout, dependency source tree, package metadata,
+or binary.
 
 ## Build an isolated staging module
 
@@ -47,7 +49,7 @@ Create distinct, empty build and installation directories first. The install
 prefix must already exist and resolve outside this source directory.
 
     export AVENGINE_SPEAR_RPCLIB_ROOT=/path/to/installed/rpclib-prefix
-    export AVENGINE_SPEAR_PYTHON=/path/to/python3.11
+    export AVENGINE_SPEAR_PYTHON=/path/to/selected-conda/bin/python
     build_dir=/path/to/fresh/build
     stage_dir=/path/to/fresh/stage
 
@@ -66,10 +68,11 @@ CMake searches only those supplied roots for rpclib and nanobind, so an ambient
 package or a SPEAR checkout cannot satisfy either dependency.
 
 The resulting module is named with the active Python extension suffix under
-the fresh stage directory, for example
-avengine_spear_ext.cpython-311-x86_64-linux-gnu.so. Python 3.11 uses its normal
-minor-version-specific extension ABI; this target does not claim stable-ABI or
-cross-minor binary compatibility.
+the fresh stage directory. For example, Python 3.11 normally produces
+avengine_spear_ext.cpython-311-x86_64-linux-gnu.so, while Python 3.12 normally
+produces avengine_spear_ext.cpython-312-x86_64-linux-gnu.so. Every supported
+interpreter uses its normal minor-version-specific extension ABI; this target
+does not claim stable-ABI or cross-minor binary compatibility.
 
 To make that top-level module discoverable, either intentionally install it to
 the same interpreter's platform-library directory:
