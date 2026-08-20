@@ -80,6 +80,10 @@ from avengine.m4.contracts import (
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
 from avengine.m5.current_visual import CurrentVisualError, capture_current_visual
+from avengine.m5.current_mp3d_route import (
+    CurrentMP3DRouteError,
+    author_current_mp3d_two_beagle_route,
+)
 from avengine.m5.timeline import validate_episode_request
 from avengine.m6.rooms import load_room_registry
 from avengine.m6.canary import (
@@ -125,7 +129,6 @@ def _temporary_native_audio_environment(
                 os.environ[key] = value
 
 
-
 def _require_current_installed_runtime_inputs(args: argparse.Namespace) -> None:
     if getattr(args, "runtime_mode", "historical") != "current-installed":
         return
@@ -142,6 +145,7 @@ def _require_current_installed_runtime_inputs(args: argparse.Namespace) -> None:
         raise ValueError(
             "current-installed mode requires explicit " + ", ".join(missing)
         )
+
 
 def _require_ignored_or_external_output(path: str | Path) -> Path:
     resolved = Path(path).resolve()
@@ -1197,6 +1201,26 @@ def _m5_capture_current_visual(args: argparse.Namespace) -> int:
     return 0 if status == "research_only" else EXIT_BY_STATUS.get(status, 2)
 
 
+def _m5_author_current_mp3d_two_beagle_route(args: argparse.Namespace) -> int:
+    try:
+        result = author_current_mp3d_two_beagle_route(
+            source_animal_manifest_path=args.source_animal_manifest,
+            source_m2_request_path=args.source_m2_request,
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            output_directory=args.output,
+            seed=args.seed,
+            distance_tolerance_m=args.distance_tolerance_m,
+            minimum_center_separation_m=args.minimum_center_separation_m,
+        )
+    except (CurrentMP3DRouteError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(result)
+    return 0
+
+
 def _m5_verify_canary(args: argparse.Namespace) -> int:
     try:
         status, checks = verify_m5_canary_evidence(args.evidence)
@@ -1529,8 +1553,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--room-registry",
         type=Path,
         default=(
-            Path(__file__).resolve().parents[2]
-            / "examples/m6/rooms/room_registry.json"
+            Path(__file__).resolve().parents[2] / "examples/m6/rooms/room_registry.json"
         ),
     )
     m3_registered.add_argument(
@@ -1716,6 +1739,23 @@ def build_parser() -> argparse.ArgumentParser:
     m5_current_visual.add_argument("--magnum-python-site", required=True)
     m5_current_visual.add_argument("--output", required=True)
     m5_current_visual.set_defaults(handler=_m5_capture_current_visual)
+
+    m5_current_route = m5_commands.add_parser(
+        "author-current-mp3d-two-beagle-route",
+        help="Author one fresh current-MP3D two-Beagle research route",
+    )
+    m5_current_route.add_argument("--source-animal-manifest", required=True)
+    m5_current_route.add_argument("--source-m2-request", required=True)
+    m5_current_route.add_argument("--runtime-prefix", required=True)
+    m5_current_route.add_argument("--mp3d-root", required=True)
+    m5_current_route.add_argument("--magnum-python-site", required=True)
+    m5_current_route.add_argument("--output", required=True)
+    m5_current_route.add_argument("--seed", type=int, default=20_260_820)
+    m5_current_route.add_argument("--distance-tolerance-m", type=float, default=0.15)
+    m5_current_route.add_argument(
+        "--minimum-center-separation-m", type=float, default=0.75
+    )
+    m5_current_route.set_defaults(handler=_m5_author_current_mp3d_two_beagle_route)
 
     m5_verify = m5_commands.add_parser("verify-canary")
     m5_verify.add_argument("evidence")

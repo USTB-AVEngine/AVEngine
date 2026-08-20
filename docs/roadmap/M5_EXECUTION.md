@@ -44,6 +44,76 @@ The fresh output contains raw visual arrays, frame readback records, and a
 plain `research_receipt.json`. It is research-only, does not count an episode,
 and is not interpreted by the retained M5 v1 reader.
 
+
+## Current MP3D two-Beagle route author
+
+`author-current-mp3d-two-beagle-route` creates a fresh, research-only
+75-frame route for the current MP3D sample. It reads a user-provided,
+non-Git, canary-qualified Beagle package and its matching source M2 request;
+the source request is read-only and is never renamed, relabelled, or changed.
+The author preserves the 75-frame Idle/Walk/Idle action timing, joint states,
+contacts, mouth policy, and pose hashes, then recomputes only the existing M2
+`applied_state_hash` values required for the new root transforms.
+
+M2 v1 remains a single-articulated-asset request. Therefore the output contains
+one normal M2-compatible primary request, one new static research M1
+camera/listener request, and a plain research explanation. M5 current-visual
+owns the two same-asset instances and its fixed offsets; the explanation
+records the two resulting skin-root paths rather than pretending a new
+multi-actor M2 schema exists.
+
+```bash
+python -m avengine.cli m5 author-current-mp3d-two-beagle-route \
+  --source-animal-manifest "$BEAGLE_PACKAGE/asset_manifest.json" \
+  --source-m2-request "$BEAGLE_M2_SOURCE_REQUEST" \
+  --runtime-prefix "$HABITAT_PREFIX" \
+  --mp3d-root "$MP3D_ROOT" \
+  --magnum-python-site "$MAGNUM_PYTHON_SITE" \
+  --output /data/avengine_external/review/current_mp3d_two_beagle_route_unique
+```
+
+All paths must be canonical, external, and outside Git checkouts. The output
+must be a fresh immediate child of `/data/avengine_external/review`; the writer
+will not create it until the current room graph, native Habitat PathFinder,
+shared M5.1 no-sliding checks, M6x source-center feasibility, one navmesh
+island, and two-Beagle center separation have all passed.
+
+The author leaves the checked-in M1 request and its camera rig untouched. It
+creates a new static `research_m1_request.json` for this research scenario:
+the camera X/Z is directly rechecked with the loaded native PathFinder
+(`is_navigable`, snap error, clearance, and island), its height uses the room
+agent height, and its yaw points at the two-Beagle path midpoint. A conservative
+frustum filter is followed by native all-75-frame semantic
+readback of both real same-asset instances before any output is written. The
+new M1 request is still an ordinary M1-compatible `camera_rig_0/view0`
+request so it can be passed explicitly to `capture-current-visual`; its
+research-only status is carried only by the surrounding explanation, never by
+changing the retained M1 schema or old reader.
+
+If no source-length route/camera pair passes native navmesh, no-sliding,
+frustum, separation, and semantic checks, the author returns a blocker without
+creating output. It does not shorten or fold source motion, move the existing
+M1 camera, or change instance offsets.
+
+After a successful author run, pass its two new request files explicitly to the
+existing visual-only capture command; keep its output fresh as well:
+
+```bash
+python -m avengine.cli m5 capture-current-visual \
+  --animal-manifest "$BEAGLE_PACKAGE/asset_manifest.json" \
+  --m2-request /data/avengine_external/review/current_mp3d_two_beagle_route_unique/primary_m2_request.json \
+  --room-manifest examples/m1/rooms/habitat_mp3d_example/room_manifest.json \
+  --m1-request /data/avengine_external/review/current_mp3d_two_beagle_route_unique/research_m1_request.json \
+  --runtime-prefix "$HABITAT_PREFIX" \
+  --mp3d-root "$MP3D_ROOT" \
+  --magnum-python-site "$MAGNUM_PYTHON_SITE" \
+  --output /data/avengine_external/review/current_mp3d_two_beagle_visual_unique
+```
+
+This is research-only: it adds no new schema, persistent route hash, baseline,
+contract, or formal gate, and it makes no body-volume collision, audio/RLR,
+formal episode, or equivalence claim.
+
 ## Historical M5 v1 counterfactual
 
 Run from the AVEngine Habitat-native repository with the pinned Habitat Python

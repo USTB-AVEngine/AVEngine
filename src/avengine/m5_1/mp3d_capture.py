@@ -119,9 +119,7 @@ def load_mp3d_route_manifest(path: str | Path) -> dict[str, Any]:
     if route.get("frame_count") != FRAME_COUNT:
         raise MP3DCaptureError(f"MP3D route frame_count must be {FRAME_COUNT}")
     if route.get("frame_rate_hz") != FRAME_RATE_HZ:
-        raise MP3DCaptureError(
-            f"MP3D route frame_rate_hz must be {FRAME_RATE_HZ}"
-        )
+        raise MP3DCaptureError(f"MP3D route frame_rate_hz must be {FRAME_RATE_HZ}")
     if route.get("path_generation") != "linear_endpoint_interpolation_v1":
         raise MP3DCaptureError("unsupported MP3D path_generation")
     if route.get("center_navigation_semantics") != "actor_root_center_only":
@@ -294,7 +292,26 @@ def _pathfinder_path_record(
     maximum_snap_error_m: float,
     maximum_y_delta_m: float,
     maximum_step_endpoint_error_m: float,
+    expected_frame_count: int | None = None,
+    include_trajectory_sha256: bool = True,
 ) -> dict[str, Any]:
+    """Validate one native PathFinder path at an explicit frame count.
+
+    The historical M5.1 caller retains its 270-frame default.  Current
+    research route authors can reuse these exact frame/navigability/island and
+    no-sliding checks for their own explicitly declared frame count without
+    inventing a second PathFinder validator or persisting an extra trajectory
+    digest.
+    """
+
+    frames = FRAME_COUNT if expected_frame_count is None else expected_frame_count
+    if isinstance(frames, bool) or not isinstance(frames, int) or frames < 2:
+        raise MP3DCaptureError("expected PathFinder frame count must be at least two")
+    points = np.asarray(path, dtype=np.float64)
+    if points.shape != (frames, 3) or not np.all(np.isfinite(points)):
+        raise MP3DCaptureError(
+            f"{owner} must contain exactly {frames} finite PathFinder points"
+        )
     navigable = np.asarray(
         [
             bool(
@@ -302,7 +319,7 @@ def _pathfinder_path_record(
                     np.asarray(point, dtype=np.float64), maximum_y_delta_m
                 )
             )
-            for point in path
+            for point in points
         ],
         dtype=np.bool_,
     )
@@ -312,16 +329,16 @@ def _pathfinder_path_record(
                 pathfinder.snap_point(np.asarray(point, dtype=np.float64)),
                 dtype=np.float64,
             )
-            for point in path
+            for point in points
         ],
         axis=0,
     )
-    if snapped.shape != path.shape or not np.all(np.isfinite(snapped)):
+    if snapped.shape != points.shape or not np.all(np.isfinite(snapped)):
         raise MP3DCaptureError(f"PathFinder returned invalid snap points for {owner}")
-    snap_errors = np.linalg.norm(snapped - path, axis=1)
+    snap_errors = np.linalg.norm(snapped - points, axis=1)
     navigable_count = int(np.count_nonzero(navigable))
     maximum_snap_error = float(np.max(snap_errors))
-    if navigable_count != FRAME_COUNT:
+    if navigable_count != frames:
         failed = np.flatnonzero(~navigable).astype(int).tolist()
         raise MP3DCaptureError(
             f"{owner} has non-navigable center frames: {failed[:20]}"
@@ -334,7 +351,7 @@ def _pathfinder_path_record(
     islands = np.asarray(
         [int(pathfinder.get_island(point)) for point in snapped], dtype=np.int64
     )
-    if islands.shape != (FRAME_COUNT,) or np.any(islands < 0):
+    if islands.shape != (frames,) or np.any(islands < 0):
         raise MP3DCaptureError(f"{owner} has an invalid navmesh island readback")
     unique_islands = np.unique(islands)
     if len(unique_islands) != 1:
@@ -342,29 +359,29 @@ def _pathfinder_path_record(
     stepped = np.stack(
         [
             np.asarray(
-                pathfinder.try_step_no_sliding(path[index], path[index + 1]),
+                pathfinder.try_step_no_sliding(points[index], points[index + 1]),
                 dtype=np.float64,
             )
-            for index in range(FRAME_COUNT - 1)
+            for index in range(frames - 1)
         ],
         axis=0,
     )
-    if stepped.shape != (FRAME_COUNT - 1, 3) or not np.all(np.isfinite(stepped)):
-        raise MP3DCaptureError(f"PathFinder returned invalid no-sliding steps for {owner}")
-    step_errors = np.linalg.norm(stepped - path[1:], axis=1)
+    if stepped.shape != (frames - 1, 3) or not np.all(np.isfinite(stepped)):
+        raise MP3DCaptureError(
+            f"PathFinder returned invalid no-sliding steps for {owner}"
+        )
+    step_errors = np.linalg.norm(stepped - points[1:], axis=1)
     maximum_step_error = float(np.max(step_errors))
     passed_segment_count = int(
         np.count_nonzero(step_errors <= maximum_step_endpoint_error_m)
     )
-    if passed_segment_count != FRAME_COUNT - 1:
-        failed = np.flatnonzero(
-            step_errors > maximum_step_endpoint_error_m
-        ).astype(int)
+    if passed_segment_count != frames - 1:
+        failed = np.flatnonzero(step_errors > maximum_step_endpoint_error_m).astype(int)
         raise MP3DCaptureError(
             f"{owner} has no-sliding segment failures: {failed[:20].tolist()}"
         )
-    return {
-        "frame_count": FRAME_COUNT,
+    record: dict[str, Any] = {
+        "frame_count": frames,
         "navigable_frame_count": navigable_count,
         "all_frames_navigable": True,
         "maximum_snap_error_m": maximum_snap_error,
@@ -372,16 +389,16 @@ def _pathfinder_path_record(
         "maximum_y_delta_m": maximum_y_delta_m,
         "island_id": int(unique_islands[0]),
         "unique_island_count": 1,
-        "segment_count": FRAME_COUNT - 1,
+        "segment_count": frames - 1,
         "no_sliding_passed_segment_count": passed_segment_count,
         "maximum_step_endpoint_error_m": maximum_step_error,
-        "required_maximum_step_endpoint_error_m": (
-            maximum_step_endpoint_error_m
-        ),
-        "trajectory_sha256": canonical_json_sha256(path.tolist()),
-        "start_m": path[0].tolist(),
-        "end_m": path[-1].tolist(),
+        "required_maximum_step_endpoint_error_m": (maximum_step_endpoint_error_m),
+        "start_m": points[0].tolist(),
+        "end_m": points[-1].tolist(),
     }
+    if include_trajectory_sha256:
+        record["trajectory_sha256"] = canonical_json_sha256(points.tolist())
+    return record
 
 
 def _external_file_record(path: Path) -> dict[str, Any]:
@@ -427,12 +444,9 @@ def validate_mp3d_paths_with_declared_navmesh(
     )
     if selected_runtime.mp3d_root is None:
         raise MP3DCaptureError(
-            "MP3D navigation requires an explicit --mp3d-root or "
-            "AVENGINE_MP3D_ROOT"
+            "MP3D navigation requires an explicit --mp3d-root or AVENGINE_MP3D_ROOT"
         )
-    resolved_scene = _resolved_scene(
-        inputs, None, mp3d_root=selected_runtime.mp3d_root
-    )
+    resolved_scene = _resolved_scene(inputs, None, mp3d_root=selected_runtime.mp3d_root)
     raw_navmesh = resolved_scene.get("navmesh")
     if raw_navmesh is None:
         raise MP3DCaptureError("MP3D room does not resolve a declared navmesh")
@@ -484,9 +498,7 @@ def validate_mp3d_paths_with_declared_navmesh(
         camera_state.position = np.asarray(
             rig["world_from_rig"]["translation_m"], dtype=np.float64
         )
-        x, y, z, w = normalized_quaternion_xyzw(
-            rig["world_from_rig"]["rotation_xyzw"]
-        )
+        x, y, z, w = normalized_quaternion_xyzw(rig["world_from_rig"]["rotation_xyzw"])
         camera_state.rotation = qt.quaternion(w, x, y, z)
         simulator.initialize_agent(0, camera_state)
         semantic_uuid = modality_to_uuid["semantic"]
@@ -494,9 +506,7 @@ def validate_mp3d_paths_with_declared_navmesh(
             [simulator.sensors[semantic_uuid]]
         )
         baseline_semantic = np.asarray(baseline_observation[semantic_uuid])
-        expected_shape = tuple(
-            rig["shared_calibration"]["resolution_hw"]
-        )
+        expected_shape = tuple(rig["shared_calibration"]["resolution_hw"])
         if baseline_semantic.shape != expected_shape:
             raise MP3DCaptureError("MP3D baseline semantic shape differs from request")
         semantic_ids = {
@@ -561,7 +571,9 @@ def validate_mp3d_paths_with_declared_navmesh(
     return MP3DNavigationEvidence(paths=paths, record=record)
 
 
-def _semantic_box(mask: np.ndarray, semantic_id: int) -> tuple[int, int, int, int] | None:
+def _semantic_box(
+    mask: np.ndarray, semantic_id: int
+) -> tuple[int, int, int, int] | None:
     rows, columns = np.nonzero(mask == semantic_id)
     if len(rows) == 0:
         return None
@@ -823,17 +835,13 @@ def capture_mp3d_route(
         {
             "gate_id": "human_center_navigable_every_frame",
             "status": "pass",
-            "measured": navigation.record["routes"]["human0"][
-                "navigable_frame_count"
-            ],
+            "measured": navigation.record["routes"]["human0"]["navigable_frame_count"],
             "required": FRAME_COUNT,
         },
         {
             "gate_id": "dog_center_navigable_every_frame",
             "status": "pass",
-            "measured": navigation.record["routes"]["dog0"][
-                "navigable_frame_count"
-            ],
+            "measured": navigation.record["routes"]["dog0"]["navigable_frame_count"],
             "required": FRAME_COUNT,
         },
         {
@@ -900,9 +908,7 @@ def capture_mp3d_route(
         {
             "gate_id": "no_actor_semantic_id_baseline_collision",
             "status": "pass",
-            "measured": navigation.record["semantic_baseline"][
-                "actor_id_pixel_counts"
-            ],
+            "measured": navigation.record["semantic_baseline"]["actor_id_pixel_counts"],
             "required": {"human0": 0, "dog0": 0},
         },
         {
