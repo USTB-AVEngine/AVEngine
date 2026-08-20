@@ -28,6 +28,148 @@ _TEST_LINEAR_GAIN = 0.18
 _TEST_WINDOWS = ((256, 512), (768, 1_024), (1_280, 1_536))
 
 
+def test_current_dynamic_pair_forwards_one_runtime_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_render(
+        _scene: object, _simulation: object, **kwargs: object
+    ) -> SimpleNamespace:
+        calls.append(dict(kwargs))
+        return SimpleNamespace(trajectory_sha256="same-trajectory")
+
+    monkeypatch.setattr(canary, "render_dynamic_rir_sequence", fake_render)
+    prefix = Path("/external/habitat-prefix")
+    magnum_site = Path("/external/magnum-site")
+    sdk_root = Path("/external/rlr-sdk")
+    hrtf = tmp_path / "kemar-16k.sofa"
+    installed_runtime = SimpleNamespace(
+        prefix=prefix,
+        magnum_python_site=magnum_site,
+    )
+
+    foa, binaural = canary._render_current_dynamic_rir_pair(
+        scene=object(),
+        simulation=SimpleNamespace(),
+        keyframes=(),
+        hrtf_path=hrtf,
+        installed_runtime=installed_runtime,
+        rlr_sdk_root=sdk_root,
+    )
+
+    assert foa.trajectory_sha256 == binaural.trajectory_sha256
+    assert len(calls) == 2
+    runtime_keys = (
+        "runtime_mode",
+        "runtime_prefix",
+        "rlr_sdk_root",
+        "magnum_python_site",
+    )
+    assert {key: calls[0][key] for key in runtime_keys} == {
+        key: calls[1][key] for key in runtime_keys
+    }
+    assert calls[0]["runtime_mode"] == "current-installed"
+    assert calls[0]["runtime_prefix"] == prefix
+    assert calls[0]["rlr_sdk_root"] == sdk_root
+    assert calls[0]["magnum_python_site"] == magnum_site
+    assert calls[0]["layout_type"] == "ambisonics"
+    assert calls[0]["channel_count"] == 4
+    assert "hrtf_file_path" not in calls[0]
+    assert calls[1]["layout_type"] == "binaural"
+    assert calls[1]["channel_count"] == 2
+    assert calls[1]["hrtf_file_path"] == str(hrtf.resolve())
+
+
+def test_current_runtime_root_is_only_an_installed_prefix_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    selected = SimpleNamespace(prefix=Path("/external/prefix"))
+
+    def fake_prepare(**kwargs: object) -> SimpleNamespace:
+        calls.append(dict(kwargs))
+        return selected
+
+    monkeypatch.setattr(canary, "prepare_installed_habitat_runtime", fake_prepare)
+    result = canary._prepare_m5_installed_runtime(
+        runtime_prefix=None,
+        runtime_root="/external/prefix",
+        mp3d_root=None,
+        magnum_python_site="/external/magnum",
+        rlr_sdk_root="/external/rlr",
+    )
+
+    assert result is selected
+    assert calls == [
+        {
+            "runtime_prefix": None,
+            "runtime_root": "/external/prefix",
+            "mp3d_root": None,
+            "magnum_python_site": "/external/magnum",
+            "rlr_sdk_root": "/external/rlr",
+            "allow_mp3d_environment": False,
+        }
+    ]
+
+
+def test_current_native_runtime_unavailable_preserves_blocked_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ambient = "/ambient/mp3d"
+    calls: list[dict[str, object]] = []
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", ambient)
+
+    def unavailable(**kwargs: object) -> None:
+        calls.append(dict(kwargs))
+        raise FileNotFoundError("installed prefix missing")
+
+    monkeypatch.setattr(canary, "prepare_installed_habitat_runtime", unavailable)
+
+    with pytest.raises(
+        canary.RuntimeUnavailableError,
+        match="current installed Habitat/RLR runtime is unavailable",
+    ):
+        canary._prepare_m5_installed_runtime(
+            runtime_prefix="/external/missing-prefix",
+            runtime_root=None,
+            mp3d_root=None,
+            magnum_python_site="/external/magnum",
+            rlr_sdk_root="/external/rlr",
+        )
+    assert calls[0]["mp3d_root"] is None
+    assert calls[0]["allow_mp3d_environment"] is False
+    assert canary.os.environ["AVENGINE_MP3D_ROOT"] == ambient
+
+
+def test_current_runtime_never_falls_back_to_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", "/ambient/prefix")
+    monkeypatch.setenv("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", "/ambient/magnum")
+    monkeypatch.setenv("AVENGINE_RLR_SDK_ROOT", "/ambient/rlr")
+
+    with pytest.raises(canary.M5CanaryError, match="requires explicit"):
+        canary._prepare_m5_installed_runtime(
+            runtime_prefix=None,
+            runtime_root=None,
+            mp3d_root=None,
+            magnum_python_site=None,
+            rlr_sdk_root=None,
+        )
+
+
+def test_current_runtime_rejects_prefix_plus_compatibility_alias() -> None:
+    with pytest.raises(canary.M5CanaryError, match="specify only"):
+        canary._prepare_m5_installed_runtime(
+            runtime_prefix="/external/prefix-a",
+            runtime_root="/external/prefix-b",
+            mp3d_root=None,
+            magnum_python_site="/external/magnum",
+            rlr_sdk_root="/external/rlr",
+        )
+
+
 def test_acoustic_keyframes_follow_the_sensor_rig_listener_pose() -> None:
     rig = materialize_sensor_rig_trajectory(
         trajectory_id="m5_rotate_listener",

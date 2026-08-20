@@ -57,6 +57,11 @@ def test_m5_parser_exposes_validate_run_and_verify() -> None:
     assert validate.m5_command == "validate-request"
     assert run.m5_command == "run-canary"
     assert run.hrtf == "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
+    assert run.runtime_root is None
+    assert run.runtime_prefix is None
+    assert run.mp3d_root is None
+    assert run.magnum_python_site is None
+    assert run.rlr_sdk_root is None
     assert run.sensor_rig_trajectory == "rig.json"
     assert verify.m5_command == "verify-canary"
 
@@ -110,6 +115,12 @@ def test_m5_run_canary_mock_forwards_explicit_inputs(
         "m4.json",
         "--runtime-root",
         "/runtime",
+        "--mp3d-root",
+        "/mp3d",
+        "--magnum-python-site",
+        "/magnum",
+        "--rlr-sdk-root",
+        "/rlr",
         "--hrtf",
         "hrtf.sofa",
         "--hrtf-license",
@@ -126,6 +137,10 @@ def test_m5_run_canary_mock_forwards_explicit_inputs(
     assert main(argv) == 0
     assert calls["run"]["output_directory"] == output.resolve()
     assert calls["run"]["runtime_root"] == "/runtime"
+    assert calls["run"]["runtime_prefix"] is None
+    assert calls["run"]["mp3d_root"] == "/mp3d"
+    assert calls["run"]["magnum_python_site"] == "/magnum"
+    assert calls["run"]["rlr_sdk_root"] == "/rlr"
     assert calls["run"]["beagle_dry_path"] == "beagle.wav"
     assert calls["run"]["sensor_rig_trajectory_path"] == "rig.json"
     assert calls["verify"] == evidence

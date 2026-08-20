@@ -27,6 +27,7 @@ from avengine.m1.habitat_capture import (
     _validate_magnum_python_origins,
     _ue_project_asset_package_closure,
     discover_magnum_python_site,
+    discover_mp3d_root,
     discover_runtime_prefix,
     prepare_installed_habitat_runtime,
     resolve_installed_runtime_prefix,
@@ -36,6 +37,32 @@ from avengine.m1.habitat_capture import (
 MESH_OBJECT_PATH = "/Game/Test/SM_Test.SM_Test"
 MATERIAL_OBJECT_PATH = "/Game/Test/M_Test.M_Test"
 ENGINE_OBJECT_PATH = "/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"
+
+
+def test_discover_mp3d_root_can_ignore_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ambient = tmp_path / "ambient-mp3d"
+    (ambient / "scene_datasets").mkdir(parents=True)
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", str(ambient))
+
+    assert discover_mp3d_root() == ambient.resolve()
+    assert discover_mp3d_root(allow_environment=False) is None
+
+
+def test_discover_mp3d_root_explicit_wins_when_environment_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ambient = tmp_path / "ambient-mp3d"
+    explicit = tmp_path / "explicit-mp3d"
+    (ambient / "scene_datasets").mkdir(parents=True)
+    (explicit / "scene_datasets").mkdir(parents=True)
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", str(ambient))
+
+    assert (
+        discover_mp3d_root(explicit, allow_environment=False)
+        == explicit.resolve()
+    )
 
 
 def _run_git(source_root: Path, *arguments: str) -> None:

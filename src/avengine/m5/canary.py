@@ -23,7 +23,15 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.contracts.transforms import normalized_quaternion_xyzw
-from avengine.m3.runtime import load_compiled_acoustic_scene
+from avengine.m1.habitat_capture import (
+    InstalledHabitatRuntime,
+    prepare_installed_habitat_runtime,
+)
+from avengine.m3.runtime import (
+    RUNTIME_MODE_CURRENT_INSTALLED,
+    RuntimeUnavailableError,
+    load_compiled_acoustic_scene,
+)
 from avengine.m4.audio import read_float32_wav, write_float32_wav
 from avengine.m4.runtime import M4SimulationConfig
 from avengine.m5.acoustics import (
@@ -1072,6 +1080,87 @@ def _sensor_rig_evidence_errors(
     return errors
 
 
+def _prepare_m5_installed_runtime(
+    *,
+    runtime_prefix: str | Path | None,
+    runtime_root: str | Path | None,
+    mp3d_root: str | Path | None,
+    magnum_python_site: str | Path | None,
+    rlr_sdk_root: str | Path | None,
+) -> InstalledHabitatRuntime:
+    """Select the one explicit current runtime used by visual and acoustics."""
+
+    if runtime_prefix is not None and runtime_root is not None:
+        raise M5CanaryError(
+            "specify only --runtime-prefix or --runtime-root; --runtime-root is "
+            "an installed-prefix compatibility alias"
+        )
+    missing = [
+        option
+        for option, value in (
+            ("--runtime-prefix/--runtime-root", runtime_prefix or runtime_root),
+            ("--magnum-python-site", magnum_python_site),
+            ("--rlr-sdk-root", rlr_sdk_root),
+        )
+        if value is None or not str(value).strip()
+    ]
+    if missing:
+        raise M5CanaryError(
+            "m5 run-canary requires explicit current runtime inputs: "
+            + ", ".join(missing)
+        )
+    try:
+        return prepare_installed_habitat_runtime(
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+            rlr_sdk_root=rlr_sdk_root,
+            allow_mp3d_environment=False,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        raise RuntimeUnavailableError(
+            f"current installed Habitat/RLR runtime is unavailable: {error}"
+        ) from error
+
+
+def _render_current_dynamic_rir_pair(
+    *,
+    scene: Any,
+    simulation: M4SimulationConfig,
+    keyframes: Sequence[AcousticKeyframe],
+    hrtf_path: str | Path,
+    installed_runtime: InstalledHabitatRuntime,
+    rlr_sdk_root: str | Path,
+) -> tuple[DynamicRIRSequence, DynamicRIRSequence]:
+    """Render FOA and binaural with one identical explicit runtime selection."""
+
+    runtime_loader = {
+        "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+        "runtime_prefix": installed_runtime.prefix,
+        "rlr_sdk_root": Path(rlr_sdk_root).resolve(),
+        "magnum_python_site": installed_runtime.magnum_python_site,
+    }
+    foa = render_dynamic_rir_sequence(
+        scene,
+        simulation,
+        keyframes=keyframes,
+        layout_type="ambisonics",
+        channel_count=4,
+        **runtime_loader,
+    )
+    binaural = render_dynamic_rir_sequence(
+        scene,
+        simulation,
+        keyframes=keyframes,
+        layout_type="binaural",
+        channel_count=2,
+        hrtf_file_path=str(Path(hrtf_path).resolve()),
+        **runtime_loader,
+    )
+    return foa, binaural
+
+
 def run_m5_canary(
     *,
     request_path: str | Path,
@@ -1082,7 +1171,11 @@ def run_m5_canary(
     acoustic_package_manifest_path: str | Path,
     m4_request_path: str | Path,
     output_directory: str | Path,
-    runtime_root: str | Path | None,
+    runtime_root: str | Path | None = None,
+    runtime_prefix: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
     hrtf_path: str | Path,
     hrtf_license_path: str | Path,
     beagle_dry_path: str | Path,
@@ -1130,12 +1223,19 @@ def run_m5_canary(
         tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
     ).resolve()
     try:
+        installed_runtime = _prepare_m5_installed_runtime(
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+            rlr_sdk_root=rlr_sdk_root,
+        )
         visual = capture_two_actor_fixed_states(
             animal_manifest_path=animal_manifest_path,
             m2_request_path=m2_request_path,
             room_manifest_path=room_manifest_path,
             m1_request_path=m1_request_path,
-            runtime_root=runtime_root,
+            installed_runtime=installed_runtime,
             actor_offsets_m=tuple(
                 tuple(float(value) for value in actor["instance_offset_m"])
                 for actor in actors
@@ -1224,20 +1324,15 @@ def run_m5_canary(
         scene = load_compiled_acoustic_scene(acoustic_package_manifest_path)
         m4_request = load_json(m4_request_path)
         simulation = M4SimulationConfig.from_mapping(m4_request["simulation"])
-        foa = render_dynamic_rir_sequence(
-            scene,
-            simulation,
+        if rlr_sdk_root is None:
+            raise M5CanaryError("current M5 acoustics require --rlr-sdk-root")
+        foa, binaural = _render_current_dynamic_rir_pair(
+            scene=scene,
+            simulation=simulation,
             keyframes=keyframes,
-            layout_type="ambisonics",
-            channel_count=4,
-        )
-        binaural = render_dynamic_rir_sequence(
-            scene,
-            simulation,
-            keyframes=keyframes,
-            layout_type="binaural",
-            channel_count=2,
-            hrtf_file_path=str(Path(hrtf_path).resolve()),
+            hrtf_path=hrtf_path,
+            installed_runtime=installed_runtime,
+            rlr_sdk_root=rlr_sdk_root,
         )
         if foa.trajectory_sha256 != binaural.trajectory_sha256:
             raise M5CanaryError("FOA and binaural RIRs used different trajectories")

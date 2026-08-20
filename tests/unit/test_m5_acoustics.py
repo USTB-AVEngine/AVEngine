@@ -37,6 +37,57 @@ def _frames() -> list[AcousticKeyframe]:
     ]
 
 
+def test_current_dynamic_loader_forwards_explicit_runtime_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    selected = (SimpleNamespace(), {"runtime_mode": "current-installed"})
+
+    def fake_load(**kwargs: object):
+        calls.append(dict(kwargs))
+        return selected
+
+    monkeypatch.setattr(acoustics, "load_habitat_runtime", fake_load)
+    result = acoustics._load_dynamic_habitat_runtime(
+        runtime_mode="current-installed",
+        runtime_prefix="/external/prefix",
+        rlr_sdk_root="/external/rlr",
+        magnum_python_site="/external/magnum",
+    )
+
+    assert result is selected
+    assert calls == [
+        {
+            "runtime_mode": "current-installed",
+            "runtime_prefix": "/external/prefix",
+            "rlr_sdk_root": "/external/rlr",
+            "magnum_python_site": "/external/magnum",
+        }
+    ]
+
+
+def test_historical_dynamic_loader_keeps_zero_argument_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[bool] = []
+    selected = (SimpleNamespace(), {"runtime_mode": "historical"})
+
+    def fake_load():
+        calls.append(True)
+        return selected
+
+    monkeypatch.setattr(acoustics, "load_habitat_runtime", fake_load)
+    result = acoustics._load_dynamic_habitat_runtime(
+        runtime_mode="historical",
+        runtime_prefix=None,
+        rlr_sdk_root=None,
+        magnum_python_site=None,
+    )
+
+    assert result is selected
+    assert calls == [True]
+
+
 def test_exact_visual_frame_acoustic_grid() -> None:
     frames = validate_acoustic_keyframes(
         _frames(), expected_source_ids=("source0", "source1")

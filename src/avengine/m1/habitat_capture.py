@@ -217,8 +217,14 @@ def discover_magnum_python_site(explicit: str | Path | None = None) -> Path:
     return site
 
 
-def discover_mp3d_root(explicit: str | Path | None = None) -> Path | None:
-    configured = explicit if explicit is not None else os.environ.get("AVENGINE_MP3D_ROOT")
+def discover_mp3d_root(
+    explicit: str | Path | None = None,
+    *,
+    allow_environment: bool = True,
+) -> Path | None:
+    configured = explicit
+    if configured is None and allow_environment:
+        configured = os.environ.get("AVENGINE_MP3D_ROOT")
     if configured is None:
         return None
     root = Path(configured).resolve()
@@ -509,6 +515,7 @@ def prepare_installed_habitat_runtime(
     mp3d_root: str | Path | None = None,
     magnum_python_site: str | Path | None = None,
     rlr_sdk_root: str | Path | None = None,
+    allow_mp3d_environment: bool = True,
 ) -> InstalledHabitatRuntime:
     """Activate one non-Git installed prefix for a new Habitat writer.
 
@@ -523,7 +530,11 @@ def prepare_installed_habitat_runtime(
         runtime_prefix, runtime_root=runtime_root
     )
     selected_magnum_site = discover_magnum_python_site(magnum_python_site)
-    selected_mp3d_root = discover_mp3d_root(mp3d_root)
+    selected_mp3d_root = (
+        discover_mp3d_root(mp3d_root)
+        if allow_mp3d_environment
+        else discover_mp3d_root(mp3d_root, allow_environment=False)
+    )
     prepared = _prepare_installed_habitat_import(
         prefix, magnum_python_site=selected_magnum_site
     )

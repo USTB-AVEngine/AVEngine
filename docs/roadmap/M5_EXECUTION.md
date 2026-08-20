@@ -182,42 +182,76 @@ free-text notes stay in browser-local storage unless the reviewer explicitly
 downloads them. It never rewrites `research_receipt.json`, creates a pass or
 review decision, or changes formal/admission evidence.
 
-## Historical M5 v1 counterfactual
+## Installed-runtime M5 v1 counterfactual
 
-Run from the AVEngine Habitat-native repository with the pinned Habitat Python
-environment. The output directory must not already exist, and a formal run
-requires a clean AVEngine worktree because the evidence binds the source
-commit before creating its staging directory.
+`run-canary` now uses one explicitly selected, non-Git Habitat install prefix
+for both visual capture and RLR acoustics. It never discovers or imports a
+sibling Habitat checkout. `--runtime-root` remains accepted only as a
+compatibility alias for the same non-Git installed prefix; do not pass it
+together with `--runtime-prefix`.
+
+The Habitat prefix, external RLR SDK package, and external Magnum Python site
+are required explicitly. `--mp3d-root` is also explicit when the selected room
+uses `${AVENGINE_MP3D_ROOT}`; it is omitted for the retained `blender_custom`
+canary below. Ambient runtime variables do not fill in omitted current inputs.
+The output must be fresh, and the AVEngine worktree must be clean because the
+existing v1 evidence binds its source commit before staging begins.
+
+Stage only the selected run's M2 package, compiled M3 package closure, and dry
+WAV inputs beneath a public external data root. These runtime inputs remain
+outside Git and must not point back into a Habitat or SPEAR checkout. The
+request still owns the accepted dry-asset identities, so an unrelated WAV is
+rejected by the existing validation.
 
 ```bash
-export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
-export PYTHONPATH="$PWD:$PWD/src"
+export HABPY=/path/to/conda/env/bin/python
+export HABITAT_PREFIX=/external/runtime-prefixes/habitat-rlr-adapter
+export MAGNUM_PYTHON_SITE=/external/runtime-prefixes/magnum-python/site-packages
+export RLR_SDK_ROOT=/external/rlr-sdk/RLRAudioPropagationPkg
+export M5_INPUT_ROOT=/external/m5-canary-inputs/current
+export HRTF_ROOT=/external/rlr-sdk/hrtf/mit-kemar-16k
+export M5_OUTPUT=/external/review/m5_canary_fresh_run_id
 
-python -m avengine.cli m5 run-canary \
+PYTHONPATH="$PWD/src" "$HABPY" -m avengine.cli m5 run-canary \
   --request examples/m5/blender_custom/two_dog_simultaneous_counterfactual_request.json \
-  --animal-manifest tmp/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json \
-  --m2-request tmp/m2/rocketbox_beagle_m2_formal_request_v7_world_contact_r5.json \
+  --animal-manifest "$M5_INPUT_ROOT/m2/asset_manifest.json" \
+  --m2-request "$M5_INPUT_ROOT/m2/request.json" \
   --room-manifest examples/m1/rooms/blender_custom/room_manifest.json \
   --m1-request examples/m1/requests/blender_custom.json \
-  --acoustic-package-manifest tmp/m3/formal_20260717_01/compile/low_absorption/manifest.json \
+  --acoustic-package-manifest "$M5_INPUT_ROOT/m3/manifest.json" \
   --m4-request examples/m4/blender_custom/multi_source_canary_request.json \
-  --runtime-root /data/jzy/code/habitat-sim-AVEngine \
-  --hrtf /usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa \
-  --hrtf-license /usr/share/doc/libmysofa1/copyright \
-  --beagle-dry /data/jzy/code/AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav \
-  --golden-dry /data/jzy/code/AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/dog_golden_scheduled_dry.wav \
-  --output tmp/m5/formal_20260718_02
+  --runtime-prefix "$HABITAT_PREFIX" \
+  --magnum-python-site "$MAGNUM_PYTHON_SITE" \
+  --rlr-sdk-root "$RLR_SDK_ROOT" \
+  --hrtf "$HRTF_ROOT/MIT_KEMAR_normal_pinna_16k.sofa" \
+  --hrtf-license "$HRTF_ROOT/LICENSE.txt" \
+  --beagle-dry "$M5_INPUT_ROOT/dry/dog_beagle.wav" \
+  --golden-dry "$M5_INPUT_ROOT/dry/dog_golden.wav" \
+  --output "$M5_OUTPUT"
 ```
 
-The dry-audio paths above are local research inputs. If the exact workspace
-uses different filenames, use the paths whose hashes match the request; the
-runner rejects an undeclared substitution.
+The public CLI keeps the historical HRTF default for argument compatibility,
+but current runs must pass the selected valid 16 kHz SOFA explicitly. The
+runner activates one installed runtime before visual capture, excludes the
+legacy AudioSensor, and passes the same current runtime prefix, RLR SDK, and
+Magnum site to the FOA and binaural simulations. It does not add a new schema,
+baseline, hash gate, or admission claim.
+
+The public M5 entrypoint does not yet enforce the already available M4 SOFA
+structure/sample-rate preflight before native context creation. An invalid v1
+SOFA was observed to let RLR fall back instead of making the native call fail.
+Therefore this current native run uses only the separately verified valid
+16 kHz v2 SOFA and its external provenance; the historical 44.1 kHz default
+and the invalid v1 derivative must not be used. This is an operational
+restriction, not a claim that M5 code can currently detect either
+substitution. Landing the M5 pre-context validation remains an independent
+unfinished item.
 
 Independently verify the completed bundle:
 
 ```bash
-python -m avengine.cli m5 verify-canary \
-  tmp/m5/formal_20260718_02/evidence.json
+PYTHONPATH="$PWD/src" "$HABPY" -m avengine.cli m5 verify-canary \
+  "$M5_OUTPUT/evidence.json"
 ```
 
 The verifier returns `pass` only after reading and rebuilding the retained

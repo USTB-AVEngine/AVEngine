@@ -1365,6 +1365,10 @@ def _m5_run_canary(args: argparse.Namespace) -> int:
             m4_request_path=args.m4_request,
             output_directory=output,
             runtime_root=args.runtime_root,
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            rlr_sdk_root=args.rlr_sdk_root,
             hrtf_path=args.hrtf,
             hrtf_license_path=args.hrtf_license,
             beagle_dry_path=args.beagle_dry,
@@ -2215,7 +2219,14 @@ def build_parser() -> argparse.ArgumentParser:
     m5_run.add_argument("--m1-request", required=True)
     m5_run.add_argument("--acoustic-package-manifest", required=True)
     m5_run.add_argument("--m4-request", required=True)
-    m5_run.add_argument("--runtime-root")
+    m5_run.add_argument(
+        "--runtime-root",
+        help="Compatibility alias for a non-Git installed Habitat prefix",
+    )
+    m5_run.add_argument("--runtime-prefix")
+    m5_run.add_argument("--mp3d-root")
+    m5_run.add_argument("--magnum-python-site")
+    m5_run.add_argument("--rlr-sdk-root")
     m5_run.add_argument(
         "--hrtf", default="/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
     )
