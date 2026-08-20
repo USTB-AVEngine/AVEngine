@@ -16,6 +16,7 @@ from avengine.appearance import (
     generate_l9_batch,
     write_l9_batch_exclusive,
 )
+from avengine.backends.rlr.sdk import ExternalRlrSdkError, require_outside_git_checkout
 from avengine.acoustic_profiles import (
     AcousticProfileError,
     load_acoustic_profile_registry,
@@ -530,10 +531,56 @@ def _m3_verify_canary(args: argparse.Namespace) -> int:
     return EXIT_BY_STATUS.get(str(declared_status), 2)
 
 
-def _m3_environment(runtime_root: str | None) -> dict[str, str]:
+def _m3_writer_environment(args: argparse.Namespace) -> dict[str, str]:
+    """Build a static-compiler environment without a checkout runtime fallback.
+
+    The M3 research compilers parse declared external scene files; they neither
+    import Habitat nor load the RLR adapter.  An installed runtime prefix and a
+    Magnum site are therefore deliberately not CLI requirements here.  Current
+    MP3D paths receive one explicit non-Git data root; historical checkout-root
+    templates fail rather than being silently rebound.
+    """
+
+    if getattr(args, "runtime_root", None) is not None:
+        raise ValueError(
+            "--runtime-root is retired for active M3 static writers; provide "
+            "--mp3d-root only when the selected room declares MP3D assets"
+        )
     environment = dict(os.environ)
-    if runtime_root is not None:
-        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(Path(runtime_root).resolve())
+    for name in (
+        "AVENGINE_HABITAT_RUNTIME_ROOT",
+        "AVENGINE_SPEAR_ROOT",
+        "HABITAT_ROOT",
+        "HABITAT_SIM_PATH",
+        "HABITAT_SIM_ROOT",
+        "SPEAR_ROOT",
+    ):
+        environment.pop(name, None)
+    # Do not inherit a private/checkout MP3D selection. A current MP3D writer
+    # must receive this data root on its own argv.
+    environment.pop("AVENGINE_MP3D_ROOT", None)
+    environment["AVENGINE_REPOSITORY_ROOT"] = str(Path(__file__).resolve().parents[2])
+    raw_mp3d = getattr(args, "mp3d_root", None)
+    if raw_mp3d is None:
+        return environment
+    raw = Path(raw_mp3d).expanduser()
+    if not raw.is_absolute():
+        raise ValueError("--mp3d-root must be an absolute path")
+    try:
+        root = raw.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"--mp3d-root cannot be resolved: {raw}: {error}") from error
+    if raw != root or not root.is_dir():
+        raise ValueError(
+            "--mp3d-root must be an existing canonical directory without a symlink hop"
+        )
+    try:
+        root = require_outside_git_checkout(root, owner="--mp3d-root")
+    except (ExternalRlrSdkError, OSError, RuntimeError) as error:
+        raise ValueError(str(error)) from error
+    if not (root / "scene_datasets").is_dir():
+        raise ValueError("--mp3d-root must contain scene_datasets")
+    environment["AVENGINE_MP3D_ROOT"] = str(root)
     return environment
 
 
@@ -545,7 +592,7 @@ def _m3_propose_visual_slots(args: argparse.Namespace) -> int:
             output=output,
             transform_profile=args.transform_profile,
             transform_reviewed=args.confirm_reviewed_transform,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -571,7 +618,7 @@ def _m3_compile_research(args: argparse.Namespace) -> int:
             material_database=args.materials,
             output=output,
             package_id=args.package_id,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -597,7 +644,7 @@ def _m3_compile_mp3d_semantic(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -627,7 +674,7 @@ def _m3_compile_mp3d_rlr_materials(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -655,7 +702,7 @@ def _m3_compile_usd_snapshot_semantic(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -684,7 +731,7 @@ def _m3_compile_visual_slots_semantic(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -703,7 +750,7 @@ def _m3_compile_visual_slots_semantic(args: argparse.Namespace) -> int:
 def _m3_compile_registered_scene(args: argparse.Namespace) -> int:
     try:
         output = _require_ignored_or_external_output(args.output)
-        environment = _m3_environment(args.runtime_root)
+        environment = _m3_writer_environment(args)
         acoustic_registry = (
             load_acoustic_profile_registry(args.acoustic_profile_registry)
             if args.acoustic_profile_registry is not None
@@ -1431,7 +1478,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=["identity_y_up", "mp3d_z_up_y_front_to_habitat"],
     )
-    m3_propose.add_argument("--runtime-root")
+    m3_propose.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_propose.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_propose.add_argument(
         "--confirm-reviewed-transform",
         action="store_true",
@@ -1444,7 +1500,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_research.add_argument("--room", required=True)
     m3_research.add_argument("--mapping", required=True)
     m3_research.add_argument("--materials", required=True)
-    m3_research.add_argument("--runtime-root")
+    m3_research.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_research.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_research.add_argument("--output", required=True)
     m3_research.add_argument("--package-id")
     m3_research.set_defaults(handler=_m3_compile_research)
@@ -1456,7 +1521,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_semantic.add_argument("--room", required=True)
     m3_semantic.add_argument("--rules", required=True)
     m3_semantic.add_argument("--seed", type=int, default=917)
-    m3_semantic.add_argument("--runtime-root")
+    m3_semantic.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_semantic.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_semantic.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1486,7 +1560,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_soundspaces.add_argument("--version", default="1")
     m3_soundspaces.add_argument("--source-description", required=True)
     m3_soundspaces.add_argument("--source-uri")
-    m3_soundspaces.add_argument("--runtime-root")
+    m3_soundspaces.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_soundspaces.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_soundspaces.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1513,7 +1596,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_usd_semantic.add_argument("--room", required=True)
     m3_usd_semantic.add_argument("--rules", required=True)
     m3_usd_semantic.add_argument("--seed", type=int, default=917)
-    m3_usd_semantic.add_argument("--runtime-root")
+    m3_usd_semantic.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_usd_semantic.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_usd_semantic.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1553,7 +1645,16 @@ def build_parser() -> argparse.ArgumentParser:
             "reviewed for this exact room"
         ),
     )
-    m3_slots_semantic.add_argument("--runtime-root")
+    m3_slots_semantic.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_slots_semantic.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_slots_semantic.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1593,7 +1694,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the installed/default acoustic profile registry",
     )
     m3_registered.add_argument("--seed", type=int, default=917)
-    m3_registered.add_argument("--runtime-root")
+    m3_registered.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_registered.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_registered.add_argument(
         "--probe-origin",
         nargs=3,

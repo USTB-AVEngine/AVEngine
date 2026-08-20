@@ -257,24 +257,27 @@ The generic GLB compiler can propose explicit visual-slot mappings for MP3D or
 the legacy UE real-surface room and compile them for diagnostics. The output is
 always a `research_candidate` with `qualification_claim: false`.
 
-For these compiler-only commands, `--runtime-root` locates the room assets; it
-does not select a native RLR execution runtime. Pass the explicit asset root
-that owns the input room. An archived asset path may be inspected read-only,
-but is never a substitute for the current-installed canary arguments (prefix,
-SDK and Magnum site):
+These compiler-only commands never import Habitat or create an RLR context,
+so they do not accept a runtime prefix or Magnum site merely as decorative
+arguments. `--runtime-root` is retained only as a rejected compatibility
+spelling: it cannot select a checkout or an asset root. For a current MP3D
+room, pass the explicit, canonical, non-Git `--mp3d-root`; for a relative GLB
+or external USD snapshot, omit it and provide the room's separately declared
+external asset inputs instead. Native RLR execution remains the distinct v2
+`run-canary` path with prefix, SDK and Magnum arguments.
 
 ```bash
 "$HABPY" -m avengine.cli m3 propose-visual-slots \
   --room <ROOM_MANIFEST> \
   --transform-profile <identity_y_up_or_mp3d_profile> \
-  --runtime-root <ASSET_RUNTIME_ROOT> \
+  --mp3d-root <NON_GIT_MP3D_ROOT> \
   --output "$REPO/tmp/m3/<ROOM>_proposal_<RUN_ID>"
 
 "$HABPY" -m avengine.cli m3 compile-explicit-research \
   --room <ROOM_MANIFEST> \
   --mapping "$REPO/tmp/m3/<ROOM>_proposal_<RUN_ID>/mapping.json" \
   --materials "$REPO/tmp/m3/<ROOM>_proposal_<RUN_ID>/materials_research.json" \
-  --runtime-root <ASSET_RUNTIME_ROOT> \
+  --mp3d-root <NON_GIT_MP3D_ROOT> \
   --output "$REPO/tmp/m3/<ROOM>_package_<RUN_ID>"
 ```
 
@@ -293,7 +296,7 @@ package:
   --room "$REPO/examples/m1/rooms/habitat_mp3d_example/room_manifest.json" \
   --rules "$REPO/examples/m3/semantic_materials/residential_material_rules.json" \
   --seed 917 \
-  --runtime-root <ASSET_RUNTIME_ROOT> \
+  --mp3d-root <NON_GIT_MP3D_ROOT> \
   --probe-directions 32 \
   --output "$REPO/tmp/m3/mp3d_semantic_<RUN_ID>"
 

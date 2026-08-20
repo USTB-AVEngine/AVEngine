@@ -8,6 +8,7 @@ import pytest
 
 from avengine.contracts.json_io import load_json, write_json
 
+import avengine.cli as cli
 from avengine.cli import build_parser, main
 from avengine.m3.runtime import RuntimeUnavailableError
 
@@ -176,6 +177,196 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     assert verified.m3_command == "verify-canary"
 
 
+def test_m3_static_writers_use_explicit_non_git_mp3d_and_reject_legacy_root(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mp3d = tmp_path / "mp3d"
+    (mp3d / "scene_datasets").mkdir(parents=True)
+    seen: dict[str, object] = {}
+
+    def fake_proposal(**kwargs: object) -> tuple[Path, Path, Path]:
+        seen.update(kwargs)
+        return (
+            tmp_path / "mapping.json",
+            tmp_path / "materials.json",
+            tmp_path / "report.json",
+        )
+
+    monkeypatch.setattr(cli, "propose_visual_slot_research_materials", fake_proposal)
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_ROOT", "/old/habitat-checkout")
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", "/old/mp3d-checkout")
+    arguments = [
+        "m3",
+        "propose-visual-slots",
+        "--room",
+        "room.json",
+        "--transform-profile",
+        "identity_y_up",
+        "--mp3d-root",
+        str(mp3d),
+        "--output",
+        str(tmp_path / "output"),
+    ]
+    assert main(arguments) == 0
+    environment = seen["environment"]
+    assert isinstance(environment, dict)
+    assert environment["AVENGINE_MP3D_ROOT"] == str(mp3d.resolve())
+    assert "AVENGINE_HABITAT_RUNTIME_ROOT" not in environment
+
+    assert main([*arguments, "--runtime-root", str(tmp_path / "old")]) == 2
+    assert "--runtime-root is retired" in capsys.readouterr().out
+
+
+def test_m3_static_writers_do_not_inherit_mp3d_root_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_proposal(**kwargs: object) -> tuple[Path, Path, Path]:
+        seen.update(kwargs)
+        return (
+            tmp_path / "mapping.json",
+            tmp_path / "materials.json",
+            tmp_path / "report.json",
+        )
+
+    monkeypatch.setattr(cli, "propose_visual_slot_research_materials", fake_proposal)
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", "/old/mp3d-checkout")
+    assert (
+        main(
+            [
+                "m3",
+                "propose-visual-slots",
+                "--room",
+                "relative-glb-room.json",
+                "--transform-profile",
+                "identity_y_up",
+                "--output",
+                str(tmp_path / "output"),
+            ]
+        )
+        == 0
+    )
+    environment = seen["environment"]
+    assert isinstance(environment, dict)
+    assert "AVENGINE_MP3D_ROOT" not in environment
+
+
+def test_m3_all_legacy_root_writers_expose_explicit_mp3d_option() -> None:
+    parser = build_parser()
+    commands = (
+        (
+            "propose-visual-slots",
+            [
+                "--room",
+                "room",
+                "--transform-profile",
+                "identity_y_up",
+                "--output",
+                "/tmp/out",
+            ],
+        ),
+        (
+            "compile-explicit-research",
+            [
+                "--room",
+                "room",
+                "--mapping",
+                "mapping",
+                "--materials",
+                "materials",
+                "--output",
+                "/tmp/out",
+            ],
+        ),
+        (
+            "compile-mp3d-semantic",
+            ["--room", "room", "--rules", "rules", "--output", "/tmp/out"],
+        ),
+        (
+            "compile-mp3d-rlr-materials",
+            [
+                "--room",
+                "room",
+                "--materials",
+                "materials",
+                "--database-id",
+                "db",
+                "--source-description",
+                "source",
+                "--output",
+                "/tmp/out",
+            ],
+        ),
+        (
+            "compile-usd-snapshot-semantic",
+            ["--room", "room", "--rules", "rules", "--output", "/tmp/out"],
+        ),
+        (
+            "compile-visual-slots-semantic",
+            [
+                "--room",
+                "room",
+                "--rules",
+                "rules",
+                "--transform-profile",
+                "identity_y_up",
+                "--output",
+                "/tmp/out",
+            ],
+        ),
+        (
+            "compile-registered-scene",
+            [
+                "--room",
+                "room",
+                "--room-id",
+                "room-id",
+                "--room-revision",
+                "r1",
+                "--output",
+                "/tmp/out",
+            ],
+        ),
+    )
+    for command, arguments in commands:
+        parsed = parser.parse_args(["m3", command, *arguments])
+        assert hasattr(parsed, "mp3d_root")
+        assert hasattr(parsed, "runtime_root")
+        assert parsed.mp3d_root is None
+        assert parsed.runtime_root is None
+
+
+def test_m3_static_writers_reject_git_backed_mp3d_root(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    checkout = tmp_path / "checkout"
+    (checkout / "scene_datasets").mkdir(parents=True)
+    (checkout / ".git").mkdir()
+    assert (
+        main(
+            [
+                "m3",
+                "propose-visual-slots",
+                "--room",
+                "room.json",
+                "--transform-profile",
+                "identity_y_up",
+                "--mp3d-root",
+                str(checkout),
+                "--output",
+                str(tmp_path / "output"),
+            ]
+        )
+        == 2
+    )
+    assert "must resolve outside a Git checkout" in capsys.readouterr().out
+
+
 def test_m3_native_runtime_unavailable_is_blocked_and_flags_are_scoped(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
@@ -291,7 +482,10 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
                 "m3",
                 "compile-custom",
                 "--room",
-                str(REPOSITORY_ROOT / "examples/m1/rooms/blender_custom/room_manifest.json"),
+                str(
+                    REPOSITORY_ROOT
+                    / "examples/m1/rooms/blender_custom/room_manifest.json"
+                ),
                 "--mapping",
                 str(resolved / "mapping.json"),
                 "--materials",
@@ -325,9 +519,7 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
     )
     leakage_report = load_json(leakage)
     assert leakage_report["status"] == "diagnostic_complete"
-    assert leakage_report["source_package"]["room_id"] == (
-        "blender_custom_two_zone_v1"
-    )
+    assert leakage_report["source_package"]["room_id"] == ("blender_custom_two_zone_v1")
     assert leakage_report["ray_count"] == 8
     assert '"status": "pass"' in capsys.readouterr().out
 
