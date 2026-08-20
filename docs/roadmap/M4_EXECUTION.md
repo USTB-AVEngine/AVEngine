@@ -245,7 +245,10 @@ normalization, limiting or binaural conversion.
 
 The binaural command uses the same package, propagation configuration and M1
 endpoints, but derives a fixed two-channel `[left, right]` native listener. It
-requires the existing strict HRTF/license preflight inputs explicitly:
+requires the existing strict HRTF/license preflight inputs explicitly. Install
+the optional SOFA-aware validator in the selected environment first with
+`python -m pip install 'avengine[rlr]'`; the command verifies the AES69/SOFA
+structure and actual `Data.SamplingRate` before RLR can create a context:
 
 ```bash
 export HRTF=/external/hrtf/derived-16k.sofa

@@ -16,6 +16,8 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+import numpy as np
+
 from avengine.backends.rlr.sdk import ExternalRlrSdkError, require_outside_git_checkout
 from avengine.contracts.json_io import load_json, write_json
 from avengine.contracts.transforms import compose_transforms
@@ -176,6 +178,58 @@ def _load_simulation_request(path: Path) -> tuple[dict[str, Any], M4SimulationCo
             "declare ambisonics/4; the binaural command derives only its output layout"
         )
     return document, simulation
+
+
+def _validate_sofa_native_input(
+    path: Path, *, expected_sample_rate_hz: int
+) -> dict[str, Any]:
+    """Verify a SOFA file's AES69 structure before RLR can silently fall back."""
+
+    try:
+        import sofar
+    except ImportError as error:
+        raise CurrentM1PairIRBlockedError(
+            "native binaural rendering requires the optional 'sofar' package "
+            "to validate the declared SOFA structure"
+        ) from error
+    try:
+        sofa = sofar.read_sofa(path, verify=True, verbose=False)
+        samples = np.asarray(sofa.Data_IR)
+        sample_rate = float(sofa.Data_SamplingRate)
+    except Exception as error:
+        raise CurrentM1PairIRError(
+            f"declared HRTF is not a valid verified SOFA file: {error}"
+        ) from error
+    if (
+        samples.ndim != 3
+        or samples.shape[1] != 2
+        or samples.shape[2] < 2
+        or not np.issubdtype(samples.dtype, np.number)
+        or not np.isfinite(samples).all()
+    ):
+        raise CurrentM1PairIRError(
+            "declared binaural SOFA Data.IR must be finite [measurements,2,samples]"
+        )
+    if not math.isclose(
+        sample_rate,
+        float(expected_sample_rate_hz),
+        rel_tol=0.0,
+        abs_tol=0.0,
+    ):
+        raise CurrentM1PairIRError(
+            "verified SOFA Data.SamplingRate differs from the declared render rate"
+        )
+    return {
+        "status": "pass",
+        "validator": "sofar",
+        "validator_version": str(getattr(sofar, "__version__", "unknown")),
+        "sofa_convention": str(getattr(sofa, "GLOBAL_SOFAConventions", "")),
+        "sofa_convention_version": str(
+            getattr(sofa, "GLOBAL_SOFAConventionsVersion", "")
+        ),
+        "data_ir_shape": list(samples.shape),
+        "data_sampling_rate_hz": int(sample_rate),
+    }
 
 
 def _m1_endpoints(
@@ -597,11 +651,6 @@ def run_current_m1_binaural(
         rlr_sdk_root=rlr_sdk_root,
         magnum_python_site=magnum_python_site,
     )
-    inputs = load_current_m1_pair_ir_inputs(
-        m1_request_path,
-        simulation_request_path,
-        package_manifest_path,
-    )
     preflight = build_rlr_native_binaural_metadata(
         CURRENT_M1_PAIR_IR_SAMPLE_RATE_HZ,
         hrtf_path=hrtf_path,
@@ -622,8 +671,17 @@ def run_current_m1_binaural(
         raise CurrentM1PairIRError(
             str(preflight.get("reason", "HRTF dependency preflight failed"))
         )
-    output = _fresh_output_path(output_directory)
     resolved_hrtf = Path(hrtf_path).absolute()
+    sofa_validation = _validate_sofa_native_input(
+        resolved_hrtf,
+        expected_sample_rate_hz=CURRENT_M1_PAIR_IR_SAMPLE_RATE_HZ,
+    )
+    inputs = load_current_m1_pair_ir_inputs(
+        m1_request_path,
+        simulation_request_path,
+        package_manifest_path,
+    )
+    output = _fresh_output_path(output_directory)
     try:
         result = render_named_sources(
             inputs.scene,
@@ -654,6 +712,7 @@ def run_current_m1_binaural(
             {
                 "spatial_format": rlr_native_binaural_contract(),
                 "hrtf_preflight": preflight,
+                "sofa_native_compatibility": sofa_validation,
                 "pairs": _write_pairs(
                     output=output,
                     inputs=inputs,

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -192,7 +193,69 @@ def _install_fakes(
 
     monkeypatch.setattr(current_m1_pair_ir, "load_compiled_acoustic_scene", load_scene)
     monkeypatch.setattr(current_m1_pair_ir, "render_named_sources", render)
+    monkeypatch.setattr(
+        current_m1_pair_ir,
+        "_validate_sofa_native_input",
+        lambda _path, *, expected_sample_rate_hz: {
+            "status": "pass",
+            "validator": "fixture",
+            "data_ir_shape": [2, 2, 8],
+            "data_sampling_rate_hz": expected_sample_rate_hz,
+        },
+    )
     return calls
+
+
+def test_sofa_native_validation_rejects_structurally_invalid_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "invalid.sofa"
+    path.write_bytes(b"not a netcdf SOFA file")
+    fake_sofar = SimpleNamespace(
+        __version__="test",
+        read_sofa=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("invalid netCDF dimension scales")
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "sofar", fake_sofar)
+
+    with pytest.raises(
+        current_m1_pair_ir.CurrentM1PairIRError,
+        match="not a valid verified SOFA",
+    ):
+        current_m1_pair_ir._validate_sofa_native_input(
+            path, expected_sample_rate_hz=16_000
+        )
+
+
+def test_sofa_native_validation_records_verified_binaural_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "valid.sofa"
+    path.write_bytes(b"fixture")
+    sofa = SimpleNamespace(
+        Data_IR=np.zeros((4, 2, 32), dtype=np.float64),
+        Data_SamplingRate=16_000.0,
+        GLOBAL_SOFAConventions="SimpleFreeFieldHRIR",
+        GLOBAL_SOFAConventionsVersion="1.0",
+    )
+    fake_sofar = SimpleNamespace(
+        __version__="1.2.3",
+        read_sofa=lambda *_args, **_kwargs: sofa,
+    )
+    monkeypatch.setitem(sys.modules, "sofar", fake_sofar)
+
+    assert current_m1_pair_ir._validate_sofa_native_input(
+        path, expected_sample_rate_hz=16_000
+    ) == {
+        "status": "pass",
+        "validator": "sofar",
+        "validator_version": "1.2.3",
+        "sofa_convention": "SimpleFreeFieldHRIR",
+        "sofa_convention_version": "1.0",
+        "data_ir_shape": [4, 2, 32],
+        "data_sampling_rate_hz": 16_000,
+    }
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -427,6 +490,7 @@ def test_current_m1_binaural_preflights_and_writes_two_lr_pairs(
     assert receipt["qualification"] is False
     assert receipt["qualification_claim"] is False
     assert receipt["hrtf_preflight"]["status"] == "pass"
+    assert receipt["sofa_native_compatibility"]["status"] == "pass"
     assert receipt["hrtf_preflight"]["native_cardinal_validation"] == "not_run"
     assert receipt["spatial_format"]["channel_layout"] == {
         "type": "binaural",
@@ -481,5 +545,57 @@ def test_current_m1_binaural_stops_on_strict_rate_mismatch_before_render(
             hrtf_license_id="fixture-license",
             hrtf_citation="Fixture citation",
         )
+    assert calls["render"] == []
+    assert not output.exists()
+
+
+def test_current_m1_binaural_rejects_invalid_sofa_before_package_or_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    m1, simulation, package = _inputs(tmp_path)
+    identity, runtime_paths = _runtime_identity(tmp_path / "runtime")
+    calls = _install_fakes(
+        monkeypatch,
+        package_manifest=package,
+        identity=identity,
+    )
+    hrtf = tmp_path / "invalid.sofa"
+    license_path = tmp_path / "LICENSE.txt"
+    hrtf.write_bytes(b"invalid SOFA fixture")
+    license_path.write_bytes(b"fixture license")
+    monkeypatch.setattr(
+        current_m1_pair_ir,
+        "_validate_sofa_native_input",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            current_m1_pair_ir.CurrentM1PairIRError(
+                "declared HRTF is not a valid verified SOFA file"
+            )
+        ),
+    )
+    output = tmp_path / "invalid-sofa-output"
+
+    with pytest.raises(
+        current_m1_pair_ir.CurrentM1PairIRError,
+        match="not a valid verified SOFA",
+    ):
+        current_m1_pair_ir.run_current_m1_binaural(
+            m1,
+            simulation,
+            package,
+            output,
+            **runtime_paths,
+            hrtf_path=hrtf,
+            expected_hrtf_sha256=hashlib.sha256(hrtf.read_bytes()).hexdigest(),
+            hrtf_sample_rate_hz=16_000,
+            hrtf_license_path=license_path,
+            expected_hrtf_license_sha256=hashlib.sha256(
+                license_path.read_bytes()
+            ).hexdigest(),
+            hrtf_license_id="fixture-license",
+            hrtf_citation="Fixture citation",
+        )
+
+    assert "package" not in calls
     assert calls["render"] == []
     assert not output.exists()

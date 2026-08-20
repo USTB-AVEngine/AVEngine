@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+rlr = ["sofar>=1.2.3"]
 test = ["pytest>=8"]
 
 [project.scripts]
