@@ -59,6 +59,16 @@ the selected site and require the installed
 $HABITAT_PREFIX/config/default.physics_config.json. Do not encode this
 caller-provided site in CMake or the installed prefix.
 
+Visual-only M1/M2/M5 callers must use an installed prefix built with
+`AVENGINE_HABITAT_BUILD_RLR_ADAPTER=OFF`; they do not need an RLR SDK. A
+programmatic caller that intentionally reuses an adapter-enabled prefix must
+pass an explicit non-Git `rlr_sdk_root` to
+`prepare_installed_habitat_runtime()`. That helper isolates the prefix, loads
+the declared absolute SDK library, and only then imports the zero-RPATH native
+binding. There is no environment fallback. If a visual caller omits the SDK
+for an adapter-linked prefix, import fails with an instruction to use the
+explicit parameter or an adapter-disabled visual prefix.
+
 Provision the official licensed MP3D data separately; do not copy a Habitat
 checkout to create it. AVENGINE_MP3D_ROOT is the data root that contains
 scene_datasets/. Before native capture, the following local-only assets must

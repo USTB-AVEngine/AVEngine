@@ -365,6 +365,42 @@ def _finite_vector(value: Any, length: int, owner: str) -> tuple[float, ...]:
     return tuple(float(item) for item in value)
 
 
+def _prepare_installed_habitat_runtime_import(
+    prefix: Path, *, magnum_python_site: Path
+) -> Any:
+    """Activate M1 isolation without importing the native Habitat binding."""
+
+    from avengine.m1.habitat_capture import _prepare_installed_habitat_import
+
+    return _prepare_installed_habitat_import(
+        prefix,
+        magnum_python_site=magnum_python_site,
+    )
+
+
+def _import_prepared_installed_habitat_runtime(
+    prefix: Path, prepared: Any, *, rlr_sdk_root: str | Path
+) -> tuple[ModuleType, ModuleType, Path, Path, Any]:
+    """Import a prepared M1 runtime after shared explicit RLR selection."""
+
+    from avengine.m1.habitat_capture import (
+        _HABITAT_BINDING_MODULE_NAME,
+        _import_prepared_installed_habitat_with_rlr,
+        _installed_runtime_paths,
+    )
+
+    imported, sdk = _import_prepared_installed_habitat_with_rlr(
+        prepared,
+        rlr_sdk_root=rlr_sdk_root,
+    )
+    _, habitat_module, _, _ = imported
+    binding_module = importlib.import_module(_HABITAT_BINDING_MODULE_NAME)
+    module_path, binding_path, _ = _installed_runtime_paths(
+        prefix, habitat_module, binding_module
+    )
+    return habitat_module, binding_module, module_path, binding_path, sdk
+
+
 def _load_installed_habitat_runtime(
     prefix: Path, *, magnum_python_site: Path | None = None
 ) -> tuple[ModuleType, ModuleType, Path, Path]:
@@ -428,30 +464,32 @@ def load_habitat_runtime(
         prefix = require_outside_git_checkout(
             prefix, owner="AVENGINE_HABITAT_RUNTIME_PREFIX"
         )
-        sdk = discover_external_rlr_sdk(rlr_sdk_root)
         if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
             from avengine.m1.habitat_capture import discover_magnum_python_site
 
+            # M1 owns isolation plus explicit SDK selection before import.
             magnum_site = require_outside_git_checkout(
                 discover_magnum_python_site(magnum_python_site),
                 owner="AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
             )
-            habitat_module, _binding_module, module_path, binding_path = (
-                _load_installed_habitat_runtime(
-                    prefix, magnum_python_site=magnum_site
+            prepared_import = _prepare_installed_habitat_runtime_import(
+                prefix, magnum_python_site=magnum_site
+            )
+            habitat_module, _binding_module, module_path, binding_path, sdk = (
+                _import_prepared_installed_habitat_runtime(
+                    prefix,
+                    prepared_import,
+                    rlr_sdk_root=rlr_sdk_root,
                 )
             )
-            # M1 removes editable Habitat finders and verifies prefix-only
-            # imports. Run that isolation before global SDK preloading: a
-            # preload first can let an editable extension win native linkage.
-            preload_external_rlr_sdk(sdk)
         else:
             # Historical v1 keeps its retained import/preload sequence.
+            sdk = discover_external_rlr_sdk(rlr_sdk_root)
             preload_external_rlr_sdk(sdk)
             habitat_module, _binding_module, module_path, binding_path = (
                 _load_installed_habitat_runtime(prefix)
             )
-        validate_loaded_external_rlr_sdk(sdk)
+            validate_loaded_external_rlr_sdk(sdk)
     except (
         ExternalRlrSdkError,
         FileNotFoundError,

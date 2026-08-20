@@ -80,8 +80,13 @@ def test_preload_accepts_only_the_declared_loaded_library(
     assert calls == [(str(sdk.library), calls[0][1])]
 
 
+@pytest.mark.parametrize(
+    "include_declared",
+    [False, True],
+    ids=["wrong-only", "multiple"],
+)
 def test_preload_rejects_a_binding_neighbor_or_other_rlr_mapping(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include_declared: bool
 ) -> None:
     sdk = discover_external_rlr_sdk(_sdk_layout(tmp_path / "external-rlr-sdk"))
     neighbor = tmp_path / "binding" / "libRLRAudioPropagation.so"
@@ -89,10 +94,15 @@ def test_preload_rejects_a_binding_neighbor_or_other_rlr_mapping(
     neighbor.write_bytes(b"forbidden neighbor")
     monkeypatch.setattr(sdk_module, "_PRELOADED_RLR_SDK_HANDLES", {})
     monkeypatch.setattr(sdk_module.ctypes, "CDLL", lambda _path, mode: object())
+    observed = (
+        (sdk.library, neighbor.resolve())
+        if include_declared
+        else (neighbor.resolve(),)
+    )
     monkeypatch.setattr(
         sdk_module,
         "_mapped_rlr_libraries",
-        lambda: tuple(sorted((sdk.library, neighbor.resolve()))),
+        lambda: tuple(sorted(observed)),
     )
 
     with pytest.raises(ExternalRlrSdkError, match="do not resolve only"):

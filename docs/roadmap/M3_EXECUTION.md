@@ -160,6 +160,15 @@ lock and does not write a tracked binary hash, baseline or lock. It records
 only one fresh-run identity repeated across native calls. Its verifier replays
 the retained input closure, artifacts, IR/OBJ readback, metrics, rays and
 comparisons; recomputing a top-level JSON hash cannot bless altered evidence.
+The installed Habitat binding is built without a build or install RPATH to an
+RLR SDK. At runtime the current-installed loader first removes editable
+Habitat finders, validates any preloaded Habitat module origins, and activates
+the selected prefix and Magnum site without importing the native binding. It
+then preloads the exact absolute SDK library, imports the prepared Habitat
+binding, revalidates module/binding origins, and requires the process mappings
+to contain only that declared RLR library. Consequently `--rlr-sdk-root` is the
+actual per-process SDK selection rather than documentation for a path already
+embedded in the extension.
 
 `run-canary` exits `0` only for a self-verified `pass`; a verified `fail`
 exits `1`, and `blocked` exits `3`. `verify-canary` uses one immutable

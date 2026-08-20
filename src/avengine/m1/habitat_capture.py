@@ -72,6 +72,18 @@ class InstalledHabitatRuntime:
     quat_to_coeffs: Any
 
 
+@dataclass(frozen=True)
+class _PreparedInstalledHabitatImport:
+    """Activated prefix/Magnum state before the Habitat extension import."""
+
+    prefix: Path
+    magnum_python_site: Path
+
+
+_HABITAT_BINDING_MODULE_NAME = "habitat_sim._ext.habitat_sim_bindings"
+_RLR_LIBRARY_BASENAME = "libRLRAudioPropagation.so"
+
+
 def _producer_process_identity() -> dict[str, Any]:
     return {
         "process_instance_id": PROCESS_INSTANCE_ID,
@@ -368,9 +380,10 @@ def _validate_magnum_python_origins(site: Path, magnum: Any) -> None:
         _module_file_under(module, site, module_name=module_name)
 
 
-def _import_installed_habitat(
+def _prepare_installed_habitat_import(
     prefix: Path, *, magnum_python_site: str | Path | None = None
-) -> tuple[Any, Any, Any, Any]:
+) -> _PreparedInstalledHabitatImport:
+    """Isolate and activate an installed runtime without importing Habitat."""
     _remove_editable_habitat_sim_meta_finders()
     _validate_loaded_habitat_sim_origins(prefix)
     selected_magnum_site = (
@@ -380,10 +393,73 @@ def _import_installed_habitat(
     )
     _activate_runtime_prefix(prefix, magnum_python_site=selected_magnum_site)
     _validate_preloaded_magnum_python_origins(selected_magnum_site)
-    imported = _import_habitat()
-    _validate_loaded_habitat_sim_origins(prefix)
-    _validate_magnum_python_origins(selected_magnum_site, imported[2])
+    return _PreparedInstalledHabitatImport(
+        prefix=prefix,
+        magnum_python_site=selected_magnum_site,
+    )
+
+
+def _import_prepared_installed_habitat(
+    prepared: _PreparedInstalledHabitatImport,
+) -> tuple[Any, Any, Any, Any]:
+    """Import Habitat after process-local native dependencies are selected."""
+    try:
+        imported = _import_habitat()
+    except (ImportError, OSError) as error:
+        if _RLR_LIBRARY_BASENAME in str(error):
+            raise RuntimeError(
+                "An adapter-linked installed Habitat prefix built without an "
+                "RLR RUNPATH requires explicit rlr_sdk_root before import; use "
+                "AVENGINE_HABITAT_BUILD_RLR_ADAPTER=OFF for visual-only "
+                "M1/M2/M5 runtimes"
+            ) from error
+        raise
+    _validate_loaded_habitat_sim_origins(prepared.prefix)
+    _validate_magnum_python_origins(
+        prepared.magnum_python_site,
+        imported[2],
+    )
     return imported
+
+
+def _habitat_binding_is_loaded() -> bool:
+    return any(
+        module_name == _HABITAT_BINDING_MODULE_NAME
+        or module_name.startswith(_HABITAT_BINDING_MODULE_NAME + ".")
+        for module_name in sys.modules
+    )
+
+
+def _import_prepared_installed_habitat_with_rlr(
+    prepared: _PreparedInstalledHabitatImport,
+    *,
+    rlr_sdk_root: str | Path,
+) -> tuple[tuple[Any, Any, Any, Any], Any]:
+    """Select one explicit external RLR SDK before importing the binding."""
+
+    from avengine.backends.rlr import sdk as rlr_sdk_module
+
+    sdk = rlr_sdk_module.discover_external_rlr_sdk(rlr_sdk_root)
+    # Repeats may reuse an imported binding only when its process mapping is
+    # already the exact newly declared SDK. A mismatch stops before another
+    # process-global CDLL load can make selection ambiguous.
+    if _habitat_binding_is_loaded():
+        rlr_sdk_module.validate_loaded_external_rlr_sdk(sdk)
+    rlr_sdk_module.preload_external_rlr_sdk(sdk)
+    imported = _import_prepared_installed_habitat(prepared)
+    rlr_sdk_module.validate_loaded_external_rlr_sdk(sdk)
+    return imported, sdk
+
+
+def _import_installed_habitat(
+    prefix: Path, *, magnum_python_site: str | Path | None = None
+) -> tuple[Any, Any, Any, Any]:
+    """Compose installed-runtime preparation and import for existing M1 callers."""
+
+    prepared = _prepare_installed_habitat_import(
+        prefix, magnum_python_site=magnum_python_site
+    )
+    return _import_prepared_installed_habitat(prepared)
 
 
 def _installed_runtime_paths(
@@ -415,6 +491,7 @@ def prepare_installed_habitat_runtime(
     runtime_root: str | Path | None = None,
     mp3d_root: str | Path | None = None,
     magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
 ) -> InstalledHabitatRuntime:
     """Activate one non-Git installed prefix for a new Habitat writer.
 
@@ -423,14 +500,24 @@ def prepare_installed_habitat_runtime(
     an explicit external Python site. No sibling checkout fallback is involved.
     """
 
+    if rlr_sdk_root is not None and not str(rlr_sdk_root).strip():
+        raise ValueError("rlr_sdk_root must be a non-empty explicit path")
     prefix = resolve_installed_runtime_prefix(
         runtime_prefix, runtime_root=runtime_root
     )
     selected_magnum_site = discover_magnum_python_site(magnum_python_site)
     selected_mp3d_root = discover_mp3d_root(mp3d_root)
-    qt, habitat_sim, mn, quat_to_coeffs = _import_installed_habitat(
+    prepared = _prepare_installed_habitat_import(
         prefix, magnum_python_site=selected_magnum_site
     )
+    if rlr_sdk_root is None:
+        imported = _import_prepared_installed_habitat(prepared)
+    else:
+        imported, _sdk = _import_prepared_installed_habitat_with_rlr(
+            prepared,
+            rlr_sdk_root=rlr_sdk_root,
+        )
+    qt, habitat_sim, mn, quat_to_coeffs = imported
     from habitat_sim._ext import habitat_sim_bindings
 
     _module_path, _binding_path, physics_config_path = _installed_runtime_paths(

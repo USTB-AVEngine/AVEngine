@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from importlib.machinery import EXTENSION_SUFFIXES
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -9,10 +10,15 @@ from types import ModuleType
 
 import pytest
 
+from avengine.backends.rlr import sdk as rlr_sdk_module
+from avengine.backends.rlr.sdk import ExternalRlrSdk, ExternalRlrSdkError
 from avengine.contracts.json_io import sha256_file
 from avengine.m1.habitat_capture import (
     _activate_runtime_prefix,
     _import_installed_habitat,
+    _import_prepared_installed_habitat,
+    _import_prepared_installed_habitat_with_rlr,
+    _prepare_installed_habitat_import,
     _installed_runtime_paths,
     _logical_listener_pose,
     _make_configuration,
@@ -21,6 +27,7 @@ from avengine.m1.habitat_capture import (
     _ue_project_asset_package_closure,
     discover_magnum_python_site,
     discover_runtime_prefix,
+    prepare_installed_habitat_runtime,
     resolve_installed_runtime_prefix,
 )
 
@@ -339,6 +346,21 @@ def _magnum_python_site(tmp_path: Path) -> Path:
     return site
 
 
+def _external_rlr_sdk(tmp_path: Path) -> ExternalRlrSdk:
+    root = tmp_path / "external-rlr-sdk"
+    header = root / "headers" / "RLRAudioPropagation.h"
+    library = root / "libs" / "linux" / "x64" / "libRLRAudioPropagation.so"
+    header.parent.mkdir(parents=True)
+    library.parent.mkdir(parents=True)
+    header.write_text("// fixture\n", encoding="utf-8")
+    library.write_bytes(b"fixture rlr")
+    return ExternalRlrSdk(
+        root=root.resolve(),
+        header=header.resolve(),
+        library=library.resolve(),
+    )
+
+
 def _module_at(module_name: str, path: Path) -> ModuleType:
     module = ModuleType(module_name)
     module.__file__ = str(path)
@@ -431,6 +453,286 @@ def test_validate_magnum_python_origins_rejects_preloaded_outside_module(
     monkeypatch.setitem(sys.modules, "_magnum", _module_at("_magnum", outside))
     with pytest.raises(RuntimeError, match="outside the required external site"):
         _validate_magnum_python_origins(site, modules["magnum"])
+
+
+def test_prepare_installed_habitat_removes_editable_without_importing_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    site = _magnum_python_site(tmp_path)
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    imported = False
+
+    class EditableHabitatFinder:
+        pass
+
+    EditableHabitatFinder.__module__ = "_editable_skbc_habitat_sim"
+    removable = EditableHabitatFinder()
+    retained = object()
+    monkeypatch.setattr(sys, "meta_path", [retained, removable])
+    for module_name in tuple(sys.modules):
+        if module_name == binding_name or module_name.startswith(binding_name + "."):
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda: site,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._activate_runtime_prefix",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_loaded_habitat_sim_origins",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_preloaded_magnum_python_origins",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def should_not_import() -> tuple[object, object, object, object]:
+        nonlocal imported
+        imported = True
+        raise AssertionError("preparation must not import Habitat")
+
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat", should_not_import
+    )
+
+    prepared = _prepare_installed_habitat_import(prefix)
+
+    assert prepared.prefix == prefix
+    assert prepared.magnum_python_site == site
+    assert sys.meta_path == [retained]
+    assert binding_name not in sys.modules
+    assert imported is False
+
+
+def test_import_prepared_installed_habitat_runs_origin_postconditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    site = tmp_path / "magnum-site"
+    imported = (object(), object(), object(), object())
+    prepared = type("Prepared", (), {"prefix": prefix, "magnum_python_site": site})()
+    calls: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat", lambda: imported
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_loaded_habitat_sim_origins",
+        lambda active_prefix: calls.append(("habitat", active_prefix)),
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._validate_magnum_python_origins",
+        lambda active_site, magnum: calls.append(("magnum", (active_site, magnum))),
+    )
+
+    assert _import_prepared_installed_habitat(prepared) == imported
+    assert calls == [
+        ("habitat", prefix),
+        ("magnum", (site, imported[2])),
+    ]
+
+
+def test_explicit_rlr_sdk_preloads_before_prepared_habitat_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    site = tmp_path / "magnum-site"
+    prepared = type("Prepared", (), {"prefix": prefix, "magnum_python_site": site})()
+    sdk = _external_rlr_sdk(tmp_path)
+    imported = (object(), object(), object(), object())
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    for module_name in tuple(sys.modules):
+        if module_name == binding_name or module_name.startswith(binding_name + "."):
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        rlr_sdk_module,
+        "discover_external_rlr_sdk",
+        lambda root: events.append(("discover", root)) or sdk,
+    )
+
+    def preload(observed_sdk: ExternalRlrSdk) -> None:
+        assert binding_name not in sys.modules
+        events.append(("preload", observed_sdk))
+
+    monkeypatch.setattr(rlr_sdk_module, "preload_external_rlr_sdk", preload)
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_prepared_installed_habitat",
+        lambda observed: events.append(("import", observed)) or imported,
+    )
+    monkeypatch.setattr(
+        rlr_sdk_module,
+        "validate_loaded_external_rlr_sdk",
+        lambda observed_sdk: events.append(("validate", observed_sdk)),
+    )
+
+    observed_import, observed_sdk = _import_prepared_installed_habitat_with_rlr(
+        prepared,
+        rlr_sdk_root=sdk.root,
+    )
+
+    assert observed_import == imported
+    assert observed_sdk == sdk
+    assert events == [
+        ("discover", sdk.root),
+        ("preload", sdk),
+        ("import", prepared),
+        ("validate", sdk),
+    ]
+
+
+def test_explicit_rlr_sdk_rejects_loaded_binding_mismatch_before_cdll(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepared = type(
+        "Prepared",
+        (),
+        {"prefix": tmp_path / "prefix", "magnum_python_site": tmp_path / "site"},
+    )()
+    sdk = _external_rlr_sdk(tmp_path)
+    binding_name = "habitat_sim._ext.habitat_sim_bindings"
+    monkeypatch.setitem(sys.modules, binding_name, ModuleType(binding_name))
+    events: list[str] = []
+    monkeypatch.setattr(
+        rlr_sdk_module,
+        "discover_external_rlr_sdk",
+        lambda _root: events.append("discover") or sdk,
+    )
+
+    def reject_mapping(_sdk: ExternalRlrSdk) -> None:
+        events.append("validate")
+        raise ExternalRlrSdkError("wrong preloaded RLR mapping")
+
+    monkeypatch.setattr(
+        rlr_sdk_module,
+        "validate_loaded_external_rlr_sdk",
+        reject_mapping,
+    )
+    monkeypatch.setattr(
+        rlr_sdk_module,
+        "preload_external_rlr_sdk",
+        lambda _sdk: events.append("preload"),
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_prepared_installed_habitat",
+        lambda _prepared: events.append("import"),
+    )
+
+    with pytest.raises(ExternalRlrSdkError, match="wrong preloaded RLR mapping"):
+        _import_prepared_installed_habitat_with_rlr(
+            prepared,
+            rlr_sdk_root=sdk.root,
+        )
+
+    assert events == ["discover", "validate"]
+
+
+def test_adapter_linked_import_without_sdk_has_explicit_remediation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepared = type(
+        "Prepared",
+        (),
+        {"prefix": tmp_path / "prefix", "magnum_python_site": tmp_path / "site"},
+    )()
+    def missing_rlr() -> tuple[object, object, object, object]:
+        raise ImportError(
+            "libRLRAudioPropagation.so: cannot open shared object file"
+        )
+
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_habitat",
+        missing_rlr,
+    )
+
+    with pytest.raises(RuntimeError, match="explicit rlr_sdk_root") as raised:
+        _import_prepared_installed_habitat(prepared)
+
+    assert "AVENGINE_HABITAT_BUILD_RLR_ADAPTER=OFF" in str(raised.value)
+
+
+def test_public_installed_runtime_dispatches_optional_explicit_rlr_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = tmp_path / "prefix"
+    site = tmp_path / "magnum-site"
+    module_path = prefix / "habitat_sim" / "__init__.py"
+    binding_path = prefix / "habitat_sim" / "_ext" / "habitat_sim_bindings.unit.so"
+    physics_path = prefix / "config" / "default.physics_config.json"
+    module_path.parent.mkdir(parents=True)
+    binding_path.parent.mkdir(parents=True)
+    physics_path.parent.mkdir(parents=True)
+    module_path.write_text("# fixture\n", encoding="utf-8")
+    binding_path.write_bytes(b"binding")
+    physics_path.write_text("{}\n", encoding="utf-8")
+    habitat = _module_at("habitat_sim", module_path)
+    habitat.__path__ = []
+    binding = ModuleType("habitat_sim._ext.habitat_sim_bindings")
+    binding.__file__ = str(binding_path)
+    extension_package = ModuleType("habitat_sim._ext")
+    extension_package.__path__ = []
+    extension_package.habitat_sim_bindings = binding
+    habitat._ext = extension_package
+    monkeypatch.setitem(sys.modules, "habitat_sim", habitat)
+    monkeypatch.setitem(sys.modules, "habitat_sim._ext", extension_package)
+    monkeypatch.setitem(
+        sys.modules,
+        "habitat_sim._ext.habitat_sim_bindings",
+        binding,
+    )
+    sdk = _external_rlr_sdk(tmp_path)
+    imported = (object(), habitat, object(), object())
+    prepared = type(
+        "Prepared", (), {"prefix": prefix, "magnum_python_site": site}
+    )()
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.resolve_installed_runtime_prefix",
+        lambda *_args, **_kwargs: prefix,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        lambda _explicit=None: site,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture.discover_mp3d_root",
+        lambda _explicit=None: None,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._prepare_installed_habitat_import",
+        lambda *_args, **_kwargs: prepared,
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_prepared_installed_habitat_with_rlr",
+        lambda observed, *, rlr_sdk_root: events.append(
+            ("with_rlr", (observed, rlr_sdk_root))
+        )
+        or (imported, sdk),
+    )
+    monkeypatch.setattr(
+        "avengine.m1.habitat_capture._import_prepared_installed_habitat",
+        lambda observed: events.append(("plain", observed)) or imported,
+    )
+
+    with_sdk = prepare_installed_habitat_runtime(
+        runtime_prefix=prefix,
+        magnum_python_site=site,
+        rlr_sdk_root=sdk.root,
+    )
+    without_sdk = prepare_installed_habitat_runtime(
+        runtime_prefix=prefix,
+        magnum_python_site=site,
+    )
+
+    assert with_sdk.habitat_sim is habitat
+    assert without_sdk.habitat_sim is habitat
+    assert events == [
+        ("with_rlr", (prepared, sdk.root)),
+        ("plain", prepared),
+    ]
 
 
 def test_import_installed_habitat_removes_only_editable_habitat_meta_finder(
@@ -799,3 +1101,30 @@ def test_import_installed_habitat_real_import_bypasses_editable_redirector(
             sys.modules.pop(module_name, None)
         if module_name == "magnum":
             sys.modules.pop(module_name, None)
+
+
+def test_habitat_python_binding_explicitly_disables_build_and_install_rpaths() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    cmake = (repository / "native/habitat/CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+    target = re.search(
+        r"set_target_properties\(\s*avengine_habitat_python_bindings\s+"
+        r"PROPERTIES(?P<body>.*?)\n\s*\)",
+        cmake,
+        flags=re.DOTALL,
+    )
+    assert target is not None
+    properties = target.group("body")
+    expected = {
+        "BUILD_RPATH": '""',
+        "SKIP_BUILD_RPATH": "TRUE",
+        "BUILD_WITH_INSTALL_RPATH": "FALSE",
+        "INSTALL_RPATH": '""',
+        "INSTALL_RPATH_USE_LINK_PATH": "FALSE",
+    }
+    for name, value in expected.items():
+        assert re.search(
+            rf"(?m)^\s*{name}\s+{re.escape(value)}\s*$",
+            properties,
+        ), name
