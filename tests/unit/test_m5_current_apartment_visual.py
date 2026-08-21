@@ -233,6 +233,103 @@ def test_timeline_state_starts_moving_actor_at_formal_frame_zero() -> None:
     assert state1["translation_ue_cm"] == pytest.approx([10.0, 0.0, 0.0])
 
 
+def test_spawned_apartment_actors_bind_initial_animation_before_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+
+    class _Animation:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def GetPlayLength(self) -> float:
+            return 2.0
+
+    class _Component:
+        def __init__(self, slot: str) -> None:
+            self.slot = slot
+            self.position = 0.0
+
+        def GetSkeletalMeshAsset(self, *, as_handle: bool) -> int:
+            assert as_handle is True
+            return 41
+
+        def PlayAnimation(self, **kwargs: object) -> None:
+            events.append((self.slot + ".play", kwargs["NewAnimToPlay"]))
+
+        def Stop(self) -> None:
+            events.append((self.slot + ".stop", None))
+
+        def SetPosition(self, **kwargs: object) -> None:
+            self.position = float(kwargs["InPos"])
+            events.append((self.slot + ".position", self.position))
+
+        def GetPosition(self) -> float:
+            return self.position
+
+    class _Anchor:
+        def K2_SetActorLocationAndRotation(self, **kwargs: object) -> None:
+            events.append(("anchor.pose", kwargs))
+
+    components = {slot: _Component(slot) for slot in ("source1", "source2")}
+
+    def spawn(_game: object, **kwargs: object) -> dict[str, object]:
+        slot = str(kwargs["actor_id"]).removesuffix("_actor")
+        return {
+            "anchor": _Anchor(),
+            "visual_root": object(),
+            "component": components[slot],
+        }
+
+    monkeypatch.setattr(apartment_visual, "spawn_attached_visual_actor", spawn)
+    monkeypatch.setattr(
+        apartment_visual, "apply_ue_component_frame_delta", lambda *_args: None
+    )
+
+    class _Service:
+        def load_object(self, *, uclass: str, name: str, as_handle: bool = False):
+            if uclass == "USkeletalMesh":
+                assert as_handle is True
+                return 41
+            assert uclass == "UAnimationAsset"
+            return _Animation(name)
+
+    game = type("_Game", (), {"unreal_service": _Service()})()
+    bindings = {
+        slot: {
+            "actor_id": slot + "_actor",
+            "blueprint_class_path": "/Game/" + slot,
+            "component_frame_delta": {},
+            "graph_mesh_object_path": "/Game/mesh.mesh",
+            "idle_animation": "/Game/Idle.Idle",
+            "walking_animation": "/Game/Walking.Walking",
+        }
+        for slot in ("source1", "source2")
+    }
+    initial_frame = {
+        "actor_states": [
+            {
+                "source_slot_id": slot,
+                "action_id": "walk",
+                "action_phase": 0.25,
+                "translation_ue_cm": [1.0, 2.0, 3.0],
+                "yaw_ue_deg": 4.0,
+            }
+            for slot in ("source1", "source2")
+        ]
+    }
+
+    runtimes = apartment_visual._spawn_runtime_actors(
+        game=game, bindings=bindings, initial_frame=initial_frame
+    )
+
+    for slot in ("source1", "source2"):
+        assert runtimes[slot]["current_action"] == "walk"
+        assert (slot + ".stop", None) in events
+        assert (slot + ".position", 0.5) in events
+        assert any(name == slot + ".play" for name, _value in events)
+
+
 def test_unverified_myassets_returns_not_run_without_stage_or_launch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -430,6 +527,17 @@ def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
 
     events: list[str] = []
 
+    class _GameplayStatics:
+        def SetGamePaused(self, *, bPaused: bool) -> None:
+            events.append(f"game.paused:{bPaused}")
+
+    class _Game:
+        def get_unreal_object(self, *, uclass: str) -> _GameplayStatics:
+            assert uclass == "UGameplayStatics"
+            return _GameplayStatics()
+
+    game = _Game()
+
     class _Instance:
         def begin_frame(self) -> _Frame:
             return _Frame(events, "begin")
@@ -438,7 +546,7 @@ def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
             return _Frame(events, "end")
 
         def get_game(self) -> object:
-            return object()
+            return game
 
         def close(self, *, force: bool) -> None:
             events.append(f"instance.close:{force}")
@@ -515,4 +623,5 @@ def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
     assert all(word not in encoded for word in ("schema", "evidence", "hash", "gate"))
     assert "actor.cleanup" not in events
     assert "camera.cleanup" not in events
+    assert "game.paused:False" in events
     assert events[-1] == "instance.close:True"

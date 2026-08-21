@@ -226,6 +226,9 @@ def test_attached_visual_actor_enables_skeletal_tick_and_shadow(
         def SetCastShadow(self, **kwargs: object) -> None:
             events.append(("cast_shadow", kwargs))
 
+        def set_property_value(self, **kwargs: object) -> None:
+            events.append(("component_property", kwargs))
+
     component = _Component()
 
     class _Service:
@@ -258,3 +261,10 @@ def test_attached_visual_actor_enables_skeletal_tick_and_shadow(
     assert result["component"] is component
     assert ("component_tick", {"bEnabled": True}) in events
     assert ("cast_shadow", {"NewCastShadow": True}) in events
+    assert (
+        "component_property",
+        {
+            "property_name": "GlobalAnimRateScale",
+            "property_value": 1.0,
+        },
+    ) in events

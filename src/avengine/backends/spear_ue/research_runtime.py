@@ -468,6 +468,9 @@ def spawn_attached_visual_actor(
         )
     component.SetComponentTickEnabled(bEnabled=True)
     component.SetCastShadow(NewCastShadow=True)
+    component.set_property_value(
+        property_name="GlobalAnimRateScale", property_value=1.0
+    )
     return {
         "anchor": anchor,
         "anchor_root": anchor_root,

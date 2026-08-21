@@ -861,6 +861,7 @@ def _spawn_runtime_actors(
                 "current_action": None,
             }
         )
+        _apply_runtime_state(runtime, state=state, frame_index=0)
         runtimes[slot] = runtime
     return runtimes
 
@@ -1175,6 +1176,9 @@ def capture_current_apartment_visual(
                 },
                 bSweep=False,
                 bTeleport=True,
+            )
+            game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
+                bPaused=False
             )
         with instance.end_frame():
             pass
