@@ -998,3 +998,26 @@ cannot catch this class.
 The dynamic-audio chain itself is room-agnostic and unaffected: it consumes
 recorded emitter positions and re-renders audio for any conforming capture
 in one command (proven on MP3D/Habitat and Apartment/UE).
+
+## Checkpoint 20260822b: merged to main (Phase 6 step 1 complete)
+
+Owner-authorized and owner-executed merge landed: pull request #2 merged
+cc-qa-overlay-rgb (3e56bc8, 250 commits over the old main) into main as
+merge commit 3cf8d75. Remote main is now the single-repository one-stop
+engine: closure C1-C6 with unplugged verification, motion-following dynamic
+audio for MP3D and Apartment, the fresh-native bootstrap fixes, and the
+rendered-pose animation probe. The origin push URL is pinned to SSH; main
+is protected by a ruleset (pull request plus one approving review), which
+the owner satisfied through the PR flow.
+
+Remaining Phase 6 items, both owner-paced:
+- Archiving the legacy GitHub repositories (habitat-sim-AVEngine and the old
+  SPEAR fork) is a manual owner action on GitHub, deferred by the owner and
+  safe to do at any time.
+- Cleaning up the legacy /data/jzy/code/AVEngine directory on the server
+  must wait until lead-a is converted from a git worktree to a standalone
+  clone (its common .git still lives inside that directory); the owner will
+  request the conversion before any local cleanup.
+
+The formal dataset denominator stays 0; owner listening reviews of the
+retained review package remain open on their own schedule.
