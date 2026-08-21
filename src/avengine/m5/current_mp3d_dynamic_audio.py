@@ -1,19 +1,21 @@
-"""Motion-following research audio for the authored current MP3D route.
+"""Motion-following research audio for authored current routes.
 
 The static ``render_current_m1_research_audio`` verb stays the frozen
 baseline: its pair IRs carry one state per source, so mixes hold no motion.
-This module renders the audio the visual capture actually shows instead. The
+This module renders the audio the visual capture actually shows instead:
 captured per-frame emitter positions drive a strided keyframe grid through
 the persistent-context M5.1 review renderer, and the dry buses come from an
 M6 AudioProgram routing variant, so the probe sources take turns instead of
-sharing one schedule.
+sharing one schedule. The core ``render_dynamic_research_audio`` is
+room-agnostic; ``render_current_mp3d_dynamic_audio`` binds it to the current
+MP3D capture record layout.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -48,7 +50,7 @@ CLAIM_BOUNDARY = (
 
 
 class CurrentMP3DDynamicAudioError(RuntimeError):
-    """Raised when the dynamic MP3D research-audio contract is violated."""
+    """Raised when the dynamic research-audio contract is violated."""
 
 
 def _fresh_output(path: str | Path) -> Path:
@@ -123,6 +125,7 @@ def listener_pose_from_m1_request(
 def _asset_bindings(
     sounds: Mapping[str, Any],
     *,
+    repository_root: Path,
     external_sound_asset_paths: Mapping[str, Path],
     required_sound_ids: set[str],
 ) -> dict[str, dict[str, str]]:
@@ -134,12 +137,16 @@ def _asset_bindings(
             raise CurrentMP3DDynamicAudioError(
                 f"program sound is not registered: {sound_id}"
             )
-        path = external_sound_asset_paths.get(sound_id)
-        if path is None:
-            raise CurrentMP3DDynamicAudioError(
-                f"program sound {sound_id} requires an explicit external dry path"
-            )
-        resolved = Path(path).resolve()
+        uri = str(record["dry_audio"]["uri"])
+        if uri.startswith("repo://"):
+            resolved = (repository_root / uri.removeprefix("repo://")).resolve()
+        else:
+            path = external_sound_asset_paths.get(sound_id)
+            if path is None:
+                raise CurrentMP3DDynamicAudioError(
+                    f"program sound {sound_id} requires an explicit external dry path"
+                )
+            resolved = Path(path).resolve()
         if not resolved.is_file():
             raise CurrentMP3DDynamicAudioError(f"dry audio is missing: {resolved}")
         expected = str(record["dry_audio"]["sha256"])
@@ -156,10 +163,11 @@ def _input_record(path: str | Path) -> dict[str, str]:
     return {"path": str(resolved), "sha256": sha256_file(resolved)}
 
 
-def render_current_mp3d_dynamic_audio(
+def render_dynamic_research_audio(
     *,
-    visual_capture_dir: str | Path,
-    m1_request_path: str | Path,
+    source_trajectories_m: Mapping[str, Sequence[Sequence[float]]],
+    listener_position_m: Sequence[float],
+    listener_orientation_wxyz: Sequence[float],
     simulation_request_path: str | Path,
     package_manifest_path: str | Path,
     audio_program_path: str | Path,
@@ -168,17 +176,22 @@ def render_current_mp3d_dynamic_audio(
     external_sound_asset_paths: Mapping[str, str | Path],
     hrtf_file_path: str | Path,
     output_path: str | Path,
+    position_authority: str,
+    listener_authority: str,
     rir_stride_frames: int = 3,
     variant_id: str = "A",
     hrtf_license_path: str | Path | None = None,
+    extra_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Render one motion-following binaural research episode for MP3D."""
+    """Room-agnostic core: trajectories + program variant -> binaural episode."""
 
     output = _fresh_output(output_path)
     program_path = Path(audio_program_path).resolve()
     program = json.loads(program_path.read_text(encoding="utf-8"))
-    endpoints = load_source_endpoint_registry(source_endpoint_registry_path)
-    sounds = load_sound_asset_registry(sound_asset_registry_path)
+    endpoint_registry_path = Path(source_endpoint_registry_path).resolve()
+    sound_registry_path = Path(sound_asset_registry_path).resolve()
+    endpoints = load_source_endpoint_registry(endpoint_registry_path)
+    sounds = load_sound_asset_registry(sound_registry_path)
 
     source_ids = tuple(
         str(value) for value in program.get("candidate_source_endpoint_ids") or ()
@@ -186,6 +199,11 @@ def render_current_mp3d_dynamic_audio(
     if len(source_ids) < 2:
         raise CurrentMP3DDynamicAudioError(
             "the program must carry at least two candidate source endpoints"
+        )
+    if set(source_ids) != set(source_trajectories_m):
+        raise CurrentMP3DDynamicAudioError(
+            "trajectory source IDs must equal the program candidates: "
+            f"{sorted(source_trajectories_m)} != {sorted(source_ids)}"
         )
     timeline = program.get("timeline") or {}
     if (
@@ -197,18 +215,16 @@ def render_current_mp3d_dynamic_audio(
             "the program timeline must match the 75-frame research episode"
         )
 
-    trajectories = load_captured_source_paths(visual_capture_dir, source_ids)
-    m1_request = json.loads(
-        Path(m1_request_path).resolve().read_text(encoding="utf-8")
-    )
-    listener_position, listener_wxyz = listener_pose_from_m1_request(m1_request)
-
+    ordered_trajectories = {
+        source_id: [list(map(float, point)) for point in source_trajectories_m[source_id]]
+        for source_id in source_ids
+    }
     grid = build_strided_review_keyframes(
-        trajectories,
+        ordered_trajectories,
         visual_frame_rate_hz=VISUAL_FRAME_RATE_HZ,
         rir_stride_frames=rir_stride_frames,
-        listener_position_m=listener_position,
-        listener_orientation_wxyz=listener_wxyz,
+        listener_position_m=list(listener_position_m),
+        listener_orientation_wxyz=list(listener_orientation_wxyz),
     )
     _, simulation = _load_simulation_request(Path(simulation_request_path).resolve())
     scene = load_compiled_acoustic_scene(
@@ -222,8 +238,10 @@ def render_current_mp3d_dynamic_audio(
     required_sounds = {
         str(event["sound_asset_id"]) for event in program.get("events") or ()
     }
+    repository_root = Path(__file__).resolve().parents[3]
     bindings = _asset_bindings(
         sounds,
+        repository_root=repository_root,
         external_sound_asset_paths={
             key: Path(value) for key, value in external_sound_asset_paths.items()
         },
@@ -259,6 +277,24 @@ def render_current_mp3d_dynamic_audio(
     _write(audio_root / "binaural" / "mixture.wav", np.asarray(mixture))
 
     materialized = assembly.materialized_program
+    inputs: dict[str, Any] = {
+        "simulation_request": _input_record(simulation_request_path),
+        "package_manifest": _input_record(package_manifest_path),
+        "source_endpoint_registry": _input_record(endpoint_registry_path),
+        "sound_asset_registry": _input_record(sound_registry_path),
+        "hrtf": {
+            **_input_record(hrtf),
+            "license_path": (
+                str(Path(hrtf_license_path).resolve())
+                if hrtf_license_path is not None
+                else None
+            ),
+        },
+        "dry_assets": bindings,
+    }
+    if extra_inputs:
+        inputs.update({key: value for key, value in extra_inputs.items()})
+
     receipt: dict[str, Any] = {
         "schema": CURRENT_MP3D_DYNAMIC_AUDIO_SCHEMA,
         "status": "pass",
@@ -285,17 +321,12 @@ def render_current_mp3d_dynamic_audio(
         "sources": {
             "source_ids": list(source_ids),
             "frame_count": EPISODE_FRAME_COUNT,
-            "position_authority": (
-                "current-visual frame_records per-frame source_positions_m"
-            ),
+            "position_authority": position_authority,
         },
         "listener": {
-            "position_m": listener_position,
-            "orientation_wxyz": listener_wxyz,
-            "authority": (
-                "research M1 request primary_camera_rig composed with "
-                "rig_from_listener"
-            ),
+            "position_m": list(listener_position_m),
+            "orientation_wxyz": list(listener_orientation_wxyz),
+            "authority": listener_authority,
         },
         "rir": {
             "stride_frames": rir_stride_frames,
@@ -303,23 +334,7 @@ def render_current_mp3d_dynamic_audio(
             "keyframe_samples": list(sequence.keyframe_samples),
             "trajectory_sha256": sequence.trajectory_sha256,
         },
-        "inputs": {
-            "visual_capture_frame_records": _input_record(
-                Path(visual_capture_dir).resolve() / "frame_records.json"
-            ),
-            "m1_request": _input_record(m1_request_path),
-            "simulation_request": _input_record(simulation_request_path),
-            "package_manifest": _input_record(package_manifest_path),
-            "hrtf": {
-                **_input_record(hrtf),
-                "license_path": (
-                    str(Path(hrtf_license_path).resolve())
-                    if hrtf_license_path is not None
-                    else None
-                ),
-            },
-            "dry_assets": bindings,
-        },
+        "inputs": inputs,
         "outputs": outputs,
     }
     (output / "research_receipt.json").write_text(
@@ -327,3 +342,63 @@ def render_current_mp3d_dynamic_audio(
         encoding="utf-8",
     )
     return receipt
+
+
+def render_current_mp3d_dynamic_audio(
+    *,
+    visual_capture_dir: str | Path,
+    m1_request_path: str | Path,
+    simulation_request_path: str | Path,
+    package_manifest_path: str | Path,
+    audio_program_path: str | Path,
+    source_endpoint_registry_path: str | Path,
+    sound_asset_registry_path: str | Path,
+    external_sound_asset_paths: Mapping[str, str | Path],
+    hrtf_file_path: str | Path,
+    output_path: str | Path,
+    rir_stride_frames: int = 3,
+    variant_id: str = "A",
+    hrtf_license_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Render one motion-following binaural research episode for MP3D."""
+
+    program = json.loads(
+        Path(audio_program_path).resolve().read_text(encoding="utf-8")
+    )
+    source_ids = tuple(
+        str(value) for value in program.get("candidate_source_endpoint_ids") or ()
+    )
+    trajectories = load_captured_source_paths(visual_capture_dir, source_ids)
+    m1_request = json.loads(
+        Path(m1_request_path).resolve().read_text(encoding="utf-8")
+    )
+    listener_position, listener_wxyz = listener_pose_from_m1_request(m1_request)
+    return render_dynamic_research_audio(
+        source_trajectories_m=trajectories,
+        listener_position_m=listener_position,
+        listener_orientation_wxyz=listener_wxyz,
+        simulation_request_path=simulation_request_path,
+        package_manifest_path=package_manifest_path,
+        audio_program_path=audio_program_path,
+        source_endpoint_registry_path=source_endpoint_registry_path,
+        sound_asset_registry_path=sound_asset_registry_path,
+        external_sound_asset_paths=external_sound_asset_paths,
+        hrtf_file_path=hrtf_file_path,
+        output_path=output_path,
+        position_authority=(
+            "current-visual frame_records per-frame source_positions_m"
+        ),
+        listener_authority=(
+            "research M1 request primary_camera_rig composed with "
+            "rig_from_listener"
+        ),
+        rir_stride_frames=rir_stride_frames,
+        variant_id=variant_id,
+        hrtf_license_path=hrtf_license_path,
+        extra_inputs={
+            "visual_capture_frame_records": _input_record(
+                Path(visual_capture_dir).resolve() / "frame_records.json"
+            ),
+            "m1_request": _input_record(m1_request_path),
+        },
+    )
