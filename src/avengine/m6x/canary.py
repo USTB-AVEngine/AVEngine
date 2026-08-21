@@ -24,6 +24,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
+from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
 from avengine.m3.runtime import (
     CompiledAcousticScene,
     _verify_upload_report,
@@ -1501,6 +1502,11 @@ def run_fixed_apartment_canary(
             "implicit sibling checkout discovery is retired"
         )
     resolved_runtime_root = Path(runtime_root).resolve()
+    installed_runtime = None
+    if "AVENGINE_HABITAT_RUNTIME_PREFIX" in os.environ:
+        installed_runtime = prepare_installed_habitat_runtime(
+            rlr_sdk_root=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+        )
     output = Path(output_dir).resolve()
     staging = output.with_name(f".{output.name}.staging")
     if os.path.lexists(output) or os.path.lexists(staging):
@@ -1532,7 +1538,8 @@ def run_fixed_apartment_canary(
         m1_request_path=m1_request_path,
         anchor_library=values["anchors"],
         source_center_trajectories_m=provisional_paths,
-        runtime_root=runtime_root,
+        runtime_root=None if installed_runtime is not None else runtime_root,
+        installed_runtime=installed_runtime,
         minimum_navmesh_clearance_m=0.02,
     )
     if preflight.record["status"] != "pass":
@@ -1605,7 +1612,8 @@ def run_fixed_apartment_canary(
             m1_request_path=m1_request_path,
             anchor_library=values["anchors"],
             source_center_trajectories_m=source_paths,
-            runtime_root=runtime_root,
+            runtime_root=None if installed_runtime is not None else runtime_root,
+            installed_runtime=installed_runtime,
             minimum_navmesh_clearance_m=0.02,
         )
         if qualification.record["status"] != "pass":
