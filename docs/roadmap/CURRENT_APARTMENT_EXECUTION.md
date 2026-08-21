@@ -663,3 +663,19 @@ The formal dataset denominator remains 0.
   evaluator and both retained expected tables are consistent; the
   comparison harness input closure was incomplete. Owner decision pending
   on repair route (feed native pixel inputs vs CPU-only table).
+
+### Checkpoint 20260821c: QuestionSpec fresh comparison closed (repair A)
+
+tools/qa/compare_question_spec_fresh.py re-evaluates every retained
+bind-time QuestionSpec over the verified native closure (facts with pixel
+truth) and compares status and answer against the retained records:
+511 specs across the 6 catalog episodes, 509 exact matches. The two
+divergences are both QS-007 (offscreen_to_onscreen) rows bound on
+2026-08-09 shortly before cf0a840 closed the cross-modal contracts: the
+current evaluator rejects the question as not applicable when the target
+never makes a pixel-observed out-of-view to visible transition, while the
+pre-cf0a840 binder answered "no". cf0a840 is an ancestor of both the
+refactor reference d19e0e8 and the CPU equivalence reference 1a26e5c, so
+pre- and post-refactor evaluators share identical semantics and the
+divergence is not a refactor effect. Report:
+tmp/lead_a_questionspec_fresh_compare_v1/comparison.json.
