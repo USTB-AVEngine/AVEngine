@@ -1118,9 +1118,15 @@ def _select_mixed_capture_runtime(
                 "mp3d-root, magnum-python-site, or pbr-asset-root"
             )
         return installed_runtime
-    if installed_requested or (
+    select_installed = installed_requested or (
         runtime_root is not None and _room_declares_external_mp3d_root(room)
-    ):
+    )
+    if select_installed:
+        if pbr_asset_root is None:
+            raise MixedCaptureError(
+                "installed MP3D PBR actor capture requires an explicit "
+                "pbr_asset_root before runtime preparation"
+            )
         return prepare_installed_habitat_runtime(
             runtime_prefix=runtime_prefix,
             runtime_root=runtime_root,
@@ -1215,9 +1221,36 @@ def capture_human_beagle_paths(
     output = Path(output_dir).resolve()
     if output.exists() or output.is_symlink():
         raise MixedCaptureError(f"refusing to replace capture output: {output}")
+    installed_requested = _installed_runtime_inputs_requested(
+        runtime_prefix=runtime_prefix,
+        mp3d_root=mp3d_root,
+        magnum_python_site=magnum_python_site,
+        pbr_asset_root=pbr_asset_root,
+    )
+    if installed_runtime is not None:
+        if getattr(installed_runtime, "pbr_asset_root", None) is None:
+            raise MixedCaptureError(
+                "installed MP3D PBR actor capture requires a prepared runtime "
+                "with an explicit pbr_asset_root"
+            )
+    elif installed_requested and pbr_asset_root is None:
+        raise MixedCaptureError(
+            "installed MP3D PBR actor capture requires an explicit "
+            "pbr_asset_root before runtime preparation"
+        )
 
     try:
         room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
+        if (
+            installed_runtime is None
+            and runtime_root is not None
+            and _room_declares_external_mp3d_root(room_inputs.room)
+            and pbr_asset_root is None
+        ):
+            raise MixedCaptureError(
+                "installed MP3D PBR actor capture requires an explicit "
+                "pbr_asset_root before runtime preparation"
+            )
         installed_runtime = _select_mixed_capture_runtime(
             room=room_inputs.room,
             runtime_prefix=runtime_prefix,

@@ -594,6 +594,7 @@ def test_mixed_capture_prefix_environment_preempts_legacy_room(
         legacy_runtime_root=None,
         mp3d_root=None,
         magnum_python_site=None,
+        pbr_asset_root=tmp_path / "pbr-assets",
         installed_runtime=None,
     )
 
@@ -603,7 +604,7 @@ def test_mixed_capture_prefix_environment_preempts_legacy_room(
             "runtime_prefix": None,
             "runtime_root": None,
             "mp3d_root": None,
-            "pbr_asset_root": None,
+            "pbr_asset_root": tmp_path / "pbr-assets",
             "magnum_python_site": None,
         }
     ]
@@ -667,6 +668,7 @@ def test_mixed_capture_runtime_root_alias_rejects_git_checkout(
             legacy_runtime_root=None,
             mp3d_root=None,
             magnum_python_site=None,
+            pbr_asset_root=tmp_path / "pbr-assets",
             installed_runtime=None,
         )
 
@@ -834,24 +836,23 @@ def test_mixed_capture_installed_missing_pbr_root_fails_without_output(
     monkeypatch.setenv(
         "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", str(tmp_path / "magnum")
     )
+
+    def unexpected_before_output(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError(
+            "missing PBR root must fail before runtime, assets, or output"
+        )
+
     monkeypatch.setattr(
         "avengine.m5_1.mixed_capture.load_m1_inputs",
-        lambda *_args, **_kwargs: SimpleNamespace(room=_migrated_mp3d_room()),
+        unexpected_before_output,
     )
     monkeypatch.setattr(
         "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
-        lambda **_kwargs: SimpleNamespace(
-            mp3d_root=tmp_path / "mp3d",
-            pbr_asset_root=None,
-        ),
+        unexpected_before_output,
     )
-
-    def unexpected_human_prepare(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("missing PBR root must fail before output preparation")
-
     monkeypatch.setattr(
         "avengine.m5_1.mixed_capture.prepare_rocketbox_habitat_runtime",
-        unexpected_human_prepare,
+        unexpected_before_output,
     )
     output = tmp_path / "capture"
     with pytest.raises(MixedCaptureError, match="explicit pbr_asset_root"):
