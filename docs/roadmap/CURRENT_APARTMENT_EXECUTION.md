@@ -644,3 +644,22 @@ Next actions (single-repo refactor track, owner-approved plan 2026-08-21):
    and habitat-sim-AVEngine repositories.
 
 The formal dataset denominator remains 0.
+
+### Checkpoint 20260821b: ReplicaCAD installed runtime and QuestionSpec compile unblocked
+
+- M5.1 ReplicaCAD now runs on the installed runtime (cc51d58, 34b8e4b):
+  ReplicaCAD 1.5 data lives at /data/avengine_external/datasets/, the
+  installed mixed-capture MP3D assumptions are room-conditional, and a fresh
+  installed apt_0 run passed 270 frames / 19 gates with per-frame pixel audit
+  (human 98.83%, beagle 96.99% non-black). Owner reviewed the contact sheet.
+- The QuestionSpec official compile blocker is resolved (4ffacbb, allowed
+  repair 2): four binding manifests reissued against the current registry
+  with an append-only diff proof; delivery
+  tmp/lead_a_question_protocol_paper_ready_v3 passes compile and
+  paper-ready validation with 2230 candidate cases across 6 episodes.
+- QS-007 divergence root cause: the fresh comparison paired the pixel
+  binding expected table (pass) with an evaluator run that lacked native
+  pixel-truth inputs, which correctly rejects offscreen_to_onscreen. The
+  evaluator and both retained expected tables are consistent; the
+  comparison harness input closure was incomplete. Owner decision pending
+  on repair route (feed native pixel inputs vs CPU-only table).
