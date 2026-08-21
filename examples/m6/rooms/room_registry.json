@@ -427,7 +427,7 @@
             "kind": "repository_relative",
             "path": "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
           },
-          "sha256": "1e1cb31aea888d33b953f029fac81da06a7b47a8f72c0223e2da12227b474f7d",
+          "sha256": "329329c20be00ff1d298b3296f62cde7ad8edd38596093b1ab19a19e13ca02cf",
           "required_for": ["visual_runtime", "navigation"],
           "redistribution": "repository"
         },
@@ -436,8 +436,8 @@
           "resource_type": "scene_dataset_config",
           "location": {
             "kind": "environment_template",
-            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
-            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json"
+            "environment_variable": "AVENGINE_MP3D_ROOT",
+            "path_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json"
           },
           "sha256": "b56050135d429839ca7066f335de51897d27e9741810bff8e13972fe539b0f5f",
           "required_for": ["visual_runtime"],
@@ -448,8 +448,8 @@
           "resource_type": "visual_scene",
           "location": {
             "kind": "environment_template",
-            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
-            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb"
+            "environment_variable": "AVENGINE_MP3D_ROOT",
+            "path_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb"
           },
           "sha256": "334456925e056c83a9a7a5c768b3d37cdd23425d8ca20743bfce015be3f56b04",
           "required_for": ["visual_runtime", "acoustic_geometry"],
@@ -460,8 +460,8 @@
           "resource_type": "navmesh",
           "location": {
             "kind": "environment_template",
-            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
-            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh"
+            "environment_variable": "AVENGINE_MP3D_ROOT",
+            "path_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh"
           },
           "sha256": "0f36abb98ee3545d7e1f5103882269206feaaea05dcb54014333290b1d2b00c8",
           "required_for": ["navigation", "episode_feasibility"],
@@ -472,8 +472,8 @@
           "resource_type": "semantic_resource",
           "location": {
             "kind": "environment_template",
-            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
-            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house"
+            "environment_variable": "AVENGINE_MP3D_ROOT",
+            "path_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house"
           },
           "sha256": "bdb833931a9196d2c72df8ead2842d9a161e8dc7d42da1536b10b461a9b14d8a",
           "required_for": ["material_binding"],
@@ -484,8 +484,8 @@
           "resource_type": "semantic_resource",
           "location": {
             "kind": "environment_template",
-            "environment_variable": "AVENGINE_HABITAT_RUNTIME_ROOT",
-            "path_template": "${AVENGINE_HABITAT_RUNTIME_ROOT}/data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply"
+            "environment_variable": "AVENGINE_MP3D_ROOT",
+            "path_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply"
           },
           "sha256": "b7b522bd2d0aa59ee3aec15e509f0b22ea63115b8b66301b50a3a3a0be0a7a26",
           "required_for": ["material_binding", "ray_leakage"],

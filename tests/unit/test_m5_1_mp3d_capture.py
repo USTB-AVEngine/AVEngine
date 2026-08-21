@@ -236,6 +236,76 @@ def test_mp3d_route_environment_runtime_reaches_mixed_capture(
     assert mixed_calls[0]["installed_runtime"] is installed_runtime
 
 
+def test_mp3d_route_reuses_injected_installed_runtime(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    installed_runtime = SimpleNamespace(mp3d_root=tmp_path / "mp3d")
+    paths = SimpleNamespace(
+        human=np.zeros((FRAME_COUNT, 3), dtype=np.float64),
+        beagle=np.zeros((FRAME_COUNT, 3), dtype=np.float64),
+    )
+    navigation = SimpleNamespace(
+        paths=paths,
+        record={
+            "routes": {
+                "human0": {"trajectory_sha256": "human"},
+                "dog0": {"trajectory_sha256": "dog"},
+            }
+        },
+    )
+    mixed_calls: list[dict[str, object]] = []
+
+    def fail_if_runtime_is_prepared(**_kwargs: object) -> object:
+        raise AssertionError("injected installed runtime must be reused")
+
+    def stop_after_mixed_capture_receives_runtime(**kwargs: object) -> object:
+        mixed_calls.append(kwargs)
+        raise RuntimeError("mixed capture received injected runtime")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mp3d_capture.prepare_installed_habitat_runtime",
+        fail_if_runtime_is_prepared,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mp3d_capture.validate_mp3d_paths_with_declared_navmesh",
+        lambda **_kwargs: navigation,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mp3d_capture.capture_human_beagle_paths",
+        stop_after_mixed_capture_receives_runtime,
+    )
+
+    with pytest.raises(RuntimeError, match="mixed capture received injected runtime"):
+        capture_mp3d_route(
+            route_manifest_path=ROUTE_PATH,
+            room_manifest_path=tmp_path / "room.json",
+            m1_request_path=tmp_path / "request.json",
+            human_runtime_glb_path=tmp_path / "human.glb",
+            beagle_animal_manifest_path=tmp_path / "beagle.json",
+            beagle_m2_request_path=tmp_path / "beagle_request.json",
+            output_dir=tmp_path / "output",
+            installed_runtime=installed_runtime,
+        )
+
+    assert mixed_calls[0]["installed_runtime"] is installed_runtime
+
+    with pytest.raises(
+        MP3DCaptureError,
+        match="installed_runtime cannot be combined with runtime path arguments",
+    ):
+        capture_mp3d_route(
+            route_manifest_path=ROUTE_PATH,
+            room_manifest_path=tmp_path / "room.json",
+            m1_request_path=tmp_path / "request.json",
+            human_runtime_glb_path=tmp_path / "human.glb",
+            beagle_animal_manifest_path=tmp_path / "beagle.json",
+            beagle_m2_request_path=tmp_path / "beagle_request.json",
+            output_dir=tmp_path / "output",
+            runtime_prefix=tmp_path / "prefix",
+            installed_runtime=installed_runtime,
+        )
+
+
 def test_example_route_is_exact_parallel_separated_motion() -> None:
     route = load_mp3d_route_manifest(ROUTE_PATH)
     paths = derive_mp3d_route_paths(route)

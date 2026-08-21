@@ -740,17 +740,26 @@ def capture_mp3d_route(
     runtime_root: str | Path | None = None,
     mp3d_root: str | Path | None = None,
     magnum_python_site: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
 ) -> MP3DCaptureResult:
     """Run the independent 270-frame MP3D mixed visual gate."""
 
     route_path = Path(route_manifest_path).resolve()
     route = load_mp3d_route_manifest(route_path)
-    installed_runtime = prepare_installed_habitat_runtime(
-        runtime_prefix=runtime_prefix,
-        runtime_root=runtime_root,
-        mp3d_root=mp3d_root,
-        magnum_python_site=magnum_python_site,
-    )
+    runtime_arguments = (runtime_prefix, runtime_root, mp3d_root, magnum_python_site)
+    if installed_runtime is not None and any(
+        value is not None for value in runtime_arguments
+    ):
+        raise MP3DCaptureError(
+            "installed_runtime cannot be combined with runtime path arguments"
+        )
+    if installed_runtime is None:
+        installed_runtime = prepare_installed_habitat_runtime(
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+        )
     if installed_runtime.mp3d_root is None:
         raise MP3DCaptureError(
             "MP3D capture requires an explicit --mp3d-root or AVENGINE_MP3D_ROOT"

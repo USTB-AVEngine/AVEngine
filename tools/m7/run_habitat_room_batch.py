@@ -294,7 +294,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--human-runtime-glb", type=Path, required=True)
     parser.add_argument("--beagle-manifest", type=Path, required=True)
     parser.add_argument("--beagle-m2-request", type=Path, required=True)
-    parser.add_argument("--runtime-root", type=Path)
+    runtime = parser.add_mutually_exclusive_group(required=True)
+    runtime.add_argument(
+        "--runtime-prefix",
+        type=Path,
+        help="Non-Git installed Habitat runtime prefix",
+    )
+    runtime.add_argument(
+        "--runtime-root",
+        type=Path,
+        help=("Compatibility alias for --runtime-prefix; Git checkouts are rejected"),
+    )
+    parser.add_argument(
+        "--mp3d-root",
+        type=Path,
+        required=True,
+        help="External MP3D data root containing scene_datasets",
+    )
+    parser.add_argument(
+        "--magnum-python-site",
+        type=Path,
+        required=True,
+        help="External Corrade/Magnum Python site",
+    )
+    parser.add_argument(
+        "--rlr-sdk-root",
+        type=Path,
+        required=True,
+        help="External non-Git RLR SDK package root",
+    )
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument(
@@ -342,10 +370,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # Imported lazily so --help and sharding dry checks stay usable without
     # the native Habitat runtime installed.
+    from avengine.m1.habitat_capture import (  # noqa: PLC0415
+        prepare_installed_habitat_runtime,
+    )
     from avengine.m5_1.mp3d_capture import capture_mp3d_route  # noqa: PLC0415
 
     entries: list[dict[str, Any]] = []
     render_contract = dict(profile["render"])
+    installed_runtime = None
     for ordinal, episode_id, route_path in selected:
         episode_dir = episodes_root / episode_id
         resumed = False
@@ -363,6 +395,21 @@ def main(argv: list[str] | None = None) -> int:
                 raise HabitatRoomBatchError(
                     f"--no-resume refuses to overwrite existing {episode_dir}"
                 )
+            if installed_runtime is None:
+                try:
+                    installed_runtime = prepare_installed_habitat_runtime(
+                        runtime_prefix=args.runtime_prefix,
+                        runtime_root=args.runtime_root,
+                        mp3d_root=args.mp3d_root,
+                        magnum_python_site=args.magnum_python_site,
+                        rlr_sdk_root=args.rlr_sdk_root,
+                        allow_mp3d_environment=False,
+                    )
+                except (ImportError, OSError, RuntimeError, ValueError) as error:
+                    raise HabitatRoomBatchError(
+                        "explicit installed Habitat/RLR runtime is unavailable: "
+                        f"{error}"
+                    ) from error
             started = time.monotonic()
             capture_mp3d_route(
                 route_manifest_path=route_path,
@@ -372,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
                 beagle_animal_manifest_path=args.beagle_manifest,
                 beagle_m2_request_path=args.beagle_m2_request,
                 output_dir=episode_dir,
-                runtime_root=args.runtime_root,
+                installed_runtime=installed_runtime,
             )
             wall_seconds = time.monotonic() - started
             readback = _episode_readback(episode_dir)

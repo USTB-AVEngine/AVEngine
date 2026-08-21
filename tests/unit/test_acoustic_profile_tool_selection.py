@@ -786,6 +786,53 @@ def test_m7_room_manifest_binding_rejects_invalid_manifest(
         )
 
 
+def test_m7_current_room_manifest_and_mp3d_templates_match_registry() -> None:
+    runtime_profiles = load_json(
+        habitat_batch.REPOSITORY / "examples/runtime/room_runtime_profiles.json"
+    )
+    profile = next(
+        item
+        for item in runtime_profiles["profiles"]
+        if item["profile_id"] == "habitat_mp3d_17DRP5sb8fy"
+    )
+    binding = habitat_batch._verify_room_manifest_binding(
+        room_profile=profile,
+        room_registry_path=habitat_batch.DEFAULT_ROOM_REGISTRY,
+        room_manifest_path=(
+            habitat_batch.REPOSITORY
+            / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+        ),
+    )
+    assert binding["status"] == "pass"
+
+    registry = load_json(habitat_batch.DEFAULT_ROOM_REGISTRY)
+    record = next(
+        item
+        for item in registry["records"]
+        if item["room_id"] == "habitat_mp3d_example_17DRP5sb8fy"
+    )
+    expected_resource_ids = {
+        "mp3d_dataset_config",
+        "mp3d_raw_visual_surface",
+        "mp3d_navmesh",
+        "mp3d_house_descriptor",
+        "mp3d_semantic_mesh",
+    }
+    external_mp3d = [
+        resource
+        for resource in record["resources"]
+        if resource["resource_id"] in expected_resource_ids
+    ]
+    assert len(external_mp3d) == 5
+    assert all(
+        resource["location"]["environment_variable"] == "AVENGINE_MP3D_ROOT"
+        and resource["location"]["path_template"].startswith(
+            "${AVENGINE_MP3D_ROOT}/scene_datasets/"
+        )
+        for resource in external_mp3d
+    )
+
+
 def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -843,6 +890,13 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     )
     capture_module = ModuleType("avengine.m5_1.mp3d_capture")
     capture_module.capture_mp3d_route = lambda **_kwargs: None
+    habitat_module = ModuleType("avengine.m1.habitat_capture")
+
+    def fail_if_resume_prepares_runtime(**_kwargs):
+        raise AssertionError("resume-only batch must not prepare native runtime")
+
+    habitat_module.prepare_installed_habitat_runtime = fail_if_resume_prepares_runtime
+    monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
     monkeypatch.setitem(
         sys.modules,
         "avengine.m5_1.mp3d_capture",
@@ -867,6 +921,14 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
             str(tmp_path / "beagle.json"),
             "--beagle-m2-request",
             str(tmp_path / "beagle_m2.json"),
+            "--runtime-prefix",
+            str(tmp_path / "runtime-prefix"),
+            "--mp3d-root",
+            str(tmp_path / "mp3d"),
+            "--magnum-python-site",
+            str(tmp_path / "magnum"),
+            "--rlr-sdk-root",
+            str(tmp_path / "rlr"),
             "--output",
             str(output),
         ]
@@ -876,3 +938,132 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     manifest = load_json(output / "batch_manifest.json")
     assert manifest["room_manifest_binding"] == room_manifest_binding
     assert manifest["acoustic_selection"] == acoustic_binding
+
+
+def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runtime_registry = tmp_path / "runtime_registry.json"
+    routes = [tmp_path / "route0.json", tmp_path / "route1.json"]
+    write_json(runtime_registry, {"schema": "fixture"})
+    for route in routes:
+        write_json(route, {"schema": "fixture"})
+    output = tmp_path / "batch"
+    profile = {
+        "profile_id": "habitat_room",
+        "revision": "v1",
+        "backend_id": "habitat_native",
+        "room_ref": {
+            "registry_id": "rooms",
+            "room_id": "room",
+            "revision": "rev",
+        },
+        "render": {"frame_count": 75},
+    }
+    monkeypatch.setattr(
+        habitat_batch,
+        "_select_profile",
+        lambda _path, _profile_id: profile,
+    )
+    monkeypatch.setattr(
+        habitat_batch,
+        "_verify_room_manifest_binding",
+        lambda **_kwargs: {"schema": "room-binding", "status": "pass"},
+    )
+    monkeypatch.setattr(
+        habitat_batch,
+        "_resolve_acoustic_selection_binding",
+        lambda **_kwargs: {"schema": "acoustic-binding"},
+    )
+
+    runtime = SimpleNamespace(mp3d_root=tmp_path / "mp3d")
+    prepare_calls: list[dict[str, object]] = []
+    capture_calls: list[dict[str, object]] = []
+
+    def fake_prepare(**kwargs):
+        prepare_calls.append(kwargs)
+        return runtime
+
+    def fake_capture(**kwargs):
+        capture_calls.append(kwargs)
+        write_json(
+            Path(kwargs["output_dir"]) / "mp3d_gate_evidence.json",
+            {
+                "status": "pass",
+                "frame_count": 270,
+                "frame_rate_hz": 15,
+                "route_id": Path(kwargs["route_manifest_path"]).stem,
+                "gates": [{"gate_id": "readback", "status": "pass"}],
+            },
+        )
+
+    habitat_module = ModuleType("avengine.m1.habitat_capture")
+    habitat_module.prepare_installed_habitat_runtime = fake_prepare
+    capture_module = ModuleType("avengine.m5_1.mp3d_capture")
+    capture_module.capture_mp3d_route = fake_capture
+    monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
+    monkeypatch.setitem(sys.modules, "avengine.m5_1.mp3d_capture", capture_module)
+
+    result = habitat_batch.main(
+        [
+            "--room-runtime-registry",
+            str(runtime_registry),
+            "--room-profile",
+            "habitat_room",
+            "--episode",
+            f"episode0={routes[0]}",
+            "--episode",
+            f"episode1={routes[1]}",
+            "--room-manifest",
+            str(tmp_path / "room.json"),
+            "--m1-request",
+            str(tmp_path / "m1.json"),
+            "--human-runtime-glb",
+            str(tmp_path / "human.glb"),
+            "--beagle-manifest",
+            str(tmp_path / "beagle.json"),
+            "--beagle-m2-request",
+            str(tmp_path / "beagle_m2.json"),
+            "--runtime-prefix",
+            str(tmp_path / "runtime-prefix"),
+            "--mp3d-root",
+            str(tmp_path / "mp3d"),
+            "--magnum-python-site",
+            str(tmp_path / "magnum"),
+            "--rlr-sdk-root",
+            str(tmp_path / "rlr"),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert result == 0
+    assert prepare_calls == [
+        {
+            "runtime_prefix": tmp_path / "runtime-prefix",
+            "runtime_root": None,
+            "mp3d_root": tmp_path / "mp3d",
+            "magnum_python_site": tmp_path / "magnum",
+            "rlr_sdk_root": tmp_path / "rlr",
+            "allow_mp3d_environment": False,
+        }
+    ]
+    assert len(capture_calls) == 2
+    assert all(call["installed_runtime"] is runtime for call in capture_calls)
+    assert all("runtime_root" not in call for call in capture_calls)
+    manifest = load_json(output / "batch_manifest.json")
+    assert [item["episode_role"] for item in manifest["episodes"]] == [
+        "review_only",
+        "review_only",
+    ]
+    assert all(
+        item["frame_count_matches_profile_contract"] is False
+        for item in manifest["episodes"]
+    )
+    assert capsys.readouterr().out.splitlines() == [
+        "HABITAT_BATCH_EPISODE_OK id=episode0 resumed=False frames=270 gates=1",
+        "HABITAT_BATCH_EPISODE_OK id=episode1 resumed=False frames=270 gates=1",
+        f"HABITAT_BATCH_OK output={output} selected=2 of 2 episodes",
+    ]
