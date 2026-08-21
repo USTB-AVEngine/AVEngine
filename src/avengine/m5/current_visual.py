@@ -829,6 +829,7 @@ def capture_current_visual(
             runtime_prefix=runtime_prefix,
             mp3d_root=mp3d_root,
             magnum_python_site=magnum_python_site,
+            rlr_sdk_root=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
         )
     except (OSError, RuntimeError, ValueError) as error:
         raise CurrentVisualError(

@@ -1513,6 +1513,7 @@ def _m5_author_current_mp3d_two_beagle_route(args: argparse.Namespace) -> int:
             magnum_python_site=args.magnum_python_site,
             output_directory=args.output,
             seed=args.seed,
+            camera_selection=args.camera_selection,
             distance_tolerance_m=args.distance_tolerance_m,
             minimum_center_separation_m=args.minimum_center_separation_m,
         )
@@ -2302,6 +2303,13 @@ def build_parser() -> argparse.ArgumentParser:
     m5_current_route.add_argument("--magnum-python-site", required=True)
     m5_current_route.add_argument("--output", required=True)
     m5_current_route.add_argument("--seed", type=int, default=20_260_820)
+    m5_current_route.add_argument(
+        "--camera-selection",
+        choices=("framing", "lateral_sweep"),
+        default="framing",
+        help="framing keeps the historical distance preference; lateral_sweep "
+        "maximizes the actors' azimuth sweep across the view",
+    )
     m5_current_route.add_argument("--distance-tolerance-m", type=float, default=0.15)
     m5_current_route.add_argument(
         "--minimum-center-separation-m", type=float, default=0.75

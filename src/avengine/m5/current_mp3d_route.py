@@ -518,8 +518,19 @@ def _research_camera_candidates(
     maximum_snap_error_m: float,
     maximum_y_delta_m: float,
     minimum_navmesh_clearance_m: float,
+    camera_selection: str = "framing",
 ) -> tuple[tuple[dict[str, Any], dict[str, Any]], ...]:
-    """Return deterministic static M1 requests that frame both visual actors."""
+    """Return deterministic static M1 requests that frame both visual actors.
+
+    ``framing`` prefers a comfortable framing distance. ``lateral_sweep``
+    prefers the camera whose view maximizes the actors' azimuth sweep, so a
+    walking route crosses the field of view and stays audible as motion.
+    """
+
+    if camera_selection not in ("framing", "lateral_sweep"):
+        raise CurrentMP3DRouteError(
+            f"unknown camera_selection: {camera_selection!r}"
+        )
 
     route_points = np.concatenate(
         [
@@ -575,11 +586,35 @@ def _research_camera_candidates(
         ):
             continue
         distance = float(np.linalg.norm(camera_position[[0, 2]] - target[[0, 2]]))
-        score = (
-            abs(distance - 4.5),
-            float(camera_position[0]),
-            float(camera_position[2]),
-        )
+        yaw_radians = math.radians(yaw)
+        cos_yaw, sin_yaw = math.cos(yaw_radians), math.sin(yaw_radians)
+        lateral_sweep_degrees = 0.0
+        for actor_id in CURRENT_ACTOR_IDS:
+            relative = (
+                np.asarray(visual_paths[actor_id], dtype=np.float64)
+                - camera_position
+            )
+            local_x = cos_yaw * relative[:, 0] - sin_yaw * relative[:, 2]
+            local_z = sin_yaw * relative[:, 0] + cos_yaw * relative[:, 2]
+            azimuth = np.degrees(
+                np.unwrap(np.arctan2(local_x, -local_z))
+            )
+            lateral_sweep_degrees = max(
+                lateral_sweep_degrees, float(azimuth.max() - azimuth.min())
+            )
+        if camera_selection == "lateral_sweep":
+            score = (
+                -round(lateral_sweep_degrees, 1),
+                abs(distance - 4.5),
+                float(camera_position[0]),
+                float(camera_position[2]),
+            )
+        else:
+            score = (
+                abs(distance - 4.5),
+                float(camera_position[0]),
+                float(camera_position[2]),
+            )
         candidates.append(
             (
                 score,
@@ -591,6 +626,8 @@ def _research_camera_candidates(
                     "camera_island_id": required_island_id,
                     "analytic_frustum_probe_height_m": 0.35,
                     "route_target_m": target.tolist(),
+                    "camera_selection": camera_selection,
+                    "lateral_sweep_degrees": round(lateral_sweep_degrees, 2),
                 },
             )
         )
@@ -772,6 +809,7 @@ def author_current_mp3d_two_beagle_route(
     magnum_python_site: str | Path,
     output_directory: str | Path,
     seed: int = 20_260_820,
+    camera_selection: str = "framing",
     distance_tolerance_m: float = 0.15,
     minimum_center_separation_m: float = 0.75,
 ) -> dict[str, Any]:
@@ -1001,6 +1039,7 @@ def author_current_mp3d_two_beagle_route(
                     "generated M2 request no longer realizes the selected skin-root path"
                 )
             camera_candidates = _research_camera_candidates(
+                camera_selection=camera_selection,
                 room_inputs=room_inputs,
                 region=region,
                 pathfinder=simulator.pathfinder,
