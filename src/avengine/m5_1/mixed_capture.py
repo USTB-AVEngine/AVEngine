@@ -1122,7 +1122,7 @@ def _select_mixed_capture_runtime(
         runtime_root is not None and _room_declares_external_mp3d_root(room)
     )
     if select_installed:
-        if pbr_asset_root is None:
+        if pbr_asset_root is None and _room_declares_external_mp3d_root(room):
             raise MixedCaptureError(
                 "installed MP3D PBR actor capture requires an explicit "
                 "pbr_asset_root before runtime preparation"
@@ -1221,13 +1221,18 @@ def capture_human_beagle_paths(
     output = Path(output_dir).resolve()
     if output.exists() or output.is_symlink():
         raise MixedCaptureError(f"refusing to replace capture output: {output}")
-    installed_requested = _installed_runtime_inputs_requested(
-        runtime_prefix=runtime_prefix,
-        mp3d_root=mp3d_root,
-        magnum_python_site=magnum_python_site,
-        pbr_asset_root=pbr_asset_root,
-    )
-    if installed_runtime is None and installed_requested and pbr_asset_root is None:
+    mp3d_selected = mp3d_root is not None or "AVENGINE_MP3D_ROOT" in os.environ
+    if (
+        installed_runtime is None
+        and mp3d_selected
+        and pbr_asset_root is None
+        and _installed_runtime_inputs_requested(
+            runtime_prefix=runtime_prefix,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+            pbr_asset_root=pbr_asset_root,
+        )
+    ):
         raise MixedCaptureError(
             "installed MP3D PBR actor capture requires an explicit "
             "pbr_asset_root before runtime preparation"
@@ -1256,6 +1261,8 @@ def capture_human_beagle_paths(
             installed_runtime=installed_runtime,
         )
         if installed_runtime is not None:
+            if research_capture_schema == MIXED_CAPTURE_SCHEMA:
+                research_capture_schema = MIXED_CAPTURE_INSTALLED_SCHEMA_V2
             if (
                 _room_declares_external_mp3d_root(room_inputs.room)
                 and installed_runtime.mp3d_root is None

@@ -1549,7 +1549,11 @@ def run_fixed_apartment_canary(
                     actor_root_paths=actor_root_paths,
                     actor_fallback_forwards_xz=actor_fallback_forwards_xz,
                     output_dir=staging / "shared/master_capture",
-                    runtime_root=runtime_root,
+                    runtime_root=(
+                        None
+                        if "AVENGINE_HABITAT_RUNTIME_PREFIX" in os.environ
+                        else runtime_root
+                    ),
                     route_provenance={
                         "route_family": "m6x_fixed_apartment_master_270",
                         "source": (
