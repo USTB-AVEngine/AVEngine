@@ -347,7 +347,9 @@ def test_rejects_decoupled_camera_listener() -> None:
         )
 
 
-def test_semantic_v2_plan_and_execution_are_path_only_and_fresh() -> None:
+def test_semantic_v2_plan_and_execution_are_path_only_and_fresh(
+    tmp_path: Path,
+) -> None:
     _, _, evidence = fixtures()
     request = load(
         layout_path(
@@ -355,6 +357,10 @@ def test_semantic_v2_plan_and_execution_are_path_only_and_fresh() -> None:
             "examples/qa/native_strict_two_human_skokloster_room_atom_v2.json",
         )
     )
+    manifest = tmp_path / "clean_package" / "manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(json.dumps({}) + "\n")
+    request["room"]["acoustic_package_manifest"] = str(manifest)
     MODULE._validate_request(request)
     documents = MODULE._build_documents(request, evidence)
     rir_cache = pytest.importorskip("avengine.m6x.rir_cache")
