@@ -855,3 +855,45 @@ of the new clip is pending. Remaining engine work: the Apartment
 production-form bundle (UE RGB plus bound audio) and fresh-environment
 native-layer validation; the MP3D S-series expansion stays a post-merge
 production task.
+
+## Checkpoint 20260821i: Apartment UE production-form audio and fresh-native bootstrap closure
+
+Apartment production-form bundle (82bb30c): the room-agnostic core
+render_dynamic_research_audio is factored out of the MP3D verb, and the new
+avengine.m7.apartment_dynamic_audio module binds the current Apartment UE
+capture to it — the legacy glTF-import transform (U = 100 * (H.x, H.z, H.y))
+is inverted on the captured per-frame UE anchor poses, the anchor-library
+mouth/muzzle emitter heights apply per slot, and the capture camera must
+match the fixed-apartment M1 listener authority (cross-checked at 1e-6).
+tools/m7/render_current_apartment_dynamic_audio.py rendered the natural
+parallel capture (research_only) with the validated human/beagle turn-taking
+program (current_apartment_human_beagle_turn_taking_v1, sequential_sources):
+/data/avengine_external/review/current_apartment_dynamic_audio_natural_parallel_v1
+including apartment_ue_dynamic_turn_taking_binaural.mp4 (UE RGB plus bound
+dynamic audio, assembled in-engine). Windowed ILD: human near-median
+(+0.26 / +0.39 / -0.32 dB along the approach) and dog right-lateralized and
+strengthening (-1.42 / -1.91 / -3.22 dB) — consistent with the two parallel
+approach paths. The UE capture itself came from the apartment-visual-fix
+workstream (1fd3f5d); which capture becomes the production episode remains
+the owner's pick, and this chain re-renders audio for any capture with the
+same record layout.
+
+Fresh-native bootstrap closure (4edba1a, 9d75f9f): the fresh-clone native
+execution check exposed that no native runtime dependency was declared
+anywhere in pyproject — a fresh env could import avengine but not the
+installed Habitat runtime. pyproject now declares the native extra
+(numpy-quaternion, sofar, attrs, imageio, imageio-ffmpeg, scipy, numba,
+tqdm, GitPython) and setup.sh --profile native_external installs
+[test,native]. After the fix, the dedicated fresh clone plus fresh env
+(/data/jzy/tmp/avengine-bootstrap-verify-20260821, only declared
+dependencies) executed m5 render-current-mp3d-dynamic-audio natively end to
+end: /data/jzy/tmp/avengine-native-verify-mp3d-audio-v3, status pass — and
+its binaural mixture and stems are byte-identical (sha256) to the main-env
+render, with matching trajectory hashes. Environment-robustness test fixes
+landed as 9a76e5b.
+
+The native_habitat/rlr_audio pytest markers select no tests by design; the
+native layer is validated by real native executions such as the above, plus
+the fixed-apartment closure canary. The formal dataset denominator stays 0.
+Owner-pending: listening review of the MP3D dynamic clip and the Apartment
+UE dynamic clip; push of the day's commits.
