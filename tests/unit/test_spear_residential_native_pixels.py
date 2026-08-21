@@ -585,7 +585,14 @@ def test_run_visual_only_native_multimodal_needs_no_audio_and_keeps_frames(
         "_actor_bounds_readback",
         lambda _actor, frame_index: {"frame_index": frame_index},
     )
-    monkeypatch.setattr(TOOL, "_spawn_review_lights", lambda *_args: [])
+    light_record = {
+        "light_id": "kitchen_ceiling_0000_anchored_fill",
+        "source_prim": "/Root/Meshes/kitchen_736/ceiling_light_0000",
+        "generated_review_light": True,
+    }
+    monkeypatch.setattr(
+        TOOL, "_spawn_review_lights", lambda *_args: [light_record]
+    )
     monkeypatch.setattr(TOOL, "_destroy_runtime_actors", lambda *_args: None)
     monkeypatch.setattr(
         TOOL,
@@ -644,6 +651,8 @@ def test_run_visual_only_native_multimodal_needs_no_audio_and_keeps_frames(
     assert receipt["root_readback"] == {"status": "pass"}
     assert receipt["animation_phase_readback"]
     assert receipt["visual_bounds_readback"] == {"status": "pass"}
+    assert receipt["runtime_review_lights"] == [light_record]
+    assert receipt["visual_lighting"] == episode["visual_lighting"]
     assert receipt["native_pixel"]["frame_count"] == 75
     truth = json.loads(
         (tmp_path / "output/pixel_visibility_truth.json").read_text(encoding="utf-8")

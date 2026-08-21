@@ -43,6 +43,7 @@ def _visual_episode_projection(episode: dict[str, Any]) -> dict[str, Any]:
         "status": "research_only",
         "scene": episode["scene"],
         "review_lights": episode["review_lights"],
+        "visual_lighting": episode["visual_lighting"],
         "visual_plan": {
             "backend_role": visual_plan["backend_role"],
             "camera": visual_plan["camera"],
