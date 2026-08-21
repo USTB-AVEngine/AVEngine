@@ -396,13 +396,17 @@ def _pathfinder_record(
 def _actor_root_path(
     source_frames: Sequence[Any], base_skin_path: np.ndarray
 ) -> np.ndarray:
+    # The navmesh floor path is the world-contact support plane, and the
+    # world-contact rig anchors the actor root on that plane; the skin root
+    # rides above it through actor_from_skin_root. Subtracting the per-frame
+    # skin-to-actor lift here sank the whole actor below the floor.
     roots: list[np.ndarray] = []
     for index, frame in enumerate(source_frames):
         skin = np.asarray(frame.world_from_skin_root, dtype=np.float64)
         actor = np.asarray(frame.world_from_actor, dtype=np.float64)
         if skin.shape != (4, 4) or actor.shape != (4, 4):
             raise CurrentMP3DRouteError("source M2 frame matrix is invalid")
-        roots.append(base_skin_path[index] - (skin[:3, 3] - actor[:3, 3]))
+        roots.append(np.asarray(base_skin_path[index], dtype=np.float64))
     result = np.asarray(roots, dtype=np.float64)
     if result.shape != (FRAME_COUNT, 3) or not np.all(np.isfinite(result)):
         raise CurrentMP3DRouteError("derived M2 actor-root path is invalid")
@@ -1027,16 +1031,17 @@ def author_current_mp3d_two_beagle_route(
                 request=request,
             )
             generated_frames = compile_frame_applications(generated_inputs, bundle)
-            generated_skin = np.asarray(
+            generated_actor = np.asarray(
                 [
-                    np.asarray(frame.world_from_skin_root, dtype=np.float64)[:3, 3]
+                    np.asarray(frame.world_from_actor, dtype=np.float64)[:3, 3]
                     for frame in generated_frames
                 ],
                 dtype=np.float64,
             )
-            if not np.allclose(generated_skin, base_skin_path, rtol=0.0, atol=2.0e-6):
+            if not np.allclose(generated_actor, base_skin_path, rtol=0.0, atol=2.0e-6):
                 raise CurrentMP3DRouteError(
-                    "generated M2 request no longer realizes the selected skin-root path"
+                    "generated M2 request no longer realizes the selected "
+                    "support-plane actor-root path"
                 )
             camera_candidates = _research_camera_candidates(
                 camera_selection=camera_selection,
