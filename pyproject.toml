@@ -18,7 +18,17 @@ dependencies = [
 
 [project.optional-dependencies]
 rlr = ["sofar>=1.2.3"]
-native = ["numpy-quaternion>=2022.4", "sofar>=1.2.3"]
+native = [
+  "numpy-quaternion>=2022.4",
+  "sofar>=1.2.3",
+  "attrs>=22",
+  "imageio>=2.31",
+  "imageio-ffmpeg>=0.4",
+  "scipy>=1.10",
+  "numba>=0.57",
+  "tqdm>=4.64",
+  "GitPython>=3.1",
+]
 test = ["pytest>=8"]
 
 [project.scripts]
