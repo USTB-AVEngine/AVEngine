@@ -29,6 +29,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--visual-capture-dir", required=True, type=Path)
     parser.add_argument("--mixture-wav", required=True, type=Path)
+    parser.add_argument(
+        "--channel-order",
+        choices=("rgb", "bgr"),
+        default="rgb",
+        help="stored channel order of arrays/rgb.npy (the UE apartment "
+        "capture reads back BGR; Habitat captures store RGB)",
+    )
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -43,6 +50,8 @@ def main() -> int:
     rgb = np.load(rgb_path)
     if rgb.ndim != 4 or rgb.shape[3] != 3:
         parser.error(f"rgb array must be [frames, height, width, 3]: {rgb.shape}")
+    if args.channel_order == "bgr":
+        rgb = np.ascontiguousarray(rgb[..., ::-1])
     height, width = int(rgb.shape[1]), int(rgb.shape[2])
     profile = ReviewVisualProfile(
         path=rgb_path,
