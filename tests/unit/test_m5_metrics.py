@@ -297,6 +297,144 @@ def _semantic_frame(
     }
 
 
+def _two_side_semantic_summary(
+    right_itd_seconds: tuple[float, ...],
+    left_itd_seconds: tuple[float, ...],
+    *,
+    swap_channels: bool = False,
+) -> dict[str, object]:
+    frames: list[dict[str, object]] = []
+    for azimuth_deg, ild_db, side_itds in (
+        (30.0, -4.0, right_itd_seconds),
+        (-30.0, 4.0, left_itd_seconds),
+    ):
+        for itd_seconds in side_itds:
+            frame_ild = -ild_db if swap_channels else ild_db
+            frame_itd = -itd_seconds if swap_channels else itd_seconds
+            frames.append(
+                _semantic_frame(
+                    len(frames),
+                    azimuth_deg,
+                    frame_ild,
+                    frame_itd,
+                )
+            )
+    return summarize_lateral_cue_consistency(frames)
+
+
+def test_lateral_cue_summary_accepts_ambiguous_raw_side_itd_median() -> None:
+    report = _two_side_semantic_summary(
+        (-3.8e-6, -3.8e-6, 50.0e-6),
+        (-20.0e-6, -20.0e-6, -50.0e-6),
+    )
+    assert report["status"] == "pass"
+    assert report["formal_acceptance_allowed"] is True
+    assert report["aggregate_by_side"]["right"]["itd_seconds_median"] == pytest.approx(
+        -3.8e-6
+    )
+    assert (
+        report["aggregate_by_side"]["right"]["rates"]["itd_sign_consistency_rate"]
+        == 1.0
+    )
+    assert report["aggregate_by_side"]["right"]["rates"][
+        "cue_coverage_rate"
+    ] == pytest.approx(2.0 / 3.0)
+    assert report["lateral_separation"][
+        "itd_right_minus_left_seconds"
+    ] == pytest.approx(16.2e-6)
+    assert "right_median_itd_not_positive_nonzero" not in report["rejection_reasons"]
+
+
+@pytest.mark.parametrize(
+    ("right_itds", "left_itds", "expected_status", "median_reason"),
+    [
+        (
+            (5.0e-6, 5.0e-6, 50.0e-6),
+            (-20.0e-6, -20.0e-6, -50.0e-6),
+            "pass",
+            None,
+        ),
+        (
+            (-4.999e-6, -4.999e-6, 50.0e-6),
+            (-20.0e-6, -20.0e-6, -50.0e-6),
+            "pass",
+            None,
+        ),
+        (
+            (-5.0e-6, -5.0e-6, 50.0e-6),
+            (-20.0e-6, -20.0e-6, -50.0e-6),
+            "fail",
+            "right_median_itd_not_positive_nonzero",
+        ),
+        (
+            (20.0e-6, 20.0e-6, 50.0e-6),
+            (-5.0e-6, -5.0e-6, -50.0e-6),
+            "pass",
+            None,
+        ),
+        (
+            (20.0e-6, 20.0e-6, 50.0e-6),
+            (4.999e-6, 4.999e-6, -50.0e-6),
+            "pass",
+            None,
+        ),
+        (
+            (20.0e-6, 20.0e-6, 50.0e-6),
+            (5.0e-6, 5.0e-6, -50.0e-6),
+            "fail",
+            "left_median_itd_not_negative_nonzero",
+        ),
+    ],
+)
+def test_lateral_cue_summary_raw_itd_median_exact_ambiguity_boundaries(
+    right_itds: tuple[float, ...],
+    left_itds: tuple[float, ...],
+    expected_status: str,
+    median_reason: str | None,
+) -> None:
+    report = _two_side_semantic_summary(right_itds, left_itds)
+    assert report["status"] == expected_status
+    if median_reason is None:
+        assert (
+            "right_median_itd_not_positive_nonzero" not in report["rejection_reasons"]
+        )
+        assert "left_median_itd_not_negative_nonzero" not in report["rejection_reasons"]
+    else:
+        assert median_reason in report["rejection_reasons"]
+
+
+def test_lateral_cue_summary_missing_raw_side_itd_median_still_fails() -> None:
+    report = summarize_lateral_cue_consistency(
+        [
+            _semantic_frame(0, 30.0, -4.0, 20.0e-6),
+            _semantic_frame(1, 30.0, -4.0, 50.0e-6),
+        ]
+    )
+    assert report["status"] == "fail"
+    assert report["formal_acceptance_allowed"] is False
+    assert report["aggregate_by_side"]["left"]["itd_seconds_median"] is None
+    assert (
+        "left_median_itd_not_negative_nonzero" in report["rejection_reasons"]
+    )
+
+
+def test_lateral_cue_summary_ambiguous_itd_median_does_not_hide_swap() -> None:
+    report = _two_side_semantic_summary(
+        (-3.8e-6, -3.8e-6, 50.0e-6),
+        (-20.0e-6, -20.0e-6, -50.0e-6),
+        swap_channels=True,
+    )
+    assert report["status"] == "fail"
+    assert report["formal_acceptance_allowed"] is False
+    assert report["aggregate_by_side"]["right"]["itd_seconds_median"] == pytest.approx(
+        3.8e-6
+    )
+    assert "right_median_itd_not_positive_nonzero" not in report["rejection_reasons"]
+    assert "right_ild_sign_consistency_below_threshold" in report["rejection_reasons"]
+    assert "left_ild_sign_consistency_below_threshold" in report["rejection_reasons"]
+    assert "left_itd_sign_consistency_below_threshold" in report["rejection_reasons"]
+
+
 def test_lateral_cue_summary_excludes_gcc_search_boundary_from_itd_gate() -> None:
     right = _fractional_impulse(0.0)
     left = _fractional_impulse(16.0, amplitude=0.5)
@@ -383,3 +521,8 @@ def test_lateral_cue_summary_exempts_near_median_but_not_all_zero() -> None:
     assert "right_has_no_non_ambiguous_ild_vote" in all_zero["rejection_reasons"]
     assert "left_has_no_non_ambiguous_itd_vote" in all_zero["rejection_reasons"]
     assert "right_median_ild_not_negative_nonzero" in all_zero["rejection_reasons"]
+    assert (
+        "left_right_itd_median_separation_below_threshold"
+        in all_zero["rejection_reasons"]
+    )
+    assert all_zero["formal_acceptance_allowed"] is False

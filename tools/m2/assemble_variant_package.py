@@ -6,11 +6,17 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Sequence
 
-from avengine.contracts.json_io import sha256_file
-from avengine.m2.contracts import validate_animal_asset_package
-from avengine.m2.variant_package import (
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+SOURCE_ROOT = REPOSITORY_ROOT / "src"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from avengine.contracts.json_io import sha256_file  # noqa: E402
+from avengine.m2.contracts import validate_animal_asset_package  # noqa: E402
+from avengine.m2.variant_package import (  # noqa: E402
     VariantPackageEvidence,
     assemble_variant_package,
     load_variant_package_spec,

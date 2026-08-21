@@ -25,7 +25,17 @@ from avengine.release import (
 )
 from avengine.release_receipt import (
     DEFAULT_RLR_SUBMODULE_PATH,
+    RELEASE_V1_ARCHIVAL_ERROR,
     execute_test_receipt,
+)
+from avengine.release_current import (
+    prepare_current_release_manifest,
+    verify_current_release_manifest,
+)
+from avengine.release_current_receipt import (
+    CurrentReleaseReceiptError,
+    display_current_workspace_path,
+    execute_current_test_receipt,
 )
 
 
@@ -81,6 +91,39 @@ def _parser() -> argparse.ArgumentParser:
         help="exact executed argv, placed after --",
     )
 
+    current_receipt = commands.add_parser(
+        "current-receipt",
+        help=(
+            "write one ordinary current-installed receipt; this does not "
+            "claim a native RLR or formal release"
+        ),
+    )
+    current_receipt.add_argument("--output", type=Path, required=True)
+    current_receipt.add_argument("--workspace-root", type=Path, default=Path.cwd())
+    current_receipt.add_argument("--runtime-prefix", type=Path, required=True)
+    current_receipt.add_argument("--rlr-sdk-root", type=Path, required=True)
+    current_receipt.add_argument("--scene-data-root", type=Path, required=True)
+    current_receipt.add_argument("--magnum-python-site", type=Path, required=True)
+    current_receipt.add_argument("--receipt-id", required=True)
+    current_receipt.add_argument(
+        "--layer-id",
+        required=True,
+        choices=(
+            "fast-unit",
+            "slow-hermetic",
+        ),
+    )
+    current_receipt.add_argument(
+        "--junit-xml",
+        required=True,
+        help="fresh workspace-relative JUnit XML path the command must generate",
+    )
+    current_receipt.add_argument(
+        "execution_command",
+        nargs=argparse.REMAINDER,
+        help="exact executed argv, placed after --",
+    )
+
     prepare = commands.add_parser(
         "prepare", help="atomically create the manifest while HEAD is clean commit A"
     )
@@ -129,6 +172,34 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
         metavar="ROOT_ID=PATH",
     )
+
+    current_prepare = commands.add_parser(
+        "current-prepare",
+        help=(
+            "write one ordinary current-installed candidate; it remains "
+            "formal_release_status=not_run"
+        ),
+    )
+    current_prepare.add_argument("--request", type=Path, required=True)
+    current_prepare.add_argument("--avengine-root", type=Path, default=Path.cwd())
+    current_prepare.add_argument("--runtime-prefix", type=Path, required=True)
+    current_prepare.add_argument("--rlr-sdk-root", type=Path, required=True)
+    current_prepare.add_argument("--scene-data-root", type=Path, required=True)
+    current_prepare.add_argument("--magnum-python-site", type=Path, required=True)
+
+    current_verify = commands.add_parser(
+        "current-verify",
+        help=(
+            "verify an ordinary current-installed candidate without a Habitat "
+            "checkout or RLR submodule"
+        ),
+    )
+    current_verify.add_argument("--manifest", type=Path, required=True)
+    current_verify.add_argument("--avengine-root", type=Path, default=Path.cwd())
+    current_verify.add_argument("--runtime-prefix", type=Path, required=True)
+    current_verify.add_argument("--rlr-sdk-root", type=Path, required=True)
+    current_verify.add_argument("--scene-data-root", type=Path, required=True)
+    current_verify.add_argument("--magnum-python-site", type=Path, required=True)
     return parser
 
 
@@ -136,6 +207,94 @@ def main(argv: Sequence[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     arguments = _parser().parse_args(raw_arguments)
     try:
+        if arguments.command in {"receipt", "prepare", "verify", "verify-attestation"}:
+            raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
+
+        if arguments.command == "current-receipt":
+            executed_command = list(arguments.execution_command)
+            if executed_command[:1] == ["--"]:
+                executed_command = executed_command[1:]
+            if "--" not in raw_arguments:
+                raise ValueError(
+                    "current-receipt execution command must be placed after "
+                    "an explicit --"
+                )
+            separator = raw_arguments.index("--")
+            if raw_arguments[separator + 1 :] != executed_command:
+                raise ValueError(
+                    "the first explicit -- must delimit the current-receipt "
+                    "execution command"
+                )
+            execution = execute_current_test_receipt(
+                arguments.output,
+                workspace_root=arguments.workspace_root,
+                runtime_prefix=arguments.runtime_prefix,
+                rlr_sdk_root=arguments.rlr_sdk_root,
+                scene_data_root=arguments.scene_data_root,
+                magnum_python_site=arguments.magnum_python_site,
+                receipt_id=arguments.receipt_id,
+                test_layer_id=arguments.layer_id,
+                junit_xml=arguments.junit_xml,
+                command=executed_command,
+            )
+            result = {
+                "schema": "avengine_current_release_receipt_write_result_v2",
+                "status": execution.receipt["status"],
+                "write_status": "written",
+                "claim_scope": "ordinary_current_candidate",
+                "formal_release_status": "not_run",
+                "path": display_current_workspace_path(
+                    Path(arguments.workspace_root),
+                    execution.path,
+                ),
+                "exit_code": execution.exit_code,
+                "result_totals": execution.receipt["result_totals"],
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return execution.exit_code
+
+        if arguments.command == "current-prepare":
+            published = prepare_current_release_manifest(
+                arguments.request,
+                avengine_root=arguments.avengine_root,
+                runtime_prefix=arguments.runtime_prefix,
+                rlr_sdk_root=arguments.rlr_sdk_root,
+                scene_data_root=arguments.scene_data_root,
+                magnum_python_site=arguments.magnum_python_site,
+            )
+            manifest = load_json_strict(published)
+            result = {
+                "schema": "avengine_current_release_prepare_result_v2",
+                "status": "prepared",
+                "claim_scope": "ordinary_current_candidate",
+                "formal_release_status": "not_run",
+                "implementation_commit_a": manifest["repositories"]["avengine"][
+                    "implementation_commit"
+                ],
+                "manifest": str(published),
+                "next_steps": [
+                    "retain the candidate and receipt as ordinary current "
+                    "workspace evidence",
+                    "do not call this candidate a formal release",
+                    "obtain a legal external RLR SDK and adapter-on native "
+                    "evidence before any formal release process",
+                ],
+            }
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+
+        if arguments.command == "current-verify":
+            report = verify_current_release_manifest(
+                arguments.manifest,
+                avengine_root=arguments.avengine_root,
+                runtime_prefix=arguments.runtime_prefix,
+                rlr_sdk_root=arguments.rlr_sdk_root,
+                scene_data_root=arguments.scene_data_root,
+                magnum_python_site=arguments.magnum_python_site,
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0 if report["status"] == "pass" else 1
+
         if arguments.command == "receipt":
             executed_command = list(arguments.execution_command)
             if executed_command[:1] == ["--"]:
@@ -228,7 +387,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(attestation, indent=2, sort_keys=True))
         return 0
-    except (ReleaseManifestError, OSError, ValueError) as exc:
+    except (
+        CurrentReleaseReceiptError,
+        ReleaseManifestError,
+        OSError,
+        ValueError,
+    ) as exc:
         print(
             json.dumps(
                 {

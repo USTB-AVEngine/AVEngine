@@ -4,7 +4,32 @@ AVEngine does not need one renderer to be best for every room family. The
 maintained policy is to choose the visual presentation backend per room while
 keeping one episode authority. Habitat-native AVEngine owns Timeline state,
 navigation, source centers, source programs, audio, Topdown, flags and
-metadata. UE/SPEAR is optional and has the bounded role `comparison_visual`.
+metadata. UE/SPEAR's visual role is room-family-specific: `comparison_visual`
+for MP3D, but the production visual backend for Apartment and
+InteriorAgent/Kujiale as routed below.
+
+## Canonical production invariant
+
+The room family determines the production backend. Retained experiments,
+optional comparison plans and previously passing evidence do not override this
+routing:
+
+- MP3D scene execution, visual pixels, sensors and articulated pose are
+  Habitat-Sim outputs. Its acoustics are RLR using SoundSpaces material
+  authority on the same Habitat scene and state. The corrected MP3D UE import
+  remains a `comparison_visual` diagnostic and must never be used as production
+  output, admission evidence or a counted Episode.
+- SPEAR `apartment_0000` uses its native UE/SPEAR map for production visual
+  execution.
+- InteriorAgent/Kujiale uses the UE/SPEAR external-USD adapter and its audited
+  MDL-to-USD material adaptation for production visual execution.
+- Skokloster is not a production room family. Do not execute or count it unless
+  the project owner explicitly reauthorizes it for a named task.
+
+Before running an Episode, confirm that its scene, capture command and declared
+backend all match this table. Do not run or count backend-mismatched Episodes;
+in particular, a SPEAR-based MP3D capture remains a diagnostic even when its
+ordinary structural checks pass.
 
 ## Recommended routing
 
@@ -12,8 +37,8 @@ metadata. UE/SPEAR is optional and has the bounded role `comparison_visual`.
 | --- | --- | --- | --- |
 | MP3D | Habitat-Sim | The reconstructed scan texture already contains captured color and illumination. Treating it as a clean PBR room and adding UE lights can double-light it and emphasize scan holes. | Habitat is primary; the corrected-color UE import remains a compatibility diagnostic. |
 | ReplicaCAD | UE/SPEAR | The scene is assembled from PBR assets, so UE material evaluation, local point-light shadows and exposure are more coherent. | UE is the preferred review presentation; Habitat remains authoritative for navigation and episode state. |
-| SPEAR `apartment_0000` | Native UE/SPEAR map | The authored UE map already contains its glass, exterior presentation, materials, lighting and post-process setup. | Native UE is the preferred realism presentation; the Habitat package remains the protocol/source-logic reference. |
-| InteriorAgent/Kujiale | Optional UE/SPEAR external-USD adapter | It supplies structured USD scenes, MDL materials, lights and `rooms.json`. The adapter converts the useful MDL inputs to portable USD PreviewSurface without copying the source scene. | The real `kujiale_0020` living-room episode and one kitchen-zone/open-plan episode pass. A full-home material adapter passes; bathroom visual review fails and bedroom/balcony dynamic review remains `not_run`. |
+| SPEAR `apartment_0000` | Native UE/SPEAR map | The authored UE map already contains its glass, exterior presentation, materials, lighting and post-process setup. | Native UE is the production visual presentation; AVEngine remains the protocol/source-logic authority. |
+| InteriorAgent/Kujiale | UE/SPEAR external-USD adapter | It supplies structured USD scenes, MDL materials, lights and `rooms.json`. The adapter converts the useful MDL inputs to portable USD PreviewSurface without copying the source scene. | The real `kujiale_0020` living-room episode and one kitchen-zone/open-plan episode pass. A full-home material adapter passes; bathroom visual review fails and bedroom/balcony dynamic review remains `not_run`. |
 | InteriorNet | Rendered evaluation data, not a runtime room backend | The public release is chiefly a rendered RGB-D/inertial benchmark. The site says rights to the furniture, layouts and scenes remain with Kujiale and directs asset requests to them. | Consider it for RGB/depth/SLAM visual evaluation only unless separate scene-asset permission is obtained. |
 | 3D-FRONT + 3D-FUTURE | Structured-room adapter candidate | Its layouts, semantics and textured furniture are a good match for controllable synthetic rooms. The shared compiler can consume normalized room polygons and object bounds. | A human+Beagle UE canary passes on the official Toolbox five-object sample proxy. Full-house qualification still requires an authorized complete 3D-FRONT release. |
 
@@ -27,7 +52,7 @@ Timeline, navigation or acoustic implementations.
 - ReplicaCAD uses room-local dataset lights in UE. A separately named neutral
   route-center fill may be enabled for review, but it is always labelled as a
   generated visual aid and never as acoustic truth.
-- Native SPEAR Apartment uses the native UE lighting stack for comparison
+- Native SPEAR Apartment uses the native UE lighting stack for production
   pixels. An editable JSON file exposes an untouched `native` preset and an
   optional two-light `warm_indoor_fill` preset. The Habitat review may use its
   own bounded warm indoor profile without claiming UE-equivalent rendering.
@@ -135,9 +160,9 @@ access agreement.
 
 ## What SPEAR itself currently includes
 
-The maintained SPEAR checkout can control arbitrary compatible UE projects,
-but its default cooked-map list is not a catalogue of residential datasets.
-It contains:
+During the current source migration, the maintained SPEAR checkout can control
+arbitrary compatible UE projects, but its default cooked-map list is not a
+catalogue of residential datasets. It contains:
 
 - one authored residential map: `apartment_0000`;
 - two SPEAR debug maps: `debug_0000` and `debug_0001`; and
@@ -148,8 +173,10 @@ It contains:
 Thus, Apartment is the only bundled residential room in the current checkout.
 Additional Kujiale rooms arrive through the external InteriorAgent adapter, not
 through an assumption that hundreds of rooms are already packaged with SPEAR.
-Modern SPEAR is a general UE controller, so this same optional-backend pattern
-can later target another authorized UE project:
+Modern SPEAR is a general UE controller, so the same explicit room-backend
+pattern can later target another authorized UE project. Required distributable
+controller source is intended to move into the canonical AVEngine repository;
+the UE installation and project data remain external:
 
 - <https://github.com/spear-sim/spear>
 

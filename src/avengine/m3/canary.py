@@ -52,6 +52,8 @@ from avengine.m3.runtime import (
     _verify_upload_report,
     RLRSimulationConfig,
     RUNTIME_IMPORT_WORKAROUND,
+    RUNTIME_MODE_CURRENT_INSTALLED,
+    RUNTIME_MODE_HISTORICAL,
     RuntimeAnchor,
     RuntimeContractError,
     RuntimeExecutionError,
@@ -59,8 +61,16 @@ from avengine.m3.runtime import (
     RuntimeUnavailableError,
     load_compiled_acoustic_scene,
     simulate_compiled_acoustic_scene,
+    load_habitat_runtime,
+    require_runtime_mode,
+)
+from avengine.current_installed_runtime import (
+    is_current_installed_runtime_identity as _is_current_installed_runtime_identity,
 )
 from avengine.runtime_lock import resolve_runtime_profile
+CURRENT_INSTALLED_CANARY_EVIDENCE_SCHEMA = (
+    "avengine_m3_acoustic_canary_evidence_v2"
+)
 
 
 CANARY_EVIDENCE_SCHEMA = "avengine_m3_acoustic_canary_evidence_v1"
@@ -999,12 +1009,39 @@ def run_material_activation_canary(
     *,
     environment: Mapping[str, str] | None = None,
     runner: SimulationRunner = simulate_compiled_acoustic_scene,
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
 ) -> Path:
     """Run the strict repeated M3 material canary and publish atomic evidence."""
 
+    runtime_mode = require_runtime_mode(runtime_mode)
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        missing = [
+            name
+            for name, value in (
+                ("runtime_prefix", runtime_prefix),
+                ("rlr_sdk_root", rlr_sdk_root),
+                ("magnum_python_site", magnum_python_site),
+            )
+            if value is None or not str(value).strip()
+        ]
+        if missing:
+            raise AcousticCanaryError(
+                "current-installed M3 requires explicit " + ", ".join(missing)
+            )
     request_file = Path(request_path).resolve()
     compile_file = Path(compile_evidence_path).resolve()
-    runtime_lock = _runtime_lock_path()
+    runtime_lock_record: dict[str, Any] | None = None
+    required_binary_pins: dict[str, str] | None = None
+    if runtime_mode == RUNTIME_MODE_HISTORICAL:
+        runtime_lock_snapshot = _external_file_snapshot(_runtime_lock_path())
+        runtime_lock_record = _snapshot_record(runtime_lock_snapshot)
+        try:
+            required_binary_pins = _required_m3_binary_pins(runtime_lock_snapshot)
+        except ValueError:
+            required_binary_pins = None
     request, room, paths, scenes, compile_checks, snapshots = _load_inputs(
         request_file, compile_file, environment=environment
     )
@@ -1031,18 +1068,56 @@ def run_material_activation_canary(
     checks = _input_invariant_checks(
         request, room, scenes, compile_checks, snapshots
     )
-    runtime_lock_snapshot = _external_file_snapshot(runtime_lock)
-    runtime_lock_record = _snapshot_record(runtime_lock_snapshot)
-    try:
-        required_binary_pins = _required_m3_binary_pins(runtime_lock_snapshot)
-    except ValueError:
-        required_binary_pins = None
+    if (
+        runtime_mode == RUNTIME_MODE_HISTORICAL
+        and all(check["status"] == "pass" for check in checks)
+    ):
+        try:
+            _preflight_m3_runtime_binary_lock(required_binary_pins)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
     planned_order: list[str] = []
     for repeat_index in range(request["repeat_count"]):
         pair = _CONDITIONS if repeat_index % 2 == 0 else tuple(reversed(_CONDITIONS))
         planned_order.extend(pair)
+    inputs: dict[str, Any] = {
+        "room_manifest": snapshots["room_manifest"]["record"],
+        "material_mapping": snapshots["material_mapping"]["record"],
+        "low_absorption_database": snapshots["low_absorption_database"][
+            "record"
+        ],
+        "high_absorption_database": snapshots["high_absorption_database"][
+            "record"
+        ],
+        "compile_evidence": snapshots["compile_evidence"]["record"],
+        "low_absorption_package": _package_input(
+            scenes["low_absorption"],
+            snapshots["low_absorption_package"]["record"],
+        ),
+        "high_absorption_package": _package_input(
+            scenes["high_absorption"],
+            snapshots["high_absorption_package"]["record"],
+        ),
+    }
+    if runtime_mode == RUNTIME_MODE_HISTORICAL:
+        assert runtime_lock_record is not None
+        inputs["runtime_lock"] = runtime_lock_record
+    execution: dict[str, Any] = {
+        "repeat_count": request["repeat_count"],
+        "condition_order": planned_order,
+        "fresh_context_per_run": True,
+        "temporal_coherence": False,
+        "runtime_import_workaround": dict(RUNTIME_IMPORT_WORKAROUND),
+    }
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        execution["runtime_mode"] = runtime_mode
     evidence: dict[str, Any] = {
-        "schema": CANARY_EVIDENCE_SCHEMA,
+        "schema": (
+            CURRENT_INSTALLED_CANARY_EVIDENCE_SCHEMA
+            if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED
+            else CANARY_EVIDENCE_SCHEMA
+        ),
         "request_id": request["request_id"],
         "overall_status": "fail",
         "failure_reasons": [],
@@ -1051,38 +1126,18 @@ def run_material_activation_canary(
             "canonical_content_sha256": canonical_json_sha256(request),
             "snapshot": copy.deepcopy(request),
         },
-        "inputs": {
-            "room_manifest": snapshots["room_manifest"]["record"],
-            "material_mapping": snapshots["material_mapping"]["record"],
-            "low_absorption_database": snapshots["low_absorption_database"][
-                "record"
-            ],
-            "high_absorption_database": snapshots["high_absorption_database"][
-                "record"
-            ],
-            "compile_evidence": snapshots["compile_evidence"]["record"],
-            "runtime_lock": runtime_lock_record,
-            "low_absorption_package": _package_input(
-                scenes["low_absorption"],
-                snapshots["low_absorption_package"]["record"],
-            ),
-            "high_absorption_package": _package_input(
-                scenes["high_absorption"],
-                snapshots["high_absorption_package"]["record"],
-            ),
-        },
-        "execution": {
-            "repeat_count": request["repeat_count"],
-            "condition_order": planned_order,
-            "fresh_context_per_run": True,
-            "temporal_coherence": False,
-            "runtime_import_workaround": dict(RUNTIME_IMPORT_WORKAROUND),
-        },
+        "inputs": inputs,
+        "execution": execution,
         "checks": checks,
         "conditions": conditions,
         "comparisons": {},
         "evidence_content_sha256": "0" * 64,
     }
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        evidence["runtime"] = {
+            "runtime_mode": runtime_mode,
+            "current_installed_identity": None,
+        }
     try:
         inputs_passed = all(check["status"] == "pass" for check in checks)
         stop = not inputs_passed
@@ -1114,14 +1169,24 @@ def run_material_activation_canary(
                 run_id = f"{condition}_repeat_{repeat_index:03d}"
                 readback_path = staging / "runtime_readback" / f"{run_id}.obj"
                 try:
+                    runner_kwargs: dict[str, Any] = {
+                        "source": source,
+                        "listener": listener,
+                        "scene_readback_obj": readback_path,
+                        "ray_checks": tuple(room["ray_checks"]),
+                        "ray_distance_tolerance_m": ray_distance_tolerance,
+                    }
+                    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+                        runner_kwargs.update(
+                            {
+                                "runtime_mode": runtime_mode,
+                                "runtime_prefix": runtime_prefix,
+                                "rlr_sdk_root": rlr_sdk_root,
+                                "magnum_python_site": magnum_python_site,
+                            }
+                        )
                     runtime_result = runner(
-                        scenes[condition],
-                        simulation,
-                        source=source,
-                        listener=listener,
-                        scene_readback_obj=readback_path,
-                        ray_checks=tuple(room["ray_checks"]),
-                        ray_distance_tolerance_m=ray_distance_tolerance,
+                        scenes[condition], simulation, **runner_kwargs
                     )
                     _validate_runtime_result(
                         runtime_result,
@@ -1193,6 +1258,11 @@ def run_material_activation_canary(
                     "passed": arrival_error <= arrival_threshold,
                 }
                 runtime_payload = copy.deepcopy(runtime_result.runtime)
+                if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+                    # The repeat identity is the complete current-runtime receipt.
+                    # Do not retain duplicate loose path reports beside it.
+                    runtime_payload.pop("installed_habitat_runtime", None)
+                    runtime_payload.pop("external_rlr_sdk", None)
                 readback = runtime_payload.get("scene_mesh_readback")
                 if isinstance(readback, dict):
                     raw_readback_path = Path(str(readback.pop("path"))).resolve()
@@ -1312,42 +1382,92 @@ def run_material_activation_canary(
             for condition in _CONDITIONS
             for run in conditions[condition]["runs"]
         ]
-        binary_records = [
-            run.get("runtime", {}).get("native_binaries") for run in completed_runs
-        ]
-        binary_identity = (
-            bool(binary_records)
-            and all(
-                record == binary_records[0] and isinstance(record, dict)
-                for record in binary_records
+        if runtime_mode == RUNTIME_MODE_HISTORICAL:
+            assert runtime_lock_record is not None
+            binary_records = [
+                run.get("runtime", {}).get("native_binaries")
+                for run in completed_runs
+            ]
+            binary_identity = (
+                bool(binary_records)
+                and all(
+                    record == binary_records[0] and isinstance(record, dict)
+                    for record in binary_records
+                )
+                and _native_binary_record_matches_pins(
+                    binary_records[0], required_binary_pins
+                )
             )
-            and _native_binary_record_matches_pins(
-                binary_records[0], required_binary_pins
-            )
-        )
-        checks.append(
-            _check(
-                "runtime_native_binary_identity",
-                binary_identity,
-                measured={
-                    "completed_run_count": len(completed_runs),
-                    "unique_record_count": len(
-                        {
-                            canonical_json_sha256(record)
-                            for record in binary_records
-                            if isinstance(record, dict)
-                        }
+            checks.append(
+                _check(
+                    "runtime_native_binary_identity",
+                    binary_identity,
+                    measured={
+                        "completed_run_count": len(completed_runs),
+                        "unique_record_count": len(
+                            {
+                                canonical_json_sha256(record)
+                                for record in binary_records
+                                if isinstance(record, dict)
+                            }
+                        ),
+                        "native_binaries": (
+                            binary_records[0] if binary_identity else None
+                        ),
+                    },
+                    threshold={
+                        "same_hash_bound_native_binaries_every_repeat": True,
+                        "runtime_lock_sha256": runtime_lock_record["sha256"],
+                    },
+                    failure_reason=(
+                        "Runs did not use one hash-bound Habitat/RLR binary pair"
                     ),
-                    "native_binaries": binary_records[0] if binary_identity else None,
-                },
-                threshold={
-                    "same_hash_bound_native_binaries_every_repeat": True,
-                    "runtime_lock_sha256": runtime_lock_record["sha256"],
-                },
-                failure_reason="Runs did not use one hash-bound Habitat/RLR binary pair",
-                blocked=any(check["status"] == "blocked" for check in checks),
+                    blocked=any(
+                        check["status"] == "blocked" for check in checks
+                    ),
+                )
             )
-        )
+        else:
+            identity_records = [
+                run.get("runtime", {}).get("runtime_identity")
+                for run in completed_runs
+            ]
+            current_identity = (
+                bool(identity_records)
+                and all(
+                    _is_current_installed_runtime_identity(record)
+                    and record == identity_records[0]
+                    for record in identity_records
+                )
+            )
+            unique_identity_records: list[Any] = []
+            for record in identity_records:
+                if record not in unique_identity_records:
+                    unique_identity_records.append(record)
+            evidence["runtime"]["current_installed_identity"] = (
+                copy.deepcopy(identity_records[0]) if current_identity else None
+            )
+            checks.append(
+                _check(
+                    "runtime_current_installed_identity",
+                    current_identity,
+                    measured={
+                        "completed_run_count": len(completed_runs),
+                        "unique_identity_count": len(unique_identity_records),
+                        "current_installed_identity": (
+                            identity_records[0] if current_identity else None
+                        ),
+                    },
+                    threshold={"same_runtime_identity_every_repeat": True},
+                    failure_reason=(
+                        "Runs did not use one consistent current-installed "
+                        "Habitat/RLR runtime identity"
+                    ),
+                    blocked=any(
+                        check["status"] == "blocked" for check in checks
+                    ),
+                )
+            )
         if repeats_complete:
             for metric_name in _METRICS:
                 low_values = [
@@ -1411,6 +1531,24 @@ def _schema_errors(value: Any) -> list[str]:
         for error in errors
     ]
 
+
+
+def _current_installed_schema_errors(value: Any) -> list[str]:
+    schema_path = (
+        Path(__file__).resolve().parents[3]
+        / "schemas"
+        / "m3_acoustic_canary_evidence_v2.schema.json"
+    )
+    schema = load_json(schema_path)
+    validator = Draft202012Validator(schema)
+    errors = sorted(
+        validator.iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    )
+    return [
+        f"{'.'.join(str(part) for part in error.absolute_path) or '$'}: {error.message}"
+        for error in errors
+    ]
 
 def _all_finite(value: Any) -> bool:
     if value is None or isinstance(value, (bool, str)):
@@ -1494,6 +1632,26 @@ def _native_binary_record_matches_pins(
     )
 
 
+
+def _preflight_m3_runtime_binary_lock(
+    required_binary_pins: Mapping[str, str] | None,
+) -> None:
+    """Reject a historical lock mismatch before any M3 RLR context is created."""
+
+    if required_binary_pins is None:
+        raise RuntimeUnavailableError(
+            "M3 historical runtime lock is invalid before executing an RLR job"
+        )
+    _, runtime = load_habitat_runtime()
+    observed = runtime.get("native_binaries")
+    if not _native_binary_record_matches_pins(observed, required_binary_pins):
+        raise RuntimeUnavailableError(
+            "Installed Habitat/RLR binaries differ from the M3 historical lock "
+            "before executing an RLR job"
+        )
+
+
+
 def _confined_artifact(base: Path, record: Any, owner: str) -> tuple[Path | None, str | None]:
     if not isinstance(record, Mapping):
         return None, f"{owner} is not a file record"
@@ -1549,6 +1707,7 @@ def _runtime_evidence_errors(
     base: Path,
     owner: str,
     snapshot_cache: dict[Path, bytes],
+    current_installed: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     try:
@@ -1633,30 +1792,38 @@ def _runtime_evidence_errors(
                                 "from artifact"
                             )
 
-    native_binaries = runtime.get("native_binaries")
-    if not isinstance(native_binaries, Mapping):
-        errors.append(f"{owner}.native_binaries is missing")
+    if current_installed:
+        if runtime.get("runtime_mode") != RUNTIME_MODE_CURRENT_INSTALLED:
+            errors.append(f"{owner}.runtime_mode is not current-installed")
+        if not _is_current_installed_runtime_identity(runtime.get("runtime_identity")):
+            errors.append(f"{owner}.runtime_identity is invalid")
+        if "native_binaries" in runtime:
+            errors.append(f"{owner}.runtime must not retain historical native binary pins")
     else:
-        for binary_name in ("habitat_sim_bindings", "rlr_audio_propagation"):
-            binary_record = native_binaries.get(binary_name)
-            if not isinstance(binary_record, Mapping):
-                errors.append(f"{owner}.{binary_name} record is missing")
-                continue
-            raw_binary_path = binary_record.get("path")
-            if (
-                not isinstance(raw_binary_path, str)
-                or not Path(raw_binary_path).is_absolute()
-            ):
-                errors.append(f"{owner}.{binary_name} path is not absolute")
-                continue
-            _binary_payload, binary_error = _verified_file_snapshot(
-                Path(raw_binary_path),
-                binary_record,
-                f"{owner}.{binary_name}",
-                cache=snapshot_cache,
-            )
-            if binary_error:
-                errors.append(binary_error)
+        native_binaries = runtime.get("native_binaries")
+        if not isinstance(native_binaries, Mapping):
+            errors.append(f"{owner}.native_binaries is missing")
+        else:
+            for binary_name in ("habitat_sim_bindings", "rlr_audio_propagation"):
+                binary_record = native_binaries.get(binary_name)
+                if not isinstance(binary_record, Mapping):
+                    errors.append(f"{owner}.{binary_name} record is missing")
+                    continue
+                raw_binary_path = binary_record.get("path")
+                if (
+                    not isinstance(raw_binary_path, str)
+                    or not Path(raw_binary_path).is_absolute()
+                ):
+                    errors.append(f"{owner}.{binary_name} path is not absolute")
+                    continue
+                _binary_payload, binary_error = _verified_file_snapshot(
+                    Path(raw_binary_path),
+                    binary_record,
+                    f"{owner}.{binary_name}",
+                    cache=snapshot_cache,
+                )
+                if binary_error:
+                    errors.append(binary_error)
 
     errors.extend(
         _ray_report_verification_errors(
@@ -1675,11 +1842,18 @@ def _runtime_evidence_errors(
 
 
 def _verify_canary_evidence_document(
-    path: Path, evidence: Mapping[str, Any]
+    path: Path,
+    evidence: Mapping[str, Any],
+    *,
+    current_installed: bool = False,
 ) -> list[str]:
-    """Recompute claims from a caller-owned immutable evidence snapshot."""
+    """Recompute shared M3 claims from one immutable v1 or v2 receipt."""
 
-    errors = _schema_errors(evidence)
+    errors = (
+        _current_installed_schema_errors(evidence)
+        if current_installed
+        else _schema_errors(evidence)
+    )
     if not _all_finite(evidence):
         errors.append("evidence contains a non-finite number")
     try:
@@ -1723,22 +1897,7 @@ def _verify_canary_evidence_document(
             errors.append("request source bytes do not decode to the evidence snapshot")
         if request_value.get("source") != snapshots["request"]["record"]:
             errors.append("request source record differs from its immutable snapshot")
-        runtime_lock_snapshot = _external_file_snapshot(_runtime_lock_path())
-        runtime_lock_record = _snapshot_record(runtime_lock_snapshot)
-        recorded_runtime_lock = inputs.get("runtime_lock")
-        if (
-            isinstance(recorded_runtime_lock, Mapping)
-            and recorded_runtime_lock.get("byte_size")
-            == runtime_lock_record["byte_size"]
-            and recorded_runtime_lock.get("sha256")
-            == runtime_lock_record["sha256"]
-            and isinstance(recorded_runtime_lock.get("path"), str)
-        ):
-            # Pre-index M3 evidence named the repository-root lock.  The exact
-            # bytes now live under locks/; path relocation does not change the
-            # historical experiment input authenticated by size and SHA-256.
-            runtime_lock_record = dict(recorded_runtime_lock)
-        expected_inputs = {
+        expected_inputs: dict[str, Any] = {
             "room_manifest": snapshots["room_manifest"]["record"],
             "material_mapping": snapshots["material_mapping"]["record"],
             "low_absorption_database": snapshots["low_absorption_database"][
@@ -1748,7 +1907,6 @@ def _verify_canary_evidence_document(
                 "record"
             ],
             "compile_evidence": snapshots["compile_evidence"]["record"],
-            "runtime_lock": runtime_lock_record,
             "low_absorption_package": _package_input(
                 scenes["low_absorption"],
                 snapshots["low_absorption_package"]["record"],
@@ -1758,11 +1916,33 @@ def _verify_canary_evidence_document(
                 snapshots["high_absorption_package"]["record"],
             ),
         }
-        verified_runtime_lock_sha256 = expected_inputs["runtime_lock"]["sha256"]
-        try:
-            required_binary_pins = _required_m3_binary_pins(runtime_lock_snapshot)
-        except ValueError:
-            required_binary_pins = None
+        if current_installed:
+            if "runtime_lock" in inputs:
+                errors.append(
+                    "current-installed evidence must not retain a historical runtime lock"
+                )
+        else:
+            runtime_lock_snapshot = _external_file_snapshot(_runtime_lock_path())
+            runtime_lock_record = _snapshot_record(runtime_lock_snapshot)
+            recorded_runtime_lock = inputs.get("runtime_lock")
+            if (
+                isinstance(recorded_runtime_lock, Mapping)
+                and recorded_runtime_lock.get("byte_size")
+                == runtime_lock_record["byte_size"]
+                and recorded_runtime_lock.get("sha256")
+                == runtime_lock_record["sha256"]
+                and isinstance(recorded_runtime_lock.get("path"), str)
+            ):
+                # Pre-index M3 evidence named the repository-root lock.  The exact
+                # bytes now live under locks/; path relocation does not change the
+                # historical experiment input authenticated by size and SHA-256.
+                runtime_lock_record = dict(recorded_runtime_lock)
+            expected_inputs["runtime_lock"] = runtime_lock_record
+            verified_runtime_lock_sha256 = runtime_lock_record["sha256"]
+            try:
+                required_binary_pins = _required_m3_binary_pins(runtime_lock_snapshot)
+            except ValueError:
+                required_binary_pins = None
         if inputs != expected_inputs:
             errors.append("input/package records differ from compiler-bound sources")
         expected_input_checks = _input_invariant_checks(
@@ -1771,6 +1951,7 @@ def _verify_canary_evidence_document(
     except (OSError, ValueError, KeyError, AcousticCanaryError) as exc:
         errors.append(f"unable to revalidate compiler/input lineage: {exc}")
         expected_input_checks = []
+
 
     repeat_count = request.get("repeat_count")
     execution = evidence.get("execution", {})
@@ -1784,13 +1965,15 @@ def _verify_canary_evidence_document(
             expected_order.extend(pair)
         if order != expected_order:
             errors.append("condition_order is not the complete alternating 2N schedule")
-        expected_execution = {
+        expected_execution: dict[str, Any] = {
             "repeat_count": repeat_count,
             "condition_order": expected_order,
             "fresh_context_per_run": True,
             "temporal_coherence": False,
             "runtime_import_workaround": dict(RUNTIME_IMPORT_WORKAROUND),
         }
+        if current_installed:
+            expected_execution["runtime_mode"] = RUNTIME_MODE_CURRENT_INSTALLED
         if execution != expected_execution:
             errors.append("execution record differs from the fixed canary schedule")
     all_runs: list[Mapping[str, Any]] = []
@@ -1874,6 +2057,7 @@ def _verify_canary_evidence_document(
                 base=base,
                 owner=run_id,
                 snapshot_cache=artifact_snapshot_cache,
+                current_installed=current_installed,
             )
         )
         artifact = run.get("ir_artifact")
@@ -2040,13 +2224,18 @@ def _verify_canary_evidence_document(
     elif comparisons:
         errors.append("comparisons must be empty when repeats are incomplete")
 
+    runtime_identity_check_id = (
+        "runtime_current_installed_identity"
+        if current_installed
+        else "runtime_native_binary_identity"
+    )
     execution_blocked = any(
         check.get("status") == "blocked"
         and check.get("check_id")
         not in {
             "low_absorption_repeat_count",
             "high_absorption_repeat_count",
-            "runtime_native_binary_identity",
+            runtime_identity_check_id,
         }
         for check in evidence.get("checks", [])
         if isinstance(check, Mapping)
@@ -2067,48 +2256,109 @@ def _verify_canary_evidence_document(
         if repeat_check != expected_repeat_check:
             errors.append(f"{condition} repeat-count check differs from recomputation")
 
-    binary_records = [
-        run.get("runtime", {}).get("native_binaries")
-        for run in all_runs
-        if isinstance(run.get("runtime"), Mapping)
-    ]
-    binary_identity = (
-        bool(binary_records)
-        and all(
-            isinstance(record, Mapping) and record == binary_records[0]
-            for record in binary_records
+    if current_installed:
+        identity_records = [
+            run.get("runtime", {}).get("runtime_identity")
+            for run in all_runs
+            if isinstance(run.get("runtime"), Mapping)
+        ]
+        current_identity = (
+            bool(identity_records)
+            and all(
+                _is_current_installed_runtime_identity(record)
+                and record == identity_records[0]
+                for record in identity_records
+            )
         )
-        and _native_binary_record_matches_pins(
-            binary_records[0], required_binary_pins
-        )
-    )
-    expected_binary_check = _check(
-        "runtime_native_binary_identity",
-        binary_identity,
-        measured={
-            "completed_run_count": len(all_runs),
-            "unique_record_count": len(
-                {
-                    canonical_json_sha256(record)
-                    for record in binary_records
-                    if isinstance(record, Mapping)
-                }
+        unique_identity_records: list[Any] = []
+        for record in identity_records:
+            if record not in unique_identity_records:
+                unique_identity_records.append(record)
+        runtime_summary = evidence.get("runtime")
+        if not isinstance(runtime_summary, Mapping):
+            errors.append("current-installed runtime summary is missing")
+        else:
+            if runtime_summary.get("runtime_mode") != RUNTIME_MODE_CURRENT_INSTALLED:
+                errors.append("current-installed runtime summary mode is invalid")
+            if "native_binaries" in runtime_summary:
+                errors.append(
+                    "current-installed runtime summary must not retain native binary pins"
+                )
+            expected_summary_identity = (
+                identity_records[0] if current_identity else None
+            )
+            if runtime_summary.get("current_installed_identity") != expected_summary_identity:
+                errors.append(
+                    "current-installed runtime summary identity differs from repeats"
+                )
+        expected_runtime_check = _check(
+            "runtime_current_installed_identity",
+            current_identity,
+            measured={
+                "completed_run_count": len(all_runs),
+                "unique_identity_count": len(unique_identity_records),
+                "current_installed_identity": (
+                    identity_records[0] if current_identity else None
+                ),
+            },
+            threshold={"same_runtime_identity_every_repeat": True},
+            failure_reason=(
+                "Runs did not use one consistent current-installed Habitat/RLR "
+                "runtime identity"
             ),
-            "native_binaries": binary_records[0] if binary_identity else None,
-        },
-        threshold={
-            "same_hash_bound_native_binaries_every_repeat": True,
-            "runtime_lock_sha256": verified_runtime_lock_sha256,
-        },
-        failure_reason=(
-            "Runs did not use one hash-bound Habitat/RLR binary pair"
-        ),
-        blocked=execution_blocked,
-    )
-    if check_by_id.get("runtime_native_binary_identity") != expected_binary_check:
-        errors.append(
-            "runtime_native_binary_identity check differs from recomputation"
+            blocked=execution_blocked,
         )
+        if (
+            check_by_id.get("runtime_current_installed_identity")
+            != expected_runtime_check
+        ):
+            errors.append(
+                "runtime_current_installed_identity check differs from recomputation"
+            )
+    else:
+        binary_records = [
+            run.get("runtime", {}).get("native_binaries")
+            for run in all_runs
+            if isinstance(run.get("runtime"), Mapping)
+        ]
+        binary_identity = (
+            bool(binary_records)
+            and all(
+                isinstance(record, Mapping) and record == binary_records[0]
+                for record in binary_records
+            )
+            and _native_binary_record_matches_pins(
+                binary_records[0], required_binary_pins
+            )
+        )
+        expected_binary_check = _check(
+            "runtime_native_binary_identity",
+            binary_identity,
+            measured={
+                "completed_run_count": len(all_runs),
+                "unique_record_count": len(
+                    {
+                        canonical_json_sha256(record)
+                        for record in binary_records
+                        if isinstance(record, Mapping)
+                    }
+                ),
+                "native_binaries": binary_records[0] if binary_identity else None,
+            },
+            threshold={
+                "same_hash_bound_native_binaries_every_repeat": True,
+                "runtime_lock_sha256": verified_runtime_lock_sha256,
+            },
+            failure_reason=(
+                "Runs did not use one hash-bound Habitat/RLR binary pair"
+            ),
+            blocked=execution_blocked,
+        )
+        if check_by_id.get("runtime_native_binary_identity") != expected_binary_check:
+            errors.append(
+                "runtime_native_binary_identity check differs from recomputation"
+            )
+
 
     expected_check_ids = {
         check["check_id"] for check in expected_input_checks
@@ -2122,7 +2372,7 @@ def _verify_canary_evidence_document(
         {
             "low_absorption_repeat_count",
             "high_absorption_repeat_count",
-            "runtime_native_binary_identity",
+            runtime_identity_check_id,
         }
     )
     if repeats_complete:
@@ -2249,6 +2499,19 @@ def _verify_canary_evidence_document(
     return errors
 
 
+
+def _verify_current_installed_canary_evidence_document(
+    path: Path, evidence: Mapping[str, Any]
+) -> list[str]:
+    """Reuse every v1 artifact/semantic recomputation under v2 runtime policy."""
+
+    return _verify_canary_evidence_document(
+        path,
+        evidence,
+        current_installed=True,
+    )
+
+
 def load_and_verify_canary_evidence(
     evidence_path: str | Path,
     *,
@@ -2281,7 +2544,13 @@ def load_and_verify_canary_evidence(
         )
 
     try:
-        errors = _verify_canary_evidence_document(path, value)
+        schema = value.get("schema")
+        if schema == CANARY_EVIDENCE_SCHEMA:
+            errors = _verify_canary_evidence_document(path, value)
+        elif schema == CURRENT_INSTALLED_CANARY_EVIDENCE_SCHEMA:
+            errors = _verify_current_installed_canary_evidence_document(path, value)
+        else:
+            errors = [f"unsupported M3 canary evidence schema: {schema!r}"]
     except (
         AcousticCanaryError,
         AcousticMetricError,

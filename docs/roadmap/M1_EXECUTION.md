@@ -14,21 +14,30 @@ does not prove audio propagation.
 - At least two sources have unique stable names and pairwise-distinct world
   transforms. M1 checks their identity and transform round-trip only.
 - M1 does **not** instantiate an AudioSensor, run RLR, render audio, or claim an
-  RIR. Multi-source acoustic propagation is the M4 gate.
+  RIR. Its v2 evidence records exactly the three visual simulator sensors and a
+  logical listener0 pose derived from agent/rig state. Multi-source acoustic
+  propagation is the M4 gate.
 - The top-down navigation QA map is diagnostic-only and must never appear in
   `formal_view_ids`.
 
 ## Prerequisites
 
-Run with the Habitat runtime at the commit in
-[`locks/m1_runtime_v1.yaml`](../../locks/m1_runtime_v1.yaml), selected through
-the root `runtime.lock.yaml` index, and with both worktrees clean; worktree
-cleanliness is a required evidence check. The commands below assume this local
-layout:
+Run M1 from an installed Habitat runtime prefix produced by the opt-in
+AVENGINE_HABITAT_INSTALL_RUNTIME flow. --runtime-prefix names that prefix;
+it is not a source checkout or build tree, and v2 evidence records its installed
+module/binding/physics-config paths rather than probing it as Git. AVEngine
+itself must still be clean when producing final evidence. The commands below
+assume this external layout:
+
+> Historical layout example (pre single-repo closure). On the closed layout,
+> use the `/data/avengine_external/` roots and the installed runtime prefix;
+> do not copy these paths onto a new machine.
 
 ```bash
 export REPO=/data/jzy/code/AVEngine-habitat-native
-export RUNTIME=/data/jzy/code/habitat-sim-AVEngine
+export HABITAT_PREFIX=/data/jzy/opt/avengine-habitat-runtime
+export HABITAT_MAGNUM_PYTHON_SITE=/data/jzy/opt/magnum-python/site-packages
+export MP3D_ROOT=/data/jzy/datasets/habitat
 export HABPY=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python
 export SPEAR=/data/jzy/code/AVEngine/external/SPEAR
 export SPEARPY=/data/jzy/miniconda3/envs/spear-env/bin/python
@@ -36,26 +45,38 @@ export UE=/data/UE_5.5
 export BLENDER=/data/jzy/.local/bin/blender
 export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
 export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
-export AVENGINE_HABITAT_RUNTIME_ROOT="$RUNTIME"
+export AVENGINE_HABITAT_MAGNUM_PYTHON_SITE="$HABITAT_MAGNUM_PYTHON_SITE"
+export AVENGINE_MP3D_ROOT="$MP3D_ROOT"
 cd "$REPO"
 ```
 
-The runtime environment must contain the pinned audio-enabled Habitat build,
-`numpy-quaternion`, NumPy, Pillow, and a working headless GPU/EGL context. The
-capture adapter imports `quaternion` before `habitat_sim` to preserve the known
-runtime import workaround.
 
-Install the official Habitat MP3D example package locally if it is absent:
+The runtime environment must provide the installed Habitat bindings,
+numpy-quaternion, NumPy, Pillow, a working headless GPU/EGL context, and an
+external Corrade/Magnum Python site compatible with the active interpreter.
+That site must contain `corrade/__init__.py`, `magnum/__init__.py`, and
+top-level `_corrade` and `_magnum` extensions with a suffix accepted by that
+interpreter. The capture, navmesh, and native-probe adapters activate
+$HABITAT_PREFIX first and that site second before importing quaternion then
+habitat_sim; they reject preloaded or imported Corrade/Magnum modules outside
+the selected site and require the installed
+$HABITAT_PREFIX/config/default.physics_config.json. Do not encode this
+caller-provided site in CMake or the installed prefix.
 
-```bash
-"$HABPY" "$RUNTIME/src_python/habitat_sim/utils/datasets_download.py" \
-  --uids mp3d_example_scene \
-  --data-path "$RUNTIME/data" \
-  --no-replace
-```
+Visual-only M1/M2/M5 callers must use an installed prefix built with
+`AVENGINE_HABITAT_BUILD_RLR_ADAPTER=OFF`; they do not need an RLR SDK. A
+programmatic caller that intentionally reuses an adapter-enabled prefix must
+pass an explicit non-Git `rlr_sdk_root` to
+`prepare_installed_habitat_runtime()`. That helper isolates the prefix, loads
+the declared absolute SDK library, and only then imports the zero-RPATH native
+binding. There is no environment fallback. If a visual caller omits the SDK
+for an adapter-linked prefix, import fails with an instruction to use the
+explicit parameter or an adapter-disabled visual prefix.
 
-Before capture, the following official local-only assets must exist beneath
-`$RUNTIME/data/scene_datasets/mp3d_example`:
+Provision the official licensed MP3D data separately; do not copy a Habitat
+checkout to create it. AVENGINE_MP3D_ROOT is the data root that contains
+scene_datasets/. Before native capture, the following local-only assets must
+exist beneath $MP3D_ROOT/scene_datasets/mp3d_example:
 
 ```text
 mp3d.scene_dataset_config.json
@@ -64,6 +85,7 @@ mp3d.scene_dataset_config.json
 17DRP5sb8fy/17DRP5sb8fy.house
 17DRP5sb8fy/17DRP5sb8fy.navmesh
 ```
+
 
 These MP3D files remain subject to the Matterport3D terms and are not committed
 to this repository. UE export additionally requires UE 5.5.x, its GLTFExporter
@@ -86,7 +108,7 @@ plugin, the SPEAR `SpearSim` project, and the apartment map at
 "$HABPY" -m avengine.cli m1 build-navmesh \
   --room "$REPO/examples/m1/rooms/blender_custom/room_manifest.json" \
   --request "$REPO/examples/m1/requests/blender_custom.json" \
-  --runtime-root "$RUNTIME" \
+  --runtime-prefix "$HABITAT_PREFIX" \
   --output "$REPO/examples/m1/rooms/blender_custom/visual/navmeshes/m1_custom_room.navmesh"
 ```
 
@@ -169,7 +191,7 @@ Package the audited GLB for Habitat and build its navmesh:
 "$HABPY" -m avengine.cli m1 build-navmesh \
   --room "$REPO/tmp/m1/legacy_apartment_package/room_manifest.json" \
   --request "$REPO/tmp/m1/legacy_apartment_package/capture_request.json" \
-  --runtime-root "$RUNTIME" \
+  --runtime-prefix "$HABITAT_PREFIX" \
   --output "$REPO/tmp/m1/legacy_apartment_package/visual/navmeshes/legacy_apartment_0000.navmesh"
 ```
 
@@ -220,12 +242,12 @@ Habitat-native room:
 "$HABPY" -m avengine.cli m1 capture \
   --room "$NATIVE_ROOM" --request "$NATIVE_REQ" \
   --output "$FORMAL/habitat_native/run1" \
-  --runtime-root "$RUNTIME" --repeat 3
+  --runtime-prefix "$HABITAT_PREFIX" --repeat 3
 
 "$HABPY" -m avengine.cli m1 capture \
   --room "$NATIVE_ROOM" --request "$NATIVE_REQ" \
   --output "$FORMAL/habitat_native/run2" \
-  --runtime-root "$RUNTIME" --repeat 3 \
+  --runtime-prefix "$HABITAT_PREFIX" --repeat 3 \
   --reference-evidence "$FORMAL/habitat_native/run1/evidence.json"
 ```
 
@@ -235,12 +257,12 @@ Blender custom room:
 "$HABPY" -m avengine.cli m1 capture \
   --room "$CUSTOM_ROOM" --request "$CUSTOM_REQ" \
   --output "$FORMAL/blender_custom/run1" \
-  --runtime-root "$RUNTIME" --repeat 3
+  --runtime-prefix "$HABITAT_PREFIX" --repeat 3
 
 "$HABPY" -m avengine.cli m1 capture \
   --room "$CUSTOM_ROOM" --request "$CUSTOM_REQ" \
   --output "$FORMAL/blender_custom/run2" \
-  --runtime-root "$RUNTIME" --repeat 3 \
+  --runtime-prefix "$HABITAT_PREFIX" --repeat 3 \
   --reference-evidence "$FORMAL/blender_custom/run1/evidence.json"
 ```
 
@@ -250,12 +272,12 @@ Legacy UE real-surface room:
 "$HABPY" -m avengine.cli m1 capture \
   --room "$LEGACY_ROOM" --request "$LEGACY_REQ" \
   --output "$FORMAL/legacy_ue/run1" \
-  --runtime-root "$RUNTIME" --repeat 3
+  --runtime-prefix "$HABITAT_PREFIX" --repeat 3
 
 "$HABPY" -m avengine.cli m1 capture \
   --room "$LEGACY_ROOM" --request "$LEGACY_REQ" \
   --output "$FORMAL/legacy_ue/run2" \
-  --runtime-root "$RUNTIME" --repeat 3 \
+  --runtime-prefix "$HABITAT_PREFIX" --repeat 3 \
   --reference-evidence "$FORMAL/legacy_ue/run1/evidence.json"
 ```
 

@@ -24,6 +24,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
+from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
 from avengine.m3.runtime import (
     CompiledAcousticScene,
     _verify_upload_report,
@@ -1495,11 +1496,17 @@ def run_fixed_apartment_canary(
             "prepared approaching_storm exterior proxy GLB is missing; run "
             "tools/m6x/prepare_spear_apartment_exterior.py first"
         )
-    resolved_runtime_root = (
-        Path(runtime_root).resolve()
-        if runtime_root is not None
-        else (repository_root.parent / "habitat-sim-AVEngine").resolve()
-    )
+    if runtime_root is None:
+        raise M6XCanaryError(
+            "fixed apartment canary requires an explicit runtime root; "
+            "implicit sibling checkout discovery is retired"
+        )
+    resolved_runtime_root = Path(runtime_root).resolve()
+    installed_runtime = None
+    if "AVENGINE_HABITAT_RUNTIME_PREFIX" in os.environ:
+        installed_runtime = prepare_installed_habitat_runtime(
+            rlr_sdk_root=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+        )
     output = Path(output_dir).resolve()
     staging = output.with_name(f".{output.name}.staging")
     if os.path.lexists(output) or os.path.lexists(staging):
@@ -1531,7 +1538,8 @@ def run_fixed_apartment_canary(
         m1_request_path=m1_request_path,
         anchor_library=values["anchors"],
         source_center_trajectories_m=provisional_paths,
-        runtime_root=runtime_root,
+        runtime_root=None if installed_runtime is not None else runtime_root,
+        installed_runtime=installed_runtime,
         minimum_navmesh_clearance_m=0.02,
     )
     if preflight.record["status"] != "pass":
@@ -1548,7 +1556,11 @@ def run_fixed_apartment_canary(
                     actor_root_paths=actor_root_paths,
                     actor_fallback_forwards_xz=actor_fallback_forwards_xz,
                     output_dir=staging / "shared/master_capture",
-                    runtime_root=runtime_root,
+                    runtime_root=(
+                        None
+                        if "AVENGINE_HABITAT_RUNTIME_PREFIX" in os.environ
+                        else runtime_root
+                    ),
                     route_provenance={
                         "route_family": "m6x_fixed_apartment_master_270",
                         "source": (
@@ -1600,7 +1612,8 @@ def run_fixed_apartment_canary(
             m1_request_path=m1_request_path,
             anchor_library=values["anchors"],
             source_center_trajectories_m=source_paths,
-            runtime_root=runtime_root,
+            runtime_root=None if installed_runtime is not None else runtime_root,
+            installed_runtime=installed_runtime,
             minimum_navmesh_clearance_m=0.02,
         )
         if qualification.record["status"] != "pass":

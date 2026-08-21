@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib.machinery import EXTENSION_SUFFIXES
 import os
 import platform
 import re
@@ -30,7 +32,7 @@ from avengine.contracts.transforms import (
     transform_error,
 )
 from avengine.m1.contracts import (
-    EVIDENCE_SCHEMA,
+    EVIDENCE_SCHEMA_V2,
     ValidatedM1Inputs,
     validate_loaded_scene_asset_graph,
     validate_scene_asset_graph,
@@ -56,6 +58,38 @@ PROCESS_STARTED_AT_UTC = datetime.now(timezone.utc).isoformat()
 PROCESS_INITIAL_PID = os.getpid()
 
 
+@dataclass(frozen=True)
+class InstalledHabitatRuntime:
+    """One explicitly selected installed Habitat runtime and its external inputs."""
+
+    prefix: Path
+    mp3d_root: Path | None
+    pbr_asset_root: Path | None
+    magnum_python_site: Path
+    physics_config_path: Path
+    quaternion: Any
+    habitat_sim: Any
+    magnum: Any
+    quat_to_coeffs: Any
+
+
+@dataclass(frozen=True)
+class _PreparedInstalledHabitatImport:
+    """Activated prefix/Magnum state before the Habitat extension import."""
+
+    prefix: Path
+    magnum_python_site: Path
+
+
+_HABITAT_BINDING_MODULE_NAME = "habitat_sim._ext.habitat_sim_bindings"
+_RLR_LIBRARY_BASENAME = "libRLRAudioPropagation.so"
+PBR_CONFIG_FILENAME = "brown_photostudio.pbr_config.json"
+PBR_BRDF_LUT_RELATIVE_PATH = Path("bluts/brdflut_ldr_512x512.png")
+PBR_ENVIRONMENT_MAP_RELATIVE_PATH = Path(
+    "env_maps/brown_photostudio_02_1k.hdr"
+)
+
+
 def _producer_process_identity() -> dict[str, Any]:
     return {
         "process_instance_id": PROCESS_INSTANCE_ID,
@@ -67,15 +101,518 @@ def _producer_process_identity() -> dict[str, Any]:
 
 def discover_runtime_root(explicit: str | Path | None = None) -> Path:
     if explicit is not None:
-        return Path(explicit).resolve()
-    configured = os.environ.get("AVENGINE_HABITAT_RUNTIME_ROOT")
-    if configured:
-        return Path(configured).resolve()
-    repository_root = Path(__file__).resolve().parents[3]
-    sibling = repository_root.parent / "habitat-sim-AVEngine"
-    if sibling.is_dir():
-        return sibling.resolve()
-    raise FileNotFoundError("Set AVENGINE_HABITAT_RUNTIME_ROOT or pass --runtime-root")
+        root = Path(explicit).resolve()
+    else:
+        configured = os.environ.get("AVENGINE_HABITAT_RUNTIME_ROOT")
+        if not configured:
+            raise FileNotFoundError(
+                "Set AVENGINE_HABITAT_RUNTIME_ROOT or pass --runtime-root"
+            )
+        root = Path(configured).resolve()
+    checkout_root = _git_checkout_ancestor(root)
+    if checkout_root is not None:
+        raise ValueError(
+            "Habitat runtime root must not be inside a Git checkout: "
+            f"{root} (found .git at {checkout_root})"
+        )
+    return root
+
+
+def _git_checkout_ancestor(path: Path) -> Path | None:
+    """Return a containing Git worktree marker without invoking Git itself."""
+
+    candidate = path.resolve()
+    while True:
+        if os.path.lexists(candidate / ".git"):
+            return candidate
+        parent = candidate.parent
+        if parent == candidate:
+            return None
+        candidate = parent
+
+
+def discover_runtime_prefix(explicit: str | Path | None = None) -> Path:
+    configured = explicit if explicit is not None else os.environ.get(
+        "AVENGINE_HABITAT_RUNTIME_PREFIX"
+    )
+    if configured is None:
+        raise FileNotFoundError(
+            "Set AVENGINE_HABITAT_RUNTIME_PREFIX or pass --runtime-prefix"
+        )
+    prefix = Path(configured).resolve()
+    if not prefix.is_dir():
+        raise FileNotFoundError(f"Habitat installed runtime prefix is missing: {prefix}")
+    checkout_root = _git_checkout_ancestor(prefix)
+    if checkout_root is not None:
+        raise ValueError(
+            "Habitat installed runtime prefix must not be inside a Git checkout: "
+            f"{prefix} (found .git at {checkout_root})"
+        )
+    return prefix
+
+
+def resolve_installed_runtime_prefix(
+    runtime_prefix: str | Path | None = None,
+    *,
+    runtime_root: str | Path | None = None,
+) -> Path:
+    """Resolve a non-Git installed prefix; ``runtime_root`` is an alias only."""
+
+    if runtime_prefix is not None and runtime_root is not None:
+        raise ValueError(
+            "Specify only one of runtime_prefix or runtime_root; runtime_root "
+            "is an installed-prefix compatibility alias"
+        )
+    selected = runtime_prefix if runtime_prefix is not None else runtime_root
+    return discover_runtime_prefix(selected)
+
+
+def _required_magnum_site_file(
+    site: Path, relative_path: str, *, description: str
+) -> Path:
+    candidate = site / relative_path
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(site)
+    except ValueError as error:
+        raise RuntimeError(
+            "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE must keep "
+            f"{description} under its site root: {candidate}"
+        ) from error
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE is missing "
+            f"{description}: {candidate}"
+        )
+    return resolved
+
+
+def _required_magnum_extension(site: Path, module_name: str) -> Path:
+    for suffix in EXTENSION_SUFFIXES:
+        candidate = site / f"{module_name}{suffix}"
+        if candidate.exists() or candidate.is_symlink():
+            return _required_magnum_site_file(
+                site,
+                candidate.name,
+                description=(
+                    f"the current interpreter ABI extension for {module_name}"
+                ),
+            )
+    expected = ", ".join(f"{module_name}{suffix}" for suffix in EXTENSION_SUFFIXES)
+    raise FileNotFoundError(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE must contain one current "
+        f"interpreter ABI extension for {module_name}; expected one of: {expected}"
+    )
+
+
+def discover_magnum_python_site(explicit: str | Path | None = None) -> Path:
+    configured = explicit if explicit is not None else os.environ.get(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"
+    )
+    if not configured:
+        raise FileNotFoundError(
+            "Set AVENGINE_HABITAT_MAGNUM_PYTHON_SITE to an external "
+            "Corrade/Magnum Python site before importing Habitat"
+        )
+    site = Path(configured).resolve()
+    if not site.is_dir():
+        raise FileNotFoundError(
+            "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE is not a directory: "
+            f"{site}"
+        )
+    _required_magnum_site_file(
+        site, "corrade/__init__.py", description="corrade package"
+    )
+    _required_magnum_site_file(site, "magnum/__init__.py", description="magnum package")
+    _required_magnum_extension(site, "_corrade")
+    _required_magnum_extension(site, "_magnum")
+    return site
+
+
+def discover_mp3d_root(
+    explicit: str | Path | None = None,
+    *,
+    allow_environment: bool = True,
+) -> Path | None:
+    configured = explicit
+    if configured is None and allow_environment:
+        configured = os.environ.get("AVENGINE_MP3D_ROOT")
+    if configured is None:
+        return None
+    root = Path(configured).resolve()
+    if not (root / "scene_datasets").is_dir():
+        raise FileNotFoundError(
+            f"AVENGINE_MP3D_ROOT must contain scene_datasets: {root}"
+        )
+    return root
+
+
+def discover_pbr_asset_root(
+    explicit: str | Path | None = None,
+) -> Path | None:
+    """Resolve an explicitly selected non-Git PBR IBL asset directory."""
+
+    if explicit is None:
+        return None
+    root = Path(explicit).resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"PBR asset root is not a directory: {root}")
+    checkout_root = _git_checkout_ancestor(root)
+    if checkout_root is not None:
+        raise ValueError(
+            "PBR asset root must not be inside a Git checkout: "
+            f"{root} (found .git at {checkout_root})"
+        )
+    for relative_path in (
+        PBR_BRDF_LUT_RELATIVE_PATH,
+        PBR_ENVIRONMENT_MAP_RELATIVE_PATH,
+        Path("license.txt"),
+    ):
+        candidate = (root / relative_path).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as error:
+            raise RuntimeError(
+                "PBR asset root must keep every required file below its root: "
+                f"{root / relative_path}"
+            ) from error
+        if not candidate.is_file():
+            raise FileNotFoundError(
+                f"PBR asset root is missing {relative_path.as_posix()}: {root}"
+            )
+    return root
+
+
+def _activate_runtime_prefix(
+    prefix: Path, *, magnum_python_site: Path | None = None
+) -> None:
+    activated_roots = [prefix.resolve()]
+    if magnum_python_site is not None:
+        activated_roots.append(magnum_python_site.resolve())
+    activated_root_strings = [str(root) for root in activated_roots]
+
+    def is_activated_root(entry: object) -> bool:
+        if not isinstance(entry, str):
+            return False
+        try:
+            return Path(entry).resolve() in activated_roots
+        except OSError:
+            return entry in activated_root_strings
+
+    sys.path[:] = [
+        *activated_root_strings,
+        *(entry for entry in sys.path if not is_activated_root(entry)),
+    ]
+
+
+def _is_editable_habitat_sim_meta_finder(finder: object) -> bool:
+    finder_class = finder if isinstance(finder, type) else type(finder)
+    class_module = getattr(finder_class, "__module__", "")
+    if not isinstance(class_module, str):
+        return False
+    normalized_module = class_module.casefold()
+    return "editable" in normalized_module and "habitat_sim" in normalized_module
+
+
+def _remove_editable_habitat_sim_meta_finders() -> None:
+    """Keep an installed-prefix import from being redirected to an editable checkout."""
+    sys.meta_path[:] = [
+        finder
+        for finder in sys.meta_path
+        if not _is_editable_habitat_sim_meta_finder(finder)
+    ]
+
+
+def _originless_native_habitat_child_parent(
+    module: Any, *, module_name: str
+) -> tuple[str, Any] | None:
+    parent_name, separator, child_name = module_name.rpartition(".")
+    if not separator or not child_name:
+        return None
+    parent = sys.modules.get(parent_name)
+    if parent is None:
+        return None
+    parent_origin = getattr(parent, "__file__", None)
+    if not isinstance(parent_origin, (str, os.PathLike)):
+        return None
+    if not any(str(parent_origin).endswith(suffix) for suffix in EXTENSION_SUFFIXES):
+        return None
+    try:
+        parent_child = vars(parent).get(child_name)
+    except TypeError:
+        return None
+    if parent_child is not module:
+        return None
+    return parent_name, parent
+
+
+def _habitat_sim_module_origin_under(
+    module: Any, prefix: Path, *, module_name: str
+) -> Path:
+    origin = getattr(module, "__file__", None)
+    if not origin:
+        module_spec = getattr(module, "__spec__", None)
+        origin = getattr(module_spec, "origin", None)
+    if not origin:
+        native_parent = _originless_native_habitat_child_parent(
+            module, module_name=module_name
+        )
+        if native_parent is not None:
+            parent_name, parent = native_parent
+            return _habitat_sim_module_origin_under(
+                parent, prefix, module_name=parent_name
+            )
+    if not isinstance(origin, (str, os.PathLike)):
+        raise RuntimeError(
+            "Loaded Habitat module has no filesystem origin to validate against "
+            f"--runtime-prefix: {module_name}"
+        )
+    resolved = Path(origin).resolve()
+    try:
+        resolved.relative_to(prefix)
+    except ValueError as error:
+        raise RuntimeError(
+            "Loaded Habitat module is outside the required --runtime-prefix "
+            f"{prefix}: {module_name} -> {resolved}"
+        ) from error
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            "Loaded Habitat module file is missing under --runtime-prefix "
+            f"{prefix}: {module_name} -> {resolved}"
+        )
+    return resolved
+
+
+def _validate_loaded_habitat_sim_origins(prefix: Path) -> None:
+    for module_name, module in tuple(sys.modules.items()):
+        if module_name == "habitat_sim" or module_name.startswith("habitat_sim."):
+            _habitat_sim_module_origin_under(
+                module, prefix, module_name=module_name
+            )
+
+
+def _module_file_under(module: Any, root: Path, *, module_name: str) -> Path:
+    module_file = getattr(module, "__file__", None)
+    if not module_file:
+        raise RuntimeError(
+            f"Imported {module_name} has no file to validate against {root}"
+        )
+    resolved = Path(module_file).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise RuntimeError(
+            f"Imported {module_name} is outside the required external site {root}: "
+            f"{resolved}"
+        ) from error
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            f"Imported {module_name} file is missing under {root}: {resolved}"
+        )
+    return resolved
+
+
+def _validate_preloaded_magnum_python_origins(site: Path) -> None:
+    for module_name in ("corrade", "magnum", "_corrade", "_magnum"):
+        module = sys.modules.get(module_name)
+        if module is not None:
+            _module_file_under(module, site, module_name=module_name)
+
+
+def _validate_magnum_python_origins(site: Path, magnum: Any) -> None:
+    import _corrade
+    import _magnum
+    import corrade
+
+    modules = {
+        "corrade": corrade,
+        "magnum": magnum,
+        "_corrade": _corrade,
+        "_magnum": _magnum,
+    }
+    for module_name, module in modules.items():
+        _module_file_under(module, site, module_name=module_name)
+
+
+def _prepare_installed_habitat_import(
+    prefix: Path, *, magnum_python_site: str | Path | None = None
+) -> _PreparedInstalledHabitatImport:
+    """Isolate and activate an installed runtime without importing Habitat."""
+    _remove_editable_habitat_sim_meta_finders()
+    _validate_loaded_habitat_sim_origins(prefix)
+    selected_magnum_site = (
+        discover_magnum_python_site()
+        if magnum_python_site is None
+        else discover_magnum_python_site(magnum_python_site)
+    )
+    _activate_runtime_prefix(prefix, magnum_python_site=selected_magnum_site)
+    _validate_preloaded_magnum_python_origins(selected_magnum_site)
+    return _PreparedInstalledHabitatImport(
+        prefix=prefix,
+        magnum_python_site=selected_magnum_site,
+    )
+
+
+def _import_prepared_installed_habitat(
+    prepared: _PreparedInstalledHabitatImport,
+) -> tuple[Any, Any, Any, Any]:
+    """Import Habitat after process-local native dependencies are selected."""
+    try:
+        imported = _import_habitat()
+    except (ImportError, OSError) as error:
+        if _RLR_LIBRARY_BASENAME in str(error):
+            raise RuntimeError(
+                "An adapter-linked installed Habitat prefix built without an "
+                "RLR RUNPATH requires explicit rlr_sdk_root before import; use "
+                "AVENGINE_HABITAT_BUILD_RLR_ADAPTER=OFF for visual-only "
+                "M1/M2/M5 runtimes"
+            ) from error
+        raise
+    _validate_loaded_habitat_sim_origins(prepared.prefix)
+    _validate_magnum_python_origins(
+        prepared.magnum_python_site,
+        imported[2],
+    )
+    return imported
+
+
+def _habitat_binding_is_loaded() -> bool:
+    return any(
+        module_name == _HABITAT_BINDING_MODULE_NAME
+        or module_name.startswith(_HABITAT_BINDING_MODULE_NAME + ".")
+        for module_name in sys.modules
+    )
+
+
+def _import_prepared_installed_habitat_dependencies(
+    prepared: _PreparedInstalledHabitatImport,
+) -> tuple[Any, Any]:
+    """Load numerical/Magnum dependencies before process-global RLR symbols."""
+
+    import quaternion as qt
+    import magnum as mn
+
+    _validate_magnum_python_origins(prepared.magnum_python_site, mn)
+    return qt, mn
+
+
+def _import_prepared_installed_habitat_with_rlr(
+    prepared: _PreparedInstalledHabitatImport,
+    *,
+    rlr_sdk_root: str | Path,
+) -> tuple[tuple[Any, Any, Any, Any], Any]:
+    """Select one explicit external RLR SDK before importing the binding."""
+
+    from avengine.backends.rlr import sdk as rlr_sdk_module
+
+    # RLR exports process-global C++ symbols. Import quaternion/llvmlite and
+    # Magnum first so their one-time native initialization cannot bind against
+    # the RLR SDK's C++ runtime symbols.
+    _import_prepared_installed_habitat_dependencies(prepared)
+
+    sdk = rlr_sdk_module.discover_external_rlr_sdk(rlr_sdk_root)
+    # Repeats may reuse an imported binding only when its process mapping is
+    # already the exact newly declared SDK. A mismatch stops before another
+    # process-global CDLL load can make selection ambiguous.
+    if _habitat_binding_is_loaded():
+        rlr_sdk_module.validate_loaded_external_rlr_sdk(sdk)
+    rlr_sdk_module.preload_external_rlr_sdk(sdk)
+    imported = _import_prepared_installed_habitat(prepared)
+    rlr_sdk_module.validate_loaded_external_rlr_sdk(sdk)
+    return imported, sdk
+
+
+def _import_installed_habitat(
+    prefix: Path, *, magnum_python_site: str | Path | None = None
+) -> tuple[Any, Any, Any, Any]:
+    """Compose installed-runtime preparation and import for existing M1 callers."""
+
+    prepared = _prepare_installed_habitat_import(
+        prefix, magnum_python_site=magnum_python_site
+    )
+    return _import_prepared_installed_habitat(prepared)
+
+
+def _installed_runtime_paths(
+    prefix: Path, habitat_sim: Any, habitat_sim_bindings: Any
+) -> tuple[Path, Path, Path]:
+    module_path = Path(habitat_sim.__file__).resolve()
+    binding_path = Path(habitat_sim_bindings.__file__).resolve()
+    physics_path = (prefix / "config" / "default.physics_config.json").resolve()
+    try:
+        module_path.relative_to(prefix)
+        binding_path.relative_to(prefix)
+        physics_path.relative_to(prefix)
+    except ValueError as error:
+        raise RuntimeError(
+            "Installed Habitat module, native binding, or physics config is not "
+            "from --runtime-prefix"
+        ) from error
+    if not module_path.is_file() or not binding_path.is_file() or not physics_path.is_file():
+        raise FileNotFoundError(
+            "Installed Habitat runtime must provide module, native binding, and "
+            f"config/default.physics_config.json under {prefix}"
+        )
+    return module_path, binding_path, physics_path
+
+
+def prepare_installed_habitat_runtime(
+    *,
+    runtime_prefix: str | Path | None = None,
+    runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    pbr_asset_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    allow_mp3d_environment: bool = True,
+) -> InstalledHabitatRuntime:
+    """Activate one non-Git installed prefix for a new Habitat writer.
+
+    The runtime library, binding, and physics config live in ``prefix``. MP3D
+    assets remain separately supplied through ``mp3d_root`` and Magnum remains
+    an explicit external Python site. Optional PBR IBL images come only from
+    ``pbr_asset_root``. No sibling checkout fallback is involved.
+    """
+
+    if rlr_sdk_root is not None and not str(rlr_sdk_root).strip():
+        raise ValueError("rlr_sdk_root must be a non-empty explicit path")
+    prefix = resolve_installed_runtime_prefix(
+        runtime_prefix, runtime_root=runtime_root
+    )
+    selected_pbr_asset_root = discover_pbr_asset_root(pbr_asset_root)
+    selected_magnum_site = discover_magnum_python_site(magnum_python_site)
+    selected_mp3d_root = (
+        discover_mp3d_root(mp3d_root)
+        if allow_mp3d_environment
+        else discover_mp3d_root(mp3d_root, allow_environment=False)
+    )
+    prepared = _prepare_installed_habitat_import(
+        prefix, magnum_python_site=selected_magnum_site
+    )
+    if rlr_sdk_root is None:
+        imported = _import_prepared_installed_habitat(prepared)
+    else:
+        imported, _sdk = _import_prepared_installed_habitat_with_rlr(
+            prepared,
+            rlr_sdk_root=rlr_sdk_root,
+        )
+    qt, habitat_sim, mn, quat_to_coeffs = imported
+    from habitat_sim._ext import habitat_sim_bindings
+
+    _module_path, _binding_path, physics_config_path = _installed_runtime_paths(
+        prefix, habitat_sim, habitat_sim_bindings
+    )
+    return InstalledHabitatRuntime(
+        prefix=prefix,
+        mp3d_root=selected_mp3d_root,
+        pbr_asset_root=selected_pbr_asset_root,
+        magnum_python_site=selected_magnum_site,
+        physics_config_path=physics_config_path,
+        quaternion=qt,
+        habitat_sim=habitat_sim,
+        magnum=mn,
+        quat_to_coeffs=quat_to_coeffs,
+    )
 
 
 def _git_value(repository: Path, *arguments: str) -> str | None:
@@ -116,15 +653,29 @@ def _import_habitat() -> tuple[Any, Any, Any, Any]:
     return qt, habitat_sim, mn, quat_to_coeffs
 
 
-def _environment_for_paths(runtime_root: Path) -> dict[str, str]:
+def _environment_for_paths(
+    runtime_root: Path | None = None,
+    *,
+    mp3d_root: Path | None = None,
+) -> dict[str, str]:
     environment = dict(os.environ)
-    environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(runtime_root)
+    environment.pop("AVENGINE_HABITAT_RUNTIME_ROOT", None)
+    environment.pop("AVENGINE_MP3D_ROOT", None)
+    if runtime_root is not None:
+        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(runtime_root)
+    if mp3d_root is not None:
+        environment["AVENGINE_MP3D_ROOT"] = str(mp3d_root)
     return environment
 
 
-def _resolved_scene(inputs: ValidatedM1Inputs, runtime_root: Path) -> dict[str, Any]:
+def _resolved_scene(
+    inputs: ValidatedM1Inputs,
+    runtime_root: Path | None,
+    *,
+    mp3d_root: Path | None = None,
+) -> dict[str, Any]:
     scene = inputs.room["scene"]
-    environment = _environment_for_paths(runtime_root)
+    environment = _environment_for_paths(runtime_root, mp3d_root=mp3d_root)
     manifest_dir = inputs.room_path.parent
 
     dataset_raw = scene["dataset_config_path"]
@@ -161,9 +712,12 @@ def _resolved_scene(inputs: ValidatedM1Inputs, runtime_root: Path) -> dict[str, 
 
 
 def _resolved_assets(
-    inputs: ValidatedM1Inputs, runtime_root: Path
+    inputs: ValidatedM1Inputs,
+    runtime_root: Path | None,
+    *,
+    mp3d_root: Path | None = None,
 ) -> list[dict[str, Any]]:
-    environment = _environment_for_paths(runtime_root)
+    environment = _environment_for_paths(runtime_root, mp3d_root=mp3d_root)
     records: list[dict[str, Any]] = []
     for asset in inputs.room["assets"]:
         path = resolve_declared_path(
@@ -556,12 +1110,16 @@ def _surface_provenance_check(
 
 def _make_configuration(
     inputs: ValidatedM1Inputs,
-    runtime_root: Path,
+    runtime_root: Path | None,
     output_dir: Path,
+    *,
+    mp3d_root: Path | None = None,
+    include_audio_sensor: bool = True,
+    physics_config_path: Path | None = None,
 ) -> tuple[Any, dict[str, str], str, dict[str, Any]]:
     qt, habitat_sim, mn, _ = _import_habitat()
     del qt
-    resolved = _resolved_scene(inputs, runtime_root)
+    resolved = _resolved_scene(inputs, runtime_root, mp3d_root=mp3d_root)
     rig = inputs.request["primary_camera_rig"]
     calibration = rig["shared_calibration"]
     height, width = calibration["resolution_hw"]
@@ -597,20 +1155,22 @@ def _make_configuration(
         sensor_specs.append(spec)
 
     listener = inputs.request["listener"]
-    audio_spec = habitat_sim.AudioSensorSpec()
-    audio_spec.uuid = listener["listener_id"]
-    audio_spec.position = local_position
-    audio_spec.orientation = local_orientation
-    # This sensor is a pose anchor in M1. It is deliberately excluded from
-    # render_sensors(), so the deprecated one-source RLR wrapper never runs.
-    audio_spec.outputDirectory = str(output_dir / "audio_not_run")
-    sensor_specs.append(audio_spec)
+    if include_audio_sensor:
+        audio_spec = habitat_sim.AudioSensorSpec()
+        audio_spec.uuid = listener["listener_id"]
+        audio_spec.position = local_position
+        audio_spec.orientation = local_orientation
+        # Kept for downstream M2/M5 callers that still require an audio sensor.
+        audio_spec.outputDirectory = str(output_dir / "audio_not_run")
+        sensor_specs.append(audio_spec)
 
     sim_cfg = habitat_sim.SimulatorConfiguration()
     sim_cfg.scene_id = str(resolved["scene_id"])
     sim_cfg.scene_dataset_config_file = str(resolved["dataset_config"])
     sim_cfg.load_semantic_mesh = resolved["load_semantic_mesh"]
     sim_cfg.enable_physics = resolved["enable_physics"]
+    if physics_config_path is not None:
+        sim_cfg.physics_config_file = str(physics_config_path.resolve())
     sim_cfg.random_seed = int(inputs.request["seed"])
     sim_cfg.gpu_device_id = 0
 
@@ -666,6 +1226,12 @@ def _state_snapshot(
             for uuid in sorted(sensor_uuids)
         },
     }
+
+
+def _logical_listener_pose(snapshot: dict[str, Any], listener: dict[str, Any]) -> dict[str, Any]:
+    """Derive the M1 logical listener from the actual agent/rig state."""
+
+    return compose_transforms(snapshot["agent"], listener["rig_from_listener"])
 
 
 def _repeat_hashes(
@@ -886,12 +1452,14 @@ def _independent_process_repeatability_check(
     inputs: ValidatedM1Inputs,
     observation_records: dict[str, dict[str, Any]],
     state_hash: str,
-    runtime_commit: str | None,
-    native_binding_sha256: str,
+    runtime_prefix: Path,
+    mp3d_root: Path | None,
+    habitat_module_path: Path,
+    native_binding_path: Path,
+    physics_config_path: Path,
     asset_records: list[dict[str, Any]],
     avengine_commit: str | None,
     repository_clean: bool,
-    runtime_clean: bool,
     output_dir: Path,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     if reference_path is None:
@@ -946,7 +1514,7 @@ def _independent_process_repeatability_check(
         comparisons = {
             "reference_fully_verified": reference_verification_status == "pass",
             "content_hash_valid": expected_hash == actual_hash,
-            "schema_matches": reference.get("schema") == EVIDENCE_SCHEMA,
+            "schema_matches": reference.get("schema") == EVIDENCE_SCHEMA_V2,
             "evidence_kind_matches": reference.get("evidence_kind")
             == "completed_capture",
             "reference_is_first_run": reference.get("overall_status") == "not_run"
@@ -962,15 +1530,24 @@ def _independent_process_repeatability_check(
                 "sha256"
             )
             == sha256_file(inputs.request_path),
-            "runtime_commit_matches": reference.get("runtime", {}).get(
-                "habitat_runtime_commit"
+            "runtime_prefix_matches": reference.get("runtime", {}).get(
+                "habitat_runtime_prefix"
             )
-            == runtime_commit,
-            "runtime_was_and_is_clean": reference.get("runtime", {}).get(
-                "habitat_runtime_worktree_dirty"
+            == str(runtime_prefix),
+            "mp3d_root_matches": reference.get("runtime", {}).get("mp3d_root")
+            == (str(mp3d_root) if mp3d_root is not None else None),
+            "module_path_matches": reference.get("runtime", {}).get(
+                "habitat_module_path"
             )
-            is False
-            and runtime_clean,
+            == str(habitat_module_path),
+            "native_binding_path_matches": reference.get("runtime", {}).get(
+                "native_binding_path"
+            )
+            == str(native_binding_path),
+            "physics_config_path_matches": reference.get("runtime", {}).get(
+                "physics_config_path"
+            )
+            == str(physics_config_path),
             "avengine_commit_matches": reference.get("runtime", {}).get(
                 "avengine_commit"
             )
@@ -980,10 +1557,6 @@ def _independent_process_repeatability_check(
             )
             is False
             and repository_clean,
-            "native_binding_matches": reference.get("runtime", {}).get(
-                "native_binding_sha256"
-            )
-            == native_binding_sha256,
             "scene_assets_match": reference_assets == current_assets,
             "initial_state_matches": reference.get("capture_state", {}).get(
                 "before_sha256"
@@ -1052,7 +1625,7 @@ def capture_m1(
     inputs: ValidatedM1Inputs,
     output_dir: str | Path,
     *,
-    runtime_root: str | Path | None = None,
+    runtime_prefix: str | Path | None = None,
     repeat_count: int = 3,
     reference_evidence: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -1066,23 +1639,36 @@ def capture_m1(
         if stale.is_dir():
             shutil.rmtree(stale)
     (output / "evidence.json").unlink(missing_ok=True)
-    runtime = discover_runtime_root(runtime_root)
+    prefix = discover_runtime_prefix(runtime_prefix)
+    mp3d_root = discover_mp3d_root()
     repository_root = Path(__file__).resolve().parents[3]
-    qt, habitat_sim, _, quat_to_coeffs = _import_habitat()
+    qt, habitat_sim, _, quat_to_coeffs = _import_installed_habitat(prefix)
     from habitat_sim._ext import habitat_sim_bindings
 
+    habitat_module_path, native_binding_path, physics_config_path = _installed_runtime_paths(
+        prefix, habitat_sim, habitat_sim_bindings
+    )
     configuration, modality_to_uuid, listener_uuid, resolved_scene = (
-        _make_configuration(inputs, runtime, output)
+        _make_configuration(
+            inputs,
+            None,
+            output,
+            mp3d_root=mp3d_root,
+            include_audio_sensor=False,
+            physics_config_path=physics_config_path,
+        )
     )
     repeat_count = max(2, int(repeat_count))
-    asset_records = _resolved_assets(inputs, runtime)
+    asset_records = _resolved_assets(inputs, None, mp3d_root=mp3d_root)
     missing_assets = [record for record in asset_records if not record["exists"]]
     if missing_assets:
         raise FileNotFoundError(
             "Required room assets are missing: "
             + ", ".join(record["declared_path"] for record in missing_assets)
         )
-    scene_graph_errors = validate_scene_asset_graph(inputs, runtime)
+    scene_graph_errors = validate_scene_asset_graph(
+        inputs, None, mp3d_root=mp3d_root
+    )
 
     formal_view_passed = (
         inputs.request["primary_camera_rig"]["rig_id"] == "camera_rig_0"
@@ -1124,35 +1710,6 @@ def capture_m1(
         else "Habitat scene selection diverges from the declared asset closure",
     )
     checks.append(scene_graph_check)
-    runtime_commit = _git_value(runtime, "rev-parse", "HEAD")
-    locked_runtime_commit = _runtime_lock_commit(repository_root)
-    runtime_matches = (
-        runtime_commit is not None and runtime_commit == locked_runtime_commit
-    )
-    checks.append(
-        make_check(
-            "runtime_commit_matches_lock",
-            "pass" if runtime_matches else "fail",
-            measured=runtime_commit,
-            threshold=locked_runtime_commit,
-            failure_reason=None
-            if runtime_matches
-            else "Runtime checkout differs from lock",
-        )
-    )
-    runtime_status = _git_value(runtime, "status", "--porcelain")
-    runtime_clean = runtime_status == ""
-    checks.append(
-        make_check(
-            "runtime_worktree_clean",
-            "pass" if runtime_clean else "fail",
-            measured={"git_status": runtime_status},
-            threshold={"dirty": False},
-            failure_reason=None
-            if runtime_clean
-            else "Pinned Habitat runtime worktree is dirty",
-        )
-    )
     repository_status = _git_value(repository_root, "status", "--porcelain")
     repository_clean = repository_status == ""
     avengine_commit = _git_value(repository_root, "rev-parse", "HEAD")
@@ -1167,28 +1724,16 @@ def capture_m1(
             else "AVEngine worktree is dirty; final evidence must bind a clean commit",
         )
     )
-    habitat_module_path = Path(habitat_sim.__file__).resolve()
-    native_binding_path = Path(habitat_sim_bindings.__file__).resolve()
-    try:
-        habitat_module_path.relative_to(runtime)
-        native_binding_path.relative_to(runtime)
-        binary_origin_passed = True
-    except ValueError:
-        binary_origin_passed = False
-    native_binding_sha256 = sha256_file(native_binding_path)
     checks.append(
         make_check(
             "runtime_binary_origin",
-            "pass" if binary_origin_passed else "fail",
+            "pass",
             measured={
                 "habitat_module": str(habitat_module_path),
                 "native_binding": str(native_binding_path),
-                "native_binding_sha256": native_binding_sha256,
+                "physics_config": str(physics_config_path),
             },
-            threshold={"both_paths_within_runtime_root": str(runtime)},
-            failure_reason=None
-            if binary_origin_passed
-            else "Imported Habitat Python/native binding is not from --runtime-root",
+            threshold={"all_paths_within_runtime_prefix": str(prefix)},
         )
     )
     checks.append(
@@ -1218,7 +1763,9 @@ def capture_m1(
     state.rotation = _numpy_quaternion(world_from_rig["rotation_xyzw"], qt)
 
     visual_uuids = [modality_to_uuid[key] for key in ("rgb", "depth", "semantic")]
-    all_sensor_uuids = visual_uuids + [listener_uuid]
+    expected_world_from_listener = compose_transforms(
+        world_from_rig, inputs.request["listener"]["rig_from_listener"]
+    )
     with habitat_sim.Simulator(configuration) as sim:
         navmesh_path = resolved_scene["navmesh"]
         declared_navmesh_loaded = False
@@ -1231,9 +1778,10 @@ def capture_m1(
 
         loaded_graph_errors, loaded_graph = validate_loaded_scene_asset_graph(
             inputs,
-            runtime,
+            None,
             sim,
             declared_navmesh_loaded=declared_navmesh_loaded,
+            mp3d_root=mp3d_root,
         )
         combined_scene_graph_errors = scene_graph_errors + loaded_graph_errors
         scene_graph_check.clear()
@@ -1272,7 +1820,10 @@ def capture_m1(
 
         sim.seed(int(inputs.request["seed"]))
         agent = sim.initialize_agent(0, state)
-        before = _state_snapshot(sim, agent, all_sensor_uuids, quat_to_coeffs)
+        before = _state_snapshot(sim, agent, visual_uuids, quat_to_coeffs)
+        before["listener_pose"] = _logical_listener_pose(
+            before, inputs.request["listener"]
+        )
         before_hash = canonical_json_sha256(before)
 
         captures: list[dict[str, np.ndarray]] = []
@@ -1285,7 +1836,10 @@ def capture_m1(
                     for uuid in visual_uuids
                 }
             )
-        after = _state_snapshot(sim, agent, all_sensor_uuids, quat_to_coeffs)
+        after = _state_snapshot(sim, agent, visual_uuids, quat_to_coeffs)
+        after["listener_pose"] = _logical_listener_pose(
+            after, inputs.request["listener"]
+        )
         after_hash = canonical_json_sha256(after)
 
         observation_records = save_observations(captures[0], modality_to_uuid, output)
@@ -1317,8 +1871,11 @@ def capture_m1(
         readback_poses = before["sensors"]
         pose_errors = {
             uuid: transform_error(readback_poses[uuid], expected_world_from_sensor)
-            for uuid in all_sensor_uuids
+            for uuid in visual_uuids
         }
+        pose_errors[listener_uuid] = transform_error(
+            before["listener_pose"], expected_world_from_listener
+        )
         maximum_pose_error = max(pose_errors.values())
         alignment_passed = maximum_pose_error <= 1e-7
         checks.append(
@@ -1447,19 +2004,20 @@ def capture_m1(
         inputs=inputs,
         observation_records=observation_records,
         state_hash=before_hash,
-        runtime_commit=runtime_commit,
-        native_binding_sha256=native_binding_sha256,
+        runtime_prefix=prefix,
+        mp3d_root=mp3d_root,
+        habitat_module_path=habitat_module_path,
+        native_binding_path=native_binding_path,
+        physics_config_path=physics_config_path,
         asset_records=asset_records,
         avengine_commit=avengine_commit,
         repository_clean=repository_clean,
-        runtime_clean=runtime_clean,
         output_dir=output,
     )
     checks.append(independent_check)
 
-    lock_path = resolve_runtime_profile(repository_root, "m1")
     evidence: dict[str, Any] = {
-        "schema": EVIDENCE_SCHEMA,
+        "schema": EVIDENCE_SCHEMA_V2,
         "evidence_kind": "completed_capture",
         "room_id": inputs.room["room_id"],
         "room_kind": inputs.room["room_kind"],
@@ -1471,8 +2029,11 @@ def capture_m1(
                 "capture_request_sha256": sha256_file(inputs.request_path),
                 "scene_assets": asset_records,
                 "avengine_commit": avengine_commit,
-                "habitat_runtime_commit": runtime_commit,
-                "native_binding_sha256": native_binding_sha256,
+                "habitat_runtime_prefix": str(prefix),
+                "mp3d_root": str(mp3d_root) if mp3d_root is not None else None,
+                "habitat_module_path": str(habitat_module_path),
+                "native_binding_path": str(native_binding_path),
+                "physics_config_path": str(physics_config_path),
                 "state": before,
                 "repeat_count": repeat_count,
             }
@@ -1489,14 +2050,11 @@ def capture_m1(
         "runtime": {
             "avengine_commit": avengine_commit,
             "avengine_worktree_dirty": not repository_clean,
-            "habitat_runtime_root": str(runtime),
-            "habitat_runtime_commit": runtime_commit,
-            "habitat_runtime_worktree_dirty": not runtime_clean,
-            "locked_habitat_runtime_commit": locked_runtime_commit,
-            "runtime_lock_sha256": sha256_file(lock_path),
+            "habitat_runtime_prefix": str(prefix),
+            "mp3d_root": str(mp3d_root) if mp3d_root is not None else None,
             "habitat_module_path": str(habitat_module_path),
             "native_binding_path": str(native_binding_path),
-            "native_binding_sha256": native_binding_sha256,
+            "physics_config_path": str(physics_config_path),
             "habitat_python_version": getattr(habitat_sim, "__version__", None),
             "habitat_audio_enabled": bool(habitat_sim.audio_enabled),
             "habitat_bullet_enabled": bool(habitat_sim.built_with_bullet),
@@ -1515,7 +2073,9 @@ def capture_m1(
             "modalities": rig["modalities"],
             "listener": inputs.request["listener"],
             "audio_propagation_status": "not_run",
-            "audio_propagation_reason": "M1 listener is a pose anchor; multi-source RLR is M4",
+            "audio_propagation_reason": (
+                "M1 listener is derived from agent/rig state; multi-source RLR is M4"
+            ),
         },
         "capture_state": {
             "before": before,
@@ -1552,15 +2112,26 @@ def capture_m1(
 def build_navmesh(
     inputs: ValidatedM1Inputs,
     *,
-    runtime_root: str | Path | None = None,
+    runtime_prefix: str | Path | None = None,
     output_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    runtime = discover_runtime_root(runtime_root)
+    prefix = discover_runtime_prefix(runtime_prefix)
+    mp3d_root = discover_mp3d_root()
     temporary_output = inputs.room_path.parent / "tmp" / "m1_navmesh_build"
-    configuration, _, _, resolved_scene = _make_configuration(
-        inputs, runtime, temporary_output
+    _, habitat_sim, _, _ = _import_installed_habitat(prefix)
+    from habitat_sim._ext import habitat_sim_bindings
+
+    _, _, physics_config_path = _installed_runtime_paths(
+        prefix, habitat_sim, habitat_sim_bindings
     )
-    _, habitat_sim, _, _ = _import_habitat()
+    configuration, _, _, resolved_scene = _make_configuration(
+        inputs,
+        None,
+        temporary_output,
+        mp3d_root=mp3d_root,
+        include_audio_sensor=False,
+        physics_config_path=physics_config_path,
+    )
     destination = (
         Path(output_path).resolve()
         if output_path is not None

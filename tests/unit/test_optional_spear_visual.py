@@ -9,6 +9,7 @@ import pytest
 from avengine.contracts.json_io import canonical_json_sha256
 from avengine.optional_backends.spear_visual import (
     BACKEND_ROLE,
+    PRODUCTION_VISUAL_ROLE,
     SpearVisualPlanError,
     actor_ue_yaw_degrees,
     build_spear_visual_plan,
@@ -201,6 +202,7 @@ def _build(
     values: tuple[dict, dict, dict, dict, dict, dict],
     *,
     sensor_rig_trajectory: dict | None = None,
+    backend_role: str = BACKEND_ROLE,
 ) -> dict:
     timeline, source_manifest, flags, room_capsule, qualification, bindings = values
     return build_spear_visual_plan(
@@ -210,6 +212,7 @@ def _build(
         room_capsule=room_capsule,
         qualification=qualification,
         actor_bindings=bindings,
+        backend_role=backend_role,
         sensor_rig_trajectory=sensor_rig_trajectory,
     )
 
@@ -269,6 +272,19 @@ def test_plan_preserves_timeline_state_and_room_authority() -> None:
     assert first[0]["actor_yaw_ue_deg"] == pytest.approx(-90.0)
     assert first[1]["ue_animation"] == "Walking"
     assert first[1]["actor_yaw_ue_deg"] == pytest.approx(-180.0)
+
+
+def test_room_adapter_can_select_production_pixels_without_replanning() -> None:
+    plan = _build(_inputs(), backend_role=PRODUCTION_VISUAL_ROLE)
+
+    assert plan["backend_role"] == "production_visual"
+    assert plan["authority"]["backend_may_replan"] is False
+
+
+@pytest.mark.parametrize("backend_role", ["formal_visual", ["production_visual"]])
+def test_visual_plan_rejects_an_unknown_backend_role(backend_role: object) -> None:
+    with pytest.raises(SpearVisualPlanError, match="backend_role"):
+        _build(_inputs(), backend_role=backend_role)  # type: ignore[arg-type]
 
 
 def test_explicit_sensor_rig_trajectory_drives_every_camera_frame() -> None:
@@ -401,7 +417,9 @@ def test_file_loader_emits_no_host_paths(tmp_path) -> None:
     plan = build_spear_visual_plan_from_files(
         **paths,
         actor_bindings=values[5],
+        backend_role=PRODUCTION_VISUAL_ROLE,
     )
+    assert plan["backend_role"] == PRODUCTION_VISUAL_ROLE
     assert str(tmp_path) not in json.dumps(plan, sort_keys=True)
 
 

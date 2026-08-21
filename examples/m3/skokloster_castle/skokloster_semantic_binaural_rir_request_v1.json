@@ -1,0 +1,37 @@
+{
+  "schema": "avengine_rir_cache_simulation_request_v1",
+  "request_id": "skokloster_semantic_binaural_rir_v1",
+  "qualification_claim": false,
+  "notes": [
+    "CPU-only native RLR render for the exact two-face-cleaned research surface.",
+    "The request is explicit binaural input for one fresh semantic no-file-evidence cache.",
+    "The sole visual material slot remains a non-physical research placeholder."
+  ],
+  "simulation": {
+    "sample_rate_hz": 16000,
+    "max_ir_seconds": 1.0,
+    "frequency_bands": 4,
+    "direct_sh_order": 1,
+    "indirect_sh_order": 1,
+    "direct_ray_count": 100,
+    "indirect_ray_count": 100,
+    "indirect_ray_depth": 10,
+    "source_ray_count": 100,
+    "source_ray_depth": 10,
+    "max_diffraction_order": 2,
+    "thread_count": 1,
+    "unit_scale": 1.0,
+    "global_volume": 1.0,
+    "speed_of_sound_m_s": 343.0,
+    "direct": true,
+    "indirect": true,
+    "diffraction": true,
+    "transmission": true,
+    "mesh_simplification": false,
+    "temporal_coherence": false,
+    "channel_layout": {
+      "type": "binaural",
+      "channel_count": 2
+    }
+  }
+}

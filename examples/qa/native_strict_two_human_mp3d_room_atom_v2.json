@@ -1,0 +1,120 @@
+{
+  "schema": "avengine_native_strict_two_human_mp3d_room_atom_request_v2",
+  "request_id": "mp3d_17DRP5sb8fy_strict_two_human_static_v2",
+  "episode_id": "mp3d_17DRP5sb8fy_male_female_static_0002",
+  "room": {
+    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+    "room_revision": "raw_v1_plus_declared_proxy_v2_research",
+    "scene_id": "17DRP5sb8fy",
+    "entry_map": "/Engine/Maps/Entry",
+    "ue_import_manifest": "/data/jzy/code/AVEngine/external/SPEAR/tmp/mp3d_ue_comparison_20260718_01/import/ue_import_result.json",
+    "ue_runtime_evidence": "/data/jzy/code/AVEngine/external/SPEAR/tmp/mp3d_ue_comparison_20260718_01/render/evidence.json",
+    "fresh_navmesh_probe": "/data/jzy/code/AVEngine-lead-a/examples/qa/native_strict_two_human_mp3d_navmesh_probe_v1.json",
+    "navmesh_path": "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/mp3d_example_scene_1.1/17DRP5sb8fy/17DRP5sb8fy.navmesh"
+  },
+  "template_suite": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/recipe_v3/suite_execution_plan.pending_fact.json",
+  "acoustics": {
+    "package_manifest": "/data/datasets/avengine_workspaces/AVEngine-soundspaces-frl/tmp/m3/mp3d_17DRP5sb8fy_soundspaces2_public_20260730_03/manifest.json",
+    "package_root": "/data/datasets/avengine_workspaces/AVEngine-soundspaces-frl/tmp/m3/mp3d_17DRP5sb8fy_soundspaces2_public_20260730_03",
+    "room_registry": "/data/jzy/code/AVEngine-lead-a/examples/m6/rooms/room_registry.json",
+    "acoustic_profile_registry": "/data/jzy/code/AVEngine-lead-a/examples/runtime/acoustic_profiles.json",
+    "simulation_profile": "production",
+    "rir_stride_frames": 3,
+    "thread_count": 4
+  },
+  "placement": {
+    "authority_semantics": "fresh_pathfinder_search_actor_root_center_only",
+    "retained_route_context": ["human0", "dog0"],
+    "source1_root_habitat_m": [-4.6, 0.072447, -2.35],
+    "source2_root_habitat_m": [-3.75, 0.072447, -3.35],
+    "source1_emitter_offset_m": [0.0, 1.61, 0.0],
+    "source2_emitter_offset_m": [0.0, 1.569012451171875, 0.0]
+  },
+  "camera_listener": {
+    "habitat_position_m": [-4.1499128342, 1.572447, -1.2454376221],
+    "habitat_yaw_deg": 0.0,
+    "ue_position_cm": [-414.99128342, -124.54376221, 157.2447],
+    "ue_yaw_deg": -90.0,
+    "horizontal_fov_deg": 90.0
+  },
+  "camera_runtime": {
+    "scene_path": "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/mp3d_example_scene_1.1/17DRP5sb8fy/17DRP5sb8fy.glb",
+    "dataset_config_path": "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/mp3d_example_scene_1.1/mp3d.scene_dataset_config.json",
+    "loaded_scene_id": "17DRP5sb8fy",
+    "physics_config_path": "/data/jzy/code/habitat-sim-AVEngine/data/default.physics_config.json",
+    "agent_height_m": 1.5,
+    "agent_radius_m": 0.25
+  },
+  "actor_framing": {
+    "runtime_profile_registry": "/data/jzy/code/AVEngine-lead-a/examples/runtime/source_asset_runtime_profiles.json",
+    "sample_rate_hz": 120.0,
+    "padding_m": 0.02,
+    "actor_bindings": [
+      {
+        "actor_id": "source1_actor",
+        "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+        "asset_revision": "native_runtime_ue_v3",
+        "source_asset_path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_original_ue_v3/runtime.glb",
+        "skin_index": 0,
+        "action_name_by_action_id": {"idle": "Standing_Idle", "walk": "Walking"},
+        "coordinate_chain": {
+          "from_frame": "rocketbox_native_glb_y_up_m",
+          "to_frame": "avengine_world_right_handed_y_up_m",
+          "operations": ["sample_native_skin", "apply_suite_actor_trs"]
+        }
+      },
+      {
+        "actor_id": "source2_actor",
+        "asset_id": "lead_b_rocketbox_adults_female_adult_01_original_v1",
+        "asset_revision": "native_runtime_ue_v1",
+        "source_asset_path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_ue_v1/rocketbox_adults_female_adult_01_original_ue_v1/runtime.glb",
+        "skin_index": 0,
+        "action_name_by_action_id": {"idle": "Standing_Idle", "walk": "Walking"},
+        "coordinate_chain": {
+          "from_frame": "rocketbox_native_glb_y_up_m",
+          "to_frame": "avengine_world_right_handed_y_up_m",
+          "operations": ["sample_native_skin", "apply_suite_actor_trs"]
+        }
+      }
+    ]
+  },
+  "camera_framing": {
+    "floor_height_m": 0.072447,
+    "candidate_generation": {
+      "eye_height_m": 1.5,
+      "offsets_xz_m": [
+        [4.175, 0.0, 2.35],
+        [4.175, 0.0, 1.85],
+        [3.675, 0.0, 1.85],
+        [3.175, 0.0, 3.35],
+        [2.675, 0.0, 3.35],
+        [2.175, 0.0, 3.35]
+      ]
+    },
+    "maximum_y_delta_m": 0.25,
+    "maximum_snap_error_m": 0.05,
+    "minimum_clearance_m": 0.25,
+    "maximum_clearance_query_m": 10.0,
+    "line_of_sight_tolerance_m": 0.03,
+    "calibration": {
+      "resolution_hw": [720, 1280],
+      "hfov_degrees": 90.0,
+      "near_m": 0.05,
+      "near_tolerance_m": 0.01,
+      "margins_px": {"left": 24.0, "right": 24.0, "top": 24.0, "bottom": 24.0}
+    },
+    "ordered_actor_ids": ["source1_actor", "source2_actor"],
+    "minimum_order_gap_px": 24.0,
+    "minimum_mouth_proxy_separation_px": 24.0
+  },
+  "capture": {
+    "sparse_frame_indices": [15],
+    "full_episode_frame_count": 75,
+    "frame_rate_hz": 15,
+    "graphics_adapter": 1,
+    "rpc_port": 39631,
+    "spear_root": "/data/jzy/code/AVEngine/external/SPEAR"
+  },
+  "qualification_claim": false,
+  "formal_dataset_count": 0
+}

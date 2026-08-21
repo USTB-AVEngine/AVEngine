@@ -27,10 +27,10 @@ from avengine.contracts.json_io import canonical_json_sha256, file_record, sha25
 from avengine.contracts.transforms import transform_error
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import (
+    _git_checkout_ancestor,
     _make_configuration,
     _resolved_assets,
     _state_snapshot,
-    discover_runtime_root,
 )
 from avengine.m2.contracts import FORMAL_MODALITIES, load_and_validate_inputs as load_m2_inputs
 from avengine.m2.habitat_capture import (
@@ -63,6 +63,29 @@ _RIG_READBACK_ATOL = 2.0e-6
 
 class AssetBoundVisualReviewError(RuntimeError):
     """An asset-bound review request cannot be captured faithfully."""
+
+
+def _require_explicit_runtime_root(runtime_root: str | Path | None) -> Path:
+    """Resolve an explicit non-checkout runtime root for the direct writer."""
+
+    if runtime_root is None:
+        raise AssetBoundVisualReviewError(
+            "direct M7 visual review requires an explicit runtime_root; "
+            "ambient AVENGINE_HABITAT_RUNTIME_ROOT and sibling checkout "
+            "discovery are retired"
+        )
+    runtime = Path(runtime_root).resolve()
+    if not runtime.is_dir():
+        raise AssetBoundVisualReviewError(
+            f"direct M7 visual review runtime root is missing: {runtime}"
+        )
+    checkout_root = _git_checkout_ancestor(runtime)
+    if checkout_root is not None:
+        raise AssetBoundVisualReviewError(
+            "direct M7 visual review runtime root must not be inside a Git "
+            f"checkout: {runtime} (found .git at {checkout_root})"
+        )
+    return runtime
 
 
 @dataclass(frozen=True)
@@ -255,7 +278,7 @@ def capture_two_m2_animal_paths(
             ),
         )
         rig_frames = tuple(retained_rig_trajectory["frames"])
-        runtime = discover_runtime_root(runtime_root)
+        runtime = _require_explicit_runtime_root(runtime_root)
         if any(not record["exists"] for record in _resolved_assets(room_inputs, runtime)):
             raise AssetBoundVisualReviewError("validated room has a missing runtime asset")
 

@@ -1,16 +1,8 @@
-"""Execute one test command and publish a self-derived M6 receipt.
+"""Read retained M6 v1 test receipts and their embedded JUnit evidence.
 
-The caller supplies only identity, layer, repository locations, a fresh JUnit
-path and the argv to execute.  Exit status, repository commits and test totals
-are observations made by this module, never caller assertions.  Raw JUnit,
-stdout and stderr bytes are embedded so a verifier can independently derive
-the receipt semantics without extra leaf artifacts.
-
-This is evidence for the declared trusted research workspace.  It rejects
-tracked changes and non-ignored untracked entries, but it is not a
-cryptographic attestation against an operator who controls the workspace and
-can fabricate a JSON file.  Adversarial provenance requires an external
-signed CI/OIDC attestation.
+Historical schema and payload/JUnit readers remain available.  The old
+checkout/submodule execution writer is archived and fails closed before path,
+Git, subprocess or output handling.  Current installed-prefix receipts use v2.
 """
 
 from __future__ import annotations
@@ -45,6 +37,11 @@ EXECUTABLE_LAYERS = (
     "media-readback",
 )
 DEFAULT_RLR_SUBMODULE_PATH = "src/deps/rlr-audio-propagation"
+RELEASE_V1_ARCHIVAL_ERROR = (
+    "release v1 is archived reader-only; checkout/submodule receipt execution, "
+    "manifest writing, and live verification are unavailable; use the "
+    "current-* v2 commands for ordinary current-installed candidates"
+)
 
 _STABLE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -314,6 +311,8 @@ def execute_test_receipt(
 ) -> TestReceiptExecution:
     """Execute argv directly and atomically publish a self-derived receipt."""
 
+    raise TestReceiptError(RELEASE_V1_ARCHIVAL_ERROR)
+
     root = Path(workspace_root).resolve(strict=True)
     habitat = Path(habitat_runtime_root).resolve(strict=True)
     if not root.is_dir() or not habitat.is_dir():
@@ -443,6 +442,7 @@ def execute_test_receipt(
 
 __all__ = [
     "DEFAULT_RLR_SUBMODULE_PATH",
+    "RELEASE_V1_ARCHIVAL_ERROR",
     "EXECUTABLE_LAYERS",
     "TestReceiptError",
     "TestReceiptExecution",

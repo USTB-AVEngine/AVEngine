@@ -16,6 +16,7 @@ from avengine.optional_backends.spear_mp3d import (
     HUMAN_BP_CLASS_PATH,
     M5_1_CAMERA_HABITAT_M,
     M5_1_CAPTURE_SCHEMA,
+    M5_1_CAPTURE_INSTALLED_SCHEMA_V2,
     M5_1_EMITTER_SCHEMA,
     M5_1_EXECUTION_SCHEMA,
     M5_1_FRAME_COUNT,
@@ -429,7 +430,7 @@ def test_render_color_fidelity_qa_rejects_desaturated_ue_and_accepts_retention()
     assert passed["mean_chroma_ratio_ue_to_habitat"] == pytest.approx(1.0)
 
 
-def test_builds_honest_m5_1_270_frame_compatibility_plan() -> None:
+def test_m5_1_reader_preserves_v1_capture_schema() -> None:
     plan = build_m5_1_mp3d_execution_plan(**_m5_1_inputs())
 
     assert plan["schema"] == M5_1_EXECUTION_SCHEMA
@@ -474,6 +475,28 @@ def test_builds_honest_m5_1_270_frame_compatibility_plan() -> None:
     ] == ["source0", "source1"]
     assert plan["room"]["tier"] == "visual_research_only"
     assert plan["qualification"]["dataset_admission"] is False
+
+
+def test_m5_1_reader_accepts_installed_prefix_v2_shared_projection() -> None:
+    v1_inputs = _m5_1_inputs()
+    v1_plan = build_m5_1_mp3d_execution_plan(**v1_inputs)
+
+    v2_inputs = _m5_1_inputs()
+    v2_capture = v2_inputs["capture_evidence"]
+    v2_capture["schema"] = M5_1_CAPTURE_INSTALLED_SCHEMA_V2
+    v2_capture["runtime"] = {
+        "installed_habitat_runtime": {
+            "kind": "installed_prefix",
+            "prefix": "/opt/avengine/habitat",
+            "mp3d_root": "/data/avengine/mp3d",
+            "magnum_python_site": "/opt/magnum/site-packages",
+            "physics_config_path": (
+                "/opt/avengine/habitat/config/default.physics_config.json"
+            ),
+        }
+    }
+
+    assert build_m5_1_mp3d_execution_plan(**v2_inputs) == v1_plan
 
 
 @pytest.mark.parametrize(
@@ -678,6 +701,7 @@ def test_media_probe_and_audio_packet_hash_survive_stream_copy(tmp_path: Path) -
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
+        ("role", "backend role"),
         ("room", "room_id"),
         ("frames", "75-frame"),
         ("replan", "replanning"),
@@ -689,7 +713,9 @@ def test_mp3d_execution_fails_closed_on_authority_or_import_drift(
 ) -> None:
     visual = _visual_plan()
     imported = _import_manifest()
-    if mutation == "room":
+    if mutation == "role":
+        visual["backend_role"] = "production_visual"
+    elif mutation == "room":
         visual["room"]["room_id"] = "another_room"
     elif mutation == "frames":
         visual["frames"].pop()

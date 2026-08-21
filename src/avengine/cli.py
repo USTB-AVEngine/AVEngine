@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ from avengine.appearance import (
     generate_l9_batch,
     write_l9_batch_exclusive,
 )
+from avengine.backends.rlr.sdk import ExternalRlrSdkError, require_outside_git_checkout
 from avengine.acoustic_profiles import (
     AcousticProfileError,
     load_acoustic_profile_registry,
@@ -23,7 +25,7 @@ from avengine.acoustic_profiles import (
 from avengine.contracts.json_io import file_record, load_json, sha256_file, write_json
 from avengine.m1.contracts import (
     ContractError,
-    EVIDENCE_SCHEMA,
+    EVIDENCE_SCHEMA_V2,
     ValidatedM1Inputs,
     aggregate_status,
     load_and_validate_inputs,
@@ -71,6 +73,13 @@ from avengine.m3.rlr_material_import import (
 )
 from avengine.m3.runtime import RuntimeUnavailableError
 from avengine.m4.canary import M4CanaryError, run_m4_canary
+from avengine.m4.current_foa import CurrentFOAError, run_current_foa
+from avengine.m4.current_m1_pair_ir import (
+    CurrentM1PairIRBlockedError,
+    CurrentM1PairIRError,
+    run_current_m1_binaural,
+    run_current_m1_foa,
+)
 from avengine.m4.contracts import (
     M4ContractError,
     load_and_validate_multi_source_canary_request,
@@ -78,6 +87,28 @@ from avengine.m4.contracts import (
 )
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
+from avengine.m5.current_visual import CurrentVisualError, capture_current_visual
+from avengine.m5.current_apartment_visual import (
+    CurrentApartmentVisualError,
+    author_current_apartment_visual_timeline,
+    capture_current_apartment_visual,
+)
+from avengine.m5.current_mp3d_route import (
+    CurrentMP3DRouteError,
+    author_current_mp3d_two_beagle_route,
+)
+from avengine.m5.current_m1_research_audio import (
+    CurrentM1ResearchAudioError,
+    render_current_m1_research_audio,
+)
+from avengine.m5.current_mp3d_dynamic_audio import (
+    CurrentMP3DDynamicAudioError,
+    render_current_mp3d_dynamic_audio,
+)
+from avengine.m5.current_visual_review import (
+    CurrentVisualReviewError,
+    generate_current_visual_review,
+)
 from avengine.m5.timeline import validate_episode_request
 from avengine.m6.rooms import load_room_registry
 from avengine.m6.canary import (
@@ -93,6 +124,52 @@ EXIT_BY_STATUS = {"pass": 0, "fail": 1, "blocked": 3, "not_run": 3}
 
 def _print(value: Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+@contextmanager
+def _temporary_native_audio_environment(
+    *,
+    runtime_prefix: str | None,
+    rlr_sdk_root: str | None,
+    magnum_python_site: str | None = None,
+):
+    """Apply explicit M3/M4 native-runtime inputs only for one CLI invocation."""
+
+    updates = {
+        "AVENGINE_HABITAT_RUNTIME_PREFIX": runtime_prefix,
+        "AVENGINE_RLR_SDK_ROOT": rlr_sdk_root,
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE": magnum_python_site,
+    }
+    previous = {key: os.environ.get(key) for key in updates}
+    try:
+        for key, value in updates.items():
+            if value is not None:
+                os.environ[key] = str(Path(value).resolve())
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _require_current_installed_runtime_inputs(args: argparse.Namespace) -> None:
+    if getattr(args, "runtime_mode", "historical") != "current-installed":
+        return
+    missing = [
+        option
+        for option, value in (
+            ("--runtime-prefix", getattr(args, "runtime_prefix", None)),
+            ("--rlr-sdk-root", getattr(args, "rlr_sdk_root", None)),
+            ("--magnum-python-site", getattr(args, "magnum_python_site", None)),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(
+            "current-installed mode requires explicit " + ", ".join(missing)
+        )
 
 
 def _require_ignored_or_external_output(path: str | Path) -> Path:
@@ -162,10 +239,12 @@ def _blocked_evidence(
     output: Path,
     inputs: ValidatedM1Inputs,
     error: Exception,
+    *,
+    schema_name: str = EVIDENCE_SCHEMA_V2,
 ) -> dict[str, Any]:
     message = str(error) or repr(error)
     evidence: dict[str, Any] = {
-        "schema": EVIDENCE_SCHEMA,
+        "schema": schema_name,
         "evidence_kind": "blocked_attempt",
         "room_id": inputs.room["room_id"],
         "room_kind": inputs.room["room_kind"],
@@ -212,12 +291,14 @@ def _capture(args: argparse.Namespace) -> int:
         evidence = capture_m1(
             inputs,
             output,
-            runtime_root=args.runtime_root,
+            runtime_prefix=args.runtime_prefix,
             repeat_count=args.repeat,
             reference_evidence=args.reference_evidence,
         )
     except Exception as error:
-        evidence = _blocked_evidence(output, inputs, error)
+        evidence = _blocked_evidence(
+            output, inputs, error, schema_name=EVIDENCE_SCHEMA_V2
+        )
     summary = {
         "status": evidence["overall_status"],
         "evidence": str(output / "evidence.json"),
@@ -236,7 +317,7 @@ def _build_navmesh(args: argparse.Namespace) -> int:
         inputs = load_and_validate_inputs(args.room, args.request)
         result = build_navmesh(
             inputs,
-            runtime_root=args.runtime_root,
+            runtime_prefix=args.runtime_prefix,
             output_path=args.output,
         )
     except ContractError as error:
@@ -411,12 +492,22 @@ def _m3_verify_compile(args: argparse.Namespace) -> int:
 
 def _m3_run_canary(args: argparse.Namespace) -> int:
     try:
+        _require_current_installed_runtime_inputs(args)
         output = _require_ignored_or_external_output(args.output)
-        evidence_path = run_material_activation_canary(
-            args.request,
-            args.compile_evidence,
-            output,
-        )
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            evidence_path = run_material_activation_canary(
+                args.request,
+                args.compile_evidence,
+                output,
+                runtime_mode=args.runtime_mode,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+            )
         result = load_and_verify_canary_evidence(evidence_path)
         if result.errors:
             _print(
@@ -428,6 +519,9 @@ def _m3_run_canary(args: argparse.Namespace) -> int:
             )
             return 2
         status = result.evidence["overall_status"]
+    except RuntimeUnavailableError as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
     except (OSError, ValueError, RuntimeError) as error:
         _print({"status": "fail", "error": str(error)})
         return 2
@@ -457,10 +551,56 @@ def _m3_verify_canary(args: argparse.Namespace) -> int:
     return EXIT_BY_STATUS.get(str(declared_status), 2)
 
 
-def _m3_environment(runtime_root: str | None) -> dict[str, str]:
+def _m3_writer_environment(args: argparse.Namespace) -> dict[str, str]:
+    """Build a static-compiler environment without a checkout runtime fallback.
+
+    The M3 research compilers parse declared external scene files; they neither
+    import Habitat nor load the RLR adapter.  An installed runtime prefix and a
+    Magnum site are therefore deliberately not CLI requirements here.  Current
+    MP3D paths receive one explicit non-Git data root; historical checkout-root
+    templates fail rather than being silently rebound.
+    """
+
+    if getattr(args, "runtime_root", None) is not None:
+        raise ValueError(
+            "--runtime-root is retired for active M3 static writers; provide "
+            "--mp3d-root only when the selected room declares MP3D assets"
+        )
     environment = dict(os.environ)
-    if runtime_root is not None:
-        environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(Path(runtime_root).resolve())
+    for name in (
+        "AVENGINE_HABITAT_RUNTIME_ROOT",
+        "AVENGINE_SPEAR_ROOT",
+        "HABITAT_ROOT",
+        "HABITAT_SIM_PATH",
+        "HABITAT_SIM_ROOT",
+        "SPEAR_ROOT",
+    ):
+        environment.pop(name, None)
+    # Do not inherit a private/checkout MP3D selection. A current MP3D writer
+    # must receive this data root on its own argv.
+    environment.pop("AVENGINE_MP3D_ROOT", None)
+    environment["AVENGINE_REPOSITORY_ROOT"] = str(Path(__file__).resolve().parents[2])
+    raw_mp3d = getattr(args, "mp3d_root", None)
+    if raw_mp3d is None:
+        return environment
+    raw = Path(raw_mp3d).expanduser()
+    if not raw.is_absolute():
+        raise ValueError("--mp3d-root must be an absolute path")
+    try:
+        root = raw.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"--mp3d-root cannot be resolved: {raw}: {error}") from error
+    if raw != root or not root.is_dir():
+        raise ValueError(
+            "--mp3d-root must be an existing canonical directory without a symlink hop"
+        )
+    try:
+        root = require_outside_git_checkout(root, owner="--mp3d-root")
+    except (ExternalRlrSdkError, OSError, RuntimeError) as error:
+        raise ValueError(str(error)) from error
+    if not (root / "scene_datasets").is_dir():
+        raise ValueError("--mp3d-root must contain scene_datasets")
+    environment["AVENGINE_MP3D_ROOT"] = str(root)
     return environment
 
 
@@ -472,7 +612,7 @@ def _m3_propose_visual_slots(args: argparse.Namespace) -> int:
             output=output,
             transform_profile=args.transform_profile,
             transform_reviewed=args.confirm_reviewed_transform,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -498,7 +638,7 @@ def _m3_compile_research(args: argparse.Namespace) -> int:
             material_database=args.materials,
             output=output,
             package_id=args.package_id,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -524,7 +664,7 @@ def _m3_compile_mp3d_semantic(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -554,7 +694,7 @@ def _m3_compile_mp3d_rlr_materials(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -582,7 +722,7 @@ def _m3_compile_usd_snapshot_semantic(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -611,7 +751,7 @@ def _m3_compile_visual_slots_semantic(args: argparse.Namespace) -> int:
             package_id=args.package_id,
             probe_origins=args.probe_origin,
             probe_direction_count=args.probe_directions,
-            environment=_m3_environment(args.runtime_root),
+            environment=_m3_writer_environment(args),
         )
     except (AcousticSceneCompileError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -630,7 +770,7 @@ def _m3_compile_visual_slots_semantic(args: argparse.Namespace) -> int:
 def _m3_compile_registered_scene(args: argparse.Namespace) -> int:
     try:
         output = _require_ignored_or_external_output(args.output)
-        environment = _m3_environment(args.runtime_root)
+        environment = _m3_writer_environment(args)
         acoustic_registry = (
             load_acoustic_profile_registry(args.acoustic_profile_registry)
             if args.acoustic_profile_registry is not None
@@ -955,15 +1095,49 @@ def _m4_run_canary(args: argparse.Namespace) -> int:
         )
         return 3
     try:
+        _require_current_installed_runtime_inputs(args)
+        m4_runtime_kwargs: dict[str, Any] = {}
+        runtime_lock: str | None = args.runtime_lock
+        if args.runtime_mode == "current-installed":
+            missing_hrtf_metadata = [
+                option
+                for option, value in (
+                    ("--current-hrtf-sample-rate-hz", args.current_hrtf_sample_rate_hz),
+                    ("--current-hrtf-license-id", args.current_hrtf_license_id),
+                    ("--current-hrtf-citation", args.current_hrtf_citation),
+                )
+                if value is None or not str(value).strip()
+            ]
+            if missing_hrtf_metadata:
+                raise ValueError(
+                    "current-installed mode requires explicit "
+                    + ", ".join(missing_hrtf_metadata)
+                )
+            runtime_lock = None
+            m4_runtime_kwargs = {
+                "runtime_mode": args.runtime_mode,
+                "runtime_prefix": args.runtime_prefix,
+                "rlr_sdk_root": args.rlr_sdk_root,
+                "magnum_python_site": args.magnum_python_site,
+                "current_hrtf_sample_rate_hz": args.current_hrtf_sample_rate_hz,
+                "current_hrtf_license_id": args.current_hrtf_license_id,
+                "current_hrtf_citation": args.current_hrtf_citation,
+            }
         output = _require_ignored_or_external_output(args.output)
-        evidence = run_m4_canary(
-            args.request,
-            args.package_manifest,
-            args.runtime_lock,
-            output,
-            hrtf_path=args.hrtf,
-            hrtf_license_path=args.hrtf_license,
-        )
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            evidence = run_m4_canary(
+                args.request,
+                args.package_manifest,
+                runtime_lock,
+                output,
+                hrtf_path=args.hrtf,
+                hrtf_license_path=args.hrtf_license,
+                **m4_runtime_kwargs,
+            )
     except RuntimeUnavailableError as error:
         _print({"status": "blocked", "error": str(error)})
         return 3
@@ -981,6 +1155,133 @@ def _m4_run_canary(args: argparse.Namespace) -> int:
         }
     )
     return EXIT_BY_STATUS.get(status, 2)
+
+
+def _m4_run_current_foa(args: argparse.Namespace) -> int:
+    """Write raw current RLR FOA research output without a binaural branch."""
+
+    try:
+        _require_current_installed_runtime_inputs(args)
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = run_current_foa(
+                args.request,
+                args.package_manifest,
+                output,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+            )
+    except RuntimeUnavailableError as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (CurrentFOAError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_status": receipt["research_status"],
+            "qualification_claim": receipt["qualification_claim"],
+            "binaural": receipt["binaural"],
+            "output": str(output),
+            "foa_pair_count": len(receipt["pairs"]),
+        }
+    )
+    return 0 if receipt["status"] == "pass" else 2
+
+
+def _m4_run_current_m1_foa(args: argparse.Namespace) -> int:
+    """Write raw current RLR FOA pair IRs from static M1 endpoints."""
+
+    try:
+        _require_current_installed_runtime_inputs(args)
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = run_current_m1_foa(
+                args.m1_request,
+                args.simulation_request,
+                args.package_manifest,
+                output,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+            )
+    except (CurrentM1PairIRBlockedError, RuntimeUnavailableError) as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (CurrentM1PairIRError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_status": receipt["research_status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "formal_dataset_count": receipt["formal_dataset_count"],
+            "qualification_claim": receipt["qualification_claim"],
+            "output": str(output),
+            "foa_pair_count": len(receipt["pairs"]),
+        }
+    )
+    return 0 if receipt["status"] == "pass" else 2
+
+
+def _m4_run_current_m1_binaural(args: argparse.Namespace) -> int:
+    """Write native current RLR binaural pair IRs from static M1 endpoints."""
+
+    try:
+        _require_current_installed_runtime_inputs(args)
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = run_current_m1_binaural(
+                args.m1_request,
+                args.simulation_request,
+                args.package_manifest,
+                output,
+                runtime_prefix=args.runtime_prefix,
+                rlr_sdk_root=args.rlr_sdk_root,
+                magnum_python_site=args.magnum_python_site,
+                hrtf_path=args.hrtf,
+                expected_hrtf_sha256=args.hrtf_sha256,
+                hrtf_sample_rate_hz=args.hrtf_sample_rate_hz,
+                hrtf_license_path=args.hrtf_license,
+                expected_hrtf_license_sha256=args.hrtf_license_sha256,
+                hrtf_license_id=args.hrtf_license_id,
+                hrtf_citation=args.hrtf_citation,
+            )
+    except (CurrentM1PairIRBlockedError, RuntimeUnavailableError) as error:
+        _print({"status": "blocked", "error": str(error)})
+        return 3
+    except (CurrentM1PairIRError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_status": receipt["research_status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "formal_dataset_count": receipt["formal_dataset_count"],
+            "qualification_claim": receipt["qualification_claim"],
+            "output": str(output),
+            "binaural_pair_count": len(receipt["pairs"]),
+        }
+    )
+    return 0 if receipt["status"] == "pass" else 2
 
 
 def _m4_verify_canary(args: argparse.Namespace) -> int:
@@ -1026,6 +1327,79 @@ def _m5_validate_request(args: argparse.Namespace) -> int:
     return 0 if not errors else 2
 
 
+def _m5_render_current_m1_research_audio(args: argparse.Namespace) -> int:
+    """Assemble existing current-M1 pair IRs without activating native code."""
+
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        receipt = render_current_m1_research_audio(
+            args.foa_receipt,
+            args.binaural_receipt,
+            output,
+        )
+    except (CurrentM1ResearchAudioError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "formal_dataset_count": receipt["formal_dataset_count"],
+            "qualification_claim": receipt["qualification_claim"],
+            "sample_rate_hz": receipt["audio"]["sample_rate_hz"],
+            "sample_count": receipt["audio"]["sample_count"],
+            "output": str(output),
+            "receipt": str(output / "research_receipt.json"),
+        }
+    )
+    return 0
+
+
+
+def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
+    """Render per-state MP3D research audio on the installed native runtime."""
+
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = render_current_mp3d_dynamic_audio(
+                visual_capture_dir=args.visual_capture_dir,
+                m1_request_path=args.m1_request,
+                simulation_request_path=args.simulation_request,
+                package_manifest_path=args.package_manifest,
+                audio_program_path=args.audio_program,
+                source_endpoint_registry_path=args.source_endpoint_registry,
+                sound_asset_registry_path=args.sound_asset_registry,
+                external_sound_asset_paths={
+                    "dog_beagle_v2_scheduled_dry": args.beagle_audio
+                },
+                hrtf_file_path=args.hrtf,
+                hrtf_license_path=args.hrtf_license,
+                output_path=output,
+                rir_stride_frames=args.rir_stride_frames,
+                variant_id=args.variant,
+            )
+    except (CurrentMP3DDynamicAudioError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_only": receipt["research_only"],
+            "keyframe_count": receipt["rir"]["keyframe_count"],
+            "event_count": receipt["audio_program"]["event_count"],
+            "output": str(output),
+            "receipt": str(Path(output) / "research_receipt.json"),
+        }
+    )
+    return 0
+
+
 def _m5_run_canary(args: argparse.Namespace) -> int:
     try:
         output = _require_ignored_or_external_output(args.output)
@@ -1039,6 +1413,10 @@ def _m5_run_canary(args: argparse.Namespace) -> int:
             m4_request_path=args.m4_request,
             output_directory=output,
             runtime_root=args.runtime_root,
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            rlr_sdk_root=args.rlr_sdk_root,
             hrtf_path=args.hrtf,
             hrtf_license_path=args.hrtf_license,
             beagle_dry_path=args.beagle_dry,
@@ -1062,6 +1440,164 @@ def _m5_run_canary(args: argparse.Namespace) -> int:
         }
     )
     return 0 if status == "pass" else 1
+
+
+def _m5_capture_current_visual(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        receipt = capture_current_visual(
+            animal_manifest_path=args.animal_manifest,
+            m2_request_path=args.m2_request,
+            room_manifest_path=args.room_manifest,
+            m1_request_path=args.m1_request,
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            output_directory=output,
+            rlr_sdk_root=args.rlr_sdk_root,
+        )
+    except (CurrentVisualError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    status = receipt["status"]
+    _print(
+        {
+            "status": status,
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "output": str(output),
+            "receipt": str(output / "research_receipt.json"),
+            **(
+                {"reason": receipt["reason"]}
+                if status == "not_run"
+                else {"frame_count": receipt["capture"]["frame_count"]}
+            ),
+        }
+    )
+    return 0 if status == "research_only" else EXIT_BY_STATUS.get(status, 2)
+
+
+
+def _m5_author_current_apartment_visual_timeline(
+    args: argparse.Namespace,
+) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        timeline = author_current_apartment_visual_timeline(
+            actor_selection_path=args.actor_selection,
+            source_asset_registry_path=args.source_asset_registry,
+            output_path=output,
+            camera_position_ue_cm=args.camera_position_ue_cm,
+            camera_yaw_deg=args.camera_yaw_deg,
+            human_start_ue_cm=args.human_start_ue_cm,
+            human_end_ue_cm=args.human_end_ue_cm,
+            beagle_start_ue_cm=args.beagle_start_ue_cm,
+            beagle_end_ue_cm=args.beagle_end_ue_cm,
+            width=args.width,
+            height=args.height,
+            hfov_degrees=args.hfov_degrees,
+        )
+    except (CurrentApartmentVisualError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": timeline["status"],
+            "research_only": timeline["research_only"],
+            "episode_counted": timeline["episode_counted"],
+            "qualification_claim": timeline["qualification_claim"],
+            "asset_authorization": timeline["asset_authorization"],
+            "frame_count": timeline["render"]["frame_count"],
+            "output": str(output),
+        }
+    )
+    return 0
+
+
+def _m5_capture_current_apartment_visual(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        receipt = capture_current_apartment_visual(
+            actor_selection_path=args.actor_selection,
+            source_asset_registry_path=args.source_asset_registry,
+            timeline_path=args.timeline,
+            closure_report_path=args.closure_report,
+            stage_root=args.stage_root,
+            spear_executable=args.spear_executable,
+            output_directory=output,
+            rpc_port=args.rpc_port,
+            graphics_adapter=args.graphics_adapter,
+        )
+    except (CurrentApartmentVisualError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "qualification_claim": receipt["qualification_claim"],
+            "asset_authorization": receipt["asset_authorization"],
+            "output": str(output),
+            "receipt": str(output / "research_receipt.json"),
+            **(
+                {"reason": receipt["reason"]}
+                if receipt["status"] == "not_run"
+                else {"frame_count": receipt["capture"]["frame_count"]}
+            ),
+        }
+    )
+    return 0 if receipt["status"] == "research_only" else EXIT_BY_STATUS.get(
+        receipt["status"], 2
+    )
+
+
+def _m5_author_current_mp3d_two_beagle_route(args: argparse.Namespace) -> int:
+    try:
+        result = author_current_mp3d_two_beagle_route(
+            source_animal_manifest_path=args.source_animal_manifest,
+            source_m2_request_path=args.source_m2_request,
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            output_directory=args.output,
+            seed=args.seed,
+            camera_selection=args.camera_selection,
+            distance_tolerance_m=args.distance_tolerance_m,
+            minimum_center_separation_m=args.minimum_center_separation_m,
+        )
+    except (CurrentMP3DRouteError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(result)
+    return 0
+
+
+def _m5_review_current_visual(args: argparse.Namespace) -> int:
+    try:
+        review = generate_current_visual_review(
+            args.research_output,
+            review_directory=args.review_output,
+        )
+    except (CurrentVisualReviewError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": "research_only",
+            "research_only": True,
+            "episode_counted": False,
+            "research_output": str(Path(args.research_output).resolve()),
+            "review": str(review.html_path),
+            "frame_count": review.frame_count,
+            "notes_storage": "browser localStorage only",
+            "claim_boundary": (
+                "offline review only; no receipt mutation, verdict, admission, "
+                "or formal evidence"
+            ),
+        }
+    )
+    return 0
 
 
 def _m5_verify_canary(args: argparse.Namespace) -> int:
@@ -1154,7 +1690,7 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--room", required=True)
     capture.add_argument("--request", required=True)
     capture.add_argument("--output", required=True)
-    capture.add_argument("--runtime-root")
+    capture.add_argument("--runtime-prefix", required=True)
     capture.add_argument("--repeat", type=int, default=3)
     capture.add_argument(
         "--reference-evidence",
@@ -1165,7 +1701,7 @@ def build_parser() -> argparse.ArgumentParser:
     navmesh = m1_commands.add_parser("build-navmesh")
     navmesh.add_argument("--room", required=True)
     navmesh.add_argument("--request", required=True)
-    navmesh.add_argument("--runtime-root")
+    navmesh.add_argument("--runtime-prefix", required=True)
     navmesh.add_argument("--output")
     navmesh.set_defaults(handler=_build_navmesh)
 
@@ -1206,6 +1742,30 @@ def build_parser() -> argparse.ArgumentParser:
     m3_run_canary.add_argument("--request", required=True)
     m3_run_canary.add_argument("--compile-evidence", required=True)
     m3_run_canary.add_argument("--output", required=True)
+    m3_run_canary.add_argument(
+        "--runtime-prefix",
+        help=(
+            "Explicit installed non-checkout Habitat prefix required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m3_run_canary.add_argument(
+        "--rlr-sdk-root",
+        help=(
+            "Explicit external non-checkout RLRAudioPropagationPkg required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m3_run_canary.add_argument(
+        "--runtime-mode",
+        choices=["historical", "current-installed"],
+        default="historical",
+        help="historical verifies the v1 lock; current-installed records only one fresh external runtime identity",
+    )
+    m3_run_canary.add_argument(
+        "--magnum-python-site",
+        help="External Corrade/Magnum Python site; required with --runtime-mode current-installed",
+    )
     m3_run_canary.set_defaults(handler=_m3_run_canary)
 
     m3_verify_canary = m3_commands.add_parser("verify-canary")
@@ -1219,7 +1779,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=["identity_y_up", "mp3d_z_up_y_front_to_habitat"],
     )
-    m3_propose.add_argument("--runtime-root")
+    m3_propose.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_propose.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_propose.add_argument(
         "--confirm-reviewed-transform",
         action="store_true",
@@ -1232,7 +1801,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_research.add_argument("--room", required=True)
     m3_research.add_argument("--mapping", required=True)
     m3_research.add_argument("--materials", required=True)
-    m3_research.add_argument("--runtime-root")
+    m3_research.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_research.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_research.add_argument("--output", required=True)
     m3_research.add_argument("--package-id")
     m3_research.set_defaults(handler=_m3_compile_research)
@@ -1244,7 +1822,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_semantic.add_argument("--room", required=True)
     m3_semantic.add_argument("--rules", required=True)
     m3_semantic.add_argument("--seed", type=int, default=917)
-    m3_semantic.add_argument("--runtime-root")
+    m3_semantic.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_semantic.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_semantic.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1274,7 +1861,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_soundspaces.add_argument("--version", default="1")
     m3_soundspaces.add_argument("--source-description", required=True)
     m3_soundspaces.add_argument("--source-uri")
-    m3_soundspaces.add_argument("--runtime-root")
+    m3_soundspaces.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_soundspaces.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_soundspaces.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1301,7 +1897,16 @@ def build_parser() -> argparse.ArgumentParser:
     m3_usd_semantic.add_argument("--room", required=True)
     m3_usd_semantic.add_argument("--rules", required=True)
     m3_usd_semantic.add_argument("--seed", type=int, default=917)
-    m3_usd_semantic.add_argument("--runtime-root")
+    m3_usd_semantic.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_usd_semantic.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_usd_semantic.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1341,7 +1946,16 @@ def build_parser() -> argparse.ArgumentParser:
             "reviewed for this exact room"
         ),
     )
-    m3_slots_semantic.add_argument("--runtime-root")
+    m3_slots_semantic.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_slots_semantic.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_slots_semantic.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1372,8 +1986,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--room-registry",
         type=Path,
         default=(
-            Path(__file__).resolve().parents[2]
-            / "examples/m6/rooms/room_registry.json"
+            Path(__file__).resolve().parents[2] / "examples/m6/rooms/room_registry.json"
         ),
     )
     m3_registered.add_argument(
@@ -1382,7 +1995,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the installed/default acoustic profile registry",
     )
     m3_registered.add_argument("--seed", type=int, default=917)
-    m3_registered.add_argument("--runtime-root")
+    m3_registered.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="Retired checkout-root spelling; active M3 static writers reject it.",
+    )
+    m3_registered.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Explicit non-Git MP3D data root when the selected room declares MP3D assets.",
+    )
     m3_registered.add_argument(
         "--probe-origin",
         nargs=3,
@@ -1468,7 +2090,147 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m4_run.add_argument("--hrtf-license", default="/usr/share/doc/libmysofa1/copyright")
     m4_run.add_argument("--output", required=True)
+    m4_run.add_argument(
+        "--runtime-prefix",
+        help=(
+            "Explicit installed non-checkout Habitat prefix required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m4_run.add_argument(
+        "--rlr-sdk-root",
+        help=(
+            "Explicit external non-checkout RLRAudioPropagationPkg required with "
+            "--runtime-mode current-installed"
+        ),
+    )
+    m4_run.add_argument(
+        "--runtime-mode",
+        choices=("historical", "current-installed"),
+        default="historical",
+        help="historical verifies m4_runtime_v1; current-installed writes a fresh v2 receipt",
+    )
+    m4_run.add_argument(
+        "--magnum-python-site",
+        help="Explicit external Magnum Python site required by current-installed mode",
+    )
+    m4_run.add_argument(
+        "--current-hrtf-sample-rate-hz",
+        type=int,
+        help="Explicit HRTF sample rate required by current-installed mode",
+    )
+    m4_run.add_argument(
+        "--current-hrtf-license-id",
+        help="Explicit HRTF license identifier required by current-installed mode",
+    )
+    m4_run.add_argument(
+        "--current-hrtf-citation",
+        help="Explicit HRTF citation required by current-installed mode",
+    )
     m4_run.set_defaults(handler=_m4_run_canary)
+
+    m4_foa = m4_commands.add_parser(
+        "run-current-foa",
+        help="Write raw native 16 kHz RLR FOA research pair IR WAVs",
+    )
+    m4_foa.add_argument("--request", required=True)
+    m4_foa.add_argument("--package-manifest", required=True)
+    m4_foa.add_argument(
+        "--runtime-prefix",
+        required=True,
+        help="Explicit installed non-checkout Habitat prefix",
+    )
+    m4_foa.add_argument(
+        "--rlr-sdk-root",
+        required=True,
+        help="Explicit external non-checkout RLRAudioPropagationPkg",
+    )
+    m4_foa.add_argument(
+        "--magnum-python-site",
+        required=True,
+        help="Explicit external non-checkout Magnum Python site",
+    )
+    m4_foa.add_argument("--output", required=True)
+    m4_foa.set_defaults(
+        handler=_m4_run_current_foa,
+        runtime_mode="current-installed",
+    )
+
+    def add_current_m1_pair_ir_arguments(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--m1-request", required=True)
+        parser.add_argument("--simulation-request", required=True)
+        parser.add_argument("--package-manifest", required=True)
+        parser.add_argument(
+            "--runtime-prefix",
+            required=True,
+            help="Explicit installed non-checkout Habitat prefix",
+        )
+        parser.add_argument(
+            "--rlr-sdk-root",
+            required=True,
+            help="Explicit external non-checkout RLRAudioPropagationPkg",
+        )
+        parser.add_argument(
+            "--magnum-python-site",
+            required=True,
+            help="Explicit external non-checkout Magnum Python site",
+        )
+        parser.add_argument(
+            "--output",
+            required=True,
+            help="Fresh Git-ignored repository or external output path",
+        )
+        parser.set_defaults(runtime_mode="current-installed")
+
+    m4_current_m1_foa = m4_commands.add_parser(
+        "run-current-m1-foa",
+        help="Write research-only native 16 kHz FOA pair IRs from static M1",
+    )
+    add_current_m1_pair_ir_arguments(m4_current_m1_foa)
+    m4_current_m1_foa.set_defaults(handler=_m4_run_current_m1_foa)
+
+    m4_current_m1_binaural = m4_commands.add_parser(
+        "run-current-m1-binaural",
+        help="Write research-only native 16 kHz binaural pair IRs from static M1",
+    )
+    add_current_m1_pair_ir_arguments(m4_current_m1_binaural)
+    m4_current_m1_binaural.add_argument(
+        "--hrtf",
+        required=True,
+        help="Explicit 16 kHz SOFA HRTF",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-sha256",
+        required=True,
+        help="Expected lowercase SHA-256 of the selected SOFA file",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-sample-rate-hz",
+        required=True,
+        type=int,
+        help="Declared and upstream-verified SOFA sample rate (must be 16000)",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-license",
+        required=True,
+        help="Explicit HRTF license evidence file",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-license-sha256",
+        required=True,
+        help="Expected lowercase SHA-256 of the HRTF license evidence",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-license-id",
+        required=True,
+        help="Explicit HRTF license identifier",
+    )
+    m4_current_m1_binaural.add_argument(
+        "--hrtf-citation",
+        required=True,
+        help="Explicit HRTF citation",
+    )
+    m4_current_m1_binaural.set_defaults(handler=_m4_run_current_m1_binaural)
 
     m4_verify = m4_commands.add_parser("verify-canary")
     m4_verify.add_argument("evidence")
@@ -1487,6 +2249,48 @@ def build_parser() -> argparse.ArgumentParser:
     m5_validate.add_argument("request")
     m5_validate.set_defaults(handler=_m5_validate_request)
 
+    m5_current_audio = m5_commands.add_parser(
+        "render-current-m1-research-audio",
+        help=(
+            "Offline-assemble existing matching current-M1 FOA/binaural "
+            "pair receipts into five-second research WAVs"
+        ),
+    )
+    m5_current_audio.add_argument("--foa-receipt", required=True)
+    m5_current_audio.add_argument("--binaural-receipt", required=True)
+    m5_current_audio.add_argument("--output", required=True)
+    m5_current_audio.set_defaults(handler=_m5_render_current_m1_research_audio)
+
+    m5_dynamic_audio = m5_commands.add_parser(
+        "render-current-mp3d-dynamic-audio",
+        help=(
+            "Render motion-following binaural research audio for an authored "
+            "current MP3D route from captured per-frame source positions and "
+            "one AudioProgram routing variant"
+        ),
+    )
+    m5_dynamic_audio.add_argument("--visual-capture-dir", required=True)
+    m5_dynamic_audio.add_argument("--m1-request", required=True)
+    m5_dynamic_audio.add_argument("--simulation-request", required=True)
+    m5_dynamic_audio.add_argument("--package-manifest", required=True)
+    m5_dynamic_audio.add_argument("--audio-program", required=True)
+    m5_dynamic_audio.add_argument("--source-endpoint-registry", required=True)
+    m5_dynamic_audio.add_argument("--sound-asset-registry", required=True)
+    m5_dynamic_audio.add_argument(
+        "--beagle-audio",
+        required=True,
+        help="external dry wav for dog_beagle_v2_scheduled_dry",
+    )
+    m5_dynamic_audio.add_argument("--hrtf", required=True)
+    m5_dynamic_audio.add_argument("--hrtf-license")
+    m5_dynamic_audio.add_argument("--runtime-prefix", required=True)
+    m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
+    m5_dynamic_audio.add_argument("--magnum-python-site")
+    m5_dynamic_audio.add_argument("--rir-stride-frames", type=int, default=3)
+    m5_dynamic_audio.add_argument("--variant", default="A")
+    m5_dynamic_audio.add_argument("--output", required=True)
+    m5_dynamic_audio.set_defaults(handler=_m5_render_current_mp3d_dynamic_audio)
+
     m5_run = m5_commands.add_parser("run-canary")
     m5_run.add_argument("--request", required=True)
     m5_run.add_argument("--animal-manifest", required=True)
@@ -1495,7 +2299,14 @@ def build_parser() -> argparse.ArgumentParser:
     m5_run.add_argument("--m1-request", required=True)
     m5_run.add_argument("--acoustic-package-manifest", required=True)
     m5_run.add_argument("--m4-request", required=True)
-    m5_run.add_argument("--runtime-root")
+    m5_run.add_argument(
+        "--runtime-root",
+        help="Compatibility alias for a non-Git installed Habitat prefix",
+    )
+    m5_run.add_argument("--runtime-prefix")
+    m5_run.add_argument("--mp3d-root")
+    m5_run.add_argument("--magnum-python-site")
+    m5_run.add_argument("--rlr-sdk-root")
     m5_run.add_argument(
         "--hrtf", default="/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
     )
@@ -1508,6 +2319,102 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m5_run.add_argument("--output", required=True)
     m5_run.set_defaults(handler=_m5_run_canary)
+
+    m5_current_visual = m5_commands.add_parser(
+        "capture-current-visual",
+        help="Run a visual-only installed-prefix MP3D research capture",
+    )
+    m5_current_visual.add_argument("--animal-manifest", required=True)
+    m5_current_visual.add_argument("--m2-request", required=True)
+    m5_current_visual.add_argument("--room-manifest", required=True)
+    m5_current_visual.add_argument("--m1-request", required=True)
+    m5_current_visual.add_argument("--runtime-prefix", required=True)
+    m5_current_visual.add_argument("--mp3d-root", required=True)
+    m5_current_visual.add_argument("--magnum-python-site", required=True)
+    m5_current_visual.add_argument(
+        "--rlr-sdk-root",
+        help="Explicit external RLR SDK for adapter-linked installed prefixes",
+    )
+    m5_current_visual.add_argument("--output", required=True)
+    m5_current_visual.set_defaults(handler=_m5_capture_current_visual)
+
+    m5_current_apartment_author = m5_commands.add_parser(
+        "author-current-apartment-visual-timeline",
+        help="Author one free-design 75-frame current Apartment RGB research timeline",
+    )
+    m5_current_apartment_author.add_argument("--actor-selection", required=True)
+    m5_current_apartment_author.add_argument("--source-asset-registry", required=True)
+    m5_current_apartment_author.add_argument("--camera-position-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--camera-yaw-deg", type=float, required=True)
+    m5_current_apartment_author.add_argument("--human-start-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--human-end-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--beagle-start-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--beagle-end-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument("--width", type=int, default=1280)
+    m5_current_apartment_author.add_argument("--height", type=int, default=720)
+    m5_current_apartment_author.add_argument("--hfov-degrees", type=float, default=105.0)
+    m5_current_apartment_author.add_argument("--output", required=True)
+    m5_current_apartment_author.set_defaults(
+        handler=_m5_author_current_apartment_visual_timeline
+    )
+
+    m5_current_apartment_capture = m5_commands.add_parser(
+        "capture-current-apartment-visual",
+        help="Run a preflighted external SPEAR RGB-only Apartment research capture",
+    )
+    m5_current_apartment_capture.add_argument("--actor-selection", required=True)
+    m5_current_apartment_capture.add_argument("--source-asset-registry", required=True)
+    m5_current_apartment_capture.add_argument("--timeline", required=True)
+    m5_current_apartment_capture.add_argument("--closure-report", required=True)
+    m5_current_apartment_capture.add_argument("--stage-root", required=True)
+    m5_current_apartment_capture.add_argument("--spear-executable", required=True)
+    m5_current_apartment_capture.add_argument("--rpc-port", type=int, default=39511)
+    m5_current_apartment_capture.add_argument("--graphics-adapter", type=int)
+    m5_current_apartment_capture.add_argument("--output", required=True)
+    m5_current_apartment_capture.set_defaults(
+        handler=_m5_capture_current_apartment_visual
+    )
+
+    m5_current_route = m5_commands.add_parser(
+        "author-current-mp3d-two-beagle-route",
+        help="Author one fresh current-MP3D two-Beagle research route",
+    )
+    m5_current_route.add_argument("--source-animal-manifest", required=True)
+    m5_current_route.add_argument("--source-m2-request", required=True)
+    m5_current_route.add_argument("--runtime-prefix", required=True)
+    m5_current_route.add_argument("--mp3d-root", required=True)
+    m5_current_route.add_argument("--magnum-python-site", required=True)
+    m5_current_route.add_argument("--output", required=True)
+    m5_current_route.add_argument("--seed", type=int, default=20_260_820)
+    m5_current_route.add_argument(
+        "--camera-selection",
+        choices=("framing", "lateral_sweep"),
+        default="framing",
+        help="framing keeps the historical distance preference; lateral_sweep "
+        "maximizes the actors' azimuth sweep across the view",
+    )
+    m5_current_route.add_argument("--distance-tolerance-m", type=float, default=0.15)
+    m5_current_route.add_argument(
+        "--minimum-center-separation-m", type=float, default=0.75
+    )
+    m5_current_route.set_defaults(handler=_m5_author_current_mp3d_two_beagle_route)
+
+    m5_current_review = m5_commands.add_parser(
+        "review-current-visual",
+        help=(
+            "Generate an offline research-only review page for one completed "
+            "M5 visual output"
+        ),
+    )
+    m5_current_review.add_argument("--research-output", required=True)
+    m5_current_review.add_argument(
+        "--review-output",
+        help=(
+            "Optional new local/external review directory; defaults to "
+            "<research-output>/review"
+        ),
+    )
+    m5_current_review.set_defaults(handler=_m5_review_current_visual)
 
     m5_verify = m5_commands.add_parser("verify-canary")
     m5_verify.add_argument("evidence")

@@ -1247,6 +1247,97 @@ def _prepare_output_directory(path: str | Path) -> Path:
     return output
 
 
+def _installed_research_receipt(
+    *,
+    inputs: ValidatedM2Inputs,
+    room_inputs: ValidatedM1Inputs,
+    installed_runtime: Any,
+    array_artifacts: Mapping[str, Any],
+    review_media: Mapping[str, Any],
+    initial_world_time: float,
+    final_world_time: float,
+    frame_count: int,
+) -> dict[str, Any]:
+    """Describe one current installed-prefix research run without v1 evidence.
+
+    The old M2 evidence reader expects a schema, a content hash, a Git runtime
+    identity, and formal/review v1 fields.  This receipt deliberately contains
+    none of those bindings: it is an ordinary research-only result locator.
+    Array write/readback and review-video production happen before this helper,
+    but their hashes remain implementation-local rather than a new M2 contract.
+    """
+
+    array_paths: dict[str, str] = {}
+    review_paths: dict[str, str] = {}
+    videos = review_media.get("videos")
+    if not isinstance(videos, Mapping):
+        raise HabitatCaptureError("installed research review lacks video records")
+    for modality in FORMAL_MODALITIES:
+        array_record = array_artifacts.get(modality)
+        video_record = videos.get(modality)
+        if not isinstance(array_record, Mapping) or not isinstance(
+            video_record, Mapping
+        ):
+            raise HabitatCaptureError(
+                f"installed research review lacks {modality} artifacts"
+            )
+        array_artifact = array_record.get("artifact")
+        video_artifact = video_record.get("artifact")
+        if not isinstance(array_artifact, Mapping) or not isinstance(
+            array_artifact.get("path"), str
+        ):
+            raise HabitatCaptureError(
+                f"installed research review has invalid {modality} array path"
+            )
+        if not isinstance(video_artifact, Mapping) or not isinstance(
+            video_artifact.get("path"), str
+        ):
+            raise HabitatCaptureError(
+                f"installed research review has invalid {modality} video path"
+            )
+        array_paths[modality] = str(array_artifact["path"])
+        review_paths[modality] = str(video_artifact["path"])
+
+    habitat_module = getattr(installed_runtime.habitat_sim, "__file__", None)
+    if not isinstance(habitat_module, str) or not habitat_module:
+        raise HabitatCaptureError("installed Habitat runtime has no module path")
+    return {
+        "status": "research_only",
+        "research_only": True,
+        "qualification_claim": False,
+        "formal_admission": False,
+        "runtime": {
+            "mode": "non_git_installed_prefix",
+            "prefix": str(installed_runtime.prefix),
+            "habitat_sim_module": str(Path(habitat_module).resolve()),
+            "magnum_python_site": str(installed_runtime.magnum_python_site),
+            "physics_config_path": str(installed_runtime.physics_config_path),
+        },
+        "inputs": {
+            "animal_asset_package": str(inputs.asset_path),
+            "m2_capture_request": str(inputs.request_path),
+            "m1_room_manifest": str(room_inputs.room_path),
+            "m1_camera_request": str(room_inputs.request_path),
+        },
+        "room": {
+            "room_id": room_inputs.room["room_id"],
+            "room_kind": room_inputs.room["room_kind"],
+        },
+        "capture": {
+            "frame_count": frame_count,
+            "review_view_ids": ["view0"],
+            "modalities": list(FORMAL_MODALITIES),
+            "state_evaluation": "explicit_fixed_state",
+            "physics_steps": 0,
+            "world_time_seconds": [initial_world_time, final_world_time],
+        },
+        "artifacts": {
+            "arrays": array_paths,
+            "review_media": review_paths,
+        },
+    }
+
+
 def _capture_m2_states(
     inputs: ValidatedM2Inputs,
     room_inputs: ValidatedM1Inputs,
@@ -1254,6 +1345,7 @@ def _capture_m2_states(
     *,
     runtime_root: str | Path | None = None,
     review_only: bool,
+    installed_runtime: Any | None = None,
 ) -> dict[str, Any]:
     """Execute the shared 75-state runtime after admission-specific loading."""
 
@@ -1273,8 +1365,23 @@ def _capture_m2_states(
         discover_runtime_root,
     )
 
-    runtime = discover_runtime_root(runtime_root)
-    room_assets = _resolved_assets(room_inputs, runtime)
+    if installed_runtime is None:
+        runtime = discover_runtime_root(runtime_root)
+        mp3d_root = None
+        physics_config_path = None
+    else:
+        if runtime_root is not None:
+            raise HabitatCaptureError(
+                "installed-prefix research capture does not accept runtime_root"
+            )
+        if not review_only:
+            raise HabitatCaptureError(
+                "installed-prefix runtime is limited to research review"
+            )
+        runtime = None
+        mp3d_root = installed_runtime.mp3d_root
+        physics_config_path = installed_runtime.physics_config_path
+    room_assets = _resolved_assets(room_inputs, runtime, mp3d_root=mp3d_root)
     missing_room_assets = [record for record in room_assets if not record["exists"]]
     if missing_room_assets:
         raise HabitatCaptureError("validated M1 room has missing runtime assets")
@@ -1288,24 +1395,32 @@ def _capture_m2_states(
         raise HabitatCaptureError(
             "M2 visual asset path must be unique within the fresh Simulator cache"
         )
-    static_scene_errors = validate_scene_asset_graph(room_inputs, runtime)
+    static_scene_errors = validate_scene_asset_graph(
+        room_inputs, runtime, mp3d_root=mp3d_root
+    )
     if static_scene_errors:
         raise HabitatCaptureError(
             "M1 room graph failed before Simulator: " + "; ".join(static_scene_errors)
         )
 
-    # The pinned build must import numpy-quaternion before habitat_sim.
-    import quaternion as qt
+    if installed_runtime is None:
+        # The pinned build must import numpy-quaternion before habitat_sim.
+        import quaternion as qt
 
-    import habitat_sim
-    import magnum as mn
-    from habitat_sim._ext import habitat_sim_bindings
+        import habitat_sim
+        import magnum as mn
+        from habitat_sim._ext import habitat_sim_bindings
 
-    runtime_identity = _runtime_identity(
-        runtime=runtime,
-        habitat_sim=habitat_sim,
-        habitat_sim_bindings=habitat_sim_bindings,
-    )
+        runtime_identity = _runtime_identity(
+            runtime=runtime,
+            habitat_sim=habitat_sim,
+            habitat_sim_bindings=habitat_sim_bindings,
+        )
+    else:
+        qt = installed_runtime.quaternion
+        habitat_sim = installed_runtime.habitat_sim
+        mn = installed_runtime.magnum
+        runtime_identity = None
     if not review_only:
         formal_identity_errors = _formal_runtime_identity_errors(runtime_identity)
         if formal_identity_errors:
@@ -1315,7 +1430,14 @@ def _capture_m2_states(
             )
 
     configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
-        _make_configuration(room_inputs, runtime, output)
+        _make_configuration(
+            room_inputs,
+            runtime,
+            output,
+            mp3d_root=mp3d_root,
+            include_audio_sensor=installed_runtime is None,
+            physics_config_path=physics_config_path,
+        )
     )
     if list(modality_to_uuid) != FORMAL_MODALITIES:
         raise HabitatCaptureError("M1 configuration changed formal modality ordering")
@@ -1332,6 +1454,7 @@ def _capture_m2_states(
             runtime,
             simulator,
             declared_navmesh_loaded=navmesh_loaded,
+            mp3d_root=mp3d_root,
         )
         if loaded_errors:
             raise HabitatCaptureError(
@@ -1390,6 +1513,24 @@ def _capture_m2_states(
     review_media = (
         write_research_review_media(captures, output) if review_only else None
     )
+    if installed_runtime is not None:
+        if review_media is None:
+            raise HabitatCaptureError(
+                "installed-prefix research capture lacks review media"
+            )
+        receipt = _installed_research_receipt(
+            inputs=inputs,
+            room_inputs=room_inputs,
+            installed_runtime=installed_runtime,
+            array_artifacts=array_artifacts,
+            review_media=review_media,
+            initial_world_time=initial_world_time,
+            final_world_time=final_world_time,
+            frame_count=len(captures),
+        )
+        write_json(output / "research_receipt.json", receipt)
+        return receipt
+
     role_evidence = {
         role: {
             "path": str(bundle.paths_by_role[role]),
@@ -1540,6 +1681,63 @@ def capture_m2_research_review(
     return evidence
 
 
+def _require_bullet_enabled_installed_runtime(installed_runtime: Any) -> None:
+    """Fail before configuration when the current M2 route cannot create an AO."""
+
+    habitat_sim = getattr(installed_runtime, "habitat_sim", None)
+    if not bool(getattr(habitat_sim, "built_with_bullet", False)):
+        raise HabitatCaptureError(
+            "installed-prefix M2 Blender-custom research requires a Bullet-enabled "
+            "Habitat runtime (habitat_sim.built_with_bullet=True)"
+        )
+
+
+def capture_m2_installed_research_review(
+    inputs: ValidatedM2Inputs,
+    room_inputs: ValidatedM1Inputs,
+    output_dir: str | Path,
+    *,
+    runtime_prefix: str | Path,
+    magnum_python_site: str | Path,
+) -> dict[str, Any]:
+    """Run the current Blender-custom research path on an installed prefix.
+
+    This entry intentionally has no ``runtime_root`` compatibility alias.  It
+    cannot emit old M2 formal v1 evidence and cannot be used for admission.
+    """
+
+    if runtime_prefix is None or magnum_python_site is None:
+        raise HabitatCaptureError(
+            "installed-prefix research requires explicit runtime_prefix and "
+            "magnum_python_site"
+        )
+    inputs, room_inputs = _reload_research_review_context(inputs, room_inputs)
+    if room_inputs.room.get("room_kind") != "blender_custom":
+        raise HabitatCaptureError(
+            "installed-prefix M2 research currently supports only blender_custom rooms"
+        )
+    from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
+
+    try:
+        installed_runtime = prepare_installed_habitat_runtime(
+            runtime_prefix=runtime_prefix,
+            magnum_python_site=magnum_python_site,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HabitatCaptureError(
+            f"installed Habitat runtime is unavailable: {error}"
+        ) from error
+    _require_bullet_enabled_installed_runtime(installed_runtime)
+    return _capture_m2_states(
+        inputs,
+        room_inputs,
+        output_dir,
+        runtime_root=None,
+        review_only=True,
+        installed_runtime=installed_runtime,
+    )
+
+
 __all__ = [
     "ARRAY_HASH_ALGORITHM",
     "CapturedFrame",
@@ -1548,6 +1746,7 @@ __all__ = [
     "HabitatCaptureError",
     "RuntimeAssetBundle",
     "apply_and_capture_fixed_frame",
+    "capture_m2_installed_research_review",
     "capture_m2_habitat",
     "capture_m2_research_review",
     "compile_frame_applications",

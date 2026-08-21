@@ -243,6 +243,22 @@
           "type": "number",
           "exclusiveMinimum": 0
         },
+        "ue_import_manifest_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "schema", "tag", "import_asset_id"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^/"
+            },
+            "schema": {"$ref": "#/$defs/nonempty_string"},
+            "tag": {"$ref": "#/$defs/nonempty_string"},
+            "import_asset_id": {"$ref": "#/$defs/nonempty_string"},
+            "base_avatar_id": {"$ref": "#/$defs/nonempty_string"}
+          }
+        },
         "idle_animation": {"$ref": "#/$defs/nonempty_string"},
         "walking_animation": {"$ref": "#/$defs/nonempty_string"},
         "animation_paths_by_action_id": {

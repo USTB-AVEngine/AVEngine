@@ -15,12 +15,20 @@ import importlib
 import math
 from pathlib import Path
 import re
+import sys
 import tempfile
 from types import ModuleType
 from typing import Any, Mapping
 
 import numpy as np
 
+from avengine.backends.rlr.sdk import (
+    ExternalRlrSdkError,
+    discover_external_rlr_sdk,
+    preload_external_rlr_sdk,
+    require_outside_git_checkout,
+    validate_loaded_external_rlr_sdk,
+)
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m3.contracts import (
     AcousticSceneContractError,
@@ -38,6 +46,23 @@ RUNTIME_IMPORT_WORKAROUND = {
         "imported before numpy-quaternion"
     ),
 }
+
+# Historical is the existing lock-bound evidence format. Current-installed is
+# deliberately separate: it records the user-provided runtime identity for one
+# fresh run and never treats its bytes as a replacement for the historical lock.
+RUNTIME_MODE_HISTORICAL = "historical"
+RUNTIME_MODE_CURRENT_INSTALLED = "current-installed"
+_RUNTIME_MODES = {RUNTIME_MODE_HISTORICAL, RUNTIME_MODE_CURRENT_INSTALLED}
+
+
+def require_runtime_mode(value: str) -> str:
+    """Validate the public M3/M4 native-runtime mode selector."""
+
+    if value not in _RUNTIME_MODES:
+        choices = ", ".join(sorted(_RUNTIME_MODES))
+        raise RuntimeContractError(f"runtime_mode must be one of: {choices}")
+    return value
+
 
 
 class RuntimeUnavailableError(RuntimeError):
@@ -340,27 +365,157 @@ def _finite_vector(value: Any, length: int, owner: str) -> tuple[float, ...]:
     return tuple(float(item) for item in value)
 
 
-def load_habitat_runtime() -> tuple[ModuleType, dict[str, Any]]:
-    """Import the native runtime in its required order and verify its exact API."""
+def _prepare_installed_habitat_runtime_import(
+    prefix: Path, *, magnum_python_site: Path
+) -> Any:
+    """Activate M1 isolation without importing the native Habitat binding."""
 
+    from avengine.m1.habitat_capture import _prepare_installed_habitat_import
+
+    return _prepare_installed_habitat_import(
+        prefix,
+        magnum_python_site=magnum_python_site,
+    )
+
+
+def _prepare_installed_habitat_runtime_dependencies(prepared: Any) -> None:
+    """Initialize quaternion/Magnum before process-global RLR symbols."""
+
+    from avengine.m1.habitat_capture import (
+        _import_prepared_installed_habitat_dependencies,
+    )
+
+    _import_prepared_installed_habitat_dependencies(prepared)
+
+
+def _import_prepared_installed_habitat_runtime(
+    prefix: Path, prepared: Any, *, rlr_sdk_root: str | Path
+) -> tuple[ModuleType, ModuleType, Path, Path, Any]:
+    """Import a prepared M1 runtime after shared explicit RLR selection."""
+
+    from avengine.m1.habitat_capture import (
+        _HABITAT_BINDING_MODULE_NAME,
+        _import_prepared_installed_habitat_with_rlr,
+        _installed_runtime_paths,
+    )
+
+    imported, sdk = _import_prepared_installed_habitat_with_rlr(
+        prepared,
+        rlr_sdk_root=rlr_sdk_root,
+    )
+    _, habitat_module, _, _ = imported
+    binding_module = importlib.import_module(_HABITAT_BINDING_MODULE_NAME)
+    module_path, binding_path, _ = _installed_runtime_paths(
+        prefix, habitat_module, binding_module
+    )
+    return habitat_module, binding_module, module_path, binding_path, sdk
+
+
+def _load_installed_habitat_runtime(
+    prefix: Path, *, magnum_python_site: Path | None = None
+) -> tuple[ModuleType, ModuleType, Path, Path]:
+    """Import only the M1-installed runtime and return validated native paths."""
+
+    # M1 owns the common installed-prefix/Magnum activation sequence.  It
+    # imports quaternion before habitat_sim, validates the external Magnum
+    # Python site, and rejects modules or the physics config outside *prefix*.
+    from avengine.m1.habitat_capture import (
+        _import_installed_habitat,
+        _installed_runtime_paths,
+    )
+
+    _, habitat_module, _, _ = _import_installed_habitat(
+        prefix, magnum_python_site=magnum_python_site
+    )
+    binding_module = importlib.import_module(
+        "habitat_sim._ext.habitat_sim_bindings"
+    )
+    module_path, binding_path, _ = _installed_runtime_paths(
+        prefix, habitat_module, binding_module
+    )
+    return habitat_module, binding_module, module_path, binding_path
+
+
+def load_habitat_runtime(
+    *,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+) -> tuple[ModuleType, dict[str, Any]]:
+    """Load the installed Habitat adapter against an explicit external RLR SDK.
+
+    The legacy AVENGINE_HABITAT_RUNTIME_ROOT checkout interface is never
+    consulted here. The modern adapter is independently optional from the
+    legacy AudioSensor, so habitat_sim.audio_enabled is intentionally not a
+    capability check for M3/M4.
+    """
+
+    runtime_mode = require_runtime_mode(runtime_mode)
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        missing = [
+            name
+            for name, value in (
+                ("runtime_prefix", runtime_prefix),
+                ("rlr_sdk_root", rlr_sdk_root),
+                ("magnum_python_site", magnum_python_site),
+            )
+            if value is None or not str(value).strip()
+        ]
+        if missing:
+            raise RuntimeUnavailableError(
+                "current-installed Habitat/RLR runtime requires explicit "
+                + ", ".join(missing)
+            )
     try:
-        quaternion_module = importlib.import_module("quaternion")
-    except (ImportError, OSError) as exc:
-        raise RuntimeUnavailableError(
-            "numpy-quaternion is unavailable; refusing unsafe habitat_sim import"
-        ) from exc
-    try:
-        habitat_module = importlib.import_module("habitat_sim")
-    except (ImportError, OSError) as exc:
-        raise RuntimeUnavailableError("the pinned habitat_sim runtime is unavailable") from exc
-    try:
-        binding_module = importlib.import_module(
-            "habitat_sim._ext.habitat_sim_bindings"
+        from avengine.m1.habitat_capture import discover_runtime_prefix
+
+        prefix = discover_runtime_prefix(runtime_prefix)
+        prefix = require_outside_git_checkout(
+            prefix, owner="AVENGINE_HABITAT_RUNTIME_PREFIX"
         )
-    except (ImportError, OSError) as exc:
+        if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+            from avengine.m1.habitat_capture import discover_magnum_python_site
+
+            # M1 owns isolation plus explicit SDK selection before import.
+            magnum_site = require_outside_git_checkout(
+                discover_magnum_python_site(magnum_python_site),
+                owner="AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+            )
+            prepared_import = _prepare_installed_habitat_runtime_import(
+                prefix, magnum_python_site=magnum_site
+            )
+            habitat_module, _binding_module, module_path, binding_path, sdk = (
+                _import_prepared_installed_habitat_runtime(
+                    prefix,
+                    prepared_import,
+                    rlr_sdk_root=rlr_sdk_root,
+                )
+            )
+        else:
+            # Historical inputs retain their environment/default selection,
+            # but numerical/Magnum dependencies must initialize before RLR's
+            # process-global C++ symbols for the same reason as current mode.
+            prepared_import = _prepare_installed_habitat_runtime_import(
+                prefix, magnum_python_site=None
+            )
+            _prepare_installed_habitat_runtime_dependencies(prepared_import)
+            sdk = discover_external_rlr_sdk(rlr_sdk_root)
+            preload_external_rlr_sdk(sdk)
+            habitat_module, _binding_module, module_path, binding_path = (
+                _load_installed_habitat_runtime(prefix)
+            )
+            validate_loaded_external_rlr_sdk(sdk)
+    except (
+        ExternalRlrSdkError,
+        FileNotFoundError,
+        ImportError,
+        OSError,
+        RuntimeError,
+    ) as error:
         raise RuntimeUnavailableError(
-            "the native habitat_sim binding module is unavailable"
-        ) from exc
+            "Installed Habitat/RLR runtime is unavailable: " + str(error)
+        ) from error
 
     required = (
         "RLRContextConfiguration",
@@ -372,35 +527,59 @@ def load_habitat_runtime() -> tuple[ModuleType, dict[str, Any]]:
         raise RuntimeUnavailableError(
             "habitat_sim lacks the AVEngine modern RLR binding: " + ", ".join(missing)
         )
-    report = {
+    if getattr(habitat_module, "RLR_ADAPTER_ENABLED", None) is not True:
+        raise RuntimeUnavailableError(
+            "Installed Habitat prefix has AVENGINE_HABITAT_BUILD_RLR_ADAPTER=OFF; "
+            "rebuild that prefix with the modern adapter and the declared external "
+            "RLR SDK. Legacy habitat_sim.audio_enabled does not satisfy M3/M4."
+        )
+    if any(getattr(habitat_module, name, None) is None for name in required):
+        raise RuntimeUnavailableError(
+            "habitat_sim exposes placeholder None values instead of the modern RLR binding"
+        )
+    quaternion_module = sys.modules.get("quaternion")
+    report: dict[str, Any] = {
         "import_workaround": dict(RUNTIME_IMPORT_WORKAROUND),
         "quaternion_module": {
             "path": str(getattr(quaternion_module, "__file__", "")),
             "version": str(getattr(quaternion_module, "__version__", "unknown")),
         },
         "habitat_sim_module": {
-            "path": str(getattr(habitat_module, "__file__", "")),
+            "path": str(module_path),
             "version": str(getattr(habitat_module, "__version__", "unknown")),
         },
         "binding_api": "habitat_sim.RLRAcousticContext_v1",
+        "installed_habitat_runtime": {
+            "prefix": str(prefix),
+            "binding_path": str(binding_path),
+        },
+        "external_rlr_sdk": {
+            "root": str(sdk.root),
+            "header": str(sdk.header),
+            "library": str(sdk.library),
+        },
     }
-    if getattr(habitat_module, "audio_enabled", None) is not True:
-        raise RuntimeUnavailableError(
-            "habitat_sim was not built with HABITAT_WITH_AUDIO=ON"
-        )
-    if any(getattr(habitat_module, name, None) is None for name in required):
-        raise RuntimeUnavailableError(
-            "habitat_sim exposes placeholder None values instead of the modern RLR binding"
-        )
-    binding_path = Path(str(getattr(binding_module, "__file__", ""))).resolve()
-    rlr_path = binding_path.parent / "libRLRAudioPropagation.so"
-    if not binding_path.is_file() or not rlr_path.is_file():
-        raise RuntimeUnavailableError(
-            "native Habitat binding or adjacent RLR shared library is missing"
-        )
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        # This is an observed one-run identity, not a byte pin. The M3/M4 v2
+        # readers require it to agree across fresh contexts in one output.
+        report["runtime_mode"] = runtime_mode
+        report["runtime_identity"] = {
+            "identity_schema": "avengine_current_installed_rlr_runtime_v1",
+            "mode": runtime_mode,
+            "habitat_runtime_prefix": str(prefix),
+            "habitat_sim_module": str(module_path),
+            "habitat_sim_binding": str(binding_path),
+            "magnum_python_site": str(magnum_site),
+            "rlr_sdk_root": str(sdk.root),
+            "rlr_sdk_header": str(sdk.header),
+            "rlr_sdk_library": str(sdk.library),
+            "rlr_adapter_enabled": True,
+            "binding_api": "habitat_sim.RLRAcousticContext_v1",
+        }
+        return habitat_module, report
     try:
         binding_payload = binding_path.read_bytes()
-        rlr_payload = rlr_path.read_bytes()
+        rlr_payload = sdk.library.read_bytes()
     except OSError as exc:
         raise RuntimeUnavailableError(
             f"unable to snapshot native Habitat/RLR binaries: {exc}"
@@ -412,7 +591,7 @@ def load_habitat_runtime() -> tuple[ModuleType, dict[str, Any]]:
             "sha256": hashlib.sha256(binding_payload).hexdigest(),
         },
         "rlr_audio_propagation": {
-            "path": str(rlr_path),
+            "path": str(sdk.library),
             "byte_size": len(rlr_payload),
             "sha256": hashlib.sha256(rlr_payload).hexdigest(),
         },
@@ -1743,6 +1922,10 @@ def simulate_compiled_acoustic_scene(
     scene_readback_obj: str | Path | None = None,
     ray_checks: tuple[Mapping[str, Any], ...] = (),
     ray_distance_tolerance_m: float = 1.0e-4,
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
 ) -> RuntimeIRResult:
     """Upload, simulate and copy one named mono source/listener pair.
 
@@ -1751,7 +1934,16 @@ def simulate_compiled_acoustic_scene(
     rejected by :class:`RLRSimulationConfig`.
     """
 
-    habitat_module, runtime_report = load_habitat_runtime()
+    runtime_mode = require_runtime_mode(runtime_mode)
+    runtime_loader_kwargs: dict[str, str | Path] = {}
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        runtime_loader_kwargs = {
+            "runtime_mode": runtime_mode,
+            "runtime_prefix": runtime_prefix,
+            "rlr_sdk_root": rlr_sdk_root,
+            "magnum_python_site": magnum_python_site,
+        }
+    habitat_module, runtime_report = load_habitat_runtime(**runtime_loader_kwargs)
     native_config, config_readback = _native_configuration(habitat_module, simulation)
     runtime_report["configuration_readback"] = config_readback
     try:
@@ -1894,6 +2086,8 @@ __all__ = [
     "CompiledAcousticScene",
     "RLRSimulationConfig",
     "RUNTIME_IMPORT_WORKAROUND",
+    "RUNTIME_MODE_CURRENT_INSTALLED",
+    "RUNTIME_MODE_HISTORICAL",
     "RuntimeAnchor",
     "RuntimeContractError",
     "RuntimeExecutionError",
@@ -1901,5 +2095,6 @@ __all__ = [
     "RuntimeUnavailableError",
     "load_compiled_acoustic_scene",
     "load_habitat_runtime",
+    "require_runtime_mode",
     "simulate_compiled_acoustic_scene",
 ]

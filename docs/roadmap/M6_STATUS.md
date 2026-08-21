@@ -2,6 +2,9 @@
 
 > Historical pre-release snapshot. M6 was subsequently closed; the final
 > result is recorded in [M6_FINAL_REPORT.md](../../release/M6_FINAL_REPORT.md).
+>
+> Reader-only archive note: v1 schema/documents/receipts remain readable, but
+> its checkout writer and live verifier now fail closed before any I/O.
 
 Recorded: 2026-07-19 implementation snapshot, before release metadata commit.
 Milestone closeout is determined only by the verified release manifest; this

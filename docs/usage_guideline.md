@@ -123,7 +123,7 @@ M7 目前主要是显式工具链，还没有统一成一个总命令：
 "${AVENGINE_ENV_PREFIX}/bin/avengine" m1 capture \
   --room examples/m1/rooms/blender_custom/room_manifest.json \
   --request examples/m1/requests/blender_custom.json \
-  --runtime-root "${AVENGINE_HABITAT_RUNTIME_ROOT}" \
+  --runtime-prefix "${AVENGINE_HABITAT_RUNTIME_PREFIX}" \
   --output "tmp/m1/${AVENGINE_RUN_ID}"
 ```
 
@@ -155,20 +155,12 @@ Depth、Semantic 和 Listener 使用同一个相机位姿。Topdown 是质量检
   "tmp/m3/${AVENGINE_RUN_ID}/manifest.json"
 ```
 
-按房间注册表自动选择来源配置时使用：
-
-```bash
-export AVENGINE_ROOM_MANIFEST="/path/to/room_manifest.json"
-export AVENGINE_ROOM_ID="registered_room_id"
-export AVENGINE_ROOM_REVISION="registered_room_revision"
-
-"${AVENGINE_ENV_PREFIX}/bin/avengine" m3 compile-registered-scene \
-  --room "${AVENGINE_ROOM_MANIFEST}" \
-  --room-id "${AVENGINE_ROOM_ID}" \
-  --room-revision "${AVENGINE_ROOM_REVISION}" \
-  --runtime-root "${AVENGINE_HABITAT_RUNTIME_ROOT}" \
-  --output "tmp/m3/${AVENGINE_RUN_ID}_registered"
-```
+保留的 v1 `compile-registered-scene --runtime-root` 只用于读取或复核
+checkout-era artifact，不是当前新运行入口；`paths.yaml` 和 `setup.sh` 已不再
+提供该 root。需要 current installed-prefix Habitat/RLR 时，应使用 M3/M4 current
+路线显式传入 runtime prefix、Magnum Python site 和 RLR SDK，并先完成
+[`M3 execution`](roadmap/M3_EXECUTION.md) 中的外置 SDK/运行时要求。不得以
+旧 checkout 路径补齐一个新的房间运行。
 
 可选声学检查包括：
 
@@ -353,6 +345,18 @@ M7 还提供：
 - `run_habitat_room_batch.py`：注册房间的 Habitat 批量视觉采集；
 - `build_asset_bound_dataset_index.py`：不复制媒体地建立数据索引；
 - `compare_rir_cache_metrics.py`：对齐 job 比较 EDT、DRR 和晚期能量。
+
+`run_habitat_room_batch.py` 的 installed PBR actor 路线要求
+`--pbr-asset-root`。该 non-Git 根提供 `bluts/` 下的 MIT BRDF LUT、
+`env_maps/` 下的 Poly Haven CC0 Brown Photostudio HDR 及
+`license.txt`。runner 一批只 prepare 一次 installed runtime；capture 在
+Simulator 和 actor 创建前注册仓库内 Brown Photostudio config，并使用上述
+图片的绝对路径。它不会设置 `os.environ`，不会添加 direct light，也不会把
+PNG/HDR 放入 Git。
+resume 也会重新打开 episode 引用的 mixed-capture evidence，并要求同一
+显式 root、pre/post config handle、IBL flags、绝对 LUT/HDR 路径和零
+direct-light readback 全部一致；旧的 pre-PBR/黑 actor episode 不会被当作
+可复用完成项。
 
 训练/验证/测试划分按视觉 episode 进行，不能让同一视觉 episode 的音频
 变体跨集合泄漏。已有 1,000 条本机研究闭环证据不等于 M7 benchmark、

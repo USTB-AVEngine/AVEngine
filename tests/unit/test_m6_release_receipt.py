@@ -54,6 +54,10 @@ class ReceiptRepositories:
 
 
 def _repositories(tmp_path: Path) -> ReceiptRepositories:
+    pytest.skip(
+        "release v1 live checkout/submodule workflow is archived; "
+        "fail-closed coverage is in test_release_v1_archive.py"
+    )
     rlr = tmp_path / "rlr"
     _init_repository(rlr, origin=RLR_URL)
     (rlr / "README.md").write_text("RLR fixture\n", encoding="utf-8")

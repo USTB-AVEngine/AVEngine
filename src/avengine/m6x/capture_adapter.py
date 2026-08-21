@@ -878,8 +878,12 @@ class HumanBeagleCaptureAdapter:
         request = load_json(m1_request_path)
         errors: list[str] = []
 
-        if evidence.get("schema") != self.capture_schema:
-            errors.append(f"schema must be {self.capture_schema!r}")
+        allowed_schemas = (
+            self.capture_schema,
+            "avengine_m5_1_human_beagle_capture_v2",
+        )
+        if evidence.get("schema") not in allowed_schemas:
+            errors.append(f"schema must be one of {allowed_schemas!r}")
         if evidence.get("status") != "pass":
             errors.append("status must be 'pass'")
         declared_frame_count = evidence.get("frame_count")

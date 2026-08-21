@@ -33,8 +33,8 @@ def _load(path: Path) -> dict:
 
 
 def _native_graph_fixture(tmp_path: Path):
-    runtime_root = tmp_path / "runtime"
-    dataset_root = runtime_root / "data/scene_datasets/mp3d_example"
+    mp3d_root = tmp_path / "mp3d_data"
+    dataset_root = mp3d_root / "scene_datasets/mp3d_example"
     scene_root = dataset_root / "17DRP5sb8fy"
     scene_root.mkdir(parents=True)
     for name, payload in (
@@ -64,7 +64,7 @@ def _native_graph_fixture(tmp_path: Path):
     request_path.write_text(json.dumps(_load(NATIVE_REQUEST_PATH)), encoding="utf-8")
     return (
         load_and_validate_inputs(room_path, request_path),
-        runtime_root,
+        mp3d_root,
         dataset_path,
         scene_root,
     )
@@ -382,7 +382,7 @@ def test_path_scene_graph_rejects_same_bytes_from_alternate_support_asset(
     alternate_name: str,
     expected_error: str,
 ) -> None:
-    inputs, runtime_root, dataset_path, scene_root = _native_graph_fixture(tmp_path)
+    inputs, mp3d_root, dataset_path, scene_root = _native_graph_fixture(tmp_path)
     dataset = _load(dataset_path)
     original_name = {
         "nav_asset": "17DRP5sb8fy.navmesh",
@@ -393,7 +393,7 @@ def test_path_scene_graph_rejects_same_bytes_from_alternate_support_asset(
     dataset["stages"]["default_attributes"][default_key] = alternate_name
     dataset_path.write_text(json.dumps(dataset), encoding="utf-8")
 
-    errors = validate_scene_asset_graph(inputs, runtime_root)
+    errors = validate_scene_asset_graph(inputs, None, mp3d_root=mp3d_root)
 
     assert expected_error in errors
 
@@ -502,3 +502,15 @@ def test_handle_scene_graph_rejects_alternate_default_lighting(
     errors = validate_scene_asset_graph(inputs, tmp_path / "runtime")
 
     assert "scene_instance default_lighting does not select lighting_config" in errors
+
+
+def test_native_graph_uses_explicit_mp3d_root_not_ambient_runtime_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inputs, mp3d_root, _dataset_path, _scene_root = _native_graph_fixture(tmp_path)
+    stale_checkout = tmp_path / "stale_checkout"
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_ROOT", str(stale_checkout))
+
+    errors = validate_scene_asset_graph(inputs, None, mp3d_root=mp3d_root)
+
+    assert errors == []

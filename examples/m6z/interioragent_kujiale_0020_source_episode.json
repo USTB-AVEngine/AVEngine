@@ -59,5 +59,6 @@
   },
   "scene_id": "kujiale_0020",
   "schema": "avengine_optional_residential_source_profile_v1",
+  "backend_role": "production_visual",
   "source_center_margin_m": 0.03
 }

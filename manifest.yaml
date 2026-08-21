@@ -1,46 +1,74 @@
-# AVEngine Habitat-native bootstrap manifest.
-# This file intentionally contains no SPEAR, UE, gpuRIR or generative-model
-# dependency. Historical backends require the explicit legacy_optional profile.
+# AVEngine single-source bootstrap manifest.
+# The bootstrap operates only in this AVEngine checkout. It never clones a
+# Habitat, SPEAR, or RLR source repository. Native execution receives its
+# installed runtime, Magnum site, MP3D data, and RLR SDK as explicit external
+# inputs; this does not claim that all source-cutover work is already complete.
 
 schema: avengine_bootstrap_manifest_v2
 version: 2
-default_profile: habitat_native
+default_profile: fast_unit
 
 repositories:
   avengine:
     role: primary_source_checkout
     path: .
-  habitat_runtime:
-    role: pinned_native_runtime_fork
-    url: https://github.com/Eastforward/habitat-sim-AVEngine.git
-    default_path: ../habitat-sim-AVEngine
-    environment_override: AVENGINE_HABITAT_RUNTIME_ROOT
-    commit: e9c81c10834f7e89f33f4e0602c75535a84e054b
-    upstream_repository: https://github.com/facebookresearch/habitat-sim.git
-    upstream_commit: 57ee4941dc4765240f0f91f70b2c97a919bf9038
-    rlr_commit: 4fd446b4abb5c71fb7a232a083bbddd65f25fc6f
-    install_by_default: false
-    reason: native builds are a separate test layer; fast bootstrap only validates the checkout when present
+
+external_inputs:
+  installed_habitat_runtime:
+    environment: AVENGINE_HABITAT_RUNTIME_PREFIX
+    role: explicit_non_git_installed_runtime
+    required_for: [native_external]
+  magnum_python_site:
+    environment: AVENGINE_HABITAT_MAGNUM_PYTHON_SITE
+    role: explicit_non_git_python_site
+    required_for: [native_external]
+  mp3d_data:
+    environment: AVENGINE_MP3D_ROOT
+    role: licensed_non_git_external_dataset
+    required_for: [native_external]
+  rlr_sdk:
+    environment: AVENGINE_RLR_SDK_ROOT
+    role: explicit_non_git_external_sdk
+    required_for: [native_external]
 
 python:
   requires: ">=3.10"
   native_reference: "3.12"
-  default_environment: .venv
+  environment_kind: conda
+  current_selector: --python | AVENGINE_CONDA_PYTHON | CONDA_PREFIX/bin/python
+  require_conda_meta: true
   editable_install: ".[test]"
 
 profiles:
-  habitat_native:
+  fast_unit:
     default: true
-    repositories: [avengine, habitat_runtime]
+    repositories: [avengine]
     automatic_backends: []
+  native_external:
+    default: false
+    explicit_opt_in_required: true
+    repositories: [avengine]
+    required_external_inputs:
+      - AVENGINE_HABITAT_RUNTIME_PREFIX
+      - AVENGINE_HABITAT_MAGNUM_PYTHON_SITE
+      - AVENGINE_MP3D_ROOT
+      - AVENGINE_RLR_SDK_ROOT
+    automatic_backends: []
+    note: Validates explicit external inputs only; it neither builds nor clones a native runtime.
+  habitat_native:
+    default: false
+    deprecated: true
+    replacement_profile: native_external
+    note: Retained setup-profile spelling; it now requires the same explicit installed inputs as native_external.
   legacy_optional:
     default: false
     explicit_opt_in_required: true
     documentation: docs/legacy/OPTIONAL_BACKENDS.md
     automatic_backends: []
-    note: Historical UE, SPEAR, gpuRIR and generative-asset dependencies are never installed by the current setup script.
+    note: The current setup does not install UE, datasets, gpuRIR or generative models; Apartment and Kujiale remain UE/SPEAR production visual routes.
 
 fast_checkout_contract:
+  single_source_checkout: true
   editable_install: true
   schema_validation: true
   fast_unit_tests: true

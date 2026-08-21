@@ -1,0 +1,101 @@
+{
+  "all75_machine_gates": {
+    "actor_readback_count": 450,
+    "camera_readback_count": 225,
+    "captured_frame_count": 75,
+    "distractor_failing_frame_count": 0,
+    "distractor_frame_count": 75,
+    "distractor_minimum_visible_fraction": 0.9232498722534491,
+    "distractor_minimum_visible_pixels": 6949,
+    "maximum_actor_location_error_cm": 0,
+    "maximum_actor_rotation_error_deg": 5.400124791776761e-13,
+    "maximum_camera_location_error_cm": 0,
+    "maximum_camera_rotation_error_deg": 0,
+    "status": "pass",
+    "target_speech_failing_frame_count": 0,
+    "target_speech_frame_count": 25,
+    "target_speech_frame_window_inclusive": [
+      7,
+      31
+    ],
+    "target_speech_minimum_visible_fraction": 1.0,
+    "target_speech_minimum_visible_pixels": 34030
+  },
+  "artifacts": {
+    "contact_sheet": "docs/qa/assets/both_move_v1_postcapture_f00_f37_f74_rgb_mask_contact_sheet.png",
+    "frame_0": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_capture_attempt_01/rgb_frames/frame_000000.png",
+    "frame_37": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_capture_attempt_01/rgb_frames/frame_000037.png",
+    "frame_74": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_capture_attempt_01/rgb_frames/frame_000074.png",
+    "native_pixel_masks": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_capture_attempt_01/native_pixel_masks_depth_authority_v1.npz",
+    "pixel_visibility_truth": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_capture_attempt_01/pixel_visibility_truth.json",
+    "runtime_asset_readbacks": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_capture_attempt_01/runtime_asset_readbacks.json",
+    "runtime_readbacks": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_capture_attempt_01/runtime_readbacks.json",
+    "strict_finalization": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/dynamic_both_move_v1_materialized_v1/post_capture_strict_finalization_v1/finalization.json"
+  },
+  "attempt_index": 1,
+  "candidate_revision": "both_move_v1_0304_0990_equal_arc_v1",
+  "claim_boundaries": [
+    "visual review samples frames 0, 37, and 74; visibility and transform gates are machine-evaluated over all 75 normal and target-only frames",
+    "source1 has a visible floor-clearance gap beneath both shoes in all three sampled frames; source2 also lacks instrumented foot-to-floor authority, so no ground-contact claim is made",
+    "absence of visible furniture or human interpenetration in sampled frames is not a physics collision proof",
+    "the two trajectories are a declared counterfactual pairing of separate native-human scenarios; their pairing did not co-occur natively",
+    "this receipt does not release the episode into a formal pilot, the first20 batch, or the final100 batch"
+  ],
+  "episode_id": "strict2h_dynamic_canary_03_both_move_v1",
+  "formal": false,
+  "formal_episode_count": 0,
+  "mechanism": "both_move",
+  "next_gate": "retain the nonformal mechanism result; formal release remains blocked until live foot or shoe socket plus floor-depth evidence, quantitative shoe-floor metric-depth clearance, or a reviewed geometry revision removes the visible gap",
+  "qualification_claim": false,
+  "release_gate": {
+    "batch_launch_authorized": false,
+    "formal_admission_authorized": false,
+    "ground_contact_evidence_status": "blocked_visible_gap_and_no_instrumented_authority",
+    "status": "blocked"
+  },
+  "review": {
+    "findings": {
+      "foreground_furniture_occlusion": false,
+      "identity_continuity": "pass_left_female_source2_and_right_male_source1_continuous",
+      "source1_full_body_not_cropped": true,
+      "source1_motion": "pass_rightward_motion_and_walk_pose_change_visible_across_samples",
+      "source1_visible_floor_clearance_gap_all_sampled_frames": true,
+      "source2_full_body_not_cropped": true,
+      "source2_motion": "pass_left_to_right_motion_and_walk_pose_change_visible_across_samples",
+      "source2_near_cabinet_but_visible_outline_intersection": false,
+      "source2_verified_ground_contact": false,
+      "visible_furniture_or_human_interpenetration": false
+    },
+    "frame_indices": [
+      0,
+      37,
+      74
+    ],
+    "reviewer_count": 2,
+    "status": "pass_both_move_with_ground_contact_unqualified",
+    "type": "parent_and_executor_visual_spotcheck"
+  },
+  "sampled_runtime_readbacks": {
+    "frame_indices": [
+      0,
+      37,
+      74
+    ],
+    "maximum_action_position_error_seconds": 4.0625000025107383e-7,
+    "maximum_root_emitter_error_m": 2.220446049250313e-16,
+    "source1_actions": [
+      "walk",
+      "walk",
+      "walk"
+    ],
+    "source2_actions": [
+      "walk",
+      "walk",
+      "walk"
+    ],
+    "status": "pass"
+  },
+  "schema": "avengine_dynamic_full75_visual_spotcheck_receipt_v1",
+  "status": "pass_nonformal_strict_mechanism_canary_with_ground_contact_unqualified",
+  "strict_mechanism_canary_pass": true
+}

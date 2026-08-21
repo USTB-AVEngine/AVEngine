@@ -1,6 +1,7 @@
-# Machine-local paths for the Habitat-native route. Defaults are relative to
-# this repository; optional datasets are supplied only through environment
-# variables. No private-server absolute path is part of the public default.
+# Machine-local paths for the single-source bootstrap. Defaults are relative
+# only to this repository; native runtimes, SDKs, and datasets are explicit
+# external inputs. No private-server absolute path or sibling source checkout
+# is part of the public default.
 
 schema: avengine_workspace_paths_v2
 version: 2
@@ -11,10 +12,33 @@ paths:
     default: .
     kind: directory
     required_for: [fast_unit]
-  AVENGINE_HABITAT_RUNTIME_ROOT:
-    default: ../habitat-sim-AVEngine
+  AVENGINE_HABITAT_RUNTIME_PREFIX:
+    # An installed Habitat facade/binding/config prefix, never a source or build
+    # checkout. Current native writers independently validate its contents.
+    default: null
     kind: directory
-    required_for: [native_habitat, rlr_audio, release_canary]
+    required_for: [native_external]
+    must_not_be_git_checkout: true
+  AVENGINE_HABITAT_MAGNUM_PYTHON_SITE:
+    # A compatible external Corrade/Magnum Python site, supplied explicitly.
+    default: null
+    kind: directory
+    required_for: [native_external]
+    must_not_be_git_checkout: true
+  AVENGINE_RLR_SDK_ROOT:
+    # Explicit non-Git user-installed RLR SDK. Official Git checkouts are only
+    # acquisition/provenance sources; runtime must use the declared SDK root.
+    # The runtime adapter verifies headers and the shared library before native execution.
+    default: null
+    kind: directory
+    required_for: [native_external]
+    must_not_be_git_checkout: true
+  AVENGINE_HABITAT_PBR_ASSET_ROOT:
+    # Required only when a Habitat renderer uses PbrShaderAttributes with
+    # enable_ibl=true. Relative logical names resolve below bluts/ or env_maps/;
+    # rendererless and enable_ibl=false paths remain valid without it.
+    default: null
+    kind: directory
   AVENGINE_EVIDENCE_ROOT:
     default: tmp
     kind: output_directory
@@ -24,22 +48,32 @@ paths:
     kind: directory
     required_for: [replicacad_room]
   AVENGINE_MP3D_ROOT:
+    # Licensed external MP3D data containing scene_datasets/, separate from the
+    # installed Habitat runtime prefix. Dataset storage is not a source checkout.
     default: null
     kind: directory
-    required_for: [mp3d_room]
+    required_for: [mp3d_room, native_external]
+    must_not_be_git_checkout: true
   AVENGINE_LEGACY_APARTMENT_ROOT:
+    # Compatibility name for an external Apartment data/project root. Apartment
+    # production pixels use UE/SPEAR; the asset root itself never moves into Git.
     default: null
     kind: directory
     required_for: [legacy_room]
 
 workspace_root_entries:
   - AVENGINE_REPOSITORY_ROOT
-  - AVENGINE_HABITAT_RUNTIME_ROOT
+  - AVENGINE_HABITAT_RUNTIME_PREFIX
+  - AVENGINE_HABITAT_MAGNUM_PYTHON_SITE
+  - AVENGINE_RLR_SDK_ROOT
+  - AVENGINE_HABITAT_PBR_ASSET_ROOT
   - AVENGINE_EVIDENCE_ROOT
   - AVENGINE_REPLICACAD_ROOT
   - AVENGINE_MP3D_ROOT
   - AVENGINE_LEGACY_APARTMENT_ROOT
 
 optional_backends:
+  # Optional here means not loaded by fast bootstrap. It does not turn the
+  # Apartment/Kujiale UE production visual routes into comparison backends.
   enabled_by_default: false
   documentation: docs/legacy/OPTIONAL_BACKENDS.md

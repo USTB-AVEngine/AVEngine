@@ -5,6 +5,60 @@ to one `canary_qualified` package and a clean formal Habitat capture. The exact
 v7/r5 run is `pass`; see [M2_STATUS.md](M2_STATUS.md) for immutable hashes and
 measurements.
 
+## Current installed-prefix research slice
+
+The command below is a separate, current migration probe for the tracked
+Blender custom room. It runs a `research_candidate` request through an explicit
+non-Git installed Habitat prefix and its explicit external Magnum Python site.
+It is not the historical M2 formal-v1 path: it writes `research_receipt.json`,
+never writes `evidence.json`, does not create a runtime lock or output content
+hash, and is not an input to promotion, formal verification, or admission.
+
+M2 creates an articulated object even though its fixed-state loop takes zero
+physics steps, so this route requires `habitat_sim.built_with_bullet == True`
+before configuration or GPU work begins. The shared
+`avengine-habitat-runtime-cp312-575cd81a-20260816T134346Z` prefix currently
+reports `built_with_bullet=False`; it is M1/M5.1-only and must not be passed to
+this M2 command. Supply a fresh external Bullet-enabled installed prefix.
+
+This visual M2 slice does not create an AudioSensor or invoke RLR, so the fresh
+Bullet-enabled prefix may be built with audio disabled.
+
+Until such a prefix is built and preflighted on the intended host, this route
+is blocked; the command below is a template, not a current success claim.
+
+Choose an absent output directory for every run. The tracked room files need no
+MP3D package or external scene-data authorization; the research asset manifest
+and request remain the operator's existing local inputs.
+
+```bash
+export REPO=/absolute/path/to/AVEngine
+export HABPY=/absolute/path/to/python3.12
+export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
+export RUNTIME_PREFIX=/absolute/path/to/fresh-bullet-enabled-installed-prefix
+export MAGNUM_PYTHON_SITE=/absolute/path/to/external-magnum-python-site
+export M2_RESEARCH_ASSET_MANIFEST=/absolute/path/to/research_candidate/asset_manifest.json
+export M2_RESEARCH_REQUEST=/absolute/path/to/research_request.json
+export RUN_ID=replace-with-an-unused-id
+export M2_RESEARCH_OUTPUT="$REPO/tmp/m2/installed_prefix_research_${RUN_ID}"
+
+cd "$REPO"
+"$HABPY" tools/m2/capture_installed_research_review.py \
+  --asset-manifest "$M2_RESEARCH_ASSET_MANIFEST" \
+  --request "$M2_RESEARCH_REQUEST" \
+  --room-manifest examples/m1/rooms/blender_custom/room_manifest.json \
+  --room-request examples/m1/requests/blender_custom.json \
+  --runtime-prefix "$RUNTIME_PREFIX" \
+  --magnum-python-site "$MAGNUM_PYTHON_SITE" \
+  --output "$M2_RESEARCH_OUTPUT"
+```
+
+`--runtime-root` is intentionally not accepted here. A Git checkout passed as
+`--runtime-prefix` is rejected before input loading; the capture entry repeats
+the non-Git-prefix check before activating the runtime. It then fails clearly
+if the selected runtime lacks Bullet; this is an execution capability
+prerequisite, not an M2 evidence, admission, or release gate.
+
 ## Fixed contract
 
 - One Beagle package with baked Idle/Walk poses, semantic anchors and explicit
@@ -24,7 +78,11 @@ measurements.
   [`locks/m2_runtime_v1.yaml`](../../locks/m2_runtime_v1.yaml), selected through
   the root index, and a binding imported from a different runtime root.
 
-## Environment
+## Historical v7/r5 checkout environment
+
+This section and the v7/r5 commands below preserve historical formal-v1 replay
+context. They are not current installed-prefix instructions; use the section
+above for the current research route.
 
 ```bash
 export REPO=/data/jzy/code/AVEngine-habitat-native

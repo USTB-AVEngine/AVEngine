@@ -1,0 +1,74 @@
+{
+  "schema": "avengine_native_strict_two_human_debug_room_canary_plan_v1",
+  "plan_id": "lead_a_strict_two_human_debug_rooms_20260811_v1",
+  "status": "cpu_preflight_requested",
+  "claim_boundary": "Two real cooked SPEAR maps are candidate controlled environments, not ready rooms. Proposed placements and silent transport audio are only for native RGB/depth/two-target-only/live-readback probes. Exact room acoustics and speaking evidence remain mandatory before either map counts toward the final three-room 100.",
+  "formal_episode_count": 0,
+  "qualification_claim": false,
+  "base_strict_suite": "tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/suite_execution_plan.json",
+  "package_manifest": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/lead_b_siamese_post_approval_v1/packaged_runtime_v1/Standalone-Development/Linux/Manifest_UFSFiles_Linux.txt",
+  "runtime_registry": "examples/runtime/source_asset_runtime_profiles.json",
+  "gpu_policy": {
+    "physical_gpu_index": 1,
+    "graphics_adapter_argument": 1,
+    "required_idle_compute_process_count": 0,
+    "forbidden_physical_gpu_indices": [0, 3]
+  },
+  "final_multi_room_target_allocation_if_both_pass": {
+    "legacy_ue_apartment_0000_v1": 40,
+    "spear_debug_0000_research_room_v1": 30,
+    "spear_debug_0001_research_room_v1": 30
+  },
+  "candidates": [
+    {
+      "candidate_id": "spear_debug_0000",
+      "proposed_room_id": "spear_debug_0000_research_room_v1",
+      "scene_id": "debug_0000",
+      "map_path": "/Game/SPEAR/Scenes/debug_0000/Maps/debug_0000",
+      "map_package_fragment": "SpearSim/Content/SPEAR/Scenes/debug_0000/Maps/debug_0000.umap",
+      "provisional_floor_y_m": 0.0,
+      "camera_translation_m": [0.0, 1.471, 4.0],
+      "camera_habitat_yaw_deg": 0.0,
+      "actors": {
+        "source1": {"root_translation_m": [-0.8, 0.4, 0.0], "expected_side": "left"},
+        "source2": {"root_translation_m": [0.8, 0.4, 0.0], "expected_side": "right"}
+      }
+    },
+    {
+      "candidate_id": "spear_debug_0001",
+      "proposed_room_id": "spear_debug_0001_research_room_v1",
+      "scene_id": "debug_0001",
+      "map_path": "/Game/SPEAR/Scenes/debug_0001/Maps/debug_0001",
+      "map_package_fragment": "SpearSim/Content/SPEAR/Scenes/debug_0001/Maps/debug_0001.umap",
+      "provisional_floor_y_m": 0.0,
+      "camera_translation_m": [0.0, 1.471, 4.0],
+      "camera_habitat_yaw_deg": 0.0,
+      "actors": {
+        "source1": {"root_translation_m": [-0.8, 0.4, 0.0], "expected_side": "left"},
+        "source2": {"root_translation_m": [0.8, 0.4, 0.0], "expected_side": "right"}
+      }
+    }
+  ],
+  "visual_probe_contract": {
+    "frame_indices": [0, 15, 74],
+    "normal_rgb": true,
+    "metric_depth": true,
+    "two_target_only_passes": true,
+    "live_runtime_asset_readback": true,
+    "audio_policy": "generated_five_second_silence_for_mux_transport_only",
+    "audio_is_acoustic_evidence": false,
+    "provisional_placement_is_floor_evidence": false
+  },
+  "room_ready_contract": {
+    "native_map_load": true,
+    "reviewed_visual_environment": true,
+    "native_floor_and_collision_safe_placement": true,
+    "M_F_C_spawn_and_live_readback": true,
+    "normal_rgb_metric_depth_two_target_only": true,
+    "exact_acoustic_surface_and_material_profile": true,
+    "two_exact_RIR_jobs_per_episode": true,
+    "target_speech_and_distractor_silence": true,
+    "one_full75_canary": true,
+    "human_visual_and_audio_review": true
+  }
+}

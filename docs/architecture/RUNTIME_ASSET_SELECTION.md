@@ -104,10 +104,13 @@ exists beneath the position, the eye height is plausible, and all three
 Habitat sensors render:
 
 ```bash
+HABITAT_PREFIX=/path/to/installed/habitat-runtime \
+AVENGINE_HABITAT_MAGNUM_PYTHON_SITE=/path/to/magnum-python/site-packages \
+AVENGINE_MP3D_ROOT=/path/to/mp3d-data \
 PYTHONPATH=src python tools/m1/probe_camera_pose_native.py \
   --room tmp/m1/legacy_apartment_package/room_manifest.json \
   --request tmp/camera_pose_test/request.json \
-  --runtime-root ../habitat-sim-AVEngine \
+  --runtime-prefix "$HABITAT_PREFIX" \
   --output tmp/camera_pose_test/native_probe
 ```
 
@@ -143,6 +146,7 @@ Select it with:
 
 ```bash
 PYTHONPATH=src python tools/m6y/run_spear_apartment_canary.py \
+  --spear-executable PATH_TO_EXTERNAL_SPEARSIM_SH \
   --input-layout asset-bound-batch \
   --bundle-root PATH_TO_UE_INPUT_BUNDLE \
   --source-asset-registry examples/runtime/source_asset_runtime_profiles.json \

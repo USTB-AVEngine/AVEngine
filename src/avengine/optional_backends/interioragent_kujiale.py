@@ -1,10 +1,10 @@
-"""Pure planning helpers for external InteriorAgent/Kujiale UE previews.
+"""Pure planning helpers for external InteriorAgent/Kujiale UE visuals.
 
 InteriorAgent assets are optional, user-downloaded research data.  This module
 does not import USD, Unreal or SPEAR and does not make those dependencies part
 of the default AVEngine install.  Habitat-native AVEngine remains authoritative
-for episode state, navigation, audio, Topdown and metadata; this adapter only
-plans a comparison-visual render.
+for episode state, navigation, audio, Topdown and metadata; this adapter plans
+the room family's production visual render without expanding UE authority.
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ from pathlib import Path
 import re
 from typing import Any
 
+from avengine.optional_backends.spear_visual import PRODUCTION_VISUAL_ROLE
 
-BACKEND_ROLE = "comparison_visual"
+BACKEND_ROLE = PRODUCTION_VISUAL_ROLE
 DATASET_ID = "spatialverse/InteriorAgent"
 PROFILE_SCHEMA = "avengine_optional_interioragent_kujiale_profile_v1"
 PLAN_SCHEMA = "avengine_optional_interioragent_kujiale_plan_v1"
@@ -380,7 +381,7 @@ def build_kujiale_review_plan(
             "adapter_mode": "external_usd_references",
         },
         "authority": {
-            "visual_pixels": "spear_ue_comparison_only",
+            "visual_pixels": "spear_ue_production_visual",
             "timeline_navigation_audio_topdown_flags_metadata": (
                 "habitat_native_avengine"
             ),

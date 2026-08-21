@@ -12,7 +12,6 @@ from avengine.m5_1.legacy_route import assert_valid_route_manifest, build_route_
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_LEGACY_ROOT = REPOSITORY_ROOT.parent / "AVEngine"
 DEFAULT_SPEC_RELATIVE = Path(
     "external/SPEAR/tmp/rocketbox_camera_pass_table_loop_apartment_review_v2/"
     "specs/rocketbox_adults_male_adult_01_original_ue_v1/"
@@ -33,7 +32,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "recompute its zero-radius center-point AABB gates."
         )
     )
-    parser.add_argument("--legacy-root", type=Path, default=DEFAULT_LEGACY_ROOT)
+    parser.add_argument("--legacy-root", type=Path, required=True)
     parser.add_argument("--legacy-spec", type=Path)
     parser.add_argument("--furniture-map", type=Path)
     parser.add_argument("--shell-map", type=Path)

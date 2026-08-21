@@ -1,7 +1,12 @@
 # ADR-0002: Two-Repository Boundary
 
-- Status: Accepted
+- Status: Superseded by
+  [ADR-0010](ADR-0010-single-source-repository.md)
 - Date: 2026-07-16
+
+This ADR records the previous execution topology. It remains useful when
+reading historical releases, but it no longer decides where new product source
+must live.
 
 ## Context
 

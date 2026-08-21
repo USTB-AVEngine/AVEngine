@@ -1,26 +1,20 @@
 name: spear-env
 # ============================================================================
-# NOTE for collaborators: after `conda env create -f spear-env.yml`, you MUST
-# also install two SPEAR-local editable packages that pip cannot fetch:
+# NOTE for collaborators (single-repository layout, updated 2026-08-21):
 #
-#   # spear-sim (pure-python RPC client wrapper) — plain pip install:
-#   /data/jzy/miniconda3/envs/spear-env/bin/pip install -e \
-#       <AVEngine>/external/SPEAR/python
+# Do NOT install spear-sim or spear-ext from any SPEAR checkout. Both are
+# retired: the SPEAR pure-python client is vendored in this repository as
+# avengine.backends.spear_ue, and the optional compiled extension is the
+# AVEngine-local module avengine_spear_ext built from native/spear/python_ext.
+# The full standalone rebuild recipe lives in native/spear/python_ext/README.md
+# (external rpclib SDK + nanobind from an explicit interpreter; the source now
+# compiles under standard GCC C++20, UE's bundled clang is no longer required).
 #
-#   # spear-ext (compiled C++ extension) — MUST use UE's bundled clang:
-#   UE=/data/UE_5.5   # or wherever your UE 5.5 is
-#   CLANG=$UE/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v23_clang-18.1.0-rockylinux8/x86_64-unknown-linux-gnu/bin/clang++
-#   LIBCXX=$UE/Engine/Source/ThirdParty/Unix/LibCxx
-#   CXX_FLAGS="-std=c++20 -O3 -D_LIBCPP_ENABLE_EXPERIMENTAL -nostdinc++ \
-#       -I$LIBCXX/include/c++/v1 -Wno-reserved-macro-identifier -stdlib=libc++ \
-#       -L$LIBCXX/lib/Unix/x86_64-unknown-linux-gnu -lc++"
-#   /data/jzy/miniconda3/envs/spear-env/bin/pip install -e \
-#       <AVEngine>/external/SPEAR/python_ext \
-#       -C cmake.define.CMAKE_CXX_COMPILER="$CLANG" \
-#       -C cmake.define.CMAKE_CXX_FLAGS="$CXX_FLAGS"
-#
-# System gcc will FAIL with template-deduction errors in msgpack_utils.h —
-# UE's clang-18 + libc++ is required.
+# The current UE capture chain runs in the avengine-habitat-runtime env
+# (python 3.12) with a prebuilt extension staged as an external runtime input
+# under /data/avengine_external/spear-host-sdk/ (built from repository commit
+# 8a36d4d). Legacy editable installs of spear-sim/spear-ext were removed from
+# this env on 2026-08-21 (backups: ~/env-backups/spear-editables-20260821/).
 # ============================================================================
 channels:
   - defaults

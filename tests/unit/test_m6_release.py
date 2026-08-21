@@ -108,6 +108,10 @@ class ReleaseFixture:
 
 
 def _make_release_fixture(tmp_path: Path) -> ReleaseFixture:
+    pytest.skip(
+        "release v1 live checkout/submodule workflow is archived; "
+        "fail-closed coverage is in test_release_v1_archive.py"
+    )
     rlr_source = tmp_path / "rlr-source"
     _init_repository(rlr_source, origin=RLR_URL)
     (rlr_source / "README.md").write_text("fixture RLR\n", encoding="utf-8")

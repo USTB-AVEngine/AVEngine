@@ -9,9 +9,10 @@ audio rendered for another listener position.
 
 from __future__ import annotations
 
-from copy import deepcopy
 import math
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
+from typing import Any
 
 from avengine.m1.contracts import ContractError, validate_capture_request
 
@@ -26,14 +27,10 @@ def _finite_position(value: Sequence[float]) -> tuple[float, float, float]:
     result: list[float] = []
     for item in value:
         if isinstance(item, bool) or not isinstance(item, (int, float)):
-            raise CameraPoseError(
-                "camera position must contain three finite numbers"
-            )
+            raise CameraPoseError("camera position must contain three finite numbers")
         number = float(item)
         if not math.isfinite(number):
-            raise CameraPoseError(
-                "camera position must contain three finite numbers"
-            )
+            raise CameraPoseError("camera position must contain three finite numbers")
         result.append(number)
     return (result[0], result[1], result[2])
 
@@ -50,10 +47,26 @@ def normalized_yaw_degrees(value: float) -> float:
 
 
 def yaw_rotation_xyzw(yaw_degrees: float) -> list[float]:
-    """Return the Habitat +Y yaw quaternion for one horizontal camera pose."""
+    """Return one canonical Habitat +Y yaw quaternion.
+
+    Unit quaternions have a two-to-one representation.  The scalar component
+    selects the positive hemisphere; at an exact half turn, where that
+    component is zero, the first non-zero vector component selects it.  This
+    keeps equivalent inputs such as ``180``, ``-180`` and ``540`` byte-for-byte
+    identical in downstream semantic records.
+    """
 
     half = math.radians(normalized_yaw_degrees(yaw_degrees)) * 0.5
-    return [0.0, float(math.sin(half)), 0.0, float(math.cos(half))]
+    y = float(math.sin(half))
+    w = float(math.cos(half))
+    if abs(y) < 1.0e-15:
+        y = 0.0
+    if abs(w) < 1.0e-15:
+        w = 0.0
+    if w < 0.0 or (w == 0.0 and y < 0.0):
+        y = -y
+        w = -w
+    return [0.0, y, 0.0, w]
 
 
 def apply_camera_listener_pose(
@@ -83,15 +96,15 @@ def apply_camera_listener_pose(
         transform = rig["world_from_rig"]
         calibration = rig["shared_calibration"]
     except (KeyError, TypeError) as error:
-        raise CameraPoseError("base request lacks the formal camera/listener rig") from error
-    if (
-        listener.get("attached_to") != rig.get("rig_id")
-        or listener.get("rig_from_listener")
-        != {
-            "translation_m": [0, 0, 0],
-            "rotation_xyzw": [0, 0, 0, 1],
-        }
-    ):
+        raise CameraPoseError(
+            "base request lacks the formal camera/listener rig"
+        ) from error
+    if listener.get("attached_to") != rig.get("rig_id") or listener.get(
+        "rig_from_listener"
+    ) != {
+        "translation_m": [0, 0, 0],
+        "rotation_xyzw": [0, 0, 0, 1],
+    }:
         raise CameraPoseError(
             "base request must keep listener0 rigidly co-located with camera_rig_0"
         )

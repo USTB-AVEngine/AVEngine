@@ -1,81 +1,134 @@
 # Repository Boundaries
 
-## Repository A: Habitat runtime fork
+Status: accepted target architecture; source migration is in progress.
 
-Repository: `Eastforward/habitat-sim-AVEngine`
+## Canonical source repository
 
-Allowed responsibilities:
+The final AVEngine product has one source repository:
+[`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine).
+It contains AVEngine-owned code and small configuration together with the
+selected Habitat-Sim and SPEAR source, AVEngine-owned RLR call/adapter source
+and small AVEngine-side interface configuration required by supported
+production routes.
 
-- Minimal Habitat C++/Python runtime changes.
-- Modern RLR C API adapter.
-- Named sources/listeners and per-pair IR access, with exactly one listener in
-  the current MVP profile.
-- Explicit acoustic mesh/material package ingestion.
-- Deterministic baked non-human joint-pose evaluation.
-- One canonical state evaluated once and observed by co-located
-  RGB/depth/semantic sensors on one logical camera rig.
-- Runtime equality checks for the single camera-rig/listener transform and
-  independent named source transforms.
-- Runtime build/version/state manifests and runtime-specific tests.
+This is a source boundary, not a claim that every runtime input belongs in Git.
+The RLR propagation engine, headers, library and SDK configuration are a legal
+user-installed CC-BY-NC 4.0 SDK, not source that AVEngine bundles in Git.
+The repository does not contain Unreal Engine installations, Epic content,
+datasets, native room packages, model weights, generated media, caches, build
+trees or packaged binaries.
 
-Do not place Blender fitting, model inference, dataset registries, benchmark
-training, large assets or general AVEngine CLI logic in this fork. The fork
-must retain upstream history, the Habitat MIT license and an understandable
-diff relative to upstream.
+## Production room routing
 
-## Repository B: AVEngine main repository
+| Room family | Production visual execution | Other authority |
+| --- | --- | --- |
+| MP3D | Habitat-Sim scene, pixels, sensors and articulated pose | RLR acoustics use SoundSpaces material authority on the same Habitat scene and state |
+| SPEAR `apartment_0000` | Native UE/SPEAR map | AVEngine owns Timeline, task/source state, navigation semantics, audio, Topdown, labels and admission |
+| InteriorAgent/Kujiale | UE/SPEAR USD/MDL adapter over the explicitly selected external scene | AVEngine owns Timeline, task/source state, navigation semantics, audio, Topdown, labels and admission |
+| Skokloster | Excluded | It is not executed or counted unless the project owner explicitly reauthorizes it for a named task |
 
-Repository: `Eastforward/AVEngine`
+An MP3D UE import remains a `comparison_visual` diagnostic. A structural pass
+on that path cannot make it production output or a counted Episode.
 
-Allowed responsibilities:
+## Code included in the target repository
 
-- Animal template bank and offline asset compiler.
-- Room and acoustic-scene compilers.
-- High-level runtime adapter without vendoring Habitat source.
-- The MVP single-view capture profile, sensor/listener/source manifests and
-  exclusion of QA-only camera artifacts from admitted observations.
-- Timeline, episode and counterfactual builders.
-- Dry audio, RIR/stem assembly, mixing and sample mapping.
-- QA, provenance, registry and dataset admission.
-- Stable CLI, schemas, examples and benchmark-facing outputs.
+The target repository may include:
 
-## Dependency rule
+- AVEngine packages, CLI, schemas, examples, tests and small runtime
+  configuration;
+- the selected Habitat-Sim runtime and binding changes required by AVEngine;
+- the AVEngine/Habitat RLR adapter source and small AVEngine-side interface
+  configuration required by the supported acoustic path; the RLR engine,
+  headers, SDK configuration and library remain external and are never bundled;
+- the selected SPEAR client, UE plugin and project-control source required by
+  Apartment and Kujiale production visual execution; and
+- third-party license texts and per-path upstream adaptation records.
 
-The main repository depends on an independently installed runtime fork pinned
-by `runtime.lock.yaml`. It does not copy Habitat source or rewrite the
-`habitat_sim` package name. Each sample records both repository commits plus
-the upstream base and RLR submodule commit.
+Selection is deliberate. Do not copy a complete upstream repository when a
+bounded set of source files is sufficient. Preserve upstream behavior as the
+default and keep AVEngine-specific behavior explicit.
 
-## Change ownership test
+## Inputs and installations kept outside Git
 
-Put a change in the runtime fork only if all are true:
+The following remain external inputs even after source integration:
 
-1. It must execute inside Habitat's C++/Python runtime.
-2. It cannot be expressed through an existing stable Habitat interface.
-3. Keeping it outside Habitat would prevent deterministic runtime behavior.
+- Unreal Engine and all Epic-distributed engine/editor content;
+- MP3D, InteriorAgent/Kujiale, native Apartment and other room/dataset assets;
+- HRTF, model weights, licensed source media and other data assets;
+- Habitat PBR image-based-lighting images, HDR environment maps and BRDF
+  lookup tables. The installed M7/M5.1 actor route takes an explicit non-Git
+  `--pbr-asset-root`, rewrites the selected small PBR config to absolute
+  `bluts/` and `env_maps/` paths before Simulator construction, and does
+  not set a process environment variable. Generic Habitat callers may still
+  resolve relative logical names with `AVENGINE_HABITAT_PBR_ASSET_ROOT`.
+  Rendererless or `enable_ibl=false` paths need no PBR images;
+- the RLR propagation engine, headers, SDK configuration and shared library: a
+  legal user-installed CC-BY-NC 4.0 SDK that remains external by policy and
+  never requires an RLR Git checkout, submodule or source path after cutover;
+- Conda/virtual environments, compiled libraries, object files, UE packages and
+  other build products; and
+- generated images, audio, video, native evidence bundles and caches.
 
-Otherwise, put it in AVEngine. Cross-repository work must land as separate
-commits and be connected by an updated lock file and acceptance test.
+External data and installations are configured by repository-relative
+configuration or environment overrides. Their external location does not create
+a second AVEngine source repository.
 
-## MVP view rule
+## Current migration boundary
 
-Both repositories implement
+The target above is not yet the current checkout layout. During migration:
+
+- `manifest.yaml`, `paths.yaml` and `scripts/setup.sh` still describe a
+  pinned external Habitat runtime fork;
+- native Apartment and Kujiale execution still uses a maintained SPEAR
+  checkout and an external UE installation; and
+- those workspaces remain available long enough to establish the
+  pre-migration reference and compare the integrated implementation.
+
+The current manifest-pinned Habitat fork consumes the RLR distribution through
+its `src/deps/rlr-audio-propagation` submodule; that distribution has no
+propagation-engine solver source. At cutover AVEngine will replace that
+transition submodule with the legal user-installed external CC-BY-NC 4.0 SDK,
+so it no longer needs an RLR Git checkout, submodule or source path.
+
+Do not remove those transition paths or describe the source migration as
+complete until the selected code has landed and the same production routes have
+passed the planned pre/post checks. After cutover, setup, build and runtime must
+not clone, initialize a submodule for, or resolve source code from a second
+AVEngine, Habitat, RLR or SPEAR Git checkout. This prohibits an RLR source
+checkout, submodule or source path; it does not prohibit use of the legal
+user-installed RLR SDK.
+
+## Upstream attribution and change placement
+
+`docs/provenance/UPSTREAM_ADAPTATIONS.md` records whether a path is adapted,
+reimplemented or merely calls an external installation. This mapping and the
+applicable third-party license travel with imported source; they are provenance,
+not a runtime code dependency.
+
+Place high-level AVEngine behavior in AVEngine-owned modules. Keep selectively
+integrated upstream code in an identifiable subtree or adapter boundary so that
+license ownership and future upstream comparison remain understandable.
+
+Historical release manifests may record both AVEngine and the runtime-fork
+commit because that was the execution topology that produced them. Do not
+rewrite those records to resemble the target architecture.
+
+## View and episode authority
+
+All room routes implement
 [ADR-0009](../adr/ADR-0009-single-view-multimodal-sensor-rig.md): one logical
 `camera_rig_0`, exactly the formal `view0`, co-located RGB/depth/semantic
 sensors and one co-located `listener0`. Sources remain independently named and
-positioned. The timeline schema may express future views, but M1, M2, M5 and
-the initial M6 MVP do not. Top-down cameras belong only to QA tooling.
+positioned. Top-down cameras belong to QA and metadata tooling rather than a
+second formal view.
 
-## Legacy route
+UE/SPEAR production pixels do not create a parallel Timeline, task, navigation,
+audio, label or admission authority. Those remain AVEngine-owned for Apartment
+and Kujiale just as they do for Habitat-rendered MP3D.
 
-The ignored checkout at the legacy worktree path
-`/data/jzy/code/AVEngine/external/SPEAR` remains a migration source and optional
-comparison backend. The new worktree does not contain an `external/SPEAR`
-checkout and does not import it wholesale. Each legacy entrypoint must be
-explicitly classified before migration.
+## Repository count
 
-## Future repositories
-
-Do not create additional repositories during M0-M6. A small redistributable
-example-assets repository and a benchmark repository may be split only after
-asset and task contracts stabilize.
+Do not create an additional required source repository for assets, benchmarks,
+schemas or backend adapters. If a future distribution boundary is proposed, it
+requires a separate owner decision; it is not part of the current
+single-source migration.

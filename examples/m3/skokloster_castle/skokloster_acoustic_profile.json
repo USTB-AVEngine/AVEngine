@@ -1,0 +1,56 @@
+{
+  "schema": "avengine_skokloster_acoustic_research_profile_v1",
+  "profile_id": "skokloster_rlr_numeric_cleanup_research_v2",
+  "room_id": "habitat_test_skokloster_castle",
+  "status": "acoustic_research_ready",
+  "solver_backend_id": "rlr_audio_propagation",
+  "package": {
+    "kind": "environment_template",
+    "environment_variable": "AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT",
+    "path_template": "${AVENGINE_SKOKLOSTER_RLR48_PACKAGE_ROOT}/manifest.json",
+    "package_mode": "research_candidate"
+  },
+  "materials": {
+    "semantics": "research_placeholder",
+    "physical_material_truth": false,
+    "single_visual_slot": "model_Material_u1_v1",
+    "qualification_claim": false
+  },
+  "geometry": {
+    "source_triangle_count": 999983,
+    "derived_triangle_count": 999935,
+    "removed_triangle_count": 48,
+    "removed_geometry_qa_face_count": 2,
+    "removed_native_rlr_only_face_count": 46,
+    "native_rlr_cross_norm_squared_threshold_inclusive": 1e-20,
+    "hole_filling": false,
+    "vertex_repositioning": false,
+    "vertex_removal": false,
+    "source_boundary_edges_after_exact_weld": 855,
+    "source_nonmanifold_edges_after_exact_weld": 3,
+    "derived_boundary_edges_after_exact_weld": 931,
+    "derived_nonmanifold_edges_after_exact_weld": 3
+  },
+  "enclosure": {
+    "origin_count": 3,
+    "directions_per_origin": 48,
+    "hit_ray_count": 144,
+    "escaped_ray_count": 0,
+    "probe_clearance_status": "pass"
+  },
+  "native_rlr_test": {
+    "status": "pass",
+    "selected_job_count": 1,
+    "full_plan_complete": false,
+    "full_plan_complete_reason": "single compatibility job selected with --job-limit 1",
+    "layout": "ambisonics_4ch",
+    "sample_rate_hz": 16000,
+    "sample_count": 4217,
+    "finite": true,
+    "nonzero_sample_count": 16572,
+    "peak_absolute_sample": 0.2926790714263916
+  },
+  "claim_boundary": "Acoustic research-ready only; material truth, UE import/cook, SPEAR pixels, and formal admission remain pending",
+  "qualification_claim": false,
+  "formal_dataset_count": 0
+}

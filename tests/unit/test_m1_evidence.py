@@ -17,7 +17,12 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m1.contracts import EVIDENCE_SCHEMA, aggregate_status
+from avengine.m1.contracts import (
+    EVIDENCE_SCHEMA,
+    EVIDENCE_SCHEMA_V1,
+    EVIDENCE_SCHEMA_V2,
+    aggregate_status,
+)
 from avengine.m1.evidence import (
     BASE_REQUIRED_CHECKS,
     array_sha256,
@@ -856,3 +861,327 @@ def test_verify_preserves_well_formed_blocked_attempt_status(
 
     assert status == "blocked"
     assert _checks_by_id(checks)["blocked_attempt_contract"]["status"] == "pass"
+
+
+def _refresh_v2_evidence(evidence_path: Path) -> dict:
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    state = evidence["capture_state"]
+    state["before_sha256"] = canonical_json_sha256(state["before"])
+    state["after_sha256"] = canonical_json_sha256(state["after"])
+    runtime = evidence["runtime"]
+    evidence["capture_batch_id"] = canonical_json_sha256(
+        {
+            "room_manifest_sha256": evidence["room_manifest"]["sha256"],
+            "capture_request_sha256": evidence["capture_request"]["sha256"],
+            "scene_assets": evidence["scene_assets"],
+            "avengine_commit": runtime["avengine_commit"],
+            "habitat_runtime_prefix": runtime["habitat_runtime_prefix"],
+            "mp3d_root": runtime["mp3d_root"],
+            "habitat_module_path": runtime["habitat_module_path"],
+            "native_binding_path": runtime["native_binding_path"],
+            "physics_config_path": runtime["physics_config_path"],
+            "state": state["before"],
+            "repeat_count": len(evidence["repeat_observation_hashes"]),
+        }
+    )
+    finalize_evidence(evidence)
+    write_json(evidence_path, evidence)
+    return evidence
+
+
+@pytest.fixture
+def complete_prefix_evidence(
+    complete_evidence: tuple[Path, dict[str, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, dict[str, object]]:
+    """Convert the complete v1 fixture into a split-root v2 fixture in tmp_path."""
+
+    evidence_path, _ = complete_evidence
+    final_output = evidence_path.parent
+    reference_path = final_output / "independent_reference" / "evidence.json"
+    source = json.loads(evidence_path.read_text(encoding="utf-8"))
+    room_manifest_path = Path(source["room_manifest"]["path"])
+    request_path = Path(source["capture_request"]["path"])
+    fixture_root = room_manifest_path.parent
+    prefix = fixture_root / "installed_prefix"
+    module_path = prefix / "habitat_sim" / "__init__.py"
+    binding_path = prefix / "habitat_sim" / "_ext" / "bindings.so"
+    physics_path = prefix / "config" / "default.physics_config.json"
+    binding_path.parent.mkdir(parents=True)
+    physics_path.parent.mkdir(parents=True)
+    module_path.write_text("# installed prefix fixture\n", encoding="utf-8")
+    binding_path.write_bytes(b"installed binding fixture")
+    physics_path.write_text("{}\n", encoding="utf-8")
+
+    mp3d_root = fixture_root / "mp3d_data"
+    dataset_root = mp3d_root / "scene_datasets" / "mp3d_example"
+    dataset_root.mkdir(parents=True)
+    old_records = source["scene_assets"]
+    asset_paths = {
+        record["role"]: dataset_root / Path(record["resolved_path"]).name
+        for record in old_records
+    }
+    for record in old_records:
+        shutil.copyfile(record["resolved_path"], asset_paths[record["role"]])
+
+    room = json.loads(room_manifest_path.read_text(encoding="utf-8"))
+    declared = {
+        role: "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/" + value.name
+        for role, value in asset_paths.items()
+    }
+    for asset in room["assets"]:
+        asset["path"] = declared[asset["role"]]
+    room["scene"]["scene_id"] = declared["render_surface_mesh"]
+    room["scene"]["dataset_config_path"] = declared["scene_dataset_config"]
+    room["scene"]["navmesh_path"] = declared["navmesh"]
+    write_json(room_manifest_path, room)
+
+    def rewrite(path: Path) -> dict:
+        evidence = json.loads(path.read_text(encoding="utf-8"))
+        evidence["schema"] = EVIDENCE_SCHEMA_V2
+        evidence["room_manifest"] = {
+            "path": str(room_manifest_path),
+            "sha256": sha256_file(room_manifest_path),
+        }
+        evidence["capture_request"] = {
+            "path": str(request_path),
+            "sha256": sha256_file(request_path),
+        }
+        evidence["runtime"] = {
+            "avengine_commit": "a" * 40,
+            "avengine_worktree_dirty": False,
+            "habitat_runtime_prefix": str(prefix),
+            "mp3d_root": str(mp3d_root),
+            "habitat_module_path": str(module_path),
+            "native_binding_path": str(binding_path),
+            "physics_config_path": str(physics_path),
+            "habitat_python_version": "0.3.3-test",
+            "habitat_audio_enabled": False,
+            "habitat_bullet_enabled": False,
+            "habitat_cuda_enabled": False,
+            "python": "3.12-test",
+            "platform": "unit-test",
+            "numpy": np.__version__,
+            "pillow": "test",
+        }
+        evidence["scene_assets"] = [
+            {
+                "role": record["role"],
+                "declared_path": declared[record["role"]],
+                "resolved_path": str(asset_paths[record["role"]]),
+                "exists": True,
+                "byte_size": asset_paths[record["role"]].stat().st_size,
+                "sha256": sha256_file(asset_paths[record["role"]]),
+            }
+            for record in old_records
+        ]
+        for snapshot_name in ("before", "after"):
+            snapshot = evidence["capture_state"][snapshot_name]
+            snapshot["sensors"].pop("listener0", None)
+            snapshot["listener_pose"] = copy.deepcopy(snapshot["agent"])
+        evidence["checks"] = [
+            check
+            for check in evidence["checks"]
+            if check["check_id"]
+            not in {"runtime_commit_matches_lock", "runtime_worktree_clean"}
+        ]
+        loaded_graph = {
+            "active_dataset": str(asset_paths["scene_dataset_config"]),
+            "current_scene": asset_paths["render_surface_mesh"].stem,
+            "scene_handle_matches": [str(asset_paths["render_surface_mesh"])],
+            "stage_template_matches": [str(asset_paths["render_surface_mesh"])],
+            "stage": {
+                "handle": str(asset_paths["render_surface_mesh"]),
+                "render_asset": str(asset_paths["render_surface_mesh"]),
+                "collision_asset": str(asset_paths["render_surface_mesh"]),
+                "navmesh_asset": str(asset_paths["navmesh"]),
+                "semantic_asset": str(asset_paths["semantic_surface_mesh"]),
+                "semantic_descriptor": str(asset_paths["semantic_descriptor"]),
+            },
+            "navmesh": {
+                "declared_path": str(asset_paths["navmesh"]),
+                "explicit_load_succeeded": True,
+                "requested_agent_settings": {
+                    "agent_height": 1.5,
+                    "agent_radius": 0.2,
+                    "include_static_objects": False,
+                },
+                "active_fingerprint": {
+                    "settings": {
+                        "agent_height": 1.5,
+                        "agent_radius": 0.2,
+                        "include_static_objects": False,
+                    }
+                },
+                "declared_fingerprint": {
+                    "settings": {
+                        "agent_height": 1.5,
+                        "agent_radius": 0.2,
+                        "include_static_objects": False,
+                    }
+                },
+            },
+            "object_template_matches": {},
+            "objects": [],
+            "lighting": {"template_matches": [], "current_light_count": 0},
+        }
+        for check in evidence["checks"]:
+            if check["check_id"] == "scene_load_graph_closure":
+                check["measured"] = {
+                    "errors": [],
+                    "static_errors": [],
+                    "loaded_errors": [],
+                    "loaded_graph": loaded_graph,
+                }
+        return _refresh_v2_evidence(path) if False else evidence
+
+    def write_rewritten(path: Path) -> dict:
+        evidence = rewrite(path)
+        write_json(path, evidence)
+        return _refresh_v2_evidence(path)
+
+    write_rewritten(reference_path)
+    write_rewritten(evidence_path)
+    final_evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    final_evidence["independent_reference"] = {
+        "path": reference_path.relative_to(final_output).as_posix(),
+        "evidence_content_sha256": json.loads(
+            reference_path.read_text(encoding="utf-8")
+        )["evidence_content_sha256"],
+        "artifact": file_record(reference_path, relative_to=final_output),
+    }
+    finalize_evidence(final_evidence)
+    write_json(evidence_path, final_evidence)
+
+    git_calls: list[Path] = []
+
+    def avengine_only_git(repository: Path, *arguments: str) -> str | None:
+        resolved = Path(repository).resolve()
+        git_calls.append(resolved)
+        assert resolved != prefix, "v2 verifier must never treat the prefix as a Git checkout"
+        if arguments == ("rev-parse", "HEAD"):
+            return "a" * 40
+        if arguments == ("status", "--porcelain"):
+            return ""
+        raise AssertionError(f"unexpected git invocation: {arguments}")
+
+    monkeypatch.setattr("avengine.m1.evidence._git_output", avengine_only_git)
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_ROOT", str(prefix))
+    return evidence_path, {"prefix": prefix, "mp3d_root": mp3d_root, "git_calls": git_calls}
+
+
+def test_verify_v2_accepts_installed_prefix_and_split_mp3d_root(
+    complete_prefix_evidence: tuple[Path, dict[str, object]],
+) -> None:
+    evidence_path, context = complete_prefix_evidence
+
+    status, checks = verify_evidence_artifacts(evidence_path)
+
+    indexed = _checks_by_id(checks)
+    assert status == "pass"
+    assert indexed["evidence_json_schema"]["status"] == "pass"
+    assert indexed["evidence_runtime_identity"]["status"] == "pass"
+    assert indexed["evidence_sensor_state_alignment"]["status"] == "pass"
+    assert context["git_calls"]
+    assert context["prefix"] not in context["git_calls"]
+
+
+def test_verify_v2_rejects_listener_sensor_in_visual_state(
+    complete_prefix_evidence: tuple[Path, dict[str, object]],
+) -> None:
+    evidence_path, _ = complete_prefix_evidence
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    for snapshot_name in ("before", "after"):
+        evidence["capture_state"][snapshot_name]["sensors"]["listener0"] = {
+            "translation_m": [0.0, 0.0, 0.0],
+            "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+        }
+    write_json(evidence_path, evidence)
+    _refresh_v2_evidence(evidence_path)
+
+    status, checks = verify_evidence_artifacts(evidence_path)
+
+    assert status == "fail"
+    assert _checks_by_id(checks)["evidence_sensor_state_alignment"]["status"] == "fail"
+
+
+def test_verify_v2_rejects_logical_listener_pose_mismatch(
+    complete_prefix_evidence: tuple[Path, dict[str, object]],
+) -> None:
+    evidence_path, _ = complete_prefix_evidence
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    for snapshot_name in ("before", "after"):
+        evidence["capture_state"][snapshot_name]["listener_pose"]["translation_m"][0] = 0.5
+    write_json(evidence_path, evidence)
+    _refresh_v2_evidence(evidence_path)
+
+    status, checks = verify_evidence_artifacts(evidence_path)
+
+    assert status == "fail"
+    assert _checks_by_id(checks)["evidence_sensor_state_alignment"]["status"] == "fail"
+
+
+def test_verify_v2_rejects_cross_schema_independent_reference(
+    complete_prefix_evidence: tuple[Path, dict[str, object]],
+) -> None:
+    evidence_path, _ = complete_prefix_evidence
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    reference_path = evidence_path.parent / evidence["independent_reference"]["path"]
+    reference = json.loads(reference_path.read_text(encoding="utf-8"))
+    reference["schema"] = EVIDENCE_SCHEMA_V1
+    finalize_evidence(reference)
+    write_json(reference_path, reference)
+    evidence["independent_reference"]["evidence_content_sha256"] = reference[
+        "evidence_content_sha256"
+    ]
+    evidence["independent_reference"]["artifact"] = file_record(
+        reference_path, relative_to=evidence_path.parent
+    )
+    finalize_evidence(evidence)
+    write_json(evidence_path, evidence)
+
+    status, checks = verify_evidence_artifacts(evidence_path)
+
+    assert status == "fail"
+    reference_check = _checks_by_id(checks)["evidence_independent_reference"]
+    assert reference_check["measured"]["comparisons"]["same_schema"] is False
+
+
+def _assert_non_string_schema_is_a_normal_verification_failure(
+    tmp_path: Path, schema_value: object
+) -> None:
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text(json.dumps({"schema": schema_value}), encoding="utf-8")
+
+    status, checks = verify_evidence_artifacts(evidence_path)
+
+    indexed = _checks_by_id(checks)
+    assert status == "fail"
+    assert indexed["evidence_schema_name"]["status"] == "fail"
+    assert indexed["evidence_json_schema"]["status"] == "fail"
+
+
+def test_verify_evidence_rejects_list_schema_without_type_error(tmp_path: Path) -> None:
+    _assert_non_string_schema_is_a_normal_verification_failure(tmp_path, [])
+
+
+def test_verify_evidence_rejects_object_schema_without_type_error(tmp_path: Path) -> None:
+    _assert_non_string_schema_is_a_normal_verification_failure(tmp_path, {})
+
+
+def test_verify_v2_rejects_physics_config_symlink_outside_prefix(
+    complete_prefix_evidence: tuple[Path, dict[str, object]],
+    tmp_path: Path,
+) -> None:
+    evidence_path, context = complete_prefix_evidence
+    prefix = Path(context["prefix"])
+    physics_path = prefix / "config" / "default.physics_config.json"
+    outside = tmp_path / "outside.physics_config.json"
+    outside.write_text("{}\n", encoding="utf-8")
+    physics_path.unlink()
+    physics_path.symlink_to(outside)
+
+    status, checks = verify_evidence_artifacts(evidence_path)
+
+    assert status == "fail"
+    assert _checks_by_id(checks)["evidence_runtime_identity"]["status"] == "fail"

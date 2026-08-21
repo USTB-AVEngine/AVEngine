@@ -1,0 +1,29 @@
+{
+  "schema": "avengine_skokloster_ue_import_request_v1",
+  "scene_id": "skokloster-castle",
+  "room_id": "habitat_test_skokloster_castle",
+  "source_glb_path": "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/habitat_test_scenes_v1.0/skokloster-castle.glb",
+  "prepared_glb_path": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_skokloster_castle_room_v1/prepared/skokloster_castle_habitat_y_up.glb",
+  "content_root": "/Game/MyAssets/Audioset/Scenes/skokloster_castle",
+  "map_path": "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict",
+  "expected_static_mesh_asset_count": 1,
+  "coordinate_contract": {
+    "raw_source": "legacy Habitat test-scene POSITION, Z up and +Y front",
+    "source_to_habitat": "H=(S.x,S.z,-S.y)",
+    "prepared_glb": "canonical glTF metres, +Y up, -Z forward",
+    "ue_interchange": "canonical glTF Y-up/right-handed to UE Z-up/left-handed",
+    "runtime_actor_transform": "identity"
+  },
+  "license": {
+    "asset_title": "The King's Hall",
+    "asset_author": "Skokloster Castle (Skoklosters slott)",
+    "source_url": "https://sketchfab.com/3d-models/the-king-s-hall-d18155613363445b9b68c0c67196d98d",
+    "author_url": "https://sketchfab.com/SkoklosterCastle",
+    "license_name": "Creative Commons Attribution 4.0 International (CC BY 4.0)",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "release_attribution_required": true
+  },
+  "external_asset_embedded_in_repository": false,
+  "qualification_claim": false,
+  "formal_dataset_count": 0
+}

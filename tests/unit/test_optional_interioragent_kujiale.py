@@ -52,6 +52,7 @@ def test_compiles_external_usd_review_without_claiming_episode_authority(
     )
 
     assert plan["backend_role"] == BACKEND_ROLE
+    assert BACKEND_ROLE == "production_visual"
     assert plan["dataset_id"] == DATASET_ID
     assert plan["source_stage"] == str(source.resolve())
     assert plan["room_polygons_xy_m"] == [
@@ -70,6 +71,7 @@ def test_compiles_external_usd_review_without_claiming_episode_authority(
         == "habitat_native_avengine"
     )
     assert plan["authority"]["review_lights_are_acoustic_truth"] is False
+    assert plan["authority"]["visual_pixels"] == "spear_ue_production_visual"
 
 
 def test_preview_material_translation_retains_color_pbr_and_texture_flags() -> None:

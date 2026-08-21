@@ -1,0 +1,130 @@
+{
+  "batch_id": "strict2h_room_batch_reset_canary_v1",
+  "cpu_finalize_queue_depth": 2,
+  "cpu_worker_policy": {
+    "environment": {
+      "MKL_NUM_THREADS": "2",
+      "NUMEXPR_NUM_THREADS": "2",
+      "OMP_NUM_THREADS": "2",
+      "OPENBLAS_NUM_THREADS": "2",
+      "VECLIB_MAXIMUM_THREADS": "2"
+    },
+    "nice_increment": 10,
+    "queue_depth": 2,
+    "thread_cap_per_library": 2,
+    "worker_count": 1
+  },
+  "episode_count": 2,
+  "episodes": [
+    {
+      "acoustic_evidence": {
+        "binaural_delivery": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/binaural_v5/delivery.json",
+        "exact_rir_plan": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/exact_rir_plan_v3/rir_job_plan.json",
+        "rir_cache": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/exact_rir_cache_v4/receipt.json"
+      },
+      "audio_wav": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/binaural_v5/audio/binaural/rocketbox_male_female__strict_two_human_canary_v1__v00.wav",
+      "episode_id": "rocketbox_male_female__strict_two_human_canary_v1",
+      "mechanism": "static",
+      "ordinal": 0,
+      "output_root": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/room_batch_reset_canary_v1/episodes/00_rocketbox_male_female__strict_two_human_canary_v1",
+      "speech_frame_window_inclusive": [
+        7,
+        31
+      ],
+      "suite_plan": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/final_gate_v1/suite_execution_plan.json",
+      "target_side": "right",
+      "target_source_slot": "source1"
+    },
+    {
+      "acoustic_evidence": {
+        "binaural_delivery": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/acoustic_batch_v1/strict_02_male_female_left/binaural_v1/delivery.json",
+        "exact_rir_plan": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/acoustic_batch_v1/strict_02_male_female_left/exact_rir_plan_v1/rir_job_plan.json",
+        "rir_cache": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/acoustic_batch_v1/strict_02_male_female_left/rir_cache_v1/receipt.json"
+      },
+      "audio_wav": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/acoustic_batch_v1/strict_02_male_female_left/binaural_v1/audio/binaural/rocketbox_male_female__strict_two_human_left_v1__v00.wav",
+      "episode_id": "rocketbox_male_female__strict_two_human_left_v1",
+      "mechanism": "static",
+      "ordinal": 1,
+      "output_root": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/room_batch_reset_canary_v1/episodes/01_rocketbox_male_female__strict_two_human_left_v1",
+      "speech_frame_window_inclusive": [
+        7,
+        31
+      ],
+      "suite_plan": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_expansion_v1/acoustic_batch_v1/strict_02_male_female_left/recipe_v1/suite_execution_plan.pending_fact.json",
+      "target_side": "left",
+      "target_source_slot": "source1"
+    }
+  ],
+  "execution_authorized": false,
+  "formal_episode_count": 0,
+  "forbidden_physical_gpu_indices": [
+    0,
+    3
+  ],
+  "fresh_actors_per_episode": true,
+  "graphics_adapter_argument": 1,
+  "native_map": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
+  "ground_contact_release_qualified": false,
+  "motion_realism_release_qualified": false,
+  "next_gate": "after the separate ground-contact diagnostic is terminal, independently audit this resolved request and explicitly authorize the two-Episode runtime canary on idle physical GPU1; no ten-Episode shard may run first",
+  "output_root": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_strict_two_human_full_episode_batch_v1/room_batch_reset_canary_v1",
+  "physical_gpu_index": 1,
+  "purpose": "segmentation_reset_canary",
+  "qualification_claim": false,
+  "release_blockers": [
+    "ground-contact release qualification remains separate",
+    "motion-realism release qualification remains separate",
+    "two-Episode segmentation reset runtime canary has not run"
+  ],
+  "raw_memmap_contract": {
+    "normal_depth_m.f16le": {
+      "dtype": "<f2",
+      "semantics": "normal_scene_metric_depth_m",
+      "shape": [
+        75,
+        720,
+        1280
+      ],
+      "size_bytes": 138240000
+    },
+    "normal_object_ids.u32le": {
+      "dtype": "<u4",
+      "semantics": "normal_scene_raw_object_ids_uint32",
+      "shape": [
+        75,
+        720,
+        1280
+      ],
+      "size_bytes": 276480000
+    },
+    "target_only_source1_depth_m.f16le": {
+      "dtype": "<f2",
+      "semantics": "source1_show_only_metric_depth_m",
+      "shape": [
+        75,
+        720,
+        1280
+      ],
+      "size_bytes": 138240000
+    },
+    "target_only_source2_depth_m.f16le": {
+      "dtype": "<f2",
+      "semantics": "source2_show_only_metric_depth_m",
+      "shape": [
+        75,
+        720,
+        1280
+      ],
+      "size_bytes": 138240000
+    }
+  },
+  "raw_memmap_total_bytes": 691200000,
+  "room_loaded_once": true,
+  "runtime_environments": {
+    "avengine_cpu_python": "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python",
+    "spear_capture_python": "/data/jzy/miniconda3/envs/spear-env/bin/python"
+  },
+  "schema": "avengine_native_strict_two_human_room_batch_request_v1",
+  "segmentation_reset_and_negative_check_per_episode": true,
+  "stop_on_first_fail": true
+}

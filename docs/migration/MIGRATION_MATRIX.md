@@ -1,5 +1,11 @@
 # Legacy Migration Matrix
 
+Status: historical M0--M7 inventory. ADR-0010 supersedes this document for
+repository topology and production-backend routing. In particular, Apartment
+and InteriorAgent/Kujiale now use UE/SPEAR production visuals, while MP3D uses
+Habitat-Sim. Use this matrix only to trace old files and decisions; use
+`SINGLE_REPOSITORY_EQUIVALENCE_PLAN.md` for the active source consolidation.
+
 The source paths in this document are relative to the legacy SPEAR checkout
 unless prefixed with `AVEngine/`. Every decision begins with exactly one base
 classification: `migrate`, `keep`, `optional`, `experimental`, `retire`, or

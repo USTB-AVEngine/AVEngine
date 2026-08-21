@@ -6,6 +6,11 @@ that boundary explicit: an event may declare its path directly, or a caller
 may provide an ``asset_bindings`` mapping from the schema's asset ID to a
 local path.  Conflicting aliases, hashes, or bindings fail closed.
 
+Planning callers may instead use the explicit semantic-content API.  It binds
+one stable content ID to declared audio metadata and a local path, without
+computing or accepting a digest of the file bytes.  The authenticated legacy
+API remains unchanged for existing consumers.
+
 Only uncompressed mono integer-PCM WAVE files are decoded.  Source-native
 clips are deterministically resampled on a float64 linear time grid, fitted to
 the declared half-open event window by tail cropping or zero padding, faded,
@@ -15,23 +20,24 @@ limiting, network access, or implicit codec conversion occurs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from fractions import Fraction
 import hashlib
 import math
+import re
+import wave
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from fractions import Fraction
 from numbers import Real
 from pathlib import Path
-import re
-from typing import Any, Mapping, Sequence
-import wave
+from typing import Any
 
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m4.audio import AudioContractError, canonical_source_ids
 
-
 DRY_AUDIO_ASSEMBLY_SCHEMA = "avengine_m5_1_dry_audio_assembly_v1"
+SEMANTIC_DRY_AUDIO_ASSEMBLY_SCHEMA = "avengine_m5_1_semantic_dry_audio_assembly_v1"
 RESAMPLING_ALGORITHM = "float64_linear_source_time_grid_v1"
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _STABLE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
@@ -57,7 +63,7 @@ class DryAudioClipSpec:
         fps_numerator: int,
         fps_denominator: int = 1,
         sample_rate_hz: int,
-    ) -> "DryAudioClipSpec":
+    ) -> DryAudioClipSpec:
         frames = _positive_integer(frame_count, owner="frame_count")
         fps_num = _positive_integer(fps_numerator, owner="fps_numerator")
         fps_den = _positive_integer(fps_denominator, owner="fps_denominator")
@@ -86,9 +92,7 @@ class DryAudioClipSpec:
             )
         return _round_nonnegative_fraction(
             Fraction(
-                int(frame_index)
-                * self.sample_rate_hz
-                * self.fps_denominator,
+                int(frame_index) * self.sample_rate_hz * self.fps_denominator,
                 self.fps_numerator,
             )
         )
@@ -117,6 +121,18 @@ class DecodedMonoAsset:
 
 
 @dataclass(frozen=True)
+class DecodedSemanticMonoAsset:
+    """Owned samples bound to a semantic content identity, not file bytes."""
+
+    path: Path
+    content_id: str
+    samples: np.ndarray
+    sample_rate_hz: int
+    sample_width_bytes: int
+    frame_count: int
+
+
+@dataclass(frozen=True)
 class DryAudioEvent:
     """One fully resolved dry placement declaration."""
 
@@ -127,6 +143,26 @@ class DryAudioEvent:
     dry_asset_id: str | None
     dry_asset_path: Path
     dry_asset_sha256: str
+    dry_clip_start_sample: int
+    dry_clip_end_sample_exclusive: int | None
+    linear_gain: float
+    fade_in_samples: int
+    fade_out_samples: int
+
+
+@dataclass(frozen=True)
+class SemanticDryAudioEvent:
+    """One digest-free placement resolved by semantic content ID."""
+
+    event_id: str
+    source_id: str
+    start_sample: int
+    end_sample_exclusive: int
+    content_id: str
+    dry_asset_path: Path
+    declared_sample_rate_hz: int
+    declared_channel_count: int
+    declared_sample_count: int
     dry_clip_start_sample: int
     dry_clip_end_sample_exclusive: int | None
     linear_gain: float
@@ -154,6 +190,31 @@ class DryAudioAssembly:
             "arithmetic": _arithmetic_record(),
             "placement_receipts": [dict(value) for value in self.placement_receipts],
             "bus_float64_le_sha256": dict(self.bus_float64_le_sha256),
+        }
+        return {**content, "assembly_content_sha256": self.assembly_content_sha256}
+
+
+@dataclass(frozen=True)
+class SemanticDryAudioAssembly:
+    """Exact buses bound to semantic content without file-byte evidence."""
+
+    clip: DryAudioClipSpec
+    source_ids: tuple[str, ...]
+    buses: Mapping[str, np.ndarray]
+    placement_receipts: tuple[Mapping[str, Any], ...]
+    bus_content_sha256: Mapping[str, str]
+    assembly_content_sha256: str
+
+    def metadata(self) -> dict[str, Any]:
+        content = {
+            "schema": SEMANTIC_DRY_AUDIO_ASSEMBLY_SCHEMA,
+            "qualification_claim": False,
+            "binding_mode": ("semantic_content_id_and_declared_audio_metadata_v1"),
+            "clip": self.clip.to_dict(),
+            "source_ids": list(self.source_ids),
+            "arithmetic": _arithmetic_record(),
+            "placement_receipts": [dict(value) for value in self.placement_receipts],
+            "bus_content_sha256": dict(self.bus_content_sha256),
         }
         return {**content, "assembly_content_sha256": self.assembly_content_sha256}
 
@@ -330,6 +391,84 @@ def read_authenticated_mono_pcm_wav(
     )
 
 
+def read_semantic_mono_pcm_wav(
+    path: str | Path,
+    *,
+    content_id: str,
+    sample_rate_hz: int,
+    channel_count: int,
+    sample_count: int,
+) -> DecodedSemanticMonoAsset:
+    """Decode one WAVE bound to declared semantic identity and metadata.
+
+    This intentionally does not calculate or compare a digest of the file
+    bytes.  Identity comes from ``content_id``; the executable gate is exact
+    WAVE structure and the declared channel/rate/sample-count tuple.
+    """
+
+    semantic_id = _stable_id(content_id, owner="content_id")
+    expected_rate = _positive_integer(sample_rate_hz, owner="sample_rate_hz")
+    expected_channels = _positive_integer(channel_count, owner="channel_count")
+    expected_count = _positive_integer(sample_count, owner="sample_count")
+    resolved = _resolved_local_path(path, asset_root=None, owner="dry asset path")
+    try:
+        with wave.open(str(resolved), "rb") as handle:
+            observed_channels = handle.getnchannels()
+            sample_width = handle.getsampwidth()
+            observed_rate = handle.getframerate()
+            frame_count = handle.getnframes()
+            compression = handle.getcomptype()
+            payload = handle.readframes(frame_count)
+            trailing = handle.readframes(1)
+    except (OSError, EOFError, wave.Error) as exc:
+        raise AudioContractError(f"cannot decode dry WAVE {resolved}: {exc}") from exc
+    if expected_channels != 1 or observed_channels != expected_channels:
+        raise AudioContractError(
+            "semantic dry WAVE must match declared mono channel_count"
+        )
+    if observed_rate != expected_rate or frame_count != expected_count:
+        raise AudioContractError(
+            "semantic dry WAVE metadata differs from declared sample rate/count"
+        )
+    if compression != "NONE" or sample_width not in {1, 2, 3, 4}:
+        raise AudioContractError(
+            "semantic dry WAVE must be uncompressed 8/16/24/32-bit integer PCM"
+        )
+    expected_payload_length = frame_count * sample_width
+    if len(payload) != expected_payload_length or trailing:
+        raise AudioContractError("semantic dry WAVE payload differs from its header")
+
+    if sample_width == 1:
+        integers = np.frombuffer(payload, dtype=np.uint8).astype(np.float64)
+        samples = (integers - 128.0) / 128.0
+    elif sample_width == 2:
+        integers = np.frombuffer(payload, dtype="<i2").astype(np.float64)
+        samples = integers / 32768.0
+    elif sample_width == 3:
+        packed = np.frombuffer(payload, dtype=np.uint8).reshape(-1, 3)
+        unsigned = (
+            packed[:, 0].astype(np.int64)
+            | (packed[:, 1].astype(np.int64) << 8)
+            | (packed[:, 2].astype(np.int64) << 16)
+        )
+        signed = np.where(unsigned & 0x800000, unsigned - 0x1000000, unsigned)
+        samples = signed.astype(np.float64) / 8388608.0
+    else:
+        integers = np.frombuffer(payload, dtype="<i4").astype(np.float64)
+        samples = integers / 2147483648.0
+    samples = np.ascontiguousarray(samples, dtype=np.float64)
+    if samples.shape != (frame_count,) or not np.all(np.isfinite(samples)):
+        raise AudioContractError("decoded semantic dry WAVE samples are malformed")
+    return DecodedSemanticMonoAsset(
+        path=resolved,
+        content_id=semantic_id,
+        samples=samples,
+        sample_rate_hz=observed_rate,
+        sample_width_bytes=sample_width,
+        frame_count=frame_count,
+    )
+
+
 def deterministic_resample_mono(
     samples: Any,
     *,
@@ -354,9 +493,7 @@ def deterministic_resample_mono(
         return source.copy()
     output_count = max(
         1,
-        _round_nonnegative_fraction(
-            Fraction(source.size * target_rate, source_rate)
-        ),
+        _round_nonnegative_fraction(Fraction(source.size * target_rate, source_rate)),
     )
     output_indices = np.arange(output_count, dtype=np.int64)
     numerators = output_indices * source_rate
@@ -403,7 +540,11 @@ def _optional_clip_value(
         if nested is not None and nested_name in nested
         else _MISSING
     )
-    if direct is not _MISSING and nested_value is not _MISSING and direct != nested_value:
+    if (
+        direct is not _MISSING
+        and nested_value is not _MISSING
+        and direct != nested_value
+    ):
         raise AudioContractError(f"{owner} conflicts with dry_clip.{nested_name}")
     if direct is not _MISSING:
         return direct
@@ -458,7 +599,9 @@ def parse_dry_audio_events(
         source_id = _stable_id(raw.get("source_id"), owner=f"{owner}.source_id")
         if source_id not in canonical:
             raise AudioContractError(f"{owner}.source_id is not declared")
-        start = _nonnegative_integer(raw.get("start_sample"), owner=f"{owner}.start_sample")
+        start = _nonnegative_integer(
+            raw.get("start_sample"), owner=f"{owner}.start_sample"
+        )
         end = _positive_integer(
             raw.get("end_sample_exclusive"),
             owner=f"{owner}.end_sample_exclusive",
@@ -472,16 +615,18 @@ def parse_dry_audio_events(
             start_frame = _nonnegative_integer(
                 raw["start_frame"], owner=f"{owner}.start_frame"
             )
-            if start_frame >= clip.frame_count or clip.sample_boundary(start_frame) != start:
-                raise AudioContractError(f"{owner}.start_frame conflicts with start_sample")
+            if (
+                start_frame >= clip.frame_count
+                or clip.sample_boundary(start_frame) != start
+            ):
+                raise AudioContractError(
+                    f"{owner}.start_frame conflicts with start_sample"
+                )
         if "end_frame_exclusive" in raw:
             end_frame = _positive_integer(
                 raw["end_frame_exclusive"], owner=f"{owner}.end_frame_exclusive"
             )
-            if (
-                end_frame > clip.frame_count
-                or clip.sample_boundary(end_frame) != end
-            ):
+            if end_frame > clip.frame_count or clip.sample_boundary(end_frame) != end:
                 raise AudioContractError(
                     f"{owner}.end_frame_exclusive conflicts with end_sample_exclusive"
                 )
@@ -653,6 +798,171 @@ def parse_dry_audio_events(
     )
 
 
+def parse_semantic_dry_audio_events(
+    event_mappings: Sequence[Mapping[str, Any]],
+    *,
+    source_ids: Sequence[str],
+    clip: DryAudioClipSpec,
+    content_bindings: Mapping[str, Mapping[str, Any]],
+) -> tuple[SemanticDryAudioEvent, ...]:
+    """Resolve digest-free events through exact semantic content declarations."""
+
+    if not isinstance(clip, DryAudioClipSpec):
+        raise AudioContractError("clip must be DryAudioClipSpec")
+    canonical = canonical_source_ids(source_ids)
+    if tuple(source_ids) != canonical:
+        raise AudioContractError("source_ids must already be in canonical order")
+    if isinstance(event_mappings, (str, bytes)) or not isinstance(
+        event_mappings, Sequence
+    ):
+        raise AudioContractError("event_mappings must be a sequence of mappings")
+    if not isinstance(content_bindings, Mapping):
+        raise AudioContractError("content_bindings must be a mapping")
+    parsed: list[SemanticDryAudioEvent] = []
+    observed_event_ids: set[str] = set()
+    for index, raw in enumerate(event_mappings):
+        owner = f"event_mappings[{index}]"
+        if not isinstance(raw, Mapping):
+            raise AudioContractError(f"{owner} must be a mapping")
+        allowed = {
+            "event_id",
+            "source_id",
+            "start_sample",
+            "end_sample_exclusive",
+            "content_id",
+            "dry_clip_start_sample",
+            "dry_clip_end_sample_exclusive",
+            "linear_gain",
+            "fade_samples",
+            "fade_in_samples",
+            "fade_out_samples",
+        }
+        unknown = set(raw) - allowed
+        if unknown:
+            raise AudioContractError(
+                f"{owner} has unsupported semantic fields: {sorted(unknown)}"
+            )
+        event_id = _stable_id(raw.get("event_id"), owner=f"{owner}.event_id")
+        if event_id in observed_event_ids:
+            raise AudioContractError(f"duplicate event_id {event_id!r}")
+        observed_event_ids.add(event_id)
+        source_id = _stable_id(raw.get("source_id"), owner=f"{owner}.source_id")
+        if source_id not in canonical:
+            raise AudioContractError(f"{owner}.source_id is not declared")
+        start = _nonnegative_integer(
+            raw.get("start_sample"), owner=f"{owner}.start_sample"
+        )
+        end = _positive_integer(
+            raw.get("end_sample_exclusive"), owner=f"{owner}.end_sample_exclusive"
+        )
+        if not start < end <= clip.sample_count:
+            raise AudioContractError(
+                f"{owner} must satisfy 0 <= start_sample < end_sample_exclusive "
+                f"<= {clip.sample_count}"
+            )
+        content_id = _stable_id(raw.get("content_id"), owner=f"{owner}.content_id")
+        binding = content_bindings.get(content_id)
+        if not isinstance(binding, Mapping):
+            raise AudioContractError(
+                f"{owner}.content_id has no unique semantic content binding"
+            )
+        if (
+            set(binding)
+            != {
+                "content_id",
+                "path",
+                "sample_rate_hz",
+                "channel_count",
+                "sample_count",
+            }
+            or binding.get("content_id") != content_id
+        ):
+            raise AudioContractError(
+                f"semantic content binding {content_id!r} has invalid structure"
+            )
+        binding_path = _resolved_local_path(
+            binding["path"],
+            asset_root=None,
+            owner=f"content binding {content_id!r} path",
+        )
+        declared_rate = _positive_integer(
+            binding["sample_rate_hz"],
+            owner=f"content binding {content_id!r} sample_rate_hz",
+        )
+        declared_channels = _positive_integer(
+            binding["channel_count"],
+            owner=f"content binding {content_id!r} channel_count",
+        )
+        declared_count = _positive_integer(
+            binding["sample_count"],
+            owner=f"content binding {content_id!r} sample_count",
+        )
+        clip_start = _nonnegative_integer(
+            raw.get("dry_clip_start_sample", 0),
+            owner=f"{owner}.dry_clip_start_sample",
+        )
+        raw_clip_end = raw.get("dry_clip_end_sample_exclusive")
+        clip_end = (
+            _positive_integer(
+                raw_clip_end, owner=f"{owner}.dry_clip_end_sample_exclusive"
+            )
+            if raw_clip_end is not None
+            else None
+        )
+        if clip_end is not None and clip_start >= clip_end:
+            raise AudioContractError(f"{owner} dry clip must satisfy start < end")
+        gain = _finite_nonnegative_gain(
+            raw.get("linear_gain", 1.0), owner=f"{owner}.linear_gain"
+        )
+        symmetric_fade = _nonnegative_integer(
+            raw.get("fade_samples", 0), owner=f"{owner}.fade_samples"
+        )
+        fade_in = _nonnegative_integer(
+            raw.get("fade_in_samples", symmetric_fade),
+            owner=f"{owner}.fade_in_samples",
+        )
+        fade_out = _nonnegative_integer(
+            raw.get("fade_out_samples", symmetric_fade),
+            owner=f"{owner}.fade_out_samples",
+        )
+        if "fade_samples" in raw and (
+            ("fade_in_samples" in raw and fade_in != symmetric_fade)
+            or ("fade_out_samples" in raw and fade_out != symmetric_fade)
+        ):
+            raise AudioContractError(
+                f"{owner}.fade_samples conflicts with explicit fade endpoints"
+            )
+        parsed.append(
+            SemanticDryAudioEvent(
+                event_id=event_id,
+                source_id=source_id,
+                start_sample=start,
+                end_sample_exclusive=end,
+                content_id=content_id,
+                dry_asset_path=binding_path,
+                declared_sample_rate_hz=declared_rate,
+                declared_channel_count=declared_channels,
+                declared_sample_count=declared_count,
+                dry_clip_start_sample=clip_start,
+                dry_clip_end_sample_exclusive=clip_end,
+                linear_gain=gain,
+                fade_in_samples=fade_in,
+                fade_out_samples=fade_out,
+            )
+        )
+    return tuple(
+        sorted(
+            parsed,
+            key=lambda event: (
+                event.start_sample,
+                event.end_sample_exclusive,
+                event.source_id.encode("ascii"),
+                event.event_id.encode("ascii"),
+            ),
+        )
+    )
+
+
 def _fade_envelope(
     sample_count: int,
     *,
@@ -716,7 +1026,7 @@ def assemble_dry_audio_buses(
             raise AudioContractError(
                 f"event {event.event_id!r} dry clip escapes source-native asset"
             )
-        selected = asset.samples[event.dry_clip_start_sample:clip_end]
+        selected = asset.samples[event.dry_clip_start_sample : clip_end]
         resampled = deterministic_resample_mono(
             selected,
             source_sample_rate_hz=asset.sample_rate_hz,
@@ -739,9 +1049,7 @@ def assemble_dry_audio_buses(
             raise AudioContractError(
                 f"event {event.event_id!r} contribution overflowed float64"
             )
-        target = buses[event.source_id][
-            event.start_sample : event.end_sample_exclusive
-        ]
+        target = buses[event.source_id][event.start_sample : event.end_sample_exclusive]
         target += contribution
         if not np.all(np.isfinite(target)):
             raise AudioContractError(
@@ -788,14 +1096,11 @@ def assemble_dry_audio_buses(
                 "linear_gain": event.linear_gain,
                 "fade_in_samples": event.fade_in_samples,
                 "fade_out_samples": event.fade_out_samples,
-                "contribution_float64_le_sha256": _float64_le_sha256(
-                    contribution
-                ),
+                "contribution_float64_le_sha256": _float64_le_sha256(contribution),
             }
         )
     bus_hashes = {
-        source_id: _float64_le_sha256(buses[source_id])
-        for source_id in canonical
+        source_id: _float64_le_sha256(buses[source_id]) for source_id in canonical
     }
     for bus in buses.values():
         bus.setflags(write=False)
@@ -818,15 +1123,156 @@ def assemble_dry_audio_buses(
     )
 
 
+def assemble_semantic_dry_audio_buses(
+    event_mappings: Sequence[Mapping[str, Any]],
+    *,
+    source_ids: Sequence[str],
+    clip: DryAudioClipSpec,
+    content_bindings: Mapping[str, Mapping[str, Any]],
+) -> SemanticDryAudioAssembly:
+    """Build exact buses without any file-byte digest gate or receipt field."""
+
+    events = parse_semantic_dry_audio_events(
+        event_mappings,
+        source_ids=source_ids,
+        clip=clip,
+        content_bindings=content_bindings,
+    )
+    canonical = tuple(source_ids)
+    buses = {
+        source_id: np.zeros(clip.sample_count, dtype=np.float64)
+        for source_id in canonical
+    }
+    assets: dict[tuple[Path, str], DecodedSemanticMonoAsset] = {}
+    receipts: list[dict[str, Any]] = []
+    for event in events:
+        cache_key = (event.dry_asset_path, event.content_id)
+        if cache_key not in assets:
+            assets[cache_key] = read_semantic_mono_pcm_wav(
+                event.dry_asset_path,
+                content_id=event.content_id,
+                sample_rate_hz=event.declared_sample_rate_hz,
+                channel_count=event.declared_channel_count,
+                sample_count=event.declared_sample_count,
+            )
+        asset = assets[cache_key]
+        clip_end = (
+            asset.frame_count
+            if event.dry_clip_end_sample_exclusive is None
+            else event.dry_clip_end_sample_exclusive
+        )
+        if not 0 <= event.dry_clip_start_sample < clip_end <= asset.frame_count:
+            raise AudioContractError(
+                f"event {event.event_id!r} dry clip escapes semantic content"
+            )
+        selected = asset.samples[event.dry_clip_start_sample : clip_end]
+        resampled = deterministic_resample_mono(
+            selected,
+            source_sample_rate_hz=asset.sample_rate_hz,
+            target_sample_rate_hz=clip.sample_rate_hz,
+        )
+        placement_count = event.end_sample_exclusive - event.start_sample
+        copied_count = min(placement_count, int(resampled.size))
+        cropped_count = max(0, int(resampled.size) - placement_count)
+        zero_padded_count = max(0, placement_count - int(resampled.size))
+        envelope = _fade_envelope(
+            copied_count,
+            fade_in_samples=event.fade_in_samples,
+            fade_out_samples=event.fade_out_samples,
+        )
+        contribution = np.zeros(placement_count, dtype=np.float64)
+        contribution[:copied_count] = (
+            resampled[:copied_count] * envelope * event.linear_gain
+        )
+        target = buses[event.source_id][event.start_sample : event.end_sample_exclusive]
+        target += contribution
+        if not np.all(np.isfinite(target)):
+            raise AudioContractError(
+                f"source {event.source_id!r} semantic bus overflowed float64"
+            )
+        receipts.append(
+            {
+                "event_id": event.event_id,
+                "source_id": event.source_id,
+                "target_interval": {
+                    "start_sample": event.start_sample,
+                    "end_sample_exclusive": event.end_sample_exclusive,
+                    "sample_count": placement_count,
+                },
+                "semantic_content": {
+                    "content_id": asset.content_id,
+                    "path": asset.path.as_posix(),
+                    "sample_rate_hz": asset.sample_rate_hz,
+                    "channel_count": 1,
+                    "sample_count": asset.frame_count,
+                },
+                "dry_clip_source_native_interval": {
+                    "start_sample": event.dry_clip_start_sample,
+                    "end_sample_exclusive": clip_end,
+                    "sample_count": clip_end - event.dry_clip_start_sample,
+                },
+                "resampling": {
+                    "algorithm": RESAMPLING_ALGORITHM,
+                    "output_length_rounding": "nearest_half_up_minimum_one",
+                    "anti_alias_filter": False,
+                    "source_sample_rate_hz": asset.sample_rate_hz,
+                    "target_sample_rate_hz": clip.sample_rate_hz,
+                    "input_sample_count": int(selected.size),
+                    "output_sample_count": int(resampled.size),
+                    "performed": asset.sample_rate_hz != clip.sample_rate_hz,
+                },
+                "fit": {
+                    "copied_sample_count": copied_count,
+                    "cropped_tail_sample_count": cropped_count,
+                    "zero_padded_tail_sample_count": zero_padded_count,
+                },
+                "linear_gain": event.linear_gain,
+                "fade_in_samples": event.fade_in_samples,
+                "fade_out_samples": event.fade_out_samples,
+                "contribution_content_sha256": _float64_le_sha256(contribution),
+            }
+        )
+    bus_hashes = {
+        source_id: _float64_le_sha256(buses[source_id]) for source_id in canonical
+    }
+    for bus in buses.values():
+        bus.setflags(write=False)
+    content = {
+        "schema": SEMANTIC_DRY_AUDIO_ASSEMBLY_SCHEMA,
+        "qualification_claim": False,
+        "binding_mode": "semantic_content_id_and_declared_audio_metadata_v1",
+        "clip": clip.to_dict(),
+        "source_ids": list(canonical),
+        "arithmetic": _arithmetic_record(),
+        "placement_receipts": receipts,
+        "bus_content_sha256": bus_hashes,
+    }
+    return SemanticDryAudioAssembly(
+        clip=clip,
+        source_ids=canonical,
+        buses=buses,
+        placement_receipts=tuple(receipts),
+        bus_content_sha256=bus_hashes,
+        assembly_content_sha256=canonical_json_sha256(content),
+    )
+
+
 __all__ = [
     "DRY_AUDIO_ASSEMBLY_SCHEMA",
     "RESAMPLING_ALGORITHM",
+    "SEMANTIC_DRY_AUDIO_ASSEMBLY_SCHEMA",
     "DecodedMonoAsset",
+    "DecodedSemanticMonoAsset",
     "DryAudioAssembly",
     "DryAudioClipSpec",
     "DryAudioEvent",
+    "SemanticDryAudioAssembly",
+    "SemanticDryAudioEvent",
     "assemble_dry_audio_buses",
+    "assemble_semantic_dry_audio_buses",
     "deterministic_resample_mono",
     "parse_dry_audio_events",
+    "parse_semantic_dry_audio_events",
     "read_authenticated_mono_pcm_wav",
+    "read_semantic_mono_pcm_wav",
 ]

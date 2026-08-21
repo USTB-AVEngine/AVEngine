@@ -307,6 +307,17 @@ class _FakeRenderer:
         )
 
 
+class _RuntimeCapturingRenderer(_FakeRenderer):
+    runtime_kwargs: dict[str, object] | None = None
+
+    def __init__(self, scene, simulation, *, batch_size, **kwargs) -> None:
+        type(self).runtime_kwargs = {
+            name: kwargs.get(name)
+            for name in ("runtime_prefix", "magnum_python_site", "rlr_sdk_root")
+        }
+        super().__init__(scene, simulation, batch_size=batch_size, **kwargs)
+
+
 class _PoseAwareFakeRenderer(_FakeRenderer):
     listener_poses = []
 
@@ -492,6 +503,66 @@ def test_rir_cache_writes_shards_index_and_resumes_without_rendering(tmp_path) -
     np.savez_compressed(shard_path, **arrays)
     with pytest.raises(RIRCacheError, match="job IDs differ"):
         render_rir_cache(**arguments)
+
+
+def test_rir_cache_forwards_complete_current_runtime_outside_request_identity(
+    tmp_path: Path,
+) -> None:
+    plan_path = _write_json(tmp_path / "plan.json", _plan())
+    simulation_path = _write_json(
+        tmp_path / "simulation.json", {"simulation": _simulation().to_dict()}
+    )
+    hrtf = tmp_path / "fixture.sofa"
+    hrtf.write_bytes(b"fixture")
+    runtime_prefix = tmp_path / "runtime"
+    magnum_python_site = tmp_path / "magnum"
+    rlr_sdk_root = tmp_path / "rlr_sdk"
+    for path in (runtime_prefix, magnum_python_site, rlr_sdk_root):
+        path.mkdir()
+    output = tmp_path / "cache"
+
+    render_rir_cache(
+        plan_path=plan_path,
+        scene=_scene(tmp_path),
+        simulation_request_path=simulation_path,
+        simulation=_simulation(),
+        output=output,
+        layout_type="binaural",
+        hrtf_file_path=hrtf,
+        batch_size=2,
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        renderer_factory=_RuntimeCapturingRenderer,
+    )
+
+    assert _RuntimeCapturingRenderer.runtime_kwargs == {
+        "runtime_prefix": runtime_prefix,
+        "magnum_python_site": magnum_python_site,
+        "rlr_sdk_root": rlr_sdk_root,
+    }
+    request = json.loads((output / "request.json").read_text())
+    encoded_request = json.dumps(request, sort_keys=True)
+    for name, path in _RuntimeCapturingRenderer.runtime_kwargs.items():
+        assert f'"{name}"' not in encoded_request
+        assert str(path) not in encoded_request
+
+
+def test_rir_cache_rejects_partial_current_runtime_before_output(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "cache"
+    with pytest.raises(RIRCacheError, match="supplied together"):
+        render_rir_cache(
+            plan_path=tmp_path / "not-read-plan.json",
+            scene=_scene(tmp_path),
+            simulation_request_path=tmp_path / "not-read-simulation.json",
+            simulation=_simulation(),
+            output=output,
+            runtime_prefix=tmp_path / "runtime",
+            renderer_factory=_RuntimeCapturingRenderer,
+        )
+    assert not output.exists()
 
 
 def test_rir_plan_rejects_duplicate_positions_and_cache_request_mismatch(

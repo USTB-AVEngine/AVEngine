@@ -1,0 +1,276 @@
+{
+  "active_intervals": {
+    "source1": {
+      "global_time_stretch_applied": false,
+      "native_frame_rate_hz": 15,
+      "native_interval_count": 10,
+      "native_sample_count": 11,
+      "native_source_frame_range_inclusive": [
+        39,
+        49
+      ],
+      "output_frame_range_inclusive": [
+        14,
+        24
+      ],
+      "output_frame_rate_hz": 15,
+      "output_interval_count": 10,
+      "output_sample_count": 11,
+      "outside_action_id": "idle",
+      "outside_root_policy": "hold_nearest_boundary_root",
+      "placement_policy": "center_native_window_on_unchanged_speech_window_v1",
+      "speech_overlap_frame_count": 11,
+      "speech_window_inclusive": [
+        7,
+        31
+      ],
+      "time_scale": 1.0
+    },
+    "source2": {
+      "global_time_stretch_applied": false,
+      "native_frame_rate_hz": 15,
+      "native_interval_count": 11,
+      "native_sample_count": 12,
+      "native_source_frame_range_inclusive": [
+        62,
+        73
+      ],
+      "output_frame_range_inclusive": [
+        14,
+        25
+      ],
+      "output_frame_rate_hz": 15,
+      "output_interval_count": 11,
+      "output_sample_count": 12,
+      "outside_action_id": "idle",
+      "outside_root_policy": "hold_nearest_boundary_root",
+      "placement_policy": "center_native_window_on_unchanged_speech_window_v1",
+      "speech_overlap_frame_count": 12,
+      "speech_window_inclusive": [
+        7,
+        31
+      ],
+      "time_scale": 1.0
+    }
+  },
+  "audio_event_invariance_status": "pass_unchanged_content_and_sample_timing",
+  "candidate_episode_id": "strict2h_dynamic_canary_03_both_move_v1__native_rate_candidate_v1",
+  "candidate_preflight_file": "native_strict_two_human_both_move_native_rate_candidate_v1.json",
+  "claim_boundary": "CPU candidate only. It fixes the legacy time stretch but does not establish fresh pixel visibility, live ground contact, foot-plant sync, live animation readback, collision safety, or exact acoustic propagation.",
+  "cpu_candidate_preflight_status": "PASS_CPU_NATIVE_RATE_CANDIDATE",
+  "first_blocker": {
+    "code": "fresh_native_pixels_not_verified",
+    "message": "the native-rate timing revision has no fresh normal/target-only full75 pixel capture"
+  },
+  "formal_episode_count": 0,
+  "gpu_launch_authorized": false,
+  "gpu_used": false,
+  "input_artifacts": [
+    "materialization_receipt.json",
+    "suite_execution_plan.json"
+  ],
+  "legacy_episode_id": "strict2h_dynamic_canary_03_both_move_v1",
+  "legacy_slow_motion_decision": "reject_nonrelease_pipeline_evidence_only_not_upgraded",
+  "mechanism": "both_move",
+  "mechanism_preflight": {
+    "both_moving_overlap_frame_count": 11,
+    "expected_moving_slots": [
+      "source1",
+      "source2"
+    ],
+    "mechanism_speech_overlap_frame_count": 11,
+    "observed_moving_slots": [
+      "source1",
+      "source2"
+    ],
+    "status": "PASS_CPU_MECHANISM_TIMING",
+    "unchanged_speech_window_inclusive": [
+      7,
+      31
+    ]
+  },
+  "projection_preflight": {
+    "actors": {
+      "source1": {
+        "camera_depth_m_range": [
+          2.0739329346009554,
+          2.363759731228926
+        ],
+        "center_x_fraction_range": [
+          0.794913821979518,
+          0.8351254467752565
+        ],
+        "dead_zone_margin_fraction": 0.294913821979518,
+        "expected_side_from_legacy_static_camera_projection": "right",
+        "head_y_fraction_range": [
+          0.19447344778796094,
+          0.23193486179824463
+        ],
+        "mouth_y_fraction_range": [
+          0.32273540106911736,
+          0.3444702796969757
+        ],
+        "observed_side": "right",
+        "root_y_fraction_range": [
+          0.8090395689712249,
+          0.8522270543579944
+        ]
+      },
+      "source2": {
+        "camera_depth_m_range": [
+          3.4869060866995065,
+          3.764766276344061
+        ],
+        "center_x_fraction_range": [
+          0.3673452987296122,
+          0.4239223045847795
+        ],
+        "dead_zone_margin_fraction": 0.07607769541522053,
+        "expected_side_from_legacy_static_camera_projection": "left",
+        "head_y_fraction_range": [
+          0.31827971179246967,
+          0.3316916555991488
+        ],
+        "mouth_y_fraction_range": [
+          0.40258453534942124,
+          0.40977432549713994
+        ],
+        "observed_side": "left",
+        "root_y_fraction_range": [
+          0.694034698270806,
+          0.7094966914299571
+        ]
+      }
+    },
+    "authority": "analytic_static_camera_pinhole_projection_v1",
+    "camera": {
+      "dynamic": false,
+      "habitat_position_m": [
+        -0.7,
+        1.471,
+        0.65
+      ],
+      "habitat_yaw_deg": 55.0,
+      "horizontal_fov_deg": 105.0
+    },
+    "claim_boundary": "center/root/mouth/head analytic projection only; no fresh pixels, segmentation, occlusion, collision, or metric-depth claim",
+    "minimum_actor_horizontal_separation_m": 2.8875345862426136,
+    "minimum_required_actor_horizontal_separation_m": 1.0,
+    "status": "PASS_CPU_STATIC_PINHOLE_ONLY",
+    "target_side": "right",
+    "target_slot": "source1"
+  },
+  "qualification_claim": false,
+  "release_blockers": [
+    {
+      "code": "fresh_native_pixels_not_verified",
+      "message": "the native-rate timing revision has no fresh normal/target-only full75 pixel capture"
+    },
+    {
+      "code": "live_ground_contact_not_verified",
+      "message": "live floor identity, foot/toe traces, and residual ground gaps are pending"
+    },
+    {
+      "code": "live_foot_plant_sync_not_verified",
+      "message": "canonical contact phases and planted-foot slip are not yet measured"
+    },
+    {
+      "code": "live_walking_asset_readback_not_verified",
+      "message": "CPU phase cadence is retained-native authority; live Walking and Idle/Walking skeletal transition continuity are not read back"
+    },
+    {
+      "code": "retimed_exact_rir_not_built",
+      "message": "the unchanged sound event must be propagated along the new candidate emitter timing with a fresh exact RIR plan"
+    }
+  ],
+  "release_gate_statuses": {
+    "cpu_native_rate_trajectory": "pass",
+    "cpu_static_pinhole_projection": "pass",
+    "fresh_exact_rir": "pending",
+    "fresh_full75_pixels": "pending",
+    "gpu_capture": "not_run",
+    "live_foot_plant_sync": "pending",
+    "live_ground_contact": "pending",
+    "live_idle_walk_pose_transition": "pending",
+    "live_walking_asset_readback": "pending",
+    "sound_event_invariance": "pass"
+  },
+  "release_qualified": false,
+  "schema": "avengine_strict_two_human_native_rate_dynamic_candidate_receipt_v1",
+  "status": "RELEASE_BLOCKED",
+  "trajectory_summary": {
+    "source1": {
+      "action_transition_root_continuity": "pass",
+      "active_average_speed_m_s": 0.8289403528438327,
+      "active_duration_seconds": 0.6666666666666666,
+      "active_path_length_m": 0.5526269018958885,
+      "active_phase_advance_cycles": 0.625,
+      "active_phase_cadence_hz": 0.9375,
+      "active_tick_delta_path": [
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200
+      ],
+      "animation_ticks_per_phase_cycle": 51200,
+      "expected_rounded_speed_envelope_m_s": [
+        0.73,
+        0.85
+      ],
+      "foot_plant_sync_status": "pending_live_runtime_evidence",
+      "ground_contact_status": "pending_live_runtime_evidence",
+      "maximum_unrounded_speed_m_s": 0.851,
+      "native_average_speed_m_s": 0.8289403528438327,
+      "phase_advance_per_frame_cycles": 0.0625,
+      "post_active_action_transition_root_step_m": 0.0,
+      "pre_active_action_transition_root_step_m": 0.0,
+      "skeletal_pose_transition_continuity_status": "pending_live_runtime_blend_readback",
+      "speed_relative_error": 0.0,
+      "status": "PASS_CPU_NATIVE_RATE_TRAJECTORY",
+      "timeline_ticks_per_second": 48000
+    },
+    "source2": {
+      "action_transition_root_continuity": "pass",
+      "active_average_speed_m_s": 0.7317769977664305,
+      "active_duration_seconds": 0.7333333333333333,
+      "active_path_length_m": 0.5366364650287156,
+      "active_phase_advance_cycles": 0.6875,
+      "active_phase_cadence_hz": 0.9375000000000001,
+      "active_tick_delta_path": [
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200,
+        3200
+      ],
+      "animation_ticks_per_phase_cycle": 51200,
+      "expected_rounded_speed_envelope_m_s": [
+        0.73,
+        0.85
+      ],
+      "foot_plant_sync_status": "pending_live_runtime_evidence",
+      "ground_contact_status": "pending_live_runtime_evidence",
+      "maximum_unrounded_speed_m_s": 0.851,
+      "native_average_speed_m_s": 0.7317769977664305,
+      "phase_advance_per_frame_cycles": 0.0625,
+      "post_active_action_transition_root_step_m": 0.0,
+      "pre_active_action_transition_root_step_m": 0.0,
+      "skeletal_pose_transition_continuity_status": "pending_live_runtime_blend_readback",
+      "speed_relative_error": 0.0,
+      "status": "PASS_CPU_NATIVE_RATE_TRAJECTORY",
+      "timeline_ticks_per_second": 48000
+    }
+  }
+}

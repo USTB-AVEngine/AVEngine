@@ -27,6 +27,8 @@ for value in (SOURCE_ROOT, TOOLS_ROOT):
     if str(value) not in sys.path:
         sys.path.insert(0, str(value))
 
+from avengine.backends.spear_ue import client as spear_client  # noqa: E402
+from avengine.backends.spear_ue.launch import parallel_instance_settings  # noqa: E402
 from avengine.optional_backends.spear_apartment import (  # noqa: E402
     ANIMATION_TOLERANCE_SECONDS,
     summarize_actor_bounds,
@@ -64,7 +66,6 @@ from run_spear_mp3d_canary import (  # noqa: E402
 )
 
 
-DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_ROUTE = (
     REPOSITORY / "examples/m5_1/replicacad_articulated_review/route_manifest.json"
 )
@@ -473,15 +474,10 @@ def _configure_instance(
         raise RuntimeError(
             "refusing to render ReplicaCAD through the old dirty SPEAR project"
         )
-    sys.path.insert(0, str(spear_root / "examples"))
-    from render_in_apartment import parallel_instance_settings
-
-    import spear
-
     settings = parallel_instance_settings(
         args.rpc_port, graphics_adapter=args.graphics_adapter
     )
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "editor"
     config.SPEAR.INSTANCE.EDITOR_EXECUTABLE = str(editor)
@@ -514,9 +510,9 @@ def _configure_instance(
     if Path(vulkan_icd).is_file():
         config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = vulkan_icd
     config.freeze()
-    spear.configure_system(config=config)
+    spear_client.configure_system(config=config)
     try:
-        instance = spear.Instance(config=config)
+        instance = spear_client.Instance(config=config)
     except BaseException:
         _cleanup_failed_constructor(
             executable=editor, temporary_directory=Path(settings["temp_dir"])
@@ -908,7 +904,7 @@ def run(args: argparse.Namespace) -> Path:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--spear-root", type=Path, required=True)
     parser.add_argument("--unreal-editor", type=Path, required=True)
     parser.add_argument("--ue-project", type=Path, required=True)
     parser.add_argument("--route-manifest", type=Path, default=DEFAULT_ROUTE)

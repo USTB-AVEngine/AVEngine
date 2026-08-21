@@ -1,0 +1,105 @@
+{
+  "episode_id": "strict2h_dynamic_canary_02_distractor_moves_v2",
+  "first_blocker": {
+    "code": "missing_motion_realism_profile",
+    "message": "source2 has no release-qualified motion-realism profile",
+    "slot_id": "source2"
+  },
+  "formal_episode_count": 0,
+  "frame_count": 75,
+  "frame_rate_hz": 15,
+  "gpu_used": false,
+  "input_artifacts": [
+    "materialization_receipt.json",
+    "suite_execution_plan.json"
+  ],
+  "mechanism": "distractor_moves",
+  "moving_slots": [
+    {
+      "actor_id": "source2_actor",
+      "blockers": [
+        {
+          "code": "missing_motion_realism_profile",
+          "message": "source2 has no release-qualified motion-realism profile"
+        },
+        {
+          "code": "global_time_stretch_of_short_native_anchor_window",
+          "evidence": {
+            "stretch_factor": 4.933333333333334
+          },
+          "message": "short native anchor window was spread across all 75 Walking frames"
+        },
+        {
+          "code": "output_speed_outside_native_rate_envelope",
+          "evidence": {
+            "maximum_relative_error": 0.05,
+            "native_rate_m_s": 0.8501344921715555,
+            "observed_m_s": 0.17232455922396395
+          },
+          "message": "full75 root speed is outside the retained native-window envelope"
+        },
+        {
+          "code": "output_cadence_outside_native_rate_envelope",
+          "evidence": {
+            "maximum_relative_error": 0.02,
+            "native_rate_cycles_per_second": 0.9375,
+            "observed_cycles_per_second": 0.19003378378378377
+          },
+          "message": "Walking phase cadence was slowed with the root trajectory"
+        },
+        {
+          "code": "missing_live_foot_plant_sync_evidence",
+          "message": "per-active-frame live foot/toe floor traces are absent"
+        }
+      ],
+      "first_blocker": {
+        "code": "missing_motion_realism_profile",
+        "message": "source2 has no release-qualified motion-realism profile"
+      },
+      "native_rate_facts": {
+        "cadence_ratio_observed_to_native": 0.2027027027027027,
+        "global_time_stretch_factor": 4.933333333333334,
+        "native_anchor_count": 16,
+        "native_anchor_count_matches_range": true,
+        "native_duration_seconds": 1.0,
+        "native_interval_count": 15,
+        "native_phase_advance_cycles": 0.9375,
+        "native_rate_average_root_speed_m_s": 0.8501344921715555,
+        "native_rate_phase_cycles_per_second": 0.9375,
+        "native_sample_count": 16,
+        "native_source_frame_range_inclusive": [
+          2,
+          17
+        ],
+        "observed_full75_average_root_speed_m_s": 0.17232455922396395,
+        "observed_full75_phase_cycles_per_second": 0.19003378378378377,
+        "output_span_seconds": 4.933333333333334,
+        "path_length_m": 0.8501344921715555,
+        "speed_ratio_observed_to_native": 0.20270270270270271,
+        "suite_full_path_length_m": 0.8501344921715553,
+        "suite_unique_root_count": 75,
+        "suite_walk_frame_count": 75
+      },
+      "profile_evaluation": {
+        "profile_present": false
+      },
+      "slot_id": "source2",
+      "status": "reject"
+    }
+  ],
+  "other_gate_results_recomputed": false,
+  "qualification_claim": false,
+  "release_classification": "nonrelease_pipeline_evidence_only",
+  "schema": "avengine_strict_two_human_motion_realism_receipt_v1",
+  "scope": "cpu_only_motion_realism_audit",
+  "status": "reject_nonrelease_motion_realism_gate",
+  "threshold_contract": {
+    "canonical_cadence_authority": "live Walking play length at play rate 1 plus exact animation ticks",
+    "ground_clearance_authority": "separate accepted strict ground-contact release profile",
+    "maximum_canonical_cadence_relative_error": 0.02,
+    "maximum_native_speed_relative_error": 0.05,
+    "maximum_planted_foot_slip_m_per_frame": 0.02,
+    "native_speed_authority": "retained native anchor path and exact 15 Hz source interval",
+    "phase_error_authority": "half of one 15 Hz output-frame phase advance"
+  }
+}

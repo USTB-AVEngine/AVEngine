@@ -18,6 +18,7 @@ import numpy as np
 
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import (
+    InstalledHabitatRuntime,
     _make_configuration,
     discover_runtime_root,
 )
@@ -360,6 +361,7 @@ def qualify_fixed_apartment(
     anchor_library: Mapping[str, Any],
     source_center_trajectories_m: Mapping[str, Any],
     runtime_root: str | Path | None = None,
+    installed_runtime: "InstalledHabitatRuntime | None" = None,
     meters_per_pixel: float = 0.02,
     maximum_floor_snap_xz_m: float = 0.02,
     maximum_floor_y_delta_m: float = 0.25,
@@ -369,7 +371,14 @@ def qualify_fixed_apartment(
     """Load the declared room once and produce all native placement evidence."""
 
     room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
-    runtime = discover_runtime_root(runtime_root)
+    if installed_runtime is not None:
+        if runtime_root is not None:
+            raise FixedApartmentQualificationError(
+                "installed-prefix qualification does not accept runtime_root"
+            )
+        runtime = None
+    else:
+        runtime = discover_runtime_root(runtime_root)
     rig = room_inputs.request["primary_camera_rig"]
     listener = _finite_point(
         rig["world_from_rig"]["translation_m"], owner="listener position"
@@ -379,14 +388,24 @@ def qualify_fixed_apartment(
     if not math.isfinite(hfov) or not 0.0 < hfov < 180.0:
         raise FixedApartmentQualificationError("camera HFOV is invalid")
 
-    # The pinned Habitat build requires numpy-quaternion to be imported first.
-    import quaternion  # noqa: F401
+    if installed_runtime is None:
+        # The pinned Habitat build requires numpy-quaternion to be imported first.
+        import quaternion  # noqa: F401
 
-    import habitat_sim
-    import magnum as mn
+        import habitat_sim
+        import magnum as mn
+    else:
+        habitat_sim = installed_runtime.habitat_sim
+        mn = installed_runtime.magnum
 
     configuration, _modalities, _listener_uuid, resolved_scene = _make_configuration(
-        room_inputs, runtime, Path(room_manifest_path).resolve().parent / ".m6x_scratch"
+        room_inputs,
+        runtime,
+        Path(room_manifest_path).resolve().parent / ".m6x_scratch",
+        include_audio_sensor=installed_runtime is None,
+        physics_config_path=(
+            None if installed_runtime is None else installed_runtime.physics_config_path
+        ),
     )
     with habitat_sim.Simulator(configuration) as simulator:
         navmesh_path = resolved_scene.get("navmesh")

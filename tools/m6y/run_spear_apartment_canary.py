@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Render M6.x S0/S3/S4 through the native SPEAR Apartment map.
 
-This is an optional comparison-visual runner.  It reads the Habitat-native
+This is the room-selected production-visual runner. It reads the AVEngine
 Timeline/protocol bundle, teleports the already-imported UE actors to those
 exact roots, samples the declared animation phase, and captures native UE
 pixels.  It never replans a route or creates a second audio/flag authority.
 
-``--dry-run`` needs only the AVEngine Python package.  A real render must run
-inside ``spear-env`` and receives the old SPEAR checkout through
-``--spear-root``; that checkout is imported read-only.
+``--dry-run`` needs only the AVEngine Python package and does not read or
+start the supplied launcher, but it still requires an explicit
+``--spear-executable`` identity parameter. A real render must run inside
+``spear-env`` and uses AVEngine's optional host/game client. The launcher path
+is not used to import global ``spear`` or infer a project/package layout; rig
+checks use AVEngine's selected local helper slice.
 """
 
 from __future__ import annotations
@@ -20,12 +23,24 @@ import math
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import time
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.backends.spear_ue import client as spear_client
+from avengine.backends.spear_ue.research_runtime import (
+    cleanup_failed_constructor as _cleanup_external_constructor,
+    close_scene_capture as _close_external_scene_capture,
+    launch_external_game_instance,
+    read_rgb_bgr,
+    spawn_scene_capture,
+)
+from avengine.backends.spear_ue.rig_direction import (
+    sample_body_basis_in_frame,
+    sample_body_bone_position_in_frame,
+    select_skeletal_mesh_component,
+)
 from avengine.optional_backends.spear_apartment import (
     ACOUSTIC_VISUAL_IDENTITY_SCHEMA,
     ANIMATION_TOLERANCE_SECONDS,
@@ -65,7 +80,6 @@ from avengine.runtime_profiles import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE = REPOSITORY / "tmp/m6x/fixed_apartment_canary_20260720_02"
-DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_LIGHTING_PROFILES = (
     REPOSITORY / "examples/m6y/spear_apartment_lighting_profiles.json"
 )
@@ -173,32 +187,25 @@ def _actor_bounds_readback(actor: Any, frame_index: int) -> dict[str, Any]:
 
 
 def _spawn_camera(game: Any) -> tuple[Any, Any]:
-    """Spawn a SceneCapture without altering native-map lights or geometry."""
-
-    camera_class = game.unreal_service.load_class(
-        uclass="AActor", name=CAMERA_BLUEPRINT
-    )
-    camera = game.unreal_service.spawn_actor(uclass=camera_class)
-    capture = game.unreal_service.get_component_by_name(
-        actor=camera,
+    return spawn_scene_capture(
+        game,
+        camera_blueprint=CAMERA_BLUEPRINT,
         component_name=CAPTURE_COMPONENT_NAME,
-        uclass="USpSceneCaptureComponent2D",
+        width=WIDTH,
+        height=HEIGHT,
+        hfov_degrees=105.0,
     )
-    viewport = game.rendering_service.get_current_viewport_desc()
-    game.rendering_service.align_camera_with_viewport(
-        camera_sensor=camera,
-        camera_components=[capture],
-        viewport_desc=viewport,
-        widths=WIDTH,
-        heights=HEIGHT,
+
+
+def _close_shared_camera(
+    *, instance: Any, game: Any, camera: Any | None, capture: Any | None
+) -> None:
+    _close_external_scene_capture(
+        instance=instance,
+        game=game,
+        camera=camera,
+        capture=capture,
     )
-    capture.Initialize()
-    capture.initialize_sp_funcs()
-    capture.set_property_value(property_name="FOVAngle", property_value=105.0)
-    observed_fov = float(capture.get_property_value(property_name="FOVAngle"))
-    if abs(observed_fov - 105.0) > 1.0e-4:
-        raise RuntimeError(f"camera HFOV readback {observed_fov} != 105")
-    return camera, capture
 
 
 def _spawn_generated_lights(
@@ -272,14 +279,10 @@ def _spawn_generated_lights(
 
 
 def _read_frame(capture: Any) -> Any:
-    return capture.read_pixels()["arrays"]["data"][:, :, [0, 1, 2]]
+    return read_rgb_bgr(capture)
 
 
-def _load_skeletal_component(game: Any, actor: Any, spear_root: Path) -> Any:
-    spike_dir = spear_root / "tools/spike_rlr"
-    sys.path.insert(0, str(spike_dir))
-    from rig_direction_check import select_skeletal_mesh_component
-
+def _load_skeletal_component(game: Any, actor: Any) -> Any:
     component = select_skeletal_mesh_component(
         unreal_service=game.unreal_service, actor=actor
     )
@@ -310,11 +313,6 @@ def _sample_anatomical_forward(
     explicit_quadruped_bones: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Read the rendered skeleton's semantic forward inside an active frame."""
-
-    from rig_direction_check import (
-        sample_body_basis_in_frame,
-        sample_body_bone_position_in_frame,
-    )
 
     diagnostics: list[dict[str, Any]] = []
     if explicit_quadruped_bones is None:
@@ -408,7 +406,7 @@ def _sample_anatomical_forward(
 
 
 def _spawn_runtime_actors(
-    game: Any, scenario: Mapping[str, Any], spear_root: Path
+    game: Any, scenario: Mapping[str, Any]
 ) -> dict[str, dict[str, Any]]:
     plan = scenario["plan"]
     first_states = {
@@ -496,7 +494,7 @@ def _spawn_runtime_actors(
         if observed_parent != anchor_root.uobject:
             raise RuntimeError(f"{actor_id} visual root attached to the wrong parent")
 
-        component = _load_skeletal_component(game, visual_actor, spear_root)
+        component = _load_skeletal_component(game, visual_actor)
         component_frame_correction = apply_ue_component_frame_delta(
             visual_root, declaration
         )
@@ -1397,10 +1395,10 @@ def _render_scenario(
             "camera_fov_cutoff": False,
         },
         "authority": {
-            "ue_pixels": "native SPEAR Apartment comparison visual",
-            "audio": "copied from Habitat-native scenario",
-            "topdown": "right panel copied from Habitat-native diagnostic",
-            "source_logic_flags_metadata": "unchanged Habitat-native inputs",
+            "ue_pixels": "native SPEAR Apartment production visual",
+            "audio": "copied from AVEngine authoritative scenario",
+            "topdown": "right panel copied from AVEngine diagnostic",
+            "source_logic_flags_metadata": "unchanged AVEngine authoritative inputs",
         },
         "timing": {
             "schema": TIMING_SCHEMA,
@@ -1447,111 +1445,24 @@ def _destroy_runtime_actors(
 
 def _configure_instance(
     args: argparse.Namespace, *, native_map: str
-) -> tuple[Any, Path]:
-    spear_root = args.spear_root.resolve()
-    executable = (
-        spear_root
-        / "cpp/unreal_projects/SpearSim/Standalone-Development/Linux/SpearSim.sh"
+) -> Any:
+    return launch_external_game_instance(
+        spear_executable=args.spear_executable,
+        native_map=native_map,
+        frame_rate_hz=FPS,
+        rpc_port=args.rpc_port,
+        graphics_adapter=args.graphics_adapter,
+        initialize_client_max_time_seconds=INITIALIZE_CLIENT_MAX_TIME_SECONDS,
+        client_internal_timeout_seconds=CLIENT_INTERNAL_TIMEOUT_SECONDS,
+        spear_client_module=spear_client,
     )
-    if not executable.is_file():
-        raise RuntimeError(f"cooked SPEAR executable is missing: {executable}")
-    examples = spear_root / "examples"
-    if not examples.is_dir():
-        raise RuntimeError(f"SPEAR examples directory is missing: {examples}")
-    sys.path.insert(0, str(examples))
-    from render_in_apartment import parallel_instance_settings
-    import spear
-
-    settings = parallel_instance_settings(
-        args.rpc_port, graphics_adapter=args.graphics_adapter
-    )
-    config = spear.get_config(user_config_files=[])
-    config.defrost()
-    config.SPEAR.LAUNCH_MODE = "game"
-    config.SPEAR.INSTANCE.GAME_EXECUTABLE = str(executable)
-    # The native Apartment is large and lives on comparatively slow storage.
-    # A cold launch has already exceeded the upstream 120-second default while
-    # legitimately loading this exact map, so the optional runner gives only
-    # initialization (not individual RPC calls) a bounded ten-minute window.
-    config.SPEAR.INSTANCE.INITIALIZE_CLIENT_MAX_TIME_SECONDS = (
-        INITIALIZE_CLIENT_MAX_TIME_SECONDS
-    )
-    # A cold 1280x720 native frame can compile PSOs for longer than SPEAR's
-    # interactive 2-second RPC default.  Keep the timeout finite but large
-    # enough for that first real frame; subsequent readbacks remain checked.
-    config.SPEAR.INSTANCE.CLIENT_INTERNAL_TIMEOUT_SECONDS = (
-        CLIENT_INTERNAL_TIMEOUT_SECONDS
-    )
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.OVERRIDE_GAME_DEFAULT_MAP = True
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = native_map
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / FPS
-    config.SP_SERVICES.RPC_SERVICE.RPC_SERVER_PORT = settings["rpc_port"]
-    config.SPEAR.INSTANCE.TEMP_DIR = settings["temp_dir"]
-    config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.log = settings["log"]
-    config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.renderoffscreen = None
-    config.SP_CORE.SHARED_MEMORY_INITIAL_UNIQUE_ID = settings[
-        "shared_memory_initial_unique_id"
-    ]
-    if settings["graphics_adapter"] is not None:
-        config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.graphicsadapter = settings[
-            "graphics_adapter"
-        ]
-    config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = "/etc/vulkan/icd.d/nvidia_icd.json"
-    config.freeze()
-    spear.configure_system(config=config)
-    try:
-        instance = spear.Instance(config=config)
-    except BaseException:
-        # Instance.__init__ launches UE before it waits for RPC.  If its
-        # constructor itself fails, no Instance object exists for close().
-        # Kill only the uniquely configured process tree for this RPC worker;
-        # never use a broad pkill that could affect another agent's renderer.
-        _cleanup_failed_constructor(
-            executable=executable,
-            temporary_directory=Path(settings["temp_dir"]),
-        )
-        raise
-    return instance, spear_root
 
 
 def _cleanup_failed_constructor(*, executable: Path, temporary_directory: Path) -> None:
-    try:
-        import psutil
-    except ImportError:
-        return
-    config_suffix = str(temporary_directory / "config.yaml")
-    executable_text = str(executable.resolve())
-    matched = []
-    for process in psutil.process_iter(("pid", "cmdline")):
-        try:
-            command = process.info.get("cmdline") or []
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-        joined = " ".join(str(value) for value in command)
-        if executable_text not in joined and "SpearSim" not in joined:
-            continue
-        if not any(
-            str(value).startswith("-sp-config-file=")
-            and str(value).endswith(config_suffix)
-            for value in command
-        ):
-            continue
-        try:
-            matched.extend(process.children(recursive=True))
-            matched.append(process)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    for process in reversed(matched):
-        try:
-            process.terminate()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    _, alive = psutil.wait_procs(matched, timeout=10.0)
-    for process in alive:
-        try:
-            process.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+    _cleanup_external_constructor(
+        executable=executable,
+        temporary_directory=temporary_directory,
+    )
 
 
 def run(args: argparse.Namespace) -> Path:
@@ -1751,9 +1662,7 @@ def run(args: argparse.Namespace) -> Path:
         return evidence_path
 
     phase_started = time.perf_counter()
-    instance, spear_root = _configure_instance(
-        args, native_map=str(suite["native_map"])
-    )
+    instance = _configure_instance(args, native_map=str(suite["native_map"]))
     phase_wall_seconds["runtime_initialize"] = _elapsed_seconds(phase_started)
     game = instance.get_game()
     scenario_records = list(resumed_records.values())
@@ -1765,6 +1674,9 @@ def run(args: argparse.Namespace) -> Path:
     )
     light_records: list[dict[str, Any]] = []
     runtime_close_seconds = 0.0
+    camera: Any | None = None
+    capture: Any | None = None
+    runtime_failed = False
     try:
         phase_started = time.perf_counter()
         first = pending_scenarios[0]
@@ -1791,7 +1703,7 @@ def run(args: argparse.Namespace) -> Path:
                 scenario["plan"]
             )[0]
             with instance.begin_frame():
-                runtimes = _spawn_runtime_actors(game, scenario, spear_root)
+                runtimes = _spawn_runtime_actors(game, scenario)
                 _apply_camera(camera, scenario_camera_state)
                 for state in scenario["plan"]["frames"][0]["actor_states"]:
                     _apply_actor_state(runtimes[state["actor_id"]], state, 0)
@@ -1847,9 +1759,23 @@ def run(args: argparse.Namespace) -> Path:
             )
             _write_json(output_root / scenario["scenario_id"] / "evidence.json", record)
             scenario_records.append(record)
+    except BaseException:
+        runtime_failed = True
+        raise
     finally:
         phase_started = time.perf_counter()
-        instance.close(force=True)
+        try:
+            _close_shared_camera(
+                instance=instance,
+                game=game,
+                camera=camera,
+                capture=capture,
+            )
+        except Exception:
+            if not runtime_failed:
+                raise
+        finally:
+            instance.close(force=False)
         runtime_close_seconds = _elapsed_seconds(phase_started)
     phase_wall_seconds["runtime_close"] = runtime_close_seconds
     records_by_id = {
@@ -1896,7 +1822,7 @@ def run(args: argparse.Namespace) -> Path:
     evidence = {
         "schema": EVIDENCE_SCHEMA,
         "status": "pass",
-        "backend_role": "comparison_visual",
+        "backend_role": suite["backend_role"],
         "native_map": suite["native_map"],
         "room_runtime_profile": suite["room_runtime_profile"],
         "source_asset_runtime_registry": suite[
@@ -1951,7 +1877,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "asset-bound-batch consumes generic source1/source2 episode IDs."
         ),
     )
-    parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--spear-executable", type=Path, required=True)
     parser.add_argument(
         "--lighting-profiles", type=Path, default=DEFAULT_LIGHTING_PROFILES
     )

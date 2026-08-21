@@ -14,6 +14,8 @@ import numpy as np
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m3.runtime import (
     CompiledAcousticScene,
+    RUNTIME_MODE_CURRENT_INSTALLED,
+    RUNTIME_MODE_HISTORICAL,
     RuntimeAnchor,
     RuntimeContractError,
     RuntimeExecutionError,
@@ -22,6 +24,7 @@ from avengine.m3.runtime import (
     _upload_report,
     _verify_upload_report,
     load_habitat_runtime,
+    require_runtime_mode,
 )
 from avengine.m4.runtime import (
     M4SimulationConfig,
@@ -212,6 +215,34 @@ def _owned_ir(
     return source_id, samples
 
 
+def _load_dynamic_habitat_runtime(
+    *,
+    runtime_mode: str,
+    runtime_prefix: str | Path | None,
+    rlr_sdk_root: str | Path | None,
+    magnum_python_site: str | Path | None,
+) -> tuple[Any, dict[str, Any]]:
+    """Select the historical or explicit current loader without ambiguity."""
+
+    selected_runtime_mode = require_runtime_mode(runtime_mode)
+    if selected_runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        return load_habitat_runtime(
+            runtime_mode=selected_runtime_mode,
+            runtime_prefix=runtime_prefix,
+            rlr_sdk_root=rlr_sdk_root,
+            magnum_python_site=magnum_python_site,
+        )
+    if any(
+        value is not None
+        for value in (runtime_prefix, rlr_sdk_root, magnum_python_site)
+    ):
+        raise RuntimeContractError(
+            "explicit installed-runtime paths require current-installed mode"
+        )
+    # Preserve the historical direct-call and monkeypatch boundary exactly.
+    return load_habitat_runtime()
+
+
 def render_dynamic_rir_sequence(
     scene: CompiledAcousticScene,
     simulation: M4SimulationConfig,
@@ -223,6 +254,10 @@ def render_dynamic_rir_sequence(
     layout_type: str,
     channel_count: int,
     hrtf_file_path: str = "",
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
 ) -> DynamicRIRSequence:
     """Render all keyframes through one persistent, named RLR context."""
 
@@ -253,7 +288,12 @@ def render_dynamic_rir_sequence(
     trajectory = trajectory_record(frames, source_ids)
     trajectory_sha256 = canonical_json_sha256(trajectory)
 
-    habitat_module, runtime_report = load_habitat_runtime()
+    habitat_module, runtime_report = _load_dynamic_habitat_runtime(
+        runtime_mode=runtime_mode,
+        runtime_prefix=runtime_prefix,
+        rlr_sdk_root=rlr_sdk_root,
+        magnum_python_site=magnum_python_site,
+    )
     native_configuration, config_readback = _native_configuration(habitat_module, selected)
     runtime_report["configuration_readback"] = config_readback
     runtime_report["output_contract"] = {

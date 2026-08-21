@@ -8,9 +8,10 @@ PathFinder, captured actor roots, source programs, animated emitter links,
 binaural audio and Topdown remain authoritative.  UE only renders the already
 imported 71-mesh MP3D scene and the bound human/Beagle visuals.
 
-The legacy SPEAR checkout supplied by ``--spear-root`` is imported read-only.
-All plans, frames and evidence are written under ``--output-dir`` in this
-repository.
+``--spear-root`` supplies the external UE runtime, project, and retained assets.
+The AVEngine-owned host/game client and launch settings stay in this repository;
+the selected lighting and rig helpers are AVEngine-local.
+All plans, frames and evidence are written under ``--output-dir``.
 """
 
 from __future__ import annotations
@@ -23,11 +24,14 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.backends.spear_ue import client as spear_client
+from avengine.backends.spear_ue.launch import parallel_instance_settings
+from avengine.backends.spear_ue.lighting import spawn_directional_light, spawn_sky
+from avengine.backends.spear_ue.rig_direction import select_skeletal_mesh_component
 from avengine.optional_backends.spear_mp3d import (
     DOG_BP_CLASS_PATH,
     HUMAN_BP_CLASS_PATH,
@@ -45,7 +49,6 @@ from avengine.optional_backends.spear_apartment import (
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_ROUTE = REPOSITORY / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
 DEFAULT_CAPTURE = (
     REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/evidence.json"
@@ -304,13 +307,7 @@ def _spawn_scene_meshes(game: Any, mesh_paths: Sequence[str]) -> list[Any]:
     return actors
 
 
-def _spawn_lighting(
-    game: Any, spear_root: Path, plan: Mapping[str, Any]
-) -> dict[str, Any]:
-    examples = spear_root / "examples"
-    sys.path.insert(0, str(examples))
-    from render_in_gpurir_room import spawn_directional_light, spawn_sky
-
+def _spawn_lighting(game: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
     profile = plan["exposure_and_lighting"]
     key = profile["directional_key"]
     sky = spawn_sky(game=game)
@@ -354,10 +351,7 @@ def _spawn_lighting(
     }
 
 
-def _skeletal_component(game: Any, actor: Any, spear_root: Path) -> Any:
-    sys.path.insert(0, str(spear_root / "tools/spike_rlr"))
-    from rig_direction_check import select_skeletal_mesh_component
-
+def _skeletal_component(game: Any, actor: Any) -> Any:
     component = select_skeletal_mesh_component(
         unreal_service=game.unreal_service, actor=actor
     )
@@ -369,6 +363,8 @@ def _skeletal_component(game: Any, actor: Any, spear_root: Path) -> Any:
 def _spawn_runtime_actors(
     game: Any, spear_root: Path, plan: Mapping[str, Any]
 ) -> dict[str, dict[str, Any]]:
+    # Keep this argument for ReplicaCAD and QA callers that supply the
+    # external UE runtime boundary. It is no longer a Python import root.
     first_states = {
         state["actor_id"]: state for state in plan["frames"][0]["actor_states"]
     }
@@ -430,7 +426,7 @@ def _spawn_runtime_actors(
         if visual_root.GetAttachParent(as_handle=True) != anchor_root.uobject:
             raise RuntimeError(f"{actor_id} visual root attached to the wrong parent")
         component_frame = apply_ue_component_frame_delta(visual_root, declaration)
-        component = _skeletal_component(game, visual_actor, spear_root)
+        component = _skeletal_component(game, visual_actor)
         component.SetComponentTickEnabled(bEnabled=True)
         component.SetCastShadow(NewCastShadow=True)
         animation = game.unreal_service.load_object(
@@ -931,15 +927,10 @@ def _configure_instance(
         raise RuntimeError(
             "refusing to render MP3D through the old dirty SPEAR project"
         )
-    sys.path.insert(0, str(spear_root / "examples"))
-    from render_in_apartment import parallel_instance_settings
-
-    import spear
-
     settings = parallel_instance_settings(
         args.rpc_port, graphics_adapter=args.graphics_adapter
     )
-    config = spear.get_config(user_config_files=[])
+    config = spear_client.get_config(user_config_files=[])
     config.defrost()
     config.SPEAR.LAUNCH_MODE = "editor"
     config.SPEAR.INSTANCE.EDITOR_EXECUTABLE = str(editor)
@@ -972,9 +963,9 @@ def _configure_instance(
     if Path(vulkan_icd).is_file():
         config.SPEAR.ENVIRONMENT_VARS.VK_ICD_FILENAMES = vulkan_icd
     config.freeze()
-    spear.configure_system(config=config)
+    spear_client.configure_system(config=config)
     try:
-        instance = spear.Instance(config=config)
+        instance = spear_client.Instance(config=config)
     except BaseException:
         _cleanup_failed_constructor(
             executable=editor, temporary_directory=Path(settings["temp_dir"])
@@ -1040,7 +1031,7 @@ def run(args: argparse.Namespace) -> Path:
             room_actors = _spawn_scene_meshes(
                 game, plan["scene"]["static_mesh_object_paths"]
             )
-            lighting = _spawn_lighting(game, spear_root, plan)
+            lighting = _spawn_lighting(game, plan)
             camera, capture = _spawn_camera(
                 game=game,
                 width=plan["render"]["width"],
@@ -1269,7 +1260,7 @@ def run(args: argparse.Namespace) -> Path:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--spear-root", type=Path, required=True)
     parser.add_argument("--unreal-editor", type=Path)
     parser.add_argument("--ue-project", type=Path)
     parser.add_argument("--route-manifest", type=Path, default=DEFAULT_ROUTE)

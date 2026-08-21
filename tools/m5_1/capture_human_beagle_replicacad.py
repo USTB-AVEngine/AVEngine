@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
 from avengine.m5_1.mixed_capture import MixedCaptureError
 from avengine.m5_1.replicacad_capture import (
     ReplicaCADCaptureError,
@@ -26,12 +27,26 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--replicacad-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--runtime-root", type=Path)
+    parser.add_argument("--runtime-prefix", type=Path)
+    parser.add_argument("--magnum-python-site", type=Path)
+    parser.add_argument("--rlr-sdk-root", type=Path)
+    parser.add_argument("--pbr-asset-root", type=Path)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    installed_runtime = None
+    if args.runtime_prefix is not None:
+        if args.runtime_root is not None:
+            parser.error("--runtime-prefix does not accept --runtime-root")
+        installed_runtime = prepare_installed_habitat_runtime(
+            runtime_prefix=args.runtime_prefix,
+            pbr_asset_root=args.pbr_asset_root,
+            magnum_python_site=args.magnum_python_site,
+            rlr_sdk_root=args.rlr_sdk_root,
+        )
     try:
         result = capture_replicacad_route(
             route_manifest_path=args.route_manifest,
@@ -43,6 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output,
             replicacad_root=args.replicacad_root,
             runtime_root=args.runtime_root,
+            installed_runtime=installed_runtime,
         )
     except (ReplicaCADCaptureError, MixedCaptureError, OSError, ValueError) as exc:
         parser.error(str(exc))

@@ -1,0 +1,23 @@
+{
+  "schema": "avengine_native_paper_balance_gpu_plan_revision_v1",
+  "status": "active_pending_idle_gate",
+  "qualification_claim": false,
+  "base_plan": "examples/qa/native_paper_balance_episode_plan_v1.json",
+  "reason": "external_long_running_compute_on_physical_gpu2_no_preemption",
+  "superseded_gpu_policy": {
+    "physical_gpu_index": 2,
+    "require_idle_before_launch": true,
+    "forbidden_gpu_indices": [0, 3]
+  },
+  "active_gpu_policy": {
+    "physical_gpu_index": 1,
+    "require_idle_before_launch": true,
+    "forbidden_gpu_indices": [0, 3]
+  },
+  "unchanged_contracts": [
+    "native_spear_unreal_engine_renderer",
+    "native_apartment_geometry",
+    "metric_depth_target_only_authority",
+    "question_answer_thresholds"
+  ]
+}

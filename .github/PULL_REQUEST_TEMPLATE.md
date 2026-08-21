@@ -32,10 +32,10 @@
 
 ## 提交前检查
 
-- [ ] `origin` 是个人 Fork，`upstream` 是 Eastforward。
+- [ ] `origin` 是个人 Fork，`upstream` 是 `USTB-AVEngine/AVEngine`。
 - [ ] 分支和 PR base 符合任务分配，没有直接使用 `main`。
 - [ ] 一个分支只包含一个任务，没有无关重构或全仓库格式化。
-- [ ] 没有提交 `tmp`、RIR、媒体、数据集、权重、环境、构建目录或第三方仓库副本。
+- [ ] 没有提交 `tmp`、RIR、媒体、数据集、权重、环境、构建目录或未经选择和来源/许可证审计的第三方代码。
 - [ ] 没有加入私有绝对路径、密钥或未经允许的数据。
 - [ ] 已运行 `git diff --check`，并显式检查了待提交文件。
 - [ ] 没有重写已有 M7、AudioProgram、RIR cache 或场景 selector；如确有必要，已在复用说明中给出证据。

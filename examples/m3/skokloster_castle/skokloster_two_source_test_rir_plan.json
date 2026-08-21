@@ -1,0 +1,31 @@
+{
+  "schema": "avengine_room_rir_job_plan_v2",
+  "status": "planned_not_run",
+  "listener_position_m": [3.93178129196167, 1.6583894044160843, 9.969188690185547],
+  "listener_orientation_wxyz": [0.7665067911148071, 0.0, 0.6422362327575684, 0.0],
+  "unique_rir_job_count": 2,
+  "jobs": [
+    {
+      "job_id": "skokloster_source1_f15_test",
+      "source_position_m": [2.4000000953674316, 1.7462688690423965, 10.399999618530273],
+      "uses": [
+        {
+          "episode_id": "skokloster_strict_f15_probe",
+          "source_slot_id": "source1",
+          "frame_index": 15
+        }
+      ]
+    },
+    {
+      "job_id": "skokloster_source2_f15_test",
+      "source_position_m": [2.700000047683716, 1.684803630816874, 8.899999618530273],
+      "uses": [
+        {
+          "episode_id": "skokloster_strict_f15_probe",
+          "source_slot_id": "source2",
+          "frame_index": 15
+        }
+      ]
+    }
+  ]
+}

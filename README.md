@@ -1,11 +1,13 @@
 # AVEngine
 
-AVEngine 是一个以 Habitat 为默认运行时的研究工具，用于从明确的声源
-资产、房间、动作程序和证据合同构建可复现的视听 episode。
+AVEngine 是一个按房间家族选择生产视觉后端的研究工具，用于从明确的
+声源资产、房间、动作程序和证据合同构建可复现的视听 episode。
 
-Habitat-Sim 提供场景状态、导航、传感器和关节对象运行能力；RLR Audio
-Propagation 提供几何声学传播。AVEngine 负责资产与房间包、权威时间线、
-多声源音频组装、质量检查、来源记录和数据准入。
+MP3D 的场景、视觉、传感器和姿态执行由 Habitat-Sim 提供；原生
+`apartment_0000` 与 InteriorAgent/Kujiale 的生产视觉由 UE/SPEAR
+提供。RLR Audio Propagation 提供几何声学传播，MP3D 使用同一 Habitat
+场景上的 SoundSpaces 材质权威。AVEngine 统一负责资产与房间包、权威
+时间线、多声源音频组装、质量检查、来源记录和数据准入。
 
 ## 主要能力
 
@@ -26,7 +28,7 @@ AVEngine 不是新的模拟器、渲染器或声学求解器，也不会根据�
 任务请求
   → 资产、房间和声学场景包
   → 声源程序、Camera/Listener 轨迹和权威时间线
-  → Habitat 状态、传感器与 RLR 传播
+  → 按房间路由的 Habitat 或 UE/SPEAR 视觉执行 + RLR 传播
   → 每源音频、混合音频、RGB、Topdown、DOA、距离和标签
   → 质量检查、来源记录和数据索引
 ```
@@ -51,28 +53,47 @@ AVEngine 不是新的模拟器、渲染器或声学求解器，也不会根据�
 - [同服务器协作与个人环境构建](docs/quickstart.md)
 - [功能与使用指南](docs/usage_guideline.md)
 
-完成个人环境安装后：
+完成项目指定 Conda 环境的选择/激活后，直接在其中 bootstrap：
 
-```bash
+~~~bash
+source "${AVENGINE_MINICONDA_PREFIX}/etc/profile.d/conda.sh"
+conda activate "${AVENGINE_ENV_PREFIX}"
+test "$CONDA_PREFIX" = "${AVENGINE_ENV_PREFIX}"
+
 cd "${AVENGINE_CODE_ROOT}/AVEngine"
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pip install -e '.[test]'
-"${AVENGINE_ENV_PREFIX}/bin/python" scripts/validate_schemas.py
-"${AVENGINE_ENV_PREFIX}/bin/python" -m pytest -q \
-  tests/unit \
-  -m 'not integration and not canary'
-"${AVENGINE_ENV_PREFIX}/bin/avengine" --help
-```
+./scripts/setup.sh --profile fast_unit
+~~~
+
+正常 bootstrap 只使用已激活的 Conda Python；也可在非交互 shell 中显式传入
+--python "${AVENGINE_ENV_PREFIX}/bin/python"。它会拒绝系统 Python、普通
+venv 和与已激活 CONDA_PREFIX 不一致的解释器，并且不会创建 .venv。
 
 Linux、Git 和 Python 3.10 或更新版本是上层最低要求；当前原生参考环境
-使用 Python 3.12。Habitat/RLR、场景数据、Blender 和可选 UE/SPEAR
-属于独立测试层。
+使用 Python 3.12。Habitat/RLR 原生构建、外部 UE 安装、场景数据、
+Blender 和媒体读回属于独立测试层。Apartment/Kujiale 的 UE 层是对应
+房间的生产视觉层，不因为它不是 fast bootstrap 的默认依赖而变成对照层。
 
 ## 当前状态
+
+保留的 v1 schema/document/receipt/JUnit reader 只用于读取 checkout-era
+历史证据；`receipt`、`prepare`、`verify`、`verify-attestation` 虽保留旧
+参数、默认值和 help，但有效调用会在路径解析、Git、子进程或写入之前结构化
+失败。保留的 v1 manifest 精确记录它当时的 M6 发布状态；下文所说的历史
+“唯一依据”不验证当前源码迁移，schema-only 读取也不构成新的正式验证。
 
 `main` 是当前 Habitat 原生集成基线。现有 Apartment 研究路线支持通用
 `source1`、`source2` 绑定、双声源任务、精确时间线、RLR 双耳音频、
 Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 训练/验证/测试划分。
+
+源码单仓迁移仍在进行。本仓库的最终目标是包含运行所需的精选 Habitat 与
+SPEAR 集成源码、AVEngine 自有的 RLR 调用/适配源码和小型 AVEngine 配置。
+RLR 传播引擎、头文件、库和 SDK 配置是用户合法安装的 CC BY-NC 4.0 外部
+SDK，永不进入 AVEngine Git。当前 bootstrap 不再 clone、fetch 或默认解析
+Habitat/SPEAR/RLR checkout；需要原生执行时，必须显式提供非 Git 的 installed
+Habitat prefix、Magnum Python site、MP3D 数据与 RLR SDK。保留的 checkout-era
+证据和 v1 reader 只用于历史兼容，不能替代当前入口。迁移完成仍须由迁移前后
+相同房间路由的实际结果确认，不能由这段目标说明或一次单元测试替代。
 
 这些结果保留各自的证据边界，不代表所有生成动物、房间声学或数据集已经
 正式准入。请以以下记录为准：
@@ -81,19 +102,92 @@ Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 - [里程碑与证据状态](docs/roadmap/MILESTONES.md)
 - [发布清单](release/avengine_release_manifest_v1.json)
 
-发布清单是跨仓库发布状态的唯一依据。分支、数据结构、预览文件或单元
-测试通过都不能单独代表正式发布。
+当前 release manifest 在源码迁移期间仍是正式发布状态的唯一依据。分支、
+数据结构、预览文件、文档目标或单元测试通过都不能单独代表单仓迁移完成或
+正式发布。
 
 ## 仓库职责
 
-| 仓库 | 职责 |
-| --- | --- |
-| `Eastforward/AVEngine` | 任务包、注册表、时间线、音频组装、质量检查、来源记录、命令行和数据准入 |
-| `Eastforward/habitat-sim-AVEngine` | 有边界的 Habitat 运行时扩展、关节对象回放、显式声学包上传和 RLR 适配 |
+唯一目标源码仓库是
+[`USTB-AVEngine/AVEngine`](https://github.com/USTB-AVEngine/AVEngine)。它
+包含 AVEngine 任务包、注册表、时间线、音频组装、质量检查、来源记录、
+命令行，以及最终精选迁入的 Habitat 与 SPEAR 集成源码、RLR 适配源码和
+小型 AVEngine 配置。RLR 传播引擎、头文件、库和 SDK 配置是用户合法安装的
+CC BY-NC 4.0 外部 SDK，永不捆绑进 AVEngine Git。单仓完成后不再需要 RLR
+Git checkout、submodule 或源码路径；这不表示迁入 RLR engine。来源映射与
+许可证分别记录在
+[`UPSTREAM_ADAPTATIONS.md`](docs/provenance/UPSTREAM_ADAPTATIONS.md) 和
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
-RLR 已作为 Habitat 派生仓库的递归子模块固定版本，不需要单独克隆。
-旧 SPEAR/UE 和 gpuRIR 是可选迁移或对照后端，不是默认运行架构。私有
-模型实验、权重和评估环境不进入本仓库。
+这不表示把所有依赖和数据塞进 Git。Unreal Engine 安装、Epic 内容、
+MP3D、InteriorAgent/Kujiale、原生 Apartment 地图、模型权重、环境、
+构建目录和生成媒体始终留在仓库外。保留的 Habitat/SPEAR checkout 可以作为
+迁移历史或只读对照来源，但不是当前 `setup`、installed-prefix writer 或新的
+运行输入；新的 build/setup/run 不得克隆或解析第二个产品代码仓库。RLR 则继续
+由用户安装的外部 SDK 提供，而非第二个源码仓库。gpuRIR 和私有生成模型路线仍是
+显式可选研究工具。
+
+已接线的 Habitat RLR adapter 默认关闭。启用其静态 C++ target 时，
+`AVENGINE_RLR_SDK_ROOT` 必须指向用户安装的官方
+`RLRAudioPropagationPkg` 目录（其中含 `headers/` 与
+`libs/linux/x64/`）；
+Runtime root 必须解析到非 Git 目录；官方 Git checkout 只用于获取或来源核对，不能作为 runtime root。AVEngine 不会搜索 RLR checkout、复制或安装该 `.so`。
+Linux 运行依赖 adapter 的可执行文件或未来 binding 前，用户应让动态加载器
+解析自己的 SDK，例如
+`LD_LIBRARY_PATH="$AVENGINE_RLR_SDK_ROOT/libs/linux/x64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"`。
+
+A adapter 单独启用时仍保持 `ESP_BUILD_WITH_AUDIO` 关闭。独立且默认关闭的
+`AVENGINE_HABITAT_BUILD_LEGACY_AUDIO_SENSOR` 才会在 Habitat core 中启用旧
+`AudioSensor`，并使用同一外置 SDK 的 deprecated C++ wrapper；它不启用
+Python bindings、package installation、runtime resolver 或完整传播运行时。
+这只是外部 SDK 的加载方式，不迁入 RLR engine、头文件、库或 material data。
+
+默认关闭的 `AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS` 是独立的 M1 Python 3.12
+扩展构建层。普通 staging 模式要求 `AVENGINE_HABITAT_PYTHON_OUTPUT_DIR` 位于
+`native/habitat/` 外；它只写入 `habitat_sim/_ext/habitat_sim_bindings`，调用者
+仍须自行提供 facade 与外置 Corrade/Magnum Python runtime。
+
+另有默认关闭的 `AVENGINE_HABITAT_INSTALL_RUNTIME` 安装模式。它要求
+`AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS=ON` 和一个显式的
+`AVENGINE_HABITAT_RUNTIME_PREFIX`，该 prefix 必须在 Habitat source 与 CMake
+build tree 之外。`cmake --install` 会安装精选 `habitat_sim` facade、其 binding
+和小型 default physics config；binding 本身先留在 build tree。configure 会拒绝
+canonical prefix 下已有或为符号链接的 `habitat_sim` 与 `config` 目标根（`_ext`
+由前者覆盖），也拒绝已有或为符号链接的完整 build-intermediate package target，
+所以 install 不会沿预置深层符号链接写入。该 config 的
+native 默认路径在 configure 时固定到此 prefix，因此不可在 `cmake --install`
+时用另一个 `--prefix` 覆盖。Python `utils/settings.py` 读取 native
+`SimulatorConfiguration` 的默认值，不再硬编码调用者 CWD 下的
+`data/default.physics_config.json`。
+
+M1 installed-runtime capture uses --runtime-prefix for that prefix. MP3D
+manifest assets resolve only from AVENGINE_MP3D_ROOT, an external data root
+containing scene_datasets/. M1 v2 evidence remains readable alongside v1, does
+not treat the installed prefix as a Git checkout, and does not instantiate
+AudioSensorSpec.
+
+已用 fresh ordinary CMake configure 验证两个 H5 开关默认均为 OFF；另用 fresh
+EGL/PIC Recast 外置依赖完整构建并安装此模式。无关 CWD 下的 `python -S` 隔离
+import 只从安装 prefix 载入 facade 和 binding，并确认 native
+`SimulatorConfiguration` 与 `utils/settings.py` 都指向该 prefix 下的绝对 physics
+config 路径。
+
+这仍不安装 Corrade、Magnum、pybind11、Python、RLR、PBR assets、数据集或
+RPATH，也不改变 AVEngine runtime resolver；当前 bootstrap 只接受显式安装
+prefix，不再以 manifest 固定 fork 作为执行路径。安装层完成和其 build/import
+验证不等同于完整 Simulator 验证、source cutover 或正式发布。
+
+Habitat 的 PBR IBL 图片同样是外部数据，不会嵌入源码或构建产物。
+installed M7/M5.1 PBR actor 路线要求显式传入
+`--pbr-asset-root`；该 non-Git 根必须包含
+`bluts/brdflut_ldr_512x512.png`、
+`env_maps/brown_photostudio_02_1k.hdr` 和适用的 `license.txt`。
+AVEngine 在构造 Simulator 前载入仓库内 718-byte Brown Photostudio
+PBR 小配置，把两个图片字段改成该根下的绝对路径，并读回
+`enable_ibl=true` 与配置 flags。此路线不设置环境变量，也不添加 direct
+light；MP3D 的实际 light count 仍为 0。通用 Habitat adapter 仍支持其他
+调用者用相对 logical name 加 `AVENGINE_HABITAT_PBR_ASSET_ROOT`。无渲染器
+或关闭 IBL 的路径不需要 PBR 图片。
 
 ## 文档
 

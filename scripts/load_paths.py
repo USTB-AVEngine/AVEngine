@@ -56,6 +56,20 @@ def load_paths_dict(
     return result
 
 
+def _git_checkout_ancestor(path: Path) -> Path | None:
+    """Return a containing Git marker without invoking Git itself."""
+
+    candidate = path.resolve(strict=False)
+    while True:
+        marker = candidate / ".git"
+        if marker.exists() or marker.is_symlink():
+            return candidate
+        parent = candidate.parent
+        if parent == candidate:
+            return None
+        candidate = parent
+
+
 def load_paths_env(
     yaml_path: str | Path = DEFAULT_CONFIG,
     *,
@@ -81,13 +95,32 @@ def validate_paths(
         kind_ok = exists and (
             kind == "output_directory" or Path(path_value).is_dir()
         )
-        status = "pass" if (not required or kind_ok) else "fail"
+        must_not_be_git_checkout = record.get("must_not_be_git_checkout", False)
+        if not isinstance(must_not_be_git_checkout, bool):
+            raise ValueError(
+                f"must_not_be_git_checkout must be boolean for path record: {name}"
+            )
+        checkout_root = (
+            _git_checkout_ancestor(Path(path_value))
+            if path_value and must_not_be_git_checkout
+            else None
+        )
+        outside_checkout = checkout_root is None
+        status = "pass" if (not required or kind_ok) and outside_checkout else "fail"
+        reason = None
+        if checkout_root is not None:
+            reason = "inside_git_checkout"
+        elif required and not kind_ok:
+            reason = "missing_or_wrong_kind"
         checks.append(
             {
                 "name": name,
                 "path": path_value,
                 "required": required,
                 "kind": kind,
+                "must_not_be_git_checkout": must_not_be_git_checkout,
+                "checkout_root": str(checkout_root) if checkout_root else None,
+                "reason": reason,
                 "status": status,
             }
         )
@@ -109,9 +142,22 @@ def main() -> int:
     if args.validate:
         ok, checks = validate_paths(args.layer or ["fast_unit"], args.config)
         for check in checks:
-            marker = "OK" if check["status"] == "pass" else "MISSING"
+            if check["status"] == "pass":
+                marker = "OK"
+            elif check["reason"] == "inside_git_checkout":
+                marker = "REJECTED"
+            else:
+                marker = "MISSING"
             requirement = "required" if check["required"] else "optional"
-            print(f"[paths] {marker} {check['name']}={check['path']} ({requirement})")
+            detail = (
+                f" reason={check['reason']} checkout_root={check['checkout_root']}"
+                if check["reason"] == "inside_git_checkout"
+                else ""
+            )
+            print(
+                f"[paths] {marker} {check['name']}={check['path']} "
+                f"({requirement}){detail}"
+            )
         return 0 if ok else 1
     values = load_paths_dict(args.config)
     for name, value in values.items():

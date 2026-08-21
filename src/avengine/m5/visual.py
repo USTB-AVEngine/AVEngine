@@ -19,10 +19,11 @@ from avengine.contracts.transforms import (
 )
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import (
+    InstalledHabitatRuntime,
     _make_configuration,
     _resolved_assets,
     _state_snapshot,
-    discover_runtime_root,
+    prepare_installed_habitat_runtime,
 )
 from avengine.m2.contracts import (
     FORMAL_MODALITIES,
@@ -400,7 +401,12 @@ def capture_two_actor_fixed_states(
     m2_request_path: str | Path,
     room_manifest_path: str | Path,
     m1_request_path: str | Path,
+    runtime_prefix: str | Path | None = None,
     runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
     actor_offsets_m: Sequence[Sequence[float]] = ((0.0, 0.0, 0.7), (0.25, 0.0, -0.7)),
     actor_ids: tuple[str, str] = ("actor0", "actor1"),
     source_ids: tuple[str, str] = ("source0", "source1"),
@@ -411,7 +417,13 @@ def capture_two_actor_fixed_states(
         "beagle Xtra Mouth",
     ),
 ) -> TwoActorVisualResult:
-    """Capture two articulated actors with one co-located RGB/depth/semantic call."""
+    """Capture two actors through one explicitly installed Habitat runtime.
+
+    ``runtime_root`` is retained only as a compatibility spelling for a
+    non-Git installed prefix.  Callers that already prepared the runtime may
+    inject it so visual capture and later acoustics share one selected native
+    binding and RLR SDK mapping.
+    """
 
     if (
         len(set(actor_ids)) != 2
@@ -432,24 +444,82 @@ def capture_two_actor_fixed_states(
     room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
     bundle = load_runtime_asset_bundle(m2_inputs)
     frames = compile_frame_applications(m2_inputs, bundle)
-    runtime = discover_runtime_root(runtime_root)
+    runtime_arguments = (
+        runtime_prefix,
+        runtime_root,
+        mp3d_root,
+        magnum_python_site,
+        rlr_sdk_root,
+    )
+    if installed_runtime is not None and any(
+        value is not None for value in runtime_arguments
+    ):
+        raise HabitatCaptureError(
+            "installed_runtime cannot be combined with runtime path arguments"
+        )
+    if installed_runtime is None:
+        if runtime_prefix is None and runtime_root is None:
+            raise HabitatCaptureError(
+                "M5 visual capture requires an explicit installed runtime prefix"
+            )
+        if magnum_python_site is None or not str(magnum_python_site).strip():
+            raise HabitatCaptureError(
+                "M5 visual capture requires an explicit Magnum Python site"
+            )
+        try:
+            installed_runtime = prepare_installed_habitat_runtime(
+                runtime_prefix=runtime_prefix,
+                runtime_root=runtime_root,
+                mp3d_root=mp3d_root,
+                magnum_python_site=magnum_python_site,
+                rlr_sdk_root=rlr_sdk_root,
+                allow_mp3d_environment=False,
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            raise HabitatCaptureError(
+                f"installed Habitat runtime is unavailable: {error}"
+            ) from error
     missing = [
         record
-        for record in _resolved_assets(room_inputs, runtime)
+        for record in _resolved_assets(
+            room_inputs,
+            None,
+            mp3d_root=installed_runtime.mp3d_root,
+        )
         if not record["exists"]
     ]
     if missing:
         raise HabitatCaptureError("validated M1 room has missing runtime assets")
 
-    # The pinned build requires numpy-quaternion to be imported first.
-    import quaternion as qt
-    import habitat_sim
-    import magnum as mn
-    from habitat_sim.utils.common import quat_to_coeffs
+    qt = installed_runtime.quaternion
+    habitat_sim = installed_runtime.habitat_sim
+    mn = installed_runtime.magnum
+    quat_to_coeffs = installed_runtime.quat_to_coeffs
+    if room_inputs.room.get("room_kind") == "habitat_native":
+        from avengine.m5.current_visual import (
+            _make_current_configuration,
+            _resolve_external_scene,
+        )
 
-    configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
-        _make_configuration(room_inputs, runtime, Path("/tmp/avengine-m5-visual"))
-    )
+        current_scene = _resolve_external_scene(room_inputs, installed_runtime)
+        configuration, modality_to_uuid = _make_current_configuration(
+            room_inputs=room_inputs,
+            installed_runtime=installed_runtime,
+            scene=current_scene,
+            include_audio_sensor=False,
+        )
+        resolved_scene = {"navmesh": current_scene["navmesh"]}
+    else:
+        configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
+            _make_configuration(
+                room_inputs,
+                None,
+                Path("/tmp/avengine-m5-visual"),
+                mp3d_root=installed_runtime.mp3d_root,
+                include_audio_sensor=False,
+                physics_config_path=installed_runtime.physics_config_path,
+            )
+        )
     rgb_frames: list[np.ndarray] = []
     depth_frames: list[np.ndarray] = []
     semantic_frames: list[np.ndarray] = []
@@ -547,7 +617,7 @@ def capture_two_actor_fixed_states(
             simulator.sensors[modality_to_uuid[modality]]
             for modality in FORMAL_MODALITIES
         ]
-        all_sensor_uuids = sorted([*modality_to_uuid.values(), _listener_uuid])
+        all_sensor_uuids = sorted(modality_to_uuid.values())
         initial_time = float(simulator.get_world_time())
         for frame in frames:
             rig_frame = rig_frames[frame.frame_index]
@@ -715,12 +785,24 @@ def capture_two_actor_fixed_states(
     )
     metadata = {
         "schema": "avengine_m5_two_actor_visual_capture_v1",
+        "runtime": {
+            "mode": "current-installed",
+            "habitat_runtime_prefix": str(installed_runtime.prefix),
+            "mp3d_root": (
+                None
+                if installed_runtime.mp3d_root is None
+                else str(installed_runtime.mp3d_root)
+            ),
+            "magnum_python_site": str(installed_runtime.magnum_python_site),
+            "habitat_sim_module": str(Path(habitat_sim.__file__).resolve()),
+        },
         "view_ids": ["view0"],
         "qa_view_ids": ["topdown_review"],
         "formal_modalities": list(FORMAL_MODALITIES),
         "frame_count": len(frames),
         "frame_rate_hz": 15,
         "observation_calls_per_frame": 1,
+        "audio_sensor_included": False,
         "physics_steps": 0,
         "mouth_articulation": "disabled_for_shortcut_control",
         "actor_offsets_m": offsets.tolist(),

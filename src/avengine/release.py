@@ -1,11 +1,9 @@
-"""Verification helpers for the cross-repository AVEngine release manifest.
+"""Reader helpers for the archived cross-repository AVEngine v1 manifest.
 
-The release manifest intentionally binds an AVEngine *implementation* commit,
-not the commit that contains the manifest itself.  The containing metadata
-commit is observed from Git, must be a direct child of the implementation
-commit, and may only change the allowlisted release paths.  This avoids an
-impossible self-reference while still making the release tag and both source
-repositories independently verifiable.
+The historical schema, document readers and safety helpers remain available so
+retained v1 evidence stays readable.  Checkout/submodule receipt execution,
+manifest writing and live verification are archived and fail closed at their
+public entry points.  Current installed-prefix candidate work uses release v2.
 """
 
 from __future__ import annotations
@@ -23,7 +21,10 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from jsonschema import Draft202012Validator
 
-from avengine.release_receipt import verify_receipt_payload
+from avengine.release_receipt import (
+    RELEASE_V1_ARCHIVAL_ERROR,
+    verify_receipt_payload,
+)
 from avengine.security.path_policy import (
     WorkspacePathPolicy,
     write_bytes_no_clobber,
@@ -1525,6 +1526,8 @@ def build_release_manifest(
     a direct child of A without an impossible Git/hash fixed point.
     """
 
+    raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
+
     root = Path(avengine_root).resolve(strict=True)
     habitat_root = Path(habitat_runtime_root).resolve(strict=True)
     roots = _resolved_build_roots(
@@ -2288,6 +2291,8 @@ def prepare_release_manifest(
 ) -> Path:
     """Atomically write, without replacement, a manifest prepared on commit A."""
 
+    raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
+
     root = Path(avengine_root).resolve(strict=True)
     habitat_root = Path(habitat_runtime_root).resolve(strict=True)
     roots = _resolved_build_roots(
@@ -2342,6 +2347,8 @@ def verify_release_manifest(
     verify_m6_evidence: bool = True,
 ) -> dict[str, Any]:
     """Recompute every portable hash and Git identity in one release manifest."""
+
+    raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
 
     checks: list[dict[str, Any]] = []
     observed: dict[str, Any] = {}
@@ -2747,6 +2754,8 @@ def write_release_attestation(
 ) -> tuple[Path, dict[str, Any]]:
     """Run the full live verifier and publish its immutable post-tag result."""
 
+    raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
+
     root = Path(avengine_root).resolve(strict=True)
     habitat_root = Path(habitat_runtime_root).resolve(strict=True)
     source = _resolve_repository_manifest_path(
@@ -2906,6 +2915,8 @@ def verify_release_attestation(
 ) -> dict[str, Any]:
     """Re-run the live verifier and compare it with one retained attestation."""
 
+    raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
+
     checks: list[dict[str, Any]] = []
     root = Path(avengine_root).resolve(strict=True)
     habitat_root = Path(habitat_runtime_root).resolve(strict=True)
@@ -3045,6 +3056,7 @@ def verify_release_attestation(
 
 
 def require_verified_release_manifest(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
     report = verify_release_manifest(*args, **kwargs)
     if report["status"] != "pass":
         errors = [

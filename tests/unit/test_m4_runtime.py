@@ -245,6 +245,7 @@ def _install_fake_runtime(monkeypatch):
     )
     monkeypatch.setattr(runtime, "_upload_report", lambda value: {"verified": True})
     monkeypatch.setattr(runtime, "_verify_upload_report", lambda scene, report: None)
+    return module
 
 
 def test_render_canonicalizes_requested_order_and_maps_every_pair(monkeypatch):
@@ -491,3 +492,56 @@ def test_ambisonic_channel_count_must_be_square():
     value["channel_layout"] = {"type": "ambisonics", "channel_count": 2}
     with pytest.raises(RuntimeContractError, match="encode an order"):
         runtime.M4SimulationConfig.from_mapping(value)
+
+
+def test_current_installed_render_forwards_only_explicit_runtime_inputs(
+    monkeypatch,
+) -> None:
+    module = _install_fake_runtime(monkeypatch)
+    calls = {}
+
+    def load_current_runtime(**kwargs):
+        calls.update(kwargs)
+        return module, {
+            "runtime_identity": {
+                "identity_schema": "avengine_current_installed_rlr_runtime_v1",
+                "mode": "current-installed",
+            }
+        }
+
+    monkeypatch.setattr(runtime, "load_habitat_runtime", load_current_runtime)
+    result = runtime.render_named_sources(
+        _scene(),
+        _simulation(),
+        sources=(RuntimeAnchor("source", (1.0, 0.0, 0.0)),),
+        listener=RuntimeAnchor("listener", (0.0, 0.0, 0.0)),
+        runtime_mode="current-installed",
+        runtime_prefix="/current/habitat",
+        rlr_sdk_root="/current/sdk",
+        magnum_python_site="/current/magnum/python",
+    )
+
+    assert calls == {
+        "runtime_mode": "current-installed",
+        "runtime_prefix": "/current/habitat",
+        "rlr_sdk_root": "/current/sdk",
+        "magnum_python_site": "/current/magnum/python",
+    }
+    assert result.runtime["runtime_identity"]["mode"] == "current-installed"
+
+
+def test_foa_render_rejects_an_hrtf_before_native_context(monkeypatch) -> None:
+    _install_fake_runtime(monkeypatch)
+
+    with pytest.raises(RuntimeContractError, match="HRTF file is valid only"):
+        runtime.render_named_sources(
+            _scene(),
+            _simulation(),
+            sources=(RuntimeAnchor("source", (1.0, 0.0, 0.0)),),
+            listener=RuntimeAnchor("listener", (0.0, 0.0, 0.0)),
+            layout_type="ambisonics",
+            channel_count=4,
+            hrtf_file_path="unexpected.sofa",
+        )
+
+    assert not _FakeContext.instances

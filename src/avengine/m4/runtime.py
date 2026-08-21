@@ -25,6 +25,8 @@ import numpy as np
 
 from avengine.contracts.json_io import sha256_file
 from avengine.m3.runtime import (
+    RUNTIME_MODE_CURRENT_INSTALLED,
+    RUNTIME_MODE_HISTORICAL,
     CompiledAcousticScene,
     RLRChannelLayout,
     RLRSimulationConfig,
@@ -33,6 +35,7 @@ from avengine.m3.runtime import (
     RuntimeExecutionError,
     RuntimeUnavailableError,
     _native_configuration,
+    require_runtime_mode,
     _upload_report,
     _verify_upload_report,
     load_habitat_runtime,
@@ -41,6 +44,7 @@ from avengine.m3.runtime import (
 
 FOA_LAYOUT_ID = "rlr_foa_acn_n3d_world_v1"
 BINAURAL_LAYOUT_ID = "rlr_binaural_lr_v1"
+LIFECYCLE_MOVED_DISTANCE_M = 0.25
 
 
 @dataclass(frozen=True)
@@ -562,6 +566,10 @@ def render_named_sources(
     layout_type: str | None = None,
     channel_count: int | None = None,
     hrtf_file_path: str = "",
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
 ) -> MultiSourceRenderResult:
     """Render all named source pairs through one fresh native RLR context.
 
@@ -570,6 +578,7 @@ def render_named_sources(
     stream from the public ordering contract.
     """
 
+    runtime_mode = require_runtime_mode(runtime_mode)
     if not isinstance(scene, CompiledAcousticScene):
         raise RuntimeContractError("scene must be a validated CompiledAcousticScene")
     if not isinstance(simulation, (M4SimulationConfig, RLRSimulationConfig)):
@@ -608,7 +617,15 @@ def render_named_sources(
     if hrtf_file_path and not Path(hrtf_file_path).resolve().is_file():
         raise RuntimeContractError("declared HRTF file does not exist")
 
-    habitat_module, runtime_report = load_habitat_runtime()
+    runtime_loader_kwargs: dict[str, str | Path] = {}
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        runtime_loader_kwargs = {
+            "runtime_mode": runtime_mode,
+            "runtime_prefix": runtime_prefix,
+            "rlr_sdk_root": rlr_sdk_root,
+            "magnum_python_site": magnum_python_site,
+        }
+    habitat_module, runtime_report = load_habitat_runtime(**runtime_loader_kwargs)
     native_configuration, config_readback = _native_configuration(
         habitat_module, selected
     )
@@ -780,6 +797,10 @@ def benchmark_source_scaling(
     sources: Sequence[RuntimeAnchor],
     listener: RuntimeAnchor,
     repeat_count: int = 3,
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
 ) -> dict[str, Any]:
     """Measure fresh-context one-source versus N-source FOA execution.
 
@@ -787,6 +808,7 @@ def benchmark_source_scaling(
     threshold.  Every repeat still validates the full named-pair contract.
     """
 
+    runtime_mode = require_runtime_mode(runtime_mode)
     if isinstance(repeat_count, bool) or not isinstance(repeat_count, int) or repeat_count < 1:
         raise RuntimeContractError("performance repeat_count must be a positive integer")
     if len(sources) < 2:
@@ -801,6 +823,14 @@ def benchmark_source_scaling(
     for repeat_index in range(repeat_count):
         order = tuple(conditions) if repeat_index % 2 == 0 else tuple(reversed(conditions))
         for name in order:
+            runtime_call_kwargs: dict[str, str | Path] = {}
+            if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+                runtime_call_kwargs = {
+                    "runtime_mode": runtime_mode,
+                    "runtime_prefix": runtime_prefix,
+                    "rlr_sdk_root": rlr_sdk_root,
+                    "magnum_python_site": magnum_python_site,
+                }
             result = render_named_sources(
                 scene,
                 simulation,
@@ -808,8 +838,12 @@ def benchmark_source_scaling(
                 listener=listener,
                 layout_type="ambisonics",
                 channel_count=4,
+                **runtime_call_kwargs,
             )
-            records[name].append({"repeat_index": repeat_index, **result.timing})
+            record: dict[str, Any] = {"repeat_index": repeat_index, **result.timing}
+            if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+                record["runtime_identity"] = result.runtime.get("runtime_identity")
+            records[name].append(record)
     summary: dict[str, Any] = {}
     for name, runs in records.items():
         wall = sorted(float(run["wall_seconds"]) for run in runs)
@@ -844,7 +878,11 @@ def exercise_endpoint_lifecycle(
     *,
     sources: Sequence[RuntimeAnchor],
     listener: RuntimeAnchor,
-    moved_distance_m: float = 0.25,
+    moved_distance_m: float = LIFECYCLE_MOVED_DISTANCE_M,
+    runtime_mode: str = RUNTIME_MODE_HISTORICAL,
+    runtime_prefix: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
 ) -> dict[str, Any]:
     """Execute the M4 temporal update and reset boundary in one context.
 
@@ -854,6 +892,7 @@ def exercise_endpoint_lifecycle(
     sample-for-sample.
     """
 
+    runtime_mode = require_runtime_mode(runtime_mode)
     if len(sources) < 2:
         raise RuntimeContractError("lifecycle canary requires at least two sources")
     if (
@@ -869,7 +908,15 @@ def exercise_endpoint_lifecycle(
     temporal = M4SimulationConfig.from_mapping(value)
     canonical = canonical_source_order(sources)
     by_id = {source.anchor_id: source for source in sources}
-    habitat_module, runtime_report = load_habitat_runtime()
+    runtime_loader_kwargs: dict[str, str | Path] = {}
+    if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
+        runtime_loader_kwargs = {
+            "runtime_mode": runtime_mode,
+            "runtime_prefix": runtime_prefix,
+            "rlr_sdk_root": rlr_sdk_root,
+            "magnum_python_site": magnum_python_site,
+        }
+    habitat_module, runtime_report = load_habitat_runtime(**runtime_loader_kwargs)
     native_configuration, config_readback = _native_configuration(
         habitat_module, temporal
     )
@@ -1003,6 +1050,7 @@ def exercise_endpoint_lifecycle(
 __all__ = [
     "BINAURAL_LAYOUT_ID",
     "FOA_LAYOUT_ID",
+    "LIFECYCLE_MOVED_DISTANCE_M",
     "M4SimulationConfig",
     "MultiSourceRenderResult",
     "NamedPairIR",

@@ -408,14 +408,19 @@ def summarize_lateral_cue_consistency(
     Listener-local azimuth is positive to the right.  A right-side source
     therefore expects negative ILD and positive ITD; a left-side source
     expects the inverse signs.  Formal acceptance requires both sides, signed
-    non-zero side medians, left/right median separation, per-side cue coverage,
-    and per-side sign agreement above chance.  Per-frame rates remain visible
-    so a barely-above-chance side cannot be mistaken for strong evidence.
+    non-zero ILD side medians, present raw ITD side medians without an explicit
+    wrong sign at or beyond the ambiguity threshold, left/right median
+    separation, per-side cue coverage, and per-side sign agreement above
+    chance.  Per-frame rates remain visible so a barely-above-chance side
+    cannot be mistaken for strong evidence.
 
     Frames close to the front/back median plane and cue magnitudes below the
     explicit ambiguity thresholds do not cast sign votes.  GCC-PHAT estimates
     at the bounded search edge are likewise excluded from accepted ITD cues;
     their lost coverage remains visible and can fail the coverage threshold.
+    A raw side ITD median inside the same ambiguity band is not independently
+    rejected or recomputed after filtering; the frame votes, coverage, and
+    left/right separation remain authoritative evidence around that median.
     IPD is deliberately excluded from the sign gate because it is circular and
     frequency-dependent; retained IPD values are diagnostic only.
     """
@@ -696,9 +701,14 @@ def summarize_lateral_cue_consistency(
         rejection_reasons.append("right_median_ild_not_negative_nonzero")
     if left_ild is None or left_ild < ild_threshold:
         rejection_reasons.append("left_median_ild_not_positive_nonzero")
-    if right_itd is None or right_itd < itd_threshold:
+    # Keep the reported raw medians unchanged.  A near-zero median is
+    # ambiguous, not evidence of a channel reversal; only a missing median or
+    # an explicit wrong sign at/beyond the configured ambiguity threshold is
+    # a standalone side-median rejection.  Frame voting, coverage, and
+    # left/right separation below still fail closed independently.
+    if right_itd is None or right_itd <= -itd_threshold:
         rejection_reasons.append("right_median_itd_not_positive_nonzero")
-    if left_itd is None or left_itd > -itd_threshold:
+    if left_itd is None or left_itd >= itd_threshold:
         rejection_reasons.append("left_median_itd_not_negative_nonzero")
     ild_separation = lateral_separation["ild_left_minus_right_db"]
     if ild_separation is None or ild_separation < 2.0 * ild_threshold:

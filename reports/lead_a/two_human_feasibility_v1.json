@@ -1,0 +1,32 @@
+{
+  "schema": "avengine_two_human_feasibility_v1",
+  "status": "ready_for_canary_cpu_registration",
+  "claim_boundary": "CPU feasibility only; no two-human native capture or formal D scene is claimed.",
+  "approved_adults": [
+    "rocketbox_adults_male_adult_01",
+    "rocketbox_adults_female_adult_01",
+    "rocketbox_professions_construction_male_01"
+  ],
+  "excluded_adults": [
+    {
+      "identity_id": "rocketbox_professions_medical_female_01",
+      "reason": "evidence_contradiction",
+      "evidence": "The original build manifest reports automatic_checks.overall=passed while both Standing_Idle and Walking glb_roundtrip passed flags are false; downstream UE evidence does not resolve the source-roundtrip contradiction."
+    }
+  ],
+  "canary_pair": {
+    "target_identity_id": "rocketbox_adults_male_adult_01",
+    "distractor_identity_id": "rocketbox_adults_female_adult_01",
+    "require_distinct_original_identity": true,
+    "material_variant_identity_allowed": false
+  },
+  "children": {
+    "identity_ids": [
+      "rocketbox_children_male_child_01",
+      "rocketbox_children_female_child_01"
+    ],
+    "voice_policy": "silent_only",
+    "allowed_as_speaking_target": false
+  },
+  "current_blocker": "exact_two_human_rir_and_sparse_native_gate"
+}

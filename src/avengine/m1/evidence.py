@@ -30,7 +30,8 @@ from avengine.contracts.transforms import (
     transform_error,
 )
 from avengine.m1.contracts import (
-    EVIDENCE_SCHEMA,
+    EVIDENCE_SCHEMA_V1,
+    EVIDENCE_SCHEMA_V2,
     ROOM_KINDS,
     STATUS_VALUES,
     ValidatedM1Inputs,
@@ -218,29 +219,26 @@ BASE_REQUIRED_CHECKS = {
 }
 
 
-@lru_cache(maxsize=1)
-def _evidence_validator() -> Draft202012Validator:
-    source_path = (
-        Path(__file__).resolve().parents[3]
-        / "schemas"
-        / "m1_visual_evidence_v1.schema.json"
-    )
-    installed_path = (
-        Path(sys.prefix)
-        / "share"
-        / "avengine"
-        / "schemas"
-        / "m1_visual_evidence_v1.schema.json"
-    )
+_EVIDENCE_SCHEMA_FILES = {
+    EVIDENCE_SCHEMA_V1: "m1_visual_evidence_v1.schema.json",
+    EVIDENCE_SCHEMA_V2: "m1_visual_evidence_v2.schema.json",
+}
+
+
+@lru_cache(maxsize=None)
+def _evidence_validator(schema_name: str) -> Draft202012Validator:
+    filename = _EVIDENCE_SCHEMA_FILES[schema_name]
+    source_path = Path(__file__).resolve().parents[3] / "schemas" / filename
+    installed_path = Path(sys.prefix) / "share" / "avengine" / "schemas" / filename
     schema_path = source_path if source_path.is_file() else installed_path
     schema = load_json(schema_path)
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema)
 
 
-def _schema_errors(value: Any) -> list[str]:
+def _schema_errors(value: Any, schema_name: str) -> list[str]:
     errors = sorted(
-        _evidence_validator().iter_errors(value),
+        _evidence_validator(schema_name).iter_errors(value),
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
     reports: list[str] = []
@@ -437,6 +435,8 @@ def _vec_close(left: Any, right: Any, *, atol: float = 1e-6) -> bool:
 
 def _required_evidence_check_ids(evidence: dict[str, Any]) -> set[str]:
     required = set(BASE_REQUIRED_CHECKS)
+    if evidence.get("schema") == EVIDENCE_SCHEMA_V2:
+        required -= {"runtime_commit_matches_lock", "runtime_worktree_clean"}
     room_kind = evidence.get("room_kind")
     if room_kind == "blender_custom":
         required.add("blender_authored_surface_provenance")
@@ -594,9 +594,154 @@ def _load_validated_inputs(
     )
 
 
-def _sensor_source_state_checks(
+def _sensor_source_state_checks_v2(
     evidence: dict[str, Any], inputs: ValidatedM1Inputs
 ) -> list[dict[str, Any]]:
+    """Replay v2's visual-only sensor state plus its derived listener pose."""
+
+    checks: list[dict[str, Any]] = []
+    rig = inputs.request["primary_camera_rig"]
+    sensor_contract = evidence["sensor_contract"]
+    contract_passed = bool(
+        sensor_contract.get("rig_id") == rig["rig_id"] == "camera_rig_0"
+        and sensor_contract.get("view_id") == rig["view_id"] == "view0"
+        and sensor_contract.get("world_from_rig") == rig["world_from_rig"]
+        and sensor_contract.get("shared_calibration") == rig["shared_calibration"]
+        and sensor_contract.get("modalities") == rig["modalities"]
+        and sensor_contract.get("listener") == inputs.request["listener"]
+        and sensor_contract.get("audio_propagation_status") == "not_run"
+        and "M4" in sensor_contract.get("audio_propagation_reason", "")
+    )
+    checks.append(
+        make_check(
+            "evidence_sensor_contract",
+            "pass" if contract_passed else "fail",
+            measured={
+                "rig_id": sensor_contract.get("rig_id"),
+                "view_id": sensor_contract.get("view_id"),
+                "modalities": sensor_contract.get("modalities"),
+                "listener": sensor_contract.get("listener"),
+                "audio_propagation_status": sensor_contract.get(
+                    "audio_propagation_status"
+                ),
+            },
+            threshold={
+                "exact_request_contract": True,
+                "one_view_three_colocated_modalities": True,
+                "listener_derived_from_agent_rig_state": True,
+                "audio_deferred_to_m4": True,
+            },
+            failure_reason=None
+            if contract_passed
+            else "Sensor evidence diverges from the single-view request contract",
+        )
+    )
+
+    modality_to_uuid = {
+        item["modality"]: item["sensor_uuid"] for item in rig["modalities"]
+    }
+    expected_visual_uuids = set(modality_to_uuid.values())
+    listener_id = inputs.request["listener"]["listener_id"]
+    expected_visual_pose = compose_transforms(
+        rig["world_from_rig"], rig["shared_calibration"]["rig_from_sensor"]
+    )
+    expected_listener_pose = compose_transforms(
+        rig["world_from_rig"], inputs.request["listener"]["rig_from_listener"]
+    )
+    state = evidence["capture_state"]
+    pose_errors: dict[str, dict[str, float]] = {}
+    state_passed = True
+    for snapshot_name in ("before", "after"):
+        snapshot = state[snapshot_name]
+        sensors = snapshot["sensors"]
+        item_errors: dict[str, float] = {}
+        if set(sensors) != expected_visual_uuids or listener_id in sensors:
+            state_passed = False
+        for uuid in expected_visual_uuids & set(sensors):
+            item_errors[uuid] = transform_error(sensors[uuid], expected_visual_pose)
+        item_errors[listener_id] = transform_error(
+            snapshot["listener_pose"], expected_listener_pose
+        )
+        item_errors["agent"] = transform_error(snapshot["agent"], rig["world_from_rig"])
+        pose_errors[snapshot_name] = item_errors
+        state_passed = bool(
+            state_passed
+            and snapshot["world_time_seconds"] == 0.0
+            and item_errors
+            and max(item_errors.values()) <= 1e-7
+        )
+    checks.append(
+        make_check(
+            "evidence_sensor_state_alignment",
+            "pass" if state_passed else "fail",
+            measured={
+                "expected_visual_sensor_uuids": sorted(expected_visual_uuids),
+                "logical_listener_id": listener_id,
+                "pose_errors": pose_errors,
+            },
+            threshold={
+                "exact_visual_sensor_set_without_listener_sensor": True,
+                "derived_listener_pose": True,
+                "maximum_transform_error": 1e-7,
+                "world_time_seconds": 0.0,
+            },
+            failure_reason=None
+            if state_passed
+            else "Read-back visual state or derived listener pose is not the shared formal viewpoint",
+        )
+    )
+
+    source_reports = evidence["sources"]
+    request_sources = inputs.request["sources"]
+    source_passed = len(source_reports) == len(request_sources) >= 2
+    source_errors: dict[str, Any] = {}
+    rig_from_world = invert_transform(rig["world_from_rig"])
+    for expected, report in zip(request_sources, source_reports, strict=False):
+        source_id = expected["source_id"]
+        expected_rig = compose_transforms(rig_from_world, expected["world_from_source"])
+        recovered, roundtrip_error = round_trip_via_parent(
+            rig["world_from_rig"], expected["world_from_source"]
+        )
+        item_passed = bool(
+            report.get("source_id") == source_id
+            and transform_error(
+                report["world_from_source"], expected["world_from_source"]
+            )
+            <= 1e-9
+            and transform_error(report["rig_from_source"], expected_rig) <= 1e-9
+            and transform_error(report["recovered_world_from_source"], recovered)
+            <= 1e-9
+            and _close(report.get("roundtrip_max_error"), roundtrip_error)
+            and roundtrip_error <= 1e-9
+        )
+        source_errors[source_id] = {
+            "reported_id": report.get("source_id"),
+            "roundtrip_error": roundtrip_error,
+            "passed": item_passed,
+        }
+        source_passed = source_passed and item_passed
+    checks.append(
+        make_check(
+            "evidence_named_source_roundtrip",
+            "pass" if source_passed else "fail",
+            measured={"source_count": len(source_reports), "sources": source_errors},
+            threshold={"minimum_source_count": 2, "exact_request_roundtrip": True},
+            failure_reason=None
+            if source_passed
+            else "Named source evidence is missing, reordered, or geometrically invalid",
+        )
+    )
+    return checks
+
+
+def _sensor_source_state_checks(
+    evidence: dict[str, Any],
+    inputs: ValidatedM1Inputs,
+    *,
+    schema_name: str = EVIDENCE_SCHEMA_V1,
+) -> list[dict[str, Any]]:
+    if schema_name == EVIDENCE_SCHEMA_V2:
+        return _sensor_source_state_checks_v2(evidence, inputs)
     checks: list[dict[str, Any]] = []
     rig = inputs.request["primary_camera_rig"]
     sensor_contract = evidence["sensor_contract"]
@@ -727,7 +872,74 @@ def _sensor_source_state_checks(
     return checks
 
 
-def _runtime_check(evidence: dict[str, Any]) -> tuple[dict[str, Any], Path | None]:
+def _runtime_check_v2(
+    evidence: dict[str, Any]
+) -> tuple[dict[str, Any], Path | None]:
+    runtime = evidence["runtime"]
+    repository_root = Path(__file__).resolve().parents[3]
+    prefix = Path(runtime["habitat_runtime_prefix"]).resolve()
+    raw_mp3d_root = runtime.get("mp3d_root")
+    mp3d_root = (
+        Path(raw_mp3d_root).resolve()
+        if isinstance(raw_mp3d_root, str) and raw_mp3d_root
+        else None
+    )
+    module_path = Path(runtime["habitat_module_path"]).resolve()
+    binding_path = Path(runtime["native_binding_path"]).resolve()
+    physics_path = Path(runtime["physics_config_path"]).resolve()
+    expected_physics = (prefix / "config" / "default.physics_config.json").resolve()
+    paths_within_prefix = bool(
+        prefix.is_dir()
+        and _is_within(module_path, [prefix])
+        and _is_within(binding_path, [prefix])
+        and module_path.is_file()
+        and binding_path.is_file()
+        and physics_path == expected_physics
+        and _is_within(physics_path, [prefix])
+        and physics_path.is_file()
+    )
+    mp3d_ready = bool(
+        mp3d_root is None
+        or (mp3d_root.is_dir() and (mp3d_root / "scene_datasets").is_dir())
+    )
+    current_avengine_commit = _git_output(repository_root, "rev-parse", "HEAD")
+    avengine_status = _git_output(repository_root, "status", "--porcelain")
+    passed = bool(
+        paths_within_prefix
+        and mp3d_ready
+        and current_avengine_commit == runtime.get("avengine_commit")
+        and avengine_status == ""
+        and runtime.get("avengine_worktree_dirty") is False
+    )
+    return (
+        make_check(
+            "evidence_runtime_identity",
+            "pass" if passed else "fail",
+            measured={
+                "paths_within_runtime_prefix": paths_within_prefix,
+                "mp3d_root_ready": mp3d_ready,
+                "expected_physics_config": str(expected_physics),
+                "current_avengine_commit": current_avengine_commit,
+                "avengine_status": avengine_status,
+            },
+            threshold={
+                "installed_prefix_binary_and_physics_paths_match": True,
+                "declared_mp3d_root_has_scene_datasets": True,
+                "clean_avengine_commit_matches": True,
+            },
+            failure_reason=None
+            if passed
+            else "Installed runtime prefix, MP3D data root, or AVEngine identity differs from evidence",
+        ),
+        prefix if prefix.is_dir() else None,
+    )
+
+
+def _runtime_check(
+    evidence: dict[str, Any], *, schema_name: str
+) -> tuple[dict[str, Any], Path | None]:
+    if schema_name == EVIDENCE_SCHEMA_V2:
+        return _runtime_check_v2(evidence)
     runtime = evidence["runtime"]
     repository_root = Path(__file__).resolve().parents[3]
     runtime_root = Path(runtime["habitat_runtime_root"]).resolve()
@@ -803,12 +1015,16 @@ def _scene_asset_checks(
     *,
     base: Path,
     runtime_root: Path | None,
+    mp3d_root: Path | None = None,
+    schema_name: str = EVIDENCE_SCHEMA_V1,
 ) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     repository_root = Path(__file__).resolve().parents[3]
     allowed = [base, repository_root, inputs.room_path.parent]
     if runtime_root is not None:
         allowed.append(runtime_root)
+    if mp3d_root is not None:
+        allowed.append(mp3d_root)
     source_root_raw = inputs.room.get("provenance", {}).get("source_repository_root")
     if isinstance(source_root_raw, str) and source_root_raw:
         allowed.append(Path(source_root_raw).resolve())
@@ -817,7 +1033,11 @@ def _scene_asset_checks(
     declared = [(asset["role"], asset["path"]) for asset in inputs.room["assets"]]
     recorded = [(record["role"], record["declared_path"]) for record in records]
     resolution_environment = dict(os.environ)
-    if runtime_root is not None:
+    resolution_environment.pop("AVENGINE_HABITAT_RUNTIME_ROOT", None)
+    resolution_environment.pop("AVENGINE_MP3D_ROOT", None)
+    if schema_name == EVIDENCE_SCHEMA_V2 and mp3d_root is not None:
+        resolution_environment["AVENGINE_MP3D_ROOT"] = str(mp3d_root)
+    elif runtime_root is not None:
         resolution_environment["AVENGINE_HABITAT_RUNTIME_ROOT"] = str(runtime_root)
     resolved_path_reports: list[dict[str, Any]] = []
     resolved_paths_match = len(records) == len(inputs.room["assets"])
@@ -902,15 +1122,22 @@ def _scene_asset_checks(
         and isinstance(declared_scene_graph_check.get("measured"), dict)
         else None
     )
-    if runtime_root is not None:
+    if schema_name == EVIDENCE_SCHEMA_V2 and mp3d_root is not None:
+        static_scene_graph_errors = validate_scene_asset_graph(
+            inputs, None, mp3d_root=mp3d_root
+        )
+        recorded_scene_graph_errors = validate_recorded_scene_asset_graph(
+            inputs, None, loaded_snapshot, mp3d_root=mp3d_root
+        )
+    elif runtime_root is not None:
         static_scene_graph_errors = validate_scene_asset_graph(inputs, runtime_root)
         recorded_scene_graph_errors = validate_recorded_scene_asset_graph(
             inputs, runtime_root, loaded_snapshot
         )
     else:
-        static_scene_graph_errors = ["current Habitat runtime root is unavailable"]
+        static_scene_graph_errors = ["current Habitat runtime/data root is unavailable"]
         recorded_scene_graph_errors = [
-            "loaded Habitat graph cannot be replayed without the runtime root"
+            "loaded Habitat graph cannot be replayed without its declared data root"
         ]
     scene_graph_errors = static_scene_graph_errors + recorded_scene_graph_errors
     checks.append(
@@ -1331,7 +1558,9 @@ def _topology_qa_checks(
     return checks
 
 
-def _state_and_batch_checks(evidence: dict[str, Any]) -> list[dict[str, Any]]:
+def _state_and_batch_checks(
+    evidence: dict[str, Any], *, schema_name: str = EVIDENCE_SCHEMA_V1
+) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     state = evidence["capture_state"]
     before_hash = canonical_json_sha256(state["before"])
@@ -1354,8 +1583,22 @@ def _state_and_batch_checks(evidence: dict[str, Any]) -> list[dict[str, Any]]:
     )
     runtime = evidence["runtime"]
     repeats = evidence["repeat_observation_hashes"]
-    expected_batch = canonical_json_sha256(
-        {
+    if schema_name == EVIDENCE_SCHEMA_V2:
+        batch_identity = {
+            "room_manifest_sha256": evidence["room_manifest"]["sha256"],
+            "capture_request_sha256": evidence["capture_request"]["sha256"],
+            "scene_assets": evidence["scene_assets"],
+            "avengine_commit": runtime["avengine_commit"],
+            "habitat_runtime_prefix": runtime["habitat_runtime_prefix"],
+            "mp3d_root": runtime["mp3d_root"],
+            "habitat_module_path": runtime["habitat_module_path"],
+            "native_binding_path": runtime["native_binding_path"],
+            "physics_config_path": runtime["physics_config_path"],
+            "state": state["before"],
+            "repeat_count": len(repeats),
+        }
+    else:
+        batch_identity = {
             "room_manifest_sha256": evidence["room_manifest"]["sha256"],
             "capture_request_sha256": evidence["capture_request"]["sha256"],
             "scene_assets": evidence["scene_assets"],
@@ -1365,7 +1608,7 @@ def _state_and_batch_checks(evidence: dict[str, Any]) -> list[dict[str, Any]]:
             "state": state["before"],
             "repeat_count": len(repeats),
         }
-    )
+    expected_batch = canonical_json_sha256(batch_identity)
     batch_passed = evidence["capture_batch_id"] == expected_batch
     checks.append(
         make_check(
@@ -1380,7 +1623,11 @@ def _state_and_batch_checks(evidence: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _independent_reference_check(
-    evidence: dict[str, Any], *, base: Path, allow_reference: bool
+    evidence: dict[str, Any],
+    *,
+    base: Path,
+    allow_reference: bool,
+    schema_name: str = EVIDENCE_SCHEMA_V1,
 ) -> list[dict[str, Any]]:
     record = evidence["independent_reference"]
     if record is None:
@@ -1440,13 +1687,25 @@ def _independent_reference_check(
                 == evidence["capture_batch_id"],
                 "scene_assets_match": reference.get("scene_assets")
                 == evidence["scene_assets"],
+                "same_schema": reference.get("schema") == schema_name,
                 "runtime_identity_matches": all(
                     reference.get("runtime", {}).get(key) == evidence["runtime"][key]
                     for key in (
-                        "avengine_commit",
-                        "habitat_runtime_commit",
-                        "native_binding_sha256",
-                        "runtime_lock_sha256",
+                        (
+                            "avengine_commit",
+                            "habitat_runtime_prefix",
+                            "mp3d_root",
+                            "habitat_module_path",
+                            "native_binding_path",
+                            "physics_config_path",
+                        )
+                        if schema_name == EVIDENCE_SCHEMA_V2
+                        else (
+                            "avengine_commit",
+                            "habitat_runtime_commit",
+                            "native_binding_sha256",
+                            "runtime_lock_sha256",
+                        )
                     )
                 ),
                 "initial_state_matches": reference.get("capture_state", {}).get(
@@ -1561,19 +1820,24 @@ def verify_evidence_artifacts(
         )
 
     checks: list[dict[str, Any]] = []
-    schema_name_passed = evidence.get("schema") == EVIDENCE_SCHEMA
+    schema_name = evidence.get("schema")
+    schema_name_passed = isinstance(schema_name, str) and schema_name in _EVIDENCE_SCHEMA_FILES
     checks.append(
         make_check(
             "evidence_schema_name",
             "pass" if schema_name_passed else "fail",
-            measured=evidence.get("schema"),
-            threshold=EVIDENCE_SCHEMA,
+            measured=schema_name,
+            threshold=sorted(_EVIDENCE_SCHEMA_FILES),
             failure_reason=None
             if schema_name_passed
             else "Unexpected evidence schema name",
         )
     )
-    schema_errors = _schema_errors(evidence)
+    schema_errors = (
+        _schema_errors(evidence, schema_name)
+        if schema_name_passed
+        else ["unknown evidence schema"]
+    )
     checks.append(
         make_check(
             "evidence_json_schema",
@@ -1647,16 +1911,30 @@ def verify_evidence_artifacts(
     checks.extend(profile_checks)
     input_check, inputs = _load_validated_inputs(evidence, room_path, request_path)
     checks.append(input_check)
-    runtime_check, runtime_root = _runtime_check(evidence)
+    runtime_check, runtime_root = _runtime_check(
+        evidence, schema_name=schema_name
+    )
     checks.append(runtime_check)
+    raw_mp3d_root = evidence["runtime"].get("mp3d_root")
+    mp3d_root = (
+        Path(raw_mp3d_root).resolve()
+        if schema_name == EVIDENCE_SCHEMA_V2
+        and isinstance(raw_mp3d_root, str)
+        and raw_mp3d_root
+        else None
+    )
     if inputs is not None:
-        checks.extend(_sensor_source_state_checks(evidence, inputs))
+        checks.extend(
+            _sensor_source_state_checks(evidence, inputs, schema_name=schema_name)
+        )
         checks.extend(
             _scene_asset_checks(
                 evidence,
                 inputs,
                 base=base,
                 runtime_root=runtime_root,
+                mp3d_root=mp3d_root,
+                schema_name=schema_name,
             )
         )
         checks.extend(_observation_checks(evidence, inputs, base=base))
@@ -1671,12 +1949,13 @@ def verify_evidence_artifacts(
                 failure_reason="Cannot replay M1 semantics without valid inputs",
             )
         )
-    checks.extend(_state_and_batch_checks(evidence))
+    checks.extend(_state_and_batch_checks(evidence, schema_name=schema_name))
     checks.extend(
         _independent_reference_check(
             evidence,
             base=base,
             allow_reference=_allow_reference,
+            schema_name=schema_name,
         )
     )
     return aggregate_status(checks), checks

@@ -2,9 +2,10 @@
 
 M3 has two separate evidence stages: deterministic Acoustic Scene Package
 compilation and native RLR material activation. Compiler success never stands
-in for native propagation. The commands below are the implemented compile,
-native-run and independent-verification interfaces used for the successful
-`formal_20260717_01` run and for future replays.
+in for native propagation. The historical v1 record is retained only for schema
+dispatch and independent reader replay of its existing evidence; this runbook
+does not authorize or describe a new v1 native execution. Every executable
+native command below uses the current-installed v2 prefix, SDK and Magnum site.
 
 ## Fixed contract
 
@@ -30,45 +31,42 @@ the metric into a T10-like tail estimate and is not an allowed repair. A pass
 establishes runtime activation, not reviewed physical acoustic truth for the
 room.
 
-## Prerequisites
+## Current execution setup
 
-Run against the Habitat fork commit in
-[`locks/m3_runtime_v1.yaml`](../../locks/m3_runtime_v1.yaml), selected through
-the root `runtime.lock.yaml` index, using the audio-enabled build that contains
-the M3 `RLRAcousticContext` binding. The commands below assume:
+Use the current AVEngine checkout for compiler, verifier and v2 execution:
 
 ```bash
-export REPO=/data/jzy/code/AVEngine-habitat-native
-export RUNTIME=/data/jzy/code/habitat-sim-AVEngine
+export REPO=/data/jzy/code/AVEngine-lead-a
 export HABPY=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python
 export PATH=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin:$PATH
-export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
-export AVENGINE_REPOSITORY_ROOT="$REPO"
-export AVENGINE_HABITAT_RUNTIME_ROOT="$RUNTIME"
+export PYTHONPATH="$REPO/src"
 cd "$REPO"
 ```
 
-The pinned runtime currently requires `quaternion` to be imported before
-`habitat_sim`. The M3 runtime bridge owns and records that workaround; do not
-replace it with an unrecorded manual import path.
+Do not set `AVENGINE_HABITAT_RUNTIME_ROOT` or any v2 runtime argument to an
+old Habitat checkout. The v2 CLI requires explicit prefix, SDK and Magnum
+arguments on every native execution.
 
-Before a formal run:
+## Archived v1 evidence (verification only)
 
-1. build and install the exact audio-enabled Habitat fork;
-2. run its focused native and Python acoustic-context tests;
-3. select a versioned historical runtime profile containing the runtime commit,
-   environment versions and one native-artifact bundle closure, then treat it
-   as immutable experiment input for the full run;
-4. start the M3 compiler/native evidence from a new, nonexistent ignored
-   output directory;
-5. retain both repositories' clean status in the final evidence record.
+[`locks/m3_runtime_v1.yaml`](../../locks/m3_runtime_v1.yaml) and the
+`formal_20260717_01` record remain available solely so the v1 schema and
+reader can validate an already retained bundle. They are not an executable
+runtime profile. Do not build, import, `cd` into, or run a native canary from
+the historical checkout.
 
-Exploratory evidence generated before the final runtime commit or lock update
-cannot be relabeled as formal evidence.
+To inspect existing v1 evidence, point the current verifier at its retained
+bundle; this reads confined evidence and the v1 lock but does not start the old
+native runtime:
+
+```bash
+export M3_ARCHIVED_V1_EVIDENCE=/path/to/retained/m3_v1/canary_evidence.json
+"$HABPY" -m avengine.cli m3 verify-canary "$M3_ARCHIVED_V1_EVIDENCE"
+```
 
 ## Inputs
 
-The tracked formal request and material inputs are:
+The tracked canary request and material inputs are:
 
 ```text
 examples/m3/blender_custom/canary_request.json
@@ -83,7 +81,7 @@ geometry into the evidence tree, then binds their byte hashes.
 
 ## 1. Run focused contract tests
 
-Run the M3 unit suite before materializing formal evidence:
+Run the M3 unit suite before materializing current compiler evidence:
 
 ```bash
 "$HABPY" -m pytest -q \
@@ -106,11 +104,11 @@ Choose a new output path. Compilation is exclusive and must reject an existing
 destination rather than merge with stale artifacts.
 
 ```bash
-export M3_FORMAL="$REPO/tmp/m3/formal_<RUN_ID>"
+export M3_COMPILE="$REPO/tmp/m3/compile_<RUN_ID>"
 
 "$HABPY" -m avengine.cli m3 compile-canary \
   --request "$REPO/examples/m3/blender_custom/canary_request.json" \
-  --output "$M3_FORMAL/compile"
+  --output "$M3_COMPILE"
 ```
 
 The output contains self-contained `source_inputs/`, `low_absorption/`,
@@ -119,13 +117,13 @@ considered complete until independent replay passes:
 
 ```bash
 "$HABPY" -m avengine.cli m3 verify-compile \
-  "$M3_FORMAL/compile/compile_evidence.json"
+  "$M3_COMPILE/compile_evidence.json"
 
 "$HABPY" -m avengine.cli m3 validate-package \
-  "$M3_FORMAL/compile/low_absorption/manifest.json"
+  "$M3_COMPILE/low_absorption/manifest.json"
 
 "$HABPY" -m avengine.cli m3 validate-package \
-  "$M3_FORMAL/compile/high_absorption/manifest.json"
+  "$M3_COMPILE/high_absorption/manifest.json"
 ```
 
 The verifier re-extracts the copied source GLB, reapplies the reviewed
@@ -133,42 +131,53 @@ transform, recompiles both material databases and compares the resulting
 arrays, objects, categories and RLR database. It does not rely only on package
 self-hashes.
 
-## 3. Execute and verify the native canary
+## 3. Execute and verify the current-installed v2 canary
 
-Run the canary against the independently verified compiler evidence and the
-runtime/version manifest selected by the indexed M3 experiment profile:
+This is the only executable native M3 route. It uses a fresh non-checkout
+Habitat installation, external RLR SDK and external Magnum Python site; the
+three paths are explicit CLI arguments, not environment fallbacks.
 
 ```bash
+export M3_CURRENT="$REPO/tmp/m3/current_installed_<RUN_ID>"
+
 "$HABPY" -m avengine.cli m3 run-canary \
+  --runtime-mode current-installed \
+  --runtime-prefix /external/installed-habitat \
+  --rlr-sdk-root /external/RLRAudioPropagationPkg \
+  --magnum-python-site /external/magnum-python-site \
   --request "$REPO/examples/m3/blender_custom/canary_request.json" \
-  --compile-evidence "$M3_FORMAL/compile/compile_evidence.json" \
-  --output "$M3_FORMAL/runtime"
+  --compile-evidence "$M3_COMPILE/compile_evidence.json" \
+  --output "$M3_CURRENT"
 
 "$HABPY" -m avengine.cli m3 verify-canary \
-  "$M3_FORMAL/runtime/canary_evidence.json"
+  "$M3_CURRENT/canary_evidence.json"
 ```
 
+All three runtime paths must resolve to accessible components outside every Git
+checkout: the Habitat module/binding must be contained by the prefix, and the
+RLR header/library by the SDK root. The v2 path does not read the historical M3
+lock and does not write a tracked binary hash, baseline or lock. It records
+only one fresh-run identity repeated across native calls. Its verifier replays
+the retained input closure, artifacts, IR/OBJ readback, metrics, rays and
+comparisons; recomputing a top-level JSON hash cannot bless altered evidence.
+The installed Habitat binding is built without a build or install RPATH to an
+RLR SDK. At runtime the current-installed loader first removes editable
+Habitat finders, validates any preloaded Habitat module origins, and activates
+the selected prefix and Magnum site without importing the native binding. It
+then preloads the exact absolute SDK library, imports the prepared Habitat
+binding, revalidates module/binding origins, and requires the process mappings
+to contain only that declared RLR library. Consequently `--rlr-sdk-root` is the
+actual per-process SDK selection rather than documentation for a path already
+embedded in the extension.
+
 `run-canary` exits `0` only for a self-verified `pass`; a verified `fail`
-exits `1`, and `blocked` exits `3`. `verify-canary` parses the evidence once
-and uses that same immutable byte snapshot for both the declared status and
-the verification result. Verification errors exit `2`.
+exits `1`, and `blocked` exits `3`. `verify-canary` uses one immutable
+evidence snapshot; verification errors exit `2`.
 
-Required native behavior is already fixed:
-
-- alternate low/high conditions until each has three completed runs;
-- create a fresh RLR context for every run;
-- ingest the complete explicit package and retain exact API receipts;
-- write a post-ingestion scene OBJ and raw little-endian float32 IR array per
-  run;
-- record the exact native configuration readback and native binary hashes;
-- run every declared opening/control ray through CPU mesh and RLR queries;
-- independently recompute all raw-IR metrics and comparisons during verify.
-
-The final native output and verification result must be written under the same
-unique ignored `$M3_FORMAL` root and recorded in
-[M3_STATUS.md](M3_STATUS.md). A blocked runtime import/build is `blocked`; it
-is not compiler `pass` and cannot complete M3. The completed M3 record used
-`$REPO/tmp/m3/formal_20260717_01`.
+A v2 current-installed receipt is diagnostic only. It does not replace the
+retained v1 formal record, admit a production cache, or unblock existing
+historical-root consumers. The v1 schema/lock reader remains available only for
+the archived evidence route above.
 
 ## 4. Inspect ingestion evidence correctly
 
@@ -202,28 +211,20 @@ minimum effect ratio.
 Thresholds come from the tracked request/schema. They must not be weakened in
 response to an exploratory result and then presented as the same formal gate.
 
-## 6. Run the repository suite and freeze the record
+## 6. Run the repository suite and retain the current diagnostic
 
-After native verification, run the complete AVEngine test suite from the final
+After v2 verification, run the complete AVEngine test suite from the current
 worktree:
 
 ```bash
 "$HABPY" -m pytest -q
 ```
 
-Then record, from the retained evidence rather than memory:
-
-- AVEngine and Habitat fork commits;
-- selected runtime profile identity;
-- Habitat binding and RLR library hashes;
-- compile and native evidence paths/hashes;
-- low/high medians, spreads, oriented effects and verifier result;
-- clean worktree and final test totals.
-
-After verification, record the formal outcome and measurements in
-[M3_STATUS.md](M3_STATUS.md). Keep exact external artifact identities inside
-the authoritative machine-readable evidence bundle. Do not copy run outcomes
-or leaf hashes into the root index or human-facing status prose.
+Retain the fresh v2 evidence path, current identity, compile lineage and test
+totals with that ignored output. Do not use a v2 result to rewrite the retained
+v1 formal outcome, runtime hashes or [M3_STATUS.md](M3_STATUS.md). Keep exact
+external identities inside the machine-readable v2 bundle; do not copy leaf
+hashes or outcome claims into a root index or status prose.
 
 ## Resolve an M3.1 user material profile
 
@@ -263,20 +264,29 @@ configuration, sufficient decay span/fit quality and a tolerance-bound result.
 
 The generic GLB compiler can propose explicit visual-slot mappings for MP3D or
 the legacy UE real-surface room and compile them for diagnostics. The output is
-always a `research_candidate` with `qualification_claim: false`:
+always a `research_candidate` with `qualification_claim: false`.
+
+These compiler-only commands never import Habitat or create an RLR context,
+so they do not accept a runtime prefix or Magnum site merely as decorative
+arguments. `--runtime-root` is retained only as a rejected compatibility
+spelling: it cannot select a checkout or an asset root. For a current MP3D
+room, pass the explicit, canonical, non-Git `--mp3d-root`; for a relative GLB
+or external USD snapshot, omit it and provide the room's separately declared
+external asset inputs instead. Native RLR execution remains the distinct v2
+`run-canary` path with prefix, SDK and Magnum arguments.
 
 ```bash
 "$HABPY" -m avengine.cli m3 propose-visual-slots \
   --room <ROOM_MANIFEST> \
   --transform-profile <identity_y_up_or_mp3d_profile> \
-  --runtime-root "$RUNTIME" \
+  --mp3d-root <NON_GIT_MP3D_ROOT> \
   --output "$REPO/tmp/m3/<ROOM>_proposal_<RUN_ID>"
 
 "$HABPY" -m avengine.cli m3 compile-explicit-research \
   --room <ROOM_MANIFEST> \
   --mapping "$REPO/tmp/m3/<ROOM>_proposal_<RUN_ID>/mapping.json" \
   --materials "$REPO/tmp/m3/<ROOM>_proposal_<RUN_ID>/materials_research.json" \
-  --runtime-root "$RUNTIME" \
+  --mp3d-root <NON_GIT_MP3D_ROOT> \
   --output "$REPO/tmp/m3/<ROOM>_package_<RUN_ID>"
 ```
 
@@ -295,7 +305,7 @@ package:
   --room "$REPO/examples/m1/rooms/habitat_mp3d_example/room_manifest.json" \
   --rules "$REPO/examples/m3/semantic_materials/residential_material_rules.json" \
   --seed 917 \
-  --runtime-root "$RUNTIME" \
+  --mp3d-root <NON_GIT_MP3D_ROOT> \
   --probe-directions 32 \
   --output "$REPO/tmp/m3/mp3d_semantic_<RUN_ID>"
 

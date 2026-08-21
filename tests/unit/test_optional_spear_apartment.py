@@ -74,7 +74,7 @@ def _plan(scenario_id: str = "S3") -> dict:
         )
     return {
         "schema": apartment.PLAN_SCHEMA,
-        "backend_role": "comparison_visual",
+        "backend_role": apartment.BACKEND_ROLE,
         "authority": {"backend_may_replan": False},
         "room": {
             "source_scene_provenance": {
@@ -411,6 +411,9 @@ def test_asset_bound_suite_carries_one_identity_and_checks_episode_sha(
 
     identity = suite["acoustic_visual_identity"]
     assert identity["status"] == "pass"
+    assert suite["backend_role"] == "production_visual"
+    assert suite["scenarios"][0]["backend_role"] == "production_visual"
+    assert suite["scenarios"][0]["plan"]["backend_role"] == "production_visual"
     assert suite["scenarios"][0]["acoustic_visual_identity"] == identity
     assert (
         suite["scenarios"][0]["native_scene"]["room_ref"]
@@ -444,11 +447,11 @@ def test_motion_pilot_path_discovery_and_suite_use_p0_to_p3(
     with pytest.raises(apartment.SpearApartmentError, match="unsupported"):
         apartment.motion_pilot_input_paths(tmp_path, "S0")
 
-    monkeypatch.setattr(
-        apartment,
-        "build_spear_visual_plan_from_files",
-        lambda **_: _plan("P0"),
-    )
+    def build_plan(**kwargs: object) -> dict:
+        assert kwargs["backend_role"] == apartment.BACKEND_ROLE
+        return _plan("P0")
+
+    monkeypatch.setattr(apartment, "build_spear_visual_plan_from_files", build_plan)
     suite = apartment.build_native_apartment_motion_pilot_suite(
         tmp_path, scenario_ids=("P0",)
     )
@@ -456,7 +459,9 @@ def test_motion_pilot_path_discovery_and_suite_use_p0_to_p3(
     assert scenario["scenario_id"] == "P0"
     assert scenario["scenario_directory"] == "00_static_static"
     assert scenario["variant_id"] == "A"
-    assert suite["authority"]["spear_unreal"] == ["final RGB pixels"]
+    assert scenario["backend_role"] == "production_visual"
+    assert suite["backend_role"] == "production_visual"
+    assert suite["authority"]["spear_unreal"] == ["production RGB pixels"]
 
 
 def test_asset_bound_path_discovery_carries_optional_sensor_rig_sidecar(
@@ -702,6 +707,7 @@ def test_apartment_lighting_profiles_keep_native_map_and_validate_photometry() -
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
+        ("role", "production-visual"),
         ("map", "not the native"),
         ("scenario", "disagrees"),
         ("replan", "must not replan"),
@@ -711,7 +717,9 @@ def test_apartment_lighting_profiles_keep_native_map_and_validate_photometry() -
 )
 def test_native_plan_validation_fails_closed(mutation: str, message: str) -> None:
     plan = _plan("S3")
-    if mutation == "map":
+    if mutation == "role":
+        plan["backend_role"] = "comparison_visual"
+    elif mutation == "map":
         plan["room"]["source_scene_provenance"]["scene_id"] = "proxy"
     elif mutation == "scenario":
         plan["source_logic"]["scenario_id"] = "S4"
@@ -1102,6 +1110,8 @@ def test_resume_requires_the_same_retained_execution_plan(
             str(bundle),
             "--input-layout",
             "asset-bound-batch",
+            "--spear-executable",
+            str(tmp_path / "SpearSim.sh"),
             "--output-dir",
             str(output),
             "--resume",
@@ -1203,6 +1213,8 @@ def test_runner_dry_run_records_only_its_exact_manifest_shard(
             str(bundle),
             "--input-layout",
             "asset-bound-batch",
+            "--spear-executable",
+            str(tmp_path / "SpearSim.sh"),
             "--output-dir",
             str(output),
             "--shard-count",
@@ -1245,6 +1257,8 @@ def test_runner_rejects_incomplete_or_overlapping_shard_selection(
             [
                 "--input-layout",
                 "asset-bound-batch",
+                "--spear-executable",
+                str(tmp_path / "SpearSim.sh"),
                 "--output-dir",
                 str(tmp_path / "output"),
                 *argv,
@@ -1342,6 +1356,188 @@ def test_runtime_timing_contract_requires_rgb_and_topdown_outputs() -> None:
     )
     started = _RUNNER.time.perf_counter()
     assert _RUNNER._elapsed_seconds(started) >= 0.0
+
+
+def test_runner_closes_shared_camera_before_instance_after_render_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[object] = []
+    camera = object()
+
+    class FakeFrame:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __enter__(self) -> None:
+            events.append((self.name, "enter"))
+
+        def __exit__(
+            self, _exc_type: object, _exc: object, _traceback: object
+        ) -> bool:
+            events.append((self.name, "exit"))
+            return False
+
+    class FakeCapture:
+        def terminate_sp_funcs(self) -> None:
+            events.append(("capture", "terminate_sp_funcs"))
+            raise RuntimeError("fake cleanup failure")
+
+        def Terminate(self) -> None:
+            events.append(("capture", "Terminate"))
+
+    class FakeUnrealService:
+        @staticmethod
+        def destroy_actor(*, actor: object) -> None:
+            assert actor is camera
+            events.append(("camera", "destroy_actor"))
+
+    class FakeGame:
+        def __init__(self) -> None:
+            self.unreal_service = FakeUnrealService()
+
+        def get_unreal_object(self, *, uclass: str) -> "FakeGame":
+            assert uclass == "UGameplayStatics"
+            return self
+
+        def SetGamePaused(self, *, bPaused: bool) -> None:
+            assert bPaused is False
+            events.append(("game", "unpaused"))
+
+    class FakeInstance:
+        def __init__(self) -> None:
+            self.game = FakeGame()
+
+        def get_game(self) -> FakeGame:
+            return self.game
+
+        @staticmethod
+        def begin_frame() -> FakeFrame:
+            return FakeFrame("begin_frame")
+
+        @staticmethod
+        def end_frame() -> FakeFrame:
+            return FakeFrame("end_frame")
+
+        @staticmethod
+        def step(*, num_frames: int) -> None:
+            events.append(("step", num_frames))
+
+        @staticmethod
+        def close(*, force: bool) -> None:
+            assert force is False
+            events.append(("instance", "close"))
+
+    instance = FakeInstance()
+    capture = FakeCapture()
+    room_profile = {
+        "profile_id": "test_apartment",
+        "supported_input_layouts": ["m6x-canary"],
+        "default_lighting_profile_id": "test_lighting",
+        "scene": {"map_path": "/Game/TestApartment"},
+    }
+    suite = {
+        "native_map": "/Game/TestApartment",
+        "scenarios": [
+            {
+                "scenario_id": "S3",
+                "plan": {"actors": [], "frames": [{"actor_states": []}]},
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        _RUNNER, "load_source_asset_runtime_registry", lambda _path: {
+            "registry_id": "test_source_assets",
+            "revision": "v1",
+        }
+    )
+    monkeypatch.setattr(_RUNNER, "spear_actor_bindings", lambda _registry: {})
+    monkeypatch.setattr(
+        _RUNNER,
+        "load_room_runtime_profile_registry",
+        lambda _path: {"registry_id": "test_rooms", "revision": "v1"},
+    )
+    monkeypatch.setattr(
+        _RUNNER,
+        "resolve_room_runtime_profile",
+        lambda _registry, _profile_id: room_profile,
+    )
+    monkeypatch.setattr(
+        _RUNNER, "load_apartment_lighting_profile", lambda *_args: {}
+    )
+    monkeypatch.setattr(
+        _RUNNER, "build_native_apartment_suite", lambda *_args, **_kwargs: suite
+    )
+    monkeypatch.setattr(
+        _RUNNER,
+        "_assert_suite_runtime_identity_closure",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        _RUNNER, "_assert_suite_actor_binding_closure", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        _RUNNER,
+        "_configure_instance",
+        lambda *_args, **_kwargs: instance,
+    )
+    monkeypatch.setattr(
+        _RUNNER, "_spawn_camera", lambda *_args: (camera, capture)
+    )
+    monkeypatch.setattr(
+        _RUNNER, "_spawn_generated_lights", lambda *_args: []
+    )
+    monkeypatch.setattr(
+        _RUNNER, "materialize_camera_states", lambda _plan: [{}]
+    )
+    monkeypatch.setattr(_RUNNER, "_apply_camera", lambda *_args: None)
+    monkeypatch.setattr(
+        _RUNNER, "_spawn_runtime_actors", lambda *_args: {}
+    )
+    monkeypatch.setattr(
+        _RUNNER,
+        "_destroy_runtime_actors",
+        lambda *_args: events.append(("actors", "destroy")),
+    )
+
+    def fail_render(**_kwargs: object) -> None:
+        events.append(("render", "error"))
+        raise RuntimeError("fake render failure")
+
+    monkeypatch.setattr(_RUNNER, "_render_scenario", fail_render)
+    args = _RUNNER.parse_args(
+        [
+            "--bundle-root",
+            str(tmp_path / "bundle"),
+            "--input-layout",
+            "m6x-canary",
+            "--scenario",
+            "S3",
+            "--spear-executable",
+            str(tmp_path / "SpearSim.sh"),
+            "--output-dir",
+            str(tmp_path / "output"),
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="fake render failure"):
+        _RUNNER.run(args)
+
+    render = events.index(("render", "error"))
+    terminate_sp_funcs = events.index(("capture", "terminate_sp_funcs"))
+    terminate = events.index(("capture", "Terminate"))
+    destroy_camera = events.index(("camera", "destroy_actor"))
+    close = events.index(("instance", "close"))
+    assert render < terminate_sp_funcs < terminate < destroy_camera < close
+    assert events[terminate_sp_funcs - 3 : close + 1] == [
+        ("begin_frame", "enter"),
+        ("begin_frame", "exit"),
+        ("end_frame", "enter"),
+        ("capture", "terminate_sp_funcs"),
+        ("capture", "Terminate"),
+        ("camera", "destroy_actor"),
+        ("end_frame", "exit"),
+        ("instance", "close"),
+    ]
 
 
 def test_scene_capture_warmup_discards_streaming_transition(

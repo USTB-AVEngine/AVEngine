@@ -339,6 +339,23 @@ UNAVAILABLE` labels are subject facts, not cosmetic warnings.
 
 ## 7. Release manifest verification
 
+> Current migration note: this section records the historical v1
+> checkout/submodule release process. The retained schema, manifest,
+> attestation, receipt and JUnit readers remain available for those exact bytes.
+> The four legacy CLI names still expose their historical arguments, defaults
+> and help, but invocation returns the existing structured status `fail` with
+> exit code 2 before path resolution, Git, subprocess or output handling.
+> Loading a v1 document is schema/document reading, not live or formal
+> verification. The additive
+> current v2 commands in [tools/release/README.md](../../tools/release/README.md)
+> accept an explicit non-Git prefix, external SDK, scene-data root and Magnum
+> site, but their output is an ordinary candidate with formal_release_status
+> equal to not_run. A current-v2 verification pass is not a native RLR run,
+> formal release, or replacement for this historical closeout. Its ignored
+> request, JUnit and receipt stay under logical `tmp/`; the only `release/`
+> artifact is the candidate manifest, whose per-candidate receipt record
+> detects a later byte replacement without creating a baseline or gate.
+
 The manifest is intentionally created after the implementation commit. The
 metadata commit containing it must be a direct child that changes only its
 allowlisted release paths; the annotated tag points to that metadata commit.
@@ -350,9 +367,10 @@ command and has no post-tag receipt. Every other passed test layer must cite one
 structured execution receipt; human-facing documents need not repeat the leaf
 hashes already contained in their bundle manifest.
 
-Once `release/avengine_release_manifest_v1.json` exists and metadata commit B is
-tagged, run the verifier and persist its result as an external post-tag
-attestation. It cannot hash itself into commit B:
+For the historical closeout, once `release/avengine_release_manifest_v1.json`
+and tagged metadata commit B existed, the verifier persisted its external
+post-tag attestation. The commands below are provenance only; current v1
+writer/live-verifier entry points fail closed:
 
 ```bash
 .venv/bin/python tools/release/build_manifest.py verify \

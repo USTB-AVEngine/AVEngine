@@ -1,0 +1,110 @@
+{
+  "actors": [
+    {
+      "actor_id": "source1_actor",
+      "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
+      "asset_revision": "native_runtime_ue_v3",
+      "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_male_adult_01_original_ue_v3/BP_gate_rocketbox_male_adult_01_original_ue_v3.BP_gate_rocketbox_male_adult_01_original_ue_v3_C",
+      "emitter_offset_m": [
+        0.0,
+        1.61,
+        0.0
+      ],
+      "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_original_ue_v3/Standing_Idle.Standing_Idle",
+      "role": "target",
+      "root_habitat_m": [
+        2.4000000953674316,
+        0.13626886904239655,
+        10.399999618530273
+      ],
+      "skeletal_mesh_path": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_original_ue_v3/runtime.runtime",
+      "skeleton_path": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_original_ue_v3/runtime_Skeleton.runtime_Skeleton",
+      "source_slot_id": "source1",
+      "template_id": "rocketbox_human_male_adult_01",
+      "ue_anatomical_forward_yaw_deg": 90.0,
+      "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_original_ue_v3/Walking.Walking"
+    },
+    {
+      "actor_id": "source2_actor",
+      "asset_id": "lead_b_rocketbox_adults_female_adult_01_original_v1",
+      "asset_revision": "native_runtime_ue_v1",
+      "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_adults_female_adult_01_original_ue_v1/BP_gate_rocketbox_adults_female_adult_01_original_ue_v1.BP_gate_rocketbox_adults_female_adult_01_original_ue_v1_C",
+      "emitter_offset_m": [
+        0.0,
+        1.569012451171875,
+        0.0
+      ],
+      "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_adults_female_adult_01_original_ue_v1/Standing_Idle.Standing_Idle",
+      "role": "distractor",
+      "root_habitat_m": [
+        2.700000047683716,
+        0.11579117923974991,
+        8.899999618530273
+      ],
+      "skeletal_mesh_path": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_adults_female_adult_01_original_ue_v1/runtime.runtime",
+      "skeleton_path": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_adults_female_adult_01_original_ue_v1/runtime_Skeleton.runtime_Skeleton",
+      "source_slot_id": "source2",
+      "template_id": "rocketbox_adults_female_adult_01",
+      "ue_anatomical_forward_yaw_deg": 90.0,
+      "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_adults_female_adult_01_original_ue_v1/Walking.Walking"
+    }
+  ],
+  "audio": {
+    "canonical_audio_binding": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/recipe_v4/controlled_audio_program/controlled_audio_binding.json",
+    "canonical_audio_program": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/recipe_v4/controlled_audio_program/audio_program.json",
+    "sound_asset_registry": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/recipe_v4/controlled_audio_program/sound_asset_registry.json",
+    "source1_endpoint_id": "lead_d_source1_mouth",
+    "source2_endpoint_id": "lead_d_source2_mouth",
+    "source_endpoint_registry": "/data/jzy/code/AVEngine-lead-a/tmp/lead_d_strict_two_human_canary_v1/recipe_v4/controlled_audio_program/source_endpoint_registry.json",
+    "target_sound_path": "/data/jzy/code/SPEAR-lead-b/outputs/lead_b/audio_candidates_v1/media/speech_cremad_1001_ieo_neu_v1.wav",
+    "target_sound_rights_status": "review_required"
+  },
+  "episode_id": "skokloster_castle_male_female_static_semantic_0001",
+  "execution": {
+    "capture_runner": "/data/jzy/code/AVEngine-lead-a/tools/qa/capture_skokloster_strict_two_human_episode.py",
+    "graphics_adapter": 1,
+    "hrtf": "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa",
+    "output_root": "/data/jzy/code/AVEngine-lead-a/tmp/lead_a_skokloster_strict_two_human_v2",
+    "python": "/data/jzy/miniconda3/envs/spear-env/bin/python",
+    "repository": "/data/jzy/code/AVEngine-lead-a",
+    "rir_execution_mode": "semantic_no_file_evidence",
+    "rir_thread_count": 1,
+    "rpc_port": 39833,
+    "spear_root": "/data/jzy/code/SPEAR-lead-b"
+  },
+  "formal_dataset_count": 0,
+  "gpu_capture_authorized": false,
+  "qualification_claim": false,
+  "request_id": "skokloster_castle_strict_two_human_static_semantic_v2",
+  "room": {
+    "acoustic_package_manifest": "/tmp/skokloster_strict_room_atom_run/clean_package/manifest.json",
+    "acoustic_profile": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_acoustic_profile.json",
+    "listener_search_evidence": "/data/jzy/code/AVEngine-lead-a/examples/qa/native_strict_two_human_skokloster_listener_search_v1.json",
+    "near_listener_rejection_evidence": "/data/jzy/code/AVEngine-lead-a/examples/qa/native_strict_two_human_skokloster_near_listener_rejected_v1.json",
+    "packaged_executable": "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim/Standalone-Skokloster-Development/Linux/SpearSim.sh",
+    "packaged_map": "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict",
+    "room_id": "habitat_test_skokloster_castle",
+    "runtime_profile": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_room_runtime_profile.json",
+    "scene_id": "skokloster-castle",
+    "simulation_request": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_semantic_binaural_rir_request_v1.json"
+  },
+  "schema": "avengine_native_strict_two_human_skokloster_room_atom_request_v2",
+  "strict_pixel_gates": {
+    "bbox_edge_margin_px_minimum": 1,
+    "cpu_envelope_edge_margin_px_minimum": 48,
+    "distractor_visible_fraction_minimum": 0.5,
+    "target_visible_fraction_minimum": 0.8,
+    "visible_pixel_count_minimum": 5000
+  },
+  "timeline": {
+    "frame_count": 75,
+    "frame_rate_hz": 15,
+    "sample_count": 80000,
+    "sample_rate_hz": 16000,
+    "sparse_frame_indices": [
+      15
+    ],
+    "ticks_per_frame": 3200,
+    "ticks_per_sample": 3
+  }
+}

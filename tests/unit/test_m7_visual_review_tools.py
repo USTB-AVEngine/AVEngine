@@ -9,6 +9,7 @@ from avengine.m5_1.mixed_capture import (
 )
 from avengine.m7.visual_review import (
     AssetBoundVisualReviewError,
+    _require_explicit_runtime_root,
     _sensor_rig_readback_errors,
 )
 from tools.m7.build_asset_bound_visual_reviews import (
@@ -145,3 +146,27 @@ def test_sensor_rig_readback_fails_closed_when_listener_is_missing() -> None:
             rgb_sensor_uuid="rgb0",
             listener_uuid="listener0",
         )
+
+
+def test_direct_review_requires_an_explicit_runtime_root() -> None:
+    with pytest.raises(AssetBoundVisualReviewError, match="explicit runtime_root"):
+        _require_explicit_runtime_root(None)
+
+
+def test_direct_review_rejects_a_missing_runtime_root(tmp_path) -> None:
+    with pytest.raises(AssetBoundVisualReviewError, match="missing"):
+        _require_explicit_runtime_root(tmp_path / "absent")
+
+
+def test_direct_review_rejects_a_git_checkout_runtime_root(tmp_path) -> None:
+    checkout = tmp_path / "habitat-sim-AVEngine"
+    (checkout / ".git").mkdir(parents=True)
+    (checkout / "data").mkdir()
+    with pytest.raises(AssetBoundVisualReviewError, match="Git"):
+        _require_explicit_runtime_root(checkout / "data")
+
+
+def test_direct_review_accepts_an_explicit_non_checkout_runtime_root(tmp_path) -> None:
+    runtime = tmp_path / "runtime-root"
+    runtime.mkdir()
+    assert _require_explicit_runtime_root(runtime) == runtime.resolve()

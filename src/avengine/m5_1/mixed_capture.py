@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -33,9 +34,14 @@ from avengine.contracts.transforms import normalized_quaternion_xyzw
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.evidence import array_sha256
 from avengine.m1.habitat_capture import (
+    InstalledHabitatRuntime,
+    PBR_BRDF_LUT_RELATIVE_PATH,
+    PBR_CONFIG_FILENAME,
+    PBR_ENVIRONMENT_MAP_RELATIVE_PATH,
     _make_configuration,
     _resolved_assets,
     discover_runtime_root,
+    prepare_installed_habitat_runtime,
 )
 from avengine.m2.contracts import (
     FORMAL_MODALITIES,
@@ -77,6 +83,7 @@ from avengine.m5_1.legacy_route import (
 
 
 MIXED_CAPTURE_SCHEMA = "avengine_m5_1_human_beagle_capture_v1"
+MIXED_CAPTURE_INSTALLED_SCHEMA_V2 = "avengine_m5_1_human_beagle_capture_v2"
 HEADING_ALIGNMENT_SCHEMA = "avengine_m5_1_actor_heading_gate_v1"
 HUMAN_SEMANTIC_ID = 220
 BEAGLE_SEMANTIC_ID = 221
@@ -88,6 +95,7 @@ LEGACY_CAMERA_YAW_DEG = 55.0
 LEGACY_CAMERA_HFOV_DEG = 105.0
 M5_1_LIGHT_SETUP_KEY = "avengine_m5_1_room_lighting"
 M5_1_ACTOR_SHADER_TYPE = "pbr"
+M5_1_PBR_CONFIG_HANDLE = "avengine_m5_1_external_brown_photostudio_v1"
 _ROOT_READBACK_ATOL = 2.0e-6
 _JOINT_READBACK_ATOL = 2.0e-6
 _LINK_MATRIX_READBACK_ATOL = 2.0e-5
@@ -621,11 +629,139 @@ def _shader_type_name(value: Any) -> str:
     return text.lower()
 
 
+def _readback_m5_1_pbr_ibl(
+    mediator: Any,
+    *,
+    config_path: Path,
+    asset_root: Path,
+    phase: str,
+    registration_id: int | None = None,
+) -> dict[str, Any]:
+    manager = mediator.pbr_shader_template_manager
+    current_handle = mediator.get_curr_default_pbr_attributes_handle()
+    if current_handle != M5_1_PBR_CONFIG_HANDLE:
+        raise MixedCaptureError(
+            "M5.1 current PBR config handle changed from the explicit "
+            f"external IBL config: {current_handle!r}"
+        )
+    attributes = manager.get_template_by_handle(current_handle)
+    if attributes is None:
+        raise MixedCaptureError("M5.1 explicit PBR config cannot be read back")
+
+    expected_lut = (asset_root / PBR_BRDF_LUT_RELATIVE_PATH).resolve()
+    expected_environment = (
+        asset_root / PBR_ENVIRONMENT_MAP_RELATIVE_PATH
+    ).resolve()
+    actual_lut = Path(attributes.ibl_brdfLUT_filename).resolve()
+    actual_environment = Path(
+        attributes.ibl_environment_map_filename
+    ).resolve()
+    if actual_lut != expected_lut or actual_environment != expected_environment:
+        raise MixedCaptureError(
+            "M5.1 PBR config did not retain the explicit absolute IBL paths"
+        )
+    if not bool(attributes.enable_ibl):
+        raise MixedCaptureError("M5.1 explicit PBR config did not enable IBL")
+
+    expected_flags = {
+        "enable_direct_lights": True,
+        "map_mat_txtr_to_linear": True,
+        "map_ibl_txtr_to_linear": True,
+        "map_output_to_srgb": True,
+        "use_direct_tonemap": False,
+        "use_ibl_tonemap": True,
+        "use_burley_diffuse": True,
+    }
+    observed_flags = {
+        key: bool(getattr(attributes, key)) for key in expected_flags
+    }
+    if observed_flags != expected_flags:
+        raise MixedCaptureError(
+            "M5.1 explicit PBR config flags differ from the adopted "
+            "Brown Photostudio configuration"
+        )
+
+    return {
+        "status": "pass",
+        "phase": phase,
+        "config_handle": current_handle,
+        "config_path": str(config_path),
+        "asset_root": str(asset_root),
+        "registration_id": registration_id,
+        "enable_ibl": True,
+        "absolute_brdf_lut_path": str(actual_lut),
+        "absolute_environment_map_path": str(actual_environment),
+        "config_flags": observed_flags,
+    }
+
+
+def _prepare_m5_1_installed_pbr_ibl(
+    configuration: Any,
+    *,
+    installed_runtime: InstalledHabitatRuntime,
+    habitat_sim: Any,
+) -> dict[str, Any]:
+    """Inject one explicit external IBL config before Simulator construction."""
+
+    asset_root = installed_runtime.pbr_asset_root
+    if asset_root is None:
+        raise MixedCaptureError(
+            "installed M5.1 PBR actors require an explicit PBR asset root"
+        )
+    config_path = (
+        installed_runtime.prefix / "config" / PBR_CONFIG_FILENAME
+    ).resolve()
+    try:
+        config_path.relative_to(installed_runtime.prefix)
+    except ValueError as error:
+        raise MixedCaptureError(
+            "installed PBR config escaped the selected runtime prefix"
+        ) from error
+    if not config_path.is_file():
+        raise MixedCaptureError(
+            f"installed Habitat runtime is missing {PBR_CONFIG_FILENAME}"
+        )
+
+    mediator = habitat_sim.metadata.MetadataMediator(configuration.sim_cfg)
+    manager = mediator.pbr_shader_template_manager
+    attributes = manager.create_template(
+        str(config_path), register_template=False
+    )
+    if attributes is None:
+        raise MixedCaptureError("cannot load the installed M5.1 PBR config")
+    attributes.ibl_brdfLUT_filename = str(
+        (asset_root / PBR_BRDF_LUT_RELATIVE_PATH).resolve()
+    )
+    attributes.ibl_environment_map_filename = str(
+        (asset_root / PBR_ENVIRONMENT_MAP_RELATIVE_PATH).resolve()
+    )
+    registration_id = int(
+        manager.register_template(attributes, M5_1_PBR_CONFIG_HANDLE)
+    )
+    if registration_id < 0:
+        raise MixedCaptureError("cannot register the explicit M5.1 PBR config")
+    if not bool(
+        mediator.set_curr_default_pbr_attributes_handle(
+            M5_1_PBR_CONFIG_HANDLE
+        )
+    ):
+        raise MixedCaptureError("cannot select the explicit M5.1 PBR config")
+    configuration.metadata_mediator = mediator
+    return _readback_m5_1_pbr_ibl(
+        mediator,
+        config_path=config_path,
+        asset_root=asset_root,
+        phase="before_simulator",
+        registration_id=registration_id,
+    )
+
+
 def _bind_m5_1_scene_lighting(
     simulator: Any,
     configuration: Any,
     *,
     light_setup_key: str = M5_1_LIGHT_SETUP_KEY,
+    require_zero_direct_lights: bool = False,
 ) -> dict[str, Any]:
     """Copy the stage's effective setup to the AO-specific M5.1 key."""
 
@@ -644,6 +780,11 @@ def _bind_m5_1_scene_lighting(
         raise MixedCaptureError(
             "M5.1 registered actor light setup differs from the scene setup"
         )
+    if require_zero_direct_lights and registered_setup:
+        raise MixedCaptureError(
+            "installed M5.1 actor capture preserves zero direct lights; "
+            f"observed {len(registered_setup)}"
+        )
     return {
         "status": "pass",
         "hbao": {
@@ -661,6 +802,7 @@ def _bind_m5_1_scene_lighting(
             "current_light_count": len(current_setup),
             "registered_light_count": len(registered_setup),
             "registered_setup_matches_current": registered_matches_current,
+            "required_zero_direct_lights": require_zero_direct_lights,
         },
     }
 
@@ -875,6 +1017,126 @@ def _write_json(path: Path, value: Any) -> None:
     )
 
 
+_INSTALLED_RUNTIME_ENVIRONMENT_VARIABLES = (
+    "AVENGINE_HABITAT_RUNTIME_PREFIX",
+    "AVENGINE_MP3D_ROOT",
+    "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+)
+
+
+def _installed_runtime_inputs_requested(
+    *,
+    runtime_prefix: str | Path | None,
+    mp3d_root: str | Path | None,
+    magnum_python_site: str | Path | None,
+    pbr_asset_root: str | Path | None = None,
+) -> bool:
+    """Whether a caller selected an installed runtime without its old alias.
+
+    Empty exported values remain a selection.  They must fail through the
+    installed resolver instead of accidentally falling back to a checkout.
+    """
+
+    return any(
+        value is not None
+        for value in (
+            runtime_prefix,
+            mp3d_root,
+            magnum_python_site,
+            pbr_asset_root,
+        )
+    ) or any(name in os.environ for name in _INSTALLED_RUNTIME_ENVIRONMENT_VARIABLES)
+
+
+def _room_declares_external_mp3d_root(room: Mapping[str, Any]) -> bool:
+    """Return whether a room is migrated to the external MP3D root."""
+
+    scene = room.get("scene")
+    declared_paths: list[object] = []
+    if isinstance(scene, Mapping):
+        declared_paths.extend(
+            scene.get(key) for key in ("scene_id", "dataset_config_path", "navmesh_path")
+        )
+    assets = room.get("assets")
+    if isinstance(assets, Sequence) and not isinstance(assets, (str, bytes)):
+        for asset in assets:
+            if isinstance(asset, Mapping):
+                declared_paths.append(asset.get("path"))
+    return any(
+        isinstance(path, str) and "${AVENGINE_MP3D_ROOT}" in path
+        for path in declared_paths
+    )
+
+
+def _select_mixed_capture_runtime(
+    *,
+    room: Mapping[str, Any],
+    runtime_prefix: str | Path | None,
+    runtime_root: str | Path | None,
+    legacy_runtime_root: str | Path | None,
+    mp3d_root: str | Path | None,
+    magnum_python_site: str | Path | None,
+    installed_runtime: InstalledHabitatRuntime | None,
+    pbr_asset_root: str | Path | None = None,
+) -> InstalledHabitatRuntime | None:
+    """Resolve new MP3D callers before any checkout-oriented import.
+
+    ``runtime_root`` is an installed-prefix compatibility alias only for a
+    room already migrated to ``AVENGINE_MP3D_ROOT``.  Other retained routes
+    keep the legacy branch only when no newer prefix, MP3D, or Magnum input
+    exists.  The internal ``legacy_runtime_root`` argument is reserved for the
+    retained legacy wrapper, whose room manifest remains checkout-based.
+    """
+
+    installed_requested = _installed_runtime_inputs_requested(
+        runtime_prefix=runtime_prefix,
+        mp3d_root=mp3d_root,
+        magnum_python_site=magnum_python_site,
+        pbr_asset_root=pbr_asset_root,
+    )
+    explicit_installed_inputs = any(
+        value is not None
+        for value in (
+            runtime_prefix,
+            runtime_root,
+            mp3d_root,
+            magnum_python_site,
+            pbr_asset_root,
+        )
+    )
+    if legacy_runtime_root is not None:
+        if installed_runtime is not None or explicit_installed_inputs or installed_requested:
+            raise MixedCaptureError(
+                "legacy-runtime-root cannot be combined with installed runtime "
+                "prefix, MP3D, Magnum, or PBR inputs"
+            )
+        return None
+    if installed_runtime is not None:
+        if explicit_installed_inputs:
+            raise MixedCaptureError(
+                "installed_runtime cannot be combined with runtime-root/prefix, "
+                "mp3d-root, magnum-python-site, or pbr-asset-root"
+            )
+        return installed_runtime
+    select_installed = installed_requested or (
+        runtime_root is not None and _room_declares_external_mp3d_root(room)
+    )
+    if select_installed:
+        if pbr_asset_root is None and _room_declares_external_mp3d_root(room):
+            raise MixedCaptureError(
+                "installed MP3D PBR actor capture requires an explicit "
+                "pbr_asset_root before runtime preparation"
+            )
+        return prepare_installed_habitat_runtime(
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            mp3d_root=mp3d_root,
+            pbr_asset_root=pbr_asset_root,
+            magnum_python_site=magnum_python_site,
+        )
+    return None
+
+
 def capture_human_beagle_paths(
     *,
     room_manifest_path: str | Path,
@@ -886,6 +1148,12 @@ def capture_human_beagle_paths(
     beagle_root_path_m: Any,
     output_dir: str | Path,
     runtime_root: str | Path | None = None,
+    runtime_prefix: str | Path | None = None,
+    legacy_runtime_root: str | Path | None = None,
+    mp3d_root: str | Path | None = None,
+    pbr_asset_root: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
     route_provenance: Mapping[str, Any] | None = None,
     require_legacy_camera: bool = False,
     human_semantic_id: int = HUMAN_SEMANTIC_ID,
@@ -953,13 +1221,73 @@ def capture_human_beagle_paths(
     output = Path(output_dir).resolve()
     if output.exists() or output.is_symlink():
         raise MixedCaptureError(f"refusing to replace capture output: {output}")
-    output.mkdir(parents=True)
+    mp3d_selected = mp3d_root is not None or "AVENGINE_MP3D_ROOT" in os.environ
+    if (
+        installed_runtime is None
+        and mp3d_selected
+        and pbr_asset_root is None
+        and _installed_runtime_inputs_requested(
+            runtime_prefix=runtime_prefix,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+            pbr_asset_root=pbr_asset_root,
+        )
+    ):
+        raise MixedCaptureError(
+            "installed MP3D PBR actor capture requires an explicit "
+            "pbr_asset_root before runtime preparation"
+        )
 
     try:
+        room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
+        if (
+            installed_runtime is None
+            and runtime_root is not None
+            and _room_declares_external_mp3d_root(room_inputs.room)
+            and pbr_asset_root is None
+        ):
+            raise MixedCaptureError(
+                "installed MP3D PBR actor capture requires an explicit "
+                "pbr_asset_root before runtime preparation"
+            )
+        installed_runtime = _select_mixed_capture_runtime(
+            room=room_inputs.room,
+            runtime_prefix=runtime_prefix,
+            runtime_root=runtime_root,
+            legacy_runtime_root=legacy_runtime_root,
+            mp3d_root=mp3d_root,
+            magnum_python_site=magnum_python_site,
+            pbr_asset_root=pbr_asset_root,
+            installed_runtime=installed_runtime,
+        )
+        if installed_runtime is not None:
+            if research_capture_schema == MIXED_CAPTURE_SCHEMA:
+                research_capture_schema = MIXED_CAPTURE_INSTALLED_SCHEMA_V2
+            if (
+                _room_declares_external_mp3d_root(room_inputs.room)
+                and installed_runtime.mp3d_root is None
+            ):
+                raise MixedCaptureError(
+                    "installed MP3D capture requires an explicit --mp3d-root or "
+                    "AVENGINE_MP3D_ROOT"
+                )
+            if (
+                _room_declares_external_mp3d_root(room_inputs.room)
+                and getattr(installed_runtime, "pbr_asset_root", None) is None
+            ):
+                raise MixedCaptureError(
+                    "installed MP3D PBR actor capture requires an explicit "
+                    "pbr_asset_root"
+                )
+            if research_capture_schema != MIXED_CAPTURE_INSTALLED_SCHEMA_V2:
+                raise MixedCaptureError(
+                    "installed MP3D capture must use "
+                    f"{MIXED_CAPTURE_INSTALLED_SCHEMA_V2}"
+                )
+        output.mkdir(parents=True)
         human_package = prepare_rocketbox_habitat_runtime(
             human_runtime_glb_path, output / "runtime" / "human"
         )
-        room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
         if require_legacy_camera:
             _validate_legacy_camera(room_inputs)
         m2_inputs = (
@@ -1034,24 +1362,53 @@ def capture_human_beagle_paths(
                 key: value.sample_count for key, value in beagle_actions.items()
             },
         )
-        runtime = discover_runtime_root(runtime_root)
-        missing = [
-            record
-            for record in _resolved_assets(room_inputs, runtime)
-            if not record["exists"]
-        ]
-        if missing:
-            raise MixedCaptureError("validated legacy room has missing runtime assets")
+        if installed_runtime is None:
+            runtime = discover_runtime_root(
+                legacy_runtime_root
+                if legacy_runtime_root is not None
+                else runtime_root
+            )
+            missing = [
+                record
+                for record in _resolved_assets(room_inputs, runtime)
+                if not record["exists"]
+            ]
+            if missing:
+                raise MixedCaptureError("validated legacy room has missing runtime assets")
 
-        # The pinned Habitat build requires numpy-quaternion before habitat_sim.
-        import quaternion as qt
+            # Legacy callers retain the historical checkout-only branch until
+            # their own writer slice is migrated.
+            import quaternion as qt
 
-        import habitat_sim
-        import magnum as mn
+            import habitat_sim
+            import magnum as mn
 
-        configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
-            _make_configuration(room_inputs, runtime, output / "scene_scratch")
-        )
+            configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
+                _make_configuration(room_inputs, runtime, output / "scene_scratch")
+            )
+        else:
+            missing = [
+                record
+                for record in _resolved_assets(
+                    room_inputs, None, mp3d_root=installed_runtime.mp3d_root
+                )
+                if not record["exists"]
+            ]
+            if missing:
+                raise MixedCaptureError("validated MP3D room has missing external assets")
+            qt = installed_runtime.quaternion
+            habitat_sim = installed_runtime.habitat_sim
+            mn = installed_runtime.magnum
+            configuration, modality_to_uuid, _listener_uuid, resolved_scene = (
+                _make_configuration(
+                    room_inputs,
+                    None,
+                    output / "scene_scratch",
+                    mp3d_root=installed_runtime.mp3d_root,
+                    include_audio_sensor=False,
+                    physics_config_path=installed_runtime.physics_config_path,
+                )
+            )
         configuration.sim_cfg.enable_hbao = True
         if not bool(configuration.sim_cfg.enable_hbao):
             raise MixedCaptureError("M5.1 HBAO could not be enabled in configuration")
@@ -1088,6 +1445,7 @@ def capture_human_beagle_paths(
 
         review_visual_profile_evidence: Mapping[str, Any] | None = None
         review_configuration_evidence: Mapping[str, Any] | None = None
+        pbr_ibl_preparation: Mapping[str, Any] | None = None
         if review_configuration_hook is not None:
             configured = review_configuration_hook(
                 configuration=configuration,
@@ -1098,6 +1456,16 @@ def capture_human_beagle_paths(
                     "review configuration hook did not return pass evidence"
                 )
             review_configuration_evidence = dict(configured)
+        installed_external_ibl = (
+            installed_runtime is not None
+            and _room_declares_external_mp3d_root(room_inputs.room)
+        )
+        if installed_external_ibl:
+            pbr_ibl_preparation = _prepare_m5_1_installed_pbr_ibl(
+                configuration,
+                installed_runtime=installed_runtime,
+                habitat_sim=habitat_sim,
+            )
         with habitat_sim.Simulator(configuration) as simulator:
             navmesh_path = resolved_scene.get("navmesh")
             if navmesh_path is not None and Path(navmesh_path).is_file():
@@ -1125,7 +1493,27 @@ def capture_human_beagle_paths(
             rendering_evidence = _bind_m5_1_scene_lighting(
                 simulator,
                 configuration,
+                require_zero_direct_lights=installed_external_ibl,
             )
+            if installed_external_ibl:
+                pbr_ibl_readback = _readback_m5_1_pbr_ibl(
+                    simulator.metadata_mediator,
+                    config_path=(
+                        installed_runtime.prefix
+                        / "config"
+                        / PBR_CONFIG_FILENAME
+                    ).resolve(),
+                    asset_root=installed_runtime.pbr_asset_root,
+                    phase="after_simulator",
+                )
+                rendering_evidence["pbr_ibl"] = {
+                    "status": "pass",
+                    "preparation": dict(pbr_ibl_preparation or {}),
+                    "simulator_readback": pbr_ibl_readback,
+                    "actual_direct_light_count": 0,
+                    "direct_light_workaround_used": False,
+                    "actor_shader_type": M5_1_ACTOR_SHADER_TYPE,
+                }
             if review_scene_readback_hook is not None:
                 if review_visual_profile_evidence is None:
                     raise MixedCaptureError(
@@ -1611,6 +1999,26 @@ def capture_human_beagle_paths(
                 f"{secondary_record_key}_validated_source_request_sha256": sha256_file(
                     beagle_m2_request_path
                 ),
+                **(
+                    {
+                        "installed_habitat_runtime": {
+                            "kind": "installed_prefix",
+                            "prefix": str(installed_runtime.prefix),
+                            "mp3d_root": str(installed_runtime.mp3d_root),
+                            "pbr_asset_root": str(
+                                installed_runtime.pbr_asset_root
+                            ),
+                            "magnum_python_site": str(
+                                installed_runtime.magnum_python_site
+                            ),
+                            "physics_config_path": str(
+                                installed_runtime.physics_config_path
+                            ),
+                        }
+                    }
+                    if installed_runtime is not None
+                    else {}
+                ),
             },
             "readback": {
                 "maximum_errors": maximum_errors,
@@ -1695,7 +2103,7 @@ def capture_legacy_route(
         human_root_path_m=human_path,
         beagle_root_path_m=beagle_path,
         output_dir=output_dir,
-        runtime_root=runtime_root,
+        legacy_runtime_root=runtime_root,
         route_provenance=provenance,
         require_legacy_camera=True,
     )
@@ -1709,6 +2117,7 @@ __all__ = [
     "LOCOMOTION_POLICY_ID",
     "LOCOMOTION_WALK_ENTER_SPEED_M_S",
     "MIXED_CAPTURE_SCHEMA",
+    "MIXED_CAPTURE_INSTALLED_SCHEMA_V2",
     "LocomotionFrameState",
     "MixedCaptureError",
     "MixedCaptureResult",

@@ -708,7 +708,30 @@ def test_assembler_runs_complete_producer_contract_for_valid_ordinal_two(
     )
 
 
-def test_real_cli_subprocess_assembles_after_full_l9_validation_without_repo_pythonpath(
+def test_raw_cli_subprocess_bootstraps_repo_src_without_pythonpath(
+    tmp_path: Path,
+) -> None:
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPOSITORY / "tools/m2/assemble_variant_package.py"),
+            "--help",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+
+
+def test_real_cli_subprocess_assembles_after_full_l9_validation_with_startup_hook(
     tmp_path: Path,
 ) -> None:
     fixture = _fixture(tmp_path)
@@ -777,7 +800,15 @@ def test_real_cli_subprocess_assembles_after_full_l9_validation_without_repo_pyt
     (hook_directory / "sitecustomize.py").write_text(
         """from __future__ import annotations
 import json
+import sys
 from pathlib import Path
+
+SOURCE_ROOT = Path("""
+        + repr(str(REPOSITORY / "src"))
+        + """)
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
 import avengine.m2.appearance_realization as appearance_realization
 import avengine.m2.contracts as contracts
 import avengine.m2.variant_package as variant_package

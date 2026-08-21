@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass
 import hashlib
+import importlib
+import json
 import math
 import os
-from pathlib import Path
 import resource
+import shutil
+import sys
 import tempfile
 import time
-from typing import Any, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -21,14 +26,19 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
+from avengine.current_installed_runtime import (
+    is_current_installed_runtime_identity,
+)
 from avengine.m3.runtime import (
     CompiledAcousticScene,
+    RUNTIME_MODE_CURRENT_INSTALLED,
     RuntimeContractError,
     _native_configuration,
     _upload_report,
     _verify_upload_report,
     load_habitat_runtime,
 )
+from avengine.m3.rlr_material_import import _validate_rlr_document
 from avengine.m4.runtime import (
     BINAURAL_LAYOUT_ID,
     FOA_LAYOUT_ID,
@@ -41,15 +51,17 @@ from avengine.m6x.room_feasibility import (
     SOURCE_SLOTS,
     rir_acoustic_state_sha256,
 )
+from avengine.security.path_policy import (
+    WorkspacePathPolicy,
+    atomic_publish_directory,
+)
 
 
 RIR_CACHE_REQUEST_SCHEMA = "avengine_rlr_rir_cache_request_v1"
 RIR_CACHE_INDEX_SCHEMA = "avengine_rlr_rir_cache_index_v1"
 RIR_CACHE_RECEIPT_SCHEMA = "avengine_rlr_rir_cache_receipt_v1"
 RIR_CACHE_TIMING_SCHEMA = "avengine_rlr_rir_cache_timing_v1"
-RIR_CACHE_ACOUSTIC_SELECTION_INPUT_SCHEMA = (
-    "avengine_rir_cache_acoustic_selection_v1"
-)
+RIR_CACHE_ACOUSTIC_SELECTION_INPUT_SCHEMA = "avengine_rir_cache_acoustic_selection_v1"
 RIR_CACHE_ACOUSTIC_SELECTION_BINDING_SCHEMA = (
     "avengine_rir_cache_acoustic_selection_binding_v1"
 )
@@ -57,6 +69,9 @@ RIR_CACHE_ACOUSTIC_SELECTION_SIDECAR_SCHEMA = (
     "avengine_rir_cache_acoustic_selection_sidecar_v1"
 )
 RIR_CACHE_ACOUSTIC_SELECTION_NAME = "acoustic_selection.json"
+SEMANTIC_RIR_CACHE_REQUEST_SCHEMA = "avengine_semantic_rir_cache_request_v1"
+SEMANTIC_RIR_CACHE_INDEX_SCHEMA = "avengine_semantic_rir_cache_index_v1"
+SEMANTIC_RIR_CACHE_RECEIPT_SCHEMA = "avengine_semantic_rir_cache_receipt_v1"
 
 
 class RIRCacheError(RuntimeContractError):
@@ -83,6 +98,20 @@ class RIRCacheResult:
 
 
 @dataclass(frozen=True)
+class SemanticAcousticScene:
+    """Decoded native scene selected by paths and semantic structure only."""
+
+    manifest_path: Path
+    package_id: str
+    material_database_bytes: bytes
+    material_categories: tuple[str, ...]
+    material_name_by_category: Mapping[str, str]
+    material_index_by_category: Mapping[str, int]
+    objects: tuple[Mapping[str, Any], ...]
+    triangle_count_by_material: Mapping[str, int]
+
+
+@dataclass(frozen=True)
 class CachedRIREpisode:
     """One episode's source-slot RIR grid reopened from a retained cache."""
 
@@ -96,6 +125,49 @@ class CachedRIREpisode:
     layout_id: str
     channel_labels: tuple[str, ...]
     evidence: Mapping[str, Any]
+
+
+def _native_runtime_loader_kwargs(
+    *,
+    runtime_prefix: str | Path | None,
+    magnum_python_site: str | Path | None,
+    rlr_sdk_root: str | Path | None,
+    require_current: bool,
+) -> dict[str, str | Path]:
+    """Select legacy defaults or one complete explicit current runtime.
+
+    Runtime locations are loader inputs, not cache-request identity fields.
+    Rejecting a partial trio here keeps native import, context construction,
+    and output creation behind one unambiguous runtime selection.
+    """
+
+    values = {
+        "runtime_prefix": runtime_prefix,
+        "magnum_python_site": magnum_python_site,
+        "rlr_sdk_root": rlr_sdk_root,
+    }
+    provided = {
+        name
+        for name, value in values.items()
+        if value is not None and str(value).strip()
+    }
+    if provided and len(provided) != len(values):
+        missing = ", ".join(name for name in values if name not in provided)
+        raise RIRCacheError(
+            "current-installed RIR runtime inputs must be supplied together; "
+            f"missing {missing}"
+        )
+    if require_current and len(provided) != len(values):
+        raise RIRCacheError(
+            "semantic native RIR rendering requires explicit runtime_prefix, "
+            "magnum_python_site, and rlr_sdk_root"
+        )
+    if len(provided) != len(values):
+        return {}
+    return {
+        "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+        **{name: value for name, value in values.items() if value is not None},
+    }
 
 
 def _finite_vector(value: Any, length: int, *, owner: str) -> tuple[float, ...]:
@@ -194,7 +266,11 @@ def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...
         )
         raw_listener = raw.get("listener_position_m")
         raw_orientation = raw.get("listener_orientation_wxyz")
-        if raw_listener is None and raw_orientation is None and fixed_listener is not None:
+        if (
+            raw_listener is None
+            and raw_orientation is None
+            and fixed_listener is not None
+        ):
             listener = fixed_listener
             orientation = fixed_orientation
         elif raw_listener is None or raw_orientation is None:
@@ -234,9 +310,7 @@ def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...
                 f"RIR job {job_id} acoustic-state SHA-256 differs from its pose"
             )
         if not legacy_fixed and declared_state_sha256 is None:
-            raise RIRCacheError(
-                f"RIR job {job_id} lacks an acoustic-state SHA-256"
-            )
+            raise RIRCacheError(f"RIR job {job_id} lacks an acoustic-state SHA-256")
         uses = raw.get("uses")
         if not isinstance(uses, list) or not uses:
             raise RIRCacheError(f"RIR job {job_id} has no uses")
@@ -279,6 +353,222 @@ def validate_rir_job_plan(value: Mapping[str, Any]) -> tuple[dict[str, Any], ...
     return tuple(jobs)
 
 
+def validate_semantic_rir_job_plan(
+    value: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    """Validate and normalize one complete full75 semantic RIR plan."""
+
+    if not isinstance(value, Mapping) or value.get("schema") != RIR_JOB_PLAN_SCHEMA:
+        raise RIRCacheError(f"semantic RIR plan schema must be {RIR_JOB_PLAN_SCHEMA}")
+    if value.get("status") != "planned_not_run":
+        raise RIRCacheError("semantic RIR plan must have status planned_not_run")
+    pose_mode = value.get("listener_pose_mode")
+    if pose_mode not in {"fixed", "per_episode_frame"}:
+        raise RIRCacheError("semantic RIR listener pose mode is invalid")
+    base_fields = {
+        "schema",
+        "status",
+        "listener_pose_mode",
+        "cache_key_fields",
+        "jobs",
+        "unique_rir_job_count",
+        "stride_frames",
+        "requested_pair_state_count",
+    }
+    full_fields = {
+        "claim_boundary",
+        "producer_backend",
+        "cache_artifact",
+        "source_acoustic_profile",
+        "slot_identity_affects_cache_key",
+        "dry_audio_independent",
+        "unique_listener_pose_count",
+        "cache_reuse_count",
+    }
+    pose_fields = (
+        {"listener_position_m", "listener_orientation_wxyz"}
+        if pose_mode == "fixed"
+        else set()
+    )
+    observed_fields = frozenset(value)
+    minimal_shape = base_fields | pose_fields
+    full_shape = minimal_shape | full_fields
+    if observed_fields not in {frozenset(minimal_shape), frozenset(full_shape)}:
+        raise RIRCacheError(
+            "semantic RIR plan fields must be the minimal or full planning shape"
+        )
+    is_full_shape = observed_fields == full_shape
+    fixed_listener: tuple[float, ...] | None = None
+    fixed_orientation: tuple[float, ...] | None = None
+    if pose_mode == "fixed":
+        fixed_listener = _finite_vector(
+            value["listener_position_m"], 3, owner="listener position"
+        )
+        fixed_orientation = _unit_orientation(
+            value["listener_orientation_wxyz"], owner="listener orientation"
+        )
+    if value.get("cache_key_fields") != [
+        "source_position_m",
+        "listener_position_m",
+        "listener_orientation_wxyz",
+    ]:
+        raise RIRCacheError("semantic RIR plan cache key fields are invalid")
+    raw_jobs = value.get("jobs")
+    if not isinstance(raw_jobs, list) or not raw_jobs:
+        raise RIRCacheError("semantic RIR plan jobs must be nonempty")
+    jobs: list[dict[str, Any]] = []
+    ids: set[str] = set()
+    states: set[tuple[float, ...]] = set()
+    listener_states: set[tuple[float, ...]] = set()
+    uses_seen: set[tuple[str, str, int]] = set()
+    for ordinal, raw in enumerate(raw_jobs):
+        if not isinstance(raw, Mapping):
+            raise RIRCacheError(f"semantic RIR job {ordinal} is not an object")
+        base_job_fields = {"job_id", "source_position_m", "uses"}
+        pose_job_fields = {"listener_position_m", "listener_orientation_wxyz"}
+        allowed_job_shapes = {
+            frozenset(base_job_fields | pose_job_fields),
+            frozenset(base_job_fields | pose_job_fields | {"acoustic_state_sha256"}),
+        }
+        if pose_mode == "fixed":
+            allowed_job_shapes |= {
+                frozenset(base_job_fields),
+                frozenset(base_job_fields | {"acoustic_state_sha256"}),
+            }
+        if frozenset(raw) not in allowed_job_shapes:
+            raise RIRCacheError(f"semantic RIR job {ordinal} fields are invalid")
+        state_id = raw.get("acoustic_state_sha256")
+        if state_id is not None and (
+            not isinstance(state_id, str)
+            or len(state_id) != 64
+            or any(character not in "0123456789abcdef" for character in state_id)
+        ):
+            raise RIRCacheError("semantic RIR acoustic state identity is invalid")
+        job_id = raw.get("job_id")
+        if not isinstance(job_id, str) or not job_id or job_id in ids:
+            raise RIRCacheError("semantic RIR job identity is invalid")
+        source = _finite_vector(
+            raw.get("source_position_m"), 3, owner=f"semantic job {job_id} source"
+        )
+        has_listener = "listener_position_m" in raw
+        has_orientation = "listener_orientation_wxyz" in raw
+        if has_listener != has_orientation:
+            raise RIRCacheError(f"semantic job {job_id} listener pose is incomplete")
+        if not has_listener:
+            if fixed_listener is None or fixed_orientation is None:
+                raise RIRCacheError(f"semantic job {job_id} listener pose is missing")
+            listener = fixed_listener
+            orientation = fixed_orientation
+        else:
+            listener = _finite_vector(
+                raw["listener_position_m"],
+                3,
+                owner=f"semantic job {job_id} listener",
+            )
+            orientation = _unit_orientation(
+                raw["listener_orientation_wxyz"],
+                owner=f"semantic job {job_id} orientation",
+            )
+        if pose_mode == "fixed" and (
+            listener != fixed_listener or orientation != fixed_orientation
+        ):
+            raise RIRCacheError("semantic fixed-listener plan contains pose drift")
+        state = (*source, *listener, *orientation)
+        if state in states:
+            raise RIRCacheError("semantic RIR plan contains duplicate pose states")
+        raw_uses = raw.get("uses")
+        if not isinstance(raw_uses, list) or not raw_uses:
+            raise RIRCacheError(f"semantic job {job_id} uses are missing")
+        uses: list[dict[str, Any]] = []
+        for use in raw_uses:
+            if (
+                not isinstance(use, Mapping)
+                or set(use) != {"episode_id", "source_slot_id", "frame_index"}
+                or use.get("source_slot_id") not in SOURCE_SLOTS
+                or not isinstance(use.get("episode_id"), str)
+                or not use["episode_id"]
+                or isinstance(use.get("frame_index"), bool)
+                or not isinstance(use.get("frame_index"), int)
+                or use["frame_index"] < 0
+            ):
+                raise RIRCacheError(f"semantic job {job_id} use is invalid")
+            key = (
+                str(use["episode_id"]),
+                str(use["source_slot_id"]),
+                int(use["frame_index"]),
+            )
+            if key in uses_seen:
+                raise RIRCacheError("semantic RIR plan maps one use more than once")
+            uses_seen.add(key)
+            uses.append(dict(use))
+        jobs.append(
+            {
+                "job_id": job_id,
+                "source_position_m": list(source),
+                "listener_position_m": list(listener),
+                "listener_orientation_wxyz": list(orientation),
+                "uses": uses,
+            }
+        )
+        ids.add(job_id)
+        states.add(state)
+        listener_states.add((*listener, *orientation))
+    unique_job_count = value.get("unique_rir_job_count")
+    stride_frames = value.get("stride_frames")
+    requested_count = value.get("requested_pair_state_count")
+    if (
+        isinstance(unique_job_count, bool)
+        or not isinstance(unique_job_count, int)
+        or unique_job_count != len(jobs)
+    ):
+        raise RIRCacheError("semantic RIR plan unique job count is invalid")
+    if (
+        isinstance(stride_frames, bool)
+        or not isinstance(stride_frames, int)
+        or stride_frames != 1
+    ):
+        raise RIRCacheError("semantic RIR plan stride must be one frame")
+    episode_ids = {episode_id for episode_id, _, _ in uses_seen}
+    if len(episode_ids) != 1:
+        raise RIRCacheError("semantic RIR plan must contain exactly one episode")
+    episode_id = next(iter(episode_ids))
+    expected_uses = {
+        (episode_id, source_slot_id, frame_index)
+        for source_slot_id in SOURCE_SLOTS
+        for frame_index in range(75)
+    }
+    if uses_seen != expected_uses:
+        raise RIRCacheError(
+            "semantic RIR plan must cover source1/source2 frames 0 through 74 exactly once"
+        )
+    if (
+        isinstance(requested_count, bool)
+        or not isinstance(requested_count, int)
+        or requested_count != len(expected_uses)
+    ):
+        raise RIRCacheError("semantic RIR plan requested use count is invalid")
+    if is_full_shape:
+        unique_listener_count = value.get("unique_listener_pose_count")
+        reuse_count = value.get("cache_reuse_count")
+        if (
+            not isinstance(value.get("claim_boundary"), str)
+            or not value["claim_boundary"]
+            or value.get("producer_backend") != "RLR Audio Propagation"
+            or value.get("cache_artifact") != "room impulse response (RIR)"
+            or value.get("source_acoustic_profile") != "omnidirectional_point_source_v1"
+            or value.get("slot_identity_affects_cache_key") is not False
+            or value.get("dry_audio_independent") is not True
+            or isinstance(unique_listener_count, bool)
+            or not isinstance(unique_listener_count, int)
+            or unique_listener_count != len(listener_states)
+            or isinstance(reuse_count, bool)
+            or not isinstance(reuse_count, int)
+            or reuse_count != len(expected_uses) - len(jobs)
+        ):
+            raise RIRCacheError("semantic RIR full planning metadata is invalid")
+    return tuple(jobs)
+
+
 def _rss_bytes() -> int:
     return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024
 
@@ -300,6 +590,9 @@ class _NativeRIRBatchRenderer:
         hrtf_file_path: str,
         source_radius_m: float,
         listener_radius_m: float,
+        runtime_prefix: str | Path | None = None,
+        magnum_python_site: str | Path | None = None,
+        rlr_sdk_root: str | Path | None = None,
     ) -> None:
         if not isinstance(scene, CompiledAcousticScene):
             raise RIRCacheError("scene must be a CompiledAcousticScene")
@@ -334,7 +627,15 @@ class _NativeRIRBatchRenderer:
 
         setup_wall_start = time.perf_counter()
         setup_cpu_start = time.process_time()
-        habitat_module, runtime_report = load_habitat_runtime()
+        runtime_loader_kwargs = _native_runtime_loader_kwargs(
+            runtime_prefix=runtime_prefix,
+            magnum_python_site=magnum_python_site,
+            rlr_sdk_root=rlr_sdk_root,
+            require_current=False,
+        )
+        habitat_module, runtime_report = load_habitat_runtime(
+            **runtime_loader_kwargs
+        )
         native_configuration, config_readback = _native_configuration(
             habitat_module, self.selected
         )
@@ -411,9 +712,7 @@ class _NativeRIRBatchRenderer:
         requested_listener = (
             self.current_listener_position_m
             if listener_position_m is None
-            else _finite_vector(
-                listener_position_m, 3, owner="batch listener position"
-            )
+            else _finite_vector(listener_position_m, 3, owner="batch listener position")
         )
         requested_orientation = (
             self.current_listener_orientation_wxyz
@@ -499,15 +798,13 @@ class _NativeRIRBatchRenderer:
         if len(listener_receipts) != 1:
             raise RIRCacheError("native listener receipt count differs from request")
         listener_receipt = listener_receipts[0]
-        expected_listener = np.asarray(
-            requested_listener, dtype=np.float32
-        ).astype(np.float64)
+        expected_listener = np.asarray(requested_listener, dtype=np.float32).astype(
+            np.float64
+        )
         expected_orientation = np.asarray(
             requested_orientation, dtype=np.float32
         ).astype(np.float64)
-        observed_listener = np.asarray(
-            listener_receipt.position, dtype=np.float64
-        )
+        observed_listener = np.asarray(listener_receipt.position, dtype=np.float64)
         observed_orientation = np.asarray(
             listener_receipt.orientation_wxyz, dtype=np.float64
         )
@@ -545,6 +842,897 @@ def _atomic_savez(path: Path, *, compressed: bool, arrays: Mapping[str, Any]) ->
     os.rename(temporary, path)
 
 
+def _read_semantic_shard(path: Path) -> dict[str, Any]:
+    """Decode one structural/sample shard without file-evidence fields."""
+
+    required = {
+        "job_indices",
+        "job_ids",
+        "source_positions_m",
+        "listener_positions_m",
+        "listener_orientations_wxyz",
+        "lengths",
+        "samples",
+        "sample_rate_hz",
+        "layout_id",
+        "channel_labels",
+        "simulate_wall_seconds",
+        "simulate_process_cpu_seconds",
+        "indirect_ray_efficiency",
+    }
+    with np.load(path, allow_pickle=False) as value:
+        if set(value.files) != required:
+            raise RIRCacheError(
+                f"semantic RIR shard fields differ from contract: {path}"
+            )
+        result = {name: np.asarray(value[name]).copy() for name in required}
+    job_indices = result["job_indices"]
+    count = job_indices.shape[0] if job_indices.ndim == 1 else 0
+    samples = result["samples"]
+    lengths = result["lengths"]
+    job_ids = result["job_ids"]
+    labels = result["channel_labels"]
+    scalar_unicode = result["layout_id"]
+    exact_dtypes = (
+        result["job_indices"].dtype == np.dtype("<u4")
+        and lengths.dtype == np.dtype("<u4")
+        and result["sample_rate_hz"].dtype == np.dtype("<u4")
+        and samples.dtype == np.dtype("<f4")
+        and result["source_positions_m"].dtype == np.dtype("<f8")
+        and result["listener_positions_m"].dtype == np.dtype("<f8")
+        and result["listener_orientations_wxyz"].dtype == np.dtype("<f8")
+        and result["simulate_wall_seconds"].dtype == np.dtype("<f8")
+        and result["simulate_process_cpu_seconds"].dtype == np.dtype("<f8")
+        and result["indirect_ray_efficiency"].dtype == np.dtype("<f8")
+        and job_ids.dtype.kind == "U"
+        and labels.dtype.kind == "U"
+        and scalar_unicode.dtype.kind == "U"
+    )
+    if (
+        count < 1
+        or not exact_dtypes
+        or job_indices.shape != (count,)
+        or any(not value for value in job_ids.tolist())
+        or len(set(job_ids.tolist())) != count
+        or samples.ndim != 3
+        or samples.shape[0] != count
+        or samples.shape[1] != 2
+        or job_ids.shape != (count,)
+        or result["source_positions_m"].shape != (count, 3)
+        or result["listener_positions_m"].shape != (count, 3)
+        or result["listener_orientations_wxyz"].shape != (count, 4)
+        or lengths.shape != (count,)
+        or result["sample_rate_hz"].shape != ()
+        or int(result["sample_rate_hz"].item()) < 1
+        or scalar_unicode.shape != ()
+        or not str(scalar_unicode.item())
+        or labels.shape != (2,)
+        or tuple(labels.tolist()) != ("left", "right")
+        or any(
+            result[name].shape != ()
+            for name in (
+                "simulate_wall_seconds",
+                "simulate_process_cpu_seconds",
+                "indirect_ray_efficiency",
+            )
+        )
+        or not all(array.flags.c_contiguous for array in result.values())
+        or not np.all(np.isfinite(samples))
+        or not np.all(np.isfinite(result["source_positions_m"]))
+        or not np.all(np.isfinite(result["listener_positions_m"]))
+        or not np.all(np.isfinite(result["listener_orientations_wxyz"]))
+        or not math.isfinite(float(result["simulate_wall_seconds"]))
+        or float(result["simulate_wall_seconds"]) < 0
+        or not math.isfinite(float(result["simulate_process_cpu_seconds"]))
+        or float(result["simulate_process_cpu_seconds"]) < 0
+        or not math.isfinite(float(result["indirect_ray_efficiency"]))
+        or not 0 <= float(result["indirect_ray_efficiency"]) <= 1
+    ):
+        raise RIRCacheError(f"semantic RIR shard arrays are inconsistent: {path}")
+    orientation_norms = np.linalg.norm(result["listener_orientations_wxyz"], axis=1)
+    if not np.allclose(orientation_norms, 1.0, rtol=0.0, atol=1.0e-6):
+        raise RIRCacheError(
+            f"semantic RIR shard orientations are not unit normalized: {path}"
+        )
+    for row, raw_length in enumerate(lengths):
+        length = int(raw_length)
+        if (
+            length < 2
+            or length > samples.shape[2]
+            or not np.any(samples[row, :, :length])
+            or np.any(samples[row, :, length:])
+        ):
+            raise RIRCacheError(f"semantic RIR shard samples are invalid: {path}")
+    return result
+
+
+def _verify_semantic_shard_request(
+    retained: Mapping[str, np.ndarray],
+    *,
+    path: Path,
+    expected_job_indices: np.ndarray,
+    expected_jobs: Sequence[Mapping[str, Any]],
+    expected_positions: Sequence[Sequence[float]],
+    expected_listener_positions: Sequence[Sequence[float]],
+    expected_listener_orientations: Sequence[Sequence[float]],
+    sample_rate_hz: int,
+    layout_id: str,
+    channel_labels: Sequence[str],
+) -> None:
+    if (
+        not np.array_equal(retained["job_indices"], expected_job_indices)
+        or not np.array_equal(
+            retained["job_ids"],
+            np.asarray([str(job["job_id"]) for job in expected_jobs]),
+        )
+        or not np.array_equal(
+            retained["source_positions_m"],
+            np.asarray(expected_positions, dtype="<f8"),
+        )
+        or not np.array_equal(
+            retained["listener_positions_m"],
+            np.asarray(expected_listener_positions, dtype="<f8"),
+        )
+        or not np.array_equal(
+            retained["listener_orientations_wxyz"],
+            np.asarray(expected_listener_orientations, dtype="<f8"),
+        )
+        or retained["sample_rate_hz"].shape != ()
+        or int(retained["sample_rate_hz"].item()) != sample_rate_hz
+        or retained["layout_id"].shape != ()
+        or str(retained["layout_id"].item()) != layout_id
+        or not np.array_equal(
+            retained["channel_labels"], np.asarray(tuple(channel_labels))
+        )
+    ):
+        raise RIRCacheError(f"semantic retained shard differs from request: {path}")
+    for field in ("simulate_wall_seconds", "simulate_process_cpu_seconds"):
+        value = retained[field]
+        if value.shape != () or not math.isfinite(float(value)) or float(value) < 0:
+            raise RIRCacheError(f"semantic retained shard timing is invalid: {path}")
+    efficiency = retained["indirect_ray_efficiency"]
+    if (
+        efficiency.shape != ()
+        or not math.isfinite(float(efficiency))
+        or not 0 <= float(efficiency) <= 1
+    ):
+        raise RIRCacheError(f"semantic retained shard efficiency is invalid: {path}")
+
+
+def _semantic_selection_binding(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {
+            "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+            "selection_mode": "explicit_legacy_unbound",
+            "registry_selection_applied": False,
+            "room_ref": None,
+            "profile_ref": None,
+            "binding_id": None,
+        }
+    if not isinstance(value, Mapping):
+        raise RIRCacheError("semantic acoustic selection must be an object")
+    mode = value.get("selection_mode")
+    room_ref = value.get("room_ref")
+    profile_ref = value.get("profile_ref")
+    binding_id = value.get("binding_id")
+    applied = value.get("registry_selection_applied")
+    if mode in {"registry", "registry_with_verified_equivalent_overrides"}:
+        if (
+            applied is not True
+            or not isinstance(room_ref, Mapping)
+            or set(room_ref) != {"registry_id", "room_id", "revision"}
+            or not all(isinstance(item, str) and item for item in room_ref.values())
+            or not isinstance(profile_ref, Mapping)
+            or set(profile_ref) != {"profile_id", "revision"}
+            or not all(isinstance(item, str) and item for item in profile_ref.values())
+            or not isinstance(binding_id, str)
+            or not binding_id
+        ):
+            raise RIRCacheError("semantic registry acoustic selection is incomplete")
+    elif mode in {"explicit_legacy", "explicit_legacy_unbound"}:
+        if (
+            applied is not False
+            or room_ref is not None
+            or profile_ref is not None
+            or binding_id is not None
+        ):
+            raise RIRCacheError("semantic explicit acoustic selection is invalid")
+    else:
+        raise RIRCacheError("semantic acoustic selection mode is invalid")
+    return {
+        "schema": "avengine_rir_cache_acoustic_selection_binding_v1",
+        "selection_mode": mode,
+        "registry_selection_applied": applied,
+        "room_ref": deepcopy(room_ref),
+        "profile_ref": deepcopy(profile_ref),
+        "binding_id": binding_id,
+    }
+
+
+def _semantic_selected_path(root: Path, raw: Any, *, owner: str) -> Path:
+    """Select a declared regular input confined under its package root."""
+
+    if not isinstance(raw, str) or not raw:
+        raise RIRCacheError(f"{owner} path is missing")
+    relative = Path(raw)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise RIRCacheError(f"{owner} path must be package-relative and confined")
+    absolute_root = Path(os.path.abspath(root))
+    selected = absolute_root / relative
+    if _semantic_path_has_symlink_component(selected) or not selected.is_file():
+        raise RIRCacheError(f"{owner} must be a non-symlink regular file")
+    resolved_root = absolute_root.resolve(strict=True)
+    resolved = selected.resolve(strict=True)
+    if not resolved.is_relative_to(resolved_root):
+        raise RIRCacheError(f"{owner} escapes its selected package root")
+    return resolved
+
+
+def _semantic_path_has_symlink_component(path: Path) -> bool:
+    absolute = Path(os.path.abspath(path))
+    return any(candidate.is_symlink() for candidate in (absolute, *absolute.parents))
+
+
+def _semantic_regular_file(
+    path: Path, *, owner: str, absolute_required: bool = False
+) -> Path:
+    raw = Path(path)
+    if absolute_required and not raw.is_absolute():
+        raise RIRCacheError(f"{owner} must be an absolute regular file")
+    absolute = Path(os.path.abspath(raw))
+    if _semantic_path_has_symlink_component(absolute) or not absolute.is_file():
+        raise RIRCacheError(f"{owner} must be a non-symlink regular file")
+    return absolute.resolve(strict=True)
+
+
+def load_semantic_acoustic_scene(manifest_path: Path) -> SemanticAcousticScene:
+    """Load decoded scene structure while never computing file evidence."""
+
+    path = _semantic_regular_file(manifest_path, owner="semantic acoustic manifest")
+    root = path.parent
+    manifest = load_json(path)
+    if (
+        not isinstance(manifest, Mapping)
+        or manifest.get("schema") != "avengine_acoustic_scene_package_v1"
+        or manifest.get("package_mode") != "research_candidate"
+        or not isinstance(manifest.get("package_id"), str)
+        or not manifest["package_id"]
+    ):
+        raise RIRCacheError("semantic acoustic manifest contract is invalid")
+    arrays = manifest.get("arrays")
+    materials = manifest.get("materials")
+    geometry = manifest.get("geometry")
+    if not all(isinstance(item, Mapping) for item in (arrays, materials, geometry)):
+        raise RIRCacheError("semantic acoustic manifest structure is incomplete")
+
+    def array(name: str, dtype: str, shape_tail: tuple[int, ...]) -> np.ndarray:
+        record = arrays.get(name)
+        if (
+            not isinstance(record, Mapping)
+            or record.get("format") != "npy"
+            or record.get("dtype") != dtype
+            or record.get("memory_order") != "C"
+        ):
+            raise RIRCacheError(f"semantic acoustic {name} declaration is invalid")
+        selected = _semantic_selected_path(
+            root, record.get("path"), owner=f"semantic acoustic {name}"
+        )
+        try:
+            value = np.load(selected, allow_pickle=False)
+        except (OSError, ValueError) as exc:
+            raise RIRCacheError(f"semantic acoustic {name} is unreadable") from exc
+        declared_shape = record.get("shape")
+        if (
+            value.dtype != np.dtype(dtype)
+            or not value.flags.c_contiguous
+            or value.shape[1:] != shape_tail
+            or not isinstance(declared_shape, list)
+            or list(value.shape) != declared_shape
+        ):
+            raise RIRCacheError(f"semantic acoustic {name} array contract drift")
+        return np.array(value, dtype=dtype, order="C", copy=True)
+
+    vertices = array("vertices", "<f4", (3,))
+    triangles = array("triangles", "<u4", (3,))
+    material_ids = array("triangle_material_ids", "<u4", ())
+    if (
+        not np.all(np.isfinite(vertices))
+        or len(triangles) != len(material_ids)
+        or int(triangles.max(initial=0)) >= len(vertices)
+        or isinstance(geometry.get("vertex_count"), bool)
+        or not isinstance(geometry.get("vertex_count"), int)
+        or geometry.get("vertex_count") != len(vertices)
+        or isinstance(geometry.get("triangle_count"), bool)
+        or not isinstance(geometry.get("triangle_count"), int)
+        or geometry.get("triangle_count") != len(triangles)
+        or geometry.get("index_space") != "global_vertex_array"
+        or geometry.get("transform_policy") != "baked_to_canonical_world"
+    ):
+        raise RIRCacheError("semantic acoustic geometry contract drift")
+    category_record = materials.get("categories")
+    database_record = materials.get("rlr_database")
+    if not isinstance(category_record, Mapping) or not isinstance(
+        database_record, Mapping
+    ):
+        raise RIRCacheError("semantic acoustic material declarations are missing")
+    category_path = _semantic_selected_path(
+        root, category_record.get("path"), owner="semantic material categories"
+    )
+    database_path = _semantic_selected_path(
+        root, database_record.get("path"), owner="semantic material database"
+    )
+    categories_document = load_json(category_path)
+    try:
+        database_payload = database_path.read_bytes()
+        database = json.loads(database_payload)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RIRCacheError("semantic material database is unreadable") from exc
+    database_errors = _validate_rlr_document(database)
+    if database_errors:
+        raise RIRCacheError(
+            "semantic material database is invalid: " + "; ".join(database_errors)
+        )
+    if (
+        not isinstance(categories_document, Mapping)
+        or set(categories_document)
+        != {
+            "schema",
+            "mapping_id",
+            "room_id",
+            "mapping_source_kind",
+            "fallback_category",
+            "categories",
+        }
+        or categories_document.get("schema")
+        != "avengine_acoustic_material_categories_v1"
+        or categories_document.get("mapping_id") != materials.get("mapping_id")
+        or categories_document.get("mapping_source_kind")
+        != materials.get("mapping_source_kind")
+        or not isinstance(categories_document.get("room_id"), str)
+        or not categories_document["room_id"]
+        or categories_document.get("fallback_category") is not None
+    ):
+        raise RIRCacheError("semantic material category document is invalid")
+    raw_categories = categories_document["categories"]
+    database_materials = database.get("materials")
+    if (
+        not isinstance(raw_categories, list)
+        or not raw_categories
+        or materials.get("category_count") != len(raw_categories)
+        or not isinstance(database_materials, list)
+        or not database_materials
+    ):
+        raise RIRCacheError("semantic acoustic material structure is invalid")
+    categories: list[str] = []
+    material_names: dict[str, str] = {}
+    material_indices: dict[str, int] = {}
+    for index, category in enumerate(raw_categories):
+        category_fields = {
+            "category_name",
+            "fallback",
+            "human_override",
+            "mapping_confidence",
+            "mapping_source",
+            "material_id",
+            "material_key",
+            "randomized",
+            "rlr_match",
+            "rlr_material_name",
+            "source_material_name",
+        }
+        if (
+            not isinstance(category, Mapping)
+            or frozenset(category)
+            not in {
+                frozenset(category_fields),
+                frozenset(category_fields | {"rlr_label_normalization"}),
+            }
+            or isinstance(category.get("material_id"), bool)
+            or not isinstance(category.get("material_id"), int)
+            or category.get("material_id") != index
+            or not isinstance(category.get("category_name"), str)
+            or not category["category_name"]
+            or category.get("fallback") is not False
+            or not isinstance(category.get("rlr_material_name"), str)
+            or not category["rlr_material_name"]
+        ):
+            raise RIRCacheError("semantic acoustic material category is invalid")
+        normalization_present = "rlr_label_normalization" in category
+        normalization = category.get("rlr_label_normalization")
+        if normalization_present and (
+            not isinstance(normalization, Mapping)
+            or set(normalization)
+            != {
+                "policy",
+                "removed_exact_duplicates",
+                "runtime_label_count",
+                "source_label_count",
+            }
+            or normalization.get("policy")
+            != "stable_case_insensitive_exact_duplicate_removal_v1"
+            or isinstance(normalization.get("source_label_count"), bool)
+            or not isinstance(normalization.get("source_label_count"), int)
+            or normalization["source_label_count"] <= 0
+            or isinstance(normalization.get("runtime_label_count"), bool)
+            or not isinstance(normalization.get("runtime_label_count"), int)
+            or normalization["runtime_label_count"] <= 0
+            or not isinstance(normalization.get("removed_exact_duplicates"), list)
+            or any(
+                not isinstance(label, str) or not label
+                for label in normalization["removed_exact_duplicates"]
+            )
+        ):
+            raise RIRCacheError("semantic material label normalization is invalid")
+        name = str(category["category_name"])
+        matches = [
+            material_index
+            for material_index, item in enumerate(database_materials)
+            if isinstance(item, Mapping)
+            and name.casefold()
+            in {str(label).casefold() for label in item.get("labels", [])}
+        ]
+        if len(matches) != 1:
+            raise RIRCacheError("semantic material category mapping is ambiguous")
+        material = database_materials[matches[0]]
+        material_name = material.get("name")
+        normalization_drift = False
+        if normalization_present:
+            runtime_labels = material.get("labels")
+            runtime_label_identities = (
+                [label.casefold() for label in runtime_labels]
+                if isinstance(runtime_labels, list)
+                else []
+            )
+            removed_labels = normalization["removed_exact_duplicates"]
+            normalization_drift = (
+                normalization["runtime_label_count"] != len(runtime_label_identities)
+                or len(set(runtime_label_identities)) != len(runtime_label_identities)
+                or normalization["source_label_count"]
+                != len(runtime_label_identities) + len(removed_labels)
+                or any(
+                    label.casefold() not in set(runtime_label_identities)
+                    for label in removed_labels
+                )
+            )
+        if (
+            not isinstance(material_name, str)
+            or not material_name
+            or category["rlr_material_name"] != material_name
+            or normalization_drift
+        ):
+            raise RIRCacheError("semantic material label normalization drifted")
+        categories.append(name)
+        material_names[name] = material_name
+        material_indices[name] = matches[0]
+    if len(set(categories)) != len(categories):
+        raise RIRCacheError("semantic material categories are duplicated")
+    if {int(item) for item in np.unique(material_ids)} != set(range(len(categories))):
+        raise RIRCacheError("semantic material identifiers are not closed")
+    raw_objects = manifest.get("objects")
+    if not isinstance(raw_objects, list) or not raw_objects:
+        raise RIRCacheError("semantic acoustic objects are missing")
+    native_objects: list[dict[str, Any]] = []
+    object_ids: set[str] = set()
+    next_vertex = next_triangle = 0
+    for item in raw_objects:
+        if not isinstance(item, Mapping):
+            raise RIRCacheError("semantic acoustic object is invalid")
+        object_id = item.get("object_id")
+        if not isinstance(object_id, str) or not object_id or object_id in object_ids:
+            raise RIRCacheError("semantic acoustic object identity is invalid")
+        vertex_count = item.get("vertex_count")
+        triangle_count = item.get("triangle_count")
+        if (
+            isinstance(vertex_count, bool)
+            or not isinstance(vertex_count, int)
+            or isinstance(triangle_count, bool)
+            or not isinstance(triangle_count, int)
+            or isinstance(item.get("vertex_offset"), bool)
+            or not isinstance(item.get("vertex_offset"), int)
+            or item.get("vertex_offset") != next_vertex
+            or isinstance(item.get("triangle_offset"), bool)
+            or not isinstance(item.get("triangle_offset"), int)
+            or item.get("triangle_offset") != next_triangle
+            or vertex_count < 3
+            or triangle_count < 1
+        ):
+            raise RIRCacheError("semantic acoustic object ranges are invalid")
+        vertex_end = next_vertex + vertex_count
+        triangle_end = next_triangle + triangle_count
+        object_triangles = triangles[next_triangle:triangle_end].astype(
+            np.uint64, copy=False
+        )
+        if (
+            vertex_end > len(vertices)
+            or triangle_end > len(triangles)
+            or int(object_triangles.min(initial=next_vertex)) < next_vertex
+            or int(object_triangles.max(initial=next_vertex)) >= vertex_end
+        ):
+            raise RIRCacheError("semantic acoustic object escapes its array range")
+        native_objects.append(
+            {
+                "object_id": object_id,
+                "vertices": np.ascontiguousarray(vertices[next_vertex:vertex_end]),
+                "triangles": np.ascontiguousarray(
+                    object_triangles - next_vertex, dtype="<u4"
+                ),
+                "triangle_material_ids": np.ascontiguousarray(
+                    material_ids[next_triangle:triangle_end]
+                ),
+                "position": (0.0, 0.0, 0.0),
+                "orientation_wxyz": (1.0, 0.0, 0.0, 0.0),
+            }
+        )
+        object_ids.add(object_id)
+        next_vertex = vertex_end
+        next_triangle = triangle_end
+    if next_vertex != len(vertices) or next_triangle != len(triangles):
+        raise RIRCacheError("semantic acoustic object ranges do not cover arrays")
+    return SemanticAcousticScene(
+        manifest_path=path,
+        package_id=str(manifest["package_id"]),
+        material_database_bytes=database_payload,
+        material_categories=tuple(categories),
+        material_name_by_category=material_names,
+        material_index_by_category=material_indices,
+        objects=tuple(native_objects),
+        triangle_count_by_material={
+            name: int(np.count_nonzero(material_ids == index))
+            for index, name in enumerate(categories)
+        },
+    )
+
+
+def _load_semantic_habitat_runtime(
+    *,
+    runtime_prefix: str | Path | None,
+    magnum_python_site: str | Path | None,
+    rlr_sdk_root: str | Path | None,
+) -> tuple[Any, Any, dict[str, Any]]:
+    """Load one explicit installed Habitat/RLR runtime without file digests."""
+
+    runtime_loader_kwargs = _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=True,
+    )
+    try:
+        habitat_module, loader_report = load_habitat_runtime(
+            **runtime_loader_kwargs
+        )
+        quaternion_module = sys.modules.get("quaternion")
+        if quaternion_module is None:
+            raise ImportError("quaternion was not initialized by the runtime loader")
+        binding_module = importlib.import_module(
+            "habitat_sim._ext.habitat_sim_bindings"
+        )
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        raise RIRCacheError("semantic Habitat/RLR runtime is unavailable") from exc
+    required = (
+        "RLRContextConfiguration",
+        "RLRAcousticContext",
+        "RLRChannelLayoutType",
+    )
+    if (
+        getattr(habitat_module, "RLR_ADAPTER_ENABLED", None) is not True
+        or any(getattr(habitat_module, name, None) is None for name in required)
+        or any(getattr(binding_module, name, None) is None for name in required)
+        or any(
+            getattr(habitat_module, name) is not getattr(binding_module, name)
+            for name in required
+        )
+        or any(
+            getattr(getattr(habitat_module, name), "__module__", None)
+            != binding_module.__name__
+            for name in required
+        )
+    ):
+        raise RIRCacheError("semantic Habitat runtime lacks the required RLR API")
+
+    def regular_module_path(module: Any, *, owner: str) -> Path:
+        raw = Path(str(getattr(module, "__file__", "")))
+        return _semantic_regular_file(
+            raw, owner=f"{owner} module path", absolute_required=True
+        )
+
+    quaternion_path = regular_module_path(quaternion_module, owner="quaternion runtime")
+    habitat_path = regular_module_path(habitat_module, owner="Habitat runtime")
+    binding_path = regular_module_path(binding_module, owner="Habitat binding")
+    if binding_path.suffix != ".so":
+        raise RIRCacheError("semantic Habitat binding is not a compiled extension")
+    external_sdk = loader_report.get("external_rlr_sdk")
+    installed_runtime = loader_report.get("installed_habitat_runtime")
+    habitat_report = loader_report.get("habitat_sim_module")
+    quaternion_report = loader_report.get("quaternion_module")
+    if not all(
+        isinstance(value, Mapping)
+        for value in (
+            external_sdk,
+            installed_runtime,
+            habitat_report,
+            quaternion_report,
+        )
+    ):
+        raise RIRCacheError("semantic runtime loader report is incomplete")
+    assert isinstance(external_sdk, Mapping)
+    assert isinstance(installed_runtime, Mapping)
+    assert isinstance(habitat_report, Mapping)
+    assert isinstance(quaternion_report, Mapping)
+    library = _semantic_regular_file(
+        Path(str(external_sdk.get("library", ""))),
+        owner="RLR library path",
+        absolute_required=True,
+    )
+    habitat_spec = getattr(habitat_module, "__spec__", None)
+    binding_spec = getattr(binding_module, "__spec__", None)
+    binding_loader = getattr(binding_spec, "loader", None)
+    binding_get_filename = getattr(binding_loader, "get_filename", None)
+    if not callable(binding_get_filename):
+        raise RIRCacheError("semantic Habitat binding loader lacks file resolution")
+    try:
+        loader_binding_path = _semantic_regular_file(
+            Path(str(binding_get_filename(binding_module.__name__))),
+            owner="Habitat binding loader path",
+            absolute_required=True,
+        )
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        raise RIRCacheError("semantic Habitat binding loader path is invalid") from exc
+    habitat_search = getattr(habitat_spec, "submodule_search_locations", None)
+    habitat_roots = (
+        tuple(Path(os.path.abspath(str(location))) for location in habitat_search)
+        if habitat_search
+        else ()
+    )
+    if (
+        getattr(habitat_spec, "name", None) != "habitat_sim"
+        or Path(str(getattr(habitat_spec, "origin", ""))) != habitat_path
+        or habitat_path.parent not in habitat_roots
+        or not any(binding_path.is_relative_to(root) for root in habitat_roots)
+        or any(
+            _semantic_path_has_symlink_component(root)
+            or not root.is_absolute()
+            or not root.is_dir()
+            for root in habitat_roots
+        )
+        or getattr(binding_spec, "name", None)
+        != "habitat_sim._ext.habitat_sim_bindings"
+        or Path(str(getattr(binding_spec, "origin", ""))) != binding_path
+        or getattr(binding_spec, "parent", None) != "habitat_sim._ext"
+        or loader_binding_path != binding_path
+    ):
+        raise RIRCacheError("semantic Habitat import specifications are invalid")
+    runtime_identity = loader_report.get("runtime_identity")
+    if (
+        loader_report.get("runtime_mode") != RUNTIME_MODE_CURRENT_INSTALLED
+        or not is_current_installed_runtime_identity(runtime_identity)
+        or habitat_report.get("path") != str(habitat_path)
+        or quaternion_report.get("path") != str(quaternion_path)
+        or installed_runtime.get("binding_path") != str(binding_path)
+        or external_sdk.get("library") != str(library)
+        or not isinstance(runtime_identity, Mapping)
+        or runtime_identity.get("habitat_sim_module") != str(habitat_path)
+        or runtime_identity.get("habitat_sim_binding") != str(binding_path)
+        or runtime_identity.get("rlr_sdk_library") != str(library)
+    ):
+        raise RIRCacheError(
+            "semantic current-installed runtime differs from loader readback"
+        )
+    return (
+        habitat_module,
+        binding_module,
+        {
+            "schema": "avengine_semantic_habitat_rlr_runtime_v1",
+            "binding_api": "habitat_sim.RLRAcousticContext_v1",
+            "quaternion_module_path": str(quaternion_path),
+            "habitat_module_path": str(habitat_path),
+            "binding_module_path": str(binding_path),
+            "rlr_library_path": str(library),
+            "runtime_mode": RUNTIME_MODE_CURRENT_INSTALLED,
+            "runtime_identity": deepcopy(dict(runtime_identity)),
+        },
+    )
+
+
+def _semantic_upload_summary(scene: SemanticAcousticScene, raw: Any) -> dict[str, Any]:
+    """Validate structural native upload readback and omit evidence payloads."""
+
+    expected_objects = [str(item["object_id"]) for item in scene.objects]
+    observed_counts = {
+        str(key): int(value)
+        for key, value in dict(raw.triangle_count_by_material).items()
+    }
+    observed_calls = {
+        str(key): int(value)
+        for key, value in dict(raw.material_upload_call_count).items()
+    }
+    expected_calls = {name: 0 for name in scene.material_categories}
+    expected_receipts: dict[tuple[str, str], int] = {}
+    for item in scene.objects:
+        material_ids = np.asarray(item["triangle_material_ids"], dtype=np.uint32)
+        for index, name in enumerate(scene.material_categories):
+            count = int(np.count_nonzero(material_ids == index))
+            if count:
+                expected_calls[name] += 1
+                expected_receipts[(str(item["object_id"]), name)] = count
+    observed_receipts: dict[tuple[str, str], int] = {}
+    for item in raw.material_upload_receipts:
+        key = (str(item.object_id), str(item.material_category))
+        triangle_count = int(item.triangle_count)
+        if key in observed_receipts or int(item.index_count) != triangle_count * 3:
+            raise RIRCacheError("semantic native material upload receipt is invalid")
+        observed_receipts[key] = triangle_count
+    observed_names = {
+        str(key): str(value)
+        for key, value in dict(raw.resolved_material_name_by_category).items()
+    }
+    observed_indices = {
+        str(key): int(value)
+        for key, value in dict(raw.resolved_material_index_by_category).items()
+    }
+    if (
+        int(raw.object_count) != len(scene.objects)
+        or int(raw.vertex_count) != sum(len(item["vertices"]) for item in scene.objects)
+        or int(raw.triangle_count)
+        != sum(len(item["triangles"]) for item in scene.objects)
+        or int(raw.material_category_count) != len(scene.material_categories)
+        or [str(item) for item in raw.object_ids] != expected_objects
+        or observed_counts != dict(scene.triangle_count_by_material)
+        or observed_calls != expected_calls
+        or observed_receipts != expected_receipts
+        or observed_names != dict(scene.material_name_by_category)
+        or observed_indices != dict(scene.material_index_by_category)
+    ):
+        raise RIRCacheError("semantic native acoustic upload structure drift")
+    return {
+        "status": "pass_structural_native_upload",
+        "object_count": len(scene.objects),
+        "vertex_count": sum(len(item["vertices"]) for item in scene.objects),
+        "triangle_count": sum(len(item["triangles"]) for item in scene.objects),
+        "material_category_count": len(scene.material_categories),
+        "object_ids": expected_objects,
+        "triangle_count_by_material": dict(scene.triangle_count_by_material),
+        "material_upload_call_count": expected_calls,
+        "resolved_material_name_by_category": dict(scene.material_name_by_category),
+        "resolved_material_index_by_category": dict(scene.material_index_by_category),
+    }
+
+
+class _SemanticNativeRIRBatchRenderer(_NativeRIRBatchRenderer):
+    """Native renderer whose setup path never produces file evidence."""
+
+    def __init__(
+        self,
+        scene: SemanticAcousticScene,
+        simulation: M4SimulationConfig,
+        *,
+        batch_size: int,
+        initial_positions_m: Sequence[Sequence[float]],
+        listener_position_m: Sequence[float],
+        listener_orientation_wxyz: Sequence[float],
+        layout_type: str,
+        channel_count: int,
+        hrtf_file_path: str,
+        source_radius_m: float,
+        listener_radius_m: float,
+        runtime_prefix: str | Path | None = None,
+        magnum_python_site: str | Path | None = None,
+        rlr_sdk_root: str | Path | None = None,
+    ) -> None:
+        if not isinstance(scene, SemanticAcousticScene):
+            raise RIRCacheError("semantic scene type is invalid")
+        self.batch_size = _positive_int(batch_size, owner="native batch size")
+        if len(initial_positions_m) != self.batch_size:
+            raise RIRCacheError("initial position count differs from native batch size")
+        self.source_ids = tuple(
+            f"cache_slot_{index:04d}" for index in range(self.batch_size)
+        )
+        self.layout_type = layout_type
+        self.channel_count = channel_count
+        self.selected = simulation_with_layout(
+            simulation, layout_type=layout_type, channel_count=channel_count
+        )
+        if self.selected.temporal_coherence:
+            raise RIRCacheError("semantic RIR cache requires temporal_coherence=false")
+        self.layout_id = (
+            BINAURAL_LAYOUT_ID if layout_type == "binaural" else FOA_LAYOUT_ID
+        )
+        self.channel_labels = (
+            ("left", "right") if layout_type == "binaural" else ("W", "Y", "Z", "X")
+        )
+        if layout_type == "binaural":
+            hrtf_file_path = str(
+                _semantic_regular_file(
+                    Path(hrtf_file_path),
+                    owner="semantic binaural HRTF",
+                    absolute_required=True,
+                )
+            )
+        elif hrtf_file_path:
+            raise RIRCacheError("HRTF is only valid for a binaural cache")
+
+        setup_wall_start = time.perf_counter()
+        setup_cpu_start = time.process_time()
+        habitat_module, binding_module, runtime_report = (
+            _load_semantic_habitat_runtime(
+                runtime_prefix=runtime_prefix,
+                magnum_python_site=magnum_python_site,
+                rlr_sdk_root=rlr_sdk_root,
+            )
+        )
+        native_configuration, config_readback = _native_configuration(
+            habitat_module, self.selected
+        )
+        self.context = habitat_module.RLRAcousticContext(native_configuration)
+        context_type = type(self.context)
+        if (
+            context_type is not habitat_module.RLRAcousticContext
+            or context_type is not binding_module.RLRAcousticContext
+            or getattr(context_type, "__module__", None) != binding_module.__name__
+            or getattr(context_type.simulate_owned, "__module__", None)
+            != binding_module.__name__
+        ):
+            raise RIRCacheError("semantic RLR context is not the compiled binding type")
+        with tempfile.TemporaryDirectory(prefix="avengine-semantic-rir-db-") as temp:
+            private_database = Path(temp) / "material_database.json"
+            private_database.write_bytes(scene.material_database_bytes)
+            raw_upload = self.context.load_acoustic_scene(
+                str(private_database),
+                list(scene.material_categories),
+                list(scene.objects),
+            )
+        upload_summary = _semantic_upload_summary(scene, raw_upload)
+        for source_id, position in zip(
+            self.source_ids, initial_positions_m, strict=True
+        ):
+            self.context.add_source(source_id, position, source_radius_m)
+        self.listener_id = "cache_listener0"
+        self.context.add_listener(
+            self.listener_id,
+            listener_position_m,
+            listener_orientation_wxyz,
+            _native_layout(habitat_module, layout_type),
+            channel_count,
+            listener_radius_m,
+            hrtf_file_path,
+        )
+        self.current_listener_position_m = _finite_vector(
+            listener_position_m, 3, owner="initial listener position"
+        )
+        self.current_listener_orientation_wxyz = _unit_orientation(
+            listener_orientation_wxyz, owner="initial listener orientation"
+        )
+        self.listener_pose_update_count = 0
+        self.setup_report = {
+            "schema": "avengine_semantic_native_rir_setup_v1",
+            "runtime": runtime_report,
+            "configuration_readback": config_readback,
+            "upload": upload_summary,
+            "wall_seconds": time.perf_counter() - setup_wall_start,
+            "process_cpu_seconds": time.process_time() - setup_cpu_start,
+            "compute_device": "CPU",
+            "qualification_claim": False,
+        }
+        self.native_simulate_owned_call_count = 0
+        self.native_realized_job_count = 0
+
+    def render(
+        self,
+        positions_m: Sequence[Sequence[float]],
+        *,
+        listener_position_m: Sequence[float] | None = None,
+        listener_orientation_wxyz: Sequence[float] | None = None,
+    ) -> RIRBatchResult:
+        result = super().render(
+            positions_m,
+            listener_position_m=listener_position_m,
+            listener_orientation_wxyz=listener_orientation_wxyz,
+        )
+        self.native_simulate_owned_call_count += 1
+        self.native_realized_job_count += len(positions_m)
+        return result
+
+
 def _read_shard(path: Path) -> dict[str, Any]:
     with np.load(path, allow_pickle=False) as value:
         required = {
@@ -572,10 +1760,7 @@ def _read_shard(path: Path) -> dict[str, Any]:
             frozenset(required | listener_pose_fields),
         }:
             raise RIRCacheError(f"RIR shard fields differ from contract: {path}")
-        result = {
-            key: np.asarray(value[key]).copy()
-            for key in observed_fields
-        }
+        result = {key: np.asarray(value[key]).copy() for key in observed_fields}
     count = len(result["job_indices"])
     samples = result["samples"]
     if (
@@ -653,9 +1838,7 @@ def _verify_shard_request(
         raise RIRCacheError("expected Listener-pose shard fields are incomplete")
     if expected_listener_positions_m is not None:
         if "listener_positions_m" not in retained:
-            raise RIRCacheError(
-                f"retained shard lacks Listener-pose binding: {path}"
-            )
+            raise RIRCacheError(f"retained shard lacks Listener-pose binding: {path}")
         if (
             not np.array_equal(
                 retained["listener_positions_m"],
@@ -722,11 +1905,7 @@ def _canonical_record_sha256(
     declared = _declared_sha256(value.get(hash_field), owner=owner)
     try:
         observed = canonical_json_sha256(
-            {
-                key: item
-                for key, item in value.items()
-                if key != hash_field
-            }
+            {key: item for key, item in value.items() if key != hash_field}
         )
     except (TypeError, ValueError) as exc:
         raise RIRCacheError(f"{owner} is not canonical JSON") from exc
@@ -769,8 +1948,7 @@ def _verified_selection_file(
         raise RIRCacheError(f"{owner} selection path cannot be resolved") from exc
     if registry_verified and declared_sha256 != expected_sha256:
         raise RIRCacheError(
-            f"{owner} override SHA-256 differs from the registry-selected "
-            "physical file"
+            f"{owner} override SHA-256 differs from the registry-selected physical file"
         )
     if (
         not path.is_file()
@@ -799,9 +1977,7 @@ def _validate_acoustic_selection_receipt(
     """Authenticate a tool selection receipt against the actual core inputs."""
 
     if value.get("schema") != RIR_CACHE_ACOUSTIC_SELECTION_INPUT_SCHEMA:
-        raise RIRCacheError(
-            "RIR acoustic selection receipt has an unsupported schema"
-        )
+        raise RIRCacheError("RIR acoustic selection receipt has an unsupported schema")
     _canonical_record_sha256(
         value,
         hash_field="effective_selection_content_sha256",
@@ -833,13 +2009,15 @@ def _validate_acoustic_selection_receipt(
     applied = value.get("registry_selection_applied_to_effective_inputs")
     if (
         not isinstance(overrides, Mapping)
-        or set(overrides) != {
+        or set(overrides)
+        != {
             "acoustic_package_manifest",
             "simulation_request",
         }
         or any(not isinstance(item, bool) for item in overrides.values())
         or not isinstance(applied, Mapping)
-        or set(applied) != {
+        or set(applied)
+        != {
             "acoustic_package_manifest",
             "simulation_request",
         }
@@ -874,8 +2052,7 @@ def _validate_acoustic_selection_receipt(
     if not isinstance(registry_resolution, Mapping):
         raise RIRCacheError("registry RIR input lacks its profile selection receipt")
     if (
-        registry_resolution.get("schema")
-        != "avengine_acoustic_profile_selection_v1"
+        registry_resolution.get("schema") != "avengine_acoustic_profile_selection_v1"
         or registry_resolution.get("verification_status") != "verified"
     ):
         raise RIRCacheError(
@@ -886,9 +2063,7 @@ def _validate_acoustic_selection_receipt(
         hash_field="selection_content_sha256",
         owner="registry acoustic profile selection",
     )
-    if value.get("simulation_profile") != registry_resolution.get(
-        "simulation_profile"
-    ):
+    if value.get("simulation_profile") != registry_resolution.get("simulation_profile"):
         raise RIRCacheError(
             "RIR selection simulation profile differs from registry resolution"
         )
@@ -901,10 +2076,7 @@ def _validate_acoustic_selection_receipt(
         or any(not isinstance(item, str) or not item for item in room_ref.values())
         or not isinstance(profile_ref, Mapping)
         or set(profile_ref) != {"profile_id", "revision"}
-        or any(
-            not isinstance(item, str) or not item
-            for item in profile_ref.values()
-        )
+        or any(not isinstance(item, str) or not item for item in profile_ref.values())
         or not isinstance(binding_id, str)
         or not binding_id
     ):
@@ -936,9 +2108,7 @@ def _validate_acoustic_selection_receipt(
     if mode != "registry" and not has_override:
         raise RIRCacheError("registry override mode declares no explicit override")
     expected_applied = {
-        "acoustic_package_manifest": not overrides[
-            "acoustic_package_manifest"
-        ],
+        "acoustic_package_manifest": not overrides["acoustic_package_manifest"],
         "simulation_request": not overrides["simulation_request"],
     }
     if dict(applied) != expected_applied:
@@ -998,9 +2168,7 @@ def _acoustic_selection_binding(
             ],
             "acoustic_package_manifest_sha256": scene_manifest_sha256,
             "simulation_request_sha256": simulation_request_sha256,
-            "input_receipt_sha256": canonical_json_sha256(
-                normalized_receipt
-            ),
+            "input_receipt_sha256": canonical_json_sha256(normalized_receipt),
         }
     value["binding_content_sha256"] = canonical_json_sha256(value)
     return value
@@ -1028,9 +2196,7 @@ def _verify_acoustic_selection_binding(value: Any) -> str:
     mode = value.get("selection_mode")
     applied = value.get("registry_selection_applied")
     if not isinstance(applied, bool):
-        raise RIRCacheError(
-            "RIR cache registry selection application flag is invalid"
-        )
+        raise RIRCacheError("RIR cache registry selection application flag is invalid")
     receipt_sha256 = value.get("input_receipt_sha256")
     effective_sha256 = value.get("effective_selection_content_sha256")
     if mode == "explicit_legacy":
@@ -1058,10 +2224,14 @@ def _verify_acoustic_selection_binding(value: Any) -> str:
                 owner="RIR effective acoustic selection",
             )
         return binding_sha256
-    if mode not in {
-        "registry",
-        "registry_with_verified_equivalent_overrides",
-    } or not applied:
+    if (
+        mode
+        not in {
+            "registry",
+            "registry_with_verified_equivalent_overrides",
+        }
+        or not applied
+    ):
         raise RIRCacheError("RIR cache registry selection identity is invalid")
     _declared_sha256(
         receipt_sha256,
@@ -1079,10 +2249,7 @@ def _verify_acoustic_selection_binding(value: Any) -> str:
         or any(not isinstance(item, str) or not item for item in room_ref.values())
         or not isinstance(profile_ref, Mapping)
         or set(profile_ref) != {"profile_id", "revision"}
-        or any(
-            not isinstance(item, str) or not item
-            for item in profile_ref.values()
-        )
+        or any(not isinstance(item, str) or not item for item in profile_ref.values())
         or not isinstance(value.get("binding_id"), str)
         or not value["binding_id"]
     ):
@@ -1132,7 +2299,11 @@ def _request_identity_payload(value: Mapping[str, Any]) -> dict[str, Any]:
         owner="RIR cache native batch size",
     )
     job_offset = plan.get("selected_job_offset")
-    if isinstance(job_offset, bool) or not isinstance(job_offset, int) or job_offset < 0:
+    if (
+        isinstance(job_offset, bool)
+        or not isinstance(job_offset, int)
+        or job_offset < 0
+    ):
         raise RIRCacheError("RIR cache selected job offset is invalid")
     job_count = _positive_int(
         plan.get("selected_job_count"),
@@ -1283,8 +2454,7 @@ def _verify_acoustic_selection_sidecar(
     sidecar = load_json(sidecar_path)
     if (
         not isinstance(sidecar, Mapping)
-        or sidecar.get("schema")
-        != RIR_CACHE_ACOUSTIC_SELECTION_SIDECAR_SCHEMA
+        or sidecar.get("schema") != RIR_CACHE_ACOUSTIC_SELECTION_SIDECAR_SCHEMA
     ):
         raise RIRCacheError("RIR cache acoustic selection sidecar is invalid")
     _canonical_record_sha256(
@@ -1293,10 +2463,8 @@ def _verify_acoustic_selection_sidecar(
         owner="RIR cache acoustic selection sidecar",
     )
     if (
-        sidecar.get("request_identity_sha256")
-        != request_identity_sha256
-        or sidecar.get("acoustic_selection_binding_sha256")
-        != binding_sha256
+        sidecar.get("request_identity_sha256") != request_identity_sha256
+        or sidecar.get("acoustic_selection_binding_sha256") != binding_sha256
         or sidecar.get("acoustic_selection_binding") != binding
     ):
         raise RIRCacheError(
@@ -1333,7 +2501,11 @@ def _verified_external_file(
     *,
     owner: str,
 ) -> dict[str, Any]:
-    if not isinstance(raw_path, str) or not raw_path or not Path(raw_path).is_absolute():
+    if (
+        not isinstance(raw_path, str)
+        or not raw_path
+        or not Path(raw_path).is_absolute()
+    ):
         raise RIRCacheError(f"{owner} path must be absolute")
     expected = _declared_sha256(expected_sha256, owner=owner)
     try:
@@ -1367,7 +2539,9 @@ def _verify_request_external_inputs(
         owner="RIR plan",
     )
     if Path(plan_record["resolved_path"]) != expected_plan_path.resolve(strict=True):
-        raise RIRCacheError("RIR cache request plan path differs from the selected plan")
+        raise RIRCacheError(
+            "RIR cache request plan path differs from the selected plan"
+        )
 
     scene = _request_section(value, "acoustic_scene")
     scene_record = _verified_external_file(
@@ -1385,14 +2559,12 @@ def _verify_request_external_inputs(
     try:
         manifest = load_json(Path(scene_record["resolved_path"]))
     except (OSError, ValueError, TypeError) as exc:
-        raise RIRCacheError("RIR cache acoustic package manifest is unreadable") from exc
+        raise RIRCacheError(
+            "RIR cache acoustic package manifest is unreadable"
+        ) from exc
     manifest_content = manifest.get("package_content_sha256")
     recomputed_content = canonical_json_sha256(
-        {
-            key: item
-            for key, item in manifest.items()
-            if key != "package_content_sha256"
-        }
+        {key: item for key, item in manifest.items() if key != "package_content_sha256"}
     )
     if (
         manifest.get("package_id") != package_id
@@ -1418,13 +2590,9 @@ def _verify_request_external_inputs(
     )
     acoustic_selection_binding = value.get("acoustic_selection_binding")
     if acoustic_selection_binding is not None:
-        binding_sha256 = _verify_acoustic_selection_binding(
-            acoustic_selection_binding
-        )
+        binding_sha256 = _verify_acoustic_selection_binding(acoustic_selection_binding)
         if (
-            acoustic_selection_binding.get(
-                "acoustic_package_manifest_sha256"
-            )
+            acoustic_selection_binding.get("acoustic_package_manifest_sha256")
             != scene_record["sha256"]
             or acoustic_selection_binding.get("simulation_request_sha256")
             != simulation_record["sha256"]
@@ -1564,6 +2732,9 @@ def render_rir_cache(
     coordinate_translation_m: Sequence[float] = (0.0, 0.0, 0.0),
     source_radius_m: float = 0.0,
     listener_radius_m: float = 0.0,
+    runtime_prefix: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
     compressed: bool = True,
     renderer_factory: Callable[..., Any] = _NativeRIRBatchRenderer,
 ) -> RIRCacheResult:
@@ -1573,6 +2744,17 @@ def render_rir_cache(
     plan_path = Path(plan_path).resolve()
     simulation_request_path = Path(simulation_request_path).resolve()
     output = Path(output).resolve()
+    runtime_loader_kwargs = _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=False,
+    )
+    runtime_renderer_kwargs = {
+        name: runtime_loader_kwargs[name]
+        for name in ("runtime_prefix", "magnum_python_site", "rlr_sdk_root")
+        if name in runtime_loader_kwargs
+    }
     if layout_type not in {"binaural", "ambisonics"}:
         raise RIRCacheError("layout_type must be binaural or ambisonics")
     channel_count = 2 if layout_type == "binaural" else 4
@@ -1760,6 +2942,7 @@ def render_rir_cache(
                     hrtf_file_path=str(hrtf) if hrtf else "",
                     source_radius_m=float(source_radius_m),
                     listener_radius_m=float(listener_radius_m),
+                    **runtime_renderer_kwargs,
                 )
                 setup_report = dict(renderer.setup_report)
             if plan.get("listener_pose_mode") in {None, "fixed"}:
@@ -1793,9 +2976,7 @@ def render_rir_cache(
                     "job_indices": absolute_indices,
                     "job_ids": np.asarray([job["job_id"] for job in batch_jobs]),
                     "source_positions_m": np.asarray(positions, dtype="<f8"),
-                    "listener_positions_m": np.asarray(
-                        listener_positions, dtype="<f8"
-                    ),
+                    "listener_positions_m": np.asarray(listener_positions, dtype="<f8"),
                     "listener_orientations_wxyz": np.asarray(
                         listener_orientations, dtype="<f8"
                     ),
@@ -1868,9 +3049,7 @@ def render_rir_cache(
         shard_path = shards_root / f"shard_{batch_index:06d}.npz"
         retained = _read_shard(shard_path)
         batch_jobs = batch_spec["jobs"]
-        expected_indices = np.asarray(
-            batch_spec["absolute_job_indices"], dtype="<u4"
-        )
+        expected_indices = np.asarray(batch_spec["absolute_job_indices"], dtype="<u4")
         expected_positions = [
             (
                 np.asarray(job["source_position_m"], dtype=np.float64)
@@ -1878,9 +3057,9 @@ def render_rir_cache(
             ).tolist()
             for job in batch_jobs
         ]
-        expected_listener_positions = [
-            batch_spec["listener_position_m"]
-        ] * len(batch_jobs)
+        expected_listener_positions = [batch_spec["listener_position_m"]] * len(
+            batch_jobs
+        )
         expected_listener_orientations = [
             batch_spec["listener_orientation_wxyz"]
         ] * len(batch_jobs)
@@ -1910,12 +3089,12 @@ def render_rir_cache(
                     "sample_count": int(retained["lengths"][row]),
                     "ir_sha256": str(retained["ir_sha256"][row]),
                     "source_position_m": retained["source_positions_m"][row].tolist(),
-                    "listener_position_m": retained[
-                        "listener_positions_m"
-                    ][row].tolist(),
-                    "listener_orientation_wxyz": retained[
-                        "listener_orientations_wxyz"
-                    ][row].tolist(),
+                    "listener_position_m": retained["listener_positions_m"][
+                        row
+                    ].tolist(),
+                    "listener_orientation_wxyz": retained["listener_orientations_wxyz"][
+                        row
+                    ].tolist(),
                     "acoustic_state_sha256": str(
                         retained["acoustic_state_sha256"][row]
                     ),
@@ -1932,12 +3111,12 @@ def render_rir_cache(
             "schema": RIR_CACHE_INDEX_SCHEMA,
             "status": "pass",
             "request_identity_sha256": request["request_identity_sha256"],
-            "acoustic_selection_binding_sha256": request[
-                "acoustic_selection_binding"
-            ]["binding_content_sha256"],
-            "acoustic_selection_mode": request[
-                "acoustic_selection_binding"
-            ]["selection_mode"],
+            "acoustic_selection_binding_sha256": request["acoustic_selection_binding"][
+                "binding_content_sha256"
+            ],
+            "acoustic_selection_mode": request["acoustic_selection_binding"][
+                "selection_mode"
+            ],
             "acoustic_state_binding": "source_listener_pose_per_job_v1",
             "full_plan_complete": len(selected_jobs) == len(jobs) and job_offset == 0,
             "selected_job_count": len(selected_jobs),
@@ -1978,12 +3157,12 @@ def render_rir_cache(
             "remains governed by the supplied acoustic package"
         ),
         "request_identity_sha256": request["request_identity_sha256"],
-        "acoustic_selection_binding_sha256": request[
-            "acoustic_selection_binding"
-        ]["binding_content_sha256"],
-        "acoustic_selection_mode": request[
-            "acoustic_selection_binding"
-        ]["selection_mode"],
+        "acoustic_selection_binding_sha256": request["acoustic_selection_binding"][
+            "binding_content_sha256"
+        ],
+        "acoustic_selection_mode": request["acoustic_selection_binding"][
+            "selection_mode"
+        ],
         "full_plan_complete": len(selected_jobs) == len(jobs) and job_offset == 0,
         "full_plan_job_count": len(jobs),
         "selected_job_count": len(selected_jobs),
@@ -2017,6 +3196,514 @@ def render_rir_cache(
         failed_path.unlink()
     write_json(output / "progress.json", receipt)
     return RIRCacheResult(output=output, receipt=receipt)
+
+
+def _render_semantic_rir_cache_staging(
+    *,
+    plan_path: Path,
+    scene: SemanticAcousticScene,
+    simulation_request_path: Path,
+    simulation: M4SimulationConfig,
+    output: Path,
+    acoustic_selection: Mapping[str, Any] | None = None,
+    layout_type: str = "binaural",
+    hrtf_file_path: Path | None = None,
+    batch_size: int = 8,
+    coordinate_translation_m: Sequence[float] = (0.0, 0.0, 0.0),
+    source_radius_m: float = 0.0,
+    listener_radius_m: float = 0.0,
+    runtime_prefix: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    compressed: bool = True,
+    renderer_factory: Callable[..., Any] = _SemanticNativeRIRBatchRenderer,
+) -> RIRCacheResult:
+    """Render a fresh structural/sample cache without file evidence."""
+
+    started = time.perf_counter()
+    native_execution = renderer_factory is _SemanticNativeRIRBatchRenderer
+    runtime_loader_kwargs = _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=False,
+    )
+    runtime_renderer_kwargs = {
+        name: runtime_loader_kwargs[name]
+        for name in ("runtime_prefix", "magnum_python_site", "rlr_sdk_root")
+        if name in runtime_loader_kwargs
+    }
+    raw_plan = Path(plan_path)
+    raw_simulation = Path(simulation_request_path)
+    raw_output = Path(output)
+    plan_path = _semantic_regular_file(raw_plan, owner="semantic RIR plan")
+    simulation_request_path = _semantic_regular_file(
+        raw_simulation, owner="semantic simulation request"
+    )
+    output = Path(os.path.abspath(raw_output))
+    if _semantic_path_has_symlink_component(output):
+        raise RIRCacheError(
+            "semantic RIR output path must not contain symlink components"
+        )
+    if output.exists():
+        raise RIRCacheError("semantic RIR output must be a fresh path")
+    if not isinstance(scene, SemanticAcousticScene):
+        raise RIRCacheError("semantic RIR scene is invalid")
+    if layout_type != "binaural":
+        raise RIRCacheError("semantic RIR mode supports binaural output only")
+    channel_count = 2
+    native_batch_size = _positive_int(batch_size, owner="semantic batch size")
+    if not isinstance(compressed, bool):
+        raise RIRCacheError("semantic shard compression policy must be boolean")
+    translation = _finite_vector(
+        list(coordinate_translation_m), 3, owner="semantic coordinate translation"
+    )
+    for value, owner in (
+        (source_radius_m, "semantic source radius"),
+        (listener_radius_m, "semantic listener radius"),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise RIRCacheError(f"{owner} must be finite and nonnegative")
+    plan = load_json(plan_path)
+    jobs = validate_semantic_rir_job_plan(plan)
+    binding = _semantic_selection_binding(acoustic_selection)
+    if hrtf_file_path is None:
+        raise RIRCacheError("semantic binaural RIR mode requires an HRTF")
+    effective_simulation = simulation_with_layout(
+        simulation, layout_type=layout_type, channel_count=channel_count
+    )
+    hrtf = _semantic_regular_file(
+        Path(hrtf_file_path),
+        owner="semantic HRTF",
+        absolute_required=True,
+    )
+    layout_id = BINAURAL_LAYOUT_ID if layout_type == "binaural" else FOA_LAYOUT_ID
+    channel_labels = (
+        ("left", "right") if layout_type == "binaural" else ("W", "Y", "Z", "X")
+    )
+    request = {
+        "schema": SEMANTIC_RIR_CACHE_REQUEST_SCHEMA,
+        "status": "ready_structural_and_sample_validation",
+        "qualification_claim": False,
+        "plan": {
+            "path": str(plan_path),
+            "full_job_count": len(jobs),
+            "selected_job_offset": 0,
+            "selected_job_count": len(jobs),
+            "acoustic_state_binding": "source_listener_pose_per_job_v1",
+        },
+        "acoustic_scene": {
+            "manifest_path": str(scene.manifest_path),
+            "package_id": scene.package_id,
+        },
+        "simulation": {
+            "request_path": str(simulation_request_path),
+            "effective": effective_simulation.to_dict(),
+        },
+        "acoustic_selection_binding": binding,
+        "output": {
+            "layout_type": layout_type,
+            "channel_count": channel_count,
+            "layout_id": layout_id,
+            "hrtf_path": str(hrtf) if hrtf else None,
+            "compressed_npz_shards": compressed,
+        },
+        "runtime_policy": {
+            "native_batch_size": native_batch_size,
+            "coordinate_translation_m": list(translation),
+            "source_radius_m": float(source_radius_m),
+            "listener_radius_m": float(listener_radius_m),
+            "persistent_context": True,
+            "listener_pose_update_policy": "set_listener_pose_on_change_v1",
+            "scene_upload_count": 1,
+            "compute_device": "CPU",
+            "gpu_acceleration": False,
+            "execution_mode": (
+                "native_default" if native_execution else "injected_test_double"
+            ),
+        },
+    }
+    output.mkdir(parents=True)
+    write_json(output / "request.json", request)
+    shards_root = output / "shards"
+    shards_root.mkdir()
+    translation_array = np.asarray(translation, dtype=np.float64)
+    grouped: dict[tuple[float, ...], list[tuple[int, Mapping[str, Any]]]] = {}
+    for index, job in enumerate(jobs):
+        listener_key = (
+            *tuple(float(value) for value in job["listener_position_m"]),
+            *tuple(float(value) for value in job["listener_orientation_wxyz"]),
+        )
+        grouped.setdefault(listener_key, []).append((index, job))
+    batch_specs: list[dict[str, Any]] = []
+    for listener_key, indexed_jobs in grouped.items():
+        for start in range(0, len(indexed_jobs), native_batch_size):
+            selected = indexed_jobs[start : start + native_batch_size]
+            batch_specs.append(
+                {
+                    "job_indices": [item[0] for item in selected],
+                    "jobs": [item[1] for item in selected],
+                    "listener_position_m": (
+                        np.asarray(listener_key[:3], dtype=np.float64)
+                        + translation_array
+                    ).tolist(),
+                    "listener_orientation_wxyz": list(listener_key[3:]),
+                }
+            )
+    renderer: Any | None = None
+    setup_report: Mapping[str, Any] | None = None
+    batch_records: list[dict[str, Any]] = []
+    try:
+        for batch_index, spec in enumerate(batch_specs):
+            jobs_in_batch = spec["jobs"]
+            positions = [
+                (
+                    np.asarray(job["source_position_m"], dtype=np.float64)
+                    + translation_array
+                ).tolist()
+                for job in jobs_in_batch
+            ]
+            if renderer is None:
+                initial = positions + [positions[-1]] * (
+                    native_batch_size - len(positions)
+                )
+                renderer = renderer_factory(
+                    scene,
+                    simulation,
+                    batch_size=native_batch_size,
+                    initial_positions_m=initial,
+                    listener_position_m=spec["listener_position_m"],
+                    listener_orientation_wxyz=spec["listener_orientation_wxyz"],
+                    layout_type=layout_type,
+                    channel_count=channel_count,
+                    hrtf_file_path=str(hrtf) if hrtf else "",
+                    source_radius_m=float(source_radius_m),
+                    listener_radius_m=float(listener_radius_m),
+                    **runtime_renderer_kwargs,
+                )
+                setup_report = deepcopy(dict(renderer.setup_report))
+            if plan.get("listener_pose_mode") == "fixed":
+                result: RIRBatchResult = renderer.render(positions)
+            else:
+                result = renderer.render(
+                    positions,
+                    listener_position_m=spec["listener_position_m"],
+                    listener_orientation_wxyz=spec["listener_orientation_wxyz"],
+                )
+            if (
+                not isinstance(result, RIRBatchResult)
+                or len(result.samples) != len(jobs_in_batch)
+                or result.sample_rate_hz
+                != int(round(effective_simulation.sample_rate_hz))
+                or result.layout_id != BINAURAL_LAYOUT_ID
+                or tuple(result.channel_labels) != ("left", "right")
+                or not math.isfinite(float(result.wall_seconds))
+                or float(result.wall_seconds) < 0
+                or not math.isfinite(float(result.process_cpu_seconds))
+                or float(result.process_cpu_seconds) < 0
+                or not math.isfinite(float(result.indirect_ray_efficiency))
+                or not 0 <= float(result.indirect_ray_efficiency) <= 1
+            ):
+                raise RIRCacheError("semantic renderer result contract is invalid")
+            for samples in result.samples:
+                if (
+                    not isinstance(samples, np.ndarray)
+                    or samples.dtype != np.dtype("<f4")
+                    or samples.ndim != 2
+                    or samples.shape[0] != 2
+                    or samples.shape[1] < 2
+                    or not samples.flags.c_contiguous
+                    or not np.all(np.isfinite(samples))
+                    or not np.any(samples)
+                ):
+                    raise RIRCacheError(
+                        "semantic renderer returned an invalid binaural sample payload"
+                    )
+            maximum_length = max(item.shape[1] for item in result.samples)
+            padded = np.zeros(
+                (len(result.samples), channel_count, maximum_length), dtype="<f4"
+            )
+            lengths = np.empty(len(result.samples), dtype="<u4")
+            for row, samples in enumerate(result.samples):
+                length = samples.shape[1]
+                padded[row, :, :length] = samples
+                lengths[row] = length
+            serialization_started = time.perf_counter()
+            shard_path = shards_root / f"shard_{batch_index:06d}.npz"
+            _atomic_savez(
+                shard_path,
+                compressed=compressed,
+                arrays={
+                    "job_indices": np.asarray(spec["job_indices"], dtype="<u4"),
+                    "job_ids": np.asarray([job["job_id"] for job in jobs_in_batch]),
+                    "source_positions_m": np.asarray(positions, dtype="<f8"),
+                    "listener_positions_m": np.asarray(
+                        [spec["listener_position_m"]] * len(jobs_in_batch),
+                        dtype="<f8",
+                    ),
+                    "listener_orientations_wxyz": np.asarray(
+                        [spec["listener_orientation_wxyz"]] * len(jobs_in_batch),
+                        dtype="<f8",
+                    ),
+                    "lengths": lengths,
+                    "samples": padded,
+                    "sample_rate_hz": np.asarray(result.sample_rate_hz, dtype="<u4"),
+                    "layout_id": np.asarray(result.layout_id),
+                    "channel_labels": np.asarray(result.channel_labels),
+                    "simulate_wall_seconds": np.asarray(
+                        result.wall_seconds, dtype="<f8"
+                    ),
+                    "simulate_process_cpu_seconds": np.asarray(
+                        result.process_cpu_seconds, dtype="<f8"
+                    ),
+                    "indirect_ray_efficiency": np.asarray(
+                        result.indirect_ray_efficiency, dtype="<f8"
+                    ),
+                },
+            )
+            batch_records.append(
+                {
+                    "batch_index": batch_index,
+                    "job_count": len(jobs_in_batch),
+                    "simulate_wall_seconds": result.wall_seconds,
+                    "simulate_process_cpu_seconds": result.process_cpu_seconds,
+                    "serialization_wall_seconds": (
+                        time.perf_counter() - serialization_started
+                    ),
+                }
+            )
+            write_json(
+                output / "progress.json",
+                {
+                    "schema": SEMANTIC_RIR_CACHE_RECEIPT_SCHEMA,
+                    "status": "research_only",
+                    "completed_batch_count": batch_index + 1,
+                    "batch_count": len(batch_specs),
+                    "completed_job_count": sum(
+                        item["job_count"] for item in batch_records
+                    ),
+                    "selected_job_count": len(jobs),
+                    "qualification_claim": False,
+                },
+            )
+    except Exception:
+        write_json(
+            output / "FAILED.json",
+            {
+                "schema": SEMANTIC_RIR_CACHE_RECEIPT_SCHEMA,
+                "status": "fail",
+                "completed_batch_count": len(batch_records),
+                "batch_count": len(batch_specs),
+                "qualification_claim": False,
+            },
+        )
+        raise
+    native_call_count = (
+        int(getattr(renderer, "native_simulate_owned_call_count", 0))
+        if native_execution
+        else 0
+    )
+    native_job_count = (
+        int(getattr(renderer, "native_realized_job_count", 0))
+        if native_execution
+        else 0
+    )
+    if native_execution and (
+        native_call_count != len(batch_records) or native_job_count != len(jobs)
+    ):
+        raise RIRCacheError("semantic native execution counters are incomplete")
+    index_entries: list[dict[str, Any]] = []
+    for batch_index, spec in enumerate(batch_specs):
+        path = shards_root / f"shard_{batch_index:06d}.npz"
+        retained = _read_semantic_shard(path)
+        jobs_in_batch = spec["jobs"]
+        positions = [
+            (
+                np.asarray(job["source_position_m"], dtype=np.float64)
+                + translation_array
+            ).tolist()
+            for job in jobs_in_batch
+        ]
+        _verify_semantic_shard_request(
+            retained,
+            path=path,
+            expected_job_indices=np.asarray(spec["job_indices"], dtype="<u4"),
+            expected_jobs=jobs_in_batch,
+            expected_positions=positions,
+            expected_listener_positions=[spec["listener_position_m"]]
+            * len(jobs_in_batch),
+            expected_listener_orientations=[spec["listener_orientation_wxyz"]]
+            * len(jobs_in_batch),
+            sample_rate_hz=int(round(simulation.sample_rate_hz)),
+            layout_id=layout_id,
+            channel_labels=channel_labels,
+        )
+        for row, job in enumerate(jobs_in_batch):
+            index_entries.append(
+                {
+                    "job_id": job["job_id"],
+                    "job_index": int(spec["job_indices"][row]),
+                    "shard": path.relative_to(output).as_posix(),
+                    "row": row,
+                    "sample_count": int(retained["lengths"][row]),
+                    "source_position_m": retained["source_positions_m"][row].tolist(),
+                    "listener_position_m": retained["listener_positions_m"][
+                        row
+                    ].tolist(),
+                    "listener_orientation_wxyz": retained["listener_orientations_wxyz"][
+                        row
+                    ].tolist(),
+                }
+            )
+    index_entries.sort(key=lambda item: int(item["job_index"]))
+    index = {
+        "schema": SEMANTIC_RIR_CACHE_INDEX_SCHEMA,
+        "status": "pass",
+        "qualification_claim": False,
+        "full_plan_complete": True,
+        "selected_job_count": len(jobs),
+        "acoustic_state_binding": "source_listener_pose_per_job_v1",
+        "acoustic_selection_mode": binding["selection_mode"],
+        "entries": index_entries,
+    }
+    write_json(output / "index.json", index)
+    simulate_seconds = sum(item["simulate_wall_seconds"] for item in batch_records)
+    timing = {
+        "schema": "avengine_semantic_rir_cache_timing_v1",
+        "status": "pass",
+        "setup": setup_report,
+        "batches": batch_records,
+        "selected_job_count": len(jobs),
+        "simulate_wall_seconds": simulate_seconds,
+        "serialization_wall_seconds": sum(
+            item["serialization_wall_seconds"] for item in batch_records
+        ),
+        "run_wall_seconds": time.perf_counter() - started,
+        "jobs_per_simulate_second": (
+            len(jobs) / simulate_seconds if simulate_seconds > 0 else None
+        ),
+    }
+    write_json(output / "timing.json", timing)
+    receipt = {
+        "schema": SEMANTIC_RIR_CACHE_RECEIPT_SCHEMA,
+        "status": "pass",
+        "qualification_claim": False,
+        "claim_boundary": (
+            (
+                "native CPU RIR samples with structural pose/use, native source/listener "
+                "receipts, and decoded-sample validation"
+            )
+            if native_execution
+            else "test-double samples with structural and decoded-sample validation"
+        ),
+        "native_execution": native_execution,
+        "native_scene_upload_structurally_validated": native_execution,
+        "native_source_listener_receipts_validated": native_execution,
+        "native_realized_job_count": native_job_count,
+        "native_simulate_owned_call_count": native_call_count,
+        "full_plan_complete": True,
+        "full_plan_job_count": len(jobs),
+        "selected_job_count": len(jobs),
+        "retained_shard_count": len(batch_specs),
+        "sample_rate_hz": int(round(simulation.sample_rate_hz)),
+        "layout_type": layout_type,
+        "layout_id": layout_id,
+        "channel_count": channel_count,
+        "producer_backend": (
+            "RLR Audio Propagation"
+            if native_execution
+            else "test_only_injected_renderer"
+        ),
+        "cache_artifact": "room impulse response (RIR)",
+        "dry_audio_independent": True,
+        "acoustic_state_binding": "source_listener_pose_per_job_v1",
+        "listener_pose_update_policy": "set_listener_pose_on_change_v1",
+        "acoustic_selection_mode": binding["selection_mode"],
+        "compute_device": "CPU",
+        "configured_thread_count": simulation.thread_count,
+        "outputs": {
+            "request": "request.json",
+            "index": "index.json",
+            "timing": "timing.json",
+            "shards": "shards/",
+        },
+    }
+    write_json(output / "receipt.json", receipt)
+    write_json(output / "progress.json", receipt)
+    return RIRCacheResult(output=output, receipt=receipt)
+
+
+def render_semantic_rir_cache(
+    *,
+    plan_path: Path,
+    scene: SemanticAcousticScene,
+    simulation_request_path: Path,
+    simulation: M4SimulationConfig,
+    output: Path,
+    acoustic_selection: Mapping[str, Any] | None = None,
+    layout_type: str = "binaural",
+    hrtf_file_path: Path | None = None,
+    batch_size: int = 8,
+    coordinate_translation_m: Sequence[float] = (0.0, 0.0, 0.0),
+    source_radius_m: float = 0.0,
+    listener_radius_m: float = 0.0,
+    runtime_prefix: str | Path | None = None,
+    magnum_python_site: str | Path | None = None,
+    rlr_sdk_root: str | Path | None = None,
+    compressed: bool = True,
+    renderer_factory: Callable[..., Any] = _SemanticNativeRIRBatchRenderer,
+) -> RIRCacheResult:
+    """Render privately and atomically publish a fresh semantic cache."""
+
+    _native_runtime_loader_kwargs(
+        runtime_prefix=runtime_prefix,
+        magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
+        require_current=False,
+    )
+    destination = Path(os.path.abspath(output))
+    if (
+        _semantic_path_has_symlink_component(destination)
+        or destination.exists()
+        or destination.is_symlink()
+    ):
+        raise RIRCacheError("semantic RIR output must be a fresh non-symlink path")
+    parent = destination.parent
+    if _semantic_path_has_symlink_component(parent) or not parent.is_dir():
+        raise RIRCacheError("semantic RIR output parent must be an existing directory")
+    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=parent))
+    staging.rmdir()
+    try:
+        result = _render_semantic_rir_cache_staging(
+            plan_path=plan_path,
+            scene=scene,
+            simulation_request_path=simulation_request_path,
+            simulation=simulation,
+            output=staging,
+            acoustic_selection=acoustic_selection,
+            layout_type=layout_type,
+            hrtf_file_path=hrtf_file_path,
+            batch_size=batch_size,
+            coordinate_translation_m=coordinate_translation_m,
+            source_radius_m=source_radius_m,
+            listener_radius_m=listener_radius_m,
+            runtime_prefix=runtime_prefix,
+            magnum_python_site=magnum_python_site,
+            rlr_sdk_root=rlr_sdk_root,
+            compressed=compressed,
+            renderer_factory=renderer_factory,
+        )
+        policy = WorkspacePathPolicy.from_roots([parent])
+        published = atomic_publish_directory(policy, result.output, destination)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return RIRCacheResult(output=published, receipt=result.receipt)
 
 
 class RIRCacheSession:
@@ -2054,9 +3741,7 @@ class RIRCacheSession:
             request,
             request_identity_sha256=request_identity,
         )
-        binding_sha256 = acoustic_selection_binding.get(
-            "binding_content_sha256"
-        )
+        binding_sha256 = acoustic_selection_binding.get("binding_content_sha256")
         self.external_input_identity = _verify_request_external_inputs(
             request,
             expected_plan_path=plan_source,
@@ -2103,10 +3788,8 @@ class RIRCacheSession:
         ):
             raise RIRCacheError("RIR cache request/receipt/index closure is invalid")
         if request.get("acoustic_selection_binding") is not None and (
-            receipt.get("acoustic_selection_binding_sha256")
-            != binding_sha256
-            or index.get("acoustic_selection_binding_sha256")
-            != binding_sha256
+            receipt.get("acoustic_selection_binding_sha256") != binding_sha256
+            or index.get("acoustic_selection_binding_sha256") != binding_sha256
             or receipt.get("acoustic_selection_mode")
             != acoustic_selection_binding["selection_mode"]
             or index.get("acoustic_selection_mode")
@@ -2122,15 +3805,20 @@ class RIRCacheSession:
         self.layout_id = output.get("layout_id")
         self.channel_count = output.get("channel_count")
         self.expected_labels = (
-            ("left", "right") if self.layout_type == "binaural" else
-            ("W", "Y", "Z", "X") if self.layout_type == "ambisonics" else ()
+            ("left", "right")
+            if self.layout_type == "binaural"
+            else ("W", "Y", "Z", "X")
+            if self.layout_type == "ambisonics"
+            else ()
         )
         self.sample_rate_hz = receipt.get("sample_rate_hz")
         if (
-            not self.expected_labels or not isinstance(self.layout_id, str)
+            not self.expected_labels
+            or not isinstance(self.layout_id, str)
             or self.channel_count != len(self.expected_labels)
             or isinstance(self.sample_rate_hz, bool)
-            or not isinstance(self.sample_rate_hz, int) or self.sample_rate_hz < 1
+            or not isinstance(self.sample_rate_hz, int)
+            or self.sample_rate_hz < 1
         ):
             raise RIRCacheError("RIR cache audio contract is invalid")
         runtime_policy = request.get("runtime_policy")
@@ -2168,8 +3856,7 @@ class RIRCacheSession:
                     + self.translation_m
                 )
                 if (
-                    entry.get("acoustic_state_sha256")
-                    != job["acoustic_state_sha256"]
+                    entry.get("acoustic_state_sha256") != job["acoustic_state_sha256"]
                     or not np.array_equal(
                         np.asarray(
                             _finite_vector(
@@ -2200,9 +3887,7 @@ class RIRCacheSession:
                             ),
                             dtype=np.float64,
                         ),
-                        np.asarray(
-                            job["listener_orientation_wxyz"], dtype=np.float64
-                        ),
+                        np.asarray(job["listener_orientation_wxyz"], dtype=np.float64),
                     )
                 ):
                     raise RIRCacheError(
@@ -2221,9 +3906,7 @@ class RIRCacheSession:
                     raise RIRCacheError("episode use resolves to multiple RIR jobs")
                 by_use[key] = job
         self.request_identity_sha256 = request_identity
-        self.acoustic_selection_binding = deepcopy(
-            acoustic_selection_binding
-        )
+        self.acoustic_selection_binding = deepcopy(acoustic_selection_binding)
         self.acoustic_scene_identity = self.external_input_identity["acoustic_scene"]
         self.retained_shards = (
             shared_shard_cache if shared_shard_cache is not None else {}
@@ -2246,7 +3929,9 @@ class RIRCacheSession:
             any(not values for values in frame_sets.values())
             or len({tuple(sorted(values)) for values in frame_sets.values()}) != 1
         ):
-            raise RIRCacheError("episode source slots do not share one RIR keyframe grid")
+            raise RIRCacheError(
+                "episode source slots do not share one RIR keyframe grid"
+            )
         visual_frames = tuple(sorted(frame_sets[source_slots[0]]))
         if visual_frames[0] != 0 or any(
             value < 0 or value >= self.frames for value in visual_frames
@@ -2257,8 +3942,7 @@ class RIRCacheSession:
             for value in visual_frames
         )
         if keyframe_samples[0] != 0 or any(
-            right <= left
-            for left, right in zip(keyframe_samples, keyframe_samples[1:])
+            right <= left for left, right in zip(keyframe_samples, keyframe_samples[1:])
         ):
             raise RIRCacheError("episode RIR sample grid is invalid")
 
@@ -2284,7 +3968,9 @@ class RIRCacheSession:
                 try:
                     shard_path.relative_to(self.root)
                 except ValueError as exc:
-                    raise RIRCacheError("RIR cache shard escapes the cache root") from exc
+                    raise RIRCacheError(
+                        "RIR cache shard escapes the cache root"
+                    ) from exc
                 retained = self.retained_shards.get(shard_path)
                 if retained is None:
                     retained = _read_shard(shard_path)
@@ -2311,9 +3997,7 @@ class RIRCacheSession:
                         )
                         or not np.array_equal(
                             retained["listener_orientations_wxyz"][row],
-                            np.asarray(
-                                job["listener_orientation_wxyz"], dtype="<f8"
-                            ),
+                            np.asarray(job["listener_orientation_wxyz"], dtype="<f8"),
                         )
                         or str(retained["acoustic_state_sha256"][row])
                         != job["acoustic_state_sha256"]
@@ -2341,7 +4025,9 @@ class RIRCacheSession:
                         retained["channel_labels"], np.asarray(self.expected_labels)
                     )
                 ):
-                    raise RIRCacheError("RIR cache episode entry differs from plan/shard")
+                    raise RIRCacheError(
+                        "RIR cache episode entry differs from plan/shard"
+                    )
                 frame_values.append(samples)
                 lengths[frame_ordinal, source_ordinal] = length
                 evidence_jobs.append(
@@ -2355,9 +4041,7 @@ class RIRCacheSession:
                         "listener_orientation_wxyz": list(
                             job["listener_orientation_wxyz"]
                         ),
-                        "acoustic_state_sha256": job[
-                            "acoustic_state_sha256"
-                        ],
+                        "acoustic_state_sha256": job["acoustic_state_sha256"],
                         "realized_source_position_m": (
                             retained["source_positions_m"][row].tolist()
                         ),
@@ -2383,9 +4067,7 @@ class RIRCacheSession:
             "status": "pass",
             "episode_id": episode_id,
             "cache_request_identity_sha256": self.request_identity_sha256,
-            "acoustic_selection_binding": deepcopy(
-                self.acoustic_selection_binding
-            ),
+            "acoustic_selection_binding": deepcopy(self.acoustic_selection_binding),
             "plan_sha256": self.plan_sha256,
             "acoustic_state_binding": (
                 "source_listener_pose_per_job_v1"
@@ -2416,15 +4098,22 @@ class RIRCacheSession:
 
 
 def load_cached_rir_episode(
-    *, cache_root: str | Path, plan_path: str | Path, episode_id: str,
-    frame_count: int, frame_rate_hz: int,
+    *,
+    cache_root: str | Path,
+    plan_path: str | Path,
+    episode_id: str,
+    frame_count: int,
+    frame_rate_hz: int,
     shared_shard_cache: dict[Path, dict[str, Any]] | None = None,
 ) -> CachedRIREpisode:
     """One-shot compatibility wrapper around :class:`RIRCacheSession`."""
 
     return RIRCacheSession(
-        cache_root=cache_root, plan_path=plan_path, frame_count=frame_count,
-        frame_rate_hz=frame_rate_hz, shared_shard_cache=shared_shard_cache,
+        cache_root=cache_root,
+        plan_path=plan_path,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        shared_shard_cache=shared_shard_cache,
     ).load_episode(episode_id)
 
 
@@ -2441,7 +4130,12 @@ __all__ = [
     "RIR_CACHE_RECEIPT_SCHEMA",
     "RIR_CACHE_REQUEST_SCHEMA",
     "RIR_CACHE_TIMING_SCHEMA",
-    "render_rir_cache",
+    "CachedRIREpisode",
+    "RIRBatchResult",
+    "RIRCacheError",
+    "RIRCacheResult",
+    "RIRCacheSession",
     "load_cached_rir_episode",
+    "render_rir_cache",
     "validate_rir_job_plan",
 ]

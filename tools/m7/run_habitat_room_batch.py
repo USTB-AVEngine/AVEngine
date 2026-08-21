@@ -42,6 +42,20 @@ BATCH_SCHEMA = "avengine_m7_habitat_room_batch_v1"
 SUPPORTED_LAYOUT = "m5_1-mixed-route"
 GATE_EVIDENCE_NAME = "mp3d_gate_evidence.json"
 DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/m6/rooms/room_registry.json"
+PBR_CONFIG_HANDLE = "avengine_m5_1_external_brown_photostudio_v1"
+PBR_LUT_RELATIVE_PATH = Path("bluts/brdflut_ldr_512x512.png")
+PBR_ENVIRONMENT_RELATIVE_PATH = Path(
+    "env_maps/brown_photostudio_02_1k.hdr"
+)
+PBR_CONFIG_FLAGS = {
+    "enable_direct_lights": True,
+    "map_mat_txtr_to_linear": True,
+    "map_ibl_txtr_to_linear": True,
+    "map_output_to_srgb": True,
+    "use_direct_tonemap": False,
+    "use_ibl_tonemap": True,
+    "use_burley_diffuse": True,
+}
 
 
 class HabitatRoomBatchError(RuntimeError):
@@ -227,7 +241,138 @@ def _verify_room_manifest_binding(
     }
 
 
-def _episode_readback(episode_dir: Path) -> dict[str, Any]:
+def _required_mapping(value: Any, *, owner: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise HabitatRoomBatchError(f"{owner} must be an object")
+    return value
+
+
+def _confined_episode_file(
+    episode_dir: Path,
+    declared_path: Any,
+    *,
+    owner: str,
+) -> Path:
+    if not isinstance(declared_path, str) or not declared_path:
+        raise HabitatRoomBatchError(f"{owner} path must be a non-empty string")
+    root = episode_dir.resolve()
+    raw = Path(declared_path)
+    resolved = (raw if raw.is_absolute() else root / raw).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise HabitatRoomBatchError(f"{owner} escapes the episode directory") from error
+    if not resolved.is_file():
+        raise HabitatRoomBatchError(f"{owner} is not a regular file: {resolved}")
+    return resolved
+
+
+def _pbr_ibl_readback(
+    capture_evidence: Mapping[str, Any],
+    *,
+    pbr_asset_root: Path,
+) -> dict[str, Any]:
+    rendering = _required_mapping(
+        capture_evidence.get("rendering"), owner="mixed capture rendering"
+    )
+    pbr = _required_mapping(
+        rendering.get("pbr_ibl"), owner="mixed capture rendering.pbr_ibl"
+    )
+    if pbr.get("status") != "pass":
+        raise HabitatRoomBatchError("mixed capture PBR IBL status is not pass")
+    preparation = _required_mapping(
+        pbr.get("preparation"), owner="PBR IBL preparation readback"
+    )
+    simulator = _required_mapping(
+        pbr.get("simulator_readback"), owner="PBR IBL Simulator readback"
+    )
+    expected_paths = {
+        "absolute_brdf_lut_path": (
+            pbr_asset_root / PBR_LUT_RELATIVE_PATH
+        ).resolve(),
+        "absolute_environment_map_path": (
+            pbr_asset_root / PBR_ENVIRONMENT_RELATIVE_PATH
+        ).resolve(),
+    }
+    for phase_name, phase, expected_phase in (
+        ("preparation", preparation, "before_simulator"),
+        ("simulator", simulator, "after_simulator"),
+    ):
+        if phase.get("status") != "pass" or phase.get("phase") != expected_phase:
+            raise HabitatRoomBatchError(f"PBR IBL {phase_name} phase is not pass")
+        if phase.get("config_handle") != PBR_CONFIG_HANDLE:
+            raise HabitatRoomBatchError(
+                f"PBR IBL {phase_name} config handle differs"
+            )
+        if phase.get("enable_ibl") is not True:
+            raise HabitatRoomBatchError(f"PBR IBL {phase_name} is not enabled")
+        observed_flags = phase.get("config_flags")
+        if (
+            not isinstance(observed_flags, Mapping)
+            or set(observed_flags) != set(PBR_CONFIG_FLAGS)
+            or any(type(value) is not bool for value in observed_flags.values())
+            or dict(observed_flags) != PBR_CONFIG_FLAGS
+        ):
+            raise HabitatRoomBatchError(f"PBR IBL {phase_name} flags differ")
+        declared_root = phase.get("asset_root")
+        if not isinstance(declared_root, str) or not Path(declared_root).is_absolute():
+            raise HabitatRoomBatchError(
+                f"PBR IBL {phase_name} asset root is not absolute"
+            )
+        if Path(declared_root).resolve() != pbr_asset_root:
+            raise HabitatRoomBatchError(
+                f"PBR IBL {phase_name} asset root differs from --pbr-asset-root"
+            )
+        for key, expected_path in expected_paths.items():
+            declared = phase.get(key)
+            if not isinstance(declared, str) or not Path(declared).is_absolute():
+                raise HabitatRoomBatchError(
+                    f"PBR IBL {phase_name} {key} is not absolute"
+                )
+            if Path(declared).resolve() != expected_path:
+                raise HabitatRoomBatchError(
+                    f"PBR IBL {phase_name} {key} differs from the explicit root"
+                )
+    if preparation.get("config_handle") != simulator.get("config_handle"):
+        raise HabitatRoomBatchError("PBR IBL pre/post config handles differ")
+    direct_light_count = pbr.get("actual_direct_light_count")
+    if type(direct_light_count) is not int or direct_light_count != 0:
+        raise HabitatRoomBatchError("mixed capture did not retain zero direct lights")
+    if pbr.get("direct_light_workaround_used") is not False:
+        raise HabitatRoomBatchError("mixed capture used a direct-light workaround")
+    if pbr.get("actor_shader_type") != "pbr":
+        raise HabitatRoomBatchError("mixed capture actor shader is not PBR")
+    scene_lighting = _required_mapping(
+        rendering.get("scene_lighting"), owner="mixed capture scene lighting"
+    )
+    current_light_count = scene_lighting.get("current_light_count")
+    registered_light_count = scene_lighting.get("registered_light_count")
+    if (
+        type(current_light_count) is not int
+        or current_light_count != 0
+        or type(registered_light_count) is not int
+        or registered_light_count != 0
+        or scene_lighting.get("required_zero_direct_lights") is not True
+    ):
+        raise HabitatRoomBatchError("mixed capture scene lighting is not zero-light")
+    return {
+        "status": "pass",
+        "config_handle": PBR_CONFIG_HANDLE,
+        "pbr_asset_root": str(pbr_asset_root),
+        "absolute_brdf_lut_path": str(expected_paths["absolute_brdf_lut_path"]),
+        "absolute_environment_map_path": str(
+            expected_paths["absolute_environment_map_path"]
+        ),
+        "actual_direct_light_count": 0,
+        "direct_light_workaround_used": False,
+    }
+
+
+def _episode_readback(
+    episode_dir: Path,
+    *,
+    pbr_asset_root: Path,
+) -> dict[str, Any]:
     """Independently re-verify one completed episode's retained evidence."""
 
     evidence_path = episode_dir / GATE_EVIDENCE_NAME
@@ -249,12 +394,29 @@ def _episode_readback(episode_dir: Path) -> dict[str, Any]:
         raise HabitatRoomBatchError(
             f"gates not passing in {evidence_path}: {failing}"
         )
+    mixed_capture = _required_mapping(
+        evidence.get("mixed_capture"), owner="gate mixed_capture"
+    )
+    mixed_evidence_record = _required_mapping(
+        mixed_capture.get("evidence"), owner="gate mixed_capture.evidence"
+    )
+    mixed_evidence_path = _confined_episode_file(
+        episode_dir,
+        mixed_evidence_record.get("path"),
+        owner="mixed capture evidence",
+    )
+    mixed_evidence = _required_mapping(
+        load_json(mixed_evidence_path), owner="mixed capture evidence"
+    )
+    pbr_readback = _pbr_ibl_readback(mixed_evidence, pbr_asset_root=pbr_asset_root)
     return {
         "gate_evidence": file_record(evidence_path, relative_to=episode_dir),
         "gate_count": len(gate_statuses),
         "frame_count": evidence.get("frame_count"),
         "frame_rate_hz": evidence.get("frame_rate_hz"),
         "route_id": evidence.get("route_id"),
+        "mixed_capture_evidence_path": str(mixed_evidence_path),
+        "pbr_ibl": pbr_readback,
     }
 
 
@@ -294,7 +456,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--human-runtime-glb", type=Path, required=True)
     parser.add_argument("--beagle-manifest", type=Path, required=True)
     parser.add_argument("--beagle-m2-request", type=Path, required=True)
-    parser.add_argument("--runtime-root", type=Path)
+    runtime = parser.add_mutually_exclusive_group(required=True)
+    runtime.add_argument(
+        "--runtime-prefix",
+        type=Path,
+        help="Non-Git installed Habitat runtime prefix",
+    )
+    runtime.add_argument(
+        "--runtime-root",
+        type=Path,
+        help=("Compatibility alias for --runtime-prefix; Git checkouts are rejected"),
+    )
+    parser.add_argument(
+        "--mp3d-root",
+        type=Path,
+        required=True,
+        help="External MP3D data root containing scene_datasets",
+    )
+    parser.add_argument(
+        "--magnum-python-site",
+        type=Path,
+        required=True,
+        help="External Corrade/Magnum Python site",
+    )
+    parser.add_argument(
+        "--pbr-asset-root",
+        type=Path,
+        required=True,
+        help="External non-Git Brown Photostudio PBR IBL asset root",
+    )
+    parser.add_argument(
+        "--rlr-sdk-root",
+        type=Path,
+        required=True,
+        help="External non-Git RLR SDK package root",
+    )
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument(
@@ -336,22 +532,39 @@ def main(argv: list[str] | None = None) -> int:
         if ordinal % args.shard_count == args.shard_index
     ]
 
+    # Imported lazily so --help and sharding dry checks stay usable without
+    # the native Habitat runtime installed. Root validation is file-only and
+    # does not prepare or import the native binding on resume.
+    from avengine.m1.habitat_capture import (  # noqa: PLC0415
+        discover_pbr_asset_root,
+        prepare_installed_habitat_runtime,
+    )
+    from avengine.m5_1.mp3d_capture import capture_mp3d_route  # noqa: PLC0415
+
+    try:
+        selected_pbr_asset_root = discover_pbr_asset_root(args.pbr_asset_root)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HabitatRoomBatchError(
+            f"explicit PBR asset root is unavailable: {error}"
+        ) from error
+    if selected_pbr_asset_root is None:
+        raise HabitatRoomBatchError("--pbr-asset-root is required")
+
     output = args.output.resolve()
     episodes_root = output / "episodes"
     episodes_root.mkdir(parents=True, exist_ok=True)
 
-    # Imported lazily so --help and sharding dry checks stay usable without
-    # the native Habitat runtime installed.
-    from avengine.m5_1.mp3d_capture import capture_mp3d_route  # noqa: PLC0415
-
     entries: list[dict[str, Any]] = []
     render_contract = dict(profile["render"])
+    installed_runtime = None
     for ordinal, episode_id, route_path in selected:
         episode_dir = episodes_root / episode_id
         resumed = False
         if episode_dir.exists() and not args.no_resume:
             try:
-                readback = _episode_readback(episode_dir)
+                readback = _episode_readback(
+                    episode_dir, pbr_asset_root=selected_pbr_asset_root
+                )
                 resumed = True
             except HabitatRoomBatchError:
                 raise HabitatRoomBatchError(
@@ -363,6 +576,22 @@ def main(argv: list[str] | None = None) -> int:
                 raise HabitatRoomBatchError(
                     f"--no-resume refuses to overwrite existing {episode_dir}"
                 )
+            if installed_runtime is None:
+                try:
+                    installed_runtime = prepare_installed_habitat_runtime(
+                        runtime_prefix=args.runtime_prefix,
+                        runtime_root=args.runtime_root,
+                        mp3d_root=args.mp3d_root,
+                        pbr_asset_root=selected_pbr_asset_root,
+                        magnum_python_site=args.magnum_python_site,
+                        rlr_sdk_root=args.rlr_sdk_root,
+                        allow_mp3d_environment=False,
+                    )
+                except (ImportError, OSError, RuntimeError, ValueError) as error:
+                    raise HabitatRoomBatchError(
+                        "explicit installed Habitat/RLR runtime is unavailable: "
+                        f"{error}"
+                    ) from error
             started = time.monotonic()
             capture_mp3d_route(
                 route_manifest_path=route_path,
@@ -372,10 +601,12 @@ def main(argv: list[str] | None = None) -> int:
                 beagle_animal_manifest_path=args.beagle_manifest,
                 beagle_m2_request_path=args.beagle_m2_request,
                 output_dir=episode_dir,
-                runtime_root=args.runtime_root,
+                installed_runtime=installed_runtime,
             )
             wall_seconds = time.monotonic() - started
-            readback = _episode_readback(episode_dir)
+            readback = _episode_readback(
+                episode_dir, pbr_asset_root=selected_pbr_asset_root
+            )
             readback["capture_wall_seconds"] = round(wall_seconds, 3)
         divergent = readback.get("frame_count") != render_contract["frame_count"]
         entries.append(

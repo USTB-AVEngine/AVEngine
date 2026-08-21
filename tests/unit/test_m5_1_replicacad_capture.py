@@ -598,3 +598,26 @@ def test_selected_closure_uses_environment_root_without_hardcoded_payload(
     ).resolve()
     assert closure["navmesh"] == (root / "navmeshes/apt_0.navmesh").resolve()
     assert all(str(path).startswith(str(root.resolve())) for path in closure.values())
+
+
+def test_installed_capture_rejects_runtime_root(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from avengine.m5_1.replicacad_capture import (
+        ReplicaCADCaptureError,
+        validate_replicacad_paths_and_placement,
+    )
+
+    root = tmp_path / "replica"
+    root.mkdir()
+    with pytest.raises(
+        ReplicaCADCaptureError, match="does not accept runtime_root"
+    ):
+        validate_replicacad_paths_and_placement(
+            route={},
+            room_manifest_path=tmp_path / "room.json",
+            m1_request_path=tmp_path / "m1.json",
+            replicacad_root=root,
+            runtime_root=tmp_path / "legacy-runtime",
+            installed_runtime=SimpleNamespace(),
+        )
