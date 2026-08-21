@@ -157,6 +157,15 @@ asset licensing.
 | Hunyuan3D-2.1 | code `82920d643c0dc2f7bfd7255f45f62d386edfe60c`; Tencent custom community license with territory/use restrictions | hold code, weights, and derived release content pending review |
 | RigAnything legacy route | local evidence records research/non-commercial terms | exclude from a commercial route |
 | Quaternius animal assets | one farm-animal archive contains CC0 evidence; another pack lacks embedded evidence | admit item by item only after license snapshot and hash verification |
+| MIT KEMAR HRTF and the derived 16 kHz SOFA | MIT Media Lab KEMAR measurements, research use with attribution; LICENSE and PROVENANCE snapshots are retained beside the external copies, including the sofar-rewritten 16 kHz derivative and its resampling record | external runtime input for binaural rendering; keep source and derivative outside Git |
+| SoundSpaces 2 material configuration | consumed as the MP3D acoustic material authority from an external checkout under upstream SoundSpaces terms | external runtime input only; not redistributed from this repository |
+| Brown Photostudio IBL images (BRDF LUT and HDR environment map staged via habitat-sim assets) | license and provenance snapshots retained beside the external copy | research-only external rendering input; keep outside Git |
+| Matterport3D example scene | Matterport ToS; MP_TOS.pdf retained beside the external copy; academic use | external runtime input; no redistribution |
+
+Owner decision 2026-08-21: AVEngine is a non-commercial research project and
+this repository is planned for an open-source release. The CC BY-NC terms of
+RLR, ReplicaCAD, and InteriorAgent/Kujiale are compatible with that use; the
+commercial-use holds below remain in force unchanged.
 
 ## Explicit release holds
 
