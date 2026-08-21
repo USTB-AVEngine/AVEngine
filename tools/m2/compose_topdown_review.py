@@ -45,7 +45,7 @@ def _parser() -> argparse.ArgumentParser:
         "--runtime-root",
         type=Path,
         required=True,
-        help="Pinned habitat-sim-AVEngine repository/runtime root",
+        help="Explicit non-checkout Habitat runtime data root",
     )
     parser.add_argument(
         "--output",

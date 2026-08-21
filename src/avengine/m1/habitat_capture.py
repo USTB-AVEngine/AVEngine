@@ -101,11 +101,21 @@ def _producer_process_identity() -> dict[str, Any]:
 
 def discover_runtime_root(explicit: str | Path | None = None) -> Path:
     if explicit is not None:
-        return Path(explicit).resolve()
-    configured = os.environ.get("AVENGINE_HABITAT_RUNTIME_ROOT")
-    if configured:
-        return Path(configured).resolve()
-    raise FileNotFoundError("Set AVENGINE_HABITAT_RUNTIME_ROOT or pass --runtime-root")
+        root = Path(explicit).resolve()
+    else:
+        configured = os.environ.get("AVENGINE_HABITAT_RUNTIME_ROOT")
+        if not configured:
+            raise FileNotFoundError(
+                "Set AVENGINE_HABITAT_RUNTIME_ROOT or pass --runtime-root"
+            )
+        root = Path(configured).resolve()
+    checkout_root = _git_checkout_ancestor(root)
+    if checkout_root is not None:
+        raise ValueError(
+            "Habitat runtime root must not be inside a Git checkout: "
+            f"{root} (found .git at {checkout_root})"
+        )
+    return root
 
 
 def _git_checkout_ancestor(path: Path) -> Path | None:

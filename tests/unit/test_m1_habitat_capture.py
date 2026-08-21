@@ -1260,3 +1260,15 @@ def test_discover_runtime_root_requires_explicit_or_environment(
     monkeypatch.delenv("AVENGINE_HABITAT_RUNTIME_ROOT", raising=False)
     with pytest.raises(FileNotFoundError, match="AVENGINE_HABITAT_RUNTIME_ROOT"):
         discover_runtime_root()
+
+
+def test_discover_runtime_root_rejects_a_git_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "habitat-sim-AVEngine"
+    (checkout / ".git").mkdir(parents=True)
+    with pytest.raises(ValueError, match="Git checkout"):
+        discover_runtime_root(checkout)
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_ROOT", str(checkout))
+    with pytest.raises(ValueError, match="Git checkout"):
+        discover_runtime_root()
