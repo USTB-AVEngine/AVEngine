@@ -962,3 +962,39 @@ not lateral sweep. A strongly lateral apartment production route would need
 its own authored path; the MP3D clip demonstrates the lateral case. The
 retry1 and natural-parallel audio products remain on disk as defect
 evidence but are superseded for review.
+
+## Checkpoint 20260822a: rendered-pose animation playback probe (room-agnostic guard, layer 1)
+
+The recurring "scheduled walk, rendered slide" failure now has a pixel-level
+guard: avengine.m7.animation_probe with tools/qa/probe_ue_capture_animation.py.
+For frame pairs whose declared walk phases differ by a large cyclic distance,
+the probe localizes each actor by frame-difference components (assigned to
+slots by horizontal image order), restricts to pixels that are foreground
+against the temporal-median background plate (drops the revealed-background
+band behind fast movers), and measures the median gray residual after an
+exhaustive translation-plus-scale fit. A rigid slide collapses under some
+similarity transform; a played gait does not. Verdicts are banded
+(sliding <= 7.5, animated >= 9.5, otherwise inconclusive; thresholds
+calibrated on the three retained apartment captures) and the tool exits
+nonzero on fail or inconclusive. It needs only a static camera,
+frame_records.json, and arrays/rgb.npy - no semantic masks, no room
+assumptions.
+
+Validation: four synthetic unit tests (sliding flagged, animation accepted,
+moving camera rejected, pair selection), plus all six real slots match the
+pixel ground truth - skeletal_animation_2786897 both animated (17.8 / 25.3,
+pass), natural_parallel_1fd3f5d both sliding (7.3 / 7.2, fail; the owner-
+observed regression), capture_cp312_retry1 human sliding 1.7 with the dog
+animated 9.8 (fail).
+
+Layer 2 (the durable fix, recorded for the apartment-visual workstream): the
+capture chain should read back rendered skeletal transforms per frame (for
+example foot/hand socket world positions through the spear backend), making
+"walk declared but bones static relative to the root" a direct numeric
+check at capture time for every room, walk or idle, without any vision. The
+existing animation readback validates only the scheduled montage time and
+cannot catch this class.
+
+The dynamic-audio chain itself is room-agnostic and unaffected: it consumes
+recorded emitter positions and re-renders audio for any conforming capture
+in one command (proven on MP3D/Habitat and Apartment/UE).
