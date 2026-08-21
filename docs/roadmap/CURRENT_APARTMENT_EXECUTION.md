@@ -748,3 +748,76 @@ Positive findings: src/ core is closed (explicit roots, Git-checkout rejection, 
 New structural discovery (absent from all earlier audits): this working copy is a git worktree whose common .git lives at /data/jzy/code/AVEngine/.git (parent checkout on archive/main-pre-habitat-native-20260729). That is same-repository infrastructure, not a foreign-repo dependency, but Phase 6 archival of the /data/jzy/code/AVEngine directory must first make lead-a standalone (fresh clone or git worktree repair), and closure claims must state this linkage explicitly.
 
 Approved execution order: C1 environment reinstall closure; C2 hard-coded path removal (per-script fix-or-archive decision); C3 data consolidation into /data/avengine_external; C4 rebuild-recipe and prefix provenance docs; C5 documentation alignment; C6 unplugged verification (fresh clone plus fresh env, zero legacy-path access); owner push and reviews; then MP3D audio closure (M6x per-state RIR plus M6 AudioProgram turn-taking into the current chain), the Apartment production bundle, and fresh native-layer validation. The formal dataset denominator stays 0.
+
+## Checkpoint 20260821g: closure block C0-C6 complete; pushable state reached
+
+All six closure stages from Checkpoint 20260821f are done. HEAD at this
+checkpoint carries the closure commits fbaa708, be82db5, ef408e4, 5879963,
+4795c8d, 6cc6a9f (plus this checkpoint).
+
+- C1 environment closure: the legacy scikit-build-core editable habitat-sim
+  0.3.3 was uninstalled from avengine-habitat-runtime (backup:
+  ~/env-backups/habitat-sim-editable-20260821), and the legacy editable
+  spear-sim/spear-ext were uninstalled from spear-env (backup:
+  ~/env-backups/spear-editables-20260821). Post-surgery: plain-env
+  habitat_sim import correctly absent, installed prefix serves
+  habitat_sim/magnum alone (AudioSensorSpec present), fast-unit 3073/0.
+  SKBUILD_EDITABLE_SKIP is no longer needed anywhere.
+- C2 tool closure (ef408e4, 4795c8d): seven retained-evidence strict-two-human
+  QA scripts carry a frozen HISTORICAL TOOL header (their recorded
+  transition-era paths stay as historical contract); active m6y probes and
+  canaries and the m6x four-motion pilot now require explicit --spear-root /
+  --human-runtime-glb / --beagle-audio; the unguarded construction-profile
+  test skips without workspace evidence; the replicacad dry-run test passes an
+  explicit spear root.
+- C3 data consolidation: the fixed-apartment canary stable inputs (beagle dry
+  audio audit set, m1 room package+export, m2 beagle package+request, m3
+  acoustic package, exterior proxy glb) are staged at
+  /data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z
+  (276.9 MB, PROVENANCE.json, beagle wav sha256 verified against the sound
+  registry digest).
+- C4 rebuild provenance (5879963): docs/provenance/RUNTIME_PREFIX_RECIPE.md
+  records the full prefix rebuild recipe (cmake flags, five dependency-prefix
+  roles, all upstream revisions and archive SHA256s); THIRD_PARTY_NOTICES
+  gained eight statically-linked dependency rows; the pbr-ibl and ec209a6
+  prefixes received PROVENANCE.json; dependency archives are consolidated at
+  /data/avengine_external/builds/dependency-archives-20260821. The v1 release
+  attestation flow needs no change: its commands were already retired
+  fail-closed, so its sibling-checkout references are historical record.
+- C5 documentation alignment (6cc6a9f): AGENTS.md transition-workspaces and
+  QuestionSpec-blocked paragraphs updated; stale sibling-fallback wording
+  corrected; native/habitat README reflects the installed-prefix cutover;
+  M1_EXECUTION old layout marked historical; skokloster m3 examples gained a
+  LEGACY_NOTE.
+- C6 unplugged verification, three layers, all pass:
+  (A) import-origin assertions — at interpreter startup, after importing
+  avengine + cli + the spear_ue backend, and after installed-runtime
+  activation, no sys.path entry, loaded module, or meta-path finder touches
+  /data/jzy/code/AVEngine/, habitat-sim-AVEngine, sound-spaces, or
+  SPEAR-lead-b.
+  (B) fresh clone at 6cc6a9f with its own dedicated env
+  (/data/jzy/tmp/avengine-bootstrap-verify-20260821): 2933 passed, 0 failed,
+  117 skipped (workspace-evidence suites skip by design).
+  (C) full fixed-apartment canary rerun with the staged external inputs and
+  explicit arguments only:
+  tmp/m6x/fixed_apartment_canary_closure_verify_20260821T133144Z, status pass.
+  The optional physical rename of the legacy checkout directories remains an
+  owner-authorized final proof; it is not required by the three passing
+  layers.
+
+Owner-pending: push of the closure commits; the physical-rename decision;
+Phase 6 remains gated on owner authorization, and lead-a must be made a
+standalone clone before /data/jzy/code/AVEngine is archived (worktree .git
+note in AGENTS.md).
+
+Next engineering (in progress): MP3D audio closure. Mapped seams: the mixing
+core render_dynamic_stems_and_mix natively supports [K,S,C,L]; the only K=1
+squeeze is inside render_current_m1_research_audio (kept as the static
+baseline; its validation stack intentionally rejects dynamic input). The
+implementation route is a new current-chain entry that feeds the authored
+route's 75-frame per-actor paths into the room-agnostic m5_1 trio
+(build_strided_review_keyframes, render_research_review_binaural_rir_sequence,
+render_research_review_binaural_audio) with dry buses from the M6
+AudioProgram assembler (assemble_audio_program_dry_buses) under a turn-taking
+program, then muxes the resulting 80000x2 binaural mixture onto the current
+visual capture. The formal dataset denominator stays 0.
