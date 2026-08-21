@@ -101,6 +101,10 @@ from avengine.m5.current_m1_research_audio import (
     CurrentM1ResearchAudioError,
     render_current_m1_research_audio,
 )
+from avengine.m5.current_mp3d_dynamic_audio import (
+    CurrentMP3DDynamicAudioError,
+    render_current_mp3d_dynamic_audio,
+)
 from avengine.m5.current_visual_review import (
     CurrentVisualReviewError,
     generate_current_visual_review,
@@ -1352,6 +1356,50 @@ def _m5_render_current_m1_research_audio(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
+    """Render per-state MP3D research audio on the installed native runtime."""
+
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        with _temporary_native_audio_environment(
+            runtime_prefix=args.runtime_prefix,
+            rlr_sdk_root=args.rlr_sdk_root,
+            magnum_python_site=args.magnum_python_site,
+        ):
+            receipt = render_current_mp3d_dynamic_audio(
+                visual_capture_dir=args.visual_capture_dir,
+                m1_request_path=args.m1_request,
+                simulation_request_path=args.simulation_request,
+                package_manifest_path=args.package_manifest,
+                audio_program_path=args.audio_program,
+                source_endpoint_registry_path=args.source_endpoint_registry,
+                sound_asset_registry_path=args.sound_asset_registry,
+                external_sound_asset_paths={
+                    "dog_beagle_v2_scheduled_dry": args.beagle_audio
+                },
+                hrtf_file_path=args.hrtf,
+                hrtf_license_path=args.hrtf_license,
+                output_path=output,
+                rir_stride_frames=args.rir_stride_frames,
+                variant_id=args.variant,
+            )
+    except (CurrentMP3DDynamicAudioError, OSError, ValueError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    _print(
+        {
+            "status": receipt["status"],
+            "research_only": receipt["research_only"],
+            "keyframe_count": receipt["rir"]["keyframe_count"],
+            "event_count": receipt["audio_program"]["event_count"],
+            "output": str(output),
+            "receipt": str(Path(output) / "research_receipt.json"),
+        }
+    )
+    return 0
+
+
 def _m5_run_canary(args: argparse.Namespace) -> int:
     try:
         output = _require_ignored_or_external_output(args.output)
@@ -2212,6 +2260,36 @@ def build_parser() -> argparse.ArgumentParser:
     m5_current_audio.add_argument("--binaural-receipt", required=True)
     m5_current_audio.add_argument("--output", required=True)
     m5_current_audio.set_defaults(handler=_m5_render_current_m1_research_audio)
+
+    m5_dynamic_audio = m5_commands.add_parser(
+        "render-current-mp3d-dynamic-audio",
+        help=(
+            "Render motion-following binaural research audio for an authored "
+            "current MP3D route from captured per-frame source positions and "
+            "one AudioProgram routing variant"
+        ),
+    )
+    m5_dynamic_audio.add_argument("--visual-capture-dir", required=True)
+    m5_dynamic_audio.add_argument("--m1-request", required=True)
+    m5_dynamic_audio.add_argument("--simulation-request", required=True)
+    m5_dynamic_audio.add_argument("--package-manifest", required=True)
+    m5_dynamic_audio.add_argument("--audio-program", required=True)
+    m5_dynamic_audio.add_argument("--source-endpoint-registry", required=True)
+    m5_dynamic_audio.add_argument("--sound-asset-registry", required=True)
+    m5_dynamic_audio.add_argument(
+        "--beagle-audio",
+        required=True,
+        help="external dry wav for dog_beagle_v2_scheduled_dry",
+    )
+    m5_dynamic_audio.add_argument("--hrtf", required=True)
+    m5_dynamic_audio.add_argument("--hrtf-license")
+    m5_dynamic_audio.add_argument("--runtime-prefix", required=True)
+    m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
+    m5_dynamic_audio.add_argument("--magnum-python-site")
+    m5_dynamic_audio.add_argument("--rir-stride-frames", type=int, default=3)
+    m5_dynamic_audio.add_argument("--variant", default="A")
+    m5_dynamic_audio.add_argument("--output", required=True)
+    m5_dynamic_audio.set_defaults(handler=_m5_render_current_mp3d_dynamic_audio)
 
     m5_run = m5_commands.add_parser("run-canary")
     m5_run.add_argument("--request", required=True)
