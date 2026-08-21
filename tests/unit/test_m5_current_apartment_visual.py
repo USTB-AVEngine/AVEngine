@@ -100,6 +100,7 @@ def test_author_writes_free_75_frame_research_timeline(tmp_path: Path) -> None:
         "ticks_per_frame": 3200,
         "resolution_hw": [720, 1280],
         "hfov_degrees": 105.0,
+        "walk_start_frame": 0,
     }
     assert [frame["frame_index"] for frame in value["frames"]] == list(range(75))
     assert [frame["pts_ticks"] for frame in value["frames"]] == [
@@ -128,17 +129,8 @@ def test_author_writes_free_75_frame_research_timeline(tmp_path: Path) -> None:
         "source1": [150.0, 70.0, 0.0],
         "source2": [-150.0, -70.0, 0.0],
     }
-    for frame_index in (0, 14):
-        states = {
-            state["source_slot_id"]: state
-            for state in value["frames"][frame_index]["actor_states"]
-        }
-        for slot, start in starts.items():
-            assert states[slot]["translation_ue_cm"] == start
-            assert states[slot]["action_id"] == "idle"
-            assert states[slot]["action_phase"] == 0.0
     states_at_walk_start = {
-        state["source_slot_id"]: state for state in value["frames"][15]["actor_states"]
+        state["source_slot_id"]: state for state in value["frames"][0]["actor_states"]
     }
     for slot, start in starts.items():
         assert states_at_walk_start[slot]["translation_ue_cm"] == start
@@ -156,23 +148,23 @@ def test_author_writes_free_75_frame_research_timeline(tmp_path: Path) -> None:
             [
                 starts["source1"][axis]
                 + (ends["source1"][axis] - starts["source1"][axis])
-                * (frame_index - 15)
-                / (74 - 15)
+                * frame_index
+                / 74
                 for axis in range(3)
             ]
         )
-        for frame_index in (16, 31, 74)
+        for frame_index in (1, 31, 74)
     )
     frame_31 = {
         state["source_slot_id"]: state for state in value["frames"][31]["actor_states"]
     }
-    assert frame_31["source1"]["action_phase"] == pytest.approx(0.0)
-    assert frame_31["source2"]["action_phase"] == pytest.approx(16.0 / 25.0)
+    assert frame_31["source1"]["action_phase"] == pytest.approx(15.0 / 16.0)
+    assert frame_31["source2"]["action_phase"] == pytest.approx(6.0 / 25.0)
     frame_40 = {
         state["source_slot_id"]: state for state in value["frames"][40]["actor_states"]
     }
-    assert frame_40["source1"]["action_phase"] == pytest.approx(9.0 / 16.0)
-    assert frame_40["source2"]["action_phase"] == pytest.approx(0.0)
+    assert frame_40["source1"]["action_phase"] == pytest.approx(8.0 / 16.0)
+    assert frame_40["source2"]["action_phase"] == pytest.approx(15.0 / 25.0)
     assert all(
         state["walk_phase_period_frames"] == declarations[state["source_slot_id"]]
         for frame in value["frames"]
@@ -211,6 +203,34 @@ def test_timeline_state_keeps_static_actor_idle_at_start() -> None:
         assert state["translation_ue_cm"] == list(start)
         assert state["action_id"] == "idle"
         assert state["action_phase"] == 0.0
+
+
+def test_timeline_state_starts_moving_actor_at_formal_frame_zero() -> None:
+    binding = {
+        "actor_id": "source1_actor",
+        "source_slot_id": "source1",
+        "asset_id": "asset",
+        "revision": "v1",
+        "walk_phase_period_frames": 16,
+        "ue_anatomical_forward_yaw_deg": 90.0,
+    }
+    state0 = apartment_visual._timeline_state(
+        binding=binding,
+        start=(0.0, 0.0, 0.0),
+        end=(740.0, 0.0, 0.0),
+        frame_index=0,
+    )
+    state1 = apartment_visual._timeline_state(
+        binding=binding,
+        start=(0.0, 0.0, 0.0),
+        end=(740.0, 0.0, 0.0),
+        frame_index=1,
+    )
+    assert state0["action_id"] == "walk"
+    assert state0["action_phase"] == 0.0
+    assert state0["translation_ue_cm"] == [0.0, 0.0, 0.0]
+    assert state1["action_phase"] == pytest.approx(1.0 / 16.0)
+    assert state1["translation_ue_cm"] == pytest.approx([10.0, 0.0, 0.0])
 
 
 def test_unverified_myassets_returns_not_run_without_stage_or_launch(
@@ -428,10 +448,20 @@ def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
         "launch_external_game_instance",
         lambda **_kwargs: _Instance(),
     )
+
+    class _Camera:
+        def K2_SetActorLocationAndRotation(self, **_kwargs: object) -> None:
+            events.append("camera.pose")
+
     monkeypatch.setattr(
         apartment_visual,
         "spawn_scene_capture",
-        lambda *_args, **_kwargs: (object(), object()),
+        lambda *_args, **_kwargs: (_Camera(), object()),
+    )
+    monkeypatch.setattr(
+        apartment_visual,
+        "warm_scene_capture_until_stable",
+        lambda *_args, **_kwargs: {"status": "pass"},
     )
     monkeypatch.setattr(
         apartment_visual,

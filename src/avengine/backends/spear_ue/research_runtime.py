@@ -304,6 +304,90 @@ def run_frame_transaction(
         return readback()
 
 
+def warm_scene_capture_until_stable(
+    instance: Any,
+    capture: Any,
+    *,
+    maximum_frames: int = 60,
+    minimum_frames: int = 4,
+    required_consecutive_stable_frames: int = 3,
+    mean_absolute_change_threshold: float = 0.8,
+) -> dict[str, Any]:
+    """Discard real SceneCapture frames until exposure and streaming settle."""
+
+    counts = (maximum_frames, minimum_frames, required_consecutive_stable_frames)
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 1
+        for value in counts
+    ):
+        raise SpearResearchRuntimeError(
+            "SceneCapture warmup frame counts must be positive integers"
+        )
+    if minimum_frames > maximum_frames:
+        raise SpearResearchRuntimeError(
+            "SceneCapture warmup minimum exceeds its maximum"
+        )
+    if (
+        not math.isfinite(mean_absolute_change_threshold)
+        or mean_absolute_change_threshold < 0.0
+    ):
+        raise SpearResearchRuntimeError(
+            "SceneCapture warmup threshold must be finite and non-negative"
+        )
+
+    previous: np.ndarray | None = None
+    consecutive_stable = 0
+    for discarded_frame_count in range(1, maximum_frames + 1):
+        current = run_frame_transaction(
+            instance,
+            apply=lambda: None,
+            readback=lambda: read_rgb_bgr(capture),
+        )
+        if previous is not None:
+            if current.shape != previous.shape:
+                raise SpearResearchRuntimeError(
+                    "SceneCapture warmup frame shape changed"
+                )
+            change = float(
+                np.mean(
+                    np.abs(
+                        current.astype(np.int16, copy=False)
+                        - previous.astype(np.int16, copy=False)
+                    )
+                )
+            )
+            if not math.isfinite(change):
+                raise SpearResearchRuntimeError(
+                    "SceneCapture warmup produced a non-finite change"
+                )
+            if (
+                discarded_frame_count >= minimum_frames
+                and change <= mean_absolute_change_threshold
+            ):
+                consecutive_stable += 1
+            else:
+                consecutive_stable = 0
+            if consecutive_stable >= required_consecutive_stable_frames:
+                return {
+                    "status": "pass",
+                    "discarded_frame_count": discarded_frame_count,
+                    "minimum_frame_count": minimum_frames,
+                    "maximum_frame_count": maximum_frames,
+                    "required_consecutive_stable_frames": (
+                        required_consecutive_stable_frames
+                    ),
+                    "mean_absolute_change_threshold": (
+                        mean_absolute_change_threshold
+                    ),
+                    "final_mean_absolute_change": change,
+                    "formal_frame_zero_follows_warmup": True,
+                }
+        previous = current
+    raise SpearResearchRuntimeError(
+        "SceneCapture did not stabilize before the warmup limit"
+    )
+
+
 def spawn_attached_visual_actor(
     game: Any,
     *,
@@ -382,6 +466,8 @@ def spawn_attached_visual_actor(
         raise SpearResearchRuntimeError(
             "spawned visual actor has no SkeletalMeshComponent"
         )
+    component.SetComponentTickEnabled(bEnabled=True)
+    component.SetCastShadow(NewCastShadow=True)
     return {
         "anchor": anchor,
         "anchor_root": anchor_root,
@@ -401,4 +487,5 @@ __all__ = [
     "run_frame_transaction",
     "spawn_attached_visual_actor",
     "spawn_scene_capture",
+    "warm_scene_capture_until_stable",
 ]
