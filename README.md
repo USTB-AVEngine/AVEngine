@@ -33,6 +33,8 @@ AVEngine 不是新的模拟器、渲染器或声学求解器，也不会根据�
   → 质量检查、来源记录和数据索引
 ```
 
+![AVEngine 逻辑功能流](docs/diagrams/engine_logical_pipeline.svg)
+
 生成动物必须在修复、绑定、动画和运行验证中保留自己的 Pixel3D 几何。
 库中动物可以提供动作，但不能替换生成动物的 mesh、轮廓、关节或蒙皮
 权重。
@@ -81,19 +83,26 @@ Blender 和媒体读回属于独立测试层。Apartment/Kujiale 的 UE 层是�
 失败。保留的 v1 manifest 精确记录它当时的 M6 发布状态；下文所说的历史
 “唯一依据”不验证当前源码迁移，schema-only 读取也不构成新的正式验证。
 
-`main` 是当前 Habitat 原生集成基线。现有 Apartment 研究路线支持通用
+`main` 是当前单仓一条龙基线：精选 Habitat 与 SPEAR 集成源码、AVEngine
+自有的 RLR 调用/适配源码和小型 AVEngine 配置已全部迁入本仓库，并于
+2026-08-22 经 PR #2 合入。现有 Apartment 研究路线支持通用
 `source1`、`source2` 绑定、双声源任务、精确时间线、RLR 双耳音频、
 Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级
 训练/验证/测试划分。
 
-源码单仓迁移仍在进行。本仓库的最终目标是包含运行所需的精选 Habitat 与
-SPEAR 集成源码、AVEngine 自有的 RLR 调用/适配源码和小型 AVEngine 配置。
-RLR 传播引擎、头文件、库和 SDK 配置是用户合法安装的 CC BY-NC 4.0 外部
-SDK，永不进入 AVEngine Git。当前 bootstrap 不再 clone、fetch 或默认解析
-Habitat/SPEAR/RLR checkout；需要原生执行时，必须显式提供非 Git 的 installed
-Habitat prefix、Magnum Python site、MP3D 数据与 RLR SDK。保留的 checkout-era
-证据和 v1 reader 只用于历史兼容，不能替代当前入口。迁移完成仍须由迁移前后
-相同房间路由的实际结果确认，不能由这段目标说明或一次单元测试替代。
+源码单仓迁移已完成闭环：引擎运行与重建不再依赖任何其他 Git 检出
+（含转轨期的 Habitat fork、SPEAR checkout 与 sound-spaces）。RLR 传播
+引擎、头文件、库和 SDK 配置是用户合法安装的 CC BY-NC 4.0 外部 SDK，
+永不进入 AVEngine Git。bootstrap 不 clone、fetch 或默认解析
+Habitat/SPEAR/RLR checkout；原生执行必须显式提供非 Git 的 installed
+Habitat prefix、Magnum Python site、MP3D 数据与 RLR SDK（重建配方见
+[`docs/provenance/RUNTIME_PREFIX_RECIPE.md`](docs/provenance/RUNTIME_PREFIX_RECIPE.md)）。
+保留的 checkout-era 证据和 v1 reader 只用于历史兼容，不能替代当前入口。
+迁移完成已由迁移前后相同房间路由的实际结果与 owner 评审确认：四路线
+画面、S 系列声学、MP3D/Apartment 动态音频与左右基准均已过审，拔线验证
+（进程溯源、fresh clone、纯外置输入全链）记录在
+docs/roadmap/CURRENT_APARTMENT_EXECUTION.md 的 20260821f–20260822b
+检查点。这不改变数据准入：正式数据集分母仍为 0。
 
 这些结果保留各自的证据边界，不代表所有生成动物、房间声学或数据集已经
 正式准入。请以以下记录为准：
@@ -102,7 +111,7 @@ Habitat prefix、Magnum Python site、MP3D 数据与 RLR SDK。保留的 checkou
 - [里程碑与证据状态](docs/roadmap/MILESTONES.md)
 - [发布清单](release/avengine_release_manifest_v1.json)
 
-当前 release manifest 在源码迁移期间仍是正式发布状态的唯一依据。分支、
+当前 release manifest 仍是正式发布状态的唯一依据。分支、
 数据结构、预览文件、文档目标或单元测试通过都不能单独代表单仓迁移完成或
 正式发布。
 

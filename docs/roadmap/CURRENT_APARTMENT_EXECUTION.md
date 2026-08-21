@@ -1021,3 +1021,36 @@ Remaining Phase 6 items, both owner-paced:
 
 The formal dataset denominator stays 0; owner listening reviews of the
 retained review package remain open on their own schedule.
+
+## Checkpoint 20260822c: owner reviews passed; canonical path replaced; README updated
+
+Owner formal reviews: all five outstanding items passed (the MP3D dynamic
+turn-taking clip, the Apartment UE dynamic clip on the approved skeletal
+capture, the ReplicaCAD 270f video, and the cardinal left/right binaural
+baselines; the Apartment S-series had already been approved informally).
+The review closure covers the pre/post-equivalence confirmation cited by
+the README status section. Dataset admission is unchanged: the formal
+denominator stays 0 pending the separate 35-item listening and rights flow.
+
+Canonical-path replacement (owner-requested), executed in four reversible
+steps with zero deletions:
+1. lead-a converted from a git worktree to a standalone clone in place: a
+   fresh clone's .git replaced the worktree pointer (backup of the old
+   pointer at /data/jzy/tmp/leada-gitfile-backup-20260822), HEAD rebound to
+   cc-qa-overlay-rgb, index rebuilt, working tree verified byte-clean at
+   3eb88c8. Fresh hooks mean pushes no longer need --no-verify. The conda
+   editable path is unchanged.
+2. The two active parallel workstreams' unpushed commits were backed up to
+   origin as wip/apartment-visual-fix-20260821 (1fd3f5d) and
+   wip/kujiale-lighting-fix-20260821 (2bb985b).
+3. The legacy multi-repo directory was renamed to
+   /data/jzy/code/AVEngine-legacy-multirepo-20260822 (all objects and the
+   remaining ~135 worktrees preserved) and `git worktree repair` re-linked
+   the surviving worktrees; the two active candidates were spot-checked
+   working.
+4. /data/jzy/code/AVEngine is now a symlink to AVEngine-lead-a, so the
+   canonical path is the merged single-repo engine.
+
+README.md now states the completed single-repo baseline (merged via PR #2),
+links the runtime-prefix rebuild recipe, and embeds the engine logical
+pipeline diagram at docs/diagrams/engine_logical_pipeline.svg.

@@ -1,0 +1,44 @@
+<svg width="680" height="700" viewBox="0 0 680 700" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>AVEngine 逻辑功能流</title>
+<desc>外置运行时输入经作者化层进入双链渲染层，再经合成与判定层产出完整 episode 产物包。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="0" y="0" width="680" height="700" fill="#FFFFFF"/>
+<g font-family="'PingFang SC','Noto Sans CJK SC',sans-serif">
+<rect x="40" y="50" width="600" height="112" rx="8" fill="none" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 4"/>
+<text x="52" y="70" font-size="12" fill="#5F5E5A">外置运行时输入（不进 Git，clone 后自装）</text>
+<g>
+<rect x="45" y="80" width="110" height="64" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/><text x="100" y="106" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">UE 本体</text><text x="100" y="126" font-size="12" fill="#5F5E5A" text-anchor="middle">SpearSim 包</text>
+<rect x="165" y="80" width="110" height="64" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/><text x="220" y="106" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">数据集</text><text x="220" y="126" font-size="12" fill="#5F5E5A" text-anchor="middle">四路线房间</text>
+<rect x="285" y="80" width="110" height="64" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/><text x="340" y="106" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">RLR SDK</text><text x="340" y="126" font-size="12" fill="#5F5E5A" text-anchor="middle">真实声线追踪</text>
+<rect x="405" y="80" width="110" height="64" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/><text x="460" y="106" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">运行时前缀</text><text x="460" y="126" font-size="12" fill="#5F5E5A" text-anchor="middle">installed 链</text>
+<rect x="525" y="80" width="110" height="64" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/><text x="580" y="106" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">HRTF·干声</text><text x="580" y="126" font-size="12" fill="#5F5E5A" text-anchor="middle">KEMAR·声音库</text>
+</g>
+<line x1="340" y1="162" x2="340" y2="181" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="187" width="600" height="110" rx="8" fill="none" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 4"/>
+<text x="52" y="207" font-size="12" fill="#5F5E5A">作者化层 · 一切从声明式请求开始</text>
+<g>
+<rect x="54" y="217" width="180" height="64" rx="4" fill="#EEEDFE" stroke="#534AB7"/><text x="144" y="243" font-size="14" font-weight="500" fill="#3C3489" text-anchor="middle">M6 注册表</text><text x="144" y="263" font-size="12" fill="#534AB7" text-anchor="middle">房间·实体·端点·声音</text>
+<rect x="250" y="217" width="180" height="64" rx="4" fill="#EEEDFE" stroke="#534AB7"/><text x="340" y="243" font-size="14" font-weight="500" fill="#3C3489" text-anchor="middle">M5 路线作者</text><text x="340" y="263" font-size="12" fill="#534AB7" text-anchor="middle">轨迹·相机·75 帧时间线</text>
+<rect x="446" y="217" width="180" height="64" rx="4" fill="#EEEDFE" stroke="#534AB7"/><text x="536" y="243" font-size="14" font-weight="500" fill="#3C3489" text-anchor="middle">M6 AudioProgram</text><text x="536" y="263" font-size="12" fill="#534AB7" text-anchor="middle">轮流发声事件调度</text>
+</g>
+<line x1="340" y1="297" x2="340" y2="316" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="322" width="600" height="110" rx="8" fill="none" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 4"/>
+<text x="52" y="342" font-size="12" fill="#5F5E5A">渲染层 · 捕获回读逐帧声源位置，驱动声学状态</text>
+<g>
+<rect x="52" y="352" width="135" height="64" rx="4" fill="#E1F5EE" stroke="#0F6E56"/><text x="119" y="378" font-size="14" font-weight="500" fill="#085041" text-anchor="middle">M1 Habitat 捕获</text><text x="119" y="398" font-size="12" fill="#0F6E56" text-anchor="middle">MP3D·Replica</text>
+<rect x="199" y="352" width="135" height="64" rx="4" fill="#E1F5EE" stroke="#0F6E56"/><text x="266" y="378" font-size="14" font-weight="500" fill="#085041" text-anchor="middle">SPEAR UE 捕获</text><text x="266" y="398" font-size="12" fill="#0F6E56" text-anchor="middle">公寓·Kujiale</text>
+<rect x="346" y="352" width="135" height="64" rx="4" fill="#E1F5EE" stroke="#0F6E56"/><text x="413" y="378" font-size="14" font-weight="500" fill="#085041" text-anchor="middle">M3 声学编译</text><text x="413" y="398" font-size="12" fill="#0F6E56" text-anchor="middle">网格 + 材质库</text>
+<rect x="493" y="352" width="135" height="64" rx="4" fill="#E1F5EE" stroke="#0F6E56"/><text x="560" y="378" font-size="14" font-weight="500" fill="#085041" text-anchor="middle">M5.1 逐状态 RIR</text><text x="560" y="398" font-size="12" fill="#0F6E56" text-anchor="middle">持久 RLR 上下文</text>
+</g>
+<line x1="340" y1="432" x2="340" y2="451" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="457" width="600" height="110" rx="8" fill="none" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 4"/>
+<text x="52" y="477" font-size="12" fill="#5F5E5A">合成与判定层</text>
+<g>
+<rect x="54" y="487" width="180" height="64" rx="4" fill="#FAECE7" stroke="#993C1D"/><text x="144" y="513" font-size="14" font-weight="500" fill="#712B13" text-anchor="middle">M5 卷积混音</text><text x="144" y="533" font-size="12" fill="#993C1D" text-anchor="middle">升余弦分段·精确求和</text>
+<rect x="250" y="487" width="180" height="64" rx="4" fill="#FAECE7" stroke="#993C1D"/><text x="340" y="513" font-size="14" font-weight="500" fill="#712B13" text-anchor="middle">音画合成</text><text x="340" y="533" font-size="12" fill="#993C1D" text-anchor="middle">冻结 mux 契约</text>
+<rect x="446" y="487" width="180" height="64" rx="4" fill="#FAECE7" stroke="#993C1D"/><text x="536" y="513" font-size="14" font-weight="500" fill="#712B13" text-anchor="middle">QA 出题</text><text x="536" y="533" font-size="12" fill="#993C1D" text-anchor="middle">QuestionSpec 判定</text>
+</g>
+<line x1="340" y1="567" x2="340" y2="586" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="60" y="592" width="560" height="64" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/><text x="340" y="618" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">Episode 产物包</text><text x="340" y="638" font-size="12" fill="#5F5E5A" text-anchor="middle">带声视频 · FOA/双耳 · 逐帧标签 · QA 对 · 全链 manifest</text>
+</g>
+</svg>
