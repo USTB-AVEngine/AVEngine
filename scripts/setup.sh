@@ -258,7 +258,11 @@ if [ "$PROFILE" = "native_external" ]; then
     echo "[setup] native_external validates explicit non-Git Habitat/Magnum/MP3D/RLR paths; it does not build or clone them."
 fi
 
-run "$PYTHON_BIN" -m pip install -e "$REPOSITORY_ROOT[test]"
+if [ "$PROFILE" = "native_external" ]; then
+    run "$PYTHON_BIN" -m pip install -e "$REPOSITORY_ROOT[test,native]"
+else
+    run "$PYTHON_BIN" -m pip install -e "$REPOSITORY_ROOT[test]"
+fi
 
 if [ "$DRY_RUN" = "0" ]; then
     eval "$("$PYTHON_BIN" "$SCRIPT_DIR/load_paths.py" --export)"
