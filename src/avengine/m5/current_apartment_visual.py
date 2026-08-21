@@ -24,6 +24,7 @@ from avengine.backends.spear_ue.research_runtime import (
     run_frame_transaction,
     spawn_attached_visual_actor,
     spawn_scene_capture,
+    warm_scene_capture_until_stable,
 )
 from avengine.backends.spear_ue.launch import (
     validate_current_production_spear_executable,
@@ -348,11 +349,12 @@ def _timeline_state(
     start: Sequence[float],
     end: Sequence[float],
     frame_index: int,
+    walk_start_frame: int = 0,
 ) -> dict[str, Any]:
     moving = any(
         abs(float(end[index]) - float(start[index])) > 1.0e-9 for index in range(3)
     )
-    walk_start = 15
+    walk_start = walk_start_frame
     action_id = "walk" if moving and frame_index >= walk_start else "idle"
     period = int(binding["walk_phase_period_frames"])
     phase = (
@@ -402,6 +404,7 @@ def author_current_apartment_visual_timeline(
     width: int = 1280,
     height: int = 720,
     hfov_degrees: float = 105.0,
+    walk_start_frame: int = 0,
 ) -> dict[str, Any]:
     """Write one freely designed current Apartment visual-only timeline."""
 
@@ -420,6 +423,14 @@ def author_current_apartment_visual_timeline(
     ):
         raise CurrentApartmentVisualError(
             "timeline render dimensions or HFOV are invalid"
+        )
+    if (
+        isinstance(walk_start_frame, bool)
+        or not isinstance(walk_start_frame, int)
+        or not 0 <= walk_start_frame < FRAME_COUNT - 1
+    ):
+        raise CurrentApartmentVisualError(
+            "walk_start_frame must be an integer in [0, 73]"
         )
     camera_position = _finite_triplet(
         camera_position_ue_cm, owner="camera_position_ue_cm"
@@ -449,6 +460,7 @@ def author_current_apartment_visual_timeline(
                         start=starts[slot],
                         end=ends[slot],
                         frame_index=frame_index,
+                        walk_start_frame=walk_start_frame,
                     )
                     for slot in ("source1", "source2")
                 ],
@@ -475,6 +487,7 @@ def author_current_apartment_visual_timeline(
             "ticks_per_frame": TICKS_PER_FRAME,
             "resolution_hw": [height, width],
             "hfov_degrees": float(hfov_degrees),
+            "walk_start_frame": walk_start_frame,
         },
         "actors": [
             {
@@ -1148,8 +1161,24 @@ def capture_current_apartment_visual(
             runtimes = _spawn_runtime_actors(
                 game=game, bindings=bindings, initial_frame=first_frame
             )
+            camera_state = first_frame["camera"]
+            camera.K2_SetActorLocationAndRotation(
+                NewLocation={
+                    "X": camera_state["translation_ue_cm"][0],
+                    "Y": camera_state["translation_ue_cm"][1],
+                    "Z": camera_state["translation_ue_cm"][2],
+                },
+                NewRotation={
+                    "Roll": 0.0,
+                    "Pitch": 0.0,
+                    "Yaw": camera_state["yaw_ue_deg"],
+                },
+                bSweep=False,
+                bTeleport=True,
+            )
         with instance.end_frame():
             pass
+        capture_warmup = warm_scene_capture_until_stable(instance, capture)
         for frame_index, frame in enumerate(timeline["frames"]):
             animation_readbacks: dict[str, dict[str, Any]] = {}
 
@@ -1286,6 +1315,7 @@ def capture_current_apartment_visual(
                 "m6_m7_bundle_requested": False,
                 "root_readback_summary": root_readback_summary,
                 "animation_readback_summary": animation_summary,
+                "capture_warmup": capture_warmup,
             },
             "artifacts": {
                 "rgb": "arrays/rgb.npy",
