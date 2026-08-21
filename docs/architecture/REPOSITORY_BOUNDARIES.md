@@ -56,10 +56,12 @@ The following remain external inputs even after source integration:
 - MP3D, InteriorAgent/Kujiale, native Apartment and other room/dataset assets;
 - HRTF, model weights, licensed source media and other data assets;
 - Habitat PBR image-based-lighting images, HDR environment maps and BRDF
-  lookup tables. When a renderer enables IBL, users provide
-  `AVENGINE_HABITAT_PBR_ASSET_ROOT`; relative logical names resolve under its
-  `bluts/` or `env_maps/` directory. Rendererless or `enable_ibl=false` paths
-  do not require that variable;
+  lookup tables. The installed M7/M5.1 actor route takes an explicit non-Git
+  `--pbr-asset-root`, rewrites the selected small PBR config to absolute
+  `bluts/` and `env_maps/` paths before Simulator construction, and does
+  not set a process environment variable. Generic Habitat callers may still
+  resolve relative logical names with `AVENGINE_HABITAT_PBR_ASSET_ROOT`.
+  Rendererless or `enable_ibl=false` paths need no PBR images;
 - the RLR propagation engine, headers, SDK configuration and shared library: a
   legal user-installed CC-BY-NC 4.0 SDK that remains external by policy and
   never requires an RLR Git checkout, submodule or source path after cutover;

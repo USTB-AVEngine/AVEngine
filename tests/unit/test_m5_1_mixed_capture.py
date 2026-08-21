@@ -922,6 +922,21 @@ def test_installed_mixed_capture_preserves_visual_sensors_without_audio(
         "avengine.m5_1.mixed_capture._make_configuration",
         fake_make_configuration,
     )
+    pbr_preparation_calls: list[tuple[object, object]] = []
+
+    def fake_prepare_pbr(
+        _configuration: object,
+        *,
+        installed_runtime: object,
+        habitat_sim: object,
+    ) -> dict[str, str]:
+        pbr_preparation_calls.append((installed_runtime, habitat_sim))
+        return {"status": "pass"}
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture._prepare_m5_1_installed_pbr_ibl",
+        fake_prepare_pbr,
+    )
     installed_runtime = SimpleNamespace(
         mp3d_root=tmp_path / "mp3d",
         quaternion=object(),
@@ -946,3 +961,4 @@ def test_installed_mixed_capture_preserves_visual_sensors_without_audio(
             "physics_config_path": tmp_path / "default.physics_config.json",
         }
     ]
+    assert pbr_preparation_calls == [(installed_runtime, FakeHabitat)]

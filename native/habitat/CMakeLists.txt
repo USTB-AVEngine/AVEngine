@@ -740,7 +740,9 @@ if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
       RUNTIME DESTINATION "${_avengine_habitat_runtime_prefix}/habitat_sim/_ext"
     )
     install(
-      FILES "${CMAKE_CURRENT_SOURCE_DIR}/config/default.physics_config.json"
+      FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/default.physics_config.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/brown_photostudio.pbr_config.json"
       DESTINATION "${_avengine_habitat_runtime_prefix}/config"
     )
   endif()

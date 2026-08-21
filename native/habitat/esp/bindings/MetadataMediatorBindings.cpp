@@ -65,6 +65,12 @@ void initMetadataMediatorBindings(py::module& m) {
                              R"(The current PhysicsAttributesManager instance
             for configuring PhysicsManager templates.)")
       .def_property_readonly(
+          "pbr_shader_template_manager",
+          &MetadataMediator::getPbrShaderAttributesManager,
+          pybind11::return_value_policy::reference,
+          R"(The PbrShaderAttributesManager instance for loading and
+            registering PBR/IBL shader configurations.)")
+      .def_property_readonly(
           "stage_template_manager",
           &MetadataMediator::getStageAttributesManager,
           pybind11::return_value_policy::reference,
@@ -74,6 +80,21 @@ void initMetadataMediatorBindings(py::module& m) {
           "urdf_paths", &MetadataMediator::getArticulatedObjectModelFilenames,
           pybind11::return_value_policy::reference,
           R"(Access to the dictionary of URDF paths, keyed by shortened name, value being full path.)")
+      .def(
+          "set_curr_default_pbr_attributes_handle",
+          &MetadataMediator::setCurrDefaultPbrAttributesHandle,
+          R"(Set the current default PBR/IBL shader configuration handle,
+            loading a file-backed configuration if the handle is unknown.)",
+          "handle"_a)
+      .def(
+          "get_curr_default_pbr_attributes_handle",
+          &MetadataMediator::getCurrDefaultPbrAttributesHandle,
+          R"(Return the current default PBR/IBL shader configuration handle.)")
+      .def_property_readonly(
+          "current_pbr_configuration",
+          &MetadataMediator::getCurrentPbrConfiguration,
+          R"(Return a copy of the current default PBR/IBL shader
+            configuration.)")
       .def(
           "get_scene_handles", &MetadataMediator::getAllSceneInstanceHandles,
           R"(Returns a list the names of all the available scene instances in the currently active dataset.)")

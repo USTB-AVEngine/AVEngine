@@ -64,6 +64,7 @@ class InstalledHabitatRuntime:
 
     prefix: Path
     mp3d_root: Path | None
+    pbr_asset_root: Path | None
     magnum_python_site: Path
     physics_config_path: Path
     quaternion: Any
@@ -82,6 +83,11 @@ class _PreparedInstalledHabitatImport:
 
 _HABITAT_BINDING_MODULE_NAME = "habitat_sim._ext.habitat_sim_bindings"
 _RLR_LIBRARY_BASENAME = "libRLRAudioPropagation.so"
+PBR_CONFIG_FILENAME = "brown_photostudio.pbr_config.json"
+PBR_BRDF_LUT_RELATIVE_PATH = Path("bluts/brdflut_ldr_512x512.png")
+PBR_ENVIRONMENT_MAP_RELATIVE_PATH = Path(
+    "env_maps/brown_photostudio_02_1k.hdr"
+)
 
 
 def _producer_process_identity() -> dict[str, Any]:
@@ -232,6 +238,42 @@ def discover_mp3d_root(
         raise FileNotFoundError(
             f"AVENGINE_MP3D_ROOT must contain scene_datasets: {root}"
         )
+    return root
+
+
+def discover_pbr_asset_root(
+    explicit: str | Path | None = None,
+) -> Path | None:
+    """Resolve an explicitly selected non-Git PBR IBL asset directory."""
+
+    if explicit is None:
+        return None
+    root = Path(explicit).resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"PBR asset root is not a directory: {root}")
+    checkout_root = _git_checkout_ancestor(root)
+    if checkout_root is not None:
+        raise ValueError(
+            "PBR asset root must not be inside a Git checkout: "
+            f"{root} (found .git at {checkout_root})"
+        )
+    for relative_path in (
+        PBR_BRDF_LUT_RELATIVE_PATH,
+        PBR_ENVIRONMENT_MAP_RELATIVE_PATH,
+        Path("license.txt"),
+    ):
+        candidate = (root / relative_path).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as error:
+            raise RuntimeError(
+                "PBR asset root must keep every required file below its root: "
+                f"{root / relative_path}"
+            ) from error
+        if not candidate.is_file():
+            raise FileNotFoundError(
+                f"PBR asset root is missing {relative_path.as_posix()}: {root}"
+            )
     return root
 
 
@@ -513,6 +555,7 @@ def prepare_installed_habitat_runtime(
     runtime_prefix: str | Path | None = None,
     runtime_root: str | Path | None = None,
     mp3d_root: str | Path | None = None,
+    pbr_asset_root: str | Path | None = None,
     magnum_python_site: str | Path | None = None,
     rlr_sdk_root: str | Path | None = None,
     allow_mp3d_environment: bool = True,
@@ -521,7 +564,8 @@ def prepare_installed_habitat_runtime(
 
     The runtime library, binding, and physics config live in ``prefix``. MP3D
     assets remain separately supplied through ``mp3d_root`` and Magnum remains
-    an explicit external Python site. No sibling checkout fallback is involved.
+    an explicit external Python site. Optional PBR IBL images come only from
+    ``pbr_asset_root``. No sibling checkout fallback is involved.
     """
 
     if rlr_sdk_root is not None and not str(rlr_sdk_root).strip():
@@ -529,6 +573,7 @@ def prepare_installed_habitat_runtime(
     prefix = resolve_installed_runtime_prefix(
         runtime_prefix, runtime_root=runtime_root
     )
+    selected_pbr_asset_root = discover_pbr_asset_root(pbr_asset_root)
     selected_magnum_site = discover_magnum_python_site(magnum_python_site)
     selected_mp3d_root = (
         discover_mp3d_root(mp3d_root)
@@ -554,6 +599,7 @@ def prepare_installed_habitat_runtime(
     return InstalledHabitatRuntime(
         prefix=prefix,
         mp3d_root=selected_mp3d_root,
+        pbr_asset_root=selected_pbr_asset_root,
         magnum_python_site=selected_magnum_site,
         physics_config_path=physics_config_path,
         quaternion=qt,

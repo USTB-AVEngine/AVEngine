@@ -35,6 +35,7 @@ terms for every direct adapted file or module.
 | `esp/physics/bullet/BulletPhysicsManager.cpp` | matching `src/esp/physics/bullet/BulletPhysicsManager.cpp` | **adapted** upstream Bullet manager with the fork's opt-in `avengine_native_gltf_skin_frame` behavior |
 | `shaders/gfx/**` | `src/shaders/gfx/**` | **adapted** shader source only |
 | `config/default.physics_config.json` | `data/default.physics_config.json` | **adapted** small default physics configuration |
+| `config/brown_photostudio.pbr_config.json` | `data/pbr/brown_photostudio.pbr_config.json` from upstream `4d92aed0ba8db4d63bb945d53a67cad3ef8f7584` | **adapted** exact 718-byte small PBR configuration; its image inputs remain external |
 
 The staged `esp/audio` adapter calls the RLR API through a separately
 installed SDK. Its source is MIT, but the RLR engine, headers, configuration,
@@ -167,6 +168,7 @@ only:
 <prefix>/habitat_sim/**/*.py
 <prefix>/habitat_sim/_ext/habitat_sim_bindings.<platform suffix>
 <prefix>/config/default.physics_config.json
+<prefix>/config/brown_photostudio.pbr_config.json
 ```
 
 Do not pass a different `--prefix` to `cmake --install`: the selected native
@@ -175,8 +177,9 @@ default physics path is compiled as
 caller's current working directory. The selected Python
 `utils/settings.py` reads that native default through `SimulatorConfiguration`
 instead of retaining its historical CWD-relative `data/default.physics_config.json`
-literal. This does not install Corrade, Magnum, pybind11, Python, RLR, PBR
-assets, datasets, an RPATH, or an additional source checkout; those remain
+literal. The 718-byte PBR config is source configuration, not an IBL image.
+This does not install Corrade, Magnum, pybind11, Python, RLR, PBR images,
+datasets, an RPATH, or an additional source checkout; those remain
 external caller-provided dependencies or data.
 
 Installed-prefix M1 entry points require
@@ -274,17 +277,26 @@ licensed PBR asset is included.
 ## External PBR IBL assets
 
 The staged renderer does not embed a Corrade PBR image resource group. When a
-Habitat renderer uses `PbrShaderAttributes` with `enable_ibl=true`, set
-`AVENGINE_HABITAT_PBR_ASSET_ROOT` to a user-provided asset directory. Relative
-BRDF-LUT and environment-map names resolve under `bluts/` and `env_maps/`
-respectively; an explicitly absolute name remains a user-managed asset path.
-The existing `PbrShaderAttributes` fallback names (including
-`brdflut_ldr_512x512.png` and `lythwood_room_1k.hdr`) and its lighting/map
-flags are unchanged. A missing root, image, or decodable 2D image is a clear
-renderer failure when IBL is enabled; rendererless and `enable_ibl=false`
-paths do not require this variable. No PBR image, HDR, BRDF table, or default
-PBR configuration is added to this repository, and this source-only change
-does not claim a native build or runtime cutover.
+Habitat renderer uses `PbrShaderAttributes` with `enable_ibl=true`, the
+images remain user-provided. Generic native callers may resolve relative
+logical names through `AVENGINE_HABITAT_PBR_ASSET_ROOT`.
+
+The installed M7/M5.1 actor route is stricter and environment-independent:
+its required `--pbr-asset-root` must be a non-Git directory containing the
+Brown Photostudio BRDF LUT and HDR below `bluts/` and `env_maps/`, plus
+`license.txt`. Before Simulator construction, AVEngine loads the installed
+`brown_photostudio.pbr_config.json`, replaces both logical image names with
+absolute external paths, registers and selects that configuration, then reads
+back the handle, `enable_ibl`, filenames and flags. Simulator initialization
+must retain the same readback. This fixes black PBR actors without a direct
+light workaround: the MP3D setup remains an empty light set and the actors
+remain PBR.
+
+The checked-in 718-byte configuration was adapted exactly from Habitat-Sim
+upstream `4d92aed0ba8db4d63bb945d53a67cad3ef8f7584`,
+`data/pbr/brown_photostudio.pbr_config.json`, under MIT. The LUT and HDR are
+not in Git; their upstream notice identifies the LUT as MIT and the Poly Haven
+Brown Photostudio image as CC0.
 
 ## Next integration layer
 

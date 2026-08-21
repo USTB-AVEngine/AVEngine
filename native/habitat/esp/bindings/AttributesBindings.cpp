@@ -871,14 +871,16 @@ void initAttributesBindings(py::module& m) {
           &PbrShaderAttributes::setUseDirectLightTonemap,
           R"(Whether tonemapping is enabled for direct lighting results, remapping the colors
                 to a slightly different colorspace.)")
-      .def_property_readonly(
+      .def_property(
           "ibl_brdfLUT_filename",
           &PbrShaderAttributes::getIBLBrdfLUTAssetHandle,
+          &PbrShaderAttributes::setIBLBrdfLUTAssetHandle,
           R"(The filename or resource handle for the BRDF Lookup Table used for by the consumers of
                 this config for image-based lighting.)")
-      .def_property_readonly(
+      .def_property(
           "ibl_environment_map_filename",
           &PbrShaderAttributes::getIBLEnvMapAssetHandle,
+          &PbrShaderAttributes::setIBLEnvMapAssetHandle,
           R"(The filename or resource handle for the Environment Map used by the
                 consumers of this config for image-based lighting.)")
       .def_property(

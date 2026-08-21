@@ -91,9 +91,13 @@ limited to the existing legacy call path and its ABI-compatible user SDK.
 
 The staged Habitat PBR adapter removes the compiled PBR image resource group:
 enabled renderer IBL resolves only user-provided images from
-`AVENGINE_HABITAT_PBR_ASSET_ROOT` (or an explicit absolute user path). It
-adds no PBR configuration/image, HDR, BRDF table, dependency source, data
-asset, compiled extension, or runtime cutover.
+`AVENGINE_HABITAT_PBR_ASSET_ROOT` or an explicit absolute user path.
+AVEngine now includes the upstream MIT 718-byte
+`brown_photostudio.pbr_config.json` from Habitat-Sim
+`4d92aed0ba8db4d63bb945d53a67cad3ef8f7584`; this is configuration, not
+image content. The BRDF LUT remains external under its MIT terms and Brown
+Photostudio HDR remains external under Poly Haven CC0. Preserve the upstream
+`data/pbr/license.txt` with any local external asset package.
 
 SPEAR S1 contains only the reimplemented launch-settings behavior named above.
 SPEAR S2 adds selected extension source, S3a adds the selected namespaced

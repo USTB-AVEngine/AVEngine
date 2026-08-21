@@ -275,24 +275,31 @@ only from that prefix and proved that `SimulatorConfiguration` and
 not a full Simulator run, runtime/build cutover, or a claim that external
 assets or dependencies were migrated.
 
-| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e054b` | Treatment |
+| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | Treatment |
 | --- | --- | --- |
 | `native/habitat/python/habitat_sim/utils/settings.py` | `src_python/habitat_sim/utils/settings.py` | **adapted** default physics-config selection to read the selected native `SimulatorConfiguration` value rather than a CWD-relative literal, so an H5b prefix uses its installed config |
 
 ## Habitat external PBR IBL adapter
 
-| AVEngine target | Original path at `Eastforward/habitat-sim-AVEngine@e9c81c10834f7e89f33f4e0602c75535a84e054b` | Treatment |
+| AVEngine target | Upstream source | Treatment |
 | --- | --- | --- |
-| `native/habitat/esp/assets/ResourceManager.{cpp,h}` | `src/esp/assets/ResourceManager.{cpp,h}` | **adapted** Habitat PBR IBL loading: replace the compiled `PbrIBlImageResources` group with user-provided external files resolved through `AVENGINE_HABITAT_PBR_ASSET_ROOT` |
+| `native/habitat/esp/assets/ResourceManager.{cpp,h}` | matching `src/esp/assets/ResourceManager.{cpp,h}` at transition `e9c81c10834f7e89f33f4e0602c75535a84e054b` | **adapted** replace the compiled `PbrIBlImageResources` group with external file resolution; generic relative-name behavior remains available |
+| `native/habitat/esp/bindings/AttributesBindings.cpp` | `src/esp/bindings/AttributesBindings.cpp` at the same transition revision | **adapted** expose the already-existing BRDF-LUT and environment-map setters as read/write Python properties |
+| `native/habitat/esp/bindings/MetadataMediatorBindings.cpp` | `src/esp/bindings/MetadataMediatorBindings.cpp` at the same transition revision | **adapted** expose the already-existing PBR manager and current-default handle/config readback APIs |
+| `native/habitat/config/brown_photostudio.pbr_config.json` | upstream Habitat-Sim `4d92aed0ba8db4d63bb945d53a67cad3ef8f7584:data/pbr/brown_photostudio.pbr_config.json` | **adapted** exact 718-byte MIT small configuration |
+| `src/avengine/m1/habitat_capture.py`, `src/avengine/m5_1/mixed_capture.py`, `tools/m7/run_habitat_room_batch.py` | no copied upstream file | **AVEngine-authored** explicit non-Git root validation, pre-Simulator absolute-path injection, manager/config readback and M7 CLI wiring |
 
-This narrow source change preserves the upstream `PbrShaderAttributes`
-fallback names and lighting/map flags. Only an enabled renderer IBL request
-needs the external root; it resolves logical BRDF-LUT and environment-map names
-below `bluts/` and `env_maps/`, while an explicit absolute path remains
-user-managed. Missing roots, files, or decodable 2D images fail that enabled
-render request rather than silently dropping IBL. No PBR configuration, image,
-HDR, BRDF table, resource group, dependency source, build wiring, or runtime
-cutover is included.
+The checked-in config retains upstream `enable_ibl=true`, filenames and map
+flags. The current M7/M5.1 path replaces only its two logical filenames with
+absolute paths from the explicit external root, then verifies the same config
+before and after Simulator construction. It adds no light: MP3D retains zero
+direct-light instances and actors remain PBR.
+
+The external LUT and HDR are not part of AVEngine Git. The upstream
+`data/pbr/license.txt` identifies `brdflut_ldr_512x512.png` as MIT and
+`brown_photostudio_02_1k.hdr` as Poly Haven CC0. Local research copies keep
+that notice and ordinary provenance outside the repository. No asset hash,
+frozen baseline or new admission gate is introduced.
 
 ## SPEAR S1 launch-settings adaptation
 

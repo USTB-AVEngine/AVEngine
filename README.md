@@ -178,9 +178,16 @@ prefix，不再以 manifest 固定 fork 作为执行路径。安装层完成和�
 验证不等同于完整 Simulator 验证、source cutover 或正式发布。
 
 Habitat 的 PBR IBL 图片同样是外部数据，不会嵌入源码或构建产物。
-只有创建渲染器且 `PbrShaderAttributes.enable_ibl=true` 时，用户才需提供
-`AVENGINE_HABITAT_PBR_ASSET_ROOT`；相对的 BRDF-LUT 和环境图名称分别从
-`bluts/` 与 `env_maps/` 解析。无渲染器或关闭 IBL 的路径不需要该变量。
+installed M7/M5.1 PBR actor 路线要求显式传入
+`--pbr-asset-root`；该 non-Git 根必须包含
+`bluts/brdflut_ldr_512x512.png`、
+`env_maps/brown_photostudio_02_1k.hdr` 和适用的 `license.txt`。
+AVEngine 在构造 Simulator 前载入仓库内 718-byte Brown Photostudio
+PBR 小配置，把两个图片字段改成该根下的绝对路径，并读回
+`enable_ibl=true` 与配置 flags。此路线不设置环境变量，也不添加 direct
+light；MP3D 的实际 light count 仍为 0。通用 Habitat adapter 仍支持其他
+调用者用相对 logical name 加 `AVENGINE_HABITAT_PBR_ASSET_ROOT`。无渲染器
+或关闭 IBL 的路径不需要 PBR 图片。
 
 ## 文档
 

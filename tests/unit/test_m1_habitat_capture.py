@@ -27,6 +27,7 @@ from avengine.m1.habitat_capture import (
     _validate_magnum_python_origins,
     _ue_project_asset_package_closure,
     discover_magnum_python_site,
+    discover_pbr_asset_root,
     discover_mp3d_root,
     discover_runtime_prefix,
     prepare_installed_habitat_runtime,
@@ -374,6 +375,21 @@ def _magnum_python_site(tmp_path: Path) -> Path:
     return site
 
 
+def _pbr_asset_root(tmp_path: Path) -> Path:
+    root = tmp_path / "pbr-assets"
+    lut = root / "bluts/brdflut_ldr_512x512.png"
+    environment = root / "env_maps/brown_photostudio_02_1k.hdr"
+    lut.parent.mkdir(parents=True)
+    environment.parent.mkdir(parents=True)
+    lut.write_bytes(b"fixture lut")
+    environment.write_bytes(b"fixture environment")
+    (root / "license.txt").write_text(
+        "fixture MIT LUT and CC0 Brown Photostudio notice\n",
+        encoding="utf-8",
+    )
+    return root
+
+
 def _external_rlr_sdk(tmp_path: Path) -> ExternalRlrSdk:
     root = tmp_path / "external-rlr-sdk"
     header = root / "headers" / "RLRAudioPropagation.h"
@@ -417,6 +433,40 @@ def test_installed_prefix_rejects_a_git_checkout_and_accepts_root_alias(
     monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", str(nested_prefix))
     with pytest.raises(ValueError, match="must not be inside a Git checkout"):
         resolve_installed_runtime_prefix()
+
+
+def test_discover_pbr_asset_root_is_explicit_complete_and_non_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _pbr_asset_root(tmp_path)
+    monkeypatch.setenv("AVENGINE_HABITAT_PBR_ASSET_ROOT", str(root))
+
+    assert discover_pbr_asset_root() is None
+    assert discover_pbr_asset_root(root) == root.resolve()
+
+    (root / "license.txt").unlink()
+    with pytest.raises(FileNotFoundError, match="license.txt"):
+        discover_pbr_asset_root(root)
+
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    checkout_root = _pbr_asset_root(checkout)
+    with pytest.raises(ValueError, match="must not be inside a Git checkout"):
+        discover_pbr_asset_root(checkout_root)
+
+
+def test_discover_pbr_asset_root_rejects_required_file_escape(
+    tmp_path: Path,
+) -> None:
+    root = _pbr_asset_root(tmp_path)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"outside")
+    lut = root / "bluts/brdflut_ldr_512x512.png"
+    lut.unlink()
+    lut.symlink_to(outside)
+
+    with pytest.raises(RuntimeError, match="below its root"):
+        discover_pbr_asset_root(root)
 
 
 def test_discover_magnum_python_site_checks_layout_and_current_abi(
@@ -753,6 +803,7 @@ def test_public_installed_runtime_dispatches_optional_explicit_rlr_sdk(
         binding,
     )
     sdk = _external_rlr_sdk(tmp_path)
+    pbr_root = _pbr_asset_root(tmp_path)
     imported = (object(), habitat, object(), object())
     prepared = type(
         "Prepared", (), {"prefix": prefix, "magnum_python_site": site}
@@ -788,6 +839,7 @@ def test_public_installed_runtime_dispatches_optional_explicit_rlr_sdk(
 
     with_sdk = prepare_installed_habitat_runtime(
         runtime_prefix=prefix,
+        pbr_asset_root=pbr_root,
         magnum_python_site=site,
         rlr_sdk_root=sdk.root,
     )
@@ -798,6 +850,8 @@ def test_public_installed_runtime_dispatches_optional_explicit_rlr_sdk(
 
     assert with_sdk.habitat_sim is habitat
     assert without_sdk.habitat_sim is habitat
+    assert with_sdk.pbr_asset_root == pbr_root.resolve()
+    assert without_sdk.pbr_asset_root is None
     assert events == [
         ("with_rlr", (prepared, sdk.root)),
         ("plain", prepared),

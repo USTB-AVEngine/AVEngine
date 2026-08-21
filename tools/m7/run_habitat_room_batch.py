@@ -318,6 +318,12 @@ def main(argv: list[str] | None = None) -> int:
         help="External Corrade/Magnum Python site",
     )
     parser.add_argument(
+        "--pbr-asset-root",
+        type=Path,
+        required=True,
+        help="External non-Git Brown Photostudio PBR IBL asset root",
+    )
+    parser.add_argument(
         "--rlr-sdk-root",
         type=Path,
         required=True,
@@ -401,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
                         runtime_prefix=args.runtime_prefix,
                         runtime_root=args.runtime_root,
                         mp3d_root=args.mp3d_root,
+                        pbr_asset_root=args.pbr_asset_root,
                         magnum_python_site=args.magnum_python_site,
                         rlr_sdk_root=args.rlr_sdk_root,
                         allow_mp3d_environment=False,

@@ -35,6 +35,9 @@ from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.evidence import array_sha256
 from avengine.m1.habitat_capture import (
     InstalledHabitatRuntime,
+    PBR_BRDF_LUT_RELATIVE_PATH,
+    PBR_CONFIG_FILENAME,
+    PBR_ENVIRONMENT_MAP_RELATIVE_PATH,
     _make_configuration,
     _resolved_assets,
     discover_runtime_root,
@@ -92,6 +95,7 @@ LEGACY_CAMERA_YAW_DEG = 55.0
 LEGACY_CAMERA_HFOV_DEG = 105.0
 M5_1_LIGHT_SETUP_KEY = "avengine_m5_1_room_lighting"
 M5_1_ACTOR_SHADER_TYPE = "pbr"
+M5_1_PBR_CONFIG_HANDLE = "avengine_m5_1_external_brown_photostudio_v1"
 _ROOT_READBACK_ATOL = 2.0e-6
 _JOINT_READBACK_ATOL = 2.0e-6
 _LINK_MATRIX_READBACK_ATOL = 2.0e-5
@@ -625,11 +629,139 @@ def _shader_type_name(value: Any) -> str:
     return text.lower()
 
 
+def _readback_m5_1_pbr_ibl(
+    mediator: Any,
+    *,
+    config_path: Path,
+    asset_root: Path,
+    phase: str,
+    registration_id: int | None = None,
+) -> dict[str, Any]:
+    manager = mediator.pbr_shader_template_manager
+    current_handle = mediator.get_curr_default_pbr_attributes_handle()
+    if current_handle != M5_1_PBR_CONFIG_HANDLE:
+        raise MixedCaptureError(
+            "M5.1 current PBR config handle changed from the explicit "
+            f"external IBL config: {current_handle!r}"
+        )
+    attributes = manager.get_template_by_handle(current_handle)
+    if attributes is None:
+        raise MixedCaptureError("M5.1 explicit PBR config cannot be read back")
+
+    expected_lut = (asset_root / PBR_BRDF_LUT_RELATIVE_PATH).resolve()
+    expected_environment = (
+        asset_root / PBR_ENVIRONMENT_MAP_RELATIVE_PATH
+    ).resolve()
+    actual_lut = Path(attributes.ibl_brdfLUT_filename).resolve()
+    actual_environment = Path(
+        attributes.ibl_environment_map_filename
+    ).resolve()
+    if actual_lut != expected_lut or actual_environment != expected_environment:
+        raise MixedCaptureError(
+            "M5.1 PBR config did not retain the explicit absolute IBL paths"
+        )
+    if not bool(attributes.enable_ibl):
+        raise MixedCaptureError("M5.1 explicit PBR config did not enable IBL")
+
+    expected_flags = {
+        "enable_direct_lights": True,
+        "map_mat_txtr_to_linear": True,
+        "map_ibl_txtr_to_linear": True,
+        "map_output_to_srgb": True,
+        "use_direct_tonemap": False,
+        "use_ibl_tonemap": True,
+        "use_burley_diffuse": True,
+    }
+    observed_flags = {
+        key: bool(getattr(attributes, key)) for key in expected_flags
+    }
+    if observed_flags != expected_flags:
+        raise MixedCaptureError(
+            "M5.1 explicit PBR config flags differ from the adopted "
+            "Brown Photostudio configuration"
+        )
+
+    return {
+        "status": "pass",
+        "phase": phase,
+        "config_handle": current_handle,
+        "config_path": str(config_path),
+        "asset_root": str(asset_root),
+        "registration_id": registration_id,
+        "enable_ibl": True,
+        "absolute_brdf_lut_path": str(actual_lut),
+        "absolute_environment_map_path": str(actual_environment),
+        "config_flags": observed_flags,
+    }
+
+
+def _prepare_m5_1_installed_pbr_ibl(
+    configuration: Any,
+    *,
+    installed_runtime: InstalledHabitatRuntime,
+    habitat_sim: Any,
+) -> dict[str, Any]:
+    """Inject one explicit external IBL config before Simulator construction."""
+
+    asset_root = installed_runtime.pbr_asset_root
+    if asset_root is None:
+        raise MixedCaptureError(
+            "installed M5.1 PBR actors require an explicit PBR asset root"
+        )
+    config_path = (
+        installed_runtime.prefix / "config" / PBR_CONFIG_FILENAME
+    ).resolve()
+    try:
+        config_path.relative_to(installed_runtime.prefix)
+    except ValueError as error:
+        raise MixedCaptureError(
+            "installed PBR config escaped the selected runtime prefix"
+        ) from error
+    if not config_path.is_file():
+        raise MixedCaptureError(
+            f"installed Habitat runtime is missing {PBR_CONFIG_FILENAME}"
+        )
+
+    mediator = habitat_sim.metadata.MetadataMediator(configuration.sim_cfg)
+    manager = mediator.pbr_shader_template_manager
+    attributes = manager.create_template(
+        str(config_path), register_template=False
+    )
+    if attributes is None:
+        raise MixedCaptureError("cannot load the installed M5.1 PBR config")
+    attributes.ibl_brdfLUT_filename = str(
+        (asset_root / PBR_BRDF_LUT_RELATIVE_PATH).resolve()
+    )
+    attributes.ibl_environment_map_filename = str(
+        (asset_root / PBR_ENVIRONMENT_MAP_RELATIVE_PATH).resolve()
+    )
+    registration_id = int(
+        manager.register_template(attributes, M5_1_PBR_CONFIG_HANDLE)
+    )
+    if registration_id < 0:
+        raise MixedCaptureError("cannot register the explicit M5.1 PBR config")
+    if not bool(
+        mediator.set_curr_default_pbr_attributes_handle(
+            M5_1_PBR_CONFIG_HANDLE
+        )
+    ):
+        raise MixedCaptureError("cannot select the explicit M5.1 PBR config")
+    configuration.metadata_mediator = mediator
+    return _readback_m5_1_pbr_ibl(
+        mediator,
+        config_path=config_path,
+        asset_root=asset_root,
+        phase="before_simulator",
+        registration_id=registration_id,
+    )
+
+
 def _bind_m5_1_scene_lighting(
     simulator: Any,
     configuration: Any,
     *,
     light_setup_key: str = M5_1_LIGHT_SETUP_KEY,
+    require_zero_direct_lights: bool = False,
 ) -> dict[str, Any]:
     """Copy the stage's effective setup to the AO-specific M5.1 key."""
 
@@ -648,6 +780,11 @@ def _bind_m5_1_scene_lighting(
         raise MixedCaptureError(
             "M5.1 registered actor light setup differs from the scene setup"
         )
+    if require_zero_direct_lights and registered_setup:
+        raise MixedCaptureError(
+            "installed M5.1 actor capture preserves zero direct lights; "
+            f"observed {len(registered_setup)}"
+        )
     return {
         "status": "pass",
         "hbao": {
@@ -665,6 +802,7 @@ def _bind_m5_1_scene_lighting(
             "current_light_count": len(current_setup),
             "registered_light_count": len(registered_setup),
             "registered_setup_matches_current": registered_matches_current,
+            "required_zero_direct_lights": require_zero_direct_lights,
         },
     }
 
@@ -1245,6 +1383,7 @@ def capture_human_beagle_paths(
 
         review_visual_profile_evidence: Mapping[str, Any] | None = None
         review_configuration_evidence: Mapping[str, Any] | None = None
+        pbr_ibl_preparation: Mapping[str, Any] | None = None
         if review_configuration_hook is not None:
             configured = review_configuration_hook(
                 configuration=configuration,
@@ -1255,6 +1394,12 @@ def capture_human_beagle_paths(
                     "review configuration hook did not return pass evidence"
                 )
             review_configuration_evidence = dict(configured)
+        if installed_runtime is not None:
+            pbr_ibl_preparation = _prepare_m5_1_installed_pbr_ibl(
+                configuration,
+                installed_runtime=installed_runtime,
+                habitat_sim=habitat_sim,
+            )
         with habitat_sim.Simulator(configuration) as simulator:
             navmesh_path = resolved_scene.get("navmesh")
             if navmesh_path is not None and Path(navmesh_path).is_file():
@@ -1282,7 +1427,27 @@ def capture_human_beagle_paths(
             rendering_evidence = _bind_m5_1_scene_lighting(
                 simulator,
                 configuration,
+                require_zero_direct_lights=installed_runtime is not None,
             )
+            if installed_runtime is not None:
+                pbr_ibl_readback = _readback_m5_1_pbr_ibl(
+                    simulator.metadata_mediator,
+                    config_path=(
+                        installed_runtime.prefix
+                        / "config"
+                        / PBR_CONFIG_FILENAME
+                    ).resolve(),
+                    asset_root=installed_runtime.pbr_asset_root,
+                    phase="after_simulator",
+                )
+                rendering_evidence["pbr_ibl"] = {
+                    "status": "pass",
+                    "preparation": dict(pbr_ibl_preparation or {}),
+                    "simulator_readback": pbr_ibl_readback,
+                    "actual_direct_light_count": 0,
+                    "direct_light_workaround_used": False,
+                    "actor_shader_type": M5_1_ACTOR_SHADER_TYPE,
+                }
             if review_scene_readback_hook is not None:
                 if review_visual_profile_evidence is None:
                     raise MixedCaptureError(
@@ -1774,6 +1939,9 @@ def capture_human_beagle_paths(
                             "kind": "installed_prefix",
                             "prefix": str(installed_runtime.prefix),
                             "mp3d_root": str(installed_runtime.mp3d_root),
+                            "pbr_asset_root": str(
+                                installed_runtime.pbr_asset_root
+                            ),
                             "magnum_python_site": str(
                                 installed_runtime.magnum_python_site
                             ),

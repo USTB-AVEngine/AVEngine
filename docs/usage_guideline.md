@@ -346,6 +346,14 @@ M7 还提供：
 - `build_asset_bound_dataset_index.py`：不复制媒体地建立数据索引；
 - `compare_rir_cache_metrics.py`：对齐 job 比较 EDT、DRR 和晚期能量。
 
+`run_habitat_room_batch.py` 的 installed PBR actor 路线要求
+`--pbr-asset-root`。该 non-Git 根提供 `bluts/` 下的 MIT BRDF LUT、
+`env_maps/` 下的 Poly Haven CC0 Brown Photostudio HDR 及
+`license.txt`。runner 一批只 prepare 一次 installed runtime；capture 在
+Simulator 和 actor 创建前注册仓库内 Brown Photostudio config，并使用上述
+图片的绝对路径。它不会设置 `os.environ`，不会添加 direct light，也不会把
+PNG/HDR 放入 Git。
+
 训练/验证/测试划分按视觉 episode 进行，不能让同一视觉 episode 的音频
 变体跨集合泄漏。已有 1,000 条本机研究闭环证据不等于 M7 benchmark、
 论文或正式数据集已经发布。
