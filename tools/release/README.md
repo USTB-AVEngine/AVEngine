@@ -2,10 +2,13 @@
 
 ## Current-installed v2 ordinary candidate
 
-The v1 workflow below is retained unchanged as a historical reader and
-validator for the checkout/submodule release manifest it actually produced.
-Do not supply an installed Habitat prefix to v1, and do not rewrite its
-manifest, schema, receipt or Git assertions to make it accept one.
+The retained v1 manifest, attestation and receipt bytes remain unchanged
+historical inputs. The four legacy command names and their arguments, defaults
+and help remain parseable, but every `receipt`, `prepare`, `verify` and
+`verify-attestation` invocation now returns the existing structured tool error
+with status `fail` and exit code 2 before path resolution, Git, subprocess or
+output handling. Historical schema, document, receipt and JUnit readers remain
+available; parsing one v1 document is not a live or formal verification.
 
 The additive v2 commands use only explicit current-installed inputs:
 
@@ -125,6 +128,12 @@ PYTHON_EXECUTABLE="$(realpath "$(command -v python)")"
 These commands never copy SDK/data/runtime files into Git. The future formal
 release path still needs separately reviewed, real adapter-on native evidence,
 the full pre/post equivalence matrix, and the project publication process.
+
+## Archived v1 historical workflow
+
+The remainder of this page records how the retained checkout/submodule v1
+artifact was originally assembled. It is not an executable current workflow;
+the legacy writer and live-verifier commands fail closed as described above.
 
 The release is intentionally assembled in two Git commits:
 
@@ -302,7 +311,7 @@ it is not cryptographic proof against an operator who controls the filesystem
 and manually fabricates a JSON document. Use externally signed CI/OIDC or SLSA
 attestation when adversarial provenance is required.
 
-Prepare and later verify:
+The historical prepare and verification commands were:
 
 ```bash
 python tools/release/build_manifest.py prepare \

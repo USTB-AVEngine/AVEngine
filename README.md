@@ -75,6 +75,12 @@ Blender 和媒体读回属于独立测试层。Apartment/Kujiale 的 UE 层是�
 
 ## 当前状态
 
+保留的 v1 schema/document/receipt/JUnit reader 只用于读取 checkout-era
+历史证据；`receipt`、`prepare`、`verify`、`verify-attestation` 虽保留旧
+参数、默认值和 help，但有效调用会在路径解析、Git、子进程或写入之前结构化
+失败。保留的 v1 manifest 精确记录它当时的 M6 发布状态；下文所说的历史
+“唯一依据”不验证当前源码迁移，schema-only 读取也不构成新的正式验证。
+
 `main` 是当前 Habitat 原生集成基线。现有 Apartment 研究路线支持通用
 `source1`、`source2` 绑定、双声源任务、精确时间线、RLR 双耳音频、
 Topdown/DOA/距离标签、动态 Camera/Listener 和 episode 级

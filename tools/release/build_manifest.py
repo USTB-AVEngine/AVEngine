@@ -25,6 +25,7 @@ from avengine.release import (
 )
 from avengine.release_receipt import (
     DEFAULT_RLR_SUBMODULE_PATH,
+    RELEASE_V1_ARCHIVAL_ERROR,
     execute_test_receipt,
 )
 from avengine.release_current import (
@@ -206,6 +207,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     arguments = _parser().parse_args(raw_arguments)
     try:
+        if arguments.command in {"receipt", "prepare", "verify", "verify-attestation"}:
+            raise ReleaseManifestError([RELEASE_V1_ARCHIVAL_ERROR])
+
         if arguments.command == "current-receipt":
             executed_command = list(arguments.execution_command)
             if executed_command[:1] == ["--"]:
