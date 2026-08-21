@@ -38,6 +38,10 @@ backend examples:
   adapter for the explicitly selected external scene.
 - Skokloster is excluded from production execution and dataset counting unless
   the project owner explicitly reauthorizes it for a named task.
+- The Blender-custom review room is excluded from all future production,
+  review, and canary use (owner decision 2026-08-21). Retained
+  Blender-custom artifacts stay readable as history only; new audiovisual
+  canaries and review material must use the real room routes above.
 - Do not run or count an Episode whose selected backend conflicts with these
   room-family routes. A retained artifact or passing validator from another
   backend does not change the route.
