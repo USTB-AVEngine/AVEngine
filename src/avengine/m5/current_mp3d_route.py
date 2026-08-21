@@ -854,6 +854,7 @@ def author_current_mp3d_two_beagle_route(
             runtime_prefix=prefix,
             mp3d_root=data_root,
             magnum_python_site=magnum_site,
+            rlr_sdk_root=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
         )
     except (OSError, RuntimeError, ValueError) as exc:
         raise CurrentMP3DRouteError(str(exc)) from exc
