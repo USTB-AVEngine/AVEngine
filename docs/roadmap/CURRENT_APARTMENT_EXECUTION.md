@@ -821,3 +821,37 @@ render_research_review_binaural_audio) with dry buses from the M6
 AudioProgram assembler (assemble_audio_program_dry_buses) under a turn-taking
 program, then muxes the resulting 80000x2 binaural mixture onto the current
 visual capture. The formal dataset denominator stays 0.
+
+## Checkpoint 20260821h: MP3D motion-following audio landed (both recorded gaps closed)
+
+Commit 78564dd adds `m5 render-current-mp3d-dynamic-audio`: the captured
+per-frame source positions from current-visual frame records drive a strided
+keyframe grid (25 states / 75 frames) through the persistent-context M5.1
+binaural renderer, and the dry buses come from an M6 AudioProgram routing
+variant (`current_mp3d_two_beagle_turn_taking_v1`, sequential_sources, six
+verified bark slices from the registered dry asset). This closes both
+Checkpoint 20260821e audio gaps at once — static-per-source IRs and the
+shared identical schedule — and also fixes a third defect found during the
+audit: the static chain's pair IRs had been rendered at the example request's
+fixed probe points, not on the beagles' route at all. The static verb stays
+the frozen baseline; validation stacks were not touched.
+
+Fresh product (installed runtime, external inputs only):
+/data/avengine_external/review/current_mp3d_dynamic_audio_seed22g_v1
+(per-source dry buses, binaural stems, mixture, research_receipt.json, and
+mp3d_dynamic_turn_taking_binaural.mp4 assembled in-engine by
+tools/m5/build_current_mp3d_dynamic_review_clip.py on the profiled encoder
+plus the frozen mux contract).
+
+Quantified pre-review check (windowed ILD on the mixture): beagle_0 barks
++1.89 / -0.13 / +1.73 dB and beagle_1 barks -1.94 / -2.45 / -2.79 dB — the
+two sources sit on opposite sides and their lateralization tracks the walk;
+the retained static mix measures a constant +1.10 dB in every window.
+Inter-event gaps carry only reverb tail. Unit layer: 3079 passed / 0 failed
+(six new tests, program validated against the repository registries).
+
+Research-only; the formal dataset denominator stays 0. Owner listening review
+of the new clip is pending. Remaining engine work: the Apartment
+production-form bundle (UE RGB plus bound audio) and fresh-environment
+native-layer validation; the MP3D S-series expansion stays a post-merge
+production task.
