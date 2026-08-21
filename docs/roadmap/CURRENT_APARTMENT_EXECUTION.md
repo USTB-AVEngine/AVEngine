@@ -897,3 +897,40 @@ native layer is validated by real native executions such as the above, plus
 the fixed-apartment closure canary. The formal dataset denominator stays 0.
 Owner-pending: listening review of the MP3D dynamic clip and the Apartment
 UE dynamic clip; push of the day's commits.
+
+## Checkpoint 20260821j: apartment clip rebased; natural-series animation regression recorded
+
+Two owner-reported defects in the first Apartment production-form clip, both
+resolved the same evening:
+
+1. Channel order (3a3cdd1): the UE apartment capture reads back BGR frames
+   (read_rgb_bgr), and the review-clip tool encoded them as RGB, giving the
+   clip an inverted cold tint. The tool now takes an explicit
+   --channel-order {rgb,bgr}; the clip was regenerated with bgr and the
+   pixels verified warm/natural.
+
+2. Skeletal animation regression in the 1fd3f5d "natural" capture series:
+   the owner observed sources gliding without walk animation (a recurrence
+   of a previously seen failure). Pixel forensics confirm it — in
+   apartment_current_visual_natural_parallel_1fd3f5d_20260821T1200Z the
+   frame_records report advancing walk action_phase values and
+   animation_readbacks with ~zero absolute_error_seconds, yet the rendered
+   arms hang straight and legs stay parallel in every frame; the montage is
+   scheduled but not evaluated in the render. By contrast,
+   apartment_current_visual_capture_cp312_retry1_b9150cb_20260821T0100Z
+   renders clearly distinct gait poses across frames. Two consequences are
+   recorded for the apartment-visual workstream: (a) the natural series is
+   not usable as review base video until its animation playback is fixed;
+   (b) the animation readback validates the scheduled montage time, not the
+   rendered pose, so it cannot catch this failure class — a rendered-pose
+   check (e.g. skeletal joint readback or pixel-difference probe between
+   walk phases) is the missing guard.
+
+The production-form review clip was rebased onto the retry1 capture: audio
+re-rendered in one command (the capture camera passed the same 1e-6 M1
+listener cross-check), product at
+/data/avengine_external/review/current_apartment_dynamic_audio_skeletal_retry1_v1
+including apartment_ue_skeletal_dynamic_turn_taking_binaural.mp4. Windowed
+ILD: human left +4.18 / +3.20 / +2.50 dB, dog right -4.76 / -2.72 / -3.21 dB
+— clean opposite lateralization. Research-only; the formal dataset
+denominator stays 0.
