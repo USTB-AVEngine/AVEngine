@@ -320,7 +320,7 @@ def test_profile_mechanism_rejects_missing_profile(
         TOOL._validate_materialization(materialization)
 
 
-def test_profile_authority_file_hash_is_fail_closed(
+def test_profile_authority_binding_drift_is_fail_closed(
     materialized_finalizer_cases: dict[str, Path], tmp_path: Path
 ) -> None:
     materialization = _copy_materialization(materialized_finalizer_cases, tmp_path)
@@ -332,7 +332,7 @@ def test_profile_authority_file_hash_is_fail_closed(
     profile["profile_content_sha256"] = TOOL.canonical_json_sha256(core)
     profile_path.write_text(json.dumps(profile) + "\n")
 
-    with pytest.raises(ValueError, match="candidate file hash drift"):
+    with pytest.raises(RuntimeError, match="motion-profile binding drift"):
         TOOL._validate_materialization(materialization)
 
 

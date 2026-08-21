@@ -217,6 +217,7 @@ def _profile_motion_contract(profile: Mapping[str, Any]) -> dict[str, Any]:
         motion_semantics[str(slot)] = {
             "moving": actor["moving"],
             "native_rate_active_interval": actor["native_rate_active_interval"],
+            "native_rate_action_segments": actor.get("native_rate_action_segments", []),
             "trajectory_preflight": actor["trajectory_preflight"],
             "action_counts": action_counts[str(slot)],
         }
@@ -344,7 +345,6 @@ def _validate_bound_motion_profile(
         == {
             "schema": profile["schema"],
             "profile_content_sha256": profile["profile_content_sha256"],
-            "candidate_document_sha256": candidate_binding["document_sha256"],
             "frame_count": len(motion["profile_frames"]),
             "qualification_claim": False,
         },
@@ -379,9 +379,9 @@ def _validate_bound_motion_profile(
         str(slot): {
             "method": "hash_bound_actor_motion_profile_v1",
             "profile_content_sha256": profile["profile_content_sha256"],
-            "candidate_document_sha256": candidate_binding["document_sha256"],
             "native_motion_authority": actor.get("native_motion_authority"),
             "native_rate_active_interval": actor.get("native_rate_active_interval"),
+            "native_rate_action_segments": actor.get("native_rate_action_segments", []),
         }
         for slot, actor in candidate["actors"].items()
     }
@@ -438,7 +438,7 @@ def _validate_bound_motion_profile(
         "profile_file_sha256": sha256_file(profile_path),
         "profile_document_canonical_sha256": canonical_json_sha256(profile),
         "profile_content_sha256": profile["profile_content_sha256"],
-        "candidate_document_sha256": candidate_binding["document_sha256"],
+        "candidate_document_sha256": candidate_binding.get("document_sha256"),
         "candidate_value_sha256": candidate_binding["canonical_value_sha256"],
         "action_counts": motion["action_counts"],
         "animation_timing_mode_counts": motion["animation_timing_mode_counts"],
