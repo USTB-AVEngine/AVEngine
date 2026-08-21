@@ -1495,11 +1495,12 @@ def run_fixed_apartment_canary(
             "prepared approaching_storm exterior proxy GLB is missing; run "
             "tools/m6x/prepare_spear_apartment_exterior.py first"
         )
-    resolved_runtime_root = (
-        Path(runtime_root).resolve()
-        if runtime_root is not None
-        else (repository_root.parent / "habitat-sim-AVEngine").resolve()
-    )
+    if runtime_root is None:
+        raise M6XCanaryError(
+            "fixed apartment canary requires an explicit runtime root; "
+            "implicit sibling checkout discovery is retired"
+        )
+    resolved_runtime_root = Path(runtime_root).resolve()
     output = Path(output_dir).resolve()
     staging = output.with_name(f".{output.name}.staging")
     if os.path.lexists(output) or os.path.lexists(staging):

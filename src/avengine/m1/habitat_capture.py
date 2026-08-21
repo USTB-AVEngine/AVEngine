@@ -105,10 +105,6 @@ def discover_runtime_root(explicit: str | Path | None = None) -> Path:
     configured = os.environ.get("AVENGINE_HABITAT_RUNTIME_ROOT")
     if configured:
         return Path(configured).resolve()
-    repository_root = Path(__file__).resolve().parents[3]
-    sibling = repository_root.parent / "habitat-sim-AVEngine"
-    if sibling.is_dir():
-        return sibling.resolve()
     raise FileNotFoundError("Set AVENGINE_HABITAT_RUNTIME_ROOT or pass --runtime-root")
 
 

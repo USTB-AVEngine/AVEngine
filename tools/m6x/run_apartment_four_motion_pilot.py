@@ -679,7 +679,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--runtime-root",
         type=Path,
-        default=REPOSITORY.parent / "habitat-sim-AVEngine",
+        required=True,
     )
     parser.add_argument(
         "--room-manifest",

@@ -634,8 +634,11 @@ def _resolve_runtime_root(
         candidate = Path(raw_environment).expanduser().resolve()
         authority = "AVENGINE_HABITAT_RUNTIME_ROOT"
     else:
-        candidate = (REPOSITORY.parent / "habitat-sim-AVEngine").resolve()
-        authority = "historical sibling fallback"
+        raise RuntimeError(
+            "runtime root is required: pass --runtime-root or set "
+            "AVENGINE_HABITAT_RUNTIME_ROOT; implicit sibling checkout "
+            "discovery is retired"
+        )
     if not candidate.is_dir():
         raise RuntimeError(f"{authority} is not a readable runtime directory: {candidate}")
     return candidate

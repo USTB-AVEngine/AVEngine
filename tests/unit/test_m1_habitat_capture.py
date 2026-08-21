@@ -30,6 +30,7 @@ from avengine.m1.habitat_capture import (
     discover_pbr_asset_root,
     discover_mp3d_root,
     discover_runtime_prefix,
+    discover_runtime_root,
     prepare_installed_habitat_runtime,
     resolve_installed_runtime_prefix,
 )
@@ -1251,3 +1252,11 @@ def test_habitat_python_binding_explicitly_disables_build_and_install_rpaths() -
             rf"(?m)^\s*{name}\s+{re.escape(value)}\s*$",
             properties,
         ), name
+
+
+def test_discover_runtime_root_requires_explicit_or_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AVENGINE_HABITAT_RUNTIME_ROOT", raising=False)
+    with pytest.raises(FileNotFoundError, match="AVENGINE_HABITAT_RUNTIME_ROOT"):
+        discover_runtime_root()

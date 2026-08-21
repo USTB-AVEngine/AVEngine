@@ -426,8 +426,8 @@ def test_current_receipt_isolates_child_from_inherited_and_sibling_legacy_checko
         text=True,
         env=direct_environment,
     )
-    assert direct.returncode == 0
-    assert Path(direct.stdout.strip()).resolve() == old_checkout.resolve()
+    assert direct.returncode != 0
+    assert "FileNotFoundError" in direct.stderr
 
     for variable in LEGACY_CHILD_ENVIRONMENT_VARIABLES:
         monkeypatch.setenv(variable, str(old_checkout))
