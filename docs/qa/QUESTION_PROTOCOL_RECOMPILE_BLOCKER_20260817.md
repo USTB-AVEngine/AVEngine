@@ -1,7 +1,24 @@
 # QuestionSpec official compile blocker (2026-08-17)
 
-Status: `blocked`. This is the exact next Codex action for the paper
-protocol delivery. It is independent of the RGB overlay renderer.
+Status: `pass` (2026-08-21). Resolved via allowed repair 2: the four
+binding manifests were reissued against the current registry after
+proving `git diff c8cf55f..HEAD` on
+`examples/runtime/source_asset_runtime_profiles.json` is append-only
+(149 insertions, one ordinary top-level revision bump, every
+pre-existing asset row byte-identical), so each locked episode resolves
+the same source1/source2 rows. Reissued manifests live beside their
+originals (`native_binding_pixel_v3`, `binding_v1_registry_reissue`,
+`stationary_binding_gpu1_v1_registry_reissue`,
+`right_entry_binding_gpu1_v1_registry_reissue`), each with a
+`REISSUE_NOTE.json`; the originals are untouched. The catalog points at
+the reissued copies. Delivery:
+`tmp/lead_a_question_protocol_paper_ready_v3` — compile and
+`validate --require-paper-ready` both return
+`candidate_case_count 2230`, `episode_count 6`, all three statuses
+`pass`, and the five canary overlays are the 6e43273 RGB-underlay
+renderer output. No validator, hash, or Facts file was edited.
+
+The original blocker text is preserved below for history.
 
 ## Already done (do not redo)
 
