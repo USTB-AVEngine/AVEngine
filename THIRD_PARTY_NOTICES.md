@@ -28,6 +28,14 @@ without changing the upstream terms.
 | Eastforward SPEAR S3d helper slice | reachable Eastforward fork commits `0a9ba3ded8ffa07a3bc3684279845da22dc123e0`, `c8ba04076a32060e35020deb8f706c4b13951cae`, `ff6e44736f68c72ce4140152e2dadb4b58dc0b28`, and `a5168b8c357afa494f6200dedb03b93c3a59be57`; selected bytes carried by local MIT transition snapshot `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (SPEAR-lead-b) | MIT | source for exactly three rig-query and two lighting helpers; retain `LICENSES/SPEAR-MIT.txt`. The local carrier is not a public fork ref, and this helper slice is not attributed to official `spear-sim/spear`; UE/project/assets remain external |
 | rpclib external S3b build SDK | 2.3.0 | MIT | user-installed external C++ SDK used to build the optional S3b extension; its source, headers, archive, CMake export, and any compiled result are not imported into AVEngine Git |
 | nanobind external S3b build dependency | 2.7.0 | BSD-3-Clause | user-installed external Python binding support used to build the optional S3b extension; no nanobind source, package, shared library, or wheel is imported into AVEngine Git |
+| Corrade installed-prefix static dependency | `451284cddcdc91300a59a194a11728e8124cb664` | MIT | statically linked into the external installed Habitat runtime prefixes (user-side build artifacts outside Git; recipe in docs/provenance/RUNTIME_PREFIX_RECIPE.md); retain mosra attribution when redistributing a built prefix |
+| Magnum installed-prefix static dependency | `70b0d76fcbb5d6d0fe43b3119446b0045fef64e5` | MIT | same treatment as the Corrade row |
+| Magnum Plugins installed-prefix static dependency | `393b7cb0c098a261a79dbba3230520e008b414a0` | MIT | same treatment as the Corrade row |
+| Magnum Integration (Bullet) installed-prefix static dependency | `6fca807891f05203fe5003275116b9854e918d87` | MIT | same treatment as the Corrade row |
+| Bullet Physics installed-prefix static dependency | 3.25 (archive `bullet3-2c204c49`) | zlib | statically linked into the installed prefix binaries; pin retained for rebuildability, no binary-distribution notice required by zlib terms |
+| RecastNavigation installed-prefix static dependency | `6dc1667f580357e8a2154c28b7867bea7e8ad3a7` | zlib | same treatment as the Bullet row |
+| RapidJSON installed-prefix static dependency | `73063f5002612c6bf64fe24f851cd5cc0d83eef9` | MIT | statically linked into the installed prefix binaries; retain the Tencent notice when redistributing a built prefix |
+| tinyxml2 installed-prefix static dependency | 6.2.0 | zlib | same treatment as the Bullet row |
 
 The root AVEngine all-rights-reserved notice does not relicense imported
 third-party code. H1/S3/H4a/H4c/H4d/H5a retain the Habitat MIT text at
