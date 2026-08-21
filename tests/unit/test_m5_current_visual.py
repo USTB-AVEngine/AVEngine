@@ -147,6 +147,7 @@ def test_current_visual_forwards_only_explicit_installed_inputs(
         "runtime_prefix": runtime_prefix,
         "mp3d_root": mp3d_root,
         "magnum_python_site": magnum_site,
+        "rlr_sdk_root": None,
     }
     assert calls["capture"]["bundle"] == "bundle"
     assert calls["capture"]["frames"] == tuple(range(75))
@@ -668,6 +669,7 @@ def test_cli_exposes_visual_only_current_command(
         "mp3d_root": "mp3d",
         "magnum_python_site": "magnum",
         "output_directory": output.resolve(),
+        "rlr_sdk_root": None,
     }
     assert json.loads(capsys.readouterr().out) == {
         "episode_counted": False,

@@ -766,6 +766,7 @@ def capture_current_visual(
     mp3d_root: str | Path | None,
     magnum_python_site: str | Path | None,
     output_directory: str | Path,
+    rlr_sdk_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Capture M5 visuals only on an explicit installed MP3D runtime.
 
@@ -829,7 +830,7 @@ def capture_current_visual(
             runtime_prefix=runtime_prefix,
             mp3d_root=mp3d_root,
             magnum_python_site=magnum_python_site,
-            rlr_sdk_root=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+            rlr_sdk_root=rlr_sdk_root,
         )
     except (OSError, RuntimeError, ValueError) as error:
         raise CurrentVisualError(

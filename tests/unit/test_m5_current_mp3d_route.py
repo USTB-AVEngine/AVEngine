@@ -331,6 +331,7 @@ def test_cli_exposes_explicit_current_mp3d_two_beagle_author(
         "magnum_python_site": "magnum",
         "output_directory": str(tmp_path / "fresh"),
         "seed": 20_260_820,
+        "camera_selection": "framing",
         "distance_tolerance_m": 0.15,
         "minimum_center_separation_m": 0.75,
     }

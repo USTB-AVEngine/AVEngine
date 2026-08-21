@@ -1406,6 +1406,7 @@ def _m5_capture_current_visual(args: argparse.Namespace) -> int:
             mp3d_root=args.mp3d_root,
             magnum_python_site=args.magnum_python_site,
             output_directory=output,
+            rlr_sdk_root=args.rlr_sdk_root,
         )
     except (CurrentVisualError, OSError, ValueError, RuntimeError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -2252,6 +2253,10 @@ def build_parser() -> argparse.ArgumentParser:
     m5_current_visual.add_argument("--runtime-prefix", required=True)
     m5_current_visual.add_argument("--mp3d-root", required=True)
     m5_current_visual.add_argument("--magnum-python-site", required=True)
+    m5_current_visual.add_argument(
+        "--rlr-sdk-root",
+        help="Explicit external RLR SDK for adapter-linked installed prefixes",
+    )
     m5_current_visual.add_argument("--output", required=True)
     m5_current_visual.set_defaults(handler=_m5_capture_current_visual)
 
