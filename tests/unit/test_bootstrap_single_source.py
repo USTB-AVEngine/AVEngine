@@ -227,6 +227,13 @@ def test_setup_native_external_requires_inputs_before_pip(
     monkeypatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    for native_variable in (
+        "AVENGINE_HABITAT_RUNTIME_PREFIX",
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+        "AVENGINE_MP3D_ROOT",
+        "AVENGINE_RLR_SDK_ROOT",
+    ):
+        monkeypatch.delenv(native_variable, raising=False)
     conda_python = _fake_conda_python(tmp_path, conda=True)
     result = subprocess.run(
         [

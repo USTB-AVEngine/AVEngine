@@ -86,7 +86,10 @@ _REAL_V4_AUTHORITY_FILES = {
 
 
 def _external_v4_authority_inputs_or_skip() -> dict[str, Path]:
-    if not any(name in os.environ for name in _REAL_V4_AUTHORITY_ENVIRONMENT):
+    # The runtime prefix and MP3D root are standing native_external inputs
+    # after the single-repo closure; only the dedicated authority selector
+    # opts this loader in. Partial configuration below still fails closed.
+    if "AVENGINE_M5_1_V4_AUTHORITY_ROOT" not in os.environ:
         pytest.skip(
             "real v4 authority loader requires all explicit selectors: "
             + ", ".join(_REAL_V4_AUTHORITY_ENVIRONMENT)
