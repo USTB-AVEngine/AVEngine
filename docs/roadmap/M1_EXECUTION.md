@@ -29,6 +29,10 @@ module/binding/physics-config paths rather than probing it as Git. AVEngine
 itself must still be clean when producing final evidence. The commands below
 assume this external layout:
 
+> Historical layout example (pre single-repo closure). On the closed layout,
+> use the `/data/avengine_external/` roots and the installed runtime prefix;
+> do not copy these paths onto a new machine.
+
 ```bash
 export REPO=/data/jzy/code/AVEngine-habitat-native
 export HABITAT_PREFIX=/data/jzy/opt/avengine-habitat-runtime

@@ -129,8 +129,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--runtime-root",
         type=Path,
         help=(
-            "Habitat runtime checkout root; falls back to "
-            "AVENGINE_HABITAT_RUNTIME_ROOT then the historical sibling checkout"
+            "explicit Habitat runtime root; falls back to "
+            "AVENGINE_HABITAT_RUNTIME_ROOT (sibling-checkout discovery is retired)"
         ),
     )
     parser.add_argument("--output-dir", required=True, type=Path)

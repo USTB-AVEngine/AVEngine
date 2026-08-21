@@ -10,11 +10,18 @@ RLR adapter source and small interface configuration. It does not put Unreal
 Engine installations, datasets, room assets, model weights, generated media or
 build products in Git.
 
-That target is still being migrated. Until the selected runtime code has landed
-and pre/post behavior has been checked, the manifest-pinned sibling Habitat
-fork and the maintained SPEAR checkout remain transition workspaces. They are
-sources and execution dependencies for the migration, not the final repository
-architecture and not authority to claim that integration is already complete.
+The single-repository closure engineering landed on 2026-08-21 (roadmap
+Checkpoint 20260821f series): live `src/` and the active tools run only on the
+installed runtime prefixes and external data roots, the conda environments
+carry no editable pointers into legacy checkouts, and the remaining
+sibling-checkout references are frozen HISTORICAL TOOL records or fail-closed
+guards. The legacy Habitat fork and SPEAR checkouts are retention-only until
+the owner-authorized Phase 6 archival; they are not execution dependencies and
+not authority to bypass the explicit external-input contract. Two facts gate
+Phase 6: the unplugged fresh-clone verification tracked in the roadmap
+checkpoint, and the structural note that this working copy is a git worktree
+whose common `.git` lives under `/data/jzy/code/AVEngine` — make it standalone
+before that directory is archived.
 
 Read `README.md`, `docs/architecture/SYSTEM_OVERVIEW.md`,
 `docs/architecture/REPOSITORY_BOUNDARIES.md` and the current milestone status
@@ -83,11 +90,13 @@ and the exact next action. Update the checkpoint whenever a meaningful stage
 finishes or the owner changes direction.
 
 For the QuestionSpec paper-protocol coverage delivery, the official
-`compile` is currently `blocked`. Read
-`docs/qa/QUESTION_PROTOCOL_RECOMPILE_BLOCKER_20260817.md` before claiming
-`paper_ready` or touching binding-manifest hashes. The RGB canary overlay
-renderer is already landed on `cc-qa-overlay-rgb` (`6e43273`); do not
-confuse that with an official recompile.
+`compile` blocker recorded in
+`docs/qa/QUESTION_PROTOCOL_RECOMPILE_BLOCKER_20260817.md` was resolved on
+2026-08-21 (allowed repair 2, commit `4ffacbb`; roadmap Checkpoint 20260821b,
+2230 candidate cases at `tmp/lead_a_question_protocol_paper_ready_v3`). Read
+that document's resolution record before touching binding-manifest hashes.
+The RGB canary overlay renderer is already landed on `cc-qa-overlay-rgb`
+(`6e43273`); do not confuse that with the official recompile record.
 
 ## Current Apartment and generated-animal invariants
 

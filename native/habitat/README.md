@@ -9,8 +9,10 @@ core static target; H4d forwards selected static importer registrations; and
 H5a optionally builds the selected Python binding closure into an explicit
 external staging root. H5b can additionally install that selected facade,
 binding, and small default physics configuration into an explicit external
-prefix. Existing executions still use the manifest-pinned transition fork.
-Neither mode changes the selected runtime path or claims a completed cutover.
+prefix. Production executions now run from installed external prefixes built
+from this tree (see docs/provenance/RUNTIME_PREFIX_RECIPE.md); the
+manifest-pinned transition fork is retention-only and no longer an execution
+dependency.
 
 ## Origin and treatment
 

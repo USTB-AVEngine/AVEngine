@@ -478,10 +478,10 @@ def display_current_workspace_path(root: Path, path: Path) -> str:
 def _isolated_current_child_root(root: Path) -> Iterator[Path]:
     """Yield a fresh source snapshot whose parent has no legacy sibling.
 
-    ``discover_runtime_root()`` in the retained v1 compatibility layer derives
-    its sibling fallback from the imported module's ``__file__``. Merely
-    removing an environment variable therefore cannot prevent an ordinary
-    child from seeing a checkout placed next to the real AVEngine worktree.
+    ``discover_runtime_root()`` in the retained v1 compatibility layer once
+    derived a sibling fallback from the imported module's ``__file__``; that
+    discovery is retired (a Git-checkout root now fails closed), and this
+    isolation is kept as defense in depth for the ordinary child.
     The current-v2 child instead imports from a disposable snapshot materialized
     exactly from the clean Git index. Ignored and untracked source, caches and
     local startup hooks never enter that snapshot. Its randomly created parent
