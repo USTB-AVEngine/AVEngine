@@ -811,6 +811,8 @@ def test_replicacad_runner_dry_run_compiles_without_unreal(tmp_path: Path) -> No
     command = [
         sys.executable,
         str(REPOSITORY / "tools/m6y/run_spear_replicacad_canary.py"),
+        "--spear-root",
+        str(tmp_path / "spear-root-not-needed-for-dry-run"),
         "--unreal-editor",
         str(tmp_path / "not-needed-for-dry-run"),
         "--ue-project",
