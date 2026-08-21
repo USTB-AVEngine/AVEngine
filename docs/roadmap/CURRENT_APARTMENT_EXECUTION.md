@@ -934,3 +934,31 @@ including apartment_ue_skeletal_dynamic_turn_taking_binaural.mp4. Windowed
 ILD: human left +4.18 / +3.20 / +2.50 dB, dog right -4.76 / -2.72 / -3.21 dB
 — clean opposite lateralization. Research-only; the formal dataset
 denominator stays 0.
+
+## Checkpoint 20260821k: apartment clip base corrected to the approved skeletal capture
+
+The owner rejected the retry1-based clip too: exposure ramps dark-to-bright
+over the first ~12 frames (mean luma 65 -> 89), the actors idle for the
+first ~2.5 s then walk slowly, and the human walk animation is still not
+convincing. Frame forensics against the already-approved
+apartment_75f_skeletal.mp4 identified its true source:
+apartment_current_visual_skeletal_animation_2786897_20260821T1400Z (flat
+luma 88.7 from frame 0, walk the full episode, frame-identical stride and
+arm-swing poses). The two captures I had picked (natural_parallel 1fd3f5d,
+capture_cp312_retry1 b9150cb) were both defective bases; the other two
+b9150cb capture attempts contain only a receipt or an operator_failure. The
+selection mistake was not comparing against the approved reference first.
+
+Audio was re-rendered on the approved-source capture (camera passes the
+same 1e-6 M1 cross-check) and the clip regenerated:
+/data/avengine_external/review/current_apartment_dynamic_audio_skeletal_2786897_v1
+with apartment_ue_skeletal_animation_dynamic_binaural.mp4. Quantified
+expectation for listening: this route walks nearly head-on at the camera
+(human azimuth about +/-6 degrees, dog 0 to -17 degrees left), so window
+ILDs are small (about +/-0.5 dB) by geometry and the room is
+reverb-dominated (wet/dry propagation gain roughly flat across 4.6 m ->
+1.8 m); the audible motion cues are the approach plus strict turn-taking,
+not lateral sweep. A strongly lateral apartment production route would need
+its own authored path; the MP3D clip demonstrates the lateral case. The
+retry1 and natural-parallel audio products remain on disk as defect
+evidence but are superseded for review.
