@@ -679,3 +679,22 @@ refactor reference d19e0e8 and the CPU equivalence reference 1a26e5c, so
 pre- and post-refactor evaluators share identical semantics and the
 divergence is not a refactor effect. Report:
 tmp/lead_a_questionspec_fresh_compare_v1/comparison.json.
+
+### Checkpoint 20260821d: repository audit and single-repo bootstrap verification
+
+- Whole-repository residual audit: live src/tools code carries no sibling
+  checkout or private absolute-path dependencies; the remaining mentions are
+  provenance comments, fail-closed guards, and legacy-labeled example
+  manifests. THIRD_PARTY_NOTICES.md gained data-input rows (MIT KEMAR HRTF
+  and its 16 kHz derivative, SoundSpaces 2 material config, Brown Photostudio
+  IBL, Matterport3D example) plus the 2026-08-21 owner decision that AVEngine
+  is non-commercial research heading for an open-source release (5703009).
+- Single-repository bootstrap verified: a fresh clone at 5703009 plus a
+  dedicated Conda env ran scripts/setup.sh --profile fast_unit end to end
+  (editable install, path and schema validation, fast-unit suite). The only
+  failures were eleven strict two-human suites reading retained evidence
+  under the untracked tmp workspace; they now skip with a reason when the
+  workspace is absent (d5fdfd0). Fresh clone: 2933 passed, 0 failed.
+  Working copy afterwards: 3073 passed, 0 failed.
+- Verification artifacts: /data/jzy/tmp/avengine-bootstrap-verify-20260821
+  (clone) and /data/jzy/tmp/avengine-bootstrap-env-20260821 (env).
