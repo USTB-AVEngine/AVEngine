@@ -1227,13 +1227,7 @@ def capture_human_beagle_paths(
         magnum_python_site=magnum_python_site,
         pbr_asset_root=pbr_asset_root,
     )
-    if installed_runtime is not None:
-        if getattr(installed_runtime, "pbr_asset_root", None) is None:
-            raise MixedCaptureError(
-                "installed MP3D PBR actor capture requires a prepared runtime "
-                "with an explicit pbr_asset_root"
-            )
-    elif installed_requested and pbr_asset_root is None:
+    if installed_runtime is None and installed_requested and pbr_asset_root is None:
         raise MixedCaptureError(
             "installed MP3D PBR actor capture requires an explicit "
             "pbr_asset_root before runtime preparation"
@@ -1262,12 +1256,18 @@ def capture_human_beagle_paths(
             installed_runtime=installed_runtime,
         )
         if installed_runtime is not None:
-            if installed_runtime.mp3d_root is None:
+            if (
+                _room_declares_external_mp3d_root(room_inputs.room)
+                and installed_runtime.mp3d_root is None
+            ):
                 raise MixedCaptureError(
                     "installed MP3D capture requires an explicit --mp3d-root or "
                     "AVENGINE_MP3D_ROOT"
                 )
-            if getattr(installed_runtime, "pbr_asset_root", None) is None:
+            if (
+                _room_declares_external_mp3d_root(room_inputs.room)
+                and getattr(installed_runtime, "pbr_asset_root", None) is None
+            ):
                 raise MixedCaptureError(
                     "installed MP3D PBR actor capture requires an explicit "
                     "pbr_asset_root"
@@ -1449,7 +1449,11 @@ def capture_human_beagle_paths(
                     "review configuration hook did not return pass evidence"
                 )
             review_configuration_evidence = dict(configured)
-        if installed_runtime is not None:
+        installed_external_ibl = (
+            installed_runtime is not None
+            and _room_declares_external_mp3d_root(room_inputs.room)
+        )
+        if installed_external_ibl:
             pbr_ibl_preparation = _prepare_m5_1_installed_pbr_ibl(
                 configuration,
                 installed_runtime=installed_runtime,
@@ -1482,9 +1486,9 @@ def capture_human_beagle_paths(
             rendering_evidence = _bind_m5_1_scene_lighting(
                 simulator,
                 configuration,
-                require_zero_direct_lights=installed_runtime is not None,
+                require_zero_direct_lights=installed_external_ibl,
             )
-            if installed_runtime is not None:
+            if installed_external_ibl:
                 pbr_ibl_readback = _readback_m5_1_pbr_ibl(
                     simulator.metadata_mediator,
                     config_path=(

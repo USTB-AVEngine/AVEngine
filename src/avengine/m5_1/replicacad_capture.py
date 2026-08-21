@@ -47,6 +47,8 @@ from avengine.m1.habitat_capture import (
 )
 from avengine.m5_1.legacy_route import FRAME_COUNT, FRAME_RATE_HZ
 from avengine.m5_1.mixed_capture import (
+    MIXED_CAPTURE_INSTALLED_SCHEMA_V2,
+    MIXED_CAPTURE_SCHEMA,
     MixedCaptureResult,
     capture_human_beagle_paths,
 )
@@ -718,6 +720,7 @@ def validate_replicacad_paths_and_placement(
                 runtime,
                 Path(m1_request_path).resolve().parent
                 / ".replicacad_preflight_not_retained",
+                include_audio_sensor=installed_runtime is None,
                 physics_config_path=(
                     None
                     if installed_runtime is None
@@ -1124,9 +1127,12 @@ def _portableize_generated_human_runtime_documents(
     portable_source = _portable_bound_file_record(
         source_path, roots, owner="human runtime source"
     )
-    if portable_source["root_id"] != "AVENGINE_LEGACY_ROOT":
+    if portable_source["root_id"] not in (
+        "AVENGINE_LEGACY_ROOT",
+        "AVENGINE_HUMAN_RUNTIME_SOURCE_ROOT",
+    ):
         raise ReplicaCADCaptureError(
-            "Rocketbox source must bind the declared AVENGINE_LEGACY_ROOT"
+            "Rocketbox source must bind a declared source root"
         )
     portable_manifest["source"] = portable_source
     portable_manifest["derived"] = {
@@ -1277,6 +1283,10 @@ def _portable_mixed_capture(
     replicacad_root: Path,
     runtime_root: Path | None = None,
     runtime_prefix: Path | None = None,
+    human_runtime_source_glb: Path | None = None,
+    secondary_asset_manifest: Path | None = None,
+    secondary_m2_request: Path | None = None,
+    magnum_python_site: Path | None = None,
 ) -> MixedCaptureResult:
     repository = Path(__file__).resolve().parents[3]
     roots: list[tuple[str, Path]] = [
@@ -1288,6 +1298,34 @@ def _portable_mixed_capture(
         roots.insert(2, ("AVENGINE_HABITAT_RUNTIME_ROOT", runtime_root.resolve()))
     if runtime_prefix is not None:
         roots.insert(2, ("AVENGINE_HABITAT_RUNTIME_PREFIX", runtime_prefix.resolve()))
+    if human_runtime_source_glb is not None:
+        roots.append(
+            (
+                "AVENGINE_HUMAN_RUNTIME_SOURCE_ROOT",
+                Path(human_runtime_source_glb).resolve().parent,
+            )
+        )
+    if secondary_asset_manifest is not None:
+        roots.append(
+            (
+                "AVENGINE_SECONDARY_ASSET_ROOT",
+                Path(secondary_asset_manifest).resolve().parent,
+            )
+        )
+    if secondary_m2_request is not None:
+        roots.append(
+            (
+                "AVENGINE_SECONDARY_REQUEST_ROOT",
+                Path(secondary_m2_request).resolve().parent,
+            )
+        )
+    if magnum_python_site is not None:
+        roots.append(
+            (
+                "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+                Path(magnum_python_site).resolve(),
+            )
+        )
     human_portability = _portableize_generated_human_runtime_documents(
         capture.output_dir, roots
     )
@@ -1391,11 +1429,12 @@ def _readback_portable_human_runtime(root: Path) -> None:
     source = manifest.get("source")
     if (
         not isinstance(source, Mapping)
-        or source.get("root_id") != "AVENGINE_LEGACY_ROOT"
+        or source.get("root_id")
+        not in ("AVENGINE_LEGACY_ROOT", "AVENGINE_HUMAN_RUNTIME_SOURCE_ROOT")
         or not isinstance(source.get("relative_path"), str)
     ):
         raise ReplicaCADCaptureError(
-            "portable human source does not bind AVENGINE_LEGACY_ROOT"
+            "portable human source does not bind a declared source root"
         )
     derived = manifest.get("derived")
     if not isinstance(derived, Mapping) or set(derived) != set(
@@ -1642,6 +1681,11 @@ def _capture_replicacad_route_in_staging(
             output_dir=output_dir,
             runtime_root=None if installed_runtime is not None else runtime_root,
             installed_runtime=installed_runtime,
+            research_capture_schema=(
+                MIXED_CAPTURE_INSTALLED_SCHEMA_V2
+                if installed_runtime is not None
+                else MIXED_CAPTURE_SCHEMA
+            ),
             route_provenance={
                 "route_manifest": _repository_file_record(route_path),
                 "route_id": route["route_id"],
@@ -1664,6 +1708,9 @@ def _capture_replicacad_route_in_staging(
                 route=route,
                 replicacad_root=root,
                 runtime_root=discover_runtime_root(runtime_root),
+                human_runtime_source_glb=Path(human_runtime_glb_path),
+                secondary_asset_manifest=Path(beagle_animal_manifest_path),
+                secondary_m2_request=Path(beagle_m2_request_path),
             )
         else:
             capture = _portable_mixed_capture(
@@ -1671,6 +1718,10 @@ def _capture_replicacad_route_in_staging(
                 route=route,
                 replicacad_root=root,
                 runtime_prefix=installed_runtime.prefix,
+                human_runtime_source_glb=Path(human_runtime_glb_path),
+                secondary_asset_manifest=Path(beagle_animal_manifest_path),
+                secondary_m2_request=Path(beagle_m2_request_path),
+                magnum_python_site=installed_runtime.magnum_python_site,
             )
 
     semantic_visibility = _semantic_visibility_record(
