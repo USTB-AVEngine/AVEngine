@@ -20,6 +20,7 @@ from avengine.m5_1.human_runtime import (
     promote_rocketbox_skin_ancestors,
 )
 from avengine.m5_1.mixed_capture import (
+    MIXED_CAPTURE_INSTALLED_SCHEMA_V2,
     MixedCaptureError,
     _actor_heading_evidence,
     _beagle_anatomical_forward_binding,
@@ -812,5 +813,136 @@ def test_mixed_capture_direct_prefix_environment_uses_installed_selection(
             "runtime_root": None,
             "mp3d_root": None,
             "magnum_python_site": None,
+        }
+    ]
+
+
+def test_installed_mixed_capture_preserves_visual_sensors_without_audio(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    room_inputs = SimpleNamespace(room=_migrated_mp3d_room())
+    human_action = SimpleNamespace(sample_count=16)
+    human_package = SimpleNamespace(
+        package_manifest={},
+        actions=SimpleNamespace(action=lambda _action_id: human_action),
+    )
+    beagle_action = SimpleNamespace(sample_count=25)
+    beagle_bundle = SimpleNamespace(
+        action_roles_by_id={"idle": "locomotion", "walk": "locomotion"},
+        action_sets_by_role={
+            "locomotion": SimpleNamespace(
+                action=lambda _action_id: beagle_action
+            )
+        },
+    )
+    m2_inputs = SimpleNamespace(asset={}, asset_path=tmp_path / "beagle.json")
+    visual_modalities = {
+        "rgb": "rig_rgb",
+        "depth": "rig_depth",
+        "semantic": "rig_semantic",
+    }
+    configuration_calls: list[dict[str, object]] = []
+
+    def fake_make_configuration(
+        _inputs: object,
+        runtime_root: object,
+        output_dir: object,
+        **kwargs: object,
+    ) -> tuple[object, dict[str, str], str, dict[str, object]]:
+        configuration_calls.append(
+            {
+                "runtime_root": runtime_root,
+                "output_dir": output_dir,
+                **kwargs,
+            }
+        )
+        configuration = SimpleNamespace(
+            sim_cfg=SimpleNamespace(enable_hbao=False, enable_physics=False),
+            sensor_uuids=list(visual_modalities.values()),
+        )
+        return configuration, visual_modalities, "listener0", {
+            "enable_physics": False
+        }
+
+    class FakeHabitat:
+        @staticmethod
+        def Simulator(configuration: object) -> object:
+            assert configuration.sensor_uuids == [
+                "rig_rgb",
+                "rig_depth",
+                "rig_semantic",
+            ]
+            raise RuntimeError("installed visual configuration reached Simulator")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.load_m1_inputs",
+        lambda *_args: room_inputs,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_rocketbox_habitat_runtime",
+        lambda *_args: human_package,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.load_m2_inputs",
+        lambda *_args: m2_inputs,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.load_runtime_asset_bundle",
+        lambda _inputs: beagle_bundle,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture._human_anatomical_forward_binding",
+        lambda _manifest: ((0.0, 0.0, -1.0), "fixture"),
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture._beagle_anatomical_forward_binding",
+        lambda **_kwargs: ((0.0, 0.0, -1.0), "fixture"),
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.trajectory_world_matrices",
+        lambda *_args, **_kwargs: np.repeat(np.eye(4)[None, ...], 75, axis=0),
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture._actor_heading_evidence",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.compile_frame_applications",
+        lambda *_args: [object()] * 75,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.locomotion_schedule_from_root_trajectory",
+        lambda *_args, **_kwargs: [object()] * 75,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture._resolved_assets",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture._make_configuration",
+        fake_make_configuration,
+    )
+    installed_runtime = SimpleNamespace(
+        mp3d_root=tmp_path / "mp3d",
+        quaternion=object(),
+        habitat_sim=FakeHabitat,
+        magnum=object(),
+        physics_config_path=tmp_path / "default.physics_config.json",
+    )
+
+    with pytest.raises(RuntimeError, match="installed visual configuration"):
+        capture_human_beagle_paths(
+            **_runtime_selection_capture_arguments(tmp_path),
+            installed_runtime=installed_runtime,
+            research_capture_schema=MIXED_CAPTURE_INSTALLED_SCHEMA_V2,
+        )
+
+    assert configuration_calls == [
+        {
+            "runtime_root": None,
+            "output_dir": (tmp_path / "capture/scene_scratch"),
+            "mp3d_root": tmp_path / "mp3d",
+            "include_audio_sensor": False,
+            "physics_config_path": tmp_path / "default.physics_config.json",
         }
     ]

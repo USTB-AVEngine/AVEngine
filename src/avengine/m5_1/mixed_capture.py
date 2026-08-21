@@ -1205,6 +1205,7 @@ def capture_human_beagle_paths(
                     None,
                     output / "scene_scratch",
                     mp3d_root=installed_runtime.mp3d_root,
+                    include_audio_sensor=False,
                     physics_config_path=installed_runtime.physics_config_path,
                 )
             )

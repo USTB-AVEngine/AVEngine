@@ -16,6 +16,7 @@ from avengine.m5_1.mp3d_capture import (
     capture_mp3d_route,
     derive_mp3d_route_paths,
     load_mp3d_route_manifest,
+    validate_mp3d_paths_with_declared_navmesh,
     write_mp3d_contact_sheet,
 )
 
@@ -304,6 +305,91 @@ def test_mp3d_route_reuses_injected_installed_runtime(
             runtime_prefix=tmp_path / "prefix",
             installed_runtime=installed_runtime,
         )
+
+
+def test_pathfinder_preflight_preserves_visual_sensors_without_audio(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    route = load_mp3d_route_manifest(ROUTE_PATH)
+    navmesh = tmp_path / "scene.navmesh"
+    navmesh.write_bytes(b"navmesh")
+    physics = tmp_path / "default.physics_config.json"
+    physics.write_text("{}\n", encoding="utf-8")
+    inputs = SimpleNamespace(
+        room={"room_id": route["room_id"]},
+        request={"request_id": route["request_id"]},
+    )
+    configuration_calls: list[dict[str, object]] = []
+    visual_modalities = {
+        "rgb": "rig_rgb",
+        "depth": "rig_depth",
+        "semantic": "rig_semantic",
+    }
+
+    def fake_make_configuration(
+        _inputs: object,
+        runtime_root: object,
+        output_dir: object,
+        **kwargs: object,
+    ) -> tuple[object, dict[str, str], str, dict[str, object]]:
+        configuration_calls.append(
+            {
+                "runtime_root": runtime_root,
+                "output_dir": output_dir,
+                **kwargs,
+            }
+        )
+        return (
+            {"sensor_uuids": list(visual_modalities.values())},
+            visual_modalities,
+            "listener0",
+            {"navmesh": navmesh},
+        )
+
+    class FakeHabitat:
+        @staticmethod
+        def Simulator(configuration: object) -> object:
+            assert configuration == {
+                "sensor_uuids": ["rig_rgb", "rig_depth", "rig_semantic"]
+            }
+            raise RuntimeError("visual-only configuration reached Simulator")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mp3d_capture.load_m1_inputs",
+        lambda *_args: inputs,
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mp3d_capture._resolved_scene",
+        lambda *_args, **_kwargs: {"navmesh": navmesh},
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mp3d_capture._make_configuration",
+        fake_make_configuration,
+    )
+    installed_runtime = SimpleNamespace(
+        mp3d_root=tmp_path / "mp3d",
+        quaternion=object(),
+        habitat_sim=FakeHabitat,
+        physics_config_path=physics,
+    )
+
+    with pytest.raises(RuntimeError, match="visual-only configuration"):
+        validate_mp3d_paths_with_declared_navmesh(
+            route=route,
+            room_manifest_path=tmp_path / "room.json",
+            m1_request_path=tmp_path / "request.json",
+            installed_runtime=installed_runtime,
+        )
+
+    assert configuration_calls == [
+        {
+            "runtime_root": None,
+            "output_dir": tmp_path / ".mp3d_preflight_not_retained",
+            "mp3d_root": tmp_path / "mp3d",
+            "include_audio_sensor": False,
+            "physics_config_path": physics,
+        }
+    ]
 
 
 def test_example_route_is_exact_parallel_separated_motion() -> None:

@@ -470,6 +470,7 @@ def validate_mp3d_paths_with_declared_navmesh(
             None,
             Path(m1_request_path).resolve().parent / ".mp3d_preflight_not_retained",
             mp3d_root=selected_runtime.mp3d_root,
+            include_audio_sensor=False,
             physics_config_path=selected_runtime.physics_config_path,
         )
     )
