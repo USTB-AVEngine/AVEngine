@@ -153,3 +153,39 @@ Owner 批准 v1 四切片 + v1.5/v2 分期与工程纪律并要求写入本文�
 编码。前置引擎能力全部就绪（单仓闭环已合 main=4fbb9d2，动态音频双房间
 实证，跨环境逐字节一致）。下一步：Session 1 后端骨架，在
 `feature/studio-v1` 分支开工。
+
+### Checkpoint 20260822-S1：Session 1 后端骨架完成（验收通过）
+
+代码（分支 feature/studio-v1）：`src/avengine/studio/`（config / catalog /
+templates / tasks / server 五模块，纯标准库，无新增依赖）+
+`tools/studio/run_studio_server.py` + `tools/studio/studio_config_48g.json`
+（48g 部署配置，模板默认输入逐字取自已过审渲染的 receipt）。
+
+能力与验收证据：
+- 只读 API：/api/health、/api/rooms（注册表 + studio_status 标注：
+  blender_custom=banned、skokloster=excluded）、/api/registries[/name]
+  （8 端点 / 3 声音 / 4 实体）、/api/captures、/api/templates、/api/tasks。
+- /api/captures 扫 review 根 receipt，目录名 commit token 对
+  `git rev-list main` 解析：已过审 skeletal 2786897 与 b9150cb 为
+  trusted，1fd3f5d 缺陷系列（3 个）默认被排除（?include=all 可见）。
+- 渲染队列：单 worker 串行 subprocess；任务目录含 task.json / task.log /
+  output/，fresh/no-clobber；服务重启恢复历史并把遗留 queued/running 标
+  interrupted。服务只绑 127.0.0.1（非回环拒绝启动）；预览
+  `ssh -L 8765:127.0.0.1:8765 <server>` 后开 http://127.0.0.1:8765/。
+- 端到端验收：HTTP POST 默认 mp3d_dynamic_audio 模板 → 队列执行真实
+  `m5 render-current-mp3d-dynamic-audio` → pass；输出 mixture 与两条 stem
+  的 sha256 与已过审 current_mp3d_dynamic_audio_seed22g_v1 完全一致
+  （mixture a0c04fe9…、stem 7fcd7852… / 2fe85646…），任务
+  20260821T191530Z-mp3d_dynamic_audio 全程经 Studio 队列产出。
+
+测试：19 个新单测全绿。全量回归 3086 passed / 65 skipped；另有
+9 failed + 12 errors 全部集中在三个保留工作区校验模块
+（test_mp3d_strict_room_adapter / test_mp3d_f15_launcher /
+test_strict_two_human_expansion_acoustic_batch），在无 studio 代码的
+5394435 干净 worktree 复现一致——先于本 Session 的机器本地状态问题：
+lead-a/tmp 保留 suite plan 引用的 episodes 负载已不在盘上（全盘搜索无
+果），SPEAR-lead-b 控制注册表仍是旧多仓路径；模块级 skip 守卫只查目录
+存在、不查完整性，所以状态残缺时不再跳过而是失败。与 Studio 无关，待
+owner 决定：补齐状态、加固守卫或退役该组校验。
+
+下一步：Session 2 俯视画布 v0（单文件前端 + /validate navmesh 校验）。

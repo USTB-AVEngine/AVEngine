@@ -1,0 +1,39 @@
+{
+  "schema": "avengine_studio_config_v1",
+  "repository_root": "/data/jzy/code/AVEngine-lead-a",
+  "python_executable": "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python",
+  "review_root": "/data/avengine_external/review",
+  "tasks_root": "/data/avengine_external/studio/tasks",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "main_branch": "main",
+  "room_registry": "examples/m6/rooms/room_registry.json",
+  "registries": {
+    "source_endpoints": "examples/m6/registries/source_endpoints_v1.json",
+    "sound_assets": "examples/m6/registries/sound_assets_v1.json",
+    "entity_assets": "examples/m6/registries/entity_assets_v1.json"
+  },
+  "room_policy": {
+    "banned_provider_ids": ["blender_custom"],
+    "excluded_room_id_substrings": ["skokloster"]
+  },
+  "task_templates": {
+    "mp3d_dynamic_audio": {
+      "visual_capture_dir": "/data/avengine_external/review/current_mp3d_lateral_seed22g_visual_480p",
+      "m1_request": "/data/avengine_external/review/current_mp3d_two_beagle_route_lateral_seed22_grounded/research_m1_request.json",
+      "simulation_request": "examples/runtime/rir_cache_simulation_request_v2.json",
+      "package_manifest": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z/manifest.json",
+      "audio_program": "examples/m5/current_mp3d/audio_programs/current_mp3d_two_beagle_turn_taking_v1.json",
+      "source_endpoint_registry": "examples/m6/registries/source_endpoints_v1.json",
+      "sound_asset_registry": "examples/m6/registries/sound_assets_v1.json",
+      "beagle_audio": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z/audio/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "hrtf_license": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/LICENSE.txt",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-pbr-ibl-c78db29-20260821T0111Z",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "rir_stride_frames": 3,
+      "variant": "A"
+    }
+  }
+}
