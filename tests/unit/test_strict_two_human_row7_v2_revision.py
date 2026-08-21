@@ -156,3 +156,11 @@ def test_row7_v2_overlay_rejects_v1_history_rewrite() -> None:
     invalid_base["rows"][1]["episode_id"] = "mutated_unrelated_row"
     revised, _ = TOOL.apply_overlay(invalid_base, overlay)
     assert revised["rows"][1] == invalid_base["rows"][1]
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

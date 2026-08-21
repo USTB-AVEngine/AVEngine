@@ -47,3 +47,11 @@ def test_strict8_publication_rejects_weakened_target_threshold(tmp_path: Path) -
     invalid.write_text(json.dumps(value), encoding="utf-8")
     with pytest.raises(RuntimeError, match="visibility contract"):
         TOOL.validate(invalid)
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

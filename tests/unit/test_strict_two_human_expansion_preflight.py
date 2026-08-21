@@ -234,3 +234,11 @@ def test_strict_eight_rejects_floor_point_provenance_drift(tmp_path: Path) -> No
 
     with pytest.raises(RuntimeError, match="actor floor provenance mismatch"):
         TOOL.build(plan_path, tmp_path / "preflight")
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

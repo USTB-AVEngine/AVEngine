@@ -51,3 +51,11 @@ def test_verify_rejects_claim_promotion(tmp_path: Path) -> None:
     ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
     with pytest.raises(RuntimeError, match="claim boundary"):
         TOOL.verify(output)
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

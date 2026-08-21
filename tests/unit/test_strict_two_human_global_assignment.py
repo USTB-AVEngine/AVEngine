@@ -460,3 +460,10 @@ class FrozenGlobalAssignmentTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    raise unittest.SkipTest(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout"
+    )

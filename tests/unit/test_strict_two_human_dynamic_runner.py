@@ -725,3 +725,11 @@ def test_failed_real_attempt_is_persisted_and_cannot_retry(
     assert receipt["attempt_policy"]["retry_same_candidate_forbidden"] is True
     with pytest.raises(RuntimeError, match="launch receipt must be new"):
         runner.run(request_path, receipt_path, dry_run=False)
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

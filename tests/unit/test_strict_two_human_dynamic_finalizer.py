@@ -742,3 +742,11 @@ def test_ground_contact_release_rejects_wrong_floor_object() -> None:
 
     assert result["status"] == "fail"
     assert "undeclared floor object" in result["first_blocker"]
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

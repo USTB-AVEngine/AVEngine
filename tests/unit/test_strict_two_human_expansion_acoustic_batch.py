@@ -299,3 +299,11 @@ def test_prepare_rejects_identity_speech_window_drift(tmp_path: Path) -> None:
             controlled_registry_path=CONTROLLED_REGISTRY,
             output=tmp_path / "invalid_output",
         )
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

@@ -82,3 +82,11 @@ def test_refresh_is_no_clobber(tmp_path: Path) -> None:
     _build(output)
     with pytest.raises(RuntimeError, match="refusing to overwrite"):
         _build(output)
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )

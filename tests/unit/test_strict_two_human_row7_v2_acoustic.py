@@ -147,3 +147,11 @@ def test_batch_finalizer_defaults_remain_backward_compatible() -> None:
     assert parameters["delivery_status"].default == (
         "pass_cpu_rows2_to8_ready_for_sequential_f15_sparse"
     )
+
+_RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
+if not _RETAINED_TMP_WORKSPACE.exists():
+    pytest.skip(
+        "retained strict-two-human evidence workspace (repository tmp "
+        "symlink) is not present in this checkout",
+        allow_module_level=True,
+    )
