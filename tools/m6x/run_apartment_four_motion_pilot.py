@@ -715,9 +715,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--human-runtime-glb",
         type=Path,
-        default=REPOSITORY.parent
-        / "AVEngine/external/SPEAR/tmp/rocketbox_native_runtime_ue_v3/"
-        "rocketbox_male_adult_01_original_ue_v3/runtime.glb",
+        required=True,
+        help="external human runtime GLB (legacy sibling-checkout default retired)",
     )
     parser.add_argument(
         "--animal-manifest",
@@ -734,9 +733,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--beagle-audio",
         type=Path,
-        default=REPOSITORY.parent
-        / "AVEngine/external/SPEAR/tmp/animal_audio_event_audit_v1/"
-        "dog_beagle_v2_scheduled_dry.wav",
+        required=True,
+        help="external beagle dry wav (legacy sibling-checkout default retired)",
     )
     parser.add_argument(
         "--acoustic-package-manifest",

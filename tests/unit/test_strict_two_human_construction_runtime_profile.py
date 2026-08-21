@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 REPOSITORY = Path(__file__).resolve().parents[2]
 REGISTRY = REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"
 SOURCE_RECORD = Path(
@@ -34,6 +36,19 @@ PACKAGE_MANIFEST = Path(
 IDENTITY_ID = "rocketbox_professions_construction_male_01"
 ASSET_ID = "lead_b_rocketbox_professions_construction_male_01_original_v1"
 TAG = "gate_rocketbox_professions_construction_male_01_original_ue_v1"
+
+_RETAINED_EVIDENCE = (
+    SOURCE_RECORD,
+    BUILD_MANIFEST,
+    NORMALIZATION_MANIFEST,
+    UE_IMPORT_MANIFEST,
+    PACKAGE_MANIFEST,
+)
+if not all(path.is_file() for path in _RETAINED_EVIDENCE):
+    pytest.skip(
+        "retained lead-b construction evidence is available only on the A workspace",
+        allow_module_level=True,
+    )
 
 
 def _load(path: Path) -> dict:

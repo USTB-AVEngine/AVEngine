@@ -49,7 +49,6 @@ from avengine.optional_backends.spear_apartment import (
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_ROUTE = REPOSITORY / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
 DEFAULT_CAPTURE = (
     REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/evidence.json"
@@ -1261,7 +1260,7 @@ def run(args: argparse.Namespace) -> Path:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--spear-root", type=Path, required=True)
     parser.add_argument("--unreal-editor", type=Path)
     parser.add_argument("--ue-project", type=Path)
     parser.add_argument("--route-manifest", type=Path, default=DEFAULT_ROUTE)

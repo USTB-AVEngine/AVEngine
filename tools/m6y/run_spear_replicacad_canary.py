@@ -66,7 +66,6 @@ from run_spear_mp3d_canary import (  # noqa: E402
 )
 
 
-DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 DEFAULT_ROUTE = (
     REPOSITORY / "examples/m5_1/replicacad_articulated_review/route_manifest.json"
 )
@@ -905,7 +904,7 @@ def run(args: argparse.Namespace) -> Path:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--spear-root", type=Path, required=True)
     parser.add_argument("--unreal-editor", type=Path, required=True)
     parser.add_argument("--ue-project", type=Path, required=True)
     parser.add_argument("--route-manifest", type=Path, default=DEFAULT_ROUTE)

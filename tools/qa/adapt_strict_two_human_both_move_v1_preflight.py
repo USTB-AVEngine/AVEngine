@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# HISTORICAL TOOL (single-repo closure, 2026-08-21): this script built or
+# validates retained strict-two-human evidence recorded against the
+# pre-closure transition environment (sibling Habitat fork, sound-spaces,
+# SPEAR-lead-b, and multi-repo SPEAR checkouts). The hard-coded absolute
+# paths below are a frozen historical record, not current inputs. The current
+# production chain runs on the installed runtime prefix and external data
+# roots under /data/avengine_external; do not use this tool for new work.
 """Bind the reviewed both-move geometry handoff to A's materializer contract."""
 
 from __future__ import annotations

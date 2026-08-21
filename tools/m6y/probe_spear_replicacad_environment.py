@@ -17,7 +17,6 @@ from typing import Any, Sequence
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DEFAULT_SPEAR_ROOT = REPOSITORY.parent / "AVEngine/external/SPEAR"
 SCHEMA = "avengine_optional_spear_replicacad_environment_probe_v1"
 
 
@@ -195,7 +194,7 @@ def probe(args: argparse.Namespace) -> dict[str, Any]:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--spear-root", type=Path, default=DEFAULT_SPEAR_ROOT)
+    parser.add_argument("--spear-root", type=Path, required=True)
     parser.add_argument("--unreal-engine-dir", type=Path)
     parser.add_argument("--ue-project-dir", type=Path)
     parser.add_argument("--execution-request", type=Path)
