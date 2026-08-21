@@ -54,6 +54,8 @@ def _mp3d_cli_argv(
         str(tmp_path / "beagle.json"),
         "--beagle-m2-request",
         str(tmp_path / "beagle_m2.json"),
+        "--pbr-asset-root",
+        str(tmp_path / "pbr-assets"),
         "--output",
         str(tmp_path / "output"),
     ]
@@ -98,6 +100,16 @@ def test_mp3d_cli_rejects_prefix_and_root_together(tmp_path: Path) -> None:
         parser.parse_args(argv)
 
 
+def test_mp3d_cli_requires_pbr_root_before_capture_output(tmp_path: Path) -> None:
+    parser = CLI._parser()
+    argv = _mp3d_cli_argv(tmp_path)
+    option_index = argv.index("--pbr-asset-root")
+    del argv[option_index : option_index + 2]
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(argv)
+    assert not (tmp_path / "output").exists()
+
 def test_mp3d_cli_forwards_runtime_root_alias(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -113,6 +125,7 @@ def test_mp3d_cli_forwards_runtime_root_alias(
     assert calls[0]["runtime_prefix"] is None
     assert calls[0]["runtime_root"] == tmp_path / "runtime"
     assert calls[0]["mp3d_root"] is None
+    assert calls[0]["pbr_asset_root"] == tmp_path / "pbr-assets"
     assert calls[0]["magnum_python_site"] is None
 
 
@@ -142,6 +155,7 @@ def test_mp3d_cli_forwards_installed_prefix_inputs(
     assert calls[0]["runtime_prefix"] == tmp_path / "prefix"
     assert calls[0]["runtime_root"] is None
     assert calls[0]["mp3d_root"] == tmp_path / "mp3d"
+    assert calls[0]["pbr_asset_root"] == tmp_path / "pbr-assets"
     assert calls[0]["magnum_python_site"] == tmp_path / "magnum"
 
 
@@ -165,13 +179,41 @@ def test_mp3d_cli_defers_runtime_selection_to_installed_environment(
     assert calls[0]["runtime_prefix"] is None
     assert calls[0]["runtime_root"] is None
     assert calls[0]["mp3d_root"] is None
+    assert calls[0]["pbr_asset_root"] == tmp_path / "pbr-assets"
     assert calls[0]["magnum_python_site"] is None
+
+
+def test_mp3d_route_requires_pbr_root_before_runtime_or_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def unexpected_prepare(**_kwargs: object) -> object:
+        raise AssertionError("missing PBR root must fail before runtime prepare")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mp3d_capture.prepare_installed_habitat_runtime",
+        unexpected_prepare,
+    )
+    output = tmp_path / "output"
+    with pytest.raises(MP3DCaptureError, match="explicit pbr_asset_root"):
+        capture_mp3d_route(
+            route_manifest_path=ROUTE_PATH,
+            room_manifest_path=tmp_path / "room.json",
+            m1_request_path=tmp_path / "request.json",
+            human_runtime_glb_path=tmp_path / "human.glb",
+            beagle_animal_manifest_path=tmp_path / "beagle.json",
+            beagle_m2_request_path=tmp_path / "beagle_request.json",
+            output_dir=output,
+        )
+    assert not output.exists()
 
 
 def test_mp3d_route_environment_runtime_reaches_mixed_capture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    installed_runtime = SimpleNamespace(mp3d_root=tmp_path / "mp3d")
+    installed_runtime = SimpleNamespace(
+        mp3d_root=tmp_path / "mp3d",
+        pbr_asset_root=tmp_path / "pbr-assets",
+    )
     prepare_calls: list[dict[str, object]] = []
     mixed_calls: list[dict[str, object]] = []
     monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", str(tmp_path / "prefix"))
@@ -224,6 +266,7 @@ def test_mp3d_route_environment_runtime_reaches_mixed_capture(
             beagle_animal_manifest_path=tmp_path / "beagle.json",
             beagle_m2_request_path=tmp_path / "beagle_request.json",
             output_dir=tmp_path / "output",
+            pbr_asset_root=tmp_path / "pbr-assets",
         )
 
     assert prepare_calls == [
@@ -231,6 +274,7 @@ def test_mp3d_route_environment_runtime_reaches_mixed_capture(
             "runtime_prefix": None,
             "runtime_root": None,
             "mp3d_root": None,
+            "pbr_asset_root": tmp_path / "pbr-assets",
             "magnum_python_site": None,
         }
     ]
@@ -240,7 +284,10 @@ def test_mp3d_route_environment_runtime_reaches_mixed_capture(
 def test_mp3d_route_reuses_injected_installed_runtime(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    installed_runtime = SimpleNamespace(mp3d_root=tmp_path / "mp3d")
+    installed_runtime = SimpleNamespace(
+        mp3d_root=tmp_path / "mp3d",
+        pbr_asset_root=tmp_path / "pbr-assets",
+    )
     paths = SimpleNamespace(
         human=np.zeros((FRAME_COUNT, 3), dtype=np.float64),
         beagle=np.zeros((FRAME_COUNT, 3), dtype=np.float64),

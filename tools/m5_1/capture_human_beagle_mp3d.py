@@ -37,6 +37,12 @@ def _parser() -> argparse.ArgumentParser:
         help="External MP3D data root containing scene_datasets",
     )
     parser.add_argument(
+        "--pbr-asset-root",
+        type=Path,
+        required=True,
+        help="External non-Git Brown Photostudio PBR IBL asset root",
+    )
+    parser.add_argument(
         "--magnum-python-site",
         type=Path,
         help="External Corrade/Magnum Python site; otherwise AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
@@ -59,6 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             runtime_prefix=args.runtime_prefix,
             runtime_root=args.runtime_root,
             mp3d_root=args.mp3d_root,
+            pbr_asset_root=args.pbr_asset_root,
             magnum_python_site=args.magnum_python_site,
         )
     except (MP3DCaptureError, OSError, ValueError) as exc:

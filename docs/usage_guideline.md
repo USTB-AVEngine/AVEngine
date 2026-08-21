@@ -353,6 +353,10 @@ M7 还提供：
 Simulator 和 actor 创建前注册仓库内 Brown Photostudio config，并使用上述
 图片的绝对路径。它不会设置 `os.environ`，不会添加 direct light，也不会把
 PNG/HDR 放入 Git。
+resume 也会重新打开 episode 引用的 mixed-capture evidence，并要求同一
+显式 root、pre/post config handle、IBL flags、绝对 LUT/HDR 路径和零
+direct-light readback 全部一致；旧的 pre-PBR/黑 actor episode 不会被当作
+可复用完成项。
 
 训练/验证/测试划分按视觉 episode 进行，不能让同一视觉 episode 的音频
 变体跨集合泄漏。已有 1,000 条本机研究闭环证据不等于 M7 benchmark、

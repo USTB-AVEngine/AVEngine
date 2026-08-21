@@ -1029,6 +1029,7 @@ def _installed_runtime_inputs_requested(
     runtime_prefix: str | Path | None,
     mp3d_root: str | Path | None,
     magnum_python_site: str | Path | None,
+    pbr_asset_root: str | Path | None = None,
 ) -> bool:
     """Whether a caller selected an installed runtime without its old alias.
 
@@ -1038,7 +1039,12 @@ def _installed_runtime_inputs_requested(
 
     return any(
         value is not None
-        for value in (runtime_prefix, mp3d_root, magnum_python_site)
+        for value in (
+            runtime_prefix,
+            mp3d_root,
+            magnum_python_site,
+            pbr_asset_root,
+        )
     ) or any(name in os.environ for name in _INSTALLED_RUNTIME_ENVIRONMENT_VARIABLES)
 
 
@@ -1071,6 +1077,7 @@ def _select_mixed_capture_runtime(
     mp3d_root: str | Path | None,
     magnum_python_site: str | Path | None,
     installed_runtime: InstalledHabitatRuntime | None,
+    pbr_asset_root: str | Path | None = None,
 ) -> InstalledHabitatRuntime | None:
     """Resolve new MP3D callers before any checkout-oriented import.
 
@@ -1085,23 +1092,30 @@ def _select_mixed_capture_runtime(
         runtime_prefix=runtime_prefix,
         mp3d_root=mp3d_root,
         magnum_python_site=magnum_python_site,
+        pbr_asset_root=pbr_asset_root,
     )
     explicit_installed_inputs = any(
         value is not None
-        for value in (runtime_prefix, runtime_root, mp3d_root, magnum_python_site)
+        for value in (
+            runtime_prefix,
+            runtime_root,
+            mp3d_root,
+            magnum_python_site,
+            pbr_asset_root,
+        )
     )
     if legacy_runtime_root is not None:
         if installed_runtime is not None or explicit_installed_inputs or installed_requested:
             raise MixedCaptureError(
                 "legacy-runtime-root cannot be combined with installed runtime "
-                "prefix, MP3D, or Magnum inputs"
+                "prefix, MP3D, Magnum, or PBR inputs"
             )
         return None
     if installed_runtime is not None:
         if explicit_installed_inputs:
             raise MixedCaptureError(
                 "installed_runtime cannot be combined with runtime-root/prefix, "
-                "mp3d-root, or magnum-python-site"
+                "mp3d-root, magnum-python-site, or pbr-asset-root"
             )
         return installed_runtime
     if installed_requested or (
@@ -1111,6 +1125,7 @@ def _select_mixed_capture_runtime(
             runtime_prefix=runtime_prefix,
             runtime_root=runtime_root,
             mp3d_root=mp3d_root,
+            pbr_asset_root=pbr_asset_root,
             magnum_python_site=magnum_python_site,
         )
     return None
@@ -1130,6 +1145,7 @@ def capture_human_beagle_paths(
     runtime_prefix: str | Path | None = None,
     legacy_runtime_root: str | Path | None = None,
     mp3d_root: str | Path | None = None,
+    pbr_asset_root: str | Path | None = None,
     magnum_python_site: str | Path | None = None,
     installed_runtime: InstalledHabitatRuntime | None = None,
     route_provenance: Mapping[str, Any] | None = None,
@@ -1199,7 +1215,6 @@ def capture_human_beagle_paths(
     output = Path(output_dir).resolve()
     if output.exists() or output.is_symlink():
         raise MixedCaptureError(f"refusing to replace capture output: {output}")
-    output.mkdir(parents=True)
 
     try:
         room_inputs = load_m1_inputs(room_manifest_path, m1_request_path)
@@ -1210,6 +1225,7 @@ def capture_human_beagle_paths(
             legacy_runtime_root=legacy_runtime_root,
             mp3d_root=mp3d_root,
             magnum_python_site=magnum_python_site,
+            pbr_asset_root=pbr_asset_root,
             installed_runtime=installed_runtime,
         )
         if installed_runtime is not None:
@@ -1218,11 +1234,17 @@ def capture_human_beagle_paths(
                     "installed MP3D capture requires an explicit --mp3d-root or "
                     "AVENGINE_MP3D_ROOT"
                 )
+            if getattr(installed_runtime, "pbr_asset_root", None) is None:
+                raise MixedCaptureError(
+                    "installed MP3D PBR actor capture requires an explicit "
+                    "pbr_asset_root"
+                )
             if research_capture_schema != MIXED_CAPTURE_INSTALLED_SCHEMA_V2:
                 raise MixedCaptureError(
                     "installed MP3D capture must use "
                     f"{MIXED_CAPTURE_INSTALLED_SCHEMA_V2}"
                 )
+        output.mkdir(parents=True)
         human_package = prepare_rocketbox_habitat_runtime(
             human_runtime_glb_path, output / "runtime" / "human"
         )

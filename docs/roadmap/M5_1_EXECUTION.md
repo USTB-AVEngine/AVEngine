@@ -69,6 +69,7 @@ RUN_ID=replace_with_unique_tag
   --runtime-prefix "$HABITAT_PREFIX" \
   --mp3d-root "$MP3D_ROOT" \
   --magnum-python-site "$HABITAT_MAGNUM_PYTHON_SITE" \
+  --pbr-asset-root "$PBR_ASSET_ROOT" \
   --output "tmp/m5_1/mp3d_mixed_${RUN_ID}"
 ```
 
@@ -80,6 +81,11 @@ checkout is rejected.  An already configured
 environment variables above, selects the same installed path.  The writer
 does not fall back to `discover_runtime_root` or direct checkout imports after
 one of those new inputs is present.
+
+`--pbr-asset-root` is always explicit for this installed PBR actor command;
+there is no PBR environment-variable fallback. The root supplies the licensed
+Brown Photostudio HDR, BRDF LUT and `license.txt`. Missing PBR input fails
+before runtime preparation, Simulator construction, or output creation.
 
 The output must be new.  The command performs one visual capture and one
 PathFinder preflight for its request; it does not create RLR evidence, qualify

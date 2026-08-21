@@ -551,6 +551,7 @@ def test_mixed_capture_runtime_root_is_installed_alias_for_migrated_room(
         legacy_runtime_root=None,
         mp3d_root=None,
         magnum_python_site=None,
+        pbr_asset_root=tmp_path / "pbr-assets",
         installed_runtime=None,
     )
 
@@ -560,6 +561,7 @@ def test_mixed_capture_runtime_root_is_installed_alias_for_migrated_room(
             "runtime_prefix": None,
             "runtime_root": tmp_path / "installed-prefix",
             "mp3d_root": None,
+            "pbr_asset_root": tmp_path / "pbr-assets",
             "magnum_python_site": None,
         }
     ]
@@ -601,6 +603,7 @@ def test_mixed_capture_prefix_environment_preempts_legacy_room(
             "runtime_prefix": None,
             "runtime_root": None,
             "mp3d_root": None,
+            "pbr_asset_root": None,
             "magnum_python_site": None,
         }
     ]
@@ -765,6 +768,7 @@ def test_mixed_capture_direct_runtime_root_alias_uses_installed_selection(
         capture_human_beagle_paths(
             **_runtime_selection_capture_arguments(tmp_path),
             runtime_root=tmp_path / "installed-prefix",
+            pbr_asset_root=tmp_path / "pbr-assets",
         )
 
     assert calls == [
@@ -772,6 +776,7 @@ def test_mixed_capture_direct_runtime_root_alias_uses_installed_selection(
             "runtime_prefix": None,
             "runtime_root": tmp_path / "installed-prefix",
             "mp3d_root": None,
+            "pbr_asset_root": tmp_path / "pbr-assets",
             "magnum_python_site": None,
         }
     ]
@@ -805,16 +810,58 @@ def test_mixed_capture_direct_prefix_environment_uses_installed_selection(
     )
 
     with pytest.raises(MixedCaptureError, match="installed environment selected"):
-        capture_human_beagle_paths(**_runtime_selection_capture_arguments(tmp_path))
+        capture_human_beagle_paths(
+            **_runtime_selection_capture_arguments(tmp_path),
+            pbr_asset_root=tmp_path / "pbr-assets",
+        )
 
     assert calls == [
         {
             "runtime_prefix": None,
             "runtime_root": None,
             "mp3d_root": None,
+            "pbr_asset_root": tmp_path / "pbr-assets",
             "magnum_python_site": None,
         }
     ]
+
+
+def test_mixed_capture_installed_missing_pbr_root_fails_without_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", str(tmp_path / "prefix"))
+    monkeypatch.setenv("AVENGINE_MP3D_ROOT", str(tmp_path / "mp3d"))
+    monkeypatch.setenv(
+        "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", str(tmp_path / "magnum")
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.load_m1_inputs",
+        lambda *_args, **_kwargs: SimpleNamespace(room=_migrated_mp3d_room()),
+    )
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_installed_habitat_runtime",
+        lambda **_kwargs: SimpleNamespace(
+            mp3d_root=tmp_path / "mp3d",
+            pbr_asset_root=None,
+        ),
+    )
+
+    def unexpected_human_prepare(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("missing PBR root must fail before output preparation")
+
+    monkeypatch.setattr(
+        "avengine.m5_1.mixed_capture.prepare_rocketbox_habitat_runtime",
+        unexpected_human_prepare,
+    )
+    output = tmp_path / "capture"
+    with pytest.raises(MixedCaptureError, match="explicit pbr_asset_root"):
+        capture_human_beagle_paths(
+            **{
+                **_runtime_selection_capture_arguments(tmp_path),
+                "output_dir": output,
+            }
+        )
+    assert not output.exists()
 
 
 def test_installed_mixed_capture_preserves_visual_sensors_without_audio(
@@ -939,6 +986,7 @@ def test_installed_mixed_capture_preserves_visual_sensors_without_audio(
     )
     installed_runtime = SimpleNamespace(
         mp3d_root=tmp_path / "mp3d",
+        pbr_asset_root=tmp_path / "pbr-assets",
         quaternion=object(),
         habitat_sim=FakeHabitat,
         magnum=object(),

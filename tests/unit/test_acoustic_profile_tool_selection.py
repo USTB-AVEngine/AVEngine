@@ -833,6 +833,152 @@ def test_m7_current_room_manifest_and_mp3d_templates_match_registry() -> None:
     )
 
 
+def _m7_pbr_asset_root(tmp_path: Path) -> Path:
+    root = tmp_path / "pbr-assets"
+    lut = root / habitat_batch.PBR_LUT_RELATIVE_PATH
+    environment = root / habitat_batch.PBR_ENVIRONMENT_RELATIVE_PATH
+    lut.parent.mkdir(parents=True, exist_ok=True)
+    environment.parent.mkdir(parents=True, exist_ok=True)
+    lut.write_bytes(b"fixture lut")
+    environment.write_bytes(b"fixture environment")
+    (root / "license.txt").write_text(
+        "fixture MIT LUT and CC0 Brown Photostudio notice\n",
+        encoding="utf-8",
+    )
+    return root.resolve()
+
+
+def _m7_pbr_phase(
+    pbr_root: Path,
+    *,
+    phase: str,
+    registration_id: int | None,
+) -> dict[str, object]:
+    return {
+        "status": "pass",
+        "phase": phase,
+        "config_handle": habitat_batch.PBR_CONFIG_HANDLE,
+        "config_path": "/installed/config/brown_photostudio.pbr_config.json",
+        "asset_root": str(pbr_root),
+        "registration_id": registration_id,
+        "enable_ibl": True,
+        "absolute_brdf_lut_path": str(
+            (pbr_root / habitat_batch.PBR_LUT_RELATIVE_PATH).resolve()
+        ),
+        "absolute_environment_map_path": str(
+            (pbr_root / habitat_batch.PBR_ENVIRONMENT_RELATIVE_PATH).resolve()
+        ),
+        "config_flags": dict(habitat_batch.PBR_CONFIG_FLAGS),
+    }
+
+
+def _write_current_m7_episode_evidence(
+    episode_dir: Path,
+    *,
+    pbr_root: Path,
+    frame_count: int,
+    route_id: str,
+) -> tuple[Path, Path]:
+    capture_path = episode_dir / "evidence.json"
+    gate_path = episode_dir / "mp3d_gate_evidence.json"
+    write_json(
+        capture_path,
+        {
+            "rendering": {
+                "scene_lighting": {
+                    "current_light_count": 0,
+                    "registered_light_count": 0,
+                    "required_zero_direct_lights": True,
+                },
+                "pbr_ibl": {
+                    "status": "pass",
+                    "preparation": _m7_pbr_phase(
+                        pbr_root,
+                        phase="before_simulator",
+                        registration_id=1,
+                    ),
+                    "simulator_readback": _m7_pbr_phase(
+                        pbr_root,
+                        phase="after_simulator",
+                        registration_id=None,
+                    ),
+                    "actual_direct_light_count": 0,
+                    "direct_light_workaround_used": False,
+                    "actor_shader_type": "pbr",
+                },
+            }
+        },
+    )
+    write_json(
+        gate_path,
+        {
+            "status": "pass",
+            "frame_count": frame_count,
+            "frame_rate_hz": 15,
+            "route_id": route_id,
+            "gates": [{"gate_id": "readback", "status": "pass"}],
+            "mixed_capture": {"evidence": {"path": "evidence.json"}},
+        },
+    )
+    return gate_path, capture_path
+
+
+def test_m7_episode_readback_rejects_pre_pbr_evidence_without_output(
+    tmp_path: Path,
+) -> None:
+    pbr_root = _m7_pbr_asset_root(tmp_path)
+    episode = tmp_path / "episode"
+    write_json(
+        episode / "mp3d_gate_evidence.json",
+        {
+            "status": "pass",
+            "frame_count": 75,
+            "frame_rate_hz": 15,
+            "route_id": "old",
+            "gates": [{"gate_id": "readback", "status": "pass"}],
+        },
+    )
+
+    with pytest.raises(habitat_batch.HabitatRoomBatchError, match="mixed_capture"):
+        habitat_batch._episode_readback(episode, pbr_asset_root=pbr_root)
+    assert not (tmp_path / "batch_manifest.json").exists()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("wrong_root", "wrong_path", "wrong_handle", "direct_lights"),
+)
+def test_m7_episode_readback_rejects_wrong_pbr_semantics(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    pbr_root = _m7_pbr_asset_root(tmp_path)
+    episode = tmp_path / "episode"
+    _gate, capture_path = _write_current_m7_episode_evidence(
+        episode,
+        pbr_root=pbr_root,
+        frame_count=75,
+        route_id="route0",
+    )
+    capture = load_json(capture_path)
+    pbr = capture["rendering"]["pbr_ibl"]
+    if mutation == "wrong_root":
+        pbr["preparation"]["asset_root"] = str(tmp_path / "other-root")
+    elif mutation == "wrong_path":
+        pbr["simulator_readback"]["absolute_environment_map_path"] = str(
+            pbr_root / "env_maps/other.hdr"
+        )
+    elif mutation == "wrong_handle":
+        pbr["simulator_readback"]["config_handle"] = "wrong"
+    else:
+        pbr["actual_direct_light_count"] = 1
+        capture["rendering"]["scene_lighting"]["current_light_count"] = 1
+    write_json(capture_path, capture)
+
+    with pytest.raises(habitat_batch.HabitatRoomBatchError):
+        habitat_batch._episode_readback(episode, pbr_asset_root=pbr_root)
+
+
 def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -841,17 +987,13 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     route = tmp_path / "route.json"
     write_json(runtime_registry, {"schema": "fixture"})
     write_json(route, {"schema": "fixture"})
+    pbr_root = _m7_pbr_asset_root(tmp_path)
     output = tmp_path / "batch"
-    evidence = output / "episodes/episode0/mp3d_gate_evidence.json"
-    write_json(
-        evidence,
-        {
-            "status": "pass",
-            "frame_count": 75,
-            "frame_rate_hz": 15,
-            "route_id": "route0",
-            "gates": [{"gate_id": "readback", "status": "pass"}],
-        },
+    _write_current_m7_episode_evidence(
+        output / "episodes/episode0",
+        pbr_root=pbr_root,
+        frame_count=75,
+        route_id="route0",
     )
     profile = {
         "profile_id": "habitat_room",
@@ -896,6 +1038,9 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
         raise AssertionError("resume-only batch must not prepare native runtime")
 
     habitat_module.prepare_installed_habitat_runtime = fail_if_resume_prepares_runtime
+    habitat_module.discover_pbr_asset_root = (
+        lambda explicit: Path(explicit).resolve()
+    )
     monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
     monkeypatch.setitem(
         sys.modules,
@@ -928,7 +1073,7 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
             "--magnum-python-site",
             str(tmp_path / "magnum"),
             "--pbr-asset-root",
-            str(tmp_path / "pbr-assets"),
+            str(pbr_root),
             "--rlr-sdk-root",
             str(tmp_path / "rlr"),
             "--output",
@@ -940,6 +1085,10 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     manifest = load_json(output / "batch_manifest.json")
     assert manifest["room_manifest_binding"] == room_manifest_binding
     assert manifest["acoustic_selection"] == acoustic_binding
+    assert manifest["episodes"][0]["resumed"] is True
+    pbr_readback = manifest["episodes"][0]["readback"]["pbr_ibl"]
+    assert pbr_readback["status"] == "pass"
+    assert pbr_readback["actual_direct_light_count"] == 0
 
 
 def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
@@ -952,6 +1101,7 @@ def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
     write_json(runtime_registry, {"schema": "fixture"})
     for route in routes:
         write_json(route, {"schema": "fixture"})
+    pbr_root = _m7_pbr_asset_root(tmp_path)
     output = tmp_path / "batch"
     profile = {
         "profile_id": "habitat_room",
@@ -980,7 +1130,10 @@ def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
         lambda **_kwargs: {"schema": "acoustic-binding"},
     )
 
-    runtime = SimpleNamespace(mp3d_root=tmp_path / "mp3d")
+    runtime = SimpleNamespace(
+        mp3d_root=tmp_path / "mp3d",
+        pbr_asset_root=pbr_root,
+    )
     prepare_calls: list[dict[str, object]] = []
     capture_calls: list[dict[str, object]] = []
 
@@ -990,19 +1143,18 @@ def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
 
     def fake_capture(**kwargs):
         capture_calls.append(kwargs)
-        write_json(
-            Path(kwargs["output_dir"]) / "mp3d_gate_evidence.json",
-            {
-                "status": "pass",
-                "frame_count": 270,
-                "frame_rate_hz": 15,
-                "route_id": Path(kwargs["route_manifest_path"]).stem,
-                "gates": [{"gate_id": "readback", "status": "pass"}],
-            },
+        _write_current_m7_episode_evidence(
+            Path(kwargs["output_dir"]),
+            pbr_root=pbr_root,
+            frame_count=270,
+            route_id=Path(kwargs["route_manifest_path"]).stem,
         )
 
     habitat_module = ModuleType("avengine.m1.habitat_capture")
     habitat_module.prepare_installed_habitat_runtime = fake_prepare
+    habitat_module.discover_pbr_asset_root = (
+        lambda explicit: Path(explicit).resolve()
+    )
     capture_module = ModuleType("avengine.m5_1.mp3d_capture")
     capture_module.capture_mp3d_route = fake_capture
     monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
@@ -1035,7 +1187,7 @@ def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
             "--magnum-python-site",
             str(tmp_path / "magnum"),
             "--pbr-asset-root",
-            str(tmp_path / "pbr-assets"),
+            str(pbr_root),
             "--rlr-sdk-root",
             str(tmp_path / "rlr"),
             "--output",
@@ -1049,7 +1201,7 @@ def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
             "runtime_prefix": tmp_path / "runtime-prefix",
             "runtime_root": None,
             "mp3d_root": tmp_path / "mp3d",
-            "pbr_asset_root": tmp_path / "pbr-assets",
+            "pbr_asset_root": pbr_root,
             "magnum_python_site": tmp_path / "magnum",
             "rlr_sdk_root": tmp_path / "rlr",
             "allow_mp3d_environment": False,

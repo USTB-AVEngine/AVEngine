@@ -740,6 +740,7 @@ def capture_mp3d_route(
     runtime_prefix: str | Path | None = None,
     runtime_root: str | Path | None = None,
     mp3d_root: str | Path | None = None,
+    pbr_asset_root: str | Path | None = None,
     magnum_python_site: str | Path | None = None,
     installed_runtime: InstalledHabitatRuntime | None = None,
 ) -> MP3DCaptureResult:
@@ -747,7 +748,17 @@ def capture_mp3d_route(
 
     route_path = Path(route_manifest_path).resolve()
     route = load_mp3d_route_manifest(route_path)
-    runtime_arguments = (runtime_prefix, runtime_root, mp3d_root, magnum_python_site)
+    runtime_arguments = (
+        runtime_prefix,
+        runtime_root,
+        mp3d_root,
+        magnum_python_site,
+        pbr_asset_root,
+    )
+    if installed_runtime is None and pbr_asset_root is None:
+        raise MP3DCaptureError(
+            "installed MP3D PBR actor capture requires an explicit pbr_asset_root"
+        )
     if installed_runtime is not None and any(
         value is not None for value in runtime_arguments
     ):
@@ -759,11 +770,16 @@ def capture_mp3d_route(
             runtime_prefix=runtime_prefix,
             runtime_root=runtime_root,
             mp3d_root=mp3d_root,
+            pbr_asset_root=pbr_asset_root,
             magnum_python_site=magnum_python_site,
         )
     if installed_runtime.mp3d_root is None:
         raise MP3DCaptureError(
             "MP3D capture requires an explicit --mp3d-root or AVENGINE_MP3D_ROOT"
+        )
+    if getattr(installed_runtime, "pbr_asset_root", None) is None:
+        raise MP3DCaptureError(
+            "installed MP3D PBR actor capture requires an explicit pbr_asset_root"
         )
     navigation = validate_mp3d_paths_with_declared_navmesh(
         route=route,
