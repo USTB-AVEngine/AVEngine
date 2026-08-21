@@ -33,6 +33,10 @@ def _episode() -> dict[str, object]:
     return {
         "scene": {"scene_id": "current_kujiale", "map_path": "/Game/Kujiale"},
         "review_lights": [{"light_id": "review0"}],
+        "visual_lighting": {
+            "profile_id": "source_prim_light",
+            "generated_review_light_count": 1,
+        },
         "visual_plan": visual_plan,
         "timeline": {
             "audio": {"sample_count": 80_000},
@@ -94,10 +98,17 @@ def test_author_needs_only_scene_profile_output_and_never_touches_audio(
         "visual_plan",
     }
     plan = json.loads((output / "episode_plan.json").read_text())
-    assert set(plan) == {"status", "scene", "review_lights", "visual_plan"}
+    assert set(plan) == {
+        "status",
+        "scene",
+        "review_lights",
+        "visual_lighting",
+        "visual_plan",
+    }
     assert plan["status"] == "research_only"
     assert plan["scene"] == built["scene"]
     assert plan["review_lights"] == built["review_lights"]
+    assert plan["visual_lighting"] == built["visual_lighting"]
     assert set(plan["visual_plan"]) == {
         "backend_role",
         "camera",

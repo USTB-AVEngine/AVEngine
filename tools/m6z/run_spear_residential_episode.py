@@ -503,19 +503,21 @@ def _light_plan(episode: Mapping[str, Any]) -> dict[str, Any]:
     lights = []
     for raw in episode.get("review_lights", []):
         position = raw["position_xyz_m"]
-        lights.append(
-            {
-                "light_id": raw["light_id"],
-                "position_m": list(position),
-                "position_ue_cm": [100.0 * float(item) for item in position],
-                "intensity_lumens": float(raw["intensity_lumens"]),
-                "attenuation_radius_cm": 100.0 * float(raw["attenuation_radius_m"]),
-                "temperature_kelvin": float(raw["temperature_kelvin"]),
-                "source_radius_cm": 100.0 * float(raw.get("source_radius_m", 0.0)),
-                "soft_source_radius_cm": 100.0
-                * float(raw.get("soft_source_radius_m", 0.0)),
-            }
-        )
+        record = {
+            "light_id": raw["light_id"],
+            "position_m": list(position),
+            "position_ue_cm": [100.0 * float(item) for item in position],
+            "intensity_lumens": float(raw["intensity_lumens"]),
+            "attenuation_radius_cm": 100.0 * float(raw["attenuation_radius_m"]),
+            "temperature_kelvin": float(raw["temperature_kelvin"]),
+            "source_radius_cm": 100.0 * float(raw.get("source_radius_m", 0.0)),
+            "soft_source_radius_cm": 100.0
+            * float(raw.get("soft_source_radius_m", 0.0)),
+        }
+        source_prim = raw.get("source_prim")
+        if isinstance(source_prim, str) and source_prim:
+            record["source_prim"] = source_prim
+        lights.append(record)
     return {"review_lights": lights}
 
 
@@ -912,6 +914,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "backend_role": episode["visual_plan"]["backend_role"],
             "scene": episode["scene"],
             "stage_actor_count": stage_actor_count,
+            "runtime_review_lights": light_records,
+            "visual_lighting": episode["visual_lighting"],
             "root_readback": _research_root_readback_summary(root_gate),
             "animation_phase_readback": animation_gate,
             "visual_bounds_readback": bounds_gate,
