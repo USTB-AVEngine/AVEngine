@@ -39,6 +39,7 @@ from avengine.contracts.json_io import (
 from avengine.contracts.transforms import normalized_quaternion_xyzw
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import (
+    InstalledHabitatRuntime,
     _make_configuration,
     _resolved_assets,
     _resolved_scene,
@@ -670,13 +671,21 @@ def validate_replicacad_paths_and_placement(
     m1_request_path: str | Path,
     replicacad_root: str | Path,
     runtime_root: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
 ) -> ReplicaCADNavigationEvidence:
     """Load real ``apt_0`` and validate its selected closure and placements."""
 
     root = Path(replicacad_root).resolve()
     if not root.is_dir():
         raise ReplicaCADCaptureError(f"ReplicaCAD root is missing: {root}")
-    runtime = discover_runtime_root(runtime_root)
+    if installed_runtime is not None:
+        if runtime_root is not None:
+            raise ReplicaCADCaptureError(
+                "installed-prefix ReplicaCAD capture does not accept runtime_root"
+            )
+        runtime = None
+    else:
+        runtime = discover_runtime_root(runtime_root)
     paths = derive_replicacad_route_paths(route)
     try:
         geometry = _assert_route_geometry(route, paths)
@@ -692,11 +701,16 @@ def validate_replicacad_paths_and_placement(
             room_inputs=room_inputs, runtime=runtime, root=root
         )
 
-        # The pinned audio-enabled build imports numpy-quaternion first.
-        import quaternion as qt
+        if installed_runtime is None:
+            # The pinned audio-enabled build imports numpy-quaternion first.
+            import quaternion as qt
 
-        import habitat_sim
-        import magnum as mn
+            import habitat_sim
+            import magnum as mn
+        else:
+            qt = installed_runtime.quaternion
+            habitat_sim = installed_runtime.habitat_sim
+            mn = installed_runtime.magnum
 
         configuration, modality_to_uuid, _listener_uuid, configured_scene = (
             _make_configuration(
@@ -704,6 +718,11 @@ def validate_replicacad_paths_and_placement(
                 runtime,
                 Path(m1_request_path).resolve().parent
                 / ".replicacad_preflight_not_retained",
+                physics_config_path=(
+                    None
+                    if installed_runtime is None
+                    else installed_runtime.physics_config_path
+                ),
             )
         )
         if configured_scene["scene_id"] != REPLICACAD_SCENE_ID:
@@ -1256,18 +1275,19 @@ def _portable_mixed_capture(
     *,
     route: Mapping[str, Any],
     replicacad_root: Path,
-    runtime_root: Path,
+    runtime_root: Path | None = None,
+    runtime_prefix: Path | None = None,
 ) -> MixedCaptureResult:
     repository = Path(__file__).resolve().parents[3]
-    legacy = repository.parent / "AVEngine"
     roots: list[tuple[str, Path]] = [
         ("AVENGINE_CAPTURE_ROOT", capture.output_dir.resolve()),
         ("AVENGINE_REPOSITORY_ROOT", repository.resolve()),
-        ("AVENGINE_HABITAT_RUNTIME_ROOT", runtime_root.resolve()),
         ("AVENGINE_REPLICACAD_ROOT", replicacad_root.resolve()),
     ]
-    if legacy.is_dir():
-        roots.insert(2, ("AVENGINE_LEGACY_ROOT", legacy.resolve()))
+    if runtime_root is not None:
+        roots.insert(2, ("AVENGINE_HABITAT_RUNTIME_ROOT", runtime_root.resolve()))
+    if runtime_prefix is not None:
+        roots.insert(2, ("AVENGINE_HABITAT_RUNTIME_PREFIX", runtime_prefix.resolve()))
     human_portability = _portableize_generated_human_runtime_documents(
         capture.output_dir, roots
     )
@@ -1592,6 +1612,7 @@ def _capture_replicacad_route_in_staging(
     output_dir: str | Path,
     replicacad_root: str | Path,
     runtime_root: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
     review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
@@ -1608,6 +1629,7 @@ def _capture_replicacad_route_in_staging(
             m1_request_path=m1_request_path,
             replicacad_root=root,
             runtime_root=runtime_root,
+            installed_runtime=installed_runtime,
         )
         capture = capture_human_beagle_paths(
             room_manifest_path=room_manifest_path,
@@ -1618,7 +1640,8 @@ def _capture_replicacad_route_in_staging(
             human_root_path_m=navigation.paths.human,
             beagle_root_path_m=navigation.paths.beagle,
             output_dir=output_dir,
-            runtime_root=runtime_root,
+            runtime_root=None if installed_runtime is not None else runtime_root,
+            installed_runtime=installed_runtime,
             route_provenance={
                 "route_manifest": _repository_file_record(route_path),
                 "route_id": route["route_id"],
@@ -1635,12 +1658,20 @@ def _capture_replicacad_route_in_staging(
             review_scene_hook=review_scene_hook,
             review_scene_readback_hook=review_scene_readback_hook,
         )
-        capture = _portable_mixed_capture(
-            capture,
-            route=route,
-            replicacad_root=root,
-            runtime_root=discover_runtime_root(runtime_root),
-        )
+        if installed_runtime is None:
+            capture = _portable_mixed_capture(
+                capture,
+                route=route,
+                replicacad_root=root,
+                runtime_root=discover_runtime_root(runtime_root),
+            )
+        else:
+            capture = _portable_mixed_capture(
+                capture,
+                route=route,
+                replicacad_root=root,
+                runtime_prefix=installed_runtime.prefix,
+            )
 
     semantic_visibility = _semantic_visibility_record(
         capture.semantic, route["semantic_ids"]
@@ -1762,6 +1793,7 @@ def capture_replicacad_route(
     output_dir: str | Path,
     replicacad_root: str | Path,
     runtime_root: str | Path | None = None,
+    installed_runtime: InstalledHabitatRuntime | None = None,
     review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
@@ -1800,6 +1832,7 @@ def capture_replicacad_route(
             output_dir=staging,
             replicacad_root=replicacad_root,
             runtime_root=runtime_root,
+            installed_runtime=installed_runtime,
             review_configuration_hook=review_configuration_hook,
             review_scene_hook=review_scene_hook,
             review_scene_readback_hook=review_scene_readback_hook,
