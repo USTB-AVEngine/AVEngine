@@ -256,8 +256,78 @@ async function loadBundleInner(roomId) {
     refFrame.style.display = "none";
   }
 
+  await loadActorModels(bundle);
   setupAuthoring(bundle);
   runDraftValidation();
+}
+
+const actorTemplateCache = new Map();
+
+async function loadActorModels(bundle) {
+  state.actorTemplates = {};
+  const models = bundle.actor_models || {};
+  const hints = bundle.authoring?.actor_display || {};
+  const loader = new THREE.GLTFLoader();
+  for (const name of Object.keys(models)) {
+    try {
+      if (!actorTemplateCache.has(name)) {
+        showLoading(`下载角色模型 ${name}…`);
+        const gltf = await new Promise((resolve, reject) => loader.load(
+          `/api/scenes/${state.roomId}/files/actor_${name}.glb`, resolve,
+          (event) => {
+            if (event.total) {
+              document.getElementById("loadingText").textContent =
+                `下载角色模型 ${name} ${(event.loaded / 1048576).toFixed(1)} / ` +
+                `${(event.total / 1048576).toFixed(1)} MB`;
+            }
+          },
+          reject));
+        actorTemplateCache.set(name, gltf.scene);
+      }
+      const template = actorTemplateCache.get(name).clone(true);
+      const hint = hints[name] || {};
+      if (hint.rotate_x_deg) template.rotation.x = hint.rotate_x_deg * Math.PI / 180;
+      // skinned meshes render through bone transforms, which makes both the
+      // bounding box and any root scaling unreliable — replace them with
+      // static meshes in bind pose (fine for a placement stand-in)
+      const skinnedNodes = [];
+      template.traverse((node) => { if (node.isSkinnedMesh) skinnedNodes.push(node); });
+      for (const node of skinnedNodes) {
+        const static_ = new THREE.Mesh(node.geometry, node.material);
+        static_.position.copy(node.position);
+        static_.quaternion.copy(node.quaternion);
+        static_.scale.copy(node.scale);
+        node.parent.add(static_);
+        node.parent.remove(node);
+      }
+      template.updateMatrixWorld(true);
+      let box = new THREE.Box3().setFromObject(template);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      // pick the unit scale that puts the standing height in a plausible
+      // actor range — UE assets are cm, some habitat assets carry bone-scale
+      // compensated tiny geometry
+      let scale = hint.scale || 1.0;
+      if (!hint.scale) {
+        for (const candidate of [0.01, 0.1, 1.0, 10.0, 100.0]) {
+          if (size.y * candidate >= 0.2 && size.y * candidate <= 2.5) {
+            scale = candidate;
+            break;
+          }
+        }
+      }
+      template.scale.setScalar(scale);
+      template.updateMatrixWorld(true);
+      box = new THREE.Box3().setFromObject(template);
+      // stand the model on the floor: shift so its bbox bottom sits at y=0
+      const wrapper = new THREE.Group();
+      wrapper.add(template);
+      template.position.y -= box.min.y;
+      state.actorTemplates[name] = wrapper;
+    } catch (error) {
+      console.warn("actor model failed:", name, error);
+    }
+  }
 }
 
 async function applyTexturedView() {
@@ -282,6 +352,7 @@ async function applyTexturedView() {
       textured.name = "room-textured";
       alignTexturedToClay(textured);
       state.scene.add(textured);
+      await loadComposition();
       hideLoading();
     } catch (error) {
       showLoading(`贴图网格加载失败：${error.message || error}`);
@@ -291,8 +362,48 @@ async function applyTexturedView() {
     }
   }
   if (textured) textured.visible = on;
+  const objects = state.scene.getObjectByName("room-objects");
+  if (objects) objects.visible = on;
   if (clay) clay.visible = !on;
   applyRoofClip();
+}
+
+async function loadComposition() {
+  // full scene composition: dataset object glbs placed per scene_instance
+  if (!state.bundle.composition) return;
+  if (state.scene.getObjectByName("room-objects")) return;
+  const response = await fetch(`/api/scenes/${state.roomId}/files/composition.json`);
+  if (!response.ok) return;
+  const composition = await response.json();
+  const group = new THREE.Group();
+  group.name = "room-objects";
+  state.scene.add(group);
+  const loader = new THREE.GLTFLoader();
+  const cache = new Map();
+  const loadGlb = (relative) => {
+    if (!cache.has(relative)) {
+      cache.set(relative, new Promise((resolve, reject) => loader.load(
+        `/api/scenes/${state.roomId}/dataset/${relative}`, resolve, undefined, reject)));
+    }
+    return cache.get(relative);
+  };
+  let placed = 0;
+  for (const record of composition.objects) {
+    try {
+      const gltf = await loadGlb(record.glb);
+      const instance = gltf.scene.clone(true);
+      instance.position.set(...record.translation);
+      const [w, x, y, z] = record.rotation_wxyz;
+      instance.quaternion.set(x, y, z, w);
+      if (record.scale) instance.scale.set(...record.scale);
+      group.add(instance);
+    } catch (error) {
+      console.warn("composition object failed:", record.glb, error);
+    }
+    placed += 1;
+    document.getElementById("loadingText").textContent =
+      `摆放物件 ${placed} / ${composition.objects.length}`;
+  }
 }
 
 function alignTexturedToClay(textured) {
@@ -334,7 +445,7 @@ function applyRoofClip() {
     ? [new THREE.Plane(new THREE.Vector3(0, -1, 0), state.floorY + 2.0)]
     : [];
   state.renderer.localClippingEnabled = true;
-  for (const name of ["room", "room-textured"]) {
+  for (const name of ["room", "room-textured", "room-objects"]) {
     const object = state.scene.getObjectByName(name);
     if (!object) continue;
     object.traverse((node) => {
@@ -432,7 +543,7 @@ function drawCameraFrustum() {
 }
 
 function clearRoom() {
-  for (const name of ["room", "room-textured", "navgrid", "markers", "paths", "walkable-overlay", "camera-frustum"]) {
+  for (const name of ["room", "room-textured", "room-objects", "navgrid", "markers", "paths", "walkable-overlay", "camera-frustum"]) {
     const old = state.scene.getObjectByName(name);
     if (old) state.scene.remove(old);
   }
@@ -700,10 +811,17 @@ function drawPaths() {
     const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
     group.add(new THREE.Line(geometry,
       new THREE.LineBasicMaterial({ color: colors[key] || 0xffffff })));
-    const dot = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 14, 10),
-      new THREE.MeshBasicMaterial({ color: colors[key] || 0xffffff }),
-    );
+    const modelName = state.bundle?.authoring?.actor_model_by_source?.[key];
+    let dot;
+    if (modelName && state.actorTemplates?.[modelName]) {
+      dot = state.actorTemplates[modelName].clone(true);
+      dot.userData.isModel = true;
+    } else {
+      dot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.09, 14, 10),
+        new THREE.MeshBasicMaterial({ color: colors[key] || 0xffffff }),
+      );
+    }
     dot.userData.trajectory = key;
     group.add(dot);
     state.actorDots.push(dot);
@@ -725,8 +843,18 @@ function updateActorDots() {
   for (const dot of state.actorDots) {
     const points = state.trajectories[dot.userData.trajectory];
     if (!points) continue;
-    const p = points[Math.min(state.frame, points.length - 1)];
-    dot.position.set(p[0], p[1] + 0.1, p[2]);
+    const index = Math.min(state.frame, points.length - 1);
+    const p = points[index];
+    if (dot.userData.isModel) {
+      dot.position.set(p[0], state.floorY, p[2]);
+      const ahead = points[Math.min(index + 1, points.length - 1)];
+      const dx = ahead[0] - p[0], dz = ahead[2] - p[2];
+      if (Math.abs(dx) + Math.abs(dz) > 1e-6) {
+        dot.rotation.y = Math.atan2(dx, dz);
+      }
+    } else {
+      dot.position.set(p[0], p[1] + 0.1, p[2]);
+    }
   }
 }
 

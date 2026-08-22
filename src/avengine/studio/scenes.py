@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 BUNDLE_SCHEMA = "avengine_studio_scene_bundle_v1"
+
+_ACTOR_FILE_PATTERN = re.compile(r"^actor_([a-z0-9_]+)\.glb$")
 
 # Only these bundle files may be served over HTTP. "textured.glb" resolves
 # to the external dataset file recorded in bundle.json (read-only).
@@ -26,6 +29,7 @@ SERVABLE_BUNDLE_FILES = frozenset(
         "mesh_material_ids.bin",
         "reference_frame.png",
         "textured.glb",
+        "composition.json",
     }
 )
 
@@ -102,26 +106,53 @@ def load_scene_bundle(scenes_root: str | Path, room_id: str) -> dict:
 
 
 def scene_file_path(scenes_root: str | Path, room_id: str, file_name: str) -> Path:
-    if file_name not in SERVABLE_BUNDLE_FILES:
+    actor_match = _ACTOR_FILE_PATTERN.match(file_name)
+    if file_name not in SERVABLE_BUNDLE_FILES and actor_match is None:
         raise StudioSceneError(f"file {file_name!r} is not a servable bundle file")
     for scene in list_scene_bundles(scenes_root):
         if scene["room_id"] == room_id:
-            if file_name == "textured.glb":
+            bundle_dir = Path(scene["bundle_dir"])
+            if file_name == "textured.glb" or actor_match is not None:
                 bundle = json.loads(
-                    (Path(scene["bundle_dir"]) / "bundle.json").read_text(
-                        encoding="utf-8"
-                    )
+                    (bundle_dir / "bundle.json").read_text(encoding="utf-8")
                 )
-                source = bundle.get("textured_mesh", {}).get("source_path")
+                if actor_match is not None:
+                    record = bundle.get("actor_models", {}).get(actor_match.group(1))
+                    source = (record or {}).get("source_path")
+                    label = f"actor model {actor_match.group(1)!r}"
+                else:
+                    source = bundle.get("textured_mesh", {}).get("source_path")
+                    label = "textured mesh"
                 if not source or not Path(source).is_file():
-                    raise StudioSceneError(
-                        f"scene {room_id} declares no textured mesh"
-                    )
+                    raise StudioSceneError(f"scene {room_id} declares no {label}")
                 return Path(source)
-            path = Path(scene["bundle_dir"]) / file_name
+            path = bundle_dir / file_name
             if not path.is_file():
                 raise StudioSceneError(f"bundle file missing: {path}")
             return path
+    raise StudioSceneError(f"unknown scene: {room_id}")
+
+
+def scene_dataset_file_path(
+    scenes_root: str | Path, room_id: str, relative: str
+) -> Path:
+    """Resolve a composition object glb under the bundle's declared dataset root."""
+
+    for scene in list_scene_bundles(scenes_root):
+        if scene["room_id"] == room_id:
+            bundle = json.loads(
+                (Path(scene["bundle_dir"]) / "bundle.json").read_text(encoding="utf-8")
+            )
+            root_value = bundle.get("composition", {}).get("dataset_root")
+            if not root_value:
+                raise StudioSceneError(f"scene {room_id} declares no composition")
+            root = Path(root_value).resolve()
+            target = (root / relative).resolve()
+            if not str(target).startswith(str(root) + "/"):
+                raise StudioSceneError("dataset path escapes the declared root")
+            if target.suffix != ".glb" or not target.is_file():
+                raise StudioSceneError(f"no such dataset glb: {relative}")
+            return target
     raise StudioSceneError(f"unknown scene: {room_id}")
 
 

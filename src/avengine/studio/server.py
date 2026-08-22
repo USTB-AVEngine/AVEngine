@@ -41,6 +41,7 @@ from avengine.studio.scenes import (
     list_scene_bundles,
     load_draft_obstacle_grid,
     load_scene_bundle,
+    scene_dataset_file_path,
     scene_file_path,
 )
 from avengine.studio.tasks import StudioTaskError, StudioTaskQueue
@@ -345,6 +346,17 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             room_id, file_name = parts[0], "bundle.json"
         elif len(parts) == 3 and parts[1] == "files":
             room_id, file_name = parts[0], parts[2]
+        elif len(parts) >= 3 and parts[1] == "dataset":
+            room_id = parts[0]
+            relative = "/".join(parts[2:])
+            if not _SAFE_NAME.match(room_id) or not all(
+                _SAFE_NAME.match(part) for part in parts[2:]
+            ):
+                raise StudioSceneError("invalid scene path")
+            self._send_file(
+                scene_dataset_file_path(config.scenes_root, room_id, relative)
+            )
+            return
         else:
             raise StudioSceneError(f"no scene route for {remainder!r}")
         if not _SAFE_NAME.match(room_id) or not _SAFE_NAME.match(file_name):

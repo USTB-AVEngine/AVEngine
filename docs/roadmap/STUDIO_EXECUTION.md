@@ -308,3 +308,31 @@ Owner 指示（同日）：预览增加俯视图与相机第一视角，然后�
 - v1.5 其余八件（难度旋钮/仪表、拒答逆向构造器、偏置看板、A/B 审听台、
   审片队列+盲听、变体矩阵、rights 闸门、草稿档预览）依赖生产数据流或
   更大 UI 面积，安排在 1000-episode 生产规划时随需实现。
+
+### Checkpoint 20260823-S6：完整贴图组合、常驻小地图、角色模型
+
+Owner 反馈（20260823）：贴图不能只有地板、公寓和 MP3D 都要完整贴图（可
+除天花板）、参考帧里的人狗在 3D 视图里也要有、俯视图应常驻。全部落地：
+
+- **常驻俯视小地图**：右上角画中画（正交俯视，双视口 scissor 渲染），
+  始终显示可行域、渲染相机视锥与主视角位置白点（FPV 模式下同样保留）。
+- **完整贴图组合**：ReplicaCAD 由 stage glb + `apt_0.scene_instance.json`
+  的 113 件物件 glb 全量组合（新 composition.json 由打包工具解析生成；
+  物件经 /api/scenes/<id>/dataset/<relpath> 白名单端点只读服务，6 件
+  articulated 物件暂不组合并记录在案）。MP3D 的 17DRP5sb8fy.glb 本身即
+  整屋烘焙贴图。公寓（UE 打包场景）无 glb 可导——真实贴图需一次性
+  UE 编辑器导出（待办），先以逐材质黏土 + 真实渲染参考帧对照。
+- **角色模型入 3D 视图**：staging 到
+  /data/avengine_external/studio/actor-models/（rocketbox male_adult_01
+  runtime.glb 29MB + stable beagle dd428da instance.glb 16MB，PROVENANCE
+  注明 legacy 来源与 MIT 许可）；bundle 声明 actor_models，authoring 带
+  actor_model_by_source 映射（公寓 source1=human/source2=beagle，MP3D
+  两犬）。前端把 SkinnedMesh 转绑定姿态静态网格（骨骼变换使包围盒与
+  根缩放不可靠——UE 人体 cm 制曾放大成 180m 巨人，habitat 犬几何为
+  骨骼补偿的微缩尺寸），再按"缩放后身高落 [0.2,2.5]m"从
+  {0.01,0.1,1,10,100} 选倍率：人 1.83m、犬 0.61m，拖拽端点与播放时间线
+  时模型实时移动并朝向运动方向。
+- 验证：公寓 FPV 与真实渲染参考帧构图一致（吧台/餐桌/人物位置对应）；
+  ReplicaCAD 组合在小地图俯视中呈现全副家具。
+- 加载 UX：字节级进度条覆盖场景网格/贴图网格/角色模型三类下载，最轻
+  场景优先首绘（上一条 owner"黑屏"反馈的根因是 65MB 网格静默下载）。

@@ -387,6 +387,26 @@ def main() -> int:
     )
     parser.add_argument("--reference-frame-index", type=int, default=0)
     parser.add_argument(
+        "--actor-model",
+        action="append",
+        default=[],
+        metavar="NAME=GLB_PATH",
+        help="external actor glb served for the editor's 3D actor preview; "
+        "repeatable (e.g. human=/path/runtime.glb)",
+    )
+    parser.add_argument(
+        "--scene-instance",
+        type=Path,
+        help="habitat scene_instance.json; its object placements are resolved "
+        "into composition.json for the editor's full textured composition",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        help="dataset root the scene-instance object glbs live under "
+        "(served read-only)",
+    )
+    parser.add_argument(
         "--default-listener-m1-request",
         type=Path,
         help="M1 request whose primary_camera_rig world_from_rig becomes the "
@@ -486,6 +506,61 @@ def main() -> int:
             "frame_index": args.reference_frame_index,
             "note": "frame from an approved engine capture; the editor shows "
             "it as the real-render reference",
+        }
+
+    if args.actor_model:
+        actor_models: dict[str, dict] = {}
+        for spec in args.actor_model:
+            name, _, glb_value = spec.partition("=")
+            if not name or not glb_value:
+                raise SystemExit(f"--actor-model must be NAME=GLB_PATH, got {spec!r}")
+            glb_path = Path(glb_value).resolve()
+            if not glb_path.is_file():
+                raise SystemExit(f"actor model not found: {glb_path}")
+            actor_models[name] = {
+                "source_path": str(glb_path),
+                "byte_size": glb_path.stat().st_size,
+            }
+        bundle["actor_models"] = actor_models
+
+    if args.scene_instance is not None:
+        if args.dataset_root is None:
+            raise SystemExit("--scene-instance requires --dataset-root")
+        dataset_root = args.dataset_root.resolve()
+        instance = json.loads(args.scene_instance.resolve().read_text(encoding="utf-8"))
+        objects = []
+        skipped = 0
+        for record in instance.get("object_instances", []):
+            template = str(record.get("template_name", ""))
+            glb_rel = template + ".glb"
+            if not (dataset_root / glb_rel).is_file():
+                skipped += 1
+                continue
+            objects.append(
+                {
+                    "glb": glb_rel,
+                    "translation": record.get("translation", [0, 0, 0]),
+                    "rotation_wxyz": record.get("rotation", [1, 0, 0, 0]),
+                    "scale": record.get("non_uniform_scale", [1, 1, 1]),
+                }
+            )
+        articulated = len(instance.get("articulated_object_instances", []))
+        composition = {
+            "schema": "avengine_studio_scene_composition_v1",
+            "source_scene_instance": str(args.scene_instance.resolve()),
+            "objects": objects,
+            "skipped_missing_glb": skipped,
+            "articulated_objects_not_composed": articulated,
+        }
+        (bundle_dir / "composition.json").write_text(
+            json.dumps(composition, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        bundle["composition"] = {
+            "file": "composition.json",
+            "dataset_root": str(dataset_root),
+            "object_count": len(objects),
+            "articulated_objects_not_composed": articulated,
         }
 
     if args.default_listener_m1_request is not None:
