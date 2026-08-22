@@ -42,8 +42,8 @@ function init3d() {
   state.controls = new THREE.OrbitControls(state.camera, canvas);
   state.controls.enableDamping = true;
 
-  state.scene.add(new THREE.HemisphereLight(0xf4f2ec, 0x35363b, 1.05));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+  state.scene.add(new THREE.HemisphereLight(0xf4f2ec, 0x4a4b50, 1.45));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.1);
   sun.position.set(8, 14, 6);
   state.scene.add(sun);
 
@@ -424,14 +424,18 @@ function alignTexturedToClay(textured) {
     return Math.abs(size.x - claySize[0]) + Math.abs(size.y - claySize[1]) +
            Math.abs(size.z - claySize[2]);
   };
-  const identityError = measure();
-  textured.rotation.x = -Math.PI / 2;
-  textured.updateMatrixWorld(true);
-  const rotatedError = measure();
-  if (identityError <= rotatedError) {
-    textured.rotation.x = 0;
-    textured.updateMatrixWorld(true);
+  // try X-flip × quarter yaws and keep whichever bounds match the clay best
+  let best = { error: Infinity, rx: 0, ry: 0 };
+  for (const rx of [0, -Math.PI / 2]) {
+    for (const ry of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      textured.rotation.set(rx, ry, 0);
+      textured.updateMatrixWorld(true);
+      const error = measure();
+      if (error < best.error) best = { error, rx, ry };
+    }
   }
+  textured.rotation.set(best.rx, best.ry, 0);
+  textured.updateMatrixWorld(true);
   // snap centers so the textured shell sits on the clay footprint
   const box = new THREE.Box3().setFromObject(textured);
   const center = new THREE.Vector3();

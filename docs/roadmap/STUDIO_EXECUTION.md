@@ -336,3 +336,29 @@ Owner 反馈（20260823）：贴图不能只有地板、公寓和 MP3D 都要完
   ReplicaCAD 组合在小地图俯视中呈现全副家具。
 - 加载 UX：字节级进度条覆盖场景网格/贴图网格/角色模型三类下载，最轻
   场景优先首绘（上一条 owner"黑屏"反馈的根因是 65MB 网格静默下载）。
+
+### Checkpoint 20260823-S7：公寓真贴图（UE headless 导出闭环）
+
+Owner 澄清"参考帧不算贴图"且本人在 Linux 无法跑 UE 编辑器。解法：服务器
+本就装有 **UE 5.5 Linux 编辑器**（/data/UE_5.5），且 SPEAR-lead-b 工程
+（cpp/unreal_projects/SpearSim）带已编译编辑器模块与温 DDC。用
+`UnrealEditor-Cmd -run=pythonscript` headless 导出 apartment_0000 关卡为
+带烘焙材质的 glb：
+
+- 脚本 /data/jzy/tmp/ue_export_apartment_gltf.py（GLTFExporter 插件经
+  -EnablePlugins 启用；PythonScriptPlugin 工程内已有）。
+- 三个必要旗标/参数，均为实测踩坑所得：
+  1. **-AllowCommandletRendering**（否则材质烘焙静默产出全白无贴图）；
+  2. **按包围盒过滤 actor**（关卡含 ~150m 天空球/背景，只选公寓体积内的
+     54 个 StaticMeshActor）；
+  3. **bake 512×512 + JPEG q82**（默认 1024 PNG 导出 377MB；调优后
+     32MB）。GLTFMaterialBakeSize 是结构体（x/y/auto_detect），
+     UE 5.5 无 GLTFMaterialBakeSizePOT 枚举。
+- 产物归档 /data/avengine_external/ue-exports/apartment_0000_gltf_20260823/
+  （PROVENANCE 注明来源工程/地图/参数；仅供 Studio 预览，不进 Git、不进
+  渲染链）。公寓场景包重建接入，浏览器验证：真实地毯/木地板/家具材质，
+  与参考帧同风格，可行域与视锥对齐正确。
+- 前端配套：贴图视图默认开启（有贴图即开）；贴图对齐扩展为 X 翻转 × 四档
+  偏航择优；场景光照提亮适配 PBR 烘焙材质。
+- 至此三个房间全部**默认真实贴图**：MP3D（数据集烘焙 glb）、ReplicaCAD
+  （stage + 113 物件组合）、公寓（UE headless 导出）。
