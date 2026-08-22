@@ -86,6 +86,12 @@
     <button id="btnMp3dRender" disabled>按此路线提交完整渲染</button>
   </div>
 
+  <h2>声源与声音库</h2>
+  <div id="sourcePanel" class="hint">加载场景后显示。</div>
+  <audio id="auditionPlayer" controls style="width:100%;height:28px;margin-top:4px;display:none"></audio>
+  <div class="hint">声音来自注册表声音库，点"试听"才按需加载；选择会写入本次渲染的
+    AudioProgram（引擎作者化 + hash 绑定，research_only）。</div>
+
   <h2>草稿校验</h2>
   <div id="validation" class="hint">拖动标记后即时更新。</div>
 

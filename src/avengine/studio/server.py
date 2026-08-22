@@ -219,6 +219,13 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_scene_file(path.removeprefix("/api/scenes/"))
             elif method == "POST" and path == "/api/validate":
                 self._handle_validate()
+            elif method == "GET" and path == "/api/sounds":
+                self._handle_sound_list()
+            elif method == "GET" and path.startswith("/api/sounds/") and path.endswith("/audio"):
+                sound_id = path.removeprefix("/api/sounds/").removesuffix("/audio").strip("/")
+                self._handle_sound_audio(sound_id)
+            elif method == "POST" and path == "/api/programs":
+                self._handle_program_author()
             elif method == "GET" and path == "/api/templates":
                 self._handle_templates()
             elif method == "POST" and path == "/api/sweeps":
@@ -401,6 +408,111 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         minimum = float(body.get("minimum_rigid_clearance_m", 0.0))
         self._send_json(
             check_points(grid, points, minimum_rigid_clearance_m=minimum)
+        )
+
+    def _sound_registry_records(self) -> dict[str, dict]:
+        config = self._server().studio_config
+        registry_path = config.registry_paths.get("sound_assets")
+        if registry_path is None:
+            raise StudioTemplateError("no sound_assets registry configured")
+        registry = load_registry_json(registry_path)
+        return {record["sound_asset_id"]: record for record in registry["sound_assets"]}
+
+    def _handle_sound_list(self) -> None:
+        from avengine.studio.programs import resolve_dry_audio_path
+
+        config = self._server().studio_config
+        sounds = []
+        for sound_id, record in sorted(self._sound_registry_records().items()):
+            dry = record.get("dry_audio", {})
+            entry = {
+                "sound_asset_id": sound_id,
+                "semantic_sound_class": record.get("semantic_sound_class"),
+                "uri": dry.get("uri"),
+                "sample_count": dry.get("sample_count"),
+                "duration_s": (
+                    round(dry["sample_count"] / dry["sample_rate_hz"], 2)
+                    if dry.get("sample_count") and dry.get("sample_rate_hz")
+                    else None
+                ),
+                "rights_status": record.get("provenance", {}).get("rights_status"),
+                "permitted_event_usage": record.get("permitted_event_usage"),
+            }
+            try:
+                entry["resolved_path"] = str(
+                    resolve_dry_audio_path(
+                        record,
+                        config.repository_root,
+                        external_paths=config.external_sound_assets,
+                    )
+                )
+                entry["available"] = True
+            except Exception as exc:  # noqa: BLE001 - listing stays best-effort
+                entry["available"] = False
+                entry["error"] = str(exc)
+            sounds.append(entry)
+        self._send_json({"sounds": sounds, "note": "音频按需经 /api/sounds/<id>/audio 懒加载"})
+
+    def _handle_sound_audio(self, sound_id: str) -> None:
+        from avengine.studio.programs import resolve_dry_audio_path
+
+        config = self._server().studio_config
+        record = self._sound_registry_records().get(sound_id)
+        if record is None:
+            raise StudioTaskError(f"unknown sound asset: {sound_id}")
+        self._send_file(
+            resolve_dry_audio_path(
+                record,
+                config.repository_root,
+                external_paths=config.external_sound_assets,
+            )
+        )
+
+    def _handle_program_author(self) -> None:
+        from datetime import datetime, timezone
+
+        from avengine.studio.programs import (
+            StudioProgramError,
+            build_turn_taking_program,
+            persist_program,
+        )
+
+        server = self._server()
+        config = server.studio_config
+        body = self._read_json_body()
+        candidates = body.get("candidates")
+        sound_by_endpoint = body.get("sounds")
+        if not isinstance(candidates, list) or not candidates:
+            raise StudioTemplateError("candidates must be a non-empty list")
+        if not isinstance(sound_by_endpoint, dict):
+            raise StudioTemplateError("sounds must be an object endpoint→sound_asset_id")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        program_id = f"studio_turn_taking_{stamp}"
+        try:
+            program = build_turn_taking_program(
+                program_id=program_id,
+                candidate_source_endpoint_ids=[str(item) for item in candidates],
+                sound_by_endpoint={str(k): str(v) for k, v in sound_by_endpoint.items()},
+                source_endpoint_registry_path=config.registry_paths["source_endpoints"],
+                sound_asset_registry_path=config.registry_paths["sound_assets"],
+                repository_root=config.repository_root,
+                external_sound_asset_paths=config.external_sound_assets,
+                event_count=int(body.get("event_count", 6)),
+                event_samples=int(body.get("event_samples", 8000)),
+                linear_gain=float(body.get("linear_gain", 0.2)),
+            )
+            path = persist_program(program, config.tasks_root / "_programs")
+        except StudioProgramError as exc:
+            raise StudioTemplateError(str(exc)) from exc
+        self._send_json(
+            {
+                "program_id": program["program_id"],
+                "program_path": str(path),
+                "program_content_sha256": program["program_content_sha256"],
+                "event_count": len(program["events"]),
+                "admission_state": program["admission_state"],
+            },
+            status=201,
         )
 
     def _handle_templates(self) -> None:

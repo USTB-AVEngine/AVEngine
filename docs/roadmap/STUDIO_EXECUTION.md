@@ -387,3 +387,29 @@ Owner 要求全面自检后再交付。整改与证据：
   1e-6 互证所限）；MP3D=seed 授权（引擎 verb 无显式坐标口）；
   ReplicaCAD=view_only（尚无 Studio 渲染模板）。
 - studio 单测 29 passed / 0 failed。
+
+### Checkpoint 20260823-S9：声源位置修正 + 声源/声音库面板
+
+Owner 指出 beagle 位置与实际不符，且缺少声源可视化选择与声音库。
+
+- **位置修正（根因）**：授权默认值此前取自 b9150cb 早期 timeline，而
+  参考帧来自已过审 skeletal 捕获（其 timeline 为
+  natural_parallel_left_1fd3f5d）。现从捕获 receipt 的 inputs.timeline
+  同源提取（人 (-444.9,-262.8)→(-180.6,1.4)、犬 (-544.9,-262.8)→
+  (-280.6,1.4) UE cm），标记/模型/线索与参考帧一致。
+- **悬浮狗缺陷**：蒙皮转静态时替身曾挂在原父节点下——beagle 的
+  SkinnedMesh 父节点是骨骼 Bip01，绑定变换×缩放把替身甩到屋外
+  (-15,-12)。修复：替身一律以恒等变换挂到模型根（绑定几何本在模型
+  空间）。验证：人 1.83m/犬 0.61m 都精确站在轨迹起点。
+- **声源与声音库面板**：每声源一行 = 3D 显示开关 + 声音下拉 + 试听
+  （懒加载，点击才经 /api/sounds/<id>/audio 取音频）。下拉按引擎端点
+  allowed_sound_class_ids 过滤（狗吻只允许 animal_vocalization 等），
+  不可用/类别不符明示。
+- **选择进渲染**：POST /api/programs 用引擎 m6.audio_program 作者化
+  轮流发声节目单（bind_audio_program_hash + validate_audio_program，
+  admission_state=research；事件切片按干声 RMS 能量扫描取最响窗口，
+  避免落在静音；schema 要求候选列表规范序）。artifact:// 资产经
+  config.external_sound_assets 映射解析（sha256 校验）。提交渲染时
+  选择若异于默认即自动作者化并作为 audio_program override 传入
+  端到端模板。实测：POST 实时通过（hash 532f9fb0…，6 事件）。
+- studio 单测 32 passed（新增 3 个节目单测试）。

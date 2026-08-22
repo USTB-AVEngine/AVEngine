@@ -14,6 +14,9 @@
     "sound_assets": "examples/m6/registries/sound_assets_v1.json",
     "entity_assets": "examples/m6/registries/entity_assets_v1.json"
   },
+  "external_sound_assets": {
+    "dog_beagle_v2_scheduled_dry": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z/audio/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav"
+  },
   "room_policy": {
     "banned_provider_ids": ["blender_custom"],
     "excluded_room_id_substrings": ["skokloster"]

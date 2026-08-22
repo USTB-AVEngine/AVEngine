@@ -45,6 +45,7 @@ class StudioConfig:
     port: int = 8765
     main_branch: str = "main"
     scenes_root: Path | None = None
+    external_sound_assets: dict[str, str] | None = None
 
 
 def _resolved_path(value: object, repository_root: Path) -> Path:
@@ -139,8 +140,15 @@ def load_studio_config(config_path: str | Path) -> StudioConfig:
     if payload.get("scenes_root") is not None:
         scenes_root = _resolved_path(payload["scenes_root"], repository_root)
 
+    external_sound_assets = None
+    if isinstance(payload.get("external_sound_assets"), dict):
+        external_sound_assets = {
+            str(k): str(v) for k, v in payload["external_sound_assets"].items()
+        }
+
     return StudioConfig(
         scenes_root=scenes_root,
+        external_sound_assets=external_sound_assets,
         repository_root=repository_root,
         python_executable=python_executable,
         review_root=review_root,

@@ -289,8 +289,110 @@ async function loadBundleInner(roomId) {
 
   await loadActorModels(bundle);
   setupAuthoring(bundle);
+  await setupSourcePanel(bundle);
   runDraftValidation();
   if (bundle.textured_mesh) await applyTexturedView();
+}
+
+/* ---------- source visibility + sound library ---------- */
+
+async function setupSourcePanel(bundle) {
+  const container = document.getElementById("sourcePanel");
+  container.innerHTML = "";
+  state.soundSelection = null;
+  const mapping = bundle.authoring?.endpoints_by_source;
+  if (!mapping) {
+    container.innerHTML = '<div class="hint">此场景暂无声源授权（view_only）。</div>';
+    return;
+  }
+  if (!state.soundLibrary) {
+    try {
+      state.soundLibrary = (await (await fetch("/api/sounds")).json()).sounds;
+      const registry = await (await fetch("/api/registries/source_endpoints")).json();
+      state.endpointClasses = Object.fromEntries(
+        registry.source_endpoints.map((e) =>
+          [e.source_endpoint_id, e.allowed_sound_class_ids || []]));
+    } catch (error) {
+      container.textContent = `声音库加载失败：${error.message}`;
+      return;
+    }
+  }
+  const defaults = bundle.authoring.default_sound_by_endpoint || {};
+  state.soundSelection = {};
+  for (const [slot, endpoint] of Object.entries(mapping)) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:5px;align-items:center;margin:4px 0";
+    const box = document.createElement("input");
+    box.type = "checkbox"; box.checked = true; box.style.width = "auto";
+    box.title = "在 3D 视图中显示/隐藏该声源";
+    box.onchange = () => setSourceVisibility(slot, box.checked);
+    const name = document.createElement("span");
+    name.style.cssText = "font-size:12px;min-width:56px";
+    name.textContent = slot;
+    name.title = endpoint;
+    const select = document.createElement("select");
+    select.style.cssText = "flex:1;margin:0";
+    const allowedClasses = state.endpointClasses?.[endpoint] || [];
+    let firstAllowed = null;
+    for (const sound of state.soundLibrary) {
+      const classOk = !allowedClasses.length ||
+        allowedClasses.includes(sound.semantic_sound_class);
+      const option = document.createElement("option");
+      option.value = sound.sound_asset_id;
+      option.disabled = !sound.available || !classOk;
+      option.textContent =
+        `${sound.sound_asset_id} (${sound.duration_s ?? "?"}s)` +
+        (!classOk ? " ·类别不符" : sound.available ? "" : " ·不可用");
+      if (classOk && sound.available && !firstAllowed) {
+        firstAllowed = sound.sound_asset_id;
+      }
+      select.appendChild(option);
+    }
+    select.value = defaults[endpoint] || firstAllowed || "";
+    state.soundSelection[endpoint] = select.value;
+    select.onchange = () => { state.soundSelection[endpoint] = select.value; };
+    const listen = document.createElement("button");
+    listen.className = "secondary";
+    listen.style.cssText = "width:auto;margin:0;padding:4px 8px;font-size:11px";
+    listen.textContent = "试听";
+    listen.onclick = () => {
+      const player = document.getElementById("auditionPlayer");
+      player.src = `/api/sounds/${select.value}/audio`;  // lazy load on demand
+      player.style.display = "block";
+      player.play();
+    };
+    row.append(box, name, select, listen);
+    container.appendChild(row);
+  }
+}
+
+function setSourceVisibility(slot, visible) {
+  const group = state.scene.getObjectByName("paths");
+  if (!group) return;
+  for (const child of group.children) {
+    if (child.userData.trajectory === slot) child.visible = visible;
+  }
+}
+
+async function maybeAuthorProgram() {
+  // returns an audio_program override path when the user's sound picks
+  // differ from the room defaults; the server authors and hash-binds it
+  const authoring = state.bundle?.authoring;
+  if (!authoring?.program_candidates || !state.soundSelection) return null;
+  const defaults = authoring.default_sound_by_endpoint || {};
+  const changed = Object.entries(state.soundSelection)
+    .some(([endpoint, sound]) => defaults[endpoint] !== sound);
+  if (!changed) return null;
+  const response = await fetch("/api/programs", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      candidates: authoring.program_candidates,
+      sounds: state.soundSelection,
+    }),
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || "program authoring failed");
+  return body.program_path;
 }
 
 const actorTemplateCache = new Map();
@@ -325,11 +427,12 @@ async function loadActorModels(bundle) {
       const skinnedNodes = [];
       template.traverse((node) => { if (node.isSkinnedMesh) skinnedNodes.push(node); });
       for (const node of skinnedNodes) {
+        // bind-pose geometry lives in model space; parent it to the template
+        // root with identity so bone/bind parent transforms (e.g. Bip01)
+        // cannot displace the stand-in
         const static_ = new THREE.Mesh(node.geometry, node.material);
-        static_.position.copy(node.position);
-        static_.quaternion.copy(node.quaternion);
-        static_.scale.copy(node.scale);
-        node.parent.add(static_);
+        static_.name = node.name;
+        template.add(static_);
         node.parent.remove(node);
       }
       template.updateMatrixWorld(true);
@@ -792,8 +895,14 @@ function setupAuthoring(bundle) {
     renderMarkerList();
     document.getElementById("btnApartmentValidate").onclick = () =>
       submitTask("apartment_author", apartmentOverrides(), "作者化校验");
-    document.getElementById("btnApartmentRender").onclick = () =>
-      submitTask("apartment_end_to_end", apartmentOverrides(), "公寓完整渲染");
+    document.getElementById("btnApartmentRender").onclick = async () => {
+      const overrides = apartmentOverrides();
+      try {
+        const program = await maybeAuthorProgram();
+        if (program) overrides.audio_program = program;
+      } catch (error) { alert(`声音节目单作者化失败：${error.message}`); return; }
+      submitTask("apartment_end_to_end", overrides, "公寓完整渲染");
+    };
   } else if (mode === "seed_route") {
     document.getElementById("btnRoutePreview").onclick = submitRoutePreview;
     document.getElementById("btnMp3dRender").onclick = submitMp3dRender;
@@ -873,8 +982,10 @@ function drawPaths() {
   for (const [key, points] of Object.entries(state.trajectories)) {
     const vertices = points.map((p) => new THREE.Vector3(p[0], p[1] + 0.06, p[2]));
     const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
-    group.add(new THREE.Line(geometry,
-      new THREE.LineBasicMaterial({ color: colors[key] || 0xffffff })));
+    const line = new THREE.Line(geometry,
+      new THREE.LineBasicMaterial({ color: colors[key] || 0xffffff }));
+    line.userData.trajectory = key;
+    group.add(line);
     const modelName = state.bundle?.authoring?.actor_model_by_source?.[key];
     let dot;
     if (modelName && state.actorTemplates?.[modelName]) {
@@ -1235,10 +1346,15 @@ function extractListener(node) {
 
 async function submitMp3dRender() {
   const cameraSelection = document.getElementById("cameraSelect").value;
-  await submitTask("mp3d_end_to_end",
-    { seed: state.lastSeed ?? +document.getElementById("seedInput").value,
-      camera_selection: cameraSelection },
-    "MP3D 完整渲染");
+  const overrides = {
+    seed: state.lastSeed ?? +document.getElementById("seedInput").value,
+    camera_selection: cameraSelection,
+  };
+  try {
+    const program = await maybeAuthorProgram();
+    if (program) overrides.audio_program = program;
+  } catch (error) { alert(`声音节目单作者化失败：${error.message}`); return; }
+  await submitTask("mp3d_end_to_end", overrides, "MP3D 完整渲染");
 }
 
 /* ---------- tasks ---------- */
