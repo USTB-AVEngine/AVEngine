@@ -189,3 +189,13 @@ lead-a/tmp 保留 suite plan 引用的 episodes 负载已不在盘上（全盘�
 owner 决定：补齐状态、加固守卫或退役该组校验。
 
 下一步：Session 2 俯视画布 v0（单文件前端 + /validate navmesh 校验）。
+
+S1 附注（同日）：上述三个模块的保留工作区校验，owner 拍板直接移除
+（episodes 负载确已不在盘上，旧多仓 external/SPEAR 对比清单与
+SPEAR-lead-b 路径同属转轨前遗留）。d537d01（直推 main，规则 bypass）
+精确删除 21 个失败测试（RoomAdapterTests 整类 12 个、PreflightTests
+4 个、f15 v7 捕获运行时 2 个、strict-two-human 批 2 个），三模块其余
+50 个密闭测试保留（50 passed / 3 skipped）。已合回 feature/studio-v1
+（7d8e152）。另记录：在无 lead-a 未跟踪 tmp/ 状态的新鲜检出上，全量
+单测另有约 28 个先存失败（如 test_m4_cli），属于测试层对机器本地状态
+的残余依赖，与本次改动无关，待后续专项清理。
