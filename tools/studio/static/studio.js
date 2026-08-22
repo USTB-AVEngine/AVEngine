@@ -58,6 +58,7 @@ function init3d() {
 function resize() {
   const box = document.getElementById("viewport").getBoundingClientRect();
   state.renderer.setSize(box.width, box.height, false);
+  state.viewSize = { width: box.width, height: box.height };
   state.camera.aspect = box.width / box.height;
   state.camera.updateProjectionMatrix();
 }
@@ -69,7 +70,62 @@ function tick(timeMs) {
     setFrame(Math.floor((timeMs / 1000) * 15) % FRAME_COUNT);
   }
   updateActorDots();
-  state.renderer.render(state.scene, state.camera);
+  const renderer = state.renderer;
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, state.viewSize.width, state.viewSize.height);
+  renderer.render(state.scene, state.camera);
+  renderMinimap();
+}
+
+function renderMinimap() {
+  if (!state.miniCamera || !state.viewSize) return;
+  const renderer = state.renderer;
+  const width = 260, height = 180, pad = 11;
+  const x = state.viewSize.width - width - pad;
+  const y = state.viewSize.height - height - pad; // WebGL origin = bottom-left
+  if (x < 40 || y < 40) return;
+  // planning aids stay visible on the minimap even in FPV
+  const toggled = [];
+  for (const name of ["walkable-overlay", "camera-frustum"]) {
+    const object = state.scene.getObjectByName(name);
+    if (object && !object.visible) { object.visible = true; toggled.push(object); }
+  }
+  if (state.viewDot) {
+    state.viewDot.visible = true;
+    state.viewDot.position.set(
+      state.camera.position.x, state.floorY + 0.2, state.camera.position.z);
+  }
+  renderer.setScissorTest(true);
+  renderer.setScissor(x, y, width, height);
+  renderer.setViewport(x, y, width, height);
+  renderer.clearDepth();
+  renderer.render(state.scene, state.miniCamera);
+  renderer.setScissorTest(false);
+  for (const object of toggled) object.visible = false;
+  if (state.viewDot) state.viewDot.visible = false;
+}
+
+function buildMinimapCamera(bounds) {
+  const cx = (bounds[0][0] + bounds[1][0]) / 2;
+  const cz = (bounds[0][2] + bounds[1][2]) / 2;
+  let halfW = ((bounds[1][0] - bounds[0][0]) / 2) * 1.08;
+  let halfD = ((bounds[1][2] - bounds[0][2]) / 2) * 1.08;
+  const aspect = 260 / 180;
+  if (halfW / halfD < aspect) halfW = halfD * aspect;
+  else halfD = halfW / aspect;
+  const camera = new THREE.OrthographicCamera(-halfW, halfW, halfD, -halfD, 0.1, 200);
+  camera.position.set(cx, bounds[1][1] + 20, cz);
+  camera.up.set(0, 0, -1);
+  camera.lookAt(cx, 0, cz);
+  state.miniCamera = camera;
+  if (!state.viewDot) {
+    state.viewDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    );
+    state.viewDot.visible = false;
+    state.scene.add(state.viewDot);
+  }
 }
 
 /* ---------- scene bundles ---------- */
@@ -184,21 +240,110 @@ async function loadBundleInner(roomId) {
   buildRoomMesh(new Float32Array(positions), new Uint32Array(indices),
                 new Uint32Array(materialIds), bundle.mesh.materials);
   buildGrid(bundle);
+  buildMinimapCamera(bundle.mesh.bounds_m);
   applyRoofClip();
   frameCameraOnBounds(bundle.mesh.bounds_m);
+
+  document.getElementById("texturedRow").style.display =
+    bundle.textured_mesh ? "flex" : "none";
+  document.getElementById("texturedView").checked = false;
+  const refFrame = document.getElementById("refFrame");
+  if (bundle.reference_frame) {
+    refFrame.src = `/api/scenes/${roomId}/files/reference_frame.png`;
+    refFrame.style.width = "240px";
+    refFrame.style.display = "block";
+  } else {
+    refFrame.style.display = "none";
+  }
+
   setupAuthoring(bundle);
   runDraftValidation();
 }
 
+async function applyTexturedView() {
+  const on = document.getElementById("texturedView").checked;
+  const clay = state.scene.getObjectByName("room");
+  let textured = state.scene.getObjectByName("room-textured");
+  if (on && !textured) {
+    try {
+      showLoading("下载贴图网格…（数据集真实外观）");
+      const loader = new THREE.GLTFLoader();
+      const gltf = await new Promise((resolve, reject) => loader.load(
+        `/api/scenes/${state.roomId}/files/textured.glb`, resolve,
+        (event) => {
+          if (event.total) {
+            document.getElementById("loadingText").textContent =
+              `下载贴图网格 ${(event.loaded / 1048576).toFixed(1)} / ` +
+              `${(event.total / 1048576).toFixed(1)} MB`;
+          }
+        },
+        reject));
+      textured = gltf.scene;
+      textured.name = "room-textured";
+      alignTexturedToClay(textured);
+      state.scene.add(textured);
+      hideLoading();
+    } catch (error) {
+      showLoading(`贴图网格加载失败：${error.message || error}`);
+      document.getElementById("texturedView").checked = false;
+      setTimeout(hideLoading, 4000);
+      return;
+    }
+  }
+  if (textured) textured.visible = on;
+  if (clay) clay.visible = !on;
+  applyRoofClip();
+}
+
+function alignTexturedToClay(textured) {
+  // dataset glbs may be z-up; pick the orientation whose bounds best match
+  // the acoustic clay mesh
+  const clayBounds = state.bundle.mesh.bounds_m;
+  const claySize = [
+    clayBounds[1][0] - clayBounds[0][0],
+    clayBounds[1][1] - clayBounds[0][1],
+    clayBounds[1][2] - clayBounds[0][2],
+  ];
+  const measure = () => {
+    const box = new THREE.Box3().setFromObject(textured);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    return Math.abs(size.x - claySize[0]) + Math.abs(size.y - claySize[1]) +
+           Math.abs(size.z - claySize[2]);
+  };
+  const identityError = measure();
+  textured.rotation.x = -Math.PI / 2;
+  textured.updateMatrixWorld(true);
+  const rotatedError = measure();
+  if (identityError <= rotatedError) {
+    textured.rotation.x = 0;
+    textured.updateMatrixWorld(true);
+  }
+  // snap centers so the textured shell sits on the clay footprint
+  const box = new THREE.Box3().setFromObject(textured);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  textured.position.x += (clayBounds[0][0] + clayBounds[1][0]) / 2 - center.x;
+  textured.position.z += (clayBounds[0][2] + clayBounds[1][2]) / 2 - center.z;
+  textured.position.y += clayBounds[0][1] - box.min.y;
+}
+
 function applyRoofClip() {
-  const room = state.scene.getObjectByName("room");
-  if (!room) return;
   const enabled = document.getElementById("roofClip").checked;
-  state.renderer.localClippingEnabled = true;
-  room.material.clippingPlanes = enabled
+  const planes = enabled
     ? [new THREE.Plane(new THREE.Vector3(0, -1, 0), state.floorY + 2.0)]
     : [];
-  room.material.needsUpdate = true;
+  state.renderer.localClippingEnabled = true;
+  for (const name of ["room", "room-textured"]) {
+    const object = state.scene.getObjectByName(name);
+    if (!object) continue;
+    object.traverse((node) => {
+      if (node.material) {
+        node.material.clippingPlanes = planes;
+        node.material.needsUpdate = true;
+      }
+    });
+  }
 }
 
 /* ---------- view presets ---------- */
@@ -287,12 +432,12 @@ function drawCameraFrustum() {
 }
 
 function clearRoom() {
-  for (const name of ["room", "navgrid", "markers", "paths", "walkable-overlay", "camera-frustum"]) {
+  for (const name of ["room", "room-textured", "navgrid", "markers", "paths", "walkable-overlay", "camera-frustum"]) {
     const old = state.scene.getObjectByName(name);
     if (old) state.scene.remove(old);
   }
   state.markers = {}; state.markerOrder = []; state.trajectories = null;
-  state.actorDots = [];
+  state.actorDots = []; state.listener = null;
 }
 
 function buildRoomMesh(positions, indices, materialIds, materials) {
@@ -480,6 +625,12 @@ function setupAuthoring(bundle) {
   } else if (mode === "seed_route") {
     document.getElementById("btnRoutePreview").onclick = submitRoutePreview;
     document.getElementById("btnMp3dRender").onclick = submitMp3dRender;
+  }
+  const preset = bundle.authoring?.default_listener;
+  if (preset && !state.listener) {
+    // pre-authored render-camera pose: FPV works before any route is authored
+    state.listener = { position: preset.position_m, yawDeg: preset.yaw_deg };
+    drawCameraFrustum();
   }
 }
 

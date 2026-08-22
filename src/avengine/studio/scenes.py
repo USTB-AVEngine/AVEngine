@@ -16,9 +16,17 @@ import numpy as np
 
 BUNDLE_SCHEMA = "avengine_studio_scene_bundle_v1"
 
-# Only these bundle files may be served over HTTP.
+# Only these bundle files may be served over HTTP. "textured.glb" resolves
+# to the external dataset file recorded in bundle.json (read-only).
 SERVABLE_BUNDLE_FILES = frozenset(
-    {"bundle.json", "mesh_positions.bin", "mesh_indices.bin", "mesh_material_ids.bin"}
+    {
+        "bundle.json",
+        "mesh_positions.bin",
+        "mesh_indices.bin",
+        "mesh_material_ids.bin",
+        "reference_frame.png",
+        "textured.glb",
+    }
 )
 
 
@@ -77,6 +85,8 @@ def list_scene_bundles(scenes_root: str | Path) -> list[dict]:
                 .get("triangle_material_ids", {})
                 .get("count"),
                 "has_obstacle_map": "obstacle_map" in bundle,
+                "has_textured_mesh": "textured_mesh" in bundle,
+                "has_reference_frame": "reference_frame" in bundle,
                 "authoring_mode": bundle.get("authoring", {}).get("mode"),
             }
         )
@@ -96,6 +106,18 @@ def scene_file_path(scenes_root: str | Path, room_id: str, file_name: str) -> Pa
         raise StudioSceneError(f"file {file_name!r} is not a servable bundle file")
     for scene in list_scene_bundles(scenes_root):
         if scene["room_id"] == room_id:
+            if file_name == "textured.glb":
+                bundle = json.loads(
+                    (Path(scene["bundle_dir"]) / "bundle.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                source = bundle.get("textured_mesh", {}).get("source_path")
+                if not source or not Path(source).is_file():
+                    raise StudioSceneError(
+                        f"scene {room_id} declares no textured mesh"
+                    )
+                return Path(source)
             path = Path(scene["bundle_dir"]) / file_name
             if not path.is_file():
                 raise StudioSceneError(f"bundle file missing: {path}")

@@ -49,6 +49,10 @@
     <input id="roofClip" type="checkbox" checked style="width:auto"
            onchange="applyRoofClip()"> 剖切屋顶（地板上方 2m 以上隐藏）
   </label>
+  <label class="hint" id="texturedRow" style="display:none;gap:6px;align-items:center">
+    <input id="texturedView" type="checkbox" style="width:auto"
+           onchange="applyTexturedView()"> 贴图视图（数据集真实网格）
+  </label>
   <div class="row">
     <button class="secondary" onclick="setViewMode('free')">自由视角</button>
     <button class="secondary" onclick="setViewMode('top')">俯视图</button>
@@ -103,6 +107,14 @@
 <div id="viewport">
   <canvas id="canvas3d"></canvas>
   <div id="hud">左键旋转 · 右键平移 · 滚轮缩放 · 点击标记后拖动</div>
+  <div id="minimapFrame" style="position:absolute;top:10px;right:10px;width:262px;height:182px;
+       border:1px solid #3a3b40;border-radius:8px;pointer-events:none;
+       background:rgba(20,21,24,.25)">
+    <div style="position:absolute;left:8px;top:6px;font-size:10.5px;color:#9a988f">俯视图</div>
+  </div>
+  <img id="refFrame" style="display:none;position:absolute;right:10px;bottom:10px;width:240px;
+       border:1px solid #3a3b40;border-radius:8px;cursor:zoom-in" title="真实渲染参考（已过审捕获帧），点击放大"
+       onclick="this.style.width = this.style.width === '240px' ? '65%' : '240px'">
   <div id="loading" style="display:none;position:absolute;top:50%;left:50%;
        transform:translate(-50%,-50%);background:rgba(20,21,24,.92);color:#e8e6e1;
        padding:14px 22px;border-radius:10px;font-size:13px;text-align:center;min-width:260px">
@@ -114,6 +126,7 @@
 </div>
 <script src="/studio/static/three.min.js"></script>
 <script src="/studio/static/OrbitControls.js"></script>
+<script src="/studio/static/GLTFLoader.js"></script>
 <script src="/studio/static/studio.js"></script>
 </body>
 </html>

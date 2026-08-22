@@ -62,6 +62,7 @@ _CONTENT_TYPES = {
     ".png": "image/png",
     ".log": "text/plain; charset=utf-8",
     ".npy": "application/octet-stream",
+    ".glb": "model/gltf-binary",
 }
 
 # artifact files a task may expose to the browser

@@ -366,6 +366,32 @@ def main() -> int:
     parser.add_argument("--magnum-python-site", type=Path)
     parser.add_argument("--rlr-sdk-root", type=Path)
     parser.add_argument("--authoring-json", type=Path, help="per-room authoring defaults")
+    parser.add_argument(
+        "--textured-glb",
+        type=Path,
+        help="external textured glTF-binary of the room (dataset file); "
+        "recorded by absolute path and served read-only for the editor's "
+        "textured view",
+    )
+    parser.add_argument(
+        "--reference-frame-npy",
+        type=Path,
+        help="rgb.npy of an approved capture; frame 0 is exported as the "
+        "editor's real-render reference image",
+    )
+    parser.add_argument(
+        "--reference-frame-order",
+        choices=("rgb", "bgr"),
+        default="rgb",
+        help="channel order stored in the npy (UE captures store bgr)",
+    )
+    parser.add_argument("--reference-frame-index", type=int, default=0)
+    parser.add_argument(
+        "--default-listener-m1-request",
+        type=Path,
+        help="M1 request whose primary_camera_rig world_from_rig becomes the "
+        "editor's pre-authored render-camera pose",
+    )
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -430,6 +456,54 @@ def main() -> int:
             floor_height_m=args.floor_height_m,
             known_walkable_points=known,
         )
+
+    if args.textured_glb is not None:
+        glb_path = args.textured_glb.resolve()
+        if not glb_path.is_file():
+            raise SystemExit(f"textured glb not found: {glb_path}")
+        bundle["textured_mesh"] = {
+            "source_path": str(glb_path),
+            "byte_size": glb_path.stat().st_size,
+            "note": "external dataset file served read-only; never copied into Git",
+        }
+
+    if args.reference_frame_npy is not None:
+        import imageio.v2 as imageio
+
+        frames = np.load(args.reference_frame_npy.resolve(), mmap_mode="r")
+        frame = np.asarray(frames[args.reference_frame_index])
+        if frame.ndim != 3 or frame.shape[2] < 3:
+            raise SystemExit(f"unexpected rgb.npy shape: {frames.shape}")
+        frame = frame[:, :, :3]
+        if args.reference_frame_order == "bgr":
+            frame = frame[:, :, ::-1]
+        if frame.dtype != np.uint8:
+            frame = np.clip(frame, 0, 255).astype(np.uint8)
+        imageio.imwrite(bundle_dir / "reference_frame.png", frame)
+        bundle["reference_frame"] = {
+            "file": "reference_frame.png",
+            "source_npy": str(args.reference_frame_npy.resolve()),
+            "frame_index": args.reference_frame_index,
+            "note": "frame from an approved engine capture; the editor shows "
+            "it as the real-render reference",
+        }
+
+    if args.default_listener_m1_request is not None:
+        request = json.loads(
+            args.default_listener_m1_request.resolve().read_text(encoding="utf-8")
+        )
+        rig = request["primary_camera_rig"]["world_from_rig"]
+        position = [float(value) for value in rig["translation_m"]]
+        x, y, z, w = (float(value) for value in rig["rotation_xyzw"])
+        # forward = q * (0, 0, -1); yaw about +Y from -Z
+        forward_x = -(2.0 * (x * z + w * y))
+        forward_z = -(1.0 - 2.0 * (x * x + y * y))
+        yaw_deg = float(np.degrees(np.arctan2(-forward_x, -forward_z)))
+        bundle.setdefault("authoring", {})["default_listener"] = {
+            "position_m": position,
+            "yaw_deg": yaw_deg,
+            "source_m1_request": str(args.default_listener_m1_request.resolve()),
+        }
 
     (bundle_dir / "bundle.json").write_text(
         json.dumps(bundle, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
