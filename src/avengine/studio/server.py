@@ -202,6 +202,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_validate()
             elif method == "GET" and path == "/api/templates":
                 self._handle_templates()
+            elif method == "POST" and path == "/api/sweeps":
+                self._handle_sweep_submit()
+            elif method == "GET" and path == "/api/sweeps":
+                self._handle_sweep_list()
             elif method == "GET" and path == "/api/tasks":
                 self._handle_task_list()
             elif method == "POST" and path == "/api/tasks":
@@ -418,6 +422,87 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if target.suffix not in _ARTIFACT_SUFFIXES or not target.is_file():
             raise StudioTaskError(f"no such artifact: {relative}")
         self._send_file(target)
+
+    def _handle_sweep_submit(self) -> None:
+        """Cartesian-product batch submission: one task per sweep point."""
+        import itertools
+        from datetime import datetime, timezone
+
+        server = self._server()
+        config = server.studio_config
+        body = self._read_json_body()
+        template = str(body.get("template") or "")
+        base_overrides = body.get("base_overrides") or {}
+        sweep = body.get("sweep")
+        if not isinstance(base_overrides, dict):
+            raise StudioTemplateError("base_overrides must be an object")
+        if not isinstance(sweep, dict) or not sweep:
+            raise StudioTemplateError(
+                "sweep must be a non-empty object of key -> list of values"
+            )
+        keys = sorted(sweep)
+        value_lists = []
+        for key in keys:
+            values = sweep[key]
+            if not isinstance(values, list) or not values:
+                raise StudioTemplateError(f"sweep[{key!r}] must be a non-empty list")
+            value_lists.append(values)
+        combos = list(itertools.product(*value_lists))
+        if len(combos) > 64:
+            raise StudioTemplateError(
+                f"sweep would enqueue {len(combos)} tasks; the cap is 64"
+            )
+        batch_id = str(
+            body.get("batch_id")
+            or "sweep-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        )
+        task_ids = []
+        for combo in combos:
+            point = dict(zip(keys, combo))
+            overrides = {**base_overrides, **point}
+            task_ids.append(
+                server.task_queue.submit(
+                    template=template,
+                    argv_builder=lambda output_path, ov=overrides: build_template_argv(
+                        config, template, ov, output_path
+                    ),
+                    cwd=config.repository_root,
+                    metadata={
+                        "overrides": overrides,
+                        "submitted_via": "sweep",
+                        "batch_id": batch_id,
+                        "sweep_point": point,
+                    },
+                )
+            )
+        self._send_json(
+            {"batch_id": batch_id, "task_count": len(task_ids), "task_ids": task_ids},
+            status=201,
+        )
+
+    def _handle_sweep_list(self) -> None:
+        server = self._server()
+        batches: dict[str, dict] = {}
+        for record in server.task_queue.list_tasks():
+            batch_id = (record.get("metadata") or {}).get("batch_id")
+            if not batch_id:
+                continue
+            batch = batches.setdefault(
+                batch_id,
+                {"batch_id": batch_id, "template": record["template"],
+                 "status_counts": {}, "tasks": []},
+            )
+            batch["status_counts"][record["status"]] = (
+                batch["status_counts"].get(record["status"], 0) + 1
+            )
+            batch["tasks"].append(
+                {
+                    "task_id": record["task_id"],
+                    "status": record["status"],
+                    "sweep_point": (record.get("metadata") or {}).get("sweep_point"),
+                }
+            )
+        self._send_json({"sweeps": sorted(batches.values(), key=lambda b: b["batch_id"], reverse=True)})
 
     def _handle_task_submit(self) -> None:
         server = self._server()

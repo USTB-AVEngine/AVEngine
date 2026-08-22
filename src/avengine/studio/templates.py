@@ -18,6 +18,7 @@ MP3D_END_TO_END_TEMPLATE = "mp3d_end_to_end"
 MP3D_ROUTE_AUTHOR_TEMPLATE = "mp3d_route_author"
 APARTMENT_AUTHOR_TEMPLATE = "apartment_author"
 APARTMENT_END_TO_END_TEMPLATE = "apartment_end_to_end"
+PAIRED_ABLATION_TEMPLATE = "paired_ablation"
 
 _MP3D_AUDIO_PATH_KEYS = (
     "visual_capture_dir",
@@ -98,6 +99,7 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
             "rir_stride_frames",
         }
     ),
+    PAIRED_ABLATION_TEMPLATE: frozenset({"audio_dir", "pair_id", "mute_stems"}),
 }
 
 
@@ -277,6 +279,25 @@ def build_template_argv(
             argv += ["--rpc-port", str(int(merged["rpc_port"]))]
         if merged.get("graphics_adapter") is not None:
             argv += ["--graphics-adapter", str(int(merged["graphics_adapter"]))]
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == PAIRED_ABLATION_TEMPLATE:
+        audio_dir = _input_path(
+            "audio_dir", _required(merged, template_name, "audio_dir"), repo
+        )
+        pair_id = str(_required(merged, template_name, "pair_id"))
+        argv = [
+            python,
+            str(repo / "tools/studio/make_paired_ablation.py"),
+            "--audio-dir", str(audio_dir),
+            "--pair-id", pair_id,
+        ]
+        mute_stems = merged.get("mute_stems") or []
+        if not isinstance(mute_stems, (list, tuple)):
+            raise StudioTemplateError("mute_stems must be a list of stem names")
+        for stem in mute_stems:
+            argv += ["--mute-stem", str(stem)]
         argv += ["--output", _fresh_output(output_path)]
         return argv
 

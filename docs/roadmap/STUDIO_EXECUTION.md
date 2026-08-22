@@ -277,3 +277,34 @@ point_to_world_obb_clearance OBB 净空）；权威判定仍在渲染链原生�
 **待办（记录，不阻塞）**：Kujiale 与 ReplicaCAD 各需一次 M3 声学编译才能
 入编辑器；公寓自由相机需配套生成 M1 请求；QuestionSpec 预演器接引擎
 离线子集（v1.5）；MP3D 纹理 glb 视图可选增强。
+
+### Checkpoint 20260822-S5：视角预设、第三房间、v1.5 首批两件
+
+Owner 指示（同日）：预览增加俯视图与相机第一视角，然后一路执行。
+
+- **视角预设**（c4ed874）：自由视角 / 俯视图（自动恢复剖切、正上方平面
+  图）/ 相机第一视角（对齐渲染相机位姿与 hfov——公寓取锁定 M1 位姿，
+  MP3D 取已授权路线的 listener；FPV 下自动隐藏可行域覆盖层与视锥辅助
+  线并取消剖切）。CameraHelper 视锥在自由/俯视图中标出渲染相机取景。
+- **ReplicaCAD 入编辑器**：`m3 compile-registered-scene`（room_registry
+  的 replicacad_apt_0 / replica_cad_dataset_1_5_layout_apt_0）编译出
+  m3_replicacad_apt0_semantic_20260822T0130Z（research_candidate），场景
+  包 3.7 万三角形 + apt_0.navmesh 栅格 649×362。编辑器现有三房间
+  （MP3D / 公寓 / ReplicaCAD，authoring_mode=view_only 待渲染模板）。
+  Kujiale 不在 room_registry（灯光工作流 2bb985b 未合并），入列前提是
+  该工作流落地 + 一次 M3 编译。
+- **v1.5 #4 成对消融**（tools/studio/make_paired_ablation.py + 模板
+  paired_ablation）：left_zeroed / right_zeroed / mono_folded /
+  muted_<stem> 末端变换，共享父渲染的 seed/轨迹/RIR，pair_manifest 记
+  pair_id 与父 mixture sha256；对真实 MP3D 渲染验收 pass
+  （pair_id=mp3d_seed22_leftbias_v1）。这是 Left-bias 消融的载体。
+- **v1.5 #3 Sweep 编排器（轻量版）**：POST /api/sweeps（模板 + 笛卡尔
+  sweep 维度 + batch_id，上限 64 点）批量入队，metadata 带
+  batch_id/sweep_point；GET /api/sweeps 按批次聚合状态计数。配额过滤与
+  预演拦截（构思 #3 的完整形态）待接 QuestionSpec 预演器。
+- 阻塞项：推送 main 被本地权限分类器拦截（保护分支推送），需 owner 手动
+  执行 `git push origin feature/studio-v1:main`（快进合并，分支已含
+  main 全部历史）。
+- v1.5 其余八件（难度旋钮/仪表、拒答逆向构造器、偏置看板、A/B 审听台、
+  审片队列+盲听、变体矩阵、rights 闸门、草稿档预览）依赖生产数据流或
+  更大 UI 面积，安排在 1000-episode 生产规划时随需实现。

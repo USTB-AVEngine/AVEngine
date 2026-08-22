@@ -249,6 +249,37 @@ def test_submit_queues_and_runs_cli_subprocess(studio_server: StudioHTTPServer) 
     assert log_text.strip()
 
 
+def test_sweep_submits_batch_and_groups_by_batch_id(
+    studio_server: StudioHTTPServer,
+) -> None:
+    status, body = _post_json(
+        studio_server,
+        "/api/sweeps",
+        {
+            "template": "mp3d_dynamic_audio",
+            "sweep": {"variant": ["A", "B"]},
+            "batch_id": "sweep-test-1",
+        },
+    )
+    assert status == 201
+    assert body["task_count"] == 2
+    for task_id in body["task_ids"]:
+        studio_server.task_queue.wait(task_id, timeout_s=120.0)
+    listing = _get_json(studio_server, "/api/sweeps")
+    batch = next(b for b in listing["sweeps"] if b["batch_id"] == "sweep-test-1")
+    assert sum(batch["status_counts"].values()) == 2
+    points = sorted(t["sweep_point"]["variant"] for t in batch["tasks"])
+    assert points == ["A", "B"]
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post_json(
+            studio_server,
+            "/api/sweeps",
+            {"template": "mp3d_dynamic_audio", "sweep": {"variant": list(range(65))}},
+        )
+    assert excinfo.value.code == 400
+
+
 def test_unknown_routes_and_tasks_return_404(studio_server: StudioHTTPServer) -> None:
     for path in ("/api/nope", "/api/tasks/does-not-exist"):
         with pytest.raises(urllib.error.HTTPError) as excinfo:

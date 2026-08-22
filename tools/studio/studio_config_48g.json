@@ -76,6 +76,7 @@
       "rir_stride_frames": 3,
       "variant": "A"
     },
+    "paired_ablation": {},
     "apartment_author": {
       "actor_selection": "/data/avengine_external/review/apartment_current_visual_inputs_b9150cb_20260820T234000Z/actor_selection.json",
       "source_asset_registry": "examples/runtime/source_asset_runtime_profiles.json"
