@@ -49,6 +49,12 @@
     <input id="roofClip" type="checkbox" checked style="width:auto"
            onchange="applyRoofClip()"> 剖切屋顶（地板上方 2m 以上隐藏）
   </label>
+  <div class="row">
+    <button class="secondary" onclick="setViewMode('free')">自由视角</button>
+    <button class="secondary" onclick="setViewMode('top')">俯视图</button>
+    <button class="secondary" onclick="setViewMode('fpv')">相机第一视角</button>
+  </div>
+  <div class="hint" id="viewHint"></div>
 
   <div id="apartmentPanel" style="display:none">
     <h2>公寓 · 拖拽授权（相机锁定于 M1 权威位姿）</h2>

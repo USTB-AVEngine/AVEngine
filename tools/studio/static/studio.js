@@ -149,8 +149,93 @@ function applyRoofClip() {
   room.material.needsUpdate = true;
 }
 
+/* ---------- view presets ---------- */
+
+function renderCameraPose() {
+  // The authoring/render camera: apartment = the locked M1 pose marker;
+  // MP3D = the listener extracted from the authored route's M1 request.
+  if (!state.listener) return null;
+  const yaw = (state.listener.yawDeg ?? 0) * Math.PI / 180;
+  return {
+    position: state.listener.position,
+    forward: [-Math.sin(yaw), 0, -Math.cos(yaw)],
+    hfovDeg: state.bundle?.authoring?.hfov_degrees ?? 105.0,
+  };
+}
+
+function setViewMode(mode) {
+  const hint = document.getElementById("viewHint");
+  const bounds = state.bundle ? state.bundle.mesh.bounds_m : null;
+  if (!bounds) return;
+  // the X-ray walkable overlay and the frustum helper are planning aids;
+  // they only add noise inside the render camera's own view
+  for (const name of ["walkable-overlay", "camera-frustum"]) {
+    const object = state.scene.getObjectByName(name);
+    if (object) object.visible = mode !== "fpv";
+  }
+  const center = [
+    (bounds[0][0] + bounds[1][0]) / 2,
+    (bounds[0][1] + bounds[1][1]) / 2,
+    (bounds[0][2] + bounds[1][2]) / 2,
+  ];
+  const span = Math.max(bounds[1][0] - bounds[0][0], bounds[1][2] - bounds[0][2]);
+  const roofClip = document.getElementById("roofClip");
+  if (mode === "top") {
+    if (!roofClip.checked) { roofClip.checked = true; applyRoofClip(); }
+    state.camera.fov = 55;
+    state.camera.position.set(center[0], state.floorY + span * 1.15, center[2] + 0.01);
+    state.controls.target.set(center[0], state.floorY, center[2]);
+    hint.textContent = "俯视图：滚轮缩放，右键平移。";
+  } else if (mode === "fpv") {
+    const pose = renderCameraPose();
+    if (!pose) {
+      hint.textContent = "第一视角需要相机位姿：公寓自带；MP3D 先生成路线预览。";
+      return;
+    }
+    if (roofClip.checked) { roofClip.checked = false; applyRoofClip(); }
+    const aspect = state.camera.aspect;
+    const hfov = pose.hfovDeg * Math.PI / 180;
+    state.camera.fov = 2 * Math.atan(Math.tan(hfov / 2) / aspect) * 180 / Math.PI;
+    state.camera.position.set(...pose.position);
+    state.controls.target.set(
+      pose.position[0] + pose.forward[0] * 2.5,
+      pose.position[1],
+      pose.position[2] + pose.forward[2] * 2.5,
+    );
+    hint.textContent = "相机第一视角：渲染相机所见（视场与渲染 hfov 对齐）。";
+  } else {
+    if (!roofClip.checked) { roofClip.checked = true; applyRoofClip(); }
+    state.camera.fov = 55;
+    frameCameraOnBounds(bounds);
+    hint.textContent = "";
+  }
+  state.camera.updateProjectionMatrix();
+  state.controls.update();
+}
+
+function drawCameraFrustum() {
+  const old = state.scene.getObjectByName("camera-frustum");
+  if (old) state.scene.remove(old);
+  const pose = renderCameraPose();
+  if (!pose) return;
+  const aspect = 1280 / 720;
+  const hfov = pose.hfovDeg * Math.PI / 180;
+  const vfovDeg = 2 * Math.atan(Math.tan(hfov / 2) / aspect) * 180 / Math.PI;
+  const preview = new THREE.PerspectiveCamera(vfovDeg, aspect, 0.15, 3.0);
+  preview.position.set(...pose.position);
+  preview.lookAt(
+    pose.position[0] + pose.forward[0],
+    pose.position[1],
+    pose.position[2] + pose.forward[2],
+  );
+  preview.updateMatrixWorld();
+  const helper = new THREE.CameraHelper(preview);
+  helper.name = "camera-frustum";
+  state.scene.add(helper);
+}
+
 function clearRoom() {
-  for (const name of ["room", "navgrid", "markers", "paths", "walkable-overlay"]) {
+  for (const name of ["room", "navgrid", "markers", "paths", "walkable-overlay", "camera-frustum"]) {
     const old = state.scene.getObjectByName(name);
     if (old) state.scene.remove(old);
   }
@@ -333,6 +418,7 @@ function setupAuthoring(bundle) {
       // UE camera yaw → habitat yaw (see avengine.m7.apartment_dynamic_audio)
       yawDeg: -90 - authoring.camera_yaw_deg,
     };
+    drawCameraFrustum();
     rebuildApartmentTrajectories();
     renderMarkerList();
     document.getElementById("btnApartmentValidate").onclick = () =>
@@ -685,6 +771,7 @@ async function pollRoutePreview(taskId) {
   if (trajectories) {
     state.trajectories = trajectories;
     state.listener = extractListener(m1) || state.listener;
+    drawCameraFrustum();
     drawPaths();
     updateCues();
   }
