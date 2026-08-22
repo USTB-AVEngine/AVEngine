@@ -103,6 +103,14 @@
 <div id="viewport">
   <canvas id="canvas3d"></canvas>
   <div id="hud">左键旋转 · 右键平移 · 滚轮缩放 · 点击标记后拖动</div>
+  <div id="loading" style="display:none;position:absolute;top:50%;left:50%;
+       transform:translate(-50%,-50%);background:rgba(20,21,24,.92);color:#e8e6e1;
+       padding:14px 22px;border-radius:10px;font-size:13px;text-align:center;min-width:260px">
+    <div id="loadingText">加载中…</div>
+    <div style="margin-top:8px;height:6px;background:#3a3b40;border-radius:3px;overflow:hidden">
+      <div id="loadingBar" style="height:100%;width:0%;background:#7b73e0"></div>
+    </div>
+  </div>
 </div>
 <script src="/studio/static/three.min.js"></script>
 <script src="/studio/static/OrbitControls.js"></script>

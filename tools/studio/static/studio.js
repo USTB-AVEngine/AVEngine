@@ -85,15 +85,59 @@ async function loadScenes() {
     select.appendChild(option);
   }
   select.onchange = () => loadBundle(select.value);
-  if (payload.scenes.length) loadBundle(payload.scenes[0].room_id);
-  else select.innerHTML = "<option>无场景包：先运行 build_studio_scene_bundle</option>";
+  if (payload.scenes.length) {
+    // first paint fast: start with the lightest scene
+    const lightest = [...payload.scenes].sort(
+      (a, b) => (a.triangle_count || 0) - (b.triangle_count || 0))[0];
+    select.value = lightest.room_id;
+    loadBundle(lightest.room_id);
+  } else {
+    select.innerHTML = "<option>无场景包：先运行 build_studio_scene_bundle</option>";
+  }
+}
+
+const loadProgress = { loaded: 0, total: 0 };
+
+function showLoading(text) {
+  const box = document.getElementById("loading");
+  box.style.display = "block";
+  document.getElementById("loadingText").textContent = text;
+}
+
+function setLoadingProgress() {
+  if (!loadProgress.total) return;
+  const percent = Math.min(100, (loadProgress.loaded / loadProgress.total) * 100);
+  document.getElementById("loadingBar").style.width = percent.toFixed(1) + "%";
+  document.getElementById("loadingText").textContent =
+    `下载场景网格 ${(loadProgress.loaded / 1048576).toFixed(1)} / ` +
+    `${(loadProgress.total / 1048576).toFixed(1)} MB`;
+}
+
+function hideLoading() {
+  document.getElementById("loading").style.display = "none";
 }
 
 async function fetchBuffer(roomId, name, attempt = 0) {
   try {
     const response = await fetch(`/api/scenes/${roomId}/files/${name}`);
     if (!response.ok) throw new Error(`fetch ${name}: ${response.status}`);
-    return await response.arrayBuffer();
+    const total = Number(response.headers.get("Content-Length") || 0);
+    loadProgress.total += total;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      loadProgress.loaded += value.length;
+      setLoadingProgress();
+    }
+    const buffer = new Uint8Array(received);
+    let offset = 0;
+    for (const chunk of chunks) { buffer.set(chunk, offset); offset += chunk.length; }
+    return buffer.buffer;
   } catch (error) {
     if (attempt >= 2) throw error;
     await new Promise((resolve) => setTimeout(resolve, 800));
@@ -104,13 +148,15 @@ async function fetchBuffer(roomId, name, attempt = 0) {
 async function loadBundle(roomId) {
   try {
     await loadBundleInner(roomId);
+    hideLoading();
   } catch (error) {
-    document.getElementById("sceneHint").textContent = `场景加载失败：${error.message}（自动重试…）`;
+    showLoading(`场景加载失败：${error.message}，自动重试…`);
     await new Promise((resolve) => setTimeout(resolve, 1200));
     try {
       await loadBundleInner(roomId);
+      hideLoading();
     } catch (retryError) {
-      document.getElementById("sceneHint").textContent = `场景加载失败：${retryError.message}`;
+      showLoading(`场景加载失败：${retryError.message}（刷新页面重试）`);
     }
   }
 }
@@ -124,11 +170,17 @@ async function loadBundleInner(roomId) {
     (bundle.obstacle_map ? "含草稿 navmesh 栅格" : "无栅格（提交时由引擎权威校验）");
 
   clearRoom();
+  loadProgress.loaded = 0;
+  loadProgress.total = 0;
+  showLoading("下载场景网格…");
   const [positions, indices, materialIds] = await Promise.all([
     fetchBuffer(roomId, "mesh_positions.bin"),
     fetchBuffer(roomId, "mesh_indices.bin"),
     fetchBuffer(roomId, "mesh_material_ids.bin"),
   ]);
+  showLoading("构建几何与法线…（大场景需数秒）");
+  await new Promise((resolve) => requestAnimationFrame(() =>
+    requestAnimationFrame(resolve)));
   buildRoomMesh(new Float32Array(positions), new Uint32Array(indices),
                 new Uint32Array(materialIds), bundle.mesh.materials);
   buildGrid(bundle);
