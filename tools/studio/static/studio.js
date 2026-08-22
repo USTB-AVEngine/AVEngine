@@ -246,7 +246,8 @@ async function loadBundleInner(roomId) {
 
   document.getElementById("texturedRow").style.display =
     bundle.textured_mesh ? "flex" : "none";
-  document.getElementById("texturedView").checked = false;
+  // real textures by default whenever the room has them
+  document.getElementById("texturedView").checked = !!bundle.textured_mesh;
   const refFrame = document.getElementById("refFrame");
   if (bundle.reference_frame) {
     refFrame.src = `/api/scenes/${roomId}/files/reference_frame.png`;
@@ -259,6 +260,7 @@ async function loadBundleInner(roomId) {
   await loadActorModels(bundle);
   setupAuthoring(bundle);
   runDraftValidation();
+  if (bundle.textured_mesh) await applyTexturedView();
 }
 
 const actorTemplateCache = new Map();
