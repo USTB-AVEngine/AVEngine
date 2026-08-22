@@ -71,9 +71,32 @@ function tick(timeMs) {
   }
   updateActorDots();
   const renderer = state.renderer;
-  renderer.setScissorTest(false);
-  renderer.setViewport(0, 0, state.viewSize.width, state.viewSize.height);
-  renderer.render(state.scene, state.camera);
+  if (state.viewMode === "fpv") {
+    // letterbox to the render camera's 16:9 frame so the composition
+    // matches the produced clip exactly
+    const W = state.viewSize.width, H = state.viewSize.height;
+    let w = W, h = W * 9 / 16;
+    if (h > H) { h = H; w = H * 16 / 9; }
+    const x = (W - w) / 2, y = (H - h) / 2;
+    renderer.setScissorTest(true);
+    renderer.setScissor(0, 0, W, H);
+    renderer.setViewport(0, 0, W, H);
+    renderer.clear();
+    renderer.setScissor(x, y, w, h);
+    renderer.setViewport(x, y, w, h);
+    state.camera.aspect = 16 / 9;
+    state.camera.updateProjectionMatrix();
+    renderer.render(state.scene, state.camera);
+    renderer.setScissorTest(false);
+  } else {
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, state.viewSize.width, state.viewSize.height);
+    if (state.camera.aspect !== state.viewSize.width / state.viewSize.height) {
+      state.camera.aspect = state.viewSize.width / state.viewSize.height;
+      state.camera.updateProjectionMatrix();
+    }
+    renderer.render(state.scene, state.camera);
+  }
   renderMinimap();
 }
 
@@ -173,9 +196,16 @@ function hideLoading() {
   document.getElementById("loading").style.display = "none";
 }
 
+function sceneFileUrl(roomId, name) {
+  // version-busted: a rebuilt bundle carries a new built_at_utc, so the
+  // long-cached binaries refresh exactly when they change
+  const version = state.bundle?.built_at_utc || "0";
+  return `/api/scenes/${roomId}/files/${name}?v=${version}`;
+}
+
 async function fetchBuffer(roomId, name, attempt = 0) {
   try {
-    const response = await fetch(`/api/scenes/${roomId}/files/${name}`);
+    const response = await fetch(sceneFileUrl(roomId, name));
     if (!response.ok) throw new Error(`fetch ${name}: ${response.status}`);
     const total = Number(response.headers.get("Content-Length") || 0);
     loadProgress.total += total;
@@ -219,7 +249,7 @@ async function loadBundle(roomId) {
 
 async function loadBundleInner(roomId) {
   state.roomId = roomId;
-  const bundle = await (await fetch(`/api/scenes/${roomId}/bundle.json`)).json();
+  const bundle = await (await fetch(`/api/scenes/${roomId}/bundle.json`, { cache: "no-store" })).json();
   state.bundle = bundle;
   document.getElementById("sceneHint").textContent =
     `${bundle.room_id} · 声学网格黏土视图 · ` +
@@ -250,7 +280,7 @@ async function loadBundleInner(roomId) {
   document.getElementById("texturedView").checked = !!bundle.textured_mesh;
   const refFrame = document.getElementById("refFrame");
   if (bundle.reference_frame) {
-    refFrame.src = `/api/scenes/${roomId}/files/reference_frame.png`;
+    refFrame.src = sceneFileUrl(roomId, "reference_frame.png");
     refFrame.style.width = "240px";
     refFrame.style.display = "block";
   } else {
@@ -275,7 +305,7 @@ async function loadActorModels(bundle) {
       if (!actorTemplateCache.has(name)) {
         showLoading(`下载角色模型 ${name}…`);
         const gltf = await new Promise((resolve, reject) => loader.load(
-          `/api/scenes/${state.roomId}/files/actor_${name}.glb`, resolve,
+          sceneFileUrl(state.roomId, `actor_${name}.glb`), resolve,
           (event) => {
             if (event.total) {
               document.getElementById("loadingText").textContent =
@@ -341,7 +371,7 @@ async function applyTexturedView() {
       showLoading("下载贴图网格…（数据集真实外观）");
       const loader = new THREE.GLTFLoader();
       const gltf = await new Promise((resolve, reject) => loader.load(
-        `/api/scenes/${state.roomId}/files/textured.glb`, resolve,
+        sceneFileUrl(state.roomId, "textured.glb"), resolve,
         (event) => {
           if (event.total) {
             document.getElementById("loadingText").textContent =
@@ -352,7 +382,9 @@ async function applyTexturedView() {
         reject));
       textured = gltf.scene;
       textured.name = "room-textured";
-      alignTexturedToClay(textured);
+      if (state.bundle.textured_mesh.alignment !== "identity") {
+        alignTexturedToClay(textured);
+      }
       state.scene.add(textured);
       await loadComposition();
       hideLoading();
@@ -374,7 +406,7 @@ async function loadComposition() {
   // full scene composition: dataset object glbs placed per scene_instance
   if (!state.bundle.composition) return;
   if (state.scene.getObjectByName("room-objects")) return;
-  const response = await fetch(`/api/scenes/${state.roomId}/files/composition.json`);
+  const response = await fetch(sceneFileUrl(state.roomId, "composition.json"));
   if (!response.ok) return;
   const composition = await response.json();
   const group = new THREE.Group();
@@ -385,7 +417,7 @@ async function loadComposition() {
   const loadGlb = (relative) => {
     if (!cache.has(relative)) {
       cache.set(relative, new Promise((resolve, reject) => loader.load(
-        `/api/scenes/${state.roomId}/dataset/${relative}`, resolve, undefined, reject)));
+        `/api/scenes/${state.roomId}/dataset/${relative}?v=${state.bundle?.built_at_utc || "0"}`, resolve, undefined, reject)));
     }
     return cache.get(relative);
   };
@@ -481,6 +513,7 @@ function setViewMode(mode) {
   const hint = document.getElementById("viewHint");
   const bounds = state.bundle ? state.bundle.mesh.bounds_m : null;
   if (!bounds) return;
+  state.viewMode = mode;
   // the X-ray walkable overlay and the frustum helper are planning aids;
   // they only add noise inside the render camera's own view
   for (const name of ["walkable-overlay", "camera-frustum"]) {
@@ -507,9 +540,9 @@ function setViewMode(mode) {
       return;
     }
     if (roofClip.checked) { roofClip.checked = false; applyRoofClip(); }
-    const aspect = state.camera.aspect;
+    // the render frame is 16:9 (1280x720); the viewport letterboxes to match
     const hfov = pose.hfovDeg * Math.PI / 180;
-    state.camera.fov = 2 * Math.atan(Math.tan(hfov / 2) / aspect) * 180 / Math.PI;
+    state.camera.fov = 2 * Math.atan(Math.tan(hfov / 2) / (16 / 9)) * 180 / Math.PI;
     state.camera.position.set(...pose.position);
     state.controls.target.set(
       pose.position[0] + pose.forward[0] * 2.5,
@@ -699,12 +732,34 @@ function frameCameraOnBounds(bounds) {
 /* ---------- authoring markers ---------- */
 
 const MARKER_STYLES = {
-  camera:       { color: 0xb0b0b0, label: "相机（锁定）", locked: true },
-  human_start:  { color: 0x4f83ff, label: "人类 起点" },
-  human_end:    { color: 0x9fc0ff, label: "人类 终点" },
-  beagle_start: { color: 0xff9440, label: "比格犬 起点" },
-  beagle_end:   { color: 0xffc79a, label: "比格犬 终点" },
+  camera:       { color: 0xb0b0b0, label: "相机（锁定）", short: "相机", locked: true },
+  human_start:  { color: 0x4f83ff, label: "人类 起点", short: "人·起" },
+  human_end:    { color: 0x9fc0ff, label: "人类 终点", short: "人·终" },
+  beagle_start: { color: 0xff9440, label: "比格犬 起点", short: "犬·起" },
+  beagle_end:   { color: 0xffc79a, label: "比格犬 终点", short: "犬·终" },
 };
+
+function makeLabelSprite(text, colorHex) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256; canvas.height = 88;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(18,19,22,0.82)";
+  ctx.beginPath();
+  ctx.roundRect(28, 8, 200, 72, 18);
+  ctx.fill();
+  ctx.font = "bold 44px system-ui, 'PingFang SC', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#" + colorHex.toString(16).padStart(6, "0");
+  ctx.fillText(text, 128, 46);
+  const texture = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture, depthTest: false, transparent: true,
+  }));
+  sprite.scale.set(0.72, 0.25, 1);
+  sprite.renderOrder = 6;
+  return sprite;
+}
 
 function ueCmToWorld(ue) { return [ue[0] / 100, ue[2] / 100, ue[1] / 100]; }
 function worldToUeCm(p)  { return [p[0] * 100, p[2] * 100, p[1] * 100]; }
@@ -762,6 +817,9 @@ function addMarker(group, key, world, style) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(world[0], world[1] + (isCamera ? 0 : 0.12), world[2]);
   mesh.userData = { key, locked: !!style.locked, baseColor: style.color };
+  const label = makeLabelSprite(style.short || style.label, style.color);
+  label.position.set(0, 0.4, 0);
+  mesh.add(label);
   group.add(mesh);
   state.markers[key] = mesh;
   state.markerOrder.push(key);

@@ -19,17 +19,18 @@ actors = unreal.GameplayStatics.get_all_actors_of_class(world, unreal.StaticMesh
 for actor in actors:
     origin, extent = actor.get_actor_bounds(False)
     if (
-        max(extent.x, extent.y) < 3000.0
-        and extent.z < 1000.0
-        and abs(origin.x) < 1500.0
-        and abs(origin.y) < 1500.0
-        and -200.0 < origin.z < 600.0
+        max(extent.x, extent.y) < 1000.0
+        and extent.z < 500.0
+        and abs(origin.x) < 1000.0
+        and abs(origin.y) < 1000.0
+        and -100.0 < origin.z < 500.0
     ):
         selected.add(actor)
+        unreal.log(f"[gltf-export] keep: {actor.get_actor_label()} origin=({origin.x:.0f},{origin.y:.0f},{origin.z:.0f}) extent=({extent.x:.0f},{extent.y:.0f},{extent.z:.0f})")
     else:
-        skipped.append(f"{actor.get_actor_label()} extent=({extent.x:.0f},{extent.y:.0f},{extent.z:.0f})")
+        skipped.append(f"{actor.get_actor_label()} origin=({origin.x:.0f},{origin.y:.0f},{origin.z:.0f}) extent=({extent.x:.0f},{extent.y:.0f},{extent.z:.0f})")
 unreal.log(f"[gltf-export] selected {len(selected)} static mesh actors, skipped {len(skipped)}")
-for line in skipped[:10]:
+for line in skipped[:20]:
     unreal.log("[gltf-export] skipped: " + line)
 
 options = unreal.GLTFExportOptions()

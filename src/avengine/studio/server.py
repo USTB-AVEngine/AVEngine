@@ -134,10 +134,22 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
     # -- transport helpers ---------------------------------------------------
 
-    def _send_payload(self, body: bytes, content_type: str, status: int) -> None:
+    # big immutable-per-version binaries get long caching; everything else
+    # (pages, scripts, JSON) must always revalidate so edits show up
+    _LONG_CACHE_SUFFIXES = frozenset({".bin", ".glb", ".png", ".mp4", ".wav"})
+
+    def _send_payload(
+        self,
+        body: bytes,
+        content_type: str,
+        status: int,
+        *,
+        cache_control: str = "no-cache",
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache_control)
         self.end_headers()
         self.wfile.write(body)
 
@@ -154,7 +166,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
     def _send_file(self, path: Path, *, status: int = 200) -> None:
         content_type = _CONTENT_TYPES.get(path.suffix, "application/octet-stream")
         body = path.read_bytes()
-        self._send_payload(body, content_type, status)
+        cache = (
+            "max-age=604800"
+            if path.suffix in self._LONG_CACHE_SUFFIXES
+            else "no-cache"
+        )
+        self._send_payload(body, content_type, status, cache_control=cache)
 
     def _read_json_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)

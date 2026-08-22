@@ -43,7 +43,11 @@
 <body>
 <div id="sidebar">
   <h1>AVEngine Studio · 3D 编辑器</h1>
-  <select id="sceneSelect"><option>加载场景列表…</option></select>
+  <div class="row">
+    <select id="sceneSelect" style="flex:3"><option>加载场景列表…</option></select>
+    <button class="secondary" style="flex:1" title="绕过浏览器缓存重新加载页面与场景"
+            onclick="location.href='/studio?ts='+Date.now()">强制刷新</button>
+  </div>
   <div class="hint" id="sceneHint"></div>
   <label class="hint" style="display:flex;gap:6px;align-items:center">
     <input id="roofClip" type="checkbox" checked style="width:auto"

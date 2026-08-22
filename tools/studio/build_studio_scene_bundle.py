@@ -387,6 +387,14 @@ def main() -> int:
     )
     parser.add_argument("--reference-frame-index", type=int, default=0)
     parser.add_argument(
+        "--textured-alignment",
+        choices=("auto", "identity"),
+        default="auto",
+        help="identity: the glb is already in the engine world frame (e.g. "
+        "the UE glTF export matches H=(U.x,U.z,U.y)/100); auto: fit against "
+        "the clay bounds",
+    )
+    parser.add_argument(
         "--actor-model",
         action="append",
         default=[],
@@ -420,10 +428,13 @@ def main() -> int:
         raise SystemExit(f"output already exists (fresh/no-clobber): {bundle_dir}")
     bundle_dir.mkdir(parents=True)
 
+    from datetime import datetime, timezone
+
     bundle: dict = {
         "schema": BUNDLE_SCHEMA,
         "room_id": args.room_id,
         "display_name": args.display_name or args.room_id,
+        "built_at_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "mesh": _write_mesh(args.acoustic_package_manifest.resolve(), bundle_dir),
     }
 
@@ -484,6 +495,7 @@ def main() -> int:
         bundle["textured_mesh"] = {
             "source_path": str(glb_path),
             "byte_size": glb_path.stat().st_size,
+            "alignment": args.textured_alignment,
             "note": "external dataset file served read-only; never copied into Git",
         }
 
