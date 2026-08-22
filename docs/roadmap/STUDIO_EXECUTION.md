@@ -199,3 +199,81 @@ SPEAR-lead-b 路径同属转轨前遗留）。d537d01（直推 main，规则 byp
 （7d8e152）。另记录：在无 lead-a 未跟踪 tmp/ 状态的新鲜检出上，全量
 单测另有约 28 个先存失败（如 test_m4_cli），属于测试层对机器本地状态
 的残余依赖，与本次改动无关，待后续专项清理。
+
+## 变更 20260822-B：owner 指示（S2 起生效）
+
+1. S2–S4 连做，不再逐 Session 停等验收（owner："全部都做了"）。
+2. 画布升级为 **3D 场景编辑器**：加载真实房间几何、像 UE/Blender 一样
+   实时拖拽；重资产预处理（"预渲染"），最终视频异步 GPU 队列出片。
+3. 不只 MP3D——所有可用房间都要进编辑器；视图中必须标出合法可行域。
+4. Workflow 只在确能提效时用（ultracode 开着但要省额度）；本轮全部直做。
+
+### Checkpoint 20260822-S234：3D 编辑器 + 端到端 + 防废案双件套落地
+
+**场景包基建**（tools/studio/build_studio_scene_bundle.py + avengine.studio.scenes/validation）：
+- M3 声学包网格 → 原始小端 buffers（positions/indices/triangle_material_ids）
+  + 按材质类别上色的黏土视图；bundle.json 自描述（schema
+  avengine_studio_scene_bundle_v1）。
+- 草稿可走性栅格两种来源：MP3D 用 navmesh（原生 PathFinder topdown，构建
+  时用已知可走点自校验栅格朝向，错即构建失败）；公寓用**声学网格占用启发
+  式**（面积加权检测最低水平主面为地板 + 精确 XZ 光栅化：小三角形 bbox
+  填充、大三角形重心点内测试——bbox 粗画会淹没全房、稀疏采样会漏地板，
+  两个坑都踩过并修正）。四个已验证角色点入栅格自检。
+- 已建包：habitat_mp3d_example_17DRP5sb8fy（301.6 万三角形 + navmesh 栅格
+  413×817）、legacy_ue_apartment_0000（78.2 万三角形 + 占用栅格，逐材质
+  上色）。Kujiale 与 ReplicaCAD 尚无 M3 声学包，各跑一次 M3 编译即可入列
+  （架构房间无关，待办）。
+- three.js r0.147（two vendored MIT build files, THIRD_PARTY_NOTICES 已登
+  记）；剖切屋顶开关（地板上方 2m 裁剪 = dollhouse 视图）；**合法可行域
+  以半透明绿色覆盖层直接画在视图里**（X-ray 式，验证与家具足迹精确互补）。
+
+**S2 验收（3D 拖拽 + 即时校验）**：公寓五标记（相机锁定 + 人/犬起止点）
+浏览器拖拽；拖进沙发即时标红"不可放置 outside the walkable navmesh"，
+其余保持绿色；/api/validate 服务端草稿校验（栅格 + 引擎自有
+point_to_world_obb_clearance OBB 净空）；权威判定仍在渲染链原生闸门。
+
+**S3 验收（网页到成片）**：
+- 公寓：显式坐标 → apartment_author 任务（引擎权威校验，秒级）**pass**；
+  apartment_end_to_end 驱动器（author→SpearSim UE 捕获→m7 动态音频→
+  bgr 出片）。相机 v1 锁定于 M1 权威位姿（音频 1e-6 互证所限），放开
+  相机需要配套生成 M1 请求，记为后续。
+- MP3D：seed 路线授权任务（~1 分钟）→ 轨迹 JSON 镜像回任务目录 → 3D
+  画布叠加预览 → mp3d_end_to_end 驱动器（author→capture→dynamic audio→
+  clip）。工程要点：路线作者 verb 要求输出为 review 根直接子目录（驱动
+  器写 review/studio_<task>_route 再镜像），RLR SDK 经 AVENGINE_RLR_SDK_ROOT
+  环境变量传递。seed 20260822 被引擎正确拒绝（无全程双犬可见相机——
+  fail-closed 即防废案），seed 22 通过。
+- 成片经 /api/tasks/<id>/artifact 安全端点在页面 <video> 播放（路径逃逸
+  已测 400）。
+
+**S4 验收（防废案双件套，草稿启发式实现）**：
+- 逐帧方位角色带（蓝左/红右，每源一条；遮挡=对草稿栅格 2D DDA 视线，
+  黑色刻线）+ 警示（方位变化 <10°、两源夹角 <20° 帧占比过半）。
+- 题型预演清单：左右判断（中位方位 ≥15° 且稳定）、趋近/远离（径向位移
+  ≥0.5m）、谁更近（距离比 ≥1.3）、方位交叉、先后发声；拖动端点实时刷新，
+  不可产出项标注拒答落点。
+- 注意：此为客户端几何启发式（页面上明确标注"引擎 QuestionSpec 为准"）；
+  接 avengine.qa.question_spec 离线子集 + 事实表合成留给 v1.5 的
+  QuestionSpec 预演器精化。
+
+**质量闸门证据（两条端到端链，均经 Studio HTTP 队列产出）**：
+- MP3D（task 20260822T005914Z）：pass；且 seed 22 全链重推的 mixture 与
+  已过审 current_mp3d_dynamic_audio_seed22g_v1 **逐字节一致**
+  （a0c04fe9…）——同种子确定性把整条 author→capture→audio 链再证明了
+  一遍。seed 20260822 被授权层正确拒绝（无全程双犬可见相机候选），
+  fail-closed 即防废案。
+- 公寓（task 20260822T010802Z，新端点 human_end→(-350,-60)、
+  beagle_end→(-200,-104)）：pass；窗口 ILD 交替
+  +2.63/−4.09/+2.34/−0.24/−2.73 dB（轮流发声左右化清晰）；逐帧亮度
+  86.5→89.3 全程平坦（无曝光爬坡）；动画回放探针 **pass**（source2 中位
+  残差 14.0、source1 25.2，均 >9.5 animated 阈值——滑行缺陷未复发）。
+- 工程要点（公寓链）：author verb 的 --output 是 timeline JSON 文件本身；
+  UE 捕获需 PYTHONPATH 注入外置 avengine_spear_ext 构建
+  （spear-host-sdk/avengine-spear-ext-cp312-8a36d4d）；出片 --channel-order
+  bgr。相机 v1 锁定 M1 权威位姿。
+- 全量单测回归 **3092 passed / 0 failed / 65 skipped**（新增 7 个场景/校验
+  测试）。
+
+**待办（记录，不阻塞）**：Kujiale 与 ReplicaCAD 各需一次 M3 声学编译才能
+入编辑器；公寓自由相机需配套生成 M1 请求；QuestionSpec 预演器接引擎
+离线子集（v1.5）；MP3D 纹理 glb 视图可选增强。

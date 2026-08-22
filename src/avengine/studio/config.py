@@ -44,6 +44,7 @@ class StudioConfig:
     host: str = "127.0.0.1"
     port: int = 8765
     main_branch: str = "main"
+    scenes_root: Path | None = None
 
 
 def _resolved_path(value: object, repository_root: Path) -> Path:
@@ -134,7 +135,12 @@ def load_studio_config(config_path: str | Path) -> StudioConfig:
     if not 0 <= port <= 65535:
         raise StudioConfigError(f"port out of range: {port}")
 
+    scenes_root: Path | None = None
+    if payload.get("scenes_root") is not None:
+        scenes_root = _resolved_path(payload["scenes_root"], repository_root)
+
     return StudioConfig(
+        scenes_root=scenes_root,
         repository_root=repository_root,
         python_executable=python_executable,
         review_root=review_root,

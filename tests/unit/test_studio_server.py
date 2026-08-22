@@ -67,8 +67,17 @@ def _write_capture(review_root: Path, name: str) -> None:
 
 @pytest.fixture()
 def studio_config_path(tmp_path: Path) -> Path:
+    from test_studio_scenes import make_bundle
+
     repo = tmp_path / "repo"
     main_sha = _init_git_repo(repo)
+
+    static_root = repo / "tools/studio/static"
+    static_root.mkdir(parents=True)
+    (static_root / "studio.html").write_text("<html>studio</html>", encoding="utf-8")
+
+    scenes_root = tmp_path / "scenes"
+    make_bundle(scenes_root, "room_a")
 
     review_root = tmp_path / "review"
     _write_capture(review_root, f"room_visual_{main_sha[:7]}_ok")
@@ -120,6 +129,7 @@ def studio_config_path(tmp_path: Path) -> Path:
             "python_executable": sys.executable,
             "review_root": str(review_root),
             "tasks_root": str(tmp_path / "tasks"),
+            "scenes_root": str(scenes_root),
             "host": "127.0.0.1",
             "port": 0,
             "main_branch": "main",
@@ -244,3 +254,70 @@ def test_unknown_routes_and_tasks_return_404(studio_server: StudioHTTPServer) ->
         with pytest.raises(urllib.error.HTTPError) as excinfo:
             _get_json(studio_server, path)
         assert excinfo.value.code == 404
+
+
+def test_scene_endpoints_and_static(studio_server: StudioHTTPServer) -> None:
+    scenes = _get_json(studio_server, "/api/scenes")
+    assert [scene["room_id"] for scene in scenes["scenes"]] == ["room_a"]
+    bundle = _get_json(studio_server, "/api/scenes/room_a/bundle.json")
+    assert bundle["schema"] == "avengine_studio_scene_bundle_v1"
+
+    port = studio_server.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/api/scenes/room_a/files/mesh_positions.bin"
+    ) as response:
+        assert len(response.read()) == 4 * 3 * 4  # four float32 xyz vertices
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/scenes/room_a/files/secrets.txt"
+        )
+    assert excinfo.value.code == 404
+
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/studio") as response:
+        assert b"studio" in response.read()
+
+
+def test_validate_endpoint(studio_server: StudioHTTPServer) -> None:
+    status, result = _post_json(
+        studio_server,
+        "/api/validate",
+        {
+            "room_id": "room_a",
+            "points": [
+                {"label": "good", "position_m": [0.75, 0.0, 0.75]},
+                {"label": "far", "position_m": [50.0, 0.0, 50.0]},
+            ],
+        },
+    )
+    assert status == 200
+    by_label = {record["label"]: record for record in result["points"]}
+    assert by_label["good"]["ok"] is True
+    assert by_label["far"]["ok"] is False
+    assert result["all_ok"] is False
+
+
+def test_artifact_endpoint_is_sandboxed(studio_server: StudioHTTPServer, tmp_path) -> None:
+    import sys as _sys
+
+    task_id = studio_server.task_queue.submit(
+        template="echo",
+        argv_builder=lambda output: [_sys.executable, "-c", "print('ok')"],
+        cwd=tmp_path,
+    )
+    assert studio_server.task_queue.wait(task_id, timeout_s=30.0) == "pass"
+    record = studio_server.task_queue.get(task_id)
+    output_dir = Path(record["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "steps.json").write_text("{}", encoding="utf-8")
+
+    port = studio_server.server_address[1]
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/api/tasks/{task_id}/artifact?path=steps.json"
+    ) as response:
+        assert response.read() == b"{}"
+    with pytest.raises(urllib.error.HTTPError) as escape:
+        urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/tasks/{task_id}/artifact"
+            "?path=../../task.json"
+        )
+    assert escape.value.code == 400

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>AVEngine Studio · 3D 场景编辑器</title>
+<style>
+  :root { --bg:#1e1f22; --panel:#26272b; --line:#3a3b40; --text:#e8e6e1; --dim:#9a988f;
+          --accent:#7b73e0; --ok:#4cc38a; --bad:#e5534b; --warn:#d4a72c; }
+  * { box-sizing:border-box; }
+  body { margin:0; display:flex; height:100vh; font-family:system-ui,'PingFang SC',sans-serif;
+         background:var(--bg); color:var(--text); overflow:hidden; }
+  #sidebar { width:340px; min-width:340px; padding:12px; overflow-y:auto;
+             background:var(--panel); border-right:1px solid var(--line); }
+  #viewport { flex:1; position:relative; }
+  #canvas3d { width:100%; height:100%; display:block; }
+  h1 { font-size:15px; margin:2px 0 10px; }
+  h2 { font-size:12.5px; margin:16px 0 6px; color:var(--dim); text-transform:none;
+       border-top:1px solid var(--line); padding-top:10px; }
+  select,input,button { width:100%; margin:3px 0; padding:6px 8px; border-radius:6px;
+        border:1px solid var(--line); background:#1a1b1e; color:var(--text); font-size:12.5px; }
+  button { cursor:pointer; background:var(--accent); border:none; font-weight:600; }
+  button.secondary { background:#3a3b40; }
+  button:disabled { opacity:.45; cursor:default; }
+  .row { display:flex; gap:6px; } .row > * { flex:1; }
+  .hint { font-size:11px; color:var(--dim); line-height:1.5; margin:4px 0; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; }
+  .ok { background:rgba(76,195,138,.18); color:var(--ok); }
+  .bad { background:rgba(229,83,75,.18); color:var(--bad); }
+  .warn { background:rgba(212,167,44,.16); color:var(--warn); }
+  #validation div, #warnings div { font-size:12px; margin:3px 0; }
+  #markerList div { font-size:12px; padding:3px 6px; margin:2px 0; border-radius:5px;
+                    background:#1a1b1e; display:flex; justify-content:space-between; cursor:pointer; }
+  #markerList div.selected { outline:1px solid var(--accent); }
+  #tasks div.task { font-size:11.5px; padding:5px 7px; margin:4px 0; border-radius:6px; background:#1a1b1e; }
+  #azimuthStrip { width:100%; height:44px; background:#141518; border-radius:6px; }
+  #frameBar { width:100%; }
+  video { width:100%; border-radius:8px; margin-top:6px; background:#000; }
+  #hud { position:absolute; left:10px; bottom:10px; font-size:11px; color:var(--dim);
+         background:rgba(20,21,24,.75); padding:6px 10px; border-radius:6px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h1>AVEngine Studio · 3D 编辑器</h1>
+  <select id="sceneSelect"><option>加载场景列表…</option></select>
+  <div class="hint" id="sceneHint"></div>
+  <label class="hint" style="display:flex;gap:6px;align-items:center">
+    <input id="roofClip" type="checkbox" checked style="width:auto"
+           onchange="applyRoofClip()"> 剖切屋顶（地板上方 2m 以上隐藏）
+  </label>
+
+  <div id="apartmentPanel" style="display:none">
+    <h2>公寓 · 拖拽授权（相机锁定于 M1 权威位姿）</h2>
+    <div id="markerList"></div>
+    <div class="hint">在视口里拖动彩色标记。绿色=草稿校验通过，红色=不可放置。
+      相机与朝向锁定：动态音频与 M1 听者权威做 1e-6 互证。</div>
+    <button id="btnApartmentValidate" class="secondary">提交作者化校验（引擎权威，秒级）</button>
+    <button id="btnApartmentRender">提交完整渲染（UE 捕获 + 动态音频 + 出片）</button>
+  </div>
+
+  <div id="mp3dPanel" style="display:none">
+    <h2>MP3D · 种子路线授权</h2>
+    <div class="row">
+      <input id="seedInput" type="number" value="20260820" title="seed">
+      <select id="cameraSelect">
+        <option value="lateral_sweep">lateral_sweep</option>
+        <option value="framing">framing</option>
+      </select>
+    </div>
+    <button id="btnRoutePreview" class="secondary">生成路线并 3D 预览（原生授权，约 1 分钟）</button>
+    <button id="btnMp3dRender" disabled>按此路线提交完整渲染</button>
+  </div>
+
+  <h2>草稿校验</h2>
+  <div id="validation" class="hint">拖动标记后即时更新。</div>
+
+  <h2>声学线索预演（草稿启发式）</h2>
+  <canvas id="azimuthStrip" width="316" height="44"></canvas>
+  <div class="hint">上条=源1方位角（蓝左/红右），下条=源2；斜纹=视线被遮挡。</div>
+  <div id="warnings"></div>
+
+  <h2>题型预演（草稿启发式，引擎 QuestionSpec 为准）</h2>
+  <div id="questionPreview" class="hint">拖动端点后实时刷新。</div>
+
+  <h2>时间线</h2>
+  <input id="frameBar" type="range" min="0" max="74" value="0">
+  <div class="row">
+    <button id="btnPlay" class="secondary">播放 ▶</button>
+    <div class="hint" style="flex:2;align-self:center" id="frameLabel">帧 0 / 74</div>
+  </div>
+
+  <h2>任务与成片</h2>
+  <div id="tasks"></div>
+  <video id="player" controls style="display:none"></video>
+</div>
+<div id="viewport">
+  <canvas id="canvas3d"></canvas>
+  <div id="hud">左键旋转 · 右键平移 · 滚轮缩放 · 点击标记后拖动</div>
+</div>
+<script src="/studio/static/three.min.js"></script>
+<script src="/studio/static/OrbitControls.js"></script>
+<script src="/studio/static/studio.js"></script>
+</body>
+</html>
