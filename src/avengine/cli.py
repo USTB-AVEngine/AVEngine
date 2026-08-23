@@ -2264,9 +2264,9 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio = m5_commands.add_parser(
         "render-current-mp3d-dynamic-audio",
         help=(
-            "Render motion-following binaural research audio for an authored "
-            "current MP3D route from captured per-frame source positions and "
-            "one AudioProgram routing variant"
+            "Render motion-following binaural plus native FOA research audio "
+            "for an authored current MP3D route from captured per-frame source "
+            "positions and one AudioProgram routing variant"
         ),
     )
     m5_dynamic_audio.add_argument("--visual-capture-dir", required=True)

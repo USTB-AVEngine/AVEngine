@@ -66,6 +66,21 @@ def test_m5_parser_exposes_validate_run_and_verify() -> None:
     assert verify.m5_command == "verify-canary"
 
 
+def test_m5_dynamic_audio_help_declares_dual_layout_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit) as raised:
+        parser.parse_args(["m5", "--help"])
+
+    assert raised.value.code == 0
+    rendered = " ".join(capsys.readouterr().out.split())
+    assert (
+        "Render motion-following binaural plus native FOA research audio" in rendered
+    )
+
+
 def test_m5_checked_in_request_validates(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

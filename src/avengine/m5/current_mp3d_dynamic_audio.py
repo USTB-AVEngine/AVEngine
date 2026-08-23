@@ -4,8 +4,8 @@ The static ``render_current_m1_research_audio`` verb stays the frozen
 baseline: its pair IRs carry one state per source, so mixes hold no motion.
 This module renders the audio the visual capture actually shows instead:
 captured per-frame emitter positions drive a strided keyframe grid through
-the persistent-context M5.1 review renderer, and the dry buses come from an
-M6 AudioProgram routing variant, so the probe sources take turns instead of
+independent binaural and native-FOA M5.1 contexts, and the dry buses come from
+an M6 AudioProgram routing variant, so the probe sources take turns instead of
 sharing one schedule. The core ``render_dynamic_research_audio`` is
 room-agnostic; ``render_current_mp3d_dynamic_audio`` binds it to the current
 MP3D capture record layout.
@@ -25,10 +25,13 @@ from avengine.m1.contracts import validate_capture_request
 from avengine.m3.runtime import load_compiled_acoustic_scene
 from avengine.m4.audio import write_float32_wav
 from avengine.m4.current_m1_pair_ir import _load_simulation_request
+from avengine.m4.spatial import rlr_foa_wav_metadata
 from avengine.m5_1.acoustics import (
     build_strided_review_keyframes,
     render_research_review_binaural_audio,
     render_research_review_binaural_rir_sequence,
+    render_research_review_foa_audio,
+    render_research_review_foa_rir_sequence,
 )
 from avengine.m6.audio_render import assemble_audio_program_dry_buses
 from avengine.m6.sources import (
@@ -44,7 +47,8 @@ AUDIO_SAMPLE_RATE_HZ = 16_000
 EPISODE_SAMPLE_COUNT = 80_000
 CLAIM_BOUNDARY = (
     "Research review audio only. Captured per-frame source positions and one "
-    "AudioProgram routing variant drive strided per-state binaural RIRs; no "
+    "AudioProgram routing variant drive independent strided per-state binaural "
+    "and native FOA RIRs; no "
     "dataset admission, qualification, or new gate is claimed."
 )
 
@@ -183,7 +187,7 @@ def render_dynamic_research_audio(
     hrtf_license_path: str | Path | None = None,
     extra_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Room-agnostic core: trajectories + program variant -> binaural episode."""
+    """Room-agnostic core: trajectories + program variant -> dual-layout episode."""
 
     output = _fresh_output(output_path)
     program_path = Path(audio_program_path).resolve()
@@ -231,9 +235,28 @@ def render_dynamic_research_audio(
         package_manifest_path, allow_nonpassing_research_qa=True
     )
     hrtf = Path(hrtf_file_path).resolve()
-    sequence = render_research_review_binaural_rir_sequence(
+    binaural_sequence = render_research_review_binaural_rir_sequence(
         scene, simulation, grid=grid, hrtf_file_path=str(hrtf)
     )
+    foa_sequence = render_research_review_foa_rir_sequence(
+        scene, simulation, grid=grid
+    )
+    binaural_identity = (
+        binaural_sequence.source_ids,
+        binaural_sequence.keyframe_ticks,
+        binaural_sequence.keyframe_samples,
+        binaural_sequence.trajectory_sha256,
+    )
+    foa_identity = (
+        foa_sequence.source_ids,
+        foa_sequence.keyframe_ticks,
+        foa_sequence.keyframe_samples,
+        foa_sequence.trajectory_sha256,
+    )
+    if foa_identity != binaural_identity:
+        raise CurrentMP3DDynamicAudioError(
+            "FOA and binaural RIRs must share source and trajectory identity"
+        )
 
     required_sounds = {
         str(event["sound_asset_id"]) for event in program.get("events") or ()
@@ -255,8 +278,11 @@ def render_dynamic_research_audio(
         asset_bindings=bindings,
     )
     dry_buses = assembly.dry_audio.buses
-    stems, mixture = render_research_review_binaural_audio(
-        dry_buses, sequence, grid=grid
+    binaural_stems, binaural_mixture = render_research_review_binaural_audio(
+        dry_buses, binaural_sequence, grid=grid
+    )
+    foa_stems, foa_mixture = render_research_review_foa_audio(
+        dry_buses, foa_sequence, grid=grid
     )
 
     audio_root = output / "audio"
@@ -267,14 +293,55 @@ def render_dynamic_research_audio(
         write_float32_wav(path, samples, AUDIO_SAMPLE_RATE_HZ)
         outputs[str(path.relative_to(output))] = sha256_file(path)
 
+    def _write_foa(
+        path: Path, samples: np.ndarray, *, metadata: Mapping[str, Any]
+    ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_float32_wav(
+            path,
+            samples,
+            AUDIO_SAMPLE_RATE_HZ,
+            metadata=metadata,
+        )
+        outputs[str(path.relative_to(output))] = sha256_file(path)
+
     for source_id in source_ids:
         dry = np.asarray(dry_buses[source_id], dtype=np.float64)[None, :]
         _write(audio_root / "dry" / f"{source_id}.wav", dry)
         _write(
             audio_root / "binaural" / f"{source_id}_stem.wav",
-            stems[source_id].episode,
+            binaural_stems[source_id].episode,
         )
-    _write(audio_root / "binaural" / "mixture.wav", np.asarray(mixture))
+        _write_foa(
+            audio_root / "foa" / f"{source_id}_stem.wav",
+            foa_stems[source_id].episode,
+            metadata={
+                **rlr_foa_wav_metadata(),
+                "audio_role": "dynamic_wet_stem",
+                "source_id": source_id,
+                "hrtf_used": False,
+                "resampling": "not_applied",
+                "amplitude_normalization": "not_applied",
+                "limiter": "not_applied",
+            },
+        )
+    _write(
+        audio_root / "binaural" / "mixture.wav", np.asarray(binaural_mixture)
+    )
+    _write_foa(
+        audio_root / "foa" / "mixture.wav",
+        np.asarray(foa_mixture),
+        metadata={
+            **rlr_foa_wav_metadata(),
+            "audio_role": "dynamic_wet_mixture",
+            "source_ids": list(source_ids),
+            "summation_order": list(source_ids),
+            "hrtf_used": False,
+            "resampling": "not_applied",
+            "amplitude_normalization": "not_applied",
+            "limiter": "not_applied",
+        },
+    )
 
     materialized = assembly.materialized_program
     inputs: dict[str, Any] = {
@@ -309,6 +376,27 @@ def render_dynamic_research_audio(
             "layout_type": "binaural",
             "channel_labels": ["left", "right"],
         },
+        "audio_layouts": {
+            "binaural": {
+                "layout_type": "binaural",
+                "channel_count": 2,
+                "channel_labels": ["left", "right"],
+                "normalization": "not_applicable",
+                "coordinate_frame": "listener_local",
+                "hrtf_used": True,
+            },
+            "foa": {
+                "layout_type": "ambisonics",
+                "ambisonic_order": 1,
+                "channel_count": 4,
+                "channel_labels": ["W", "Y", "Z", "X"],
+                "channel_ordering": "ACN",
+                "acn_indices": [0, 1, 2, 3],
+                "normalization": "N3D",
+                "coordinate_frame": "avengine_world",
+                "hrtf_used": False,
+            },
+        },
         "audio_program": {
             "path": str(program_path),
             "program_id": program.get("program_id"),
@@ -330,9 +418,32 @@ def render_dynamic_research_audio(
         },
         "rir": {
             "stride_frames": rir_stride_frames,
-            "keyframe_count": len(sequence.keyframe_samples),
-            "keyframe_samples": list(sequence.keyframe_samples),
-            "trajectory_sha256": sequence.trajectory_sha256,
+            "keyframe_count": len(binaural_sequence.keyframe_samples),
+            "keyframe_samples": list(binaural_sequence.keyframe_samples),
+            "trajectory_sha256": binaural_sequence.trajectory_sha256,
+        },
+        "rir_layouts": {
+            "binaural": {
+                "layout_type": binaural_sequence.layout_type,
+                "layout_id": binaural_sequence.layout_id,
+                "channel_labels": list(binaural_sequence.channel_labels),
+                "trajectory_sha256": binaural_sequence.trajectory_sha256,
+            },
+            "foa": {
+                "layout_type": foa_sequence.layout_type,
+                "layout_id": foa_sequence.layout_id,
+                "channel_labels": list(foa_sequence.channel_labels),
+                "channel_ordering": "ACN",
+                "normalization": "N3D",
+                "trajectory_sha256": foa_sequence.trajectory_sha256,
+            },
+        },
+        "dual_layout_identity": {
+            "source_ids": list(binaural_sequence.source_ids),
+            "keyframe_ticks": list(binaural_sequence.keyframe_ticks),
+            "keyframe_samples": list(binaural_sequence.keyframe_samples),
+            "trajectory_sha256": binaural_sequence.trajectory_sha256,
+            "same_source_and_trajectory_identity": True,
         },
         "inputs": inputs,
         "outputs": outputs,
@@ -360,7 +471,7 @@ def render_current_mp3d_dynamic_audio(
     variant_id: str = "A",
     hrtf_license_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Render one motion-following binaural research episode for MP3D."""
+    """Render one motion-following binaural plus native-FOA episode for MP3D."""
 
     program = json.loads(
         Path(audio_program_path).resolve().read_text(encoding="utf-8")

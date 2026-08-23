@@ -292,6 +292,10 @@ def test_legacy_270_frames_build_exact_90_keyframe_5_hz_grid() -> None:
     assert grid.source_ids == ("dog_source", "human_source")
 
     record = acoustics.research_review_trajectory_record(grid)
+    assert record["profile"] == acoustics.RESEARCH_REVIEW_PROFILE
+    assert canonical_json_sha256(record) == (
+        "6966bb624604957d95e1a172e383b601d9df0c61cd0c203def36ee66408a3368"
+    )
     assert record["sampling"]["rir_stride_frames"] == 3
     assert record["sampling"]["sampled_visual_frame_indices"][-1] == 267
     assert record["sampling"]["final_interval_policy"] == "hold_last_rir_to_episode_end"
@@ -338,6 +342,19 @@ def test_grid_rejects_listener_motion_and_non_stride_boundaries() -> None:
         )
 
 
+def test_rir_renderer_rejects_layouts_outside_dual_delivery() -> None:
+    grid = _grid(9, frame_rate_hz=9, stride=3)
+
+    with pytest.raises(RuntimeContractError, match="supports only"):
+        acoustics.render_research_review_rir_sequence(
+            _scene(),
+            _simulation(),
+            grid=grid,
+            layout_type="mono",
+            channel_count=1,
+        )
+
+
 class _FakeConfiguration:
     pass
 
@@ -363,6 +380,8 @@ class _FakeContext:
         self.listener_id = listener_id
         self.listener_position = tuple(position)
         self.listener_orientation = tuple(orientation)
+        self.layout = layout
+        self.channel_count = channel_count
         self.hrtf = hrtf
 
     def set_source_position(self, source_id, position):
@@ -388,10 +407,10 @@ class _FakeContext:
                     listener_id=self.listener_id,
                     source_id=source_id,
                     sample_rate=16_000.0,
-                    channel_count=2,
+                    channel_count=self.channel_count,
                     sample_count=length,
                     samples=np.full(
-                        (2, length),
+                        (self.channel_count, length),
                         self.simulate_count + source_index,
                         dtype=np.float32,
                     ),
@@ -405,6 +424,7 @@ class _FakeContext:
 
 class _FakeLayout:
     Binaural = "binaural"
+    Ambisonics = "ambisonics"
 
 
 def _install_fake_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -454,6 +474,9 @@ def _install_fake_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
             "listener": {
                 "listener_id": listener.anchor_id,
                 "position": list(listener.position_m),
+                "hrtf_mode": (
+                    "external_file" if hrtf_file_path else "rlr_builtin_default"
+                ),
                 "hrtf_file_path": hrtf_file_path,
                 "native_realized": True,
             },
@@ -501,6 +524,184 @@ def test_mock_native_render_retains_receipts_ir_hashes_and_trajectory(
     receipt_text = repr(result.metadata["endpoint_receipts"])
     assert str(hrtf.resolve()) not in receipt_text
     assert "input-role:hrtf" in receipt_text
+
+
+def test_mock_native_foa_is_acn_n3d_four_channel_without_hrtf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    grid = _grid(9, frame_rate_hz=9, stride=3)
+
+    result = acoustics.render_research_review_foa_rir_sequence(
+        _scene(),
+        _simulation(),
+        grid=grid,
+    )
+
+    assert len(_FakeContext.instances) == 1
+    context = _FakeContext.instances[0]
+    assert context.layout == "ambisonics"
+    assert context.channel_count == 4
+    assert context.hrtf == ""
+    assert result.samples.shape == (3, 2, 4, 5)
+    assert result.layout_type == "ambisonics"
+    assert result.channel_labels == ("W", "Y", "Z", "X")
+    assert result.metadata["normalization"] == "N3D"
+    assert result.metadata["coordinate_frame"] == "avengine_world"
+    assert result.metadata["hrtf"] is None
+    assert result.metadata["ambisonics"] == {
+        "order": 1,
+        "channel_ordering": "ACN",
+        "acn_indices": [0, 1, 2, 3],
+    }
+    for receipt in result.metadata["endpoint_receipts"]:
+        assert receipt["authority"] == "native_registration_readback"
+        assert receipt["listener"]["hrtf_mode"] == "not_applicable"
+        assert receipt["listener"]["hrtf_file_path"] is None
+        assert receipt["listener"]["native_realized"] is True
+    stems, mixture = acoustics.render_research_review_foa_audio(
+        {
+            "dog_source": np.ones(grid.episode_sample_count),
+            "human_source": np.ones(grid.episode_sample_count),
+        },
+        result,
+        grid=grid,
+    )
+    assert all(
+        stem.episode.shape == (4, grid.episode_sample_count)
+        for stem in stems.values()
+    )
+    assert mixture.shape == (4, grid.episode_sample_count)
+
+
+def test_foa_audio_rejects_spatial_contract_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    grid = _grid(9, frame_rate_hz=9, stride=3)
+    sequence = acoustics.render_research_review_foa_rir_sequence(
+        _scene(),
+        _simulation(),
+        grid=grid,
+    )
+    dry = {
+        "dog_source": np.ones(grid.episode_sample_count),
+        "human_source": np.ones(grid.episode_sample_count),
+    }
+    drifted = (
+        replace(sequence, layout_type="binaural"),
+        replace(sequence, layout_id="wrong_foa_layout"),
+        replace(sequence, channel_labels=("W", "X", "Y", "Z")),
+        replace(
+            sequence,
+            metadata={**sequence.metadata, "normalization": "SN3D"},
+        ),
+        replace(
+            sequence,
+            metadata={**sequence.metadata, "coordinate_frame": "listener_local"},
+        ),
+        replace(
+            sequence,
+            metadata={
+                **sequence.metadata,
+                "ambisonics": {
+                    **sequence.metadata["ambisonics"],
+                    "channel_ordering": "FuMa",
+                },
+            },
+        ),
+        replace(
+            sequence,
+            metadata={
+                **sequence.metadata,
+                "ambisonics": {
+                    **sequence.metadata["ambisonics"],
+                    "acn_indices": [0, 3, 1, 2],
+                },
+            },
+        ),
+    )
+
+    for candidate in drifted:
+        with pytest.raises(RuntimeContractError, match="ACN/N3D world layout"):
+            acoustics.render_research_review_foa_audio(
+                dry,
+                candidate,
+                grid=grid,
+            )
+
+
+def test_dual_layout_helpers_use_distinct_contexts_with_same_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    grid = _grid(9, frame_rate_hz=9, stride=3)
+    hrtf = tmp_path / "review.sofa"
+    hrtf.write_bytes(b"mock-hrtf")
+
+    binaural = acoustics.render_research_review_binaural_rir_sequence(
+        _scene(),
+        _simulation(),
+        grid=grid,
+        hrtf_file_path=str(hrtf),
+    )
+    foa = acoustics.render_research_review_foa_rir_sequence(
+        _scene(),
+        _simulation(),
+        grid=grid,
+    )
+
+    assert len(_FakeContext.instances) == 2
+    assert _FakeContext.instances[0] is not _FakeContext.instances[1]
+    assert [context.layout for context in _FakeContext.instances] == [
+        "binaural",
+        "ambisonics",
+    ]
+    assert [context.channel_count for context in _FakeContext.instances] == [2, 4]
+    assert _FakeContext.instances[0].hrtf == str(hrtf.resolve())
+    assert _FakeContext.instances[1].hrtf == ""
+    assert binaural.source_ids == foa.source_ids == grid.source_ids
+    assert binaural.keyframe_ticks == foa.keyframe_ticks
+    assert binaural.keyframe_samples == foa.keyframe_samples
+    assert binaural.trajectory_sha256 == foa.trajectory_sha256
+
+
+def test_binaural_wrapper_matches_parameterized_renderer_byte_for_byte(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    grid = _grid(9, frame_rate_hz=9, stride=3)
+    hrtf = tmp_path / "review.sofa"
+    hrtf.write_bytes(b"mock-hrtf")
+
+    wrapped = acoustics.render_research_review_binaural_rir_sequence(
+        _scene(),
+        _simulation(),
+        grid=grid,
+        hrtf_file_path=str(hrtf),
+    )
+    parameterized = acoustics.render_research_review_rir_sequence(
+        _scene(),
+        _simulation(),
+        grid=grid,
+        layout_type="binaural",
+        channel_count=2,
+        hrtf_file_path=str(hrtf),
+    )
+
+    assert np.array_equal(wrapped.samples, parameterized.samples)
+    assert np.array_equal(wrapped.lengths, parameterized.lengths)
+    assert wrapped.source_ids == parameterized.source_ids
+    assert wrapped.keyframe_ticks == parameterized.keyframe_ticks
+    assert wrapped.keyframe_samples == parameterized.keyframe_samples
+    assert wrapped.sample_rate_hz == parameterized.sample_rate_hz
+    assert wrapped.layout_type == parameterized.layout_type
+    assert wrapped.layout_id == parameterized.layout_id
+    assert wrapped.channel_labels == parameterized.channel_labels
+    assert wrapped.trajectory_sha256 == parameterized.trajectory_sha256
+    assert wrapped.metadata == parameterized.metadata
 
 
 def test_variable_episode_reuses_m5_dynamic_convolution() -> None:

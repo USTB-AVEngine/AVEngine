@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render motion-following binaural audio for a current Apartment UE capture.
+"""Render motion-following binaural plus native FOA audio for an Apartment UE capture.
 
 The UE capture supplies the per-frame anchor poses (production RGB authority);
 the fixed-apartment M1 review request supplies the camera-colocated listener
