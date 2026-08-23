@@ -1113,6 +1113,7 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
                 spatial_merge_size=spatial_merge_size,
                 position_id_per_seconds=position_id_per_seconds,
                 video_idx=video_idx,
+                time_aligned=bool(getattr(self.config, "so_time_aligned_media", False)),
             )
             llm_positions = segment_positions["position_ids"]
             video_idx = segment_positions["next_video_idx"]
@@ -1133,6 +1134,7 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
         spatial_merge_size: int,
         position_id_per_seconds: int,
         video_idx: int,
+        time_aligned: bool = False,
     ) -> dict[str, torch.Tensor | int]:
         """Assign RoPE positions by scanning contiguous token runs.
 
@@ -1143,6 +1145,17 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
             Dictionary with:
             - `position_ids`: `[3, T_valid]`
             - `next_video_idx`: global video-grid cursor after consuming this sample
+
+        With ``time_aligned`` (config ``so_time_aligned_media``), every media
+        segment (video/audio/spatial) shares one temporal origin — the position
+        right after the preceding text — and advances on the real 40ms grid:
+        video keeps its timestamp-scaled t (offset from the shared origin),
+        audio advances one id per token (25 tokens/s == position_id_per_seconds
+        at the default 40ms grid), and spatial ids are linearly spread over the
+        audio segment's span so that co-occurring tokens in all three streams
+        carry the same temporal id. Text after the media block continues from
+        the global maximum. Default (False) preserves the original sequential
+        chaining bit-for-bit.
         """
 
         modal_token_ids = {video_token_id, audio_token_id, spatial_token_id}
@@ -1150,6 +1163,16 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
         llm_pos_ids_list = []
         cursor = 0
         max_token_count = len(valid_tokens)
+        global_max = -1
+        media_t0 = None
+        audio_run_length = None
+
+        def next_start() -> int:
+            if not llm_pos_ids_list:
+                return 0
+            if time_aligned:
+                return int(global_max) + 1
+            return int(llm_pos_ids_list[-1].max().item()) + 1
 
         while cursor < max_token_count:
             token_id = int(valid_tokens[cursor].item())
@@ -1158,7 +1181,11 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
                 while end < max_token_count and int(valid_tokens[end].item()) == token_id:
                     end += 1
                 run_length = end - cursor
-                start_idx = llm_pos_ids_list[-1].max() + 1 if llm_pos_ids_list else 0
+                start_idx = next_start()
+                if time_aligned:
+                    if media_t0 is None:
+                        media_t0 = start_idx
+                    start_idx = media_t0
 
                 if token_id == video_token_id:
                     modal_order.append("video")
@@ -1188,14 +1215,26 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
                     video_idx += 1
                 elif token_id == audio_token_id:
                     modal_order.append("audio")
+                    audio_run_length = run_length
                     llm_pos_ids = torch.arange(run_length, device=valid_tokens.device).view(1, -1).expand(3, -1)
                     llm_pos_ids = llm_pos_ids + int(start_idx)
                 else:
                     modal_order.append("spatial")
-                    llm_pos_ids = torch.arange(run_length, device=valid_tokens.device).view(1, -1).expand(3, -1)
-                    llm_pos_ids = llm_pos_ids + int(start_idx)
+                    if time_aligned and audio_run_length is not None and run_length > 0:
+                        # Spread spatial ids over the audio segment's real-time
+                        # span: spatial token i covers [i, i+1)/rate seconds, so
+                        # co-occurring audio/spatial tokens share temporal ids.
+                        base = torch.round(
+                            torch.arange(run_length, device=valid_tokens.device, dtype=torch.float32)
+                            * (float(audio_run_length) / float(run_length))
+                        ).long()
+                        llm_pos_ids = base.view(1, -1).expand(3, -1) + int(start_idx)
+                    else:
+                        llm_pos_ids = torch.arange(run_length, device=valid_tokens.device).view(1, -1).expand(3, -1)
+                        llm_pos_ids = llm_pos_ids + int(start_idx)
 
                 llm_pos_ids_list.append(llm_pos_ids)
+                global_max = max(global_max, int(llm_pos_ids.max().item()))
                 cursor = end
                 continue
 
@@ -1203,10 +1242,11 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
             while end < max_token_count and int(valid_tokens[end].item()) not in modal_token_ids:
                 end += 1
             text_length = end - cursor
-            start_idx = llm_pos_ids_list[-1].max() + 1 if llm_pos_ids_list else 0
+            start_idx = next_start()
             llm_pos_ids_list.append(
                 torch.arange(text_length, device=valid_tokens.device).view(1, -1).expand(3, -1) + int(start_idx)
             )
+            global_max = max(global_max, int(llm_pos_ids_list[-1].max().item()))
             cursor = end
 
         self._validate_modal_order(modal_order)

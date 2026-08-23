@@ -136,6 +136,17 @@ def parse_args():
     p.add_argument("--max-grad-norm", type=float, default=1.0)
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--seed", type=int, default=1234)
+    p.add_argument("--with-video", action="store_true",
+                    help="Attach each record's video_path as a Qwen video stream "
+                         "(<|video|> before <|audio|><|spatial|>). Requires batch_size 1.")
+    p.add_argument("--video-frames", type=int, default=16,
+                    help="Uniformly sampled frames per clip (even; default 16).")
+    p.add_argument("--video-max-pixels", type=int, default=200_704,
+                    help="Processor max_pixels per video frame (default 256*28*28).")
+    p.add_argument("--time-aligned-media", action="store_true",
+                    help="Enable so_time_aligned_media RoPE: video/audio/spatial share one "
+                         "temporal origin on the 40ms grid (ablation switch; default off "
+                         "keeps the original sequential chaining).")
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--local-rank", type=int, default=-1)
     p.add_argument("--dtype", default="bfloat16", choices=("float32", "bfloat16", "float16"))
@@ -465,6 +476,45 @@ def shard_dataset_for_rank(dataset):
     idx = base[rank * per_rank : (rank + 1) * per_rank]
     return Subset(dataset, idx)
 
+def load_video_frames_ffmpeg(path: str, n_frames: int) -> Tuple[np.ndarray, float]:
+    """Decode a clip to RGB frames with the system ffmpeg (no PyAV/cv2/decord
+    dependency) and uniformly subsample an even number of frames.
+
+    Returns (frames [N,H,W,3] uint8, clip_duration_seconds).
+    """
+    import subprocess
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    width_s, height_s, rate_s = probe.stdout.strip().split(",")[:3]
+    width, height = int(width_s), int(height_s)
+    num, _, den = rate_s.partition("/")
+    native_fps = float(num) / float(den or 1)
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-f", "rawvideo",
+         "-pix_fmt", "rgb24", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    frame_bytes = width * height * 3
+    total = len(raw) // frame_bytes
+    if total < 2:
+        raise ValueError(f"video too short ({total} frames): {path}")
+    frames = np.frombuffer(raw[: total * frame_bytes], dtype=np.uint8).reshape(
+        total, height, width, 3
+    )
+    n = min(int(n_frames), total)
+    if n % 2:
+        n -= 1
+    if n < 2:
+        raise ValueError(f"need at least 2 sampled frames: {path}")
+    idx = np.linspace(0, total - 1, n).round().astype(int)
+    return np.ascontiguousarray(frames[idx]), float(total) / native_fps
+
+
 def build_left_padded_batch(input_ids, attn, prefix_lengths, pad_id):
     ml = int(prefix_lengths.max()); B = input_ids.shape[0]
     gi = torch.full((B, ml), fill_value=pad_id, dtype=input_ids.dtype)
@@ -494,6 +544,9 @@ class SpatialBeatsQACollator:
     include_generation_inputs: bool = False
     target_token_rate: float = TARGET_TOKEN_RATE
     enable_mono_replay: bool = False
+    with_video: bool = False
+    video_frames: int = 16
+    video_max_pixels: int = 200_704
 
     @staticmethod
     def _downmix_to_mono(wav_2d: np.ndarray) -> np.ndarray:
@@ -520,9 +573,17 @@ class SpatialBeatsQACollator:
 
     def __call__(self, features):
         if self.enable_mono_replay:
+            if self.with_video:
+                raise NotImplementedError(
+                    "with_video + mixed mono replay is not supported yet; "
+                    "run AV training without --mixed-spatial-replay."
+                )
             return self._call_mixed_replay(features)
         audio_arrs, full_texts, ans_sfxs, meta, sa_lens = [], [], [], [], []
         cached_input_features, cached_feature_lengths = [], []
+        video_arrs, video_fps = [], []
+        if self.with_video and len(features) != 1:
+            raise ValueError("with_video currently requires batch_size 1")
         eos = getattr(self.processor.tokenizer, "eos_token", None) or ""
 
         for feat in features:
@@ -546,10 +607,20 @@ class SpatialBeatsQACollator:
                     wav = wav[:, :self.max_audio_samples]
                 T = wav.shape[1]
             sa_lens.append(T)
+            if self.with_video:
+                video_path = feat.get("video_path")
+                if not video_path:
+                    raise ValueError(
+                        f"with_video set but record lacks video_path: {feat.get('qa_id')}"
+                    )
+                frames, duration_s = load_video_frames_ffmpeg(video_path, self.video_frames)
+                video_arrs.append(frames)
+                video_fps.append(float(frames.shape[0]) / max(duration_s, 1e-6))
             # Keep a single placeholder in text. The processor expands it to
             # the required number of spatial tokens using spatial_token_lengths.
             prefix = (
-                self.processor.audio_token
+                (self.processor.video_token if self.with_video else "")
+                + self.processor.audio_token
                 + self.processor.spatial_token
                 + f"\n{feat['prompt'].rstrip()}\n"
             )
@@ -588,6 +659,10 @@ class SpatialBeatsQACollator:
                 feature_attention_mask[index, :feature_length] = 1
             processor_kwargs["input_features"] = input_features
             processor_kwargs["feature_attention_mask"] = feature_attention_mask
+        if self.with_video:
+            processor_kwargs["videos"] = video_arrs
+            processor_kwargs["fps"] = video_fps[0] if len(video_fps) == 1 else video_fps
+            processor_kwargs["max_pixels"] = int(self.video_max_pixels)
 
         # Base processor: mel features + tokenization + padding.
         # IMPORTANT: the Qwen2.5-Omni processor defaults to left-padding for text,
@@ -616,6 +691,12 @@ class SpatialBeatsQACollator:
             torch.arange(T_max).unsqueeze(0) < lens_t.unsqueeze(1)
         )
         batch["spatial_audio_lengths"] = lens_t
+        if "video_second_per_grid" in batch and not torch.is_tensor(
+            batch["video_second_per_grid"]
+        ):
+            batch["video_second_per_grid"] = torch.tensor(
+                batch["video_second_per_grid"], dtype=torch.float32
+            )
 
         # Build labels: -100 for prefix, token IDs for answer
         labels = batch["input_ids"].clone()
@@ -892,6 +973,9 @@ def build_epoch_valid_loaders(valid_ds, processor, args, epoch, audio_feature_ca
         SpatialBeatsQACollator(
             processor=processor,
             audio_feature_cache=audio_feature_cache,
+            with_video=args.with_video,
+            video_frames=args.video_frames,
+            video_max_pixels=args.video_max_pixels,
             include_generation_inputs=False,
         ),
         args.batch_size, args.num_workers, False, None,
@@ -902,6 +986,9 @@ def build_epoch_valid_loaders(valid_ds, processor, args, epoch, audio_feature_ca
         SpatialBeatsQACollator(
             processor=processor,
             audio_feature_cache=audio_feature_cache,
+            with_video=args.with_video,
+            video_frames=args.video_frames,
+            video_max_pixels=args.video_max_pixels,
             include_generation_inputs=False,
         ),
         args.batch_size, args.num_workers, False, None,
@@ -912,6 +999,9 @@ def build_epoch_valid_loaders(valid_ds, processor, args, epoch, audio_feature_ca
         SpatialBeatsQACollator(
             processor=processor,
             audio_feature_cache=audio_feature_cache,
+            with_video=args.with_video,
+            video_frames=args.video_frames,
+            video_max_pixels=args.video_max_pixels,
             include_generation_inputs=True,
         ),
         args.valid_generate_batch_size, 0, False,
@@ -1746,6 +1836,9 @@ def main():
         SpatialBeatsQACollator(
             processor=processor,
             audio_feature_cache=None if args.mixed_spatial_replay else audio_feature_cache,
+            with_video=args.with_video,
+            video_frames=args.video_frames,
+            video_max_pixels=args.video_max_pixels,
             include_generation_inputs=False,
             enable_mono_replay=args.mixed_spatial_replay,
         ),
@@ -1757,6 +1850,13 @@ def main():
                 f" | world={get_world_size()} mode={args.train_mode}")
 
     model = build_model(args, processor)
+    if args.with_video and args.batch_size != 1:
+        raise ValueError("--with-video currently requires --batch-size 1")
+    if args.time_aligned_media:
+        for cfg_owner in (model, getattr(model, "thinker", None)):
+            if cfg_owner is not None and hasattr(cfg_owner, "config"):
+                setattr(cfg_owner.config, "so_time_aligned_media", True)
+        rank0_print("Time-aligned media RoPE enabled (so_time_aligned_media=True).")
     lora_targets = []
     if args.mixed_spatial_replay:
         # Replay path runs on top of the user-selected train_mode (e.g. stage3
