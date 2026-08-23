@@ -1356,7 +1356,6 @@ def _m5_render_current_m1_research_audio(args: argparse.Namespace) -> int:
     return 0
 
 
-
 def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
     """Render per-state MP3D research audio on the installed native runtime."""
 
@@ -1477,7 +1476,6 @@ def _m5_capture_current_visual(args: argparse.Namespace) -> int:
     return 0 if status == "research_only" else EXIT_BY_STATUS.get(status, 2)
 
 
-
 def _m5_author_current_apartment_visual_timeline(
     args: argparse.Namespace,
 ) -> int:
@@ -1493,9 +1491,12 @@ def _m5_author_current_apartment_visual_timeline(
             human_end_ue_cm=args.human_end_ue_cm,
             beagle_start_ue_cm=args.beagle_start_ue_cm,
             beagle_end_ue_cm=args.beagle_end_ue_cm,
+            human_waypoints_ue_cm=args.human_waypoint_ue_cm,
+            beagle_waypoints_ue_cm=args.beagle_waypoint_ue_cm,
             width=args.width,
             height=args.height,
             hfov_degrees=args.hfov_degrees,
+            walk_start_frame=args.walk_start_frame,
         )
     except (CurrentApartmentVisualError, OSError, ValueError, RuntimeError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -1547,8 +1548,10 @@ def _m5_capture_current_apartment_visual(args: argparse.Namespace) -> int:
             ),
         }
     )
-    return 0 if receipt["status"] == "research_only" else EXIT_BY_STATUS.get(
-        receipt["status"], 2
+    return (
+        0
+        if receipt["status"] == "research_only"
+        else EXIT_BY_STATUS.get(receipt["status"], 2)
     )
 
 
@@ -2344,15 +2347,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m5_current_apartment_author.add_argument("--actor-selection", required=True)
     m5_current_apartment_author.add_argument("--source-asset-registry", required=True)
-    m5_current_apartment_author.add_argument("--camera-position-ue-cm", nargs=3, type=float, required=True)
-    m5_current_apartment_author.add_argument("--camera-yaw-deg", type=float, required=True)
-    m5_current_apartment_author.add_argument("--human-start-ue-cm", nargs=3, type=float, required=True)
-    m5_current_apartment_author.add_argument("--human-end-ue-cm", nargs=3, type=float, required=True)
-    m5_current_apartment_author.add_argument("--beagle-start-ue-cm", nargs=3, type=float, required=True)
-    m5_current_apartment_author.add_argument("--beagle-end-ue-cm", nargs=3, type=float, required=True)
+    m5_current_apartment_author.add_argument(
+        "--camera-position-ue-cm", nargs=3, type=float, required=True
+    )
+    m5_current_apartment_author.add_argument(
+        "--camera-yaw-deg", type=float, required=True
+    )
+    m5_current_apartment_author.add_argument("--human-start-ue-cm", nargs=3, type=float)
+    m5_current_apartment_author.add_argument("--human-end-ue-cm", nargs=3, type=float)
+    m5_current_apartment_author.add_argument(
+        "--beagle-start-ue-cm", nargs=3, type=float
+    )
+    m5_current_apartment_author.add_argument("--beagle-end-ue-cm", nargs=3, type=float)
+    m5_current_apartment_author.add_argument(
+        "--human-waypoint-ue-cm",
+        nargs=3,
+        type=float,
+        action="append",
+        help="Repeat two or more times; mutually exclusive with human start/end",
+    )
+    m5_current_apartment_author.add_argument(
+        "--beagle-waypoint-ue-cm",
+        nargs=3,
+        type=float,
+        action="append",
+        help="Repeat two or more times; mutually exclusive with Beagle start/end",
+    )
     m5_current_apartment_author.add_argument("--width", type=int, default=1280)
     m5_current_apartment_author.add_argument("--height", type=int, default=720)
-    m5_current_apartment_author.add_argument("--hfov-degrees", type=float, default=105.0)
+    m5_current_apartment_author.add_argument(
+        "--hfov-degrees", type=float, default=105.0
+    )
+    m5_current_apartment_author.add_argument("--walk-start-frame", type=int, default=0)
     m5_current_apartment_author.add_argument("--output", required=True)
     m5_current_apartment_author.set_defaults(
         handler=_m5_author_current_apartment_visual_timeline

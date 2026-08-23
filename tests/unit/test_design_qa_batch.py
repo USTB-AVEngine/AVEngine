@@ -98,9 +98,7 @@ def test_pending_prefilter_is_explicitly_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("count", [3, 9])
-def test_bank_requires_complete_four_to_eight_views(
-    tmp_path: Path, count: int
-) -> None:
+def test_bank_requires_complete_four_to_eight_views(tmp_path: Path, count: int) -> None:
     path, _document = _bank_fixture(tmp_path, count=count)
     with pytest.raises(DesignViewpointError, match="complete 4-8 viewpoints"):
         load_design_viewpoint_bank(path)
@@ -220,13 +218,75 @@ def test_side_and_timeline_camera_are_viewpoint_derived(tmp_path: Path) -> None:
     )
     assert float(command[yaw_index + 1]) == pytest.approx(35.0)
     assert specs[0]["m1_request"]["request_id"] == "authenticated_view_1_m1"
+    assert "--human-start-ue-cm" in command
+    assert "--human-end-ue-cm" in command
+    assert "--beagle-start-ue-cm" in command
+    assert "--beagle-end-ue-cm" in command
+    assert "--human-waypoint-ue-cm" not in command
+    assert "--beagle-waypoint-ue-cm" not in command
+
+
+def test_timeline_command_prefers_explicit_spec_waypoints(tmp_path: Path) -> None:
+    path, _document = _bank_fixture(tmp_path)
+    viewpoint = load_design_viewpoint_bank(path)[0]
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    assets = {item["asset_id"]: item for item in registry["assets"]}
+    specs, _ = design_qa_batch.build_specs(
+        viewpoints=(viewpoint,),
+        assets=assets,
+        cell_size=16,
+        twins_per_cell=0,
+    )
+    spec = dict(specs[0])
+    spec["s1_waypoints_ue_cm"] = [
+        [-300.0, 0.0, 27.1],
+        [-100.0, 0.0, 27.1],
+        [-100.0, 200.0, 27.1],
+    ]
+    spec["s2_waypoints_ue_cm"] = [
+        [200.0, -100.0, 27.1],
+        [200.0, 100.0, 27.1],
+    ]
+
+    command = design_qa_batch.timeline_author_command(
+        avengine_cli="avengine",
+        point_directory=tmp_path / "point",
+        spec=spec,
+        viewpoint=viewpoint,
+        registry_path=REGISTRY,
+    )
+
+    assert "--human-start-ue-cm" not in command
+    assert "--human-end-ue-cm" not in command
+    assert "--beagle-start-ue-cm" not in command
+    assert "--beagle-end-ue-cm" not in command
+    human_indices = [
+        index
+        for index, value in enumerate(command)
+        if value == "--human-waypoint-ue-cm"
+    ]
+    beagle_indices = [
+        index
+        for index, value in enumerate(command)
+        if value == "--beagle-waypoint-ue-cm"
+    ]
+    assert [
+        [float(item) for item in command[index + 1 : index + 4]]
+        for index in human_indices
+    ] == spec["s1_waypoints_ue_cm"]
+    assert [
+        [float(item) for item in command[index + 1 : index + 4]]
+        for index in beagle_indices
+    ] == spec["s2_waypoints_ue_cm"]
 
 
 def test_continuous_minimum_separation_catches_between_sample_collision() -> None:
     first = ((-100.0, 0.0, 27.1), (900.0, 0.0, 27.1))
     stationary = ((0.0, 0.0, 27.1), (0.0, 0.0, 27.1))
 
-    assert design_qa_batch.minimum_separation_cm(first, stationary) == pytest.approx(0.0)
+    assert design_qa_batch.minimum_separation_cm(first, stationary) == pytest.approx(
+        0.0
+    )
 
 
 def test_cell_size_rejects_overlapping_motion_composition(tmp_path: Path) -> None:
@@ -248,7 +308,9 @@ def test_production_has_no_silent_legacy_fallback(tmp_path: Path) -> None:
     args = design_qa_batch.build_parser().parse_args(
         ["--output-root", str(tmp_path / "output")]
     )
-    with pytest.raises(design_qa_batch.DesignBatchError, match="requires --viewpoint-bank"):
+    with pytest.raises(
+        design_qa_batch.DesignBatchError, match="requires --viewpoint-bank"
+    ):
         design_qa_batch._resolve_viewpoints(args)
 
     legacy_args = design_qa_batch.build_parser().parse_args(

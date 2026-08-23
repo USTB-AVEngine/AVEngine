@@ -227,9 +227,7 @@ def minimum_separation_cm(
         )
     closest = tuple(
         start + fraction * velocity
-        for start, velocity in zip(
-            relative_start, relative_velocity, strict=True
-        )
+        for start, velocity in zip(relative_start, relative_velocity, strict=True)
     )
     return (closest[0] ** 2 + closest[1] ** 2) ** 0.5
 
@@ -243,7 +241,10 @@ def _gates_ok(
 ) -> bool:
     anchor1 = _lerp(*path1, EVENT_ONE_FRACTION) if path1[0] != path1[1] else path1[0]
     anchor2 = _lerp(*path2, EVENT_ONE_FRACTION) if path2[0] != path2[1] else path2[0]
-    (side1, margin1), (side2, margin2) = viewpoint.side(anchor1), viewpoint.side(anchor2)
+    (side1, margin1), (side2, margin2) = (
+        viewpoint.side(anchor1),
+        viewpoint.side(anchor2),
+    )
     second1 = _lerp(*path1, EVENT_TWO_FRACTION) if path1[0] != path1[1] else path1[0]
     second2 = _lerp(*path2, EVENT_TWO_FRACTION) if path2[0] != path2[1] else path2[0]
     _, second_margin1 = viewpoint.side(second1)
@@ -355,9 +356,7 @@ def build_specs(
             short2 = _program_short(asset2, assets)
             pair_kind = "two_human" if kind == "human" else "two_dog"
             suffix = (
-                "_turn_taking_v1"
-                if order == "afirst"
-                else "_turn_taking_bfirst_v1"
+                "_turn_taking_v1" if order == "afirst" else "_turn_taking_bfirst_v1"
             )
             specs.append(
                 {
@@ -420,7 +419,7 @@ def timeline_author_command(
         raise DesignBatchError("spec viewpoint_id does not match timeline viewpoint")
     if spec.get("m1_request") != viewpoint.spec_m1_request():
         raise DesignBatchError("spec M1 request does not match timeline viewpoint")
-    return [
+    command = [
         avengine_cli,
         "m5",
         "author-current-apartment-visual-timeline",
@@ -432,17 +431,59 @@ def timeline_author_command(
         *map(str, viewpoint.camera_position_ue_cm),
         "--camera-yaw-deg",
         str(viewpoint.camera_yaw_ue_deg),
-        "--human-start-ue-cm",
-        *map(str, spec["s1_start"]),
-        "--human-end-ue-cm",
-        *map(str, spec["s1_end"]),
-        "--beagle-start-ue-cm",
-        *map(str, spec["s2_start"]),
-        "--beagle-end-ue-cm",
-        *map(str, spec["s2_end"]),
-        "--output",
-        str(point_directory / "timeline.json"),
     ]
+
+    def append_route(
+        *,
+        waypoint_key: str,
+        waypoint_flag: str,
+        start_key: str,
+        start_flag: str,
+        end_key: str,
+        end_flag: str,
+    ) -> None:
+        if waypoint_key in spec:
+            waypoints = spec[waypoint_key]
+            if (
+                isinstance(waypoints, (str, bytes))
+                or not isinstance(waypoints, Sequence)
+                or len(waypoints) < 2
+            ):
+                raise DesignBatchError(
+                    f"spec {waypoint_key} must contain at least two points"
+                )
+            for waypoint in waypoints:
+                if (
+                    isinstance(waypoint, (str, bytes))
+                    or not isinstance(waypoint, Sequence)
+                    or len(waypoint) != 3
+                ):
+                    raise DesignBatchError(
+                        f"spec {waypoint_key} must contain XYZ triplets"
+                    )
+                command.extend((waypoint_flag, *map(str, waypoint)))
+            return
+        command.extend((start_flag, *map(str, spec[start_key])))
+        command.extend((end_flag, *map(str, spec[end_key])))
+
+    append_route(
+        waypoint_key="s1_waypoints_ue_cm",
+        waypoint_flag="--human-waypoint-ue-cm",
+        start_key="s1_start",
+        start_flag="--human-start-ue-cm",
+        end_key="s1_end",
+        end_flag="--human-end-ue-cm",
+    )
+    append_route(
+        waypoint_key="s2_waypoints_ue_cm",
+        waypoint_flag="--beagle-waypoint-ue-cm",
+        start_key="s2_start",
+        start_flag="--beagle-start-ue-cm",
+        end_key="s2_end",
+        end_flag="--beagle-end-ue-cm",
+    )
+    command.extend(("--output", str(point_directory / "timeline.json")))
+    return command
 
 
 def _fresh_staging(output: str | Path) -> tuple[WorkspacePathPolicy, Path, Path]:
@@ -454,7 +495,9 @@ def _fresh_staging(output: str | Path) -> tuple[WorkspacePathPolicy, Path, Path]
     unresolved.parent.mkdir(parents=True, exist_ok=True)
     parent = unresolved.parent.resolve(strict=True)
     policy = WorkspacePathPolicy.from_roots((parent,))
-    destination = policy.resolve_output(parent / unresolved.name, owner="QA design output")
+    destination = policy.resolve_output(
+        parent / unresolved.name, owner="QA design output"
+    )
     staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=parent))
     return policy, destination, staging
 
@@ -558,7 +601,9 @@ def run(
                 "mode": (
                     "legacy_view0_report_only"
                     if args.legacy_view0_report_only
-                    else ("explicit_id" if args.viewpoint_id else "deterministic_rotation")
+                    else (
+                        "explicit_id" if args.viewpoint_id else "deterministic_rotation"
+                    )
                 ),
                 "bank": args.viewpoint_bank,
                 "selected_viewpoint_ids": [item.viewpoint_id for item in viewpoints],
@@ -584,7 +629,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-root", required=True, help="fresh batch directory; refuses to clobber"
     )
-    parser.add_argument("--avengine-cli", default=shutil.which("avengine") or "avengine")
+    parser.add_argument(
+        "--avengine-cli", default=shutil.which("avengine") or "avengine"
+    )
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     parser.add_argument("--snapshot-content", default=str(DEFAULT_SNAPSHOT_CONTENT))
     parser.add_argument("--cell-size", type=int, default=16)
@@ -613,8 +660,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         output = run(args)
-    except (DesignBatchError, DesignViewpointError, KeyError, OSError, TypeError) as exc:
-        print(json.dumps({"error": str(exc), "output_written": False}, ensure_ascii=False))
+    except (
+        DesignBatchError,
+        DesignViewpointError,
+        KeyError,
+        OSError,
+        TypeError,
+    ) as exc:
+        print(
+            json.dumps({"error": str(exc), "output_written": False}, ensure_ascii=False)
+        )
         return 2
     manifest = _load_json(output / "batch_manifest.json")
     print(

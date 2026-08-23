@@ -39,6 +39,10 @@ from avengine.runtime_profiles import (
     load_source_asset_runtime_registry,
     resolve_source_asset_runtime_profile,
 )
+from avengine.m6x.trajectory import (
+    M6XTrajectoryError,
+    resample_polyline_by_arc_length,
+)
 
 
 FRAME_COUNT = 75
@@ -390,6 +394,159 @@ def _timeline_state(
     }
 
 
+def _validated_waypoints(value: object, *, owner: str) -> list[list[float]]:
+    if (
+        isinstance(value, (str, bytes))
+        or not isinstance(value, Sequence)
+        or len(value) < 2
+    ):
+        raise CurrentApartmentVisualError(f"{owner} requires at least two points")
+    points = [
+        _finite_triplet(point, owner=f"{owner}[{index}]")
+        for index, point in enumerate(value)
+    ]
+    lengths = np.linalg.norm(
+        np.diff(np.asarray(points, dtype=np.float64), axis=0), axis=1
+    )
+    if float(np.sum(lengths)) <= 1.0e-9:
+        raise CurrentApartmentVisualError(f"{owner} has zero length")
+    if np.any(lengths <= 1.0e-9):
+        raise CurrentApartmentVisualError(
+            f"{owner} contains consecutive repeated points"
+        )
+    return points
+
+
+def _waypoint_frame_path(
+    waypoints: Sequence[Sequence[float]], *, walk_start_frame: int, owner: str
+) -> tuple[np.ndarray, tuple[int, ...]]:
+    points = np.asarray(waypoints, dtype=np.float64)
+    moving_frame_count = FRAME_COUNT - walk_start_frame
+    try:
+        moving = resample_polyline_by_arc_length(
+            points,
+            moving_frame_count,
+            owner=owner,
+        )
+    except M6XTrajectoryError as error:
+        raise CurrentApartmentVisualError(str(error)) from error
+    if len(points) == 2:
+        # Preserve exact legacy arithmetic/JSON bytes for the two-point
+        # compatibility case after the shared equal-arc materializer proves
+        # the route. np.interp is semantically equal but can differ by one ULP.
+        compatible = []
+        for index in range(moving_frame_count):
+            if index == 0:
+                compatible.append([float(value) for value in points[0]])
+            elif index == moving_frame_count - 1:
+                compatible.append([float(value) for value in points[-1]])
+            else:
+                compatible.append(
+                    _interpolate(
+                        points[0],
+                        points[-1],
+                        float(index) / float(moving_frame_count - 1),
+                    )
+                )
+        moving = np.asarray(compatible, dtype=np.float64)
+    path = np.empty((FRAME_COUNT, 3), dtype=np.float64)
+    if walk_start_frame:
+        path[:walk_start_frame] = points[0]
+    path[walk_start_frame:] = moving
+
+    lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+    targets = np.concatenate(
+        (
+            np.zeros(walk_start_frame, dtype=np.float64),
+            np.linspace(0.0, float(cumulative[-1]), moving_frame_count),
+        )
+    )
+    tangent_segments = []
+    for target in targets:
+        if target >= cumulative[-1] - 1.0e-12:
+            segment = len(lengths) - 1
+        else:
+            # At an exact internal corner, the outgoing segment is the current
+            # polyline tangent. The final frame is handled above and therefore
+            # always retains the last non-zero segment.
+            segment = int(np.searchsorted(cumulative[1:], target, side="right"))
+        tangent_segments.append(segment)
+    return np.ascontiguousarray(path), tuple(tangent_segments)
+
+
+def _waypoint_timeline_state(
+    *,
+    binding: Mapping[str, Any],
+    waypoints: Sequence[Sequence[float]],
+    frame_path: np.ndarray,
+    tangent_segments: Sequence[int],
+    frame_index: int,
+    walk_start_frame: int,
+) -> dict[str, Any]:
+    action_id = "walk" if frame_index >= walk_start_frame else "idle"
+    period = int(binding["walk_phase_period_frames"])
+    phase = (
+        float((frame_index - walk_start_frame) % period) / float(period)
+        if action_id == "walk"
+        else 0.0
+    )
+    segment = int(tangent_segments[frame_index])
+    return {
+        "actor_id": binding["actor_id"],
+        "source_slot_id": binding["source_slot_id"],
+        "asset_id": binding["asset_id"],
+        "revision": binding["revision"],
+        "walk_phase_period_frames": binding["walk_phase_period_frames"],
+        "translation_ue_cm": [float(value) for value in frame_path[frame_index]],
+        "yaw_ue_deg": _actor_yaw(
+            waypoints[segment],
+            waypoints[segment + 1],
+            anatomical_forward_yaw_deg=float(binding["ue_anatomical_forward_yaw_deg"]),
+        ),
+        "action_id": action_id,
+        "action_phase": phase,
+    }
+
+
+def _resolve_actor_route(
+    *,
+    owner: str,
+    start_ue_cm: Sequence[float] | None,
+    end_ue_cm: Sequence[float] | None,
+    waypoints_ue_cm: Sequence[Sequence[float]] | None,
+    walk_start_frame: int,
+) -> dict[str, Any]:
+    if waypoints_ue_cm is not None:
+        if start_ue_cm is not None or end_ue_cm is not None:
+            raise CurrentApartmentVisualError(
+                f"{owner} cannot mix waypoints with start/end"
+            )
+        waypoints = _validated_waypoints(
+            waypoints_ue_cm, owner=f"{owner}_waypoints_ue_cm"
+        )
+        frame_path, tangent_segments = _waypoint_frame_path(
+            waypoints,
+            walk_start_frame=walk_start_frame,
+            owner=f"{owner} UE waypoint polyline",
+        )
+        return {
+            "authoring_method": "equal_arc_polyline_ue_cm",
+            "waypoints_ue_cm": waypoints,
+            "frame_path": frame_path,
+            "tangent_segments": tangent_segments,
+        }
+    if start_ue_cm is None or end_ue_cm is None:
+        raise CurrentApartmentVisualError(
+            f"{owner} requires both start/end or at least two waypoints"
+        )
+    return {
+        "authoring_method": "legacy_start_end_linear",
+        "start_ue_cm": _finite_triplet(start_ue_cm, owner=f"{owner}_start_ue_cm"),
+        "end_ue_cm": _finite_triplet(end_ue_cm, owner=f"{owner}_end_ue_cm"),
+    }
+
+
 def author_current_apartment_visual_timeline(
     *,
     actor_selection_path: str | Path,
@@ -397,10 +554,12 @@ def author_current_apartment_visual_timeline(
     output_path: str | Path,
     camera_position_ue_cm: Sequence[float],
     camera_yaw_deg: float,
-    human_start_ue_cm: Sequence[float],
-    human_end_ue_cm: Sequence[float],
-    beagle_start_ue_cm: Sequence[float],
-    beagle_end_ue_cm: Sequence[float],
+    human_start_ue_cm: Sequence[float] | None = None,
+    human_end_ue_cm: Sequence[float] | None = None,
+    beagle_start_ue_cm: Sequence[float] | None = None,
+    beagle_end_ue_cm: Sequence[float] | None = None,
+    human_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
+    beagle_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
     width: int = 1280,
     height: int = 720,
     hfov_degrees: float = 105.0,
@@ -436,16 +595,45 @@ def author_current_apartment_visual_timeline(
         camera_position_ue_cm, owner="camera_position_ue_cm"
     )
     camera_yaw = _finite_number(camera_yaw_deg, owner="camera_yaw_deg")
-    starts = {
-        "source1": _finite_triplet(human_start_ue_cm, owner="human_start_ue_cm"),
-        "source2": _finite_triplet(beagle_start_ue_cm, owner="beagle_start_ue_cm"),
-    }
-    ends = {
-        "source1": _finite_triplet(human_end_ue_cm, owner="human_end_ue_cm"),
-        "source2": _finite_triplet(beagle_end_ue_cm, owner="beagle_end_ue_cm"),
+    routes = {
+        "source1": _resolve_actor_route(
+            owner="human",
+            start_ue_cm=human_start_ue_cm,
+            end_ue_cm=human_end_ue_cm,
+            waypoints_ue_cm=human_waypoints_ue_cm,
+            walk_start_frame=walk_start_frame,
+        ),
+        "source2": _resolve_actor_route(
+            owner="beagle",
+            start_ue_cm=beagle_start_ue_cm,
+            end_ue_cm=beagle_end_ue_cm,
+            waypoints_ue_cm=beagle_waypoints_ue_cm,
+            walk_start_frame=walk_start_frame,
+        ),
     }
     frames = []
     for frame_index in range(FRAME_COUNT):
+        actor_states = []
+        for slot in ("source1", "source2"):
+            route = routes[slot]
+            if route["authoring_method"] == "legacy_start_end_linear":
+                state = _timeline_state(
+                    binding=bindings[slot],
+                    start=route["start_ue_cm"],
+                    end=route["end_ue_cm"],
+                    frame_index=frame_index,
+                    walk_start_frame=walk_start_frame,
+                )
+            else:
+                state = _waypoint_timeline_state(
+                    binding=bindings[slot],
+                    waypoints=route["waypoints_ue_cm"],
+                    frame_path=route["frame_path"],
+                    tangent_segments=route["tangent_segments"],
+                    frame_index=frame_index,
+                    walk_start_frame=walk_start_frame,
+                )
+            actor_states.append(state)
         frames.append(
             {
                 "frame_index": frame_index,
@@ -454,16 +642,7 @@ def author_current_apartment_visual_timeline(
                     "translation_ue_cm": list(camera_position),
                     "yaw_ue_deg": camera_yaw,
                 },
-                "actor_states": [
-                    _timeline_state(
-                        binding=bindings[slot],
-                        start=starts[slot],
-                        end=ends[slot],
-                        frame_index=frame_index,
-                        walk_start_frame=walk_start_frame,
-                    )
-                    for slot in ("source1", "source2")
-                ],
+                "actor_states": actor_states,
             }
         )
     timeline = {
@@ -512,6 +691,30 @@ def author_current_apartment_visual_timeline(
         "spatial_validation": "not_run",
         "frames": frames,
     }
+    if any(
+        route["authoring_method"] == "equal_arc_polyline_ue_cm"
+        for route in routes.values()
+    ):
+        timeline["route_authoring"] = {
+            "method": "per_source_route_authoring",
+            "yaw_method": ("current_polyline_tangent_with_final_last_nonzero_segment"),
+            "sources": {
+                slot: (
+                    {
+                        "authoring_method": route["authoring_method"],
+                        "waypoints_ue_cm": route["waypoints_ue_cm"],
+                        "moving_frame_count": FRAME_COUNT - walk_start_frame,
+                    }
+                    if route["authoring_method"] == "equal_arc_polyline_ue_cm"
+                    else {
+                        "authoring_method": route["authoring_method"],
+                        "start_ue_cm": route["start_ue_cm"],
+                        "end_ue_cm": route["end_ue_cm"],
+                    }
+                )
+                for slot, route in routes.items()
+            },
+        }
     output = _new_external_output_file(output_path, owner="timeline output")
     with output.open("x", encoding="utf-8") as stream:
         json.dump(timeline, stream, indent=2, sort_keys=True)
@@ -1337,6 +1540,7 @@ def capture_current_apartment_visual(
                 except BaseException as error:
                     cleanup_error = error
             else:
+
                 def record_cleanup_error(error: BaseException) -> None:
                     nonlocal cleanup_error
                     if cleanup_error is None:
