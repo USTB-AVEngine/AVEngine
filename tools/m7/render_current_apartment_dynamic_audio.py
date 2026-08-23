@@ -47,6 +47,18 @@ def main() -> int:
     parser.add_argument("--magnum-python-site", type=Path)
     parser.add_argument("--rir-stride-frames", type=int, default=3)
     parser.add_argument("--variant", default="A")
+    parser.add_argument(
+        "--actor-selection",
+        type=Path,
+        help="executed actor selection; with --source-asset-registry it derives "
+        "per-slot endpoints and emitter heights from the registries instead of "
+        "the legacy human+beagle constants",
+    )
+    parser.add_argument(
+        "--source-asset-registry",
+        type=Path,
+        help="source-asset runtime registry (required with --actor-selection)",
+    )
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -67,12 +79,33 @@ def main() -> int:
     )
     from avengine.m7.apartment_dynamic_audio import (  # noqa: E402
         captured_static_camera_world_m,
+        derive_slot_bindings,
         load_ue_anchor_trajectories,
     )
 
     try:
         capture_dir = args.visual_capture_dir.resolve()
-        trajectories = load_ue_anchor_trajectories(capture_dir)
+        if args.actor_selection is not None:
+            if args.source_asset_registry is None:
+                raise CurrentMP3DDynamicAudioError(
+                    "--actor-selection requires --source-asset-registry"
+                )
+            slot_endpoints, emitter_heights = derive_slot_bindings(
+                json.loads(args.actor_selection.resolve().read_text(encoding="utf-8")),
+                json.loads(
+                    args.source_asset_registry.resolve().read_text(encoding="utf-8")
+                ),
+                json.loads(
+                    args.source_endpoint_registry.resolve().read_text(encoding="utf-8")
+                ),
+            )
+            trajectories = load_ue_anchor_trajectories(
+                capture_dir,
+                slot_endpoints=slot_endpoints,
+                emitter_heights_m=emitter_heights,
+            )
+        else:
+            trajectories = load_ue_anchor_trajectories(capture_dir)
         camera_world, camera_ue_yaw = captured_static_camera_world_m(capture_dir)
         m1_request = json.loads(args.m1_request.resolve().read_text(encoding="utf-8"))
         listener_position, listener_wxyz = listener_pose_from_m1_request(m1_request)

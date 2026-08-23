@@ -1,0 +1,15 @@
+{
+  "schema": "avengine_qa_v2_endpoint_evidence_v1",
+  "source_endpoint_id": "qa_v2_dog_2_collie_muzzle",
+  "created": "2026-08-23",
+  "binding": {
+    "entity_instance_id": "dog_2",
+    "entity_asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+    "entity_asset_revision": "pixel3d_tokenrig_ue_v1",
+    "emitter_anchor_id": "muzzle",
+    "emitter_height_m": 0.6465226403698251
+  },
+  "rationale": "QA v2 pilot48 same-species pair batch (checkpoint PILOT48_AND_AV_SMOKE_20260823): endpoint binds the registered runtime asset's measured default emitter anchor to the timeline instance used by the batch's actor selections.",
+  "research_only": true,
+  "qualification_claim": false
+}

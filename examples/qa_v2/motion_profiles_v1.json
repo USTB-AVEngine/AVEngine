@@ -1,0 +1,12 @@
+{
+  "schema": "avengine_qa_v2_motion_profiles_v1",
+  "revision": "v1",
+  "claim_boundary": "Per-species natural walking-speed bands for QA v2 batch design. Enforced at design time (owner directive 20260823); the 0.79 m/s ceiling reflects the apartment hull diagonal over a 5 s constant-velocity clip - faster gaits need waypoint timeline authoring (engine backlog).",
+  "reference": "v1 recombined trajectories validated at ~0.757 m/s (fact tables, speed_mps)",
+  "profiles": {
+    "human": {"walk_speed_mps_min": 0.60, "walk_speed_mps_max": 0.78},
+    "dog":   {"walk_speed_mps_min": 0.60, "walk_speed_mps_max": 0.78},
+    "cat":   {"walk_speed_mps_min": 0.50, "walk_speed_mps_max": 0.70}
+  },
+  "clip_seconds": 5.0
+}

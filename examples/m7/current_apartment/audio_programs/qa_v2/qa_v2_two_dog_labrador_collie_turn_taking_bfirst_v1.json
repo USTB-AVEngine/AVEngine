@@ -1,0 +1,84 @@
+{
+  "schema": "avengine_m6_audio_program_v1",
+  "program_id": "qa_v2_two_dog_labrador_collie_turn_taking_bfirst_v1",
+  "revision": "v1",
+  "mode": "sequential_sources",
+  "timeline": {
+    "time_base_hz": 48000,
+    "ticks_per_frame": 3200,
+    "video_fps": 15,
+    "frame_count": 75,
+    "sample_rate_hz": 16000,
+    "ticks_per_sample": 3,
+    "sample_count": 80000
+  },
+  "candidate_source_endpoint_ids": [
+    "qa_v2_dog_1_labrador_muzzle",
+    "qa_v2_dog_2_collie_muzzle"
+  ],
+  "events": [
+    {
+      "event_id": "src2_event_0",
+      "source_endpoint_id": "qa_v2_dog_2_collie_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 12000,
+      "end_tick_exclusive": 26400,
+      "start_sample": 4000,
+      "end_sample_exclusive": 8800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.18,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "src1_event_1",
+      "source_endpoint_id": "qa_v2_dog_1_labrador_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 60000,
+      "end_tick_exclusive": 74400,
+      "start_sample": 20000,
+      "end_sample_exclusive": 24800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.18,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "src2_event_2",
+      "source_endpoint_id": "qa_v2_dog_2_collie_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 120000,
+      "end_tick_exclusive": 134400,
+      "start_sample": 40000,
+      "end_sample_exclusive": 44800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.18,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    },
+    {
+      "event_id": "src1_event_3",
+      "source_endpoint_id": "qa_v2_dog_1_labrador_muzzle",
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "start_tick": 180000,
+      "end_tick_exclusive": 194400,
+      "start_sample": 60000,
+      "end_sample_exclusive": 64800,
+      "source_start_sample": 3200,
+      "source_end_sample_exclusive": 8000,
+      "linear_gain": 0.18,
+      "fade_samples": 80,
+      "normalization_policy": "use_sound_asset_policy",
+      "render_source_stem": true
+    }
+  ],
+  "source_specific_stems": true,
+  "admission_state": "research",
+  "program_content_sha256": "795dda44c4adb4c9c14af5be103ea5bc56a7f03d7a8f9341962fb48dfe44e59d"
+}

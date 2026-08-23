@@ -29,6 +29,78 @@ APARTMENT_SLOT_ENDPOINTS = {
 }
 
 
+def derive_slot_bindings(
+    actor_selection: Mapping,
+    source_asset_registry: Mapping,
+    endpoint_registry: Mapping,
+) -> tuple[dict[str, str], dict[str, float]]:
+    """Per-slot endpoint ids and emitter heights from the executed actor
+    selection, replacing the legacy human+beagle constants for arbitrary
+    registered pairs (e.g. two humans or two dogs).
+
+    Fail-closed: every selected actor must resolve to exactly one endpoint
+    whose binding matches the actor's instance id, asset id and the asset's
+    default emitter anchor; heights come from that anchor's measured offset.
+    """
+
+    actors = actor_selection.get("actors")
+    if not isinstance(actors, list) or not actors:
+        raise CurrentMP3DDynamicAudioError("actor selection has no actors")
+    assets = {
+        record.get("asset_id"): record
+        for record in source_asset_registry.get("assets", [])
+        if isinstance(record, Mapping)
+    }
+    endpoints = [
+        entry
+        for entry in endpoint_registry.get("source_endpoints", [])
+        if isinstance(entry, Mapping)
+    ]
+    slot_endpoints: dict[str, str] = {}
+    emitter_heights: dict[str, float] = {}
+    for actor in actors:
+        slot = actor.get("source_slot_id")
+        asset_id = actor.get("asset_id")
+        instance_id = actor.get("legacy_timeline_actor_id")
+        record = assets.get(asset_id)
+        if record is None:
+            raise CurrentMP3DDynamicAudioError(
+                f"actor selection references unregistered asset {asset_id}"
+            )
+        anchor_id = record.get("default_emitter_anchor_id")
+        anchor = next(
+            (
+                item
+                for item in record.get("emitter_anchors", [])
+                if isinstance(item, Mapping) and item.get("anchor_id") == anchor_id
+            ),
+            None,
+        )
+        if anchor is None or len(anchor.get("offset_m", [])) != 3:
+            raise CurrentMP3DDynamicAudioError(
+                f"asset {asset_id} has no usable default emitter anchor"
+            )
+        matches = [
+            entry
+            for entry in endpoints
+            if entry.get("binding", {}).get("entity_asset_id") == asset_id
+            and entry.get("binding", {}).get("entity_instance_id") == instance_id
+            and entry.get("binding", {}).get("emitter_anchor_id") == anchor_id
+        ]
+        if len(matches) != 1:
+            raise CurrentMP3DDynamicAudioError(
+                f"expected exactly one endpoint for {instance_id}/{asset_id}/"
+                f"{anchor_id}, found {len(matches)}"
+            )
+        slot_endpoints[slot] = str(matches[0]["source_endpoint_id"])
+        emitter_heights[slot] = float(anchor["offset_m"][1])
+    if set(slot_endpoints) != {"source1", "source2"}:
+        raise CurrentMP3DDynamicAudioError(
+            "actor selection must bind exactly source1 and source2"
+        )
+    return slot_endpoints, emitter_heights
+
+
 def apartment_ue_point_to_world_m(point_ue_cm) -> list[float]:
     """Invert the legacy glTF-import transform ``U = 100 * (H.x, H.z, H.y)``."""
 
