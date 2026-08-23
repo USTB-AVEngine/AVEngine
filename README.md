@@ -75,6 +75,62 @@ Linux、Git 和 Python 3.10 或更新版本是上层最低要求；当前原生�
 Blender 和媒体读回属于独立测试层。Apartment/Kujiale 的 UE 层是对应
 房间的生产视觉层，不因为它不是 fast bootstrap 的默认依赖而变成对照层。
 
+## Studio 与审阅页（owner 速查）
+
+### Studio：浏览器 3D 场景编辑与渲染任务台
+
+完整指南见 [docs/studio/USAGE.md](docs/studio/USAGE.md)。速查：
+
+服务器上启动（通常已常驻，先 `pgrep -af run_studio_server` 确认）：
+
+~~~bash
+cd /data/jzy/code/AVEngine-lead-a
+nohup /data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python \
+  tools/studio/run_studio_server.py --config tools/studio/studio_config_48g.json \
+  > /data/jzy/tmp/studio_server.log 2>&1 &
+~~~
+
+服务只绑服务器回环，本机先开隧道再访问：
+
+~~~bash
+ssh -L 8765:127.0.0.1:8765 48g-jump
+~~~
+
+浏览器打开 `http://127.0.0.1:8765/studio`。三个房间（公寓 UE 生产链 /
+MP3D 整屋 / ReplicaCAD）；公寓房内可拖拽人/犬起止点标记（绿=草稿校验
+通过，红=不在可行域），按端点允许类别换声音并试听，然后一键把完整
+渲染链（视觉捕获 → 动态双耳音频 → 带声成片）排进 GPU 任务队列，任务
+面板可查队列与产物。浏览器里的校验是草稿级预演，渲染链内的原生闸门
+才是权威。
+
+场景包由 `tools/studio/build_studio_scene_bundle.py` 预构建（读 M3
+声学包三角网格；运行期不依赖任何 rgb.npy，批次 npy 退休不影响
+Studio）。新增/更换房间或 UE stage 后，改
+`tools/studio/studio_config_48g.json` 里 task_templates 的对应路径。
+
+### QA 批次审阅页：审题、看片、查产物
+
+每个 QA 批次生成一个自包含静态审阅页
+（`tools/qa/build_batch_review_page.py`，懒加载 + 进度条 + 题型/闸门
+筛选；批次生产期间循环模式每 5 分钟自动与文件夹对齐，收官后固化为
+终版）。当前常驻两个：
+
+| 批次 | 服务器目录 | 端口 |
+|---|---|---|
+| pilot48（48 点 / 194 题） | `/data/avengine_external/review/qa_v2_pilot48_review_page` | 8901 |
+| batch2d（192 点 / 909 题） | `/data/avengine_external/review/qa_v2_batch2_review_page` | 8902 |
+
+本机访问：
+
+~~~bash
+ssh -L 8901:127.0.0.1:8901 -L 8902:127.0.0.1:8902 48g-jump
+~~~
+
+浏览器打开 `http://127.0.0.1:8901/`（pilot48）或
+`http://127.0.0.1:8902/`（batch2d）。页面含每点带声成片播放、题目与
+答案、孪生配对、音频程序与时序等全部相关信息。若某端口服务未在跑，
+在对应目录里执行 `python3 -m http.server <端口> --bind 127.0.0.1`。
+
 ## 当前状态
 
 保留的 v1 schema/document/receipt/JUnit reader 只用于读取 checkout-era
@@ -201,6 +257,7 @@ light；MP3D 的实际 light count 仍为 0。通用 Habitat adapter 仍支持�
 ## 文档
 
 - [功能与使用指南](docs/usage_guideline.md)
+- [Studio 使用指南](docs/studio/USAGE.md)
 - [同服务器协作与个人环境构建](docs/quickstart.md)
 - [系统架构](docs/architecture/SYSTEM_OVERVIEW.md)
 - [仓库职责与接口边界](docs/architecture/REPOSITORY_BOUNDARIES.md)
