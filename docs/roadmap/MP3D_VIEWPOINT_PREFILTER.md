@@ -53,3 +53,13 @@ for every retained view are declared-navmesh readback, Habitat-native Topdown,
 RGB/depth/semantic first-person frames, agent visual inspection and the fresh
 four-point visual/audio/question/gate mini-pilot. No viewpoint from this slice
 is certified or eligible for production merely because the CPU prefilter passes.
+
+## Follow-up: live floor-sample exporter
+
+`tools/m5/export_mp3d_camera_floor_samples.py` now implements the missing native
+export path with explicit installed-runtime and external-root arguments. It
+loads the validated room's declared navmesh in a real Simulator and records
+per-sample PathFinder snap/island/clearance evidence. See
+`docs/roadmap/MP3D_FLOOR_SAMPLE_EXPORT_20260824.md`. The code and CPU mocks do
+not themselves claim a native run; native execution remains pending a safe
+device/process preflight.
