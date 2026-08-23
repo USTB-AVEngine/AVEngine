@@ -63,3 +63,27 @@ per-sample PathFinder snap/island/clearance evidence. See
 `docs/roadmap/MP3D_FLOOR_SAMPLE_EXPORT_20260824.md`. The code and CPU mocks do
 not themselves claim a native run; native execution remains pending a safe
 device/process preflight.
+
+## Checkpoint 2026-08-24: consume the live floor export
+
+The CPU selector consumed the fresh native floor artifact above and published:
+
+`/data/jzy/tmp/mp3d_viewpoint_prefilter_4ddc9ab_r1`
+
+The run used 128 live floor samples and 150 retained actor-route points. It
+formed 11 focus anchors and 3,027 analytic candidates, then selected six
+position/yaw/height candidates with separate M1 requests. Studio was not used.
+All output remains `research_only=true`, `episode_counted=false`, and explicitly
+pending native candidate navigation, Habitat pixels, first-person certification
+and the four-point mini-pilot.
+
+This result also exposes a boundary that must not be hidden: all six candidates
+analytically cover the complete 75-frame route for both actors, so their route
+and coverage signatures are identical. Pairwise rejection did not call them
+near-duplicates only because their positions and/or yaw differ. Two pairs are
+especially close in one pose dimension (`0.771 m` with `3.82 deg`, and `1.037 m`
+with `1.75 deg`). Therefore this output is a candidate bank, not evidence of six
+usefully different views. Native Topdown, RGB/depth/semantic probes and agent
+visual review must reject occluded or compositionally repetitive views before
+any retained bank is authored. No Studio placement or manual coordinate entry
+is permitted in that follow-up.
