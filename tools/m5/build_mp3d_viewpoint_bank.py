@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from pathlib import Path
 import tempfile
 from typing import Any, Mapping
@@ -165,43 +166,48 @@ def run(args: argparse.Namespace) -> Path:
     staging = Path(
         tempfile.mkdtemp(prefix=f".{output.name}.staging-", dir=str(output.parent))
     )
-    requests = staging / "requests"
-    requests.mkdir()
-    request_paths: dict[str, str] = {}
-    for viewpoint in result.viewpoints:
-        relative = Path("requests") / f"{viewpoint.viewpoint_id}.json"
-        write_json(staging / relative, viewpoint.m1_request)
-        request_paths[viewpoint.viewpoint_id] = relative.as_posix()
-
-    record = result.to_record()
-    record.update(
-        {
-            "inputs": {
-                "room_manifest": str(room_manifest),
-                "base_m1_request": str(base_request),
-                "route_explanation": str(route_path),
-                "camera_floor_samples": str(floor_path),
-            },
-            "retained_route_native_authority": route_evidence,
-            "camera_floor_sample_declared_authority": floor_authority,
-            "m1_capture_request_paths": request_paths,
-        }
-    )
-    write_json(staging / "viewpoint_bank.json", record)
-    (staging / "README.md").write_text(
-        "# MP3D viewpoint candidates\n\n"
-        "This is a CPU-only analytic candidate prefilter. It consumed retained "
-        "Habitat/PathFinder-derived inputs but did not launch Habitat itself. "
-        "Candidate-floor readback, native RGB/depth/semantic pixels, Topdown and "
-        "first-person review, per-view occlusion checks, and every four-point "
-        "mini-pilot remain pending. These candidates are research-only, are not "
-        "certified viewpoints, and count as zero formal episodes.\n",
-        encoding="utf-8",
-    )
     try:
-        atomic_publish_directory(policy, staging, output)
-    except (FileExistsError, PathPolicyError) as exc:
-        raise MP3DViewpointBuildError(str(exc)) from exc
+        requests = staging / "requests"
+        requests.mkdir()
+        request_paths: dict[str, str] = {}
+        for viewpoint in result.viewpoints:
+            relative = Path("requests") / f"{viewpoint.viewpoint_id}.json"
+            write_json(staging / relative, viewpoint.m1_request)
+            request_paths[viewpoint.viewpoint_id] = relative.as_posix()
+
+        record = result.to_record()
+        record.update(
+            {
+                "inputs": {
+                    "room_manifest": str(room_manifest),
+                    "base_m1_request": str(base_request),
+                    "route_explanation": str(route_path),
+                    "camera_floor_samples": str(floor_path),
+                },
+                "retained_route_native_authority": route_evidence,
+                "camera_floor_sample_declared_authority": floor_authority,
+                "m1_capture_request_paths": request_paths,
+            }
+        )
+        write_json(staging / "viewpoint_bank.json", record)
+        (staging / "README.md").write_text(
+            "# MP3D viewpoint candidates\n\n"
+            "This is a CPU-only analytic candidate prefilter. It consumed retained "
+            "Habitat/PathFinder-derived inputs but did not launch Habitat itself. "
+            "Candidate-floor readback, native RGB/depth/semantic pixels, Topdown and "
+            "first-person review, per-view occlusion checks, and every four-point "
+            "mini-pilot remain pending. These candidates are research-only, are not "
+            "certified viewpoints, and count as zero formal episodes.\n",
+            encoding="utf-8",
+        )
+        try:
+            atomic_publish_directory(policy, staging, output)
+        except (FileExistsError, PathPolicyError) as exc:
+            raise MP3DViewpointBuildError(str(exc)) from exc
+    except BaseException:
+        if os.path.lexists(staging):
+            shutil.rmtree(staging)
+        raise
     return output
 
 

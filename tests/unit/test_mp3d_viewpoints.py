@@ -223,6 +223,68 @@ def test_builder_publishes_fresh_requests_with_pending_native_claims(
         builder.run(args)
 
 
+def test_builder_cleans_staging_after_json_serialization_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    route, floor = _write_builder_inputs(tmp_path)
+    output = tmp_path / "serialization-failure"
+    args = builder.parse_args(
+        [
+            "--room-manifest",
+            str(ROOM_MANIFEST),
+            "--base-m1-request",
+            str(BASE_REQUEST),
+            "--route-explanation",
+            str(route),
+            "--camera-floor-samples",
+            str(floor),
+            "--output",
+            str(output),
+        ]
+    )
+    original_write_json = builder.write_json
+
+    def failing_write_json(path, value):
+        if Path(path).name == "viewpoint_bank.json":
+            raise TypeError("fixture serialization failure")
+        original_write_json(path, value)
+
+    monkeypatch.setattr(builder, "write_json", failing_write_json)
+    with pytest.raises(TypeError, match="fixture serialization failure"):
+        builder.run(args)
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(f".{output.name}.staging-*"))
+
+
+def test_builder_publish_race_preserves_winner_and_cleans_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    route, floor = _write_builder_inputs(tmp_path)
+    output = tmp_path / "publish-race"
+    args = builder.parse_args(
+        [
+            "--room-manifest", str(ROOM_MANIFEST),
+            "--base-m1-request", str(BASE_REQUEST),
+            "--route-explanation", str(route),
+            "--camera-floor-samples", str(floor),
+            "--output", str(output),
+        ]
+    )
+
+    def losing_publish(_policy, _staging, destination):
+        Path(destination).mkdir()
+        (Path(destination) / "winner.txt").write_text("keep", encoding="utf-8")
+        raise FileExistsError("fixture publication race")
+
+    monkeypatch.setattr(builder, "atomic_publish_directory", losing_publish)
+    with pytest.raises(builder.MP3DViewpointBuildError, match="publication race"):
+        builder.run(args)
+
+    assert (output / "winner.txt").read_text(encoding="utf-8") == "keep"
+    assert not list(tmp_path.glob(f".{output.name}.staging-*"))
+
+
 def test_builder_rejects_route_authority_from_another_room(tmp_path: Path) -> None:
     route, floor = _write_builder_inputs(tmp_path)
     value = json.loads(route.read_text(encoding="utf-8"))
