@@ -88,6 +88,8 @@ def test_assembles_stage_layout(tmp_path: Path) -> None:
     assert (
         stage / "plugins/SpContent/Content/Blueprints/BP_CameraSensor.uasset"
     ).read_bytes() == b"cam"
+    uproject = json.loads((stage / "SpearSim/SpearSim.uproject").read_text())
+    assert {"Name": "SpContent", "Enabled": True} in uproject.get("Plugins", [])
     provenance = json.loads((stage / "STAGE_PROVENANCE.json").read_text())
     assert provenance["closure_variant"] == "test_variant"
     assert provenance["avengine_source_commit"] == "deadbeef"

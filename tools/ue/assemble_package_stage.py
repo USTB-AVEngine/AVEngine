@@ -105,6 +105,21 @@ def assemble_stage(args: argparse.Namespace) -> dict[str, Any]:
         else:
             shutil.copy2(source, target)
 
+    # The capture validator requires the SpContent plugin to be explicitly
+    # enabled in the staged uproject (the retained 20260820 stage carries the
+    # same adjustment); the imported source slice only lists it via
+    # AdditionalPluginDirectories.
+    uproject_path = stage / "SpearSim/SpearSim.uproject"
+    uproject = json.loads(uproject_path.read_text(encoding="utf-8"))
+    plugins = uproject.setdefault("Plugins", [])
+    if not any(
+        isinstance(item, dict) and item.get("Name") == "SpContent" for item in plugins
+    ):
+        plugins.append({"Name": "SpContent", "Enabled": True})
+        uproject_path.write_text(
+            json.dumps(uproject, indent=4) + "\n", encoding="utf-8"
+        )
+
     copied_files = 0
     copied_bytes = 0
     for entry in variant["physical_mappings"]:
