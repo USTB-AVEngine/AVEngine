@@ -18,8 +18,12 @@
     "dog_beagle_v2_scheduled_dry": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z/audio/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav"
   },
   "room_policy": {
-    "banned_provider_ids": ["blender_custom"],
-    "excluded_room_id_substrings": ["skokloster"]
+    "banned_provider_ids": [
+      "blender_custom"
+    ],
+    "excluded_room_id_substrings": [
+      "skokloster"
+    ]
   },
   "task_templates": {
     "mp3d_dynamic_audio": {
@@ -87,9 +91,9 @@
     "apartment_end_to_end": {
       "actor_selection": "/data/avengine_external/review/apartment_current_visual_inputs_b9150cb_20260820T234000Z/actor_selection.json",
       "source_asset_registry": "examples/runtime/source_asset_runtime_profiles.json",
-      "closure_report": "/data/avengine_external/ue-stages/apartment_0000_metadata_spcontent_20260820T120740Z/analysis_asset_registry_20260820T121423Z/minimal_closure_report_20260820T123209Z.json",
-      "stage_root": "/data/avengine_external/ue-package-stages/apartment_0000_b9150cb_20260820T230638Z",
-      "spear_executable": "/data/avengine_external/ue-package-stages/apartment_0000_b9150cb_20260820T230638Z/Packaged-Development-20260820T232000Z/Linux/SpearSim.sh",
+      "closure_report": "/data/avengine_external/ue-stages/apartment_0000_metadata_spcontent_20260820T120740Z/analysis_asset_registry_20260823T034622Z/minimal_closure_report_20260823T0510Z.json",
+      "stage_root": "/data/avengine_external/ue-package-stages/apartment_0000_1ae5294_20260823T0512Z",
+      "spear_executable": "/data/avengine_external/ue-package-stages/apartment_0000_1ae5294_20260823T0512Z/Packaged-Development-20260823T040831Z/Linux/SpearSim.sh",
       "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
       "m1_request": "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json",
       "simulation_request": "examples/runtime/rir_cache_simulation_request_v2.json",
