@@ -1054,3 +1054,13 @@ steps with zero deletions:
 README.md now states the completed single-repo baseline (merged via PR #2),
 links the runtime-prefix rebuild recipe, and embeds the engine logical
 pipeline diagram at docs/diagrams/engine_logical_pipeline.svg.
+
+## Checkpoint 20260824: Spatial-Omni native FOA dataset wiring
+
+The checked-in QA dataset builder now accepts only each point's verified native
+RLR FOA mixture/sidecar, preserves twin groups across train/valid, carries MCQ,
+numeric-banded and explicit audio-only refusal rows, and publishes fresh output
+atomically. Binaural and foaish fallback paths do not exist. See
+docs/roadmap/SPATIAL_OMNI_NATIVE_FOA_DATASET_20260824.md for the exact audio and
+claim boundary. The retained runtime-b readback remains one MP3D research point;
+no Apartment production dataset or formal Episode is claimed.
