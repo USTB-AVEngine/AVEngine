@@ -205,6 +205,14 @@ def _runtime_obstacles(
     }
 
 
+def build_kujiale_runtime_obstacles(
+    metadata: Mapping[str, Any], emitter_heights_m: Mapping[str, float]
+) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
+    """Public CPU adapter shared by Kujiale feasibility/viewpoint tools."""
+
+    return _runtime_obstacles(metadata, emitter_heights_m)
+
+
 def _save_region_npz(path: Path, region: Any) -> None:
     np.savez_compressed(
         path,
@@ -340,7 +348,10 @@ def run(args: argparse.Namespace) -> Path:
             listener_position_m=listener,
             listener_yaw_deg=listener_yaw,
             camera_hfov_degrees=hfov,
-            room_label="Kujiale 0020 / livingroom 491",
+            room_label=(
+                f"{metadata.get('room_id', 'Kujiale')} / "
+                f"{metadata.get('room_type', 'room')}"
+            ),
             navigation_authority_label="Kujiale polygon + USD furniture footprints",
         )
         Image.fromarray(overview, mode="RGB").save(

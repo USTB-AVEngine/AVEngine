@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Capture an external InteriorAgent/Kujiale room through SPEAR and UE.
 
-This is a bounded four-view visual canary. It deliberately has no alternate
+This is a bounded 4-8-view visual canary. It deliberately has no alternate
 navigation, Timeline, source-program or acoustic implementation. Its host/game
 client is AVEngine-owned; the external Unreal editor and project remain inputs.
 """
@@ -57,14 +57,14 @@ def _write_montage(
             cv2.LINE_AA,
         )
         panels.append(frame)
-    while len(panels) < 4:
+    while len(panels) < 4 or len(panels) % 2:
         panels.append(np.zeros_like(panels[0]))
     rows = [
         np.concatenate(panels[index : index + 2], axis=1)
         for index in range(0, len(panels), 2)
     ]
     montage = np.concatenate(rows, axis=0)
-    path = output / "kujiale_four_view_montage.png"
+    path = output / "kujiale_viewpoint_montage.png"
     if not cv2.imwrite(str(path), montage):
         raise RuntimeError(f"cannot write montage: {path}")
     return path
