@@ -95,7 +95,7 @@ def make_thumb(clip: Path, thumb: Path) -> bool:
         return False
     proc = subprocess.run(
         ["ffmpeg", "-v", "error", "-y", "-ss", "2.5", "-i", str(clip),
-         "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "5", str(thumb)],
+         "-frames:v", "1", "-vf", "scale=720:-2", "-q:v", "5", str(thumb)],
         capture_output=True, text=True,
     )
     return proc.returncode == 0 and thumb.is_file()
@@ -118,8 +118,8 @@ h1{font-size:15px;margin:0 0 6px}
 .ctl button.on{background:#4c8dff;color:#fff;border-color:#4c8dff}
 .ctl input{background:#1d1d24;color:#ddd;border:1px solid #3a3a44;border-radius:6px;padding:3px 8px;font-size:12px;width:90px}
 main{padding:10px 14px;max-width:1380px;margin:0 auto}
-.card{display:grid;grid-template-columns:390px 1fr;gap:0;border:1px solid #2c2c34;border-radius:10px;margin:10px 0;background:#17171c;overflow:hidden}
-@media(max-width:900px){.card{grid-template-columns:1fr}}
+.card{display:grid;grid-template-columns:minmax(480px,58%) 1fr;gap:0;border:1px solid #2c2c34;border-radius:10px;margin:10px 0;background:#17171c;overflow:hidden}
+@media(max-width:980px){.card{grid-template-columns:1fr}}
 .media{background:#000;position:relative;min-height:200px;display:flex;align-items:center;justify-content:center}
 .media img{width:100%;display:block;cursor:pointer}
 .media video{width:100%;display:block;background:#000}
