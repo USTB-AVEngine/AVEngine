@@ -56,9 +56,11 @@ new native authentication result: the bank producer and human review remain the
 authority for promoting those records to `pass`, and the synthetic unit-test
 evidence files are fixtures only.
 
-No authenticated 4–8-view bank is fabricated or committed here. No UE, GPU,
-native pixel, audio, RIR, or mini-pilot run was performed, and no existing
-artifact was modified. Human Studio placement, calibration frames, per-view
-four-point visual/audio pilots, and promotion of their evidence to `pass` remain
-required before a fresh multi-view production batch can run. The formal dataset
+No certified 4–8-view bank is fabricated or committed here. No UE, GPU, native
+pixel, audio, RIR, or mini-pilot run was performed, and no existing artifact was
+modified. The autonomously generated geometry/navmesh candidates still require
+agent-reviewed native first-person calibration frames, per-view four-point
+visual/audio pilots, and promotion of their evidence to `pass` before a fresh
+multi-view production batch can run. Studio remains an owner-only visualization
+surface and is not used to place or select viewpoints. The formal dataset
 denominator remains zero.
