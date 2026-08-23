@@ -1,334 +1,630 @@
 #!/usr/bin/env python3
-"""Design and author one constraint-driven QA v2 batch (reverse fitting).
+"""Design one constraint-driven QA v2 batch from declared-pass viewpoints.
 
-Movers draw from the proven straight-corridor bank (natural speeds from the
-per-species motion profiles); side separation is enforced at the question
-anchor frames; min inter-actor separation 60 cm; per-cell composition
-6 s1-move / 6 s2-move / 3 both / 1 off-screen; attribute twins swap slot
-assets on the first half of each cell. Usage:
+Production requires a complete 4--8-view bank. Points rotate deterministically
+through bank order unless ``--viewpoint-id`` selects one view. The historical
+Apartment view0 path is reachable only through ``--legacy-view0-report-only``.
+"""
 
-  design_qa_batch.py --output-root DIR [--cell-size 16] [--twins-per-cell 8]
+from __future__ import annotations
 
-Fixes over pilot48 + owner feedback 20260823: (1) speaking-order balance via
-*_bfirst variants; (2) NATURAL SPEEDS - mover paths 3.0-3.8 m over the 5 s
-clip (0.60-0.76 m/s, matching the v1-validated 0.757 m/s) instead of the
-gliding 0.14-0.18 m/s of pilot48; (3) side separation enforced at the
-question anchor frames (events 1/2), allowing long diagonal paths;
-(4) off-screen candidates use the near-camera corner spot only.
-Composition: 128 primaries (96 human / 32 dog) + 64 attribute twins.
-Per 16-point cell: 6 s1-move, 6 s2-move, 3 both-move, 1 off-screen.
-research_only; no dataset admission."""
 import argparse
-import json, os, shutil, subprocess, sys
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-REPO = str(Path(__file__).resolve().parents[2])
-_ap = argparse.ArgumentParser()
-_ap.add_argument("--output-root", required=True,
-                 help="fresh batch inputs directory (refuses to clobber)")
-_ap.add_argument("--avengine-cli", default=shutil.which("avengine") or "avengine")
-_ap.add_argument("--registry", default=REPO + "/examples/runtime/source_asset_runtime_profiles.json")
-_ap.add_argument("--snapshot-content",
-                 default="/data/avengine_external/ue-assets/actor_content_registry_v9_20260823T033709Z/cpp/unreal_projects/SpearSim/Content")
-_ap.add_argument("--cell-size", type=int, default=16)
-_ap.add_argument("--twins-per-cell", type=int, default=8)
-_args = _ap.parse_args()
-PY_AVENGINE = _args.avengine_cli
-REG = _args.registry
-SNAP = _args.snapshot_content
-ROOT = _args.output_root
-if os.path.exists(ROOT):
-    print(json.dumps({"error": "output root exists; refusing to clobber", "root": ROOT}))
-    sys.exit(2)
-
-CAMERA_POS = [-70.0, 65.0, 147.1]
-CAMERA_YAW = -145.0
-Z = 27.1
+from avengine.qa.design_viewpoints import (
+    DesignViewpoint,
+    DesignViewpointError,
+    load_design_viewpoint_bank,
+    load_legacy_view0_report_only,
+    select_design_viewpoints,
+)
+from avengine.security.path_policy import WorkspacePathPolicy, atomic_publish_directory
 
 
-_reg_doc = json.load(open(REG))
-_BY_ID = {a["asset_id"]: a for a in _reg_doc["assets"]}
+REPOSITORY = Path(__file__).resolve().parents[2]
+DEFAULT_REGISTRY = REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"
+DEFAULT_CORRIDOR_BANK = REPOSITORY / "examples/qa_v2/straight_corridor_bank_v1.json"
+DEFAULT_LEGACY_M1_REQUEST = (
+    REPOSITORY / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
+)
+DEFAULT_SNAPSHOT_CONTENT = Path(
+    "/data/avengine_external/ue-assets/actor_content_registry_v9_20260823T033709Z/"
+    "cpp/unreal_projects/SpearSim/Content"
+)
+SOURCE_HEIGHT_UE_CM = 27.1
+EVENT_ONE_FRACTION = 4.0 / 75.0
+EVENT_TWO_FRACTION = 22.5 / 75.0
+
+HUMANS = {
+    "blue": "rocketbox_human_male_adult_01_top_blue_research_v1",
+    "green": "rocketbox_human_male_adult_01_top_green_research_v1",
+    "burgundy": "rocketbox_human_male_adult_01_top_burgundy_research_v1",
+}
+DOGS = {
+    "collie": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+    "labrador": "generated_labrador_yellow_medium_standard_adult_research_v1",
+}
+HUMAN_COMBOS = (("blue", "green"), ("blue", "burgundy"), ("green", "burgundy"))
 
 
-def mesh_package_for(asset):
-    su = asset["runtime_backends"]["spear_unreal"]
-    mesh_dir_pkg = su["idle_animation"].split(".", 1)[0].rsplit("/", 1)[0]
-    gate = mesh_dir_pkg.rsplit("/", 1)[-1]
-    phys_dir = os.path.join(SNAP, "MyAssets/Audioset/Meshes", gate)
-    names = [f[:-7] for f in os.listdir(phys_dir) if f.endswith(".uasset")]
-    for n in names:
-        if n + "_Skeleton" in names:
-            return mesh_dir_pkg + "/" + n
+class DesignBatchError(ValueError):
+    """The requested QA design batch cannot be authored safely."""
+
+
+def _load_json(path: str | Path) -> Any:
+    with Path(path).open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _write_json(path: Path, value: Mapping[str, Any]) -> None:
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(value, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+
+
+def mesh_package_for(asset: Mapping[str, Any], snapshot_content: Path) -> str:
+    spear_unreal = asset["runtime_backends"]["spear_unreal"]
+    mesh_dir_package = spear_unreal["idle_animation"].split(".", 1)[0].rsplit("/", 1)[0]
+    gate = mesh_dir_package.rsplit("/", 1)[-1]
+    physical_directory = snapshot_content / "MyAssets/Audioset/Meshes" / gate
+    names = [path.stem for path in physical_directory.glob("*.uasset")]
+    for name in names:
+        if f"{name}_Skeleton" in names:
+            return f"{mesh_dir_package}/{name}"
     if "runtime" in names:
-        return mesh_dir_pkg + "/runtime"
-    raise RuntimeError(f"cannot identify skeletal mesh in {phys_dir}: {names}")
+        return f"{mesh_dir_package}/runtime"
+    raise DesignBatchError(
+        f"cannot identify skeletal mesh in {physical_directory}: {names}"
+    )
 
 
-def actor_entry(slot, asset_id):
-    rec = _BY_ID[asset_id]
-    su = rec["runtime_backends"]["spear_unreal"]
-    bp = su["blueprint_class_path"]
-    bp_pkg = bp.split(".", 1)[0]
-    mesh_pkg = mesh_package_for(rec)
-    mesh_name = mesh_pkg.rsplit("/", 1)[-1]
+def actor_entry(
+    slot: str,
+    asset_id: str,
+    *,
+    assets: Mapping[str, Mapping[str, Any]],
+    snapshot_content: Path,
+) -> dict[str, Any]:
+    record = assets[asset_id]
+    spear_unreal = record["runtime_backends"]["spear_unreal"]
+    blueprint = spear_unreal["blueprint_class_path"]
+    blueprint_package = blueprint.split(".", 1)[0]
+    mesh_package = mesh_package_for(record, snapshot_content)
+    mesh_name = mesh_package.rsplit("/", 1)[-1]
 
-    def phys(package):
-        p = os.path.join(SNAP, package.split("/Game/", 1)[1] + ".uasset")
-        if not os.path.isfile(p):
-            raise RuntimeError(f"missing physical source: {p}")
-        return p
+    def physical(package: str) -> str:
+        path = snapshot_content / f"{package.split('/Game/', 1)[1]}.uasset"
+        if not path.is_file():
+            raise DesignBatchError(f"missing physical source: {path}")
+        return str(path)
 
     return {
         "asset_id": asset_id,
-        "legacy_timeline_actor_id": f"{rec['identity']['species_id']}_{slot[-1]}",
+        "legacy_timeline_actor_id": f"{record['identity']['species_id']}_{slot[-1]}",
         "physical_authorized_internal_sources": {
-            "blueprint": phys(bp_pkg),
-            "graph_derived_mesh": phys(mesh_pkg),
-            "idle": phys(su["idle_animation"].split(".", 1)[0]),
-            "walking": phys(su["walking_animation"].split(".", 1)[0]),
+            "blueprint": physical(blueprint_package),
+            "graph_derived_mesh": physical(mesh_package),
+            "idle": physical(spear_unreal["idle_animation"].split(".", 1)[0]),
+            "walking": physical(spear_unreal["walking_animation"].split(".", 1)[0]),
         },
         "profile_alias": asset_id,
-        "revision": rec["revision"],
+        "revision": record["revision"],
         "source_slot_id": slot,
         "ue_binding": {
-            "blueprint_object_path": bp,
-            "blueprint_package": bp_pkg,
+            "blueprint_object_path": blueprint,
+            "blueprint_package": blueprint_package,
             "graph_derived_mesh": {
-                "derivation": "direct graph dependency of the selected Blueprint; profile binds blueprint_component and declares no standalone mesh path",
-                "object_path": f"{mesh_pkg}.{mesh_name}",
-                "package": mesh_pkg,
+                "derivation": (
+                    "direct graph dependency of the selected Blueprint; profile binds "
+                    "blueprint_component and declares no standalone mesh path"
+                ),
+                "object_path": f"{mesh_package}.{mesh_name}",
+                "package": mesh_package,
             },
-            "idle_object_path": su["idle_animation"],
-            "idle_package": su["idle_animation"].split(".", 1)[0],
-            "profile_skeletal_mesh_binding": su["skeletal_mesh_binding"],
-            "profile_skeletal_mesh_path": su["skeletal_mesh_path"],
-            "walking_object_path": su["walking_animation"],
-            "walking_package": su["walking_animation"].split(".", 1)[0],
+            "idle_object_path": spear_unreal["idle_animation"],
+            "idle_package": spear_unreal["idle_animation"].split(".", 1)[0],
+            "profile_skeletal_mesh_binding": spear_unreal["skeletal_mesh_binding"],
+            "profile_skeletal_mesh_path": spear_unreal["skeletal_mesh_path"],
+            "walking_object_path": spear_unreal["walking_animation"],
+            "walking_package": spear_unreal["walking_animation"].split(".", 1)[0],
         },
     }
 
 
-def selection_doc(a1, a2):
+def selection_document(
+    source1_asset: str,
+    source2_asset: str,
+    *,
+    assets: Mapping[str, Mapping[str, Any]],
+    snapshot_content: Path,
+    generated_at: str,
+) -> dict[str, Any]:
     return {
         "schema": "avengine_apartment_actor_selection_v1",
         "asset_authorization": "verified_internal",
         "research_only": True,
         "qualification_claim": False,
-        "claim_boundary": "QA v2 pilot48 batch; research only.",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "actors": [actor_entry("source1", a1), actor_entry("source2", a2)],
+        "claim_boundary": "QA v2 design batch; research only.",
+        "generated_at": generated_at,
+        "actors": [
+            actor_entry(
+                "source1",
+                source1_asset,
+                assets=assets,
+                snapshot_content=snapshot_content,
+            ),
+            actor_entry(
+                "source2",
+                source2_asset,
+                assets=assets,
+                snapshot_content=snapshot_content,
+            ),
+        ],
     }
 
 
-
-
-HUMANS = {"blue": "rocketbox_human_male_adult_01_top_blue_research_v1",
-          "green": "rocketbox_human_male_adult_01_top_green_research_v1",
-          "burgundy": "rocketbox_human_male_adult_01_top_burgundy_research_v1"}
-DOGS = {"collie": "generated_border_collie_black_white_medium_standard_adult_research_v1",
-        "labrador": "generated_labrador_yellow_medium_standard_adult_research_v1"}
-HUMAN_COMBOS = [("blue", "green"), ("blue", "burgundy"), ("green", "burgundy")]
-
-# Movers draw from near-straight chords actually navigated by unique1000 v1
-# episodes (proven furniture-free at natural speed); statics stand on corridor
-# endpoints. Bank: examples/qa_v2/straight_corridor_bank_v1.json.
-OFF_CORNER = (-152.0, 38.0)
-CAM2 = (-70.0, 65.0)
-_BANK = json.load(open(REPO + "/examples/qa_v2/straight_corridor_bank_v1.json"))["segments"]
-_DIRECTED = []
-for _seg in _BANK:
-    _DIRECTED.append((tuple(_seg["start"]), tuple(_seg["end"])))
-    _DIRECTED.append((tuple(_seg["end"]), tuple(_seg["start"])))
-_STANDS = sorted({tuple(_seg["start"]) for _seg in _BANK} | {tuple(_seg["end"]) for _seg in _BANK})
-
-
-def _side(p):
-    import math as _m
-    th = _m.radians(CAMERA_YAW)
-    fx, fy = _m.cos(th), _m.sin(th)
-    dx, dy = p[0] - CAM2[0], p[1] - CAM2[1]
-    c = (fx * dy - fy * dx) / max(_m.hypot(dx, dy), 1e-9)
-    return ("right" if c > 0 else "left"), abs(c)
-
-
-def _lerp(a, b, t):
-    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
-
-
-def walk_from_bank(i):
-    return _DIRECTED[i % len(_DIRECTED)]
-
-
-def stand_from_bank(i):
-    q = _STANDS[i % len(_STANDS)]
-    return q, q
-
-
-def min_separation_cm(p1, p2):
-    import math as _m
-    worst = 1e9
-    for t in (0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0):
-        a = _lerp(*p1, t) if p1[0] != p1[1] else p1[0]
-        b = _lerp(*p2, t) if p2[0] != p2[1] else p2[0]
-        worst = min(worst, _m.hypot(a[0] - b[0], a[1] - b[1]))
-    return worst
-
-
-def prog_short(asset_id, reg_assets):
-    a = reg_assets[asset_id]
-    ra = a.get("realized_attributes", {})
-    if "top_color" in ra:
-        return ra["top_color"]
-    return {"border_collie": "collie", "labrador_retriever": "labrador"}[a["identity"]["breed_id"]]
-
-
-sys.path.insert(0, "/data/jzy/tmp")
-reg = json.load(open(REG))
-REG_ASSETS = {a["asset_id"]: a for a in reg["assets"]}
-
-cells = []
-for combo in HUMAN_COMBOS:
+def _cells() -> tuple[tuple[str, str, str, str], ...]:
+    cells = []
+    for combo in HUMAN_COMBOS:
+        for order in ("afirst", "bfirst"):
+            cells.append(("human", HUMANS[combo[0]], HUMANS[combo[1]], order))
     for order in ("afirst", "bfirst"):
-        cells.append(("human", HUMANS[combo[0]], HUMANS[combo[1]], order))
-for order in ("afirst", "bfirst"):
-    cells.append(("dog", DOGS["collie"], DOGS["labrador"], order))
-
-specs = []
-E1_T, E2_T = 4.0 / 75.0, 22.5 / 75.0
+        cells.append(("dog", DOGS["collie"], DOGS["labrador"], order))
+    return tuple(cells)
 
 
-def _gates_ok(p1, p2, offscreen=False):
-    q1 = _lerp(*p1, E1_T) if p1[0] != p1[1] else p1[0]
-    q2 = _lerp(*p2, E1_T) if p2[0] != p2[1] else p2[0]
-    (sa, ma), (sb, mb) = _side(q1), _side(q2)
-    r1 = _lerp(*p1, E2_T) if p1[0] != p1[1] else p1[0]
-    r2 = _lerp(*p2, E2_T) if p2[0] != p2[1] else p2[0]
-    (_, m2a), (_, m2b) = _side(r1), _side(r2)
-    side_ok = (sa != sb and ma >= 0.12 and mb >= 0.12 and m2a >= 0.06 and m2b >= 0.06)
-    return (side_ok or offscreen) and min_separation_cm(p1, p2) >= 60.0
+def _lerp(
+    start: Sequence[float], end: Sequence[float], fraction: float
+) -> tuple[float, float, float]:
+    return tuple(
+        float(start[index]) + (float(end[index]) - float(start[index])) * fraction
+        for index in range(3)
+    )
 
 
-def find_combo(seed, mode):
-    n_walk, n_stand = len(_DIRECTED), len(_STANDS)
+def minimum_separation_cm(
+    path1: tuple[Sequence[float], Sequence[float]],
+    path2: tuple[Sequence[float], Sequence[float]],
+) -> float:
+    # Both actors are linearly parameterized over the same clip time. Minimize
+    # the squared norm of their relative 2-D line exactly on t in [0, 1]; sparse
+    # samples can miss a between-sample crossing.
+    relative_start = (
+        float(path1[0][0]) - float(path2[0][0]),
+        float(path1[0][1]) - float(path2[0][1]),
+    )
+    relative_velocity = (
+        (float(path1[1][0]) - float(path1[0][0]))
+        - (float(path2[1][0]) - float(path2[0][0])),
+        (float(path1[1][1]) - float(path1[0][1]))
+        - (float(path2[1][1]) - float(path2[0][1])),
+    )
+    velocity_squared = sum(value * value for value in relative_velocity)
+    if velocity_squared <= 1.0e-18:
+        fraction = 0.0
+    else:
+        fraction = max(
+            0.0,
+            min(
+                1.0,
+                -sum(
+                    start * velocity
+                    for start, velocity in zip(
+                        relative_start, relative_velocity, strict=True
+                    )
+                )
+                / velocity_squared,
+            ),
+        )
+    closest = tuple(
+        start + fraction * velocity
+        for start, velocity in zip(
+            relative_start, relative_velocity, strict=True
+        )
+    )
+    return (closest[0] ** 2 + closest[1] ** 2) ** 0.5
+
+
+def _gates_ok(
+    viewpoint: DesignViewpoint,
+    path1: tuple[Sequence[float], Sequence[float]],
+    path2: tuple[Sequence[float], Sequence[float]],
+    *,
+    offscreen: bool = False,
+) -> bool:
+    anchor1 = _lerp(*path1, EVENT_ONE_FRACTION) if path1[0] != path1[1] else path1[0]
+    anchor2 = _lerp(*path2, EVENT_ONE_FRACTION) if path2[0] != path2[1] else path2[0]
+    (side1, margin1), (side2, margin2) = viewpoint.side(anchor1), viewpoint.side(anchor2)
+    second1 = _lerp(*path1, EVENT_TWO_FRACTION) if path1[0] != path1[1] else path1[0]
+    second2 = _lerp(*path2, EVENT_TWO_FRACTION) if path2[0] != path2[1] else path2[0]
+    _, second_margin1 = viewpoint.side(second1)
+    _, second_margin2 = viewpoint.side(second2)
+    side_ok = (
+        side1 != side2
+        and margin1 >= 0.12
+        and margin2 >= 0.12
+        and second_margin1 >= 0.06
+        and second_margin2 >= 0.06
+    )
+    return (side_ok or offscreen) and minimum_separation_cm(path1, path2) >= 60.0
+
+
+def find_combo(
+    viewpoint: DesignViewpoint, seed: int, mode: str
+) -> tuple[
+    tuple[tuple[float, ...], tuple[float, ...]],
+    tuple[tuple[float, ...], tuple[float, ...]],
+]:
+    directed = viewpoint.directed_paths(source_height_ue_cm=SOURCE_HEIGHT_UE_CM)
+    stands = viewpoint.stand_points(source_height_ue_cm=SOURCE_HEIGHT_UE_CM)
+    if not directed or not stands:
+        raise DesignBatchError(f"viewpoint {viewpoint.viewpoint_id} has no corridors")
     if mode == "s1_moving_s2_static":
-        for a in range(n_walk):
-            for b in range(n_stand):
-                p1 = _DIRECTED[(seed + a) % n_walk]
-                p2 = stand_from_bank(seed * 3 + b)
-                if _gates_ok(p1, p2):
-                    return p1, p2
+        for walk_offset in range(len(directed)):
+            for stand_offset in range(len(stands)):
+                path1 = directed[(seed + walk_offset) % len(directed)]
+                stand = stands[(seed * 3 + stand_offset) % len(stands)]
+                path2 = (stand, stand)
+                if _gates_ok(viewpoint, path1, path2):
+                    return path1, path2
     elif mode == "s1_static_s2_moving":
-        for a in range(n_stand):
-            for b in range(n_walk):
-                p1 = stand_from_bank(seed * 3 + a)
-                p2 = _DIRECTED[(seed + b) % n_walk]
-                if _gates_ok(p1, p2):
-                    return p1, p2
+        for stand_offset in range(len(stands)):
+            for walk_offset in range(len(directed)):
+                stand = stands[(seed * 3 + stand_offset) % len(stands)]
+                path1 = (stand, stand)
+                path2 = directed[(seed + walk_offset) % len(directed)]
+                if _gates_ok(viewpoint, path1, path2):
+                    return path1, path2
     elif mode == "both_moving":
-        for a in range(n_walk):
-            for b in range(n_walk):
-                p1 = _DIRECTED[(seed + a) % n_walk]
-                p2 = _DIRECTED[(seed * 5 + b) % n_walk]
-                if p1 != p2 and _gates_ok(p1, p2):
-                    return p1, p2
-    else:  # offscreen
-        for a in range(n_walk):
-            p1 = _DIRECTED[(seed + a) % n_walk]
-            p2 = (OFF_CORNER, OFF_CORNER)
-            if _gates_ok(p1, p2, offscreen=True):
-                return p1, p2
-    raise RuntimeError(f"no combo for mode {mode} seed {seed}")
+        for first_offset in range(len(directed)):
+            for second_offset in range(len(directed)):
+                path1 = directed[(seed + first_offset) % len(directed)]
+                path2 = directed[(seed * 5 + second_offset) % len(directed)]
+                if path1 != path2 and _gates_ok(viewpoint, path1, path2):
+                    return path1, path2
+    elif mode == "offscreen":
+        offscreen = viewpoint.offscreen_position_ue_cm
+        path2 = (offscreen, offscreen)
+        for walk_offset in range(len(directed)):
+            path1 = directed[(seed + walk_offset) % len(directed)]
+            if _gates_ok(viewpoint, path1, path2, offscreen=True):
+                return path1, path2
+    else:
+        raise DesignBatchError(f"unknown motion mode: {mode}")
+    raise DesignBatchError(
+        f"no combo for viewpoint {viewpoint.viewpoint_id} mode {mode} seed {seed}"
+    )
 
 
-for ci, (kind, a1, a2, order) in enumerate(cells):
-    for made in range(_args.cell_size):
-        pid = f"b{ci * _args.cell_size + made + 1:03d}"
-        seed = ci * _args.cell_size + made
-        if made < 6:
-            motion = "s1_moving_s2_static"
-            p1, p2 = find_combo(seed, motion)
-        elif made < 12:
-            motion = "s1_static_s2_moving"
-            p1, p2 = find_combo(seed, motion)
-        elif made < _args.cell_size - 1:
-            motion = "both_moving"
-            p1, p2 = find_combo(seed, motion)
-        else:
-            motion = "s1_moving_s2_static"
-            p1, p2 = find_combo(seed, "offscreen")
-        s1s, s2s = prog_short(a1, REG_ASSETS), prog_short(a2, REG_ASSETS)
-        pk = "two_human" if kind == "human" else "two_dog"
-        suffix = "_turn_taking_v1" if order == "afirst" else "_turn_taking_bfirst_v1"
-        specs.append({
-            "point_id": pid, "pair_kind": kind,
-            "source1_asset": a1, "source2_asset": a2,
-            "s1_start": list(p1[0]) + [Z], "s1_end": list(p1[1]) + [Z],
-            "s2_start": list(p2[0]) + [Z], "s2_end": list(p2[1]) + [Z],
-            "motion_case": motion, "offscreen_candidate": made == _args.cell_size - 1,
-            "twin_of": None,
-            "program_id": f"qa_v2_{pk}_{s1s}_{s2s}{suffix}",
-        })
-
-# 64 twins: first 8 points of each cell, assets swapped (program follows assets)
-by_id = {s["point_id"]: s for s in specs}
-twins = []
-for ci in range(len(cells)):
-    for j in range(_args.twins_per_cell):
-        src = by_id[f"b{ci * _args.cell_size + j + 1:03d}"]
-        kind = src["pair_kind"]
-        a1, a2 = src["source2_asset"], src["source1_asset"]
-        s1s, s2s = prog_short(a1, REG_ASSETS), prog_short(a2, REG_ASSETS)
-        pk = "two_human" if kind == "human" else "two_dog"
-        suffix = "_turn_taking_v1" if "bfirst" not in src["program_id"] else "_turn_taking_bfirst_v1"
-        twins.append(dict(src, point_id=f"bt{len(twins) + 1:03d}",
-                          source1_asset=a1, source2_asset=a2,
-                          twin_of=src["point_id"],
-                          program_id=f"qa_v2_{pk}_{s1s}_{s2s}{suffix}"))
-specs.extend(twins)
+def _program_short(asset_id: str, assets: Mapping[str, Mapping[str, Any]]) -> str:
+    asset = assets[asset_id]
+    realized = asset.get("realized_attributes", {})
+    if "top_color" in realized:
+        return str(realized["top_color"])
+    return {
+        "border_collie": "collie",
+        "labrador_retriever": "labrador",
+    }[asset["identity"]["breed_id"]]
 
 
-# ---- selection docs + author (reuse pilot48 generator semantics) ----
+def build_specs(
+    *,
+    viewpoints: Sequence[DesignViewpoint],
+    assets: Mapping[str, Mapping[str, Any]],
+    cell_size: int,
+    twins_per_cell: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not viewpoints:
+        raise DesignBatchError("at least one resolved viewpoint is required")
+    if cell_size < 13:
+        raise DesignBatchError(
+            "--cell-size must be at least 13 so both six-point single-mover "
+            "groups and the off-screen point are distinct"
+        )
+    if not 0 <= twins_per_cell <= cell_size:
+        raise DesignBatchError("--twins-per-cell must be between zero and cell size")
+    specs = []
+    cells = _cells()
+    for cell_index, (kind, asset1, asset2, order) in enumerate(cells):
+        for made in range(cell_size):
+            point_id = f"b{cell_index * cell_size + made + 1:03d}"
+            seed = cell_index * cell_size + made
+            viewpoint = viewpoints[(cell_index + made) % len(viewpoints)]
+            if made < 6:
+                motion = "s1_moving_s2_static"
+                path1, path2 = find_combo(viewpoint, seed, motion)
+            elif made < 12:
+                motion = "s1_static_s2_moving"
+                path1, path2 = find_combo(viewpoint, seed, motion)
+            elif made < cell_size - 1:
+                motion = "both_moving"
+                path1, path2 = find_combo(viewpoint, seed, motion)
+            else:
+                motion = "s1_moving_s2_static"
+                path1, path2 = find_combo(viewpoint, seed, "offscreen")
+            short1 = _program_short(asset1, assets)
+            short2 = _program_short(asset2, assets)
+            pair_kind = "two_human" if kind == "human" else "two_dog"
+            suffix = (
+                "_turn_taking_v1"
+                if order == "afirst"
+                else "_turn_taking_bfirst_v1"
+            )
+            specs.append(
+                {
+                    "point_id": point_id,
+                    "pair_kind": kind,
+                    "source1_asset": asset1,
+                    "source2_asset": asset2,
+                    "s1_start": list(path1[0]),
+                    "s1_end": list(path1[1]),
+                    "s2_start": list(path2[0]),
+                    "s2_end": list(path2[1]),
+                    "motion_case": motion,
+                    "offscreen_candidate": made == cell_size - 1,
+                    "twin_of": None,
+                    "program_id": f"qa_v2_{pair_kind}_{short1}_{short2}{suffix}",
+                    "viewpoint_id": viewpoint.viewpoint_id,
+                    "viewpoint_authority": viewpoint.authority,
+                    "m1_request": viewpoint.spec_m1_request(),
+                }
+            )
 
-os.makedirs(ROOT)
-results, sel_cache = [], {}
-for s in specs:
-    pdir = os.path.join(ROOT, s["point_id"])
-    os.makedirs(pdir)
-    key = (s["source1_asset"], s["source2_asset"])
-    if key not in sel_cache:
-        sel_cache[key] = selection_doc(*key)  # noqa: F821
-    with open(os.path.join(pdir, "actor_selection.json"), "w") as f:
-        json.dump(sel_cache[key], f, ensure_ascii=False, indent=2)
-    with open(os.path.join(pdir, "spec.json"), "w") as f:
-        json.dump(s, f, ensure_ascii=False, indent=2)
-    cmd = [PY_AVENGINE, "m5", "author-current-apartment-visual-timeline",
-           "--actor-selection", os.path.join(pdir, "actor_selection.json"),
-           "--source-asset-registry", REG,
-           "--camera-position-ue-cm", *map(str, CAMERA_POS),
-           "--camera-yaw-deg", str(CAMERA_YAW),
-           "--human-start-ue-cm", *map(str, s["s1_start"]),
-           "--human-end-ue-cm", *map(str, s["s1_end"]),
-           "--beagle-start-ue-cm", *map(str, s["s2_start"]),
-           "--beagle-end-ue-cm", *map(str, s["s2_end"]),
-           "--output", os.path.join(pdir, "timeline.json")]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO)
-    ok = proc.returncode == 0
-    results.append({"point_id": s["point_id"], "authored": ok,
-                    "error": None if ok else (proc.stdout + proc.stderr)[-300:]})
+    by_id = {spec["point_id"]: spec for spec in specs}
+    twins = []
+    for cell_index in range(len(cells)):
+        for offset in range(twins_per_cell):
+            source = by_id[f"b{cell_index * cell_size + offset + 1:03d}"]
+            kind = source["pair_kind"]
+            asset1, asset2 = source["source2_asset"], source["source1_asset"]
+            short1 = _program_short(asset1, assets)
+            short2 = _program_short(asset2, assets)
+            pair_kind = "two_human" if kind == "human" else "two_dog"
+            suffix = (
+                "_turn_taking_bfirst_v1"
+                if "bfirst" in source["program_id"]
+                else "_turn_taking_v1"
+            )
+            twins.append(
+                dict(
+                    source,
+                    point_id=f"bt{len(twins) + 1:03d}",
+                    source1_asset=asset1,
+                    source2_asset=asset2,
+                    twin_of=source["point_id"],
+                    program_id=f"qa_v2_{pair_kind}_{short1}_{short2}{suffix}",
+                )
+            )
+    specs.extend(twins)
+    return specs, twins
 
-manifest = {
-    "schema": "avengine_qa_v2_batch2d_v1", "status": "research_only",
-    "qualification_claim": False,
-    "generated_at": datetime.now(timezone.utc).isoformat(),
-    "inputs_root": ROOT,
-    "counts": {"total": len(specs),
-               "authored": sum(1 for r in results if r["authored"]),
-               "twins": len(twins)},
-    "author_results": [r for r in results if not r["authored"]] or "all_authored",
-}
-with open(os.path.join(ROOT, "batch_manifest.json"), "w") as f:
-    json.dump(manifest, f, ensure_ascii=False, indent=2)
-print(json.dumps({"inputs_root": ROOT, "counts": manifest["counts"],
-                  "failed": [r["point_id"] for r in results if not r["authored"]][:8]},
-                 ensure_ascii=False))
+
+def timeline_author_command(
+    *,
+    avengine_cli: str,
+    point_directory: Path,
+    spec: Mapping[str, Any],
+    viewpoint: DesignViewpoint,
+    registry_path: Path,
+) -> list[str]:
+    if spec.get("viewpoint_id") != viewpoint.viewpoint_id:
+        raise DesignBatchError("spec viewpoint_id does not match timeline viewpoint")
+    if spec.get("m1_request") != viewpoint.spec_m1_request():
+        raise DesignBatchError("spec M1 request does not match timeline viewpoint")
+    return [
+        avengine_cli,
+        "m5",
+        "author-current-apartment-visual-timeline",
+        "--actor-selection",
+        str(point_directory / "actor_selection.json"),
+        "--source-asset-registry",
+        str(registry_path),
+        "--camera-position-ue-cm",
+        *map(str, viewpoint.camera_position_ue_cm),
+        "--camera-yaw-deg",
+        str(viewpoint.camera_yaw_ue_deg),
+        "--human-start-ue-cm",
+        *map(str, spec["s1_start"]),
+        "--human-end-ue-cm",
+        *map(str, spec["s1_end"]),
+        "--beagle-start-ue-cm",
+        *map(str, spec["s2_start"]),
+        "--beagle-end-ue-cm",
+        *map(str, spec["s2_end"]),
+        "--output",
+        str(point_directory / "timeline.json"),
+    ]
+
+
+def _fresh_staging(output: str | Path) -> tuple[WorkspacePathPolicy, Path, Path]:
+    unresolved = Path(output).expanduser()
+    if not unresolved.is_absolute():
+        unresolved = Path.cwd() / unresolved
+    if os.path.lexists(unresolved):
+        raise DesignBatchError(f"output root exists; refusing to clobber: {unresolved}")
+    unresolved.parent.mkdir(parents=True, exist_ok=True)
+    parent = unresolved.parent.resolve(strict=True)
+    policy = WorkspacePathPolicy.from_roots((parent,))
+    destination = policy.resolve_output(parent / unresolved.name, owner="QA design output")
+    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=parent))
+    return policy, destination, staging
+
+
+def _resolve_viewpoints(args: argparse.Namespace) -> tuple[DesignViewpoint, ...]:
+    if args.legacy_view0_report_only:
+        if args.viewpoint_bank is not None or args.viewpoint_id is not None:
+            raise DesignBatchError(
+                "legacy report-only mode cannot be combined with viewpoint bank selection"
+            )
+        if args.legacy_offscreen_point_ue_cm is None:
+            raise DesignBatchError(
+                "--legacy-view0-report-only requires --legacy-offscreen-point-ue-cm"
+            )
+        return (
+            load_legacy_view0_report_only(
+                m1_request_path=args.legacy_m1_request,
+                corridor_bank_path=args.legacy_corridor_bank,
+                offscreen_position_ue_cm=args.legacy_offscreen_point_ue_cm,
+            ),
+        )
+    if args.viewpoint_bank is None:
+        raise DesignBatchError(
+            "production design requires --viewpoint-bank; legacy view0 requires the "
+            "explicit --legacy-view0-report-only mode"
+        )
+    viewpoints = load_design_viewpoint_bank(args.viewpoint_bank)
+    return select_design_viewpoints(viewpoints, args.viewpoint_id)
+
+
+def run(
+    args: argparse.Namespace,
+    *,
+    command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> Path:
+    viewpoints = _resolve_viewpoints(args)
+    registry_path = Path(args.registry).expanduser().resolve(strict=True)
+    registry = _load_json(registry_path)
+    assets = {asset["asset_id"]: asset for asset in registry["assets"]}
+    snapshot_content = Path(args.snapshot_content).expanduser().resolve(strict=True)
+    specs, twins = build_specs(
+        viewpoints=viewpoints,
+        assets=assets,
+        cell_size=args.cell_size,
+        twins_per_cell=args.twins_per_cell,
+    )
+    viewpoint_by_id = {item.viewpoint_id: item for item in viewpoints}
+    generated_at = datetime.now(timezone.utc).isoformat()
+    policy, destination, staging = _fresh_staging(args.output_root)
+    selection_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    try:
+        for spec in specs:
+            point_directory = staging / spec["point_id"]
+            point_directory.mkdir()
+            selection_key = (spec["source1_asset"], spec["source2_asset"])
+            if selection_key not in selection_cache:
+                selection_cache[selection_key] = selection_document(
+                    *selection_key,
+                    assets=assets,
+                    snapshot_content=snapshot_content,
+                    generated_at=generated_at,
+                )
+            _write_json(
+                point_directory / "actor_selection.json",
+                selection_cache[selection_key],
+            )
+            _write_json(point_directory / "spec.json", spec)
+            viewpoint = viewpoint_by_id[spec["viewpoint_id"]]
+            command = timeline_author_command(
+                avengine_cli=args.avengine_cli,
+                point_directory=point_directory,
+                spec=spec,
+                viewpoint=viewpoint,
+                registry_path=registry_path,
+            )
+            completed = command_runner(
+                command,
+                capture_output=True,
+                text=True,
+                cwd=REPOSITORY,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stdout + completed.stderr)[-1000:]
+                raise DesignBatchError(
+                    f"timeline author failed for {spec['point_id']}: {detail}"
+                )
+
+        distribution = Counter(spec["viewpoint_id"] for spec in specs)
+        manifest = {
+            "schema": "avengine_qa_v2_batch2d_v1",
+            "status": (
+                "legacy_report_only"
+                if args.legacy_view0_report_only
+                else "research_only"
+            ),
+            "qualification_claim": False,
+            "generated_at": generated_at,
+            "inputs_root": str(destination),
+            "viewpoint_selection": {
+                "mode": (
+                    "legacy_view0_report_only"
+                    if args.legacy_view0_report_only
+                    else ("explicit_id" if args.viewpoint_id else "deterministic_rotation")
+                ),
+                "bank": args.viewpoint_bank,
+                "selected_viewpoint_ids": [item.viewpoint_id for item in viewpoints],
+                "point_counts": dict(sorted(distribution.items())),
+            },
+            "counts": {
+                "total": len(specs),
+                "authored": len(specs),
+                "twins": len(twins),
+            },
+            "author_results": "all_authored",
+        }
+        _write_json(staging / "batch_manifest.json", manifest)
+        return atomic_publish_directory(policy, staging, destination)
+    except BaseException:
+        if os.path.lexists(staging):
+            shutil.rmtree(staging)
+        raise
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--output-root", required=True, help="fresh batch directory; refuses to clobber"
+    )
+    parser.add_argument("--avengine-cli", default=shutil.which("avengine") or "avengine")
+    parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
+    parser.add_argument("--snapshot-content", default=str(DEFAULT_SNAPSHOT_CONTENT))
+    parser.add_argument("--cell-size", type=int, default=16)
+    parser.add_argument("--twins-per-cell", type=int, default=8)
+    parser.add_argument(
+        "--viewpoint-bank",
+        help="declared-pass 4-8-view bank; required outside legacy report-only mode",
+    )
+    parser.add_argument(
+        "--viewpoint-id",
+        help="use one explicit bank viewpoint instead of deterministic rotation",
+    )
+    parser.add_argument("--legacy-view0-report-only", action="store_true")
+    parser.add_argument("--legacy-m1-request", default=str(DEFAULT_LEGACY_M1_REQUEST))
+    parser.add_argument("--legacy-corridor-bank", default=str(DEFAULT_CORRIDOR_BANK))
+    parser.add_argument(
+        "--legacy-offscreen-point-ue-cm",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        output = run(args)
+    except (DesignBatchError, DesignViewpointError, KeyError, OSError, TypeError) as exc:
+        print(json.dumps({"error": str(exc), "output_written": False}, ensure_ascii=False))
+        return 2
+    manifest = _load_json(output / "batch_manifest.json")
+    print(
+        json.dumps(
+            {"inputs_root": str(output), "counts": manifest["counts"]},
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
