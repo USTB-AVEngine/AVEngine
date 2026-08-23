@@ -41,6 +41,7 @@ from train_so_qa import (
     get_world_size,
     is_distributed,
     is_main_process,
+    load_video_frames_ffmpeg,
     make_loader,
     normalize_answer,
     rank0_print,
@@ -201,6 +202,13 @@ def instantiate_model_for_checkpoint(runtime_args: argparse.Namespace, checkpoin
         model, _ = apply_llm_lora(model, model_args)
         configure_beats_lora_training(model, model_args)
 
+    # AV checkpoints: replay the training-time RoPE mode at eval time.
+    if bool(train_args.get("time_aligned_media")):
+        for cfg_owner in (model, getattr(model, "thinker", None)):
+            if cfg_owner is not None and hasattr(cfg_owner, "config"):
+                setattr(cfg_owner.config, "so_time_aligned_media", True)
+        rank0_print("Time-aligned media RoPE enabled for eval (from train_args).")
+
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     from spatial_omni.utils.ckpt_compat import remap_legacy_state_dict
     state_dict = checkpoint.get("trainable_state_dict", checkpoint)
@@ -226,8 +234,15 @@ class SpatialBeatsEvalCollator:
     # was trained with both branches active, so this is OOD for the LoRA;
     # results below the joint baseline are expected and meaningful.
     drop_mono_audio: bool = False
+    # AV eval: mirror SpatialBeatsQACollator's video path (records need
+    # video_path; requires batch_size 1, same as training).
+    with_video: bool = False
+    video_frames: int = 16
+    video_max_pixels: int = 200_704
 
     def __post_init__(self) -> None:
+        if self.with_video and self._mono_compat_mode:
+            raise ValueError("with_video is incompatible with mono compat modes.")
         if self.mono_audio_zero_spatial_tokens and self.mono_audio_w_channel_spatial_encoder:
             raise ValueError(
                 "mono_audio_zero_spatial_tokens and "
@@ -295,6 +310,10 @@ class SpatialBeatsEvalCollator:
         # In normal mode they're identical (same list). We only diverge them
         # when drop_mono_audio is on.
         spatial_audio_arrs: List[np.ndarray] = []
+        if self.with_video and len(features) != 1:
+            raise ValueError("with_video currently requires batch_size 1")
+        video_arrs: List[np.ndarray] = []
+        video_fps: List[float] = []
         prompts: List[str] = []
         meta: List[Dict[str, Any]] = []
         cached_input_features: List[torch.Tensor] = []
@@ -343,9 +362,22 @@ class SpatialBeatsEvalCollator:
                 audio_arrs.append(np.zeros_like(real_wav, dtype=np.float32))
             else:
                 audio_arrs.append(real_wav)
-            # Prompt structure is unchanged: <|AUDIO|><|spatial|>\n<prompt>\n
+            if self.with_video:
+                video_path = feat.get("video_path")
+                if not video_path:
+                    raise ValueError(
+                        "with_video set but record lacks video_path: "
+                        f"{feat.get('qa_id') or feat.get('pair_id')}"
+                    )
+                frames, duration_s = load_video_frames_ffmpeg(
+                    str(video_path), self.video_frames
+                )
+                video_arrs.append(frames)
+                video_fps.append(float(frames.shape[0]) / max(duration_s, 1e-6))
+            # Prompt structure matches training: [<|video|>]<|AUDIO|><|spatial|>\n<prompt>\n
             prompt_prefix = (
-                self.processor.audio_token
+                (self.processor.video_token if self.with_video else "")
+                + self.processor.audio_token
                 + self.processor.spatial_token
                 + f"\n{str(feat['prompt']).rstrip()}\n"
             )
@@ -371,6 +403,7 @@ class SpatialBeatsEvalCollator:
                     "canonical_answer": feat.get("canonical_answer"),
                     "question_class": feat.get("question_class"),
                     "answer_meta": feat.get("answer_meta"),
+                    "video_path": feat.get("video_path") if self.with_video else None,
                 }
             )
             if cache_item is not None:
@@ -425,6 +458,12 @@ class SpatialBeatsEvalCollator:
         # waveforms (see above), so the processor will compute zero
         # input_features and the audio_tower forward will produce ~zero
         # embeddings. Spatial branch is unaffected.
+        if self.with_video:
+            processor_kwargs["videos"] = video_arrs
+            processor_kwargs["fps"] = (
+                video_fps[0] if len(video_fps) == 1 else video_fps
+            )
+            processor_kwargs["max_pixels"] = int(self.video_max_pixels)
         batch = self.processor(
             text=prompts,
             audio=audio_arrs,
@@ -433,6 +472,12 @@ class SpatialBeatsEvalCollator:
             return_tensors="pt",
             **processor_kwargs,
         )
+        if "video_second_per_grid" in batch and not torch.is_tensor(
+            batch["video_second_per_grid"]
+        ):
+            batch["video_second_per_grid"] = torch.tensor(
+                batch["video_second_per_grid"], dtype=torch.float32
+            )
         if not self.mono_audio_zero_spatial_tokens:
             t_max = int(lens_t.max())
             sa_t = torch.zeros(batch_size, t_max, 4, dtype=torch.float32)
@@ -670,6 +715,9 @@ def main() -> None:
             collator=SpatialBeatsEvalCollator(
                 processor=processor,
                 audio_feature_cache=audio_feature_cache,
+                with_video=bool(train_args.get("with_video")),
+                video_frames=int(train_args.get("video_frames") or 16),
+                video_max_pixels=int(train_args.get("video_max_pixels") or 200_704),
             ),
             batch_size=args.batch_size,
             num_workers=args.num_workers,
