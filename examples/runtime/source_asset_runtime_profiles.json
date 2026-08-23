@@ -1,7 +1,7 @@
 {
   "schema": "avengine_source_asset_runtime_registry_v1",
   "registry_id": "avengine_source_asset_runtime_profiles_v1",
-  "revision": "20260816_v8",
+  "revision": "20260823_v9",
   "aliases": {
     "current_generated_cat": {
       "asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
@@ -1108,6 +1108,195 @@
           "skeletal_mesh_path": null,
           "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_professions_construction_male_01_original_ue_v1/Standing_Idle.Standing_Idle",
           "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_professions_construction_male_01_original_ue_v1/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 90.0,
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
+          },
+          "floor_contact_gate": false
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "rocketbox_human_male_adult_01_top_burgundy_research_v1",
+      "revision": "controlled_material_ue_v3",
+      "display_label": "Human (burgundy top)",
+      "entity_class": "articulated_human",
+      "identity": {
+        "species_id": "human",
+        "breed_id": null
+      },
+      "realized_attributes": {
+        "life_stage": "adult",
+        "sex_or_gender_label": "male",
+        "top_color": "burgundy"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://legacy-spear/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3/runtime.glb",
+        "rig_authority": "rocketbox_human_bip01_native_v3"
+      },
+      "timeline": {
+        "template_id": "rocketbox_human_male_adult_01",
+        "body_plan_id": "biped_human",
+        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "walk_phase_period_frames": 16,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "mouth",
+      "emitter_anchors": [
+        {
+          "anchor_id": "mouth",
+          "anchor_type": "mouth",
+          "offset_m": [0.0, 1.641311, 0.0],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "actor_scale": 1.0,
+          "ue_import_manifest_ref": {
+            "path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3/ue_import_manifest.json",
+            "schema": "rocketbox_native_ue_import_v3",
+            "tag": "rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3",
+            "import_asset_id": "rocketbox_male_adult_01"
+          },
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3/BP_gate_rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3.BP_gate_rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3/Standing_Idle.Standing_Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 90.0,
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
+          },
+          "floor_contact_gate": false
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "revision": "controlled_material_ue_v3",
+      "display_label": "Human (green top)",
+      "entity_class": "articulated_human",
+      "identity": {
+        "species_id": "human",
+        "breed_id": null
+      },
+      "realized_attributes": {
+        "life_stage": "adult",
+        "sex_or_gender_label": "male",
+        "top_color": "green"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://legacy-spear/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3/runtime.glb",
+        "rig_authority": "rocketbox_human_bip01_native_v3"
+      },
+      "timeline": {
+        "template_id": "rocketbox_human_male_adult_01",
+        "body_plan_id": "biped_human",
+        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "walk_phase_period_frames": 16,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "mouth",
+      "emitter_anchors": [
+        {
+          "anchor_id": "mouth",
+          "anchor_type": "mouth",
+          "offset_m": [0.0, 1.641311, 0.0],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "actor_scale": 1.0,
+          "ue_import_manifest_ref": {
+            "path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3/ue_import_manifest.json",
+            "schema": "rocketbox_native_ue_import_v3",
+            "tag": "rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3",
+            "import_asset_id": "rocketbox_male_adult_01"
+          },
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3/BP_gate_rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3.BP_gate_rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3/Standing_Idle.Standing_Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 90.0,
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [0.0, 0.0, 0.0],
+            "translation_cm": [0.0, 0.0, 0.0],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
+          },
+          "floor_contact_gate": false
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "revision": "controlled_material_ue_v3",
+      "display_label": "Human (blue top)",
+      "entity_class": "articulated_human",
+      "identity": {
+        "species_id": "human",
+        "breed_id": null
+      },
+      "realized_attributes": {
+        "life_stage": "adult",
+        "sex_or_gender_label": "male",
+        "top_color": "blue"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://legacy-spear/rocketbox_native_runtime_ue_v3/rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3/runtime.glb",
+        "rig_authority": "rocketbox_human_bip01_native_v3"
+      },
+      "timeline": {
+        "template_id": "rocketbox_human_male_adult_01",
+        "body_plan_id": "biped_human",
+        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "walk_phase_period_frames": 16,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "mouth",
+      "emitter_anchors": [
+        {
+          "anchor_id": "mouth",
+          "anchor_type": "mouth",
+          "offset_m": [0.0, 1.641311, 0.0],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "actor_scale": 1.0,
+          "ue_import_manifest_ref": {
+            "path": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_native_ue_import_v3/rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3/ue_import_manifest.json",
+            "schema": "rocketbox_native_ue_import_v3",
+            "tag": "rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3",
+            "import_asset_id": "rocketbox_male_adult_01"
+          },
+          "blueprint_class_path": "/Game/MyAssets/Audioset/Blueprints/gate_rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3/BP_gate_rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3.BP_gate_rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3_C",
+          "skeletal_mesh_binding": "blueprint_component",
+          "skeletal_mesh_path": null,
+          "idle_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3/Standing_Idle.Standing_Idle",
+          "walking_animation": "/Game/MyAssets/Audioset/Meshes/gate_rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3/Walking.Walking",
           "ue_anatomical_forward_yaw_deg": 90.0,
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
