@@ -315,6 +315,8 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
     m3_manifest.write_text("{}\n", encoding="utf-8")
     runtime_prefix = tmp_path / "runtime-prefix"
     runtime_prefix.mkdir()
+    rlr_sdk_root = tmp_path / "rlr-sdk"
+    rlr_sdk_root.mkdir()
     magnum_site = tmp_path / "magnum-site"
     magnum_site.mkdir()
     monkeypatch.setenv("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE", str(magnum_site))
@@ -351,6 +353,8 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
             str(anchor_library),
             "--runtime-prefix",
             str(runtime_prefix),
+            "--rlr-sdk-root",
+            str(rlr_sdk_root),
             "--output",
             str(output),
         ]
@@ -358,6 +362,7 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
 
     assert builder.run(args) == output
     assert len(native_calls) == 1
+    assert native_calls[0]["rlr_sdk_root"] == rlr_sdk_root.resolve()
     prefilter = json.loads((output / "prefilter.json").read_text(encoding="utf-8"))
     semantic = json.loads(
         (output / "semantic_targets.json").read_text(encoding="utf-8")
@@ -366,12 +371,24 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
     assert prefilter["studio_used"] is False
     assert prefilter["native_geometry_execution_status"] == "pass"
     assert prefilter["native_pixel_validation_status"] == "pending"
+    assert prefilter["inputs"]["rlr_sdk_root"] == str(rlr_sdk_root.resolve())
+    assert prefilter["minimum_candidate_thresholds"] == {
+        "raster_sample_fraction": builder.PILOT_MINIMUM_RASTER_SAMPLE_FRACTION,
+        "passed_corridor_count": builder.PILOT_MINIMUM_PASSED_CORRIDOR_COUNT,
+    }
     assert "native_execution_status" not in prefilter
     assert prefilter["runtime_obstacle_map"]["rigid_obstacle_count"] == 1
     assert prefilter["runtime_obstacle_map"]["rigid_obstacles"][0]["handle"] == (
         "review_table"
     )
     assert len(prefilter["viewpoints"]) == 6
+    assert all(
+        viewpoint["raster_frustum_sample"]["fraction"]
+        >= builder.PILOT_MINIMUM_RASTER_SAMPLE_FRACTION
+        and len(viewpoint["corridor_prefilter_pass_ids"])
+        >= builder.PILOT_MINIMUM_PASSED_CORRIDOR_COUNT
+        for viewpoint in prefilter["viewpoints"]
+    )
     assert set(semantic["semantic_targets"]) == {
         "living_surface_01",
         "kitchen_surface_01",
@@ -471,10 +488,11 @@ def test_runtime_loader_fails_when_declared_navmesh_cannot_load(
         habitat_sim=SimpleNamespace(Simulator=lambda _configuration: FakeSimulator()),
         magnum=object(),
     )
+    runtime_calls = []
     monkeypatch.setattr(
         builder,
         "prepare_installed_habitat_runtime",
-        lambda **_kwargs: runtime,
+        lambda **kwargs: runtime_calls.append(kwargs) or runtime,
     )
     monkeypatch.setattr(
         builder,
@@ -498,11 +516,20 @@ def test_runtime_loader_fails_when_declared_navmesh_cannot_load(
             inputs=SimpleNamespace(),
             runtime_prefix=tmp_path / "runtime",
             magnum_python_site=tmp_path / "magnum",
+            rlr_sdk_root=tmp_path / "rlr-sdk",
             floor_height_m=0.271,
             meters_per_pixel=0.04,
             scratch_directory=tmp_path / "scratch",
         ):
             pytest.fail("unloadable declared navmesh unexpectedly yielded a map")
+    assert runtime_calls == [
+        {
+            "runtime_prefix": tmp_path / "runtime",
+            "magnum_python_site": tmp_path / "magnum",
+            "rlr_sdk_root": tmp_path / "rlr-sdk",
+            "allow_mp3d_environment": False,
+        }
+    ]
 
 
 def test_magnum_site_is_explicit_and_has_no_fallback(

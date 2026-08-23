@@ -258,9 +258,11 @@ class ApartmentRasterPrefilterResult:
     corridors: tuple[StraightCorridor, ...]
     semantic_targets: tuple[SemanticRasterTarget, ...]
     raw_candidate_count: int
+    quality_filtered_candidate_count: int
     exact_deduplicated_candidate_count: int
     raster_sample_spacing_m: float
     raster_sample_count: int
+    minimum_candidate_thresholds: Mapping[str, float | int]
     minimum_pairwise_thresholds: Mapping[str, float]
 
     def to_record(self) -> dict[str, Any]:
@@ -275,6 +277,7 @@ class ApartmentRasterPrefilterResult:
             "formal_view_id": "view0",
             "candidate_counts": {
                 "raw": self.raw_candidate_count,
+                "candidate_quality_passed": self.quality_filtered_candidate_count,
                 "exact_pose_signature_deduplicated": (
                     self.exact_deduplicated_candidate_count
                 ),
@@ -282,6 +285,7 @@ class ApartmentRasterPrefilterResult:
             },
             "raster_sample_spacing_m": self.raster_sample_spacing_m,
             "raster_sample_count": self.raster_sample_count,
+            "minimum_candidate_thresholds": dict(self.minimum_candidate_thresholds),
             "minimum_pairwise_thresholds": dict(self.minimum_pairwise_thresholds),
             "semantic_targets": [item.to_record() for item in self.semantic_targets],
             "corridors": [item.to_record() for item in self.corridors],
@@ -368,6 +372,12 @@ def _positive_number(value: Any, *, owner: str, allow_zero: bool = False) -> flo
 def _positive_int(value: Any, *, owner: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ApartmentRasterPrefilterError(f"{owner} must be a positive integer")
+    return value
+
+
+def _nonnegative_int(value: Any, *, owner: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ApartmentRasterPrefilterError(f"{owner} must be a nonnegative integer")
     return value
 
 
@@ -1494,6 +1504,20 @@ def _passes_pairwise_thresholds(
     )
 
 
+def _passes_candidate_quality(
+    candidate: _Candidate,
+    *,
+    minimum_raster_sample_fraction: float,
+    minimum_passed_corridor_count: int,
+) -> bool:
+    return bool(
+        candidate.prefilter.frustum_sample_fraction + 1.0e-12
+        >= minimum_raster_sample_fraction
+        and len(candidate.prefilter.passed_corridor_ids)
+        >= minimum_passed_corridor_count
+    )
+
+
 def _select_candidates(
     candidates: Sequence[_Candidate],
     *,
@@ -1589,6 +1613,7 @@ def prefilter_apartment_viewpoints(
     minimum_camera_rigid_clearance_m: Real = 0.0,
     maximum_positions_per_target: int = 10,
     minimum_raster_sample_fraction: Real = 0.0,
+    minimum_passed_corridor_count: int = 0,
     minimum_lateral_c: Real = 0.2,
     maximum_focus_snap_distance_m: Real = 2.0,
     minimum_reverse_yaw_difference_deg: Real = 30.0,
@@ -1641,6 +1666,10 @@ def prefilter_apartment_viewpoints(
         minimum_raster_sample_fraction,
         owner="minimum raster sample fraction",
         allow_zero=True,
+    )
+    minimum_corridor_count = _nonnegative_int(
+        minimum_passed_corridor_count,
+        owner="minimum_passed_corridor_count",
     )
     reverse_yaw_threshold = _positive_number(
         minimum_reverse_yaw_difference_deg,
@@ -1816,11 +1845,6 @@ def prefilter_apartment_viewpoints(
                     prefilter_cache[cache_key] = pose_prefilter
                 if target.target_id not in pose_prefilter.passed_semantic_focus_ids:
                     continue
-                if (
-                    pose_prefilter.frustum_sample_fraction + 1.0e-12
-                    < minimum_sample_fraction
-                ):
-                    continue
                 candidates.append(
                     _Candidate(
                         roles=tuple(sorted((height_role, target.role))),
@@ -1834,7 +1858,29 @@ def prefilter_apartment_viewpoints(
                 )
 
     raw_candidate_count = len(candidates)
-    deduplicated = _exact_deduplicate(candidates)
+    legacy_candidate = candidates[0]
+    if not _passes_candidate_quality(
+        legacy_candidate,
+        minimum_raster_sample_fraction=minimum_sample_fraction,
+        minimum_passed_corridor_count=minimum_corridor_count,
+    ):
+        raise ApartmentRasterPrefilterError(
+            "legacy view0 fails candidate quality thresholds: "
+            f"raster_fraction={legacy_prefilter.frustum_sample_fraction:.6f} "
+            f"passed_corridors={len(legacy_prefilter.passed_corridor_ids)}; "
+            f"required_fraction={minimum_sample_fraction:.6f} "
+            f"required_corridors={minimum_corridor_count}"
+        )
+    quality_candidates = tuple(
+        candidate
+        for candidate in candidates
+        if _passes_candidate_quality(
+            candidate,
+            minimum_raster_sample_fraction=minimum_sample_fraction,
+            minimum_passed_corridor_count=minimum_corridor_count,
+        )
+    )
+    deduplicated = _exact_deduplicate(quality_candidates)
     if len(deduplicated) < 4:
         raise ApartmentRasterPrefilterError(
             "fewer than four exact raster candidates survive generation"
@@ -1921,9 +1967,14 @@ def prefilter_apartment_viewpoints(
         corridors=corridors,
         semantic_targets=targets,
         raw_candidate_count=raw_candidate_count,
+        quality_filtered_candidate_count=len(quality_candidates),
         exact_deduplicated_candidate_count=len(deduplicated),
         raster_sample_spacing_m=raster_spacing,
         raster_sample_count=len(_sample_ids),
+        minimum_candidate_thresholds={
+            "raster_sample_fraction": minimum_sample_fraction,
+            "passed_corridor_count": minimum_corridor_count,
+        },
         minimum_pairwise_thresholds=thresholds,
     )
 
