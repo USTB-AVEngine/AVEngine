@@ -1184,6 +1184,7 @@ class Qwen2_5OmniSpatialThinkerForConditionalGeneration(Qwen2_5OmniThinkerForCon
                         grid_hs,
                         grid_ws,
                     )
+                    llm_pos_ids = llm_pos_ids.to(device=valid_tokens.device)
                     video_idx += 1
                 elif token_id == audio_token_id:
                     modal_order.append("audio")

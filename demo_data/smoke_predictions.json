@@ -1,0 +1,42 @@
+[
+  {
+    "task": "estimate_azimuth",
+    "question": "Listen to the audio clip and answer based only on what you hear. Use the DCASE FOA coordinate system: +x front, +y left, +z up; azimuth is in [-180, 180] degrees with positive values to the left, and elevation is in [-90, 90] degrees with positive values upward. What is the azimuth of the male speech? Answer in one sentence. Report the final angle in degrees. Give a numeric estimate rather than a category.",
+    "gold": "-73.8 degrees",
+    "pred": "-169.0 degrees",
+    "raw": "-169.0 degrees",
+    "audio_path": "/data/datasets/spatial-omni/demo/audio/test/foa_92412d8802c3c60538f4.wav"
+  },
+  {
+    "task": "detect_source",
+    "question": "Listen to the audio clip and answer based only on what you hear. What sound events are present in this audio clip, and what are their corresponding time intervals? Based on the audio clip, state which sound sources are audible. Answer in one natural sentence.",
+    "gold": "guitar (0.3s to 6.0s)",
+    "pred": "The audio contains a guitar playing from 0.3s to 6.0s.",
+    "raw": "The audio contains a guitar playing from 0.3s to 6.0s.",
+    "audio_path": "/data/datasets/spatial-omni/demo/audio/test/foa_022f00f99e639d50b96b.wav"
+  },
+  {
+    "task": "count_sources",
+    "question": "Listen to the audio clip and answer based only on what you hear. How many sound sources are active at the 2.6s mark? Answer in one sentence. Include the final count as an integer.",
+    "gold": "2",
+    "pred": "There is one sound source active at the 2.6s mark.",
+    "raw": "There is one sound source active at the 2.6s mark.",
+    "audio_path": "/data/datasets/spatial-omni/demo/audio/test/foa_ee2b91fda35016538269.wav"
+  },
+  {
+    "task": "relative_left_right",
+    "question": "Listen to the audio clip and answer based only on what you hear. Relative to fire, is crack on the left or on the right? Answer in one sentence.",
+    "gold": "crack is to the right of fire.",
+    "pred": "crack is to the right of fire.",
+    "raw": "crack is to the right of fire.",
+    "audio_path": "/data/datasets/spatial-omni/demo/audio/test/foa_44e5c481f2533e830170.wav"
+  },
+  {
+    "task": "avengine_left_right_hack",
+    "question": "Listen to the audio. Is the main sound source more on the left or the right of the listener? Answer in one short sentence.",
+    "gold": "unknown",
+    "pred": "The source is coming from the left.",
+    "raw": "The source is coming from the left.",
+    "audio_path": "/data/datasets/spatial-omni/demo/avengine_0089_foaish.wav"
+  }
+]
