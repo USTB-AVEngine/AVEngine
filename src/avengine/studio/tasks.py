@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Callable
 
 TERMINAL_STATUSES = frozenset({"pass", "fail", "interrupted"})
+_LOG_TAIL_BLOCK_BYTES = 64 * 1024
 
 
 class StudioTaskError(ValueError):
@@ -30,6 +31,42 @@ class StudioTaskError(ValueError):
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _count_logical_line_breaks(chunk: bytes, following: bytes) -> int:
+    """Count ``str.splitlines()`` breaks starting inside one reverse-read chunk."""
+    one_byte_overlap = chunk + following[:1]
+    two_byte_overlap = chunk + following[:2]
+    return (
+        chunk.count(b"\n")
+        + chunk.count(b"\v")
+        + chunk.count(b"\f")
+        + chunk.count(b"\x1c")
+        + chunk.count(b"\x1d")
+        + chunk.count(b"\x1e")
+        + chunk.count(b"\r")
+        - one_byte_overlap.count(b"\r\n")
+        + one_byte_overlap.count(b"\xc2\x85")
+        + two_byte_overlap.count(b"\xe2\x80\xa8")
+        + two_byte_overlap.count(b"\xe2\x80\xa9")
+    )
+
+
+def _ends_with_logical_line_break(data: bytes) -> bool:
+    return data.endswith(
+        (
+            b"\n",
+            b"\r",
+            b"\v",
+            b"\f",
+            b"\x1c",
+            b"\x1d",
+            b"\x1e",
+            b"\xc2\x85",
+            b"\xe2\x80\xa8",
+            b"\xe2\x80\xa9",
+        )
+    )
 
 
 class StudioTaskQueue:
@@ -193,8 +230,41 @@ class StudioTaskQueue:
         log_path = Path(record["log_path"])
         if not log_path.is_file():
             return ""
-        text = log_path.read_text(encoding="utf-8", errors="replace")
-        return "\n".join(text.splitlines()[-max(1, max_lines):])
+        try:
+            line_limit = max(1, max_lines)
+            slice(-line_limit, None).indices(0)
+        except TypeError:
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+            return "\n".join(text.splitlines()[-max(1, max_lines):])
+        chunks: list[bytes] = []
+        line_break_count = 0
+        following_prefix = b""
+        with log_path.open("rb") as log_file:
+            log_file.seek(0, os.SEEK_END)
+            position = log_file.tell()
+            tail_probe_size = min(3, position)
+            tail_probe = b""
+            while position > 0:
+                read_size = min(_LOG_TAIL_BLOCK_BYTES, position)
+                position -= read_size
+                log_file.seek(position)
+                chunk = log_file.read(read_size)
+                chunks.append(chunk)
+                line_break_count += _count_logical_line_breaks(
+                    chunk, following_prefix
+                )
+                following_prefix = (chunk + following_prefix)[:2]
+                tail_probe = (chunk + tail_probe)[-tail_probe_size:]
+                enough_line_breaks = line_limit + int(
+                    _ends_with_logical_line_break(tail_probe)
+                )
+                if (
+                    len(tail_probe) == tail_probe_size
+                    and line_break_count >= enough_line_breaks
+                ):
+                    break
+        text = b"".join(reversed(chunks)).decode("utf-8", errors="replace")
+        return "\n".join(text.splitlines()[-line_limit:])
 
     def wait(self, task_id: str, *, timeout_s: float = 60.0, poll_s: float = 0.2) -> str:
         deadline = time.monotonic() + timeout_s
