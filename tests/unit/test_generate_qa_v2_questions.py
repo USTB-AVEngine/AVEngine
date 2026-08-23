@@ -49,8 +49,16 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         {
             "candidate_source_endpoint_ids": ["source1-mouth", "source2-mouth"],
             "events": [
-                {"source_endpoint_id": "source1-mouth", "start_sample": 4000},
-                {"source_endpoint_id": "source2-mouth", "start_sample": 24000},
+                {
+                    "source_endpoint_id": "source1-mouth",
+                    "start_sample": 4000,
+                    "end_sample_exclusive": 18000,
+                },
+                {
+                    "source_endpoint_id": "source2-mouth",
+                    "start_sample": 24000,
+                    "end_sample_exclusive": 38000,
+                },
             ],
         },
     )
@@ -119,6 +127,87 @@ def _duplicate_point(inputs: Path, *, viewpoint_id: str = "view-left") -> None:
     spec["viewpoint_id"] = viewpoint_id
     _write_json(duplicate / "spec.json", spec)
     (duplicate / "timeline.json").write_bytes((source / "timeline.json").read_bytes())
+
+
+def _write_native_capture(root: Path, point_id: str) -> None:
+    frames = []
+    for index in range(75):
+        anchors = {
+            "source1": {"location_cm": [10.0, -10.0, 27.1]},
+            "source2": {"location_cm": [40.0, 40.0, 27.1]},
+        }
+        frames.append(
+            {
+                "frame_index": index,
+                "pts_ticks": index * 3200,
+                "camera": {
+                    "translation_ue_cm": [0.0, 0.0, 100.0],
+                    "yaw_ue_deg": 0.0,
+                },
+                "camera_pose": {
+                    "location_cm": [0.0, 0.0, 100.0],
+                    "rotation_deg": [0.0, 0.0, 0.0],
+                },
+                "actor_anchor_poses": anchors,
+                "actor_states": [
+                    {
+                        "source_slot_id": slot,
+                        "translation_ue_cm": record["location_cm"],
+                    }
+                    for slot, record in anchors.items()
+                ],
+            }
+        )
+    point = root / point_id
+    _write_json(point / "frame_records.json", {"frames": frames})
+    _write_json(
+        point / "research_receipt.json",
+        {
+            "research_only": True,
+            "episode_counted": False,
+            "capture": {
+                "completed_frame_count": 75,
+                "frame_count": 75,
+                "frame_rate_hz": 15,
+                "ticks_per_frame": 3200,
+                "root_readback_summary": {
+                    "camera": {"status": "pass"},
+                    "source1_actor": {"status": "pass"},
+                    "source2_actor": {"status": "pass"},
+                },
+            },
+        },
+    )
+
+
+def _write_pixel_truth(root: Path, point_id: str) -> None:
+    def source_frames(slot: str):
+        rows = []
+        for index in range(75):
+            out = slot == "source1" and 4 <= index <= 17
+            rows.append(
+                {
+                    "frame_index": index,
+                    "state": "out_of_view" if out else "visible_clear",
+                    "visible_pixels": 0 if out else 100,
+                    "target_pixels": 0 if out else 100,
+                }
+            )
+        return rows
+
+    _write_json(
+        root / point_id / "pixel_visibility_truth.json",
+        {
+            "schema": "avengine_qa_pixel_visibility_truth_v1",
+            "status": "computed_modal_target_only_v1",
+            "frame_indices": list(range(75)),
+            "resolution_hw": [720, 1280],
+            "per_instance": {
+                "source1": {"frames": source_frames("source1")},
+                "source2": {"frames": source_frames("source2")},
+            },
+        },
+    )
 
 
 def _cli_args(
@@ -330,3 +419,153 @@ def test_atomic_writer_loses_no_replace_race_without_clobber(
 
     assert (output / "sentinel").read_text(encoding="utf-8") == "keep"
     assert list(tmp_path.glob(f".{output.name}.staging-*")) == []
+
+
+def test_t5_and_offscreen_use_native_ue_and_pixel_evidence(tmp_path: Path) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    spec_path = inputs / "p001/spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec["offscreen_candidate"] = True
+    _write_json(spec_path, spec)
+    captures = tmp_path / "captures"
+    visibility = tmp_path / "visibility"
+    _write_native_capture(captures, "p001")
+    _write_pixel_truth(visibility, "p001")
+
+    document = module.generate_question_document(
+        inputs_root=inputs,
+        programs_dir=programs,
+        registry_path=registry,
+        viewpoint_bank_path=viewpoint_bank,
+        native_capture_root=captures,
+        pixel_visibility_root=visibility,
+        enable_t5_doa=True,
+        enable_offscreen=True,
+        generated_at="fixed",
+    )
+
+    t5 = next(q for q in document["questions"] if q["type_id"] == "QV2-T5-DOA")
+    assert t5["answer"] == pytest.approx(45.0)
+    assert t5["answer_arity"] == "numeric_banded"
+    assert t5["format"] == "numeric_banded"
+    assert t5["answer_numeric"] == pytest.approx(45.0)
+    assert t5["scoring_bands"] == [15.0, 30.0]
+    assert t5["scoring"]["full_credit_within_deg"] == 15.0
+    assert t5["scoring"]["partial_credit_within_deg"] == 30.0
+    assert t5["gold_authority"] == "ue_actor_anchor_and_camera_pose_readback"
+
+    offscreen = next(
+        q for q in document["questions"] if q["type_id"] == "QV2-TO-OFFSCREEN"
+    )
+    assert offscreen["answer"] == "left"
+    assert offscreen["event_frame"] == 4
+    assert offscreen["native_pixel_state"] == "out_of_view_entire_event"
+    assert offscreen["event_frame_window"] == list(range(4, 18))
+    assert offscreen["native_target_pixels_max"] == 0
+    assert document["answer_balance"]["by_type"]["QV2-TO-OFFSCREEN"]["status"] == "pass"
+
+
+def test_refusal_questions_meet_ten_to_fifteen_percent_without_deleting_base(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    _duplicate_point(inputs)
+    source = inputs / "p001"
+    third = inputs / "p003"
+    third.mkdir()
+    (third / "spec.json").write_bytes((source / "spec.json").read_bytes())
+    (third / "timeline.json").write_bytes((source / "timeline.json").read_bytes())
+
+    baseline = module.generate_question_document(
+        inputs_root=inputs,
+        programs_dir=programs,
+        registry_path=registry,
+        viewpoint_bank_path=viewpoint_bank,
+        generated_at="fixed",
+    )
+    document = module.generate_question_document(
+        inputs_root=inputs,
+        programs_dir=programs,
+        registry_path=registry,
+        viewpoint_bank_path=viewpoint_bank,
+        enable_refusal=True,
+        generated_at="fixed",
+    )
+
+    refusal_rows = [
+        q for q in document["questions"] if q["type_id"] == "QV2-TR-REFUSAL"
+    ]
+    assert len(document["questions"]) - len(refusal_rows) == len(baseline["questions"])
+    assert all(row["answer"] == "cannot determine from audio alone" for row in refusal_rows)
+    assert all(row["provided_modalities"] == ["audio"] for row in refusal_rows)
+    quota = document["extended_types"]["refusal_quota"]
+    assert quota["status"] == "pass"
+    assert 0.10 <= quota["final_fraction"] <= 0.15
+    assert len(refusal_rows) == quota["selected_count"]
+
+
+def test_extended_types_fail_closed_without_native_roots(tmp_path: Path) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+
+    with pytest.raises(module.QuestionGenerationError, match="native-capture-root"):
+        module.generate_question_document(
+            inputs_root=inputs,
+            programs_dir=programs,
+            registry_path=registry,
+            viewpoint_bank_path=viewpoint_bank,
+            enable_t5_doa=True,
+        )
+    with pytest.raises(module.QuestionGenerationError, match="pixel-visibility-root"):
+        module.generate_question_document(
+            inputs_root=inputs,
+            programs_dir=programs,
+            registry_path=registry,
+            viewpoint_bank_path=viewpoint_bank,
+            native_capture_root=tmp_path / "captures",
+            enable_offscreen=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "program_update",
+    [
+        {"events": []},
+        {"candidate_source_endpoint_ids": ["source1-mouth"]},
+        {"events": [{"source_endpoint_id": [], "start_sample": 0}, {}]},
+    ],
+)
+def test_malformed_audio_program_fails_closed(
+    tmp_path: Path,
+    program_update: dict[str, object],
+) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    program_path = programs / "p.json"
+    program = json.loads(program_path.read_text(encoding="utf-8"))
+    program.update(program_update)
+    _write_json(program_path, program)
+
+    with pytest.raises(module.QuestionGenerationError, match="audio"):
+        module.generate_question_document(
+            inputs_root=inputs,
+            programs_dir=programs,
+            registry_path=registry,
+            viewpoint_bank_path=viewpoint_bank,
+        )
+
+
+def test_non_object_audio_program_fails_closed(tmp_path: Path) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    _write_json(programs / "p.json", [])
+
+    with pytest.raises(module.QuestionGenerationError, match="must be an object"):
+        module.generate_question_document(
+            inputs_root=inputs,
+            programs_dir=programs,
+            registry_path=registry,
+            viewpoint_bank_path=viewpoint_bank,
+        )

@@ -24,6 +24,7 @@ KNOWN_BINARY_TYPE_IDS = frozenset(
         "QV2-T2-ATTR",
         "QV2-TA-MOTION",
         "QV2-T4-SIDE",
+        "QV2-TO-OFFSCREEN",
         "QV2-T7-DURING",
         "QV2-T9-CLOSER",
     }

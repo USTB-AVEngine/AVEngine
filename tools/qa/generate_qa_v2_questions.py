@@ -6,6 +6,11 @@ bank and every binary type must be ``50/50±1`` by ``options.index(answer)``.
 Historical/global-pose auditing requires the explicit ``--report-only`` mode;
 ``--require-balanced-answer-keys`` remains as a compatibility spelling for a
 strict balance check inside that audit mode.
+
+T5 numeric DoA and formal off-screen questions are opt-in until their required
+per-point UE readback and native target-only pixel evidence roots are supplied.
+Refusal questions are selected deterministically so they occupy 10--15 percent
+of the final batch without deleting any ordinary question.
 """
 
 from __future__ import annotations
@@ -27,6 +32,17 @@ from avengine.qa.answer_balance import (
     AnswerBalanceError,
     build_answer_balance_report,
     require_balanced_answer_keys,
+)
+from avengine.qa.extended_questions import (
+    ExtendedQuestionEvidenceError,
+    T5_FULL_CREDIT_DEG,
+    T5_PARTIAL_CREDIT_DEG,
+    choose_refusal_quota,
+    event_frame_index,
+    event_frame_window,
+    load_native_pixel_visibility,
+    load_native_point_evidence,
+    require_native_out_of_view,
 )
 from avengine.security.path_policy import (
     WorkspacePathPolicy,
@@ -250,6 +266,11 @@ def generate_question_document(
     camera_yaw_deg: float = DEFAULT_CAMERA_YAW_DEG,
     side_margin: float = DEFAULT_SIDE_MARGIN,
     distance_ratio_min: float = DEFAULT_DISTANCE_RATIO_MIN,
+    native_capture_root: str | Path | None = None,
+    pixel_visibility_root: str | Path | None = None,
+    enable_t5_doa: bool = False,
+    enable_offscreen: bool = False,
+    enable_refusal: bool = False,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Compile questions without writing files.
@@ -261,6 +282,14 @@ def generate_question_document(
 
     if len(camera_position_ue_cm) != 3:
         raise ValueError("camera_position_ue_cm must contain exactly three values")
+    if (enable_t5_doa or enable_offscreen) and native_capture_root is None:
+        raise QuestionGenerationError(
+            "T5 DoA and off-screen questions require --native-capture-root"
+        )
+    if enable_offscreen and pixel_visibility_root is None:
+        raise QuestionGenerationError(
+            "off-screen questions require --pixel-visibility-root"
+        )
     registry = _load_json(registry_path)
     assets = {asset["asset_id"]: asset for asset in registry["assets"]}
     viewpoint_bank = (
@@ -270,7 +299,9 @@ def generate_question_document(
     )
     questions: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
+    refusal_candidates: list[dict[str, Any]] = []
     resolved_viewpoints: dict[str, dict[str, Any]] = {}
+    extended_evidence: dict[str, dict[str, Any]] = {}
 
     def emit(row: dict[str, Any], ok: bool, reason: str | None = None) -> None:
         if ok:
@@ -306,21 +337,55 @@ def generate_question_document(
         }
         timeline = _load_json(point_path / "timeline.json")
         program = _load_json(Path(programs_dir) / f"{combo_program(spec, assets)}.json")
-        events = sorted(program["events"], key=lambda event: event["start_sample"])
+        if not isinstance(program, Mapping):
+            raise QuestionGenerationError(f"{point_id}: audio program must be an object")
+        endpoints = program.get("candidate_source_endpoint_ids")
+        if (
+            not isinstance(endpoints, list)
+            or len(endpoints) != 2
+            or any(not isinstance(value, str) or not value for value in endpoints)
+            or endpoints[0] == endpoints[1]
+        ):
+            raise QuestionGenerationError(
+                f"{point_id}: audio program must declare two distinct source endpoints"
+            )
         endpoint_to_slot = {
-            program["candidate_source_endpoint_ids"][0]: "source1",
-            program["candidate_source_endpoint_ids"][1]: "source2",
+            endpoints[0]: "source1",
+            endpoints[1]: "source2",
         }
+        raw_events = program.get("events")
+        if not isinstance(raw_events, list) or len(raw_events) < 2:
+            raise QuestionGenerationError(f"{point_id}: audio program needs at least two events")
+        events = []
+        for event_index, event in enumerate(raw_events):
+            if not isinstance(event, Mapping):
+                raise QuestionGenerationError(
+                    f"{point_id}: audio event {event_index} must be an object"
+                )
+            endpoint = event.get("source_endpoint_id")
+            if not isinstance(endpoint, str) or endpoint not in endpoint_to_slot:
+                raise QuestionGenerationError(
+                    f"{point_id}: audio event {event_index} uses an unknown endpoint"
+                )
+            try:
+                event_frame_index(event.get("start_sample"))
+            except ExtendedQuestionEvidenceError as exc:
+                raise QuestionGenerationError(
+                    f"{point_id}: audio event {event_index} has invalid timing"
+                ) from exc
+            events.append(event)
+        events.sort(key=lambda event: event["start_sample"])
         first = events[0]
-        _second = next(
-            event
-            for event in events
-            if endpoint_to_slot[event["source_endpoint_id"]]
-            != endpoint_to_slot[first["source_endpoint_id"]]
-        )
+        second = events[1]
         slot_a = endpoint_to_slot[first["source_endpoint_id"]]
         slot_b = "source2" if slot_a == "source1" else "source1"
-        first_frame = min(74, round(first["start_sample"] * 75 / 80000))
+        second_slot = endpoint_to_slot[second["source_endpoint_id"]]
+        if second_slot != slot_b:
+            raise QuestionGenerationError(
+                f"{point_id}: the second event must belong to the other source slot"
+            )
+        first_frame = event_frame_index(first["start_sample"])
+        second_frame = event_frame_index(second["start_sample"])
         movers = mover_slots(spec["motion_case"])
         appearances = {
             slot: appearance(spec[f"{slot}_asset"], assets)
@@ -340,6 +405,20 @@ def generate_question_document(
             "first_frame": first_frame,
             "viewpoint_id": viewpoint_id,
         }
+
+        native_evidence = None
+        if enable_t5_doa or (enable_offscreen and spec["offscreen_candidate"]):
+            native_evidence = load_native_point_evidence(
+                native_capture_root,
+                point_id=point_id,
+                expected_camera_position_ue_cm=point_camera_position_ue_cm,
+                expected_camera_yaw_deg=point_camera_yaw_deg,
+            )
+            extended_evidence[point_id] = {
+                "frame_records": str(native_evidence.frame_records_path),
+                "research_receipt": str(native_evidence.receipt_path),
+                "camera_viewpoint_crosscheck": "pass_1e-6",
+            }
 
         options = sorted(
             {
@@ -370,6 +449,28 @@ def generate_question_document(
             ),
             True,
         )
+
+        if enable_refusal:
+            refusal_answer = "cannot determine from audio alone"
+            refusal_candidates.append(
+                dict(
+                    base,
+                    type_id="QV2-TR-REFUSAL",
+                    answer_arity="nonbinary",
+                    question_en=(
+                        f"Using only the audio, what visual appearance did the {noun_en} "
+                        f"that {verb_en} first have?"
+                    ),
+                    question_zh=f"只根据音频，最先{verb_zh}的那个{noun_zh}是什么外观？",
+                    options=[*options, refusal_answer],
+                    answer=refusal_answer,
+                    semantic_answer_source_slot=None,
+                    provided_modalities=["audio"],
+                    withheld_modalities=["video"],
+                    modality_expectation="must_refuse_audio_only_visual_attribute",
+                    refusal_gold=True,
+                )
+            )
 
         if (slot_a in movers) != (slot_b in movers):
             emit(
@@ -423,6 +524,150 @@ def generate_question_document(
         else:
             emit(row, True)
 
+        if enable_t5_doa:
+            if native_evidence is None:
+                raise ExtendedQuestionEvidenceError(
+                    f"{point_id}: native evidence was not loaded for T5"
+                )
+            t5_azimuth = native_evidence.azimuth_deg(second_slot, second_frame)
+            emit(
+                dict(
+                    base,
+                    type_id="QV2-T5-DOA",
+                    answer_arity="numeric_banded",
+                    question_en=(
+                        f"At the second {('speech' if noun_en == 'person' else 'bark')}, "
+                        "what was the source azimuth relative to the camera in degrees? "
+                        "Use positive values to the right and negative values to the left."
+                    ),
+                    question_zh=(
+                        f"第二声{verb_zh}响起时，声源相对相机的方位角是多少度？"
+                        "右侧为正，左侧为负。"
+                    ),
+                    options=None,
+                    answer=round(t5_azimuth, 1),
+                    answer_numeric=round(t5_azimuth, 1),
+                    answer_unit="degree",
+                    format="numeric_banded",
+                    unit="degree",
+                    scoring_bands=[T5_FULL_CREDIT_DEG, T5_PARTIAL_CREDIT_DEG],
+                    semantic_answer_source_slot=second_slot,
+                    modality_expectation="audio_spatial_numeric",
+                    event_frame=second_frame,
+                    event_start_sample=second["start_sample"],
+                    azimuth_convention="listener_local_positive_right_degrees",
+                    scoring={
+                        "metric": "circular_absolute_error_degrees",
+                        "full_credit_within_deg": T5_FULL_CREDIT_DEG,
+                        "partial_credit_within_deg": T5_PARTIAL_CREDIT_DEG,
+                        "domain_deg": [-180.0, 180.0],
+                    },
+                    gold_authority="ue_actor_anchor_and_camera_pose_readback",
+                ),
+                True,
+            )
+
+        if enable_offscreen and spec["offscreen_candidate"]:
+            if native_evidence is None:
+                raise ExtendedQuestionEvidenceError(
+                    f"{point_id}: native evidence was not loaded for off-screen"
+                )
+            pixel_truth = load_native_pixel_visibility(
+                pixel_visibility_root,
+                point_id=point_id,
+            )
+            extended_evidence[point_id]["pixel_visibility_truth"] = str(
+                (
+                    Path(pixel_visibility_root)
+                    / point_id
+                    / "pixel_visibility_truth.json"
+                ).resolve()
+            )
+            selected_offscreen = None
+            for event in events:
+                event_slot = endpoint_to_slot[event["source_endpoint_id"]]
+                event_frame = event_frame_index(event["start_sample"])
+                event_frames = event_frame_window(
+                    event["start_sample"],
+                    event["end_sample_exclusive"],
+                )
+                try:
+                    pixel_frames = tuple(
+                        require_native_out_of_view(
+                            pixel_truth,
+                            source_slot=event_slot,
+                            frame_index=frame_index,
+                        )
+                        for frame_index in event_frames
+                    )
+                except ExtendedQuestionEvidenceError:
+                    continue
+                azimuth = native_evidence.azimuth_deg(event_slot, event_frame)
+                if math.isclose(azimuth, 0.0, rel_tol=0.0, abs_tol=1.0e-9):
+                    continue
+                selected_offscreen = (
+                    event,
+                    event_slot,
+                    event_frame,
+                    event_frames,
+                    pixel_frames,
+                    azimuth,
+                )
+                break
+            offscreen_row = dict(
+                base,
+                type_id="QV2-TO-OFFSCREEN",
+                answer_arity="binary",
+                question_en=(
+                    "While the sounding source was completely outside the camera view, "
+                    "did its sound come from the left or the right of the camera?"
+                ),
+                question_zh="发声源完全位于画面外时，声音来自相机左侧还是右侧？",
+                options=["left", "right"],
+                modality_expectation="audio_required_native_pixel_offscreen",
+            )
+            if selected_offscreen is None:
+                emit(
+                    dict(
+                        offscreen_row,
+                        answer=None,
+                        semantic_answer_source_slot=None,
+                    ),
+                    False,
+                    "G-native-pixel-out-of-view-event",
+                )
+            else:
+                (
+                    offscreen_event,
+                    offscreen_slot,
+                    offscreen_frame,
+                    offscreen_frames,
+                    offscreen_pixel_frames,
+                    offscreen_azimuth,
+                ) = selected_offscreen
+                emit(
+                    dict(
+                        offscreen_row,
+                        answer="right" if offscreen_azimuth > 0.0 else "left",
+                        semantic_answer_source_slot=offscreen_slot,
+                        event_frame=offscreen_frame,
+                        event_frame_window=list(offscreen_frames),
+                        event_start_sample=offscreen_event["start_sample"],
+                        event_end_sample_exclusive=offscreen_event[
+                            "end_sample_exclusive"
+                        ],
+                        listener_local_azimuth_deg=round(offscreen_azimuth, 3),
+                        native_pixel_state="out_of_view_entire_event",
+                        native_target_pixels_max=max(
+                            frame["target_pixels"] for frame in offscreen_pixel_frames
+                        ),
+                        gold_authority=(
+                            "ue_readback_plus_same_renderer_target_only_pixel_truth"
+                        ),
+                    ),
+                    True,
+                )
+
         if (slot_b in movers) != (slot_a in movers) or spec["motion_case"] == "both_moving":
             answer = "moving" if slot_b in movers else "staying still"
             ok = (slot_a in movers) != (slot_b in movers)
@@ -475,6 +720,36 @@ def generate_question_document(
         )
         emit(row, ratio >= distance_ratio_min, None if ratio >= distance_ratio_min else "G-distance-ratio")
 
+    refusal_quota: dict[str, Any] = {
+        "status": "disabled",
+        "minimum_fraction": 0.10,
+        "maximum_fraction": 0.15,
+        "selected_count": 0,
+        "final_fraction": 0.0,
+    }
+    if enable_refusal:
+        selected_count, selected_indices, refusal_fraction = choose_refusal_quota(
+            len(questions),
+            len(refusal_candidates),
+        )
+        questions.extend(refusal_candidates[index] for index in selected_indices)
+        refusal_quota = {
+            "status": "pass",
+            "minimum_fraction": 0.10,
+            "maximum_fraction": 0.15,
+            "selected_count": selected_count,
+            "candidate_count": len(refusal_candidates),
+            "final_fraction": refusal_fraction,
+            "selection_policy": "deterministic_evenly_spaced_points",
+        }
+
+    if enable_offscreen and not any(
+        question["type_id"] == "QV2-TO-OFFSCREEN" for question in questions
+    ):
+        raise QuestionGenerationError(
+            "off-screen was enabled but no native-pixel out-of-view question passed"
+        )
+
     by_type = Counter(question["type_id"] for question in questions)
     answers_by_type: dict[str, Counter[str]] = {}
     for question in questions:
@@ -499,6 +774,21 @@ def generate_question_document(
             },
         },
         "answer_balance": answer_balance,
+        "extended_types": {
+            "enabled": {
+                "t5_doa": enable_t5_doa,
+                "offscreen": enable_offscreen,
+                "refusal": enable_refusal,
+            },
+            "native_capture_root": (
+                None if native_capture_root is None else str(native_capture_root)
+            ),
+            "pixel_visibility_root": (
+                None if pixel_visibility_root is None else str(pixel_visibility_root)
+            ),
+            "native_evidence_by_point": extended_evidence,
+            "refusal_quota": refusal_quota,
+        },
         "gate_params": {
             "side_margin": side_margin,
             "distance_ratio_min": distance_ratio_min,
@@ -553,6 +843,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="required in production; resolves each spec.viewpoint_id camera",
     )
     parser.add_argument(
+        "--native-capture-root",
+        help="per-point UE frame_records.json + research_receipt.json authority",
+    )
+    parser.add_argument(
+        "--pixel-visibility-root",
+        help="per-point native pixel_visibility_truth.json authority",
+    )
+    parser.add_argument("--enable-t5-doa", action="store_true")
+    parser.add_argument("--enable-offscreen", action="store_true")
+    parser.add_argument("--enable-refusal", action="store_true")
+    parser.add_argument(
         "--camera-position-ue-cm",
         type=float,
         nargs=3,
@@ -590,6 +891,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             report_only=args.report_only,
             camera_position_ue_cm=args.camera_position_ue_cm,
             camera_yaw_deg=args.camera_yaw_deg,
+            native_capture_root=args.native_capture_root,
+            pixel_visibility_root=args.pixel_visibility_root,
+            enable_t5_doa=args.enable_t5_doa,
+            enable_offscreen=args.enable_offscreen,
+            enable_refusal=args.enable_refusal,
         )
     except (OSError, KeyError, TypeError, QuestionGenerationError, ValueError) as exc:
         print(json.dumps({"error": str(exc), "output_written": False}))
