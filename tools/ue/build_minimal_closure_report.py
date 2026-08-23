@@ -133,6 +133,24 @@ def select_seed_records(
                 "role": "actor_blueprint",
             }
         )
+        # Animations are played by name at runtime and are not hard Blueprint
+        # dependencies, so they must be seeded explicitly (they were explicit
+        # seeds in the retained 20260820 report as well).
+        for key, role in (
+            ("idle_animation", "idle_animation"),
+            ("walking_animation", "walking_animation"),
+        ):
+            object_path = backend.get(key)
+            if not isinstance(object_path, str):
+                raise ClosureReportError(f"asset has no {key}: {asset_id}")
+            seeds.append(
+                {
+                    "object_path": object_path,
+                    "origin": f"{asset_id} runtime profile",
+                    "package": _package_of_object_path(object_path, owner=asset_id),
+                    "role": role,
+                }
+            )
     return seeds
 
 

@@ -22,6 +22,8 @@ MAP_PACKAGE = "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000"
 CAMERA_PACKAGE = "/SpContent/Blueprints/BP_CameraSensor"
 ACTOR_BP = "/Game/MyAssets/Audioset/Blueprints/gate_demo/BP_gate_demo"
 ACTOR_MESH = "/Game/MyAssets/Audioset/Meshes/gate_demo/runtime"
+ACTOR_IDLE = "/Game/MyAssets/Audioset/Meshes/gate_demo/Standing_Idle"
+ACTOR_WALK = "/Game/MyAssets/Audioset/Meshes/gate_demo/Walking"
 
 
 def _write(path: Path, data: bytes = b"x") -> Path:
@@ -32,7 +34,7 @@ def _write(path: Path, data: bytes = b"x") -> Path:
 
 def _graph(tmp_path: Path, *, edges: list[tuple[str, str]]) -> Path:
     packages = sorted(
-        {MAP_PACKAGE, CAMERA_PACKAGE, ACTOR_BP, ACTOR_MESH}
+        {MAP_PACKAGE, CAMERA_PACKAGE, ACTOR_BP, ACTOR_MESH, ACTOR_IDLE, ACTOR_WALK}
         | {edge[0] for edge in edges}
         | {edge[1] for edge in edges if edge[1].startswith(("/Game/", "/SpContent/"))}
     )
@@ -61,7 +63,9 @@ def _registry(tmp_path: Path) -> Path:
                         "asset_id": "demo_actor",
                         "runtime_backends": {
                             "spear_unreal": {
-                                "blueprint_class_path": f"{ACTOR_BP}.BP_gate_demo_C"
+                                "blueprint_class_path": f"{ACTOR_BP}.BP_gate_demo_C",
+                                "idle_animation": f"{ACTOR_IDLE}.Standing_Idle",
+                                "walking_animation": f"{ACTOR_WALK}.Walking",
                             }
                         },
                     }
@@ -79,6 +83,8 @@ def _source_root(tmp_path: Path, name: str = "root") -> Path:
     _write(game / "MyAssets/Audioset/Blueprints/gate_demo/BP_gate_demo.uasset")
     _write(game / "MyAssets/Audioset/Meshes/gate_demo/runtime.uasset")
     _write(game / "MyAssets/Audioset/Meshes/gate_demo/runtime.uexp")
+    _write(game / "MyAssets/Audioset/Meshes/gate_demo/Standing_Idle.uasset")
+    _write(game / "MyAssets/Audioset/Meshes/gate_demo/Walking.uasset")
     _write(root / "cpp/unreal_plugins/SpContent/Content/Blueprints/BP_CameraSensor.uasset")
     return root
 
@@ -108,7 +114,9 @@ def test_closure_report_maps_reachable_content(tmp_path: Path) -> None:
     report = tool.build_report(args)
     variant = report["variants"]["test_variant"]
     packages = {entry["package"] for entry in variant["physical_mappings"]}
-    assert packages == {MAP_PACKAGE, CAMERA_PACKAGE, ACTOR_BP, ACTOR_MESH}
+    assert packages == {
+        MAP_PACKAGE, CAMERA_PACKAGE, ACTOR_BP, ACTOR_MESH, ACTOR_IDLE, ACTOR_WALK,
+    }
     assert variant["mapping_complete"] is True
     assert variant["non_content_terminal_dependencies"] == 2
     mesh = next(
