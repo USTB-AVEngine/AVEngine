@@ -141,6 +141,22 @@ missing audio/P1 pending fields, probe-subset `2 in = 2 out`, and region-bank
 flattening without record loss. Ruff check, Ruff formatting, byte compilation,
 and `git diff --check` pass for the owned files.
 
+The P2 authority correction implementation is commit
+`2806817807de69ff8de4de73487290bd9fc9d584`. Its post-commit adjacent suite
+records `96 passed` at:
+
+`/data/jzy/tmp/mp3d_raw_clue_p2_2806817_adjacent_r1.log`
+
+The corresponding Ruff check, Ruff format check, byte compilation,
+`git diff --check`, and clean branch evidence is:
+
+`/data/jzy/tmp/mp3d_raw_clue_p2_2806817_quality_r1.log`
+
+This follow-up changed no candidate count or selection behavior and introduced
+no distance, side, crossing, visibility, semantic-ID, or composition gate.
+The earlier 91-test record remains the pre-correction implementation history;
+the 96-test record is current for the P2 code.
+
 No Habitat, GPU, audio, RLR, FFmpeg, or native selected12 job ran in this
 slice. The first real selected12 dynamic join must wait for fresh captures
 from the merged current code, then run with fresh/no-clobber output and receive
