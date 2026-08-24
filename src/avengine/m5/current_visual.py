@@ -12,6 +12,7 @@ Magnum inputs.  There is no checkout-oriented compatibility branch.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -86,6 +87,27 @@ def _pose_vector(pose: Mapping[str, Any], *, owner: str) -> np.ndarray:
     if not np.all(np.isfinite(value)):
         raise CurrentVisualError(f"{owner} is not finite")
     return value
+
+
+def _m1_capture_identity(room_inputs: ValidatedM1Inputs) -> dict[str, Any]:
+    """Snapshot value authority that must survive later M1 path rewrites."""
+
+    request = room_inputs.request
+    source_axis_order = [source["source_id"] for source in request["sources"]]
+    if source_axis_order != list(CURRENT_SOURCE_IDS):
+        raise CurrentVisualError(
+            "current visual source axes differ from the validated M1 request"
+        )
+    return deepcopy(
+        {
+            "request_id": request["request_id"],
+            "room_id": request["room_id"],
+            "primary_camera_rig": request["primary_camera_rig"],
+            "listener": request["listener"],
+            "source_axis_order": source_axis_order,
+            "qa_views": request.get("qa_views", []),
+        }
+    )
 
 
 def _snapshot_world_time(snapshot: Mapping[str, Any], *, owner: str) -> float:
@@ -571,6 +593,7 @@ def _capture_current_visual(
     bundle: Any,
     frames: Sequence[Any],
 ) -> dict[str, Any]:
+    m1_capture_identity = _m1_capture_identity(room_inputs)
     scene = _resolve_external_scene(room_inputs, installed_runtime)
     configuration, modality_to_uuid = _make_current_configuration(
         room_inputs=room_inputs,
@@ -919,8 +942,11 @@ def _capture_current_visual(
             "room_id": room_inputs.room["room_id"],
             "room_kind": room_inputs.room["room_kind"],
         },
+        "m1_capture_identity": m1_capture_identity,
         "capture": {
             "native_habitat_started": True,
+            "m1_request_id": m1_capture_identity["request_id"],
+            "room_id": m1_capture_identity["room_id"],
             "frame_count": len(frame_records),
             "modalities": list(FORMAL_MODALITIES),
             "observation_calls_per_frame": 1,

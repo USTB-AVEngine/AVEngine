@@ -95,3 +95,32 @@ quaternions, a reflection, a non-orthogonal rotation, and a damaged homogeneous
 last row. They also prove that the persisted pose is the post-render snapshot
 and that a non-identity `rig_from_listener` is composed rather than copied.
 No Habitat/GPU job was started by this follow-up.
+
+## Follow-up: capture-time M1 listener/view identity
+
+Completed current-visual receipts now contain an ordinary
+`m1_capture_identity` value snapshot copied from the validated M1 request. It
+retains request and room IDs, the complete primary camera rig and calibration,
+the complete listener and `rig_from_listener`, source IDs in array-axis order,
+and the request-time QA-view list. The existing input path remains provenance,
+but later edits at that path cannot alter the receipt snapshot.
+
+For new pose-readback captures, the reviewer cross-checks this snapshot against
+the selected room, capture request ID, source and sensor axes, planned rig and
+sensor calibration, all 75 actual agent/sensor poses, and a logical listener
+recomputed from each actual agent pose plus the captured `rig_from_listener`.
+Legacy captures without new pose-readback artifacts keep their previous review
+path and are not upgraded.
+
+Fresh CPU/mock evidence:
+
+- focused capture/review: `40 passed`, log
+  `/data/jzy/tmp/mp3d_capture_identity_unit_r2.log`;
+- adjacent current-MP3D: `91 passed`, log
+  `/data/jzy/tmp/mp3d_capture_identity_adjacent_r1.log`;
+- Ruff format/check, byte compilation, and diff check pass.
+
+Tests prove that rewriting the original M1 request path after capture does not
+change the embedded identity or prevent review. Damaged room/source/rig
+identity and an actual listener inconsistent with the captured listener offset
+are rejected. No Habitat/GPU job was started.

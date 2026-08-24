@@ -11,6 +11,7 @@ import pytest
 
 import avengine.cli as cli
 import avengine.m5.current_visual as current_visual
+from avengine.m5.current_visual_review import generate_current_visual_review
 
 
 def _mp3d_room_inputs(tmp_path: Path) -> SimpleNamespace:
@@ -521,12 +522,35 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         room_path=tmp_path / "room_manifest.json",
         request_path=tmp_path / "m1_request.json",
         request={
+            "request_id": "m1_capture_identity_fixture_v1",
+            "room_id": "habitat_mp3d_example_17DRP5sb8fy",
             "seed": 17,
             "primary_camera_rig": {
+                "rig_id": "camera_rig_0",
+                "view_id": "view0",
                 "world_from_rig": {
                     "translation_m": [9.0, 8.0, 7.0],
                     "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
-                }
+                },
+                "shared_calibration": {
+                    "projection": "pinhole",
+                    "resolution_hw": [2, 2],
+                    "hfov_degrees": 90.0,
+                    "near_m": 0.05,
+                    "far_m": 100.0,
+                    "rig_from_sensor": {
+                        "translation_m": [0.0, 0.0, 0.0],
+                        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                    },
+                },
+                "modalities": [
+                    {"modality": "rgb", "sensor_uuid": "rig_rgb"},
+                    {"modality": "depth", "sensor_uuid": "rig_depth"},
+                    {
+                        "modality": "semantic",
+                        "sensor_uuid": "rig_semantic",
+                    },
+                ],
             },
             "listener": {
                 "listener_id": "listener0",
@@ -536,7 +560,22 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
                     "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
                 },
             },
+            "sources": [
+                {"source_id": "source0"},
+                {"source_id": "source1"},
+            ],
+            "qa_views": [
+                {
+                    "qa_id": "navmesh_topdown",
+                    "kind": "topdown",
+                    "meters_per_pixel": 0.05,
+                    "height_m": 0.0,
+                }
+            ],
         },
+    )
+    room_inputs.request_path.write_text(
+        json.dumps(room_inputs.request, indent=2) + "\n", encoding="utf-8"
     )
     m2_inputs = SimpleNamespace(
         request={"seed": 17},
@@ -834,6 +873,37 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         "sensor_axis_order": ["rig_depth", "rig_rgb", "rig_semantic"],
         "pose_component_order": list(current_visual.CURRENT_POSE_COMPONENT_ORDER),
     }
+    identity_snapshot = json.loads(
+        json.dumps(receipt["m1_capture_identity"], sort_keys=True)
+    )
+    assert identity_snapshot == {
+        "request_id": "m1_capture_identity_fixture_v1",
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "primary_camera_rig": room_inputs.request["primary_camera_rig"],
+        "listener": room_inputs.request["listener"],
+        "source_axis_order": ["source0", "source1"],
+        "qa_views": room_inputs.request["qa_views"],
+    }
+    assert receipt["capture"]["m1_request_id"] == identity_snapshot["request_id"]
+    assert receipt["capture"]["room_id"] == identity_snapshot["room_id"]
+
+    rewritten_request = json.loads(json.dumps(room_inputs.request))
+    rewritten_request["request_id"] = "later_rewritten_request"
+    rewritten_request["primary_camera_rig"]["world_from_rig"]["translation_m"] = [
+        -99.0,
+        -98.0,
+        -97.0,
+    ]
+    room_inputs.request_path.write_text(
+        json.dumps(rewritten_request, indent=2) + "\n", encoding="utf-8"
+    )
+    persisted_receipt = json.loads(
+        (output / "research_receipt.json").read_text(encoding="utf-8")
+    )
+    assert persisted_receipt["m1_capture_identity"] == identity_snapshot
+    assert receipt["m1_capture_identity"] == identity_snapshot
+    review = generate_current_visual_review(output)
+    assert review.frame_count == 75
 
 
 def test_current_visual_output_directory_is_no_clobber(tmp_path: Path) -> None:
