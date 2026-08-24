@@ -79,6 +79,34 @@ CURRENT_MP3D_SOURCE_AXIS_BINDINGS: tuple[Mapping[str, Any], ...] = (
     },
 )
 
+# Region-route actor tracks use source1/source2 because source0 remains part of
+# the historical M1 request namespace. The post-hoc camera binding does not use
+# those M1 source poses to generate or filter either actor route. This explicit
+# second bridge preserves both namespaces without deriving an endpoint from a
+# numeric suffix or array position.
+CURRENT_MP3D_REGION_SOURCE_AXIS_BINDINGS: tuple[Mapping[str, Any], ...] = (
+    {
+        "axis_index": 0,
+        "source_id": "source1",
+        "actor_id": "actor0",
+        "semantic_id": 210,
+        "emitter_link_name": "beagle Xtra Mouth",
+        "audio_endpoint_id": "beagle_0_muzzle",
+        "endpoint_entity_instance_id": "beagle_0",
+        "endpoint_emitter_anchor_id": "muzzle",
+    },
+    {
+        "axis_index": 1,
+        "source_id": "source2",
+        "actor_id": "actor1",
+        "semantic_id": 211,
+        "emitter_link_name": "beagle Xtra Mouth",
+        "audio_endpoint_id": "beagle_1_muzzle",
+        "endpoint_entity_instance_id": "beagle_1",
+        "endpoint_emitter_anchor_id": "muzzle",
+    },
+)
+
 
 class CurrentMP3DDynamicAudioError(RuntimeError):
     """Raised when the dynamic research-audio contract is violated."""
@@ -172,6 +200,34 @@ def _capture_artifact(
             f"visual receipt artifact {role!r} is missing or escapes the capture"
         )
     return resolved
+
+
+def _source_axis_bindings_for_visual_capture(
+    visual_capture_dir: str | Path,
+) -> tuple[Mapping[str, Any], ...]:
+    receipt_path = Path(visual_capture_dir).resolve() / "research_receipt.json"
+    if not receipt_path.is_file():
+        raise CurrentMP3DDynamicAudioError(
+            f"visual capture is missing research_receipt.json: {receipt_path}"
+        )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    actors = receipt.get("actors") if isinstance(receipt, Mapping) else None
+    source_ids = actors.get("source_ids") if isinstance(actors, Mapping) else None
+    known = {
+        tuple(item["source_id"] for item in CURRENT_MP3D_SOURCE_AXIS_BINDINGS): (
+            CURRENT_MP3D_SOURCE_AXIS_BINDINGS
+        ),
+        tuple(
+            item["source_id"] for item in CURRENT_MP3D_REGION_SOURCE_AXIS_BINDINGS
+        ): CURRENT_MP3D_REGION_SOURCE_AXIS_BINDINGS,
+    }
+    try:
+        selected = known[tuple(source_ids)]
+    except (KeyError, TypeError) as exc:
+        raise CurrentMP3DDynamicAudioError(
+            f"visual source axis has no explicit audio endpoint bridge: {source_ids!r}"
+        ) from exc
+    return selected
 
 
 def _load_captured_source_evidence(
@@ -784,16 +840,33 @@ def _listener_view_identity(
         else None
     )
     expected_source_order = [item["source_id"] for item in bindings]
-    if m1_source_order != expected_source_order:
+    case = receipt.get("case")
+    camera_route_decoupled = bool(
+        isinstance(case, Mapping)
+        and case.get("camera_participation_in_route_generation") is False
+        and case.get("camera_binding_source")
+        in {"case_manifest", "explicit_posthoc_rebind"}
+    )
+    if not camera_route_decoupled and m1_source_order != expected_source_order:
         raise CurrentMP3DDynamicAudioError(
             "M1 source order differs from the explicit visual source-axis identity"
+        )
+    if camera_route_decoupled and (
+        not isinstance(m1_source_order, list)
+        or not all(isinstance(item, str) and item for item in m1_source_order)
+        or len(m1_source_order) != len(set(m1_source_order))
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "decoupled camera M1 source namespace must remain explicit and unique"
         )
     expected_capture_identity = {
         "request_id": m1_request.get("request_id"),
         "room_id": m1_request.get("room_id"),
         "primary_camera_rig": m1_request.get("primary_camera_rig"),
         "listener": m1_request.get("listener"),
-        "source_axis_order": expected_source_order,
+        "source_axis_order": (
+            m1_source_order if camera_route_decoupled else expected_source_order
+        ),
         "qa_views": m1_request.get("qa_views", []),
     }
     capture_identity = receipt.get("m1_capture_identity")
@@ -849,6 +922,8 @@ def _listener_view_identity(
         ),
         "capture_m1_identity": dict(capture_identity),
         "visual_source_axis_order": expected_source_order,
+        "m1_request_source_axis_order": m1_source_order,
+        "camera_route_decoupled": camera_route_decoupled,
     }
 
 
@@ -1230,10 +1305,9 @@ def render_current_mp3d_dynamic_audio(
 ) -> dict[str, Any]:
     """Render one motion-following binaural research episode for MP3D."""
 
+    explicit_bindings = _source_axis_bindings_for_visual_capture(visual_capture_dir)
     trajectories, source_axis_bindings, visual_evidence = (
-        _load_captured_source_evidence(
-            visual_capture_dir, CURRENT_MP3D_SOURCE_AXIS_BINDINGS
-        )
+        _load_captured_source_evidence(visual_capture_dir, explicit_bindings)
     )
     m1_request = json.loads(Path(m1_request_path).resolve().read_text(encoding="utf-8"))
     listener_position, listener_wxyz = listener_pose_from_m1_request(m1_request)

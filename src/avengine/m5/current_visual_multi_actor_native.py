@@ -32,6 +32,7 @@ from avengine.m2.habitat_capture import (
 )
 from avengine.m5.current_visual import (
     CURRENT_OBJECT_ID_MODALITY,
+    _m1_capture_identity,
     _instantiate_semantic_actor,
     _link_id_by_name,
     _make_current_configuration,
@@ -176,6 +177,34 @@ def _require_no_case_semantic_collision(
         )
 
 
+def _receipt_actor_axis_bindings(
+    case: Any,
+    runtime_object_ids: Sequence[int],
+    runtime_emitter_link_ids: Sequence[int],
+) -> list[dict[str, Any]]:
+    if not (
+        len(case.actor_tracks)
+        == len(runtime_object_ids)
+        == len(runtime_emitter_link_ids)
+        == 2
+    ):
+        raise _fail("audio-ready visual receipt requires exactly two actor axes")
+    return [
+        {
+            "axis_index": axis_index,
+            "actor_id": track.actor_id,
+            "source_id": track.source_id,
+            "semantic_id": track.semantic_id,
+            "runtime_object_id": int(runtime_object_ids[axis_index]),
+            "emitter_link_name": track.emitter_link_name,
+            "runtime_emitter_link_id": int(runtime_emitter_link_ids[axis_index]),
+            "audio_endpoint_status": "pending",
+            "audio_endpoint_id": None,
+        }
+        for axis_index, track in enumerate(case.actor_tracks)
+    ]
+
+
 def _capture_m1_request_path(case: Any, override: str | Path | None) -> Path:
     if override is None:
         return case.camera_m1_request_path
@@ -206,6 +235,7 @@ def _capture_native(
     mn = installed_runtime.magnum
     qt = installed_runtime.quaternion
     scene = _resolve_external_scene(room_inputs, installed_runtime)
+    m1_capture_identity = _m1_capture_identity(room_inputs)
     configuration, modality_to_uuid = _make_current_configuration(
         room_inputs=room_inputs,
         installed_runtime=installed_runtime,
@@ -463,6 +493,7 @@ def _capture_native(
                         state[1].tolist() for state in after_states
                     ],
                     "actual_emitter_position_m": frame_sources.tolist(),
+                    "source_positions_m": frame_sources.tolist(),
                     "runtime_object_ids": list(runtime_object_ids),
                     "object_id_modal": object_records,
                     "collision": {
@@ -475,6 +506,26 @@ def _capture_native(
                     "snapshot_world_time_seconds": post_time,
                     "pre_render_snapshot_world_time_seconds": pre_time,
                     "physics_step_count": 0,
+                    "pose_alignment": {
+                        "array_frame_index": frame_index,
+                        "actor_axis_order": [
+                            track.actor_id for track in case.actor_tracks
+                        ],
+                        "source_axis_order": [
+                            track.source_id for track in case.actor_tracks
+                        ],
+                        "sensor_axis_order": list(sensor_order),
+                        "pose_component_order": [
+                            "translation_x_m",
+                            "translation_y_m",
+                            "translation_z_m",
+                            "quaternion_x",
+                            "quaternion_y",
+                            "quaternion_z",
+                            "quaternion_w",
+                        ],
+                    },
+                    "observation_calls": 1,
                 }
             )
 
@@ -509,8 +560,20 @@ def _capture_native(
         "research_only": True,
         "formal_m2_request": False,
         "episode_counted": False,
+        "inputs": {
+            "m1_request": {"path": str(capture_m1_request_path)},
+            "room_manifest": {"path": str(room_inputs.room_path)},
+            "case_manifest": {"path": str(case.manifest_path)},
+        },
+        "selected_room": {
+            "room_id": room_inputs.room["room_id"],
+            "room_kind": room_inputs.room["room_kind"],
+        },
+        "m1_capture_identity": m1_capture_identity,
         "capture": {
             "native_habitat_started": True,
+            "m1_request_id": m1_capture_identity["request_id"],
+            "room_id": m1_capture_identity["room_id"],
             "frame_count": FRAME_COUNT,
             "fps": 15,
             "pts_ticks": "i*3200",
@@ -520,6 +583,8 @@ def _capture_native(
             "pair_collision_frames": pair_collision_frames,
             "actor_pair_collision_free": not pair_collision_frames,
             "support_contact_status": "raw stage contacts only; support pending",
+            "modalities": [*FORMAL_MODALITIES, CURRENT_OBJECT_ID_MODALITY],
+            "audio_sensor_included": False,
         },
         "case": {
             "case_id": plan.case_id,
@@ -541,6 +606,9 @@ def _capture_native(
             ],
             "source_center_plan_authority": "r4 route source-center points",
             "actual_emitter_authority": "native link SceneNode readback",
+            "axis_bindings": _receipt_actor_axis_bindings(
+                case, runtime_object_ids, emitter_link_ids
+            ),
         },
         "visibility": {
             "object_id_zero_pixels_affect_legality": False,
@@ -554,6 +622,12 @@ def _capture_native(
         "artifacts": {
             "arrays": [f"arrays/{name}" for name in ARRAY_ARTIFACTS],
             "frame_records": "frame_records.json",
+            "source_positions_m": "arrays/emitter_positions_m.npy",
+            "actual_agent_camera_poses": "arrays/actual_agent_camera_poses.npy",
+            "actual_sensor_poses": "arrays/actual_sensor_poses.npy",
+            "actual_logical_listener_poses": (
+                "arrays/actual_logical_listener_poses.npy"
+            ),
         },
         "native_pending": {"rlr": None, "formal_admission": None},
     }

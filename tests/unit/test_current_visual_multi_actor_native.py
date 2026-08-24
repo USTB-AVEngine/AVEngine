@@ -20,6 +20,7 @@ from avengine.m5.current_visual_multi_actor_native import (
     _load_actor_templates,
     _require_camera_and_sensor_pose_match,
     _require_no_case_semantic_collision,
+    _receipt_actor_axis_bindings,
     _runtime_contact_api,
     _save_array,
     compare_capture_outputs,
@@ -77,6 +78,30 @@ def test_semantic_preflight_uses_case_actor_ids() -> None:
     _require_no_case_semantic_collision(semantic, [210, 211])
     with pytest.raises(NativeMultiActorVisualError, match="310"):
         _require_no_case_semantic_collision(semantic, [310, 311])
+
+
+def test_audio_ready_axis_bindings_keep_new_source_ids_explicit() -> None:
+    case = SimpleNamespace(
+        actor_tracks=[
+            SimpleNamespace(
+                actor_id="actor0",
+                source_id="source1",
+                semantic_id=210,
+                emitter_link_name="mouth-a",
+            ),
+            SimpleNamespace(
+                actor_id="actor1",
+                source_id="source2",
+                semantic_id=211,
+                emitter_link_name="mouth-b",
+            ),
+        ]
+    )
+    bindings = _receipt_actor_axis_bindings(case, [1, 36], [7, 7])
+    assert [item["source_id"] for item in bindings] == ["source1", "source2"]
+    assert [item["runtime_object_id"] for item in bindings] == [1, 36]
+    assert [item["runtime_emitter_link_id"] for item in bindings] == [7, 7]
+    assert all(item["audio_endpoint_status"] == "pending" for item in bindings)
 
 
 def test_capture_camera_can_be_rebound_without_mutating_case(tmp_path: Path) -> None:
