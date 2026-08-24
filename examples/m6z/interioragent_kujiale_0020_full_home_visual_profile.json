@@ -4,6 +4,7 @@
   "scene_id": "kujiale_0020",
   "room_type": "living room",
   "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+  "source_stage_name": "kujiale_0020_full_home_preview_surface.usda",
   "selected_scopes": [
     "livingroom_491",
     "bedroom_579",

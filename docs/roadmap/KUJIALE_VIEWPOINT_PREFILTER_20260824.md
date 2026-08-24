@@ -1,5 +1,13 @@
 # Kujiale autonomous viewpoint CPU prefilter (20260824)
 
+## Binding correction
+
+The original eight-view output below is retained historical CPU evidence, but
+its source profile selected `kujiale_0020_live_v2` while its metadata came from
+the current full-home stage. It must not be used as a current map/stage-bound
+bank. The corrected fresh result and fail-fast input validation are recorded in
+`KUJIALE_CURRENT_PROFILE_BINDING_20260824.md`.
+
 ## Scope
 
 This checkpoint is the KJ1 planning slice only. It does not use Studio and did
