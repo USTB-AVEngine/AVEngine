@@ -476,6 +476,14 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
                     "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
                 }
             },
+            "listener": {
+                "listener_id": "listener0",
+                "attached_to": "camera_rig_0",
+                "rig_from_listener": {
+                    "translation_m": [0.0, 0.0, 0.0],
+                    "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                },
+            },
         },
     )
     m2_inputs = SimpleNamespace(
@@ -544,6 +552,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         events.append(f"instantiate-{kwargs['actor_index']}")
         return (
             SimpleNamespace(
+                actor_index=kwargs["actor_index"],
                 root=identity.copy(),
                 joint_positions=np.asarray([0.0, 0.0, 0.0, 1.0]),
             ),
@@ -559,12 +568,28 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         current_visual, "validate_loaded_scene_asset_graph", fake_loaded_graph
     )
     monkeypatch.setattr(current_visual, "_instantiate_semantic_actor", fake_instantiate)
-    monkeypatch.setattr(current_visual, "_link_id_by_name", lambda *_args: 0)
+    monkeypatch.setattr(
+        current_visual,
+        "_link_id_by_name",
+        lambda actor, _name: 100 + actor.actor_index,
+    )
     monkeypatch.setattr(current_visual, "_apply_root_with_habitat", fake_apply)
     monkeypatch.setattr(
         current_visual,
         "_read_actor_state",
-        lambda actor: (actor.root.copy(), actor.joint_positions.copy()),
+        lambda actor: (
+            actor.root.copy()
+            + np.asarray(
+                [
+                    [0.0, 0.0, 0.0, 1.0e-7],
+                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0],
+                ],
+                dtype=np.float64,
+            ),
+            actor.joint_positions.copy(),
+        ),
     )
     monkeypatch.setattr(
         current_visual,
@@ -575,15 +600,24 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         current_visual,
         "_state_snapshot",
         lambda *_args: {
-            "agent": room_inputs.request["primary_camera_rig"]["world_from_rig"],
+            "world_time_seconds": 0.0,
+            "agent": {
+                "translation_m": [9.0, 8.0, 7.0],
+                "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
+            },
             "sensors": {
-                "rig_rgb": room_inputs.request["primary_camera_rig"]["world_from_rig"],
-                "rig_depth": room_inputs.request["primary_camera_rig"][
-                    "world_from_rig"
-                ],
-                "rig_semantic": room_inputs.request["primary_camera_rig"][
-                    "world_from_rig"
-                ],
+                "rig_rgb": {
+                    "translation_m": [9.1, 8.0, 7.0],
+                    "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
+                },
+                "rig_depth": {
+                    "translation_m": [9.2, 8.0, 7.0],
+                    "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
+                },
+                "rig_semantic": {
+                    "translation_m": [9.3, 8.0, 7.0],
+                    "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
+                },
             },
         },
     )
@@ -620,6 +654,97 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
     assert actor1["zero_visible_frame_indices"] == [74]
     assert actor1["minimum_visible_pixels"] == 0
     assert actor1["per_frame_visible_pixels"][-2:] == [1, 0]
+
+    planned_actor = np.load(output / "arrays/actor_world_matrices.npy")
+    planned_skin = np.load(output / "arrays/planned_applied_skin_root_matrices.npy")
+    actual_skin = np.load(output / "arrays/actual_skin_root_readback_matrices.npy")
+    actual_agent = np.load(output / "arrays/actual_agent_camera_poses_txyz_qxyzw.npy")
+    actual_sensors = np.load(output / "arrays/actual_sensor_poses_txyz_qxyzw.npy")
+    actual_listener = np.load(
+        output / "arrays/actual_logical_listener_poses_txyz_qxyzw.npy"
+    )
+    assert (
+        planned_actor.shape
+        == planned_skin.shape
+        == actual_skin.shape
+        == (
+            75,
+            2,
+            4,
+            4,
+        )
+    )
+    assert actual_agent.shape == actual_listener.shape == (75, 7)
+    assert actual_sensors.shape == (75, 3, 7)
+    assert actual_agent[0].tolist() == pytest.approx(
+        [9.0, 8.0, 7.0, 0.0, 2**-0.5, 0.0, 2**-0.5]
+    )
+    assert actual_listener[0].tolist() == pytest.approx(actual_agent[0].tolist())
+    assert (
+        actual_agent[0, :3].tolist()
+        != room_inputs.request["primary_camera_rig"]["world_from_rig"]["translation_m"]
+    )
+    assert (
+        actual_agent[0, 3:].tolist()
+        != room_inputs.request["primary_camera_rig"]["world_from_rig"]["rotation_xyzw"]
+    )
+    assert actual_sensors[0, :, 0].tolist() == pytest.approx([9.2, 9.1, 9.3])
+    assert np.max(np.abs(actual_skin - planned_skin)) == pytest.approx(1.0e-7)
+    assert not np.array_equal(actual_skin, planned_skin)
+
+    assert receipt["pose_readback"]["sensor_order"] == [
+        {"axis_index": 0, "sensor_uuid": "rig_depth", "modality": "depth"},
+        {"axis_index": 1, "sensor_uuid": "rig_rgb", "modality": "rgb"},
+        {
+            "axis_index": 2,
+            "sensor_uuid": "rig_semantic",
+            "modality": "semantic",
+        },
+    ]
+    assert receipt["actors"]["axis_bindings"] == [
+        {
+            "axis_index": 0,
+            "actor_id": "actor0",
+            "source_id": "source0",
+            "semantic_id": 210,
+            "emitter_link_name": "beagle Xtra Mouth",
+            "runtime_emitter_link_id": 100,
+            "audio_endpoint_status": "pending",
+            "audio_endpoint_id": None,
+        },
+        {
+            "axis_index": 1,
+            "actor_id": "actor1",
+            "source_id": "source1",
+            "semantic_id": 211,
+            "emitter_link_name": "beagle Xtra Mouth",
+            "runtime_emitter_link_id": 101,
+            "audio_endpoint_status": "pending",
+            "audio_endpoint_id": None,
+        },
+    ]
+    records = json.loads((output / "frame_records.json").read_text())["frames"]
+    assert len(records) == 75
+    assert records[74]["pts_ticks"] == 236800
+    assert records[74]["pose_alignment"] == {
+        "array_frame_index": 74,
+        "actor_axis_order": ["actor0", "actor1"],
+        "source_axis_order": ["source0", "source1"],
+        "sensor_axis_order": ["rig_depth", "rig_rgb", "rig_semantic"],
+        "pose_component_order": list(current_visual.CURRENT_POSE_COMPONENT_ORDER),
+    }
+
+
+def test_current_visual_output_directory_is_no_clobber(tmp_path: Path) -> None:
+    output = tmp_path / "existing-output"
+    output.mkdir()
+    marker = output / "retained.txt"
+    marker.write_text("retain\n", encoding="utf-8")
+
+    with pytest.raises(current_visual.CurrentVisualError, match="refusing to replace"):
+        current_visual._fresh_output_directory(output)
+
+    assert marker.read_text(encoding="utf-8") == "retain\n"
 
 
 def test_current_module_has_no_checkout_or_v1_receipt_path() -> None:

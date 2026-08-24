@@ -21,6 +21,22 @@ from PIL import Image
 
 TIMELINE_TICKS_PER_SECOND = 48_000
 _REQUIRED_ARTIFACTS = ("rgb", "depth", "semantic", "frame_records")
+_POSE_COMPONENT_ORDER = (
+    "translation_x_m",
+    "translation_y_m",
+    "translation_z_m",
+    "quaternion_x",
+    "quaternion_y",
+    "quaternion_z",
+    "quaternion_w",
+)
+_NEW_POSE_ARTIFACTS = (
+    "planned_applied_skin_root_matrices",
+    "actual_skin_root_readback_matrices",
+    "actual_agent_camera_poses",
+    "actual_sensor_poses",
+    "actual_logical_listener_poses",
+)
 
 
 class CurrentVisualReviewError(ValueError):
@@ -34,6 +50,20 @@ class CurrentVisualReview:
     html_path: Path
     review_directory: Path
     frame_count: int
+
+
+@dataclass(frozen=True)
+class _PoseReadbackEvidence:
+    planned_actor_matrices: np.ndarray
+    planned_skin_root_matrices: np.ndarray
+    actual_skin_root_matrices: np.ndarray
+    actual_agent_camera_poses: np.ndarray
+    actual_sensor_poses: np.ndarray
+    actual_logical_listener_poses: np.ndarray
+    actor_axis_order: tuple[str, ...]
+    source_axis_order: tuple[str, ...]
+    sensor_axis_order: tuple[str, ...]
+    axis_bindings: tuple[dict[str, Any], ...]
 
 
 def _load_json_object(path: Path, *, owner: str) -> dict[str, Any]:
@@ -230,6 +260,344 @@ def _frame_records(path: Path, *, frame_count: int) -> list[dict[str, Any]]:
     return values
 
 
+def _string_axis(value: Any, *, owner: str, length: int) -> tuple[str, ...]:
+    if (
+        not isinstance(value, list)
+        or len(value) != length
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(set(value)) != length
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} must contain {length} unique nonempty string identities"
+        )
+    return tuple(value)
+
+
+def _require_pose_descriptor(
+    metadata: Mapping[str, Any],
+    *,
+    name: str,
+    artifact_key: str,
+    actual_readback: bool,
+) -> None:
+    value = metadata.get(name)
+    if (
+        not isinstance(value, Mapping)
+        or value.get("artifact_key") != artifact_key
+        or value.get("actual_readback") is not actual_readback
+        or not isinstance(value.get("pose_kind"), str)
+        or not value["pose_kind"]
+    ):
+        raise CurrentVisualReviewError(
+            f"pose_readback {name!r} does not describe its planned/actual authority"
+        )
+
+
+def _finite_record_array(
+    value: Any, *, owner: str, shape: tuple[int, ...]
+) -> np.ndarray:
+    try:
+        array = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise CurrentVisualReviewError(f"{owner} is not numeric: {exc}") from exc
+    if array.shape != shape or not np.all(np.isfinite(array)):
+        raise CurrentVisualReviewError(
+            f"{owner} must contain finite values with shape {shape}"
+        )
+    return array
+
+
+def _pose_readback_evidence(
+    output_root: Path,
+    receipt: Mapping[str, Any],
+    artifacts: Mapping[str, Any],
+    *,
+    frame_count: int,
+    records: list[dict[str, Any]],
+    actor_matrices: np.ndarray | None,
+    source_positions: np.ndarray | None,
+    visibility: np.ndarray | None,
+) -> _PoseReadbackEvidence | None:
+    metadata = receipt.get("pose_readback")
+    present = [name for name in _NEW_POSE_ARTIFACTS if name in artifacts]
+    if metadata is None and not present:
+        return None
+    if not isinstance(metadata, Mapping) or len(present) != len(_NEW_POSE_ARTIFACTS):
+        raise CurrentVisualReviewError(
+            "new pose readback evidence is partial; legacy captures must not be "
+            "upgraded without the complete native artifact set"
+        )
+    if frame_count != 75 or metadata.get("frame_count") != frame_count:
+        raise CurrentVisualReviewError(
+            "new pose readback evidence must align to exactly 75 captured frames"
+        )
+    if metadata.get("status") != "native_habitat_pose_readback_recorded":
+        raise CurrentVisualReviewError(
+            "pose_readback status does not claim completed native Habitat readback"
+        )
+    if metadata.get("pose_component_order") != list(_POSE_COMPONENT_ORDER):
+        raise CurrentVisualReviewError(
+            "pose_readback pose_component_order must be translation xyz then quaternion xyzw"
+        )
+
+    actor_axis_order = _string_axis(
+        metadata.get("actor_axis_order"), owner="actor axis order", length=2
+    )
+    source_axis_order = _string_axis(
+        metadata.get("source_axis_order"), owner="source axis order", length=2
+    )
+    sensor_order = metadata.get("sensor_order")
+    if not isinstance(sensor_order, list) or not sensor_order:
+        raise CurrentVisualReviewError(
+            "pose_readback sensor_order must contain every sensor axis"
+        )
+    sensor_axis_order: list[str] = []
+    sensor_modalities: list[str] = []
+    for index, value in enumerate(sensor_order):
+        if (
+            not isinstance(value, Mapping)
+            or value.get("axis_index") != index
+            or not isinstance(value.get("sensor_uuid"), str)
+            or not value["sensor_uuid"]
+            or not isinstance(value.get("modality"), str)
+            or not value["modality"]
+        ):
+            raise CurrentVisualReviewError(
+                f"pose_readback sensor_order entry {index} is invalid"
+            )
+        sensor_axis_order.append(value["sensor_uuid"])
+        sensor_modalities.append(value["modality"])
+    if len(set(sensor_axis_order)) != len(sensor_axis_order) or len(
+        set(sensor_modalities)
+    ) != len(sensor_modalities):
+        raise CurrentVisualReviewError(
+            "pose_readback sensor UUIDs and modalities must be unique"
+        )
+
+    actors = receipt.get("actors")
+    if not isinstance(actors, Mapping):
+        raise CurrentVisualReviewError(
+            "new pose readback receipt must contain actor/source identity metadata"
+        )
+    if actors.get("actor_ids") != list(actor_axis_order):
+        raise CurrentVisualReviewError(
+            "actor identity list does not match the declared actor axis order"
+        )
+    if actors.get("source_ids") != list(source_axis_order):
+        raise CurrentVisualReviewError(
+            "source identity list does not match the declared source axis order"
+        )
+    semantic_ids = actors.get("semantic_ids")
+    emitter_names = actors.get("emitter_link_names")
+    bindings = actors.get("axis_bindings")
+    if (
+        not isinstance(semantic_ids, list)
+        or len(semantic_ids) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in semantic_ids
+        )
+        or len(set(semantic_ids)) != 2
+        or not isinstance(emitter_names, list)
+        or len(emitter_names) != 2
+        or any(not isinstance(value, str) or not value for value in emitter_names)
+        or not isinstance(bindings, list)
+        or len(bindings) != 2
+    ):
+        raise CurrentVisualReviewError(
+            "actor/source semantic and emitter axis metadata is invalid"
+        )
+    checked_bindings: list[dict[str, Any]] = []
+    for index, value in enumerate(bindings):
+        if not isinstance(value, dict):
+            raise CurrentVisualReviewError(
+                f"actor axis binding {index} must be an object"
+            )
+        runtime_link_id = value.get("runtime_emitter_link_id")
+        if (
+            value.get("axis_index") != index
+            or value.get("actor_id") != actor_axis_order[index]
+            or value.get("source_id") != source_axis_order[index]
+            or value.get("semantic_id") != semantic_ids[index]
+            or value.get("emitter_link_name") != emitter_names[index]
+            or isinstance(runtime_link_id, bool)
+            or not isinstance(runtime_link_id, int)
+            or value.get("audio_endpoint_status") != "pending"
+            or value.get("audio_endpoint_id") is not None
+        ):
+            raise CurrentVisualReviewError(
+                f"actor/source identity mapping is damaged at axis {index}"
+            )
+        checked_bindings.append(dict(value))
+
+    for name, artifact_key, actual in (
+        ("planned_actor_world_matrices", "actor_world_matrices", False),
+        (
+            "planned_applied_skin_root_matrices",
+            "planned_applied_skin_root_matrices",
+            False,
+        ),
+        (
+            "actual_skin_root_readback_matrices",
+            "actual_skin_root_readback_matrices",
+            True,
+        ),
+        ("actual_agent_camera_poses", "actual_agent_camera_poses", True),
+        ("actual_sensor_poses", "actual_sensor_poses", True),
+        (
+            "actual_logical_listener_poses",
+            "actual_logical_listener_poses",
+            True,
+        ),
+    ):
+        _require_pose_descriptor(
+            metadata,
+            name=name,
+            artifact_key=artifact_key,
+            actual_readback=actual,
+        )
+
+    if actor_matrices is None or source_positions is None or visibility is None:
+        raise CurrentVisualReviewError(
+            "new pose readback evidence requires planned actor, source, and visibility arrays"
+        )
+    pose_paths: dict[str, Path] = {}
+    for name in _NEW_POSE_ARTIFACTS:
+        path = _artifact_path(output_root, artifacts, name=name, required=True)
+        assert path is not None
+        pose_paths[name] = path
+    actor_path = _artifact_path(
+        output_root, artifacts, name="actor_world_matrices", required=True
+    )
+    assert actor_path is not None
+    if len(set([actor_path, *pose_paths.values()])) != len(pose_paths) + 1:
+        raise CurrentVisualReviewError(
+            "planned and actual pose artifacts must be distinct files"
+        )
+
+    planned_skin_roots = _optional_frame_array(
+        pose_paths["planned_applied_skin_root_matrices"],
+        owner="planned applied skin-root matrices artifact",
+        frame_count=frame_count,
+        suffix_shape=(2, 4, 4),
+        dtype_kind="finite",
+    )
+    actual_skin_roots = _optional_frame_array(
+        pose_paths["actual_skin_root_readback_matrices"],
+        owner="actual skin-root readback matrices artifact",
+        frame_count=frame_count,
+        suffix_shape=(2, 4, 4),
+        dtype_kind="finite",
+    )
+    actual_agent_poses = _optional_frame_array(
+        pose_paths["actual_agent_camera_poses"],
+        owner="actual agent/camera poses artifact",
+        frame_count=frame_count,
+        suffix_shape=(7,),
+        dtype_kind="finite",
+    )
+    actual_sensor_pose_array = _optional_frame_array(
+        pose_paths["actual_sensor_poses"],
+        owner="actual sensor poses artifact",
+        frame_count=frame_count,
+        suffix_shape=(len(sensor_axis_order), 7),
+        dtype_kind="finite",
+    )
+    actual_listener_poses = _optional_frame_array(
+        pose_paths["actual_logical_listener_poses"],
+        owner="actual logical listener poses artifact",
+        frame_count=frame_count,
+        suffix_shape=(7,),
+        dtype_kind="finite",
+    )
+    assert planned_skin_roots is not None
+    assert actual_skin_roots is not None
+    assert actual_agent_poses is not None
+    assert actual_sensor_pose_array is not None
+    assert actual_listener_poses is not None
+
+    for index, record in enumerate(records):
+        if record["pts_ticks"] != index * 3_200:
+            raise CurrentVisualReviewError(
+                f"frame {index} pts_ticks does not align with the 15 fps timeline"
+            )
+        world_time = record.get("snapshot_world_time_seconds")
+        if (
+            isinstance(world_time, bool)
+            or not isinstance(world_time, (int, float))
+            or not math.isfinite(float(world_time))
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} snapshot world time is missing or non-finite"
+            )
+        alignment = record.get("pose_alignment")
+        if (
+            not isinstance(alignment, Mapping)
+            or alignment.get("array_frame_index") != index
+            or alignment.get("actor_axis_order") != list(actor_axis_order)
+            or alignment.get("source_axis_order") != list(source_axis_order)
+            or alignment.get("sensor_axis_order") != sensor_axis_order
+            or alignment.get("pose_component_order") != list(_POSE_COMPONENT_ORDER)
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} pose alignment or identity axes are damaged"
+            )
+        planned_positions = _finite_record_array(
+            record.get("actor_world_positions_m"),
+            owner=f"frame {index} planned actor positions",
+            shape=(2, 3),
+        )
+        if not np.allclose(
+            planned_positions,
+            actor_matrices[index, :, :3, 3],
+            rtol=0.0,
+            atol=1.0e-12,
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} planned actor positions do not align with their array"
+            )
+        observed_sources = _finite_record_array(
+            record.get("source_positions_m"),
+            owner=f"frame {index} source readback positions",
+            shape=(2, 3),
+        )
+        if not np.allclose(
+            observed_sources,
+            source_positions[index],
+            rtol=0.0,
+            atol=1.0e-12,
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} source readback positions do not align with their array"
+            )
+        record_visibility = record.get("semantic_visibility_pixels")
+        if (
+            not isinstance(record_visibility, list)
+            or len(record_visibility) != 2
+            or any(
+                isinstance(value, bool) or not isinstance(value, int)
+                for value in record_visibility
+            )
+            or record_visibility != visibility[index].tolist()
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} semantic visibility does not align with actor axes"
+            )
+
+    return _PoseReadbackEvidence(
+        planned_actor_matrices=actor_matrices,
+        planned_skin_root_matrices=planned_skin_roots,
+        actual_skin_root_matrices=actual_skin_roots,
+        actual_agent_camera_poses=actual_agent_poses,
+        actual_sensor_poses=actual_sensor_pose_array,
+        actual_logical_listener_poses=actual_listener_poses,
+        actor_axis_order=actor_axis_order,
+        source_axis_order=source_axis_order,
+        sensor_axis_order=tuple(sensor_axis_order),
+        axis_bindings=tuple(checked_bindings),
+    )
+
+
 def _depth_range(depth: np.ndarray) -> tuple[float, float]:
     minimum = math.inf
     maximum = -math.inf
@@ -283,6 +651,7 @@ def _frame_metadata(
     actor_matrices: np.ndarray | None,
     source_positions: np.ndarray | None,
     visibility: np.ndarray | None,
+    pose_readback: _PoseReadbackEvidence | None,
 ) -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
     for index, record in enumerate(records):
@@ -315,6 +684,29 @@ def _frame_metadata(
             entry["semantic_visibility_pixels"] = pixels
         elif visibility is not None:
             entry["semantic_visibility_pixels"] = visibility[index].tolist()
+        if pose_readback is not None:
+            entry["pose_component_order"] = list(_POSE_COMPONENT_ORDER)
+            entry["actor_source_axis_bindings"] = list(pose_readback.axis_bindings)
+            entry["planned_applied_skin_root_positions_m"] = (
+                pose_readback.planned_skin_root_matrices[index, :, :3, 3].tolist()
+            )
+            entry["actual_skin_root_readback_positions_m"] = (
+                pose_readback.actual_skin_root_matrices[index, :, :3, 3].tolist()
+            )
+            entry["actual_agent_camera_pose_txyz_qxyzw"] = (
+                pose_readback.actual_agent_camera_poses[index].tolist()
+            )
+            entry["actual_sensor_poses_txyz_qxyzw"] = {
+                sensor_uuid: pose_readback.actual_sensor_poses[
+                    index, sensor_index
+                ].tolist()
+                for sensor_index, sensor_uuid in enumerate(
+                    pose_readback.sensor_axis_order
+                )
+            }
+            entry["actual_logical_listener_pose_txyz_qxyzw"] = (
+                pose_readback.actual_logical_listener_poses[index].tolist()
+            )
         values.append(entry)
     return values
 
@@ -538,12 +930,23 @@ def generate_current_visual_review(
         suffix_shape=(2,),
         dtype_kind="integer",
     )
+    pose_readback = _pose_readback_evidence(
+        output_root,
+        receipt,
+        artifacts,
+        frame_count=frame_count,
+        records=records,
+        actor_matrices=actor_matrices,
+        source_positions=source_positions,
+        visibility=visibility,
+    )
     depth_minimum, depth_maximum = _depth_range(depth)
     metadata = _frame_metadata(
         records,
         actor_matrices=actor_matrices,
         source_positions=source_positions,
         visibility=visibility,
+        pose_readback=pose_readback,
     )
     review_root = _review_directory(output_root, review_directory)
     frames_root = review_root / "frames"
