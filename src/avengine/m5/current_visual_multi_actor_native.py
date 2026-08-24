@@ -10,7 +10,7 @@ research evidence only; it does not run audio or turn visibility into a gate.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -52,6 +52,7 @@ from avengine.m5.current_visual_multi_actor import (
     classify_collision_contacts,
     load_multi_actor_case,
 )
+from avengine.qa.pixel_visibility import compile_pixel_visibility_truth
 
 
 ROOT_READBACK_ATOL = 2.0e-6
@@ -65,12 +66,29 @@ ARRAY_ARTIFACTS = (
     "planned_actor_world_matrices.npy",
     "planned_applied_skin_root_matrices.npy",
     "actual_skin_root_readback_matrices.npy",
+    "target_only_semantic_actor0.npy",
+    "target_only_semantic_actor1.npy",
+    "target_only_object_id_actor0.npy",
+    "target_only_object_id_actor1.npy",
+    "target_only_skin_root_readback_actor0.npy",
+    "target_only_skin_root_readback_actor1.npy",
+    "target_only_joint_readback_actor0.npy",
+    "target_only_joint_readback_actor1.npy",
+    "target_only_camera_poses_actor0.npy",
+    "target_only_camera_poses_actor1.npy",
+    "target_only_sensor_poses_actor0.npy",
+    "target_only_sensor_poses_actor1.npy",
     "actual_agent_camera_poses.npy",
     "actual_sensor_poses.npy",
     "actual_logical_listener_poses.npy",
     "emitter_positions_m.npy",
     "actual_joint_readback_actor0.npy",
     "actual_joint_readback_actor1.npy",
+)
+JSON_ARTIFACTS = (
+    "frame_records.json",
+    "target_only_frame_records.json",
+    "pixel_visibility_truth.json",
 )
 
 
@@ -203,6 +221,350 @@ def _receipt_actor_axis_bindings(
         }
         for axis_index, track in enumerate(case.actor_tracks)
     ]
+
+
+def _target_only_semantic_frame(
+    semantic: Any,
+    object_id: Any,
+    *,
+    semantic_id: int,
+    runtime_object_id: int,
+) -> np.ndarray:
+    """Retain one target mask only after semantic/object-ID pixel agreement."""
+
+    semantic_array = np.asarray(semantic)
+    object_id_array = np.asarray(object_id)
+    if (
+        semantic_array.ndim != 2
+        or object_id_array.shape != semantic_array.shape
+        or not np.issubdtype(semantic_array.dtype, np.integer)
+        or not np.issubdtype(object_id_array.dtype, np.integer)
+    ):
+        raise _fail("target-only semantic/object-ID observations are invalid")
+    semantic_mask = semantic_array == semantic_id
+    object_mask = object_id_array == runtime_object_id
+    if not np.array_equal(semantic_mask, object_mask):
+        raise _fail("target-only semantic and runtime object-ID pixels differ")
+    unexpected = np.unique(semantic_array[(semantic_array != 0) & ~semantic_mask])
+    if unexpected.size:
+        raise _fail(
+            "target-only blank-scene semantic pass contains another semantic ID: "
+            f"{unexpected.tolist()}"
+        )
+    return np.where(semantic_mask, semantic_id, 0).astype(np.int32)
+
+
+def _require_target_only_replay_match(
+    *,
+    normal_root: np.ndarray,
+    normal_joints: np.ndarray,
+    target_root: np.ndarray,
+    target_joints: np.ndarray,
+    frame_index: int,
+    actor_id: str,
+) -> None:
+    if (
+        normal_root.shape != target_root.shape
+        or float(np.max(np.abs(normal_root - target_root))) > ROOT_READBACK_ATOL
+    ):
+        raise _fail(
+            f"frame {frame_index} actor {actor_id} target-only root differs "
+            "from the normal pass"
+        )
+    if _quaternion_block_error(normal_joints, target_joints) > JOINT_READBACK_ATOL:
+        raise _fail(
+            f"frame {frame_index} actor {actor_id} target-only joints differ "
+            "from the normal pass"
+        )
+
+
+def _target_only_configuration(
+    *,
+    room_inputs: Any,
+    installed_runtime: Any,
+    scene: Mapping[str, Any],
+    gpu_device_id: int,
+) -> tuple[Any, dict[str, str]]:
+    configuration, modality_to_uuid = _make_current_configuration(
+        room_inputs=room_inputs,
+        installed_runtime=installed_runtime,
+        scene=scene,
+        include_audio_sensor=False,
+        gpu_device_id=gpu_device_id,
+    )
+    configuration.sim_cfg.scene_id = "NONE"
+    configuration.sim_cfg.load_semantic_mesh = False
+    return configuration, modality_to_uuid
+
+
+def _capture_target_only_semantic_passes(
+    *,
+    case: Any,
+    plan: Any,
+    room_inputs: Any,
+    installed_runtime: Any,
+    scene: Mapping[str, Any],
+    gpu_device_id: int,
+    camera_position: np.ndarray,
+    camera_rotation: Any,
+    rig_transform: Mapping[str, Any],
+    normal_sensor_order: Sequence[str],
+    normal_camera_poses: Sequence[np.ndarray],
+    normal_sensor_poses: Sequence[np.ndarray],
+    normal_skin_matrices: Sequence[np.ndarray],
+    normal_joint_arrays: Sequence[Sequence[np.ndarray]],
+) -> dict[str, dict[str, Any]]:
+    """Replay each actor alone in Habitat's blank stage with exact readback."""
+
+    habitat_sim = installed_runtime.habitat_sim
+    mn = installed_runtime.magnum
+    qt = installed_runtime.quaternion
+    results: dict[str, dict[str, Any]] = {}
+    for actor_index, (track, track_plan) in enumerate(
+        zip(case.actor_tracks, plan.actor_tracks, strict=True)
+    ):
+        configuration, modality_to_uuid = _target_only_configuration(
+            room_inputs=room_inputs,
+            installed_runtime=installed_runtime,
+            scene=scene,
+            gpu_device_id=gpu_device_id,
+        )
+        sensor_modalities = (*FORMAL_MODALITIES, CURRENT_OBJECT_ID_MODALITY)
+        sensor_uuids = [modality_to_uuid[name] for name in sensor_modalities]
+        semantic_frames: list[np.ndarray] = []
+        object_id_frames: list[np.ndarray] = []
+        root_readbacks: list[np.ndarray] = []
+        joint_readbacks: list[np.ndarray] = []
+        camera_readbacks: list[np.ndarray] = []
+        sensor_readbacks: list[np.ndarray] = []
+        records: list[dict[str, Any]] = []
+        with habitat_sim.Simulator(configuration) as simulator:
+            simulator.seed(int(room_inputs.request["seed"]))
+            camera_state = habitat_sim.AgentState()
+            camera_state.position = camera_position
+            camera_state.rotation = camera_rotation
+            agent = simulator.initialize_agent(0, camera_state)
+            sensors = [simulator.sensors[uuid] for uuid in sensor_uuids]
+            sensor_order = sorted(sensor_uuids)
+            if list(sensor_order) != list(normal_sensor_order):
+                raise _fail("target-only sensor axis differs from the normal pass")
+            blank = _observation_arrays(
+                simulator.render_sensors(sensors), modality_to_uuid
+            )
+            if np.any(np.asarray(blank["semantic"]) != 0):
+                raise _fail("Habitat blank stage is not semantically empty")
+            handle = _load_actor_templates(simulator, [track])[0]
+            actor, binding = _instantiate_semantic_actor(
+                simulator,
+                bundle=track.bundle,
+                habitat_sim=habitat_sim,
+                base_handle=handle,
+                semantic_id=track.semantic_id,
+                actor_index=actor_index,
+            )
+            runtime_object_id = getattr(actor, "object_id", None)
+            if (
+                isinstance(runtime_object_id, bool)
+                or not isinstance(runtime_object_id, int)
+                or runtime_object_id < 0
+            ):
+                raise _fail(
+                    f"target-only actor {track.actor_id} runtime object_id is invalid"
+                )
+            initial_world_time = float(simulator.get_world_time())
+            for frame_index in range(FRAME_COUNT):
+                frame_camera = habitat_sim.AgentState()
+                frame_camera.position = camera_position
+                frame_camera.rotation = camera_rotation
+                agent.set_state(
+                    frame_camera, reset_sensors=False, infer_sensor_states=True
+                )
+                pre_render_snapshot = _state_snapshot(
+                    simulator,
+                    agent,
+                    sensor_uuids,
+                    installed_runtime.quat_to_coeffs,
+                )
+                _require_camera_and_sensor_pose_match(
+                    rig_transform,
+                    pre_render_snapshot,
+                    frame_index=frame_index,
+                )
+                actor_frame = track_plan.frames[frame_index]
+                planned_skin = np.asarray(actor_frame.derived_world_from_skin_root)
+                joints = np.asarray(
+                    binding.map_pose(
+                        np.asarray(
+                            [rotation for _, rotation in actor_frame.joint_states]
+                        )
+                    ),
+                    dtype=np.float64,
+                )
+                _apply_root_with_habitat(actor, planned_skin, qt=qt, mn=mn)
+                actor.joint_positions = joints.copy()
+                target_root, target_joints = _read_actor_state(actor)
+                _require_target_only_replay_match(
+                    normal_root=np.asarray(normal_skin_matrices[frame_index])[
+                        actor_index
+                    ],
+                    normal_joints=np.asarray(
+                        normal_joint_arrays[actor_index][frame_index]
+                    ),
+                    target_root=target_root,
+                    target_joints=target_joints,
+                    frame_index=frame_index,
+                    actor_id=track.actor_id,
+                )
+                arrays = _observation_arrays(
+                    simulator.render_sensors(sensors), modality_to_uuid
+                )
+                after_root, after_joints = _read_actor_state(actor)
+                _state_equal(
+                    (target_root, target_joints),
+                    (after_root, after_joints),
+                    frame_index=frame_index,
+                    actor_id=track.actor_id,
+                )
+                post_render_snapshot = _state_snapshot(
+                    simulator,
+                    agent,
+                    sensor_uuids,
+                    installed_runtime.quat_to_coeffs,
+                )
+                _require_render_snapshot_unchanged(
+                    pre_render_snapshot,
+                    post_render_snapshot,
+                    sensor_order=sensor_order,
+                    frame_index=frame_index,
+                )
+                if (
+                    abs(float(simulator.get_world_time()) - initial_world_time)
+                    > WORLD_TIME_ATOL
+                ):
+                    raise _fail(
+                        f"frame {frame_index} target-only render advanced world time"
+                    )
+                camera_pose = _pose_vector(
+                    post_render_snapshot["agent"], owner="target-only camera"
+                )
+                sensor_pose = np.stack(
+                    [
+                        _pose_vector(post_render_snapshot["sensors"][uuid], owner=uuid)
+                        for uuid in sensor_order
+                    ]
+                )
+                if not np.allclose(
+                    camera_pose,
+                    normal_camera_poses[frame_index],
+                    rtol=0.0,
+                    atol=ROOT_READBACK_ATOL,
+                ) or not np.allclose(
+                    sensor_pose,
+                    normal_sensor_poses[frame_index],
+                    rtol=0.0,
+                    atol=ROOT_READBACK_ATOL,
+                ):
+                    raise _fail(
+                        f"frame {frame_index} target-only camera readback differs"
+                    )
+                semantic = _target_only_semantic_frame(
+                    arrays["semantic"],
+                    arrays[CURRENT_OBJECT_ID_MODALITY],
+                    semantic_id=track.semantic_id,
+                    runtime_object_id=runtime_object_id,
+                )
+                object_record = _object_id_pixel_record(
+                    arrays[CURRENT_OBJECT_ID_MODALITY], runtime_object_id
+                )
+                semantic_frames.append(semantic)
+                object_id_frames.append(
+                    np.asarray(arrays[CURRENT_OBJECT_ID_MODALITY]).copy()
+                )
+                root_readbacks.append(target_root.copy())
+                joint_readbacks.append(target_joints.copy())
+                camera_readbacks.append(camera_pose)
+                sensor_readbacks.append(sensor_pose)
+                records.append(
+                    {
+                        "frame_index": frame_index,
+                        "actor_id": track.actor_id,
+                        "source_id": track.source_id,
+                        "semantic_id": track.semantic_id,
+                        "target_only_runtime_object_id": runtime_object_id,
+                        "target_only_pixel_count": object_record["pixel_count"],
+                        "target_only_bbox_xyxy": object_record["bbox_xyxy"],
+                        "normal_root_readback_match": True,
+                        "normal_joint_readback_match": True,
+                        "normal_camera_sensor_readback_match": True,
+                        "snapshot_world_time_seconds": float(
+                            post_render_snapshot["world_time_seconds"]
+                        ),
+                    }
+                )
+        results[track.actor_id] = {
+            "actor_index": actor_index,
+            "semantic_id": track.semantic_id,
+            "runtime_object_id": runtime_object_id,
+            "semantic_frames": semantic_frames,
+            "object_id_frames": object_id_frames,
+            "root_readbacks": root_readbacks,
+            "joint_readbacks": joint_readbacks,
+            "camera_readbacks": camera_readbacks,
+            "sensor_readbacks": sensor_readbacks,
+            "frame_records": records,
+        }
+    return results
+
+
+def _compile_target_only_visibility(
+    *,
+    case: Any,
+    m1_capture_identity: Mapping[str, Any],
+    normal_semantic_frames: Sequence[np.ndarray],
+    target_only_results: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    frame_count = len(normal_semantic_frames)
+    if frame_count != FRAME_COUNT:
+        raise _fail("same-renderer visibility requires every normal frame")
+    resolution = list(np.asarray(normal_semantic_frames[0]).shape)
+    rig = m1_capture_identity["primary_camera_rig"]
+    camera_contract_id = (
+        f"{m1_capture_identity['request_id']}:{rig['rig_id']}:{rig['view_id']}"
+    )
+    camera_pose_ids = [
+        f"{camera_contract_id}:native_readback_frame_{index:03d}"
+        for index in range(frame_count)
+    ]
+    common_context = {
+        "renderer_backend": "habitat_sim_native_mp3d",
+        "rgb_renderer_backend": "habitat_sim_native_mp3d",
+        "camera_contract_id": camera_contract_id,
+        "semantic_id_namespace": "m5_declared_actor_semantic_ids",
+        "resolution_hw": resolution,
+        "frame_indices": list(range(frame_count)),
+        "camera_pose_ids": camera_pose_ids,
+    }
+    semantic_ids = {track.actor_id: track.semantic_id for track in case.actor_tracks}
+    try:
+        return compile_pixel_visibility_truth(
+            normal_semantic_masks=normal_semantic_frames,
+            target_only_semantic_masks_by_instance={
+                track.actor_id: target_only_results[track.actor_id]["semantic_frames"]
+                for track in case.actor_tracks
+            },
+            semantic_ids_by_instance=semantic_ids,
+            normal_context={"pass_kind": "modal_scene", **common_context},
+            target_only_contexts_by_instance={
+                track.actor_id: {
+                    "pass_kind": "target_only",
+                    "target_instance_id": track.actor_id,
+                    **common_context,
+                }
+                for track in case.actor_tracks
+            },
+        )
+    except ValueError as exc:
+        raise _fail(f"same-renderer target-only visibility is invalid: {exc}") from exc
 
 
 def _capture_m1_request_path(case: Any, override: str | Path | None) -> Path:
@@ -533,6 +895,72 @@ def _capture_native(
         raise _fail("native multi-actor capture must retain exactly 75 frames")
     arrays_root = output / "arrays"
     arrays_root.mkdir()
+    target_only_results = _capture_target_only_semantic_passes(
+        case=case,
+        plan=plan,
+        room_inputs=room_inputs,
+        installed_runtime=installed_runtime,
+        scene=scene,
+        gpu_device_id=gpu_device_id,
+        camera_position=camera_position,
+        camera_rotation=camera_rotation,
+        rig_transform=rig_transform,
+        normal_sensor_order=sensor_order,
+        normal_camera_poses=camera_poses,
+        normal_sensor_poses=sensor_poses,
+        normal_skin_matrices=actual_skin_matrices,
+        normal_joint_arrays=actual_joint_arrays,
+    )
+    visibility_truth = _compile_target_only_visibility(
+        case=case,
+        m1_capture_identity=m1_capture_identity,
+        normal_semantic_frames=semantic_frames,
+        target_only_results=target_only_results,
+    )
+    target_only_records: dict[str, Any] = {}
+    for actor_index, track in enumerate(case.actor_tracks):
+        result = target_only_results[track.actor_id]
+        _save_array(
+            arrays_root,
+            f"target_only_semantic_actor{actor_index}.npy",
+            result["semantic_frames"],
+        )
+        _save_array(
+            arrays_root,
+            f"target_only_object_id_actor{actor_index}.npy",
+            result["object_id_frames"],
+        )
+        _save_array(
+            arrays_root,
+            f"target_only_skin_root_readback_actor{actor_index}.npy",
+            result["root_readbacks"],
+        )
+        _save_array(
+            arrays_root,
+            f"target_only_joint_readback_actor{actor_index}.npy",
+            result["joint_readbacks"],
+        )
+        _save_array(
+            arrays_root,
+            f"target_only_camera_poses_actor{actor_index}.npy",
+            result["camera_readbacks"],
+        )
+        _save_array(
+            arrays_root,
+            f"target_only_sensor_poses_actor{actor_index}.npy",
+            result["sensor_readbacks"],
+        )
+        target_only_records[track.actor_id] = {
+            "actor_index": actor_index,
+            "semantic_id": track.semantic_id,
+            "target_only_runtime_object_id": result["runtime_object_id"],
+            "frames": result["frame_records"],
+        }
+    write_json(
+        output / "target_only_frame_records.json",
+        {"per_actor": target_only_records},
+    )
+    write_json(output / "pixel_visibility_truth.json", visibility_truth)
     _save_array(arrays_root, "rgb.npy", rgb_frames)
     _save_array(arrays_root, "depth.npy", depth_frames)
     _save_array(arrays_root, "semantic.npy", semantic_frames)
@@ -585,6 +1013,11 @@ def _capture_native(
             "support_contact_status": "raw stage contacts only; support pending",
             "modalities": [*FORMAL_MODALITIES, CURRENT_OBJECT_ID_MODALITY],
             "audio_sensor_included": False,
+            "target_only_passes": {
+                "renderer_backend": "habitat_sim_native_mp3d",
+                "pass_count": len(case.actor_tracks),
+                "modalities": ["semantic", "object_id"],
+            },
         },
         "case": {
             "case_id": plan.case_id,
@@ -604,6 +1037,10 @@ def _capture_native(
             "emitter_link_names": [
                 track.emitter_link_name for track in case.actor_tracks
             ],
+            "target_only_runtime_object_ids": [
+                target_only_results[track.actor_id]["runtime_object_id"]
+                for track in case.actor_tracks
+            ],
             "source_center_plan_authority": "r4 route source-center points",
             "actual_emitter_authority": "native link SceneNode readback",
             "axis_bindings": _receipt_actor_axis_bindings(
@@ -613,15 +1050,22 @@ def _capture_native(
         "visibility": {
             "object_id_zero_pixels_affect_legality": False,
             "semantic_visibility_affect_legality": False,
-            "authority": (
-                "installed-runtime OBJECT_ID raster; active-RGB depth equivalence "
-                "and formal modal visibility remain pending"
-            ),
-            "formal_modal_visibility": None,
+            "candidate_filtering": "disabled",
+            "authority": visibility_truth["authority"],
+            "formal_modal_visibility": visibility_truth,
+            "target_only_authority": {
+                "renderer_backend": "habitat_sim_native_mp3d",
+                "stage_policy": "Habitat NONE blank stage",
+                "actor_pose_policy": "exact normal-pass root/joint readback replay",
+                "camera_policy": "exact normal-pass agent/sensor readback",
+                "semantic_object_id_pixel_agreement_required": True,
+            },
         },
         "artifacts": {
             "arrays": [f"arrays/{name}" for name in ARRAY_ARTIFACTS],
             "frame_records": "frame_records.json",
+            "target_only_frame_records": "target_only_frame_records.json",
+            "pixel_visibility_truth": "pixel_visibility_truth.json",
             "source_positions_m": "arrays/emitter_positions_m.npy",
             "actual_agent_camera_poses": "arrays/actual_agent_camera_poses.npy",
             "actual_sensor_poses": "arrays/actual_sensor_poses.npy",
@@ -700,10 +1144,11 @@ def compare_capture_outputs(first: str | Path, second: str | Path) -> dict[str, 
         right = np.load(second_root / "arrays" / name, allow_pickle=False)
         if left.shape != right.shape or not np.array_equal(left, right):
             differing.append(f"arrays/{name}")
-    left_records = load_json(first_root / "frame_records.json")
-    right_records = load_json(second_root / "frame_records.json")
-    if left_records != right_records:
-        differing.append("frame_records.json")
+    for name in JSON_ARTIFACTS:
+        left_records = load_json(first_root / name)
+        right_records = load_json(second_root / name)
+        if left_records != right_records:
+            differing.append(name)
     return {
         "status": "pass" if not differing else "fail",
         "differing_artifacts": differing,
