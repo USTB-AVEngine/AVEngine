@@ -64,3 +64,34 @@ No Habitat/GPU job was started in this slice. After integration, regenerate
 fresh selected12 requests and run the native captures. Each resulting output
 must be checked by the updated review consumer and visually inspected before
 it can support a viewpoint-bank or mini-pilot claim.
+
+## Follow-up: post-render authority and numeric pose validation
+
+The follow-up commit on the same branch tightens the evidence boundary before
+any native selected12 run:
+
+- every frame now takes one snapshot before and one snapshot after the visual
+  render; agent/camera pose, every named sensor pose, and world time must remain
+  unchanged within explicit tolerances;
+- only the post-render snapshot is persisted, and the logical listener is
+  composed from that post-render agent readback;
+- the receipt declares Habitat world XYZ with +Y up, `world_from_local`
+  matrices, and translation in the last column;
+- the logical listener entry explicitly states that it is derived from actual
+  agent readback and is not a native listener-sensor readback;
+- the reviewer requires unit XYZW quaternions and proper rigid 4x4 transforms:
+  homogeneous last row, orthogonal 3x3 rotation, and determinant +1.
+
+Fresh CPU/mock evidence after this follow-up:
+
+- focused capture/review: `36 passed`, log
+  `/data/jzy/tmp/mp3d_dynamic_readback_followup_unit_r2.log`;
+- adjacent current-MP3D: `87 passed`, log
+  `/data/jzy/tmp/mp3d_dynamic_readback_followup_adjacent_r2.log`;
+- Ruff format/check, byte compilation, and diff check pass.
+
+The new tests inject post-render agent and sensor movement, zero and non-unit
+quaternions, a reflection, a non-orthogonal rotation, and a damaged homogeneous
+last row. They also prove that the persisted pose is the post-render snapshot
+and that a non-identity `rig_from_listener` is composed rather than copied.
+No Habitat/GPU job was started by this follow-up.

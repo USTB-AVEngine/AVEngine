@@ -37,6 +37,8 @@ _NEW_POSE_ARTIFACTS = (
     "actual_sensor_poses",
     "actual_logical_listener_poses",
 )
+_POSE_QUATERNION_NORM_ATOL = 2.0e-6
+_RIGID_MATRIX_ATOL = 2.0e-6
 
 
 class CurrentVisualReviewError(ValueError):
@@ -228,6 +230,55 @@ def _optional_frame_array(
     return value
 
 
+def _require_unit_pose_quaternions(value: np.ndarray, *, owner: str) -> np.ndarray:
+    quaternions = np.asarray(value[..., 3:7], dtype=np.float64)
+    norms = np.linalg.norm(quaternions, axis=-1)
+    if not np.all(np.isfinite(norms)) or not np.allclose(
+        norms,
+        1.0,
+        rtol=0.0,
+        atol=_POSE_QUATERNION_NORM_ATOL,
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} must contain finite unit quaternions in XYZW order"
+        )
+    return value
+
+
+def _require_rigid_matrices(value: np.ndarray, *, owner: str) -> np.ndarray:
+    matrices = np.asarray(value, dtype=np.float64)
+    expected_last_row = np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+    if not np.allclose(
+        matrices[..., 3, :],
+        expected_last_row,
+        rtol=0.0,
+        atol=_RIGID_MATRIX_ATOL,
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} must use homogeneous last row [0,0,0,1]"
+        )
+    rotations = matrices[..., :3, :3]
+    gram = np.swapaxes(rotations, -1, -2) @ rotations
+    if not np.allclose(
+        gram,
+        np.eye(3, dtype=np.float64),
+        rtol=0.0,
+        atol=_RIGID_MATRIX_ATOL,
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} 3x3 rotation blocks must be orthogonal"
+        )
+    determinants = np.linalg.det(rotations)
+    if not np.allclose(
+        determinants,
+        1.0,
+        rtol=0.0,
+        atol=_RIGID_MATRIX_ATOL,
+    ):
+        raise CurrentVisualReviewError(f"{owner} 3x3 rotation determinants must be +1")
+    return value
+
+
 def _frame_records(path: Path, *, frame_count: int) -> list[dict[str, Any]]:
     document = _load_json_object(path, owner="frame_records artifact")
     frames = document.get("frames")
@@ -339,6 +390,23 @@ def _pose_readback_evidence(
         raise CurrentVisualReviewError(
             "pose_readback pose_component_order must be translation xyz then quaternion xyzw"
         )
+    if metadata.get("coordinate_convention") != {
+        "frame": "habitat_world",
+        "axis_order": ["X", "Y", "Z"],
+        "up_axis": "+Y",
+    }:
+        raise CurrentVisualReviewError(
+            "pose_readback must declare Habitat world XYZ with +Y up"
+        )
+    if metadata.get("matrix_convention") != {
+        "transform_direction": "world_from_local",
+        "translation_location": "last_column",
+        "homogeneous_last_row": [0.0, 0.0, 0.0, 1.0],
+    }:
+        raise CurrentVisualReviewError(
+            "pose_readback must declare world_from_local matrices with translation "
+            "in the last column"
+        )
 
     actor_axis_order = _string_axis(
         metadata.get("actor_axis_order"), owner="actor axis order", length=2
@@ -447,7 +515,7 @@ def _pose_readback_evidence(
         (
             "actual_logical_listener_poses",
             "actual_logical_listener_poses",
-            True,
+            False,
         ),
     ):
         _require_pose_descriptor(
@@ -455,6 +523,15 @@ def _pose_readback_evidence(
             name=name,
             artifact_key=artifact_key,
             actual_readback=actual,
+        )
+    listener_descriptor = metadata["actual_logical_listener_poses"]
+    if (
+        listener_descriptor.get("derived_from_actual_agent_readback") is not True
+        or listener_descriptor.get("native_listener_sensor_readback") is not False
+    ):
+        raise CurrentVisualReviewError(
+            "logical listener pose must be marked as derived from actual agent "
+            "readback, not native listener sensor readback"
         )
 
     if actor_matrices is None or source_positions is None or visibility is None:
@@ -515,6 +592,24 @@ def _pose_readback_evidence(
     assert actual_agent_poses is not None
     assert actual_sensor_pose_array is not None
     assert actual_listener_poses is not None
+    _require_rigid_matrices(
+        actor_matrices, owner="planned actor world matrices artifact"
+    )
+    _require_rigid_matrices(
+        planned_skin_roots, owner="planned applied skin-root matrices artifact"
+    )
+    _require_rigid_matrices(
+        actual_skin_roots, owner="actual skin-root readback matrices artifact"
+    )
+    _require_unit_pose_quaternions(
+        actual_agent_poses, owner="actual agent/camera poses artifact"
+    )
+    _require_unit_pose_quaternions(
+        actual_sensor_pose_array, owner="actual sensor poses artifact"
+    )
+    _require_unit_pose_quaternions(
+        actual_listener_poses, owner="actual logical listener poses artifact"
+    )
 
     for index, record in enumerate(records):
         if record["pts_ticks"] != index * 3_200:
@@ -529,6 +624,22 @@ def _pose_readback_evidence(
         ):
             raise CurrentVisualReviewError(
                 f"frame {index} snapshot world time is missing or non-finite"
+            )
+        pre_render_world_time = record.get("pre_render_snapshot_world_time_seconds")
+        post_render_world_time = record.get("post_render_snapshot_world_time_seconds")
+        if (
+            isinstance(pre_render_world_time, bool)
+            or not isinstance(pre_render_world_time, (int, float))
+            or not math.isfinite(float(pre_render_world_time))
+            or isinstance(post_render_world_time, bool)
+            or not isinstance(post_render_world_time, (int, float))
+            or not math.isfinite(float(post_render_world_time))
+            or abs(float(post_render_world_time) - float(pre_render_world_time))
+            > 1.0e-12
+            or float(world_time) != float(post_render_world_time)
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} pre/post-render snapshot times are misaligned"
             )
         alignment = record.get("pose_alignment")
         if (

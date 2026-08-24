@@ -108,6 +108,8 @@ def _write_capture_output(
                     "source_positions_m": sources[index].tolist(),
                     "semantic_visibility_pixels": visibility[index].tolist(),
                     "snapshot_world_time_seconds": 0.0,
+                    "pre_render_snapshot_world_time_seconds": 0.0,
+                    "post_render_snapshot_world_time_seconds": 0.0,
                     "pose_alignment": {
                         "array_frame_index": index,
                         "actor_axis_order": ["actor0", "actor1"],
@@ -220,6 +222,16 @@ def _write_capture_output(
                         "quaternion_z",
                         "quaternion_w",
                     ],
+                    "coordinate_convention": {
+                        "frame": "habitat_world",
+                        "axis_order": ["X", "Y", "Z"],
+                        "up_axis": "+Y",
+                    },
+                    "matrix_convention": {
+                        "transform_direction": "world_from_local",
+                        "translation_location": "last_column",
+                        "homogeneous_last_row": [0.0, 0.0, 0.0, 1.0],
+                    },
                     "actor_axis_order": ["actor0", "actor1"],
                     "source_axis_order": ["source0", "source1"],
                     "sensor_order": [
@@ -256,20 +268,22 @@ def _write_capture_output(
                     },
                     "actual_agent_camera_poses": {
                         "artifact_key": "actual_agent_camera_poses",
-                        "pose_kind": "agent_camera_from_state_snapshot",
+                        "pose_kind": ("post_render_agent_camera_from_state_snapshot"),
                         "actual_readback": True,
                     },
                     "actual_sensor_poses": {
                         "artifact_key": "actual_sensor_poses",
-                        "pose_kind": "sensor_states_from_state_snapshot",
+                        "pose_kind": ("post_render_sensor_states_from_state_snapshot"),
                         "actual_readback": True,
                     },
                     "actual_logical_listener_poses": {
                         "artifact_key": "actual_logical_listener_poses",
                         "pose_kind": (
-                            "logical_listener_composed_from_actual_agent_readback"
+                            "logical_listener_composed_from_post_render_agent_readback"
                         ),
-                        "actual_readback": True,
+                        "actual_readback": False,
+                        "derived_from_actual_agent_readback": True,
+                        "native_listener_sensor_readback": False,
                     },
                 },
             }
@@ -385,6 +399,54 @@ def test_rejects_invalid_actual_pose_array(tmp_path: Path, damage: str) -> None:
     np.save(path, value)
 
     with pytest.raises(CurrentVisualReviewError, match="actual agent/camera poses"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+@pytest.mark.parametrize(
+    "quaternion",
+    (
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 2.0],
+    ),
+)
+def test_rejects_zero_or_nonunit_pose_quaternion(
+    tmp_path: Path, quaternion: list[float]
+) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    path = output / "arrays/actual_agent_camera_poses_txyz_qxyzw.npy"
+    value = np.load(path)
+    value[8, 3:7] = quaternion
+    np.save(path, value)
+
+    with pytest.raises(CurrentVisualReviewError, match="finite unit quaternions"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    (
+        ("reflection", "determinants must be \\+1"),
+        ("bad_last_row", "homogeneous last row"),
+        ("nonorthogonal", "rotation blocks must be orthogonal"),
+    ),
+)
+def test_rejects_nonrigid_planned_or_actual_matrix(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    output = _write_capture_output(tmp_path / damage, pose_readback=True)
+    path = output / "arrays/actual_skin_root_readback_matrices.npy"
+    value = np.load(path)
+    if damage == "reflection":
+        value[4, 0, 0, 0] = -1.0
+    elif damage == "bad_last_row":
+        value[4, 0, 3, 0] = 0.25
+    else:
+        value[4, 0, 0, 1] = 0.25
+    np.save(path, value)
+
+    with pytest.raises(CurrentVisualReviewError, match=message):
         generate_current_visual_review(output)
     assert not (output / "review").exists()
 
