@@ -1,5 +1,10 @@
 # Data-diversification integration checkpoint (2026-08-24)
 
+> Historical snapshot. Current integration state and evidence are recorded in
+> `DATA_DIVERSIFICATION_INTEGRATION_647BF20_20260824.md`. The sections below
+> describe the earlier `37317f4` boundary and must not be read as current
+> completion claims.
+
 ## Integration state
 
 The server-only integration worktree is
