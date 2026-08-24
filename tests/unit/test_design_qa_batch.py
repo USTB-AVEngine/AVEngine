@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
@@ -20,6 +21,7 @@ LEGACY_REQUEST = (
 )
 CORRIDOR_BANK = REPOSITORY / "examples/qa_v2/straight_corridor_bank_v1.json"
 REGISTRY = REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"
+PROGRAMS = REPOSITORY / "examples/m7/current_apartment/audio_programs/qa_v2"
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -328,3 +330,168 @@ def test_production_has_no_silent_legacy_fallback(tmp_path: Path) -> None:
     assert len(legacy) == 1
     assert legacy[0].viewpoint_id == "apartment_view0"
     assert legacy[0].authority == "legacy_view0_report_only"
+
+
+def test_motion_case_sequence_covers_both_moving_and_both_static_balanced() -> None:
+    sequence = design_qa_batch.motion_case_sequence(16)
+
+    assert len(sequence) == 16
+    assert sequence[-1] == "s1_moving_s2_static"
+    assert Counter(sequence) == {
+        "s1_moving_s2_static": 7,
+        "s1_static_s2_moving": 5,
+        "both_moving": 2,
+        "both_static": 2,
+    }
+
+
+def test_both_static_specs_are_real_zero_length_tracks(tmp_path: Path) -> None:
+    path, _document = _bank_fixture(tmp_path)
+    viewpoints = load_design_viewpoint_bank(path)
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    assets = {item["asset_id"]: item for item in registry["assets"]}
+
+    specs, _twins = design_qa_batch.build_specs(
+        viewpoints=viewpoints,
+        assets=assets,
+        cell_size=16,
+        twins_per_cell=0,
+    )
+
+    assert {spec["motion_case"] for spec in specs} == {
+        "s1_moving_s2_static",
+        "s1_static_s2_moving",
+        "both_moving",
+        "both_static",
+    }
+    both_static = [spec for spec in specs if spec["motion_case"] == "both_static"]
+    assert both_static
+    assert all(spec["s1_start"] == spec["s1_end"] for spec in both_static)
+    assert all(spec["s2_start"] == spec["s2_end"] for spec in both_static)
+
+
+def test_default_specs_keep_t7_ta_keys_balanced_with_source_identity_twins(
+    tmp_path: Path,
+) -> None:
+    path, _document = _bank_fixture(tmp_path)
+    viewpoints = load_design_viewpoint_bank(path)
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    assets = {item["asset_id"]: item for item in registry["assets"]}
+    specs, _twins = design_qa_batch.build_specs(
+        viewpoints=viewpoints,
+        assets=assets,
+        cell_size=16,
+        twins_per_cell=8,
+    )
+    ta_answers = Counter()
+    t7_answers = Counter()
+    motion_cases_by_type = {"TA": set(), "T7": set()}
+    for spec in specs:
+        program = json.loads(
+            (PROGRAMS / f"{spec['program_id']}.json").read_text(encoding="utf-8")
+        )
+        endpoints = program["candidate_source_endpoint_ids"]
+        endpoint_to_slot = {endpoints[0]: "source1", endpoints[1]: "source2"}
+        events = sorted(program["events"], key=lambda event: event["start_sample"])
+        first_slot = endpoint_to_slot[events[0]["source_endpoint_id"]]
+        second_slot = endpoint_to_slot[events[1]["source_endpoint_id"]]
+        movers = {
+            "s1_moving_s2_static": {"source1"},
+            "s1_static_s2_moving": {"source2"},
+            "both_moving": {"source1", "source2"},
+            "both_static": set(),
+        }[spec["motion_case"]]
+        ta_answers["moving" if first_slot in movers else "staying still"] += 1
+        t7_answers["moving" if second_slot in movers else "staying still"] += 1
+        motion_cases_by_type["TA"].add(spec["motion_case"])
+        motion_cases_by_type["T7"].add(spec["motion_case"])
+
+    assert ta_answers == {"moving": 96, "staying still": 96}
+    assert t7_answers == {"moving": 96, "staying still": 96}
+    assert motion_cases_by_type == {
+        "TA": {
+            "s1_moving_s2_static",
+            "s1_static_s2_moving",
+            "both_moving",
+            "both_static",
+        },
+        "T7": {
+            "s1_moving_s2_static",
+            "s1_static_s2_moving",
+            "both_moving",
+            "both_static",
+        },
+    }
+
+
+def test_point_audio_schedules_vary_both_onsets_and_interval() -> None:
+    base = json.loads(
+        (PROGRAMS / "qa_v2_two_human_blue_green_turn_taking_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    materialized = [
+        design_qa_batch.materialize_point_audio_program(
+            base,
+            point_id=f"b{seed:03d}",
+            schedule_seed=seed,
+        )
+        for seed in range(32)
+    ]
+    schedules = [item[1] for item in materialized]
+
+    assert len({item["first_event_frame"] for item in schedules}) > 1
+    assert len({item["second_event_frame"] for item in schedules}) > 1
+    assert len({item["first_second_onset_interval_samples"] for item in schedules}) > 1
+    for program, schedule in materialized:
+        assert design_qa_batch.validate_audio_program(program) == []
+        assert schedule["event_start_samples"] == [
+            event["start_sample"] for event in program["events"]
+        ]
+        for base_event, event in zip(base["events"], program["events"], strict=True):
+            assert event["end_sample_exclusive"] - event["start_sample"] == (
+                base_event["end_sample_exclusive"] - base_event["start_sample"]
+            )
+            for field in schedule["unchanged_event_fields"]:
+                assert event[field] == base_event[field]
+        assert program["events"][2:] == base["events"][2:]
+
+
+def test_twins_share_exact_schedule_seed_and_event_windows(tmp_path: Path) -> None:
+    path, _document = _bank_fixture(tmp_path)
+    viewpoints = load_design_viewpoint_bank(path)
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    assets = {item["asset_id"]: item for item in registry["assets"]}
+    specs, twins = design_qa_batch.build_specs(
+        viewpoints=viewpoints,
+        assets=assets,
+        cell_size=16,
+        twins_per_cell=8,
+    )
+    by_id = {spec["point_id"]: spec for spec in specs}
+    for twin in twins:
+        source = by_id[twin["twin_of"]]
+        assert twin["schedule_seed"] == source["schedule_seed"]
+        source_program, source_schedule = (
+            design_qa_batch.materialize_point_audio_program(
+                json.loads((PROGRAMS / f"{source['program_id']}.json").read_text()),
+                point_id=source["point_id"],
+                schedule_seed=source["schedule_seed"],
+            )
+        )
+        twin_program, twin_schedule = design_qa_batch.materialize_point_audio_program(
+            json.loads((PROGRAMS / f"{twin['program_id']}.json").read_text()),
+            point_id=twin["point_id"],
+            schedule_seed=twin["schedule_seed"],
+        )
+        assert (
+            twin_schedule["event_start_samples"]
+            == source_schedule["event_start_samples"]
+        )
+        assert (
+            twin_schedule["event_end_samples_exclusive"]
+            == source_schedule["event_end_samples_exclusive"]
+        )
+        assert [event["source_endpoint_id"] for event in twin_program["events"]] != [
+            event["source_endpoint_id"] for event in source_program["events"]
+        ]
