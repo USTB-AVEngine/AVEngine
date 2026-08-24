@@ -29,6 +29,7 @@ from avengine.m5.current_visual_review import (
     _require_completed_receipt,
     _require_rgb,
     _require_semantic,
+    _object_id_readback_evidence,
 )
 from avengine.qa.motion_feasibility import (
     MotionFeasibilityError,
@@ -51,6 +52,13 @@ _PINHOLE_AUTHORITY = (
 )
 _PIXEL_CENTER_CONVENTION = (
     "continuous_zero_based_pixel_centers_x_0_to_width_minus_1_y_0_to_height_minus_1"
+)
+_OBJECT_ID_MODAL_AUTHORITY = (
+    "same_renderer_native_object_id_raster_runtime_object_id_readback"
+)
+_OBJECT_ID_IN_FRAME_INTERPRETATION = (
+    "modal_object_id_pixel_presence_only; zero_does_not_distinguish_off_screen_"
+    "from_fully_occluded_or_no_modal_pixels"
 )
 
 
@@ -239,6 +247,112 @@ def _pinhole_tracks(
                 }
             result[axis].append(record)
     return result
+
+
+def _object_id_tracks(readback: Any) -> list[list[dict[str, Any]]] | None:
+    """Describe only the modal pixels supplied by the native OBJECT_ID raster.
+
+    A positive count means that this runtime object contributed modal pixels to
+    the rendered raster.  A zero count is intentionally not promoted to an
+    amodal, occlusion, or geometric off-screen conclusion.
+    """
+
+    if readback is None:
+        return None
+    result: list[list[dict[str, Any]]] = [[], []]
+    runtime_object_ids = tuple(int(value) for value in readback.runtime_object_ids)
+    for frame_index in range(FRAME_COUNT):
+        frame_records = readback.per_frame_records[frame_index]
+        for axis, runtime_object_id in enumerate(runtime_object_ids):
+            source = frame_records[axis]
+            count = int(source["pixel_count"])
+            bbox = deepcopy(source["bbox_xyxy"])
+            modal_presence = bool(count > 0)
+            result[axis].append(
+                {
+                    "authority": _OBJECT_ID_MODAL_AUTHORITY,
+                    "authority_status": str(readback.authority_status),
+                    "runtime_object_id": runtime_object_id,
+                    "object_id_pixel_count": count,
+                    "object_id_bbox_xyxy": bbox,
+                    "visible_pixels": count,
+                    "actor_modal_pixel_presence": modal_presence,
+                    "actor_modal_visibility": modal_presence,
+                    "actor_modal_visibility_status": (
+                        "native_object_id_positive_modal_pixel_presence"
+                        if modal_presence
+                        else "native_object_id_zero_modal_pixel_presence"
+                    ),
+                    "in_frame": modal_presence,
+                    "in_frame_status": _OBJECT_ID_IN_FRAME_INTERPRETATION,
+                    "occlusion": None,
+                    "occlusion_status": (
+                        "pending_no_same_backend_amodal_or_occlusion_authority"
+                    ),
+                    "off_screen": None,
+                    "off_screen_status": (
+                        "pending_object_id_zero_cannot_distinguish_off_screen_"
+                        "from_full_occlusion"
+                    ),
+                }
+            )
+    return result
+
+
+def _object_id_boundary(
+    readback: Any,
+    tracks: list[list[dict[str, Any]]] | None,
+    *,
+    actor_ids: Sequence[str],
+) -> dict[str, Any]:
+    if readback is None or tracks is None:
+        return {
+            "status": "pending_no_native_object_id_raster",
+            "sensor_uuid": None,
+            "runtime_object_ids": None,
+            "authority_status": None,
+            "modal_pixel_count_by_frame": None,
+            "modal_bbox_by_frame": None,
+            "actor_modal_visibility_by_frame": None,
+            "in_frame_by_frame": None,
+            "occlusion_by_frame": None,
+            "off_screen_by_frame": None,
+            "legality_effect": "none",
+        }
+    return {
+        "status": "native_object_id_raster_modal_descriptors_recorded",
+        "sensor_uuid": str(readback.sensor_uuid),
+        "runtime_object_ids": [int(value) for value in readback.runtime_object_ids],
+        "authority_status": str(readback.authority_status),
+        "modal_pixel_count_by_frame": {
+            str(actor_ids[axis]): [
+                int(frame["object_id_pixel_count"]) for frame in tracks[axis]
+            ]
+            for axis in range(2)
+        },
+        "modal_bbox_by_frame": {
+            str(actor_ids[axis]): [
+                deepcopy(frame["object_id_bbox_xyxy"]) for frame in tracks[axis]
+            ]
+            for axis in range(2)
+        },
+        "actor_modal_visibility_by_frame": {
+            str(actor_ids[axis]): [
+                bool(frame["actor_modal_visibility"]) for frame in tracks[axis]
+            ]
+            for axis in range(2)
+        },
+        "in_frame_by_frame": {
+            str(actor_ids[axis]): [
+                bool(frame["in_frame"]) for frame in tracks[axis]
+            ]
+            for axis in range(2)
+        },
+        "occlusion_by_frame": None,
+        "off_screen_by_frame": None,
+        "in_frame_interpretation": _OBJECT_ID_IN_FRAME_INTERPRETATION,
+        "legality_effect": "none",
+    }
 
 
 def _semantic_id_tracks(
@@ -552,6 +666,8 @@ def _legacy_raw_clues(
                     "off_screen": None,
                     "status": "legacy_semantic_id_count_only_raster_not_joined",
                 },
+                "runtime_object_id": None,
+                "native_object_id_raster": None,
             }
         frames.append(
             {
@@ -616,6 +732,9 @@ def _legacy_raw_clues(
             "occlusion": None,
             "off_screen": None,
         },
+        "object_id_raster_boundary": _object_id_boundary(
+            None, None, actor_ids=actor_ids
+        ),
         "candidate_filtering": "none",
         "candidate_retained": True,
     }
@@ -677,6 +796,18 @@ def _current_raw_clues(
         raise MP3DRawClueError(
             "dynamic receipt identity axes differ from actor/source lists"
         )
+    object_id_readback = _object_id_readback_evidence(
+        root,
+        receipt,
+        artifacts,
+        rgb=rgb,
+        records=records,
+        pose_readback=pose_evidence,
+    )
+    object_id_tracks = _object_id_tracks(object_id_readback)
+    object_id_boundary = _object_id_boundary(
+        object_id_readback, object_id_tracks, actor_ids=actor_ids
+    )
     inputs = _mapping(receipt.get("inputs"), owner="dynamic receipt inputs")
     capture_identity = _capture_identity(receipt, request)
     planned_motion = _planned_motion(receipt_path, inputs, records)
@@ -782,26 +913,78 @@ def _current_raw_clues(
     for frame_index, frame in enumerate(emitter_track["frames"]):
         for axis, key in enumerate(("source1", "source2")):
             frame[key]["projection"] = deepcopy(projections[axis][frame_index])
-            frame[key]["visible_pixels"] = None
+            object_record = (
+                None
+                if object_id_tracks is None
+                else object_id_tracks[axis][frame_index]
+            )
+            frame[key]["visible_pixels"] = (
+                None
+                if object_record is None
+                else int(object_record["object_id_pixel_count"])
+            )
             frame[key]["semantic_id_pixel_count"] = int(
                 visible_pixels[frame_index, axis]
             )
-            frame[key]["in_frame"] = None
+            frame[key]["object_id_pixel_count"] = (
+                None
+                if object_record is None
+                else int(object_record["object_id_pixel_count"])
+            )
+            frame[key]["object_id_bbox_xyxy"] = (
+                None
+                if object_record is None
+                else deepcopy(object_record["object_id_bbox_xyxy"])
+            )
+            frame[key]["actor_modal_visibility"] = (
+                None
+                if object_record is None
+                else bool(object_record["actor_modal_visibility"])
+            )
+            frame[key]["in_frame"] = (
+                None if object_record is None else bool(object_record["in_frame"])
+            )
             frame[key]["occlusion"] = None
             frame[key]["off_screen"] = None
     emitter_track["native_projection_visibility"] = {
-        "status": "analytic_center_and_native_semantic_id_raster_described",
+        "status": (
+            "analytic_center_and_native_object_id_modal_raster_described_"
+            "semantic_id_diagnostic_only"
+            if object_id_tracks is not None
+            else "analytic_center_and_native_semantic_id_raster_described"
+        ),
         "projection_authority": _PINHOLE_AUTHORITY,
         "semantic_id_raster_authority": "same_renderer_native_semantic_id_raster",
         "semantic_id_coverage_completeness_status": (
             "semantic_id_coverage_completeness_not_certified"
         ),
-        "actor_modal_visibility_by_frame": None,
-        "in_frame_by_frame": None,
+        "actor_modal_visibility_by_frame": (
+            None
+            if object_id_tracks is None
+            else {
+                str(source_ids[axis]): [
+                    bool(frame["actor_modal_visibility"])
+                    for frame in object_id_tracks[axis]
+                ]
+                for axis in range(2)
+            }
+        ),
+        "in_frame_by_frame": (
+            None
+            if object_id_tracks is None
+            else {
+                str(source_ids[axis]): [
+                    bool(frame["in_frame"]) for frame in object_id_tracks[axis]
+                ]
+                for axis in range(2)
+            }
+        ),
         "occlusion_by_frame": None,
         "off_screen_by_frame": None,
+        "object_id_raster_boundary": deepcopy(object_id_boundary),
         "ambiguity": (
-            "semantic ID presence or absence is not complete actor modal visibility"
+            "semantic ID presence or absence is not actor visibility authority; "
+            "OBJECT_ID records modal pixel presence only"
         ),
     }
 
@@ -829,6 +1012,11 @@ def _current_raw_clues(
             source_records[source_id] = {
                 "actor_id": actor_ids[axis],
                 "semantic_id": int(semantic_ids[axis]),
+                "runtime_object_id": (
+                    None
+                    if object_id_readback is None
+                    else int(object_id_readback.runtime_object_ids[axis])
+                ),
                 "axis_binding": deepcopy(axis_bindings[axis]),
                 "planned_actor_world_matrix": actor_matrices[
                     frame_index, axis
@@ -870,6 +1058,11 @@ def _current_raw_clues(
                 "native_semantic_id_raster": deepcopy(
                     semantic_id_tracks[axis][frame_index]
                 ),
+                "native_object_id_raster": (
+                    None
+                    if object_id_tracks is None
+                    else deepcopy(object_id_tracks[axis][frame_index])
+                ),
             }
         frame_output.append(
             {
@@ -908,6 +1101,11 @@ def _current_raw_clues(
             "source_axis_order": list(source_ids),
             "sensor_axis_order": list(pose_evidence.sensor_axis_order),
             "axis_bindings": axis_bindings,
+            "runtime_object_id_axis_order": (
+                None
+                if object_id_readback is None
+                else [int(value) for value in object_id_readback.runtime_object_ids]
+            ),
         },
         "calibration": {
             "projection": "pinhole",
@@ -957,6 +1155,7 @@ def _current_raw_clues(
             "occlusion": None,
             "off_screen": None,
         },
+        "object_id_raster_boundary": object_id_boundary,
         "legality": {
             "status": "not_redecided_by_raw_clue_bridge",
             "candidate_retained": True,
@@ -1064,6 +1263,15 @@ def load_dynamic_capture_raw_clues(
 
     has_metadata = receipt.get("pose_readback") is not None
     present_new_artifacts = _NEW_POSE_ARTIFACTS.intersection(artifacts)
+    object_id_declared = (
+        "object_id_visibility" in receipt or "object_id" in artifacts
+    )
+    if object_id_declared and (
+        not has_metadata or present_new_artifacts != _NEW_POSE_ARTIFACTS
+    ):
+        raise MP3DRawClueError(
+            "object-ID evidence is partial; current pose/readback authority is required"
+        )
     if has_metadata or present_new_artifacts:
         if not has_metadata or present_new_artifacts != _NEW_POSE_ARTIFACTS:
             raise MP3DRawClueError(

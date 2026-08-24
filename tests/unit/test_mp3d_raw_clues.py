@@ -22,8 +22,14 @@ def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
-def _current_inputs(tmp_path: Path, *, name: str) -> tuple[Path, dict, Path]:
-    root = _write_capture_output(tmp_path / name, pose_readback=True)
+def _current_inputs(
+    tmp_path: Path, *, name: str, object_id_readback: bool = False
+) -> tuple[Path, dict, Path]:
+    root = _write_capture_output(
+        tmp_path / name,
+        pose_readback=True,
+        object_id_readback=object_id_readback,
+    )
     receipt_path = root / "research_receipt.json"
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     identity = receipt["m1_capture_identity"]
@@ -252,6 +258,75 @@ def test_actual_yaw_changes_listener_doa_and_pinhole_projection(tmp_path: Path) 
     assert raster["semantic_id_pixel_presence_interpretation"].startswith(
         "positive_count_proves_only"
     )
+
+
+def test_object_id_modal_raw_clues_are_joined_without_semantic_authority(
+    tmp_path: Path,
+) -> None:
+    root, request, request_path = _current_inputs(
+        tmp_path, name="object-id", object_id_readback=True
+    )
+
+    raw = _load(root, request, request_path).raw_clues
+    frame0_source0 = raw["frames"][0]["sources"]["source0"]
+    frame74_source1 = raw["frames"][74]["sources"]["source1"]
+    modal0 = frame0_source0["native_object_id_raster"]
+    modal74 = frame74_source1["native_object_id_raster"]
+
+    assert raw["identity_axes"]["runtime_object_id_axis_order"] == [500, 501]
+    assert raw["object_id_raster_boundary"]["status"] == (
+        "native_object_id_raster_modal_descriptors_recorded"
+    )
+    assert raw["object_id_raster_boundary"]["occlusion_by_frame"] is None
+    assert raw["object_id_raster_boundary"]["off_screen_by_frame"] is None
+    assert modal0["runtime_object_id"] == 500
+    assert modal0["object_id_pixel_count"] == 2
+    assert modal0["object_id_bbox_xyxy"] == {
+        "x_min": 0,
+        "y_min": 0,
+        "x_max": 1,
+        "y_max": 0,
+        "width_pixels": 2,
+        "height_pixels": 1,
+    }
+    assert modal0["actor_modal_visibility"] is True
+    assert modal0["in_frame"] is True
+    assert modal0["occlusion"] is None
+    assert modal0["off_screen"] is None
+    assert raw["pair_tracks"]["actual_emitter_relative_to_actual_listener"][
+        "frames"
+    ][0]["source1"]["visible_pixels"] == 2
+    assert raw["pair_tracks"]["actual_emitter_relative_to_actual_listener"][
+        "frames"
+    ][0]["source1"]["in_frame"] is True
+    assert modal74["object_id_pixel_count"] == 0
+    assert modal74["object_id_bbox_xyxy"] is None
+    assert modal74["actor_modal_visibility"] is False
+    assert modal74["in_frame"] is False
+    assert modal74["occlusion"] is None
+    assert modal74["off_screen"] is None
+    assert frame74_source1["native_semantic_id_raster"]["actor_modal_visibility"] is None
+
+
+@pytest.mark.parametrize("damage", ("runtime_id", "frame_count"))
+def test_object_id_mapping_and_75_frames_fail_fast(
+    tmp_path: Path, damage: str
+) -> None:
+    root, request, request_path = _current_inputs(
+        tmp_path, name=f"object-id-{damage}", object_id_readback=True
+    )
+    receipt_path = root / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if damage == "runtime_id":
+        receipt["actors"]["runtime_object_ids"] = [500, 500]
+    else:
+        receipt["object_id_visibility"]["frame_count"] = 74
+    _write_json(receipt_path, receipt)
+
+    with pytest.raises(
+        MP3DRawClueError, match="object-ID|runtime object IDs|frame_count"
+    ):
+        _load(root, request, request_path)
 
 
 def test_pinhole_continuous_pixel_center_edge_and_sign_convention() -> None:
