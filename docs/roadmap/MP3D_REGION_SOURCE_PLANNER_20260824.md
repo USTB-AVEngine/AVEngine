@@ -22,6 +22,12 @@ Owned files:
 - tools/m5/build_mp3d_region_source_route_banks.py
 - tests/unit/test_mp3d_region_source_planner.py
 
+The parent review follow-up is commit `46afac7`. It makes every
+`route_family_id` globally unique by carrying the region identity and removes
+cross-family route reuse. Per region, the exchange family uses one PathFinder
+geometry in opposite directions, while the three non-exchange families use six
+additional canonical geometries with no overlap.
+
 The planner validates all 40 existing camera bindings against the sidecar,
 then independently enumerates native PathFinder points inside each .house
 region. Four geometrically distinct route families are generated per region
@@ -47,11 +53,13 @@ nonzero initial and final pair distances plus zero swapped-endpoint error.
 Native articulated collision, visibility, occlusion, audio/RIR and formal
 Episode status remain pending.
 
-## Focused CPU tests
+## CPU tests
 
-The owned focused suite passes:
+The initial focused/descriptor suite passed 19 tests. After the parent-review
+identity and route-independence correction, the owned plus adjacent suite
+passed:
 
-    19 passed
+    28 passed
 
 It covers ten-region/40-binding/160-case counts, 75-frame materialization,
 camera-pose independence, exchange and sub-60 cm descriptor retention,
@@ -60,9 +68,9 @@ fields.
 
 ## Fresh real CPU mini-pilot
 
-The final fresh/no-clobber output is:
+The final parent-reviewed fresh/no-clobber output is:
 
-/data/jzy/tmp/mp3d_region_source_route_bank_2b0d4f9_r3
+/data/jzy/tmp/mp3d_region_source_route_bank_2b0d4f9_r4
 
 The command used the explicit runtime prefix, Magnum site, RLR adapter
 dependency root, MP3D .navmesh, and .house; it did not start a Simulator,
@@ -72,7 +80,9 @@ Independent artifact checks report:
 
 - 10 regions;
 - 40 camera bindings;
-- 40 distinct route families;
+- 40 globally unique route-family IDs;
+- 7 canonical PathFinder route geometries per region, with no cross-family
+  reuse except the deliberate exchange reversal;
 - 160 motion cases;
 - 75 frames per case;
 - 10 real both_moving endpoint-exchange cases;
@@ -80,15 +90,26 @@ Independent artifact checks report:
 - camera_route_generation_decoupled=true;
 - native capture/audio/RIR/visibility/collision all pending.
 
-A representative family retains 15 frames below the 0.60 m proximity
-descriptor in each moving case; those cases are still present. The artifact
-does not use this descriptor for retention.
+The independent parent verifier is:
+
+/data/jzy/tmp/mp3d_region_source_route_bank_2b0d4f9_r4_verification.log
+
+It independently reloaded the declared navmesh into Habitat PathFinder,
+checked 5,185 unique materialized frame points for navigability and region
+membership, verified all 40 IDs and per-region canonical route sets, and found
+152 retained cases with at least one frame below the 0.60 m proximity
+descriptor. The artifact does not use this descriptor for retention.
 
 Earlier fresh attempts failed closed before publication:
 
 - region 000 exposed that a two-waypoint PathFinder path must be labelled
   straight, not forced into the shared polyline descriptor;
 - region 002 exposed the same issue for the reversed exchange path.
+
+The passing r3 then exposed two parent-review issues: route-family IDs repeated
+across regions, and adjacent non-exchange families reused an individual route.
+Those are corrected in `46afac7`; r3 remains history and is not the final
+artifact.
 
 No output was weakened or reused; the final run was published to a new sibling
 directory.
