@@ -2,7 +2,19 @@ from __future__ import annotations
 
 import numpy as np
 
-from avengine.m5.visual import _topdown_panels
+from avengine.m5.visual import _semantic_id_pixel_counts, _topdown_panels
+
+
+def test_semantic_id_pixel_counts_retain_zero_without_legality_gate() -> None:
+    semantic = np.asarray(
+        [
+            [210, 4, 4],
+            [7, 7, 7],
+        ],
+        dtype=np.int32,
+    )
+
+    assert _semantic_id_pixel_counts(semantic, (210, 211)) == [1, 0]
 
 
 def test_topdown_panel_tracks_both_actors_and_sources() -> None:
