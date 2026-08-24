@@ -303,6 +303,7 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
     )
     assert (output / "viewpoint_topdown.png").is_file()
     assert len(list((output / "corridors").glob("*.json"))) == 4
+    selected_route_ids = set()
     for subset_path in (output / "corridors").glob("*.json"):
         subset = json.loads(subset_path.read_text())
         assert subset["minimum_pair_separation_m"] == 0.60
@@ -319,6 +320,13 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
             "source1_static_source2_moving",
             "both_moving",
         }
+        route_ids = {
+            item["route_selection"]["corridor_id"]
+            for item in subset["four_point_motion_cases"]
+        }
+        assert len(route_ids) == 1
+        selected_route_ids |= route_ids
+    assert len(selected_route_ids) == 4
     with pytest.raises(FileExistsError, match="refusing to replace"):
         TOOL.run(args)
 

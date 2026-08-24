@@ -1087,13 +1087,14 @@ def _motion_case_records(
     listener_position_xy_m: Sequence[float],
     listener_yaw_degrees: float,
     proximity_reference_m: float,
+    route_pair_ordinal: int,
 ) -> list[dict[str, Any]]:
-    directed = [
-        direction
-        for corridor_id in sorted(direction_by_corridor)
-        for direction in direction_by_corridor[corridor_id]
-    ]
-    if len(directed) < 2:
+    corridor_ids = sorted(direction_by_corridor)
+    if not corridor_ids:
+        raise KujialeViewpointError("at least one corridor is required")
+    selected_corridor_id = corridor_ids[route_pair_ordinal % len(corridor_ids)]
+    directed = list(direction_by_corridor[selected_corridor_id])
+    if len(directed) != 2:
         raise KujialeViewpointError("at least two directed routes are required")
     source1_moving = directed[0]["_materialized"]
     # Same-corridor reverse is deliberately preferred: endpoint exchange and
@@ -1151,6 +1152,11 @@ def _motion_case_records(
         result.append(
             {
                 "motion_case": motion_case,
+                "route_selection": {
+                    "corridor_id": selected_corridor_id,
+                    "selection_ordinal": route_pair_ordinal,
+                    "selection_role": "deterministic_geometric_variety_not_legality_gate",
+                },
                 "source_actor_identity": {
                     "source1": {"source_id": "m6z_human0_mouth", "actor_id": "human0"},
                     "source2": {"source_id": "m6z_dog0_muzzle", "actor_id": "dog0"},
@@ -1402,6 +1408,7 @@ def build_viewpoint_plan(
             listener_position_xy_m=position_xy,
             listener_yaw_degrees=yaw_ue,
             proximity_reference_m=pair_separation,
+            route_pair_ordinal=index - 1,
         )
         viewpoint_records.append(
             {
