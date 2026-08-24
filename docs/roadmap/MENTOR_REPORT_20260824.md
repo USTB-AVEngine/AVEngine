@@ -161,6 +161,22 @@
 
 ---
 
+### 5.4 模型底座：Spatial-Omni 是什么，我们改了什么
+
+**Spatial-Omni 本身**是一个"给已有全模态 LLM 补上空间听觉"的轻量方法（*Spatial Audio Understanding Integration in Multimodal LLMs via FOA Encoding*）。它的出发点与我们遇到的问题完全一致：现有 Omni 模型都把音频当单声道处理，方位线索在输入端就被丢掉了。做法是**不动宿主模型原本的音频编码器**，另挂一个 SO-Encoder（BEATs 基座、空间预训练），把一阶 Ambisonics（FOA，四通道 W/Y/Z/X）压成 **2.5 Hz 的低速率空间 token**，通过 `<|spatial|>` 占位符作为**独立模态**注入 LLM，因此额外上下文开销很小。配套资产为 SO-Dataset / SO-Bench（40 万 FOA 片段、210 万 QA、16 个空间子任务），训练分三阶段：先只训投影器 → 再加 LLM LoRA（编码器仍冻结）→ 最后解冻 SO-Encoder。我们用的 SO-7B = Qwen2.5-Omni-7B + SO-Encoder。**关键限制：原版是纯音频的，没有视频通路**，而我们的题目必须看+听同时用。
+
+**我们的改动**集中在三处：
+
+| # | 改动 | 内容 | 为什么必要 |
+|---|---|---|---|
+| ① | **视频通路** | 记录级 `video_path`；ffmpeg 管道解帧（环境无 PyAV/cv2/decord，零新依赖）；前缀扩成 `<|video|><|AUDIO|><|spatial|>`；接处理器 videos/fps/max_pixels；修 `video_second_per_grid` 张量；bs=1 守卫；replay+video 显式报错 | 从"纯空间音频 QA"变成视频+空间音频+文本的全模态 QA |
+| ② | **时间对齐位置编码开关**<br>`so_time_aligned_media` | 改 `modeling_so_thinker.py`（49 行）：三模态共享 40ms 绝对时间轴，同时刻 token 拿相同时间 id；**默认关闭时与原实现逐位等价**（4 个单测锁住） | 我们自己的方法点候选，也是本轮消融的唯一变量 |
+| ③ | **评测装置补 AV** | bench 脚本镜像训练侧视频通路；`with_video`/时间对齐**自动从 checkpoint 的 train_args.json 继承** | 否则评测会悄悄少喂一个模态，分数失去意义 |
+
+**一个必须说清的数据侧折中**：我们的音频是双耳的、不是原生 FOA，所以现在用 mid/side 折出伪 FOA（`W=(L+R)/2, Y=(L−R)/2, Z=X=0`）喂 SO-Encoder，同时把 W 通道当单声道喂 Qwen 自带音频塔——这正是"缺前后与俯仰线索"的根源（见 §5.5 观察 ②）。训练上**直接从他们发布的 stage-3 产物续训**（`beats_lora` 模式），跳过前两阶段：空间通路本身已预训练好，我们要教的是"把空间线索与视觉身份绑起来"这件新事。
+
+改动已镜像为 AVEngine 仓库分支 `spatial-omni-avengine-av`（原仓库非本项目所有，无推送权限）。
+
 ### 5.5 模型结构与 token 流（实测于一条真实训练样本）
 
 配图版另开一页（结构图 / token 流图 / 位置编码对照图）：**[模型结构与 Token 流](https://claude.ai/code/artifact/28b9d118-5a39-487a-ad63-35697414af06)**
