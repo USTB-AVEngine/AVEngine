@@ -73,6 +73,15 @@ def _sequence_hash(value: np.ndarray, *, role: str) -> str:
     return digest.hexdigest()
 
 
+def _semantic_id_pixel_counts(
+    semantic: np.ndarray, semantic_ids: Sequence[int]
+) -> list[int]:
+    """Retain semantic-raster observations without treating visibility as legality."""
+    return [
+        int(np.count_nonzero(semantic == semantic_id)) for semantic_id in semantic_ids
+    ]
+
+
 def _set_scene_node_semantic_readback(
     articulated_object: Any, semantic_id: int
 ) -> None:
@@ -701,14 +710,7 @@ def capture_two_actor_fixed_states(
 
             observation = simulator.render_sensors(sensors)
             arrays = _validate_observation_arrays(observation, modality_to_uuid)
-            visibility = [
-                int(np.count_nonzero(arrays["semantic"] == semantic_id))
-                for semantic_id in semantic_ids
-            ]
-            if any(count == 0 for count in visibility):
-                raise HabitatCaptureError(
-                    f"M5 frame {frame.frame_index} lost one actor semantic ID: {visibility}"
-                )
+            visibility = _semantic_id_pixel_counts(arrays["semantic"], semantic_ids)
             frame_sources = np.stack(
                 [
                     _node_world_position(actor, muzzle_link_ids[index])
