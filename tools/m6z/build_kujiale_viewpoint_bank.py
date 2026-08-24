@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a fresh CPU-only Kujiale viewpoint and straight-corridor prefilter."""
+"""Build a fresh CPU-only Kujiale viewpoint and source-route request bank."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from avengine.optional_backends.kujiale_viewpoints import (  # noqa: E402
     CPU_PREFILTER_AUTHORITY,
     CPU_PREFILTER_BOUNDARY,
     build_viewpoint_plan,
+    generate_polyline_corridors,
     generate_straight_corridors,
 )
 from avengine.optional_backends.kujiale_scene_binding import (  # noqa: E402
@@ -85,8 +86,12 @@ def _render_topdown(
         return left + x_fraction * draw_w, top + z_fraction * draw_h
 
     for corridor in corridors[:128]:
+        waypoints = corridor.get(
+            "waypoints_xy_m",
+            [corridor["start_xy_m"], corridor["end_xy_m"]],
+        )
         draw.line(
-            (*point(corridor["start_xy_m"]), *point(corridor["end_xy_m"])),
+            [point(value) for value in waypoints],
             fill=(55, 106, 165, 50),
             width=1,
         )
@@ -245,12 +250,23 @@ def run(args: argparse.Namespace) -> Path:
             )
             for slot in ("source1", "source2")
         }
-        corridors = generate_straight_corridors(
-            region_by_source=regions,
-            motion_profiles=motion_profiles,
-            species=args.species,
-            maximum_corridors=args.maximum_corridors,
-        )
+        if args.route_geometry == "straight":
+            corridors = generate_straight_corridors(
+                region_by_source=regions,
+                motion_profiles=motion_profiles,
+                species=args.species,
+                maximum_corridors=args.maximum_corridors,
+            )
+        else:
+            corridors = generate_polyline_corridors(
+                region_by_source=regions,
+                motion_profiles=motion_profiles,
+                species=args.species,
+                maximum_corridors=args.maximum_corridors,
+                waypoint_spacing_m=args.waypoint_spacing_m,
+                maximum_segments=args.maximum_route_segments,
+                maximum_segment_length_m=args.maximum_segment_length_m,
+            )
         plan = build_viewpoint_plan(
             room_id=str(metadata.get("room_id")),
             room_type=str(metadata.get("room_type")),
@@ -283,11 +299,15 @@ def run(args: argparse.Namespace) -> Path:
             "authority": CPU_PREFILTER_AUTHORITY,
             "claim_boundary": CPU_PREFILTER_BOUNDARY,
             "room_id": metadata.get("room_id"),
+            "room_type_annotation": metadata.get("room_type"),
+            "room_type_role": "post_generation_annotation_only",
+            "route_geometry": args.route_geometry,
             "corridor_count": len(corridors),
             "corridors": corridors,
         }
         write_json(output / "viewpoint_bank.json", bank)
-        write_json(output / "straight_corridors.json", corridors_document)
+        route_filename = f"{args.route_geometry}_corridors.json"
+        write_json(output / route_filename, corridors_document)
         corridor_root = output / "corridors"
         corridor_root.mkdir()
         for viewpoint_id, subset in plan["corridor_subsets"].items():
@@ -309,6 +329,8 @@ def run(args: argparse.Namespace) -> Path:
                 "authority": CPU_PREFILTER_AUTHORITY,
                 "claim_boundary": CPU_PREFILTER_BOUNDARY,
                 "room_id": metadata.get("room_id"),
+                "route_geometry": args.route_geometry,
+                "route_fallback_used": False,
                 "scene_binding": scene_binding,
                 "viewpoint_count": bank["viewpoint_count"],
                 "corridor_count": len(corridors),
@@ -317,7 +339,7 @@ def run(args: argparse.Namespace) -> Path:
                 "mini_pilot_status": "pending",
                 "outputs": {
                     "viewpoint_bank": "viewpoint_bank.json",
-                    "straight_corridors": "straight_corridors.json",
+                    "source_corridors": route_filename,
                     "corridor_subsets": "corridors/",
                     "topdown": topdown.name,
                 },
@@ -348,6 +370,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=REPOSITORY / "examples/qa_v2/motion_profiles_v1.json",
     )
     parser.add_argument("--species", nargs="+", default=["human", "dog"])
+    parser.add_argument(
+        "--route-geometry",
+        choices=("straight", "polyline"),
+        required=True,
+        help="explicit source-route geometry; failures never fall back",
+    )
     parser.add_argument("--view-count", type=int, default=4)
     parser.add_argument("--hfov-degrees", type=float, default=105.0)
     parser.add_argument(
@@ -361,9 +389,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sample-spacing-m", type=float, default=0.25)
     parser.add_argument("--camera-spacing-m", type=float, default=0.50)
     parser.add_argument("--coverage-spacing-m", type=float, default=0.25)
-    parser.add_argument("--yaw-step-degrees", type=float, default=15.0)
+    parser.add_argument("--yaw-step-degrees", type=float, default=30.0)
     parser.add_argument("--side-margin", type=float, default=0.06)
     parser.add_argument("--maximum-corridors", type=int, default=256)
+    parser.add_argument("--waypoint-spacing-m", type=float, default=0.25)
+    parser.add_argument("--maximum-route-segments", type=int, default=4)
+    parser.add_argument("--maximum-segment-length-m", type=float, default=1.80)
     parser.add_argument("--maximum-camera-positions", type=int, default=64)
     parser.add_argument("--maximum-coverage-samples", type=int, default=256)
     parser.add_argument("--screening-corridor-count", type=int, default=64)

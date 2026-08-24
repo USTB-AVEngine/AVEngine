@@ -19,6 +19,11 @@ import numpy as np
 
 from avengine.m6x.geometry import RuntimeObstacleMap
 from avengine.m6x.room_feasibility import FeasibleRegionIndex
+from avengine.m6x.route_descriptors import (
+    MaterializedRoute,
+    describe_route_pair,
+    materialize_route,
+)
 
 
 CPU_PREFILTER_AUTHORITY = (
@@ -387,8 +392,19 @@ def generate_straight_corridors(
             f"band [{minimum_distance:.3f}, {maximum_distance:.3f}] m"
         )
     floor = float(obstacle_map.floor_height_m)
+    profiles = motion_profiles["profiles"]
+    clip_seconds = float(motion_profiles["clip_seconds"])
     for index, corridor in enumerate(selected, start=1):
         corridor["corridor_id"] = f"corridor_{index:04d}"
+        corridor["route_geometry"] = "straight"
+        corridor["waypoints_xy_m"] = [
+            list(corridor["start_xy_m"]),
+            list(corridor["end_xy_m"]),
+        ]
+        corridor["waypoints_dataset_xyz_m"] = [
+            [corridor["start_xy_m"][0], corridor["start_xy_m"][1], floor],
+            [corridor["end_xy_m"][0], corridor["end_xy_m"][1], floor],
+        ]
         corridor["start_world_m"] = [
             corridor["start_xy_m"][0],
             floor,
@@ -400,9 +416,319 @@ def generate_straight_corridors(
             corridor["end_xy_m"][1],
         ]
         corridor["natural_distance_band_m"] = [minimum_distance, maximum_distance]
+        corridor["nominal_clip_speed_mps"] = (
+            float(corridor["length_m"]) / clip_seconds
+        )
         corridor["species_profiles"] = list(species)
+        corridor["motion_profile_by_species"] = {
+            species_id: {
+                "walk_speed_mps_min": float(
+                    profiles[species_id]["walk_speed_mps_min"]
+                ),
+                "walk_speed_mps_max": float(
+                    profiles[species_id]["walk_speed_mps_max"]
+                ),
+                "clip_seconds": clip_seconds,
+            }
+            for species_id in species
+        }
         corridor["authority"] = CPU_PREFILTER_AUTHORITY
         corridor["claim_boundary"] = CPU_PREFILTER_BOUNDARY
+    return selected
+
+
+def _turn_is_simple(
+    previous: Sequence[float], current: Sequence[float], following: Sequence[float]
+) -> bool:
+    incoming = np.asarray(current, dtype=np.float64) - np.asarray(
+        previous, dtype=np.float64
+    )
+    outgoing = np.asarray(following, dtype=np.float64) - np.asarray(
+        current, dtype=np.float64
+    )
+    denominator = float(np.linalg.norm(incoming) * np.linalg.norm(outgoing))
+    if denominator <= 1.0e-12:
+        return False
+    angle = math.degrees(
+        math.acos(
+            min(1.0, max(-1.0, float(np.dot(incoming, outgoing)) / denominator))
+        )
+    )
+    return 20.0 <= angle <= 160.0
+
+
+def _proper_segment_intersection(
+    a0: Sequence[float],
+    a1: Sequence[float],
+    b0: Sequence[float],
+    b1: Sequence[float],
+) -> bool:
+    def orientation(
+        origin: Sequence[float], left: Sequence[float], right: Sequence[float]
+    ) -> float:
+        return (float(left[0]) - float(origin[0])) * (
+            float(right[1]) - float(origin[1])
+        ) - (float(left[1]) - float(origin[1])) * (
+            float(right[0]) - float(origin[0])
+        )
+
+    first = orientation(a0, a1, b0)
+    second = orientation(a0, a1, b1)
+    third = orientation(b0, b1, a0)
+    fourth = orientation(b0, b1, a1)
+    return (
+        first * second < -1.0e-12 and third * fourth < -1.0e-12
+    )
+
+
+def _route_key(points: Sequence[Sequence[float]]) -> tuple[tuple[float, float], ...]:
+    forward = tuple(
+        (round(float(point[0]), 6), round(float(point[1]), 6))
+        for point in points
+    )
+    reverse = tuple(reversed(forward))
+    return min(forward, reverse)
+
+
+def generate_polyline_corridors(
+    *,
+    region_by_source: Mapping[str, FeasibleRegionIndex],
+    motion_profiles: Mapping[str, Any],
+    species: Sequence[str] = ("human", "dog"),
+    maximum_corridors: int = 256,
+    waypoint_spacing_m: Real = 0.25,
+    maximum_segments: int = 4,
+    maximum_segment_length_m: Real = 1.80,
+) -> list[dict[str, Any]]:
+    """Search simple multi-segment paths on the actors' common feasible raster.
+
+    Room names, room types, camera positions and image semantics never enter
+    the search.  Each retained edge is checked by conservative raster
+    supercover, and every route is valid in both actor-specific feasible masks.
+    """
+
+    maximum = _count(maximum_corridors, owner="maximum_corridors")
+    segment_limit = _count(
+        maximum_segments, owner="maximum_segments", minimum=2
+    )
+    if segment_limit > 6:
+        raise KujialeViewpointError("maximum_segments must not exceed 6")
+    waypoint_spacing = _positive(waypoint_spacing_m, owner="waypoint_spacing_m")
+    maximum_segment_length = _positive(
+        maximum_segment_length_m, owner="maximum_segment_length_m"
+    )
+    obstacle_map, common = _common_region(region_by_source)
+    minimum_distance, maximum_distance = natural_distance_band(
+        motion_profiles, species
+    )
+    pixel_x, pixel_z = _pixel_sizes(obstacle_map, common.shape)
+    pixels = [
+        (int(row), int(col))
+        for row, col in _sample_pixels(
+            common, waypoint_spacing, min(pixel_x, pixel_z)
+        )
+    ]
+    points = [_pixel_to_xy(obstacle_map, common.shape, pixel) for pixel in pixels]
+    if len(points) < 3:
+        raise KujialeViewpointError(
+            "room has fewer than three sampled feasible polyline waypoints"
+        )
+    neighbors: dict[int, list[tuple[int, float]]] = {index: [] for index in range(len(points))}
+    for left_index, left in enumerate(points):
+        for right_index in range(left_index + 1, len(points)):
+            right = points[right_index]
+            distance = math.dist(left, right)
+            if (
+                distance + 1.0e-12 < waypoint_spacing * 0.90
+                or distance > maximum_segment_length + 1.0e-12
+                or not _segment_clear(obstacle_map, common, left, right)
+            ):
+                continue
+            neighbors[left_index].append((right_index, distance))
+            neighbors[right_index].append((left_index, distance))
+    for source_index, values in neighbors.items():
+        source = points[source_index]
+        values.sort(
+            key=lambda value: (
+                round(
+                    math.degrees(
+                        math.atan2(
+                            points[value[0]][1] - source[1],
+                            points[value[0]][0] - source[0],
+                        )
+                    )
+                    % 360.0,
+                    6,
+                ),
+                -round(value[1], 9),
+                value[0],
+            )
+        )
+        # A dense free raster can connect one node to hundreds of others.
+        # Keep the two longest clear edges per 30-degree direction bucket: the
+        # resulting graph remains target-agnostic while bounding DFS branching.
+        direction_counts = {index: 0 for index in range(12)}
+        bounded = []
+        for value in values:
+            target = points[value[0]]
+            angle = math.degrees(
+                math.atan2(target[1] - source[1], target[0] - source[0])
+            ) % 360.0
+            direction_index = min(11, int(angle // 30.0))
+            if direction_counts[direction_index] >= 2:
+                continue
+            direction_counts[direction_index] += 1
+            bounded.append(value)
+        neighbors[source_index] = bounded
+
+    candidate_limit = max(maximum * 24, 256)
+    candidate_records: dict[tuple[tuple[float, float], ...], dict[str, Any]] = {}
+    per_origin_limit = max(8, int(math.ceil(candidate_limit / len(points))))
+    for origin_index in range(len(points)):
+        retained_for_origin = 0
+
+        def visit(path: list[int], length_m: float) -> None:
+            nonlocal retained_for_origin
+            if (
+                retained_for_origin >= per_origin_limit
+                or len(candidate_records) >= candidate_limit
+            ):
+                return
+            segment_count = len(path) - 1
+            if segment_count >= 2 and minimum_distance - 1.0e-9 <= length_m <= maximum_distance + 1.0e-9:
+                route_points = [points[index] for index in path]
+                key = _route_key(route_points)
+                if key not in candidate_records:
+                    lengths = [
+                        math.dist(left, right)
+                        for left, right in zip(route_points, route_points[1:])
+                    ]
+                    candidate_records[key] = {
+                        "waypoints_xy_m": [list(point) for point in route_points],
+                        "length_m": float(sum(lengths)),
+                        "segment_lengths_m": lengths,
+                        "segment_yaw_degrees": [
+                            _normalized_yaw(
+                                math.degrees(
+                                    math.atan2(
+                                        right[1] - left[1], right[0] - left[0]
+                                    )
+                                )
+                            )
+                            for left, right in zip(route_points, route_points[1:])
+                        ],
+                    }
+                    retained_for_origin += 1
+                return
+            if segment_count >= segment_limit:
+                return
+            if (
+                length_m
+                + (segment_limit - segment_count) * maximum_segment_length
+                < minimum_distance - 1.0e-9
+            ):
+                return
+            current = path[-1]
+            for next_index, edge_length in neighbors[current]:
+                if next_index in path or length_m + edge_length > maximum_distance + 1.0e-9:
+                    continue
+                if len(path) >= 2 and not _turn_is_simple(
+                    points[path[-2]], points[current], points[next_index]
+                ):
+                    continue
+                if any(
+                    _proper_segment_intersection(
+                        points[path[index]],
+                        points[path[index + 1]],
+                        points[current],
+                        points[next_index],
+                    )
+                    for index in range(max(0, len(path) - 2))
+                ):
+                    continue
+                visit([*path, next_index], length_m + edge_length)
+                if (
+                    retained_for_origin >= per_origin_limit
+                    or len(candidate_records) >= candidate_limit
+                ):
+                    return
+
+        visit([origin_index], 0.0)
+        if len(candidate_records) >= candidate_limit:
+            break
+    if not candidate_records:
+        raise KujialeViewpointError(
+            "room has no simple conservative-supercover polyline in the natural-distance "
+            f"band [{minimum_distance:.3f}, {maximum_distance:.3f}] m"
+        )
+    candidates = list(candidate_records.values())
+    candidates.sort(
+        key=lambda item: (
+            -len(item["segment_lengths_m"]),
+            abs(float(item["length_m"]) - 0.5 * (minimum_distance + maximum_distance)),
+            item["waypoints_xy_m"],
+        )
+    )
+    # Round-robin by initial 30-degree direction provides geometric variety;
+    # it is a sampling preference, never a legality condition.
+    by_direction: dict[int, list[dict[str, Any]]] = {index: [] for index in range(12)}
+    for candidate in candidates:
+        initial_yaw = float(candidate["segment_yaw_degrees"][0]) % 360.0
+        by_direction[min(11, int(initial_yaw // 30.0))].append(candidate)
+    selected: list[dict[str, Any]] = []
+    ordinal = 0
+    while len(selected) < maximum:
+        added = False
+        for direction_index in range(12):
+            values = by_direction[direction_index]
+            if ordinal >= len(values):
+                continue
+            selected.append(values[ordinal])
+            added = True
+            if len(selected) == maximum:
+                break
+        if not added:
+            break
+        ordinal += 1
+    floor = float(obstacle_map.floor_height_m)
+    profiles = motion_profiles["profiles"]
+    clip_seconds = float(motion_profiles["clip_seconds"])
+    for index, corridor in enumerate(selected, start=1):
+        waypoints_xy = corridor["waypoints_xy_m"]
+        corridor.update(
+            {
+                "corridor_id": f"corridor_{index:04d}",
+                "route_geometry": "polyline",
+                "start_xy_m": list(waypoints_xy[0]),
+                "end_xy_m": list(waypoints_xy[-1]),
+                "waypoints_dataset_xyz_m": [
+                    [float(point[0]), float(point[1]), floor]
+                    for point in waypoints_xy
+                ],
+                "waypoints_habitat_m": [
+                    [float(point[0]), floor, float(point[1])]
+                    for point in waypoints_xy
+                ],
+                "start_world_m": [waypoints_xy[0][0], floor, waypoints_xy[0][1]],
+                "end_world_m": [waypoints_xy[-1][0], floor, waypoints_xy[-1][1]],
+                "natural_distance_band_m": [minimum_distance, maximum_distance],
+                "nominal_clip_speed_mps": float(corridor["length_m"]) / clip_seconds,
+                "species_profiles": list(species),
+                "motion_profile_by_species": {
+                    species_id: {
+                        "walk_speed_mps_min": float(profiles[species_id]["walk_speed_mps_min"]),
+                        "walk_speed_mps_max": float(profiles[species_id]["walk_speed_mps_max"]),
+                        "clip_seconds": clip_seconds,
+                    }
+                    for species_id in species
+                },
+                "simple_non_repeated_vertices": True,
+                "simple_non_repeated_edges": True,
+                "segment_legality": "conservative_supercover_pass_for_both_source_masks",
+                "authority": CPU_PREFILTER_AUTHORITY,
+                "claim_boundary": CPU_PREFILTER_BOUNDARY,
+            }
+        )
     return selected
 
 
@@ -412,6 +738,54 @@ def _lerp_xy(
     return (
         float(start[0]) + (float(end[0]) - float(start[0])) * fraction,
         float(start[1]) + (float(end[1]) - float(start[1])) * fraction,
+    )
+
+
+def _corridor_waypoints_xy(corridor: Mapping[str, Any]) -> list[list[float]]:
+    raw = corridor.get("waypoints_xy_m")
+    if raw is None:
+        raw = [corridor.get("start_xy_m"), corridor.get("end_xy_m")]
+    if (
+        isinstance(raw, (str, bytes))
+        or not isinstance(raw, Sequence)
+        or len(raw) < 2
+    ):
+        raise KujialeViewpointError("corridor waypoints are invalid")
+    result = []
+    for index, point in enumerate(raw):
+        if (
+            isinstance(point, (str, bytes))
+            or not isinstance(point, Sequence)
+            or len(point) != 2
+        ):
+            raise KujialeViewpointError(
+                f"corridor waypoint {index} must contain two numbers"
+            )
+        result.append(
+            [
+                _finite(point[0], owner=f"corridor waypoint {index} x"),
+                _finite(point[1], owner=f"corridor waypoint {index} y"),
+            ]
+        )
+    return result
+
+
+def _materialized_corridor(
+    corridor: Mapping[str, Any], *, reverse: bool = False
+) -> MaterializedRoute:
+    cached = corridor.get("_reverse_materialized" if reverse else "_forward_materialized")
+    if isinstance(cached, MaterializedRoute):
+        return cached
+    points_xy = _corridor_waypoints_xy(corridor)
+    if reverse:
+        points_xy.reverse()
+    floor = float(corridor.get("waypoints_dataset_xyz_m", [[0.0, 0.0, 0.0]])[0][2])
+    geometry = str(corridor.get("route_geometry", "straight"))
+    return materialize_route(
+        [[point[0], point[1], floor] for point in points_xy],
+        75,
+        geometry=geometry,
+        owner=f"corridor {corridor.get('corridor_id', '<unknown>')}",
     )
 
 
@@ -513,31 +887,47 @@ def _direction_record(
     side_margin: float,
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for direction_id, start, end in (
-        ("forward", corridor["start_xy_m"], corridor["end_xy_m"]),
-        ("reverse", corridor["end_xy_m"], corridor["start_xy_m"]),
-    ):
-        anchors = (
-            _lerp_xy(start, end, 4.0 / 75.0),
-            _lerp_xy(start, end, 22.5 / 75.0),
-        )
-        points = (start, end, _lerp_xy(start, end, 0.5), *anchors)
-        if not all(
+    for direction_id, reverse in (("forward", False), ("reverse", True)):
+        materialized = _materialized_corridor(corridor, reverse=reverse)
+        points = materialized.positions_m[:, :2]
+        anchors = (points[4], points[22])
+        in_fov = [
             _in_fov(camera_xy, yaw_deg, point, hfov_deg) for point in points
-        ):
-            continue
+        ]
         side_values = [_side_value(camera_xy, yaw_deg, point) for point in anchors]
-        if any(abs(value) + 1.0e-12 < side_margin for value in side_values):
-            continue
         result.append(
             {
                 "direction": direction_id,
-                "start_xy_m": list(start),
-                "end_xy_m": list(end),
+                "route_geometry": materialized.geometry,
+                "start_xy_m": points[0].tolist(),
+                "end_xy_m": points[-1].tolist(),
+                "waypoints_xy_m": materialized.waypoints_m[:, :2].tolist(),
+                "positions_xy_m": points.tolist(),
+                "segment_index_by_frame": list(
+                    materialized.segment_index_by_frame
+                ),
+                "tangent_yaw_degrees_by_frame": list(
+                    materialized.tangent_yaw_degrees_by_frame
+                ),
+                "segment_boundaries": [
+                    dict(item) for item in materialized.segment_boundaries
+                ],
+                "in_fov_by_frame": in_fov,
+                "in_fov_frame_count": sum(in_fov),
+                "all_frames_in_fov": all(in_fov),
                 "anchor_side_values": side_values,
                 "minimum_anchor_side_magnitude": min(
                     abs(value) for value in side_values
                 ),
+                "side_margin_reference": side_margin,
+                "side_margin_satisfied": all(
+                    abs(value) + 1.0e-12 >= side_margin for value in side_values
+                ),
+                "fov_and_side_role": "raw_difficulty_descriptors_not_legality_gates",
+                "motion_profile_by_species": dict(
+                    corridor.get("motion_profile_by_species", {})
+                ),
+                "_materialized": materialized,
             }
         )
     return result
@@ -573,6 +963,8 @@ def _compatible_direction_pairs(
     *,
     minimum_separation_m: float,
     maximum_records: int,
+    listener_position_xy_m: Sequence[float] | None = None,
+    listener_yaw_degrees: float | None = None,
     stop_after_count: int | None = None,
 ) -> tuple[int, list[dict[str, Any]]]:
     directed = [
@@ -584,28 +976,45 @@ def _compatible_direction_pairs(
         for corridor_id in sorted(direction_by_corridor)
         for direction in direction_by_corridor[corridor_id]
     ]
+    total_count = len(directed) * (len(directed) - 1) // 2
+    candidate_pairs = [
+        (left, right)
+        for left_index, left in enumerate(directed)
+        for right in directed[left_index + 1 :]
+    ]
+    candidate_pairs.sort(
+        key=lambda value: (
+            value[0]["corridor_id"] != value[1]["corridor_id"],
+            value[0]["direction_id"],
+            value[1]["direction_id"],
+        )
+    )
     pairs: list[dict[str, Any]] = []
-    for left_index, left in enumerate(directed):
-        for right in directed[left_index + 1 :]:
-            if left["corridor_id"] == right["corridor_id"]:
-                continue
-            left_side = float(left["anchor_side_values"][0])
-            right_side = float(right["anchor_side_values"][0])
-            if left_side * right_side >= 0.0:
-                continue
-            separation = _continuous_pair_separation(left, right)
-            if separation + 1.0e-12 < minimum_separation_m:
-                continue
-            pairs.append(
-                {
-                    "source1_direction_id": left["direction_id"],
-                    "source2_direction_id": right["direction_id"],
-                    "minimum_continuous_linear_separation_m": separation,
-                    "opposite_sides_at_first_anchor": True,
-                }
-            )
-            if stop_after_count is not None and len(pairs) >= stop_after_count:
-                return len(pairs), pairs[:maximum_records]
+    record_limit = min(maximum_records, stop_after_count or maximum_records)
+    for left, right in candidate_pairs[:record_limit]:
+        descriptor = describe_route_pair(
+            left["_materialized"],
+            right["_materialized"],
+            fps=15,
+            listener_position_xy_m=listener_position_xy_m,
+            listener_yaw_degrees=listener_yaw_degrees,
+            proximity_reference_m=minimum_separation_m,
+        )
+        pairs.append(
+            {
+                "source1_direction_id": left["direction_id"],
+                "source2_direction_id": right["direction_id"],
+                "minimum_continuous_linear_separation_m": descriptor[
+                    "closest_continuous_plan"
+                ]["distance_m"],
+                "opposite_sides_at_first_anchor": (
+                    float(left["anchor_side_values"][0])
+                    * float(right["anchor_side_values"][0])
+                    < 0.0
+                ),
+                "raw_descriptors": descriptor,
+            }
+        )
     pairs.sort(
         key=lambda item: (
             -round(float(item["minimum_continuous_linear_separation_m"]), 9),
@@ -613,7 +1022,151 @@ def _compatible_direction_pairs(
             item["source2_direction_id"],
         )
     )
-    return len(pairs), pairs[:maximum_records]
+    return total_count, pairs[:maximum_records]
+
+
+def _serialize_direction(direction: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in direction.items() if not key.startswith("_")}
+
+
+def _actor_route_from_materialized(
+    materialized: MaterializedRoute,
+    *,
+    actor_id: str,
+    species_id: str,
+    root_height_m: float,
+    motion_profile: Mapping[str, Any],
+) -> tuple[MaterializedRoute, dict[str, Any]]:
+    points = np.asarray(materialized.waypoints_m, dtype=np.float64).copy()
+    points[:, 2] = root_height_m
+    if materialized.moving:
+        adjusted = materialize_route(
+            points,
+            75,
+            geometry=materialized.geometry,
+            owner=f"{actor_id} generated route",
+        )
+        profile = {
+            "route_geometry": adjusted.geometry,
+            "waypoints_xyz_m": adjusted.waypoints_m.tolist(),
+            "motion_profile": {
+                "species_id": species_id,
+                **dict(motion_profile),
+            },
+        }
+    else:
+        heading = materialized.tangent_yaw_degrees_by_frame[0]
+        adjusted = materialize_route(
+            points,
+            75,
+            geometry="hold",
+            heading_yaw_degrees=heading,
+            owner=f"{actor_id} generated hold",
+        )
+        profile = {
+            "route_geometry": "hold",
+            "hold_xyz_m": adjusted.waypoints_m[0].tolist(),
+            "heading_yaw_ue_deg": heading,
+        }
+    return adjusted, profile
+
+
+def _hold_at_route_start(materialized: MaterializedRoute) -> MaterializedRoute:
+    return materialize_route(
+        [materialized.waypoints_m[0]],
+        75,
+        geometry="hold",
+        heading_yaw_degrees=materialized.tangent_yaw_degrees_by_frame[0],
+        owner="generated static route",
+    )
+
+
+def _motion_case_records(
+    direction_by_corridor: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    listener_position_xy_m: Sequence[float],
+    listener_yaw_degrees: float,
+    proximity_reference_m: float,
+) -> list[dict[str, Any]]:
+    directed = [
+        direction
+        for corridor_id in sorted(direction_by_corridor)
+        for direction in direction_by_corridor[corridor_id]
+    ]
+    if len(directed) < 2:
+        raise KujialeViewpointError("at least two directed routes are required")
+    source1_moving = directed[0]["_materialized"]
+    # Same-corridor reverse is deliberately preferred: endpoint exchange and
+    # close approach are retained raw cases rather than filtered away.
+    source2_moving = directed[1]["_materialized"]
+    source1_hold = _hold_at_route_start(source1_moving)
+    source2_hold = _hold_at_route_start(source2_moving)
+    cases = (
+        ("static_static", source1_hold, source2_hold),
+        ("source1_moving_source2_static", source1_moving, source2_hold),
+        ("source1_static_source2_moving", source1_hold, source2_moving),
+        ("both_moving", source1_moving, source2_moving),
+    )
+    result = []
+    for motion_case, human_route, dog_route in cases:
+        first_direction = directed[0]
+        human_profile = first_direction.get("motion_profile_by_species", {}).get(
+            "human",
+            {
+                "walk_speed_mps_min": 1.0e-9,
+                "walk_speed_mps_max": 1.0e6,
+                "clip_seconds": 5.0,
+            },
+        )
+        dog_profile = first_direction.get("motion_profile_by_species", {}).get(
+            "dog",
+            {
+                "walk_speed_mps_min": 1.0e-9,
+                "walk_speed_mps_max": 1.0e6,
+                "clip_seconds": 5.0,
+            },
+        )
+        human_adjusted, human_request = _actor_route_from_materialized(
+            human_route,
+            actor_id="human0",
+            species_id="human",
+            root_height_m=0.064,
+            motion_profile=human_profile,
+        )
+        dog_adjusted, dog_request = _actor_route_from_materialized(
+            dog_route,
+            actor_id="dog0",
+            species_id="dog",
+            root_height_m=0.0,
+            motion_profile=dog_profile,
+        )
+        descriptors = describe_route_pair(
+            human_adjusted,
+            dog_adjusted,
+            fps=15,
+            listener_position_xy_m=listener_position_xy_m,
+            listener_yaw_degrees=listener_yaw_degrees,
+            proximity_reference_m=proximity_reference_m,
+        )
+        result.append(
+            {
+                "motion_case": motion_case,
+                "source_actor_identity": {
+                    "source1": {"source_id": "m6z_human0_mouth", "actor_id": "human0"},
+                    "source2": {"source_id": "m6z_dog0_muzzle", "actor_id": "dog0"},
+                    "identity_changes_during_route": False,
+                },
+                "routes": {"human0": human_request, "dog0": dog_request},
+                "raw_descriptors": descriptors,
+                "legality_excludes": [
+                    "continuous_0.60m",
+                    "side_margin",
+                    "crossing_or_exchange",
+                    "camera_fov_or_occlusion",
+                ],
+            }
+        )
+    return result
 
 
 def build_viewpoint_plan(
@@ -627,7 +1180,7 @@ def build_viewpoint_plan(
     camera_heights_m: Sequence[Real] = (1.05, 1.50, 1.85),
     camera_spacing_m: Real = 0.50,
     coverage_spacing_m: Real = 0.25,
-    yaw_step_degrees: Real = 15.0,
+    yaw_step_degrees: Real = 30.0,
     side_margin: Real = 0.06,
     maximum_camera_positions: int = 64,
     maximum_coverage_samples: int = 256,
@@ -635,7 +1188,12 @@ def build_viewpoint_plan(
     minimum_pair_separation_m: Real = 0.60,
     maximum_pair_records: int = 256,
 ) -> dict[str, Any]:
-    """Select 4--8 deterministic viewpoints with per-view corridor subsets."""
+    """Select 4--8 CPU requests and attach post-hoc route descriptors.
+
+    Camera legality comes only from the retained feasible raster.  Visibility,
+    side, crossing/exchange and pair distance can influence descriptive ranking
+    but never remove a legal camera or source route.
+    """
 
     requested = _count(view_count, owner="view_count", minimum=4)
     if requested > 8:
@@ -694,16 +1252,12 @@ def build_viewpoint_plan(
     corridor_values = [dict(item) for item in corridors]
     if not corridor_values:
         raise KujialeViewpointError("corridors must be non-empty")
+    for corridor in corridor_values:
+        corridor["_forward_materialized"] = _materialized_corridor(corridor)
+        corridor["_reverse_materialized"] = _materialized_corridor(
+            corridor, reverse=True
+        )
     screening_corridors = corridor_values[:corridor_limit]
-
-    target_array = np.asarray(coverage_points, dtype=np.float64)
-    centroid = np.mean(target_array, axis=0)
-    quartile_targets = [centroid]
-    for axis in (0, 1):
-        order = np.argsort(target_array[:, axis], kind="stable")
-        chunk = max(1, len(order) // 4)
-        quartile_targets.append(np.mean(target_array[order[:chunk]], axis=0))
-        quartile_targets.append(np.mean(target_array[order[-chunk:]], axis=0))
 
     yaw_grid = {
         _normalized_yaw(-180.0 + index * yaw_step)
@@ -716,58 +1270,26 @@ def build_viewpoint_plan(
             for index, target in enumerate(coverage_points)
             if _segment_clear(obstacle_map, common, camera_xy, target)
         }
-        clear_corridors: list[dict[str, Any]] = []
-        for corridor in screening_corridors:
-            start = corridor["start_xy_m"]
-            end = corridor["end_xy_m"]
-            probe_points = (
-                start,
-                end,
-                _lerp_xy(start, end, 0.5),
-                _lerp_xy(start, end, 4.0 / 75.0),
-                _lerp_xy(start, end, 22.5 / 75.0),
-                _lerp_xy(end, start, 4.0 / 75.0),
-                _lerp_xy(end, start, 22.5 / 75.0),
-            )
-            if all(
-                _segment_clear(obstacle_map, common, camera_xy, point)
-                for point in probe_points
-            ):
-                clear_corridors.append(corridor)
-        yaws = set(yaw_grid)
-        yaws.update(
-            _normalized_yaw(round(_bearing(camera_xy, target) / 5.0) * 5.0)
-            for target in quartile_targets
-        )
-        for yaw in sorted(yaws):
+        for yaw in sorted(yaw_grid):
             visible = {
                 index
                 for index in los_targets
                 if _in_fov(camera_xy, yaw, coverage_points[index], hfov)
             }
-            if not visible:
-                continue
-            direction_by_corridor: dict[str, list[dict[str, Any]]] = {}
-            for corridor in clear_corridors:
-                directions = _direction_record(
-                    corridor=corridor,
-                    camera_xy=camera_xy,
-                    yaw_deg=yaw,
-                    hfov_deg=hfov,
-                    side_margin=margin,
-                )
-                if directions:
-                    direction_by_corridor[str(corridor["corridor_id"])] = directions
-            if not direction_by_corridor:
-                continue
-            screening_pair_count, _screening_pairs = _compatible_direction_pairs(
-                direction_by_corridor,
-                minimum_separation_m=pair_separation,
-                maximum_records=1,
-                stop_after_count=1,
-            )
-            if not screening_pair_count:
-                continue
+            preferred_corridors: set[str] = set()
+            for corridor in screening_corridors:
+                materialized = corridor["_forward_materialized"]
+                probe_indices = (0, len(materialized.positions_m) // 2, 74)
+                if any(
+                    _in_fov(
+                        camera_xy,
+                        yaw,
+                        materialized.positions_m[probe_index, :2],
+                        hfov,
+                    )
+                    for probe_index in probe_indices
+                ):
+                    preferred_corridors.add(str(corridor["corridor_id"]))
             for height_index, height in enumerate(heights):
                 candidates.append(
                     {
@@ -782,9 +1304,8 @@ def build_viewpoint_plan(
                         "height_m": height,
                         "yaw_ue_deg": yaw,
                         "_visible": visible,
-                        "_corridors": set(direction_by_corridor),
-                        "_directions": direction_by_corridor,
-                        "_has_pair": True,
+                        "_corridors": preferred_corridors,
+                        "_has_pair": bool(screening_corridors),
                     }
                 )
     if not candidates:
@@ -855,22 +1376,6 @@ def build_viewpoint_plan(
         yaw_ue = float(candidate["yaw_ue_deg"])
         complete_directions: dict[str, list[dict[str, Any]]] = {}
         for corridor in corridor_values:
-            start = corridor["start_xy_m"]
-            end = corridor["end_xy_m"]
-            probe_points = (
-                start,
-                end,
-                _lerp_xy(start, end, 0.5),
-                _lerp_xy(start, end, 4.0 / 75.0),
-                _lerp_xy(start, end, 22.5 / 75.0),
-                _lerp_xy(end, start, 4.0 / 75.0),
-                _lerp_xy(end, start, 22.5 / 75.0),
-            )
-            if not all(
-                _segment_clear(obstacle_map, common, position_xy, point)
-                for point in probe_points
-            ):
-                continue
             directions = _direction_record(
                 corridor=corridor,
                 camera_xy=position_xy,
@@ -878,8 +1383,7 @@ def build_viewpoint_plan(
                 hfov_deg=hfov,
                 side_margin=margin,
             )
-            if directions:
-                complete_directions[str(corridor["corridor_id"])] = directions
+            complete_directions[str(corridor["corridor_id"])] = directions
         corridor_ids = sorted(complete_directions)
         if not corridor_ids:
             raise KujialeViewpointError(
@@ -890,6 +1394,14 @@ def build_viewpoint_plan(
             complete_directions,
             minimum_separation_m=pair_separation,
             maximum_records=pair_record_limit,
+            listener_position_xy_m=position_xy,
+            listener_yaw_degrees=yaw_ue,
+        )
+        motion_cases = _motion_case_records(
+            complete_directions,
+            listener_position_xy_m=position_xy,
+            listener_yaw_degrees=yaw_ue,
+            proximity_reference_m=pair_separation,
         )
         viewpoint_records.append(
             {
@@ -909,7 +1421,9 @@ def build_viewpoint_plan(
                     len(candidate["_visible"]) * coverage_sample_area
                 ),
                 "eligible_corridor_count": len(corridor_ids),
+                "geometry_legal_corridor_count": len(corridor_ids),
                 "compatible_both_moving_pair_count": compatible_pair_count,
+                "motion_case_count": len(motion_cases),
                 "corridor_subset": f"corridors/{viewpoint_id}.json",
                 "native_pixel_validation_status": "pending",
                 "ue_spear_certification_status": "pending",
@@ -923,15 +1437,23 @@ def build_viewpoint_plan(
             "claim_boundary": CPU_PREFILTER_BOUNDARY,
             "side_margin": margin,
             "minimum_pair_separation_m": pair_separation,
+            "difficulty_descriptor_policy": (
+                "side, 0.60m, crossing, exchange, FOV and occlusion are raw "
+                "descriptors only and never remove a geometry-valid route"
+            ),
             "corridors": [
                 {
                     "corridor_id": corridor_id,
-                    "directions": complete_directions[corridor_id],
+                    "directions": [
+                        _serialize_direction(direction)
+                        for direction in complete_directions[corridor_id]
+                    ],
                 }
                 for corridor_id in corridor_ids
             ],
             "compatible_both_moving_pair_count": compatible_pair_count,
             "compatible_both_moving_pairs": compatible_pairs,
+            "four_point_motion_cases": motion_cases,
         }
 
     return {
@@ -950,6 +1472,10 @@ def build_viewpoint_plan(
             "native_pixel_validation_status": "pending",
             "ue_spear_certification_status": "pending",
             "viewpoint_count": len(viewpoint_records),
+            "selection_policy": (
+                "geometry-valid camera pool with pose/coverage preferences; "
+                "difficulty clues are not legality gates"
+            ),
             "parameters": {
                 "hfov_degrees": hfov,
                 "camera_heights_m": heights,
@@ -978,6 +1504,7 @@ __all__ = [
     "CPU_PREFILTER_BOUNDARY",
     "KujialeViewpointError",
     "build_viewpoint_plan",
+    "generate_polyline_corridors",
     "generate_straight_corridors",
     "natural_distance_band",
 ]

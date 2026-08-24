@@ -16,6 +16,7 @@ from avengine.optional_backends.kujiale_viewpoints import (
     CPU_PREFILTER_BOUNDARY,
     KujialeViewpointError,
     build_viewpoint_plan,
+    generate_polyline_corridors,
     generate_straight_corridors,
     natural_distance_band,
 )
@@ -108,6 +109,42 @@ def test_straight_corridors_never_cross_a_blocking_raster() -> None:
         assert not (start_x < -0.25 and end_x > 0.25)
         assert 2.0 - 1.0e-9 <= corridor["length_m"] <= 4.0 + 1.0e-9
         assert corridor["claim_boundary"] == CPU_PREFILTER_BOUNDARY
+
+
+def test_polyline_corridors_are_multisegment_simple_and_exactly_feasible() -> None:
+    regions = _regions()
+    corridors = generate_polyline_corridors(
+        region_by_source=regions,
+        motion_profiles=_motion_profiles(),
+        maximum_corridors=48,
+        waypoint_spacing_m=0.5,
+        maximum_segments=4,
+        maximum_segment_length_m=1.8,
+    )
+    assert corridors
+    for corridor in corridors:
+        assert corridor["route_geometry"] == "polyline"
+        assert len(corridor["waypoints_xy_m"]) >= 3
+        assert len(set(map(tuple, corridor["waypoints_xy_m"]))) == len(
+            corridor["waypoints_xy_m"]
+        )
+        assert corridor["simple_non_repeated_edges"] is True
+        assert 2.0 - 1.0e-9 <= corridor["length_m"] <= 4.0 + 1.0e-9
+        for left, right in zip(
+            corridor["waypoints_xy_m"], corridor["waypoints_xy_m"][1:]
+        ):
+            assert VIEWPOINTS._segment_clear(
+                regions["source1"].obstacle_map,
+                regions["source1"].feasible_mask,
+                left,
+                right,
+            )
+            assert VIEWPOINTS._segment_clear(
+                regions["source2"].obstacle_map,
+                regions["source2"].feasible_mask,
+                left,
+                right,
+            )
 
 
 def test_raster_los_conservatively_keeps_corner_touch_cells() -> None:
@@ -230,6 +267,7 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
         visual_profile=_write_json(tmp_path / "visual.json", visual_profile),
         motion_profiles=_write_json(tmp_path / "motion.json", _motion_profiles()),
         species=["human", "dog"],
+        route_geometry="straight",
         view_count=4,
         hfov_degrees=105.0,
         camera_heights_m=[1.0, 1.5, 1.9],
@@ -241,6 +279,9 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
         yaw_step_degrees=30.0,
         side_margin=0.06,
         maximum_corridors=96,
+        waypoint_spacing_m=0.25,
+        maximum_route_segments=4,
+        maximum_segment_length_m=1.8,
         maximum_camera_positions=32,
         maximum_coverage_samples=96,
         screening_corridor_count=32,
@@ -266,13 +307,156 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
         subset = json.loads(subset_path.read_text())
         assert subset["minimum_pair_separation_m"] == 0.60
         assert subset["compatible_both_moving_pair_count"] > 0
-        assert all(
-            pair["minimum_continuous_linear_separation_m"] >= 0.60
-            and pair["opposite_sides_at_first_anchor"] is True
+        assert any(
+            pair["minimum_continuous_linear_separation_m"] < 0.60
             for pair in subset["compatible_both_moving_pairs"]
         )
+        assert {
+            item["motion_case"] for item in subset["four_point_motion_cases"]
+        } == {
+            "static_static",
+            "source1_moving_source2_static",
+            "source1_static_source2_moving",
+            "both_moving",
+        }
     with pytest.raises(FileExistsError, match="refusing to replace"):
         TOOL.run(args)
+
+
+def test_cli_polyline_unknown_room_has_no_straight_fallback(
+    tmp_path: Path,
+) -> None:
+    metadata = {
+        "schema": "avengine_optional_residential_scene_metadata_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "kujiale_unknown",
+        "room_id": "kujiale_unknown_room_17",
+        "room_scope": "room_17",
+        "room_type": "never seen room label",
+        "room_polygon_xy_m": [
+            [-3.0, -2.5],
+            [3.0, -2.5],
+            [3.0, 2.5],
+            [-3.0, 2.5],
+        ],
+        "floor_z_m": 0.0,
+        "objects": [],
+        "object_role_counts": {},
+        "source_reference": "/external/kujiale_unknown_full_home.usda",
+    }
+    profile = {
+        "schema": "avengine_optional_residential_source_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "kujiale_unknown",
+        "map_path": "/Game/AVEngine/Test/kujiale_unknown_full_home_v1",
+        "source_center_margin_m": 0.03,
+        "emitter_heights_m": {"human0": 1.6, "dog0": 0.45},
+    }
+    visual = {
+        "schema_version": "avengine_optional_interioragent_kujiale_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "kujiale_unknown",
+        "map_path": "/Game/AVEngine/Test/kujiale_unknown_full_home_v1",
+        "source_stage_name": "kujiale_unknown_full_home.usda",
+        "selected_scopes": ["room_17", "wall", "ceiling", "floor"],
+    }
+    args = TOOL.parse_args(
+        [
+            "--scene-metadata",
+            str(_write_json(tmp_path / "metadata.json", metadata)),
+            "--source-profile",
+            str(_write_json(tmp_path / "profile.json", profile)),
+            "--visual-profile",
+            str(_write_json(tmp_path / "visual.json", visual)),
+            "--motion-profiles",
+            str(_write_json(tmp_path / "motion.json", _motion_profiles())),
+            "--route-geometry",
+            "polyline",
+            "--meters-per-pixel",
+            "0.2",
+            "--sample-spacing-m",
+            "0.5",
+            "--camera-spacing-m",
+            "1.0",
+            "--coverage-spacing-m",
+            "0.5",
+            "--maximum-corridors",
+            "32",
+            "--maximum-camera-positions",
+            "32",
+            "--maximum-coverage-samples",
+            "96",
+            "--screening-corridor-count",
+            "16",
+            "--maximum-pair-records",
+            "16",
+            "--output",
+            str(tmp_path / "polyline"),
+        ]
+    )
+    output = TOOL.run(args)
+    delivery = json.loads((output / "delivery.json").read_text())
+    routes = json.loads((output / "polyline_corridors.json").read_text())
+    assert delivery["route_geometry"] == "polyline"
+    assert delivery["route_fallback_used"] is False
+    assert routes["room_type_annotation"] == "never seen room label"
+    assert routes["room_type_role"] == "post_generation_annotation_only"
+    assert not (output / "straight_corridors.json").exists()
+
+
+def test_polyline_failure_is_fresh_and_does_not_fallback(
+    tmp_path: Path,
+) -> None:
+    metadata = {
+        "schema": "avengine_optional_residential_scene_metadata_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "tiny",
+        "room_id": "tiny_room",
+        "room_scope": "tiny_scope",
+        "room_type": "unknown",
+        "room_polygon_xy_m": [[0, 0], [0.2, 0], [0.2, 0.2], [0, 0.2]],
+        "floor_z_m": 0.0,
+        "objects": [],
+        "object_role_counts": {},
+        "source_reference": "/external/tiny.usda",
+    }
+    profile = {
+        "schema": "avengine_optional_residential_source_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "tiny",
+        "map_path": "/Game/AVEngine/Test/tiny",
+        "emitter_heights_m": {"human0": 1.6, "dog0": 0.45},
+    }
+    visual = {
+        "schema_version": "avengine_optional_interioragent_kujiale_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "tiny",
+        "map_path": "/Game/AVEngine/Test/tiny",
+        "source_stage_name": "tiny.usda",
+        "selected_scopes": ["tiny_scope", "wall", "ceiling", "floor"],
+    }
+    args = TOOL.parse_args(
+        [
+            "--scene-metadata",
+            str(_write_json(tmp_path / "tiny.json", metadata)),
+            "--source-profile",
+            str(_write_json(tmp_path / "tiny_profile.json", profile)),
+            "--visual-profile",
+            str(_write_json(tmp_path / "tiny_visual.json", visual)),
+            "--motion-profiles",
+            str(_write_json(tmp_path / "tiny_motion.json", _motion_profiles())),
+            "--route-geometry",
+            "polyline",
+            "--meters-per-pixel",
+            "0.1",
+            "--output",
+            str(tmp_path / "failed"),
+        ]
+    )
+    with pytest.raises(KujialeViewpointError, match="polyline"):
+        TOOL.run(args)
+    assert (args.output / "FAILED.json").is_file()
+    assert not (args.output / "straight_corridors.json").exists()
 
 
 def _binding_inputs() -> tuple[dict, dict, dict]:
