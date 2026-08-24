@@ -52,3 +52,51 @@ This checkpoint is CPU/unit evidence until a fresh real Habitat dynamic capture
 runs. It does not claim a certified viewpoint, audio/RIR, a question, a
 four-point mini-pilot or a formal Episode. No new hash, frozen contract,
 baseline or permanent gate is added.
+
+## Clean-code six-view native execution
+
+The implementation was committed as
+`509838e81abef0d044ea60c550584a73846acb17`. After a GPU/process preflight,
+all six M1 viewpoint requests were captured sequentially on otherwise idle GPU
+0 into fresh roots named:
+
+`/data/jzy/tmp/mp3d_dynamic_visibility_509838e_viewXX_r1`
+
+All six research receipts report 75 frames, `research_only=true` and
+`episode_counted=false`. Each output contains co-registered RGB/depth/semantic,
+actor matrices, true emitter-link source positions, per-frame visibility and
+runtime readback records. Visibility observations are:
+
+- view 01: actor0 `0/75`, actor1 `0/75` visible frames;
+- view 02: actor0 `0/75`, actor1 `0/75`;
+- view 03: actor0 `25/75`, actor1 `34/75`, maxima 16 and 23 pixels;
+- view 04: actor0 `0/75`, actor1 `0/75`;
+- view 05: actor0 `0/75`, actor1 `0/75`;
+- view 06: actor0 `0/75`, actor1 `75/75`, maxima 0 and 16 pixels.
+
+The summary log is:
+
+`/data/jzy/tmp/mp3d_dynamic_visibility_509838e_summary_r1.log`
+
+The true emitter arrays are finite `[75,2,3]` and exactly equal across all six
+camera-only variants, as expected. Start positions are
+`[-4.655152,0.481077,-2.680603]` and
+`[-4.405152,0.481077,-4.080603]`; end positions are
+`[-5.255169,0.474952,-1.937720]` and
+`[-5.005169,0.474952,-3.337720]`.
+
+I inspected RGB frames 0, 37 and 74 for every view in:
+
+`/data/jzy/tmp/mp3d_dynamic_visibility_509838e_contact_sheet_r1.png`
+
+The room composition matches the earlier static probes. Views 01, 02, 04 and
+05 contain no visible dog in those frames; view 03 has only tiny intermittent
+semantic footprints, and view 06 retains only a tiny actor1 footprint. These
+are valid off-screen/occlusion observations, not camera failures. They also
+show that the present six-view bank is insufficient by itself for a balanced
+mix of visually grounded and off-screen questions; the generic camera/yaw
+iterator must add candidates before 4--8-view certification.
+
+This native run proves the visibility descriptor and supplies actual emitter
+tracks. It still does not provide audio/RIR, question authoring or a four-point
+mini-pilot.
