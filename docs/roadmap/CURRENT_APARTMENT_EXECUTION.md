@@ -1054,3 +1054,13 @@ steps with zero deletions:
 README.md now states the completed single-repo baseline (merged via PR #2),
 links the runtime-prefix rebuild recipe, and embeds the engine logical
 pipeline diagram at docs/diagrams/engine_logical_pipeline.svg.
+
+## Checkpoint 20260824: Apartment QA design viewpoint wiring
+
+The design-time batch author now requires a declared-pass 4-8-view Apartment
+bank, rotates primary points deterministically while keeping twins on the same
+viewpoint, and derives camera, corridor, side-c and off-screen inputs per view.
+The current native-pixel-pending 2-D prefilter is explicitly rejected; legacy
+view0 is available only in an explicit report-only mode. See
+docs/roadmap/QA_DESIGN_VIEWPOINT_WIRING_20260824.md for the input boundary,
+CPU evidence, and the still-missing native multi-view pilot.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import avengine.cli as cli
@@ -147,9 +148,7 @@ def test_author_writes_free_75_frame_research_timeline(tmp_path: Path) -> None:
         == pytest.approx(
             [
                 starts["source1"][axis]
-                + (ends["source1"][axis] - starts["source1"][axis])
-                * frame_index
-                / 74
+                + (ends["source1"][axis] - starts["source1"][axis]) * frame_index / 74
                 for axis in range(3)
             ]
         )
@@ -231,6 +230,175 @@ def test_timeline_state_starts_moving_actor_at_formal_frame_zero() -> None:
     assert state0["translation_ue_cm"] == [0.0, 0.0, 0.0]
     assert state1["action_phase"] == pytest.approx(1.0 / 16.0)
     assert state1["translation_ue_cm"] == pytest.approx([10.0, 0.0, 0.0])
+
+
+def test_two_waypoint_frames_are_byte_and_semantically_equal_to_legacy(
+    tmp_path: Path,
+) -> None:
+    selection = _profile_selection(tmp_path)
+    common = {
+        "actor_selection_path": selection,
+        "source_asset_registry_path": REGISTRY,
+        "camera_position_ue_cm": (0.0, -600.0, 240.0),
+        "camera_yaw_deg": 0.0,
+    }
+    legacy = apartment_visual.author_current_apartment_visual_timeline(
+        **common,
+        output_path=tmp_path / "legacy.json",
+        human_start_ue_cm=(-150.0, 70.0, 0.0),
+        human_end_ue_cm=(150.0, 70.0, 0.0),
+        beagle_start_ue_cm=(150.0, -70.0, 0.0),
+        beagle_end_ue_cm=(-150.0, -70.0, 0.0),
+    )
+    waypoint = apartment_visual.author_current_apartment_visual_timeline(
+        **common,
+        output_path=tmp_path / "waypoint.json",
+        human_waypoints_ue_cm=(
+            (-150.0, 70.0, 0.0),
+            (150.0, 70.0, 0.0),
+        ),
+        beagle_waypoints_ue_cm=(
+            (150.0, -70.0, 0.0),
+            (-150.0, -70.0, 0.0),
+        ),
+    )
+
+    assert "route_authoring" not in legacy
+    assert json.dumps(
+        legacy["frames"], sort_keys=True, separators=(",", ":")
+    ) == json.dumps(waypoint["frames"], sort_keys=True, separators=(",", ":"))
+    assert waypoint["route_authoring"]["sources"]["source1"]["waypoints_ue_cm"] == [
+        [-150.0, 70.0, 0.0],
+        [150.0, 70.0, 0.0],
+    ]
+
+
+def test_l_shaped_waypoints_use_equal_arc_and_current_tangent_yaw(
+    tmp_path: Path,
+) -> None:
+    selection = _profile_selection(tmp_path)
+    timeline = apartment_visual.author_current_apartment_visual_timeline(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+        output_path=tmp_path / "l-shape.json",
+        camera_position_ue_cm=(0.0, -600.0, 240.0),
+        camera_yaw_deg=0.0,
+        human_waypoints_ue_cm=(
+            (0.0, 0.0, 0.0),
+            (100.0, 0.0, 0.0),
+            (100.0, 100.0, 0.0),
+        ),
+        beagle_start_ue_cm=(200.0, -70.0, 0.0),
+        beagle_end_ue_cm=(200.0, -70.0, 0.0),
+    )
+    human = [frame["actor_states"][0] for frame in timeline["frames"]]
+    points = np.asarray([state["translation_ue_cm"] for state in human])
+    arc_coordinates = np.minimum(points[:, 0], 100.0) + points[:, 1]
+
+    assert np.diff(arc_coordinates) == pytest.approx(np.full(74, 200.0 / 74.0))
+    assert points[37] == pytest.approx([100.0, 0.0, 0.0])
+    assert human[36]["yaw_ue_deg"] == pytest.approx(-90.0)
+    assert human[37]["yaw_ue_deg"] == pytest.approx(0.0)
+    assert human[-1]["yaw_ue_deg"] == pytest.approx(0.0)
+    assert timeline["route_authoring"] == {
+        "method": "per_source_route_authoring",
+        "yaw_method": "current_polyline_tangent_with_final_last_nonzero_segment",
+        "sources": {
+            "source1": {
+                "authoring_method": "equal_arc_polyline_ue_cm",
+                "waypoints_ue_cm": [
+                    [0.0, 0.0, 0.0],
+                    [100.0, 0.0, 0.0],
+                    [100.0, 100.0, 0.0],
+                ],
+                "moving_frame_count": 75,
+            },
+            "source2": {
+                "authoring_method": "legacy_start_end_linear",
+                "start_ue_cm": [200.0, -70.0, 0.0],
+                "end_ue_cm": [200.0, -70.0, 0.0],
+            },
+        },
+    }
+
+
+def test_waypoint_equal_arc_respects_walk_start_frame(tmp_path: Path) -> None:
+    selection = _profile_selection(tmp_path)
+    timeline = apartment_visual.author_current_apartment_visual_timeline(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+        output_path=tmp_path / "delayed.json",
+        camera_position_ue_cm=(0.0, -600.0, 240.0),
+        camera_yaw_deg=0.0,
+        human_waypoints_ue_cm=(
+            (0.0, 0.0, 0.0),
+            (100.0, 0.0, 0.0),
+            (100.0, 100.0, 0.0),
+        ),
+        beagle_start_ue_cm=(200.0, -70.0, 0.0),
+        beagle_end_ue_cm=(200.0, -70.0, 0.0),
+        walk_start_frame=5,
+    )
+    human = [frame["actor_states"][0] for frame in timeline["frames"]]
+    points = np.asarray([state["translation_ue_cm"] for state in human])
+    arc_coordinates = np.minimum(points[:, 0], 100.0) + points[:, 1]
+
+    assert np.all(points[:5] == np.asarray([0.0, 0.0, 0.0]))
+    assert [state["action_id"] for state in human[:5]] == ["idle"] * 5
+    assert human[5]["action_id"] == "walk"
+    assert human[5]["action_phase"] == 0.0
+    assert np.diff(arc_coordinates[5:]) == pytest.approx(np.full(69, 200.0 / 69.0))
+    assert timeline["route_authoring"]["sources"]["source1"]["moving_frame_count"] == 70
+
+
+@pytest.mark.parametrize(
+    ("waypoints", "pattern"),
+    [
+        ([(0.0, 0.0, 0.0)], "at least two"),
+        ([(0.0, 0.0, 0.0), (float("nan"), 1.0, 0.0)], "finite"),
+        (
+            [(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (10.0, 0.0, 0.0)],
+            "consecutive repeated",
+        ),
+        ([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0)], "zero length"),
+    ],
+)
+def test_waypoint_input_validation(
+    tmp_path: Path,
+    waypoints: list[tuple[float, float, float]],
+    pattern: str,
+) -> None:
+    selection = _profile_selection(tmp_path)
+    with pytest.raises(apartment_visual.CurrentApartmentVisualError, match=pattern):
+        apartment_visual.author_current_apartment_visual_timeline(
+            actor_selection_path=selection,
+            source_asset_registry_path=REGISTRY,
+            output_path=tmp_path / "invalid.json",
+            camera_position_ue_cm=(0.0, -600.0, 240.0),
+            camera_yaw_deg=0.0,
+            human_waypoints_ue_cm=waypoints,
+            beagle_start_ue_cm=(200.0, -70.0, 0.0),
+            beagle_end_ue_cm=(200.0, -70.0, 0.0),
+        )
+
+
+def test_waypoints_are_mutually_exclusive_with_start_end(tmp_path: Path) -> None:
+    selection = _profile_selection(tmp_path)
+    with pytest.raises(
+        apartment_visual.CurrentApartmentVisualError, match="cannot mix"
+    ):
+        apartment_visual.author_current_apartment_visual_timeline(
+            actor_selection_path=selection,
+            source_asset_registry_path=REGISTRY,
+            output_path=tmp_path / "mixed.json",
+            camera_position_ue_cm=(0.0, -600.0, 240.0),
+            camera_yaw_deg=0.0,
+            human_start_ue_cm=(0.0, 0.0, 0.0),
+            human_end_ue_cm=(100.0, 0.0, 0.0),
+            human_waypoints_ue_cm=((0.0, 0.0, 0.0), (0.0, 100.0, 0.0)),
+            beagle_start_ue_cm=(200.0, -70.0, 0.0),
+            beagle_end_ue_cm=(200.0, -70.0, 0.0),
+        )
 
 
 def test_spawned_apartment_actors_bind_initial_animation_before_warmup(
@@ -444,6 +612,86 @@ def test_cli_exposes_separate_research_commands_without_audio_inputs() -> None:
     assert not hasattr(author, "hrtf")
     assert not hasattr(capture, "beagle_dry")
     assert not hasattr(capture, "m4_request")
+
+
+def test_cli_repeated_waypoints_reach_timeline_author(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_author(**kwargs: object) -> dict[str, object]:
+        calls.update(kwargs)
+        return {
+            "status": "research_only",
+            "research_only": True,
+            "episode_counted": False,
+            "qualification_claim": False,
+            "asset_authorization": "verified_internal",
+            "render": {"frame_count": 75},
+        }
+
+    monkeypatch.setattr(cli, "author_current_apartment_visual_timeline", fake_author)
+    monkeypatch.setattr(
+        cli, "_require_ignored_or_external_output", lambda value: Path(value)
+    )
+    output = tmp_path / "waypoint-timeline.json"
+    arguments = [
+        "m5",
+        "author-current-apartment-visual-timeline",
+        "--actor-selection",
+        "selection.json",
+        "--source-asset-registry",
+        "registry.json",
+        "--camera-position-ue-cm",
+        "0",
+        "0",
+        "100",
+        "--camera-yaw-deg",
+        "0",
+        "--human-waypoint-ue-cm",
+        "0",
+        "0",
+        "0",
+        "--human-waypoint-ue-cm",
+        "100",
+        "0",
+        "0",
+        "--human-waypoint-ue-cm",
+        "100",
+        "100",
+        "0",
+        "--beagle-waypoint-ue-cm",
+        "0",
+        "50",
+        "0",
+        "--beagle-waypoint-ue-cm",
+        "100",
+        "50",
+        "0",
+        "--walk-start-frame",
+        "5",
+        "--output",
+        str(output),
+    ]
+
+    assert cli.main(arguments) == 0
+    assert calls["human_start_ue_cm"] is None
+    assert calls["human_end_ue_cm"] is None
+    assert calls["beagle_start_ue_cm"] is None
+    assert calls["beagle_end_ue_cm"] is None
+    assert calls["human_waypoints_ue_cm"] == [
+        [0.0, 0.0, 0.0],
+        [100.0, 0.0, 0.0],
+        [100.0, 100.0, 0.0],
+    ]
+    assert calls["beagle_waypoints_ue_cm"] == [
+        [0.0, 50.0, 0.0],
+        [100.0, 50.0, 0.0],
+    ]
+    assert calls["walk_start_frame"] == 5
+    assert json.loads(capsys.readouterr().out)["frame_count"] == 75
 
 
 def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
