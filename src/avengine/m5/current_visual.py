@@ -249,9 +249,7 @@ def _make_current_configuration(
     """Build only the co-located visual sensors for the installed runtime."""
 
     if include_audio_sensor:
-        raise CurrentVisualError(
-            "current visual capture never enables an audio sensor"
-        )
+        raise CurrentVisualError("current visual capture never enables an audio sensor")
     habitat_sim = installed_runtime.habitat_sim
     mn = installed_runtime.magnum
     rig = room_inputs.request["primary_camera_rig"]
@@ -262,7 +260,9 @@ def _make_current_configuration(
         item["modality"]: item["sensor_uuid"] for item in rig["modalities"]
     }
     if list(modality_to_uuid) != list(FORMAL_MODALITIES):
-        raise CurrentVisualError("M1 visual modality order changed from rgb/depth/semantic")
+        raise CurrentVisualError(
+            "M1 visual modality order changed from rgb/depth/semantic"
+        )
 
     sensor_specs: list[Any] = []
     local_position = mn.Vector3(local["translation_m"])
@@ -333,10 +333,8 @@ def _instantiate_semantic_actor(
     handle = f"{base_handle}.m5_current_actor{actor_index}_semantic{semantic_id}"
     if int(manager.register_template(attributes, handle)) < 0:
         raise CurrentVisualError("failed to register a current visual actor template")
-    articulated_object = (
-        simulator.get_articulated_object_manager().add_articulated_object_by_template_handle(
-            handle
-        )
+    articulated_object = simulator.get_articulated_object_manager().add_articulated_object_by_template_handle(
+        handle
     )
     if articulated_object is None:
         raise CurrentVisualError("Habitat failed to instantiate a current visual actor")
@@ -455,7 +453,9 @@ def _observation_arrays(
     if depth.ndim != 2 or semantic.ndim != 2:
         raise CurrentVisualError("depth and semantic frames must be HxW")
     if rgb.shape[:2] != depth.shape or depth.shape != semantic.shape:
-        raise CurrentVisualError("RGB, depth, and semantic frames are not co-registered")
+        raise CurrentVisualError(
+            "RGB, depth, and semantic frames are not co-registered"
+        )
     return arrays
 
 
@@ -555,7 +555,9 @@ def _capture_current_visual(
         preflight_arrays = _observation_arrays(preflight_observation, modality_to_uuid)
         _require_no_actor_semantic_collision(preflight_arrays["semantic"])
         if float(simulator.get_world_time()) != initial_world_time:
-            raise CurrentVisualError("no-actor semantic preflight advanced Habitat world time")
+            raise CurrentVisualError(
+                "no-actor semantic preflight advanced Habitat world time"
+            )
 
         template_manager = simulator.metadata_mediator.ao_template_manager
         config_path = bundle.paths_by_role["habitat_ao_config"]
@@ -563,7 +565,9 @@ def _capture_current_visual(
         handle_prefix = config_path.stem.removesuffix(".ao_config")
         base_handles = template_manager.get_template_handles(handle_prefix)
         if len(loaded_ids) != 1 or len(base_handles) != 1:
-            raise CurrentVisualError("current visual capture expected one source AO template")
+            raise CurrentVisualError(
+                "current visual capture expected one source AO template"
+            )
         actors: list[Any] = []
         bindings: list[Any] = []
         emitter_link_ids: list[int] = []
@@ -618,7 +622,10 @@ def _capture_current_visual(
                 root_readback, joint_readback = _read_actor_state(actor)
                 root_error = float(np.max(np.abs(root_readback - skin_root)))
                 joint_error = _quaternion_block_error(joint_readback, joints)
-                if root_error > _ROOT_READBACK_ATOL or joint_error > _JOINT_READBACK_ATOL:
+                if (
+                    root_error > _ROOT_READBACK_ATOL
+                    or joint_error > _JOINT_READBACK_ATOL
+                ):
                     raise CurrentVisualError(
                         f"frame {frame.frame_index} actor {actor_index} readback failed"
                     )
@@ -633,16 +640,11 @@ def _capture_current_visual(
                 int(np.count_nonzero(arrays["semantic"] == semantic_id))
                 for semantic_id in CURRENT_SEMANTIC_IDS
             )
-            if any(count == 0 for count in frame_visibility):
-                raise CurrentVisualError(
-                    f"frame {frame.frame_index} lost an actor semantic ID: "
-                    f"{list(frame_visibility)}"
-                )
             after_states = [_read_actor_state(actor) for actor in actors]
             for before, after in zip(before_states, after_states, strict=True):
-                if not np.allclose(before[0], after[0], rtol=0.0, atol=1.0e-12) or not np.allclose(
-                    before[1], after[1], rtol=0.0, atol=1.0e-12
-                ):
+                if not np.allclose(
+                    before[0], after[0], rtol=0.0, atol=1.0e-12
+                ) or not np.allclose(before[1], after[1], rtol=0.0, atol=1.0e-12):
                     raise CurrentVisualError(
                         f"frame {frame.frame_index} render changed an articulated state"
                     )
@@ -707,11 +709,23 @@ def _capture_current_visual(
         arrays_root / "source_positions_m.npy",
         np.ascontiguousarray(np.stack(source_positions)),
     )
+    visibility_array = np.asarray(visibility_records, dtype=np.int64)
     np.save(
         arrays_root / "semantic_visibility_pixels.npy",
-        np.asarray(visibility_records, dtype=np.int64),
+        visibility_array,
     )
     write_json(output / "frame_records.json", {"frames": frame_records})
+    visibility_by_actor = {}
+    for actor_index, actor_id in enumerate(CURRENT_ACTOR_IDS):
+        pixels = visibility_array[:, actor_index]
+        visible = pixels > 0
+        visibility_by_actor[actor_id] = {
+            "visible_frame_count": int(np.count_nonzero(visible)),
+            "zero_visible_frame_indices": np.flatnonzero(~visible).astype(int).tolist(),
+            "minimum_visible_pixels": int(np.min(pixels)),
+            "maximum_visible_pixels": int(np.max(pixels)),
+            "per_frame_visible_pixels": pixels.tolist(),
+        }
     habitat_module = getattr(installed_runtime.habitat_sim, "__file__", None)
     if not isinstance(habitat_module, str) or not habitat_module:
         raise CurrentVisualError("installed Habitat runtime has no module path")
@@ -745,6 +759,15 @@ def _capture_current_visual(
             "semantic_ids": list(CURRENT_SEMANTIC_IDS),
             "instance_offsets_m": offsets.tolist(),
             "emitter_link_names": list(CURRENT_EMITTER_LINK_NAMES),
+        },
+        "visibility": {
+            "status": "native_semantic_pixels_recorded",
+            "authority": "same_habitat_renderer_camera_and_actor_semantic_ids",
+            "frame_count": len(frame_records),
+            "all_frames_visibility_required": False,
+            "candidate_filtering": "disabled",
+            "candidate_legality_effect": "descriptor_only",
+            "per_actor": visibility_by_actor,
         },
         "artifacts": artifacts,
         "claim_boundary": (
@@ -800,8 +823,7 @@ def capture_current_visual(
     context_errors = validate_capture_context(m2_inputs, room_inputs)
     if context_errors:
         raise CurrentVisualError(
-            "current MP3D visual input context is invalid: "
-            + "; ".join(context_errors)
+            "current MP3D visual input context is invalid: " + "; ".join(context_errors)
         )
     try:
         static_scene_errors = validate_scene_asset_graph(
@@ -824,7 +846,9 @@ def capture_current_visual(
     except (HabitatCaptureError, OSError, ValueError) as error:
         raise CurrentVisualError(str(error)) from error
     if len(frames) != 75:
-        raise CurrentVisualError("current visual capture requires a 75-state M2 request")
+        raise CurrentVisualError(
+            "current visual capture requires a 75-state M2 request"
+        )
     try:
         installed_runtime = prepare_installed_habitat_runtime(
             runtime_prefix=runtime_prefix,

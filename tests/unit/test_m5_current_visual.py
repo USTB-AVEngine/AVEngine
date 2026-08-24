@@ -114,7 +114,9 @@ def test_current_visual_forwards_only_explicit_installed_inputs(
     monkeypatch.setattr(
         current_visual, "validate_scene_asset_graph", lambda *_args, **_kwargs: []
     )
-    monkeypatch.setattr(current_visual, "load_runtime_asset_bundle", lambda _inputs: "bundle")
+    monkeypatch.setattr(
+        current_visual, "load_runtime_asset_bundle", lambda _inputs: "bundle"
+    )
     monkeypatch.setattr(
         current_visual, "compile_frame_applications", lambda *_args: tuple(range(75))
     )
@@ -127,7 +129,9 @@ def test_current_visual_forwards_only_explicit_installed_inputs(
         calls["capture"] = kwargs
         return receipt
 
-    monkeypatch.setattr(current_visual, "prepare_installed_habitat_runtime", fake_prepare)
+    monkeypatch.setattr(
+        current_visual, "prepare_installed_habitat_runtime", fake_prepare
+    )
     monkeypatch.setattr(current_visual, "_capture_current_visual", fake_capture)
 
     assert (
@@ -165,7 +169,9 @@ def test_current_visual_requires_bullet_before_creating_output(
     monkeypatch.setattr(
         current_visual, "validate_scene_asset_graph", lambda *_args, **_kwargs: []
     )
-    monkeypatch.setattr(current_visual, "load_runtime_asset_bundle", lambda _inputs: "bundle")
+    monkeypatch.setattr(
+        current_visual, "load_runtime_asset_bundle", lambda _inputs: "bundle"
+    )
     monkeypatch.setattr(
         current_visual, "compile_frame_applications", lambda *_args: tuple(range(75))
     )
@@ -382,7 +388,7 @@ def test_current_visual_rejects_preexisting_actor_semantic_ids(
         current_visual._require_no_actor_semantic_collision(semantic)
 
 
-def test_current_visual_rejects_missing_actor_semantic_id_on_frame_75(
+def test_current_visual_records_zero_visibility_without_rejecting_candidate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     identity = np.eye(4, dtype=np.float64)
@@ -453,9 +459,15 @@ def test_current_visual_rejects_missing_actor_semantic_id_on_frame_75(
     habitat_sim = SimpleNamespace(
         Simulator=lambda _configuration: simulator,
         AgentState=SimpleNamespace,
+        __file__=str(tmp_path / "habitat_sim.py"),
     )
     room_inputs = SimpleNamespace(
-        room={"room_id": "habitat_mp3d_example_17DRP5sb8fy"},
+        room={
+            "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+            "room_kind": "habitat_native",
+        },
+        room_path=tmp_path / "room_manifest.json",
+        request_path=tmp_path / "m1_request.json",
         request={
             "seed": 17,
             "primary_camera_rig": {
@@ -466,13 +478,19 @@ def test_current_visual_rejects_missing_actor_semantic_id_on_frame_75(
             },
         },
     )
-    m2_inputs = SimpleNamespace(request={"seed": 17})
+    m2_inputs = SimpleNamespace(
+        request={"seed": 17},
+        asset_path=tmp_path / "animal_manifest.json",
+        request_path=tmp_path / "m2_request.json",
+    )
     installed_runtime = SimpleNamespace(
         habitat_sim=habitat_sim,
         quaternion=SimpleNamespace(quaternion=lambda *_values: object()),
         magnum=object(),
         quat_to_coeffs=object(),
+        prefix=tmp_path / "runtime-prefix",
         mp3d_root=tmp_path / "mp3d",
+        magnum_python_site=tmp_path / "magnum-site",
     )
     frames = tuple(
         SimpleNamespace(
@@ -512,7 +530,9 @@ def test_current_visual_rejects_missing_actor_semantic_id_on_frame_75(
         ),
     )
 
-    def fake_loaded_graph(*_args: object, **kwargs: object) -> tuple[list[str], dict[str, Any]]:
+    def fake_loaded_graph(
+        *_args: object, **kwargs: object
+    ) -> tuple[list[str], dict[str, Any]]:
         assert kwargs["declared_navmesh_loaded"] is True
         assert kwargs["mp3d_root"] == installed_runtime.mp3d_root
         events.append("loaded-graph")
@@ -530,7 +550,9 @@ def test_current_visual_rejects_missing_actor_semantic_id_on_frame_75(
             binding,
         )
 
-    def fake_apply(actor: SimpleNamespace, matrix: np.ndarray, **_kwargs: object) -> None:
+    def fake_apply(
+        actor: SimpleNamespace, matrix: np.ndarray, **_kwargs: object
+    ) -> None:
         actor.root = np.asarray(matrix, dtype=np.float64).copy()
 
     monkeypatch.setattr(
@@ -556,8 +578,12 @@ def test_current_visual_rejects_missing_actor_semantic_id_on_frame_75(
             "agent": room_inputs.request["primary_camera_rig"]["world_from_rig"],
             "sensors": {
                 "rig_rgb": room_inputs.request["primary_camera_rig"]["world_from_rig"],
-                "rig_depth": room_inputs.request["primary_camera_rig"]["world_from_rig"],
-                "rig_semantic": room_inputs.request["primary_camera_rig"]["world_from_rig"],
+                "rig_depth": room_inputs.request["primary_camera_rig"][
+                    "world_from_rig"
+                ],
+                "rig_semantic": room_inputs.request["primary_camera_rig"][
+                    "world_from_rig"
+                ],
             },
         },
     )
@@ -565,22 +591,35 @@ def test_current_visual_rejects_missing_actor_semantic_id_on_frame_75(
 
     output = tmp_path / "capture"
     output.mkdir()
-    with pytest.raises(
-        current_visual.CurrentVisualError,
-        match="frame 74 lost an actor semantic ID",
-    ):
-        current_visual._capture_current_visual(
-            m2_inputs=m2_inputs,
-            room_inputs=room_inputs,
-            installed_runtime=installed_runtime,
-            output=output,
-            bundle=bundle,
-            frames=frames,
-        )
+    receipt = current_visual._capture_current_visual(
+        m2_inputs=m2_inputs,
+        room_inputs=room_inputs,
+        installed_runtime=installed_runtime,
+        output=output,
+        bundle=bundle,
+        frames=frames,
+    )
     assert simulator.render_calls == 76
     assert events.index("loaded-graph") < events.index("instantiate-0")
-    assert not (output / "arrays").exists()
-
+    visibility = np.load(output / "arrays/semantic_visibility_pixels.npy")
+    assert visibility.shape == (75, 2)
+    assert visibility[:74].tolist() == [[1, 1]] * 74
+    assert visibility[74].tolist() == [1, 0]
+    assert receipt["status"] == "research_only"
+    assert receipt["visibility"]["candidate_filtering"] == "disabled"
+    assert receipt["visibility"]["all_frames_visibility_required"] is False
+    assert receipt["visibility"]["per_actor"]["actor0"] == {
+        "visible_frame_count": 75,
+        "zero_visible_frame_indices": [],
+        "minimum_visible_pixels": 1,
+        "maximum_visible_pixels": 1,
+        "per_frame_visible_pixels": [1] * 75,
+    }
+    actor1 = receipt["visibility"]["per_actor"]["actor1"]
+    assert actor1["visible_frame_count"] == 74
+    assert actor1["zero_visible_frame_indices"] == [74]
+    assert actor1["minimum_visible_pixels"] == 0
+    assert actor1["per_frame_visible_pixels"][-2:] == [1, 0]
 
 
 def test_current_module_has_no_checkout_or_v1_receipt_path() -> None:
