@@ -516,6 +516,12 @@ def build_residential_source_episode(
         clip_seconds = _finite(
             motion_profile.get("clip_seconds"), owner=f"{actor_id} clip_seconds"
         )
+        movement_span = _finite(
+            motion_profile.get(
+                "movement_span_seconds", (FRAME_COUNT - 1) / FPS
+            ),
+            owner=f"{actor_id} movement_span_seconds",
+        )
         minimum_speed = _finite(
             motion_profile.get("walk_speed_mps_min"),
             owner=f"{actor_id} walk_speed_mps_min",
@@ -528,9 +534,15 @@ def build_residential_source_episode(
             raise ResidentialEpisodeError(
                 f"route {actor_id} motion_profile has an invalid walking range"
             )
+        if not math.isclose(
+            movement_span, (FRAME_COUNT - 1) / FPS, abs_tol=1.0e-12
+        ):
+            raise ResidentialEpisodeError(
+                f"route {actor_id} movement span differs from 75-frame replay"
+            )
         if materialized.moving:
-            nominal_speed = materialized.path_length_m / clip_seconds
-            if not minimum_speed - 1.0e-9 <= nominal_speed <= maximum_speed + 1.0e-9:
+            replay_speed = materialized.path_length_m / movement_span
+            if not minimum_speed - 1.0e-9 <= replay_speed <= maximum_speed + 1.0e-9:
                 raise ResidentialEpisodeError(
                     f"route {actor_id} length/speed lies outside its motion profile"
                 )
@@ -868,10 +880,8 @@ def build_residential_source_episode(
                 "route_geometry": actor_route_materializations[actor_id].geometry,
                 "path_length_m": actor_route_materializations[actor_id].path_length_m,
                 "mean_speed_mps": _actor_speed(route),
-                "nominal_five_second_speed_mps": (
-                    actor_route_materializations[actor_id].path_length_m
-                    / (FRAME_COUNT / FPS)
-                ),
+                "movement_span_seconds": (FRAME_COUNT - 1) / FPS,
+                "replay_speed_mps": _actor_speed(route),
                 "gate": gates[actor_id],
             }
             for actor_id, route in actor_routes_xyz.items()

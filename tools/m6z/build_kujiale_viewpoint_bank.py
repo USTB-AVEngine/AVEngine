@@ -157,7 +157,8 @@ def _render_topdown(
             (width - legend_width + 18, legend_y + 43),
             (
                 f"corridors={view['eligible_corridor_count']} | "
-                f"pairs={view['compatible_both_moving_pair_count']} | pixels pending"
+                f"pairs described={view['described_pair_count']}/"
+                f"{view['directed_pair_combination_count']} | pixels pending"
             ),
             font=_font(11),
             fill=(180, 180, 180, 255),
@@ -192,10 +193,12 @@ def run(args: argparse.Namespace) -> Path:
         profile_path = args.source_profile.expanduser().resolve()
         visual_profile_path = args.visual_profile.expanduser().resolve()
         motion_path = args.motion_profiles.expanduser().resolve()
+        camera_catalog_path = args.camera_catalog.expanduser().resolve(strict=True)
         metadata = load_json(metadata_path)
         profile = load_json(profile_path)
         visual_profile = load_json(visual_profile_path)
         motion_profiles = load_json(motion_path)
+        camera_catalog = load_json(camera_catalog_path)
         scene_binding = _validate_scene_binding(
             metadata=metadata,
             source_profile=profile,
@@ -270,17 +273,13 @@ def run(args: argparse.Namespace) -> Path:
         plan = build_viewpoint_plan(
             room_id=str(metadata.get("room_id")),
             room_type=str(metadata.get("room_type")),
+            scene_binding=scene_binding,
+            camera_catalog=camera_catalog,
             region_by_source=regions,
             corridors=corridors,
             view_count=args.view_count,
             hfov_degrees=args.hfov_degrees,
-            camera_heights_m=args.camera_heights_m,
-            camera_spacing_m=args.camera_spacing_m,
-            coverage_spacing_m=args.coverage_spacing_m,
-            yaw_step_degrees=args.yaw_step_degrees,
             side_margin=args.side_margin,
-            maximum_camera_positions=args.maximum_camera_positions,
-            maximum_coverage_samples=args.maximum_coverage_samples,
             screening_corridor_count=args.screening_corridor_count,
             minimum_pair_separation_m=args.minimum_pair_separation_m,
             maximum_pair_records=args.maximum_pair_records,
@@ -291,6 +290,7 @@ def run(args: argparse.Namespace) -> Path:
             "source_profile": str(profile_path),
             "visual_profile": str(visual_profile_path),
             "motion_profiles": str(motion_path),
+            "camera_catalog": str(camera_catalog_path),
         }
         bank["scene_binding"] = scene_binding
         bank["obstacle_statistics"] = obstacle_statistics
@@ -331,6 +331,10 @@ def run(args: argparse.Namespace) -> Path:
                 "room_id": metadata.get("room_id"),
                 "route_geometry": args.route_geometry,
                 "route_fallback_used": False,
+                "camera_catalog": str(camera_catalog_path),
+                "camera_catalog_placement_count": bank[
+                    "camera_pool_placement_count"
+                ],
                 "scene_binding": scene_binding,
                 "viewpoint_count": bank["viewpoint_count"],
                 "corridor_count": len(corridors),
@@ -371,6 +375,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--species", nargs="+", default=["human", "dog"])
     parser.add_argument(
+        "--camera-catalog",
+        type=Path,
+        required=True,
+        help="complete target-agnostic room camera placement catalog",
+    )
+    parser.add_argument(
         "--route-geometry",
         choices=("straight", "polyline"),
         required=True,
@@ -378,25 +388,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--view-count", type=int, default=4)
     parser.add_argument("--hfov-degrees", type=float, default=105.0)
-    parser.add_argument(
-        "--camera-heights-m",
-        nargs="+",
-        type=float,
-        default=[1.05, 1.50, 1.85],
-    )
     parser.add_argument("--meters-per-pixel", type=float, default=0.05)
     parser.add_argument("--minimum-clearance-m", type=float)
     parser.add_argument("--sample-spacing-m", type=float, default=0.25)
-    parser.add_argument("--camera-spacing-m", type=float, default=0.50)
-    parser.add_argument("--coverage-spacing-m", type=float, default=0.25)
-    parser.add_argument("--yaw-step-degrees", type=float, default=30.0)
     parser.add_argument("--side-margin", type=float, default=0.06)
     parser.add_argument("--maximum-corridors", type=int, default=256)
     parser.add_argument("--waypoint-spacing-m", type=float, default=0.25)
     parser.add_argument("--maximum-route-segments", type=int, default=4)
     parser.add_argument("--maximum-segment-length-m", type=float, default=1.80)
-    parser.add_argument("--maximum-camera-positions", type=int, default=64)
-    parser.add_argument("--maximum-coverage-samples", type=int, default=256)
     parser.add_argument("--screening-corridor-count", type=int, default=64)
     parser.add_argument("--minimum-pair-separation-m", type=float, default=0.60)
     parser.add_argument("--maximum-pair-records", type=int, default=256)

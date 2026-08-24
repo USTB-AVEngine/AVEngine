@@ -197,14 +197,74 @@ def materialize_route(
     )
 
 
-def _continuous_closest(
-    left: np.ndarray, right: np.ndarray, *, fps: float
+def _route_time_breakpoints(route: MaterializedRoute) -> np.ndarray:
+    if not route.moving:
+        return np.asarray([0.0, 1.0], dtype=np.float64)
+    cumulative = np.concatenate(
+        ([0.0], np.cumsum(np.asarray(route.segment_lengths_m, dtype=np.float64)))
+    )
+    return np.ascontiguousarray(cumulative / route.path_length_m)
+
+
+def _position_and_segment_at_time(
+    route: MaterializedRoute, normalized_time: float
+) -> tuple[np.ndarray, int | None]:
+    if not route.moving:
+        return np.asarray(route.waypoints_m[0], dtype=np.float64), None
+    boundaries = _route_time_breakpoints(route)
+    segment_index = int(
+        np.clip(
+            np.searchsorted(boundaries, normalized_time, side="right") - 1,
+            0,
+            len(route.segment_lengths_m) - 1,
+        )
+    )
+    start_time = float(boundaries[segment_index])
+    end_time = float(boundaries[segment_index + 1])
+    fraction = (
+        0.0
+        if end_time - start_time <= 1.0e-15
+        else (normalized_time - start_time) / (end_time - start_time)
+    )
+    point = route.waypoints_m[segment_index] + fraction * (
+        route.waypoints_m[segment_index + 1] - route.waypoints_m[segment_index]
+    )
+    return np.asarray(point, dtype=np.float64), segment_index
+
+
+def _continuous_closest_piecewise(
+    left: MaterializedRoute, right: MaterializedRoute, *, fps: float
 ) -> dict[str, Any]:
-    best: tuple[float, int, float] | None = None
-    for frame_index in range(len(left) - 1):
-        relative_start = left[frame_index] - right[frame_index]
-        relative_delta = (left[frame_index + 1] - left[frame_index]) - (
-            right[frame_index + 1] - right[frame_index]
+    """Solve synchronized closest approach on original piecewise paths.
+
+    Both routes advance at constant normalized arc-length time.  The union of
+    their original segment-boundary times partitions the interval into pieces
+    on which the relative trajectory is exactly linear.  This avoids the
+    diagonal chord introduced when a fractional-time corner lies between two
+    of the 75 output frames.
+    """
+
+    raw_boundaries = sorted(
+        [
+            *(_route_time_breakpoints(left).tolist()),
+            *(_route_time_breakpoints(right).tolist()),
+        ]
+    )
+    boundaries = [raw_boundaries[0]]
+    for value in raw_boundaries[1:]:
+        if value - boundaries[-1] > 1.0e-12:
+            boundaries.append(value)
+    best: tuple[float, float, float, float, int | None, int | None] | None = None
+    for start_time, end_time in zip(boundaries, boundaries[1:]):
+        left_start, left_segment = _position_and_segment_at_time(left, start_time)
+        left_end, _ = _position_and_segment_at_time(left, end_time)
+        right_start, right_segment = _position_and_segment_at_time(
+            right, start_time
+        )
+        right_end, _ = _position_and_segment_at_time(right, end_time)
+        relative_start = left_start[:2] - right_start[:2]
+        relative_delta = (left_end[:2] - left_start[:2]) - (
+            right_end[:2] - right_start[:2]
         )
         denominator = float(np.dot(relative_delta, relative_delta))
         fraction = 0.0 if denominator <= 1.0e-15 else min(
@@ -212,21 +272,48 @@ def _continuous_closest(
             max(0.0, -float(np.dot(relative_start, relative_delta)) / denominator),
         )
         distance = float(np.linalg.norm(relative_start + fraction * relative_delta))
-        candidate = (distance, frame_index, fraction)
-        if best is None or candidate < best:
+        normalized_time = start_time + fraction * (end_time - start_time)
+        candidate = (
+            distance,
+            normalized_time,
+            start_time,
+            end_time,
+            left_segment,
+            right_segment,
+        )
+        if best is None or candidate[:2] < best[:2]:
             best = candidate
     if best is None:
-        distance = float(np.linalg.norm(left[0] - right[0]))
-        best = (distance, 0, 0.0)
-    distance, frame_index, fraction = best
-    frame_position = float(frame_index + fraction)
+        left_point, left_segment = _position_and_segment_at_time(left, 0.0)
+        right_point, right_segment = _position_and_segment_at_time(right, 0.0)
+        best = (
+            float(np.linalg.norm(left_point[:2] - right_point[:2])),
+            0.0,
+            0.0,
+            0.0,
+            left_segment,
+            right_segment,
+        )
+    (
+        distance,
+        normalized_time,
+        interval_start,
+        interval_end,
+        left_segment,
+        right_segment,
+    ) = best
+    frame_position = normalized_time * (len(left.positions_m) - 1)
     return {
         "distance_m": distance,
+        "normalized_time": normalized_time,
         "frame_position": frame_position,
         "time_seconds": frame_position / fps,
-        "lower_frame_index": frame_index,
-        "upper_frame_index": min(frame_index + 1, len(left) - 1),
-        "interval_fraction": fraction,
+        "lower_frame_index": int(math.floor(frame_position)),
+        "upper_frame_index": int(math.ceil(frame_position)),
+        "normalized_time_interval": [interval_start, interval_end],
+        "source1_segment_index": left_segment,
+        "source2_segment_index": right_segment,
+        "authority": "original_piecewise_linear_normalized_arc_time",
     }
 
 
@@ -309,7 +396,7 @@ def describe_route_pair(
     planar = np.linalg.norm(left[:, :2] - right[:, :2], axis=1)
     root = np.linalg.norm(left - right, axis=1)
     closest_index = int(np.argmin(planar))
-    continuous = _continuous_closest(left[:, :2], right[:, :2], fps=rate)
+    continuous = _continuous_closest_piecewise(source1, source2, fps=rate)
     source1_to_source2_start = float(
         np.linalg.norm(left[-1, :2] - right[0, :2])
     )

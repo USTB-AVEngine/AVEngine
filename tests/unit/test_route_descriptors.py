@@ -69,3 +69,30 @@ def test_explicit_hold_has_75_positions_and_heading() -> None:
     assert hold.positions_m.shape == (75, 3)
     assert np.all(hold.positions_m == [2.0, 3.0, 0.4])
     assert set(hold.tangent_yaw_degrees_by_frame) == {-90.0}
+
+
+def test_continuous_closest_does_not_chord_a_fractional_corner() -> None:
+    moving = materialize_route(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 2.0, 0.0]],
+        75,
+        geometry="polyline",
+    )
+    # The corner is at normalized time 1/3, or frame position 24.666... .
+    # The midpoint of frames 24/25 lies on the sampled diagonal chord but not
+    # on either original L segment.
+    chord_midpoint = 0.5 * (moving.positions_m[24] + moving.positions_m[25])
+    hold = materialize_route(
+        [chord_midpoint],
+        75,
+        geometry="hold",
+        heading_yaw_degrees=0.0,
+    )
+    descriptor = describe_route_pair(moving, hold, fps=15)
+    continuous = descriptor["closest_continuous_plan"]
+    expected = min(float(chord_midpoint[1]), 1.0 - float(chord_midpoint[0]))
+    assert expected > 1.0e-4
+    assert continuous["distance_m"] == pytest.approx(expected, abs=1.0e-12)
+    assert continuous["authority"] == (
+        "original_piecewise_linear_normalized_arc_time"
+    )
+    assert continuous["normalized_time_interval"][1] == pytest.approx(1.0 / 3.0)

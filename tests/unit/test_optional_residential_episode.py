@@ -235,6 +235,28 @@ def test_hold_route_requires_an_explicit_heading() -> None:
         )
 
 
+def test_motion_profile_uses_74_over_15_replay_span_not_five_seconds() -> None:
+    profile = _profile()
+    profile["routes"]["dog0"] = {
+        "route_geometry": "straight",
+        "start_xyz_m": [-0.4, 2.0, 0.0],
+        "end_xyz_m": [-0.4, -1.9, 0.0],
+        "motion_profile": {
+            "species_id": "dog",
+            "walk_speed_mps_min": 0.60,
+            "walk_speed_mps_max": 0.78,
+            "clip_seconds": 5.0,
+            "movement_span_seconds": 74 / 15,
+        },
+    }
+    # 3.9/5.0 == 0.78 would pass the old check, but the actual frame-0 to
+    # frame-74 replay speed is 3.9/(74/15) > 0.78 and must fail.
+    with pytest.raises(ResidentialEpisodeError, match="outside its motion profile"):
+        build_residential_source_episode(
+            scene_metadata=_metadata(), profile=profile
+        )
+
+
 def test_center_gate_rejects_obstacle_but_ignores_rug_and_chandelier() -> None:
     profile = _profile()
     profile["routes"]["human0"] = {

@@ -33,6 +33,9 @@ CPU_PREFILTER_BOUNDARY = (
     "2D camera/corridor planning only; not a Habitat navmesh, native pixel, "
     "full-body collision, UE/SPEAR certification, or dataset-admission claim"
 )
+ROUTE_FRAME_COUNT = 75
+ROUTE_FPS = 15
+ROUTE_MOVEMENT_SPAN_SECONDS = (ROUTE_FRAME_COUNT - 1) / ROUTE_FPS
 
 
 class KujialeViewpointError(ValueError):
@@ -82,9 +85,9 @@ def _identifier(value: Any, *, owner: str) -> str:
     return result
 
 
-def _common_region(
+def _shared_obstacle_map(
     region_by_source: Mapping[str, FeasibleRegionIndex],
-) -> tuple[RuntimeObstacleMap, np.ndarray]:
+) -> RuntimeObstacleMap:
     if set(region_by_source) != {"source1", "source2"}:
         raise KujialeViewpointError(
             "region_by_source must contain exactly source1 and source2"
@@ -99,10 +102,19 @@ def _common_region(
         raise KujialeViewpointError("source regions must share one obstacle map")
     if first.feasible_mask.shape != second.feasible_mask.shape:
         raise KujialeViewpointError("source region mask shapes differ")
+    return first.obstacle_map
+
+
+def _common_region(
+    region_by_source: Mapping[str, FeasibleRegionIndex],
+) -> tuple[RuntimeObstacleMap, np.ndarray]:
+    obstacle_map = _shared_obstacle_map(region_by_source)
+    first = region_by_source["source1"]
+    second = region_by_source["source2"]
     common = np.asarray(first.feasible_mask & second.feasible_mask, dtype=np.bool_)
     if not np.any(common):
         raise KujialeViewpointError("source-region intersection is empty")
-    return first.obstacle_map, np.ascontiguousarray(common)
+    return obstacle_map, np.ascontiguousarray(common)
 
 
 def _pixel_sizes(
@@ -251,7 +263,7 @@ def natural_distance_band(
     motion_profiles: Mapping[str, Any], species: Sequence[str]
 ) -> tuple[float, float]:
     profiles = motion_profiles.get("profiles")
-    clip_seconds = _positive(
+    _declared_clip_seconds = _positive(
         motion_profiles.get("clip_seconds"), owner="motion_profiles.clip_seconds"
     )
     if not isinstance(profiles, Mapping):
@@ -272,14 +284,14 @@ def natural_distance_band(
                 profile.get("walk_speed_mps_min"),
                 owner=f"{species_id}.walk_speed_mps_min",
             )
-            * clip_seconds
+            * ROUTE_MOVEMENT_SPAN_SECONDS
         )
         maximums.append(
             _positive(
                 profile.get("walk_speed_mps_max"),
                 owner=f"{species_id}.walk_speed_mps_max",
             )
-            * clip_seconds
+            * ROUTE_MOVEMENT_SPAN_SECONDS
         )
     minimum = max(minimums)
     maximum = min(maximums)
@@ -393,7 +405,7 @@ def generate_straight_corridors(
         )
     floor = float(obstacle_map.floor_height_m)
     profiles = motion_profiles["profiles"]
-    clip_seconds = float(motion_profiles["clip_seconds"])
+    declared_clip_seconds = float(motion_profiles["clip_seconds"])
     for index, corridor in enumerate(selected, start=1):
         corridor["corridor_id"] = f"corridor_{index:04d}"
         corridor["route_geometry"] = "straight"
@@ -416,8 +428,8 @@ def generate_straight_corridors(
             corridor["end_xy_m"][1],
         ]
         corridor["natural_distance_band_m"] = [minimum_distance, maximum_distance]
-        corridor["nominal_clip_speed_mps"] = (
-            float(corridor["length_m"]) / clip_seconds
+        corridor["replay_speed_mps"] = (
+            float(corridor["length_m"]) / ROUTE_MOVEMENT_SPAN_SECONDS
         )
         corridor["species_profiles"] = list(species)
         corridor["motion_profile_by_species"] = {
@@ -428,7 +440,8 @@ def generate_straight_corridors(
                 "walk_speed_mps_max": float(
                     profiles[species_id]["walk_speed_mps_max"]
                 ),
-                "clip_seconds": clip_seconds,
+                "clip_seconds": declared_clip_seconds,
+                "movement_span_seconds": ROUTE_MOVEMENT_SPAN_SECONDS,
             }
             for species_id in species
         }
@@ -457,7 +470,7 @@ def _turn_is_simple(
     return 20.0 <= angle <= 160.0
 
 
-def _proper_segment_intersection(
+def _segments_intersect_or_touch(
     a0: Sequence[float],
     a1: Sequence[float],
     b0: Sequence[float],
@@ -472,12 +485,29 @@ def _proper_segment_intersection(
             float(right[0]) - float(origin[0])
         )
 
+    def on_segment(
+        start: Sequence[float], point: Sequence[float], end: Sequence[float]
+    ) -> bool:
+        return (
+            min(float(start[0]), float(end[0])) - 1.0e-12
+            <= float(point[0])
+            <= max(float(start[0]), float(end[0])) + 1.0e-12
+            and min(float(start[1]), float(end[1])) - 1.0e-12
+            <= float(point[1])
+            <= max(float(start[1]), float(end[1])) + 1.0e-12
+        )
+
     first = orientation(a0, a1, b0)
     second = orientation(a0, a1, b1)
     third = orientation(b0, b1, a0)
     fourth = orientation(b0, b1, a1)
+    if first * second < -1.0e-12 and third * fourth < -1.0e-12:
+        return True
     return (
-        first * second < -1.0e-12 and third * fourth < -1.0e-12
+        (abs(first) <= 1.0e-12 and on_segment(a0, b0, a1))
+        or (abs(second) <= 1.0e-12 and on_segment(a0, b1, a1))
+        or (abs(third) <= 1.0e-12 and on_segment(b0, a0, b1))
+        or (abs(fourth) <= 1.0e-12 and on_segment(b0, a1, b1))
     )
 
 
@@ -637,7 +667,7 @@ def generate_polyline_corridors(
                 ):
                     continue
                 if any(
-                    _proper_segment_intersection(
+                    _segments_intersect_or_touch(
                         points[path[index]],
                         points[path[index + 1]],
                         points[current],
@@ -692,7 +722,7 @@ def generate_polyline_corridors(
         ordinal += 1
     floor = float(obstacle_map.floor_height_m)
     profiles = motion_profiles["profiles"]
-    clip_seconds = float(motion_profiles["clip_seconds"])
+    declared_clip_seconds = float(motion_profiles["clip_seconds"])
     for index, corridor in enumerate(selected, start=1):
         waypoints_xy = corridor["waypoints_xy_m"]
         corridor.update(
@@ -712,13 +742,16 @@ def generate_polyline_corridors(
                 "start_world_m": [waypoints_xy[0][0], floor, waypoints_xy[0][1]],
                 "end_world_m": [waypoints_xy[-1][0], floor, waypoints_xy[-1][1]],
                 "natural_distance_band_m": [minimum_distance, maximum_distance],
-                "nominal_clip_speed_mps": float(corridor["length_m"]) / clip_seconds,
+                "replay_speed_mps": (
+                    float(corridor["length_m"]) / ROUTE_MOVEMENT_SPAN_SECONDS
+                ),
                 "species_profiles": list(species),
                 "motion_profile_by_species": {
                     species_id: {
                         "walk_speed_mps_min": float(profiles[species_id]["walk_speed_mps_min"]),
                         "walk_speed_mps_max": float(profiles[species_id]["walk_speed_mps_max"]),
-                        "clip_seconds": clip_seconds,
+                        "clip_seconds": declared_clip_seconds,
+                        "movement_span_seconds": ROUTE_MOVEMENT_SPAN_SECONDS,
                     }
                     for species_id in species
                 },
@@ -933,40 +966,14 @@ def _direction_record(
     return result
 
 
-def _continuous_pair_separation(
-    left: Mapping[str, Any], right: Mapping[str, Any]
-) -> float:
-    left_start = np.asarray(left["start_xy_m"], dtype=np.float64)
-    left_end = np.asarray(left["end_xy_m"], dtype=np.float64)
-    right_start = np.asarray(right["start_xy_m"], dtype=np.float64)
-    right_end = np.asarray(right["end_xy_m"], dtype=np.float64)
-    relative_start = left_start - right_start
-    relative_velocity = (left_end - left_start) - (right_end - right_start)
-    velocity_squared = float(np.dot(relative_velocity, relative_velocity))
-    if velocity_squared <= 1.0e-15:
-        fraction = 0.0
-    else:
-        fraction = min(
-            1.0,
-            max(
-                0.0,
-                -float(np.dot(relative_start, relative_velocity))
-                / velocity_squared,
-            ),
-        )
-    separation = relative_start + fraction * relative_velocity
-    return float(np.linalg.norm(separation))
-
-
-def _compatible_direction_pairs(
+def _describe_directed_pairs(
     direction_by_corridor: Mapping[str, Sequence[Mapping[str, Any]]],
     *,
     minimum_separation_m: float,
     maximum_records: int,
     listener_position_xy_m: Sequence[float] | None = None,
     listener_yaw_degrees: float | None = None,
-    stop_after_count: int | None = None,
-) -> tuple[int, list[dict[str, Any]]]:
+) -> dict[str, Any]:
     directed = [
         {
             "direction_id": f"{corridor_id}:{direction['direction']}",
@@ -976,22 +983,22 @@ def _compatible_direction_pairs(
         for corridor_id in sorted(direction_by_corridor)
         for direction in direction_by_corridor[corridor_id]
     ]
-    total_count = len(directed) * (len(directed) - 1) // 2
+    combination_count = len(directed) * len(directed)
     candidate_pairs = [
         (left, right)
-        for left_index, left in enumerate(directed)
-        for right in directed[left_index + 1 :]
+        for left in directed
+        for right in directed
     ]
     candidate_pairs.sort(
         key=lambda value: (
             value[0]["corridor_id"] != value[1]["corridor_id"],
+            value[0]["direction"] == value[1]["direction"],
             value[0]["direction_id"],
             value[1]["direction_id"],
         )
     )
     pairs: list[dict[str, Any]] = []
-    record_limit = min(maximum_records, stop_after_count or maximum_records)
-    for left, right in candidate_pairs[:record_limit]:
+    for left, right in candidate_pairs[:maximum_records]:
         descriptor = describe_route_pair(
             left["_materialized"],
             right["_materialized"],
@@ -1004,7 +1011,7 @@ def _compatible_direction_pairs(
             {
                 "source1_direction_id": left["direction_id"],
                 "source2_direction_id": right["direction_id"],
-                "minimum_continuous_linear_separation_m": descriptor[
+                "continuous_closest_planar_distance_m": descriptor[
                     "closest_continuous_plan"
                 ]["distance_m"],
                 "opposite_sides_at_first_anchor": (
@@ -1017,12 +1024,20 @@ def _compatible_direction_pairs(
         )
     pairs.sort(
         key=lambda item: (
-            -round(float(item["minimum_continuous_linear_separation_m"]), 9),
+            -round(float(item["continuous_closest_planar_distance_m"]), 9),
             item["source1_direction_id"],
             item["source2_direction_id"],
         )
     )
-    return total_count, pairs[:maximum_records]
+    return {
+        "directed_pair_combination_count": combination_count,
+        "described_pair_count": len(pairs),
+        "described_pair_records": pairs,
+        "description_scope": (
+            "only described_pair_records carry computed pair clues; the larger "
+            "directed combination count is arithmetic and not a compatibility claim"
+        ),
+    }
 
 
 def _serialize_direction(direction: Mapping[str, Any]) -> dict[str, Any]:
@@ -1090,9 +1105,11 @@ def _motion_case_records(
     route_pair_ordinal: int,
 ) -> list[dict[str, Any]]:
     corridor_ids = sorted(direction_by_corridor)
-    if not corridor_ids:
-        raise KujialeViewpointError("at least one corridor is required")
-    selected_corridor_id = corridor_ids[route_pair_ordinal % len(corridor_ids)]
+    if route_pair_ordinal >= len(corridor_ids):
+        raise KujialeViewpointError(
+            "distinct per-view route request exceeds available corridors"
+        )
+    selected_corridor_id = corridor_ids[route_pair_ordinal]
     directed = list(direction_by_corridor[selected_corridor_id])
     if len(directed) != 2:
         raise KujialeViewpointError("at least two directed routes are required")
@@ -1117,6 +1134,7 @@ def _motion_case_records(
                 "walk_speed_mps_min": 1.0e-9,
                 "walk_speed_mps_max": 1.0e6,
                 "clip_seconds": 5.0,
+                "movement_span_seconds": ROUTE_MOVEMENT_SPAN_SECONDS,
             },
         )
         dog_profile = first_direction.get("motion_profile_by_species", {}).get(
@@ -1125,6 +1143,7 @@ def _motion_case_records(
                 "walk_speed_mps_min": 1.0e-9,
                 "walk_speed_mps_max": 1.0e6,
                 "clip_seconds": 5.0,
+                "movement_span_seconds": ROUTE_MOVEMENT_SPAN_SECONDS,
             },
         )
         human_adjusted, human_request = _actor_route_from_materialized(
@@ -1175,30 +1194,173 @@ def _motion_case_records(
     return result
 
 
+def validate_camera_catalog_for_viewpoint_selection(
+    *,
+    camera_catalog: Mapping[str, Any],
+    scene_binding: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Cross-check and return the complete target-agnostic camera pool."""
+
+    catalog_binding = camera_catalog.get("scene_binding")
+    if not isinstance(catalog_binding, Mapping):
+        raise KujialeViewpointError("camera catalog lacks scene_binding")
+    for key in (
+        "dataset_id",
+        "scene_id",
+        "room_id",
+        "room_scope",
+        "map_path",
+        "source_stage_name",
+    ):
+        if catalog_binding.get(key) != scene_binding.get(key):
+            raise KujialeViewpointError(
+                f"camera catalog and current scene binding {key} differ"
+            )
+    if camera_catalog.get("room_id") != scene_binding.get("room_id"):
+        raise KujialeViewpointError("camera catalog room_id differs")
+    if camera_catalog.get("room_scope") != scene_binding.get("room_scope"):
+        raise KujialeViewpointError("camera catalog room_scope differs")
+    if camera_catalog.get("candidate_filtering") != "none":
+        raise KujialeViewpointError("camera catalog must retain the unfiltered pool")
+    if camera_catalog.get("studio_used") is not False:
+        raise KujialeViewpointError("camera catalog must declare studio_used=false")
+    raw_heights = camera_catalog.get("camera_height_variants_above_floor_m")
+    raw_yaws = camera_catalog.get("yaw_degrees")
+    raw_placements = camera_catalog.get("placements")
+    if not isinstance(raw_heights, Mapping) or not raw_heights:
+        raise KujialeViewpointError("camera catalog lacks height variants")
+    if (
+        isinstance(raw_yaws, (str, bytes))
+        or not isinstance(raw_yaws, Sequence)
+        or not raw_yaws
+    ):
+        raise KujialeViewpointError("camera catalog lacks yaw variants")
+    if not isinstance(raw_placements, list) or not raw_placements:
+        raise KujialeViewpointError("camera catalog has no placements")
+    heights = {
+        str(height_id): _positive(value, owner=f"camera height {height_id}")
+        for height_id, value in raw_heights.items()
+    }
+    yaws = {_normalized_yaw(value) for value in raw_yaws}
+    obstacle_map = camera_catalog.get("obstacle_map")
+    if not isinstance(obstacle_map, Mapping):
+        raise KujialeViewpointError("camera catalog lacks obstacle_map")
+    floor = _finite(obstacle_map.get("floor_height_m"), owner="camera catalog floor")
+    placement_ids: set[str] = set()
+    poses: set[tuple[float, float, float, float]] = set()
+    by_floor_position: dict[tuple[int, int, float, float], set[tuple[str, float]]] = {}
+    records = []
+    for index, raw in enumerate(raw_placements):
+        if not isinstance(raw, Mapping):
+            raise KujialeViewpointError(f"camera placement {index} must be an object")
+        placement_id = _identifier(
+            raw.get("placement_id"), owner=f"camera placement {index} id"
+        )
+        if placement_id in placement_ids:
+            raise KujialeViewpointError("camera placement ids must be unique")
+        placement_ids.add(placement_id)
+        position = raw.get("position_m")
+        if (
+            isinstance(position, (str, bytes))
+            or not isinstance(position, Sequence)
+            or len(position) != 3
+        ):
+            raise KujialeViewpointError(
+                f"camera placement {placement_id} position_m is invalid"
+            )
+        xyz = [
+            _finite(value, owner=f"camera placement {placement_id} position")
+            for value in position
+        ]
+        yaw = _normalized_yaw(raw.get("yaw_deg"))
+        height_id = str(raw.get("height_id"))
+        if height_id not in heights or yaw not in yaws:
+            raise KujialeViewpointError(
+                f"camera placement {placement_id} uses an undeclared height or yaw"
+            )
+        if not math.isclose(xyz[1] - floor, heights[height_id], abs_tol=1.0e-9):
+            raise KujialeViewpointError(
+                f"camera placement {placement_id} height differs from catalog"
+            )
+        pixel = raw.get("raster_pixel_rc")
+        if (
+            isinstance(pixel, (str, bytes))
+            or not isinstance(pixel, Sequence)
+            or len(pixel) != 2
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in pixel)
+        ):
+            raise KujialeViewpointError(
+                f"camera placement {placement_id} raster pixel is invalid"
+            )
+        if (
+            raw.get("room_instance_id") != scene_binding.get("room_id")
+            or raw.get("room_scope") != scene_binding.get("room_scope")
+            or raw.get("placement_status") != "camera_center_feasible_only"
+        ):
+            raise KujialeViewpointError(
+                f"camera placement {placement_id} identity or status differs"
+            )
+        if (
+            raw.get("semantic_target") is not None
+            or raw.get("source_path_join_status") != "pending"
+            or raw.get("difficulty_status") != "not_evaluated"
+        ):
+            raise KujialeViewpointError(
+                f"camera placement {placement_id} is not target-agnostic"
+            )
+        pose = (xyz[0], xyz[2], xyz[1], yaw)
+        if pose in poses:
+            raise KujialeViewpointError("camera catalog contains duplicate poses")
+        poses.add(pose)
+        floor_key = (int(pixel[0]), int(pixel[1]), xyz[0], xyz[2])
+        by_floor_position.setdefault(floor_key, set()).add((height_id, yaw))
+        records.append(
+            {
+                "placement_id": placement_id,
+                "position_xy_m": [xyz[0], xyz[2]],
+                "height_m": xyz[1],
+                "height_id": height_id,
+                "yaw_ue_deg": yaw,
+                "raster_pixel_rc": [int(pixel[0]), int(pixel[1])],
+                "room_type_annotation": raw.get("room_type_annotation"),
+            }
+        )
+    declared_count = camera_catalog.get("placement_count")
+    if declared_count != len(records):
+        raise KujialeViewpointError("camera catalog placement_count differs")
+    expected_variants = {(height_id, yaw) for height_id in heights for yaw in yaws}
+    if any(variants != expected_variants for variants in by_floor_position.values()):
+        raise KujialeViewpointError(
+            "camera catalog does not completely cross every floor position, height and yaw"
+        )
+    if camera_catalog.get("sampled_floor_position_count") != len(by_floor_position):
+        raise KujialeViewpointError(
+            "camera catalog sampled_floor_position_count differs"
+        )
+    return records
+
+
 def build_viewpoint_plan(
     *,
     room_id: str,
     room_type: str,
+    scene_binding: Mapping[str, Any],
+    camera_catalog: Mapping[str, Any],
     region_by_source: Mapping[str, FeasibleRegionIndex],
     corridors: Sequence[Mapping[str, Any]],
     view_count: int = 4,
     hfov_degrees: Real = 105.0,
-    camera_heights_m: Sequence[Real] = (1.05, 1.50, 1.85),
-    camera_spacing_m: Real = 0.50,
-    coverage_spacing_m: Real = 0.25,
-    yaw_step_degrees: Real = 30.0,
     side_margin: Real = 0.06,
-    maximum_camera_positions: int = 64,
-    maximum_coverage_samples: int = 256,
     screening_corridor_count: int = 64,
     minimum_pair_separation_m: Real = 0.60,
     maximum_pair_records: int = 256,
 ) -> dict[str, Any]:
     """Select 4--8 CPU requests and attach post-hoc route descriptors.
 
-    Camera legality comes only from the retained feasible raster.  Visibility,
-    side, crossing/exchange and pair distance can influence descriptive ranking
-    but never remove a legal camera or source route.
+    Camera legality and the complete pose pool come only from the supplied
+    target-agnostic camera catalog. Source masks generate corridors only.
+    Visibility, LOS, side, crossing/exchange and pair distance can influence
+    descriptive ranking but never remove a legal camera or source route.
     """
 
     requested = _count(view_count, owner="view_count", minimum=4)
@@ -1207,20 +1369,9 @@ def build_viewpoint_plan(
     hfov = _positive(hfov_degrees, owner="hfov_degrees")
     if hfov >= 180.0:
         raise KujialeViewpointError("hfov_degrees must be smaller than 180")
-    camera_spacing = _positive(camera_spacing_m, owner="camera_spacing_m")
-    coverage_spacing = _positive(coverage_spacing_m, owner="coverage_spacing_m")
-    yaw_step = _positive(yaw_step_degrees, owner="yaw_step_degrees")
-    if yaw_step > 90.0:
-        raise KujialeViewpointError("yaw_step_degrees must not exceed 90")
     margin = _finite(side_margin, owner="side_margin")
     if not 0.0 <= margin < 1.0:
         raise KujialeViewpointError("side_margin must lie in [0, 1)")
-    camera_limit = _count(
-        maximum_camera_positions, owner="maximum_camera_positions", minimum=8
-    )
-    coverage_limit = _count(
-        maximum_coverage_samples, owner="maximum_coverage_samples", minimum=16
-    )
     corridor_limit = _count(
         screening_corridor_count, owner="screening_corridor_count", minimum=4
     )
@@ -1230,34 +1381,24 @@ def build_viewpoint_plan(
     pair_record_limit = _count(
         maximum_pair_records, owner="maximum_pair_records", minimum=4
     )
-    heights = sorted(
-        {_positive(value, owner="camera height") for value in camera_heights_m}
-    )
-    if not heights:
-        raise KujialeViewpointError("camera_heights_m must be non-empty")
     room_key = _identifier(room_id, owner="room_id")
-    obstacle_map, common = _common_region(region_by_source)
-    pixel_x, pixel_z = _pixel_sizes(obstacle_map, common.shape)
-    coverage_pixels = _limit_pixels(
-        _sample_pixels(common, coverage_spacing, min(pixel_x, pixel_z)),
-        coverage_limit,
+    if scene_binding.get("room_id") != room_id:
+        raise KujialeViewpointError("room_id differs from current scene binding")
+    camera_placements = validate_camera_catalog_for_viewpoint_selection(
+        camera_catalog=camera_catalog,
+        scene_binding=scene_binding,
     )
-    camera_pixels = _limit_pixels(
-        _sample_pixels(common, camera_spacing, min(pixel_x, pixel_z)),
-        camera_limit,
-    )
-    coverage_points = [
-        _pixel_to_xy(obstacle_map, common.shape, pixel)
-        for pixel in coverage_pixels
-    ]
-    camera_points = [
-        _pixel_to_xy(obstacle_map, common.shape, pixel) for pixel in camera_pixels
-    ]
-    if not camera_points:
-        raise KujialeViewpointError("room has no sampled camera positions")
+    heights = sorted({float(item["height_m"]) for item in camera_placements})
+    obstacle_map = _shared_obstacle_map(region_by_source)
+    route_los_mask = np.asarray(obstacle_map.binary_navmesh, dtype=np.bool_)
     corridor_values = [dict(item) for item in corridors]
     if not corridor_values:
         raise KujialeViewpointError("corridors must be non-empty")
+    if len(corridor_values) < requested:
+        raise KujialeViewpointError(
+            f"only {len(corridor_values)} distinct corridors exist; "
+            f"requested {requested} per-view routes"
+        )
     for corridor in corridor_values:
         corridor["_forward_materialized"] = _materialized_corridor(corridor)
         corridor["_reverse_materialized"] = _materialized_corridor(
@@ -1265,58 +1406,39 @@ def build_viewpoint_plan(
         )
     screening_corridors = corridor_values[:corridor_limit]
 
-    yaw_grid = {
-        _normalized_yaw(-180.0 + index * yaw_step)
-        for index in range(int(math.ceil(360.0 / yaw_step)))
-    }
     candidates: list[dict[str, Any]] = []
-    for camera_index, camera_xy in enumerate(camera_points):
-        los_targets = {
-            index
-            for index, target in enumerate(coverage_points)
-            if _segment_clear(obstacle_map, common, camera_xy, target)
-        }
-        for yaw in sorted(yaw_grid):
-            visible = {
-                index
-                for index in los_targets
-                if _in_fov(camera_xy, yaw, coverage_points[index], hfov)
-            }
-            preferred_corridors: set[str] = set()
-            for corridor in screening_corridors:
-                materialized = corridor["_forward_materialized"]
-                probe_indices = (0, len(materialized.positions_m) // 2, 74)
-                if any(
-                    _in_fov(
-                        camera_xy,
-                        yaw,
-                        materialized.positions_m[probe_index, :2],
-                        hfov,
-                    )
-                    for probe_index in probe_indices
+    for placement in camera_placements:
+        camera_xy = placement["position_xy_m"]
+        yaw = float(placement["yaw_ue_deg"])
+        visible: set[int] = set()
+        preferred_corridors: set[str] = set()
+        for corridor_index, corridor in enumerate(screening_corridors):
+            materialized = corridor["_forward_materialized"]
+            probe_indices = (0, len(materialized.positions_m) // 2, 74)
+            for local_index, probe_index in enumerate(probe_indices):
+                target = materialized.positions_m[probe_index, :2]
+                if _in_fov(camera_xy, yaw, target, hfov) and _segment_clear(
+                    obstacle_map, route_los_mask, camera_xy, target
                 ):
+                    visible.add(corridor_index * len(probe_indices) + local_index)
                     preferred_corridors.add(str(corridor["corridor_id"]))
-            for height_index, height in enumerate(heights):
-                candidates.append(
-                    {
-                        "candidate_id": (
-                            f"c{camera_index:04d}_h{height_index:02d}_"
-                            f"y{int(round((yaw + 180.0) * 10.0)):04d}"
-                        ),
-                        "position_xy_m": [
-                            float(camera_xy[0]),
-                            float(camera_xy[1]),
-                        ],
-                        "height_m": height,
-                        "yaw_ue_deg": yaw,
-                        "_visible": visible,
-                        "_corridors": preferred_corridors,
-                        "_has_pair": bool(screening_corridors),
-                    }
-                )
+        candidates.append(
+            {
+                "candidate_id": placement["placement_id"],
+                "camera_catalog_placement_id": placement["placement_id"],
+                "position_xy_m": list(camera_xy),
+                "height_m": float(placement["height_m"]),
+                "height_id": placement["height_id"],
+                "yaw_ue_deg": yaw,
+                "raster_pixel_rc": list(placement["raster_pixel_rc"]),
+                "_visible": visible,
+                "_corridors": preferred_corridors,
+                "_has_pair": bool(screening_corridors),
+            }
+        )
     if not candidates:
         raise KujialeViewpointError(
-            "no camera pose sees a clear natural-speed corridor with side margin"
+            "camera catalog contains no finite target-agnostic placements"
         )
     candidates.sort(key=lambda item: item["candidate_id"])
 
@@ -1371,8 +1493,18 @@ def build_viewpoint_plan(
             f"only {len(selected)} non-duplicate viewpoints qualify; requested {requested}"
         )
 
-    feasible_area = float(np.count_nonzero(common) * pixel_x * pixel_z)
-    coverage_sample_area = feasible_area / len(coverage_points)
+    camera_pixel_size = _positive(
+        camera_catalog.get("meters_per_pixel"),
+        owner="camera catalog meters_per_pixel",
+    )
+    feasible_area = (
+        _count(
+            camera_catalog.get("free_space_raster_pixel_count"),
+            owner="camera catalog free_space_raster_pixel_count",
+        )
+        * camera_pixel_size
+        * camera_pixel_size
+    )
     viewpoint_records: list[dict[str, Any]] = []
     subsets: dict[str, dict[str, Any]] = {}
     for index, candidate in enumerate(selected, start=1):
@@ -1396,7 +1528,7 @@ def build_viewpoint_plan(
                 f"selected candidate {candidate['candidate_id']} lost all corridors "
                 "during complete re-evaluation"
             )
-        compatible_pair_count, compatible_pairs = _compatible_direction_pairs(
+        pair_descriptions = _describe_directed_pairs(
             complete_directions,
             minimum_separation_m=pair_separation,
             maximum_records=pair_record_limit,
@@ -1413,6 +1545,11 @@ def build_viewpoint_plan(
         viewpoint_records.append(
             {
                 "viewpoint_id": viewpoint_id,
+                "camera_catalog_placement_id": candidate[
+                    "camera_catalog_placement_id"
+                ],
+                "camera_catalog_raster_pixel_rc": candidate["raster_pixel_rc"],
+                "camera_height_id": candidate["height_id"],
                 "position_xyz_m": [position_xy[0], position_xy[1], height],
                 "position_ue_cm": [
                     position_xy[0] * 100.0,
@@ -1423,13 +1560,15 @@ def build_viewpoint_plan(
                 "yaw_ue_deg": yaw_ue,
                 "yaw_habitat_deg": _normalized_yaw(-90.0 - yaw_ue),
                 "horizontal_fov_deg": hfov,
-                "visible_feasible_sample_count": len(candidate["_visible"]),
-                "estimated_visible_feasible_area_m2": (
-                    len(candidate["_visible"]) * coverage_sample_area
-                ),
+                "visible_route_probe_count": len(candidate["_visible"]),
                 "eligible_corridor_count": len(corridor_ids),
                 "geometry_legal_corridor_count": len(corridor_ids),
-                "compatible_both_moving_pair_count": compatible_pair_count,
+                "directed_pair_combination_count": pair_descriptions[
+                    "directed_pair_combination_count"
+                ],
+                "described_pair_count": pair_descriptions[
+                    "described_pair_count"
+                ],
                 "motion_case_count": len(motion_cases),
                 "corridor_subset": f"corridors/{viewpoint_id}.json",
                 "native_pixel_validation_status": "pending",
@@ -1458,8 +1597,7 @@ def build_viewpoint_plan(
                 }
                 for corridor_id in corridor_ids
             ],
-            "compatible_both_moving_pair_count": compatible_pair_count,
-            "compatible_both_moving_pairs": compatible_pairs,
+            **pair_descriptions,
             "four_point_motion_cases": motion_cases,
         }
 
@@ -1474,31 +1612,33 @@ def build_viewpoint_plan(
             "room_type": room_type,
             "authority": CPU_PREFILTER_AUTHORITY,
             "claim_boundary": CPU_PREFILTER_BOUNDARY,
-            "navigation_authority": obstacle_map.authority,
+            "camera_pool_authority": camera_catalog.get("authority"),
+            "camera_pool_candidate_filtering": camera_catalog.get(
+                "candidate_filtering"
+            ),
+            "camera_pool_placement_count": len(camera_placements),
+            "camera_pool_is_complete_declared_catalog": True,
+            "source_route_navigation_authority": obstacle_map.authority,
             "navigation_is_habitat_navmesh": False,
             "native_pixel_validation_status": "pending",
             "ue_spear_certification_status": "pending",
             "viewpoint_count": len(viewpoint_records),
             "selection_policy": (
-                "geometry-valid camera pool with pose/coverage preferences; "
-                "difficulty clues are not legality gates"
+                "complete target-agnostic camera catalog followed by FOV/LOS/"
+                "pose-diversity preferences; difficulty clues are not legality gates"
             ),
             "parameters": {
                 "hfov_degrees": hfov,
-                "camera_heights_m": heights,
-                "camera_spacing_m": camera_spacing,
-                "coverage_spacing_m": coverage_spacing,
-                "yaw_step_degrees": yaw_step,
+                "camera_heights_m_from_catalog": heights,
+                "yaw_degrees_from_catalog": list(camera_catalog.get("yaw_degrees")),
                 "side_margin": margin,
-                "maximum_camera_positions": camera_limit,
-                "maximum_coverage_samples": coverage_limit,
                 "screening_corridor_count": min(
                     corridor_limit, len(corridor_values)
                 ),
                 "minimum_pair_separation_m": pair_separation,
                 "maximum_pair_records": pair_record_limit,
             },
-            "feasible_area_m2": feasible_area,
+            "camera_free_space_area_m2": feasible_area,
             "corridor_count": len(corridor_values),
             "viewpoints": viewpoint_records,
         },
@@ -1514,4 +1654,5 @@ __all__ = [
     "generate_polyline_corridors",
     "generate_straight_corridors",
     "natural_distance_band",
+    "validate_camera_catalog_for_viewpoint_selection",
 ]
