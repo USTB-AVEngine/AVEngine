@@ -61,6 +61,7 @@ CURRENT_MP3D_SOURCE_AXIS_BINDINGS: tuple[Mapping[str, Any], ...] = (
         "axis_index": 0,
         "source_id": "source0",
         "actor_id": "actor0",
+        "semantic_id": 210,
         "emitter_link_name": "beagle Xtra Mouth",
         "audio_endpoint_id": "beagle_0_muzzle",
         "endpoint_entity_instance_id": "beagle_0",
@@ -70,6 +71,7 @@ CURRENT_MP3D_SOURCE_AXIS_BINDINGS: tuple[Mapping[str, Any], ...] = (
         "axis_index": 1,
         "source_id": "source1",
         "actor_id": "actor1",
+        "semantic_id": 211,
         "emitter_link_name": "beagle Xtra Mouth",
         "audio_endpoint_id": "beagle_1_muzzle",
         "endpoint_entity_instance_id": "beagle_1",
@@ -125,6 +127,17 @@ def _normalise_axis_bindings(
                 f"source_axis_bindings[{item_index}].axis_index must be an integer"
             )
         record: dict[str, Any] = {"axis_index": axis_index}
+        semantic_id = raw.get("semantic_id")
+        if (
+            isinstance(semantic_id, bool)
+            or not isinstance(semantic_id, int)
+            or semantic_id < 0
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"source_axis_bindings[{item_index}].semantic_id must be a "
+                "non-negative integer"
+            )
+        record["semantic_id"] = semantic_id
         for field in required_text_fields:
             record[field] = _text(
                 raw.get(field), owner=f"source_axis_bindings[{item_index}].{field}"
@@ -137,7 +150,7 @@ def _normalise_axis_bindings(
         raise CurrentMP3DDynamicAudioError(
             "source axis indices must be one complete contiguous 0-based sequence"
         )
-    for field in ("source_id", "actor_id", "audio_endpoint_id"):
+    for field in ("source_id", "actor_id", "semantic_id", "audio_endpoint_id"):
         values = [str(item[field]) for item in result]
         if len(values) != len(set(values)):
             raise CurrentMP3DDynamicAudioError(f"source axis bindings repeat {field}")
@@ -185,6 +198,14 @@ def _load_captured_source_evidence(
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if not isinstance(receipt, Mapping):
         raise CurrentMP3DDynamicAudioError("visual receipt must be an object")
+    if (
+        receipt.get("status") != "research_only"
+        or receipt.get("research_only") is not True
+        or receipt.get("episode_counted") is not False
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "visual receipt must remain research_only and uncounted"
+        )
     capture = receipt.get("capture")
     if (
         not isinstance(capture, Mapping)
@@ -203,6 +224,7 @@ def _load_captured_source_evidence(
     expected_axis_values = {
         "source_ids": [item["source_id"] for item in bindings],
         "actor_ids": [item["actor_id"] for item in bindings],
+        "semantic_ids": [item["semantic_id"] for item in bindings],
         "emitter_link_names": [item["emitter_link_name"] for item in bindings],
     }
     for field, expected in expected_axis_values.items():
@@ -211,6 +233,49 @@ def _load_captured_source_evidence(
             raise CurrentMP3DDynamicAudioError(
                 f"visual receipt {field} axis order differs from the explicit "
                 f"source binding: {observed!r} != {expected!r}"
+            )
+    receipt_axis_bindings = actors.get("axis_bindings")
+    if not isinstance(receipt_axis_bindings, list) or len(receipt_axis_bindings) != len(
+        bindings
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "visual receipt must declare one actors.axis_bindings record per axis"
+        )
+    for axis_index, (observed, expected) in enumerate(
+        zip(receipt_axis_bindings, bindings, strict=True)
+    ):
+        if not isinstance(observed, Mapping):
+            raise CurrentMP3DDynamicAudioError(
+                f"visual receipt actors.axis_bindings[{axis_index}] must be an object"
+            )
+        for field in (
+            "axis_index",
+            "actor_id",
+            "source_id",
+            "semantic_id",
+            "emitter_link_name",
+        ):
+            if observed.get(field) != expected[field]:
+                raise CurrentMP3DDynamicAudioError(
+                    "visual receipt actors.axis_bindings "
+                    f"axis {axis_index} {field} differs from the explicit binding"
+                )
+        runtime_link_id = observed.get("runtime_emitter_link_id")
+        if (
+            isinstance(runtime_link_id, bool)
+            or not isinstance(runtime_link_id, int)
+            or runtime_link_id < 0
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                "visual receipt runtime emitter-link IDs must be non-negative integers"
+            )
+        if (
+            observed.get("audio_endpoint_status") != "pending"
+            or observed.get("audio_endpoint_id") is not None
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                "visual receipt must leave audio endpoint identity pending for the "
+                "audio adapter"
             )
     records_path = _capture_artifact(capture_root, receipt, "frame_records")
     array_path = _capture_artifact(capture_root, receipt, "source_positions_m")
@@ -222,9 +287,43 @@ def _load_captured_source_evidence(
         )
     frame_positions: list[list[list[float]]] = []
     for index, frame in enumerate(frames):
-        if not isinstance(frame, Mapping) or frame.get("frame_index") != index:
+        frame_index = frame.get("frame_index") if isinstance(frame, Mapping) else None
+        if (
+            not isinstance(frame, Mapping)
+            or isinstance(frame_index, bool)
+            or not isinstance(frame_index, int)
+            or frame_index != index
+        ):
             raise CurrentMP3DDynamicAudioError(
                 "frame_records indices must be contiguous from zero"
+            )
+        pts_ticks = frame.get("pts_ticks")
+        if (
+            isinstance(pts_ticks, bool)
+            or not isinstance(pts_ticks, int)
+            or pts_ticks != index * 3_200
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"frame {index} pts_ticks differs from the exact 3200-tick grid"
+            )
+        pose_alignment = frame.get("pose_alignment")
+        aligned_frame_index = (
+            pose_alignment.get("array_frame_index")
+            if isinstance(pose_alignment, Mapping)
+            else None
+        )
+        if (
+            not isinstance(pose_alignment, Mapping)
+            or isinstance(aligned_frame_index, bool)
+            or not isinstance(aligned_frame_index, int)
+            or aligned_frame_index != index
+            or pose_alignment.get("source_axis_order")
+            != expected_axis_values["source_ids"]
+            or pose_alignment.get("actor_axis_order")
+            != expected_axis_values["actor_ids"]
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"frame {index} pose_alignment source/actor axes differ from receipt"
             )
         positions = frame.get("source_positions_m")
         if not isinstance(positions, list) or len(positions) != len(bindings):
@@ -257,6 +356,10 @@ def _load_captured_source_evidence(
             f"unable to read visual source-position array: {error}"
         ) from error
     expected_shape = (EPISODE_FRAME_COUNT, len(bindings), 3)
+    if np.issubdtype(stored_array.dtype, np.complexfloating):
+        raise CurrentMP3DDynamicAudioError(
+            "visual source-position array must not use a complex dtype"
+        )
     if stored_array.shape != expected_shape or not np.issubdtype(
         stored_array.dtype, np.number
     ):
@@ -670,10 +773,6 @@ def _listener_view_identity(
     if isinstance(capture_m1, Mapping):
         capture_m1 = capture_m1.get("path")
     supplied_m1 = Path(m1_request_path).resolve()
-    if not isinstance(capture_m1, str) or Path(capture_m1).resolve() != supplied_m1:
-        raise CurrentMP3DDynamicAudioError(
-            "visual capture and audio render must use the same M1 listener/view request"
-        )
     bindings = _normalise_axis_bindings(source_axis_bindings)
     sources = m1_request.get("sources")
     m1_source_order = (
@@ -689,13 +788,46 @@ def _listener_view_identity(
         raise CurrentMP3DDynamicAudioError(
             "M1 source order differs from the explicit visual source-axis identity"
         )
+    expected_capture_identity = {
+        "request_id": m1_request.get("request_id"),
+        "room_id": m1_request.get("room_id"),
+        "primary_camera_rig": m1_request.get("primary_camera_rig"),
+        "listener": m1_request.get("listener"),
+        "source_axis_order": expected_source_order,
+        "qa_views": m1_request.get("qa_views", []),
+    }
+    capture_identity = receipt.get("m1_capture_identity")
+    if not isinstance(capture_identity, Mapping):
+        raise CurrentMP3DDynamicAudioError(
+            "visual receipt must embed its capture-time M1 identity"
+        )
+    missing_identity_fields = set(expected_capture_identity) - set(capture_identity)
+    if missing_identity_fields:
+        raise CurrentMP3DDynamicAudioError(
+            "visual capture-time M1 identity is missing required fields: "
+            f"{sorted(missing_identity_fields)}"
+        )
+    for field, expected in expected_capture_identity.items():
+        if capture_identity.get(field) != expected:
+            raise CurrentMP3DDynamicAudioError(
+                f"visual capture-time M1 {field} differs from the supplied M1 content"
+            )
     selected_room = receipt.get("selected_room")
     selected_room_id = (
         selected_room.get("room_id") if isinstance(selected_room, Mapping) else None
     )
-    if selected_room_id != m1_request.get("room_id"):
+    if selected_room_id != expected_capture_identity["room_id"]:
         raise CurrentMP3DDynamicAudioError(
             "visual capture room differs from the M1 listener/view room"
+        )
+    capture = receipt.get("capture")
+    if (
+        not isinstance(capture, Mapping)
+        or capture.get("m1_request_id") != expected_capture_identity["request_id"]
+        or capture.get("room_id") != expected_capture_identity["room_id"]
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "visual capture summary differs from its embedded M1 identity"
         )
     rig = m1_request.get("primary_camera_rig")
     listener = m1_request.get("listener")
@@ -712,7 +844,113 @@ def _listener_view_identity(
         ),
         "visual_receipt_path": str(Path(visual_evidence["receipt_path"]).resolve()),
         "m1_request_path": str(supplied_m1),
+        "capture_declared_m1_request_path": (
+            str(Path(capture_m1).resolve()) if isinstance(capture_m1, str) else None
+        ),
+        "capture_m1_identity": dict(capture_identity),
         "visual_source_axis_order": expected_source_order,
+    }
+
+
+def _sequence_registration_evidence(
+    sequence: Any,
+    *,
+    expected_listener_id: str,
+    expected_source_ids: Sequence[str],
+) -> dict[str, Any]:
+    """Retain exact native registration fields returned in sequence metadata."""
+
+    metadata = getattr(sequence, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        raise CurrentMP3DDynamicAudioError(
+            "RIR sequence must expose native registration metadata"
+        )
+    source_ids = metadata.get("source_ids")
+    listener_id = metadata.get("listener_id")
+    endpoint_receipts = metadata.get("endpoint_receipts")
+    trajectory_sha256 = metadata.get("trajectory_sha256")
+    ir_sha256_by_keyframe_source = metadata.get("ir_sha256_by_keyframe_source")
+    if listener_id != expected_listener_id:
+        raise CurrentMP3DDynamicAudioError(
+            "RIR sequence listener_id differs from the supplied M1 listener"
+        )
+    if source_ids != list(expected_source_ids):
+        raise CurrentMP3DDynamicAudioError(
+            "RIR sequence source_ids differ from the AudioProgram endpoints"
+        )
+    keyframe_samples = getattr(sequence, "keyframe_samples", None)
+    sequence_trajectory_sha256 = getattr(sequence, "trajectory_sha256", None)
+    if (
+        not isinstance(trajectory_sha256, str)
+        or not trajectory_sha256
+        or trajectory_sha256 != sequence_trajectory_sha256
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "RIR sequence trajectory_sha256 metadata differs from the sequence"
+        )
+    if (
+        not isinstance(endpoint_receipts, list)
+        or not isinstance(keyframe_samples, Sequence)
+        or len(endpoint_receipts) != len(keyframe_samples)
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "RIR sequence endpoint receipts must cover every keyframe"
+        )
+    if not isinstance(ir_sha256_by_keyframe_source, list) or len(
+        ir_sha256_by_keyframe_source
+    ) != len(keyframe_samples):
+        raise CurrentMP3DDynamicAudioError(
+            "RIR sequence IR hashes must cover every keyframe"
+        )
+    for index, hashes in enumerate(ir_sha256_by_keyframe_source):
+        if (
+            not isinstance(hashes, Mapping)
+            or set(hashes) != set(expected_source_ids)
+            or any(not isinstance(value, str) or not value for value in hashes.values())
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"RIR keyframe {index} IR hashes must cover every source"
+            )
+    for index, endpoint_receipt in enumerate(endpoint_receipts):
+        if (
+            not isinstance(endpoint_receipt, Mapping)
+            or endpoint_receipt.get("authority") != "native_registration_readback"
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"RIR keyframe {index} lacks native registration authority"
+            )
+        sources = endpoint_receipt.get("sources")
+        listener = endpoint_receipt.get("listener")
+        if (
+            not isinstance(sources, list)
+            or [
+                source.get("source_id") if isinstance(source, Mapping) else None
+                for source in sources
+            ]
+            != list(expected_source_ids)
+            or any(
+                not isinstance(source, Mapping)
+                or source.get("native_realized") is not True
+                for source in sources
+            )
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"RIR keyframe {index} source registration facts differ"
+            )
+        if (
+            not isinstance(listener, Mapping)
+            or listener.get("listener_id") != expected_listener_id
+            or listener.get("native_realized") is not True
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"RIR keyframe {index} listener registration facts differ"
+            )
+    return {
+        "listener_id": listener_id,
+        "source_ids": source_ids,
+        "endpoint_receipts": endpoint_receipts,
+        "trajectory_sha256": trajectory_sha256,
+        "ir_sha256_by_keyframe_source": ir_sha256_by_keyframe_source,
     }
 
 
@@ -731,6 +969,7 @@ def render_dynamic_research_audio(
     output_path: str | Path,
     position_authority: str,
     listener_authority: str,
+    listener_id: str = "listener0",
     rir_stride_frames: int = 3,
     variant_id: str = "A",
     hrtf_license_path: str | Path | None = None,
@@ -774,6 +1013,14 @@ def render_dynamic_research_audio(
     ):
         raise CurrentMP3DDynamicAudioError(
             "listener_view_identity must be an object when provided"
+        )
+    listener_id = _text(listener_id, owner="listener_id")
+    if (
+        listener_view_identity is not None
+        and listener_view_identity.get("listener_id") != listener_id
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "listener_view_identity listener_id differs from the RIR listener_id"
         )
 
     raw_events = program.get("events")
@@ -843,7 +1090,16 @@ def render_dynamic_research_audio(
     )
     hrtf = Path(hrtf_file_path).resolve()
     sequence = render_research_review_binaural_rir_sequence(
-        scene, simulation, grid=grid, hrtf_file_path=str(hrtf)
+        scene,
+        simulation,
+        grid=grid,
+        hrtf_file_path=str(hrtf),
+        listener_id=listener_id,
+    )
+    sequence_registration = _sequence_registration_evidence(
+        sequence,
+        expected_listener_id=listener_id,
+        expected_source_ids=source_ids,
     )
 
     stems, mixture = render_research_review_binaural_audio(
@@ -906,7 +1162,7 @@ def render_dynamic_research_audio(
             "mode": program.get("mode"),
             "variant_id": variant_id,
             "program_content_sha256": materialized.get("program_content_sha256"),
-            "event_count": len(program.get("events") or ()),
+            "event_count": len(materialized.get("events") or ()),
         },
         "audio_timing": timing_evidence,
         "sources": {
@@ -922,6 +1178,7 @@ def render_dynamic_research_audio(
             "identity_bindings": source_identity_records,
         },
         "listener": {
+            "listener_id": listener_id,
             "position_m": list(listener_position_m),
             "orientation_wxyz": list(listener_orientation_wxyz),
             "authority": listener_authority,
@@ -943,6 +1200,7 @@ def render_dynamic_research_audio(
                 if listener_view_identity is not None
                 else None
             ),
+            "sequence_metadata_registration": sequence_registration,
         },
         "inputs": inputs,
         "outputs": outputs,
@@ -1002,8 +1260,11 @@ def render_current_mp3d_dynamic_audio(
             "cross-checked exactly against frame_records per-frame positions"
         ),
         listener_authority=(
-            "research M1 request primary_camera_rig composed with rig_from_listener"
+            "supplied validated M1 content exactly matches the visual receipt's "
+            "capture-time M1 identity; primary_camera_rig is composed with "
+            "rig_from_listener"
         ),
+        listener_id=str(view_identity["listener_id"]),
         rir_stride_frames=rir_stride_frames,
         variant_id=variant_id,
         hrtf_license_path=hrtf_license_path,
