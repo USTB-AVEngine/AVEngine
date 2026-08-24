@@ -77,3 +77,29 @@ heights, twelve yaws, no filtering, no Studio, null semantics and pending joins.
 This completes the raw MP3D camera-position/yaw enumeration layer. It does not
 yet join the retained emitter tracks, choose a native-probe subset, certify
 4--8 viewpoints, render audio/RIR or run a mini-pilot.
+
+## Expanded full scanned-floor domain
+
+The 128-floor result above was complete only relative to the exporter's default
+`maximum_sample_count=128`. The same native scan had actually examined 860
+Topdown pixels and found 632 passing positions; therefore 128 was a bounded
+first run, not the complete discrete scanned feasible domain.
+
+After a fresh GPU/process preflight, current integration reran the same live
+PathFinder export with `maximum_sample_count=1000`:
+
+`/data/jzy/tmp/mp3d_floor_samples_all_8c4e7df_r1`
+
+All 860 positions were examined: 632 pass and 228 fail, and all 632 passing
+positions were retained. The target-agnostic CPU catalog was then regenerated:
+
+`/data/jzy/tmp/mp3d_camera_placement_catalog_all_8c4e7df_r1`
+
+It contains exactly 22,752 placements: 632 floor positions x three heights x
+twelve 30-degree yaws. The JSON is 22,399,723 bytes. Candidate filtering remains
+`none`; semantic fields are null and source/visibility/difficulty joins remain
+pending.
+
+The previous 4,608-placement artifact is retained as the bounded first run and
+is not relabeled. All downstream native-probe selection must use the expanded
+22,752 catalog unless a later fresh PathFinder export supersedes it.

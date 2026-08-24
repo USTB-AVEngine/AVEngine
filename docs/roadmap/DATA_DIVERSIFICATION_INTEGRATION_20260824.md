@@ -55,6 +55,9 @@ started for that incomplete bank.
 - The target-agnostic native-floor catalog contains all 4,608 placements from
   128 floor positions x three heights x twelve 30-degree yaws, with no semantic,
   source/path, visibility or difficulty filter.
+- A follow-up native export removed the old 128-sample cap: all 632 passing
+  positions from the 860-pixel scan are now retained, producing the authoritative
+  expanded 22,752-placement catalog. The 4,608 result remains a bounded first run.
 
 Key fresh artifacts:
 
@@ -62,8 +65,10 @@ Key fresh artifacts:
 - `/data/jzy/tmp/mp3d_dynamic_visibility_509838e_viewXX_r1`;
 - `/data/jzy/tmp/mp3d_runtime_tracks_ec387e9_r1`;
 - `/data/jzy/tmp/mp3d_camera_placement_catalog_c9c2274_r1`.
+- `/data/jzy/tmp/mp3d_floor_samples_all_8c4e7df_r1`;
+- `/data/jzy/tmp/mp3d_camera_placement_catalog_all_8c4e7df_r1`.
 
-The 4,608 catalog has not yet been joined/ranked into a new native probe subset,
+The expanded 22,752 catalog has not yet been joined/ranked into a new native probe subset,
 and no MP3D view has a complete visual+audio+question four-point mini-pilot.
 
 ### Kujiale current full-home
