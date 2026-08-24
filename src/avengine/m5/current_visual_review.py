@@ -18,6 +18,8 @@ from typing import Any, Mapping
 import numpy as np
 from PIL import Image
 
+from avengine.contracts.transforms import compose_transforms, transform_error
+
 
 TIMELINE_TICKS_PER_SECOND = 48_000
 _REQUIRED_ARTIFACTS = ("rgb", "depth", "semantic", "frame_records")
@@ -39,6 +41,7 @@ _NEW_POSE_ARTIFACTS = (
 )
 _POSE_QUATERNION_NORM_ATOL = 2.0e-6
 _RIGID_MATRIX_ATOL = 2.0e-6
+_POSE_READBACK_ATOL = 2.0e-6
 
 
 class CurrentVisualReviewError(ValueError):
@@ -358,6 +361,144 @@ def _finite_record_array(
     return array
 
 
+def _pose_mapping(value: Any, *, owner: str) -> dict[str, list[float]]:
+    if not isinstance(value, Mapping):
+        raise CurrentVisualReviewError(f"{owner} must be a pose object")
+    translation = _finite_record_array(
+        value.get("translation_m"), owner=f"{owner} translation", shape=(3,)
+    )
+    quaternion = _finite_record_array(
+        value.get("rotation_xyzw"), owner=f"{owner} quaternion", shape=(4,)
+    )
+    _require_unit_pose_quaternions(
+        np.concatenate((translation, quaternion)), owner=owner
+    )
+    return {
+        "translation_m": translation.tolist(),
+        "rotation_xyzw": quaternion.tolist(),
+    }
+
+
+def _capture_time_m1_identity(
+    receipt: Mapping[str, Any],
+    *,
+    source_axis_order: tuple[str, ...],
+    sensor_axis_order: tuple[str, ...],
+    sensor_modalities: tuple[str, ...],
+) -> tuple[
+    dict[str, list[float]],
+    dict[str, list[float]],
+    dict[str, list[float]],
+]:
+    identity = receipt.get("m1_capture_identity")
+    capture = receipt.get("capture")
+    selected_room = receipt.get("selected_room")
+    if (
+        not isinstance(identity, Mapping)
+        or not isinstance(capture, Mapping)
+        or not isinstance(selected_room, Mapping)
+    ):
+        raise CurrentVisualReviewError(
+            "new pose readback receipt requires capture-time M1 identity"
+        )
+    request_id = identity.get("request_id")
+    room_id = identity.get("room_id")
+    if (
+        not isinstance(request_id, str)
+        or not request_id
+        or not isinstance(room_id, str)
+        or not room_id
+        or capture.get("m1_request_id") != request_id
+        or capture.get("room_id") != room_id
+        or selected_room.get("room_id") != room_id
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 request or room identity is damaged"
+        )
+    if identity.get("source_axis_order") != list(source_axis_order):
+        raise CurrentVisualReviewError(
+            "capture-time M1 source identities do not match the source axes"
+        )
+    qa_views = identity.get("qa_views")
+    if not isinstance(qa_views, list):
+        raise CurrentVisualReviewError(
+            "capture-time M1 qa_views must retain its request-time list"
+        )
+
+    rig = identity.get("primary_camera_rig")
+    listener = identity.get("listener")
+    if not isinstance(rig, Mapping) or not isinstance(listener, Mapping):
+        raise CurrentVisualReviewError(
+            "capture-time M1 rig and listener must be complete objects"
+        )
+    rig_id = rig.get("rig_id")
+    view_id = rig.get("view_id")
+    calibration = rig.get("shared_calibration")
+    modalities = rig.get("modalities")
+    if (
+        not isinstance(rig_id, str)
+        or not rig_id
+        or not isinstance(view_id, str)
+        or not view_id
+        or not isinstance(calibration, Mapping)
+        or not isinstance(modalities, list)
+        or not modalities
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 primary_camera_rig is incomplete"
+        )
+    modality_by_uuid: dict[str, str] = {}
+    modality_order: list[str] = []
+    for index, item in enumerate(modalities):
+        if (
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("sensor_uuid"), str)
+            or not item["sensor_uuid"]
+            or not isinstance(item.get("modality"), str)
+            or not item["modality"]
+            or item["sensor_uuid"] in modality_by_uuid
+        ):
+            raise CurrentVisualReviewError(
+                f"capture-time M1 modality entry {index} is invalid"
+            )
+        modality_by_uuid[item["sensor_uuid"]] = item["modality"]
+        modality_order.append(item["modality"])
+    if (
+        tuple(sorted(modality_by_uuid)) != sensor_axis_order
+        or tuple(modality_by_uuid[sensor_uuid] for sensor_uuid in sensor_axis_order)
+        != sensor_modalities
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 sensor identities do not match pose sensor axes"
+        )
+    if capture.get("modalities") != modality_order:
+        raise CurrentVisualReviewError(
+            "capture modalities do not match the capture-time M1 rig"
+        )
+    if (
+        not isinstance(listener.get("listener_id"), str)
+        or not listener["listener_id"]
+        or listener.get("attached_to") != rig_id
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 listener identity is not attached to the captured rig"
+        )
+
+    world_from_rig = _pose_mapping(
+        rig.get("world_from_rig"), owner="capture-time M1 world_from_rig"
+    )
+    rig_from_sensor = _pose_mapping(
+        calibration.get("rig_from_sensor"),
+        owner="capture-time M1 rig_from_sensor",
+    )
+    rig_from_listener = _pose_mapping(
+        listener.get("rig_from_listener"),
+        owner="capture-time M1 rig_from_listener",
+    )
+    world_from_sensor = compose_transforms(world_from_rig, rig_from_sensor)
+    return world_from_rig, world_from_sensor, rig_from_listener
+
+
 def _pose_readback_evidence(
     output_root: Path,
     receipt: Mapping[str, Any],
@@ -498,6 +639,13 @@ def _pose_readback_evidence(
             )
         checked_bindings.append(dict(value))
 
+    world_from_rig, world_from_sensor, rig_from_listener = _capture_time_m1_identity(
+        receipt,
+        source_axis_order=source_axis_order,
+        sensor_axis_order=tuple(sensor_axis_order),
+        sensor_modalities=tuple(sensor_modalities),
+    )
+
     for name, artifact_key, actual in (
         ("planned_actor_world_matrices", "actor_world_matrices", False),
         (
@@ -612,6 +760,46 @@ def _pose_readback_evidence(
     )
 
     for index, record in enumerate(records):
+        actual_agent_pose = {
+            "translation_m": actual_agent_poses[index, :3].tolist(),
+            "rotation_xyzw": actual_agent_poses[index, 3:7].tolist(),
+        }
+        if transform_error(world_from_rig, actual_agent_pose) > _POSE_READBACK_ATOL:
+            raise CurrentVisualReviewError(
+                f"frame {index} actual agent/camera differs from capture-time M1 rig"
+            )
+        for sensor_index, sensor_uuid in enumerate(sensor_axis_order):
+            actual_sensor_pose = {
+                "translation_m": actual_sensor_pose_array[
+                    index, sensor_index, :3
+                ].tolist(),
+                "rotation_xyzw": actual_sensor_pose_array[
+                    index, sensor_index, 3:7
+                ].tolist(),
+            }
+            if (
+                transform_error(world_from_sensor, actual_sensor_pose)
+                > _POSE_READBACK_ATOL
+            ):
+                raise CurrentVisualReviewError(
+                    f"frame {index} actual sensor {sensor_uuid!r} differs from "
+                    "capture-time M1 calibration"
+                )
+        expected_listener_pose = compose_transforms(
+            actual_agent_pose, rig_from_listener
+        )
+        actual_listener_pose = {
+            "translation_m": actual_listener_poses[index, :3].tolist(),
+            "rotation_xyzw": actual_listener_poses[index, 3:7].tolist(),
+        }
+        if (
+            transform_error(expected_listener_pose, actual_listener_pose)
+            > _POSE_READBACK_ATOL
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} logical listener does not match actual agent plus "
+                "capture-time rig_from_listener"
+            )
         if record["pts_ticks"] != index * 3_200:
             raise CurrentVisualReviewError(
                 f"frame {index} pts_ticks does not align with the 15 fps timeline"

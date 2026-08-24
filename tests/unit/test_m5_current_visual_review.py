@@ -72,10 +72,11 @@ def _write_capture_output(
             (frame_count, 1),
         )
         actual_sensor_poses = np.tile(actual_agent_poses[:, None, :], (1, 3, 1))
-        actual_sensor_poses[:, 0, 0] += 0.1
-        actual_sensor_poses[:, 1, 0] += 0.2
-        actual_sensor_poses[:, 2, 0] += 0.3
+        actual_sensor_poses[:, 0, 0] += 1.0e-7
+        actual_sensor_poses[:, 1, 0] += 2.0e-7
+        actual_sensor_poses[:, 2, 0] += 3.0e-7
         actual_listener_poses = actual_agent_poses.copy()
+        actual_listener_poses[:, 1] += 0.2
         np.save(
             arrays / "planned_applied_skin_root_matrices.npy",
             planned_skin_roots,
@@ -177,8 +178,73 @@ def _write_capture_output(
         "artifacts": artifacts,
     }
     if pose_readback:
+        receipt["capture"].update(
+            {
+                "m1_request_id": "m1_capture_fixture_v1",
+                "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+                "modalities": ["rgb", "depth", "semantic"],
+            }
+        )
         receipt.update(
             {
+                "selected_room": {
+                    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+                    "room_kind": "habitat_native",
+                },
+                "m1_capture_identity": {
+                    "request_id": "m1_capture_fixture_v1",
+                    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+                    "primary_camera_rig": {
+                        "rig_id": "camera_rig_0",
+                        "view_id": "view0",
+                        "world_from_rig": {
+                            "translation_m": [9.0, 8.0, 7.0],
+                            "rotation_xyzw": [
+                                0.0,
+                                2**-0.5,
+                                0.0,
+                                2**-0.5,
+                            ],
+                        },
+                        "shared_calibration": {
+                            "projection": "pinhole",
+                            "resolution_hw": [2, 4],
+                            "hfov_degrees": 90.0,
+                            "near_m": 0.05,
+                            "far_m": 100.0,
+                            "rig_from_sensor": {
+                                "translation_m": [0.0, 0.0, 0.0],
+                                "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                            },
+                        },
+                        "modalities": [
+                            {"modality": "rgb", "sensor_uuid": "rig_rgb"},
+                            {
+                                "modality": "depth",
+                                "sensor_uuid": "rig_depth",
+                            },
+                            {
+                                "modality": "semantic",
+                                "sensor_uuid": "rig_semantic",
+                            },
+                        ],
+                    },
+                    "listener": {
+                        "listener_id": "listener0",
+                        "attached_to": "camera_rig_0",
+                        "rig_from_listener": {
+                            "translation_m": [0.0, 0.2, 0.0],
+                            "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                        },
+                    },
+                    "source_axis_order": ["source0", "source1"],
+                    "qa_views": [
+                        {
+                            "qa_id": "navmesh_topdown",
+                            "kind": "topdown",
+                        }
+                    ],
+                },
                 "actors": {
                     "actor_ids": ["actor0", "actor1"],
                     "source_ids": ["source0", "source1"],
@@ -365,6 +431,53 @@ def test_rejects_damaged_actor_source_identity_binding(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CurrentVisualReviewError, match="identity mapping is damaged"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    (
+        ("room", "M1 request or room identity is damaged"),
+        ("source", "M1 source identities do not match"),
+        ("rig", "actual agent/camera differs from capture-time M1 rig"),
+    ),
+)
+def test_rejects_damaged_capture_time_m1_identity(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    output = _write_capture_output(tmp_path / damage, pose_readback=True)
+    receipt_path = output / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    identity = receipt["m1_capture_identity"]
+    if damage == "room":
+        identity["room_id"] = "later_rewritten_room"
+    elif damage == "source":
+        identity["source_axis_order"] = ["source1", "source0"]
+    else:
+        identity["primary_camera_rig"]["world_from_rig"]["translation_m"][0] += 0.1
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(CurrentVisualReviewError, match=message):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+def test_rejects_actual_listener_that_cannot_be_recomputed_from_m1_identity(
+    tmp_path: Path,
+) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    path = output / "arrays/actual_logical_listener_poses_txyz_qxyzw.npy"
+    value = np.load(path)
+    value[18, 0] += 1.0e-3
+    np.save(path, value)
+
+    with pytest.raises(
+        CurrentVisualReviewError,
+        match="logical listener does not match actual agent",
+    ):
         generate_current_visual_review(output)
     assert not (output / "review").exists()
 
