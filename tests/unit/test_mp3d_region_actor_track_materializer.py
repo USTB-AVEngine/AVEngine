@@ -120,6 +120,50 @@ def _case(
     )
 
 
+def test_r4_authority_and_camera_reference_fail_closed(tmp_path: Path) -> None:
+    with pytest.raises(
+        materializer.MP3DRegionActorTrackError,
+        match="final r4 research authority",
+    ):
+        materializer._validate_r4_route_bank({"schema": "not-r4"})
+
+    with pytest.raises(
+        materializer.MP3DRegionActorTrackError,
+        match="camera M1 request reference is missing",
+    ):
+        materializer._camera_reference(
+            tmp_path / "route-bank.json",
+            {},
+            {"m1_capture_request_path": "requests/missing.json"},
+        )
+
+
+def test_motion_case_rejects_static_and_moving_route_mismatches() -> None:
+    static = np.zeros((75, 3), dtype=np.float64)
+    moving = static.copy()
+    moving[-1, 0] = 1.0
+    with pytest.raises(
+        materializer.MP3DRegionActorTrackError,
+        match="declares moving but has zero route span",
+    ):
+        materializer._validate_motion_route(
+            static,
+            source_id="source1",
+            motion_case="s1_moving_s2_static",
+            owner="moving",
+        )
+    with pytest.raises(
+        materializer.MP3DRegionActorTrackError,
+        match="declares static but route positions vary",
+    ):
+        materializer._validate_motion_route(
+            moving,
+            source_id="source2",
+            motion_case="s1_moving_s2_static",
+            owner="static",
+        )
+
+
 def test_tangent_aligns_local_minus_z_to_route_direction() -> None:
     quaternion = materializer._tangent_quaternion_xyzw(np.asarray([1.0, 0.0, 0.0]))
     from avengine.m2.habitat_capture import quaternion_xyzw_to_matrix
@@ -161,6 +205,13 @@ def test_static_heading_is_base_m2_rotation_and_moving_is_walk(
     )
     assert moving_track["formal_m2_request"] is False
     assert moving_track["episode_counted"] is False
+    assert moving_track["route_source_center_plan"][
+        "route_point_to_actor_root_offset_m"
+    ] == [
+        0.0,
+        0.0,
+        0.0,
+    ]
 
 
 def test_track_preserves_route_identity_and_camera_cannot_change_transforms(

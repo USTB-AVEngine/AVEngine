@@ -321,6 +321,7 @@ def load_region_cases(
 ) -> tuple[RouteCase, ...]:
     bank_path = Path(route_bank_path).expanduser().resolve(strict=True)
     document = load_json(bank_path)
+    _validate_r4_route_bank(document)
     families = [
         family
         for family in document.get("families", [])
@@ -358,6 +359,18 @@ def load_region_cases(
                 or raw_case.get("frame_rate_hz") != FRAME_RATE_HZ
             ):
                 raise _error(f"{family_id}/{motion_case} clock is not 75@15")
+            _validate_motion_route(
+                source1,
+                source_id="source1",
+                motion_case=motion_case,
+                owner=f"{family_id}/{motion_case}/source1",
+            )
+            _validate_motion_route(
+                source2,
+                source_id="source2",
+                motion_case=motion_case,
+                owner=f"{family_id}/{motion_case}/source2",
+            )
             cases.append(
                 RouteCase(
                     region_instance_id=region_instance_id,
@@ -369,6 +382,49 @@ def load_region_cases(
                 )
             )
     return tuple(cases)
+
+
+def _validate_r4_route_bank(document: Mapping[str, Any]) -> None:
+    if (
+        document.get("schema") != "avengine_mp3d_region_source_route_bank_v1"
+        or document.get("artifact_status") != "complete_cpu_region_source_route_bank"
+        or document.get("research_only") is not True
+        or document.get("episode_counted") is not False
+        or document.get("camera_binding_count") != 40
+        or document.get("route_family_count") != 40
+        or document.get("case_count") != 160
+        or document.get("candidate_filtering") != "none"
+        or document.get("camera_route_generation_decoupled") is not True
+    ):
+        raise _error("route bank is not the final r4 research authority")
+    regions = document.get("regions")
+    families = document.get("families")
+    if not isinstance(regions, list) or len(regions) != 10:
+        raise _error("r4 route bank must contain exactly ten region summaries")
+    if not isinstance(families, list) or len(families) != 40:
+        raise _error("r4 route bank must contain exactly forty route families")
+    family_ids = [
+        family.get("route_family_id")
+        for family in families
+        if isinstance(family, Mapping)
+    ]
+    if len(family_ids) != 40 or len(set(family_ids)) != 40:
+        raise _error("r4 route family IDs must be globally unique")
+
+
+def _validate_motion_route(
+    positions: np.ndarray,
+    *,
+    source_id: str,
+    motion_case: str,
+    owner: str,
+) -> None:
+    moving = source_id in _MOVING_SOURCES[motion_case]
+    span = float(np.max(np.linalg.norm(positions - positions[0], axis=1)))
+    if moving and span <= _TANGENT_EPSILON_M:
+        raise _error(f"{owner} declares moving but has zero route span")
+    if not moving and span > _TANGENT_EPSILON_M:
+        raise _error(f"{owner} declares static but route positions vary")
 
 
 def _moving_tangents(
@@ -600,6 +656,8 @@ def _build_actor_track(
                 "zero route-point-to-world_from_actor offset; exact-asset "
                 "research calibration reference only"
             ),
+            "route_point_to_actor_root_offset_m": [0.0, 0.0, 0.0],
+            "support_contact_authority": "pending_native_execution",
         },
         "coordinate_system": {
             "forward_axis": calibration.forward_axis,
@@ -639,12 +697,14 @@ def _camera_reference(
     resolved = next(
         (candidate.resolve() for candidate in candidates if candidate.is_file()), None
     )
+    if resolved is None:
+        raise _error(
+            "camera M1 request reference is missing from the r4 authority: " + raw_path
+        )
     return {
         "declared_path": raw_path,
-        "resolved_path": None if resolved is None else str(resolved),
-        "status": "resolved"
-        if resolved is not None
-        else "declared_reference_not_present_in_r4_artifact",
+        "resolved_path": str(resolved),
+        "status": "resolved",
         "binding": deepcopy(dict(binding)),
     }
 
