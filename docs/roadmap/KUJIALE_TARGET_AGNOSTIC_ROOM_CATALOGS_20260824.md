@@ -60,10 +60,57 @@ multi-room identity uniqueness, fresh atomic publication and no-clobber.
 
 ## Fresh retained-data evidence
 
-The five current room-instance metadata extractions and clean-code catalog run
-will be recorded here after execution. Until then, native package, launch
-endpoint, M3, RLR, UE/SPEAR first-person/Topdown/readback and four-point
-mini-pilot statuses remain pending or not run.
+The implementation commit is
+`3c6078cb0c77af67a0d180e764a7926ee51db7d6`. Five metadata files were
+extracted fresh from the current derived full-home stage and its retained
+`rooms.json` into:
+
+`/data/jzy/tmp/kujiale_full_home_room_metadata_20260824T065213Z_r1`
+
+The clean-code multi-room output is:
+
+`/data/jzy/tmp/kujiale_full_home_camera_catalogs_3c6078c_r1`
+
+It uses a 5 cm raster, a complete 0.25 m camera-position sampling lattice,
+camera heights 1.05/1.50/1.85 m above the declared floor, zero additional
+center-clearance erosion, and exactly twelve 30-degree yaws. Observed counts
+are:
+
+| Room instance | Free-space raster pixels | Sampled floor positions | Position x height x yaw placements |
+| --- | ---: | ---: | ---: |
+| `livingroom_491` | 18,702 | 761 | 27,396 |
+| `bedroom_579` | 3,937 | 153 | 5,508 |
+| `balcony_628` | 3,370 | 153 | 5,508 |
+| `kitchen_736` | 835 | 33 | 1,188 |
+| `bathroom_781525` | 1,679 | 63 | 2,268 |
+| **Total** | **28,523** | **1,163** | **41,868** |
+
+Every room satisfies `placements = sampled positions x 3 x 12`. The build
+completed in 2.75 s wall time with maximum RSS 82,456 KiB; its log is
+`/data/jzy/tmp/kujiale_full_home_camera_catalogs_3c6078c_r1_build.log`.
+
+The independent record-level verifier checked each sampled pixel against its
+stored free-space raster, recomputed pixel-center XYZ and height, required
+every position/height/yaw tuple to be unique, checked all 41,868 downstream
+status fields, and reconciled per-room and aggregate counts. It reports
+`status=pass` at:
+
+`/data/jzy/tmp/kujiale_full_home_camera_catalogs_3c6078c_r1_verification_r3.log`
+
+A fresh actual negative run used the retained old `kujiale_0020_live_v2`
+source profile. It exited before publication with `source profile and visual
+profile map_path differ`; no output directory exists. The log is:
+
+`/data/jzy/tmp/kujiale_full_home_camera_catalogs_old_live_v2_rejection_3c6078c_r1.log`
+
+Focused and adjacent verification records `85 passed` at
+`/data/jzy/tmp/kujiale_room_catalogs_3c6078c_unit_r1.log`; Ruff records
+`All checks passed` at
+`/data/jzy/tmp/kujiale_room_catalogs_3c6078c_ruff_r1.log`.
+
+Native package/launch endpoint, M3, RLR, UE/SPEAR first-person/Topdown/readback,
+4--8 certified viewpoint selection and four-point mini-pilots remain pending
+or not run for every room.
 
 No Studio, UE, GPU, Habitat or RLR process is started by this slice. All
 outputs remain `research_only=true`, `episode_counted=false`, formal dataset
