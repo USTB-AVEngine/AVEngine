@@ -18,6 +18,7 @@ class _AgentState:
 class _Pathfinder:
     def __init__(self) -> None:
         self.loaded = []
+        self.is_loaded = True
 
     def load_nav_mesh(self, path: str) -> bool:
         self.loaded.append(path)
@@ -33,6 +34,9 @@ class _Pathfinder:
 
     def get_island(self, _point) -> int:
         return 7
+
+    def get_topdown_view(self, _meters_per_pixel, _height) -> np.ndarray:
+        return np.ones((3, 4), dtype=np.uint8)
 
 
 class _Simulator:
@@ -56,16 +60,17 @@ class _Simulator:
         self.agent_state = state
 
     def render_sensors(self, _wrappers):
+        semantic = np.arange(20, dtype=np.int32).reshape(4, 5)
         return {
             "rgb0": np.full((4, 5, 4), 127, dtype=np.uint8),
             "depth0": np.full((4, 5), 2.5, dtype=np.float32),
-            "semantic0": np.full((4, 5), 9, dtype=np.int32),
+            "semantic0": semantic,
         }
 
 
 def _inputs() -> SimpleNamespace:
     return SimpleNamespace(
-        room={"room_id": "apartment-room"},
+        room={"room_id": "habitat_mp3d_example_17DRP5sb8fy"},
         request={
             "request_id": "view-request",
             "seed": 17,
@@ -83,11 +88,19 @@ def _inputs() -> SimpleNamespace:
                     "rotation_xyzw": [0, 0, 0, 1],
                 }
             },
+            "qa_views": [
+                {
+                    "qa_id": "navmesh_topdown",
+                    "kind": "topdown",
+                    "meters_per_pixel": 0.05,
+                    "height_m": 0.271,
+                }
+            ],
         },
     )
 
 
-def test_probe_passes_explicit_installed_runtime_inputs_and_is_no_clobber(
+def test_probe_uses_explicit_runtime_intended_floor_and_topdown(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -96,8 +109,9 @@ def test_probe_passes_explicit_installed_runtime_inputs_and_is_no_clobber(
     runtime_prefix = tmp_path / "runtime"
     magnum_site = tmp_path / "magnum"
     rlr_sdk_root = tmp_path / "rlr"
-    pbr_asset_root = tmp_path / "pbr"
-    for directory in (runtime_prefix, magnum_site, rlr_sdk_root, pbr_asset_root):
+    mp3d_root = tmp_path / "mp3d"
+    pbr_root = tmp_path / "pbr"
+    for directory in (runtime_prefix, magnum_site, rlr_sdk_root, mp3d_root, pbr_root):
         directory.mkdir()
     physics = runtime_prefix / "default.physics_config.json"
     physics.write_text("{}\n", encoding="utf-8")
@@ -115,8 +129,8 @@ def test_probe_passes_explicit_installed_runtime_inputs_and_is_no_clobber(
 
     runtime = SimpleNamespace(
         prefix=runtime_prefix.resolve(),
-        mp3d_root=None,
-        pbr_asset_root=pbr_asset_root.resolve(),
+        mp3d_root=mp3d_root.resolve(),
+        pbr_asset_root=pbr_root.resolve(),
         magnum_python_site=magnum_site.resolve(),
         physics_config_path=physics.resolve(),
         quaternion=object(),
@@ -149,17 +163,15 @@ def test_probe_passes_explicit_installed_runtime_inputs_and_is_no_clobber(
             str(tmp_path / "request.json"),
             "--runtime-prefix",
             str(runtime_prefix),
-            "--magnum-python-site",
+            "--magnum-site",
             str(magnum_site),
             "--rlr-sdk-root",
             str(rlr_sdk_root),
-            "--pbr-asset-root",
-            str(pbr_asset_root),
-            "--expected-floor-point-m",
-            "-0.7",
-            "0.271",
-            "0.65",
-            "--expected-floor-island-id",
+            "--mp3d-root",
+            str(mp3d_root),
+            "--pbr-root",
+            str(pbr_root),
+            "--expected-island-id",
             "7",
             "--output",
             str(output),
@@ -173,15 +185,15 @@ def test_probe_passes_explicit_installed_runtime_inputs_and_is_no_clobber(
             "runtime_prefix": runtime_prefix,
             "magnum_python_site": magnum_site,
             "rlr_sdk_root": rlr_sdk_root,
-            "pbr_asset_root": pbr_asset_root,
-            "mp3d_root": None,
+            "pbr_asset_root": pbr_root,
+            "mp3d_root": mp3d_root,
             "allow_mp3d_environment": False,
         }
     ]
     configuration_args, configuration_kwargs = calls["configuration"][0]
     assert configuration_args[1:] == (None, output)
     assert configuration_kwargs == {
-        "mp3d_root": None,
+        "mp3d_root": mp3d_root.resolve(),
         "include_audio_sensor": False,
         "physics_config_path": physics.resolve(),
     }
@@ -190,27 +202,37 @@ def test_probe_passes_explicit_installed_runtime_inputs_and_is_no_clobber(
     assert receipt["status"] == "pass"
     assert receipt["classification"] == "native_interactive_probe_not_release_evidence"
     assert receipt["navigation"]["floor_authority"] == (
-        "explicit_builder_expected_floor_point"
+        "request_topdown_height_m_intended_floor"
     )
+    assert receipt["navigation"]["expected_floor_point_m"] == [-0.7, 0.271, 0.65]
     assert receipt["navigation"]["expected_floor_passed"] is True
     assert receipt["navigation"]["floor_island_id"] == 7
     assert receipt["installed_runtime_inputs"] == {
         "runtime_prefix": str(runtime_prefix.resolve()),
         "magnum_python_site": str(magnum_site.resolve()),
         "rlr_sdk_root": str(rlr_sdk_root.resolve()),
-        "pbr_asset_root": str(pbr_asset_root.resolve()),
-        "mp3d_root": None,
+        "pbr_asset_root": str(pbr_root.resolve()),
+        "mp3d_root": str(mp3d_root.resolve()),
         "physics_config_path": str(physics.resolve()),
         "include_audio_sensor": False,
     }
     assert set(receipt["observations"]) == {"rgb", "depth", "semantic"}
+    assert (output / "observations/rgb.png").is_file()
+    assert (output / "observations/depth.npy").is_file()
+    assert (output / "observations/depth_preview.png").is_file()
+    assert (output / "observations/semantic.npy").is_file()
+    assert (output / "observations/semantic_preview.png").is_file()
+    assert receipt["topdown"]["reports"][0]["qa_id"] == "navmesh_topdown"
+    assert receipt["topdown"]["required"] is True
+    assert receipt["topdown"]["passed"] is True
+    assert (output / "qa/navmesh_topdown.png").is_file()
 
     with pytest.raises(FileExistsError, match="refusing to replace output"):
         probe.run_probe(args)
     assert len(calls["prepare"]) == 1
 
 
-def test_cli_accepts_explicit_optional_mp3d_root(tmp_path: Path) -> None:
+def test_cli_accepts_explicit_mp3d_runtime_inputs(tmp_path: Path) -> None:
     args = probe.parse_args(
         [
             "--room",
@@ -223,10 +245,10 @@ def test_cli_accepts_explicit_optional_mp3d_root(tmp_path: Path) -> None:
             "magnum",
             "--rlr-sdk-root",
             "rlr",
-            "--pbr-asset-root",
-            "pbr",
             "--mp3d-root",
             str(tmp_path / "mp3d"),
+            "--expected-island-id",
+            "1",
             "--output",
             str(tmp_path / "output"),
         ]
@@ -234,8 +256,60 @@ def test_cli_accepts_explicit_optional_mp3d_root(tmp_path: Path) -> None:
 
     assert args.magnum_python_site == Path("magnum")
     assert args.rlr_sdk_root == Path("rlr")
-    assert args.pbr_asset_root == Path("pbr")
     assert args.mp3d_root == tmp_path / "mp3d"
+    assert args.pbr_asset_root is None
+    assert args.expected_floor_island_id == 1
+
+
+def test_intended_floor_supports_explicit_topdown_and_legacy_fallback() -> None:
+    camera = np.asarray([-0.7, 1.471, 0.65], dtype=np.float64)
+    explicit = SimpleNamespace(
+        expected_floor_point_m=[-0.7, 0.271, 0.65],
+        expected_floor_island_id=7,
+    )
+    point, island, authority, topdown_required = probe._intended_floor(
+        explicit, {"qa_views": []}, camera
+    )
+    assert point.tolist() == [-0.7, 0.271, 0.65]
+    assert island == 7
+    assert authority == "explicit_builder_expected_floor_point"
+    assert topdown_required is False
+
+    topdown = SimpleNamespace(
+        expected_floor_point_m=None,
+        expected_floor_island_id=7,
+    )
+    point, island, authority, topdown_required = probe._intended_floor(
+        topdown,
+        {"qa_views": [{"kind": "topdown", "height_m": 0.271}]},
+        camera,
+    )
+    assert point.tolist() == [-0.7, 0.271, 0.65]
+    assert island == 7
+    assert authority == "request_topdown_height_m_intended_floor"
+    assert topdown_required is True
+
+    fallback = SimpleNamespace(
+        expected_floor_point_m=None,
+        expected_floor_island_id=None,
+    )
+    point, island, authority, topdown_required = probe._intended_floor(
+        fallback, {"qa_views": []}, camera
+    )
+    assert point is None
+    assert island is None
+    assert authority == "camera_eye_nearest_navmesh"
+    assert topdown_required is False
+
+    with pytest.raises(ValueError, match="requires an expected island ID"):
+        probe._intended_floor(
+            SimpleNamespace(
+                expected_floor_point_m=[-0.7, 0.271, 0.65],
+                expected_floor_island_id=None,
+            ),
+            {"qa_views": []},
+            camera,
+        )
 
 
 @pytest.mark.parametrize(

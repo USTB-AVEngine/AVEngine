@@ -87,3 +87,17 @@ usefully different views. Native Topdown, RGB/depth/semantic probes and agent
 visual review must reject occluded or compositionally repetitive views before
 any retained bank is authored. No Studio placement or manual coordinate entry
 is permitted in that follow-up.
+
+## Owner override 2026-08-24: legality is not difficulty
+
+The final sentence above described the original selection policy and is no
+longer the candidate-legality rule. A camera remains a legal raw candidate when
+its room/floor, native navigation, obstacle, finite-pose, runtime and readback
+facts pass. Blank-wall fraction, clutter, composition similarity, actor
+projection, side margin, occlusion, route crossing/exchange and a fixed 60 cm
+pair-distance threshold are retained descriptors, not reasons to erase the raw
+candidate.
+
+The certified 4--8-view bank will still choose a useful diverse subset for the
+mini-pilot, but must preserve the complete legal candidate catalog and its raw
+measurements so later QA difficulty and dataset strata can be recomputed.
