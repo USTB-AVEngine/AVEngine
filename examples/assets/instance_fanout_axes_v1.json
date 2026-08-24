@@ -1,0 +1,17 @@
+{
+ "schema": "avengine_instance_fanout_axes_v1",
+ "spec_id": "instance_fanout_axes_v1",
+ "revision": "v1",
+ "decided_on": "2026-08-25",
+ "rationale": "Instance-level fan-out is restricted to axes a human reviewer can verify in a rendered frame. body_build and life_stage stay in the appearance contract and in every registered entry, but they are pinned to whatever the accepted source asset already carries: a reviewer cannot confirm slim-versus-stocky or adult-versus-senior by looking at frames, so those axes cannot carry a QA gold label.",
+ "enabled_axes": ["size", "coat_profile"],
+ "pinned_axes": {
+  "body_build": "inherit_from_source_asset",
+  "life_stage": "inherit_from_source_asset"
+ },
+ "notes": {
+  "l9_untouched": "The L9 orthogonal array in avengine.appearance.contracts is unchanged. This spec selects which axes a fan-out plan varies; it does not redefine the appearance contract or its four axes.",
+  "domain_authority": "Axis domains are read from avengine.appearance.contracts (CANONICAL_DOMAINS and COAT_PROFILE_DOMAINS). Adding a breed means adding a contract entry with that breed's reviewed three-level coat domain, never editing this file.",
+  "cost_authority": "Whether a row needs a new UE asset is derived from the contract's axis-to-operation table, not declared here."
+ }
+}

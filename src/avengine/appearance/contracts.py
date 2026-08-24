@@ -241,6 +241,11 @@ _OPERATION_BY_AXIS = {
     "life_stage": "semantic_life_stage_cues_v1",
 }
 
+# Public read-only view of the axis-to-operation table.  Planning tools need to
+# know which axis is realized by a pure runtime scale and which one needs a new
+# asset; they must read it here instead of restating it.
+OPERATION_BY_AXIS: Mapping[str, str] = MappingProxyType(dict(_OPERATION_BY_AXIS))
+
 # Standard OA(9, 4, 3, 2): for every two columns, all 3 x 3 ordered level
 # pairs occur exactly once.  Request-provided level orders map the integers to
 # breed/profile-specific semantic values.
