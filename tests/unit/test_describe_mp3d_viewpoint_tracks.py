@@ -19,7 +19,13 @@ def _write_json(path: Path, value) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def _inputs(tmp_path: Path, *, frames: int = 75, probe_status: str = "pass"):
+def _inputs(
+    tmp_path: Path,
+    *,
+    frames: int = 75,
+    probe_status: str = "pass",
+    with_dynamic: bool = False,
+):
     bank_root = tmp_path / "bank"
     request_path = bank_root / "requests" / f"{VIEWPOINT_ID}.json"
     transform = {
@@ -111,12 +117,85 @@ def _inputs(tmp_path: Path, *, frames: int = 75, probe_status: str = "pass"):
             },
         },
     )
-    return bank_path, route_path, probe_root, actor0, actor1
+    dynamic_roots = []
+    runtime_sources = None
+    runtime_visibility = None
+    if with_dynamic:
+        dynamic_root = tmp_path / "dynamic"
+        runtime_sources = np.stack((actor0, actor1), axis=1)
+        runtime_sources[:, :, 1] += 0.4
+        runtime_visibility = np.stack(
+            (
+                np.arange(frames, dtype=np.int64),
+                np.arange(frames, dtype=np.int64)[::-1],
+            ),
+            axis=1,
+        )
+        arrays = dynamic_root / "arrays"
+        arrays.mkdir(parents=True)
+        np.save(arrays / "source_positions_m.npy", runtime_sources)
+        np.save(arrays / "semantic_visibility_pixels.npy", runtime_visibility)
+        _write_json(
+            dynamic_root / "research_receipt.json",
+            {
+                "status": "research_only",
+                "research_only": True,
+                "episode_counted": False,
+                "inputs": {"m1_request": str(request_path.resolve())},
+                "selected_room": {"room_id": ROOM_ID},
+                "capture": {"native_habitat_started": True, "frame_count": frames},
+                "actors": {
+                    "actor_ids": ["actor0", "actor1"],
+                    "source_ids": ["source0", "source1"],
+                },
+                "artifacts": {
+                    "source_positions_m": "arrays/source_positions_m.npy",
+                    "semantic_visibility_pixels": (
+                        "arrays/semantic_visibility_pixels.npy"
+                    ),
+                },
+                "visibility": {
+                    "candidate_filtering": "disabled",
+                    "per_actor": {
+                        "actor0": {
+                            "per_frame_visible_pixels": runtime_visibility[
+                                :, 0
+                            ].tolist()
+                        },
+                        "actor1": {
+                            "per_frame_visible_pixels": runtime_visibility[
+                                :, 1
+                            ].tolist()
+                        },
+                    },
+                },
+            },
+        )
+        dynamic_roots.append(dynamic_root)
+    return (
+        bank_path,
+        route_path,
+        probe_root,
+        actor0,
+        actor1,
+        dynamic_roots,
+        runtime_sources,
+        runtime_visibility,
+    )
 
 
-def _args(tmp_path: Path, *, frames: int = 75, probe_status: str = "pass"):
-    bank, route, probes, actor0, actor1 = _inputs(
-        tmp_path, frames=frames, probe_status=probe_status
+def _args(
+    tmp_path: Path,
+    *,
+    frames: int = 75,
+    probe_status: str = "pass",
+    with_dynamic: bool = False,
+):
+    bank, route, probes, actor0, actor1, dynamics, sources, visibility = _inputs(
+        tmp_path,
+        frames=frames,
+        probe_status=probe_status,
+        with_dynamic=with_dynamic,
     )
     output = tmp_path / "output"
     args = descriptor.parse_args(
@@ -127,15 +206,20 @@ def _args(tmp_path: Path, *, frames: int = 75, probe_status: str = "pass"):
             str(route),
             "--probe-root",
             str(probes),
+            *[
+                value
+                for root in dynamics
+                for value in ("--dynamic-capture-dir", str(root))
+            ],
             "--output",
             str(output),
         ]
     )
-    return args, output, actor0, actor1
+    return args, output, actor0, actor1, sources, visibility
 
 
 def test_run_preserves_exact_mp3d_tracks_and_pending_visibility(tmp_path: Path) -> None:
-    args, output, actor0, actor1 = _args(tmp_path)
+    args, output, actor0, actor1, _sources, _visibility = _args(tmp_path)
 
     assert descriptor.run(args) == output
     result = load_json(output / "viewpoint_raw_track_descriptors.json")
@@ -184,8 +268,45 @@ def test_run_preserves_exact_mp3d_tracks_and_pending_visibility(tmp_path: Path) 
         descriptor.run(args)
 
 
+def test_run_binds_runtime_emitter_tracks_and_native_visible_pixels(
+    tmp_path: Path,
+) -> None:
+    args, output, _actor0, _actor1, sources, visibility = _args(
+        tmp_path, with_dynamic=True
+    )
+
+    descriptor.run(args)
+    result = load_json(output / "viewpoint_raw_track_descriptors.json")
+    assert result["artifact_status"] == (
+        "explicit_actor_root_and_runtime_emitter_tracks_described"
+    )
+    runtime = result["viewpoints"][0]["runtime_emitter_track"]
+    assert runtime["runtime_binding_status"] == "pass"
+    assert runtime["source_ids"] == ["source0", "source1"]
+    track = runtime["track_descriptor"]
+    assert [frame["source1"]["position_xyz"] for frame in track["frames"]] == (
+        sources[:, 0, :].tolist()
+    )
+    assert [frame["source2"]["position_xyz"] for frame in track["frames"]] == (
+        sources[:, 1, :].tolist()
+    )
+    assert [frame["source1"]["visible_pixels"] for frame in track["frames"]] == (
+        visibility[:, 0].tolist()
+    )
+    assert track["native_projection_visibility"] == {
+        "status": "native_visible_pixels_recorded_projection_occlusion_pending",
+        "projection_by_frame": None,
+        "in_frame_by_frame": None,
+        "occlusion_by_frame": None,
+        "visible_pixels_by_frame": {
+            "source0": visibility[:, 0].tolist(),
+            "source1": visibility[:, 1].tolist(),
+        },
+    }
+
+
 def test_run_rejects_nonpassing_native_probe(tmp_path: Path) -> None:
-    args, output, _actor0, _actor1 = _args(tmp_path, probe_status="fail")
+    args, output, *_unused = _args(tmp_path, probe_status="fail")
 
     with pytest.raises(
         descriptor.MP3DTrackDescriptorError, match="native probe does not match"
@@ -196,7 +317,7 @@ def test_run_rejects_nonpassing_native_probe(tmp_path: Path) -> None:
 
 
 def test_run_rejects_non_75_frame_route_without_output(tmp_path: Path) -> None:
-    args, output, _actor0, _actor1 = _args(tmp_path, frames=74)
+    args, output, *_unused = _args(tmp_path, frames=74)
 
     with pytest.raises(descriptor.MP3DTrackDescriptorError, match=r"finite \[75,3\]"):
         descriptor.run(args)
@@ -205,7 +326,7 @@ def test_run_rejects_non_75_frame_route_without_output(tmp_path: Path) -> None:
 
 
 def test_bank_request_path_cannot_escape_bank_root(tmp_path: Path) -> None:
-    args, output, _actor0, _actor1 = _args(tmp_path)
+    args, output, *_unused = _args(tmp_path)
     bank = json.loads(args.viewpoint_bank.read_text(encoding="utf-8"))
     bank["m1_capture_request_paths"][VIEWPOINT_ID] = "../route.json"
     args.viewpoint_bank.write_text(json.dumps(bank), encoding="utf-8")
