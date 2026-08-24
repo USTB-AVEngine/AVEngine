@@ -113,3 +113,31 @@ while native visible-pixel counts are attached per frame. Projection, in-frame
 and occlusion remain pending rather than inferred from zero pixels. Static-only
 operation remains supported. A fresh real six-view binding is required after
 the implementation commit.
+
+## Clean-code six-view runtime binding
+
+The runtime binding was committed as
+`ec387e98f517ecb6ba0c953e925fbd46910d17ac`. Focused tests are retained at:
+
+`/data/jzy/tmp/mp3d_runtime_track_binding_unit_r1.log`
+
+They record `29 passed` for the runtime consumer, explicit-track helper and
+current visual visibility path. The fresh six-view artifact is:
+
+`/data/jzy/tmp/mp3d_runtime_tracks_ec387e9_r1`
+
+It binds every passing `509838e` dynamic capture to the exact bank M1 request.
+For all six viewpoints, both `[75,2,3]` emitter-link position arrays and both
+75-frame native semantic-pixel tracks compare exactly to their source capture
+arrays. Source IDs are retained as `source0/source1`; actor IDs remain
+`actor0/actor1`. Candidate filtering is still `none`.
+
+The verifier is:
+
+`/data/jzy/tmp/mp3d_runtime_tracks_ec387e9_r1_verification.log`
+
+It reports `status=pass` for six runtime bindings, exact emitter positions,
+exact visible pixels, no filtering, and explicitly pending projection/occlusion.
+This artifact now supplies dynamic emitter and modal visible-pixel evidence; it
+still does not supply audio propagation/RIR, amodal occlusion classification,
+question authoring or a four-point mini-pilot.
