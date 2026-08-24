@@ -147,10 +147,34 @@ def test_profile_rejects_duplicate_camera_ids_and_absent_room() -> None:
         )
 
 
-def test_profile_requires_exactly_four_review_views() -> None:
+def test_profile_accepts_four_to_eight_review_views() -> None:
     profile = _profile()
-    profile["camera_views"].pop()
-    with pytest.raises(InteriorAgentPlanError, match="exactly four"):
+    for index in range(4, 8):
+        profile["camera_views"].append(
+            {
+                "view_id": f"additional_{index}",
+                "position_m": [-1.0 + index * 0.1, 0.5, 1.5],
+                "yaw_deg": index * 30.0,
+            }
+        )
+    assert len(build_kujiale_review_plan(profile)["camera_views"]) == 8
+
+
+@pytest.mark.parametrize("view_count", [3, 9])
+def test_profile_rejects_review_view_count_outside_range(view_count: int) -> None:
+    profile = _profile()
+    while len(profile["camera_views"]) > view_count:
+        profile["camera_views"].pop()
+    while len(profile["camera_views"]) < view_count:
+        index = len(profile["camera_views"])
+        profile["camera_views"].append(
+            {
+                "view_id": f"additional_{index}",
+                "position_m": [float(index), 0.5, 1.5],
+                "yaw_deg": index * 20.0,
+            }
+        )
+    with pytest.raises(InteriorAgentPlanError, match="between four and eight"):
         build_kujiale_review_plan(profile)
 
 

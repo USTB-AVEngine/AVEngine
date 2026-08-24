@@ -251,9 +251,11 @@ def build_kujiale_review_plan(
     if (
         not isinstance(raw_views, Sequence)
         or isinstance(raw_views, (str, bytes))
-        or len(raw_views) != 4
+        or not 4 <= len(raw_views) <= 8
     ):
-        raise InteriorAgentPlanError("camera_views must contain exactly four views")
+        raise InteriorAgentPlanError(
+            "camera_views must contain between four and eight views"
+        )
     for index, raw_view in enumerate(raw_views):
         if not isinstance(raw_view, Mapping):
             raise InteriorAgentPlanError(f"camera_views[{index}] must be an object")
@@ -388,7 +390,7 @@ def build_kujiale_review_plan(
             "review_lights_are_acoustic_truth": False,
         },
         "claim_boundary": (
-            "Optional four-view visual canary. It does not qualify the room, "
+            "Optional 4-8-view visual canary. It does not qualify the room, "
             "reconstruct physical lighting, or execute an AVEngine episode."
         ),
     }
