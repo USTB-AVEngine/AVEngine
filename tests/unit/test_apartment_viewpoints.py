@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 import json
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -142,6 +143,66 @@ def _prefilter(**overrides):
     }
     arguments.update(overrides)
     return prefilter_apartment_viewpoints(_obstacle_map(), **arguments)
+
+
+@pytest.mark.parametrize("value", [-1, 1.5, True, None])
+def test_minimum_passed_corridor_count_requires_nonnegative_integer(value) -> None:
+    with pytest.raises(
+        ApartmentRasterPrefilterError,
+        match="minimum_passed_corridor_count must be a nonnegative integer",
+    ):
+        _prefilter(minimum_passed_corridor_count=value)
+
+
+def test_candidate_quality_filters_fraction_and_passed_corridor_count() -> None:
+    candidate = SimpleNamespace(
+        prefilter=SimpleNamespace(
+            frustum_sample_fraction=0.25,
+            passed_corridor_ids=("c0", "c1", "c2", "c3"),
+        )
+    )
+
+    assert viewpoint_module._passes_candidate_quality(
+        candidate,
+        minimum_raster_sample_fraction=0.10,
+        minimum_passed_corridor_count=4,
+    )
+    assert not viewpoint_module._passes_candidate_quality(
+        candidate,
+        minimum_raster_sample_fraction=0.30,
+        minimum_passed_corridor_count=4,
+    )
+    assert not viewpoint_module._passes_candidate_quality(
+        candidate,
+        minimum_raster_sample_fraction=0.10,
+        minimum_passed_corridor_count=5,
+    )
+
+
+def test_candidate_quality_thresholds_also_apply_to_legacy_view0() -> None:
+    with pytest.raises(
+        ApartmentRasterPrefilterError,
+        match="legacy view0 fails candidate quality thresholds",
+    ):
+        _prefilter(minimum_passed_corridor_count=1)
+
+
+def test_quality_filter_missing_required_role_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        viewpoint_module,
+        "_passes_candidate_quality",
+        lambda candidate, **_kwargs: (
+            candidate.is_legacy or "window_facing" not in candidate.roles
+        ),
+    )
+
+    with pytest.raises(
+        ApartmentRasterPrefilterError,
+        match="generated candidates do not provide required roles: window_facing",
+    ):
+        _prefilter(required_roles=("window_facing",), selection_count=4)
 
 
 def test_prefilter_is_deterministic_order_free_and_explicitly_non_native() -> None:

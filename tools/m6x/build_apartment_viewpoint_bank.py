@@ -45,6 +45,8 @@ from avengine.security.path_policy import (
 
 
 PREFILTER_LABEL = "2D PREFILTER ONLY - NATIVE PIXEL VALIDATION PENDING"
+PILOT_MINIMUM_RASTER_SAMPLE_FRACTION = 0.10
+PILOT_MINIMUM_PASSED_CORRIDOR_COUNT = 4
 
 
 class ApartmentViewpointBuildError(ValueError):
@@ -568,6 +570,7 @@ def _load_runtime_obstacle_map(
     inputs: ValidatedM1Inputs,
     runtime_prefix: Path,
     magnum_python_site: Path,
+    rlr_sdk_root: Path | None = None,
     floor_height_m: float,
     meters_per_pixel: float,
     scratch_directory: Path,
@@ -575,6 +578,7 @@ def _load_runtime_obstacle_map(
     runtime = prepare_installed_habitat_runtime(
         runtime_prefix=runtime_prefix,
         magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
         allow_mp3d_environment=False,
     )
     configuration, _modalities, _listener_uuid, resolved_scene = _make_configuration(
@@ -807,6 +811,11 @@ def run(args: argparse.Namespace) -> Path:
     )
     anchor_library_path = _required_file(args.anchor_library, owner="--anchor-library")
     runtime_prefix = _required_directory(args.runtime_prefix, owner="--runtime-prefix")
+    rlr_sdk_root = (
+        None
+        if args.rlr_sdk_root is None
+        else _required_directory(args.rlr_sdk_root, owner="--rlr-sdk-root")
+    )
     magnum_python_site = _required_magnum_python_site()
     output_policy, output, staging = _fresh_staging(args.output)
 
@@ -826,6 +835,7 @@ def run(args: argparse.Namespace) -> Path:
         inputs=inputs,
         runtime_prefix=runtime_prefix,
         magnum_python_site=magnum_python_site,
+        rlr_sdk_root=rlr_sdk_root,
         floor_height_m=float(probe_heights["floor_height_m"]),
         meters_per_pixel=float(args.meters_per_pixel),
         scratch_directory=staging / "runtime_scratch",
@@ -841,6 +851,8 @@ def run(args: argparse.Namespace) -> Path:
                 "corridor_source_center_heights_m"
             ],
             selection_count=6,
+            minimum_raster_sample_fraction=(PILOT_MINIMUM_RASTER_SAMPLE_FRACTION),
+            minimum_passed_corridor_count=(PILOT_MINIMUM_PASSED_CORRIDOR_COUNT),
         )
 
         requests_directory = staging / "requests"
@@ -893,6 +905,9 @@ def run(args: argparse.Namespace) -> Path:
                     "anchor_library": str(anchor_library_path),
                     "installed_runtime_prefix": str(runtime_prefix),
                     "magnum_python_site": str(magnum_python_site),
+                    "rlr_sdk_root": (
+                        None if rlr_sdk_root is None else str(rlr_sdk_root)
+                    ),
                 },
                 "request_paths": request_paths,
                 "topdown_path": "topdown_2d_prefilter_native_pending.png",
@@ -920,6 +935,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retained-corridor-bank", required=True, type=Path)
     parser.add_argument("--anchor-library", required=True, type=Path)
     parser.add_argument("--runtime-prefix", required=True, type=Path)
+    parser.add_argument("--rlr-sdk-root", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--meters-per-pixel", type=float, default=0.04)
     return parser.parse_args(argv)
