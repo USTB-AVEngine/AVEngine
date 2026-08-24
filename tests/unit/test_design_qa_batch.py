@@ -13,6 +13,7 @@ from avengine.qa.design_viewpoints import (
     select_design_viewpoints,
 )
 from tools.qa import design_qa_batch
+from tools.qa import generate_qa_v2_questions
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -178,6 +179,76 @@ def test_rotation_uses_each_view_corridors_offscreen_and_m1(tmp_path: Path) -> N
         twins_per_cell=0,
     )
     assert {item["viewpoint_id"] for item in explicit_specs} == {"view-2"}
+
+
+def test_explicit_input_modalities_flow_from_design_to_question_mask(
+    tmp_path: Path,
+) -> None:
+    path, _document = _bank_fixture(tmp_path)
+    viewpoints = load_design_viewpoint_bank(path)
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    assets = {item["asset_id"]: item for item in registry["assets"]}
+    specs, twins = design_qa_batch.build_specs(
+        viewpoints=viewpoints,
+        assets=assets,
+        cell_size=16,
+        twins_per_cell=8,
+        input_modalities=("audio", "video"),
+    )
+
+    assert all(spec["input_modalities"] == ["audio", "video"] for spec in specs)
+    assert all(
+        twin["input_modalities"] == source["input_modalities"]
+        for twin in twins
+        for source in specs
+        if source["point_id"] == twin["twin_of"]
+    )
+    mask = generate_qa_v2_questions.resolve_modality_mask(
+        {
+            "type_id": "QV2-T2-ATTR",
+            "modality_expectation": "dual_required",
+        },
+        spec=specs[0],
+        point_id=specs[0]["point_id"],
+        audio_available=True,
+    )
+    assert mask == {"audio": True, "video": True}
+
+    refusal_mask = generate_qa_v2_questions.resolve_modality_mask(
+        {
+            "type_id": "QV2-TR-REFUSAL",
+            "provided_modalities": ["audio"],
+            "withheld_modalities": ["video"],
+            "modality_expectation": "must_refuse_audio_only_visual_attribute",
+            "refusal_gold": True,
+        },
+        spec=specs[0],
+        point_id=specs[0]["point_id"],
+        audio_available=True,
+    )
+    assert refusal_mask == {"audio": True, "video": False}
+
+
+@pytest.mark.parametrize(
+    "input_modalities",
+    (("video",), ("audio", "audio"), ("audio", "text")),
+)
+def test_design_input_modalities_reject_invalid_facts(
+    tmp_path: Path, input_modalities: tuple[str, ...]
+) -> None:
+    path, _document = _bank_fixture(tmp_path)
+    viewpoints = load_design_viewpoint_bank(path)
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    assets = {item["asset_id"]: item for item in registry["assets"]}
+
+    with pytest.raises(design_qa_batch.DesignBatchError, match="input-modalities"):
+        design_qa_batch.build_specs(
+            viewpoints=viewpoints,
+            assets=assets,
+            cell_size=16,
+            twins_per_cell=0,
+            input_modalities=input_modalities,
+        )
 
 
 def test_side_and_timeline_camera_are_viewpoint_derived(tmp_path: Path) -> None:

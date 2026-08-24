@@ -80,6 +80,30 @@ def _load_json(path: str | Path) -> Any:
         return json.load(handle)
 
 
+def _normalize_input_modalities(
+    value: Sequence[str] | None,
+) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if (
+        isinstance(value, (str, bytes))
+        or not isinstance(value, Sequence)
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise DesignBatchError(
+            "--input-modalities must contain unique audio/video names"
+        )
+    normalized = tuple(str(item) for item in value)
+    if any(item not in {"audio", "video"} for item in normalized):
+        raise DesignBatchError("--input-modalities supports only audio and video")
+    if "audio" not in normalized:
+        raise DesignBatchError(
+            "--input-modalities must include audio because every point materializes AudioProgram"
+        )
+    return normalized
+
+
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
     with path.open("x", encoding="utf-8") as handle:
         json.dump(value, handle, ensure_ascii=False, indent=2)
@@ -422,12 +446,14 @@ def build_specs(
     assets: Mapping[str, Mapping[str, Any]],
     cell_size: int,
     twins_per_cell: int,
+    input_modalities: Sequence[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not viewpoints:
         raise DesignBatchError("at least one resolved viewpoint is required")
     motion_cases = motion_case_sequence(cell_size)
     if not 0 <= twins_per_cell <= cell_size:
         raise DesignBatchError("--twins-per-cell must be between zero and cell size")
+    normalized_input_modalities = _normalize_input_modalities(input_modalities)
     specs = []
     cells = _cells()
     for cell_index, (kind, asset1, asset2, order) in enumerate(cells):
@@ -446,26 +472,27 @@ def build_specs(
             suffix = (
                 "_turn_taking_v1" if order == "afirst" else "_turn_taking_bfirst_v1"
             )
-            specs.append(
-                {
-                    "point_id": point_id,
-                    "pair_kind": kind,
-                    "source1_asset": asset1,
-                    "source2_asset": asset2,
-                    "s1_start": list(path1[0]),
-                    "s1_end": list(path1[1]),
-                    "s2_start": list(path2[0]),
-                    "s2_end": list(path2[1]),
-                    "motion_case": motion,
-                    "offscreen_candidate": made == cell_size - 1,
-                    "twin_of": None,
-                    "program_id": f"qa_v2_{pair_kind}_{short1}_{short2}{suffix}",
-                    "schedule_seed": seed,
-                    "viewpoint_id": viewpoint.viewpoint_id,
-                    "viewpoint_authority": viewpoint.authority,
-                    "m1_request": viewpoint.spec_m1_request(),
-                }
-            )
+            spec = {
+                "point_id": point_id,
+                "pair_kind": kind,
+                "source1_asset": asset1,
+                "source2_asset": asset2,
+                "s1_start": list(path1[0]),
+                "s1_end": list(path1[1]),
+                "s2_start": list(path2[0]),
+                "s2_end": list(path2[1]),
+                "motion_case": motion,
+                "offscreen_candidate": made == cell_size - 1,
+                "twin_of": None,
+                "program_id": f"qa_v2_{pair_kind}_{short1}_{short2}{suffix}",
+                "schedule_seed": seed,
+                "viewpoint_id": viewpoint.viewpoint_id,
+                "viewpoint_authority": viewpoint.authority,
+                "m1_request": viewpoint.spec_m1_request(),
+            }
+            if normalized_input_modalities is not None:
+                spec["input_modalities"] = list(normalized_input_modalities)
+            specs.append(spec)
 
     by_id = {spec["point_id"]: spec for spec in specs}
     twins = []
@@ -633,6 +660,7 @@ def run(
         assets=assets,
         cell_size=args.cell_size,
         twins_per_cell=args.twins_per_cell,
+        input_modalities=getattr(args, "input_modalities", None),
     )
     viewpoint_by_id = {item.viewpoint_id: item for item in viewpoints}
     generated_at = datetime.now(timezone.utc).isoformat()
@@ -738,6 +766,11 @@ def run(
                 "selected_viewpoint_ids": [item.viewpoint_id for item in viewpoints],
                 "point_counts": dict(sorted(distribution.items())),
             },
+            "input_modalities": (
+                None
+                if getattr(args, "input_modalities", None) is None
+                else list(args.input_modalities)
+            ),
             "counts": {
                 "total": len(specs),
                 "authored": len(specs),
@@ -779,6 +812,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--programs-dir", default=str(DEFAULT_PROGRAMS_DIR))
     parser.add_argument("--cell-size", type=int, default=16)
     parser.add_argument("--twins-per-cell", type=int, default=8)
+    parser.add_argument(
+        "--input-modalities",
+        nargs="+",
+        choices=("audio", "video"),
+        help=(
+            "explicit model-input fact copied to every spec; omit for legacy "
+            "design output, which the question producer will reject"
+        ),
+    )
     parser.add_argument(
         "--viewpoint-bank",
         help="declared-pass 4-8-view bank; required outside legacy report-only mode",
