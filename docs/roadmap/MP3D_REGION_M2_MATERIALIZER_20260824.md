@@ -6,9 +6,11 @@ This CPU-only slice starts from integration `e16f217` in the server worktree
 `/data/jzy/code/AVEngine-codex-mp3d-region-m2-materializer`, branch
 `codex/mp3d-region-m2-materializer`.
 
-Code commit:
+Code commits:
 
-`4041dffc1fac4cd558c9ec9c425dfba46f41e304`
+- `4041dffc1fac4cd558c9ec9c425dfba46f41e304`: initial actor-track materializer;
+- `38a695afc0e3bb03cc2b7aa51b242c8c9e7c91d7`: r4 authority, camera-reference,
+  and motion-span fail-closed checks.
 
 Owned files are:
 
@@ -67,9 +69,9 @@ Moving tracks use real baked `walk` samples. Static tracks use real baked
 `contact_phases` role and are matched to the baked action sample ticks.
 All tracks use 75 frames at 15 Hz with `pts_ticks=i*3200`.
 
-The route-point-to-actor-root translation is deliberately zero-offset, but is
-recorded only as an exact-Beagle, revision-scoped research calibration
-reference. It is not a support-plane, paw-contact, emitter, collision or
+The route-point-to-actor-root translation is deliberately zero-offset and is
+written numerically as `[0.0, 0.0, 0.0]`, but is recorded only as an
+exact-Beagle, revision-scoped research calibration reference. It is not a support-plane, paw-contact, emitter, collision or
 native-execution claim. Moving orientation uses XZ finite differences and the
 qualified Beagle `forward_axis=-Z`, `up_axis=+Y` convention. Static
 orientation comes from the first rotation in the grounded base M2 request,
@@ -89,12 +91,14 @@ PYTHONPATH=src python tools/m5/materialize_mp3d_region_actor_tracks.py \
   --region-id 17DRP5sb8fy:region:000 \
   --asset-manifest /data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json \
   --base-m2-request /data/avengine_external/review/current_mp3d_two_beagle_route_lateral_seed22_grounded/primary_m2_request.json \
-  --output-root /data/jzy/tmp/mp3d_region_actor_tracks_2b0d4f9_r3
+  --output-root /data/jzy/tmp/mp3d_region_actor_tracks_2b0d4f9_r4
 ```
 
-Fresh output:
+The earlier r3 output is retained as history but is not the final artifact.
 
-`/data/jzy/tmp/mp3d_region_actor_tracks_2b0d4f9_r3`
+Fresh final output:
+
+`/data/jzy/tmp/mp3d_region_actor_tracks_2b0d4f9_r4`
 
 It contains 16 cases and 32 actor tracks:
 
@@ -106,7 +110,7 @@ It contains 16 cases and 32 actor tracks:
 
 Independent verifier:
 
-`/data/jzy/tmp/mp3d_region_actor_tracks_2b0d4f9_r3_verification.log`
+`/data/jzy/tmp/mp3d_region_actor_tracks_2b0d4f9_r4_verification.log`
 
 The verifier reloaded the base M2 package/request and compiler, then checked all
 generated tracks for:
@@ -119,7 +123,10 @@ generated tracks for:
 - actor/source identity and endpoint exchange continuity; and
 - camera metadata not affecting root generation.
 
-Status is `pass`. No Simulator, native actor execution, GPU, OBJECT_ID,
+Status is `pass`. The verifier also confirmed the final r4 authority metadata,
+resolved every selected camera M1 reference, rejected no-span moving/static
+mismatches, and checked the numeric route-point-to-actor-root offset
+`[0.0, 0.0, 0.0]`. No Simulator, native actor execution, GPU, OBJECT_ID,
 collision, or RLR job ran.
 
 ## Next native runner boundary
@@ -131,3 +138,5 @@ articulated collision/contact checks, OBJECT_ID review, and only afterward pass
 the actual emitter trajectories to the existing RLR adapter.
 
 The current materializer does not claim that native runner or audio bridge.
+The next runner must consume actual emitter readback, not the r4 source-center
+arrays.
