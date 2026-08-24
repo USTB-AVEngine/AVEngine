@@ -62,3 +62,39 @@ The consumer now accepts both receipt generations and explicitly derives the
 two convenience booleans only when one retained Topdown report and passing
 checks prove them. The normalized record says whether this derivation occurred.
 A fresh real run remains required from the follow-up commit.
+
+## Clean-code real-data run
+
+The compatibility fix was committed as
+`098eef85ec88bdfc0f8403cbdf7c6fae0a042d83`. Its fresh real-data output is:
+
+`/data/jzy/tmp/mp3d_viewpoint_raw_tracks_098eef8_r1`
+
+The ordinary JSON artifact contains all six legal viewpoint candidates and is
+1,200,614 bytes. Each viewpoint retains exactly 75 frames for `actor0` and
+`actor1`; the stored positions compare equal frame-for-frame to the retained
+route explanation. Source identity binding is preserved, candidate filtering
+is `none`, and all six passing `839cfdf` native static probes are attached.
+
+For this retained two-Beagle route, the horizontal pair-distance minimum is
+`1.422146 m` at frame 17 for every viewpoint. This equality is expected because
+the pair track is independent of camera pose. The route does not exchange
+endpoints and does not reverse pairwise listener-right order in these six
+cameras. Those are recorded observations, not reasons to select or reject any
+view.
+
+Every projection/in-frame/occlusion/visible-pixel field remains explicitly
+pending/null. The old Topdown receipts are normalized with
+`summary_fields_derived_from_reports_checks=true`; no native value is invented.
+
+The fresh verifier is:
+
+`/data/jzy/tmp/mp3d_viewpoint_raw_tracks_098eef8_r1_verification.log`
+
+It reports `status=pass` for six views, no filtering, 75 frames per view, exact
+positions, identity binding, passing static probes and pending visibility. The
+first `51ea758` attempt published no output; the clean successful artifact above
+comes from the committed compatibility fix.
+
+This is still not dynamic actor-pixel evidence, an audio-emitter trajectory,
+an RIR/audio run, question authoring or a four-point mini-pilot.
