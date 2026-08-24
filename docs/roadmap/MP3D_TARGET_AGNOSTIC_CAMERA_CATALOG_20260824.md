@@ -48,3 +48,32 @@ prove that moving the shared height variants does not change their values.
 
 A real native-floor catalog run remains pending until the implementation is
 committed, so the first artifact can name clean code provenance.
+
+## Clean-code real native-floor catalog
+
+The implementation was committed as
+`c9c2274bf6cde77a4151b9124140cd38862fd7e8`. The fresh output is:
+
+`/data/jzy/tmp/mp3d_camera_placement_catalog_c9c2274_r1`
+
+It consumes all 128 retained native PathFinder floor samples and emits exactly
+4,608 placements: 128 floor points x three camera heights x twelve yaw values.
+Heights above each floor point are low `1.2 m`, base `1.5 m` and high `1.8 m`;
+yaw is exactly `0,30,...,330` degrees. The JSON artifact is 4,535,250 bytes.
+
+Every placement has null semantic room/target fields, source/path join pending,
+native dynamic visibility pending, difficulty not evaluated and candidate
+filtering `none`. Studio was not used. No full M1 request is duplicated 4,608
+times; the base request identity and ordinary pose values are retained for later
+materialization.
+
+The verifier is:
+
+`/data/jzy/tmp/mp3d_camera_placement_catalog_c9c2274_r1_verification.log`
+
+It reports `status=pass` for the exact count, unique placement IDs, three
+heights, twelve yaws, no filtering, no Studio, null semantics and pending joins.
+
+This completes the raw MP3D camera-position/yaw enumeration layer. It does not
+yet join the retained emitter tracks, choose a native-probe subset, certify
+4--8 viewpoints, render audio/RIR or run a mini-pilot.
