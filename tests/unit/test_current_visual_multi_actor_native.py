@@ -15,14 +15,17 @@ from avengine.m5.current_visual_multi_actor_native import (
     ARRAY_ARTIFACTS,
     NativeMultiActorVisualError,
     _camera_pose,
+    _compile_target_only_visibility,
     _capture_m1_request_path,
     _fresh_output_directory,
     _load_actor_templates,
     _require_camera_and_sensor_pose_match,
     _require_no_case_semantic_collision,
+    _require_target_only_replay_match,
     _receipt_actor_axis_bindings,
     _runtime_contact_api,
     _save_array,
+    _target_only_semantic_frame,
     compare_capture_outputs,
 )
 from tools.m5 import capture_mp3d_region_case as capture_tool
@@ -195,6 +198,119 @@ def test_zero_object_id_pixels_are_retained_without_a_gate() -> None:
     assert record["bbox_xyxy"] is None
 
 
+def test_target_only_semantic_requires_same_runtime_object_pixels() -> None:
+    semantic = np.asarray([[0, 210], [210, 0]], dtype=np.int32)
+    object_id = np.asarray([[0, 17], [17, 0]], dtype=np.int32)
+    assert np.array_equal(
+        _target_only_semantic_frame(
+            semantic,
+            object_id,
+            semantic_id=210,
+            runtime_object_id=17,
+        ),
+        semantic,
+    )
+    mismatched = object_id.copy()
+    mismatched[1, 0] = 0
+    with pytest.raises(NativeMultiActorVisualError, match="pixels differ"):
+        _target_only_semantic_frame(
+            semantic,
+            mismatched,
+            semantic_id=210,
+            runtime_object_id=17,
+        )
+    contaminated = semantic.copy()
+    contaminated[0, 0] = 999
+    with pytest.raises(NativeMultiActorVisualError, match="another semantic ID"):
+        _target_only_semantic_frame(
+            contaminated,
+            object_id,
+            semantic_id=210,
+            runtime_object_id=17,
+        )
+
+
+def test_target_only_replay_accepts_quaternion_sign_only() -> None:
+    root = np.eye(4, dtype=np.float64)
+    joints = np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+    _require_target_only_replay_match(
+        normal_root=root,
+        normal_joints=joints,
+        target_root=root.copy(),
+        target_joints=-joints,
+        frame_index=0,
+        actor_id="actor0",
+    )
+    drifted = root.copy()
+    drifted[0, 3] = 0.01
+    with pytest.raises(NativeMultiActorVisualError, match="root differs"):
+        _require_target_only_replay_match(
+            normal_root=root,
+            normal_joints=joints,
+            target_root=drifted,
+            target_joints=joints,
+            frame_index=1,
+            actor_id="actor0",
+        )
+
+
+def test_target_only_visibility_retains_all_four_raw_states() -> None:
+    actor0_targets = [
+        np.zeros((2, 3), dtype=np.int32),
+        np.asarray([[0, 210, 210], [0, 0, 0]], dtype=np.int32),
+        np.asarray([[0, 210, 210], [0, 0, 0]], dtype=np.int32),
+        np.asarray([[0, 210, 210], [0, 0, 0]], dtype=np.int32),
+    ]
+    actor1_targets = [np.zeros((2, 3), dtype=np.int32) for _ in range(4)]
+    normal = [
+        np.zeros((2, 3), dtype=np.int32),
+        np.zeros((2, 3), dtype=np.int32),
+        np.asarray([[0, 210, 0], [0, 0, 0]], dtype=np.int32),
+        actor0_targets[3].copy(),
+    ]
+    case = SimpleNamespace(
+        actor_tracks=[
+            SimpleNamespace(actor_id="actor0", semantic_id=210),
+            SimpleNamespace(actor_id="actor1", semantic_id=211),
+        ]
+    )
+    identity = {
+        "request_id": "request",
+        "primary_camera_rig": {"rig_id": "rig", "view_id": "view"},
+    }
+    with pytest.raises(NativeMultiActorVisualError, match="every normal frame"):
+        _compile_target_only_visibility(
+            case=case,
+            m1_capture_identity=identity,
+            normal_semantic_frames=normal,
+            target_only_results={
+                "actor0": {"semantic_frames": actor0_targets},
+                "actor1": {"semantic_frames": actor1_targets},
+            },
+        )
+
+    normal_75 = normal + [normal[-1].copy() for _ in range(71)]
+    actor0_75 = actor0_targets + [actor0_targets[-1].copy() for _ in range(71)]
+    actor1_75 = actor1_targets + [actor1_targets[-1].copy() for _ in range(71)]
+    truth = _compile_target_only_visibility(
+        case=case,
+        m1_capture_identity=identity,
+        normal_semantic_frames=normal_75,
+        target_only_results={
+            "actor0": {"semantic_frames": actor0_75},
+            "actor1": {"semantic_frames": actor1_75},
+        },
+    )
+    states = [frame["state"] for frame in truth["per_instance"]["actor0"]["frames"][:4]]
+    assert states == [
+        "out_of_view",
+        "fully_occluded",
+        "visible_occluded",
+        "visible_clear",
+    ]
+    assert truth["per_instance"]["actor1"]["state_counts"]["out_of_view"] == 75
+
+
 def test_no_clobber_output_directory(tmp_path: Path) -> None:
     first = _fresh_output_directory(tmp_path / "capture")
     assert first.is_dir()
@@ -211,6 +327,8 @@ def _make_capture(root: Path, *, altered: bool = False) -> None:
     write_json(
         root / "frame_records.json", {"frames": [{"frame_index": 0, "x": altered}]}
     )
+    write_json(root / "target_only_frame_records.json", {"per_actor": {}})
+    write_json(root / "pixel_visibility_truth.json", {"status": "computed"})
 
 
 def test_repeat_capture_comparison_checks_all_arrays_and_records(
