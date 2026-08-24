@@ -23,9 +23,7 @@ from avengine.optional_backends.kujiale_viewpoints import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPOSITORY / "tools/m6z/build_kujiale_viewpoint_bank.py"
-SPEC = importlib.util.spec_from_file_location(
-    "build_kujiale_viewpoint_bank", TOOL_PATH
-)
+SPEC = importlib.util.spec_from_file_location("build_kujiale_viewpoint_bank", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
@@ -121,9 +119,7 @@ def test_raster_los_conservatively_keeps_corner_touch_cells() -> None:
         rigid_obstacles=(),
     )
     mask = np.asarray(obstacle_map.binary_navmesh, dtype=np.bool_)
-    assert not VIEWPOINTS._segment_clear(
-        obstacle_map, mask, (0.5, 0.5), (1.5, 1.5)
-    )
+    assert not VIEWPOINTS._segment_clear(obstacle_map, mask, (0.5, 0.5), (1.5, 1.5))
 
 
 def test_viewpoint_selection_is_deterministic_diverse_and_pending_pixels() -> None:
@@ -152,20 +148,16 @@ def test_viewpoint_selection_is_deterministic_diverse_and_pending_pixels() -> No
     assert bank["viewpoint_count"] == 4
     assert bank["native_pixel_validation_status"] == "pending"
     assert bank["ue_spear_certification_status"] == "pending"
-    assert {
-        view["position_xyz_m"][2] for view in bank["viewpoints"]
-    }.issuperset({1.0, 1.9})
+    assert {view["position_xyz_m"][2] for view in bank["viewpoints"]}.issuperset(
+        {1.0, 1.9}
+    )
     poses = {
-        (*view["position_xyz_m"], view["yaw_ue_deg"])
-        for view in bank["viewpoints"]
+        (*view["position_xyz_m"], view["yaw_ue_deg"]) for view in bank["viewpoints"]
     }
     assert len(poses) == 4
+    assert all(view["eligible_corridor_count"] > 0 for view in bank["viewpoints"])
     assert all(
-        view["eligible_corridor_count"] > 0 for view in bank["viewpoints"]
-    )
-    assert all(
-        view["compatible_both_moving_pair_count"] > 0
-        for view in bank["viewpoints"]
+        view["compatible_both_moving_pair_count"] > 0 for view in bank["viewpoints"]
     )
     assert set(first["corridor_subsets"]) == {
         view["viewpoint_id"] for view in bank["viewpoints"]
@@ -203,6 +195,7 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
         "dataset_id": "spatialverse/InteriorAgent",
         "scene_id": "kujiale_test",
         "room_id": "kujiale_test_living",
+        "room_scope": "livingroom_test",
         "room_type": "living room",
         "room_polygon_xy_m": [
             [-4.0, -3.0],
@@ -213,16 +206,28 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
         "floor_z_m": 0.0,
         "objects": [],
         "object_role_counts": {},
+        "source_reference": "/external/kujiale_test_full_home.usda",
     }
     profile = {
         "schema": "avengine_optional_residential_source_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
         "scene_id": "kujiale_test",
+        "map_path": "/Game/AVEngine/Test/kujiale_test_full_home_v1",
         "source_center_margin_m": 0.03,
         "emitter_heights_m": {"human0": 1.6, "dog0": 0.45},
+    }
+    visual_profile = {
+        "schema_version": "avengine_optional_interioragent_kujiale_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "kujiale_test",
+        "map_path": "/Game/AVEngine/Test/kujiale_test_full_home_v1",
+        "source_stage_name": "kujiale_test_full_home.usda",
+        "selected_scopes": ["livingroom_test", "wall", "ceiling", "floor"],
     }
     args = argparse.Namespace(
         scene_metadata=_write_json(tmp_path / "metadata.json", metadata),
         source_profile=_write_json(tmp_path / "profile.json", profile),
+        visual_profile=_write_json(tmp_path / "visual.json", visual_profile),
         motion_profiles=_write_json(tmp_path / "motion.json", _motion_profiles()),
         species=["human", "dog"],
         view_count=4,
@@ -249,6 +254,12 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
     assert delivery["status"] == "cpu_prefilter_complete"
     assert delivery["native_pixel_validation_status"] == "pending"
     assert delivery["ue_spear_certification_status"] == "pending"
+    assert delivery["scene_binding"]["map_path"] == (
+        "/Game/AVEngine/Test/kujiale_test_full_home_v1"
+    )
+    assert delivery["scene_binding"]["source_stage_name"] == (
+        "kujiale_test_full_home.usda"
+    )
     assert (output / "viewpoint_topdown.png").is_file()
     assert len(list((output / "corridors").glob("*.json"))) == 4
     for subset_path in (output / "corridors").glob("*.json"):
@@ -264,15 +275,107 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
         TOOL.run(args)
 
 
+def _binding_inputs() -> tuple[dict, dict, dict]:
+    metadata = {
+        "schema": "avengine_optional_residential_scene_metadata_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "kujiale_0020",
+        "room_id": "kujiale_0020_livingroom_491",
+        "room_scope": "livingroom_491",
+        "source_reference": "/external/kujiale_0020_full_home_preview_surface.usda",
+    }
+    source_profile = {
+        "schema": "avengine_optional_residential_source_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "kujiale_0020",
+        "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+    }
+    visual_profile = {
+        "schema_version": "avengine_optional_interioragent_kujiale_profile_v1",
+        "dataset_id": "spatialverse/InteriorAgent",
+        "scene_id": "kujiale_0020",
+        "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+        "source_stage_name": "kujiale_0020_full_home_preview_surface.usda",
+        "selected_scopes": ["livingroom_491", "wall", "ceiling", "floor"],
+    }
+    return metadata, source_profile, visual_profile
+
+
+def test_current_living_profiles_bind_full_home_map_and_stage() -> None:
+    metadata, _, _ = _binding_inputs()
+    source_profile = json.loads(
+        (
+            REPOSITORY / "examples/m6z/interioragent_kujiale_0020_source_episode.json"
+        ).read_text(encoding="utf-8")
+    )
+    visual_profile = json.loads(
+        (
+            REPOSITORY
+            / "examples/m6z/interioragent_kujiale_0020_full_home_visual_profile.json"
+        ).read_text(encoding="utf-8")
+    )
+    binding = TOOL._validate_scene_binding(
+        metadata=metadata,
+        source_profile=source_profile,
+        visual_profile=visual_profile,
+    )
+    assert binding["map_path"].endswith("/kujiale_0020_full_home_v1")
+    assert binding["source_stage_name"] == (
+        "kujiale_0020_full_home_preview_surface.usda"
+    )
+
+
+def test_scene_binding_rejects_cross_wired_scene() -> None:
+    metadata, source_profile, visual_profile = _binding_inputs()
+    source_profile["scene_id"] = "kujiale_other"
+    with pytest.raises(RuntimeError, match="scene_id differ"):
+        TOOL._validate_scene_binding(
+            metadata=metadata,
+            source_profile=source_profile,
+            visual_profile=visual_profile,
+        )
+
+
+def test_scene_binding_rejects_cross_wired_map() -> None:
+    metadata, source_profile, visual_profile = _binding_inputs()
+    source_profile["map_path"] = "/Game/AVEngine/Optional/Kujiale/kujiale_0020_live_v2"
+    with pytest.raises(RuntimeError, match="map_path differ"):
+        TOOL._validate_scene_binding(
+            metadata=metadata,
+            source_profile=source_profile,
+            visual_profile=visual_profile,
+        )
+
+
+def test_scene_binding_rejects_cross_wired_stage() -> None:
+    metadata, source_profile, visual_profile = _binding_inputs()
+    metadata["source_reference"] = "/external/kujiale_0020_live.usda"
+    with pytest.raises(RuntimeError, match="source stage differ"):
+        TOOL._validate_scene_binding(
+            metadata=metadata,
+            source_profile=source_profile,
+            visual_profile=visual_profile,
+        )
+
+
+def test_scene_binding_does_not_use_room_semantics_as_candidate_authority() -> None:
+    metadata, source_profile, visual_profile = _binding_inputs()
+    metadata["room_type"] = "previously unseen room label"
+    binding = TOOL._validate_scene_binding(
+        metadata=metadata,
+        source_profile=source_profile,
+        visual_profile=visual_profile,
+    )
+    assert binding["room_scope"] == "livingroom_491"
+
+
 def test_kujiale_montage_supports_an_odd_view_count(tmp_path: Path) -> None:
     import cv2
 
     records = []
     for index in range(5):
         path = tmp_path / f"view_{index}.png"
-        assert cv2.imwrite(
-            str(path), np.full((12, 18, 3), index * 20, dtype=np.uint8)
-        )
+        assert cv2.imwrite(str(path), np.full((12, 18, 3), index * 20, dtype=np.uint8))
         records.append(
             {
                 "path": str(path),
@@ -280,9 +383,7 @@ def test_kujiale_montage_supports_an_odd_view_count(tmp_path: Path) -> None:
                 "yaw_deg": float(index * 15),
             }
         )
-    montage = CANARY._write_montage(
-        tmp_path, records, backend_role="production_visual"
-    )
+    montage = CANARY._write_montage(tmp_path, records, backend_role="production_visual")
     image = cv2.imread(str(montage), cv2.IMREAD_COLOR)
     assert montage.name == "kujiale_viewpoint_montage.png"
     assert image.shape == (36, 36, 3)
