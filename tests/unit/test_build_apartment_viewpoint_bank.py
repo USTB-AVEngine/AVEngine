@@ -330,7 +330,39 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
     @contextmanager
     def fake_runtime_loader(**kwargs):
         native_calls.append(kwargs)
-        yield _obstacle_map()
+        obstacle_map = _obstacle_map()
+        floor_readback = {
+            "authority": "declared_navmesh_pathfinder_snap_at_legacy_camera",
+            "legacy_camera_position_m": [-0.7, 1.471, 0.65],
+            "floor_point_m": [-0.7, 0.271, 0.65],
+            "horizontal_snap_distance_m": 0.0,
+            "native_floor_height_m": 0.271,
+            "legacy_island_id": 1,
+        }
+        authority = SimpleNamespace(
+            legacy_island_id=1,
+            maximum_horizontal_snap_m=0.15,
+            maximum_floor_y_delta_m=0.25,
+            feasible_mask=lambda value: np.ones_like(
+                value.binary_navmesh, dtype=np.bool_
+            ),
+            readback=lambda position: {
+                "authority": "live_declared_navmesh_intended_floor_probe",
+                "requested_floor_probe_m": [position[0], 0.271, position[2]],
+                "floor_point_m": [position[0], 0.271, position[2]],
+                "navigable": True,
+                "horizontal_snap_distance_m": 0.0,
+                "floor_y_delta_m": 0.0,
+                "island_id": 1,
+                "legacy_island_id": 1,
+                "thresholds": {
+                    "maximum_horizontal_snap_m": 0.15,
+                    "maximum_floor_y_delta_m": 0.25,
+                },
+                "passed": True,
+            },
+        )
+        yield obstacle_map, floor_readback, authority
 
     monkeypatch.setattr(builder, "_load_runtime_obstacle_map", fake_runtime_loader)
     output = tmp_path / "fresh-output"
@@ -355,6 +387,14 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
             str(runtime_prefix),
             "--rlr-sdk-root",
             str(rlr_sdk_root),
+            "--generated-corridor-endpoint-limit",
+            "64",
+            "--generated-corridor-limit",
+            "64",
+            "--maximum-ranked-camera-candidates",
+            "64",
+            "--camera-yaw-step-degrees",
+            "90",
             "--output",
             str(output),
         ]
@@ -375,18 +415,39 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
     assert prefilter["minimum_candidate_thresholds"] == {
         "raster_sample_fraction": builder.PILOT_MINIMUM_RASTER_SAMPLE_FRACTION,
         "passed_corridor_count": builder.PILOT_MINIMUM_PASSED_CORRIDOR_COUNT,
+        "camera_eye_height_m": builder.PILOT_MINIMUM_CAMERA_EYE_HEIGHT_M,
+        "feasible_motion_mode_count": (
+            builder.PILOT_MINIMUM_FEASIBLE_MOTION_MODE_COUNT
+        ),
+        "motion_descriptor_filtering": False,
+        "motion_first_anchor_fraction": pytest.approx(4.0 / 75.0),
+        "motion_second_anchor_fraction": pytest.approx(22.5 / 75.0),
+        "motion_first_side_margin": 0.12,
+        "motion_second_side_margin": 0.06,
+        "motion_continuous_separation_cm": 60.0,
     }
+    assert prefilter["native_floor_readback"]["native_floor_height_m"] == 0.271
+    assert all(
+        viewpoint["native_camera_floor_readback"]["passed"] is True
+        for viewpoint in prefilter["viewpoints"]
+    )
     assert "native_execution_status" not in prefilter
     assert prefilter["runtime_obstacle_map"]["rigid_obstacle_count"] == 1
     assert prefilter["runtime_obstacle_map"]["rigid_obstacles"][0]["handle"] == (
         "review_table"
     )
     assert len(prefilter["viewpoints"]) == 6
+    assert prefilter["candidate_counts"]["motion_feasibility_passed"] > 0
     assert all(
         viewpoint["raster_frustum_sample"]["fraction"]
         >= builder.PILOT_MINIMUM_RASTER_SAMPLE_FRACTION
         and len(viewpoint["corridor_prefilter_pass_ids"])
         >= builder.PILOT_MINIMUM_PASSED_CORRIDOR_COUNT
+        for viewpoint in prefilter["viewpoints"]
+    )
+    assert all(
+        viewpoint["motion_feasibility"]["feasible_mode_count"]
+        >= builder.PILOT_MINIMUM_FEASIBLE_MOTION_MODE_COUNT
         for viewpoint in prefilter["viewpoints"]
     )
     assert set(semantic["semantic_targets"]) == {
@@ -447,6 +508,14 @@ def test_build_writes_six_colocated_view0_requests_and_marked_topdown_no_clobber
             str(args.anchor_library),
             "--runtime-prefix",
             str(args.runtime_prefix),
+            "--generated-corridor-endpoint-limit",
+            "64",
+            "--generated-corridor-limit",
+            "64",
+            "--maximum-ranked-camera-candidates",
+            "64",
+            "--camera-yaw-step-degrees",
+            "90",
             "--output",
             str(race_output),
         ]
@@ -517,7 +586,6 @@ def test_runtime_loader_fails_when_declared_navmesh_cannot_load(
             runtime_prefix=tmp_path / "runtime",
             magnum_python_site=tmp_path / "magnum",
             rlr_sdk_root=tmp_path / "rlr-sdk",
-            floor_height_m=0.271,
             meters_per_pixel=0.04,
             scratch_directory=tmp_path / "scratch",
         ):
@@ -532,6 +600,94 @@ def test_runtime_loader_fails_when_declared_navmesh_cannot_load(
     ]
 
 
+def test_runtime_loader_derives_floor_from_legacy_camera_native_snap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    navmesh = tmp_path / "apartment.navmesh"
+    navmesh.write_bytes(b"declared-navmesh")
+
+    class FakePathfinder:
+        def load_nav_mesh(self, _path: str) -> bool:
+            return True
+
+        def snap_point(self, _point):
+            return np.asarray([-0.7, 0.4, 0.65], dtype=np.float64)
+
+        def is_navigable(self, _point, _maximum_y_delta_m):
+            return True
+
+        def get_island(self, _point):
+            return 3
+
+    class FakeSimulator:
+        def __init__(self) -> None:
+            self.pathfinder = FakePathfinder()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def get_rigid_object_manager(self):
+            return object()
+
+    runtime = SimpleNamespace(
+        physics_config_path=tmp_path / "default.physics_config.json",
+        habitat_sim=SimpleNamespace(Simulator=lambda _configuration: FakeSimulator()),
+        magnum=object(),
+    )
+    monkeypatch.setattr(
+        builder, "prepare_installed_habitat_runtime", lambda **_kwargs: runtime
+    )
+    monkeypatch.setattr(
+        builder,
+        "_make_configuration",
+        lambda *_args, **_kwargs: (
+            object(),
+            {},
+            "listener0",
+            {"navmesh_policy": "load_declared", "navmesh": navmesh},
+        ),
+    )
+    captured = {}
+
+    def fake_obstacle_map(*_args, **kwargs):
+        captured.update(kwargs)
+        return _obstacle_map()
+
+    monkeypatch.setattr(builder, "build_runtime_obstacle_map", fake_obstacle_map)
+    inputs = SimpleNamespace(
+        request={
+            "primary_camera_rig": {
+                "world_from_rig": {"translation_m": [-0.7, 1.471, 0.65]}
+            }
+        }
+    )
+
+    with builder._load_runtime_obstacle_map(
+        inputs=inputs,
+        runtime_prefix=tmp_path / "runtime",
+        magnum_python_site=tmp_path / "magnum",
+        rlr_sdk_root=tmp_path / "rlr-sdk",
+        meters_per_pixel=0.04,
+        scratch_directory=tmp_path / "scratch",
+    ) as (_obstacle_map_result, floor_readback, floor_authority):
+        pass
+
+    assert captured["floor_height_m"] == pytest.approx(0.4)
+    assert floor_readback == {
+        "authority": "declared_navmesh_pathfinder_snap_at_legacy_camera",
+        "legacy_camera_position_m": [-0.7, 1.471, 0.65],
+        "floor_point_m": [-0.7, 0.4, 0.65],
+        "horizontal_snap_distance_m": 0.0,
+        "native_floor_height_m": 0.4,
+        "legacy_island_id": 3,
+    }
+    assert floor_authority.readback((-0.7, 1.2, 0.65))["passed"] is True
+
+
 def test_magnum_site_is_explicit_and_has_no_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -542,3 +698,65 @@ def test_magnum_site_is_explicit_and_has_no_fallback(
         match="AVENGINE_HABITAT_MAGNUM_PYTHON_SITE must be explicitly set",
     ):
         builder._required_magnum_python_site()
+
+
+def test_camera_yaw_step_must_exactly_partition_full_rotation() -> None:
+    with pytest.raises(
+        builder.ApartmentViewpointBuildError,
+        match="positive integer divisor of 360",
+    ):
+        builder.run(SimpleNamespace(camera_yaw_step_degrees=7))
+
+
+def test_review_decision_normalizes_exact_retained_and_rejected_poses(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "review.json"
+    path.write_text(
+        json.dumps(
+            {
+                "source_prefilter": "/evidence/r8/prefilter.json",
+                "decisions": [
+                    {
+                        "viewpoint_id": "keep",
+                        "decision": "retain",
+                        "reason": "joint visual review pass",
+                        "camera": {
+                            "habitat_translation_m": [1.0, 1.2, 3.0],
+                            "habitat_yaw_deg": 15.0,
+                        },
+                    },
+                    {
+                        "viewpoint_id": "drop",
+                        "decision": "reject",
+                        "reason": "foreground occlusion",
+                        "camera": {
+                            "habitat_translation_m": [4.0, 1.5, 6.0],
+                            "habitat_yaw_deg": -25.0,
+                        },
+                    },
+                    {
+                        "viewpoint_id": "drop",
+                        "decision": "reject",
+                        "reason": "same role ID, different reviewed pose",
+                        "camera": {
+                            "habitat_translation_m": [4.0, 1.8, 6.0],
+                            "habitat_yaw_deg": -25.0,
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    retained, rejected, summary = builder._load_review_decision(path)
+
+    assert retained == [{"position_m": [1.0, 1.2, 3.0], "yaw_deg": 15.0}]
+    assert rejected == [
+        {"position_m": [4.0, 1.5, 6.0], "yaw_deg": -25.0},
+        {"position_m": [4.0, 1.8, 6.0], "yaw_deg": -25.0},
+    ]
+    assert summary["retained_count"] == 1
+    assert summary["rejected_count"] == 2
+    assert summary["decisions"][1]["reason"] == "foreground occlusion"

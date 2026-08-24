@@ -20,6 +20,11 @@ from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 
+from avengine.camera_placement import (
+    DEFAULT_YAW_DEGREES,
+    CameraPlacementError,
+    iter_feasible_camera_placements,
+)
 from avengine.m5_1.orientation import (
     habitat_basis_from_yaw_degrees,
     habitat_yaw_degrees_from_xyzw,
@@ -32,6 +37,14 @@ from avengine.m6x.room_feasibility import (
 from avengine.optional_backends.spear_visual import (
     camera_ue_yaw_degrees,
     habitat_point_to_apartment_ue_cm,
+)
+from avengine.qa.motion_feasibility import (
+    DEFAULT_FIRST_ANCHOR_FRACTION,
+    DEFAULT_SECOND_ANCHOR_FRACTION,
+    MOTION_MODES,
+    MotionFeasibilityClassification,
+    classify_motion_feasibility,
+    describe_motion_geometry,
 )
 
 
@@ -189,6 +202,7 @@ class PrefilteredApartmentViewpoint:
     roles: tuple[str, ...]
     target_ids: tuple[str, ...]
     height_role: str
+    camera_candidate_origin: str
     camera_position_m: tuple[float, float, float]
     camera_yaw_deg: float
     ue_position_cm: tuple[float, float, float]
@@ -203,6 +217,8 @@ class PrefilteredApartmentViewpoint:
     passed_semantic_focus_ids: tuple[str, ...]
     corridor_checks: tuple[CorridorRasterCheck, ...]
     passed_corridor_ids: tuple[str, ...]
+    motion_feasibility: MotionFeasibilityClassification
+    motion_geometry_descriptors: Mapping[str, Any]
     nearest_selected_difference: Mapping[str, float] | None
     native_pixel_validation_status: str
     native_validation_pending: tuple[str, ...]
@@ -218,6 +234,7 @@ class PrefilteredApartmentViewpoint:
             "roles": list(self.roles),
             "target_ids": list(self.target_ids),
             "height_role": self.height_role,
+            "camera_candidate_origin": self.camera_candidate_origin,
             "camera": {
                 "habitat_translation_m": list(self.camera_position_m),
                 "habitat_yaw_deg": self.camera_yaw_deg,
@@ -240,6 +257,8 @@ class PrefilteredApartmentViewpoint:
             },
             "corridor_prefilter_pass_ids": list(self.passed_corridor_ids),
             "corridor_checks": [item.to_record() for item in self.corridor_checks],
+            "motion_feasibility": self.motion_feasibility.to_record(),
+            "motion_geometry_descriptors": dict(self.motion_geometry_descriptors),
             "nearest_selected_difference": (
                 None
                 if self.nearest_selected_difference is None
@@ -257,13 +276,19 @@ class ApartmentRasterPrefilterResult:
     viewpoints: tuple[PrefilteredApartmentViewpoint, ...]
     corridors: tuple[StraightCorridor, ...]
     semantic_targets: tuple[SemanticRasterTarget, ...]
+    camera_placements: tuple[Mapping[str, Any], ...]
     raw_candidate_count: int
+    camera_placement_candidate_count: int
+    target_directed_supplement_candidate_count: int
     quality_filtered_candidate_count: int
+    motion_feasibility_filtered_candidate_count: int
     exact_deduplicated_candidate_count: int
+    ranked_shortlist_candidate_count: int
     raster_sample_spacing_m: float
     raster_sample_count: int
     minimum_candidate_thresholds: Mapping[str, float | int]
     minimum_pairwise_thresholds: Mapping[str, float]
+    semantic_role_coverage: Mapping[str, Any]
 
     def to_record(self) -> dict[str, Any]:
         return {
@@ -277,17 +302,37 @@ class ApartmentRasterPrefilterResult:
             "formal_view_id": "view0",
             "candidate_counts": {
                 "raw": self.raw_candidate_count,
+                "target_agnostic_camera_placements": (
+                    self.camera_placement_candidate_count
+                ),
+                "target_directed_yaw_supplements": (
+                    self.target_directed_supplement_candidate_count
+                ),
                 "candidate_quality_passed": self.quality_filtered_candidate_count,
+                "motion_feasibility_passed": (
+                    self.motion_feasibility_filtered_candidate_count
+                ),
+                "motion_descriptor_retained": (
+                    self.motion_feasibility_filtered_candidate_count
+                ),
+                "motion_descriptor_filtering": False,
                 "exact_pose_signature_deduplicated": (
                     self.exact_deduplicated_candidate_count
                 ),
+                "geometry_ranked_shortlist": self.ranked_shortlist_candidate_count,
                 "pairwise_threshold_selected": len(self.viewpoints),
             },
             "raster_sample_spacing_m": self.raster_sample_spacing_m,
             "raster_sample_count": self.raster_sample_count,
             "minimum_candidate_thresholds": dict(self.minimum_candidate_thresholds),
             "minimum_pairwise_thresholds": dict(self.minimum_pairwise_thresholds),
+            "semantic_role_coverage": dict(self.semantic_role_coverage),
             "semantic_targets": [item.to_record() for item in self.semantic_targets],
+            "camera_placement_catalog": {
+                "filtering": "none_after_floor_navmesh_and_rigid_clearance",
+                "count": len(self.camera_placements),
+                "placements": [dict(item) for item in self.camera_placements],
+            },
             "corridors": [item.to_record() for item in self.corridors],
             "viewpoints": [item.to_record() for item in self.viewpoints],
         }
@@ -339,6 +384,8 @@ class _Candidate:
     yaw_deg: float
     pose_difference_proxy: float
     prefilter: RasterPosePrefilter
+    placement_origin: str
+    motion_feasibility: MotionFeasibilityClassification | None = None
     is_legacy: bool = False
 
     @property
@@ -1316,8 +1363,14 @@ def _height_variants(
     base_position_m: tuple[float, float, float],
     *,
     floor_height_m: float,
+    minimum_camera_eye_height_m: float,
 ) -> tuple[tuple[str, float], ...]:
     floor = _finite_number(floor_height_m, owner="obstacle-map floor height")
+    minimum_eye_height = _positive_number(
+        minimum_camera_eye_height_m,
+        owner="minimum camera eye height",
+        allow_zero=True,
+    )
     ceiling = float(grid.bounds[1, 1])
     if not float(grid.bounds[0, 1]) <= floor < ceiling:
         raise ApartmentRasterPrefilterError(
@@ -1328,12 +1381,32 @@ def _height_variants(
         raise ApartmentRasterPrefilterError(
             "base M1 camera must lie above the room floor"
         )
+    if base_height + 1.0e-12 < minimum_eye_height:
+        raise ApartmentRasterPrefilterError(
+            "base M1 camera is below the minimum camera eye height"
+        )
     upper = math.nextafter(ceiling, floor)
-    low = min(max(floor + base_height * 0.72, math.nextafter(floor, ceiling)), upper)
+    if upper - floor + 1.0e-12 < minimum_eye_height:
+        raise ApartmentRasterPrefilterError(
+            "room ceiling cannot satisfy the minimum camera eye height"
+        )
+    minimum_eye_y = floor + minimum_eye_height
+    low = min(
+        max(
+            floor + base_height * 0.72,
+            minimum_eye_y,
+            math.nextafter(floor, ceiling),
+        ),
+        upper,
+    )
     high = min(max(floor + base_height * 1.25, math.nextafter(floor, ceiling)), upper)
     values = (("base", base_position_m[1]), ("low", low), ("high", high))
     by_height: dict[float, tuple[str, float]] = {}
     for role, height in values:
+        if height - floor + 1.0e-12 < minimum_eye_height:
+            raise ApartmentRasterPrefilterError(
+                f"{role} camera is below the minimum camera eye height"
+            )
         by_height.setdefault(height, (role, height))
     order = {"low": 0, "base": 1, "high": 2}
     return tuple(sorted(by_height.values(), key=lambda item: order[item[0]]))
@@ -1354,6 +1427,42 @@ def _pose_difference_proxy(
         1.0, math.dist(position_xz_m, legacy_position_xz_m) / room_diagonal_m
     )
     return 0.65 * yaw_difference / 180.0 + 0.35 * position_difference, yaw_difference
+
+
+def _camera_pose_key(
+    position_m: Sequence[float], yaw_deg: Real
+) -> tuple[tuple[float, float, float], float]:
+    try:
+        position = np.asarray(position_m, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ApartmentRasterPrefilterError(
+            "review camera position must contain three finite numbers"
+        ) from exc
+    if position.shape != (3,) or not np.all(np.isfinite(position)):
+        raise ApartmentRasterPrefilterError(
+            "review camera position must contain three finite numbers"
+        )
+    yaw = _finite_number(yaw_deg, owner="review camera yaw")
+    return tuple(float(item) for item in position), yaw
+
+
+def _review_pose_keys(
+    value: Sequence[Mapping[str, Any]], *, owner: str
+) -> tuple[tuple[tuple[float, float, float], float], ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ApartmentRasterPrefilterError(f"{owner} must be a sequence")
+    result = []
+    for index, record in enumerate(value):
+        if not isinstance(record, Mapping):
+            raise ApartmentRasterPrefilterError(f"{owner}[{index}] must be an object")
+        key = _camera_pose_key(
+            record.get("position_m"),
+            record.get("yaw_deg"),
+        )
+        if key in result:
+            raise ApartmentRasterPrefilterError(f"{owner} contains duplicate poses")
+        result.append(key)
+    return tuple(result)
 
 
 def _target_camera_positions(
@@ -1504,17 +1613,130 @@ def _passes_pairwise_thresholds(
     )
 
 
+def _geometry_ranked_shortlist(
+    candidates: Sequence[_Candidate],
+    *,
+    maximum_count: int,
+    retained_pose_keys: Sequence[tuple[tuple[float, float, float], float]],
+    room_diagonal_m: float,
+    height_span_m: float,
+) -> tuple[_Candidate, ...]:
+    """Bound later combinatorics using only camera position, height and yaw."""
+
+    limit = _positive_int(maximum_count, owner="maximum_ranked_camera_candidates")
+    ordered = tuple(sorted(candidates, key=lambda item: item.stable_key))
+    if len(ordered) <= limit:
+        return ordered
+    mandatory_keys = set(retained_pose_keys)
+    selected_indices = [
+        index
+        for index, candidate in enumerate(ordered)
+        if candidate.is_legacy
+        or _camera_pose_key(candidate.position_m, candidate.yaw_deg) in mandatory_keys
+    ]
+    if len(selected_indices) > limit:
+        raise ApartmentRasterPrefilterError(
+            "retained review poses exceed maximum_ranked_camera_candidates"
+        )
+    if not selected_indices:
+        selected_indices.append(0)
+    positions = np.asarray(
+        [(item.position_m[0], item.position_m[2]) for item in ordered],
+        dtype=np.float64,
+    )
+    heights = np.asarray([item.position_m[1] for item in ordered], dtype=np.float64)
+    yaws = np.asarray([item.yaw_deg for item in ordered], dtype=np.float64)
+    selected_mask = np.zeros(len(ordered), dtype=np.bool_)
+    minimum_difference = np.full(len(ordered), math.inf, dtype=np.float64)
+
+    def update_difference(index: int) -> None:
+        position = np.minimum(
+            1.0,
+            np.linalg.norm(positions - positions[index], axis=1) / room_diagonal_m,
+        )
+        raw_yaw = np.abs(yaws - yaws[index]) % 360.0
+        yaw = np.minimum(raw_yaw, 360.0 - raw_yaw) / 180.0
+        height = np.minimum(1.0, np.abs(heights - heights[index]) / height_span_m)
+        np.minimum(
+            minimum_difference,
+            0.60 * position + 0.30 * yaw + 0.10 * height,
+            out=minimum_difference,
+        )
+        selected_mask[index] = True
+
+    for index in selected_indices:
+        update_difference(index)
+    while len(selected_indices) < limit:
+        scores = np.where(selected_mask, -1.0, minimum_difference)
+        index = int(np.argmax(scores))
+        selected_indices.append(index)
+        update_difference(index)
+    return tuple(ordered[index] for index in sorted(selected_indices))
+
+
 def _passes_candidate_quality(
     candidate: _Candidate,
     *,
     minimum_raster_sample_fraction: float,
     minimum_passed_corridor_count: int,
+    minimum_feasible_motion_mode_count: int = 0,
 ) -> bool:
+    # Retained only as a compatibility keyword for callers from the earlier
+    # difficulty-gated prototype.  Motion descriptors never decide camera or
+    # path legality; prefilter_apartment_viewpoints rejects a nonzero request.
+    _ = minimum_feasible_motion_mode_count
     return bool(
         candidate.prefilter.frustum_sample_fraction + 1.0e-12
         >= minimum_raster_sample_fraction
         and len(candidate.prefilter.passed_corridor_ids)
         >= minimum_passed_corridor_count
+    )
+
+
+def _candidate_motion_feasibility(
+    candidate: _Candidate,
+    corridors_by_id: Mapping[str, StraightCorridor],
+    *,
+    first_anchor_fraction: float,
+    second_anchor_fraction: float,
+    minimum_first_side_margin: float,
+    minimum_second_side_margin: float,
+    minimum_continuous_separation_cm: float,
+) -> MotionFeasibilityClassification:
+    """Classify the candidate with the same pure geometry used by QA design."""
+
+    selected_corridors = tuple(
+        corridors_by_id[corridor_id]
+        for corridor_id in candidate.prefilter.passed_corridor_ids
+    )
+    directed_paths = []
+    stand_points = set()
+    for corridor in selected_corridors:
+        start = (
+            100.0 * corridor.start_xz_m[0],
+            100.0 * corridor.start_xz_m[1],
+            0.0,
+        )
+        end = (
+            100.0 * corridor.end_xz_m[0],
+            100.0 * corridor.end_xz_m[1],
+            0.0,
+        )
+        directed_paths.extend(((start, end), (end, start)))
+        stand_points.update((start, end))
+    camera_position = habitat_point_to_apartment_ue_cm(candidate.position_m)
+    return classify_motion_feasibility(
+        camera_position_xy=camera_position[:2],
+        camera_yaw_degrees=camera_ue_yaw_degrees(candidate.yaw_deg),
+        directed_paths=tuple(directed_paths),
+        stand_points=tuple(sorted(stand_points)),
+        modes=MOTION_MODES,
+        seed=0,
+        first_anchor_fraction=first_anchor_fraction,
+        second_anchor_fraction=second_anchor_fraction,
+        minimum_first_side_margin=minimum_first_side_margin,
+        minimum_second_side_margin=minimum_second_side_margin,
+        minimum_continuous_separation=minimum_continuous_separation_cm,
     )
 
 
@@ -1526,61 +1748,187 @@ def _select_candidates(
     thresholds: Mapping[str, float],
     room_diagonal_m: float,
     height_span_m: float,
+    retained_pose_keys: Sequence[tuple[tuple[float, float, float], float]] = (),
 ) -> tuple[tuple[_Candidate, Mapping[str, float] | None], ...]:
     legacy = [item for item in candidates if item.is_legacy]
     if len(legacy) != 1:
         raise ApartmentRasterPrefilterError(
             "exactly one legacy view0 candidate must survive exact deduplication"
         )
-    selected = [legacy[0]]
-    evidence: list[Mapping[str, float] | None] = [None]
-    remaining = [item for item in candidates if item is not legacy[0]]
-    uncovered = set(required_roles) - set(legacy[0].roles)
-    while len(selected) < count:
-        scored = []
-        for candidate in remaining:
-            differences = [
-                _pairwise_differences(
-                    candidate,
-                    retained,
-                    room_diagonal_m=room_diagonal_m,
-                    height_span_m=height_span_m,
+    legacy_candidate = legacy[0]
+    pool = tuple(
+        sorted(
+            (item for item in candidates if item is not legacy_candidate),
+            key=lambda item: item.stable_key,
+        )
+    )
+    legacy_pose_key = _camera_pose_key(
+        legacy_candidate.position_m, legacy_candidate.yaw_deg
+    )
+    required_nonlegacy_keys = tuple(
+        key for key in retained_pose_keys if key != legacy_pose_key
+    )
+    if len(required_nonlegacy_keys) + 1 > count:
+        raise ApartmentRasterPrefilterError(
+            "retained review poses exceed requested selection_count"
+        )
+    pool_index_by_pose = {
+        _camera_pose_key(candidate.position_m, candidate.yaw_deg): index
+        for index, candidate in enumerate(pool)
+    }
+    missing_retained = [
+        key for key in required_nonlegacy_keys if key not in pool_index_by_pose
+    ]
+    if missing_retained:
+        raise ApartmentRasterPrefilterError(
+            "retained review camera pose is absent after candidate filtering"
+        )
+    retained_indices = tuple(pool_index_by_pose[key] for key in required_nonlegacy_keys)
+    difference_cache: dict[tuple[int, int], Mapping[str, float]] = {}
+
+    def candidate_for(index: int) -> _Candidate:
+        return legacy_candidate if index == -1 else pool[index]
+
+    def differences(left_index: int, right_index: int) -> Mapping[str, float]:
+        key = tuple(sorted((left_index, right_index)))
+        value = difference_cache.get(key)
+        if value is None:
+            value = _pairwise_differences(
+                candidate_for(left_index),
+                candidate_for(right_index),
+                room_diagonal_m=room_diagonal_m,
+                height_span_m=height_span_m,
+            )
+            difference_cache[key] = value
+        return value
+
+    memo: set[tuple[frozenset[int], frozenset[str]]] = set()
+
+    def search(
+        chosen: tuple[int, ...], uncovered: frozenset[str]
+    ) -> tuple[int, ...] | None:
+        state = (frozenset(chosen), uncovered)
+        if state in memo:
+            return None
+        slots_left = count - 1 - len(chosen)
+        if slots_left == 0:
+            return chosen if not uncovered else None
+        retained_indices = (-1, *chosen)
+        eligible = [
+            index
+            for index in range(len(pool))
+            if index not in chosen
+            and all(
+                _passes_pairwise_thresholds(
+                    differences(index, retained_index), thresholds
                 )
-                for retained in selected
+                for retained_index in retained_indices
+            )
+        ]
+        if len(eligible) < slots_left:
+            memo.add(state)
+            return None
+        reachable_roles = {role for index in eligible for role in pool[index].roles}
+        if uncovered - reachable_roles:
+            memo.add(state)
+            return None
+        if uncovered:
+            target_role = min(
+                uncovered,
+                key=lambda role: (
+                    sum(role in pool[index].roles for index in eligible),
+                    role.encode("utf-8"),
+                ),
+            )
+            branches = [index for index in eligible if target_role in pool[index].roles]
+        else:
+            branches = eligible
+
+        def branch_key(index: int) -> tuple[Any, ...]:
+            nearest = min(
+                (differences(index, retained) for retained in retained_indices),
+                key=lambda item: item["weighted_total"],
+            )
+            role_gain = len(uncovered & set(pool[index].roles))
+            return (
+                -role_gain,
+                -nearest["weighted_total"],
+                -pool[index].pose_difference_proxy,
+                pool[index].stable_key,
+            )
+
+        for index in sorted(branches, key=branch_key):
+            result = search(
+                (*chosen, index),
+                frozenset(uncovered - set(pool[index].roles)),
+            )
+            if result is not None:
+                return result
+        memo.add(state)
+        return None
+
+    retained_candidates = [
+        legacy_candidate,
+        *(pool[index] for index in retained_indices),
+    ]
+    for left_index, left in enumerate((-1, *retained_indices)):
+        for right in (-1, *retained_indices)[left_index + 1 :]:
+            if not _passes_pairwise_thresholds(differences(left, right), thresholds):
+                raise ApartmentRasterPrefilterError(
+                    "retained review poses violate pairwise difference thresholds"
+                )
+    covered_roles = {
+        role for candidate in retained_candidates for role in candidate.roles
+    }
+    uncovered = frozenset(set(required_roles) - covered_roles)
+    if not required_roles:
+        greedy = list(retained_indices)
+        while len(greedy) < count - 1:
+            current = (-1, *greedy)
+            eligible = [
+                index
+                for index in range(len(pool))
+                if index not in greedy
+                and all(
+                    _passes_pairwise_thresholds(
+                        differences(index, retained_index), thresholds
+                    )
+                    for retained_index in current
+                )
             ]
-            if not all(
-                _passes_pairwise_thresholds(item, thresholds) for item in differences
-            ):
-                continue
-            nearest = min(differences, key=lambda item: item["weighted_total"])
-            role_gain = len(uncovered & set(candidate.roles))
-            scored.append((candidate, nearest, role_gain))
-        if not scored:
-            break
-        candidate, nearest, _role_gain = min(
-            scored,
-            key=lambda item: (
-                -int(item[2] > 0),
-                -item[2],
-                -item[1]["weighted_total"],
-                -item[0].pose_difference_proxy,
-                item[0].stable_key,
-            ),
+            if not eligible:
+                break
+
+            def greedy_key(index: int) -> tuple[Any, ...]:
+                nearest = min(
+                    (differences(index, retained) for retained in current),
+                    key=lambda item: item["weighted_total"],
+                )
+                return (
+                    -nearest["weighted_total"],
+                    -pool[index].pose_difference_proxy,
+                    pool[index].stable_key,
+                )
+
+            greedy.append(min(eligible, key=greedy_key))
+        solution = tuple(greedy) if len(greedy) == count - 1 else None
+    else:
+        solution = search(retained_indices, uncovered)
+    if solution is None:
+        raise ApartmentRasterPrefilterError(
+            "no exact candidate set can satisfy all pairwise difference thresholds "
+            "and required roles"
         )
-        selected.append(candidate)
+    selected = [legacy_candidate]
+    evidence: list[Mapping[str, float] | None] = [None]
+    for index in solution:
+        retained_indices = [-1, *solution[: len(selected) - 1]]
+        nearest = min(
+            (differences(index, retained) for retained in retained_indices),
+            key=lambda item: item["weighted_total"],
+        )
+        selected.append(pool[index])
         evidence.append(nearest)
-        remaining.remove(candidate)
-        uncovered -= set(candidate.roles)
-    if len(selected) < count:
-        raise ApartmentRasterPrefilterError(
-            f"only {len(selected)} candidates satisfy all pairwise difference "
-            f"thresholds; {count} requested"
-        )
-    if uncovered:
-        raise ApartmentRasterPrefilterError(
-            "selected candidates do not cover required roles: "
-            + ", ".join(sorted(uncovered))
-        )
     return tuple(zip(selected, evidence, strict=True))
 
 
@@ -1606,15 +1954,26 @@ def prefilter_apartment_viewpoints(
     generate_navmesh_corridors: bool = False,
     corridor_source_center_heights_m: Sequence[Real] | None = None,
     corridor_feasible_mask: np.ndarray | None = None,
+    camera_floor_feasible_mask: np.ndarray | None = None,
     selection_count: int = 6,
     candidate_spacing_m: Real = 0.75,
+    camera_yaw_degrees: Iterable[Real] = DEFAULT_YAW_DEGREES,
+    include_target_directed_yaw_supplements: bool = True,
     raster_sample_spacing_m: Real = 0.25,
     minimum_camera_navmesh_clearance_m: Real = 0.02,
     minimum_camera_rigid_clearance_m: Real = 0.0,
+    minimum_camera_eye_height_m: Real = 0.0,
     maximum_positions_per_target: int = 10,
+    maximum_ranked_camera_candidates: int = 384,
     minimum_raster_sample_fraction: Real = 0.0,
     minimum_passed_corridor_count: int = 0,
+    minimum_feasible_motion_mode_count: int = 0,
     minimum_lateral_c: Real = 0.2,
+    motion_first_anchor_fraction: Real = DEFAULT_FIRST_ANCHOR_FRACTION,
+    motion_second_anchor_fraction: Real = DEFAULT_SECOND_ANCHOR_FRACTION,
+    motion_minimum_first_side_margin: Real = 0.12,
+    motion_minimum_second_side_margin: Real = 0.06,
+    motion_minimum_continuous_separation_cm: Real = 60.0,
     maximum_focus_snap_distance_m: Real = 2.0,
     minimum_reverse_yaw_difference_deg: Real = 30.0,
     minimum_reverse_pose_difference_proxy: Real = 0.25,
@@ -1623,6 +1982,8 @@ def prefilter_apartment_viewpoints(
     minimum_pairwise_raster_signature_jaccard: Real = 0.02,
     minimum_pairwise_corridor_jaccard: Real = 0.0,
     required_roles: Iterable[str] | None = None,
+    retained_review_poses: Sequence[Mapping[str, Any]] = (),
+    rejected_review_poses: Sequence[Mapping[str, Any]] = (),
     generated_corridor_minimum_length_m: Real = 3.0,
     generated_corridor_maximum_length_m: Real = 3.8,
     generated_corridor_minimum_clearance_m: Real = 0.2,
@@ -1630,9 +1991,20 @@ def prefilter_apartment_viewpoints(
     generated_corridor_endpoint_limit: int = 96,
     generated_corridor_limit: int = 64,
 ) -> ApartmentRasterPrefilterResult:
-    """Select 4--8 candidates using deterministic horizontal raster proxies."""
+    """Select 4--8 cameras from legal centers/yaws, then attach diagnostics.
+
+    ``required_roles`` is retained as the requested post-selection coverage
+    report.  Semantic roles never create or reject a camera placement.
+    """
 
     grid = _validated_grid(obstacle_map)
+    camera_floor_mask = None
+    if camera_floor_feasible_mask is not None:
+        camera_floor_mask = np.asarray(camera_floor_feasible_mask, dtype=np.bool_)
+        if camera_floor_mask.shape != grid.navmesh.shape:
+            raise ApartmentRasterPrefilterError(
+                "camera_floor_feasible_mask shape differs from the navmesh raster"
+            )
     camera = _extract_camera_contract(base_m1_camera)
     targets = normalize_semantic_targets(
         obstacle_map,
@@ -1659,6 +2031,11 @@ def prefilter_apartment_viewpoints(
         owner="minimum camera rigid clearance",
         allow_zero=True,
     )
+    minimum_camera_eye_height = _positive_number(
+        minimum_camera_eye_height_m,
+        owner="minimum camera eye height",
+        allow_zero=True,
+    )
     maximum_positions = _positive_int(
         maximum_positions_per_target, owner="maximum_positions_per_target"
     )
@@ -1671,6 +2048,66 @@ def prefilter_apartment_viewpoints(
         minimum_passed_corridor_count,
         owner="minimum_passed_corridor_count",
     )
+    minimum_motion_mode_count = _nonnegative_int(
+        minimum_feasible_motion_mode_count,
+        owner="minimum_feasible_motion_mode_count",
+    )
+    if minimum_motion_mode_count != 0:
+        raise ApartmentRasterPrefilterError(
+            "minimum_feasible_motion_mode_count must be zero because motion side and "
+            "distance values are descriptors, not candidate-admission gates"
+        )
+    if not isinstance(include_target_directed_yaw_supplements, bool):
+        raise ApartmentRasterPrefilterError(
+            "include_target_directed_yaw_supplements must be boolean"
+        )
+    motion_first_fraction = _positive_number(
+        motion_first_anchor_fraction,
+        owner="motion first anchor fraction",
+        allow_zero=True,
+    )
+    motion_second_fraction = _positive_number(
+        motion_second_anchor_fraction,
+        owner="motion second anchor fraction",
+        allow_zero=True,
+    )
+    motion_first_margin = _positive_number(
+        motion_minimum_first_side_margin,
+        owner="motion minimum first side margin",
+        allow_zero=True,
+    )
+    motion_second_margin = _positive_number(
+        motion_minimum_second_side_margin,
+        owner="motion minimum second side margin",
+        allow_zero=True,
+    )
+    motion_separation_cm = _positive_number(
+        motion_minimum_continuous_separation_cm,
+        owner="motion minimum continuous separation",
+        allow_zero=True,
+    )
+    if (
+        max(
+            motion_first_fraction,
+            motion_second_fraction,
+            motion_first_margin,
+            motion_second_margin,
+        )
+        > 1.0
+    ):
+        raise ApartmentRasterPrefilterError(
+            "motion anchor fractions and side margins must not exceed 1"
+        )
+    retained_pose_keys = _review_pose_keys(
+        retained_review_poses, owner="retained_review_poses"
+    )
+    rejected_pose_keys = frozenset(
+        _review_pose_keys(rejected_review_poses, owner="rejected_review_poses")
+    )
+    if rejected_pose_keys & set(retained_pose_keys):
+        raise ApartmentRasterPrefilterError(
+            "review camera pose cannot be both retained and rejected"
+        )
     reverse_yaw_threshold = _positive_number(
         minimum_reverse_yaw_difference_deg,
         owner="minimum reverse yaw difference",
@@ -1751,6 +2188,7 @@ def prefilter_apartment_viewpoints(
         grid,
         camera.position_m,
         floor_height_m=obstacle_map.floor_height_m,
+        minimum_camera_eye_height_m=minimum_camera_eye_height,
     )
     compiler = RoomFeasibilityCompiler(obstacle_map)
     camera_regions = {}
@@ -1776,6 +2214,10 @@ def prefilter_apartment_viewpoints(
         raise ApartmentRasterPrefilterError(
             "legacy view0 camera fails requested navmesh/rigid clearance"
         )
+    if camera_floor_mask is not None and not bool(camera_floor_mask[legacy_pixel]):
+        raise ApartmentRasterPrefilterError(
+            "legacy view0 camera fails native intended-floor validation"
+        )
 
     legacy_prefilter = evaluate_raster_pose_prefilter(
         obstacle_map,
@@ -1798,6 +2240,7 @@ def prefilter_apartment_viewpoints(
             yaw_deg=camera.yaw_deg,
             pose_difference_proxy=0.0,
             prefilter=legacy_prefilter,
+            placement_origin="declared_legacy_view0",
             is_legacy=True,
         )
     ]
@@ -1806,58 +2249,116 @@ def prefilter_apartment_viewpoints(
         float(grid.bounds[1, 2] - grid.bounds[0, 2]),
     )
     legacy_xz = (camera.position_m[0], camera.position_m[2])
-    prefilter_cache: dict[tuple[tuple[float, float], float], RasterPosePrefilter] = {}
-    for height_role, height in height_variants:
-        positions = tuple(
-            (float(point[0]), float(point[2]))
-            for point in camera_regions[height_role].sample_points_m()
+    try:
+        target_agnostic_placements = tuple(
+            iter_feasible_camera_placements(
+                obstacle_map,
+                camera_center_heights_m=height_variants,
+                minimum_navmesh_clearance_m=camera_nav_clearance,
+                minimum_rigid_clearance_m=camera_rigid_clearance,
+                sample_spacing_m=candidate_spacing,
+                floor_feasible_mask=camera_floor_mask,
+                yaw_degrees=camera_yaw_degrees,
+            )
         )
-        for target in targets:
-            placements = _target_camera_positions(
-                positions,
-                target=target,
-                legacy_position_xz_m=legacy_xz,
-                legacy_yaw_deg=camera.yaw_deg,
-                room_diagonal_m=room_diagonal,
+    except CameraPlacementError as exc:
+        raise ApartmentRasterPrefilterError(
+            f"target-agnostic camera placement failed: {exc}"
+        ) from exc
+    placement_specs: dict[tuple[str, tuple[float, float, float], float], str] = {
+        (placement.height_id, placement.position_m, placement.yaw_deg): (
+            "target_agnostic_yaw_grid"
+        )
+        for placement in target_agnostic_placements
+    }
+    target_directed_supplement_count = 0
+    if include_target_directed_yaw_supplements:
+        for height_role, height in height_variants:
+            positions = tuple(
+                (float(point[0]), float(point[2]))
+                for point in camera_regions[height_role].sample_points_m()
+                if camera_floor_mask is None
+                or bool(camera_floor_mask[grid.pixel_for_xz((point[0], point[2]))])
+            )
+            for target in targets:
+                supplements = _target_camera_positions(
+                    positions,
+                    target=target,
+                    legacy_position_xz_m=legacy_xz,
+                    legacy_yaw_deg=camera.yaw_deg,
+                    room_diagonal_m=room_diagonal,
+                    near_m=camera.near_m,
+                    far_m=camera.far_m,
+                    minimum_reverse_yaw_difference_deg=reverse_yaw_threshold,
+                    minimum_reverse_pose_difference_proxy=(
+                        reverse_pose_proxy_threshold
+                    ),
+                    maximum_count=maximum_positions,
+                    grid=grid,
+                )
+                for position_xz, yaw, _pose_proxy in supplements:
+                    key = (
+                        height_role,
+                        (position_xz[0], height, position_xz[1]),
+                        yaw,
+                    )
+                    if key not in placement_specs:
+                        placement_specs[key] = "target_directed_yaw_supplement"
+                        target_directed_supplement_count += 1
+
+    targets_by_id = {target.target_id: target for target in targets}
+    prefilter_cache: dict[tuple[tuple[float, float], float], RasterPosePrefilter] = {}
+    for (height_role, position_m, yaw), origin in sorted(placement_specs.items()):
+        position_xz = (position_m[0], position_m[2])
+        pose_proxy, yaw_difference = _pose_difference_proxy(
+            position_xz_m=position_xz,
+            yaw_deg=yaw,
+            legacy_position_xz_m=legacy_xz,
+            legacy_yaw_deg=camera.yaw_deg,
+            room_diagonal_m=room_diagonal,
+        )
+        cache_key = (position_xz, yaw)
+        pose_prefilter = prefilter_cache.get(cache_key)
+        if pose_prefilter is None:
+            pose_prefilter = evaluate_raster_pose_prefilter(
+                obstacle_map,
+                camera_position_m=position_m,
+                camera_yaw_deg=yaw,
+                hfov_degrees=camera.hfov_degrees,
                 near_m=camera.near_m,
                 far_m=camera.far_m,
-                minimum_reverse_yaw_difference_deg=reverse_yaw_threshold,
-                minimum_reverse_pose_difference_proxy=reverse_pose_proxy_threshold,
-                maximum_count=maximum_positions,
-                grid=grid,
+                semantic_targets=targets,
+                corridors=corridors,
+                raster_sample_spacing_m=raster_spacing,
+                minimum_lateral_c=minimum_lateral_c,
             )
-            for position_xz, yaw, pose_proxy in placements:
-                cache_key = (position_xz, yaw)
-                pose_prefilter = prefilter_cache.get(cache_key)
-                if pose_prefilter is None:
-                    pose_prefilter = evaluate_raster_pose_prefilter(
-                        obstacle_map,
-                        camera_position_m=(position_xz[0], height, position_xz[1]),
-                        camera_yaw_deg=yaw,
-                        hfov_degrees=camera.hfov_degrees,
-                        near_m=camera.near_m,
-                        far_m=camera.far_m,
-                        semantic_targets=targets,
-                        corridors=corridors,
-                        raster_sample_spacing_m=raster_spacing,
-                        minimum_lateral_c=minimum_lateral_c,
-                    )
-                    prefilter_cache[cache_key] = pose_prefilter
-                if target.target_id not in pose_prefilter.passed_semantic_focus_ids:
-                    continue
-                candidates.append(
-                    _Candidate(
-                        roles=tuple(sorted((height_role, target.role))),
-                        target_ids=(target.target_id,),
-                        height_role=height_role,
-                        position_m=(position_xz[0], height, position_xz[1]),
-                        yaw_deg=yaw,
-                        pose_difference_proxy=pose_proxy,
-                        prefilter=pose_prefilter,
-                    )
-                )
+            prefilter_cache[cache_key] = pose_prefilter
+        passed_target_ids = []
+        roles = {height_role}
+        for target_id in pose_prefilter.passed_semantic_focus_ids:
+            target = targets_by_id[target_id]
+            if target.role in _REVERSE_ROLES and (
+                yaw_difference + 1.0e-12 < reverse_yaw_threshold
+                or pose_proxy + 1.0e-12 < reverse_pose_proxy_threshold
+            ):
+                continue
+            passed_target_ids.append(target_id)
+            roles.add(target.role)
+        candidates.append(
+            _Candidate(
+                roles=tuple(sorted(roles)),
+                target_ids=tuple(sorted(passed_target_ids)),
+                height_role=height_role,
+                position_m=position_m,
+                yaw_deg=yaw,
+                pose_difference_proxy=pose_proxy,
+                prefilter=pose_prefilter,
+                placement_origin=origin,
+            )
+        )
 
     raw_candidate_count = len(candidates)
+    corridors_by_id = {item.corridor_id: item for item in corridors}
     legacy_candidate = candidates[0]
     if not _passes_candidate_quality(
         legacy_candidate,
@@ -1871,7 +2372,7 @@ def prefilter_apartment_viewpoints(
             f"required_fraction={minimum_sample_fraction:.6f} "
             f"required_corridors={minimum_corridor_count}"
         )
-    quality_candidates = tuple(
+    spatial_quality_candidates = tuple(
         candidate
         for candidate in candidates
         if _passes_candidate_quality(
@@ -1880,43 +2381,72 @@ def prefilter_apartment_viewpoints(
             minimum_passed_corridor_count=minimum_corridor_count,
         )
     )
-    deduplicated = _exact_deduplicate(quality_candidates)
+    deduplicated = _exact_deduplicate(spatial_quality_candidates)
+    deduplicated = tuple(
+        candidate
+        for candidate in deduplicated
+        if _camera_pose_key(candidate.position_m, candidate.yaw_deg)
+        not in rejected_pose_keys
+    )
     if len(deduplicated) < 4:
         raise ApartmentRasterPrefilterError(
             "fewer than four exact raster candidates survive generation"
         )
     if required_roles is None:
-        required = {target.role for target in targets}
-        required.update(
+        diagnostic_roles = {target.role for target in targets}
+        diagnostic_roles.update(
             role for role, _height in height_variants if role in ("low", "high")
         )
-        required_roles_set = frozenset(required)
+        diagnostic_roles_set = frozenset(diagnostic_roles)
     else:
         if isinstance(required_roles, (str, bytes)):
             raise ApartmentRasterPrefilterError(
                 "required_roles must be an iterable of role names"
             )
-        required_roles_set = frozenset(_slug(str(role)) for role in required_roles)
+        diagnostic_roles_set = frozenset(_slug(str(role)) for role in required_roles)
     available_roles = {role for item in deduplicated for role in item.roles}
-    missing_roles = required_roles_set - available_roles
-    if missing_roles:
-        raise ApartmentRasterPrefilterError(
-            "generated candidates do not provide required roles: "
-            + ", ".join(sorted(missing_roles))
-        )
     height_span = max(
         1.0e-9,
         max(height for _role, height in height_variants)
         - min(height for _role, height in height_variants),
     )
-    selected = _select_candidates(
+    ranked_candidates = _geometry_ranked_shortlist(
         deduplicated,
-        count=selection_count,
-        required_roles=required_roles_set,
-        thresholds=thresholds,
+        maximum_count=maximum_ranked_camera_candidates,
+        retained_pose_keys=retained_pose_keys,
         room_diagonal_m=room_diagonal,
         height_span_m=height_span,
     )
+    selected = _select_candidates(
+        ranked_candidates,
+        count=selection_count,
+        required_roles=frozenset(),
+        thresholds=thresholds,
+        room_diagonal_m=room_diagonal,
+        height_span_m=height_span,
+        retained_pose_keys=retained_pose_keys,
+    )
+    selected_roles = {
+        role for candidate, _nearest in selected for role in candidate.roles
+    }
+    semantic_role_coverage = {
+        "status": (
+            "complete"
+            if diagnostic_roles_set <= selected_roles
+            else "incomplete_diagnostic"
+        ),
+        "enforced_for_generation": False,
+        "diagnostic_roles": sorted(diagnostic_roles_set),
+        "available_after_spatial_quality": sorted(available_roles),
+        "available_after_motion_filter": sorted(available_roles),
+        "selected_roles": sorted(selected_roles),
+        "missing_from_available": sorted(diagnostic_roles_set - available_roles),
+        "missing_from_selected": sorted(diagnostic_roles_set - selected_roles),
+        "claim_boundary": (
+            "post-selection semantic coverage diagnostic; semantic labels do not "
+            "create or admit camera placements"
+        ),
+    }
 
     used_ids: dict[str, int] = {}
     viewpoints = []
@@ -1928,6 +2458,21 @@ def prefilter_apartment_viewpoints(
             used_ids[stem] = used_ids.get(stem, 0) + 1
             viewpoint_id = stem if used_ids[stem] == 1 else f"{stem}_{used_ids[stem]}"
         ue_position = habitat_point_to_apartment_ue_cm(candidate.position_m)
+        motion_feasibility = _candidate_motion_feasibility(
+            candidate,
+            corridors_by_id,
+            first_anchor_fraction=motion_first_fraction,
+            second_anchor_fraction=motion_second_fraction,
+            minimum_first_side_margin=motion_first_margin,
+            minimum_second_side_margin=motion_second_margin,
+            minimum_continuous_separation_cm=motion_separation_cm,
+        )
+        motion_geometry_descriptors = describe_motion_geometry(
+            motion_feasibility,
+            camera_position_xyz=ue_position,
+            camera_yaw_degrees=camera_ue_yaw_degrees(candidate.yaw_deg),
+            frame_count=75,
+        )
         viewpoints.append(
             PrefilteredApartmentViewpoint(
                 viewpoint_id=viewpoint_id,
@@ -1935,6 +2480,7 @@ def prefilter_apartment_viewpoints(
                 roles=candidate.roles,
                 target_ids=candidate.target_ids,
                 height_role=candidate.height_role,
+                camera_candidate_origin=candidate.placement_origin,
                 camera_position_m=candidate.position_m,
                 camera_yaw_deg=candidate.yaw_deg,
                 ue_position_cm=tuple(float(item) for item in ue_position),
@@ -1953,6 +2499,8 @@ def prefilter_apartment_viewpoints(
                 ),
                 corridor_checks=candidate.prefilter.corridor_checks,
                 passed_corridor_ids=candidate.prefilter.passed_corridor_ids,
+                motion_feasibility=motion_feasibility,
+                motion_geometry_descriptors=motion_geometry_descriptors,
                 nearest_selected_difference=nearest,
                 native_pixel_validation_status="pending",
                 native_validation_pending=_NATIVE_PENDING_CHECKS,
@@ -1966,16 +2514,32 @@ def prefilter_apartment_viewpoints(
         viewpoints=tuple(viewpoints),
         corridors=corridors,
         semantic_targets=targets,
+        camera_placements=tuple(
+            placement.to_record() for placement in target_agnostic_placements
+        ),
         raw_candidate_count=raw_candidate_count,
-        quality_filtered_candidate_count=len(quality_candidates),
+        camera_placement_candidate_count=len(target_agnostic_placements),
+        target_directed_supplement_candidate_count=(target_directed_supplement_count),
+        quality_filtered_candidate_count=len(spatial_quality_candidates),
+        motion_feasibility_filtered_candidate_count=len(spatial_quality_candidates),
         exact_deduplicated_candidate_count=len(deduplicated),
+        ranked_shortlist_candidate_count=len(ranked_candidates),
         raster_sample_spacing_m=raster_spacing,
         raster_sample_count=len(_sample_ids),
         minimum_candidate_thresholds={
             "raster_sample_fraction": minimum_sample_fraction,
             "passed_corridor_count": minimum_corridor_count,
+            "camera_eye_height_m": minimum_camera_eye_height,
+            "feasible_motion_mode_count": minimum_motion_mode_count,
+            "motion_descriptor_filtering": False,
+            "motion_first_anchor_fraction": motion_first_fraction,
+            "motion_second_anchor_fraction": motion_second_fraction,
+            "motion_first_side_margin": motion_first_margin,
+            "motion_second_side_margin": motion_second_margin,
+            "motion_continuous_separation_cm": motion_separation_cm,
         },
         minimum_pairwise_thresholds=thresholds,
+        semantic_role_coverage=semantic_role_coverage,
     )
 
 
