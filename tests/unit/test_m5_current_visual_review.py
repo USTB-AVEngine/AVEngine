@@ -19,21 +19,20 @@ def _write_capture_output(
     status: str = "research_only",
     include_semantic: bool = True,
     action_id: str = "walk",
+    pose_readback: bool = False,
 ) -> Path:
     root.mkdir()
     arrays = root / "arrays"
     arrays.mkdir()
-    frame_count = 3
-    rgb = np.arange(frame_count * 2 * 4 * 3, dtype=np.uint8).reshape(3, 2, 4, 3)
-    depth = np.asarray(
-        [
-            [[0.5, 1.0, 1.5, 2.0], [2.5, 3.0, 3.5, 4.0]],
-            [[4.5, 5.0, 5.5, 6.0], [6.5, 7.0, 7.5, 8.0]],
-            [[8.5, 9.0, 9.5, 10.0], [10.5, 11.0, 11.5, 12.0]],
-        ],
-        dtype=np.float32,
+    frame_count = 75 if pose_readback else 3
+    rgb = np.arange(frame_count * 2 * 4 * 3, dtype=np.uint8).reshape(
+        frame_count, 2, 4, 3
     )
-    semantic = np.asarray(
+    depth = (
+        np.arange(1, frame_count * 8 + 1, dtype=np.float32).reshape(frame_count, 2, 4)
+        / 2.0
+    )
+    semantic_pattern = np.asarray(
         [
             [[0, 210, 210, 0], [211, 211, 0, 0]],
             [[0, 210, 0, 0], [211, 0, 211, 0]],
@@ -41,18 +40,22 @@ def _write_capture_output(
         ],
         dtype=np.int32,
     )
-    actor = np.tile(np.eye(4, dtype=np.float64), (frame_count, 2, 1, 1))
-    actor[:, 0, 0, 3] = (1.0, 2.0, 3.0)
-    actor[:, 1, 2, 3] = (4.0, 5.0, 6.0)
-    sources = np.asarray(
-        [
-            [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
-            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1]],
-            [[1.2, 2.2, 3.2], [4.2, 5.2, 6.2]],
-        ],
-        dtype=np.float64,
+    semantic = np.stack(
+        [semantic_pattern[index % 3] for index in range(frame_count)], axis=0
     )
-    visibility = np.asarray([[3, 2], [1, 2], [2, 2]], dtype=np.int64)
+    actor = np.tile(np.eye(4, dtype=np.float64), (frame_count, 2, 1, 1))
+    actor[:, 0, 0, 3] = np.arange(frame_count, dtype=np.float64) + 1.0
+    actor[:, 1, 2, 3] = np.arange(frame_count, dtype=np.float64) + 4.0
+    sources = np.empty((frame_count, 2, 3), dtype=np.float64)
+    for index in range(frame_count):
+        sources[index] = (
+            (1.0 + index / 10.0, 2.0 + index / 10.0, 3.0 + index / 10.0),
+            (4.0 + index / 10.0, 5.0 + index / 10.0, 6.0 + index / 10.0),
+        )
+    visibility_pattern = np.asarray([[3, 2], [1, 2], [2, 2]], dtype=np.int64)
+    visibility = np.stack(
+        [visibility_pattern[index % 3] for index in range(frame_count)], axis=0
+    )
     np.save(arrays / "rgb.npy", rgb)
     np.save(arrays / "depth.npy", depth)
     if include_semantic:
@@ -60,12 +63,77 @@ def _write_capture_output(
     np.save(arrays / "actor_world_matrices.npy", actor)
     np.save(arrays / "source_positions_m.npy", sources)
     np.save(arrays / "semantic_visibility_pixels.npy", visibility)
+    if pose_readback:
+        planned_skin_roots = actor.copy()
+        actual_skin_roots = actor.copy()
+        actual_skin_roots[:, :, 0, 3] += 1.0e-7
+        actual_agent_poses = np.tile(
+            np.asarray([9.0, 8.0, 7.0, 0.0, 2**-0.5, 0.0, 2**-0.5]),
+            (frame_count, 1),
+        )
+        actual_sensor_poses = np.tile(actual_agent_poses[:, None, :], (1, 3, 1))
+        actual_sensor_poses[:, 0, 0] += 1.0e-7
+        actual_sensor_poses[:, 1, 0] += 2.0e-7
+        actual_sensor_poses[:, 2, 0] += 3.0e-7
+        actual_listener_poses = actual_agent_poses.copy()
+        actual_listener_poses[:, 1] += 0.2
+        np.save(
+            arrays / "planned_applied_skin_root_matrices.npy",
+            planned_skin_roots,
+        )
+        np.save(
+            arrays / "actual_skin_root_readback_matrices.npy",
+            actual_skin_roots,
+        )
+        np.save(
+            arrays / "actual_agent_camera_poses_txyz_qxyzw.npy",
+            actual_agent_poses,
+        )
+        np.save(
+            arrays / "actual_sensor_poses_txyz_qxyzw.npy",
+            actual_sensor_poses,
+        )
+        np.save(
+            arrays / "actual_logical_listener_poses_txyz_qxyzw.npy",
+            actual_listener_poses,
+        )
     frames = [
         {
             "frame_index": index,
             "pts_ticks": index * 3200,
             "action_id": action_id,
             "action_sample_index": index,
+            **(
+                {
+                    "actor_world_positions_m": actor[index, :, :3, 3].tolist(),
+                    "source_positions_m": sources[index].tolist(),
+                    "semantic_visibility_pixels": visibility[index].tolist(),
+                    "snapshot_world_time_seconds": 0.0,
+                    "pre_render_snapshot_world_time_seconds": 0.0,
+                    "post_render_snapshot_world_time_seconds": 0.0,
+                    "pose_alignment": {
+                        "array_frame_index": index,
+                        "actor_axis_order": ["actor0", "actor1"],
+                        "source_axis_order": ["source0", "source1"],
+                        "sensor_axis_order": [
+                            "rig_depth",
+                            "rig_rgb",
+                            "rig_semantic",
+                        ],
+                        "pose_component_order": [
+                            "translation_x_m",
+                            "translation_y_m",
+                            "translation_z_m",
+                            "quaternion_x",
+                            "quaternion_y",
+                            "quaternion_z",
+                            "quaternion_w",
+                        ],
+                    },
+                }
+                if pose_readback
+                else {}
+            ),
         }
         for index in range(frame_count)
     ]
@@ -82,6 +150,24 @@ def _write_capture_output(
         "semantic_visibility_pixels": "arrays/semantic_visibility_pixels.npy",
         "frame_records": "frame_records.json",
     }
+    if pose_readback:
+        artifacts.update(
+            {
+                "planned_applied_skin_root_matrices": (
+                    "arrays/planned_applied_skin_root_matrices.npy"
+                ),
+                "actual_skin_root_readback_matrices": (
+                    "arrays/actual_skin_root_readback_matrices.npy"
+                ),
+                "actual_agent_camera_poses": (
+                    "arrays/actual_agent_camera_poses_txyz_qxyzw.npy"
+                ),
+                "actual_sensor_poses": ("arrays/actual_sensor_poses_txyz_qxyzw.npy"),
+                "actual_logical_listener_poses": (
+                    "arrays/actual_logical_listener_poses_txyz_qxyzw.npy"
+                ),
+            }
+        )
     if not include_semantic:
         artifacts.pop("semantic")
     receipt = {
@@ -91,6 +177,183 @@ def _write_capture_output(
         "capture": {"native_habitat_started": True, "frame_count": frame_count},
         "artifacts": artifacts,
     }
+    if pose_readback:
+        receipt["capture"].update(
+            {
+                "m1_request_id": "m1_capture_fixture_v1",
+                "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+                "modalities": ["rgb", "depth", "semantic"],
+            }
+        )
+        receipt.update(
+            {
+                "selected_room": {
+                    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+                    "room_kind": "habitat_native",
+                },
+                "m1_capture_identity": {
+                    "request_id": "m1_capture_fixture_v1",
+                    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+                    "primary_camera_rig": {
+                        "rig_id": "camera_rig_0",
+                        "view_id": "view0",
+                        "world_from_rig": {
+                            "translation_m": [9.0, 8.0, 7.0],
+                            "rotation_xyzw": [
+                                0.0,
+                                2**-0.5,
+                                0.0,
+                                2**-0.5,
+                            ],
+                        },
+                        "shared_calibration": {
+                            "projection": "pinhole",
+                            "resolution_hw": [2, 4],
+                            "hfov_degrees": 90.0,
+                            "near_m": 0.05,
+                            "far_m": 100.0,
+                            "rig_from_sensor": {
+                                "translation_m": [0.0, 0.0, 0.0],
+                                "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                            },
+                        },
+                        "modalities": [
+                            {"modality": "rgb", "sensor_uuid": "rig_rgb"},
+                            {
+                                "modality": "depth",
+                                "sensor_uuid": "rig_depth",
+                            },
+                            {
+                                "modality": "semantic",
+                                "sensor_uuid": "rig_semantic",
+                            },
+                        ],
+                    },
+                    "listener": {
+                        "listener_id": "listener0",
+                        "attached_to": "camera_rig_0",
+                        "rig_from_listener": {
+                            "translation_m": [0.0, 0.2, 0.0],
+                            "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                        },
+                    },
+                    "source_axis_order": ["source0", "source1"],
+                    "qa_views": [
+                        {
+                            "qa_id": "navmesh_topdown",
+                            "kind": "topdown",
+                        }
+                    ],
+                },
+                "actors": {
+                    "actor_ids": ["actor0", "actor1"],
+                    "source_ids": ["source0", "source1"],
+                    "semantic_ids": [210, 211],
+                    "emitter_link_names": [
+                        "beagle Xtra Mouth",
+                        "beagle Xtra Mouth",
+                    ],
+                    "axis_bindings": [
+                        {
+                            "axis_index": 0,
+                            "actor_id": "actor0",
+                            "source_id": "source0",
+                            "semantic_id": 210,
+                            "emitter_link_name": "beagle Xtra Mouth",
+                            "runtime_emitter_link_id": 100,
+                            "audio_endpoint_status": "pending",
+                            "audio_endpoint_id": None,
+                        },
+                        {
+                            "axis_index": 1,
+                            "actor_id": "actor1",
+                            "source_id": "source1",
+                            "semantic_id": 211,
+                            "emitter_link_name": "beagle Xtra Mouth",
+                            "runtime_emitter_link_id": 101,
+                            "audio_endpoint_status": "pending",
+                            "audio_endpoint_id": None,
+                        },
+                    ],
+                },
+                "pose_readback": {
+                    "status": "native_habitat_pose_readback_recorded",
+                    "frame_count": frame_count,
+                    "pose_component_order": [
+                        "translation_x_m",
+                        "translation_y_m",
+                        "translation_z_m",
+                        "quaternion_x",
+                        "quaternion_y",
+                        "quaternion_z",
+                        "quaternion_w",
+                    ],
+                    "coordinate_convention": {
+                        "frame": "habitat_world",
+                        "axis_order": ["X", "Y", "Z"],
+                        "up_axis": "+Y",
+                    },
+                    "matrix_convention": {
+                        "transform_direction": "world_from_local",
+                        "translation_location": "last_column",
+                        "homogeneous_last_row": [0.0, 0.0, 0.0, 1.0],
+                    },
+                    "actor_axis_order": ["actor0", "actor1"],
+                    "source_axis_order": ["source0", "source1"],
+                    "sensor_order": [
+                        {
+                            "axis_index": 0,
+                            "sensor_uuid": "rig_depth",
+                            "modality": "depth",
+                        },
+                        {
+                            "axis_index": 1,
+                            "sensor_uuid": "rig_rgb",
+                            "modality": "rgb",
+                        },
+                        {
+                            "axis_index": 2,
+                            "sensor_uuid": "rig_semantic",
+                            "modality": "semantic",
+                        },
+                    ],
+                    "planned_actor_world_matrices": {
+                        "artifact_key": "actor_world_matrices",
+                        "pose_kind": "planned_actor_transform_with_instance_offset",
+                        "actual_readback": False,
+                    },
+                    "planned_applied_skin_root_matrices": {
+                        "artifact_key": "planned_applied_skin_root_matrices",
+                        "pose_kind": "planned_transform_applied_to_skin_root",
+                        "actual_readback": False,
+                    },
+                    "actual_skin_root_readback_matrices": {
+                        "artifact_key": "actual_skin_root_readback_matrices",
+                        "pose_kind": "articulated_root_scene_node_after_render",
+                        "actual_readback": True,
+                    },
+                    "actual_agent_camera_poses": {
+                        "artifact_key": "actual_agent_camera_poses",
+                        "pose_kind": ("post_render_agent_camera_from_state_snapshot"),
+                        "actual_readback": True,
+                    },
+                    "actual_sensor_poses": {
+                        "artifact_key": "actual_sensor_poses",
+                        "pose_kind": ("post_render_sensor_states_from_state_snapshot"),
+                        "actual_readback": True,
+                    },
+                    "actual_logical_listener_poses": {
+                        "artifact_key": "actual_logical_listener_poses",
+                        "pose_kind": (
+                            "logical_listener_composed_from_post_render_agent_readback"
+                        ),
+                        "actual_readback": False,
+                        "derived_from_actual_agent_readback": True,
+                        "native_listener_sensor_readback": False,
+                    },
+                },
+            }
+        )
     (root / "research_receipt.json").write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -125,6 +388,206 @@ def test_generates_offline_synchronized_research_only_review(tmp_path: Path) -> 
         paths = sorted((review.review_directory / "frames" / modality).glob("*.png"))
         assert len(paths) == 3
         assert paths[0].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_validates_and_displays_complete_native_pose_readback(tmp_path: Path) -> None:
+    output = _write_capture_output(
+        tmp_path / "capture-with-readback", pose_readback=True
+    )
+
+    review = generate_current_visual_review(output)
+
+    assert review.frame_count == 75
+    html = review.html_path.read_text(encoding="utf-8")
+    assert "actual_agent_camera_pose_txyz_qxyzw" in html
+    assert "actual_sensor_poses_txyz_qxyzw" in html
+    assert "actual_logical_listener_pose_txyz_qxyzw" in html
+    assert "actual_skin_root_readback_positions_m" in html
+    assert "actor_source_axis_bindings" in html
+
+
+def test_rejects_swapped_source_axis_in_pose_frame_alignment(tmp_path: Path) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    records_path = output / "frame_records.json"
+    records = json.loads(records_path.read_text(encoding="utf-8"))
+    records["frames"][7]["pose_alignment"]["source_axis_order"] = [
+        "source1",
+        "source0",
+    ]
+    records_path.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(CurrentVisualReviewError, match="identity axes are damaged"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+def test_rejects_damaged_actor_source_identity_binding(tmp_path: Path) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    receipt_path = output / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["actors"]["axis_bindings"][0]["source_id"] = "source1"
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(CurrentVisualReviewError, match="identity mapping is damaged"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    (
+        ("room", "M1 request or room identity is damaged"),
+        ("source", "M1 source identities do not match"),
+        ("rig", "actual agent/camera differs from capture-time M1 rig"),
+    ),
+)
+def test_rejects_damaged_capture_time_m1_identity(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    output = _write_capture_output(tmp_path / damage, pose_readback=True)
+    receipt_path = output / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    identity = receipt["m1_capture_identity"]
+    if damage == "room":
+        identity["room_id"] = "later_rewritten_room"
+    elif damage == "source":
+        identity["source_axis_order"] = ["source1", "source0"]
+    else:
+        identity["primary_camera_rig"]["world_from_rig"]["translation_m"][0] += 0.1
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(CurrentVisualReviewError, match=message):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+def test_rejects_actual_listener_that_cannot_be_recomputed_from_m1_identity(
+    tmp_path: Path,
+) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    path = output / "arrays/actual_logical_listener_poses_txyz_qxyzw.npy"
+    value = np.load(path)
+    value[18, 0] += 1.0e-3
+    np.save(path, value)
+
+    with pytest.raises(
+        CurrentVisualReviewError,
+        match="logical listener does not match actual agent",
+    ):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+def test_rejects_partial_pose_artifacts_without_upgrading_legacy(
+    tmp_path: Path,
+) -> None:
+    output = _write_capture_output(tmp_path / "legacy-capture")
+    receipt_path = output / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifacts"]["actual_agent_camera_poses"] = (
+        "arrays/actor_world_matrices.npy"
+    )
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(CurrentVisualReviewError, match="evidence is partial"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+@pytest.mark.parametrize("damage", ("shape", "nonfinite"))
+def test_rejects_invalid_actual_pose_array(tmp_path: Path, damage: str) -> None:
+    output = _write_capture_output(tmp_path / damage, pose_readback=True)
+    path = output / "arrays/actual_agent_camera_poses_txyz_qxyzw.npy"
+    value = np.load(path)
+    if damage == "shape":
+        value = value[:-1]
+    else:
+        value[12, 0] = np.nan
+    np.save(path, value)
+
+    with pytest.raises(CurrentVisualReviewError, match="actual agent/camera poses"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+@pytest.mark.parametrize(
+    "quaternion",
+    (
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 2.0],
+    ),
+)
+def test_rejects_zero_or_nonunit_pose_quaternion(
+    tmp_path: Path, quaternion: list[float]
+) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    path = output / "arrays/actual_agent_camera_poses_txyz_qxyzw.npy"
+    value = np.load(path)
+    value[8, 3:7] = quaternion
+    np.save(path, value)
+
+    with pytest.raises(CurrentVisualReviewError, match="finite unit quaternions"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    (
+        ("reflection", "determinants must be \\+1"),
+        ("bad_last_row", "homogeneous last row"),
+        ("nonorthogonal", "rotation blocks must be orthogonal"),
+    ),
+)
+def test_rejects_nonrigid_planned_or_actual_matrix(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    output = _write_capture_output(tmp_path / damage, pose_readback=True)
+    path = output / "arrays/actual_skin_root_readback_matrices.npy"
+    value = np.load(path)
+    if damage == "reflection":
+        value[4, 0, 0, 0] = -1.0
+    elif damage == "bad_last_row":
+        value[4, 0, 3, 0] = 0.25
+    else:
+        value[4, 0, 0, 1] = 0.25
+    np.save(path, value)
+
+    with pytest.raises(CurrentVisualReviewError, match=message):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+def test_rejects_pose_artifact_path_escape(tmp_path: Path) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    receipt_path = output / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifacts"]["actual_sensor_poses"] = "../outside.npy"
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(CurrentVisualReviewError, match="normalized relative path"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
+
+
+def test_rejects_pose_pts_misaligned_with_array_frame(tmp_path: Path) -> None:
+    output = _write_capture_output(tmp_path / "capture", pose_readback=True)
+    records_path = output / "frame_records.json"
+    records = json.loads(records_path.read_text(encoding="utf-8"))
+    records["frames"][12]["pts_ticks"] += 1
+    records_path.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(CurrentVisualReviewError, match="15 fps timeline"):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
 
 
 def test_escapes_case_insensitive_script_end_marker_in_frame_metadata(
