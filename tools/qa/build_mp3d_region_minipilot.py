@@ -140,6 +140,7 @@ def build_minipilot(
     output_directory: str | Path,
     schedule_seed_base: int = 0,
     existing_fixed_audio_root: str | Path | None = None,
+    randomized_audio_root: str | Path | None = None,
 ) -> Path:
     batch_root = Path(native_batch_root).resolve(strict=True)
     plan = _load(batch_root / "plan.json", owner="native batch plan")
@@ -248,6 +249,29 @@ def build_minipilot(
                         f"{point_id} fixed audio did not pass"
                     )
                 fixed_audio_receipt = str(fixed_path.resolve())
+            randomized_audio_receipt = None
+            randomized_audio_status = "pending"
+            if randomized_audio_root is not None:
+                randomized_path = (
+                    Path(randomized_audio_root) / point_id / "research_receipt.json"
+                )
+                randomized = _load(
+                    randomized_path, owner=f"{point_id} randomized audio receipt"
+                )
+                if (
+                    randomized.get("status") != "pass"
+                    or randomized.get("audio_program", {}).get("program_id")
+                    != program["program_id"]
+                    or randomized.get("listener", {})
+                    .get("view_identity", {})
+                    .get("visual_capture_dir")
+                    != str(capture.resolve())
+                ):
+                    raise MP3DRegionMiniPilotError(
+                        f"{point_id} randomized audio identity did not pass"
+                    )
+                randomized_audio_receipt = str(randomized_path.resolve())
+                randomized_audio_status = "pass"
             first_motion, second_motion = MOTION_ANSWERS[motion_case]
             base_question = {
                 "point_id": point_id,
@@ -259,7 +283,8 @@ def build_minipilot(
                 "fixed_audio_receipt": fixed_audio_receipt,
                 "randomized_audio_program_id": program["program_id"],
                 "randomized_audio_program_path": f"{point_id}/audio_program.json",
-                "randomized_audio_render_status": "pending",
+                "randomized_audio_receipt": randomized_audio_receipt,
+                "randomized_audio_render_status": randomized_audio_status,
                 "first_event_start_sample": program["events"][0]["start_sample"],
                 "second_event_start_sample": program["events"][1]["start_sample"],
                 "first_second_onset_interval_samples": (
@@ -307,7 +332,8 @@ def build_minipilot(
                 "event_evidence": event_evidence,
                 "audio_schedule": schedule,
                 "existing_fixed_audio_receipt": fixed_audio_receipt,
-                "randomized_audio_render_status": "pending",
+                "randomized_audio_receipt": randomized_audio_receipt,
+                "randomized_audio_render_status": randomized_audio_status,
             }
             (point_dir / "evidence.json").write_text(
                 json.dumps(evidence, indent=2, sort_keys=True) + "\n",
@@ -333,6 +359,10 @@ def build_minipilot(
                 existing_fixed_audio_root is None
                 or all(item["existing_fixed_audio_receipt"] for item in point_records)
             ),
+            "randomized_audio_receipts": (
+                randomized_audio_root is None
+                or all(item["randomized_audio_receipt"] for item in point_records)
+            ),
             "motion_answer_balance": balance["status"] == "pass",
             "first_onset_diversity": len(first_frames) >= 2,
             "second_onset_diversity": len(second_frames) >= 2,
@@ -340,9 +370,12 @@ def build_minipilot(
             "t5_native_readback": len(t5_rows) == len(point_records)
             and all(math.isfinite(item["answer_numeric"]) for item in t5_rows),
         }
-        status = (
-            "pending_randomized_audio_render" if all(design_checks.values()) else "fail"
-        )
+        if not all(design_checks.values()):
+            status = "fail"
+        elif randomized_audio_root is None:
+            status = "pending_randomized_audio_render"
+        else:
+            status = "pass_research_minipilot_core"
         gate_report = {
             "status": status,
             "gate_B": {
@@ -351,7 +384,9 @@ def build_minipilot(
                 "existing_fixed_audio": (
                     "pass" if existing_fixed_audio_root is not None else "not_checked"
                 ),
-                "randomized_audio": "pending",
+                "randomized_audio": (
+                    "pass" if randomized_audio_root is not None else "pending"
+                ),
             },
             "gate_C": {
                 "design_checks": design_checks,
@@ -416,6 +451,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--base-audio-program", required=True)
     parser.add_argument("--schedule-seed-base", type=int, default=0)
     parser.add_argument("--existing-fixed-audio-root")
+    parser.add_argument("--randomized-audio-root")
     parser.add_argument("--output", required=True)
     return parser.parse_args(argv)
 
@@ -431,6 +467,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_directory=args.output,
             schedule_seed_base=args.schedule_seed_base,
             existing_fixed_audio_root=args.existing_fixed_audio_root,
+            randomized_audio_root=args.randomized_audio_root,
         )
     except (MP3DRegionMiniPilotError, OSError, TypeError, ValueError) as exc:
         print(json.dumps({"status": "fail", "error": str(exc)}))
