@@ -100,6 +100,5 @@ formal accepted Episode; the dataset denominator remains zero.
 ## Verification
 
 The focused and adjacent QA suite reports `38 passed`; Ruff check/format pass
-for the new tool and tests. The pre-finalizer integration code state
-`9413494` reports `3416 passed, 118 skipped, 52 subtests passed`. A fresh
-post-merge full run is required for the finalizer commit.
+for the new tool and tests. Final integration `59ed42e` reports
+`3416 passed, 118 skipped, 52 subtests passed`.
