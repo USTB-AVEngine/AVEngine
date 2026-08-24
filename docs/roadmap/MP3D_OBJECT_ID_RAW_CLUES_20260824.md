@@ -56,10 +56,10 @@ No P1/amodal or same-backend occlusion authority was added. Therefore
 `p1_amodal_visibility.off_screen_by_frame`,
 `object_id_raster_boundary.occlusion_by_frame`,
 `object_id_raster_boundary.off_screen_by_frame`, and each frame's
-`occlusion`/`off_screen` fields remain `null) with pending status
+`occlusion`/`off_screen` fields remain `null` with pending status
 descriptions. Candidate legality and retention remain unchanged:
-`candidate_filtering="none"`, `candidate_retained=true), and the
-OBJECT_ID boundary has `legality_effect="none").
+`candidate_filtering="none"`, `candidate_retained=true`, and the
+OBJECT_ID boundary has `legality_effect="none"`.
 
 No hash, frozen contract, baseline, or permanent gate was introduced.
 
@@ -79,17 +79,17 @@ Its independent verifier is
 
 All three records loaded as
 `current_native_post_render_raw_clues_described`, with exactly 75 frames
-and runtime IDs `[1,36]). The first two had modal pixels for both actors in
+and runtime IDs `[1, 36]`. The first two had modal pixels for both actors in
 all 75 frames. The out-of-frustum case had zero modal pixels for both actors
-in all 75 frames; the raw output retained `in_frame=false) for that modal
-observation while keeping formal off-screen `null). The verifier also
-confirmed semantic actor visibility stayed `null), P1/amodal and occlusion
+in all 75 frames; the raw output retained `in_frame=false` for that modal
+observation while keeping formal off-screen `null`. The verifier also
+confirmed semantic actor visibility stayed `null`, P1/amodal and occlusion
 fields stayed pending/null, and no candidate was filtered.
 
 The current capture receipt's
 `actor_modal_visibility_authority_status` remains
 `pending_fresh_runtime_a_b_and_visual_review`; this slice preserves that
-provenance status in `authority_status) and does not silently upgrade a
+provenance status in `authority_status` and does not silently upgrade a
 formal admission claim.
 
 ## Tests and quality
@@ -109,7 +109,7 @@ PYTHONPATH=src:. /data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/pytest -
 
 The exact test log is
 `/data/jzy/tmp/mp3d_object_id_raw_clue_2b0db75_tests_r1.log` and records
-`109 passed). Server-side byte compilation, `git diff --check), and clean
+`109 passed`. Server-side byte compilation, `git diff --check`, and clean
 worktree evidence are in
 `/data/jzy/tmp/mp3d_object_id_raw_clue_2b0db75_quality_r1.log`.
 

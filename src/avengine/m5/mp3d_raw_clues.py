@@ -343,9 +343,7 @@ def _object_id_boundary(
             for axis in range(2)
         },
         "in_frame_by_frame": {
-            str(actor_ids[axis]): [
-                bool(frame["in_frame"]) for frame in tracks[axis]
-            ]
+            str(actor_ids[axis]): [bool(frame["in_frame"]) for frame in tracks[axis]]
             for axis in range(2)
         },
         "occlusion_by_frame": None,
@@ -1263,9 +1261,7 @@ def load_dynamic_capture_raw_clues(
 
     has_metadata = receipt.get("pose_readback") is not None
     present_new_artifacts = _NEW_POSE_ARTIFACTS.intersection(artifacts)
-    object_id_declared = (
-        "object_id_visibility" in receipt or "object_id" in artifacts
-    )
+    object_id_declared = "object_id_visibility" in receipt or "object_id" in artifacts
     if object_id_declared and (
         not has_metadata or present_new_artifacts != _NEW_POSE_ARTIFACTS
     ):

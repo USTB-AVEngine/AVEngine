@@ -293,25 +293,31 @@ def test_object_id_modal_raw_clues_are_joined_without_semantic_authority(
     assert modal0["in_frame"] is True
     assert modal0["occlusion"] is None
     assert modal0["off_screen"] is None
-    assert raw["pair_tracks"]["actual_emitter_relative_to_actual_listener"][
-        "frames"
-    ][0]["source1"]["visible_pixels"] == 2
-    assert raw["pair_tracks"]["actual_emitter_relative_to_actual_listener"][
-        "frames"
-    ][0]["source1"]["in_frame"] is True
+    assert (
+        raw["pair_tracks"]["actual_emitter_relative_to_actual_listener"]["frames"][0][
+            "source1"
+        ]["visible_pixels"]
+        == 2
+    )
+    assert (
+        raw["pair_tracks"]["actual_emitter_relative_to_actual_listener"]["frames"][0][
+            "source1"
+        ]["in_frame"]
+        is True
+    )
     assert modal74["object_id_pixel_count"] == 0
     assert modal74["object_id_bbox_xyxy"] is None
     assert modal74["actor_modal_visibility"] is False
     assert modal74["in_frame"] is False
     assert modal74["occlusion"] is None
     assert modal74["off_screen"] is None
-    assert frame74_source1["native_semantic_id_raster"]["actor_modal_visibility"] is None
+    assert (
+        frame74_source1["native_semantic_id_raster"]["actor_modal_visibility"] is None
+    )
 
 
 @pytest.mark.parametrize("damage", ("runtime_id", "frame_count"))
-def test_object_id_mapping_and_75_frames_fail_fast(
-    tmp_path: Path, damage: str
-) -> None:
+def test_object_id_mapping_and_75_frames_fail_fast(tmp_path: Path, damage: str) -> None:
     root, request, request_path = _current_inputs(
         tmp_path, name=f"object-id-{damage}", object_id_readback=True
     )
