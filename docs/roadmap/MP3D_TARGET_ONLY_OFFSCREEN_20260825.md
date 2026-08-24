@@ -154,5 +154,20 @@ The full branch unit regression at `d5e1036` reports:
 
 Log: `/data/jzy/tmp/data_diversification_d5e1036_full_unit_r1.log`.
 Ruff check passed, the new files pass Ruff formatting, and `git diff --check`
-passed. A clean-integration merge is the next code check. The next data tasks
-remain accepted multi-view scaling, refusal rows, and real exact-48 selection.
+passed.
+
+The source slice was then merged into the clean
+`codex/data-diversification-integration` branch as:
+
+`7a6ccf4 Merge MP3D target-only offscreen checkpoint`
+
+That integration worktree had an identical file tree, passed the 72 focused
+tests, and independently completed its full regression:
+
+```text
+3364 passed, 118 skipped, 52 subtests passed in 328.48s
+```
+
+Integration log: `/data/jzy/tmp/data_diversification_7a6ccf4_full_unit_r1.log`.
+The next data tasks remain accepted multi-view scaling, refusal rows, and real
+exact-48 selection.
