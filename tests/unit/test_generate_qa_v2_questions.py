@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 
 import pytest
+from avengine.m5_1.source_contracts import sample_boundary
+from avengine.m6.audio_program import bind_audio_program_hash
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -12,7 +14,9 @@ SCRIPT_PATH = REPOSITORY / "tools/qa/generate_qa_v2_questions.py"
 
 
 def _load_script():
-    spec = importlib.util.spec_from_file_location("generate_qa_v2_questions", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "generate_qa_v2_questions", SCRIPT_PATH
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -106,10 +110,12 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
                 "actor_states": [
                     {
                         "source_slot_id": "source1",
+                        "action_id": "walk",
                         "translation_ue_cm": [10.0, -10.0, 27.1],
                     },
                     {
                         "source_slot_id": "source2",
+                        "action_id": "idle",
                         "translation_ue_cm": [40.0, 40.0, 27.1],
                     },
                 ]
@@ -498,7 +504,9 @@ def test_refusal_questions_meet_ten_to_fifteen_percent_without_deleting_base(
         q for q in document["questions"] if q["type_id"] == "QV2-TR-REFUSAL"
     ]
     assert len(document["questions"]) - len(refusal_rows) == len(baseline["questions"])
-    assert all(row["answer"] == "cannot determine from audio alone" for row in refusal_rows)
+    assert all(
+        row["answer"] == "cannot determine from audio alone" for row in refusal_rows
+    )
     assert all(row["provided_modalities"] == ["audio"] for row in refusal_rows)
     quota = document["extended_types"]["refusal_quota"]
     assert quota["status"] == "pass"
@@ -563,6 +571,223 @@ def test_non_object_audio_program_fails_closed(tmp_path: Path) -> None:
     _write_json(programs / "p.json", [])
 
     with pytest.raises(module.QuestionGenerationError, match="must be an object"):
+        module.generate_question_document(
+            inputs_root=inputs,
+            programs_dir=programs,
+            registry_path=registry,
+            viewpoint_bank_path=viewpoint_bank,
+        )
+
+
+def test_t7_and_ta_cover_all_four_motion_cases_with_balanced_keys(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    source = inputs / "p001"
+    modes = (
+        "s1_moving_s2_static",
+        "s1_static_s2_moving",
+        "both_moving",
+        "both_static",
+    )
+    for index, mode in enumerate(modes, start=1):
+        point = inputs / f"p{index:03d}"
+        if point != source:
+            point.mkdir()
+            (point / "timeline.json").write_bytes(
+                (source / "timeline.json").read_bytes()
+            )
+        spec = json.loads((source / "spec.json").read_text(encoding="utf-8"))
+        spec["motion_case"] = mode
+        _write_json(point / "spec.json", spec)
+        timeline_path = point / "timeline.json"
+        timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+        movers = {
+            "s1_moving_s2_static": {"source1"},
+            "s1_static_s2_moving": {"source2"},
+            "both_moving": {"source1", "source2"},
+            "both_static": set(),
+        }[mode]
+        for frame in timeline["frames"]:
+            for state in frame["actor_states"]:
+                state["action_id"] = (
+                    "walk" if state["source_slot_id"] in movers else "idle"
+                )
+        _write_json(timeline_path, timeline)
+
+    document = module.generate_question_document(
+        inputs_root=inputs,
+        programs_dir=programs,
+        registry_path=registry,
+        viewpoint_bank_path=viewpoint_bank,
+        generated_at="fixed",
+    )
+    expected_ta = {
+        "s1_moving_s2_static": "moving",
+        "s1_static_s2_moving": "staying still",
+        "both_moving": "moving",
+        "both_static": "staying still",
+    }
+    expected_t7 = {
+        "s1_moving_s2_static": "staying still",
+        "s1_static_s2_moving": "moving",
+        "both_moving": "moving",
+        "both_static": "staying still",
+    }
+    ta = {
+        row["motion_case"]: row["answer"]
+        for row in document["questions"]
+        if row["type_id"] == "QV2-TA-MOTION"
+    }
+    t7 = {
+        row["motion_case"]: row["answer"]
+        for row in document["questions"]
+        if row["type_id"] == "QV2-T7-DURING"
+    }
+    assert ta == expected_ta
+    assert t7 == expected_t7
+    assert document["answer_balance"]["by_type"]["QV2-TA-MOTION"]["status"] == "pass"
+    assert document["answer_balance"]["by_type"]["QV2-T7-DURING"]["status"] == "pass"
+    assert all(
+        row["motion_gold_authority"] == "authored_timeline_action_id"
+        for row in document["questions"]
+        if row["type_id"] in {"QV2-TA-MOTION", "QV2-T7-DURING"}
+    )
+
+
+def test_question_generator_prefers_validated_point_audio_program(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    point = inputs / "p001"
+    first_start = sample_boundary(2)
+    second_start = sample_boundary(26)
+    event_duration = 4_800
+    events = []
+    for index, (endpoint, start_sample) in enumerate(
+        (
+            ("source1-mouth", first_start),
+            ("source2-mouth", second_start),
+        )
+    ):
+        end_sample = start_sample + event_duration
+        events.append(
+            {
+                "event_id": f"event_{index}",
+                "source_endpoint_id": endpoint,
+                "sound_asset_id": "unit_sound",
+                "start_tick": start_sample * 3,
+                "end_tick_exclusive": end_sample * 3,
+                "start_sample": start_sample,
+                "end_sample_exclusive": end_sample,
+                "source_start_sample": 0,
+                "source_end_sample_exclusive": event_duration,
+                "linear_gain": 0.2,
+                "fade_samples": 80,
+                "normalization_policy": "use_sound_asset_policy",
+                "render_source_stem": True,
+            }
+        )
+    program = bind_audio_program_hash(
+        {
+            "schema": "avengine_m6_audio_program_v1",
+            "program_id": "p.p001.schedule_v1",
+            "revision": "v1",
+            "mode": "sequential_sources",
+            "timeline": {
+                "time_base_hz": 48_000,
+                "ticks_per_frame": 3_200,
+                "video_fps": 15,
+                "frame_count": 75,
+                "sample_rate_hz": 16_000,
+                "ticks_per_sample": 3,
+                "sample_count": 80_000,
+            },
+            "candidate_source_endpoint_ids": ["source1-mouth", "source2-mouth"],
+            "events": events,
+            "source_specific_stems": True,
+            "admission_state": "research",
+        }
+    )
+    _write_json(point / "audio_program.json", program)
+    spec_path = point / "spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec["audio_program_path"] = "audio_program.json"
+    spec["audio_schedule"] = {
+        "base_program_id": "p",
+        "materialized_program_id": program["program_id"],
+        "event_start_samples": [event["start_sample"] for event in events],
+        "event_end_samples_exclusive": [
+            event["end_sample_exclusive"] for event in events
+        ],
+    }
+    _write_json(spec_path, spec)
+
+    document = module.generate_question_document(
+        inputs_root=inputs,
+        programs_dir=programs,
+        registry_path=registry,
+        viewpoint_bank_path=viewpoint_bank,
+        generated_at="fixed",
+    )
+
+    assert document["audio_program_resolution"]["materialized_point_count"] == 1
+    assert document["audio_program_resolution"]["points"]["p001"] == {
+        "program_id": "p.p001.schedule_v1",
+        "path": str(point / "audio_program.json"),
+        "authority": "point_materialized_audio_program",
+    }
+    for question in document["questions"]:
+        assert question["audio_program_id"] == "p.p001.schedule_v1"
+        assert question["audio_program_authority"] == "point_materialized_audio_program"
+        assert question["first_frame"] == 2
+        assert question["second_frame"] == 26
+        assert question["first_event_start_sample"] == first_start
+        assert question["second_event_start_sample"] == second_start
+        assert question["first_second_onset_interval_samples"] == (
+            second_start - first_start
+        )
+
+
+def test_materialized_audio_schedule_mismatch_fails_closed(tmp_path: Path) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    point = inputs / "p001"
+    spec_path = point / "spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec["audio_program_path"] = "audio_program.json"
+    spec["audio_schedule"] = {}
+    _write_json(spec_path, spec)
+    _write_json(point / "audio_program.json", {})
+
+    with pytest.raises(
+        module.QuestionGenerationError, match="materialized AudioProgram"
+    ):
+        module.generate_question_document(
+            inputs_root=inputs,
+            programs_dir=programs,
+            registry_path=registry,
+            viewpoint_bank_path=viewpoint_bank,
+        )
+
+
+def test_motion_case_timeline_disagreement_fails_closed(tmp_path: Path) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    timeline_path = inputs / "p001/timeline.json"
+    timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+    for frame in timeline["frames"]:
+        for state in frame["actor_states"]:
+            if state["source_slot_id"] == "source1":
+                state["action_id"] = "idle"
+    _write_json(timeline_path, timeline)
+
+    with pytest.raises(
+        module.QuestionGenerationError,
+        match="motion_case disagrees with authored Timeline",
+    ):
         module.generate_question_document(
             inputs_root=inputs,
             programs_dir=programs,

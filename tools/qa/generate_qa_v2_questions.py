@@ -33,6 +33,7 @@ from avengine.qa.answer_balance import (
     build_answer_balance_report,
     require_balanced_answer_keys,
 )
+from avengine.m6.audio_program import AudioProgramError, load_audio_program
 from avengine.qa.extended_questions import (
     ExtendedQuestionEvidenceError,
     T5_FULL_CREDIT_DEG,
@@ -101,17 +102,23 @@ def load_viewpoint_bank(path: str | Path) -> dict[str, dict[str, Any]]:
     by_id: dict[str, dict[str, Any]] = {}
     for index, record in enumerate(viewpoints):
         if not isinstance(record, Mapping):
-            raise QuestionGenerationError(f"viewpoint bank row {index} must be an object")
+            raise QuestionGenerationError(
+                f"viewpoint bank row {index} must be an object"
+            )
         viewpoint_id = record.get("viewpoint_id")
         if not isinstance(viewpoint_id, str) or not viewpoint_id:
             raise QuestionGenerationError(
                 f"viewpoint bank row {index} has no non-empty viewpoint_id"
             )
         if viewpoint_id in by_id:
-            raise QuestionGenerationError(f"duplicate viewpoint_id in bank: {viewpoint_id}")
+            raise QuestionGenerationError(
+                f"duplicate viewpoint_id in bank: {viewpoint_id}"
+            )
         camera = record.get("camera")
         if not isinstance(camera, Mapping):
-            raise QuestionGenerationError(f"viewpoint {viewpoint_id} has no camera object")
+            raise QuestionGenerationError(
+                f"viewpoint {viewpoint_id} has no camera object"
+            )
         position = _finite_triplet(
             camera.get("ue_location_cm"),
             owner=f"viewpoint {viewpoint_id} camera.ue_location_cm",
@@ -173,7 +180,9 @@ def resolve_point_viewpoint(
     )
 
 
-def appearance(asset_id: str, assets: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+def appearance(
+    asset_id: str, assets: Mapping[str, Mapping[str, Any]]
+) -> dict[str, str]:
     rec = assets[asset_id]
     attrs = rec.get("realized_attributes", {})
     if "top_color" in attrs:
@@ -219,7 +228,9 @@ def side_of(
     return ("right" if cross > 0 else "left"), abs(cross)
 
 
-def combo_program(spec: Mapping[str, Any], assets: Mapping[str, Mapping[str, Any]]) -> str:
+def combo_program(
+    spec: Mapping[str, Any], assets: Mapping[str, Mapping[str, Any]]
+) -> str:
     if spec.get("program_id"):
         return str(spec["program_id"])
 
@@ -237,14 +248,117 @@ def combo_program(spec: Mapping[str, Any], assets: Mapping[str, Mapping[str, Any
     return f"qa_v2_{kind}_{source1}_{source2}_turn_taking_v1"
 
 
-def actor_positions(timeline: Mapping[str, Any], frame: int) -> dict[str, Sequence[float]]:
+def load_point_audio_program(
+    point_path: Path,
+    spec: Mapping[str, Any],
+    *,
+    programs_dir: str | Path,
+    assets: Mapping[str, Mapping[str, Any]],
+) -> tuple[dict[str, Any], Path, str]:
+    """Resolve a materialized point program, with legacy fallback for old inputs."""
+
+    declared = spec.get("audio_program_path")
+    if declared is None:
+        path = Path(programs_dir) / f"{combo_program(spec, assets)}.json"
+        return _load_json(path), path, "shared_base_program_legacy_input"
+    if not isinstance(declared, str) or not declared:
+        raise QuestionGenerationError("audio_program_path must be a relative path")
+    relative = Path(declared)
+    if relative.is_absolute():
+        raise QuestionGenerationError(
+            "audio_program_path must be relative to its point"
+        )
+    point_root = point_path.resolve(strict=True)
+    try:
+        path = (point_root / relative).resolve(strict=True)
+        path.relative_to(point_root)
+    except (OSError, ValueError) as exc:
+        raise QuestionGenerationError(
+            f"{point_path.name}: audio_program_path escapes or is missing"
+        ) from exc
+    try:
+        program = load_audio_program(path)
+    except (AudioProgramError, OSError, TypeError, json.JSONDecodeError) as exc:
+        raise QuestionGenerationError(
+            f"{point_path.name}: materialized AudioProgram is invalid: {exc}"
+        ) from exc
+    schedule = spec.get("audio_schedule")
+    if not isinstance(schedule, Mapping):
+        raise QuestionGenerationError(
+            f"{point_path.name}: materialized AudioProgram requires audio_schedule"
+        )
+    if schedule.get("base_program_id") != combo_program(spec, assets):
+        raise QuestionGenerationError(
+            f"{point_path.name}: audio_schedule base_program_id mismatch"
+        )
+    if schedule.get("materialized_program_id") != program.get("program_id"):
+        raise QuestionGenerationError(
+            f"{point_path.name}: audio_schedule materialized_program_id mismatch"
+        )
+    starts = [event["start_sample"] for event in program["events"]]
+    ends = [event["end_sample_exclusive"] for event in program["events"]]
+    if (
+        schedule.get("event_start_samples") != starts
+        or schedule.get("event_end_samples_exclusive") != ends
+    ):
+        raise QuestionGenerationError(
+            f"{point_path.name}: audio_schedule event windows mismatch"
+        )
+    return program, path, "point_materialized_audio_program"
+
+
+def actor_states(
+    timeline: Mapping[str, Any], frame: int
+) -> dict[str, Mapping[str, Any]]:
     states = timeline["frames"][frame]["actor_states"]
-    positions: dict[str, Sequence[float]] = {}
+    by_slot: dict[str, Mapping[str, Any]] = {}
     for state in states:
         key = state.get("source_slot_id") or state.get("actor_id")
         slot = "source1" if "1" in str(key) else "source2"
-        positions[slot] = state["translation_ue_cm"][:2]
-    return positions
+        if slot in by_slot:
+            raise QuestionGenerationError(
+                f"timeline frame {frame} repeats actor state for {slot}"
+            )
+        by_slot[slot] = state
+    if set(by_slot) != {"source1", "source2"}:
+        raise QuestionGenerationError(
+            f"timeline frame {frame} must contain source1 and source2 actor states"
+        )
+    return by_slot
+
+
+def actor_positions(
+    timeline: Mapping[str, Any], frame: int
+) -> dict[str, Sequence[float]]:
+    return {
+        slot: state["translation_ue_cm"][:2]
+        for slot, state in actor_states(timeline, frame).items()
+    }
+
+
+def timeline_motion_answer(
+    timeline: Mapping[str, Any],
+    *,
+    source_slot: str,
+    frame_indices: Sequence[int],
+    owner: str,
+) -> tuple[str, tuple[str, ...]]:
+    """Read moving/still truth from authored Timeline action IDs."""
+
+    if not frame_indices:
+        raise QuestionGenerationError(f"{owner}: event touches no Timeline frames")
+    action_ids = tuple(
+        str(actor_states(timeline, frame_index)[source_slot].get("action_id"))
+        for frame_index in frame_indices
+    )
+    unique = set(action_ids)
+    if unique == {"walk"}:
+        return "moving", action_ids
+    if unique == {"idle"}:
+        return "staying still", action_ids
+    raise QuestionGenerationError(
+        f"{owner}: Timeline action must be uniformly walk or idle, got {sorted(unique)}"
+    )
 
 
 def mover_slots(motion: str) -> set[str]:
@@ -252,6 +366,7 @@ def mover_slots(motion: str) -> set[str]:
         "s1_moving_s2_static": {"source1"},
         "s1_static_s2_moving": {"source2"},
         "both_moving": {"source1", "source2"},
+        "both_static": set(),
     }[motion]
 
 
@@ -301,6 +416,7 @@ def generate_question_document(
     refused: list[dict[str, Any]] = []
     refusal_candidates: list[dict[str, Any]] = []
     resolved_viewpoints: dict[str, dict[str, Any]] = {}
+    resolved_audio_programs: dict[str, dict[str, Any]] = {}
     extended_evidence: dict[str, dict[str, Any]] = {}
 
     def emit(row: dict[str, Any], ok: bool, reason: str | None = None) -> None:
@@ -330,15 +446,25 @@ def generate_question_document(
         resolved_viewpoints[point_id] = {
             "viewpoint_id": viewpoint_id,
             "camera_authority": camera_authority,
-            "position_ue_cm": [
-                float(value) for value in point_camera_position_ue_cm
-            ],
+            "position_ue_cm": [float(value) for value in point_camera_position_ue_cm],
             "yaw_ue_deg": float(point_camera_yaw_deg),
         }
         timeline = _load_json(point_path / "timeline.json")
-        program = _load_json(Path(programs_dir) / f"{combo_program(spec, assets)}.json")
+        program, program_path, program_authority = load_point_audio_program(
+            point_path,
+            spec,
+            programs_dir=programs_dir,
+            assets=assets,
+        )
         if not isinstance(program, Mapping):
-            raise QuestionGenerationError(f"{point_id}: audio program must be an object")
+            raise QuestionGenerationError(
+                f"{point_id}: audio program must be an object"
+            )
+        resolved_audio_programs[point_id] = {
+            "program_id": program.get("program_id"),
+            "path": str(program_path),
+            "authority": program_authority,
+        }
         endpoints = program.get("candidate_source_endpoint_ids")
         if (
             not isinstance(endpoints, list)
@@ -355,7 +481,9 @@ def generate_question_document(
         }
         raw_events = program.get("events")
         if not isinstance(raw_events, list) or len(raw_events) < 2:
-            raise QuestionGenerationError(f"{point_id}: audio program needs at least two events")
+            raise QuestionGenerationError(
+                f"{point_id}: audio program needs at least two events"
+            )
         events = []
         for event_index, event in enumerate(raw_events):
             if not isinstance(event, Mapping):
@@ -387,6 +515,30 @@ def generate_question_document(
         first_frame = event_frame_index(first["start_sample"])
         second_frame = event_frame_index(second["start_sample"])
         movers = mover_slots(spec["motion_case"])
+        first_motion_answer, first_action_ids = timeline_motion_answer(
+            timeline,
+            source_slot=slot_a,
+            frame_indices=(first_frame,),
+            owner=f"{point_id} first event",
+        )
+        second_event_frames = event_frame_window(
+            second["start_sample"], second["end_sample_exclusive"]
+        )
+        second_motion_answer, second_action_ids = timeline_motion_answer(
+            timeline,
+            source_slot=slot_b,
+            frame_indices=second_event_frames,
+            owner=f"{point_id} second event",
+        )
+        expected_first = "moving" if slot_a in movers else "staying still"
+        expected_second = "moving" if slot_b in movers else "staying still"
+        if (
+            first_motion_answer != expected_first
+            or second_motion_answer != expected_second
+        ):
+            raise QuestionGenerationError(
+                f"{point_id}: motion_case disagrees with authored Timeline action IDs"
+            )
         appearances = {
             slot: appearance(spec[f"{slot}_asset"], assets)
             for slot in ("source1", "source2")
@@ -403,6 +555,18 @@ def generate_question_document(
             "offscreen_candidate": spec["offscreen_candidate"],
             "first_slot": slot_a,
             "first_frame": first_frame,
+            "second_frame": second_frame,
+            "first_event_start_sample": first["start_sample"],
+            "second_event_start_sample": second["start_sample"],
+            "first_second_onset_interval_samples": (
+                second["start_sample"] - first["start_sample"]
+            ),
+            "audio_program_id": program.get("program_id"),
+            "audio_program_authority": program_authority,
+            "first_event_timeline_action_ids": list(first_action_ids),
+            "second_event_frame_window": list(second_event_frames),
+            "second_event_timeline_action_ids": list(second_action_ids),
+            "motion_gold_authority": "authored_timeline_action_id",
             "viewpoint_id": viewpoint_id,
         }
 
@@ -472,24 +636,23 @@ def generate_question_document(
                 )
             )
 
-        if (slot_a in movers) != (slot_b in movers):
-            emit(
-                dict(
-                    base,
-                    type_id="QV2-TA-MOTION",
-                    answer_arity="binary",
-                    question_en=(
-                        f"At the moment of the first {('speech' if noun_en == 'person' else 'bark')}, "
-                        f"was the {noun_en} making it moving or staying still?"
-                    ),
-                    question_zh=f"第一声{verb_zh}响起时，发出它的那个{noun_zh}在走动还是静止？",
-                    options=["moving", "staying still"],
-                    answer="moving" if slot_a in movers else "staying still",
-                    semantic_answer_source_slot=slot_a,
-                    modality_expectation="dual_required",
+        emit(
+            dict(
+                base,
+                type_id="QV2-TA-MOTION",
+                answer_arity="binary",
+                question_en=(
+                    f"At the moment of the first {('speech' if noun_en == 'person' else 'bark')}, "
+                    f"was the {noun_en} making it moving or staying still?"
                 ),
-                True,
-            )
+                question_zh=f"第一声{verb_zh}响起时，发出它的那个{noun_zh}在走动还是静止？",
+                options=["moving", "staying still"],
+                answer=first_motion_answer,
+                semantic_answer_source_slot=slot_a,
+                modality_expectation="dual_required",
+            ),
+            True,
+        )
 
         positions = actor_positions(timeline, first_frame)
         side_a, magnitude_a = side_of(
@@ -668,27 +831,23 @@ def generate_question_document(
                     True,
                 )
 
-        if (slot_b in movers) != (slot_a in movers) or spec["motion_case"] == "both_moving":
-            answer = "moving" if slot_b in movers else "staying still"
-            ok = (slot_a in movers) != (slot_b in movers)
-            emit(
-                dict(
-                    base,
-                    type_id="QV2-T7-DURING",
-                    answer_arity="binary",
-                    question_en=(
-                        f"During the second {('speech' if noun_en == 'person' else 'bark')}, "
-                        f"was the {noun_en} making it moving or staying still?"
-                    ),
-                    question_zh=f"第二声{verb_zh}期间，发出它的那个{noun_zh}在走动还是静止？",
-                    options=["moving", "staying still"],
-                    answer=answer,
-                    semantic_answer_source_slot=slot_b,
-                    modality_expectation="dual_required",
+        emit(
+            dict(
+                base,
+                type_id="QV2-T7-DURING",
+                answer_arity="binary",
+                question_en=(
+                    f"During the second {('speech' if noun_en == 'person' else 'bark')}, "
+                    f"was the {noun_en} making it moving or staying still?"
                 ),
-                ok,
-                None if ok else "G-differential-motion",
-            )
+                question_zh=f"第二声{verb_zh}期间，发出它的那个{noun_zh}在走动还是静止？",
+                options=["moving", "staying still"],
+                answer=second_motion_answer,
+                semantic_answer_source_slot=slot_b,
+                modality_expectation="dual_required",
+            ),
+            True,
+        )
 
         distances = {
             slot: math.hypot(
@@ -718,7 +877,11 @@ def generate_question_document(
             modality_expectation="vision_dominant_control",
             distance_ratio=round(ratio, 2),
         )
-        emit(row, ratio >= distance_ratio_min, None if ratio >= distance_ratio_min else "G-distance-ratio")
+        emit(
+            row,
+            ratio >= distance_ratio_min,
+            None if ratio >= distance_ratio_min else "G-distance-ratio",
+        )
 
     refusal_quota: dict[str, Any] = {
         "status": "disabled",
@@ -753,7 +916,9 @@ def generate_question_document(
     by_type = Counter(question["type_id"] for question in questions)
     answers_by_type: dict[str, Counter[str]] = {}
     for question in questions:
-        answers_by_type.setdefault(question["type_id"], Counter())[str(question["answer"])] += 1
+        answers_by_type.setdefault(question["type_id"], Counter())[
+            str(question["answer"])
+        ] += 1
     answer_balance = build_answer_balance_report(questions)
     return {
         "schema": "avengine_qa_v2_questions_v1",
@@ -800,6 +965,13 @@ def generate_question_document(
             ),
             "points": resolved_viewpoints,
         },
+        "audio_program_resolution": {
+            "points": resolved_audio_programs,
+            "materialized_point_count": sum(
+                item["authority"] == "point_materialized_audio_program"
+                for item in resolved_audio_programs.values()
+            ),
+        },
         "questions": questions,
         "refused": refused,
     }
@@ -818,9 +990,7 @@ def write_question_document(document: Mapping[str, Any], output: str | Path) -> 
         parent / unresolved.name,
         owner="QA question output directory",
     )
-    staging = Path(
-        tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=parent)
-    )
+    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=parent))
     try:
         with (staging / "questions.json").open("x", encoding="utf-8") as handle:
             json.dump(document, handle, ensure_ascii=False, indent=1)
