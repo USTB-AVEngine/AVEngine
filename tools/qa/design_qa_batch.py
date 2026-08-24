@@ -27,6 +27,12 @@ from avengine.qa.design_viewpoints import (
     load_legacy_view0_report_only,
     select_design_viewpoints,
 )
+from avengine.qa.motion_feasibility import (
+    MotionFeasibilityError,
+    classify_motion_feasibility,
+    evaluate_motion_pair,
+    minimum_linear_path_separation,
+)
 from avengine.security.path_policy import WorkspacePathPolicy, atomic_publish_directory
 
 
@@ -182,56 +188,7 @@ def _cells() -> tuple[tuple[str, str, str, str], ...]:
     return tuple(cells)
 
 
-def _lerp(
-    start: Sequence[float], end: Sequence[float], fraction: float
-) -> tuple[float, float, float]:
-    return tuple(
-        float(start[index]) + (float(end[index]) - float(start[index])) * fraction
-        for index in range(3)
-    )
-
-
-def minimum_separation_cm(
-    path1: tuple[Sequence[float], Sequence[float]],
-    path2: tuple[Sequence[float], Sequence[float]],
-) -> float:
-    # Both actors are linearly parameterized over the same clip time. Minimize
-    # the squared norm of their relative 2-D line exactly on t in [0, 1]; sparse
-    # samples can miss a between-sample crossing.
-    relative_start = (
-        float(path1[0][0]) - float(path2[0][0]),
-        float(path1[0][1]) - float(path2[0][1]),
-    )
-    relative_velocity = (
-        (float(path1[1][0]) - float(path1[0][0]))
-        - (float(path2[1][0]) - float(path2[0][0])),
-        (float(path1[1][1]) - float(path1[0][1]))
-        - (float(path2[1][1]) - float(path2[0][1])),
-    )
-    velocity_squared = sum(value * value for value in relative_velocity)
-    if velocity_squared <= 1.0e-18:
-        fraction = 0.0
-    else:
-        fraction = max(
-            0.0,
-            min(
-                1.0,
-                -sum(
-                    start * velocity
-                    for start, velocity in zip(
-                        relative_start, relative_velocity, strict=True
-                    )
-                )
-                / velocity_squared,
-            ),
-        )
-    closest = tuple(
-        start + fraction * velocity
-        for start, velocity in zip(
-            relative_start, relative_velocity, strict=True
-        )
-    )
-    return (closest[0] ** 2 + closest[1] ** 2) ** 0.5
+minimum_separation_cm = minimum_linear_path_separation
 
 
 def _gates_ok(
@@ -241,21 +198,18 @@ def _gates_ok(
     *,
     offscreen: bool = False,
 ) -> bool:
-    anchor1 = _lerp(*path1, EVENT_ONE_FRACTION) if path1[0] != path1[1] else path1[0]
-    anchor2 = _lerp(*path2, EVENT_ONE_FRACTION) if path2[0] != path2[1] else path2[0]
-    (side1, margin1), (side2, margin2) = viewpoint.side(anchor1), viewpoint.side(anchor2)
-    second1 = _lerp(*path1, EVENT_TWO_FRACTION) if path1[0] != path1[1] else path1[0]
-    second2 = _lerp(*path2, EVENT_TWO_FRACTION) if path2[0] != path2[1] else path2[0]
-    _, second_margin1 = viewpoint.side(second1)
-    _, second_margin2 = viewpoint.side(second2)
-    side_ok = (
-        side1 != side2
-        and margin1 >= 0.12
-        and margin2 >= 0.12
-        and second_margin1 >= 0.06
-        and second_margin2 >= 0.06
-    )
-    return (side_ok or offscreen) and minimum_separation_cm(path1, path2) >= 60.0
+    return evaluate_motion_pair(
+        camera_position_xy=viewpoint.camera_position_ue_cm[:2],
+        camera_yaw_degrees=viewpoint.camera_yaw_ue_deg,
+        source1_path=path1,
+        source2_path=path2,
+        first_anchor_fraction=EVENT_ONE_FRACTION,
+        second_anchor_fraction=EVENT_TWO_FRACTION,
+        minimum_first_side_margin=0.12,
+        minimum_second_side_margin=0.06,
+        minimum_continuous_separation=60.0,
+        allow_any_side=offscreen,
+    ).passed
 
 
 def find_combo(
@@ -268,38 +222,31 @@ def find_combo(
     stands = viewpoint.stand_points(source_height_ue_cm=SOURCE_HEIGHT_UE_CM)
     if not directed or not stands:
         raise DesignBatchError(f"viewpoint {viewpoint.viewpoint_id} has no corridors")
-    if mode == "s1_moving_s2_static":
-        for walk_offset in range(len(directed)):
-            for stand_offset in range(len(stands)):
-                path1 = directed[(seed + walk_offset) % len(directed)]
-                stand = stands[(seed * 3 + stand_offset) % len(stands)]
-                path2 = (stand, stand)
-                if _gates_ok(viewpoint, path1, path2):
-                    return path1, path2
-    elif mode == "s1_static_s2_moving":
-        for stand_offset in range(len(stands)):
-            for walk_offset in range(len(directed)):
-                stand = stands[(seed * 3 + stand_offset) % len(stands)]
-                path1 = (stand, stand)
-                path2 = directed[(seed + walk_offset) % len(directed)]
-                if _gates_ok(viewpoint, path1, path2):
-                    return path1, path2
-    elif mode == "both_moving":
-        for first_offset in range(len(directed)):
-            for second_offset in range(len(directed)):
-                path1 = directed[(seed + first_offset) % len(directed)]
-                path2 = directed[(seed * 5 + second_offset) % len(directed)]
-                if path1 != path2 and _gates_ok(viewpoint, path1, path2):
-                    return path1, path2
-    elif mode == "offscreen":
+    if mode == "offscreen":
         offscreen = viewpoint.offscreen_position_ue_cm
         path2 = (offscreen, offscreen)
-        for walk_offset in range(len(directed)):
-            path1 = directed[(seed + walk_offset) % len(directed)]
-            if _gates_ok(viewpoint, path1, path2, offscreen=True):
-                return path1, path2
+        path1 = directed[seed % len(directed)]
+        return path1, path2
     else:
-        raise DesignBatchError(f"unknown motion mode: {mode}")
+        try:
+            classification = classify_motion_feasibility(
+                camera_position_xy=viewpoint.camera_position_ue_cm[:2],
+                camera_yaw_degrees=viewpoint.camera_yaw_ue_deg,
+                directed_paths=directed,
+                stand_points=stands,
+                modes=(mode,),
+                seed=seed,
+                first_anchor_fraction=EVENT_ONE_FRACTION,
+                second_anchor_fraction=EVENT_TWO_FRACTION,
+                minimum_first_side_margin=0.12,
+                minimum_second_side_margin=0.06,
+                minimum_continuous_separation=60.0,
+            )
+        except MotionFeasibilityError as exc:
+            raise DesignBatchError(str(exc)) from exc
+        representative = classification.modes[0].representative_pair
+        if representative is not None:
+            return representative.source1_path, representative.source2_path
     raise DesignBatchError(
         f"no combo for viewpoint {viewpoint.viewpoint_id} mode {mode} seed {seed}"
     )
@@ -355,9 +302,7 @@ def build_specs(
             short2 = _program_short(asset2, assets)
             pair_kind = "two_human" if kind == "human" else "two_dog"
             suffix = (
-                "_turn_taking_v1"
-                if order == "afirst"
-                else "_turn_taking_bfirst_v1"
+                "_turn_taking_v1" if order == "afirst" else "_turn_taking_bfirst_v1"
             )
             specs.append(
                 {
@@ -454,7 +399,9 @@ def _fresh_staging(output: str | Path) -> tuple[WorkspacePathPolicy, Path, Path]
     unresolved.parent.mkdir(parents=True, exist_ok=True)
     parent = unresolved.parent.resolve(strict=True)
     policy = WorkspacePathPolicy.from_roots((parent,))
-    destination = policy.resolve_output(parent / unresolved.name, owner="QA design output")
+    destination = policy.resolve_output(
+        parent / unresolved.name, owner="QA design output"
+    )
     staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=parent))
     return policy, destination, staging
 
@@ -558,7 +505,9 @@ def run(
                 "mode": (
                     "legacy_view0_report_only"
                     if args.legacy_view0_report_only
-                    else ("explicit_id" if args.viewpoint_id else "deterministic_rotation")
+                    else (
+                        "explicit_id" if args.viewpoint_id else "deterministic_rotation"
+                    )
                 ),
                 "bank": args.viewpoint_bank,
                 "selected_viewpoint_ids": [item.viewpoint_id for item in viewpoints],
@@ -584,7 +533,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-root", required=True, help="fresh batch directory; refuses to clobber"
     )
-    parser.add_argument("--avengine-cli", default=shutil.which("avengine") or "avengine")
+    parser.add_argument(
+        "--avengine-cli", default=shutil.which("avengine") or "avengine"
+    )
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     parser.add_argument("--snapshot-content", default=str(DEFAULT_SNAPSHOT_CONTENT))
     parser.add_argument("--cell-size", type=int, default=16)
@@ -613,8 +564,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         output = run(args)
-    except (DesignBatchError, DesignViewpointError, KeyError, OSError, TypeError) as exc:
-        print(json.dumps({"error": str(exc), "output_written": False}, ensure_ascii=False))
+    except (
+        DesignBatchError,
+        DesignViewpointError,
+        KeyError,
+        OSError,
+        TypeError,
+    ) as exc:
+        print(
+            json.dumps({"error": str(exc), "output_written": False}, ensure_ascii=False)
+        )
         return 2
     manifest = _load_json(output / "batch_manifest.json")
     print(

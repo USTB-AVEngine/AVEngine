@@ -47,10 +47,90 @@ from avengine.security.path_policy import (
 PREFILTER_LABEL = "2D PREFILTER ONLY - NATIVE PIXEL VALIDATION PENDING"
 PILOT_MINIMUM_RASTER_SAMPLE_FRACTION = 0.10
 PILOT_MINIMUM_PASSED_CORRIDOR_COUNT = 4
+PILOT_MINIMUM_FEASIBLE_MOTION_MODE_COUNT = 0
+PILOT_MINIMUM_CAMERA_EYE_HEIGHT_M = 0.8
+PILOT_MAXIMUM_FLOOR_HORIZONTAL_SNAP_M = 0.15
+PILOT_MAXIMUM_FLOOR_Y_DELTA_M = 0.25
+PILOT_GENERATED_CORRIDOR_ENDPOINT_LIMIT = 192
+PILOT_GENERATED_CORRIDOR_LIMIT = 256
+PILOT_MAXIMUM_RANKED_CAMERA_CANDIDATES = 384
 
 
 class ApartmentViewpointBuildError(ValueError):
     """The explicit inputs cannot produce the requested draft artifacts."""
+
+
+@dataclass(frozen=True)
+class _NativeCameraFloorAuthority:
+    pathfinder: Any
+    native_floor_height_m: float
+    legacy_island_id: int
+    maximum_horizontal_snap_m: float
+    maximum_floor_y_delta_m: float
+
+    def readback(self, position_m: Sequence[float]) -> dict[str, Any]:
+        position = np.asarray(position_m, dtype=np.float64)
+        requested = np.asarray(
+            [position[0], self.native_floor_height_m, position[2]],
+            dtype=np.float64,
+        )
+        navigable = bool(
+            self.pathfinder.is_navigable(requested, self.maximum_floor_y_delta_m)
+        )
+        floor_point = np.asarray(
+            self.pathfinder.snap_point(requested), dtype=np.float64
+        )
+        finite = floor_point.shape == (3,) and bool(np.all(np.isfinite(floor_point)))
+        horizontal = (
+            float(np.linalg.norm(floor_point[[0, 2]] - requested[[0, 2]]))
+            if finite
+            else math.inf
+        )
+        floor_y_delta = (
+            abs(float(floor_point[1] - self.native_floor_height_m))
+            if finite
+            else math.inf
+        )
+        island_id = int(self.pathfinder.get_island(floor_point)) if finite else None
+        passed = bool(
+            navigable
+            and finite
+            and horizontal <= self.maximum_horizontal_snap_m
+            and floor_y_delta <= self.maximum_floor_y_delta_m
+            and island_id == self.legacy_island_id
+        )
+        return {
+            "authority": "live_declared_navmesh_intended_floor_probe",
+            "requested_floor_probe_m": [float(item) for item in requested],
+            "floor_point_m": (
+                [float(item) for item in floor_point] if finite else None
+            ),
+            "navigable": navigable,
+            "horizontal_snap_distance_m": horizontal,
+            "floor_y_delta_m": floor_y_delta,
+            "island_id": island_id,
+            "legacy_island_id": self.legacy_island_id,
+            "thresholds": {
+                "maximum_horizontal_snap_m": self.maximum_horizontal_snap_m,
+                "maximum_floor_y_delta_m": self.maximum_floor_y_delta_m,
+            },
+            "passed": passed,
+        }
+
+    def feasible_mask(self, obstacle_map: RuntimeObstacleMap) -> np.ndarray:
+        navmesh = np.asarray(obstacle_map.binary_navmesh, dtype=np.bool_)
+        bounds = np.asarray(obstacle_map.bounds_m, dtype=np.float64)
+        pixel_x = (bounds[1, 0] - bounds[0, 0]) / navmesh.shape[1]
+        pixel_z = (bounds[1, 2] - bounds[0, 2]) / navmesh.shape[0]
+        result = np.zeros_like(navmesh, dtype=np.bool_)
+        for row, col in np.argwhere(navmesh):
+            point = (
+                float(bounds[0, 0] + (int(col) + 0.5) * pixel_x),
+                self.native_floor_height_m,
+                float(bounds[0, 2] + (int(row) + 0.5) * pixel_z),
+            )
+            result[int(row), int(col)] = self.readback(point)["passed"]
+        return np.ascontiguousarray(result)
 
 
 @dataclass(frozen=True)
@@ -571,10 +651,9 @@ def _load_runtime_obstacle_map(
     runtime_prefix: Path,
     magnum_python_site: Path,
     rlr_sdk_root: Path | None = None,
-    floor_height_m: float,
     meters_per_pixel: float,
     scratch_directory: Path,
-) -> Iterator[RuntimeObstacleMap]:
+) -> Iterator[tuple[RuntimeObstacleMap, dict[str, Any], _NativeCameraFloorAuthority]]:
     runtime = prepare_installed_habitat_runtime(
         runtime_prefix=runtime_prefix,
         magnum_python_site=magnum_python_site,
@@ -600,14 +679,45 @@ def _load_runtime_obstacle_map(
             raise ApartmentViewpointBuildError(
                 "Habitat could not load the explicitly declared Apartment navmesh"
             )
-        yield build_runtime_obstacle_map(
+        camera_position = np.asarray(
+            inputs.request["primary_camera_rig"]["world_from_rig"]["translation_m"],
+            dtype=np.float64,
+        )
+        floor_point = np.asarray(
+            simulator.pathfinder.snap_point(camera_position), dtype=np.float64
+        )
+        if floor_point.shape != (3,) or not np.all(np.isfinite(floor_point)):
+            raise ApartmentViewpointBuildError(
+                "legacy camera has no finite declared-NavMesh floor readback"
+            )
+        horizontal_snap_distance = float(
+            np.linalg.norm(floor_point[[0, 2]] - camera_position[[0, 2]])
+        )
+        legacy_island_id = int(simulator.pathfinder.get_island(floor_point))
+        floor_readback = {
+            "authority": "declared_navmesh_pathfinder_snap_at_legacy_camera",
+            "legacy_camera_position_m": [float(item) for item in camera_position],
+            "floor_point_m": [float(item) for item in floor_point],
+            "horizontal_snap_distance_m": horizontal_snap_distance,
+            "native_floor_height_m": float(floor_point[1]),
+            "legacy_island_id": legacy_island_id,
+        }
+        obstacle_map = build_runtime_obstacle_map(
             simulator.pathfinder,
             simulator.get_rigid_object_manager(),
             runtime.magnum,
-            floor_height_m=floor_height_m,
+            floor_height_m=float(floor_point[1]),
             meters_per_pixel=meters_per_pixel,
             excluded_handle_prefixes=("source_marker_",),
         )
+        authority = _NativeCameraFloorAuthority(
+            pathfinder=simulator.pathfinder,
+            native_floor_height_m=float(floor_point[1]),
+            legacy_island_id=legacy_island_id,
+            maximum_horizontal_snap_m=PILOT_MAXIMUM_FLOOR_HORIZONTAL_SNAP_M,
+            maximum_floor_y_delta_m=PILOT_MAXIMUM_FLOOR_Y_DELTA_M,
+        )
+        yield obstacle_map, floor_readback, authority
 
 
 def _load_retained_corridors(path: Path) -> tuple[list[Mapping[str, Any]], str]:
@@ -800,7 +910,100 @@ def _request_identifier(base: Mapping[str, Any], viewpoint_id: str) -> str:
     return f"{base_id}_{viewpoint_id}"
 
 
+def _load_review_decision(
+    path: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    value = load_json(path)
+    if not isinstance(value, Mapping):
+        raise ApartmentViewpointBuildError("review decision must be an object")
+    decisions = value.get("decisions")
+    if not isinstance(decisions, list) or not decisions:
+        raise ApartmentViewpointBuildError(
+            "review decision must contain a non-empty decisions list"
+        )
+    retained: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    normalized = []
+    seen_poses = set()
+    for index, raw in enumerate(decisions):
+        if not isinstance(raw, Mapping):
+            raise ApartmentViewpointBuildError(
+                f"review decisions[{index}] must be an object"
+            )
+        viewpoint_id = raw.get("viewpoint_id")
+        decision = raw.get("decision")
+        reason = raw.get("reason")
+        camera = raw.get("camera")
+        if (
+            not isinstance(viewpoint_id, str)
+            or not viewpoint_id
+            or decision not in ("retain", "reject")
+            or not isinstance(reason, str)
+            or not reason.strip()
+            or not isinstance(camera, Mapping)
+        ):
+            raise ApartmentViewpointBuildError(
+                f"review decisions[{index}] is incomplete"
+            )
+        try:
+            position = np.asarray(camera["habitat_translation_m"], dtype=np.float64)
+            yaw = float(camera["habitat_yaw_deg"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ApartmentViewpointBuildError(
+                f"review decisions[{index}] camera pose is invalid"
+            ) from exc
+        if (
+            position.shape != (3,)
+            or not np.all(np.isfinite(position))
+            or not math.isfinite(yaw)
+        ):
+            raise ApartmentViewpointBuildError(
+                f"review decisions[{index}] camera pose is invalid"
+            )
+        pose_key = (tuple(float(item) for item in position), yaw)
+        if pose_key in seen_poses:
+            raise ApartmentViewpointBuildError(
+                "review decision contains duplicate exact camera poses"
+            )
+        pose = {"position_m": position.tolist(), "yaw_deg": yaw}
+        (retained if decision == "retain" else rejected).append(pose)
+        normalized.append(
+            {
+                "viewpoint_id": viewpoint_id,
+                "decision": decision,
+                "reason": reason.strip(),
+                "camera": {
+                    "habitat_translation_m": position.tolist(),
+                    "habitat_yaw_deg": yaw,
+                },
+            }
+        )
+        seen_poses.add(pose_key)
+    return (
+        retained,
+        rejected,
+        {
+            "source_prefilter": value.get("source_prefilter"),
+            "decisions": normalized,
+            "retained_count": len(retained),
+            "rejected_count": len(rejected),
+        },
+    )
+
+
 def run(args: argparse.Namespace) -> Path:
+    if (
+        isinstance(args.camera_yaw_step_degrees, bool)
+        or not isinstance(args.camera_yaw_step_degrees, int)
+        or args.camera_yaw_step_degrees <= 0
+        or 360 % args.camera_yaw_step_degrees != 0
+    ):
+        raise ApartmentViewpointBuildError(
+            "--camera-yaw-step-degrees must be a positive integer divisor of 360"
+        )
+    camera_yaw_degrees = tuple(
+        float(value) for value in range(0, 360, args.camera_yaw_step_degrees)
+    )
     room_manifest = _required_file(args.room_manifest, owner="--room-manifest")
     base_request_path = _required_file(args.base_m1_request, owner="--base-m1-request")
     m3_manifest = _required_file(
@@ -816,6 +1019,18 @@ def run(args: argparse.Namespace) -> Path:
         if args.rlr_sdk_root is None
         else _required_directory(args.rlr_sdk_root, owner="--rlr-sdk-root")
     )
+    review_decision_path = (
+        None
+        if args.review_decision is None
+        else _required_file(args.review_decision, owner="--review-decision")
+    )
+    retained_review_poses: list[dict[str, Any]] = []
+    rejected_review_poses: list[dict[str, Any]] = []
+    review_iteration = None
+    if review_decision_path is not None:
+        retained_review_poses, rejected_review_poses, review_iteration = (
+            _load_review_decision(review_decision_path)
+        )
     magnum_python_site = _required_magnum_python_site()
     output_policy, output, staging = _fresh_staging(args.output)
 
@@ -836,10 +1051,10 @@ def run(args: argparse.Namespace) -> Path:
         runtime_prefix=runtime_prefix,
         magnum_python_site=magnum_python_site,
         rlr_sdk_root=rlr_sdk_root,
-        floor_height_m=float(probe_heights["floor_height_m"]),
         meters_per_pixel=float(args.meters_per_pixel),
         scratch_directory=staging / "runtime_scratch",
-    ) as obstacle_map:
+    ) as (obstacle_map, native_floor_readback, camera_floor_authority):
+        camera_floor_feasible_mask = camera_floor_authority.feasible_mask(obstacle_map)
         result = prefilter_apartment_viewpoints(
             obstacle_map,
             base_m1_camera=inputs.request,
@@ -851,8 +1066,19 @@ def run(args: argparse.Namespace) -> Path:
                 "corridor_source_center_heights_m"
             ],
             selection_count=6,
+            camera_yaw_degrees=camera_yaw_degrees,
+            maximum_ranked_camera_candidates=args.maximum_ranked_camera_candidates,
             minimum_raster_sample_fraction=(PILOT_MINIMUM_RASTER_SAMPLE_FRACTION),
             minimum_passed_corridor_count=(PILOT_MINIMUM_PASSED_CORRIDOR_COUNT),
+            minimum_feasible_motion_mode_count=(
+                PILOT_MINIMUM_FEASIBLE_MOTION_MODE_COUNT
+            ),
+            minimum_camera_eye_height_m=PILOT_MINIMUM_CAMERA_EYE_HEIGHT_M,
+            generated_corridor_endpoint_limit=args.generated_corridor_endpoint_limit,
+            generated_corridor_limit=args.generated_corridor_limit,
+            camera_floor_feasible_mask=camera_floor_feasible_mask,
+            retained_review_poses=retained_review_poses,
+            rejected_review_poses=rejected_review_poses,
         )
 
         requests_directory = staging / "requests"
@@ -890,13 +1116,40 @@ def run(args: argparse.Namespace) -> Path:
         write_json(staging / "semantic_targets.json", semantic_record)
 
         prefilter_record = result.to_record()
+        for viewpoint, record in zip(
+            result.viewpoints, prefilter_record["viewpoints"], strict=True
+        ):
+            floor_evidence = camera_floor_authority.readback(
+                viewpoint.camera_position_m
+            )
+            if floor_evidence["passed"] is not True:
+                raise ApartmentViewpointBuildError(
+                    f"selected viewpoint {viewpoint.viewpoint_id} failed native floor readback"
+                )
+            record["native_camera_floor_readback"] = floor_evidence
         prefilter_record.update(
             {
                 "native_geometry_execution_status": "pass",
                 "native_pixel_validation_status": "pending",
                 "studio_used": False,
                 "runtime_obstacle_map": obstacle_map.summary(),
+                "native_floor_readback": native_floor_readback,
+                "native_camera_floor_authority": {
+                    "authority": "live_declared_navmesh_intended_floor_probe",
+                    "legacy_island_id": camera_floor_authority.legacy_island_id,
+                    "maximum_horizontal_snap_m": (
+                        camera_floor_authority.maximum_horizontal_snap_m
+                    ),
+                    "maximum_floor_y_delta_m": (
+                        camera_floor_authority.maximum_floor_y_delta_m
+                    ),
+                    "feasible_pixel_count": int(
+                        np.count_nonzero(camera_floor_feasible_mask)
+                    ),
+                    "raster_shape_hw": list(camera_floor_feasible_mask.shape),
+                },
                 "source_probe_height_derivation": probe_heights,
+                "review_iteration": review_iteration,
                 "inputs": {
                     "room_manifest": str(room_manifest),
                     "base_m1_request": str(base_request_path),
@@ -908,6 +1161,19 @@ def run(args: argparse.Namespace) -> Path:
                     "rlr_sdk_root": (
                         None if rlr_sdk_root is None else str(rlr_sdk_root)
                     ),
+                    "review_decision": (
+                        None
+                        if review_decision_path is None
+                        else str(review_decision_path)
+                    ),
+                    "generated_corridor_endpoint_limit": (
+                        args.generated_corridor_endpoint_limit
+                    ),
+                    "generated_corridor_limit": args.generated_corridor_limit,
+                    "maximum_ranked_camera_candidates": (
+                        args.maximum_ranked_camera_candidates
+                    ),
+                    "camera_yaw_degrees": list(camera_yaw_degrees),
                 },
                 "request_paths": request_paths,
                 "topdown_path": "topdown_2d_prefilter_native_pending.png",
@@ -936,6 +1202,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--anchor-library", required=True, type=Path)
     parser.add_argument("--runtime-prefix", required=True, type=Path)
     parser.add_argument("--rlr-sdk-root", type=Path)
+    parser.add_argument("--review-decision", type=Path)
+    parser.add_argument("--camera-yaw-step-degrees", type=int, default=30)
+    parser.add_argument(
+        "--generated-corridor-endpoint-limit",
+        type=int,
+        default=PILOT_GENERATED_CORRIDOR_ENDPOINT_LIMIT,
+    )
+    parser.add_argument(
+        "--generated-corridor-limit",
+        type=int,
+        default=PILOT_GENERATED_CORRIDOR_LIMIT,
+    )
+    parser.add_argument(
+        "--maximum-ranked-camera-candidates",
+        type=int,
+        default=PILOT_MAXIMUM_RANKED_CAMERA_CANDIDATES,
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--meters-per-pixel", type=float, default=0.04)
     return parser.parse_args(argv)

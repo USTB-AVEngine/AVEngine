@@ -133,8 +133,10 @@ def _prefilter(**overrides):
         "semantic_targets": _targets(),
         "selection_count": 6,
         "candidate_spacing_m": 0.75,
+        "camera_yaw_degrees": (0.0, 60.0, 120.0, 180.0, 240.0, 300.0),
         "raster_sample_spacing_m": 0.5,
         "maximum_positions_per_target": 6,
+        "maximum_ranked_camera_candidates": 64,
         "minimum_reverse_yaw_difference_deg": 10.0,
         "minimum_reverse_pose_difference_proxy": 0.1,
         "minimum_pairwise_position_m": 0.5,
@@ -159,7 +161,8 @@ def test_candidate_quality_filters_fraction_and_passed_corridor_count() -> None:
         prefilter=SimpleNamespace(
             frustum_sample_fraction=0.25,
             passed_corridor_ids=("c0", "c1", "c2", "c3"),
-        )
+        ),
+        motion_feasibility=SimpleNamespace(feasible_mode_count=1),
     )
 
     assert viewpoint_module._passes_candidate_quality(
@@ -177,6 +180,26 @@ def test_candidate_quality_filters_fraction_and_passed_corridor_count() -> None:
         minimum_raster_sample_fraction=0.10,
         minimum_passed_corridor_count=5,
     )
+    assert viewpoint_module._passes_candidate_quality(
+        candidate,
+        minimum_raster_sample_fraction=0.10,
+        minimum_passed_corridor_count=4,
+        minimum_feasible_motion_mode_count=1,
+    )
+    assert viewpoint_module._passes_candidate_quality(
+        candidate,
+        minimum_raster_sample_fraction=0.10,
+        minimum_passed_corridor_count=4,
+        minimum_feasible_motion_mode_count=2,
+    )
+
+
+def test_motion_difficulty_cannot_be_used_as_candidate_gate() -> None:
+    with pytest.raises(
+        ApartmentRasterPrefilterError,
+        match="must be zero because motion side and distance values are descriptors",
+    ):
+        _prefilter(minimum_feasible_motion_mode_count=1)
 
 
 def test_candidate_quality_thresholds_also_apply_to_legacy_view0() -> None:
@@ -187,7 +210,39 @@ def test_candidate_quality_thresholds_also_apply_to_legacy_view0() -> None:
         _prefilter(minimum_passed_corridor_count=1)
 
 
-def test_quality_filter_missing_required_role_fails_closed(
+def test_low_camera_height_clamps_to_native_floor_plus_minimum_eye_height() -> None:
+    obstacle_map = _obstacle_map()
+    grid = viewpoint_module._validated_grid(obstacle_map)
+
+    variants = viewpoint_module._height_variants(
+        grid,
+        (-0.7, 1.471, 0.65),
+        floor_height_m=0.4,
+        minimum_camera_eye_height_m=0.8,
+    )
+
+    by_role = dict(variants)
+    assert by_role["low"] == pytest.approx(1.2)
+    assert all(height - 0.4 >= 0.8 - 1.0e-12 for height in by_role.values())
+
+
+def test_minimum_camera_eye_height_validates_parameter_and_legacy_camera() -> None:
+    with pytest.raises(
+        ApartmentRasterPrefilterError,
+        match="minimum camera eye height must be nonnegative",
+    ):
+        _prefilter(minimum_camera_eye_height_m=-0.1)
+    with pytest.raises(
+        ApartmentRasterPrefilterError,
+        match="base M1 camera is below the minimum camera eye height",
+    ):
+        _prefilter(
+            base_m1_camera=_base_request(position_m=(1.0, 0.7, 1.0)),
+            minimum_camera_eye_height_m=0.8,
+        )
+
+
+def test_missing_semantic_role_is_reported_without_blocking_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -198,11 +253,11 @@ def test_quality_filter_missing_required_role_fails_closed(
         ),
     )
 
-    with pytest.raises(
-        ApartmentRasterPrefilterError,
-        match="generated candidates do not provide required roles: window_facing",
-    ):
-        _prefilter(required_roles=("window_facing",), selection_count=4)
+    result = _prefilter(required_roles=("window_facing",), selection_count=4)
+
+    assert result.semantic_role_coverage["status"] == "incomplete_diagnostic"
+    assert result.semantic_role_coverage["enforced_for_generation"] is False
+    assert result.semantic_role_coverage["missing_from_available"] == ["window_facing"]
 
 
 def test_prefilter_is_deterministic_order_free_and_explicitly_non_native() -> None:
@@ -219,13 +274,21 @@ def test_prefilter_is_deterministic_order_free_and_explicitly_non_native() -> No
     )
 
     assert first.to_record() == second.to_record()
-    assert first.raw_candidate_count > first.exact_deduplicated_candidate_count
+    assert first.raw_candidate_count >= first.exact_deduplicated_candidate_count
+    assert first.camera_placement_candidate_count > 0
+    assert len(first.camera_placements) == first.camera_placement_candidate_count
+    assert first.to_record()["camera_placement_catalog"]["filtering"] == (
+        "none_after_floor_navmesh_and_rigid_clearance"
+    )
+    assert first.ranked_shortlist_candidate_count == 64
+    assert first.semantic_role_coverage["enforced_for_generation"] is False
     assert first.viewpoints[0].viewpoint_id == "apartment_view0"
     assert all(item.view_id == "view0" for item in first.viewpoints)
     serialized = json.dumps(first.to_record(), sort_keys=True).lower()
     assert "deterministic_2d_raster_prefilter_only" in serialized
     assert "certified" not in serialized
-    assert "visible" not in serialized
+    assert "pending_same_renderer_native_execution" in serialized
+    assert '"visible_pixels_by_frame": null' in serialized
     for viewpoint in first.viewpoints:
         assert viewpoint.native_pixel_validation_status == "pending"
         if viewpoint.height_role in ("low", "high"):
@@ -484,22 +547,27 @@ def test_target_role_requires_its_own_focus_prefilter_pass(
         return ((forced_position, forced_yaw, 0.5),)
 
     monkeypatch.setattr(viewpoint_module, "_target_camera_positions", forced_placement)
-    with pytest.raises(
-        ApartmentRasterPrefilterError,
-        match="fewer than four exact raster candidates",
-    ):
-        prefilter_apartment_viewpoints(
-            obstacle_map,
-            base_m1_camera=_base_request(),
-            semantic_targets=semantic,
-            maximum_focus_snap_distance_m=4.0,
-            selection_count=4,
-            required_roles=("split_focus",),
-            minimum_pairwise_position_m=0.0,
-            minimum_pairwise_yaw_degrees=0.0,
-            minimum_pairwise_raster_signature_jaccard=0.0,
-            minimum_pairwise_corridor_jaccard=0.0,
-        )
+    monkeypatch.setattr(
+        viewpoint_module,
+        "evaluate_raster_pose_prefilter",
+        lambda *_args, **_kwargs: pose,
+    )
+    result = prefilter_apartment_viewpoints(
+        obstacle_map,
+        base_m1_camera=_base_request(),
+        semantic_targets=semantic,
+        maximum_focus_snap_distance_m=4.0,
+        selection_count=4,
+        required_roles=("split_focus",),
+        minimum_pairwise_position_m=0.0,
+        minimum_pairwise_yaw_degrees=0.0,
+        minimum_pairwise_raster_signature_jaccard=0.0,
+        minimum_pairwise_corridor_jaccard=0.0,
+        maximum_ranked_camera_candidates=32,
+    )
+
+    assert result.semantic_role_coverage["missing_from_available"] == ["split_focus"]
+    assert all(not item.target_ids for item in result.viewpoints)
 
 
 def test_pairwise_thresholds_reject_substantively_repeated_candidates() -> None:
@@ -513,6 +581,107 @@ def test_pairwise_thresholds_reject_substantively_repeated_candidates() -> None:
             minimum_pairwise_position_m=20.0,
             minimum_pairwise_yaw_degrees=0.0,
             minimum_pairwise_raster_signature_jaccard=0.0,
+        )
+
+
+def test_required_role_search_backtracks_from_stable_greedy_dead_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def candidate(name: str, role: str, *, legacy: bool = False, pose: float = 0.0):
+        coordinate = float(sum(name.encode("utf-8")))
+        return SimpleNamespace(
+            name=name,
+            roles=(role,),
+            is_legacy=legacy,
+            pose_difference_proxy=pose,
+            stable_key=(name.encode("utf-8"),),
+            position_m=(coordinate, 1.0, 0.0),
+            yaw_deg=coordinate % 180.0,
+        )
+
+    legacy = candidate("legacy", "legacy", legacy=True)
+    living_bad = candidate("living_bad", "living", pose=0.9)
+    living_good = candidate("living_good", "living", pose=0.8)
+    kitchens = [candidate(f"kitchen_{index}", "kitchen") for index in range(3)]
+    windows = [candidate(f"window_{index}", "window") for index in range(3)]
+
+    def fake_differences(left, right, **_kwargs):
+        names = {left.name, right.name}
+        incompatible = "living_bad" in names and any(
+            name.startswith("window_") for name in names
+        )
+        return {
+            "ok": not incompatible,
+            "weighted_total": (
+                0.9 if "living_bad" in names else 0.8 if "living_good" in names else 0.5
+            ),
+        }
+
+    monkeypatch.setattr(viewpoint_module, "_pairwise_differences", fake_differences)
+    monkeypatch.setattr(
+        viewpoint_module,
+        "_passes_pairwise_thresholds",
+        lambda value, _thresholds: value["ok"],
+    )
+
+    selected = viewpoint_module._select_candidates(
+        (legacy, living_bad, living_good, *kitchens, *windows),
+        count=4,
+        required_roles=frozenset(("living", "kitchen", "window")),
+        thresholds={},
+        room_diagonal_m=1.0,
+        height_span_m=1.0,
+    )
+
+    names = [item.name for item, _evidence in selected]
+    assert names[0] == "legacy"
+    assert "living_good" in names
+    assert "living_bad" not in names
+    assert {role for item, _evidence in selected for role in item.roles} >= {
+        "living",
+        "kitchen",
+        "window",
+    }
+
+
+def test_review_iteration_retains_and_rejects_only_exact_camera_poses() -> None:
+    first = _prefilter()
+
+    def pose(viewpoint):
+        return {
+            "position_m": list(viewpoint.camera_position_m),
+            "yaw_deg": viewpoint.camera_yaw_deg,
+        }
+
+    retained = [pose(viewpoint) for viewpoint in first.viewpoints[:3]]
+    rejected = [pose(viewpoint) for viewpoint in first.viewpoints[3:]]
+    second = _prefilter(
+        retained_review_poses=retained,
+        rejected_review_poses=rejected,
+    )
+    second_keys = {
+        (viewpoint.camera_position_m, viewpoint.camera_yaw_deg)
+        for viewpoint in second.viewpoints
+    }
+
+    assert {
+        (tuple(record["position_m"]), record["yaw_deg"]) for record in retained
+    } <= second_keys
+    assert not (
+        {(tuple(record["position_m"]), record["yaw_deg"]) for record in rejected}
+        & second_keys
+    )
+
+
+def test_review_iteration_rejects_overlapping_retained_and_rejected_pose() -> None:
+    pose = {"position_m": [1.0, 1.5, 1.0], "yaw_deg": 0.0}
+    with pytest.raises(
+        ApartmentRasterPrefilterError,
+        match="cannot be both retained and rejected",
+    ):
+        _prefilter(
+            retained_review_poses=(pose,),
+            rejected_review_poses=(pose,),
         )
 
 
@@ -591,11 +760,11 @@ def test_normalize_corridors_is_order_free_and_deduplicates_reversal() -> None:
     assert first[0].corridor_id == "a_retained"
 
 
-def test_fails_when_fewer_than_four_exact_raster_candidates_exist() -> None:
+def test_fails_when_one_legal_position_cannot_form_four_diverse_views() -> None:
     obstacle_map = _obstacle_map(shape_hw=(1, 1), extent_xz_m=(1.0, 1.0))
     with pytest.raises(
         ApartmentRasterPrefilterError,
-        match="fewer than four exact raster candidates",
+        match="no exact candidate set can satisfy all pairwise difference thresholds",
     ):
         prefilter_apartment_viewpoints(
             obstacle_map,
