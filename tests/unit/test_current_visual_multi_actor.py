@@ -219,6 +219,15 @@ def test_collision_classifier_separates_pair_stage_and_unrelated() -> None:
     )
 
 
+def test_inactive_pair_contact_is_retained_but_not_a_collision() -> None:
+    contact = _contact(10, 11)
+    contact["is_active"] = False
+    summary = classify_collision_contacts([contact], runtime_actor_object_ids=[10, 11])
+    assert len(summary.actor_actor_contacts) == 1
+    assert summary.actor_actor_contacts[0]["is_active"] is False
+    assert summary.actor_pair_collision_free is True
+
+
 def test_zero_object_id_is_not_a_plan_or_collision_legality_gate() -> None:
     summary = classify_collision_contacts(
         [_contact(10, 0)], runtime_actor_object_ids=[10, 11]

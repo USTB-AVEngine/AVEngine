@@ -351,11 +351,18 @@ def _make_current_configuration(
     installed_runtime: InstalledHabitatRuntime,
     scene: Mapping[str, Any],
     include_audio_sensor: bool = False,
+    gpu_device_id: int = 0,
 ) -> tuple[Any, dict[str, str]]:
     """Build only the co-located visual sensors for the installed runtime."""
 
     if include_audio_sensor:
         raise CurrentVisualError("current visual capture never enables an audio sensor")
+    if (
+        isinstance(gpu_device_id, bool)
+        or not isinstance(gpu_device_id, int)
+        or gpu_device_id < 0
+    ):
+        raise CurrentVisualError("gpu_device_id must be a nonnegative integer")
     habitat_sim = installed_runtime.habitat_sim
     mn = installed_runtime.magnum
     rig = room_inputs.request["primary_camera_rig"]
@@ -423,7 +430,7 @@ def _make_current_configuration(
     sim_cfg.enable_physics = True
     sim_cfg.physics_config_file = str(installed_runtime.physics_config_path)
     sim_cfg.random_seed = int(room_inputs.request["seed"])
-    sim_cfg.gpu_device_id = 0
+    sim_cfg.gpu_device_id = gpu_device_id
 
     agent_cfg = habitat_sim.AgentConfiguration()
     navigation = room_inputs.room.get("navigation", {})

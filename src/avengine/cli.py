@@ -88,6 +88,10 @@ from avengine.m4.contracts import (
 from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
 from avengine.m5.current_visual import CurrentVisualError, capture_current_visual
+from avengine.m5.current_visual_multi_actor_native import (
+    NativeMultiActorVisualError,
+    capture_mp3d_region_case,
+)
 from avengine.m5.current_apartment_visual import (
     CurrentApartmentVisualError,
     author_current_apartment_visual_timeline,
@@ -1476,6 +1480,40 @@ def _m5_capture_current_visual(args: argparse.Namespace) -> int:
     return 0 if status == "research_only" else EXIT_BY_STATUS.get(status, 2)
 
 
+def _m5_capture_mp3d_region_multi_actor_native(args: argparse.Namespace) -> int:
+    try:
+        output = _require_ignored_or_external_output(args.output)
+        receipt = capture_mp3d_region_case(
+            case_manifest_path=args.case_manifest,
+            room_manifest_path=args.room_manifest,
+            m1_request_path=args.m1_request,
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            output_directory=output,
+            rlr_sdk_root=args.rlr_sdk_root,
+            gpu_device_id=args.gpu_device_id,
+        )
+    except (NativeMultiActorVisualError, OSError, ValueError, RuntimeError) as error:
+        _print({"status": "fail", "error": str(error)})
+        return 2
+    status = receipt["status"]
+    _print(
+        {
+            "status": status,
+            "research_only": receipt["research_only"],
+            "episode_counted": receipt["episode_counted"],
+            "output": str(output),
+            "receipt": str(output / "research_receipt.json"),
+            "frame_count": receipt["capture"]["frame_count"],
+            "actor_pair_collision_free": receipt["capture"][
+                "actor_pair_collision_free"
+            ],
+        }
+    )
+    return 0 if status == "research_only" else 1
+
+
 def _m5_author_current_apartment_visual_timeline(
     args: argparse.Namespace,
 ) -> int:
@@ -2340,6 +2378,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m5_current_visual.add_argument("--output", required=True)
     m5_current_visual.set_defaults(handler=_m5_capture_current_visual)
+
+    m5_region_multi_actor_native = m5_commands.add_parser(
+        "capture-mp3d-region-multi-actor-native",
+        help="Run one research-only MP3D region case with two native actors",
+    )
+    m5_region_multi_actor_native.add_argument("--case-manifest", required=True)
+    m5_region_multi_actor_native.add_argument("--room-manifest", required=True)
+    m5_region_multi_actor_native.add_argument(
+        "--m1-request",
+        help="Optional validated post-hoc camera binding; routes remain unchanged",
+    )
+    m5_region_multi_actor_native.add_argument("--runtime-prefix", required=True)
+    m5_region_multi_actor_native.add_argument("--mp3d-root", required=True)
+    m5_region_multi_actor_native.add_argument("--magnum-python-site", required=True)
+    m5_region_multi_actor_native.add_argument(
+        "--rlr-sdk-root",
+        help="Explicit external RLR SDK for adapter-linked installed prefixes",
+    )
+    m5_region_multi_actor_native.add_argument("--gpu-device-id", type=int, default=0)
+    m5_region_multi_actor_native.add_argument("--output", required=True)
+    m5_region_multi_actor_native.set_defaults(
+        handler=_m5_capture_mp3d_region_multi_actor_native
+    )
 
     m5_current_apartment_author = m5_commands.add_parser(
         "author-current-apartment-visual-timeline",
