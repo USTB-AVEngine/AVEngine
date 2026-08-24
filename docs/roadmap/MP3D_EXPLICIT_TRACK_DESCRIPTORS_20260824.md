@@ -98,3 +98,18 @@ comes from the committed compatibility fix.
 
 This is still not dynamic actor-pixel evidence, an audio-emitter trajectory,
 an RIR/audio run, question authoring or a four-point mini-pilot.
+
+## Runtime emitter-track binding
+
+The consumer now accepts one repeated `--dynamic-capture-dir` per viewpoint.
+When supplied, the directories must form an exact M1-request bijection with the
+bank. The tool validates the research receipt, room, 75-frame native run,
+source/actor identities, no-filter visibility policy, contained artifact paths,
+finite `[75,2,3]` emitter positions and nonnegative `[75,2]` semantic pixel
+array. Receipt per-actor counts must equal that array.
+
+The same explicit-track helper then describes the actual emitter positions,
+while native visible-pixel counts are attached per frame. Projection, in-frame
+and occlusion remain pending rather than inferred from zero pixels. Static-only
+operation remains supported. A fresh real six-view binding is required after
+the implementation commit.

@@ -226,6 +226,107 @@ def _probe_evidence(
     }
 
 
+def _capture_artifact(root: Path, value: Any, *, owner: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise MP3DTrackDescriptorError(f"{owner} must be a relative artifact path")
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise MP3DTrackDescriptorError(f"{owner} must stay under its capture root")
+    path = _required_file(root / relative, owner=owner)
+    if not path.is_relative_to(root):
+        raise MP3DTrackDescriptorError(f"{owner} escapes its capture root")
+    return path
+
+
+def _dynamic_captures(
+    paths: Sequence[Path], *, expected_room_id: str
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for index, path in enumerate(paths):
+        root = _required_directory(path, owner=f"--dynamic-capture-dir[{index}]")
+        receipt_path = _required_file(
+            root / "research_receipt.json", owner=f"dynamic receipt[{index}]"
+        )
+        receipt = _mapping(load_json(receipt_path), owner=f"dynamic receipt[{index}]")
+        inputs = _mapping(receipt.get("inputs"), owner="dynamic receipt inputs")
+        selected_room = _mapping(
+            receipt.get("selected_room"), owner="dynamic selected room"
+        )
+        capture = _mapping(receipt.get("capture"), owner="dynamic capture")
+        actors = _mapping(receipt.get("actors"), owner="dynamic actors")
+        artifacts = _mapping(receipt.get("artifacts"), owner="dynamic artifacts")
+        visibility = _mapping(receipt.get("visibility"), owner="dynamic visibility")
+        request_value = inputs.get("m1_request")
+        if not isinstance(request_value, str) or not request_value:
+            raise MP3DTrackDescriptorError("dynamic receipt lacks m1_request")
+        request_path = _required_file(Path(request_value), owner="dynamic m1_request")
+        request_key = str(request_path)
+        if request_key in result:
+            raise MP3DTrackDescriptorError(
+                "dynamic capture directories repeat one M1 request"
+            )
+        actor_ids = actors.get("actor_ids")
+        source_ids = actors.get("source_ids")
+        if (
+            receipt.get("status") != "research_only"
+            or receipt.get("research_only") is not True
+            or receipt.get("episode_counted") is not False
+            or selected_room.get("room_id") != expected_room_id
+            or capture.get("native_habitat_started") is not True
+            or capture.get("frame_count") != FRAME_COUNT
+            or visibility.get("candidate_filtering") != "disabled"
+            or not isinstance(actor_ids, list)
+            or not isinstance(source_ids, list)
+            or len(actor_ids) != 2
+            or len(source_ids) != 2
+            or len(set(actor_ids)) != 2
+            or len(set(source_ids)) != 2
+        ):
+            raise MP3DTrackDescriptorError(
+                "dynamic capture receipt does not preserve one passing raw two-source run"
+            )
+        source_path = _capture_artifact(
+            root, artifacts.get("source_positions_m"), owner="source_positions_m"
+        )
+        visibility_path = _capture_artifact(
+            root,
+            artifacts.get("semantic_visibility_pixels"),
+            owner="semantic_visibility_pixels",
+        )
+        source_positions = np.load(source_path, allow_pickle=False)
+        visible_pixels = np.load(visibility_path, allow_pickle=False)
+        if (
+            source_positions.shape != (FRAME_COUNT, 2, 3)
+            or not np.all(np.isfinite(source_positions))
+            or visible_pixels.shape != (FRAME_COUNT, 2)
+            or not np.issubdtype(visible_pixels.dtype, np.integer)
+            or np.any(visible_pixels < 0)
+        ):
+            raise MP3DTrackDescriptorError(
+                "dynamic source/visibility arrays must be finite [75,2,3] and nonnegative integer [75,2]"
+            )
+        per_actor = _mapping(visibility.get("per_actor"), owner="per-actor visibility")
+        for actor_index, actor_id in enumerate(actor_ids):
+            record = _mapping(per_actor.get(actor_id), owner=f"visibility {actor_id}")
+            if (
+                record.get("per_frame_visible_pixels")
+                != visible_pixels[:, actor_index].tolist()
+            ):
+                raise MP3DTrackDescriptorError(
+                    f"dynamic receipt visibility differs from array for {actor_id}"
+                )
+        result[request_key] = {
+            "root": root,
+            "receipt_path": receipt_path,
+            "receipt": receipt,
+            "actor_ids": tuple(actor_ids),
+            "source_ids": tuple(source_ids),
+            "source_positions": np.ascontiguousarray(source_positions),
+            "visible_pixels": np.ascontiguousarray(visible_pixels),
+        }
+    return result
+
+
 def run(args: argparse.Namespace) -> Path:
     bank_path = _required_file(args.viewpoint_bank, owner="--viewpoint-bank")
     route_path = _required_file(args.route_explanation, owner="--route-explanation")
@@ -267,6 +368,9 @@ def run(args: argparse.Namespace) -> Path:
         )
     actor_ids, actor_tracks, track_authority = _actor_tracks(
         load_json(route_path), expected_room_id=room_id
+    )
+    dynamic_by_request = _dynamic_captures(
+        args.dynamic_capture_dir, expected_room_id=room_id
     )
 
     descriptors = []
@@ -325,6 +429,51 @@ def run(args: argparse.Namespace) -> Path:
             raise MP3DTrackDescriptorError(
                 f"{viewpoint_id} track descriptor failed: {exc}"
             ) from exc
+        dynamic = dynamic_by_request.get(str(request_path))
+        runtime_descriptor = None
+        if dynamic is not None:
+            try:
+                runtime_track = describe_source_pair_tracks(
+                    dynamic["source_positions"][:, 0, :],
+                    dynamic["source_positions"][:, 1, :],
+                    source1_id=dynamic["source_ids"][0],
+                    source2_id=dynamic["source_ids"][1],
+                    listener_positions_xyz=position,
+                    listener_forward_xyz=forward,
+                    listener_right_xyz=right,
+                    listener_up_xyz=up,
+                    horizontal_axis_indices=(0, 2),
+                    vertical_axis_index=1,
+                    coordinate_space="habitat_world_xyz_m_y_up",
+                    track_authority="dynamic_capture.arrays/source_positions_m.npy",
+                    frame_indices=tuple(range(FRAME_COUNT)),
+                )
+            except MotionFeasibilityError as exc:
+                raise MP3DTrackDescriptorError(
+                    f"{viewpoint_id} runtime emitter track failed: {exc}"
+                ) from exc
+            visible_pixels = dynamic["visible_pixels"]
+            for frame_index, frame in enumerate(runtime_track["frames"]):
+                frame["source1"]["visible_pixels"] = int(visible_pixels[frame_index, 0])
+                frame["source2"]["visible_pixels"] = int(visible_pixels[frame_index, 1])
+            runtime_track["native_projection_visibility"] = {
+                "status": "native_visible_pixels_recorded_projection_occlusion_pending",
+                "projection_by_frame": None,
+                "in_frame_by_frame": None,
+                "occlusion_by_frame": None,
+                "visible_pixels_by_frame": {
+                    dynamic["source_ids"][0]: visible_pixels[:, 0].tolist(),
+                    dynamic["source_ids"][1]: visible_pixels[:, 1].tolist(),
+                },
+            }
+            runtime_descriptor = {
+                "runtime_binding_status": "pass",
+                "capture_root": str(dynamic["root"]),
+                "research_receipt": str(dynamic["receipt_path"]),
+                "actor_ids": list(dynamic["actor_ids"]),
+                "source_ids": list(dynamic["source_ids"]),
+                "track_descriptor": runtime_track,
+            }
         descriptors.append(
             {
                 "viewpoint_id": viewpoint_id,
@@ -339,7 +488,15 @@ def run(args: argparse.Namespace) -> Path:
                 },
                 "native_static_probe": native,
                 "track_descriptor": descriptor,
+                "runtime_emitter_track": runtime_descriptor,
             }
+        )
+    if dynamic_by_request and set(dynamic_by_request) != {
+        str(_bank_child(bank_root, request_paths[item], owner=f"M1 request for {item}"))
+        for item in viewpoint_ids
+    }:
+        raise MP3DTrackDescriptorError(
+            "dynamic capture directories must exactly cover the viewpoint bank"
         )
 
     staging = Path(
@@ -349,7 +506,11 @@ def run(args: argparse.Namespace) -> Path:
         write_json(
             staging / "viewpoint_raw_track_descriptors.json",
             {
-                "artifact_status": "explicit_actor_root_tracks_described",
+                "artifact_status": (
+                    "explicit_actor_root_and_runtime_emitter_tracks_described"
+                    if dynamic_by_request
+                    else "explicit_actor_root_tracks_described"
+                ),
                 "research_only": True,
                 "episode_counted": False,
                 "formal_release_status": "not_run",
@@ -360,15 +521,18 @@ def run(args: argparse.Namespace) -> Path:
                     "viewpoint_bank": str(bank_path),
                     "route_explanation": str(route_path),
                     "native_probe_root": str(probe_root),
+                    "dynamic_capture_directories": [
+                        str(item.resolve()) for item in args.dynamic_capture_dir
+                    ],
                 },
                 "track_authority": track_authority,
                 "viewpoint_count": len(descriptors),
                 "viewpoints": descriptors,
                 "claim_boundary": (
-                    "exact retained visual actor-root tracks and static native probe "
-                    "references only; audio-emitter paths, dynamic actor pixels, "
-                    "projection, in-frame, occlusion, visible pixels, collision, "
-                    "question difficulty and mini-pilot certification remain separate"
+                    "exact retained visual actor-root tracks, static native probes and "
+                    "optional runtime emitter/visible-pixel arrays; audio propagation, "
+                    "projection, in-frame, occlusion, collision, question difficulty "
+                    "and mini-pilot certification remain separate"
                 ),
             },
         )
@@ -377,7 +541,8 @@ def run(args: argparse.Namespace) -> Path:
             "All 75 caller-supplied actor-root frames are retained without "
             "interpolation. This catalog applies no side, distance, exchange, "
             "visibility, composition, or difficulty filter. Native dynamic pixels, "
-            "audio emitter tracks, RIRs and mini-pilots remain pending.\n",
+            "emitter tracks and visible-pixel arrays are attached only when explicitly "
+            "provided; RIRs and mini-pilots remain pending.\n",
             encoding="utf-8",
         )
         try:
@@ -396,6 +561,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--viewpoint-bank", required=True, type=Path)
     parser.add_argument("--route-explanation", required=True, type=Path)
     parser.add_argument("--probe-root", required=True, type=Path)
+    parser.add_argument(
+        "--dynamic-capture-dir",
+        action="append",
+        default=[],
+        type=Path,
+        help="repeat once per viewpoint to bind runtime emitter/visibility arrays",
+    )
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args(argv)
 
