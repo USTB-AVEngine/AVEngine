@@ -32,6 +32,12 @@ class MP3DProbeSubsetError(ValueError):
     """A complete camera catalog cannot be joined or ranked safely."""
 
 
+_CATALOG_ARTIFACT_STATUS = "complete_target_agnostic_camera_placement_catalog"
+_CATALOG_FLOOR_AUTHORITY = "live_habitat_pathfinder_declared_navmesh_export"
+_PLACEMENT_STATUS = "declared_floor_position_crossed_with_height_and_yaw"
+_CATALOG_AUTHORITY_VERIFIED = "verified_target_agnostic_native_floor_catalog"
+
+
 @dataclass(frozen=True)
 class MP3DProbeCandidateSummary:
     """Compact ranking state for one catalog placement."""
@@ -47,6 +53,7 @@ class MP3DProbeCandidateSummary:
     coverage_preference_score: float
     proximity_preference_score: float
     analytic_quality_score: float
+    catalog_authority_status: str
 
     @property
     def placement_id(self) -> str:
@@ -101,6 +108,7 @@ class MP3DProbeSubsetAnalysis:
     selected: tuple[Mapping[str, Any], ...]
     horizontal_scene_diagonal_m: float
     camera_height_span_m: float
+    catalog_authority_verification: Mapping[str, Any]
 
     def to_record(self) -> dict[str, Any]:
         positions = {
@@ -129,6 +137,9 @@ class MP3DProbeSubsetAnalysis:
             "candidate_legality_effect": "none",
             "candidate_filtering": "none_on_input_legal_catalog",
             "difficulty_status": "descriptors_recorded_not_gated",
+            "input_catalog_authority_verification": deepcopy(
+                dict(self.catalog_authority_verification)
+            ),
             "selection_method": (
                 "greedy_continuous_coverage_quality_plus_pose_yaw_height_and_"
                 "coverage_profile_novelty"
@@ -213,7 +224,15 @@ def _source_ids(base_request: Mapping[str, Any]) -> tuple[str, str]:
 
 def _catalog_placements(
     catalog: Mapping[str, Any], *, base_request: Mapping[str, Any]
-) -> tuple[dict[str, Any], ...]:
+) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
+    if catalog.get("artifact_status") != _CATALOG_ARTIFACT_STATUS:
+        raise MP3DProbeSubsetError(
+            "camera catalog artifact_status is not the target-agnostic catalog"
+        )
+    if catalog.get("floor_position_authority") != _CATALOG_FLOOR_AUTHORITY:
+        raise MP3DProbeSubsetError(
+            "camera catalog lacks the live Habitat PathFinder floor authority"
+        )
     if (
         catalog.get("research_only") is not True
         or catalog.get("episode_counted") is not False
@@ -257,6 +276,10 @@ def _catalog_placements(
             record.get("floor_position_m"), owner=f"{placement_id} floor position"
         )
         _finite_number(record.get("yaw_deg"), owner=f"{placement_id} yaw")
+        if record.get("placement_status") != _PLACEMENT_STATUS:
+            raise MP3DProbeSubsetError(
+                f"{placement_id} placement_status is not a verified legal placement"
+            )
         if (
             record.get("room_id") != room_id
             or record.get("base_m1_request_id") != request_id
@@ -265,7 +288,17 @@ def _catalog_placements(
                 f"{placement_id} differs from catalog room or base request"
             )
         records.append(record)
-    return tuple(sorted(records, key=lambda item: item["placement_id"].encode("utf-8")))
+    ordered = tuple(
+        sorted(records, key=lambda item: item["placement_id"].encode("utf-8"))
+    )
+    return ordered, {
+        "status": _CATALOG_AUTHORITY_VERIFIED,
+        "artifact_status": _CATALOG_ARTIFACT_STATUS,
+        "floor_position_authority": _CATALOG_FLOOR_AUTHORITY,
+        "required_placement_status": _PLACEMENT_STATUS,
+        "all_placements_match_required_status": True,
+        "verified_placement_count": len(ordered),
+    }
 
 
 def _orientation_wxyz(yaw_deg: float) -> tuple[float, float, float, float]:
@@ -370,7 +403,9 @@ def analyze_mp3d_probe_candidates(
         raise MP3DProbeSubsetError("selection_count must be an integer")
     source_positions = _source_positions(source_positions_m)
     source_ids = _source_ids(base_request)
-    placements = _catalog_placements(catalog, base_request=base_request)
+    placements, catalog_authority_verification = _catalog_placements(
+        catalog, base_request=base_request
+    )
     if not 1 <= selection_count <= len(placements):
         raise MP3DProbeSubsetError(
             "selection_count must be positive and no larger than the catalog"
@@ -417,6 +452,7 @@ def analyze_mp3d_probe_candidates(
                 coverage_preference_score=coverage_preference,
                 proximity_preference_score=proximity,
                 analytic_quality_score=quality,
+                catalog_authority_status=_CATALOG_AUTHORITY_VERIFIED,
             )
         )
 
@@ -445,6 +481,7 @@ def analyze_mp3d_probe_candidates(
         selected=selected,
         horizontal_scene_diagonal_m=scene_diagonal,
         camera_height_span_m=height_span,
+        catalog_authority_verification=catalog_authority_verification,
     )
 
 
@@ -590,6 +627,7 @@ def _select_continuous_probe_subset(
                     "score at this greedy round; no visibility or diversity gate"
                 ),
                 "input_placement_legality_preserved": True,
+                "input_catalog_authority_status": winner.catalog_authority_status,
                 "native_probe_status": "pending",
             }
         )
@@ -606,6 +644,10 @@ def build_placement_descriptor(
 ) -> dict[str, Any]:
     """Return the full columnar per-frame descriptor for one legal placement."""
 
+    if candidate.catalog_authority_status != _CATALOG_AUTHORITY_VERIFIED:
+        raise MP3DProbeSubsetError(
+            "placement descriptor requires verified native-floor catalog authority"
+        )
     source_positions = _source_positions(source_positions_m)
     hfov, resolution = _calibration(base_request)
     masks, _distances, records = _center_geometry(
@@ -623,6 +665,7 @@ def build_placement_descriptor(
         "placement": deepcopy(dict(candidate.placement)),
         "candidate_legality": {
             "input_status": candidate.placement.get("placement_status"),
+            "catalog_authority_status": candidate.catalog_authority_status,
             "descriptor_effect": "none",
             "preserved": True,
         },

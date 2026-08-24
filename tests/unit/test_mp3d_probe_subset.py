@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -74,6 +75,7 @@ def _catalog() -> dict:
         "artifact_status": "complete_target_agnostic_camera_placement_catalog",
         "candidate_filtering": "none",
         "episode_counted": False,
+        "floor_position_authority": ("live_habitat_pathfinder_declared_navmesh_export"),
         "placement_count": len(placements),
         "placements": placements,
         "research_only": True,
@@ -152,33 +154,84 @@ def test_descriptor_keeps_75_frame_relative_geometry_and_pending_pixels() -> Non
     json.dumps(descriptor, allow_nan=False)
 
 
-def _write_builder_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _write_builder_inputs(tmp_path: Path) -> dict[str, Path]:
     catalog_path = tmp_path / "camera_catalog.json"
     catalog_path.write_text(json.dumps(_catalog()), encoding="utf-8")
     capture = tmp_path / "capture"
     arrays = capture / "arrays"
     arrays.mkdir(parents=True)
     positions_path = arrays / "source_positions_m.npy"
-    np.save(positions_path, _source_positions())
-    receipt_path = capture / "research_receipt.json"
-    receipt_path.write_text(
+    positions = _source_positions()
+    np.save(positions_path, positions)
+    frame_records_path = capture / "frame_records.json"
+    frame_records_path.write_text(
         json.dumps(
             {
-                "actors": {"source_ids": ["source0", "source1"]},
-                "artifacts": {"source_positions_m": "arrays/source_positions_m.npy"},
-                "capture": {"frame_count": 75},
-                "episode_counted": False,
-                "research_only": True,
-                "selected_room": {"room_id": ROOM_ID},
+                "frames": [
+                    {
+                        "frame_index": frame_index,
+                        "source_positions_m": positions[frame_index].tolist(),
+                    }
+                    for frame_index in range(75)
+                ]
             }
         ),
         encoding="utf-8",
     )
-    return catalog_path, positions_path, receipt_path
+    source_m1 = deepcopy(_request())
+    source_m1["request_id"] = f"{REQUEST_ID}_source_capture_view"
+    source_m1["primary_camera_rig"]["world_from_rig"] = {
+        "translation_m": [1.0, 1.5, 2.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+    source_m1_path = tmp_path / "source_capture_m1.json"
+    source_m1_path.write_text(json.dumps(source_m1), encoding="utf-8")
+    source_m2_path = tmp_path / "primary_m2_request.json"
+    source_m2_path.write_text("{}", encoding="utf-8")
+    receipt_path = capture / "research_receipt.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "actors": {
+                    "actor_ids": ["actor0", "actor1"],
+                    "source_ids": ["source0", "source1"],
+                    "emitter_link_names": ["mouth0", "mouth1"],
+                },
+                "artifacts": {
+                    "source_positions_m": "arrays/source_positions_m.npy",
+                    "frame_records": "frame_records.json",
+                },
+                "capture": {
+                    "frame_count": 75,
+                    "native_habitat_started": True,
+                },
+                "episode_counted": False,
+                "inputs": {
+                    "m1_request": str(source_m1_path),
+                    "m2_request": str(source_m2_path),
+                },
+                "research_only": True,
+                "selected_room": {
+                    "room_id": ROOM_ID,
+                    "room_kind": "habitat_native",
+                },
+                "status": "research_only",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "catalog": catalog_path,
+        "positions": positions_path,
+        "frame_records": frame_records_path,
+        "receipt": receipt_path,
+        "source_m1": source_m1_path,
+        "source_m2": source_m2_path,
+    }
 
 
 def _builder_args(tmp_path: Path, *, selection_count: int = 3):
-    catalog, positions, receipt = _write_builder_inputs(tmp_path)
+    files = _write_builder_inputs(tmp_path)
     output = tmp_path / "probe-subset"
     args = builder.parse_args(
         [
@@ -187,24 +240,26 @@ def _builder_args(tmp_path: Path, *, selection_count: int = 3):
             "--base-m1-request",
             str(REQUEST),
             "--camera-catalog",
-            str(catalog),
+            str(files["catalog"]),
             "--source-positions",
-            str(positions),
+            str(files["positions"]),
             "--source-receipt",
-            str(receipt),
+            str(files["receipt"]),
+            "--source-m2-request",
+            str(files["source_m2"]),
             "--selection-count",
             str(selection_count),
             "--output",
             str(output),
         ]
     )
-    return args, output, receipt
+    return args, output, files
 
 
-def test_builder_streams_full_catalog_and_materializes_independent_requests(
+def test_builder_writes_descriptor_jsonl_line_by_line_and_materializes_requests(
     tmp_path: Path,
 ) -> None:
-    args, output, _receipt = _builder_args(tmp_path)
+    args, output, _files = _builder_args(tmp_path)
 
     assert builder.run(args) == output
     summary = load_json(output / "probe_subset.json")
@@ -218,6 +273,28 @@ def test_builder_streams_full_catalog_and_materializes_independent_requests(
     assert summary["selected_probe_count"] == 3
     assert len(lines) == 4
     assert len(summary["m1_capture_request_paths"]) == 3
+    assert summary["input_catalog_authority_verification"] == {
+        "all_placements_match_required_status": True,
+        "artifact_status": "complete_target_agnostic_camera_placement_catalog",
+        "floor_position_authority": ("live_habitat_pathfinder_declared_navmesh_export"),
+        "required_placement_status": (
+            "declared_floor_position_crossed_with_height_and_yaw"
+        ),
+        "status": "verified_target_agnostic_native_floor_catalog",
+        "verified_placement_count": 4,
+    }
+    provenance = summary["source_track_provenance_verification"]
+    assert provenance["status"] == (
+        "verified_current_native_habitat_emitter_link_readback"
+    )
+    assert provenance["m1_camera_independent_content_exact_match"] is True
+    assert provenance["explicit_source_m2_request_exact_match"] is True
+    assert provenance["frame_records_source_positions_exact_match"] is True
+    tracks = load_json(output / summary["source_tracks_path"])
+    assert tracks["track_provenance"] == (
+        "verified_same_habitat_renderer_emitter_link_readback"
+    )
+    assert tracks["provenance_verification"] == provenance
     records = [json.loads(line) for line in lines]
     zero_record = next(
         item
@@ -226,6 +303,9 @@ def test_builder_streams_full_catalog_and_materializes_independent_requests(
     )
     assert zero_record["ranking_inputs"]["coverage_preference_score"] == 0.0
     assert zero_record["candidate_legality"]["preserved"] is True
+    assert zero_record["candidate_legality"]["catalog_authority_status"] == (
+        "verified_target_agnostic_native_floor_catalog"
+    )
     for selected in summary["selected_candidates"]:
         request = load_json(output / selected["m1_capture_request_path"])
         assert request["primary_camera_rig"]["view_id"] == "view0"
@@ -248,7 +328,8 @@ def test_builder_streams_full_catalog_and_materializes_independent_requests(
 def test_builder_rejects_receipt_with_reversed_source_axis_identity(
     tmp_path: Path,
 ) -> None:
-    args, output, receipt = _builder_args(tmp_path)
+    args, output, files = _builder_args(tmp_path)
+    receipt = files["receipt"]
     value = json.loads(receipt.read_text(encoding="utf-8"))
     value["actors"]["source_ids"] = ["source1", "source0"]
     receipt.write_text(json.dumps(value), encoding="utf-8")
@@ -256,6 +337,128 @@ def test_builder_rejects_receipt_with_reversed_source_axis_identity(
     with pytest.raises(builder.MP3DProbeSubsetBuildError, match="source order"):
         builder.run(args)
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "missing_status",
+        "wrong_room_kind",
+        "native_not_started",
+        "missing_actor_ids",
+        "missing_emitter_links",
+        "missing_frame_records",
+        "missing_m1_request",
+    ],
+)
+def test_builder_rejects_incomplete_native_source_receipt(
+    tmp_path: Path, case: str
+) -> None:
+    args, output, files = _builder_args(tmp_path)
+    receipt_path = files["receipt"]
+    value = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if case == "missing_status":
+        value.pop("status")
+    elif case == "wrong_room_kind":
+        value["selected_room"]["room_kind"] = "comparison_visual"
+    elif case == "native_not_started":
+        value["capture"]["native_habitat_started"] = False
+    elif case == "missing_actor_ids":
+        value["actors"].pop("actor_ids")
+    elif case == "missing_emitter_links":
+        value["actors"].pop("emitter_link_names")
+    elif case == "missing_frame_records":
+        value["artifacts"].pop("frame_records")
+    elif case == "missing_m1_request":
+        value["inputs"].pop("m1_request")
+    receipt_path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(builder.MP3DProbeSubsetBuildError, match="source receipt"):
+        builder.run(args)
+    assert not output.exists()
+
+
+def test_builder_rejects_frame_records_artifact_escape(tmp_path: Path) -> None:
+    args, output, files = _builder_args(tmp_path)
+    escaped = tmp_path / "escaped_frame_records.json"
+    escaped.write_text(
+        files["frame_records"].read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    receipt_path = files["receipt"]
+    value = json.loads(receipt_path.read_text(encoding="utf-8"))
+    value["artifacts"]["frame_records"] = "../escaped_frame_records.json"
+    receipt_path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(builder.MP3DProbeSubsetBuildError, match="escapes"):
+        builder.run(args)
+    assert not output.exists()
+
+
+def test_builder_rejects_frame_record_and_npy_position_mismatch(
+    tmp_path: Path,
+) -> None:
+    args, output, files = _builder_args(tmp_path)
+    value = json.loads(files["frame_records"].read_text(encoding="utf-8"))
+    value["frames"][37]["source_positions_m"][1][2] += 0.001
+    files["frame_records"].write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(builder.MP3DProbeSubsetBuildError, match="differ"):
+        builder.run(args)
+    assert not output.exists()
+
+
+def test_builder_rejects_camera_independent_source_m1_drift(tmp_path: Path) -> None:
+    args, output, files = _builder_args(tmp_path)
+    value = json.loads(files["source_m1"].read_text(encoding="utf-8"))
+    value["primary_camera_rig"]["shared_calibration"]["hfov_degrees"] = 80.0
+    files["source_m1"].write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(builder.MP3DProbeSubsetBuildError, match="camera-independent"):
+        builder.run(args)
+    assert not output.exists()
+
+
+def test_builder_rejects_receipt_m2_path_different_from_explicit_input(
+    tmp_path: Path,
+) -> None:
+    args, output, files = _builder_args(tmp_path)
+    other_m2 = tmp_path / "other_m2_request.json"
+    other_m2.write_text("{}", encoding="utf-8")
+    receipt_path = files["receipt"]
+    value = json.loads(receipt_path.read_text(encoding="utf-8"))
+    value["inputs"]["m2_request"] = str(other_m2)
+    receipt_path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(builder.MP3DProbeSubsetBuildError, match="M2 request differs"):
+        builder.run(args)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("artifact_status", "pending", "artifact_status"),
+        ("floor_position_authority", "pending", "floor authority"),
+        ("placement_status", "pending", "placement_status"),
+        ("placement_status", "invalid", "placement_status"),
+    ],
+)
+def test_catalog_authority_and_each_placement_status_are_required(
+    field: str, value: str, match: str
+) -> None:
+    catalog = _catalog()
+    if field == "placement_status":
+        catalog["placements"][2][field] = value
+    else:
+        catalog[field] = value
+
+    with pytest.raises(MP3DProbeSubsetError, match=match):
+        analyze_mp3d_probe_candidates(
+            catalog=catalog,
+            base_request=_request(),
+            source_positions_m=_source_positions(),
+            selection_count=2,
+        )
 
 
 def test_source_positions_must_keep_75_by_two_by_three_shape() -> None:

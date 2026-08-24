@@ -9,6 +9,11 @@ columnar per-frame listener-local azimuth, elevation, distance, camera depth,
 normalized pinhole centre coordinates and centre-frustum flags. Native
 occlusion and semantic pixels remain explicitly pending.
 
+The implementation loads the input catalog as one JSON object and keeps the
+compact candidate summaries resident while ranking. Only descriptor JSONL
+publication and the independent verifier process descriptor records one line at
+a time. This slice makes no low-memory or true streaming-catalog claim.
+
 The post-hoc join ignores semantic room names and targets. It has no visibility,
 60 cm separation, side-margin, crossing, exchange, off-screen or diversity
 gate. Zero-coverage placements remain in the full descriptor JSONL. Source
@@ -88,7 +93,7 @@ frames in every selected candidate:
 - `00839`: `[-10.209939,1.272447,-2.005304]`, yaw `300`, low.
 
 Each M1 request retains the co-located camera/listener rig and binds its Topdown
-height to the selected catalog floor Y. The streaming verifier parsed every
+height to the selected catalog floor Y. The line-by-line verifier parsed every
 descriptor, matched it exactly to the expanded input catalog, checked all
 per-source arrays are 75 frames, confirmed native pixel/occlusion fields remain
 pending/null, revalidated every request and matched the selected IDs:
@@ -101,6 +106,47 @@ This is complete CPU descriptor and request-materialization evidence. No
 Habitat/GPU process, native pixel capture, occlusion, audio/RIR, mini-pilot,
 viewpoint certification or formal Episode ran in this slice. Analytic
 centre-frustum inclusion is not a claim of native visibility.
+
+## Provenance and input-authority follow-up
+
+The first artifact above predated strict cross-file provenance and catalog
+authority checks. Its literal same-renderer provenance label must not be treated
+as verified by the old code alone, and this follow-up does not retroactively
+upgrade it or rerun the 445 MB output.
+
+The follow-up requires a current `research_only` native-Habitat receipt for the
+same room, with two ordered actor/source/emitter-link bindings and 75 native
+frames. Receipt-declared source-position and frame-record artifacts must resolve
+as ordinary files contained by the receipt root. Every frame record must match
+the supplied `[75,2,3]` NPY positions exactly. The receipt-declared M1 request
+must be valid and equal to the supplied base M1 in every camera-independent
+field; only `request_id` and `world_from_rig` may differ. The receipt-declared M2
+path must resolve exactly to the new explicit `--source-m2-request` input.
+
+Only after those checks pass may a future artifact write verified same-renderer
+emitter-link provenance and the detailed verification facts. Similarly, input
+placement preservation is written only after the catalog reports the current
+target-agnostic artifact status, live native PathFinder floor authority and the
+required legal placement status on every record. These are ordinary cross-file
+validations against a concrete stale/pending-input failure; they add no hash,
+frozen contract, baseline or data/difficulty gate.
+
+The focused and related CPU log is:
+
+`/data/jzy/tmp/mp3d_probe_subset_followup_f554eb4_unit_r1.log`
+
+It records `134 passed`, including negative cases for missing native receipt
+fields, source-axis reversal, artifact escape, frame/NPY mismatch,
+camera-independent M1 drift, explicit M2 mismatch, catalog authority drift and
+pending/invalid placement status. Ruff, Ruff formatting and `git diff --check`
+also pass.
+
+The actual retained receipt, frame records, NPY, M1, M2 and expanded
+22,752-placement catalog pass the read-only authority check in:
+
+`/data/jzy/tmp/mp3d_probe_subset_followup_f554eb4_authority_r1.log`
+
+This validates real inputs without republishing the old descriptor bundle.
 
 No Studio placement, hash, frozen contract, baseline or permanent gate is
 introduced. The artifact stays `research_only=true`,
