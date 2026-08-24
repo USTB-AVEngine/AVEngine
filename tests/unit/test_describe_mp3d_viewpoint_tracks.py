@@ -278,10 +278,12 @@ def test_run_binds_runtime_emitter_tracks_and_native_visible_pixels(
     descriptor.run(args)
     result = load_json(output / "viewpoint_raw_track_descriptors.json")
     assert result["artifact_status"] == (
-        "explicit_actor_root_and_runtime_emitter_tracks_described"
+        "input_candidates_joined_to_static_and_dynamic_raw_clues"
     )
     runtime = result["viewpoints"][0]["runtime_emitter_track"]
-    assert runtime["runtime_binding_status"] == "pass"
+    assert runtime["runtime_binding_status"] == (
+        "pass_legacy_pending_current_pose_authority"
+    )
     assert runtime["source_ids"] == ["source0", "source1"]
     track = runtime["track_descriptor"]
     assert [frame["source1"]["position_xyz"] for frame in track["frames"]] == (
