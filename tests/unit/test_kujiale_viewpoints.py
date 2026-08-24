@@ -147,7 +147,10 @@ def _camera_catalog(
         "room_type_annotation": room_type,
         "scene_binding": dict(binding),
         "authority": "synthetic_target_agnostic_camera_catalog",
-        "obstacle_map": {"floor_height_m": 0.0},
+        "obstacle_map": {
+            "floor_height_m": 0.0,
+            "bounds_m": [[-10.0, -0.5, -10.0], [10.0, 3.5, 10.0]],
+        },
         "meters_per_pixel": 0.2,
         "free_space_raster_pixel_count": 100,
         "camera_height_variants_above_floor_m": heights,
@@ -403,6 +406,16 @@ def _write_json(path: Path, value: object) -> Path:
     return path
 
 
+def _write_camera_catalog(path: Path, value: dict) -> Path:
+    result = _write_json(path, value)
+    np.savez_compressed(
+        path.with_name("camera_free_space_raster.npz"),
+        free_space_mask=np.ones((10, 10), dtype=np.uint8),
+        bounds_m=np.asarray(value["obstacle_map"]["bounds_m"], dtype=np.float64),
+    )
+    return result
+
+
 def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
     tmp_path: Path,
 ) -> None:
@@ -452,7 +465,7 @@ def test_cli_is_fresh_no_clobber_and_keeps_certification_pending(
         source_profile=_write_json(tmp_path / "profile.json", profile),
         visual_profile=_write_json(tmp_path / "visual.json", visual_profile),
         motion_profiles=_write_json(tmp_path / "motion.json", _motion_profiles()),
-        camera_catalog=_write_json(
+        camera_catalog=_write_camera_catalog(
             tmp_path / "camera_catalog.json", _camera_catalog(binding)
         ),
         species=["human", "dog"],
@@ -573,7 +586,7 @@ def test_cli_polyline_unknown_room_has_no_straight_fallback(
             str(_write_json(tmp_path / "motion.json", _motion_profiles())),
             "--camera-catalog",
             str(
-                _write_json(
+                _write_camera_catalog(
                     tmp_path / "camera_catalog.json",
                     _camera_catalog(binding, room_type="never seen room label"),
                 )
@@ -654,7 +667,7 @@ def test_polyline_failure_is_fresh_and_does_not_fallback(
             str(_write_json(tmp_path / "tiny_motion.json", _motion_profiles())),
             "--camera-catalog",
             str(
-                _write_json(
+                _write_camera_catalog(
                     tmp_path / "tiny_camera_catalog.json",
                     _camera_catalog(binding),
                 )

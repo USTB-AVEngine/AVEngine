@@ -53,7 +53,8 @@ def _font(size: int) -> ImageFont.ImageFont:
 def _render_topdown(
     *,
     output: Path,
-    obstacle_map: Any,
+    camera_free_space_mask: np.ndarray,
+    camera_bounds_m: np.ndarray,
     corridors: Sequence[Mapping[str, Any]],
     bank: Mapping[str, Any],
 ) -> Path:
@@ -61,7 +62,7 @@ def _render_topdown(
     header = 78
     margin = 34
     legend_width = 320
-    nav = np.asarray(obstacle_map.binary_navmesh, dtype=np.bool_)
+    nav = np.asarray(camera_free_space_mask, dtype=np.bool_)
     rgb = np.empty((*nav.shape, 3), dtype=np.uint8)
     rgb[:] = (33, 38, 45)
     rgb[nav] = (178, 218, 184)
@@ -78,7 +79,7 @@ def _render_topdown(
     )
     image.paste(map_image, (left, top))
     draw = ImageDraw.Draw(image, "RGBA")
-    bounds = np.asarray(obstacle_map.bounds_m, dtype=np.float64)
+    bounds = np.asarray(camera_bounds_m, dtype=np.float64)
 
     def point(value: Sequence[float]) -> tuple[float, float]:
         x_fraction = (float(value[0]) - bounds[0, 0]) / (bounds[1, 0] - bounds[0, 0])
@@ -182,6 +183,38 @@ def _render_topdown(
     return path
 
 
+def _load_camera_free_space_raster(
+    *, camera_catalog_path: Path, camera_catalog: Mapping[str, Any]
+) -> tuple[Path, np.ndarray, np.ndarray]:
+    raster_path = camera_catalog_path.with_name("camera_free_space_raster.npz")
+    if not raster_path.is_file():
+        raise FileNotFoundError(
+            f"camera catalog sibling raster is missing: {raster_path}"
+        )
+    with np.load(raster_path, allow_pickle=False) as payload:
+        if "free_space_mask" not in payload or "bounds_m" not in payload:
+            raise RuntimeError("camera free-space raster lacks mask or bounds")
+        mask = np.asarray(payload["free_space_mask"], dtype=np.bool_)
+        bounds = np.asarray(payload["bounds_m"], dtype=np.float64)
+    if mask.ndim != 2 or not np.any(mask):
+        raise RuntimeError("camera free-space raster mask is empty or invalid")
+    if bounds.shape != (2, 3) or not np.all(np.isfinite(bounds)):
+        raise RuntimeError("camera free-space raster bounds are invalid")
+    obstacle_summary = camera_catalog.get("obstacle_map")
+    if not isinstance(obstacle_summary, Mapping):
+        raise RuntimeError("camera catalog lacks obstacle_map")
+    declared_bounds = np.asarray(obstacle_summary.get("bounds_m"), dtype=np.float64)
+    if declared_bounds.shape != (2, 3) or not np.allclose(
+        bounds, declared_bounds, atol=1.0e-12, rtol=0.0
+    ):
+        raise RuntimeError("camera catalog and sibling raster bounds differ")
+    if int(np.count_nonzero(mask)) != camera_catalog.get(
+        "free_space_raster_pixel_count"
+    ):
+        raise RuntimeError("camera catalog and sibling raster free-space counts differ")
+    return raster_path, np.ascontiguousarray(mask), np.ascontiguousarray(bounds)
+
+
 def run(args: argparse.Namespace) -> Path:
     output = args.output.expanduser().resolve()
     if output.exists() or output.is_symlink():
@@ -199,6 +232,14 @@ def run(args: argparse.Namespace) -> Path:
         visual_profile = load_json(visual_profile_path)
         motion_profiles = load_json(motion_path)
         camera_catalog = load_json(camera_catalog_path)
+        (
+            camera_raster_path,
+            camera_free_space_mask,
+            camera_bounds_m,
+        ) = _load_camera_free_space_raster(
+            camera_catalog_path=camera_catalog_path,
+            camera_catalog=camera_catalog,
+        )
         scene_binding = _validate_scene_binding(
             metadata=metadata,
             source_profile=profile,
@@ -291,6 +332,7 @@ def run(args: argparse.Namespace) -> Path:
             "visual_profile": str(visual_profile_path),
             "motion_profiles": str(motion_path),
             "camera_catalog": str(camera_catalog_path),
+            "camera_free_space_raster": str(camera_raster_path),
         }
         bank["scene_binding"] = scene_binding
         bank["obstacle_statistics"] = obstacle_statistics
@@ -314,7 +356,8 @@ def run(args: argparse.Namespace) -> Path:
             write_json(corridor_root / f"{viewpoint_id}.json", subset)
         topdown = _render_topdown(
             output=output,
-            obstacle_map=obstacle_map,
+            camera_free_space_mask=camera_free_space_mask,
+            camera_bounds_m=camera_bounds_m,
             corridors=corridors,
             bank=bank,
         )
@@ -332,6 +375,7 @@ def run(args: argparse.Namespace) -> Path:
                 "route_geometry": args.route_geometry,
                 "route_fallback_used": False,
                 "camera_catalog": str(camera_catalog_path),
+                "camera_free_space_raster": str(camera_raster_path),
                 "camera_catalog_placement_count": bank[
                     "camera_pool_placement_count"
                 ],
