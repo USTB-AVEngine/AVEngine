@@ -60,6 +60,41 @@ class CameraPlacement:
         }
 
 
+@dataclass(frozen=True)
+class DeclaredFloorCameraPlacement:
+    """One declared floor point crossed with height and yaw, without semantics."""
+
+    floor_sample_index: int
+    height_id: str
+    floor_position_m: tuple[float, float, float]
+    position_m: tuple[float, float, float]
+    yaw_deg: float
+
+    @property
+    def stable_key(self) -> tuple[object, ...]:
+        return (
+            self.floor_position_m,
+            self.position_m,
+            self.yaw_deg,
+            self.height_id.encode("utf-8"),
+            self.floor_sample_index,
+        )
+
+    def to_record(self) -> dict[str, object]:
+        return {
+            "floor_sample_index": self.floor_sample_index,
+            "height_id": self.height_id,
+            "floor_position_m": list(self.floor_position_m),
+            "position_m": list(self.position_m),
+            "yaw_deg": self.yaw_deg,
+            "placement_status": "declared_floor_position_crossed_with_height_and_yaw",
+            "claim_boundary": (
+                "caller-declared legal floor point plus camera height and yaw only; "
+                "no semantic target, source/path, visibility, difficulty or ranking"
+            ),
+        }
+
+
 def _finite_number(value: object, *, owner: str) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise CameraPlacementError(f"{owner} must be a finite number")
@@ -143,6 +178,39 @@ def _yaw_values(value: Iterable[Real]) -> tuple[float, ...]:
     return tuple(sorted(normalized))
 
 
+def camera_height_variants(base_height_m: Real) -> tuple[tuple[str, float], ...]:
+    """Return the existing low/base/high camera heights in stable height order."""
+
+    base = _finite_number(base_height_m, owner="base camera height")
+    if base < 0.5:
+        raise CameraPlacementError("base camera height must be at least 0.5 m")
+    values = (
+        ("base", base),
+        ("low", max(0.5, base * 0.8)),
+        ("high", base * 1.2),
+    )
+    return _height_records(values)
+
+
+def _declared_floor_samples(value: object) -> tuple[tuple[float, float, float], ...]:
+    try:
+        raw = np.asarray(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CameraPlacementError(
+            "floor_samples_m must contain finite XYZ points"
+        ) from exc
+    if raw.dtype.kind not in {"i", "u", "f"}:
+        raise CameraPlacementError(
+            "floor_samples_m must contain real numbers without booleans"
+        )
+    samples = np.asarray(raw, dtype=np.float64)
+    if samples.ndim != 2 or samples.shape[0] < 1 or samples.shape[1] != 3:
+        raise CameraPlacementError("floor_samples_m must be nonempty [sample,3]")
+    if not np.all(np.isfinite(samples)):
+        raise CameraPlacementError("floor_samples_m must contain finite XYZ points")
+    return tuple(sorted(set(tuple(float(item) for item in row) for row in samples)))
+
+
 def _floor_mask(
     value: np.ndarray | None, obstacle_map: RuntimeObstacleMap
 ) -> np.ndarray | None:
@@ -220,9 +288,40 @@ def iter_feasible_camera_placements(
                 )
 
 
+def iter_declared_floor_camera_placements(
+    floor_samples_m: object,
+    *,
+    camera_center_heights_m: Sequence[tuple[str, Real]],
+    yaw_degrees: Iterable[Real] = DEFAULT_YAW_DEGREES,
+) -> Iterator[DeclaredFloorCameraPlacement]:
+    """Cross caller-declared legal floor samples with height and 30-degree yaw.
+
+    The caller remains responsible for the floor/navmesh/obstacle authority.
+    Exact duplicate XYZ samples are removed before stable enumeration.
+    """
+
+    samples = _declared_floor_samples(floor_samples_m)
+    heights = _height_records(camera_center_heights_m)
+    yaws = _yaw_values(yaw_degrees)
+    for floor_index, floor in enumerate(samples):
+        for height_id, height in heights:
+            position = (floor[0], floor[1] + height, floor[2])
+            for yaw in yaws:
+                yield DeclaredFloorCameraPlacement(
+                    floor_sample_index=floor_index,
+                    height_id=height_id,
+                    floor_position_m=floor,
+                    position_m=position,
+                    yaw_deg=yaw,
+                )
+
+
 __all__ = [
     "DEFAULT_YAW_DEGREES",
     "CameraPlacement",
     "CameraPlacementError",
+    "DeclaredFloorCameraPlacement",
+    "camera_height_variants",
+    "iter_declared_floor_camera_placements",
     "iter_feasible_camera_placements",
 ]
