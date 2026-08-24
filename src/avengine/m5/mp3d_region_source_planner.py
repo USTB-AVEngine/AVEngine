@@ -496,6 +496,8 @@ def _route_pair_record(
     route2: MaterializedRoute,
     positions1: np.ndarray,
     positions2: np.ndarray,
+    waypoints1: np.ndarray,
+    waypoints2: np.ndarray,
 ) -> dict[str, Any]:
     try:
         descriptor = describe_route_pair(
@@ -523,6 +525,8 @@ def _route_pair_record(
         "frame_count": FRAME_COUNT,
         "frame_rate_hz": FRAME_RATE_HZ,
         "source_ids": ["source1", "source2"],
+        "source1_waypoints_m": np.asarray(waypoints1, dtype=np.float64).tolist(),
+        "source2_waypoints_m": np.asarray(waypoints2, dtype=np.float64).tolist(),
         "source1_positions_m": positions1.tolist(),
         "source2_positions_m": positions2.tolist(),
         "route_descriptors": descriptor,
@@ -579,11 +583,23 @@ def _case_record(
         path_record2 = family.source2.pathfinder_record
     else:
         raise MP3DRegionSourcePlannerError(f"unknown motion case: {motion_case}")
+    waypoints1 = (
+        family.source1.waypoints_m
+        if motion_case in {"s1_moving_s2_static", "both_moving"}
+        else np.asarray(positions1[:1], dtype=np.float64)
+    )
+    waypoints2 = (
+        family.source2.waypoints_m
+        if motion_case in {"s1_static_s2_moving", "both_moving"}
+        else np.asarray(positions2[:1], dtype=np.float64)
+    )
     record = _route_pair_record(
         route1=route1,
         route2=route2,
         positions1=np.asarray(positions1, dtype=np.float64),
         positions2=np.asarray(positions2, dtype=np.float64),
+        waypoints1=np.asarray(waypoints1, dtype=np.float64),
+        waypoints2=np.asarray(waypoints2, dtype=np.float64),
     )
     record["motion_case"] = motion_case
     record["pathfinder_authority"] = {
@@ -625,7 +641,8 @@ def _candidate_pair_routes(
         route_pool.append(route)
         if len(route_pool) >= max(required_family_count + 3, 8):
             break
-    if len(route_pool) < required_family_count + 1:
+    required_pool_count = 1 + 2 * max(required_family_count - 1, 0)
+    if len(route_pool) < required_pool_count:
         raise MP3DRegionSourcePlannerError(
             f"region {region.region_instance_id} has too few distinct route geometries"
         )
@@ -650,8 +667,9 @@ def _candidate_pair_routes(
                 continue
             exchange_capable = True
         else:
-            left = route_pool[family_index]
-            right = route_pool[family_index + 1]
+            pair_offset = 1 + 2 * (family_index - 1)
+            left = route_pool[pair_offset]
+            right = route_pool[pair_offset + 1]
             exchange_capable = False
         signature = _pair_signature(left, right)
         if signature in family_signatures:
@@ -659,7 +677,7 @@ def _candidate_pair_routes(
         family_signatures.add(signature)
         families.append(
             RouteFamily(
-                family_id=f"route_family_{family_index + 1:02d}",
+                family_id=f"{region.region_instance_id.replace(':', '_')}_route_family_{family_index + 1:02d}",
                 source1=left,
                 source2=right,
                 exchange_capable=exchange_capable,

@@ -177,6 +177,8 @@ def test_builds_ten_regions_forty_bindings_one_hundred_sixty_cases() -> None:
     assert record["camera_route_generation_decoupled"] is True
     assert record["exchange_case_count"] >= 1
     assert len(record["regions"]) == 10
+    family_ids = [family["route_family_id"] for family in record["families"]]
+    assert len(family_ids) == len(set(family_ids)) == 40
     assert all(item["camera_binding_count"] == 4 for item in record["regions"])
     assert all(item["route_family_count"] == 4 for item in record["regions"])
     assert all(len(family["cases"]) == 4 for family in record["families"])
@@ -237,6 +239,50 @@ def test_camera_pose_changes_do_not_change_route_generation() -> None:
                 left["cases"][motion_case]["source2_positions_m"]
                 == right["cases"][motion_case]["source2_positions_m"]
             )
+
+
+def test_nonexchange_families_do_not_reuse_route_geometry() -> None:
+    record = _build()
+    for region_index in range(10):
+        families = [
+            family
+            for family in record["families"]
+            if family["region_index"] == region_index
+        ]
+        assert len(families) == 4
+
+        def canonical_signature(
+            case: dict, key: str
+        ) -> tuple[tuple[float, float], ...]:
+            forward = tuple(
+                (round(float(point[0]), 6), round(float(point[2]), 6))
+                for point in case[key]
+            )
+            return min(forward, tuple(reversed(forward)))
+
+        exchange_family = next(
+            family
+            for family in families
+            if family["route_family_id"].endswith("_route_family_01")
+        )
+        exchange_case = exchange_family["cases"]["both_moving"]
+        exchange_source1 = canonical_signature(exchange_case, "source1_waypoints_m")
+        exchange_source2 = canonical_signature(exchange_case, "source2_waypoints_m")
+        assert exchange_source1 == exchange_source2
+
+        used_paths = {exchange_source1}
+        for family in families:
+            if family is exchange_family:
+                continue
+            case = family["cases"]["both_moving"]
+            signatures = {
+                canonical_signature(case, "source1_waypoints_m"),
+                canonical_signature(case, "source2_waypoints_m"),
+            }
+            assert len(signatures) == 2
+            assert used_paths.isdisjoint(signatures)
+            used_paths.update(signatures)
+        assert len(used_paths) == 7
 
 
 def test_exchange_and_sub_sixty_distance_are_descriptors_not_filters() -> None:
