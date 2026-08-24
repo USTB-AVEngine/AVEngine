@@ -106,6 +106,47 @@ border margin, with
 remains readable, but it cannot upgrade actor modal visibility. No candidate is
 removed because of this correction.
 
+## Optional partial native-audio join
+
+The bridge now accepts repeated `--dynamic-audio-dir` inputs independently of
+the N-view camera input. Each receipt is indexed by
+`listener.view_identity.m1_request_id`; room, view, rig, listener, capture-time
+M1 value identity, exact M1 path, visual receipt path, and source axes must all
+match the joined view. Repeated audio for one request and audio that belongs to
+no input request fail rather than being guessed into a view.
+
+Audio is optional per view. One joined receipt in a twelve-view input produces
+one joined view and eleven explicit pending views while preserving all twelve
+input records. Audio never changes legality, retention, selection order, or any
+difficulty descriptor.
+
+For a joined current receipt the consumer verifies and retains:
+
+- the exact visual source/actor/emitter-link to registered audio-endpoint
+  bijection and its six endpoint-owned event identities;
+- six exact sample intervals with tick boundaries equal to sample index times
+  three, plus all 75 exact frame sample/tick intervals and active event/endpoint
+  IDs;
+- the capture-time listener/view identity and composed listener pose;
+- 25 stride-three native registration receipts, their listener/source indices,
+  readback positions, visual-frame indices and exact keyframe samples;
+- one trajectory identity and two per-source IR identities for every keyframe;
+  and
+- `prior_listener_rir_reused=false` with the fresh-per-output view policy.
+
+Each visual frame source receives its bound endpoint, active scheduled event
+IDs and exact frame sample/tick interval. These are planned schedule facts from
+`dynamic_audio_receipt.audio_timing`; they are not decoded waveform or perceived
+onset facts.
+
+The current receipt explicitly leaves `actual_waveform_activity_verified=null`
+and `audible_onset_claim=false`. Declared WAV paths/digests are retained as
+uninspected metadata and cannot upgrade that boundary. An optional repeated
+`--external-audio-verifier` path may preserve its first reported `status=...`,
+but remains `unbound_no_structured_view_identity`, has no raw-clue effect, and
+cannot create a perceptual-onset claim. A structured waveform-verifier join is
+a later slice.
+
 ## CPU/mock verification
 
 The focused and adjacent suite passed `91 tests` across:
@@ -156,6 +197,26 @@ This follow-up changed no candidate count or selection behavior and introduced
 no distance, side, crossing, visibility, semantic-ID, or composition gate.
 The earlier 91-test record remains the pre-correction implementation history;
 the 96-test record is current for the P2 code.
+
+The optional partial native-audio join implementation is commit
+`43bbf0dfff55be91f08e869ca7d9497a06ba0dc9`. Its post-commit adjacent suite
+records `112 passed` at:
+
+`/data/jzy/tmp/mp3d_raw_audio_43bbf0d_adjacent_r1.log`
+
+The corresponding Ruff check, Ruff format check, byte compilation,
+`git diff --check`, and clean branch evidence is:
+
+`/data/jzy/tmp/mp3d_raw_audio_43bbf0d_quality_r1.log`
+
+The ten dedicated audio-consumer tests cover one of twelve joined with eleven
+pending, exact frame/event timing, endpoint/visual-axis identity, 25 native
+registration and per-source IR identities, wrong M1/room/view/listener/source
+axes, duplicate audio receipts, missing IR identity, and an external verifier
+that remains explicitly unbound. The adjacent total also covers the existing
+dynamic-audio producer, visual raw clues, current visual readback, motion
+descriptors, probe subset, and region banks. No audio receipt changes the input
+or output viewpoint count.
 
 No Habitat, GPU, audio, RLR, FFmpeg, or native selected12 job ran in this
 slice. The first real selected12 dynamic join must wait for fresh captures
