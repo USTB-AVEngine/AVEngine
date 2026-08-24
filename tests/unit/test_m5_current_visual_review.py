@@ -20,7 +20,10 @@ def _write_capture_output(
     include_semantic: bool = True,
     action_id: str = "walk",
     pose_readback: bool = False,
+    object_id_readback: bool = False,
 ) -> Path:
+    if object_id_readback and not pose_readback:
+        raise ValueError("object-ID fixture requires pose_readback=True")
     root.mkdir()
     arrays = root / "arrays"
     arrays.mkdir()
@@ -56,6 +59,10 @@ def _write_capture_output(
     visibility = np.stack(
         [visibility_pattern[index % 3] for index in range(frame_count)], axis=0
     )
+    object_id = np.zeros((frame_count, 2, 4), dtype=np.int32)
+    object_id[:, 0, 0:2] = 500
+    object_id[:, 1, 0] = 501
+    object_id[-1, object_id[-1] == 501] = 0
     np.save(arrays / "rgb.npy", rgb)
     np.save(arrays / "depth.npy", depth)
     if include_semantic:
@@ -63,6 +70,8 @@ def _write_capture_output(
     np.save(arrays / "actor_world_matrices.npy", actor)
     np.save(arrays / "source_positions_m.npy", sources)
     np.save(arrays / "semantic_visibility_pixels.npy", visibility)
+    if object_id_readback:
+        np.save(arrays / "object_id.npy", object_id)
     if pose_readback:
         planned_skin_roots = actor.copy()
         actual_skin_roots = actor.copy()
@@ -71,10 +80,15 @@ def _write_capture_output(
             np.asarray([9.0, 8.0, 7.0, 0.0, 2**-0.5, 0.0, 2**-0.5]),
             (frame_count, 1),
         )
-        actual_sensor_poses = np.tile(actual_agent_poses[:, None, :], (1, 3, 1))
+        sensor_count = 4 if object_id_readback else 3
+        actual_sensor_poses = np.tile(
+            actual_agent_poses[:, None, :], (1, sensor_count, 1)
+        )
         actual_sensor_poses[:, 0, 0] += 1.0e-7
         actual_sensor_poses[:, 1, 0] += 2.0e-7
         actual_sensor_poses[:, 2, 0] += 3.0e-7
+        if object_id_readback:
+            actual_sensor_poses[:, 3, 0] += 4.0e-7
         actual_listener_poses = actual_agent_poses.copy()
         actual_listener_poses[:, 1] += 0.2
         np.save(
@@ -108,6 +122,38 @@ def _write_capture_output(
                     "actor_world_positions_m": actor[index, :, :3, 3].tolist(),
                     "source_positions_m": sources[index].tolist(),
                     "semantic_visibility_pixels": visibility[index].tolist(),
+                    **(
+                        {
+                            "object_id_pixel_counts": [
+                                int(np.count_nonzero(object_id[index] == 500)),
+                                int(np.count_nonzero(object_id[index] == 501)),
+                            ],
+                            "object_id_bboxes_xyxy": [
+                                {
+                                    "x_min": 0,
+                                    "y_min": 0,
+                                    "x_max": 1,
+                                    "y_max": 0,
+                                    "width_pixels": 2,
+                                    "height_pixels": 1,
+                                },
+                                (
+                                    {
+                                        "x_min": 0,
+                                        "y_min": 1,
+                                        "x_max": 0,
+                                        "y_max": 1,
+                                        "width_pixels": 1,
+                                        "height_pixels": 1,
+                                    }
+                                    if index < frame_count - 1
+                                    else None
+                                ),
+                            ],
+                        }
+                        if object_id_readback
+                        else {}
+                    ),
                     "snapshot_world_time_seconds": 0.0,
                     "pre_render_snapshot_world_time_seconds": 0.0,
                     "post_render_snapshot_world_time_seconds": 0.0,
@@ -117,6 +163,7 @@ def _write_capture_output(
                         "source_axis_order": ["source0", "source1"],
                         "sensor_axis_order": [
                             "rig_depth",
+                            *(["rig_object_id"] if object_id_readback else []),
                             "rig_rgb",
                             "rig_semantic",
                         ],
@@ -168,6 +215,8 @@ def _write_capture_output(
                 ),
             }
         )
+    if object_id_readback:
+        artifacts["object_id"] = "arrays/object_id.npy"
     if not include_semantic:
         artifacts.pop("semantic")
     receipt = {
@@ -182,7 +231,12 @@ def _write_capture_output(
             {
                 "m1_request_id": "m1_capture_fixture_v1",
                 "room_id": "habitat_mp3d_example_17DRP5sb8fy",
-                "modalities": ["rgb", "depth", "semantic"],
+                "modalities": [
+                    "rgb",
+                    "depth",
+                    "semantic",
+                    *(["object_id"] if object_id_readback else []),
+                ],
             }
         )
         receipt.update(
@@ -253,12 +307,18 @@ def _write_capture_output(
                         "beagle Xtra Mouth",
                         "beagle Xtra Mouth",
                     ],
+                    **(
+                        {"runtime_object_ids": [500, 501]} if object_id_readback else {}
+                    ),
                     "axis_bindings": [
                         {
                             "axis_index": 0,
                             "actor_id": "actor0",
                             "source_id": "source0",
                             "semantic_id": 210,
+                            **(
+                                {"runtime_object_id": 500} if object_id_readback else {}
+                            ),
                             "emitter_link_name": "beagle Xtra Mouth",
                             "runtime_emitter_link_id": 100,
                             "audio_endpoint_status": "pending",
@@ -269,6 +329,9 @@ def _write_capture_output(
                             "actor_id": "actor1",
                             "source_id": "source1",
                             "semantic_id": 211,
+                            **(
+                                {"runtime_object_id": 501} if object_id_readback else {}
+                            ),
                             "emitter_link_name": "beagle Xtra Mouth",
                             "runtime_emitter_link_id": 101,
                             "audio_endpoint_status": "pending",
@@ -308,11 +371,24 @@ def _write_capture_output(
                         },
                         {
                             "axis_index": 1,
-                            "sensor_uuid": "rig_rgb",
-                            "modality": "rgb",
+                            "sensor_uuid": (
+                                "rig_object_id" if object_id_readback else "rig_rgb"
+                            ),
+                            "modality": ("object_id" if object_id_readback else "rgb"),
                         },
+                        *(
+                            [
+                                {
+                                    "axis_index": 2,
+                                    "sensor_uuid": "rig_rgb",
+                                    "modality": "rgb",
+                                }
+                            ]
+                            if object_id_readback
+                            else []
+                        ),
                         {
-                            "axis_index": 2,
+                            "axis_index": 3 if object_id_readback else 2,
                             "sensor_uuid": "rig_semantic",
                             "modality": "semantic",
                         },
@@ -352,6 +428,67 @@ def _write_capture_output(
                         "native_listener_sensor_readback": False,
                     },
                 },
+                **(
+                    {
+                        "object_id_visibility": {
+                            "status": "native_object_id_raster_recorded",
+                            "sensor_uuid": "rig_object_id",
+                            "semantic_sensor_target": "OBJECT_ID",
+                            "frame_count": 75,
+                            "runtime_id_scope": (
+                                "one_simulator_invocation_not_stable_across_runs"
+                            ),
+                            "runtime_id_mapping_authority": (
+                                "articulated_object.object_id_readback"
+                            ),
+                            "candidate_filtering": "disabled",
+                            "candidate_legality_effect": "descriptor_only",
+                            "zero_pixels_affect_legality": False,
+                            "actor_modal_visibility_authority_status": (
+                                "pending_fresh_runtime_a_b_and_visual_review"
+                            ),
+                            "per_actor": {
+                                "actor0": {
+                                    "runtime_object_id": 500,
+                                    "pixel_counts_by_frame": [2] * 75,
+                                    "bboxes_xyxy_by_frame": [
+                                        {
+                                            "x_min": 0,
+                                            "y_min": 0,
+                                            "x_max": 1,
+                                            "y_max": 0,
+                                            "width_pixels": 2,
+                                            "height_pixels": 1,
+                                        }
+                                    ]
+                                    * 75,
+                                    "positive_pixel_frame_count": 75,
+                                    "zero_pixel_frame_indices": [],
+                                },
+                                "actor1": {
+                                    "runtime_object_id": 501,
+                                    "pixel_counts_by_frame": [1] * 74 + [0],
+                                    "bboxes_xyxy_by_frame": [
+                                        {
+                                            "x_min": 0,
+                                            "y_min": 1,
+                                            "x_max": 0,
+                                            "y_max": 1,
+                                            "width_pixels": 1,
+                                            "height_pixels": 1,
+                                        }
+                                    ]
+                                    * 74
+                                    + [None],
+                                    "positive_pixel_frame_count": 74,
+                                    "zero_pixel_frame_indices": [74],
+                                },
+                            },
+                        }
+                    }
+                    if object_id_readback
+                    else {}
+                ),
             }
         )
     (root / "research_receipt.json").write_text(
@@ -404,6 +541,68 @@ def test_validates_and_displays_complete_native_pose_readback(tmp_path: Path) ->
     assert "actual_logical_listener_pose_txyz_qxyzw" in html
     assert "actual_skin_root_readback_positions_m" in html
     assert "actor_source_axis_bindings" in html
+    assert "pending_legacy_capture_without_object_id_raster" in html
+
+
+def test_validates_object_id_mapping_counts_bboxes_and_zero_pixels(
+    tmp_path: Path,
+) -> None:
+    output = _write_capture_output(
+        tmp_path / "capture-object-id",
+        pose_readback=True,
+        object_id_readback=True,
+    )
+
+    review = generate_current_visual_review(output)
+
+    assert review.frame_count == 75
+    html = review.html_path.read_text(encoding="utf-8")
+    assert "OBJECT_ID (false color; per-run IDs)" in html
+    assert "pending_fresh_runtime_a_b_and_visual_review" in html
+    assert '"runtime_object_ids":[500,501]' in html
+    assert '"pixel_count":0' in html
+    object_frames = sorted(
+        (review.review_directory / "frames" / "object_id").glob("*.png")
+    )
+    assert len(object_frames) == 75
+    assert object_frames[0].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    (
+        ("count", "counts/bboxes differ"),
+        ("runtime_axis", "runtime object IDs"),
+        ("mapping", "mapping is damaged"),
+        ("missing_artifact", "evidence is partial"),
+    ),
+)
+def test_rejects_damaged_or_partial_object_id_evidence(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    output = _write_capture_output(
+        tmp_path / damage,
+        pose_readback=True,
+        object_id_readback=True,
+    )
+    receipt_path = output / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    if damage == "count":
+        records_path = output / "frame_records.json"
+        records = json.loads(records_path.read_text())
+        records["frames"][12]["object_id_pixel_counts"][0] += 1
+        records_path.write_text(json.dumps(records, indent=2) + "\n")
+    elif damage == "runtime_axis":
+        receipt["actors"]["runtime_object_ids"] = [500, 500]
+    elif damage == "mapping":
+        receipt["actors"]["axis_bindings"][1]["runtime_object_id"] = 500
+    else:
+        receipt["artifacts"].pop("object_id")
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+
+    with pytest.raises(CurrentVisualReviewError, match=message):
+        generate_current_visual_review(output)
+    assert not (output / "review").exists()
 
 
 def test_rejects_swapped_source_axis_in_pose_frame_alignment(tmp_path: Path) -> None:

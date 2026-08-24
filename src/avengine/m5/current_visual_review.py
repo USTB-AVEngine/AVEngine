@@ -42,6 +42,7 @@ _NEW_POSE_ARTIFACTS = (
 _POSE_QUATERNION_NORM_ATOL = 2.0e-6
 _RIGID_MATRIX_ATOL = 2.0e-6
 _POSE_READBACK_ATOL = 2.0e-6
+_OBJECT_ID_ARTIFACT = "object_id"
 
 
 class CurrentVisualReviewError(ValueError):
@@ -69,6 +70,18 @@ class _PoseReadbackEvidence:
     source_axis_order: tuple[str, ...]
     sensor_axis_order: tuple[str, ...]
     axis_bindings: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class _ObjectIDReadbackEvidence:
+    raster: np.ndarray
+    sensor_uuid: str
+    runtime_object_ids: tuple[int, int]
+    actor_ids: tuple[str, str]
+    source_ids: tuple[str, str]
+    emitter_link_names: tuple[str, str]
+    per_frame_records: tuple[tuple[dict[str, Any], dict[str, Any]], ...]
+    authority_status: str
 
 
 def _load_json_object(path: Path, *, owner: str) -> dict[str, Any]:
@@ -385,6 +398,7 @@ def _capture_time_m1_identity(
     source_axis_order: tuple[str, ...],
     sensor_axis_order: tuple[str, ...],
     sensor_modalities: tuple[str, ...],
+    derived_sensor_modalities: Mapping[str, str] | None = None,
 ) -> tuple[
     dict[str, list[float]],
     dict[str, list[float]],
@@ -463,6 +477,17 @@ def _capture_time_m1_identity(
             )
         modality_by_uuid[item["sensor_uuid"]] = item["modality"]
         modality_order.append(item["modality"])
+    derived = dict(derived_sensor_modalities or {})
+    if (
+        any(not isinstance(key, str) or not key for key in derived)
+        or any(not isinstance(value, str) or not value for value in derived.values())
+        or set(derived).intersection(modality_by_uuid)
+    ):
+        raise CurrentVisualReviewError(
+            "derived sensor identities must be unique nonempty UUID/modality pairs"
+        )
+    modality_by_uuid.update(derived)
+    modality_order.extend(derived.values())
     if (
         tuple(sorted(modality_by_uuid)) != sensor_axis_order
         or tuple(modality_by_uuid[sensor_uuid] for sensor_uuid in sensor_axis_order)
@@ -639,11 +664,21 @@ def _pose_readback_evidence(
             )
         checked_bindings.append(dict(value))
 
+    object_id_metadata = receipt.get("object_id_visibility")
+    derived_sensor_modalities = None
+    if isinstance(object_id_metadata, Mapping):
+        object_sensor_uuid = object_id_metadata.get("sensor_uuid")
+        if not isinstance(object_sensor_uuid, str) or not object_sensor_uuid:
+            raise CurrentVisualReviewError(
+                "object-ID visibility metadata lacks its sensor UUID"
+            )
+        derived_sensor_modalities = {object_sensor_uuid: "object_id"}
     world_from_rig, world_from_sensor, rig_from_listener = _capture_time_m1_identity(
         receipt,
         source_axis_order=source_axis_order,
         sensor_axis_order=tuple(sensor_axis_order),
         sensor_modalities=tuple(sensor_modalities),
+        derived_sensor_modalities=derived_sensor_modalities,
     )
 
     for name, artifact_key, actual in (
@@ -897,6 +932,190 @@ def _pose_readback_evidence(
     )
 
 
+def _object_id_pixel_record(
+    image: np.ndarray, runtime_object_id: int
+) -> dict[str, Any]:
+    rows, columns = np.nonzero(image == runtime_object_id)
+    count = int(rows.size)
+    bbox = None
+    if count:
+        x_min = int(columns.min())
+        x_max = int(columns.max())
+        y_min = int(rows.min())
+        y_max = int(rows.max())
+        bbox = {
+            "x_min": x_min,
+            "y_min": y_min,
+            "x_max": x_max,
+            "y_max": y_max,
+            "width_pixels": x_max - x_min + 1,
+            "height_pixels": y_max - y_min + 1,
+        }
+    return {
+        "runtime_object_id": runtime_object_id,
+        "pixel_count": count,
+        "bbox_xyxy": bbox,
+    }
+
+
+def _object_id_readback_evidence(
+    output_root: Path,
+    receipt: Mapping[str, Any],
+    artifacts: Mapping[str, Any],
+    *,
+    rgb: np.ndarray,
+    records: list[dict[str, Any]],
+    pose_readback: _PoseReadbackEvidence | None,
+) -> _ObjectIDReadbackEvidence | None:
+    metadata = receipt.get("object_id_visibility")
+    artifact_present = _OBJECT_ID_ARTIFACT in artifacts
+    if metadata is None and not artifact_present:
+        return None
+    if not isinstance(metadata, Mapping) or not artifact_present:
+        raise CurrentVisualReviewError(
+            "object-ID evidence is partial; legacy captures must remain pending"
+        )
+    if pose_readback is None:
+        raise CurrentVisualReviewError(
+            "object-ID evidence requires current pose/sensor readback"
+        )
+    frame_count = int(rgb.shape[0])
+    sensor_uuid = metadata.get("sensor_uuid")
+    if (
+        metadata.get("status") != "native_object_id_raster_recorded"
+        or metadata.get("semantic_sensor_target") != "OBJECT_ID"
+        or metadata.get("frame_count") != frame_count
+        or metadata.get("runtime_id_scope")
+        != "one_simulator_invocation_not_stable_across_runs"
+        or metadata.get("runtime_id_mapping_authority")
+        != "articulated_object.object_id_readback"
+        or metadata.get("candidate_filtering") != "disabled"
+        or metadata.get("candidate_legality_effect") != "descriptor_only"
+        or metadata.get("zero_pixels_affect_legality") is not False
+        or not isinstance(sensor_uuid, str)
+        or not sensor_uuid
+    ):
+        raise CurrentVisualReviewError("object-ID visibility metadata is invalid")
+    if sensor_uuid not in pose_readback.sensor_axis_order:
+        raise CurrentVisualReviewError(
+            "object-ID sensor is absent from actual sensor pose order"
+        )
+    actors = receipt.get("actors")
+    if not isinstance(actors, Mapping):
+        raise CurrentVisualReviewError("object-ID evidence lacks actor identities")
+    actor_ids = _string_axis(actors.get("actor_ids"), owner="actor IDs", length=2)
+    source_ids = _string_axis(actors.get("source_ids"), owner="source IDs", length=2)
+    raw_emitter_names = actors.get("emitter_link_names")
+    if (
+        not isinstance(raw_emitter_names, list)
+        or len(raw_emitter_names) != 2
+        or any(not isinstance(value, str) or not value for value in raw_emitter_names)
+    ):
+        raise CurrentVisualReviewError(
+            "emitter link names must contain two nonempty strings"
+        )
+    emitter_names = (str(raw_emitter_names[0]), str(raw_emitter_names[1]))
+    raw_runtime_ids = actors.get("runtime_object_ids")
+    if (
+        not isinstance(raw_runtime_ids, list)
+        or len(raw_runtime_ids) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in raw_runtime_ids
+        )
+        or len(set(raw_runtime_ids)) != 2
+    ):
+        raise CurrentVisualReviewError(
+            "actor runtime object IDs must be two unique nonnegative integers"
+        )
+    runtime_object_ids = (int(raw_runtime_ids[0]), int(raw_runtime_ids[1]))
+    bindings = actors.get("axis_bindings")
+    if not isinstance(bindings, list) or len(bindings) != 2:
+        raise CurrentVisualReviewError(
+            "object-ID evidence requires two actor/source axis bindings"
+        )
+    for axis, binding in enumerate(bindings):
+        if (
+            not isinstance(binding, Mapping)
+            or binding.get("axis_index") != axis
+            or binding.get("actor_id") != actor_ids[axis]
+            or binding.get("source_id") != source_ids[axis]
+            or binding.get("emitter_link_name") != emitter_names[axis]
+            or binding.get("runtime_object_id") != runtime_object_ids[axis]
+        ):
+            raise CurrentVisualReviewError(
+                f"object-ID actor/source mapping is damaged at axis {axis}"
+            )
+    path = _artifact_path(
+        output_root, artifacts, name=_OBJECT_ID_ARTIFACT, required=True
+    )
+    assert path is not None
+    raster = _optional_frame_array(
+        path,
+        owner="object-ID raster artifact",
+        frame_count=frame_count,
+        suffix_shape=(rgb.shape[1], rgb.shape[2]),
+        dtype_kind="integer",
+    )
+    assert raster is not None
+    per_actor = metadata.get("per_actor")
+    if not isinstance(per_actor, Mapping) or set(per_actor) != set(actor_ids):
+        raise CurrentVisualReviewError(
+            "object-ID metadata must contain exactly the two actor records"
+        )
+    per_frame: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for frame_index in range(frame_count):
+        computed = tuple(
+            _object_id_pixel_record(raster[frame_index], runtime_object_id)
+            for runtime_object_id in runtime_object_ids
+        )
+        record = records[frame_index]
+        if record.get("object_id_pixel_counts") != [
+            item["pixel_count"] for item in computed
+        ] or record.get("object_id_bboxes_xyxy") != [
+            item["bbox_xyxy"] for item in computed
+        ]:
+            raise CurrentVisualReviewError(
+                f"frame {frame_index} object-ID counts/bboxes differ from raster"
+            )
+        per_frame.append((computed[0], computed[1]))
+    for axis, actor_id in enumerate(actor_ids):
+        actor_record = per_actor.get(actor_id)
+        if not isinstance(actor_record, Mapping):
+            raise CurrentVisualReviewError(
+                f"object-ID metadata actor {actor_id!r} is invalid"
+            )
+        counts = [frame[axis]["pixel_count"] for frame in per_frame]
+        bboxes = [frame[axis]["bbox_xyxy"] for frame in per_frame]
+        if (
+            actor_record.get("runtime_object_id") != runtime_object_ids[axis]
+            or actor_record.get("pixel_counts_by_frame") != counts
+            or actor_record.get("bboxes_xyxy_by_frame") != bboxes
+            or actor_record.get("positive_pixel_frame_count")
+            != int(np.count_nonzero(counts))
+            or actor_record.get("zero_pixel_frame_indices")
+            != [index for index, count in enumerate(counts) if count == 0]
+        ):
+            raise CurrentVisualReviewError(
+                f"object-ID metadata differs from raster for actor {actor_id!r}"
+            )
+    authority_status = metadata.get("actor_modal_visibility_authority_status")
+    if authority_status != "pending_fresh_runtime_a_b_and_visual_review":
+        raise CurrentVisualReviewError(
+            "object-ID modal authority must remain pending fresh-runtime A/B"
+        )
+    return _ObjectIDReadbackEvidence(
+        raster=raster,
+        sensor_uuid=sensor_uuid,
+        runtime_object_ids=runtime_object_ids,
+        actor_ids=(actor_ids[0], actor_ids[1]),
+        source_ids=(source_ids[0], source_ids[1]),
+        emitter_link_names=(emitter_names[0], emitter_names[1]),
+        per_frame_records=tuple(per_frame),
+        authority_status=authority_status,
+    )
+
+
 def _depth_range(depth: np.ndarray) -> tuple[float, float]:
     minimum = math.inf
     maximum = -math.inf
@@ -951,6 +1170,7 @@ def _frame_metadata(
     source_positions: np.ndarray | None,
     visibility: np.ndarray | None,
     pose_readback: _PoseReadbackEvidence | None,
+    object_id_readback: _ObjectIDReadbackEvidence | None,
 ) -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
     for index, record in enumerate(records):
@@ -1006,6 +1226,26 @@ def _frame_metadata(
             entry["actual_logical_listener_pose_txyz_qxyzw"] = (
                 pose_readback.actual_logical_listener_poses[index].tolist()
             )
+        if object_id_readback is None:
+            entry["object_id_visibility"] = {
+                "status": "pending_legacy_capture_without_object_id_raster",
+                "actor_modal_visibility_authority": None,
+            }
+        else:
+            entry["object_id_visibility"] = {
+                "status": "object_id_raster_recorded_authority_pending_a_b",
+                "sensor_uuid": object_id_readback.sensor_uuid,
+                "runtime_object_ids": list(object_id_readback.runtime_object_ids),
+                "actor_ids": list(object_id_readback.actor_ids),
+                "source_ids": list(object_id_readback.source_ids),
+                "emitter_link_names": list(object_id_readback.emitter_link_names),
+                "per_actor": [
+                    dict(value) for value in object_id_readback.per_frame_records[index]
+                ],
+                "actor_modal_visibility_authority_status": (
+                    object_id_readback.authority_status
+                ),
+            }
         values.append(entry)
     return values
 
@@ -1029,6 +1269,22 @@ def _review_html(
     *, title: str, images: Mapping[str, list[str]], frames: list[dict[str, Any]]
 ) -> str:
     payload = _json_for_script({"images": images, "frames": frames})
+    object_id_figure = (
+        "<figure><figcaption>OBJECT_ID (false color; per-run IDs)</figcaption>"
+        '<img id="object-id-panel" alt="OBJECT_ID frame"></figure>'
+        if "object_id" in images
+        else ""
+    )
+    object_id_declaration = (
+        'const objectId = document.getElementById("object-id-panel");'
+        if "object_id" in images
+        else ""
+    )
+    object_id_render = (
+        "objectId.src = review.images.object_id[index];"
+        if "object_id" in images
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1057,7 +1313,7 @@ textarea {{ width: 100%; box-sizing: border-box; min-height: 150px; resize: vert
 <body>
 <main>
   <h1>{escape(title)}</h1>
-  <p class="small">Offline synchronized RGB / depth / semantic inspection.</p>
+  <p class="small">Offline synchronized RGB / depth / semantic / optional OBJECT_ID inspection.</p>
   <section class="warning"><strong>Research-only visual review.</strong> This page does not alter the capture receipt, create a verdict, count an episode, or establish formal/admission evidence.</section>
   <section class="controls" aria-label="Synchronized frame selector">
     <button id="previous" type="button">Previous frame</button>
@@ -1069,6 +1325,7 @@ textarea {{ width: 100%; box-sizing: border-box; min-height: 150px; resize: vert
     <figure><figcaption>RGB</figcaption><img id="rgb-panel" alt="RGB frame"></figure>
     <figure><figcaption>Depth (global grayscale preview)</figcaption><img id="depth-panel" alt="Depth frame"></figure>
     <figure><figcaption>Semantic (false color; actor 210 yellow, 211 pink)</figcaption><img id="semantic-panel" alt="Semantic frame"></figure>
+    {object_id_figure}
   </section>
   <h2>Frame state</h2>
   <pre id="frame-details"></pre>
@@ -1083,6 +1340,7 @@ const slider = document.getElementById("frame-slider");
 const rgb = document.getElementById("rgb-panel");
 const depth = document.getElementById("depth-panel");
 const semantic = document.getElementById("semantic-panel");
+{object_id_declaration}
 const label = document.getElementById("frame-label");
 const details = document.getElementById("frame-details");
 const notes = document.getElementById("reviewer-notes");
@@ -1096,6 +1354,7 @@ function render(value) {{
   rgb.src = review.images.rgb[index];
   depth.src = review.images.depth[index];
   semantic.src = review.images.semantic[index];
+  {object_id_render}
   label.textContent = `frame ${{frame.frame_index}} · ${{frame.time_seconds.toFixed(6)}} s · ${{frame.pts_ticks}} ticks`;
   details.textContent = JSON.stringify(frame, null, 2);
 }}
@@ -1239,6 +1498,14 @@ def generate_current_visual_review(
         source_positions=source_positions,
         visibility=visibility,
     )
+    object_id_readback = _object_id_readback_evidence(
+        output_root,
+        receipt,
+        artifacts,
+        rgb=rgb,
+        records=records,
+        pose_readback=pose_readback,
+    )
     depth_minimum, depth_maximum = _depth_range(depth)
     metadata = _frame_metadata(
         records,
@@ -1246,10 +1513,13 @@ def generate_current_visual_review(
         source_positions=source_positions,
         visibility=visibility,
         pose_readback=pose_readback,
+        object_id_readback=object_id_readback,
     )
     review_root = _review_directory(output_root, review_directory)
     frames_root = review_root / "frames"
     images = {"rgb": [], "depth": [], "semantic": []}
+    if object_id_readback is not None:
+        images["object_id"] = []
     for modality in images:
         (frames_root / modality).mkdir(parents=True)
     for index in range(frame_count):
@@ -1257,6 +1527,7 @@ def generate_current_visual_review(
         rgb_relative = Path("frames") / "rgb" / filename
         depth_relative = Path("frames") / "depth" / filename
         semantic_relative = Path("frames") / "semantic" / filename
+        object_id_relative = Path("frames") / "object_id" / filename
         _save_png(review_root / rgb_relative, rgb[index], owner="RGB preview")
         _save_png(
             review_root / depth_relative,
@@ -1271,6 +1542,13 @@ def generate_current_visual_review(
         images["rgb"].append(rgb_relative.as_posix())
         images["depth"].append(depth_relative.as_posix())
         images["semantic"].append(semantic_relative.as_posix())
+        if object_id_readback is not None:
+            _save_png(
+                review_root / object_id_relative,
+                _semantic_preview(object_id_readback.raster[index]),
+                owner="object-ID preview",
+            )
+            images["object_id"].append(object_id_relative.as_posix())
     html_path = review_root / "index.html"
     html_path.write_text(
         _review_html(

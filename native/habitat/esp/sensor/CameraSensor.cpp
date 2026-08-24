@@ -3,6 +3,7 @@
 // LICENSE file in the root directory of this source tree.
 
 #include "CameraSensor.h"
+#include "CameraSensorTargetRouting.h"
 #include <Corrade/Utility/Assert.h>
 #include <Magnum/ImageView.h>
 #include <Magnum/Math/Algorithms/GramSchmidt.h>
@@ -136,22 +137,37 @@ bool CameraSensor::drawObservation(sim::Simulator& sim) {
   }
 
   if (cameraSensorSpec_->sensorType == SensorType::Semantic) {
-    // TODO: check sim has semantic scene graph
-    bool twoSceneGraphs =
-        (&sim.getActiveSemanticSceneGraph() != &sim.getActiveSceneGraph());
-
-    if (twoSceneGraphs) {
-      // Helper's constructor moves this camera to the semantic scene graph.
-      // When helper goes out of scope, its destructor moves it back to main
-      // scene graph.
-      VisualSensor::MoveSemanticSensorNodeHelper helper(*this, sim);
-      draw(sim.getActiveSemanticSceneGraph(), flags);
+    const CameraSemanticRenderPolicy policy =
+        cameraSemanticRenderPolicy(cameraSensorSpec_->semanticTarget);
+    if (policy.route ==
+        CameraSemanticRenderRoute::SemanticSceneThenActiveObjects) {
+      // Preserve the historical SEMANTIC_ID route. The separately loaded room
+      // semantic graph supplies static semantic labels; dynamic objects are
+      // then overlaid without clearing its depth buffer.
+      const bool twoSceneGraphs =
+          (&sim.getActiveSemanticSceneGraph() != &sim.getActiveSceneGraph());
+      if (twoSceneGraphs) {
+        // Helper's constructor moves this camera to the semantic scene graph.
+        // When helper goes out of scope, its destructor moves it back to main
+        // scene graph.
+        VisualSensor::MoveSemanticSensorNodeHelper helper(*this, sim);
+        draw(sim.getActiveSemanticSceneGraph(), flags);
+      } else {
+        draw(sim.getActiveSemanticSceneGraph(), flags);
+      }
+      if (twoSceneGraphs) {
+        CORRADE_INTERNAL_ASSERT(policy.activeSceneObjectsOnly);
+        flags |= gfx::RenderCamera::Flag::ObjectsOnly;
+        draw(sim.getActiveSceneGraph(), flags);
+      }
     } else {
-      draw(sim.getActiveSemanticSceneGraph(), flags);
-    }
-
-    if (twoSceneGraphs) {
-      flags |= gfx::RenderCamera::Flag::ObjectsOnly;
+      // OBJECT_ID and DRAWABLE_ID must use one complete active-scene draw.
+      // Drawing ObjectsOnly would omit the stage depth and let actors appear
+      // through walls. Drawing the semantic scene first would retain the MP3D
+      // semantic mesh's mismatched depth and hide visible skinned fragments.
+      CORRADE_INTERNAL_ASSERT(policy.drawActiveSceneGraph);
+      CORRADE_INTERNAL_ASSERT(!policy.drawSemanticSceneGraph);
+      CORRADE_INTERNAL_ASSERT(!policy.activeSceneObjectsOnly);
       draw(sim.getActiveSceneGraph(), flags);
     }
   } else {
