@@ -2,8 +2,9 @@
 
 ## Concrete failure
 
-The first fresh selected-twelve OBJECT_ID attempt used clean integration
-`7487fe0`, the fresh `732f264` Habitat prefix, and an isolated GPU0:
+The first fresh selected-twelve OBJECT_ID attempt intended to use clean
+integration `7487fe0`, the fresh `732f264` Habitat prefix, and an isolated
+GPU0:
 
 `/data/jzy/tmp/mp3d_selected12_object_id_7487fe0_r1`
 
@@ -15,6 +16,13 @@ failure, view `00141`, with:
 The retained wrapper log is:
 
 `/data/jzy/tmp/mp3d_selected12_object_id_7487fe0_r1.log`
+
+That wrapper used relative `PYTHONPATH=src` without first changing into the
+integration worktree. It therefore proves the installed producer's failure,
+not a commit-specific `7487fe0` import. Independent source inspection found
+the same gate in `7487fe0`, and the accepted fix canary below uses an
+absolute server-worktree `PYTHONPATH`. This distinction is retained rather
+than retroactively relabeling the failed run.
 
 This was an obsolete legality gate in
 `src/avengine/m5/visual.py`. It rejected a valid capture whenever either
@@ -92,10 +100,24 @@ compilation, `git diff --check`, and the clean branch state are recorded at:
 
 `/data/jzy/tmp/mp3d_semantic_zero_gate_ad6174b_quality_r1.log`
 
-## Remaining boundary
+## Accepted follow-up boundary
 
 The failed selected-twelve root remains immutable evidence and is not resumed
-or counted as a complete batch. After this slice reaches integration, all
-twelve views must be rerun into a new fresh root with the per-case GPU0 guard,
-reviewed, and then joined to raw clues. Visibility must remain descriptor-only
-and must never alter candidate retention.
+or counted as a complete batch. After merge `8b1918c`, the accepted rerun used
+an absolute integration `PYTHONPATH` and a per-case GPU0 guard:
+
+`/data/jzy/tmp/mp3d_selected12_object_id_8b1918c_r2`
+
+All twelve views completed with 75 frames and were reviewed offline at:
+
+`/data/jzy/tmp/mp3d_selected12_object_id_review_8b1918c_r2`
+
+The independent 12-view verifier and three personally inspected contact
+sheets are under:
+
+`/data/jzy/tmp/mp3d_selected12_object_id_evidence_8b1918c_r3`
+
+The verifier's earlier bbox-schema-assumption failure is retained in the
+`r2` evidence root/log. Visibility remains descriptor-only and never alters
+candidate retention. P1/amodal, occlusion and formal off-screen truth remain
+pending.
