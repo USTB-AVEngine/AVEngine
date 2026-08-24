@@ -740,7 +740,9 @@ def classify_collision_contacts(
         actor_stage_contacts=tuple(actor_stage),
         actor_other_contacts=tuple(actor_other),
         unrelated_contacts=tuple(unrelated),
-        actor_pair_collision_free=not actor_actor,
+        actor_pair_collision_free=not any(
+            record["is_active"] for record in actor_actor
+        ),
     )
 
 
