@@ -106,6 +106,47 @@ border margin, with
 remains readable, but it cannot upgrade actor modal visibility. No candidate is
 removed because of this correction.
 
+## Optional partial native-audio join
+
+The bridge now accepts repeated `--dynamic-audio-dir` inputs independently of
+the N-view camera input. Each receipt is indexed by
+`listener.view_identity.m1_request_id`; room, view, rig, listener, capture-time
+M1 value identity, exact M1 path, visual receipt path, and source axes must all
+match the joined view. Repeated audio for one request and audio that belongs to
+no input request fail rather than being guessed into a view.
+
+Audio is optional per view. One joined receipt in a twelve-view input produces
+one joined view and eleven explicit pending views while preserving all twelve
+input records. Audio never changes legality, retention, selection order, or any
+difficulty descriptor.
+
+For a joined current receipt the consumer verifies and retains:
+
+- the exact visual source/actor/emitter-link to registered audio-endpoint
+  bijection and its six endpoint-owned event identities;
+- six exact sample intervals with tick boundaries equal to sample index times
+  three, plus all 75 exact frame sample/tick intervals and active event/endpoint
+  IDs;
+- the capture-time listener/view identity and composed listener pose;
+- 25 stride-three native registration receipts, their listener/source indices,
+  readback positions, visual-frame indices and exact keyframe samples;
+- one trajectory identity and two per-source IR identities for every keyframe;
+  and
+- `prior_listener_rir_reused=false` with the fresh-per-output view policy.
+
+Each visual frame source receives its bound endpoint, active scheduled event
+IDs and exact frame sample/tick interval. These are planned schedule facts from
+`dynamic_audio_receipt.audio_timing`; they are not decoded waveform or perceived
+onset facts.
+
+The current receipt explicitly leaves `actual_waveform_activity_verified=null`
+and `audible_onset_claim=false`. Declared WAV paths/digests are retained as
+uninspected metadata and cannot upgrade that boundary. An optional repeated
+`--external-audio-verifier` path may preserve its first reported `status=...`,
+but remains `unbound_no_structured_view_identity`, has no raw-clue effect, and
+cannot create a perceptual-onset claim. A structured waveform-verifier join is
+a later slice.
+
 ## CPU/mock verification
 
 The focused and adjacent suite passed `91 tests` across:

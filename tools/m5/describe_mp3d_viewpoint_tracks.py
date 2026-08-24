@@ -20,6 +20,14 @@ import numpy as np
 
 from avengine.contracts.json_io import load_json, write_json
 from avengine.m2.habitat_capture import quaternion_xyzw_to_matrix
+from avengine.m5.mp3d_raw_audio import (
+    MP3DRawAudioError,
+    apply_dynamic_audio_raw_clues,
+    dynamic_audio_request_id,
+    load_dynamic_audio_raw_clues,
+    mark_dynamic_audio_pending,
+    unbound_external_verifier,
+)
 from avengine.m5.mp3d_raw_clues import (
     MP3DRawClueError,
     dynamic_capture_request_path,
@@ -360,6 +368,22 @@ def _dynamic_capture_roots(paths: Sequence[Path]) -> dict[str, Path]:
     return result
 
 
+def _dynamic_audio_roots(paths: Sequence[Path]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for index, path in enumerate(paths):
+        root = _required_directory(path, owner=f"--dynamic-audio-dir[{index}]")
+        try:
+            request_id = dynamic_audio_request_id(root)
+        except MP3DRawAudioError as exc:
+            raise MP3DTrackDescriptorError(str(exc)) from exc
+        if request_id in result:
+            raise MP3DTrackDescriptorError(
+                "dynamic audio directories repeat one M1 request identity"
+            )
+        result[request_id] = root
+    return result
+
+
 def run(args: argparse.Namespace) -> Path:
     if args.probe_subset is not None:
         input_kind = "probe_subset"
@@ -392,10 +416,19 @@ def run(args: argparse.Namespace) -> Path:
             load_json(route_path), expected_room_id=room_id
         )
     dynamic_by_request = _dynamic_capture_roots(args.dynamic_capture_dir)
+    audio_by_request_id = _dynamic_audio_roots(args.dynamic_audio_dir)
+    try:
+        external_audio_verifiers = [
+            unbound_external_verifier(path) for path in args.external_audio_verifier
+        ]
+    except MP3DRawAudioError as exc:
+        raise MP3DTrackDescriptorError(str(exc)) from exc
 
     descriptors = []
     bank_root = input_path.parent.resolve()
     expected_request_keys: set[str] = set()
+    expected_request_ids: set[str] = set()
+    audio_join_count = 0
     for viewpoint_record in viewpoint_records:
         viewpoint_id = str(viewpoint_record["viewpoint_id"])
         request_path = _bank_child(
@@ -407,6 +440,8 @@ def run(args: argparse.Namespace) -> Path:
         if request.get("room_id") != room_id:
             raise MP3DTrackDescriptorError(f"{viewpoint_id} request room differs")
         expected_request_keys.add(str(request_path))
+        request_id = str(request.get("request_id"))
+        expected_request_ids.add(request_id)
         transform = _mapping(
             _mapping(
                 request.get("primary_camera_rig"), owner=f"{viewpoint_id} rig"
@@ -456,6 +491,7 @@ def run(args: argparse.Namespace) -> Path:
                     f"{viewpoint_id} track descriptor failed: {exc}"
                 ) from exc
         dynamic_root = dynamic_by_request.get(str(request_path))
+        dynamic = None
         runtime_descriptor = None
         dynamic_raw_clues: Mapping[str, Any]
         if dynamic_root is not None:
@@ -560,6 +596,48 @@ def run(args: argparse.Namespace) -> Path:
                 "candidate_filtering": "none",
                 "candidate_retained": True,
             }
+        audio_root = audio_by_request_id.get(request_id)
+        if audio_root is not None:
+            if dynamic is None:
+                raise MP3DTrackDescriptorError(
+                    f"{viewpoint_id} native audio lacks its joined dynamic visual capture"
+                )
+            try:
+                audio = load_dynamic_audio_raw_clues(
+                    audio_root,
+                    request=request,
+                    request_path=request_path,
+                    visual_receipt_path=dynamic.receipt_path,
+                    visual_raw_clues=dynamic_raw_clues,
+                )
+                dynamic_raw_clues = apply_dynamic_audio_raw_clues(
+                    dynamic_raw_clues, audio.raw_clues
+                )
+            except MP3DRawAudioError as exc:
+                raise MP3DTrackDescriptorError(
+                    f"{viewpoint_id} dynamic audio raw-clue join failed: {exc}"
+                ) from exc
+            audio_join_count += 1
+            dynamic_audio_descriptor: Mapping[str, Any] = {
+                "status": "joined_native_audio_schedule_and_rir_identity",
+                "root": str(audio.root),
+                "research_receipt": str(audio.receipt_path),
+                "research_receipt_record": deepcopy(dict(audio.receipt)),
+                "raw_clues": deepcopy(dict(audio.raw_clues)),
+                "legality_effect": "none",
+                "candidate_retained": True,
+            }
+        else:
+            dynamic_raw_clues = mark_dynamic_audio_pending(dynamic_raw_clues)
+            dynamic_audio_descriptor = {
+                "status": "pending_no_dynamic_audio_receipt_for_this_view",
+                "root": None,
+                "research_receipt": None,
+                "research_receipt_record": None,
+                "raw_clues": None,
+                "legality_effect": "none",
+                "candidate_retained": True,
+            }
         descriptors.append(
             {
                 "viewpoint_id": viewpoint_id,
@@ -582,6 +660,7 @@ def run(args: argparse.Namespace) -> Path:
                 "track_descriptor": descriptor,
                 "runtime_emitter_track": runtime_descriptor,
                 "dynamic_raw_clues": dynamic_raw_clues,
+                "dynamic_audio_raw_clues": dynamic_audio_descriptor,
                 "candidate_retained_by_bridge": True,
                 "bridge_candidate_filtering": "none",
             }
@@ -589,6 +668,10 @@ def run(args: argparse.Namespace) -> Path:
     if not set(dynamic_by_request).issubset(expected_request_keys):
         raise MP3DTrackDescriptorError(
             "a dynamic capture does not belong to any input candidate"
+        )
+    if not set(audio_by_request_id).issubset(expected_request_ids):
+        raise MP3DTrackDescriptorError(
+            "a dynamic audio receipt does not belong to any input M1 request identity"
         )
     if len(descriptors) != len(viewpoint_records):
         raise AssertionError("raw-clue bridge changed the input candidate count")
@@ -601,9 +684,13 @@ def run(args: argparse.Namespace) -> Path:
             staging / "viewpoint_raw_track_descriptors.json",
             {
                 "artifact_status": (
-                    "input_candidates_joined_to_static_and_dynamic_raw_clues"
-                    if dynamic_by_request
-                    else "input_candidates_joined_to_static_receipts"
+                    "input_candidates_joined_to_static_dynamic_and_partial_native_audio_raw_clues"
+                    if audio_by_request_id
+                    else (
+                        "input_candidates_joined_to_static_and_dynamic_raw_clues"
+                        if dynamic_by_request
+                        else "input_candidates_joined_to_static_receipts"
+                    )
                 ),
                 "research_only": True,
                 "episode_counted": False,
@@ -622,20 +709,33 @@ def run(args: argparse.Namespace) -> Path:
                     "dynamic_capture_directories": [
                         str(item.resolve()) for item in args.dynamic_capture_dir
                     ],
+                    "dynamic_audio_directories": [
+                        str(item.resolve()) for item in args.dynamic_audio_dir
+                    ],
+                    "external_audio_verifiers": [
+                        str(item.resolve()) for item in args.external_audio_verifier
+                    ],
                 },
+                "unbound_external_audio_verifiers": external_audio_verifiers,
                 "input_document": deepcopy(dict(input_document)),
                 "track_authority": track_authority,
                 "input_candidate_count": len(viewpoint_records),
                 "output_viewpoint_count": len(descriptors),
                 "input_count_equals_output_count": True,
+                "native_audio_joined_viewpoint_count": audio_join_count,
+                "native_audio_pending_viewpoint_count": (
+                    len(descriptors) - audio_join_count
+                ),
+                "native_audio_legality_effect": "none",
                 "viewpoint_count": len(descriptors),
                 "viewpoints": descriptors,
                 "claim_boundary": (
                     "every input candidate record is retained and joined to its static "
                     "receipt plus optional dynamic raw clues; semantic-ID raster "
                     "presence is not complete actor modal truth and cannot infer "
-                    "occlusion or off-screen; audio/P1/RIR/mini-pilot certification "
-                    "remain separate pending evidence"
+                    "occlusion or off-screen; optional native-audio receipts add only "
+                    "scheduled timing, endpoint and RIR identity facts while waveform "
+                    "activity/onset and P1/mini-pilot certification remain pending"
                 ),
             },
         )
@@ -644,8 +744,10 @@ def run(args: argparse.Namespace) -> Path:
             "All 75 caller-supplied actor-root frames are retained without "
             "interpolation. This catalog applies no side, distance, exchange, "
             "visibility, composition, or difficulty filter. Native dynamic pixels, "
-            "emitter tracks and visible-pixel arrays are attached only when explicitly "
-            "provided; RIRs and mini-pilots remain pending.\n",
+            "emitter tracks and semantic-ID count arrays are attached only when "
+            "explicitly provided. Per-view native audio is optional and never changes "
+            "retention; its receipt schedule/RIR identities do not verify waveform "
+            "activity or perceptual onset.\n",
             encoding="utf-8",
         )
         try:
@@ -680,6 +782,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         type=Path,
         help="repeat once per viewpoint to bind runtime emitter/visibility arrays",
+    )
+    parser.add_argument(
+        "--dynamic-audio-dir",
+        action="append",
+        default=[],
+        type=Path,
+        help="repeat for any subset of views with current native-audio receipts",
+    )
+    parser.add_argument(
+        "--external-audio-verifier",
+        action="append",
+        default=[],
+        type=Path,
+        help=(
+            "preserve an external verifier path/status as explicitly unbound; it "
+            "cannot upgrade waveform or onset truth"
+        ),
     )
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args(argv)
