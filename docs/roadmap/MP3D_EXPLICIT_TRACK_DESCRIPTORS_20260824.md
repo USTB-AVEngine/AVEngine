@@ -51,6 +51,14 @@ identity binding, Habitat axis mapping, explicit pending visibility, no-clobber,
 nonpassing-receipt failure, exact 75-frame requirement and bank-path containment.
 Ruff, formatting, Python compilation and `git diff --check` also pass.
 
-A real-artifact run remains pending until this implementation is committed, so
-the first runtime artifact can name clean code provenance rather than a dirty
-worktree.
+The first clean-code real-artifact attempt stopped before publication because
+the valid `839cfdf` receipts predate the later convenience fields
+`topdown.required` and `topdown.passed`; they retain the authoritative Topdown
+`reports/checks` instead. Room, request, intended-floor navigation,
+camera/listener transform and all observation modalities matched. No output was
+published.
+
+The consumer now accepts both receipt generations and explicitly derives the
+two convenience booleans only when one retained Topdown report and passing
+checks prove them. The normalized record says whether this derivation occurred.
+A fresh real run remains required from the follow-up commit.

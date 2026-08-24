@@ -178,6 +178,24 @@ def _probe_evidence(
     rig = _mapping(value.get("camera_listener_rig"), owner="probe camera/listener")
     topdown = _mapping(value.get("topdown"), owner="probe Topdown")
     observations = _mapping(value.get("observations"), owner="probe observations")
+    reports = topdown.get("reports")
+    checks = topdown.get("checks")
+    topdown_required = topdown.get("required")
+    if topdown_required is None:
+        topdown_required = isinstance(reports, list) and len(reports) == 1
+    topdown_passed = topdown.get("passed")
+    if topdown_passed is None:
+        topdown_passed = bool(
+            topdown_required
+            and isinstance(reports, list)
+            and len(reports) == 1
+            and isinstance(checks, list)
+            and checks
+            and all(
+                isinstance(check, Mapping) and check.get("status") == "pass"
+                for check in checks
+            )
+        )
     if (
         value.get("status") != "pass"
         or value.get("room_id") != expected_room_id
@@ -186,8 +204,8 @@ def _probe_evidence(
         or navigation.get("expected_floor_passed") is not True
         or rig.get("listener_co_located") is not True
         or rig.get("world_from_rig") != expected_transform
-        or topdown.get("required") is not True
-        or topdown.get("passed") is not True
+        or topdown_required is not True
+        or topdown_passed is not True
         or set(observations) != {"rgb", "depth", "semantic"}
     ):
         raise MP3DTrackDescriptorError(
@@ -196,7 +214,14 @@ def _probe_evidence(
     return {
         "status": "pass",
         "navigation": dict(navigation),
-        "topdown": dict(topdown),
+        "topdown": {
+            **dict(topdown),
+            "required": True,
+            "passed": True,
+            "summary_fields_derived_from_reports_checks": (
+                "required" not in topdown or "passed" not in topdown
+            ),
+        },
         "observations": dict(observations),
     }
 

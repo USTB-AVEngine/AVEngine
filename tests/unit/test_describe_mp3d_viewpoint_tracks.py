@@ -95,7 +95,15 @@ def _inputs(tmp_path: Path, *, frames: int = 75, probe_status: str = "pass"):
                 "listener_co_located": True,
                 "world_from_rig": transform,
             },
-            "topdown": {"required": True, "passed": True},
+            "topdown": {
+                "reports": [{"qa_id": "navmesh_topdown", "navigable_pixel_count": 10}],
+                "checks": [
+                    {
+                        "check_id": "qa_navmesh_topdown",
+                        "status": "pass",
+                    }
+                ],
+            },
             "observations": {
                 "rgb": {"statistics": {"color_standard_deviation": 1.0}},
                 "depth": {"statistics": {"finite_positive_fraction": 1.0}},
@@ -164,6 +172,10 @@ def test_run_preserves_exact_mp3d_tracks_and_pending_visibility(tmp_path: Path) 
     assert track["legality"]["status"] == "not_evaluated_by_track_descriptor"
     assert track["difficulty"]["candidate_filtering"] == "disabled"
     assert result["viewpoints"][0]["native_static_probe"]["status"] == "pass"
+    normalized_topdown = result["viewpoints"][0]["native_static_probe"]["topdown"]
+    assert normalized_topdown["required"] is True
+    assert normalized_topdown["passed"] is True
+    assert normalized_topdown["summary_fields_derived_from_reports_checks"] is True
     assert (output / "README.md").is_file()
 
     with pytest.raises(
