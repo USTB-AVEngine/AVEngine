@@ -15,6 +15,7 @@ def _camera() -> CameraModel:
     return CameraModel(
         placement_id="camera0",
         selection_order=1,
+        yaw_deg=0.0,
         m1_request_path=Path("/tmp/camera.json"),
         position_m=np.zeros(3, dtype=np.float64),
         world_from_camera_rotation=np.eye(3, dtype=np.float64),
@@ -37,6 +38,8 @@ def test_projection_retains_raw_centers_without_legality_filter() -> None:
     assert result["source_summaries"]["source2"]["center_in_frustum_frame_count"] == 0
     assert result["at_least_one_center_frame_count"] == 75
     assert result["both_centers_frame_count"] == 0
+    assert result["source_center_in_frustum_count"] == 75
+    assert result["horizontal_source_center_count"] == 75
     assert len(result["frames"]) == 75
     assert result["frames"][0]["sources"]["source2"]["horizontal_tangent"] == 1.5
 
@@ -53,7 +56,7 @@ def test_behind_camera_center_is_retained_with_null_tangent() -> None:
     assert record["center_in_frustum"] is False
 
 
-def _pair(camera: str, family: str, score: tuple[int, int, int]):
+def _pair(camera: str, family: str, score: tuple[int, int, int, int]):
     return {
         "placement_id": camera,
         "route_family_id": family,
@@ -62,6 +65,7 @@ def _pair(camera: str, family: str, score: tuple[int, int, int]):
             "at_least_one_center_frame_count": score[0],
             "both_centers_frame_count": score[1],
             "source_center_in_frustum_count": score[2],
+            "horizontal_source_center_count": score[3],
         },
     }
 
@@ -69,10 +73,10 @@ def _pair(camera: str, family: str, score: tuple[int, int, int]):
 def test_assignment_is_bijective_and_uses_descriptors_only_for_scheduling() -> None:
     selected = select_bijective_pairings(
         [
-            _pair("c0", "f0", (0, 0, 0)),
-            _pair("c0", "f1", (10, 4, 14)),
-            _pair("c1", "f0", (9, 3, 12)),
-            _pair("c1", "f1", (0, 0, 0)),
+            _pair("c0", "f0", (0, 0, 0, 1)),
+            _pair("c0", "f1", (10, 4, 14, 20)),
+            _pair("c1", "f0", (9, 3, 12, 18)),
+            _pair("c1", "f1", (0, 0, 0, 1)),
         ],
         camera_ids=["c0", "c1"],
         route_family_ids=["f0", "f1"],
@@ -86,4 +90,5 @@ def test_assignment_is_bijective_and_uses_descriptors_only_for_scheduling() -> N
         "at_least_one_center_frame_count": 19,
         "both_centers_frame_count": 7,
         "source_center_in_frustum_count": 26,
+        "horizontal_source_center_count": 38,
     }

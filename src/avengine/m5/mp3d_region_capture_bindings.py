@@ -18,6 +18,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from avengine.camera_pose import CameraPoseError, apply_camera_listener_pose
 from avengine.m1.contracts import validate_capture_request
 from avengine.m2.habitat_capture import quaternion_xyzw_to_matrix
 
@@ -32,6 +33,7 @@ SCORE_FIELDS = (
     "at_least_one_center_frame_count",
     "both_centers_frame_count",
     "source_center_in_frustum_count",
+    "horizontal_source_center_count",
 )
 
 
@@ -92,6 +94,7 @@ def _finite_vector(value: Any, *, shape: tuple[int, ...], owner: str) -> np.ndar
 class CameraModel:
     placement_id: str
     selection_order: int
+    yaw_deg: float
     m1_request_path: Path
     position_m: np.ndarray
     world_from_camera_rotation: np.ndarray
@@ -156,6 +159,7 @@ def load_camera_model(
     return CameraModel(
         placement_id=placement_id,
         selection_order=selection_order,
+        yaw_deg=float(candidate["camera"]["yaw_deg"]),
         m1_request_path=m1_path,
         position_m=position,
         world_from_camera_rotation=rotation,
@@ -163,6 +167,81 @@ def load_camera_model(
         far_m=far_m,
         horizontal_tangent_limit=horizontal,
         vertical_tangent_limit=vertical,
+    )
+
+
+def author_yaw_variant_camera(
+    *,
+    placement: Mapping[str, Any],
+    selection_order: int,
+    region_instance_id: str,
+    base_request: Mapping[str, Any],
+    output_root: Path,
+) -> tuple[CameraModel, dict[str, Any]]:
+    placement_id = placement.get("placement_id")
+    if not isinstance(placement_id, str) or not placement_id:
+        raise _fail("yaw variant placement lacks placement_id")
+    try:
+        yaw_deg = float(placement.get("yaw_deg"))
+    except (TypeError, ValueError) as exc:
+        raise _fail(f"yaw variant {placement_id} yaw is invalid") from exc
+    if not math.isfinite(yaw_deg):
+        raise _fail(f"yaw variant {placement_id} yaw is invalid")
+    position = _finite_vector(
+        placement.get("position_m"), shape=(3,), owner=f"{placement_id} position"
+    )
+    floor_position = _finite_vector(
+        placement.get("floor_position_m"),
+        shape=(3,),
+        owner=f"{placement_id} floor position",
+    )
+    token = region_instance_id.replace(":", "_")
+    request_id = (
+        f"{base_request['request_id']}_{token}_{placement_id}_"
+        "posthoc_yaw_capture_candidate"
+    )
+    try:
+        request = apply_camera_listener_pose(
+            base_request,
+            request_id=request_id,
+            position_m=position.tolist(),
+            yaw_deg=yaw_deg,
+        )
+    except (CameraPoseError, KeyError, TypeError, ValueError) as exc:
+        raise _fail(f"could not author yaw variant {placement_id}: {exc}") from exc
+    topdown = [
+        view for view in request.get("qa_views", []) if view.get("kind") == "topdown"
+    ]
+    if len(topdown) != 1:
+        raise _fail(f"yaw variant {placement_id} must retain one Topdown QA view")
+    topdown[0]["height_m"] = float(floor_position[1])
+    errors = validate_capture_request(request, room_id=str(base_request["room_id"]))
+    if errors:
+        raise _fail(f"yaw variant {placement_id} M1 is invalid: {'; '.join(errors)}")
+    relative = Path("requests") / token / f"{placement_id}.json"
+    request_path = output_root / relative
+    rig = request["primary_camera_rig"]
+    calibration = rig["shared_calibration"]
+    height, width = calibration["resolution_hw"]
+    horizontal = math.tan(math.radians(float(calibration["hfov_degrees"])) / 2.0)
+    rotation = np.asarray(
+        quaternion_xyzw_to_matrix(rig["world_from_rig"]["rotation_xyzw"]),
+        dtype=np.float64,
+    )
+    return (
+        CameraModel(
+            placement_id=placement_id,
+            selection_order=selection_order,
+            yaw_deg=yaw_deg,
+            m1_request_path=request_path,
+            position_m=position,
+            world_from_camera_rotation=rotation,
+            near_m=float(calibration["near_m"]),
+            far_m=float(calibration["far_m"]),
+            horizontal_tangent_limit=horizontal,
+            vertical_tangent_limit=horizontal * float(height) / float(width),
+        ),
+        request,
     )
 
 
@@ -198,6 +277,11 @@ def project_case_source_centers(
             & (np.abs(horizontal) <= camera.horizontal_tangent_limit)
             & (np.abs(vertical) <= camera.vertical_tangent_limit)
         )
+        horizontal_inside = (
+            (forward_depth >= camera.near_m)
+            & (forward_depth <= camera.far_m)
+            & (np.abs(horizontal) <= camera.horizontal_tangent_limit)
+        )
         distances = np.linalg.norm(points - camera.position_m, axis=1)
         azimuth = np.degrees(np.arctan2(camera_local[:, 0], forward_depth))
         elevation = np.degrees(
@@ -209,6 +293,7 @@ def project_case_source_centers(
         masks.append(inside)
         per_source[source_id] = {
             "center_in_frustum_frame_count": int(np.count_nonzero(inside)),
+            "horizontal_in_fov_frame_count": int(np.count_nonzero(horizontal_inside)),
             "minimum_listener_distance_m": float(np.min(distances)),
             "maximum_listener_distance_m": float(np.max(distances)),
             "minimum_forward_depth_m": float(np.min(forward_depth)),
@@ -242,6 +327,12 @@ def project_case_source_centers(
         "source_center_in_frustum_count": int(
             np.count_nonzero(masks[0]) + np.count_nonzero(masks[1])
         ),
+        "horizontal_source_center_count": int(
+            sum(
+                per_source[source_id]["horizontal_in_fov_frame_count"]
+                for source_id in source_ids
+            )
+        ),
         "frames": frame_records,
     }
 
@@ -253,7 +344,10 @@ def select_bijective_pairings(
     route_family_ids: Sequence[str],
 ) -> list[dict[str, Any]]:
     lookup = {
-        (str(item["placement_id"]), str(item["route_family_id"])): item
+        (
+            str(item.get("camera_slot_id", item["placement_id"])),
+            str(item["route_family_id"]),
+        ): item
         for item in pairings
     }
     if len(lookup) != len(camera_ids) * len(route_family_ids):
@@ -273,9 +367,12 @@ def select_bijective_pairings(
     totals, _, selected = ranked[0]
     return [
         {
+            "camera_slot_id": item.get("camera_slot_id", item["placement_id"]),
             "placement_id": item["placement_id"],
+            "yaw_deg": item.get("yaw_deg"),
             "route_family_id": item["route_family_id"],
             "m1_request_path": item["m1_request_path"],
+            "original_m1_request_path": item.get("original_m1_request_path"),
             "descriptor_score": dict(item["descriptor_score"]),
             "assignment_total_score": dict(zip(SCORE_FIELDS, totals, strict=True)),
             "selection_role": (
@@ -304,6 +401,32 @@ def build_region_capture_binding_bank(
     if output.exists() or output.is_symlink():
         raise _fail(f"refusing to replace output: {output}")
 
+    viewpoint_inputs = viewpoint_bank.get("inputs")
+    if not isinstance(viewpoint_inputs, Mapping):
+        raise _fail("viewpoint bank lacks input catalog/base request identity")
+    catalog_path, camera_catalog = _load_object(
+        viewpoint_inputs.get("camera_catalog"), owner="camera catalog"
+    )
+    base_request_path, base_request = _load_object(
+        viewpoint_inputs.get("base_m1_request"), owner="base M1 request"
+    )
+    base_errors = validate_capture_request(base_request)
+    if base_errors:
+        raise _fail("base M1 request is invalid: " + "; ".join(base_errors))
+    placements = camera_catalog.get("placements")
+    if (
+        not isinstance(placements, list)
+        or not placements
+        or camera_catalog.get("placement_count") != len(placements)
+    ):
+        raise _fail("camera catalog placement_count/list differ")
+    placements_by_slot: dict[tuple[int, str], list[Mapping[str, Any]]] = {}
+    for placement in placements:
+        if not isinstance(placement, Mapping):
+            raise _fail("camera catalog placements must be objects")
+        slot = (int(placement["floor_sample_index"]), str(placement["height_id"]))
+        placements_by_slot.setdefault(slot, []).append(placement)
+
     region_banks = viewpoint_bank.get("region_banks")
     route_families = route_bank.get("families")
     if not isinstance(region_banks, list) or len(region_banks) != 10:
@@ -321,6 +444,7 @@ def build_region_capture_binding_bank(
     region_outputs = []
     all_pairing_count = 0
     scheduled_point_count = 0
+    selected_request_payloads: dict[Path, dict[str, Any]] = {}
     for region_bank in sorted(region_banks, key=lambda item: item["region_index"]):
         region_index = int(region_bank["region_index"])
         region_id = str(region_bank["region_instance_id"])
@@ -335,12 +459,54 @@ def build_region_capture_binding_bank(
             or len(families) != 4
         ):
             raise _fail(f"region {region_id} must have four cameras and families")
-        cameras = [
-            load_camera_model(candidate, viewpoint_root=viewpoint_path.parent)
-            for candidate in sorted(
-                candidates, key=lambda item: item["selection_order"]
+        ordered_candidates = sorted(
+            candidates, key=lambda item: item["selection_order"]
+        )
+        declared_yaws = camera_catalog.get("yaw_degrees")
+        if not isinstance(declared_yaws, list) or not declared_yaws:
+            raise _fail("camera catalog lacks yaw_degrees")
+        camera_slots = []
+        for candidate in ordered_candidates:
+            camera_record = candidate.get("camera")
+            if not isinstance(camera_record, Mapping):
+                raise _fail(f"region {region_id} selected camera is invalid")
+            slot_key = (
+                int(camera_record["floor_sample_index"]),
+                str(camera_record["height_id"]),
             )
-        ]
+            yaw_placements = sorted(
+                placements_by_slot.get(slot_key, []),
+                key=lambda item: float(item["yaw_deg"]),
+            )
+            observed_yaws = [float(item["yaw_deg"]) for item in yaw_placements]
+            if observed_yaws != [float(value) for value in declared_yaws]:
+                raise _fail(
+                    f"region {region_id} camera slot yaw variants differ from catalog"
+                )
+            original_request = _relative_file(
+                viewpoint_path.parent,
+                candidate.get("m1_capture_request_path"),
+                owner=f"region {region_id} original selected M1 request",
+            )
+            variants = []
+            for placement in yaw_placements:
+                camera, request = author_yaw_variant_camera(
+                    placement=placement,
+                    selection_order=int(candidate["selection_order"]),
+                    region_instance_id=region_id,
+                    base_request=base_request,
+                    output_root=output,
+                )
+                variants.append(camera)
+                selected_request_payloads[camera.m1_request_path] = request
+            camera_slots.append(
+                {
+                    "camera_slot_id": str(candidate["placement_id"]),
+                    "selection_order": int(candidate["selection_order"]),
+                    "original_m1_request_path": str(original_request),
+                    "variants": variants,
+                }
+            )
         pilot_path = actor_root / f"region_{region_index:03d}" / "pilot_manifest.json"
         pilot_root = pilot_path.parent
         _, pilot = _load_object(pilot_path, owner=f"{region_id} actor pilot")
@@ -360,46 +526,93 @@ def build_region_capture_binding_bank(
         if len(case_lookup) != 16:
             raise _fail(f"{region_id} actor pilot must contain sixteen cases")
 
-        pairings = []
-        for camera in cameras:
+        yaw_pairing_summaries = []
+        best_slot_family_pairings = []
+        for slot in camera_slots:
             for family in families:
-                case_descriptors = {}
-                for motion_case in MOTION_CASES:
-                    case = family.get("cases", {}).get(motion_case)
-                    if not isinstance(case, Mapping):
-                        raise _fail(
-                            f"{region_id}/{family.get('route_family_id')} lacks {motion_case}"
+                variant_pairings = []
+                for camera in slot["variants"]:
+                    case_descriptors = {}
+                    for motion_case in MOTION_CASES:
+                        case = family.get("cases", {}).get(motion_case)
+                        if not isinstance(case, Mapping):
+                            raise _fail(
+                                f"{region_id}/{family.get('route_family_id')} "
+                                f"lacks {motion_case}"
+                            )
+                        case_descriptors[motion_case] = project_case_source_centers(
+                            camera,
+                            {
+                                "source1": case.get("source1_positions_m"),
+                                "source2": case.get("source2_positions_m"),
+                            },
                         )
-                    case_descriptors[motion_case] = project_case_source_centers(
-                        camera,
-                        {
-                            "source1": case.get("source1_positions_m"),
-                            "source2": case.get("source2_positions_m"),
-                        },
-                    )
-                descriptor_score = {
-                    field: sum(
-                        int(case_descriptors[motion][field]) for motion in MOTION_CASES
-                    )
-                    for field in SCORE_FIELDS
-                }
-                pairings.append(
-                    {
+                    descriptor_score = {
+                        field: sum(
+                            int(case_descriptors[motion][field])
+                            for motion in MOTION_CASES
+                        )
+                        for field in SCORE_FIELDS
+                    }
+                    pairing = {
+                        "camera_slot_id": slot["camera_slot_id"],
                         "placement_id": camera.placement_id,
                         "camera_selection_order": camera.selection_order,
+                        "yaw_deg": camera.yaw_deg,
                         "m1_request_path": str(camera.m1_request_path),
+                        "original_m1_request_path": slot["original_m1_request_path"],
                         "route_family_id": str(family["route_family_id"]),
                         "route_generation_used_camera": False,
                         "candidate_legality_effect": "none",
                         "descriptor_score": descriptor_score,
                         "motion_case_descriptors": case_descriptors,
                     }
+                    variant_pairings.append(pairing)
+                    yaw_pairing_summaries.append(
+                        {
+                            **{
+                                key: value
+                                for key, value in pairing.items()
+                                if key != "motion_case_descriptors"
+                            },
+                            "motion_case_descriptor_summaries": {
+                                motion: {
+                                    key: value
+                                    for key, value in descriptor.items()
+                                    if key != "frames"
+                                }
+                                for motion, descriptor in case_descriptors.items()
+                            },
+                        }
+                    )
+                variant_pairings.sort(
+                    key=lambda item: (
+                        tuple(
+                            -int(item["descriptor_score"][field])
+                            for field in SCORE_FIELDS
+                        )
+                        + (float(item["yaw_deg"]), str(item["placement_id"]))
+                    )
                 )
+                best_slot_family_pairings.append(variant_pairings[0])
         selected = select_bijective_pairings(
-            pairings,
-            camera_ids=[camera.placement_id for camera in cameras],
+            best_slot_family_pairings,
+            camera_ids=[str(slot["camera_slot_id"]) for slot in camera_slots],
             route_family_ids=[str(family["route_family_id"]) for family in families],
         )
+        best_lookup = {
+            (item["camera_slot_id"], item["route_family_id"]): item
+            for item in best_slot_family_pairings
+        }
+        selected = [
+            {
+                **item,
+                "motion_case_descriptors": best_lookup[
+                    (item["camera_slot_id"], item["route_family_id"])
+                ]["motion_case_descriptors"],
+            }
+            for item in selected
+        ]
         scheduled = []
         for assignment in selected:
             for motion_case in MOTION_CASES:
@@ -409,7 +622,9 @@ def build_region_capture_binding_bank(
                 scheduled.append(
                     {
                         "point_index": len(scheduled),
+                        "camera_slot_id": assignment["camera_slot_id"],
                         "placement_id": assignment["placement_id"],
+                        "yaw_deg": assignment["yaw_deg"],
                         "route_family_id": assignment["route_family_id"],
                         "motion_case": motion_case,
                         "case_id": case_id,
@@ -423,25 +638,28 @@ def build_region_capture_binding_bank(
                 )
         if len(scheduled) != 16:
             raise _fail(f"{region_id} mini-pilot schedule must contain sixteen points")
-        all_pairing_count += len(pairings)
+        all_pairing_count += len(yaw_pairing_summaries)
         scheduled_point_count += len(scheduled)
         region_outputs.append(
             {
                 "region_index": region_index,
                 "region_instance_id": region_id,
-                "camera_count": len(cameras),
+                "camera_count": len(camera_slots),
+                "yaw_candidate_count": sum(
+                    len(slot["variants"]) for slot in camera_slots
+                ),
                 "route_family_count": len(families),
-                "all_pairing_count": len(pairings),
+                "all_pairing_count": len(yaw_pairing_summaries),
                 "selected_binding_count": len(selected),
                 "scheduled_point_count": len(scheduled),
-                "all_pairings": pairings,
+                "all_yaw_pairing_summaries": yaw_pairing_summaries,
                 "selected_bindings": selected,
                 "four_point_mini_pilots": scheduled,
             }
         )
 
     artifact = {
-        "schema": "avengine_m5_mp3d_region_capture_binding_bank_v1",
+        "schema": "avengine_m5_mp3d_region_capture_binding_bank_v2",
         "status": "complete_cpu_posthoc_capture_binding_bank",
         "research_only": True,
         "episode_counted": False,
@@ -449,16 +667,22 @@ def build_region_capture_binding_bank(
         "candidate_legality_effect": "none",
         "camera_route_generation_decoupled": True,
         "assignment_policy": (
-            "one camera-to-route-family bijection per region ranked only by retained "
-            "source-center projection descriptors; all 16 pairings remain present"
+            "each of four target-agnostic camera floor/height slots retains every "
+            "catalog-declared yaw; one yaw and one route family are assigned per slot "
+            "by projection descriptors only, while every yaw pairing summary remains"
         ),
         "inputs": {
             "viewpoint_bank": str(viewpoint_path),
+            "camera_catalog": str(catalog_path),
+            "base_m1_request": str(base_request_path),
             "route_bank": str(route_path),
             "actor_tracks_root": str(actor_root),
         },
         "region_count": len(region_outputs),
         "viewpoint_count": sum(item["camera_count"] for item in region_outputs),
+        "yaw_candidate_count": sum(
+            item["yaw_candidate_count"] for item in region_outputs
+        ),
         "all_pairing_count": all_pairing_count,
         "selected_binding_count": sum(
             item["selected_binding_count"] for item in region_outputs
@@ -467,11 +691,29 @@ def build_region_capture_binding_bank(
         "regions": region_outputs,
         "claim_boundary": (
             "CPU post-hoc binding and source-center projection descriptors only; "
-            "center projection is not whole-actor visibility and does not affect "
-            "camera/source legality. Native pixels, collision, RLR, QA and gates are pending."
+            "yaw variants already exist in the target-agnostic catalog. Center "
+            "projection is not whole-actor visibility and does not affect camera/source "
+            "legality. Native pixels, collision, RLR, QA and gates are pending."
         ),
     }
     output.mkdir(parents=True)
+    selected_paths = {
+        Path(binding["m1_request_path"])
+        for region in region_outputs
+        for binding in region["selected_bindings"]
+    }
+    for request_path in sorted(selected_paths):
+        try:
+            request_path.relative_to(output)
+        except ValueError as exc:
+            raise _fail(f"selected M1 request escapes output: {request_path}") from exc
+        request = selected_request_payloads.get(request_path)
+        if request is None:
+            raise _fail(f"selected M1 request payload is missing: {request_path}")
+        request_path.parent.mkdir(parents=True, exist_ok=True)
+        with request_path.open("x", encoding="utf-8") as handle:
+            json.dump(request, handle, indent=2, sort_keys=True)
+            handle.write("\n")
     (output / "capture_binding_bank.json").write_text(
         json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
