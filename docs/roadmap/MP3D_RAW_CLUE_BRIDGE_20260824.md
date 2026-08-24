@@ -83,6 +83,20 @@ The focused and adjacent suite passed `91 tests` across:
 - the full-catalog probe subset; and
 - per-region viewpoint banks.
 
+The implementation commit is
+`361beacc8bad1e42bba4685ec57ce711c19eeb61`. The exact post-commit test log is:
+
+`/data/jzy/tmp/mp3d_raw_clue_bridge_361beac_unit_r1.log`
+
+It records `91 passed`. Ruff check, Ruff format checking, Python byte
+compilation, `git diff --check`, and the clean branch state are recorded at:
+
+`/data/jzy/tmp/mp3d_raw_clue_bridge_361beac_quality_r1.log`
+
+A separate read-only adapter audit loaded the retained selected12 and region
+artifacts and confirmed exact `12 -> 12` and `40 -> 40` normalization with
+unique ordered IDs; it published no derived artifact.
+
 The tests include pair distance below `0.6 m`, observed crossing and endpoint
 exchange, every modal pixel count equal to zero, actual yaw changing DoA and
 pinhole projection, damaged source axes, mutable-M1-path identity drift,
