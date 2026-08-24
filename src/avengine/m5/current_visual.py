@@ -29,6 +29,7 @@ from avengine.m1.contracts import (
 from avengine.m1.habitat_capture import (
     InstalledHabitatRuntime,
     VISUAL_SENSOR_TYPES,
+    _logical_listener_pose,
     _state_snapshot,
     prepare_installed_habitat_runtime,
 )
@@ -52,12 +53,88 @@ CURRENT_SOURCE_IDS = ("source0", "source1")
 CURRENT_SEMANTIC_IDS = (210, 211)
 CURRENT_ACTOR_OFFSETS_M = ((0.0, 0.0, 0.7), (0.25, 0.0, -0.7))
 CURRENT_EMITTER_LINK_NAMES = ("beagle Xtra Mouth", "beagle Xtra Mouth")
+CURRENT_POSE_COMPONENT_ORDER = (
+    "translation_x_m",
+    "translation_y_m",
+    "translation_z_m",
+    "quaternion_x",
+    "quaternion_y",
+    "quaternion_z",
+    "quaternion_w",
+)
 _ROOT_READBACK_ATOL = 2.0e-6
 _JOINT_READBACK_ATOL = 2.0e-6
+_WORLD_TIME_READBACK_ATOL = 1.0e-12
 
 
 class CurrentVisualError(RuntimeError):
     """The current visual-only M5 route cannot safely run."""
+
+
+def _pose_vector(pose: Mapping[str, Any], *, owner: str) -> np.ndarray:
+    """Pack one already-read pose without replacing it with a planned pose."""
+
+    if not isinstance(pose, Mapping):
+        raise CurrentVisualError(f"{owner} must be a pose object")
+    translation = np.asarray(pose.get("translation_m"), dtype=np.float64)
+    quaternion = np.asarray(pose.get("rotation_xyzw"), dtype=np.float64)
+    if translation.shape != (3,) or quaternion.shape != (4,):
+        raise CurrentVisualError(
+            f"{owner} must contain translation[3] and quaternion_xyzw[4]"
+        )
+    value = np.concatenate((translation, quaternion))
+    if not np.all(np.isfinite(value)):
+        raise CurrentVisualError(f"{owner} is not finite")
+    return value
+
+
+def _snapshot_world_time(snapshot: Mapping[str, Any], *, owner: str) -> float:
+    if not isinstance(snapshot, Mapping):
+        raise CurrentVisualError(f"{owner} must be a state snapshot")
+    try:
+        value = float(snapshot["world_time_seconds"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise CurrentVisualError(f"{owner} has no numeric world time") from error
+    if not np.isfinite(value):
+        raise CurrentVisualError(f"{owner} world time is not finite")
+    return value
+
+
+def _require_render_snapshot_unchanged(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    *,
+    sensor_order: Sequence[str],
+    frame_index: int,
+) -> tuple[float, float]:
+    """Prove that a visual render did not move the camera rig or its sensors."""
+
+    before_time = _snapshot_world_time(
+        before, owner=f"frame {frame_index} pre-render snapshot"
+    )
+    after_time = _snapshot_world_time(
+        after, owner=f"frame {frame_index} post-render snapshot"
+    )
+    if abs(after_time - before_time) > _WORLD_TIME_READBACK_ATOL:
+        raise CurrentVisualError(
+            f"frame {frame_index} render changed Habitat world time"
+        )
+    if transform_error(before["agent"], after["agent"]) > _ROOT_READBACK_ATOL:
+        raise CurrentVisualError(
+            f"frame {frame_index} render changed actual agent/camera pose"
+        )
+    for sensor_uuid in sensor_order:
+        if (
+            transform_error(
+                before["sensors"][sensor_uuid],
+                after["sensors"][sensor_uuid],
+            )
+            > _ROOT_READBACK_ATOL
+        ):
+            raise CurrentVisualError(
+                f"frame {frame_index} render changed actual sensor {sensor_uuid!r} pose"
+            )
+    return before_time, after_time
 
 
 def _require_explicit_runtime_inputs(
@@ -514,6 +591,11 @@ def _capture_current_visual(
     depth_frames: list[np.ndarray] = []
     semantic_frames: list[np.ndarray] = []
     actor_matrices: list[np.ndarray] = []
+    planned_skin_root_matrices: list[np.ndarray] = []
+    actual_skin_root_matrices: list[np.ndarray] = []
+    actual_agent_camera_poses: list[np.ndarray] = []
+    actual_sensor_poses: list[np.ndarray] = []
+    actual_logical_listener_poses: list[np.ndarray] = []
     source_positions: list[np.ndarray] = []
     visibility_records: list[tuple[int, int]] = []
     frame_records: list[dict[str, Any]] = []
@@ -551,6 +633,11 @@ def _capture_current_visual(
         ]
         initial_world_time = float(simulator.get_world_time())
         sensor_uuids = [modality_to_uuid[modality] for modality in FORMAL_MODALITIES]
+        sensor_order = sorted(sensor_uuids)
+        modality_by_sensor_uuid = {
+            sensor_uuid: modality for modality, sensor_uuid in modality_to_uuid.items()
+        }
+        listener = room_inputs.request["listener"]
         preflight_observation = simulator.render_sensors(sensors)
         preflight_arrays = _observation_arrays(preflight_observation, modality_to_uuid)
         _require_no_actor_semantic_collision(preflight_arrays["semantic"])
@@ -590,14 +677,14 @@ def _capture_current_visual(
             frame_camera.position = camera_position
             frame_camera.rotation = qt.quaternion(qw, qx, qy, qz)
             agent.set_state(frame_camera, reset_sensors=False, infer_sensor_states=True)
-            snapshot = _state_snapshot(
+            pre_render_snapshot = _state_snapshot(
                 simulator, agent, sensor_uuids, installed_runtime.quat_to_coeffs
             )
             pose_errors = [
-                transform_error(rig_transform, snapshot["agent"]),
+                transform_error(rig_transform, pre_render_snapshot["agent"]),
                 *[
                     transform_error(rig_transform, sensor_pose)
-                    for sensor_pose in snapshot["sensors"].values()
+                    for sensor_pose in pre_render_snapshot["sensors"].values()
                 ],
             ]
             if max(pose_errors) > _ROOT_READBACK_ATOL:
@@ -606,6 +693,7 @@ def _capture_current_visual(
                 )
 
             actor_world: list[np.ndarray] = []
+            planned_skin_roots: list[np.ndarray] = []
             before_states: list[tuple[np.ndarray, np.ndarray]] = []
             for actor_index, (actor, binding) in enumerate(
                 zip(actors, bindings, strict=True)
@@ -629,6 +717,7 @@ def _capture_current_visual(
                     raise CurrentVisualError(
                         f"frame {frame.frame_index} actor {actor_index} readback failed"
                     )
+                planned_skin_roots.append(skin_root)
                 before_states.append((root_readback, joint_readback))
                 matrix = np.asarray(frame.world_from_actor, dtype=np.float64).copy()
                 matrix[:3, 3] += offsets[actor_index]
@@ -648,10 +737,45 @@ def _capture_current_visual(
                     raise CurrentVisualError(
                         f"frame {frame.frame_index} render changed an articulated state"
                     )
-            if float(simulator.get_world_time()) != initial_world_time:
+            post_render_snapshot = _state_snapshot(
+                simulator, agent, sensor_uuids, installed_runtime.quat_to_coeffs
+            )
+            pre_render_world_time, post_render_world_time = (
+                _require_render_snapshot_unchanged(
+                    pre_render_snapshot,
+                    post_render_snapshot,
+                    sensor_order=sensor_order,
+                    frame_index=int(frame.frame_index),
+                )
+            )
+            if (
+                abs(post_render_world_time - initial_world_time)
+                > _WORLD_TIME_READBACK_ATOL
+            ):
                 raise CurrentVisualError(
                     f"frame {frame.frame_index} advanced Habitat world time"
                 )
+            frame_agent_camera_pose = _pose_vector(
+                post_render_snapshot["agent"],
+                owner=f"frame {frame.frame_index} post-render agent/camera readback",
+            )
+            frame_sensor_poses = np.stack(
+                [
+                    _pose_vector(
+                        post_render_snapshot["sensors"][sensor_uuid],
+                        owner=(
+                            f"frame {frame.frame_index} post-render sensor "
+                            f"{sensor_uuid!r} readback"
+                        ),
+                    )
+                    for sensor_uuid in sensor_order
+                ],
+                axis=0,
+            )
+            frame_listener_pose = _pose_vector(
+                _logical_listener_pose(post_render_snapshot, listener),
+                owner=f"frame {frame.frame_index} post-render logical listener pose",
+            )
 
             frame_sources = np.stack(
                 [
@@ -666,6 +790,13 @@ def _capture_current_visual(
             depth_frames.append(np.asarray(arrays["depth"]).copy())
             semantic_frames.append(np.asarray(arrays["semantic"]).copy())
             actor_matrices.append(np.stack(actor_world, axis=0))
+            planned_skin_root_matrices.append(np.stack(planned_skin_roots, axis=0))
+            actual_skin_root_matrices.append(
+                np.stack([state[0] for state in after_states], axis=0)
+            )
+            actual_agent_camera_poses.append(frame_agent_camera_pose)
+            actual_sensor_poses.append(frame_sensor_poses)
+            actual_logical_listener_poses.append(frame_listener_pose)
             source_positions.append(frame_sources)
             visibility_records.append(frame_visibility)
             frame_records.append(
@@ -679,6 +810,16 @@ def _capture_current_visual(
                     ],
                     "source_positions_m": frame_sources.tolist(),
                     "semantic_visibility_pixels": list(frame_visibility),
+                    "snapshot_world_time_seconds": post_render_world_time,
+                    "pre_render_snapshot_world_time_seconds": pre_render_world_time,
+                    "post_render_snapshot_world_time_seconds": post_render_world_time,
+                    "pose_alignment": {
+                        "array_frame_index": int(frame.frame_index),
+                        "actor_axis_order": list(CURRENT_ACTOR_IDS),
+                        "source_axis_order": list(CURRENT_SOURCE_IDS),
+                        "sensor_axis_order": list(sensor_order),
+                        "pose_component_order": list(CURRENT_POSE_COMPONENT_ORDER),
+                    },
                     "observation_calls": 1,
                 }
             )
@@ -692,6 +833,19 @@ def _capture_current_visual(
         "depth": "arrays/depth.npy",
         "semantic": "arrays/semantic.npy",
         "actor_world_matrices": "arrays/actor_world_matrices.npy",
+        "planned_applied_skin_root_matrices": (
+            "arrays/planned_applied_skin_root_matrices.npy"
+        ),
+        "actual_skin_root_readback_matrices": (
+            "arrays/actual_skin_root_readback_matrices.npy"
+        ),
+        "actual_agent_camera_poses": (
+            "arrays/actual_agent_camera_poses_txyz_qxyzw.npy"
+        ),
+        "actual_sensor_poses": "arrays/actual_sensor_poses_txyz_qxyzw.npy",
+        "actual_logical_listener_poses": (
+            "arrays/actual_logical_listener_poses_txyz_qxyzw.npy"
+        ),
         "source_positions_m": "arrays/source_positions_m.npy",
         "semantic_visibility_pixels": "arrays/semantic_visibility_pixels.npy",
         "frame_records": "frame_records.json",
@@ -704,6 +858,26 @@ def _capture_current_visual(
     np.save(
         arrays_root / "actor_world_matrices.npy",
         np.ascontiguousarray(np.stack(actor_matrices)),
+    )
+    np.save(
+        arrays_root / "planned_applied_skin_root_matrices.npy",
+        np.ascontiguousarray(np.stack(planned_skin_root_matrices)),
+    )
+    np.save(
+        arrays_root / "actual_skin_root_readback_matrices.npy",
+        np.ascontiguousarray(np.stack(actual_skin_root_matrices)),
+    )
+    np.save(
+        arrays_root / "actual_agent_camera_poses_txyz_qxyzw.npy",
+        np.ascontiguousarray(np.stack(actual_agent_camera_poses)),
+    )
+    np.save(
+        arrays_root / "actual_sensor_poses_txyz_qxyzw.npy",
+        np.ascontiguousarray(np.stack(actual_sensor_poses)),
+    )
+    np.save(
+        arrays_root / "actual_logical_listener_poses_txyz_qxyzw.npy",
+        np.ascontiguousarray(np.stack(actual_logical_listener_poses)),
     )
     np.save(
         arrays_root / "source_positions_m.npy",
@@ -750,6 +924,8 @@ def _capture_current_visual(
             "frame_count": len(frame_records),
             "modalities": list(FORMAL_MODALITIES),
             "observation_calls_per_frame": 1,
+            "state_snapshot_calls_per_frame": 2,
+            "persisted_pose_snapshot_phase": "post_render",
             "physics_steps": 0,
             "audio_sensor_included": False,
         },
@@ -759,6 +935,78 @@ def _capture_current_visual(
             "semantic_ids": list(CURRENT_SEMANTIC_IDS),
             "instance_offsets_m": offsets.tolist(),
             "emitter_link_names": list(CURRENT_EMITTER_LINK_NAMES),
+            "axis_bindings": [
+                {
+                    "axis_index": axis_index,
+                    "actor_id": CURRENT_ACTOR_IDS[axis_index],
+                    "source_id": CURRENT_SOURCE_IDS[axis_index],
+                    "semantic_id": CURRENT_SEMANTIC_IDS[axis_index],
+                    "emitter_link_name": CURRENT_EMITTER_LINK_NAMES[axis_index],
+                    "runtime_emitter_link_id": emitter_link_ids[axis_index],
+                    "audio_endpoint_status": "pending",
+                    "audio_endpoint_id": None,
+                }
+                for axis_index in range(len(CURRENT_ACTOR_IDS))
+            ],
+        },
+        "pose_readback": {
+            "status": "native_habitat_pose_readback_recorded",
+            "frame_count": len(frame_records),
+            "pose_component_order": list(CURRENT_POSE_COMPONENT_ORDER),
+            "coordinate_convention": {
+                "frame": "habitat_world",
+                "axis_order": ["X", "Y", "Z"],
+                "up_axis": "+Y",
+            },
+            "matrix_convention": {
+                "transform_direction": "world_from_local",
+                "translation_location": "last_column",
+                "homogeneous_last_row": [0.0, 0.0, 0.0, 1.0],
+            },
+            "actor_axis_order": list(CURRENT_ACTOR_IDS),
+            "source_axis_order": list(CURRENT_SOURCE_IDS),
+            "sensor_order": [
+                {
+                    "axis_index": axis_index,
+                    "sensor_uuid": sensor_uuid,
+                    "modality": modality_by_sensor_uuid[sensor_uuid],
+                }
+                for axis_index, sensor_uuid in enumerate(sensor_order)
+            ],
+            "planned_actor_world_matrices": {
+                "artifact_key": "actor_world_matrices",
+                "pose_kind": "planned_actor_transform_with_instance_offset",
+                "actual_readback": False,
+            },
+            "planned_applied_skin_root_matrices": {
+                "artifact_key": "planned_applied_skin_root_matrices",
+                "pose_kind": "planned_transform_applied_to_skin_root",
+                "actual_readback": False,
+            },
+            "actual_skin_root_readback_matrices": {
+                "artifact_key": "actual_skin_root_readback_matrices",
+                "pose_kind": "articulated_root_scene_node_after_render",
+                "actual_readback": True,
+            },
+            "actual_agent_camera_poses": {
+                "artifact_key": "actual_agent_camera_poses",
+                "pose_kind": "post_render_agent_camera_from_state_snapshot",
+                "actual_readback": True,
+            },
+            "actual_sensor_poses": {
+                "artifact_key": "actual_sensor_poses",
+                "pose_kind": "post_render_sensor_states_from_state_snapshot",
+                "actual_readback": True,
+            },
+            "actual_logical_listener_poses": {
+                "artifact_key": "actual_logical_listener_poses",
+                "pose_kind": (
+                    "logical_listener_composed_from_post_render_agent_readback"
+                ),
+                "actual_readback": False,
+                "derived_from_actual_agent_readback": True,
+                "native_listener_sensor_readback": False,
+            },
         },
         "visibility": {
             "status": "native_semantic_pixels_recorded",

@@ -388,6 +388,58 @@ def test_current_visual_rejects_preexisting_actor_semantic_ids(
         current_visual._require_no_actor_semantic_collision(semantic)
 
 
+@pytest.mark.parametrize(
+    ("mutated_target", "message"),
+    (
+        ("agent", "agent/camera pose"),
+        ("rig_rgb", "sensor 'rig_rgb' pose"),
+    ),
+)
+def test_current_visual_rejects_post_render_camera_or_sensor_mutation(
+    mutated_target: str, message: str
+) -> None:
+    pose = {
+        "translation_m": [1.0, 2.0, 3.0],
+        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+    }
+    before = {
+        "world_time_seconds": 0.0,
+        "agent": {
+            "translation_m": list(pose["translation_m"]),
+            "rotation_xyzw": list(pose["rotation_xyzw"]),
+        },
+        "sensors": {
+            "rig_depth": {
+                "translation_m": list(pose["translation_m"]),
+                "rotation_xyzw": list(pose["rotation_xyzw"]),
+            },
+            "rig_rgb": {
+                "translation_m": list(pose["translation_m"]),
+                "rotation_xyzw": list(pose["rotation_xyzw"]),
+            },
+            "rig_semantic": {
+                "translation_m": list(pose["translation_m"]),
+                "rotation_xyzw": list(pose["rotation_xyzw"]),
+            },
+        },
+    }
+    after = json.loads(json.dumps(before))
+    owner = (
+        after["agent"]
+        if mutated_target == "agent"
+        else after["sensors"][mutated_target]
+    )
+    owner["translation_m"][0] += 1.0e-3
+
+    with pytest.raises(current_visual.CurrentVisualError, match=message):
+        current_visual._require_render_snapshot_unchanged(
+            before,
+            after,
+            sensor_order=("rig_depth", "rig_rgb", "rig_semantic"),
+            frame_index=4,
+        )
+
+
 def test_current_visual_records_zero_visibility_without_rejecting_candidate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -472,9 +524,17 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
             "seed": 17,
             "primary_camera_rig": {
                 "world_from_rig": {
-                    "translation_m": [0.0, 0.0, 0.0],
-                    "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                    "translation_m": [9.0, 8.0, 7.0],
+                    "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
                 }
+            },
+            "listener": {
+                "listener_id": "listener0",
+                "attached_to": "camera_rig_0",
+                "rig_from_listener": {
+                    "translation_m": [0.4, 0.2, -0.3],
+                    "rotation_xyzw": [0.0, 2**-0.5, 0.0, 2**-0.5],
+                },
             },
         },
     )
@@ -544,6 +604,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         events.append(f"instantiate-{kwargs['actor_index']}")
         return (
             SimpleNamespace(
+                actor_index=kwargs["actor_index"],
                 root=identity.copy(),
                 joint_positions=np.asarray([0.0, 0.0, 0.0, 1.0]),
             ),
@@ -559,35 +620,69 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         current_visual, "validate_loaded_scene_asset_graph", fake_loaded_graph
     )
     monkeypatch.setattr(current_visual, "_instantiate_semantic_actor", fake_instantiate)
-    monkeypatch.setattr(current_visual, "_link_id_by_name", lambda *_args: 0)
+    monkeypatch.setattr(
+        current_visual,
+        "_link_id_by_name",
+        lambda actor, _name: 100 + actor.actor_index,
+    )
     monkeypatch.setattr(current_visual, "_apply_root_with_habitat", fake_apply)
     monkeypatch.setattr(
         current_visual,
         "_read_actor_state",
-        lambda actor: (actor.root.copy(), actor.joint_positions.copy()),
+        lambda actor: (
+            actor.root.copy()
+            + np.asarray(
+                [
+                    [0.0, 0.0, 0.0, 1.0e-7],
+                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0],
+                ],
+                dtype=np.float64,
+            ),
+            actor.joint_positions.copy(),
+        ),
     )
     monkeypatch.setattr(
         current_visual,
         "_node_world_position",
         lambda *_args: np.zeros(3, dtype=np.float64),
     )
-    monkeypatch.setattr(
-        current_visual,
-        "_state_snapshot",
-        lambda *_args: {
-            "agent": room_inputs.request["primary_camera_rig"]["world_from_rig"],
-            "sensors": {
-                "rig_rgb": room_inputs.request["primary_camera_rig"]["world_from_rig"],
-                "rig_depth": room_inputs.request["primary_camera_rig"][
-                    "world_from_rig"
-                ],
-                "rig_semantic": room_inputs.request["primary_camera_rig"][
-                    "world_from_rig"
-                ],
+    snapshots: list[dict[str, Any]] = []
+    snapshot_quaternion = [
+        0.0,
+        float(np.sin(np.pi / 4.0 + 1.0e-7)),
+        0.0,
+        float(np.cos(np.pi / 4.0 + 1.0e-7)),
+    ]
+
+    def fake_state_snapshot(*_args: object) -> dict[str, Any]:
+        post_render_delta = 1.0e-7 if len(snapshots) % 2 else 0.0
+        snapshot = {
+            "world_time_seconds": 0.0,
+            "agent": {
+                "translation_m": [9.0 + post_render_delta, 8.0, 7.0],
+                "rotation_xyzw": list(snapshot_quaternion),
             },
-        },
-    )
-    monkeypatch.setattr(current_visual, "transform_error", lambda *_args: 0.0)
+            "sensors": {
+                "rig_rgb": {
+                    "translation_m": [9.0 + 1.0e-7 + post_render_delta, 8.0, 7.0],
+                    "rotation_xyzw": list(snapshot_quaternion),
+                },
+                "rig_depth": {
+                    "translation_m": [9.0 + 2.0e-7 + post_render_delta, 8.0, 7.0],
+                    "rotation_xyzw": list(snapshot_quaternion),
+                },
+                "rig_semantic": {
+                    "translation_m": [9.0 + 3.0e-7 + post_render_delta, 8.0, 7.0],
+                    "rotation_xyzw": list(snapshot_quaternion),
+                },
+            },
+        }
+        snapshots.append(snapshot)
+        return snapshot
+
+    monkeypatch.setattr(current_visual, "_state_snapshot", fake_state_snapshot)
 
     output = tmp_path / "capture"
     output.mkdir()
@@ -600,6 +695,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         frames=frames,
     )
     assert simulator.render_calls == 76
+    assert len(snapshots) == 150
     assert events.index("loaded-graph") < events.index("instantiate-0")
     visibility = np.load(output / "arrays/semantic_visibility_pixels.npy")
     assert visibility.shape == (75, 2)
@@ -620,6 +716,136 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
     assert actor1["zero_visible_frame_indices"] == [74]
     assert actor1["minimum_visible_pixels"] == 0
     assert actor1["per_frame_visible_pixels"][-2:] == [1, 0]
+
+    planned_actor = np.load(output / "arrays/actor_world_matrices.npy")
+    planned_skin = np.load(output / "arrays/planned_applied_skin_root_matrices.npy")
+    actual_skin = np.load(output / "arrays/actual_skin_root_readback_matrices.npy")
+    actual_agent = np.load(output / "arrays/actual_agent_camera_poses_txyz_qxyzw.npy")
+    actual_sensors = np.load(output / "arrays/actual_sensor_poses_txyz_qxyzw.npy")
+    actual_listener = np.load(
+        output / "arrays/actual_logical_listener_poses_txyz_qxyzw.npy"
+    )
+    assert (
+        planned_actor.shape
+        == planned_skin.shape
+        == actual_skin.shape
+        == (
+            75,
+            2,
+            4,
+            4,
+        )
+    )
+    assert actual_agent.shape == actual_listener.shape == (75, 7)
+    assert actual_sensors.shape == (75, 3, 7)
+    assert actual_agent[0].tolist() == pytest.approx(
+        [9.0 + 1.0e-7, 8.0, 7.0, *snapshot_quaternion]
+    )
+    assert actual_agent[0].tolist() == pytest.approx(
+        [
+            *snapshots[1]["agent"]["translation_m"],
+            *snapshots[1]["agent"]["rotation_xyzw"],
+        ]
+    )
+    expected_listener = current_visual._logical_listener_pose(
+        snapshots[1], room_inputs.request["listener"]
+    )
+    assert actual_listener[0].tolist() == pytest.approx(
+        [
+            *expected_listener["translation_m"],
+            *expected_listener["rotation_xyzw"],
+        ]
+    )
+    assert not np.allclose(actual_listener[0], actual_agent[0], rtol=0.0, atol=1.0e-12)
+    assert (
+        actual_agent[0, :3].tolist()
+        != room_inputs.request["primary_camera_rig"]["world_from_rig"]["translation_m"]
+    )
+    assert (
+        actual_agent[0, 3:].tolist()
+        != room_inputs.request["primary_camera_rig"]["world_from_rig"]["rotation_xyzw"]
+    )
+    assert actual_sensors[0, :, 0].tolist() == pytest.approx(
+        [9.0 + 3.0e-7, 9.0 + 2.0e-7, 9.0 + 4.0e-7]
+    )
+    assert np.max(np.abs(actual_skin - planned_skin)) == pytest.approx(1.0e-7)
+    assert not np.array_equal(actual_skin, planned_skin)
+
+    assert receipt["pose_readback"]["sensor_order"] == [
+        {"axis_index": 0, "sensor_uuid": "rig_depth", "modality": "depth"},
+        {"axis_index": 1, "sensor_uuid": "rig_rgb", "modality": "rgb"},
+        {
+            "axis_index": 2,
+            "sensor_uuid": "rig_semantic",
+            "modality": "semantic",
+        },
+    ]
+    assert receipt["capture"]["state_snapshot_calls_per_frame"] == 2
+    assert receipt["capture"]["persisted_pose_snapshot_phase"] == "post_render"
+    assert receipt["pose_readback"]["coordinate_convention"] == {
+        "frame": "habitat_world",
+        "axis_order": ["X", "Y", "Z"],
+        "up_axis": "+Y",
+    }
+    assert receipt["pose_readback"]["matrix_convention"] == {
+        "transform_direction": "world_from_local",
+        "translation_location": "last_column",
+        "homogeneous_last_row": [0.0, 0.0, 0.0, 1.0],
+    }
+    assert receipt["pose_readback"]["actual_logical_listener_poses"] == {
+        "artifact_key": "actual_logical_listener_poses",
+        "pose_kind": "logical_listener_composed_from_post_render_agent_readback",
+        "actual_readback": False,
+        "derived_from_actual_agent_readback": True,
+        "native_listener_sensor_readback": False,
+    }
+    assert receipt["actors"]["axis_bindings"] == [
+        {
+            "axis_index": 0,
+            "actor_id": "actor0",
+            "source_id": "source0",
+            "semantic_id": 210,
+            "emitter_link_name": "beagle Xtra Mouth",
+            "runtime_emitter_link_id": 100,
+            "audio_endpoint_status": "pending",
+            "audio_endpoint_id": None,
+        },
+        {
+            "axis_index": 1,
+            "actor_id": "actor1",
+            "source_id": "source1",
+            "semantic_id": 211,
+            "emitter_link_name": "beagle Xtra Mouth",
+            "runtime_emitter_link_id": 101,
+            "audio_endpoint_status": "pending",
+            "audio_endpoint_id": None,
+        },
+    ]
+    records = json.loads((output / "frame_records.json").read_text())["frames"]
+    assert len(records) == 75
+    assert records[74]["pts_ticks"] == 236800
+    assert records[74]["snapshot_world_time_seconds"] == 0.0
+    assert records[74]["pre_render_snapshot_world_time_seconds"] == 0.0
+    assert records[74]["post_render_snapshot_world_time_seconds"] == 0.0
+    assert records[74]["pose_alignment"] == {
+        "array_frame_index": 74,
+        "actor_axis_order": ["actor0", "actor1"],
+        "source_axis_order": ["source0", "source1"],
+        "sensor_axis_order": ["rig_depth", "rig_rgb", "rig_semantic"],
+        "pose_component_order": list(current_visual.CURRENT_POSE_COMPONENT_ORDER),
+    }
+
+
+def test_current_visual_output_directory_is_no_clobber(tmp_path: Path) -> None:
+    output = tmp_path / "existing-output"
+    output.mkdir()
+    marker = output / "retained.txt"
+    marker.write_text("retain\n", encoding="utf-8")
+
+    with pytest.raises(current_visual.CurrentVisualError, match="refusing to replace"):
+        current_visual._fresh_output_directory(output)
+
+    assert marker.read_text(encoding="utf-8") == "retain\n"
 
 
 def test_current_module_has_no_checkout_or_v1_receipt_path() -> None:
