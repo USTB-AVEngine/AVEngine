@@ -176,6 +176,21 @@ def _require_no_case_semantic_collision(
         )
 
 
+def _capture_m1_request_path(case: Any, override: str | Path | None) -> Path:
+    if override is None:
+        return case.camera_m1_request_path
+    candidate = Path(override)
+    if candidate.is_symlink():
+        raise _fail(f"capture M1 request must not be a symlink: {candidate}")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise _fail(f"capture M1 request is missing: {candidate}") from exc
+    if not resolved.is_file():
+        raise _fail(f"capture M1 request is not a regular file: {resolved}")
+    return resolved
+
+
 def _capture_native(
     *,
     case: Any,
@@ -184,6 +199,8 @@ def _capture_native(
     installed_runtime: Any,
     output: Path,
     gpu_device_id: int,
+    capture_m1_request_path: Path,
+    camera_binding_source: str,
 ) -> dict[str, Any]:
     habitat_sim = installed_runtime.habitat_sim
     mn = installed_runtime.magnum
@@ -509,7 +526,10 @@ def _capture_native(
             "region_instance_id": plan.region_instance_id,
             "route_family_id": plan.route_family_id,
             "motion_case": plan.motion_case,
-            "camera_m1_request": str(case.camera_m1_request_path),
+            "camera_m1_request": str(capture_m1_request_path),
+            "declared_camera_m1_request": str(case.camera_m1_request_path),
+            "camera_binding_source": camera_binding_source,
+            "camera_participation_in_route_generation": False,
         },
         "actors": {
             "actor_ids": [track.actor_id for track in case.actor_tracks],
@@ -551,13 +571,18 @@ def capture_mp3d_region_case(
     output_directory: str | Path,
     rlr_sdk_root: str | Path | None = None,
     gpu_device_id: int = 0,
+    m1_request_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Validate and natively capture one case with no output replacement."""
 
     case = load_multi_actor_case(case_manifest_path)
     plan = build_apply_plan(case)
+    capture_m1_request = _capture_m1_request_path(case, m1_request_path)
+    camera_binding_source = (
+        "case_manifest" if m1_request_path is None else "explicit_posthoc_rebind"
+    )
     try:
-        room_inputs = load_m1_inputs(room_manifest_path, case.camera_m1_request_path)
+        room_inputs = load_m1_inputs(room_manifest_path, capture_m1_request)
         static_errors = validate_scene_asset_graph(
             room_inputs, None, mp3d_root=mp3d_root
         )
@@ -585,6 +610,8 @@ def capture_mp3d_region_case(
         installed_runtime=installed,
         output=output,
         gpu_device_id=gpu_device_id,
+        capture_m1_request_path=capture_m1_request,
+        camera_binding_source=camera_binding_source,
     )
 
 

@@ -15,6 +15,7 @@ from avengine.m5.current_visual_multi_actor_native import (
     ARRAY_ARTIFACTS,
     NativeMultiActorVisualError,
     _camera_pose,
+    _capture_m1_request_path,
     _fresh_output_directory,
     _load_actor_templates,
     _require_camera_and_sensor_pose_match,
@@ -76,6 +77,20 @@ def test_semantic_preflight_uses_case_actor_ids() -> None:
     _require_no_case_semantic_collision(semantic, [210, 211])
     with pytest.raises(NativeMultiActorVisualError, match="310"):
         _require_no_case_semantic_collision(semantic, [310, 311])
+
+
+def test_capture_camera_can_be_rebound_without_mutating_case(tmp_path: Path) -> None:
+    declared = tmp_path / "declared.json"
+    declared.write_text("{}")
+    alternate = tmp_path / "alternate.json"
+    alternate.write_text("{}")
+    case = SimpleNamespace(camera_m1_request_path=declared.resolve())
+    assert _capture_m1_request_path(case, None) == declared.resolve()
+    assert _capture_m1_request_path(case, alternate) == alternate.resolve()
+    link = tmp_path / "alternate-link.json"
+    link.symlink_to(alternate)
+    with pytest.raises(NativeMultiActorVisualError, match="symlink"):
+        _capture_m1_request_path(case, link)
 
 
 def test_runtime_contact_api_requires_both_native_methods() -> None:
@@ -225,6 +240,8 @@ def test_cli_exposes_native_region_multi_actor_command(
         "case.json",
         "--room-manifest",
         "room.json",
+        "--m1-request",
+        "camera.json",
         "--runtime-prefix",
         "prefix",
         "--mp3d-root",
@@ -245,6 +262,7 @@ def test_cli_exposes_native_region_multi_actor_command(
     assert calls == {
         "case_manifest_path": "case.json",
         "room_manifest_path": "room.json",
+        "m1_request_path": "camera.json",
         "runtime_prefix": "prefix",
         "mp3d_root": "mp3d",
         "magnum_python_site": "magnum",

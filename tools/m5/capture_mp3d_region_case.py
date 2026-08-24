@@ -62,6 +62,11 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case-manifest", type=Path, required=True)
     parser.add_argument("--room-manifest", type=Path)
+    parser.add_argument(
+        "--m1-request",
+        type=Path,
+        help="validated post-hoc camera binding; does not alter actor routes",
+    )
     parser.add_argument("--runtime-prefix", type=Path)
     parser.add_argument("--mp3d-root", type=Path)
     parser.add_argument("--magnum-python-site", type=Path)
@@ -102,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             result = capture_mp3d_region_case(
                 case_manifest_path=args.case_manifest,
                 room_manifest_path=args.room_manifest,
+                m1_request_path=args.m1_request,
                 runtime_prefix=args.runtime_prefix,
                 mp3d_root=args.mp3d_root,
                 magnum_python_site=args.magnum_python_site,

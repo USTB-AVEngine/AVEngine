@@ -1486,6 +1486,7 @@ def _m5_capture_mp3d_region_multi_actor_native(args: argparse.Namespace) -> int:
         receipt = capture_mp3d_region_case(
             case_manifest_path=args.case_manifest,
             room_manifest_path=args.room_manifest,
+            m1_request_path=args.m1_request,
             runtime_prefix=args.runtime_prefix,
             mp3d_root=args.mp3d_root,
             magnum_python_site=args.magnum_python_site,
@@ -2384,6 +2385,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m5_region_multi_actor_native.add_argument("--case-manifest", required=True)
     m5_region_multi_actor_native.add_argument("--room-manifest", required=True)
+    m5_region_multi_actor_native.add_argument(
+        "--m1-request",
+        help="Optional validated post-hoc camera binding; routes remain unchanged",
+    )
     m5_region_multi_actor_native.add_argument("--runtime-prefix", required=True)
     m5_region_multi_actor_native.add_argument("--mp3d-root", required=True)
     m5_region_multi_actor_native.add_argument("--magnum-python-site", required=True)
