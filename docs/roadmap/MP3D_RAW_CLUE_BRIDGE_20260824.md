@@ -198,6 +198,26 @@ no distance, side, crossing, visibility, semantic-ID, or composition gate.
 The earlier 91-test record remains the pre-correction implementation history;
 the 96-test record is current for the P2 code.
 
+The optional partial native-audio join implementation is commit
+`43bbf0dfff55be91f08e869ca7d9497a06ba0dc9`. Its post-commit adjacent suite
+records `112 passed` at:
+
+`/data/jzy/tmp/mp3d_raw_audio_43bbf0d_adjacent_r1.log`
+
+The corresponding Ruff check, Ruff format check, byte compilation,
+`git diff --check`, and clean branch evidence is:
+
+`/data/jzy/tmp/mp3d_raw_audio_43bbf0d_quality_r1.log`
+
+The ten dedicated audio-consumer tests cover one of twelve joined with eleven
+pending, exact frame/event timing, endpoint/visual-axis identity, 25 native
+registration and per-source IR identities, wrong M1/room/view/listener/source
+axes, duplicate audio receipts, missing IR identity, and an external verifier
+that remains explicitly unbound. The adjacent total also covers the existing
+dynamic-audio producer, visual raw clues, current visual readback, motion
+descriptors, probe subset, and region banks. No audio receipt changes the input
+or output viewpoint count.
+
 No Habitat, GPU, audio, RLR, FFmpeg, or native selected12 job ran in this
 slice. The first real selected12 dynamic join must wait for fresh captures
 from the merged current code, then run with fresh/no-clobber output and receive
