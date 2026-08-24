@@ -9,9 +9,11 @@ import pytest
 
 import avengine.m5.current_mp3d_dynamic_audio as dynamic_audio
 from avengine.m5.current_mp3d_dynamic_audio import (
+    CURRENT_MP3D_REGION_SOURCE_AXIS_BINDINGS,
     CURRENT_MP3D_SOURCE_AXIS_BINDINGS,
     CurrentMP3DDynamicAudioError,
     _listener_view_identity,
+    _source_axis_bindings_for_visual_capture,
     build_audio_timing_evidence,
     build_source_identity_evidence,
     listener_pose_from_m1_request,
@@ -34,6 +36,10 @@ PROGRAM_PATH = (
 
 def _axis_bindings() -> list[dict[str, object]]:
     return [dict(item) for item in CURRENT_MP3D_SOURCE_AXIS_BINDINGS]
+
+
+def _region_axis_bindings() -> list[dict[str, object]]:
+    return [dict(item) for item in CURRENT_MP3D_REGION_SOURCE_AXIS_BINDINGS]
 
 
 def _valid_m1_request(*, listener_id: str = "listener0") -> dict[str, object]:
@@ -64,8 +70,12 @@ def _write_visual_capture(
     stored_positions: np.ndarray | None = None,
     m1_request: dict[str, object] | None = None,
     declared_m1_path: Path | None = None,
+    source_axis_bindings: list[dict[str, object]] | None = None,
+    camera_route_decoupled: bool = False,
 ) -> tuple[list[dict[str, object]], np.ndarray]:
-    bindings = _axis_bindings()
+    bindings = (
+        _axis_bindings() if source_axis_bindings is None else source_axis_bindings
+    )
     request = _valid_m1_request() if m1_request is None else m1_request
     m1_path = root / "m1_request.json"
     m1_path.write_text(json.dumps(request), encoding="utf-8")
@@ -123,6 +133,16 @@ def _write_visual_capture(
                     "room_kind": "habitat_native",
                 },
                 "m1_capture_identity": _capture_identity(request),
+                **(
+                    {
+                        "case": {
+                            "camera_binding_source": "explicit_posthoc_rebind",
+                            "camera_participation_in_route_generation": False,
+                        }
+                    }
+                    if camera_route_decoupled
+                    else {}
+                ),
                 "actors": {
                     "source_ids": receipt_source_ids
                     or [str(item["source_id"]) for item in bindings],
@@ -155,6 +175,34 @@ def _write_visual_capture(
         encoding="utf-8",
     )
     return bindings, positions
+
+
+def test_region_visual_selects_explicit_source1_source2_bridge(
+    tmp_path: Path,
+) -> None:
+    request = _valid_m1_request()
+    bindings, _ = _write_visual_capture(
+        tmp_path,
+        m1_request=request,
+        source_axis_bindings=_region_axis_bindings(),
+        camera_route_decoupled=True,
+    )
+    selected = _source_axis_bindings_for_visual_capture(tmp_path)
+    assert [item["source_id"] for item in selected] == ["source1", "source2"]
+    trajectories, axes, evidence = dynamic_audio._load_captured_source_evidence(
+        tmp_path, selected
+    )
+    assert list(trajectories) == ["beagle_0_muzzle", "beagle_1_muzzle"]
+    identity = _listener_view_identity(
+        m1_request=request,
+        m1_request_path=tmp_path / "m1_request.json",
+        visual_evidence=evidence,
+        source_axis_bindings=axes,
+    )
+    assert [item["source_id"] for item in bindings] == ["source1", "source2"]
+    assert identity["visual_source_axis_order"] == ["source1", "source2"]
+    assert identity["m1_request_source_axis_order"] == ["source0", "source1"]
+    assert identity["camera_route_decoupled"] is True
 
 
 def _resolved_dry_assets() -> dict[str, dict[str, str]]:
