@@ -168,8 +168,8 @@ class MP3DRegionViewpointAnalysis:
             ),
             "selection_hard_numeric_thresholds": [],
             "selection_weights": {
-                "quality_boundary_distance": 0.90,
-                "quality_central_height": 0.10,
+                "quality_boundary_distance": 0.95,
+                "quality_central_height": 0.05,
                 "selection_quality": 0.40,
                 "selection_novelty": 0.60,
                 "novelty_floor_position": 0.70,
@@ -585,7 +585,7 @@ def _candidate_quality(
             1.0,
         )
     )
-    quality = float(0.90 * boundary_preference + 0.10 * central_height)
+    quality = float(0.95 * boundary_preference + 0.05 * central_height)
     return {
         "distance_to_nearest_polygon_boundary_m": boundary,
         "boundary_distance_rational_scale_m": boundary_scale_m,

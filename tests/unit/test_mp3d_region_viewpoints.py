@@ -235,6 +235,7 @@ def test_selects_four_distinct_floor_positions_per_region() -> None:
     assert record["region_bank_count"] == 2
     assert record["selected_viewpoint_count"] == 8
     assert record["selected_unique_floor_position_count"] == 8
+    assert len(record["selected_height_id_distribution"]) > 1
     assert record["selection_hard_numeric_thresholds"] == []
     assert record["input_floor_membership_status_counts"] == {
         "ambiguous": 1,
