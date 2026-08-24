@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a fresh CPU-only Kujiale viewpoint and straight-corridor prefilter."""
+"""Build a fresh CPU-only Kujiale viewpoint and source-route request bank."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from avengine.optional_backends.kujiale_viewpoints import (  # noqa: E402
     CPU_PREFILTER_AUTHORITY,
     CPU_PREFILTER_BOUNDARY,
     build_viewpoint_plan,
+    generate_polyline_corridors,
     generate_straight_corridors,
 )
 from avengine.optional_backends.kujiale_scene_binding import (  # noqa: E402
@@ -52,7 +53,8 @@ def _font(size: int) -> ImageFont.ImageFont:
 def _render_topdown(
     *,
     output: Path,
-    obstacle_map: Any,
+    camera_free_space_mask: np.ndarray,
+    camera_bounds_m: np.ndarray,
     corridors: Sequence[Mapping[str, Any]],
     bank: Mapping[str, Any],
 ) -> Path:
@@ -60,7 +62,7 @@ def _render_topdown(
     header = 78
     margin = 34
     legend_width = 320
-    nav = np.asarray(obstacle_map.binary_navmesh, dtype=np.bool_)
+    nav = np.asarray(camera_free_space_mask, dtype=np.bool_)
     rgb = np.empty((*nav.shape, 3), dtype=np.uint8)
     rgb[:] = (33, 38, 45)
     rgb[nav] = (178, 218, 184)
@@ -77,7 +79,7 @@ def _render_topdown(
     )
     image.paste(map_image, (left, top))
     draw = ImageDraw.Draw(image, "RGBA")
-    bounds = np.asarray(obstacle_map.bounds_m, dtype=np.float64)
+    bounds = np.asarray(camera_bounds_m, dtype=np.float64)
 
     def point(value: Sequence[float]) -> tuple[float, float]:
         x_fraction = (float(value[0]) - bounds[0, 0]) / (bounds[1, 0] - bounds[0, 0])
@@ -85,8 +87,12 @@ def _render_topdown(
         return left + x_fraction * draw_w, top + z_fraction * draw_h
 
     for corridor in corridors[:128]:
+        waypoints = corridor.get(
+            "waypoints_xy_m",
+            [corridor["start_xy_m"], corridor["end_xy_m"]],
+        )
         draw.line(
-            (*point(corridor["start_xy_m"]), *point(corridor["end_xy_m"])),
+            [point(value) for value in waypoints],
             fill=(55, 106, 165, 50),
             width=1,
         )
@@ -152,7 +158,8 @@ def _render_topdown(
             (width - legend_width + 18, legend_y + 43),
             (
                 f"corridors={view['eligible_corridor_count']} | "
-                f"pairs={view['compatible_both_moving_pair_count']} | pixels pending"
+                f"pairs described={view['described_pair_count']}/"
+                f"{view['directed_pair_combination_count']} | pixels pending"
             ),
             font=_font(11),
             fill=(180, 180, 180, 255),
@@ -176,6 +183,38 @@ def _render_topdown(
     return path
 
 
+def _load_camera_free_space_raster(
+    *, camera_catalog_path: Path, camera_catalog: Mapping[str, Any]
+) -> tuple[Path, np.ndarray, np.ndarray]:
+    raster_path = camera_catalog_path.with_name("camera_free_space_raster.npz")
+    if not raster_path.is_file():
+        raise FileNotFoundError(
+            f"camera catalog sibling raster is missing: {raster_path}"
+        )
+    with np.load(raster_path, allow_pickle=False) as payload:
+        if "free_space_mask" not in payload or "bounds_m" not in payload:
+            raise RuntimeError("camera free-space raster lacks mask or bounds")
+        mask = np.asarray(payload["free_space_mask"], dtype=np.bool_)
+        bounds = np.asarray(payload["bounds_m"], dtype=np.float64)
+    if mask.ndim != 2 or not np.any(mask):
+        raise RuntimeError("camera free-space raster mask is empty or invalid")
+    if bounds.shape != (2, 3) or not np.all(np.isfinite(bounds)):
+        raise RuntimeError("camera free-space raster bounds are invalid")
+    obstacle_summary = camera_catalog.get("obstacle_map")
+    if not isinstance(obstacle_summary, Mapping):
+        raise RuntimeError("camera catalog lacks obstacle_map")
+    declared_bounds = np.asarray(obstacle_summary.get("bounds_m"), dtype=np.float64)
+    if declared_bounds.shape != (2, 3) or not np.allclose(
+        bounds, declared_bounds, atol=1.0e-12, rtol=0.0
+    ):
+        raise RuntimeError("camera catalog and sibling raster bounds differ")
+    if int(np.count_nonzero(mask)) != camera_catalog.get(
+        "free_space_raster_pixel_count"
+    ):
+        raise RuntimeError("camera catalog and sibling raster free-space counts differ")
+    return raster_path, np.ascontiguousarray(mask), np.ascontiguousarray(bounds)
+
+
 def run(args: argparse.Namespace) -> Path:
     output = args.output.expanduser().resolve()
     if output.exists() or output.is_symlink():
@@ -187,10 +226,20 @@ def run(args: argparse.Namespace) -> Path:
         profile_path = args.source_profile.expanduser().resolve()
         visual_profile_path = args.visual_profile.expanduser().resolve()
         motion_path = args.motion_profiles.expanduser().resolve()
+        camera_catalog_path = args.camera_catalog.expanduser().resolve(strict=True)
         metadata = load_json(metadata_path)
         profile = load_json(profile_path)
         visual_profile = load_json(visual_profile_path)
         motion_profiles = load_json(motion_path)
+        camera_catalog = load_json(camera_catalog_path)
+        (
+            camera_raster_path,
+            camera_free_space_mask,
+            camera_bounds_m,
+        ) = _load_camera_free_space_raster(
+            camera_catalog_path=camera_catalog_path,
+            camera_catalog=camera_catalog,
+        )
         scene_binding = _validate_scene_binding(
             metadata=metadata,
             source_profile=profile,
@@ -245,26 +294,33 @@ def run(args: argparse.Namespace) -> Path:
             )
             for slot in ("source1", "source2")
         }
-        corridors = generate_straight_corridors(
-            region_by_source=regions,
-            motion_profiles=motion_profiles,
-            species=args.species,
-            maximum_corridors=args.maximum_corridors,
-        )
+        if args.route_geometry == "straight":
+            corridors = generate_straight_corridors(
+                region_by_source=regions,
+                motion_profiles=motion_profiles,
+                species=args.species,
+                maximum_corridors=args.maximum_corridors,
+            )
+        else:
+            corridors = generate_polyline_corridors(
+                region_by_source=regions,
+                motion_profiles=motion_profiles,
+                species=args.species,
+                maximum_corridors=args.maximum_corridors,
+                waypoint_spacing_m=args.waypoint_spacing_m,
+                maximum_segments=args.maximum_route_segments,
+                maximum_segment_length_m=args.maximum_segment_length_m,
+            )
         plan = build_viewpoint_plan(
             room_id=str(metadata.get("room_id")),
             room_type=str(metadata.get("room_type")),
+            scene_binding=scene_binding,
+            camera_catalog=camera_catalog,
             region_by_source=regions,
             corridors=corridors,
             view_count=args.view_count,
             hfov_degrees=args.hfov_degrees,
-            camera_heights_m=args.camera_heights_m,
-            camera_spacing_m=args.camera_spacing_m,
-            coverage_spacing_m=args.coverage_spacing_m,
-            yaw_step_degrees=args.yaw_step_degrees,
             side_margin=args.side_margin,
-            maximum_camera_positions=args.maximum_camera_positions,
-            maximum_coverage_samples=args.maximum_coverage_samples,
             screening_corridor_count=args.screening_corridor_count,
             minimum_pair_separation_m=args.minimum_pair_separation_m,
             maximum_pair_records=args.maximum_pair_records,
@@ -275,6 +331,8 @@ def run(args: argparse.Namespace) -> Path:
             "source_profile": str(profile_path),
             "visual_profile": str(visual_profile_path),
             "motion_profiles": str(motion_path),
+            "camera_catalog": str(camera_catalog_path),
+            "camera_free_space_raster": str(camera_raster_path),
         }
         bank["scene_binding"] = scene_binding
         bank["obstacle_statistics"] = obstacle_statistics
@@ -283,18 +341,23 @@ def run(args: argparse.Namespace) -> Path:
             "authority": CPU_PREFILTER_AUTHORITY,
             "claim_boundary": CPU_PREFILTER_BOUNDARY,
             "room_id": metadata.get("room_id"),
+            "room_type_annotation": metadata.get("room_type"),
+            "room_type_role": "post_generation_annotation_only",
+            "route_geometry": args.route_geometry,
             "corridor_count": len(corridors),
             "corridors": corridors,
         }
         write_json(output / "viewpoint_bank.json", bank)
-        write_json(output / "straight_corridors.json", corridors_document)
+        route_filename = f"{args.route_geometry}_corridors.json"
+        write_json(output / route_filename, corridors_document)
         corridor_root = output / "corridors"
         corridor_root.mkdir()
         for viewpoint_id, subset in plan["corridor_subsets"].items():
             write_json(corridor_root / f"{viewpoint_id}.json", subset)
         topdown = _render_topdown(
             output=output,
-            obstacle_map=obstacle_map,
+            camera_free_space_mask=camera_free_space_mask,
+            camera_bounds_m=camera_bounds_m,
             corridors=corridors,
             bank=bank,
         )
@@ -309,6 +372,13 @@ def run(args: argparse.Namespace) -> Path:
                 "authority": CPU_PREFILTER_AUTHORITY,
                 "claim_boundary": CPU_PREFILTER_BOUNDARY,
                 "room_id": metadata.get("room_id"),
+                "route_geometry": args.route_geometry,
+                "route_fallback_used": False,
+                "camera_catalog": str(camera_catalog_path),
+                "camera_free_space_raster": str(camera_raster_path),
+                "camera_catalog_placement_count": bank[
+                    "camera_pool_placement_count"
+                ],
                 "scene_binding": scene_binding,
                 "viewpoint_count": bank["viewpoint_count"],
                 "corridor_count": len(corridors),
@@ -317,7 +387,7 @@ def run(args: argparse.Namespace) -> Path:
                 "mini_pilot_status": "pending",
                 "outputs": {
                     "viewpoint_bank": "viewpoint_bank.json",
-                    "straight_corridors": "straight_corridors.json",
+                    "source_corridors": route_filename,
                     "corridor_subsets": "corridors/",
                     "topdown": topdown.name,
                 },
@@ -348,24 +418,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=REPOSITORY / "examples/qa_v2/motion_profiles_v1.json",
     )
     parser.add_argument("--species", nargs="+", default=["human", "dog"])
+    parser.add_argument(
+        "--camera-catalog",
+        type=Path,
+        required=True,
+        help="complete target-agnostic room camera placement catalog",
+    )
+    parser.add_argument(
+        "--route-geometry",
+        choices=("straight", "polyline"),
+        required=True,
+        help="explicit source-route geometry; failures never fall back",
+    )
     parser.add_argument("--view-count", type=int, default=4)
     parser.add_argument("--hfov-degrees", type=float, default=105.0)
-    parser.add_argument(
-        "--camera-heights-m",
-        nargs="+",
-        type=float,
-        default=[1.05, 1.50, 1.85],
-    )
     parser.add_argument("--meters-per-pixel", type=float, default=0.05)
     parser.add_argument("--minimum-clearance-m", type=float)
     parser.add_argument("--sample-spacing-m", type=float, default=0.25)
-    parser.add_argument("--camera-spacing-m", type=float, default=0.50)
-    parser.add_argument("--coverage-spacing-m", type=float, default=0.25)
-    parser.add_argument("--yaw-step-degrees", type=float, default=15.0)
     parser.add_argument("--side-margin", type=float, default=0.06)
     parser.add_argument("--maximum-corridors", type=int, default=256)
-    parser.add_argument("--maximum-camera-positions", type=int, default=64)
-    parser.add_argument("--maximum-coverage-samples", type=int, default=256)
+    parser.add_argument("--waypoint-spacing-m", type=float, default=0.25)
+    parser.add_argument("--maximum-route-segments", type=int, default=4)
+    parser.add_argument("--maximum-segment-length-m", type=float, default=1.80)
     parser.add_argument("--screening-corridor-count", type=int, default=64)
     parser.add_argument("--minimum-pair-separation-m", type=float, default=0.60)
     parser.add_argument("--maximum-pair-records", type=int, default=256)
