@@ -1,16 +1,21 @@
-"""Pure two-source motion geometry used by design and viewpoint selection.
+"""Pure two-source motion geometry and explicit per-frame track descriptors.
 
-The checks here intentionally cover only the existing side-margin and exact
-continuous-separation requirements.  They do not claim actor visibility,
-native pixels, collision volumes, or a successful Timeline/native run.
+Difficulty-profile helpers cover the historical side-margin and exact linear
+continuous-separation measurements without deciding candidate legality. The
+explicit-track entrypoint consumes caller-supplied frames without interpolating
+them. Neither path claims actor visibility, native pixels, collision volumes,
+or a successful Timeline/native run unless separate evidence establishes it.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
-from numbers import Real
+from numbers import Integral, Real
 from typing import Any, Mapping, Sequence
+
+import numpy as np
 
 
 MOTION_MODES = (
@@ -637,6 +642,647 @@ def classify_motion_feasibility(
     )
 
 
+def _contains_boolean(value: Any) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return True
+    if isinstance(value, (str, bytes)):
+        return False
+    if isinstance(value, np.ndarray) and value.dtype.kind == "b":
+        return True
+    try:
+        return any(_contains_boolean(item) for item in value)
+    except TypeError:
+        return False
+
+
+def _track_xyz(value: Any, *, owner: str) -> np.ndarray:
+    if _contains_boolean(value):
+        raise MotionFeasibilityError(f"{owner} must not contain booleans")
+    try:
+        raw = np.asarray(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MotionFeasibilityError(
+            f"{owner} must be a finite [frame,3] track"
+        ) from exc
+    if raw.dtype.kind not in {"i", "u", "f"}:
+        raise MotionFeasibilityError(
+            f"{owner} must contain real numeric values without booleans"
+        )
+    try:
+        track = np.asarray(raw, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MotionFeasibilityError(
+            f"{owner} must be a finite [frame,3] track"
+        ) from exc
+    if track.ndim != 2 or track.shape[0] < 1 or track.shape[1] != 3:
+        raise MotionFeasibilityError(
+            f"{owner} must be a nonempty finite [frame,3] track"
+        )
+    if not np.all(np.isfinite(track)):
+        raise MotionFeasibilityError(
+            f"{owner} must be a nonempty finite [frame,3] track"
+        )
+    return np.ascontiguousarray(track)
+
+
+def _frame_vector_track(value: Any, *, frame_count: int, owner: str) -> np.ndarray:
+    if _contains_boolean(value):
+        raise MotionFeasibilityError(f"{owner} must not contain booleans")
+    try:
+        raw = np.asarray(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MotionFeasibilityError(
+            f"{owner} must contain one finite XYZ vector or one per frame"
+        ) from exc
+    if raw.dtype.kind not in {"i", "u", "f"}:
+        raise MotionFeasibilityError(
+            f"{owner} must contain real numeric values without booleans"
+        )
+    try:
+        vectors = np.asarray(raw, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MotionFeasibilityError(
+            f"{owner} must contain one finite XYZ vector or one per frame"
+        ) from exc
+    if vectors.shape == (3,):
+        vectors = np.broadcast_to(vectors, (frame_count, 3)).copy()
+    if vectors.shape != (frame_count, 3) or not np.all(np.isfinite(vectors)):
+        raise MotionFeasibilityError(
+            f"{owner} must contain one finite XYZ vector or one per frame"
+        )
+    return np.ascontiguousarray(vectors)
+
+
+def _axis_mapping(
+    horizontal_axis_indices: Sequence[int], vertical_axis_index: int
+) -> tuple[tuple[int, int], int]:
+    try:
+        raw_horizontal = tuple(horizontal_axis_indices)
+    except TypeError as exc:
+        raise MotionFeasibilityError(
+            "horizontal_axis_indices must contain two integer axes"
+        ) from exc
+    if (
+        isinstance(horizontal_axis_indices, (str, bytes))
+        or len(raw_horizontal) != 2
+        or any(
+            isinstance(item, bool) or not isinstance(item, Integral)
+            for item in raw_horizontal
+        )
+    ):
+        raise MotionFeasibilityError(
+            "horizontal_axis_indices must contain two integer axes"
+        )
+    horizontal = tuple(int(item) for item in raw_horizontal)
+    if len(set(horizontal)) != 2 or any(item not in (0, 1, 2) for item in horizontal):
+        raise MotionFeasibilityError(
+            "horizontal_axis_indices must contain two distinct axes in [0, 2]"
+        )
+    if (
+        isinstance(vertical_axis_index, bool)
+        or not isinstance(vertical_axis_index, Integral)
+        or vertical_axis_index not in (0, 1, 2)
+        or vertical_axis_index in horizontal
+    ):
+        raise MotionFeasibilityError(
+            "vertical_axis_index must be the remaining axis in [0, 2]"
+        )
+    return (horizontal[0], horizontal[1]), int(vertical_axis_index)
+
+
+def _frame_identifiers(
+    value: Sequence[int] | None, *, frame_count: int, owner: str
+) -> tuple[int, ...]:
+    if value is None:
+        return tuple(range(frame_count))
+    try:
+        raw = tuple(value)
+    except TypeError as exc:
+        raise MotionFeasibilityError(
+            f"{owner} must contain one integer per source-track frame"
+        ) from exc
+    if (
+        isinstance(value, (str, bytes))
+        or len(raw) != frame_count
+        or any(isinstance(item, bool) or not isinstance(item, Integral) for item in raw)
+    ):
+        raise MotionFeasibilityError(
+            f"{owner} must contain one integer per source-track frame"
+        )
+    result = tuple(int(item) for item in raw)
+    if any(right <= left for left, right in zip(result, result[1:])):
+        raise MotionFeasibilityError(f"{owner} must be strictly increasing")
+    return result
+
+
+def _optional_ticks(
+    value: Sequence[int] | None, *, frame_count: int
+) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    return _frame_identifiers(value, frame_count=frame_count, owner="pts_ticks")
+
+
+def _source_identifier(value: Any, *, owner: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise MotionFeasibilityError(f"{owner} must be a nonempty string")
+    return value
+
+
+def _stable_norm_xyz_rows(value: np.ndarray) -> np.ndarray:
+    result = np.hypot(np.hypot(value[:, 0], value[:, 1]), value[:, 2])
+    if not np.all(np.isfinite(result)):
+        raise MotionFeasibilityError("derived XYZ norm is not finite")
+    return result
+
+
+def _stable_norm_xyz(value: np.ndarray) -> float:
+    result = math.hypot(float(value[0]), float(value[1]), float(value[2]))
+    if not math.isfinite(result):
+        raise MotionFeasibilityError("derived XYZ norm is not finite")
+    return result
+
+
+def _stable_distance(
+    left: np.ndarray, right: np.ndarray, *, axes: Sequence[int]
+) -> float:
+    with np.errstate(over="ignore", invalid="ignore"):
+        delta = np.subtract(left[list(axes)], right[list(axes)])
+    if not np.all(np.isfinite(delta)):
+        raise MotionFeasibilityError("derived point delta is not finite")
+    if len(delta) == 2:
+        result = math.hypot(float(delta[0]), float(delta[1]))
+    elif len(delta) == 3:
+        result = math.hypot(float(delta[0]), float(delta[1]), float(delta[2]))
+    else:
+        raise MotionFeasibilityError("distance axes must contain two or three axes")
+    if not math.isfinite(result):
+        raise MotionFeasibilityError("derived point distance is not finite")
+    return result
+
+
+def _listener_basis(
+    *,
+    forward: np.ndarray,
+    right: np.ndarray,
+    up: np.ndarray,
+    tolerance: float,
+) -> tuple[np.ndarray, str]:
+    norms = np.stack(
+        (
+            _stable_norm_xyz_rows(forward),
+            _stable_norm_xyz_rows(right),
+            _stable_norm_xyz_rows(up),
+        ),
+        axis=1,
+    )
+    if not np.allclose(norms, 1.0, rtol=0.0, atol=tolerance):
+        raise MotionFeasibilityError(
+            "listener forward/right/up vectors must be an orthonormal basis per frame"
+        )
+    dot_fr = np.sum(forward * right, axis=1)
+    dot_fu = np.sum(forward * up, axis=1)
+    dot_ru = np.sum(right * up, axis=1)
+    if (
+        np.any(np.abs(dot_fr) > tolerance)
+        or np.any(np.abs(dot_fu) > tolerance)
+        or np.any(np.abs(dot_ru) > tolerance)
+    ):
+        raise MotionFeasibilityError(
+            "listener forward/right/up vectors must be an orthonormal basis per frame"
+        )
+    handedness = np.sum(np.cross(forward, right) * up, axis=1)
+    if np.all(handedness >= 1.0 - tolerance):
+        label = "right_handed_forward_right_up"
+    elif np.all(handedness <= -1.0 + tolerance):
+        label = "left_handed_forward_right_up"
+    else:
+        raise MotionFeasibilityError(
+            "listener basis handedness must be consistent across frames"
+        )
+    return handedness, label
+
+
+def _local_angles_from_basis(
+    delta: np.ndarray,
+    *,
+    forward: np.ndarray,
+    right: np.ndarray,
+    up: np.ndarray,
+    side_center_tolerance: float,
+) -> tuple[float | None, float | None, str, float, float, bool]:
+    distance = _stable_norm_xyz(delta)
+    if distance <= side_center_tolerance:
+        return None, None, "coincident", 0.0, 0.0, False
+    forward_component = float(np.dot(delta, forward))
+    right_component = float(np.dot(delta, right))
+    up_component = float(np.dot(delta, up))
+    if not all(
+        math.isfinite(value)
+        for value in (forward_component, right_component, up_component)
+    ):
+        raise MotionFeasibilityError("listener-local derived components are not finite")
+    azimuth = math.degrees(math.atan2(right_component, forward_component))
+    elevation = math.degrees(
+        math.atan2(
+            up_component,
+            math.hypot(forward_component, right_component),
+        )
+    )
+    if right_component > side_center_tolerance:
+        side = "right"
+    elif right_component < -side_center_tolerance:
+        side = "left"
+    else:
+        side = "center"
+    side_margin = abs(right_component) / max(distance, 1.0e-12)
+    return azimuth, elevation, side, side_margin, right_component, True
+
+
+def _closest_frame_record(
+    values: np.ndarray,
+    *,
+    frame_indices: tuple[int, ...],
+) -> dict[str, Any]:
+    minimum = float(np.min(values))
+    tied_ordinals = tuple(int(item) for item in np.flatnonzero(values == minimum))
+    ordinal = tied_ordinals[0]
+    return {
+        "frame_ordinal": ordinal,
+        "frame_index": frame_indices[ordinal],
+        "distance": minimum,
+        "tie_policy": "earliest_frame_ordinal",
+        "tied_frame_ordinals": list(tied_ordinals),
+        "tied_frame_indices": [frame_indices[item] for item in tied_ordinals],
+    }
+
+
+def describe_source_pair_tracks(
+    source1_positions_xyz: Any,
+    source2_positions_xyz: Any,
+    *,
+    source1_id: str,
+    source2_id: str,
+    listener_positions_xyz: Any,
+    listener_forward_xyz: Any,
+    listener_right_xyz: Any,
+    listener_up_xyz: Any,
+    horizontal_axis_indices: Sequence[int],
+    vertical_axis_index: int,
+    coordinate_space: str,
+    track_authority: str,
+    frame_indices: Sequence[int] | None = None,
+    pts_ticks: Sequence[int] | None = None,
+    observed_coincidence_tolerance: Real = 1.0e-6,
+    endpoint_exchange_tolerance: Real = 1.0e-6,
+    side_center_tolerance: Real = 1.0e-9,
+    basis_tolerance: Real = 1.0e-6,
+) -> dict[str, Any]:
+    """Describe two caller-supplied per-frame tracks without interpolation.
+
+    ``horizontal_axis_indices`` and ``vertical_axis_index`` describe the input
+    XYZ storage axes. Listener-local azimuth/elevation use the explicit
+    per-frame forward/right/up basis, not an assumed backend convention.
+    """
+
+    first_id = _source_identifier(source1_id, owner="source1_id")
+    second_id = _source_identifier(source2_id, owner="source2_id")
+    if first_id == second_id:
+        raise MotionFeasibilityError("source1_id and source2_id must differ")
+    if not isinstance(coordinate_space, str) or not coordinate_space.strip():
+        raise MotionFeasibilityError("coordinate_space must be a nonempty string")
+    authority = _source_identifier(track_authority, owner="track_authority")
+    source1 = _track_xyz(source1_positions_xyz, owner="source1_positions_xyz")
+    source2 = _track_xyz(source2_positions_xyz, owner="source2_positions_xyz")
+    if source1.shape != source2.shape:
+        raise MotionFeasibilityError(
+            "source1/source2 tracks must have equal [frame,3] shape"
+        )
+    frame_count = int(source1.shape[0])
+    listener_positions = _frame_vector_track(
+        listener_positions_xyz,
+        frame_count=frame_count,
+        owner="listener_positions_xyz",
+    )
+    listener_forward = _frame_vector_track(
+        listener_forward_xyz,
+        frame_count=frame_count,
+        owner="listener_forward_xyz",
+    )
+    listener_right = _frame_vector_track(
+        listener_right_xyz,
+        frame_count=frame_count,
+        owner="listener_right_xyz",
+    )
+    listener_up = _frame_vector_track(
+        listener_up_xyz,
+        frame_count=frame_count,
+        owner="listener_up_xyz",
+    )
+    horizontal_axes, vertical_axis = _axis_mapping(
+        horizontal_axis_indices, vertical_axis_index
+    )
+    indices = _frame_identifiers(
+        frame_indices,
+        frame_count=frame_count,
+        owner="frame_indices",
+    )
+    ticks = _optional_ticks(pts_ticks, frame_count=frame_count)
+    coincidence_tolerance = _finite_number(
+        observed_coincidence_tolerance,
+        owner="observed coincidence tolerance",
+    )
+    exchange_tolerance = _finite_number(
+        endpoint_exchange_tolerance,
+        owner="endpoint exchange tolerance",
+    )
+    side_tolerance = _finite_number(
+        side_center_tolerance,
+        owner="side center tolerance",
+    )
+    orthonormal_tolerance = _finite_number(
+        basis_tolerance,
+        owner="basis tolerance",
+    )
+    if (
+        min(
+            coincidence_tolerance,
+            exchange_tolerance,
+            side_tolerance,
+            orthonormal_tolerance,
+        )
+        < 0.0
+    ):
+        raise MotionFeasibilityError("track descriptor tolerances must be nonnegative")
+    if orthonormal_tolerance > 1.0e-3:
+        raise MotionFeasibilityError("basis tolerance must not exceed 1e-3")
+    _handedness, basis_handedness = _listener_basis(
+        forward=listener_forward,
+        right=listener_right,
+        up=listener_up,
+        tolerance=orthonormal_tolerance,
+    )
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        pair_delta = np.subtract(source1, source2)
+    if not np.all(np.isfinite(pair_delta)):
+        raise MotionFeasibilityError("source-pair derived deltas are not finite")
+    distance_xy = np.hypot(pair_delta[:, 0], pair_delta[:, 1])
+    distance_horizontal = np.hypot(
+        pair_delta[:, horizontal_axes[0]],
+        pair_delta[:, horizontal_axes[1]],
+    )
+    distance_xyz = _stable_norm_xyz_rows(pair_delta)
+    frames = []
+    source1_right_coordinates = []
+    source2_right_coordinates = []
+    for ordinal in range(frame_count):
+        with np.errstate(over="ignore", invalid="ignore"):
+            first_delta = np.subtract(source1[ordinal], listener_positions[ordinal])
+            second_delta = np.subtract(source2[ordinal], listener_positions[ordinal])
+        if not np.all(np.isfinite(first_delta)) or not np.all(
+            np.isfinite(second_delta)
+        ):
+            raise MotionFeasibilityError(
+                "source/listener derived deltas are not finite"
+            )
+        (
+            first_azimuth,
+            first_elevation,
+            first_side,
+            first_margin,
+            first_right,
+            first_angles_defined,
+        ) = _local_angles_from_basis(
+            first_delta,
+            forward=listener_forward[ordinal],
+            right=listener_right[ordinal],
+            up=listener_up[ordinal],
+            side_center_tolerance=side_tolerance,
+        )
+        (
+            second_azimuth,
+            second_elevation,
+            second_side,
+            second_margin,
+            second_right,
+            second_angles_defined,
+        ) = _local_angles_from_basis(
+            second_delta,
+            forward=listener_forward[ordinal],
+            right=listener_right[ordinal],
+            up=listener_up[ordinal],
+            side_center_tolerance=side_tolerance,
+        )
+        source1_right_coordinates.append(first_right)
+        source2_right_coordinates.append(second_right)
+        pairwise_right_difference = first_right - second_right
+        if not math.isfinite(pairwise_right_difference):
+            raise MotionFeasibilityError(
+                "pairwise listener-local-right difference is not finite"
+            )
+        if pairwise_right_difference > side_tolerance:
+            pairwise_right_order = "source1_right_of_source2"
+        elif pairwise_right_difference < -side_tolerance:
+            pairwise_right_order = "source1_left_of_source2"
+        else:
+            pairwise_right_order = "tied"
+        frame = {
+            "frame_ordinal": ordinal,
+            "frame_index": indices[ordinal],
+            "listener": {
+                "position_xyz": listener_positions[ordinal].tolist(),
+                "forward_xyz": listener_forward[ordinal].tolist(),
+                "right_xyz": listener_right[ordinal].tolist(),
+                "up_xyz": listener_up[ordinal].tolist(),
+            },
+            "source1": {
+                "source_id": first_id,
+                "position_xyz": source1[ordinal].tolist(),
+                "listener_local_azimuth_deg": first_azimuth,
+                "listener_local_elevation_deg": first_elevation,
+                "listener_angles_defined": first_angles_defined,
+                "listener_side": first_side,
+                "listener_side_margin": first_margin,
+                "listener_local_right_coordinate": first_right,
+                "projection": None,
+                "in_frame": None,
+                "occlusion": None,
+                "visible_pixels": None,
+            },
+            "source2": {
+                "source_id": second_id,
+                "position_xyz": source2[ordinal].tolist(),
+                "listener_local_azimuth_deg": second_azimuth,
+                "listener_local_elevation_deg": second_elevation,
+                "listener_angles_defined": second_angles_defined,
+                "listener_side": second_side,
+                "listener_side_margin": second_margin,
+                "listener_local_right_coordinate": second_right,
+                "projection": None,
+                "in_frame": None,
+                "occlusion": None,
+                "visible_pixels": None,
+            },
+            "pair_distance_xy": float(distance_xy[ordinal]),
+            "pair_distance_horizontal": float(distance_horizontal[ordinal]),
+            "pair_distance_xyz": float(distance_xyz[ordinal]),
+            "pairwise_listener_right_difference": pairwise_right_difference,
+            "pairwise_listener_right_order": pairwise_right_order,
+        }
+        if ticks is not None:
+            frame["pts_ticks"] = ticks[ordinal]
+        frames.append(frame)
+
+    observed_horizontal_coincidence_ordinals = tuple(
+        int(index)
+        for index in np.flatnonzero(distance_horizontal <= coincidence_tolerance)
+    )
+    pairwise_right_differences = np.asarray(source1_right_coordinates) - np.asarray(
+        source2_right_coordinates
+    )
+    pairwise_right_order_swap_pairs = []
+    previous_decisive = None
+    for ordinal, difference in enumerate(pairwise_right_differences):
+        if abs(float(difference)) <= side_tolerance:
+            continue
+        sign = 1 if difference > 0.0 else -1
+        if previous_decisive is not None and sign != previous_decisive[1]:
+            left = previous_decisive[0]
+            pairwise_right_order_swap_pairs.append(
+                {
+                    "left_frame_ordinal": left,
+                    "right_frame_ordinal": ordinal,
+                    "left_frame_index": indices[left],
+                    "right_frame_index": indices[ordinal],
+                    "tied_frame_ordinals_between": list(range(left + 1, ordinal)),
+                }
+            )
+        previous_decisive = (ordinal, sign)
+    initial_horizontal_separation = float(distance_horizontal[0])
+    final_horizontal_separation = float(distance_horizontal[-1])
+    initial_xyz_separation = float(distance_xyz[0])
+    final_xyz_separation = float(distance_xyz[-1])
+    endpoint_exchange_horizontal = bool(
+        frame_count >= 2
+        and initial_horizontal_separation > exchange_tolerance
+        and final_horizontal_separation > exchange_tolerance
+        and _stable_distance(source1[0], source2[-1], axes=horizontal_axes)
+        <= exchange_tolerance
+        and _stable_distance(source2[0], source1[-1], axes=horizontal_axes)
+        <= exchange_tolerance
+    )
+    endpoint_exchange_xyz = bool(
+        frame_count >= 2
+        and initial_xyz_separation > exchange_tolerance
+        and final_xyz_separation > exchange_tolerance
+        and _stable_distance(source1[0], source2[-1], axes=(0, 1, 2))
+        <= exchange_tolerance
+        and _stable_distance(source2[0], source1[-1], axes=(0, 1, 2))
+        <= exchange_tolerance
+    )
+    endpoint_pairwise_listener_right_order_exchange = bool(
+        frame_count >= 2
+        and abs(float(pairwise_right_differences[0])) > side_tolerance
+        and abs(float(pairwise_right_differences[-1])) > side_tolerance
+        and (pairwise_right_differences[0] > 0.0)
+        != (pairwise_right_differences[-1] > 0.0)
+    )
+    result = {
+        "track_provenance": "caller_supplied_per_frame_positions_no_interpolation",
+        "track_authority": authority,
+        "runtime_track_claim": False,
+        "runtime_readback_verification": "not_performed_by_descriptor",
+        "frame_count": frame_count,
+        "coordinate_space": coordinate_space,
+        "axis_mapping": {
+            "input_storage_axes": [0, 1, 2],
+            "xy_distance_axes": [0, 1],
+            "horizontal_axis_indices": list(horizontal_axes),
+            "vertical_axis_index": vertical_axis,
+            "listener_basis_handedness": basis_handedness,
+        },
+        "parameters": {
+            "observed_coincidence_tolerance": coincidence_tolerance,
+            "endpoint_exchange_tolerance": exchange_tolerance,
+            "side_center_tolerance": side_tolerance,
+            "basis_tolerance": orthonormal_tolerance,
+        },
+        "source_identity_binding": {
+            "source1_id": first_id,
+            "source2_id": second_id,
+            "identity_preserved_through_crossing_or_swap": True,
+        },
+        "frames": frames,
+        "distance_series": {
+            "pair_distance_xy": distance_xy.tolist(),
+            "pair_distance_horizontal": distance_horizontal.tolist(),
+            "pair_distance_xyz": distance_xyz.tolist(),
+        },
+        "closest_frames": {
+            "xy": _closest_frame_record(distance_xy, frame_indices=indices),
+            "horizontal": _closest_frame_record(
+                distance_horizontal, frame_indices=indices
+            ),
+            "xyz": _closest_frame_record(distance_xyz, frame_indices=indices),
+        },
+        "observed_crossing_and_swap": {
+            "definition": (
+                "observed-frame coincidence and pairwise listener-local-right "
+                "order only; no "
+                "between-frame interpolation or native mesh-intersection claim"
+            ),
+            "observed_horizontal_coincidence_frame_ordinals": list(
+                observed_horizontal_coincidence_ordinals
+            ),
+            "observed_horizontal_coincidence_frame_indices": [
+                indices[item] for item in observed_horizontal_coincidence_ordinals
+            ],
+            "observed_pairwise_listener_right_order_swap_frame_pairs": (
+                pairwise_right_order_swap_pairs
+            ),
+            "observed_side_order_swap_frame_pairs": (pairwise_right_order_swap_pairs),
+            "endpoint_exchange_horizontal": endpoint_exchange_horizontal,
+            "endpoint_exchange_xyz": endpoint_exchange_xyz,
+            "endpoint_pairwise_listener_right_order_exchange": (
+                endpoint_pairwise_listener_right_order_exchange
+            ),
+            "between_frame_crossing_status": "not_inferred",
+        },
+        "native_projection_visibility": {
+            "status": "pending_same_renderer_native_execution",
+            "projection_by_frame": None,
+            "in_frame_by_frame": None,
+            "occlusion_by_frame": None,
+            "visible_pixels_by_frame": None,
+        },
+        "legality": {
+            "status": "not_evaluated_by_track_descriptor",
+            "native_mesh_intersection": None,
+            "native_collision": None,
+            "runtime_pose_readback": None,
+        },
+        "difficulty": {
+            "status": "descriptors_only",
+            "candidate_filtering": "disabled",
+            "minimum_pair_distance_horizontal": float(np.min(distance_horizontal)),
+            "minimum_pair_distance_xyz": float(np.min(distance_xyz)),
+        },
+        "claim_boundary": (
+            "exact caller-supplied frame positions and listener basis only; native "
+            "collision, projection, in-frame, occlusion and visible pixels remain "
+            "separate pending evidence"
+        ),
+    }
+    try:
+        json.dumps(result, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise MotionFeasibilityError(
+            "track descriptor produced a non-JSON-safe derived value"
+        ) from exc
+    return result
+
+
 def _xyz(value: Sequence[Real], *, owner: str) -> tuple[float, float, float]:
     point = _point(value, owner=owner)
     if len(point) == 2:
@@ -737,6 +1383,10 @@ def _pair_frame_descriptor(
         and source2_sides[0] == source1_sides[-1]
     )
     return {
+        "track_provenance": (
+            "synthesized_linear_between_declared_endpoints_not_runtime_track"
+        ),
+        "runtime_track_claim": False,
         "source_identity_binding": {
             "source1": "source1",
             "source2": "source2",
@@ -829,6 +1479,7 @@ __all__ = [
     "camera_side",
     "classify_motion_feasibility",
     "describe_motion_geometry",
+    "describe_source_pair_tracks",
     "evaluate_motion_pair",
     "interpolate_linear_path",
     "linear_path_closest_approach",
