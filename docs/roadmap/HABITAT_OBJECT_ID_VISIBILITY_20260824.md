@@ -110,19 +110,29 @@ loses either actor, the next investigation must inspect the skinned graphics
 subtree, drawable object-ID assignment, and PBR/skin shader output rather than
 weakening the evidence boundary.
 
-OBJECT_ID becomes candidate modal evidence only after a fresh clean-commit
-runtime prefix is built and the following fresh/no-clobber runs are compared:
+The owner subsequently ran the fresh prefix. One isolated 06598 run is valid
+research evidence:
 
-1. `mp3d_camera_placement_06598`, where the old semantic route loses the dogs;
-2. `mp3d_camera_placement_11523`, the normal positive control; and
-3. one verified truly-out-of-frame actor case as the zero-pixel negative
-   control.
+- output: `/data/jzy/tmp/mp3d_object_id_native_732f264_06598_r1`;
+- verification:
+  `/data/jzy/tmp/mp3d_object_id_native_732f264_06598_r1_verification.log`;
+- runtime IDs: `[1,36]`, both present in all 75 frames; and
+- at frames 0/37/74 the OBJECT_ID union exactly equals the complete depth actor
+  silhouette (`1636/2139/2672` pixels), while RGB/depth/original semantic arrays
+  remain bit-equal to the old-prefix capture.
 
-The A/B must show that RGB, depth, original SEMANTIC_ID, 75-frame pose readback,
-zero physics steps and world time are unchanged, while OBJECT_ID equals each
-run's recorded `actor.object_id`. Until then, OBJECT_ID is not accepted modal
-authority. Even after that A/B, P1/amodal masks and derived occlusion/off-screen
-truth remain separate requirements.
+This isolated per-view result strongly supports the active-full-scene patch.
+It does not promote every view, P1, amodal visibility, occlusion, or off-screen
+truth.
+
+Two later captures are diagnostic only. GPU0 already contained `ryl` PID
+2428728 using 35,594 MiB before launch, but the wrapper printed the conflict
+and continued. The retained boundary record is
+`/data/jzy/tmp/mp3d_object_id_native_732f264_shared_gpu_run_boundary.log`.
+Within that nonaccepted run, 11523 recorded both IDs in all 75 frames and 00141
+recorded zero for both; RGB/depth/semantic were bit-equal to the old prefix.
+Neither output is accepted because resource isolation failed. Both must not be
+used to broaden the isolated 06598 claim.
 
 This slice adds no hash, baseline, frozen contract, camera gate, visibility
 gate, or candidate filter.
@@ -145,43 +155,56 @@ Post-commit evidence:
 - installed-prefix smoke and ELF checks are listed in
   `docs/provenance/RUNTIME_PREFIX_RECIPE.md`.
 
-No command below has been run in this slice. Each output path must remain
-absent before execution, and a first failure stops the sequence.
+### Fail-closed isolated rerun commands
 
-06598 failure case:
+The next accepted run must abort when GPU0 has any compute process. Merely
+printing a conflict is insufficient. The following exact block checks GPU0 and
+fresh-output absence before each case, then stops on the first failure:
 
 ```bash
+/bin/bash -lc '
+set -euo pipefail
 cd /data/jzy/code/AVEngine-codex-diversification-integration
-env PYTHONPATH=src /data/jzy/tmp/avengine-bootstrap-env-20260821/bin/python -m avengine.cli m5 capture-current-visual \
-  --animal-manifest /data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json \
-  --m2-request /data/avengine_external/review/current_mp3d_two_beagle_route_lateral_seed22_grounded/primary_m2_request.json \
-  --room-manifest /data/jzy/code/AVEngine-codex-diversification-integration/examples/m1/rooms/habitat_mp3d_example/room_manifest.json \
-  --m1-request /data/jzy/tmp/mp3d_probe_subset_37317f4_r1/requests/mp3d_camera_placement_06598.json \
-  --runtime-prefix /data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z \
-  --mp3d-root /data/avengine_external/datasets/mp3d_example_scene_1.1 \
-  --magnum-python-site /data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages \
-  --rlr-sdk-root /data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z \
-  --output /data/jzy/tmp/mp3d_object_id_732f264_06598_r1
+
+run_case() {
+  case_id="$1"
+  m1_request="$2"
+  output="$3"
+  gpu0_compute_pids=$(/usr/bin/nvidia-smi -i 0 --query-compute-apps=pid --format=csv,noheader,nounits | awk "NF && \$1 != \"N/A\" {print \$1}")
+  if [[ -n "$gpu0_compute_pids" ]]; then
+    echo "refusing ${case_id}: GPU0 compute PIDs=${gpu0_compute_pids}" >&2
+    return 1
+  fi
+  if [[ -e "$output" ]]; then
+    echo "refusing ${case_id}: output already exists: ${output}" >&2
+    return 1
+  fi
+  env PYTHONPATH=src /data/jzy/tmp/avengine-bootstrap-env-20260821/bin/python -m avengine.cli m5 capture-current-visual \
+    --animal-manifest /data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json \
+    --m2-request /data/avengine_external/review/current_mp3d_two_beagle_route_lateral_seed22_grounded/primary_m2_request.json \
+    --room-manifest /data/jzy/code/AVEngine-codex-diversification-integration/examples/m1/rooms/habitat_mp3d_example/room_manifest.json \
+    --m1-request "$m1_request" \
+    --runtime-prefix /data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z \
+    --mp3d-root /data/avengine_external/datasets/mp3d_example_scene_1.1 \
+    --magnum-python-site /data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages \
+    --rlr-sdk-root /data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z \
+    --output "$output"
+}
+
+run_case 06598 \
+  /data/jzy/tmp/mp3d_probe_subset_37317f4_r1/requests/mp3d_camera_placement_06598.json \
+  /data/jzy/tmp/mp3d_object_id_native_732f264_06598_r2
+run_case 11523 \
+  /data/jzy/tmp/mp3d_probe_subset_37317f4_r1/requests/mp3d_camera_placement_11523.json \
+  /data/jzy/tmp/mp3d_object_id_native_732f264_11523_r2
+run_case 00677 \
+  /data/jzy/tmp/mp3d_region_viewpoint_banks_81eadfd_r1/requests/17DRP5sb8fy_region_000/mp3d_camera_placement_00677.json \
+  /data/jzy/tmp/mp3d_object_id_native_732f264_00677_out_of_frustum_r1
+'
 ```
 
-11523 positive control uses the same arguments except:
-
-```bash
-  --m1-request /data/jzy/tmp/mp3d_probe_subset_37317f4_r1/requests/mp3d_camera_placement_11523.json \
-  --output /data/jzy/tmp/mp3d_object_id_732f264_11523_r1
-```
-
-The strongest currently materialized out-of-frustum candidate is placement
-00677: both actual emitter centers remain behind the camera for all 75 frames
-(forward-depth maxima `-3.2478 m` and `-4.1643 m`). It is a negative-control
-candidate, not yet a visually certified whole-actor off-screen case:
-
-```bash
-  --m1-request /data/jzy/tmp/mp3d_region_viewpoint_banks_81eadfd_r1/requests/17DRP5sb8fy_region_000/mp3d_camera_placement_00677.json \
-  --output /data/jzy/tmp/mp3d_object_id_732f264_00677_out_of_frustum_r1
-```
-
-The abbreviated 11523/00677 blocks replace only those two arguments in the
-full 06598 command. Before calling 00677 a true off-screen control, inspect its
-native RGB/depth/object-ID frames and actor geometry; center-frustum evidence
-alone is not whole-body visibility authority.
+For 00677, both emitter centers remain behind the camera for all 75 frames
+(forward-depth maxima `-3.2478 m` and `-4.1643 m`). It is only a strong
+negative-control candidate until the isolated native RGB/depth/object-ID run
+confirms whole-actor off-screen geometry. Center-frustum evidence alone is not
+whole-body visibility authority.

@@ -119,8 +119,13 @@ Evidence:
 - full HabitatCore compile plus native target-routing CTest:
   `/data/jzy/tmp/habitat_object_id_native_test_732f264_r1.log`.
 
-This prefix is a research A/B input, not a production replacement. No
-Simulator visual run was performed while GPUs were occupied.
+This prefix is a research A/B input, not a production replacement. The owner
+later completed one clean isolated 06598 run whose OBJECT_ID union exactly
+matched the depth actor silhouette while RGB/depth/SEMANTIC_ID stayed bit-equal
+to the old prefix. Two additional 11523/00141 runs started despite a preflight
+GPU0 conflict and are diagnostic only; see
+`docs/roadmap/HABITAT_OBJECT_ID_VISIBILITY_20260824.md`. They must be rerun with
+the fail-closed compute-process guard recorded there.
 
 ### 3. magnum-python site
 
