@@ -76,6 +76,27 @@ camera-legality filters. They are preserved for later diversity and difficulty
 analysis. A later 4--8-view certified bank may select a diverse subset for a
 mini-pilot without deleting these legal raw candidates.
 
+## Committed-code native rerun
+
+The intended-floor probe implementation and its tests were committed as
+`839cfdf03994f3690e5181104d9ed983e2fc0c65`. After rechecking GPU/process state,
+the same six requests were rerun sequentially from that clean commit on the
+otherwise idle GPU 0 into the fresh root:
+
+`/data/jzy/tmp/mp3d_viewpoint_native_probes_839cfdf_r1`
+
+All six committed-code receipts report `status=pass`. The existing observation
+array hashes, navigation objects and Topdown artifact hashes are exactly equal
+between the earlier run and this committed-code rerun for every view. The
+fresh comparison log is:
+
+`/data/jzy/tmp/mp3d_probe_839cfdf_r1_vs_prior_r2.log`
+
+It records `all_pass True`, `all_nav_equal True`,
+`all_observations_equal True` and `all_topdown_equal True`. An initial inline
+comparison command produced only a Python syntax error and stopped; the fixed
+single-line comparison used the fresh `_r2` log above.
+
 ## Verification
 
 The authoritative focused log is:
