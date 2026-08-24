@@ -265,7 +265,11 @@ def test_current_configuration_has_only_visual_sensors(
         ),
         physics_config_path=tmp_path / "default.physics_config.json",
     )
-    monkeypatch.setattr(current_visual, "_semantic_sensor_target", lambda: "semantic")
+    monkeypatch.setattr(
+        current_visual,
+        "_semantic_sensor_target",
+        lambda name: {"SEMANTIC_ID": "semantic", "OBJECT_ID": "object"}[name],
+    )
 
     configuration, modality_to_uuid = current_visual._make_current_configuration(
         room_inputs=room_inputs,
@@ -281,9 +285,16 @@ def test_current_configuration_has_only_visual_sensors(
         "rgb": "rig_rgb",
         "depth": "rig_depth",
         "semantic": "rig_semantic",
+        "object_id": "rig_object_id",
     }
     specs = configuration.agents[0].sensor_specifications
-    assert [spec.uuid for spec in specs] == ["rig_rgb", "rig_depth", "rig_semantic"]
+    assert [spec.uuid for spec in specs] == [
+        "rig_rgb",
+        "rig_depth",
+        "rig_semantic",
+        "rig_object_id",
+    ]
+    assert [spec.semantic_target for spec in specs[-2:]] == ["semantic", "object"]
     assert configuration.sim_cfg.enable_physics is True
     assert configuration.sim_cfg.physics_config_file == str(
         installed_runtime.physics_config_path
@@ -476,6 +487,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
                 "rig_rgb": object(),
                 "rig_depth": object(),
                 "rig_semantic": object(),
+                "rig_object_id": object(),
             }
             self.render_calls = 0
 
@@ -498,14 +510,18 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
             call_index = self.render_calls
             self.render_calls += 1
             semantic = np.zeros((2, 2), dtype=np.int32)
+            object_id = np.zeros((2, 2), dtype=np.int32)
             if call_index:
                 semantic[0, 0] = current_visual.CURRENT_SEMANTIC_IDS[0]
+                object_id[0, 0] = 500
                 if call_index != 75:
                     semantic[0, 1] = current_visual.CURRENT_SEMANTIC_IDS[1]
+                    object_id[0, 1] = 501
             return {
                 "rig_rgb": np.zeros((2, 2, 3), dtype=np.uint8),
                 "rig_depth": np.ones((2, 2), dtype=np.float32),
                 "rig_semantic": semantic,
+                "rig_object_id": object_id,
             }
 
     simulator = FakeSimulator()
@@ -625,7 +641,12 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         "_make_current_configuration",
         lambda **_kwargs: (
             object(),
-            {"rgb": "rig_rgb", "depth": "rig_depth", "semantic": "rig_semantic"},
+            {
+                "rgb": "rig_rgb",
+                "depth": "rig_depth",
+                "semantic": "rig_semantic",
+                "object_id": "rig_object_id",
+            },
         ),
     )
 
@@ -644,6 +665,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         return (
             SimpleNamespace(
                 actor_index=kwargs["actor_index"],
+                object_id=500 + kwargs["actor_index"],
                 root=identity.copy(),
                 joint_positions=np.asarray([0.0, 0.0, 0.0, 1.0]),
             ),
@@ -716,6 +738,14 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
                     "translation_m": [9.0 + 3.0e-7 + post_render_delta, 8.0, 7.0],
                     "rotation_xyzw": list(snapshot_quaternion),
                 },
+                "rig_object_id": {
+                    "translation_m": [
+                        9.0 + 4.0e-7 + post_render_delta,
+                        8.0,
+                        7.0,
+                    ],
+                    "rotation_xyzw": list(snapshot_quaternion),
+                },
             },
         }
         snapshots.append(snapshot)
@@ -755,6 +785,33 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
     assert actor1["zero_visible_frame_indices"] == [74]
     assert actor1["minimum_visible_pixels"] == 0
     assert actor1["per_frame_visible_pixels"][-2:] == [1, 0]
+    object_id = np.load(output / "arrays/object_id.npy")
+    assert object_id.shape == (75, 2, 2)
+    assert receipt["object_id_visibility"]["candidate_filtering"] == "disabled"
+    assert receipt["object_id_visibility"]["zero_pixels_affect_legality"] is False
+    assert receipt["object_id_visibility"]["runtime_id_scope"] == (
+        "one_simulator_invocation_not_stable_across_runs"
+    )
+    assert receipt["object_id_visibility"]["per_actor"]["actor0"] == {
+        "runtime_object_id": 500,
+        "pixel_counts_by_frame": [1] * 75,
+        "bboxes_xyxy_by_frame": [
+            {
+                "x_min": 0,
+                "y_min": 0,
+                "x_max": 0,
+                "y_max": 0,
+                "width_pixels": 1,
+                "height_pixels": 1,
+            }
+        ]
+        * 75,
+        "positive_pixel_frame_count": 75,
+        "zero_pixel_frame_indices": [],
+    }
+    assert receipt["object_id_visibility"]["per_actor"]["actor1"][
+        "zero_pixel_frame_indices"
+    ] == [74]
 
     planned_actor = np.load(output / "arrays/actor_world_matrices.npy")
     planned_skin = np.load(output / "arrays/planned_applied_skin_root_matrices.npy")
@@ -776,7 +833,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         )
     )
     assert actual_agent.shape == actual_listener.shape == (75, 7)
-    assert actual_sensors.shape == (75, 3, 7)
+    assert actual_sensors.shape == (75, 4, 7)
     assert actual_agent[0].tolist() == pytest.approx(
         [9.0 + 1.0e-7, 8.0, 7.0, *snapshot_quaternion]
     )
@@ -805,16 +862,21 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         != room_inputs.request["primary_camera_rig"]["world_from_rig"]["rotation_xyzw"]
     )
     assert actual_sensors[0, :, 0].tolist() == pytest.approx(
-        [9.0 + 3.0e-7, 9.0 + 2.0e-7, 9.0 + 4.0e-7]
+        [9.0 + 3.0e-7, 9.0 + 5.0e-7, 9.0 + 2.0e-7, 9.0 + 4.0e-7]
     )
     assert np.max(np.abs(actual_skin - planned_skin)) == pytest.approx(1.0e-7)
     assert not np.array_equal(actual_skin, planned_skin)
 
     assert receipt["pose_readback"]["sensor_order"] == [
         {"axis_index": 0, "sensor_uuid": "rig_depth", "modality": "depth"},
-        {"axis_index": 1, "sensor_uuid": "rig_rgb", "modality": "rgb"},
         {
-            "axis_index": 2,
+            "axis_index": 1,
+            "sensor_uuid": "rig_object_id",
+            "modality": "object_id",
+        },
+        {"axis_index": 2, "sensor_uuid": "rig_rgb", "modality": "rgb"},
+        {
+            "axis_index": 3,
             "sensor_uuid": "rig_semantic",
             "modality": "semantic",
         },
@@ -844,6 +906,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
             "actor_id": "actor0",
             "source_id": "source0",
             "semantic_id": 210,
+            "runtime_object_id": 500,
             "emitter_link_name": "beagle Xtra Mouth",
             "runtime_emitter_link_id": 100,
             "audio_endpoint_status": "pending",
@@ -854,6 +917,7 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
             "actor_id": "actor1",
             "source_id": "source1",
             "semantic_id": 211,
+            "runtime_object_id": 501,
             "emitter_link_name": "beagle Xtra Mouth",
             "runtime_emitter_link_id": 101,
             "audio_endpoint_status": "pending",
@@ -870,7 +934,12 @@ def test_current_visual_records_zero_visibility_without_rejecting_candidate(
         "array_frame_index": 74,
         "actor_axis_order": ["actor0", "actor1"],
         "source_axis_order": ["source0", "source1"],
-        "sensor_axis_order": ["rig_depth", "rig_rgb", "rig_semantic"],
+        "sensor_axis_order": [
+            "rig_depth",
+            "rig_object_id",
+            "rig_rgb",
+            "rig_semantic",
+        ],
         "pose_component_order": list(current_visual.CURRENT_POSE_COMPONENT_ORDER),
     }
     identity_snapshot = json.loads(
