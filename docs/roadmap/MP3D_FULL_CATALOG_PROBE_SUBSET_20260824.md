@@ -148,6 +148,31 @@ The actual retained receipt, frame records, NPY, M1, M2 and expanded
 
 This validates real inputs without republishing the old descriptor bundle.
 
+## Integration clean-code republication
+
+The full implementation and provenance follow-up were merged into the clean
+server integration worktree as `37317f4`. The exact related suite was rerun
+there and records `134 passed` at:
+
+`/data/jzy/tmp/mp3d_probe_subset_integration_37317f4_unit_r1.log`
+
+A new fresh/no-clobber artifact was then published from that merge commit:
+
+`/data/jzy/tmp/mp3d_probe_subset_37317f4_r1`
+
+The build completed with exit zero in 2 minutes 14 seconds and used 188,656 KiB
+maximum RSS. Its descriptor JSONL is 447,082,406 bytes. An independent
+line-by-line verifier parsed all 22,752 unique placement records, matched the
+complete input catalog, revalidated all twelve independent M1 requests and
+confirmed the source-track provenance and catalog authority facts. It reports
+`status=pass` at:
+
+`/data/jzy/tmp/mp3d_probe_subset_37317f4_r1_verification.log`
+
+This republication still performs no native probe, pixel capture, audio/RIR or
+viewpoint certification. The selected twelve remain bounded pipeline probes,
+not a per-room 4--8-view bank.
+
 No Studio placement, hash, frozen contract, baseline or permanent gate is
 introduced. The artifact stays `research_only=true`,
 `episode_counted=false`, and formal release remains `not_run`.

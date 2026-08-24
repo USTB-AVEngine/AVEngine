@@ -5,22 +5,26 @@
 The server-only integration worktree is
 `/data/jzy/code/AVEngine-codex-diversification-integration` on branch
 `codex/data-diversification-integration`. The code baseline covered by this
-checkpoint is `a4d5cf9` and is clean. Canonical `main` remains clean at
+checkpoint is `37317f4` and is clean. Canonical `main` remains clean at
 `e29e0d2`; nothing in this checkpoint is merged to or pushed from `main`.
 
-The current full unit log is:
+The most recent full unit log predates the Kujiale and expanded-MP3D merges:
 
 `/data/jzy/tmp/diversification_integration_a4d5cf9_full_unit_r1.log`
 
-It completed with exit 0 and records:
+It completed with exit 0 and records the following only for the older
+`a4d5cf9` baseline:
 
 - `3168 passed`;
 - `118 skipped` for explicitly unavailable retained/archive authorities;
 - `52 subtests passed`;
 - duration `280.69 s`.
 
-This is ordinary regression evidence. It is not evidence that every required
-native run, room, actor type, question batch or trainer/throughput item exists.
+This is ordinary regression evidence. It does not prove every required native
+run, room, actor type, question batch or trainer/throughput item, and it is not
+a current full-suite claim for `37317f4`. Current focused integration logs are
+cited below; a new full suite remains required after the active code slices
+converge.
 
 ## Integrated owner corrections
 
@@ -64,12 +68,24 @@ Key fresh artifacts:
 - `/data/jzy/tmp/mp3d_viewpoint_native_probes_839cfdf_r1`;
 - `/data/jzy/tmp/mp3d_dynamic_visibility_509838e_viewXX_r1`;
 - `/data/jzy/tmp/mp3d_runtime_tracks_ec387e9_r1`;
-- `/data/jzy/tmp/mp3d_camera_placement_catalog_c9c2274_r1`.
+- `/data/jzy/tmp/mp3d_camera_placement_catalog_c9c2274_r1`;
 - `/data/jzy/tmp/mp3d_floor_samples_all_8c4e7df_r1`;
-- `/data/jzy/tmp/mp3d_camera_placement_catalog_all_8c4e7df_r1`.
+- `/data/jzy/tmp/mp3d_camera_placement_catalog_all_8c4e7df_r1`;
+- `/data/jzy/tmp/mp3d_probe_subset_37317f4_r1`.
 
-The expanded 22,752 catalog has not yet been joined/ranked into a new native probe subset,
-and no MP3D view has a complete visual+audio+question four-point mini-pilot.
+The expanded catalog is now fully joined to the retained 75-frame emitter-link
+track. All 22,752 descriptors are preserved; 3,639 have full analytic joint
+centre-frustum coverage, 1,061 partial coverage and 18,052 zero coverage. None
+is removed. The bounded selected-twelve subset covers twelve floor positions,
+eight yaws and all three heights, with independent M1 requests. Integration
+verification records `134 passed` and the independent artifact verifier reports
+`status=pass` at:
+
+`/data/jzy/tmp/mp3d_probe_subset_37317f4_r1_verification.log`
+
+No selected-twelve request has run a fresh static or dynamic native capture
+yet, and no MP3D view has a complete visual+audio+question four-point
+mini-pilot.
 
 ### Kujiale current full-home
 
@@ -82,6 +98,19 @@ This does not supply current package/launch endpoint/runtime map evidence,
 native UE/SPEAR first-person/Topdown/readback, room-wide 4--8 certification,
 M3/RLR qualification or any four-point mini-pilot. The current stage can still
 only count human+Beagle as conservatively executable.
+
+The target-agnostic five-room CPU catalogs are now merged. Their complete
+0.25 m sampling lattice contains 1,163 floor positions and 41,868 placements:
+27,396 living, 5,508 bedroom, 5,508 balcony, 1,188 kitchen and 2,268 bathroom.
+Room labels remain post-hoc annotations and no 60 cm, side, exchange,
+visibility, composition or difficulty filter was used. The independent record
+verifier reports `status=pass`; the exact focused integration suite records
+`85 passed` at:
+
+`/data/jzy/tmp/kujiale_room_catalogs_integration_92fbcaf_85_unit_r1.log`
+
+This is still room-polygon plus descendant-footprint CPU authority, not native
+navigation, UE/SPEAR pixels/readback or mini-pilot evidence.
 
 ### QA onset and motion
 
@@ -130,9 +159,9 @@ The full Goal remains active. At minimum, still required are:
 1. Apartment 4--8 native UE/SPEAR views, per-view M1/listener/RIR identity and
    four-point mini-pilots.
 2. Kujiale all five room instances, current package/endpoint/M3/RLR evidence,
-   generic view catalogs, native reviews, more executable actor types and
-   mini-pilots.
-3. MP3D join/selection from the 4,608 catalog, 4--8 certified views, multiple
+   native reviews, more executable actor types and mini-pilots.
+3. MP3D post-hoc room-instance binding, actual per-frame camera/listener
+   readback persistence, 4--8 certified views per room, multiple
    rooms/types and visual+audio+question mini-pilots.
 4. Real accepted multiview question batches, strict answer reports and exact48
    held-out output.
