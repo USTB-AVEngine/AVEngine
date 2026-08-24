@@ -101,6 +101,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
             "offscreen_candidate": False,
             "program_id": "p",
             "viewpoint_id": "view-left",
+            "input_modalities": ["audio", "video"],
         },
     )
     frames = []
@@ -308,6 +309,7 @@ def test_mixed_viewpoints_resolve_per_point_and_are_written_on_every_question(
     for question in document["questions"]:
         by_point.setdefault(question["point_id"], set()).add(question["viewpoint_id"])
         assert question["answer_arity"] == "binary"
+        assert question["modality_mask"] == {"audio": True, "video": True}
     assert by_point == {"p001": {"view-left"}, "p002": {"view-reverse"}}
     side_answers = {
         question["point_id"]: question["answer"]
@@ -508,10 +510,82 @@ def test_refusal_questions_meet_ten_to_fifteen_percent_without_deleting_base(
         row["answer"] == "cannot determine from audio alone" for row in refusal_rows
     )
     assert all(row["provided_modalities"] == ["audio"] for row in refusal_rows)
+    assert all(
+        row["withheld_modalities"] == ["video"]
+        and row["modality_mask"] == {"audio": True, "video": False}
+        for row in refusal_rows
+    )
+    assert all(
+        row["modality_mask"] == {"audio": True, "video": True}
+        for row in baseline["questions"]
+    )
     quota = document["extended_types"]["refusal_quota"]
     assert quota["status"] == "pass"
     assert 0.10 <= quota["final_fraction"] <= 0.15
     assert len(refusal_rows) == quota["selected_count"]
+
+
+def test_modality_mask_requires_explicit_input_fact_and_supports_audio_only_rows(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+
+    mask = module.resolve_modality_mask(
+        {
+            "type_id": "QV2-T4-SIDE",
+            "modality_expectation": "audio_sufficient_control",
+        },
+        spec={"input_modalities": ["audio"]},
+        point_id="audio-only",
+        audio_available=True,
+    )
+    assert mask == {"audio": True, "video": False}
+
+    spec_path = inputs / "p001/spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec.pop("input_modalities")
+    _write_json(spec_path, spec)
+    with pytest.raises(module.QuestionGenerationError, match="cannot be derived"):
+        module.generate_question_document(
+            inputs_root=inputs,
+            programs_dir=programs,
+            registry_path=registry,
+            viewpoint_bank_path=viewpoint_bank,
+        )
+
+
+@pytest.mark.parametrize("conflict", ("normal", "refusal"))
+def test_modality_mask_conflicts_fail_fast(tmp_path: Path, conflict: str) -> None:
+    module = _load_script()
+    inputs, programs, registry, viewpoint_bank = _fixture(tmp_path)
+    spec_path = inputs / "p001/spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    if conflict == "normal":
+        spec["input_modalities"] = ["audio"]
+        _write_json(spec_path, spec)
+        with pytest.raises(module.QuestionGenerationError, match="requires both"):
+            module.generate_question_document(
+                inputs_root=inputs,
+                programs_dir=programs,
+                registry_path=registry,
+                viewpoint_bank_path=viewpoint_bank,
+            )
+    else:
+        spec["input_modalities"] = ["video"]
+        with pytest.raises(module.QuestionGenerationError, match="conflicts"):
+            module.resolve_modality_mask(
+                {
+                    "type_id": "QV2-TR-REFUSAL",
+                    "provided_modalities": ["audio"],
+                    "withheld_modalities": ["video"],
+                    "modality_expectation": ("must_refuse_audio_only_visual_attribute"),
+                    "refusal_gold": True,
+                },
+                spec=spec,
+                point_id="conflict",
+                audio_available=True,
+            )
 
 
 def test_extended_types_fail_closed_without_native_roots(tmp_path: Path) -> None:

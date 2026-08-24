@@ -58,6 +58,7 @@ DEFAULT_CAMERA_POSITION_UE_CM = (-70.0, 65.0, 147.1)
 DEFAULT_CAMERA_YAW_DEG = -145.0
 DEFAULT_SIDE_MARGIN = 0.1
 DEFAULT_DISTANCE_RATIO_MIN = 1.2
+_MODALITY_NAMES = frozenset({"audio", "video"})
 
 
 class QuestionGenerationError(ValueError):
@@ -307,6 +308,182 @@ def load_point_audio_program(
     return program, path, "point_materialized_audio_program"
 
 
+def _normalize_modality_list(value: Any, *, owner: str) -> set[str]:
+    if (
+        isinstance(value, (str, bytes))
+        or not isinstance(value, Sequence)
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise QuestionGenerationError(
+            f"{owner} must be a list of unique modality names"
+        )
+    normalized = {str(item) for item in value}
+    unknown = normalized - _MODALITY_NAMES
+    if unknown:
+        raise QuestionGenerationError(
+            f"{owner} contains unsupported modalities: {sorted(unknown)}"
+        )
+    return normalized
+
+
+def _declared_modality_sets(
+    record: Mapping[str, Any], *, owner: str
+) -> tuple[set[str], set[str]] | None:
+    provided_present = "provided_modalities" in record
+    withheld_present = "withheld_modalities" in record
+    input_present = "input_modalities" in record
+    if not (provided_present or withheld_present or input_present):
+        return None
+    provided = (
+        _normalize_modality_list(
+            record.get("provided_modalities"), owner=f"{owner}.provided_modalities"
+        )
+        if provided_present
+        else None
+    )
+    withheld = (
+        _normalize_modality_list(
+            record.get("withheld_modalities"), owner=f"{owner}.withheld_modalities"
+        )
+        if withheld_present
+        else None
+    )
+    if provided is not None and withheld is not None and provided & withheld:
+        raise QuestionGenerationError(
+            f"{owner} provided_modalities and withheld_modalities overlap"
+        )
+    input_modalities = (
+        _normalize_modality_list(
+            record.get("input_modalities"), owner=f"{owner}.input_modalities"
+        )
+        if input_present
+        else None
+    )
+    if input_modalities is not None:
+        if provided is not None and provided != input_modalities:
+            raise QuestionGenerationError(
+                f"{owner} input_modalities conflicts with provided_modalities"
+            )
+        if withheld is not None and withheld != _MODALITY_NAMES - input_modalities:
+            raise QuestionGenerationError(
+                f"{owner} input_modalities conflicts with withheld_modalities"
+            )
+        provided = input_modalities
+        withheld = _MODALITY_NAMES - input_modalities
+    if provided is None:
+        provided = _MODALITY_NAMES - (withheld or set())
+    if withheld is None:
+        withheld = _MODALITY_NAMES - provided
+    if provided | withheld != _MODALITY_NAMES or provided & withheld:
+        raise QuestionGenerationError(
+            f"{owner} must account for both audio and video exactly once"
+        )
+    return provided, withheld
+
+
+def _declared_modality_mask(
+    record: Mapping[str, Any], *, owner: str
+) -> dict[str, bool] | None:
+    if "modality_mask" not in record:
+        return None
+    raw = record["modality_mask"]
+    if not isinstance(raw, Mapping) or set(raw) != _MODALITY_NAMES:
+        raise QuestionGenerationError(
+            f"{owner}.modality_mask must contain exactly audio and video"
+        )
+    if any(isinstance(raw[name], bool) is False for name in _MODALITY_NAMES):
+        raise QuestionGenerationError(
+            f"{owner}.modality_mask audio/video values must be booleans"
+        )
+    return {name: bool(raw[name]) for name in _MODALITY_NAMES}
+
+
+def resolve_modality_mask(
+    row: Mapping[str, Any],
+    *,
+    spec: Mapping[str, Any],
+    point_id: str,
+    audio_available: bool,
+) -> dict[str, bool]:
+    """Derive one row mask from explicit modality facts and validate it."""
+
+    row_owner = f"{point_id} question {row.get('type_id', '<unknown>')}"
+    row_sets = _declared_modality_sets(row, owner=row_owner)
+    spec_sets = _declared_modality_sets(spec, owner=f"{point_id} spec")
+    spec_mask = _declared_modality_mask(spec, owner=f"{point_id} spec")
+    if spec_sets is not None and spec_mask is not None:
+        spec_provided, _spec_withheld = spec_sets
+        expected_spec_mask = {name: name in spec_provided for name in _MODALITY_NAMES}
+        if spec_mask != expected_spec_mask:
+            raise QuestionGenerationError(
+                f"{point_id} spec modality_mask conflicts with modality declaration"
+            )
+    if row_sets is not None and spec_sets is not None:
+        row_provided, _row_withheld = row_sets
+        spec_provided, _spec_withheld = spec_sets
+        if not row_provided.issubset(spec_provided):
+            raise QuestionGenerationError(
+                f"{row_owner} modality declaration conflicts with point spec"
+            )
+    if row_sets is not None and spec_mask is not None:
+        row_provided, _row_withheld = row_sets
+        spec_provided = {name for name, enabled in spec_mask.items() if enabled}
+        if not row_provided.issubset(spec_provided):
+            raise QuestionGenerationError(
+                f"{row_owner} modality declaration conflicts with point spec"
+            )
+    declared_sets = row_sets or spec_sets
+    if declared_sets is None and spec_mask is not None:
+        declared_sets = (
+            {name for name, enabled in spec_mask.items() if enabled},
+            {name for name, enabled in spec_mask.items() if not enabled},
+        )
+    explicit_mask = _declared_modality_mask(row, owner=row_owner)
+    if declared_sets is None and explicit_mask is None:
+        raise QuestionGenerationError(
+            f"{point_id}: modality_mask cannot be derived without explicit "
+            "provided/withheld_modalities or input_modalities"
+        )
+    if declared_sets is None:
+        mask = explicit_mask
+    else:
+        provided, _withheld = declared_sets
+        mask = {name: name in provided for name in _MODALITY_NAMES}
+    assert mask is not None
+    if explicit_mask is not None and explicit_mask != mask:
+        raise QuestionGenerationError(
+            f"{row_owner} modality_mask conflicts with modality declaration"
+        )
+    if audio_available is not True and mask["audio"]:
+        raise QuestionGenerationError(
+            f"{point_id}: modality_mask declares audio without an audio input"
+        )
+    expectation = row.get("modality_expectation")
+    if expectation in {"dual_required", "vision_dominant_control"} and mask != {
+        "audio": True,
+        "video": True,
+    }:
+        raise QuestionGenerationError(
+            f"{row_owner} requires both audio and video modalities"
+        )
+    if expectation == "must_refuse_audio_only_visual_attribute" and mask != {
+        "audio": True,
+        "video": False,
+    }:
+        raise QuestionGenerationError(
+            f"{row_owner} refusal must mask video while retaining audio"
+        )
+    if row.get("refusal_gold") is True and mask != {
+        "audio": True,
+        "video": False,
+    }:
+        raise QuestionGenerationError(
+            f"{row_owner} refusal modality mask is not audio-only"
+        )
+    return mask
+
+
 def actor_states(
     timeline: Mapping[str, Any], frame: int
 ) -> dict[str, Mapping[str, Any]]:
@@ -420,6 +597,13 @@ def generate_question_document(
     extended_evidence: dict[str, dict[str, Any]] = {}
 
     def emit(row: dict[str, Any], ok: bool, reason: str | None = None) -> None:
+        row = dict(row)
+        row["modality_mask"] = resolve_modality_mask(
+            row,
+            spec=spec,
+            point_id=point_id,
+            audio_available=audio_input_available,
+        )
         if ok:
             questions.append(row)
         else:
@@ -502,6 +686,7 @@ def generate_question_document(
                     f"{point_id}: audio event {event_index} has invalid timing"
                 ) from exc
             events.append(event)
+        audio_input_available = bool(events)
         events.sort(key=lambda event: event["start_sample"])
         first = events[0]
         second = events[1]
@@ -616,25 +801,30 @@ def generate_question_document(
 
         if enable_refusal:
             refusal_answer = "cannot determine from audio alone"
-            refusal_candidates.append(
-                dict(
-                    base,
-                    type_id="QV2-TR-REFUSAL",
-                    answer_arity="nonbinary",
-                    question_en=(
-                        f"Using only the audio, what visual appearance did the {noun_en} "
-                        f"that {verb_en} first have?"
-                    ),
-                    question_zh=f"只根据音频，最先{verb_zh}的那个{noun_zh}是什么外观？",
-                    options=[*options, refusal_answer],
-                    answer=refusal_answer,
-                    semantic_answer_source_slot=None,
-                    provided_modalities=["audio"],
-                    withheld_modalities=["video"],
-                    modality_expectation="must_refuse_audio_only_visual_attribute",
-                    refusal_gold=True,
-                )
+            refusal_row = dict(
+                base,
+                type_id="QV2-TR-REFUSAL",
+                answer_arity="nonbinary",
+                question_en=(
+                    f"Using only the audio, what visual appearance did the {noun_en} "
+                    f"that {verb_en} first have?"
+                ),
+                question_zh=f"只根据音频，最先{verb_zh}的那个{noun_zh}是什么外观？",
+                options=[*options, refusal_answer],
+                answer=refusal_answer,
+                semantic_answer_source_slot=None,
+                provided_modalities=["audio"],
+                withheld_modalities=["video"],
+                modality_expectation="must_refuse_audio_only_visual_attribute",
+                refusal_gold=True,
             )
+            refusal_row["modality_mask"] = resolve_modality_mask(
+                refusal_row,
+                spec=spec,
+                point_id=point_id,
+                audio_available=audio_input_available,
+            )
+            refusal_candidates.append(refusal_row)
 
         emit(
             dict(
