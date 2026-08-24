@@ -500,15 +500,26 @@ def run(args: argparse.Namespace) -> Path:
                     ) from exc
             visible_pixels = dynamic.visible_pixels
             for frame_index, frame in enumerate(runtime_track["frames"]):
-                frame["source1"]["visible_pixels"] = int(visible_pixels[frame_index, 0])
-                frame["source2"]["visible_pixels"] = int(visible_pixels[frame_index, 1])
+                frame["source1"]["visible_pixels"] = None
+                frame["source2"]["visible_pixels"] = None
+                frame["source1"]["semantic_id_pixel_count"] = int(
+                    visible_pixels[frame_index, 0]
+                )
+                frame["source2"]["semantic_id_pixel_count"] = int(
+                    visible_pixels[frame_index, 1]
+                )
             if not dynamic.has_current_pose_authority:
                 runtime_track["native_projection_visibility"] = {
-                    "status": "native_visible_pixels_recorded_projection_occlusion_pending",
+                    "status": "native_semantic_id_counts_recorded_actor_visibility_pending",
                     "projection_by_frame": None,
                     "in_frame_by_frame": None,
                     "occlusion_by_frame": None,
-                    "visible_pixels_by_frame": {
+                    "off_screen_by_frame": None,
+                    "actor_modal_visibility_by_frame": None,
+                    "semantic_id_coverage_completeness_status": (
+                        "semantic_id_coverage_completeness_not_certified"
+                    ),
+                    "semantic_id_pixel_count_by_frame": {
                         dynamic.source_ids[0]: visible_pixels[:, 0].tolist(),
                         dynamic.source_ids[1]: visible_pixels[:, 1].tolist(),
                     },
@@ -621,8 +632,9 @@ def run(args: argparse.Namespace) -> Path:
                 "viewpoints": descriptors,
                 "claim_boundary": (
                     "every input candidate record is retained and joined to its static "
-                    "receipt plus optional dynamic raw clues; modal pixels do not infer "
-                    "occlusion or off-screen, and audio/P1/RIR/mini-pilot certification "
+                    "receipt plus optional dynamic raw clues; semantic-ID raster "
+                    "presence is not complete actor modal truth and cannot infer "
+                    "occlusion or off-screen; audio/P1/RIR/mini-pilot certification "
                     "remain separate pending evidence"
                 ),
             },

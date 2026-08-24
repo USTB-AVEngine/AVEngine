@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import avengine.m5.mp3d_raw_clues as raw_clue_module
 from avengine.m5.mp3d_raw_clues import (
     MP3DRawClueError,
     load_dynamic_capture_raw_clues,
@@ -127,7 +128,7 @@ def _set_yaw(
     np.save(sensor_path, sensors)
 
 
-def test_current_capture_retains_close_exchange_and_zero_modal_pixels(
+def test_rgb_clue_with_zero_semantic_ids_retains_close_exchange_and_pending_visibility(
     tmp_path: Path,
 ) -> None:
     root, request, request_path = _current_inputs(tmp_path, name="exchange")
@@ -146,6 +147,10 @@ def test_current_capture_retains_close_exchange_and_zero_modal_pixels(
     semantic[semantic == 210] = 0
     semantic[semantic == 211] = 0
     np.save(root / "arrays/semantic.npy", semantic)
+    rgb = np.load(root / "arrays/rgb.npy")
+    rgb[0, 0, 0] = [255, 17, 201]
+    np.save(root / "arrays/rgb.npy", rgb)
+    assert rgb[0, 0, 0].tolist() == [255, 17, 201]
     visibility = np.zeros((75, 2), dtype=np.int64)
     np.save(root / "arrays/semantic_visibility_pixels.npy", visibility)
     frame_path = root / "frame_records.json"
@@ -180,11 +185,26 @@ def test_current_capture_retains_close_exchange_and_zero_modal_pixels(
     )
     for frame in raw["frames"]:
         for source in frame["sources"].values():
-            modal = source["native_modal_semantic"]
-            assert modal["visible_pixel_count"] == 0
-            assert modal["modal_bbox_xyxy"] is None
-            assert modal["occlusion"] is None
-            assert modal["off_screen"] is None
+            raster = source["native_semantic_id_raster"]
+            assert raster["semantic_id_pixel_count"] == 0
+            assert raster["semantic_id_bbox_xyxy"] is None
+            assert raster["semantic_id_pixel_presence"] is False
+            assert raster["semantic_id_coverage_completeness_status"] == (
+                "semantic_id_coverage_completeness_not_certified"
+            )
+            assert raster["actor_modal_visibility"] is None
+            assert raster["occlusion"] is None
+            assert raster["off_screen"] is None
+    assert raw["semantic_id_raster_boundary"] == {
+        "status": "semantic_id_coverage_completeness_not_certified",
+        "positive_count_interpretation": "semantic_id_appears_in_raster",
+        "zero_count_interpretation": "does_not_prove_actor_absence",
+        "actor_modal_visibility": None,
+        "occlusion": None,
+        "off_screen": None,
+    }
+    assert pair["frames"][0]["source1"]["visible_pixels"] is None
+    assert pair["frames"][0]["source1"]["semantic_id_pixel_count"] == 0
     assert raw["audio_timing"] == {
         "status": "pending_no_audio_program_or_native_audio_receipt",
         "audio_program": None,
@@ -193,6 +213,9 @@ def test_current_capture_retains_close_exchange_and_zero_modal_pixels(
         "p1_or_rir_identity": None,
     }
     assert raw["p1_amodal_visibility"]["status"] == ("pending_no_p1_or_amodal_receipt")
+    assert raw["motion_timing"]["planned"]["action_sample_index_status"] == (
+        "retained_not_independently_rederived"
+    )
 
 
 def test_actual_yaw_changes_listener_doa_and_pinhole_projection(tmp_path: Path) -> None:
@@ -222,6 +245,123 @@ def test_actual_yaw_changes_listener_doa_and_pinhole_projection(tmp_path: Path) 
         yaw90["camera"]["actual_post_render_agent_camera"]["rotation_xyzw"]
         != yaw0["camera"]["actual_post_render_agent_camera"]["rotation_xyzw"]
     )
+    raster = yaw90_source["native_semantic_id_raster"]
+    assert raster["semantic_id_pixel_count"] > 0
+    assert raster["semantic_id_pixel_presence"] is True
+    assert raster["actor_modal_visibility"] is None
+    assert raster["semantic_id_pixel_presence_interpretation"].startswith(
+        "positive_count_proves_only"
+    )
+
+
+def test_pinhole_continuous_pixel_center_edge_and_sign_convention() -> None:
+    poses = np.tile(np.asarray([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]), (75, 1))
+    positions = np.zeros((75, 2, 3), dtype=np.float64)
+    positions[:, 0] = [0.0, 0.0, -1.0]
+    positions[:, 1] = [1.0, 0.0, -1.0]
+    positions[1, 0] = [-1.0, 0.0, -1.0]
+    positions[2, 0] = [0.0, 2.0 / 3.0, -1.0]
+
+    tracks = raw_clue_module._pinhole_tracks(
+        positions,
+        poses,
+        hfov_degrees=90.0,
+        height=4,
+        width=6,
+    )
+
+    center = tracks[0][0]
+    assert center["normalized_pinhole_x_right"] == pytest.approx(0.0)
+    assert center["normalized_pinhole_y_up"] == pytest.approx(0.0)
+    assert center["pixel_x_right"] == pytest.approx(2.5)
+    assert center["pixel_y_down"] == pytest.approx(1.5)
+    assert center["frustum_margin_normalized"] == pytest.approx(1.0)
+    assert center["pixel_center_convention"] == (
+        "continuous_zero_based_pixel_centers_x_0_to_width_minus_1_y_0_to_height_minus_1"
+    )
+    right_edge = tracks[1][0]
+    assert right_edge["normalized_pinhole_x_right"] == pytest.approx(1.0)
+    assert right_edge["pixel_x_right"] == pytest.approx(5.0)
+    assert right_edge["frustum_margin_normalized"] == pytest.approx(0.0)
+    assert right_edge["center_in_frustum"] is True
+    left_edge = tracks[0][1]
+    assert left_edge["normalized_pinhole_x_right"] == pytest.approx(-1.0)
+    assert left_edge["pixel_x_right"] == pytest.approx(0.0)
+    upper_edge = tracks[0][2]
+    assert upper_edge["normalized_pinhole_y_up"] == pytest.approx(1.0)
+    assert upper_edge["pixel_y_down"] == pytest.approx(0.0)
+
+
+def test_projection_uses_semantic_sensor_pose_not_agent_pose(tmp_path: Path) -> None:
+    root, request, request_path = _current_inputs(tmp_path, name="sensor-extrinsic")
+    _set_yaw(
+        root,
+        request,
+        request_path,
+        rotation_xyzw=[0.0, 0.0, 0.0, 1.0],
+    )
+    half_angle = np.deg2rad(22.5)
+    sensor_yaw = [0.0, float(np.sin(half_angle)), 0.0, float(np.cos(half_angle))]
+    receipt_path = root / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["m1_capture_identity"]["primary_camera_rig"]["shared_calibration"][
+        "rig_from_sensor"
+    ]["rotation_xyzw"] = sensor_yaw
+    _write_json(receipt_path, receipt)
+    request["primary_camera_rig"]["shared_calibration"]["rig_from_sensor"][
+        "rotation_xyzw"
+    ] = sensor_yaw
+    _write_json(request_path, request)
+    sensor_path = root / "arrays/actual_sensor_poses_txyz_qxyzw.npy"
+    sensor_poses = np.load(sensor_path)
+    sensor_poses[:, :, 3:7] = sensor_yaw
+    np.save(sensor_path, sensor_poses)
+    source_positions = np.zeros((75, 2, 3), dtype=np.float64)
+    source_positions[:, 0] = [9.0, 8.0, 3.0]
+    source_positions[:, 1] = [9.5, 8.0, 3.0]
+    np.save(root / "arrays/source_positions_m.npy", source_positions)
+    frame_path = root / "frame_records.json"
+    frame_document = json.loads(frame_path.read_text())
+    for index, frame in enumerate(frame_document["frames"]):
+        frame["source_positions_m"] = source_positions[index].tolist()
+    _write_json(frame_path, frame_document)
+
+    raw = _load(root, request, request_path).raw_clues
+    frame = raw["frames"][0]
+    projected = frame["sources"]["source0"]["analytic_pinhole_center"]
+    agent_pose = np.asarray(
+        [
+            [
+                *frame["camera"]["actual_post_render_agent_camera"]["translation_m"],
+                *frame["camera"]["actual_post_render_agent_camera"]["rotation_xyzw"],
+            ]
+        ]
+        * 75,
+        dtype=np.float64,
+    )
+    agent_projection = raw_clue_module._pinhole_tracks(
+        source_positions,
+        agent_pose,
+        hfov_degrees=90.0,
+        height=2,
+        width=4,
+    )[0][0]
+
+    assert raw["calibration"]["pose_authority"] == (
+        "actual_post_render_semantic_sensor_pose"
+    )
+    assert projected["authority"] == (
+        "actual_post_render_semantic_sensor_pose_plus_capture_time_m1_intrinsics"
+    )
+    assert abs(projected["normalized_pinhole_x_right"]) == pytest.approx(
+        1.0, abs=2.0e-6
+    )
+    assert agent_projection["normalized_pinhole_x_right"] == pytest.approx(
+        0.0, abs=2.0e-6
+    )
+    assert frame["sources"]["source0"]["actual_listener_local_geometry"][
+        "azimuth_deg"
+    ] == pytest.approx(0.0, abs=2.0e-6)
 
 
 def test_current_capture_rejects_damaged_identity_axis(tmp_path: Path) -> None:
@@ -266,6 +406,126 @@ def test_legacy_capture_keeps_every_new_authority_pending(tmp_path: Path) -> Non
     )
     assert raw["audio_timing"]["audio_program"] is None
     assert raw["p1_amodal_visibility"]["off_screen_by_frame"] is None
+    assert raw["frames"][0]["pts_ticks"] is None
+    assert raw["frames"][0]["pts_status"] == (
+        "pending_no_legacy_frame_records_artifact"
+    )
+    emitter_motion = raw["motion_timing"]["actual_emitter"]
+    assert emitter_motion["pts_authority"] is None
+    assert (
+        emitter_motion["by_identity"]["source0"]["frame_to_frame_speed_mps"]
+        == [None] * 75
+    )
+
+
+def test_legacy_capture_reads_frame_pts_and_compares_m2_action_time(
+    tmp_path: Path,
+) -> None:
+    from avengine.contracts.json_io import load_json
+    from test_describe_mp3d_viewpoint_tracks import _args
+    from tools.m5 import describe_mp3d_viewpoint_tracks as descriptor
+
+    args, output, *_unused = _args(tmp_path, with_dynamic=True)
+    dynamic_root = args.dynamic_capture_dir[0]
+    receipt_path = dynamic_root / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    frames = [
+        {
+            "frame_index": index,
+            "pts_ticks": index * 4_000,
+            "action_id": "walk",
+            "action_time_ticks": index * 2_000,
+            "action_sample_index": index,
+        }
+        for index in range(75)
+    ]
+    _write_json(dynamic_root / "frame_records.json", {"frames": frames})
+    m2_path = tmp_path / "legacy_m2.json"
+    _write_json(
+        m2_path,
+        {
+            "request_id": "legacy_m2",
+            "states": [
+                {
+                    "frame_index": frame["frame_index"],
+                    "pts_ticks": frame["pts_ticks"],
+                    "action_id": frame["action_id"],
+                    "action_time_ticks": frame["action_time_ticks"],
+                }
+                for frame in frames
+            ],
+        },
+    )
+    receipt["artifacts"]["frame_records"] = "frame_records.json"
+    receipt["inputs"]["m2_request"] = str(m2_path.resolve())
+    _write_json(receipt_path, receipt)
+
+    descriptor.run(args)
+    raw = load_json(output / "viewpoint_raw_track_descriptors.json")["viewpoints"][0][
+        "dynamic_raw_clues"
+    ]
+
+    assert raw["frames"][1]["pts_ticks"] == 4_000
+    assert raw["frames"][1]["pts_status"] == (
+        "validated_from_legacy_frame_records_artifact"
+    )
+    planned = raw["motion_timing"]["planned"]
+    assert planned["labels_by_frame"][1]["action_time_ticks"] == 2_000
+    assert planned["labels_by_frame"][1]["action_time_ticks_comparison_status"] == (
+        "exact_match_between_m2_and_frame_record"
+    )
+    assert planned["labels_by_frame"][1]["action_sample_index_status"] == (
+        "retained_not_independently_rederived"
+    )
+    assert raw["motion_timing"]["actual_emitter"]["pts_authority"] == (
+        "legacy_dynamic_capture.frame_records.pts_ticks"
+    )
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    (
+        ("pts", "PTS must be strictly increasing"),
+        ("action_time", "action_time_ticks differ"),
+    ),
+)
+def test_legacy_capture_rejects_damaged_timing(
+    tmp_path: Path, damage: str, message: str
+) -> None:
+    from test_describe_mp3d_viewpoint_tracks import _args
+    from tools.m5 import describe_mp3d_viewpoint_tracks as descriptor
+
+    args, _output, *_unused = _args(tmp_path, with_dynamic=True)
+    dynamic_root = args.dynamic_capture_dir[0]
+    receipt_path = dynamic_root / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    frames = [
+        {
+            "frame_index": index,
+            "pts_ticks": index * 3_200,
+            "action_id": "walk",
+            "action_time_ticks": index * 3_200,
+            "action_sample_index": index,
+        }
+        for index in range(75)
+    ]
+    m2_states = [dict(frame) for frame in frames]
+    for state in m2_states:
+        state.pop("action_sample_index")
+    if damage == "pts":
+        frames[1]["pts_ticks"] = 0
+        m2_states[1]["pts_ticks"] = 0
+    else:
+        m2_states[1]["action_time_ticks"] += 1
+    _write_json(dynamic_root / "frame_records.json", {"frames": frames})
+    m2_path = tmp_path / "damaged_legacy_m2.json"
+    _write_json(m2_path, {"request_id": "damaged", "states": m2_states})
+    receipt["artifacts"]["frame_records"] = "frame_records.json"
+    receipt["inputs"]["m2_request"] = str(m2_path.resolve())
+    _write_json(receipt_path, receipt)
+
+    with pytest.raises(descriptor.MP3DTrackDescriptorError, match=message):
+        descriptor.run(args)
 
 
 def test_probe_subset_adapter_outputs_same_two_records_in_order(tmp_path: Path) -> None:

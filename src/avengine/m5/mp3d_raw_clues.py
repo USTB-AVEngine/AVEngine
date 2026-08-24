@@ -46,6 +46,12 @@ _NEW_POSE_ARTIFACTS = {
     "actual_sensor_poses",
     "actual_logical_listener_poses",
 }
+_PINHOLE_AUTHORITY = (
+    "actual_post_render_semantic_sensor_pose_plus_capture_time_m1_intrinsics"
+)
+_PIXEL_CENTER_CONVENTION = (
+    "continuous_zero_based_pixel_centers_x_0_to_width_minus_1_y_0_to_height_minus_1"
+)
 
 
 class MP3DRawClueError(ValueError):
@@ -189,7 +195,9 @@ def _pinhole_tracks(
             depth = float(-local[2])
             if depth <= 0.0:
                 record = {
-                    "authority": "analytic_center_from_actual_semantic_sensor_pose",
+                    "authority": _PINHOLE_AUTHORITY,
+                    "intrinsics_authority": "capture_time_m1_capture_identity",
+                    "pixel_center_convention": _PIXEL_CENTER_CONVENTION,
                     "camera_forward_depth_m": depth,
                     "normalized_pinhole_x_right": None,
                     "normalized_pinhole_y_up": None,
@@ -205,8 +213,16 @@ def _pinhole_tracks(
                 y = float(local[1] / (depth * tan_half_v))
                 horizontal_margin = float(1.0 - abs(x))
                 vertical_margin = float(1.0 - abs(y))
+                if abs(horizontal_margin) <= 1.0e-12:
+                    x = math.copysign(1.0, x)
+                    horizontal_margin = 0.0
+                if abs(vertical_margin) <= 1.0e-12:
+                    y = math.copysign(1.0, y)
+                    vertical_margin = 0.0
                 record = {
-                    "authority": "analytic_center_from_actual_semantic_sensor_pose",
+                    "authority": _PINHOLE_AUTHORITY,
+                    "intrinsics_authority": "capture_time_m1_capture_identity",
+                    "pixel_center_convention": _PIXEL_CENTER_CONVENTION,
                     "camera_forward_depth_m": depth,
                     "normalized_pinhole_x_right": x,
                     "normalized_pinhole_y_up": y,
@@ -225,7 +241,7 @@ def _pinhole_tracks(
     return result
 
 
-def _modal_semantic_tracks(
+def _semantic_id_tracks(
     semantic: np.ndarray,
     *,
     semantic_ids: Sequence[int],
@@ -269,20 +285,32 @@ def _modal_semantic_tracks(
                 )
             result[axis].append(
                 {
-                    "authority": "same_renderer_native_modal_semantic_pixels",
+                    "authority": "same_renderer_native_semantic_id_raster",
                     "semantic_id": int(semantic_id),
-                    "visible_pixel_count": count,
-                    "modal_bbox_xyxy": bbox,
-                    "modal_bbox_border_margin_pixels": border_margin,
-                    "modal_bbox_border_margin_normalized": normalized_border_margin,
-                    "modal_presence": count > 0,
+                    "semantic_id_pixel_count": count,
+                    "semantic_id_bbox_xyxy": bbox,
+                    "semantic_id_bbox_border_margin_pixels": border_margin,
+                    "semantic_id_bbox_border_margin_normalized": normalized_border_margin,
+                    "semantic_id_pixel_presence": count > 0,
+                    "semantic_id_pixel_presence_interpretation": (
+                        "positive_count_proves_only_that_this_semantic_id_appears; "
+                        "zero_count_does_not_prove_actor_absence"
+                    ),
+                    "semantic_id_coverage_completeness_status": (
+                        "semantic_id_coverage_completeness_not_certified"
+                    ),
+                    "actor_modal_visibility": None,
+                    "actor_modal_bbox_xyxy": None,
                     "occlusion": None,
                     "off_screen": None,
-                    "occlusion_status": "pending_no_amodal_authority",
+                    "actor_modal_visibility_status": (
+                        "pending_semantic_id_coverage_completeness_not_certified"
+                    ),
+                    "occlusion_status": (
+                        "pending_no_actor_modal_or_amodal_visibility_authority"
+                    ),
                     "off_screen_status": (
-                        "pending_modal_absence_is_ambiguous"
-                        if count == 0
-                        else "pending_modal_presence_does_not_prove_full_on_screen"
+                        "pending_semantic_id_presence_or_absence_is_not_actor_visibility"
                     ),
                 }
             )
@@ -290,7 +318,11 @@ def _modal_semantic_tracks(
 
 
 def _motion_series(
-    positions: np.ndarray, *, identities: Sequence[str], pts_ticks: Sequence[int]
+    positions: np.ndarray,
+    *,
+    identities: Sequence[str],
+    pts_ticks: Sequence[int] | None,
+    pts_authority: str | None,
 ) -> dict[str, Any]:
     by_identity: dict[str, Any] = {}
     for axis, identity in enumerate(identities):
@@ -300,9 +332,12 @@ def _motion_series(
             displacement = float(
                 np.linalg.norm(positions[index, axis] - positions[index - 1, axis])
             )
-            seconds = (pts_ticks[index] - pts_ticks[index - 1]) / TICKS_PER_SECOND
             displacements.append(displacement)
-            speeds.append(float(displacement / seconds))
+            if pts_ticks is None:
+                speeds.append(None)
+            else:
+                seconds = (pts_ticks[index] - pts_ticks[index - 1]) / TICKS_PER_SECOND
+                speeds.append(float(displacement / seconds))
         by_identity[str(identity)] = {
             "positions_m": positions[:, axis, :].tolist(),
             "frame_to_frame_displacement_m": displacements,
@@ -310,10 +345,21 @@ def _motion_series(
             "classification_threshold_or_gate": None,
         }
     return {
-        "status": "actual_displacement_and_speed_recorded_without_motion_gate",
-        "pts_authority": "dynamic_capture.frame_records.pts_ticks",
+        "status": (
+            "actual_displacement_and_speed_recorded_without_motion_gate"
+            if pts_ticks is not None
+            else "actual_displacement_recorded_speed_pending_no_pts_authority"
+        ),
+        "pts_authority": pts_authority,
         "by_identity": by_identity,
     }
+
+
+def _validated_pts_ticks(records: Sequence[Mapping[str, Any]]) -> list[int]:
+    result = [int(record["pts_ticks"]) for record in records]
+    if any(right <= left for left, right in zip(result, result[1:])):
+        raise MP3DRawClueError("dynamic frame-record PTS must be strictly increasing")
+    return result
 
 
 def _planned_motion(
@@ -329,12 +375,33 @@ def _planned_motion(
     if not isinstance(states, list) or len(states) != FRAME_COUNT:
         raise MP3DRawClueError("dynamic M2 request must contain exactly 75 states")
     labels = []
+    action_time_comparison_statuses = []
     for index, (state_value, frame_value) in enumerate(
         zip(states, records, strict=True)
     ):
         state = _mapping(state_value, owner=f"M2 states[{index}]")
         action_id = frame_value.get("action_id")
         action_sample_index = frame_value.get("action_sample_index")
+        m2_action_time = state.get("action_time_ticks")
+        frame_action_time = frame_value.get("action_time_ticks")
+        if m2_action_time is not None and (
+            isinstance(m2_action_time, bool)
+            or not isinstance(m2_action_time, int)
+            or m2_action_time < 0
+        ):
+            raise MP3DRawClueError(f"M2 action_time_ticks is invalid at frame {index}")
+        if frame_action_time is not None and (
+            isinstance(frame_action_time, bool)
+            or not isinstance(frame_action_time, int)
+            or frame_action_time < 0
+        ):
+            raise MP3DRawClueError(
+                f"frame-record action_time_ticks is invalid at frame {index}"
+            )
+        if frame_action_time is not None and m2_action_time != frame_action_time:
+            raise MP3DRawClueError(
+                f"M2/frame-record action_time_ticks differ at frame {index}"
+            )
         if (
             state.get("frame_index") != index
             or state.get("pts_ticks") != frame_value.get("pts_ticks")
@@ -348,18 +415,34 @@ def _planned_motion(
             raise MP3DRawClueError(
                 f"M2/frame-record planned motion labels differ at frame {index}"
             )
+        if m2_action_time is None:
+            action_time_status = "absent_in_m2_and_frame_record"
+        elif frame_action_time is None:
+            action_time_status = "retained_from_m2_frame_record_value_absent"
+        else:
+            action_time_status = "exact_match_between_m2_and_frame_record"
+        action_time_comparison_statuses.append(action_time_status)
         labels.append(
             {
                 "frame_index": index,
                 "pts_ticks": int(frame_value["pts_ticks"]),
                 "action_id": action_id,
+                "action_time_ticks": m2_action_time,
+                "action_time_ticks_comparison_status": action_time_status,
                 "action_sample_index": action_sample_index,
+                "action_sample_index_status": "retained_not_independently_rederived",
             }
         )
     return {
-        "status": "planned_labels_verified_against_m2_and_frame_records",
+        "status": (
+            "frame_index_pts_and_action_id_compared; action_time_ticks_retained_"
+            "and_compared_when_frame_recorded; action_sample_index_retained_not_"
+            "independently_rederived"
+        ),
         "m2_request": str(m2_path),
         "m2_request_id": m2.get("request_id"),
+        "action_time_ticks_comparison_statuses": action_time_comparison_statuses,
+        "action_sample_index_status": "retained_not_independently_rederived",
         "labels_by_frame": labels,
     }
 
@@ -406,6 +489,9 @@ def _legacy_raw_clues(
     actor_ids: tuple[str, str],
     source_positions: np.ndarray,
     visible_pixels: np.ndarray,
+    receipt_path: Path,
+    inputs: Mapping[str, Any],
+    records: Sequence[Mapping[str, Any]] | None,
 ) -> dict[str, Any]:
     rig = _mapping(request.get("primary_camera_rig"), owner="M1 camera rig")
     transform = deepcopy(
@@ -416,8 +502,30 @@ def _legacy_raw_clues(
         dict(transform),
         dict(_mapping(listener.get("rig_from_listener"), owner="M1 rig_from_listener")),
     )
+    if records is None:
+        pts_ticks = None
+        pts_status = "pending_no_legacy_frame_records_artifact"
+        planned_motion: Mapping[str, Any] = {
+            "status": "pending_no_legacy_frame_records_or_m2_comparison",
+            "labels_by_frame": None,
+        }
+    else:
+        pts_ticks = _validated_pts_ticks(records)
+        pts_status = "validated_from_legacy_frame_records_artifact"
+        if isinstance(inputs.get("m2_request"), str) and inputs.get("m2_request"):
+            planned_motion = _planned_motion(receipt_path, inputs, records)
+        else:
+            planned_motion = {
+                "status": "pending_no_m2_request_for_legacy_frame_comparison",
+                "labels_by_frame": None,
+            }
     frames = []
     for index in range(FRAME_COUNT):
+        planned_label = (
+            None
+            if planned_motion.get("labels_by_frame") is None
+            else planned_motion["labels_by_frame"][index]
+        )
         sources = {}
         for axis, source_id in enumerate(source_ids):
             sources[source_id] = {
@@ -430,20 +538,27 @@ def _legacy_raw_clues(
                 "actual_emitter_position_m": source_positions[index, axis].tolist(),
                 "actual_listener_local_geometry": None,
                 "analytic_pinhole_center": None,
-                "native_modal_semantic": {
-                    "visible_pixel_count": int(visible_pixels[index, axis]),
-                    "modal_bbox_xyxy": None,
-                    "modal_bbox_border_margin_pixels": None,
+                "native_semantic_id_raster": {
+                    "semantic_id_pixel_count": int(visible_pixels[index, axis]),
+                    "semantic_id_bbox_xyxy": None,
+                    "semantic_id_pixel_presence": (
+                        int(visible_pixels[index, axis]) > 0
+                    ),
+                    "semantic_id_coverage_completeness_status": (
+                        "semantic_id_coverage_completeness_not_certified"
+                    ),
+                    "actor_modal_visibility": None,
                     "occlusion": None,
                     "off_screen": None,
-                    "status": "legacy_count_only_semantic_array_not_joined",
+                    "status": "legacy_semantic_id_count_only_raster_not_joined",
                 },
             }
         frames.append(
             {
                 "frame_index": index,
-                "pts_ticks": index * TICKS_PER_FRAME,
-                "planned_motion_label": None,
+                "pts_ticks": None if pts_ticks is None else pts_ticks[index],
+                "pts_status": pts_status,
+                "planned_motion_label": planned_label,
                 "camera": {
                     "planned_world_from_camera": deepcopy(transform),
                     "actual_post_render_agent_camera": None,
@@ -467,10 +582,7 @@ def _legacy_raw_clues(
             "actual_skin_root_relative_to_actual_listener": None,
         },
         "motion_timing": {
-            "planned": {
-                "status": "pending_legacy_frame_or_m2_join_not_authoritative",
-                "labels_by_frame": None,
-            },
+            "planned": planned_motion,
             "actual_skin_root": {
                 "status": "pending_no_actual_skin_root_readback",
                 "by_identity": None,
@@ -478,7 +590,12 @@ def _legacy_raw_clues(
             "actual_emitter": _motion_series(
                 source_positions,
                 identities=source_ids,
-                pts_ticks=[index * TICKS_PER_FRAME for index in range(FRAME_COUNT)],
+                pts_ticks=pts_ticks,
+                pts_authority=(
+                    "legacy_dynamic_capture.frame_records.pts_ticks"
+                    if pts_ticks is not None
+                    else None
+                ),
             ),
         },
         "planned_continuous_polyline": {
@@ -490,6 +607,14 @@ def _legacy_raw_clues(
             "status": "pending_no_p1_or_amodal_receipt",
             "occlusion_by_frame": None,
             "off_screen_by_frame": None,
+        },
+        "semantic_id_raster_boundary": {
+            "status": "semantic_id_coverage_completeness_not_certified",
+            "positive_count_interpretation": "semantic_id_appears_in_raster",
+            "zero_count_interpretation": "does_not_prove_actor_absence",
+            "actor_modal_visibility": None,
+            "occlusion": None,
+            "off_screen": None,
         },
         "candidate_filtering": "none",
         "candidate_retained": True,
@@ -555,7 +680,7 @@ def _current_raw_clues(
     inputs = _mapping(receipt.get("inputs"), owner="dynamic receipt inputs")
     capture_identity = _capture_identity(receipt, request)
     planned_motion = _planned_motion(receipt_path, inputs, records)
-    pts_ticks = [int(record["pts_ticks"]) for record in records]
+    pts_ticks = _validated_pts_ticks(records)
     if pts_ticks != [index * TICKS_PER_FRAME for index in range(FRAME_COUNT)]:
         raise MP3DRawClueError("dynamic frame PTS must be exact 15 fps ticks")
 
@@ -651,24 +776,33 @@ def _current_raw_clues(
         height=height,
         width=width,
     )
-    modal = _modal_semantic_tracks(
+    semantic_id_tracks = _semantic_id_tracks(
         semantic, semantic_ids=semantic_ids, visible_pixels=visible_pixels
     )
     for frame_index, frame in enumerate(emitter_track["frames"]):
         for axis, key in enumerate(("source1", "source2")):
             frame[key]["projection"] = deepcopy(projections[axis][frame_index])
-            frame[key]["visible_pixels"] = int(visible_pixels[frame_index, axis])
+            frame[key]["visible_pixels"] = None
+            frame[key]["semantic_id_pixel_count"] = int(
+                visible_pixels[frame_index, axis]
+            )
             frame[key]["in_frame"] = None
             frame[key]["occlusion"] = None
             frame[key]["off_screen"] = None
     emitter_track["native_projection_visibility"] = {
-        "status": "analytic_center_and_native_modal_pixels_recorded",
-        "projection_authority": "actual_post_render_semantic_sensor_pose",
-        "modal_pixel_authority": "same_renderer_semantic_array",
+        "status": "analytic_center_and_native_semantic_id_raster_described",
+        "projection_authority": _PINHOLE_AUTHORITY,
+        "semantic_id_raster_authority": "same_renderer_native_semantic_id_raster",
+        "semantic_id_coverage_completeness_status": (
+            "semantic_id_coverage_completeness_not_certified"
+        ),
+        "actor_modal_visibility_by_frame": None,
         "in_frame_by_frame": None,
         "occlusion_by_frame": None,
         "off_screen_by_frame": None,
-        "ambiguity": "modal pixels alone cannot distinguish occlusion from off-screen",
+        "ambiguity": (
+            "semantic ID presence or absence is not complete actor modal visibility"
+        ),
     }
 
     rig = _mapping(capture_identity.get("primary_camera_rig"), owner="M1 camera rig")
@@ -733,7 +867,9 @@ def _current_raw_clues(
                     "side_margin": geometry["listener_side_margin"],
                 },
                 "analytic_pinhole_center": deepcopy(projections[axis][frame_index]),
-                "native_modal_semantic": deepcopy(modal[axis][frame_index]),
+                "native_semantic_id_raster": deepcopy(
+                    semantic_id_tracks[axis][frame_index]
+                ),
             }
         frame_output.append(
             {
@@ -778,6 +914,9 @@ def _current_raw_clues(
             "hfov_degrees": hfov,
             "resolution_hw": [height, width],
             "projection_sensor_uuid": semantic_sensor_uuid,
+            "pose_authority": "actual_post_render_semantic_sensor_pose",
+            "intrinsics_authority": "capture_time_m1_capture_identity",
+            "pixel_center_convention": _PIXEL_CENTER_CONVENTION,
         },
         "frames": frame_output,
         "pair_tracks": {
@@ -787,10 +926,16 @@ def _current_raw_clues(
         "motion_timing": {
             "planned": planned_motion,
             "actual_skin_root": _motion_series(
-                actual_skin_positions, identities=actor_ids, pts_ticks=pts_ticks
+                actual_skin_positions,
+                identities=actor_ids,
+                pts_ticks=pts_ticks,
+                pts_authority="dynamic_capture.frame_records.pts_ticks",
             ),
             "actual_emitter": _motion_series(
-                source_positions, identities=source_ids, pts_ticks=pts_ticks
+                source_positions,
+                identities=source_ids,
+                pts_ticks=pts_ticks,
+                pts_authority="dynamic_capture.frame_records.pts_ticks",
             ),
         },
         "planned_continuous_polyline": {
@@ -803,6 +948,14 @@ def _current_raw_clues(
             "status": "pending_no_p1_or_amodal_receipt",
             "occlusion_by_frame": None,
             "off_screen_by_frame": None,
+        },
+        "semantic_id_raster_boundary": {
+            "status": "semantic_id_coverage_completeness_not_certified",
+            "positive_count_interpretation": "semantic_id_appears_in_raster",
+            "zero_count_interpretation": "does_not_prove_actor_absence",
+            "actor_modal_visibility": None,
+            "occlusion": None,
+            "off_screen": None,
         },
         "legality": {
             "status": "not_redecided_by_raw_clue_bridge",
@@ -931,12 +1084,22 @@ def load_dynamic_capture_raw_clues(
             raise MP3DRawClueError(str(exc)) from exc
         current = True
     else:
+        legacy_records = None
+        if artifacts.get("frame_records") is not None:
+            frame_records_path = _artifact_path(
+                root, artifacts, name="frame_records", required=True
+            )
+            assert frame_records_path is not None
+            legacy_records = _frame_records(frame_records_path, frame_count=FRAME_COUNT)
         raw_clues = _legacy_raw_clues(
             request=request,
             source_ids=source_ids,
             actor_ids=actor_ids,
             source_positions=np.asarray(source_positions),
             visible_pixels=np.asarray(visible_pixels),
+            receipt_path=receipt_path,
+            inputs=inputs,
+            records=legacy_records,
         )
         current = False
     return LoadedMP3DDynamicClues(

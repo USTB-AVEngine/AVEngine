@@ -268,7 +268,7 @@ def test_run_preserves_exact_mp3d_tracks_and_pending_visibility(tmp_path: Path) 
         descriptor.run(args)
 
 
-def test_run_binds_runtime_emitter_tracks_and_native_visible_pixels(
+def test_run_binds_runtime_emitter_tracks_and_native_semantic_id_counts(
     tmp_path: Path,
 ) -> None:
     args, output, _actor0, _actor1, sources, visibility = _args(
@@ -292,15 +292,23 @@ def test_run_binds_runtime_emitter_tracks_and_native_visible_pixels(
     assert [frame["source2"]["position_xyz"] for frame in track["frames"]] == (
         sources[:, 1, :].tolist()
     )
-    assert [frame["source1"]["visible_pixels"] for frame in track["frames"]] == (
-        visibility[:, 0].tolist()
-    )
+    assert [frame["source1"]["visible_pixels"] for frame in track["frames"]] == [
+        None
+    ] * 75
+    assert [
+        frame["source1"]["semantic_id_pixel_count"] for frame in track["frames"]
+    ] == (visibility[:, 0].tolist())
     assert track["native_projection_visibility"] == {
-        "status": "native_visible_pixels_recorded_projection_occlusion_pending",
+        "status": "native_semantic_id_counts_recorded_actor_visibility_pending",
         "projection_by_frame": None,
         "in_frame_by_frame": None,
         "occlusion_by_frame": None,
-        "visible_pixels_by_frame": {
+        "off_screen_by_frame": None,
+        "actor_modal_visibility_by_frame": None,
+        "semantic_id_coverage_completeness_status": (
+            "semantic_id_coverage_completeness_not_certified"
+        ),
+        "semantic_id_pixel_count_by_frame": {
             "source0": visibility[:, 0].tolist(),
             "source1": visibility[:, 1].tolist(),
         },
