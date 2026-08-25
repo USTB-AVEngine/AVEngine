@@ -1,21 +1,33 @@
-"""Accept or reject a rigged animal from how its surface deforms in the walk.
+"""Accept or reject a rigged animal from how its surface tears during the walk.
 
-The pre-rig gate can tell that a reduction destroyed the head, but it cannot tell
-whether the result will look right, and one of its readings actively misleads:
-the share of edges bending past a fixed angle punishes a low face count, so the
-coarsest asset of a batch scored worst on it while looking best. Face count and
-faceting are not independent, and the eye does not read them separately.
+This is the reading that decides whether an asset looks right, and it is separate
+from the pre-rig gate on purpose: the two failure modes do not show up in the
+same number. A standard Burmese whose face collapsed into flat facets tears less
+than a Jack Russell that looks fine (1.07 against 1.27 percent of posed area in
+shards), so no tearing threshold will ever catch it - that one is caught before
+rigging, by head-third survival. This gate is only responsible for tearing and
+speckle.
 
-Deformation does separate them. Measured on seven assets covering both failure
-modes - a collapsed head and a speckled coat - the share of surface area whose
-faces grow past ten times during the walk reads 0.011 to 0.024 percent on every
-asset that looked right and 0.070 to 0.123 on both that did not. The default
-threshold sits in that gap.
+Two earlier versions of this measurement were wrong in ways worth recording.
+One sampled a single pose at 35 percent through the action, which understated the
+worst frame by ten to thirteen times. The other weighted everything by area,
+while the artifact that dominates what a viewer sees is a shard - a triangle
+stretched into a long thin sliver that fans open at an armpit or a hip and
+carries almost no area. Shards are now found by how far a face's longest edge
+grew, over every sampled frame of the cycle, and the worst frame decides.
 
-This is what lets a pipeline stop early. Run the cheap reduction first, rig it,
-measure here, and only escalate to a full retopology if this rejects - which is
-cheaper than escalating always, and avoids spending detail on an asset that was
-already good enough.
+Both thresholds are calibrated against owner judgement on fifteen rigged versions
+at ordinary viewing distance, which is the scale these assets are used at.
+Magnified four times every version in the batch shows some tearing, so a
+threshold argued from magnified stills would reject everything and mean nothing.
+Recalibrate if the delivery scale changes.
+
+The three versions called acceptable top out at 1.52 percent of posed area in
+shards and the three called unacceptable start at 2.85, so the shard threshold
+sits at 2.0 - about 1.3x clear on either side. The ten-times area share draws the
+same line independently, 0.52 against 0.86, which is why both are gated: two
+unrelated readings agreeing on all fifteen versions is a stronger gate than
+either alone.
 """
 
 from __future__ import annotations
@@ -27,47 +39,44 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stretch_report")
+    parser.add_argument("walk_report")
     parser.add_argument(
-        "--max-share-over-10x", type=float, default=0.0003,
-        help="share of area whose faces grow past ten times during the walk")
+        "--max-shard-share", type=float, default=0.020,
+        help="share of posed area in shards at the worst frame; acceptable "
+             "versions reach 0.0152 and unacceptable ones start at 0.0285")
     parser.add_argument(
-        "--max-share-over-4x", type=float, default=0.006,
-        help="advisory companion; reported and gated loosely, because it does "
-             "not separate the assets that looked right from the ones that did "
-             "not as cleanly as the ten-times share")
-    parser.add_argument("--heading-manifest", default=None)
+        "--max-share-over-10x", type=float, default=0.007,
+        help="second, independent reading of the same judgement: acceptable "
+             "versions reach 0.0052 and unacceptable ones start at 0.0086")
     args = parser.parse_args()
 
-    with open(args.stretch_report, encoding="utf-8") as handle:
+    with open(args.walk_report, encoding="utf-8") as handle:
         report = json.load(handle)
-    over10 = report["share_area_stretched_over_10x"]
-    over4 = report["share_area_stretched_over_4x"]
+    shards = report["worst_share_area_shards"]
+    over10 = report["worst_share_area_over_10x"]
 
     failures = []
-    if over10 > args.max_share_over_10x:
+    if shards > args.max_shard_share:
         failures.append(
-            f"area stretched past 10x is {over10} > {args.max_share_over_10x}: "
-            "the surface will fold visibly during the walk")
-    if over4 > args.max_share_over_4x:
-        failures.append(f"area stretched past 4x is {over4} > {args.max_share_over_4x}")
+            f"shards cover {shards} of posed area at frame "
+            f"{report['worst_frame_by_shards']} > {args.max_shard_share}: the "
+            "surface tears open visibly during the walk")
+    if over10 > args.max_share_over_10x:
+        failures.append(f"area stretched past 10x is {over10} > {args.max_share_over_10x}")
 
     verdict = {
-        "report": args.stretch_report,
+        "report": args.walk_report,
         "faces": report.get("faces"),
-        "share_over_2x": report.get("share_area_stretched_over_2x"),
-        "share_over_4x": over4,
-        "share_over_10x": over10,
-        # Worst-face growth is deliberately not gated: it is one outlier triangle
-        # and it ranks assets wrongly, scoring 162 on an asset that looks better
-        # than one scoring 24.
-        "max_growth_reported_only": report.get("max_growth"),
+        "worst_share_area_shards": shards,
+        "worst_share_area_over_10x": over10,
+        "worst_share_area_over_4x": report.get("worst_share_area_over_4x"),
+        "worst_frame": report.get("worst_frame_by_shards"),
+        "frames_sampled": len(report.get("frames_sampled", [])),
+        # Max growth is reported and never gated: it is one outlier triangle and
+        # it ranks assets wrongly.
+        "worst_max_edge_growth_reported_only": report.get("worst_max_edge_growth"),
         "failures": failures,
     }
-    if args.heading_manifest:
-        with open(args.heading_manifest, encoding="utf-8") as handle:
-            verdict["reviewed_front_yaw_deg"] = json.load(handle)["heading"][
-                "reviewed_source_front_yaw_deg"]
     if failures:
         print("RIGGED_GATE_REJECT " + json.dumps(verdict, ensure_ascii=False))
         return 1

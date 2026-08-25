@@ -69,27 +69,41 @@ and 1.39, and the threshold has somewhere to sit. The tool takes
 
 Voxel remeshing replaces the surface with one that has no non-manifold edges and
 no boundary edges, after which the face target is reachable exactly and the loss
-spreads evenly. That is what rescues a mesh the plain route ruins. But it is not
-the right treatment for every animal, and applying it unconditionally makes some
-assets worse: on one cat the plain weld-and-collapse to 25k reads 0.011 percent
-of area stretched past ten times during the walk where the same source
-retopologised to 80k reads 0.123, and rendered from the same camera under the
-same light the 25k version is visibly the cleaner of the two.
+spreads evenly. That is what rescues a mesh the plain route ruins. It is also the
+wrong treatment for other animals, and the inversion is total rather than
+marginal:
 
-So the pipeline tries the cheapest preparation first and escalates only when a
-measurement says to. `tools/assets/run_generated_animal_chain.sh` walks a ladder,
-preparing, gating, rigging, animating and gating again at each rung, and stops at
-the first that passes both:
+| breed | plain 25k | plain 80k | remesh 80k |
+| --- | --- | --- | --- |
+| Siamese | **0.24%** | 3.90% | 2.85% |
+| Jack Russell | 1.27% | **0.47%** | 0.98% |
+| dark Burmese | never reaches 25k | 7.39% | **1.52%** |
+| standard Burmese | never reaches 25k | never reaches 80k | **0.66%** |
+
+Shards at the worst frame of the walk; bold is the best option for that breed.
+The same setting is a breed's best and another's worst. The two cats carry 1,986
+and 4,171 non-manifold edges against the dog's 1,052, and at 25k the aggressive
+collapse averages the damaged regions away while at 80k the damage survives into
+the rigged mesh - which is also why the two dirtiest meshes cannot reach a low
+budget at all.
+
+So no fixed recipe can work, and the thing that travels between animals is the
+gate, not the setting. `tools/assets/run_generated_animal_chain.sh` walks a
+ladder, preparing, gating, rigging, animating and gating again at each rung:
 
 | rung | preparation |
 | --- | --- |
 | 1 | plain weld and collapse to 25k |
-| 2 | voxel remesh at diagonal/800, collapse to 80k |
-| 3 | voxel remesh at diagonal/700, collapse to 80k |
-| 4 | voxel remesh at diagonal/800, collapse to 120k |
+| 2 | plain weld and collapse to 80k |
+| 3 | voxel remesh at diagonal/800, collapse to 80k |
+| 4 | voxel remesh at diagonal/700, collapse to 80k |
+| 5 | voxel remesh at diagonal/800, collapse to 120k |
 
-On these four breeds two stop at rung 1 and two need rung 2. Evidence from the
-rungs that failed is kept rather than deleted.
+`--pick first`, the default, stops at the first rung that passes both gates.
+`--pick best` runs the whole ladder and keeps the least-torn result, which costs
+five rungs and is worth it for an asset going into production - on the Jack
+Russell it is the difference between 1.27 and 0.47 percent, both acceptable.
+Failed rungs keep their evidence.
 
 `tools/assets/retopologize_for_rigging.py` performs a rung and reports what it
 did, with `--skip-remesh` selecting the plain route. Both meshes stay in one
@@ -101,167 +115,134 @@ freshly imported file measures the file format instead of the surface.
 
 ## The two gates, and why they gate what they do
 
+The two failure modes do not appear in the same number, so one gate cannot catch
+both. A standard Burmese whose face collapsed into flat facets tears *less* than
+a Jack Russell that looks fine - 1.07 percent of posed area in shards against
+1.27 - so no tearing threshold will ever catch it. It is caught before rigging
+instead, by how the triangle budget was distributed.
+
 **Before rigging**, `tools/assets/gate_retopology.py` judges only damage the
 reduction itself did, because that is all it can judge route-independently:
-head-third survival at 0.7, and whether the face target was reached at all. Both
-readings work across routes and both catch a real failure - a starved head, or a
-reduction blocked by non-manifold edges collapse cannot touch.
+head-third survival at 0.7, and whether the face target was reached at all.
 
 Three readings that look like criteria are reported and *not* judged, each for a
 measured reason:
 
-- **Faceting** punishes a low face count. The coarsest asset here scored worst on
-  it, 0.657, and looked best; a denser one scored 0.383 and looked speckled.
-  Face count and dihedral angle are not independent, so the share of edges past a
-  fixed angle cannot say "good enough".
+- **Faceting** punishes a low face count. The coarsest version in this batch
+  scored worst on it, 0.657, and is the one the owner called good; a denser one
+  scored 0.383 and reads as speckled. Face count and dihedral angle are not
+  independent.
 - **Boundary and non-manifold edges** are driven to zero by a remesh, so there is
   nothing to check, and inherited untouched by the plain route, where they
   describe the reconstruction rather than a defect this step introduced. Two
-  assets that look right carry 1,052 and 1,986 non-manifold edges.
-- **Fidelity** spans fivefold across assets that all look right.
+  versions the owner accepted carry 1,052 and 1,986 non-manifold edges.
+- **Fidelity** spans fivefold across versions that all look right.
 
 **After rigging**, `tools/assets/gate_rigged_asset.py` decides whether the result
-is good, from how the surface deforms during the walk. The share of area whose
-faces grow past ten times separates every asset measured so far, across both
-failure modes:
+looks right, from `measure_walk_deformation.py`. Two earlier versions of that
+measurement were wrong in ways worth recording. One sampled a single pose at 35
+percent through the action and understated the worst frame by ten to thirteen
+times. The other weighted everything by area, while the artifact that dominates
+what a viewer sees is a shard - a triangle stretched into a long thin sliver that
+fans open at an armpit or a hip and carries almost no area at all. Shards are now
+found by longest-edge growth, over every sampled frame, and the worst frame
+decides.
 
-| asset | share past 10x | verdict | how it looked |
+Calibrated against owner judgement on fifteen rigged versions at ordinary viewing
+distance:
+
+| version | shards at worst frame | area past 10x | owner |
 | --- | --- | --- | --- |
-| Siamese, plain 25k | 0.011% | accept | clean |
-| Jack Russell, plain 25k | 0.011% | accept | clean |
-| standard Burmese, remesh 80k | 0.012% | accept | clean |
-| Jack Russell, remesh 80k | 0.013% | accept | clean |
-| dark Burmese, remesh 80k | 0.024% | accept | clean |
-| standard Burmese, plain 113k | 0.070% | reject | head destroyed |
-| Siamese, remesh 80k | 0.123% | reject | speckled coat |
+| Siamese, plain 25k | 0.24% | 0.11% | good |
+| Jack Russell, plain 80k | 0.47% | 0.16% | - |
+| standard Burmese, remesh 80k | 0.66% | 0.18% | - |
+| Jack Russell, plain 25k | 1.27% | 0.27% | acceptable |
+| dark Burmese, remesh 80k | 1.52% | 0.50% | acceptable |
+| Siamese, remesh 80k | 2.85% | 1.09% | - |
+| Siamese, remesh 80k swept | 3.71% | 1.59% | rejected |
+| dark Burmese, plain 100k | 3.89% | 0.86% | - |
 
-Threshold 0.03 percent sits in that gap. Worst-face growth is reported and never
-gated: it is one outlier triangle and it ranks assets wrongly, scoring 162 on an
-asset that looks better than one scoring 24.
+The accepted versions top out at 1.52 percent and the rejected one sits at 3.71,
+so the shard threshold is 2.0 - about 1.3x clear on either side. The ten-times
+area share draws the same line independently, 0.52 against 0.86, so both are
+gated: two unrelated readings agreeing across all fifteen versions is a stronger
+gate than either alone.
 
-Rigging is what makes this reading available, and it costs about eighty seconds -
-cheap enough to spend on a rung that might be the answer, which is what makes the
-ladder practical.
+The scale matters and is part of the calibration. Magnified four times, *every*
+version in this batch shows tearing somewhere, usually at an armpit or a hip. A
+threshold argued from magnified stills would reject everything and mean nothing.
+These thresholds describe ordinary viewing distance, which is the scale the
+assets are used at; recalibrate if the delivery scale changes.
 
 ## Measured across four breeds
 
-Each breed at the rung the ladder settles on, with the readings both gates use:
+Where the ladder settles, and what each breed rejects on the way:
 
-| breed | rung | faces | head third | share past 10x | verdict |
-| --- | --- | --- | --- | --- | --- |
-| Jack Russell | plain 25k | 25,000 | 1.46 | 0.011% | accept |
-| Siamese | plain 25k | 25,000 | 1.28 | 0.011% | accept |
-| standard Burmese | remesh 80k | 79,925 | 1.18 | 0.012% | accept |
-| dark Burmese | remesh 80k | 79,976 | 1.39 | 0.024% | accept |
+| breed | settles on | shards | rejects | on what |
+| --- | --- | --- | --- | --- |
+| Siamese | rung 1, plain 25k | 0.24% | rungs 2-4 | 3.90% and 2.85% of shards, and head 0.66 at diagonal/800 |
+| Jack Russell | rung 1, plain 25k | 1.27% | - | passes rung 1; rung 2 would be better at 0.47% |
+| standard Burmese | rung 3, remesh 80k | 0.66% | rungs 1-2 | collapse stalls at 111,937 faces, head 0.54 |
+| dark Burmese | rung 3, remesh 80k | 1.52% | rungs 1-2 | collapse stalls at 61,147 faces; then 7.39% of shards |
 
-And why each one rejects the rung it does not use:
+The two breeds that need the remesh are exactly the two carrying 7,082 and 4,171
+non-manifold edges. The two the plain route handles carry 1,052 and 1,986.
 
-| breed | rejected rung | reading that failed |
-| --- | --- | --- |
-| standard Burmese | plain 25k | head third 0.54, and the collapse stalled at 111,937 faces |
-| dark Burmese | plain 25k | collapse stalled at 61,147 faces |
-| Siamese | remesh 80k | head third 0.66, and 0.123% of area folds past 10x |
-| Jack Russell | remesh 80k | nothing - it also passes, at 0.013%; rung 1 simply comes first |
+## The face budget is bounded from both sides
 
-The two Burmese are the meshes carrying 7,082 and 4,171 non-manifold edges, and
-they are exactly the two that need the remesh. The two the plain route handles
-carry 1,052 and 1,986. Against the plain route at the density it could actually
-reach, the standard Burmese improves fourfold on area stretched past 2x (1.355%
-to 0.333%) and stops looking like crumpled paper.
+Neither bound is a constant, and they pull in opposite directions.
 
-## The budget is squeezed from both sides
+From below, a head needs an absolute triangle count rather than a share, and a
+large flank takes the budget first. At diagonal/800 the Siamese head keeps 0.59
+of its fair share at 50k, 0.66 at 80k and 0.71 at 120k - the pre-rig gate rejects
+the first two.
 
-The recipe removes the topology blocker; it does not make the face budget free
-to pick. Pushing an already-reducible mesh from 25k to 80k costs tearing:
+From above, density carries the reconstruction's damage into the rigged mesh
+instead of averaging it away. On the plain route the two cats go from 0.24 and
+"cannot reach" at 25k to 3.90 and 7.39 percent of shards at 80k.
 
-| asset | 25k decimate-only | 80k retopologised |
-| --- | --- | --- |
-| Jack Russell, >2x | 0.702% | 0.391% |
-| Jack Russell, >10x | 0.011% | 0.013% |
-| Siamese, >2x | 0.937% | 1.038% |
-| Siamese, >10x | 0.011% | 0.070% |
+Which bound binds depends on the breed, and both are measured rather than
+assumed. That is the whole reason the ladder exists.
 
-And cutting it too far starves the head, which is the opposite pressure and the
-more surprising one. A head needs an absolute triangle count, not a share, and a
-large smooth flank will take the budget first. The Siamese at diagonal/800:
+## Where the speckle came from, and why it is not an upstream problem
 
-| Siamese budget | faces reached | head third | verdict |
-| --- | --- | --- | --- |
-| 50k | 65,902 | 0.593 | reject |
-| 80k | 79,983 | 0.658 | reject |
-| 120k | 119,983 | 0.705 | accept |
-
-Smoothing is not what moved it: at 80k the head reads 0.68, 0.67 and 0.66 for 6,
-12 and 24 relief passes. And the budget is not the only knob either — the same
-Siamese passes at 80k once the resolution drops to diagonal/700, which the sweep
-found on its second attempt.
-
-That is the whole argument for sweeping. Neither knob generalized from the animal
-it was chosen on: 80k at diagonal/800 suits three of these four breeds and fails
-the fourth, which passes at 80k/700. Two settings, one gate, and the gate is what
-travels between animals.
-
-Note which animal is which in the table above. The Siamese has the *second
-cleanest* topology of the four (1,986 non-manifold edges) and the worst tearing
-at 80k, while the standard Burmese has the dirtiest (7,082) and the best. Once
-the remesh has removed topology as a variable, what is left ranking these assets
-is something else entirely.
-
-## Surface area is a separate axis from topology
-
-The Siamese is the one asset the remesh does not fix, and none of the three
-obvious explanations survived measurement. It is not the reconstruction: its raw
-mesh is the *second smoothest* of the four, 12.1 percent of edges past thirty
-degrees against the standard Burmese's 33.6, and rendering it untouched shows a
-clean cat. It is not the generated reference image, which is the smoothest and
-palest of the four with less visible fur striping than either Burmese. It is not
-the bake: rendering the retopologised mesh untextured shows the pitted surface
-directly, and tightening the bake ray from 5 to 2 percent of the diagonal
-changed nothing.
+The Siamese at 80k retopologised reads as dark speckle over a pale coat, and
+three explanations did not survive measurement. It is not the reconstruction: its
+raw mesh is the *second smoothest* of the four, 12.1 percent of edges past thirty
+degrees against the standard Burmese's 33.6, and renders clean untouched. It is
+not the generated reference image, which is the smoothest and palest of the four
+with less visible fur striping than either Burmese. It is not the bake: rendering
+the retopologised mesh untextured shows the pitted surface directly, and
+tightening the bake ray from 5 to 2 percent of the diagonal changed nothing, as
+did a 4096 atlas and four times the gutter dilation.
 
 What is different is surface area. At diagonal/700 the Siamese remeshes into
 690,890 faces where the other three land at 383k-426k for the same bounding box,
-so nearly twice the area is gentle undulation. Its undulations are shallow —
-that is why the raw mesh reads smooth — but there are a great many of them, and
-a fixed triangle budget spread over twice the area gives each triangle twice the
-curvature to cross. That is the faceting. The two Burmese, whose raw surfaces are
-much rougher, come out *smoother* through this pipeline (33.6 to 23.3 percent,
-21.4 to 10.6) while the Siamese goes the other way (12.1 to 38.3).
+so nearly twice the area is gentle undulation - shallow, which is why the raw mesh
+reads smooth, but a great deal of it. A fixed triangle budget spread over twice
+the area gives each triangle twice the curvature to cross, and that is the
+faceting. The two Burmese, whose raw surfaces are much rougher, come out
+*smoother* through the remesh route (33.6 to 23.3 percent, 21.4 to 10.6) while
+the Siamese goes the other way, 12.1 to 38.3.
 
-Both remedies work, and the derived pass count made them cancel. More faces
-raises head survival; more smoothing lowers faceting. But the pass count is
-derived from remeshed faces over the budget, so raising the budget lowers the
-smoothing by about the same factor:
+Every remedy inside the remesh route fails. More faces raises head survival and
+makes faceting worse. More smoothing lowers faceting and squeezes the two walls
+of a thin tail into each other - the self-intersection count tracks total
+displacement rather than step size, 311 non-manifold edges at 160 passes of
+factor 0.15 against 348 at 48 passes of 0.5. Remeshing again afterwards does not
+repair that and re-imposes the voxel stair-stepping the smoothing had just
+removed, taking faceting from 0.286 back to 0.434. A volume-preserving laplacian
+smooth is the principled alternative and is a silent no-op at this mesh size - 24,
+60 and 120 iterations returned byte-identical readings - so that option was
+removed rather than shipped as a setting that does nothing.
 
-| Siamese, diagonal/800 | derived passes | faceting | head third |
-| --- | --- | --- | --- |
-| 80k | 24 | 0.383 | 0.658 |
-| 120k | 8 | 0.373 | 0.705 |
+The conclusion is not that the asset needs a better reconstruction. It is that
+this breed does not want the remesh route at all: the plain collapse to 25k gives
+the least-torn asset in the entire batch, 0.24 percent. An earlier version of this
+document concluded the opposite and recommended fixing the generator. That was
+wrong, and it was wrong because the recipe was being defended instead of measured
+against the alternative.
 
-Given both at once, the two readings pass: 120k faces at diagonal/700 with 48
-passes forced reads faceting 0.286 and head survival 0.823. It fails anyway, on
-topology, and that is where this stops. Enough smoothing to bring the faceting
-down squeezes the two walls of a thin tail or ear into each other, and the
-self-intersection count tracks the total displacement rather than the step size:
-
-| Siamese, 120k at diagonal/700 | faceting | head third | non-manifold |
-| --- | --- | --- | --- |
-| 48 passes at factor 0.5 | 0.286 | 0.823 | 348 |
-| 96 passes at factor 0.25 | 0.285 | 0.821 | 313 |
-| 160 passes at factor 0.15 | 0.285 | 0.822 | 311 |
-| 320 passes at factor 0.15 | 0.274 | 0.786 | 1,069 |
-
-Two ways out were tried and both fail. Remeshing again after the smoothing does
-not repair the topology and re-imposes the voxel stair-stepping the smoothing had
-just removed, taking faceting from 0.286 back to 0.434. A volume-preserving
-laplacian smooth is the principled alternative and is a silent no-op at this mesh
-size — 24, 60 and 120 iterations returned byte-identical readings — so that
-option was removed rather than shipped as a setting that does nothing.
-
-So the Siamese stays a documented reject, and the conclusion points upstream: an
-asset that needs this much smoothing needs a reconstruction with less surface
-area, not a better reduction. The remesh face count at a fixed resolution is the
-cheap way to see it coming, well before anything is rigged or rendered.
 ## Where the non-manifold edges come from
 
 Binned along the body axis, 60 percent of the Burmese's non-manifold edges are

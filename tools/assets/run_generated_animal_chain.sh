@@ -12,10 +12,19 @@
 # because collapse decimation cannot touch a non-manifold edge and a
 # reconstruction carrying thousands of them spends the whole budget elsewhere.
 #
+# The inversion is total: measured on the share of posed area torn into shards at
+# the worst frame of the walk, one cat reads 0.24 percent on a plain collapse to
+# 25k and 3.90 at 80k, while a dog reads 1.27 at 25k and 0.47 at 80k. The same
+# setting is the best and the worst option depending on the breed, which is why
+# no fixed recipe can work and why the gate rather than the setting is the thing
+# that travels.
+#
 # So this walks a ladder. Each rung is prepared, gated before rigging, rigged,
-# animated, and gated again on how the surface deforms. The first rung that
-# passes both wins and the rest are not attempted. Evidence from the rungs that
-# failed is kept.
+# animated, and gated again on how the surface deforms. With --pick first (the
+# default) the first rung that passes both wins and the rest are not attempted;
+# with --pick best every rung runs and the one with the least tearing wins, which
+# costs the whole ladder and is worth it for an asset going into production.
+# Evidence from the rungs that failed is kept.
 #
 # See docs/assets/MESH_DENSITY_AND_TEARING_20260825.md for the measurements.
 #
@@ -24,13 +33,15 @@
 #     --raw /path/raw.glb --workdir /path/out --front-yaw-deg -179.706 \
 #     --donor-rig /path/donor_walk_idle.glb --spear-root /path/SPEAR \
 #     --rigger-root /path/SkinTokens [--gpu 0] [--port-base 59875] \
-#     [--ladder plain:25000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800]
+#     [--ladder plain:25000:0,plain:80000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800]
+#     [--pick first|best]
 
 set -uo pipefail
 
 RAW="" WORKDIR="" YAW="" DONOR="" SPEAR_ROOT="" RIGGER_ROOT=""
 GPU=0 PORT_BASE=59875 RELIEF_SMOOTH=-1
-LADDER="plain:25000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800"
+LADDER="plain:25000:0,plain:80000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800"
+PICK=first
 BLENDER="${BLENDER:-blender}"
 
 while [ $# -gt 0 ]; do
@@ -44,6 +55,7 @@ while [ $# -gt 0 ]; do
     --gpu) GPU="$2"; shift 2 ;;
     --port-base) PORT_BASE="$2"; shift 2 ;;
     --ladder) LADDER="$2"; shift 2 ;;
+    --pick) PICK="$2"; shift 2 ;;
     --relief-smooth) RELIEF_SMOOTH="$2"; shift 2 ;;
     --blender) BLENDER="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
@@ -136,12 +148,14 @@ rig_and_animate() {  # rung_dir
       --target-front-axis positive-x --technical-spike-only \
       --motion-basis-yaw-deg 0 --side-chain-mode matched ) > "$dir/retarget.log" 2>&1
   grep -q "RETARGET_OK" "$dir/retarget.log" || return 1
-  "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/measure_deformation_stretch.py" -- \
-    "$dir/animated.glb" "$dir/stretch.json" Walking 0.35 > "$dir/stretch.log" 2>&1
-  grep -E "^STRETCH" "$dir/stretch.log" || return 1
+  # Sweep the cycle rather than sampling one pose: a single frame at 35 percent
+  # through the action understated the worst frame by ten to thirteen times.
+  "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/measure_walk_deformation.py" -- \
+    "$dir/animated.glb" "$dir/walk_deformation.json" Walking 16 > "$dir/deform.log" 2>&1
+  grep -E "^WALK_DEFORMATION_OK" "$dir/deform.log" || return 1
 }
 
-ACCEPTED=""
+ACCEPTED="" BEST_SHARDS=""
 IFS=',' read -r -a RUNGS <<< "$LADDER"
 for rung in "${RUNGS[@]}"; do
   IFS=':' read -r mode budget divisor <<< "$rung"
@@ -160,16 +174,23 @@ for rung in "${RUNGS[@]}"; do
     echo "rig or animation failed, see the logs under $dir" >&2
     continue
   fi
-  if ! python3 "$AVENGINE_ROOT/tools/assets/gate_rigged_asset.py" "$dir/stretch.json" \
-       --heading-manifest "$dir/heading.json"; then
+  if ! python3 "$AVENGINE_ROOT/tools/assets/gate_rigged_asset.py" \
+       "$dir/walk_deformation.json"; then
     continue
   fi
-  ACCEPTED="$rung"
-  for name in prepared.glb prepared.json animated.glb stretch.json heading.json \
-              level.json retarget.json heading_probe.png; do
-    [ -f "$dir/$name" ] && cp "$dir/$name" "$WORKDIR/$name"
-  done
-  break
+
+  shards=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['worst_share_area_shards'])" \
+           "$dir/walk_deformation.json")
+  if [ -z "$ACCEPTED" ] || \
+     [ "$(python3 -c "print(1 if float('$shards') < float('$BEST_SHARDS') else 0)")" = "1" ]; then
+    ACCEPTED="$rung"
+    BEST_SHARDS="$shards"
+    for name in prepared.glb prepared.json animated.glb walk_deformation.json \
+                heading.json level.json retarget.json heading_probe.png; do
+      [ -f "$dir/$name" ] && cp "$dir/$name" "$WORKDIR/$name"
+    done
+  fi
+  [ "$PICK" = "first" ] && break
 done
 
 if [ -z "$ACCEPTED" ]; then
@@ -179,12 +200,13 @@ if [ -z "$ACCEPTED" ]; then
   exit 66
 fi
 
-step "accepted rung $ACCEPTED, rendering reviews"
+step "accepted rung $ACCEPTED (shards $BEST_SHARDS), rendering reviews"
 "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/render_walk_review.py" -- \
   "$WORKDIR/animated.glb" "$WORKDIR/walk" Walking 16 1.15 > "$WORKDIR/walk.log" 2>&1
 grep -E "CLEANWALK_OK" "$WORKDIR/walk.log"
 "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/render_turntable_review.py" -- \
   "$WORKDIR/animated.glb" "$WORKDIR/turntable" Walking 36 0.0 > "$WORKDIR/turntable.log" 2>&1
 grep -E "TURNTABLE_OK" "$WORKDIR/turntable.log"
-echo "{\"accepted_rung\": \"$ACCEPTED\", \"ladder\": \"$LADDER\"}" > "$WORKDIR/ladder.json"
+printf '{"accepted_rung": "%s", "worst_share_area_shards": %s, "pick": "%s", "ladder": "%s"}\n' \
+  "$ACCEPTED" "$BEST_SHARDS" "$PICK" "$LADDER" > "$WORKDIR/ladder.json"
 echo "=== CHAIN_DONE $WORKDIR rung=$ACCEPTED ==="
