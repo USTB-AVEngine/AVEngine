@@ -1,0 +1,121 @@
+{
+ "schema": "avengine_attribute_profile_v1",
+ "profile_schema_id": "audio_playback_television_product_view_v1",
+ "profile_revision": "2026_08_26_v2_visible_bottom_grille_method_revision",
+ "asset_class": "static_object",
+ "lineage_group_id": "static_product_view_t2i_flux2_v1",
+ "state_classification": "research_candidate",
+ "taxonomy": {
+  "category": "audio_playback",
+  "object_type": "television"
+ },
+ "base_template": {
+  "template_id": "static_object_text_prompt_only_v1",
+  "kind": "text_prompt_only",
+  "artifact": null,
+  "provenance_status": "verified",
+  "usage_scope": "research_candidate"
+ },
+ "fixed_attributes": {
+  "form_factor": "flat_panel_16_9",
+  "material": "plastic"
+ },
+ "sampled_attribute_domains": {
+  "stand_type": [
+   "central_pedestal",
+   "two_splayed_feet"
+  ]
+ },
+ "forbidden_combinations": [],
+ "generation_contract": {
+  "route": "flux2_pixal3d_static_v1",
+  "prompt_template_id": "static_product_view_t2i_v2_visible_bottom_grille",
+  "base_acquisition_policy": {
+   "policy_id": "static_object_per_request_one_shot_v1",
+   "acquisition_unit": "one_frozen_asset_per_request",
+   "sampled_domains_must_be_singleton": false,
+   "downstream_instance_route": "flux2_pixal3d_static_v1",
+   "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
+  },
+  "positive_template": "One {material} {form_factor} {object_type} standing on a {stand_type}, a household {category}: one large living-room flat-screen television far wider than it is tall, with a completely blank matte dark screen showing nothing at all. Across the full width of the bottom bezel, directly under the screen, runs one narrow horizontal perforated speaker grille strip, clearly visible from the front. The bezel is otherwise plain and the back is flat. It rests on a table, not on a wall.",
+  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
+  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, wall mounted, wall bracket, soundbar, remote control, screen content, picture on screen, image on screen, bright screen, glowing screen, curved screen, computer monitor, keyboard, reflection on screen, media console, shelf unit, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, computer monitor, desktop monitor, thin column stand, office desk, keyboard, mouse, bezel with no grille, hidden speakers, small screen",
+  "value_labels": {
+   "category": {
+    "audio_playback": "audio playback device"
+   },
+   "object_type": {
+    "television": "television"
+   },
+   "form_factor": {
+    "flat_panel_16_9": "16:9 flat panel"
+   },
+   "material": {
+    "plastic": "moulded plastic"
+   },
+   "stand_type": {
+    "central_pedestal": "wide flat plate pedestal",
+    "two_splayed_feet": "two splayed feet at the outer edges"
+   }
+  },
+  "model_revisions": {
+   "flux2": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+   "pixal3d": "0b31f9160aa400719af409098bff7936a932f726",
+   "dino": "3c276edd87d6f6e569ff0c4400e086807d0f3881"
+  }
+ },
+ "target_physical_profiles": {
+  "profile_id": "audio_playback_television_product_view_v1_physical_candidate_v1",
+  "control_attribute": null,
+  "measurement": "height_cm",
+  "mode": "absolute_measurement",
+  "reference_value_cm": 72,
+  "reference_provenance": {
+   "status": "provisional",
+   "source_id": "fifty_five_inch_television_typical_retail_dimension_v1",
+   "artifact": null,
+   "notes": "Provisional typical retail dimension; measure the approved mesh before formal registration. Uniform height scaling amplifies any aspect error from reconstruction, so check the width and depth of the finalized mesh as well."
+  },
+  "values": {
+   "fixed": {
+    "target_value_cm": 72,
+    "tolerance_cm": 10
+   }
+  }
+ },
+ "rig_profile": null,
+ "acoustic_profile": {
+  "profile_id": "television_playback_v1",
+  "default_event_class": "speech_playback",
+  "allowed_event_classes": [
+   "music_playback",
+   "speech_playback",
+   "any_audioset_class_playback",
+   "silent"
+  ],
+  "selection_attributes": [
+   "category",
+   "object_type"
+  ]
+ },
+ "locked_attributes": [
+  "category",
+  "object_type",
+  "form_factor",
+  "material"
+ ],
+ "qa_contract": {
+  "subject_label": "television",
+  "attributes": {
+   "stand_type": {
+    "kind": "categorical",
+    "label": "stand type",
+    "value_labels": {
+     "central_pedestal": "wide flat plate pedestal",
+     "two_splayed_feet": "two splayed feet at the outer edges"
+    },
+    "identification_question": "What stand does {instance_label} stand on?"
+   }
+  }
+ }
+}

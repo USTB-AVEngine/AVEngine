@@ -1,0 +1,53 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/audio_playback_bookshelf_speaker_product_view_v1.json",
+  "sha256": "1b4511f9c2ee18174b44d51ddd335eb36fb035c7650ba33d950db6ecbbea6d15",
+  "size_bytes": 5585,
+  "profile_schema_id": "audio_playback_bookshelf_speaker_product_view_v1",
+  "profile_revision": "2026_08_26_v2_two_way_driver_count_method_revision",
+  "canonical_sha256": "7fd58e76d09cf9662ce1fa1cff7e8f9ef2cb3d05481823d67408b1d1b8d997c9"
+ },
+ "method_revision": {
+  "kind": "driver_count_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_audio_playback_base",
+  "superseded_profile_canonical_sha256": "2c6fccb5b418f67e4c05847f09600b770dcb6364f38dc32c8b0c1d41a78e1300",
+  "reason": "The v1 method declares the fixed attribute form_factor=sealed_two_way_cabinet but states the driver count only positively. Two of its three finishes came back as three-way cabinets with a midrange cone between the tweeter and the woofer. Those images are good loudspeakers, so a seed retry would keep drawing from the same under-constrained method and would keep producing records that claim a two-way form factor the mesh does not have. The v2 method states the driver count as an exclusion in the positive template and guards the third driver in the negative prompt.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "ae7e486cdf1dc26387033643fc6591f94546bb9fcf5121ebdbdaa72698476e46",
+   "842baebdba9adc26b338c2c61d79767f70032a87d1e29f5f222c33915efa2495"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "40d8bb972c7a91674c4fe33e01b762173c9ec3a44ff0aba0fd4bd70f5fe826a9",
+   "d8277aa2cd27d24fd05fae3d9eece46fbb66aa62f6561d294a5bd4679d6d793e"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/audio_playback_statics_v1/review_2d/review_batch_manifest.json",
+  "reviewer": "first_author_claude_visual_review_under_project_lead_delegation_20260826",
+  "instances": [
+   {
+    "instance_id": "audio_playback_bookshelf_speaker_product_view_ae7e486cdf1d",
+    "request_sha256": "ae7e486cdf1dc26387033643fc6591f94546bb9fcf5121ebdbdaa72698476e46",
+    "candidate_sha256": "40d8bb972c7a91674c4fe33e01b762173c9ec3a44ff0aba0fd4bd70f5fe826a9",
+    "sampled_attributes": {
+     "finish": "black_ash"
+    }
+   },
+   {
+    "instance_id": "audio_playback_bookshelf_speaker_product_view_842baebdba9a",
+    "request_sha256": "842baebdba9adc26b338c2c61d79767f70032a87d1e29f5f222c33915efa2495",
+    "candidate_sha256": "d8277aa2cd27d24fd05fae3d9eece46fbb66aa62f6561d294a5bd4679d6d793e",
+    "sampled_attributes": {
+     "finish": "white_satin"
+    }
+   }
+  ]
+ }
+}

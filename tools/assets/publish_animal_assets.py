@@ -27,8 +27,12 @@ otherwise. body_plan_id and motion_family_id stay in every record, which is wher
 a caller wants them, and an asset under one can be re-animated from another's
 donor without rig work.
 
-The variant is size and coat value for animals; body build and life stage were
-dropped as instance axes by owner decision, being visually indistinguishable.
+The variant is the coat value. Size is deliberately absent: a size row is one
+uniform scale of the same mesh, so publishing small and medium separately would
+store the same geometry twice under two names. The nominal size the mesh was
+finalized at stays in the record as provenance, and a consumer that wants another
+size writes a runtime actor scale. Body build and life stage were dropped as
+instance axes by owner decision, being visually indistinguishable.
 
 Several publishers write into one tree - this one handles generated animals, and
 humans and static sources need their own - so the root may already exist and the
@@ -138,9 +142,9 @@ def main():
         prepared = json.loads((src / "prepared.json").read_text(encoding="utf-8"))
 
         category = args.category or identity["species"]
-        asset_id = (f"generated_{breed}_{coat_value}_{size}_"
+        asset_id = (f"generated_{breed}_{coat_value}_"
                     f"{args.admission_state}_{args.revision}")
-        relative = Path(category) / breed / f"{size}_{coat_value}"
+        relative = Path(category) / breed / coat_value
         dest = root / relative
         if dest.exists():
             raise SystemExit(f"{relative} already published; bump --revision")
@@ -171,7 +175,8 @@ def main():
                 "motion_family_id": identity.get("motion_family_id"),
             },
             "realized_attributes": {
-                "size": size,
+                "finalized_at_size": size,
+                "size_is_runtime_scale": True,
                 "coat_profile": {"profile_id": coat.get("profile_id"),
                                  "value": coat_value},
             },
@@ -217,11 +222,17 @@ def main():
             "action length, so an asset under one can be re-animated from the "
             "other's donor without rig work"),
         "instance_axes": {
-            "articulated_animal": ["size", "coat_profile"],
+            "articulated_animal": ["coat_profile"],
+        },
+        "runtime_scale_axes": {
+            "articulated_animal": ["size"],
         },
         "instance_axes_note": (
             "body_build and life_stage were dropped as animal axes by owner "
-            "decision, being visually indistinguishable in a rendered frame"),
+            "decision, being visually indistinguishable in a rendered frame. "
+            "size is a runtime axis, not a published one: it varies instances "
+            "through a uniform actor scale of the asset named here, so it never "
+            "appears in a path or an asset id"),
         "acceptance_gates": {PIPELINE: {
             "pre_rig": {
                 "tool": "tools/assets/gate_retopology.py",

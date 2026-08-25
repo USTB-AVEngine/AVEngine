@@ -1,0 +1,124 @@
+{
+ "schema": "avengine_attribute_profile_v1",
+ "profile_schema_id": "audio_playback_smart_speaker_product_view_v1",
+ "profile_revision": "2026_08_26_v1_audio_playback_base",
+ "asset_class": "static_object",
+ "lineage_group_id": "static_product_view_t2i_flux2_v1",
+ "state_classification": "research_candidate",
+ "taxonomy": {
+  "category": "audio_playback",
+  "object_type": "smart_speaker"
+ },
+ "base_template": {
+  "template_id": "static_object_text_prompt_only_v1",
+  "kind": "text_prompt_only",
+  "artifact": null,
+  "provenance_status": "verified",
+  "usage_scope": "research_candidate"
+ },
+ "fixed_attributes": {
+  "form_factor": "fabric_wrapped_cylinder",
+  "material": "textile"
+ },
+ "sampled_attribute_domains": {
+  "finish": [
+   "charcoal",
+   "light_gray",
+   "sandstone"
+  ]
+ },
+ "forbidden_combinations": [],
+ "generation_contract": {
+  "route": "flux2_pixal3d_static_v1",
+  "prompt_template_id": "static_product_view_t2i_v1_smart_speaker",
+  "base_acquisition_policy": {
+   "policy_id": "static_object_per_request_one_shot_v1",
+   "acquisition_unit": "one_frozen_asset_per_request",
+   "sampled_domains_must_be_singleton": false,
+   "downstream_instance_route": "flux2_pixal3d_static_v1",
+   "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
+  },
+  "positive_template": "One {finish} {material} {form_factor} {object_type}, a household {category}: a short upright cylinder roughly as tall as it is wide, wrapped from its base to its shoulder in one seamless acoustically open mesh weave with no seam and no pattern. Its flat top is a plain hard disc carrying four small round openings near the rim and nothing else. A slim dark ring forms the base. Nothing protrudes from the body.",
+  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
+  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, screen, display, touchscreen, camera lens, sphere, ball, cone, hourglass shape, handle, buttons on the side, charging dock",
+  "value_labels": {
+   "category": {
+    "audio_playback": "audio playback device"
+   },
+   "object_type": {
+    "smart_speaker": "smart speaker"
+   },
+   "form_factor": {
+    "fabric_wrapped_cylinder": "fabric-wrapped cylinder"
+   },
+   "material": {
+    "textile": "woven textile"
+   },
+   "finish": {
+    "charcoal": "charcoal gray",
+    "light_gray": "light gray",
+    "sandstone": "sandstone beige"
+   }
+  },
+  "model_revisions": {
+   "flux2": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+   "pixal3d": "0b31f9160aa400719af409098bff7936a932f726",
+   "dino": "3c276edd87d6f6e569ff0c4400e086807d0f3881"
+  }
+ },
+ "target_physical_profiles": {
+  "profile_id": "audio_playback_smart_speaker_product_view_v1_physical_candidate_v1",
+  "control_attribute": null,
+  "measurement": "height_cm",
+  "mode": "absolute_measurement",
+  "reference_value_cm": 17,
+  "reference_provenance": {
+   "status": "provisional",
+   "source_id": "smart_speaker_typical_retail_dimension_v1",
+   "artifact": null,
+   "notes": "Provisional typical retail dimension; measure the approved mesh before formal registration. Uniform height scaling amplifies any aspect error from reconstruction, so check the width and depth of the finalized mesh as well."
+  },
+  "values": {
+   "fixed": {
+    "target_value_cm": 17,
+    "tolerance_cm": 5
+   }
+  }
+ },
+ "rig_profile": null,
+ "acoustic_profile": {
+  "profile_id": "loudspeaker_playback_v1",
+  "default_event_class": "speech_playback",
+  "allowed_event_classes": [
+   "music_playback",
+   "speech_playback",
+   "any_audioset_class_playback",
+   "silent"
+  ],
+  "selection_attributes": [
+   "category",
+   "object_type"
+  ]
+ },
+ "locked_attributes": [
+  "category",
+  "object_type",
+  "form_factor",
+  "material"
+ ],
+ "qa_contract": {
+  "subject_label": "smart speaker",
+  "attributes": {
+   "finish": {
+    "kind": "categorical",
+    "label": "wrap color",
+    "value_labels": {
+     "charcoal": "charcoal gray",
+     "light_gray": "light gray",
+     "sandstone": "sandstone beige"
+    },
+    "identification_question": "What is the wrap color of {instance_label}?"
+   }
+  }
+ }
+}

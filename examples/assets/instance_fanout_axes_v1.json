@@ -4,7 +4,10 @@
  "revision": "v1",
  "decided_on": "2026-08-25",
  "rationale": "Instance-level fan-out is restricted to axes a human reviewer can verify in a rendered frame. body_build and life_stage stay in the appearance contract and in every registered entry, but they are pinned to whatever the accepted source asset already carries: a reviewer cannot confirm slim-versus-stocky or adult-versus-senior by looking at frames, so those axes cannot carry a QA gold label.",
- "enabled_axes": ["size", "coat_profile"],
+ "enabled_axes": [
+  "size",
+  "coat_profile"
+ ],
  "pinned_axes": {
   "body_build": "inherit_from_source_asset",
   "life_stage": "inherit_from_source_asset"
@@ -12,6 +15,7 @@
  "notes": {
   "l9_untouched": "The L9 orthogonal array in avengine.appearance.contracts is unchanged. This spec selects which axes a fan-out plan varies; it does not redefine the appearance contract or its four axes.",
   "domain_authority": "Axis domains are read from avengine.appearance.contracts (CANONICAL_DOMAINS and COAT_PROFILE_DOMAINS). Adding a breed means adding a contract entry with that breed's reviewed three-level coat domain, never editing this file.",
-  "cost_authority": "Whether a row needs a new UE asset is derived from the contract's axis-to-operation table, not declared here."
+  "cost_authority": "Whether a row needs a new UE asset is derived from the contract's axis-to-operation table, not declared here.",
+  "size_is_not_a_published_axis": "size stays enabled here because a fan-out plan does vary it, and the planner already marks those rows runtime_only_derivation with requires_new_ue_asset false. It is an instance axis realized by a uniform actor scale, never a published source asset of its own: tools/assets/publish_animal_assets.py keeps it out of the leaf path and the asset id, and records only the nominal size the mesh was finalized at. Owner decision 2026-08-26."
  }
 }

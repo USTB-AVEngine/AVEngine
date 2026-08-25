@@ -167,6 +167,30 @@ measure the approved mesh before formal registration."` ——
 策略是 `static_object_per_request_one_shot_v1`：**每个请求一次成型、不抽 seed**。
 但按 §2.3 的广度优先，第一遍每个形态只取一个颜色。
 
+### 2.5.1 另外 5 个 profile 也已经写好，而且是跑通过的样板
+
+`audio_playback_*` 那 5 个（书架箱 / 落地箱 / 回音壁 / 智能音箱 / 电视）是我
+2026-08-26 为参考运行写的，**已经过了契约校验和 512 token 闸门，并且真的跑完了
+文生图**。它们不在你的 14 个网格里，所以不要重造，但**照它们抄格式比照微波炉抄更好**
+——微波炉那批从没跑过，这 5 个是有实测结果的：
+
+- `audio_playback_bookshelf_speaker_product_view_v1.json`（有 v2 方法修订，见 §6.12）
+- `audio_playback_floorstanding_speaker_product_view_v1.json`（一次过，3/3 通过 2D 评审）
+- `audio_playback_soundbar_product_view_v1.json`（3/3 通过）
+- `audio_playback_smart_speaker_product_view_v1.json`（2/3 通过）
+- `audio_playback_television_product_view_v1.json`（有 v2 方法修订，见 §6.11）
+
+两条从这批实测里得到的写 profile 的经验：
+
+1. **`sampled_attribute_domains` 每根轴最多 3 个值**（契约硬限制，
+   `1 <= len(values) <= 3`）。所以一个 profile 一次最多 3 个饰面。
+2. **`positive_template` 里每个属性占位符只能出现一次**（`_format_placeholders`
+   会数重复并报错）。想在描述里再提一次材质，就把词写死，不要再放 `{material}`。
+3. **不要在 prompt 里写自己不打算当作验收线的数量约束。** 我写了"至少十倍宽"
+   给回音壁，实际出来约六倍；写了"恰好两个单元"给书架箱，两张出来是三个。
+   数量写进 `fixed_attributes` 的值（比如 `sealed_two_way_cabinet`）就必须守住，
+   否则产物记录会说谎；只是想引导构图的话，别把它写成声明属性。
+
 ---
 
 ## 3. 流水线
@@ -262,6 +286,16 @@ tools/blender_measure_generated_static_emitter.py \
 | 锚点在表面上 | §3.5 的报告保证，但要核对它落在物理正确的位置 |
 | 看起来像那个东西 | 渲一张四视图，人眼确认。**这一条不能省** |
 | 面数预算 | 2.5 万–8 万。刚性物体没有撕裂问题，面数只影响引擎开销 |
+| 三个轴的尺寸都要量 | **不只量高度。** 定型是按高度做一次统一缩放，
+所以重建出的长宽比误差会被放大：一个 6:1 的回音壁按 7 cm 高定型，长度只有 42 cm，
+而真实回音壁是 10:1 以上。量完整包围盒，三个轴都要落在真实物体量级里 |
+
+**另外：两道评审契约自带的判据就是验收标准，不要另发明一套。**
+2D 评审的 4 个 check + 8 个硬闸门在
+`SPEAR/tools/review_controlled_animal_flux2_candidates.py` 的
+`STATIC_CHECK_FIELDS` / `STATIC_HARD_GATE_FIELDS`；3D 评审的 5 个 check 在
+`review_controlled_static_object_candidates.py` 的 `CHECK_FIELDS`。
+这两套是既有代码强制的，填错字段名直接非零退出。
 
 ---
 
@@ -288,6 +322,40 @@ tools/blender_measure_generated_static_emitter.py \
    用中括号模式或 `fuser -k <端口>/tcp`。
 2. **远端 shell 是 zsh，不做无引号变量分词。** `set -- $pair` 不会拆成两个参数，
    而是整个字符串塞给 `$1`。glob 不匹配时 zsh 直接报错退出而不是原样传递
+
+**静态评审特有的坑（我 2026-08-26 在音响这批上真踩到的）**
+
+11. **`emitter_feature_visible` 这道硬闸门不允许填 `not_applicable`。**
+    单测 `test_static_route_rejects_not_applicable_emitter_gate` 明确把
+    `not_applicable` 判成非法。这不是漏洞而是设计：看不见出声口，就没法评审锚点
+    放得对不对。**后果很直接——出声口不在可见面上的物体，v1 prompt 一定全灭。**
+    我的 3 张电视候选全部倒在这条上（现代电视的喇叭朝下、藏在底部风口后面）。
+    修法不是放宽闸门，而是改 prompt 方法：让出声口出现在可见面上
+    （电视 → 屏幕正下方一条横贯的穿孔栅格，这是中端电视真实的样子）。
+    **你的 14 个网格里要提前想这条的**：冰箱（压缩机在背后）、
+    洗衣机（滚筒门可见，但脱水噪声其实来自整个箱体）、
+    抽油烟机（进风格栅可见，风机在里面）、马桶（水箱与便池之间没有开口）。
+    在写 prompt 之前先问一句"这个物体的声音从哪个可见特征出来"，
+    答不上来就先改形态或视角，不要生成完再返工。
+
+12. **`target_attribute_only` 是"图像有没有偏离声明属性"那一条。**
+    动物那边它是"只有目标属性变了"；静态一次成型没有基准图，所以它的实际用法是
+    "渲出来的物体符合 `fixed_attributes` + `sampled_attributes` 声明的那一套，
+    没有多出别的"。我用它拒了两张书架箱：图很好看，但是三分频，
+    而 profile 声明的固定属性是 `sealed_two_way_cabinet`。
+    **拒它的理由不是不好看，是发布后记录会说谎。**
+
+13. **失败的两种正当回应不一样，别混。**
+    - **重抽 seed**：同一个 profile 换 `--seed` 再来一批。适用于方法本身能出对的东西、
+      只是这一张不巧（我的智能音箱 3 个饰面里 2 个一次过，沙岩色那张出成了藤编凳子）。
+    - **方法修订**：改 prompt 方法 + 升 `profile_revision` + 写一份 provenance。
+      适用于方法本身守不住声明（书架箱的单元数、电视的可见出声口）。
+      **格式照 `data/controlled_source_attributes_v1/candidate_profile_revisions/`
+      下现成的 `provenance.json` 抄**，必须写：supersedes 的旧 revision 和它的
+      canonical sha256、理由、`this_is_not_a_seed_retry: true`、
+      禁止重放的 request/candidate sha256、以及"下一次执行必须用新的 batch seed"。
+      我这次新建了 `candidate_profile_revisions/static_object/` 两份，可以直接照抄。
+      **仓库里没有工具生成这个记录，是手写约定。**
    （`--include=*.json` 会炸）。
 3. **heredoc 经 ssh 会被 zsh 的引号和 glob 规则改写。** 规矩是：本地写文件、`scp`、
    在服务器上执行。我每次偷懒都要多花一轮。
