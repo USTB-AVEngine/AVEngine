@@ -1,5 +1,18 @@
 # 交接 20260826：音响参考运行 + 毛色轴对齐 + 尺寸轴降级（给压缩后的自己）
 
+> **2026-08-26 晚更新：这份文档里"待办 A / 待办 C"两节已经过期。**
+> - **待办 A 已完成**，结论在 `STATIC_REFERENCE_RUN_20260826.md`，
+>   操作步骤在工单 §3.6（已填）。链路跑通了，修掉两个真实集成 bug，
+>   发布了 4 个静态资产。**还开着的口子是"没有校平"**，见检查点第 3 节。
+> - **待办 C 已完成，但做法和这里写的不一样**：扇出规划器早就把尺寸行标成
+>   `runtime_only_derivation`，把 `size` 从 `enabled_axes` 移走会**丢掉**免费的实例
+>   多样性。真正错的只有发布器把尺寸写进了叶子目录和 asset_id。四个动物资产已按
+>   `<coat_value>` 重发（`cat/siamese/standard_seal_point` 等，下面 §4 里那四个带
+>   `medium_`/`small_` 前缀的路径已经不存在）。
+> - **待办 B 的性质变了**：毛色轴是个明度乘数（`luminance_gain ∈ [0.65, 1.35]`），
+>   做不出品种特征色，而且两侧都有 3 值硬上限。证据和方案在
+>   `docs/assets/COAT_AXIS_BREED_COLOUR_FINDING_20260826.md`。**还没动手，等拍板。**
+
 > 这份是**在做的事的状态**，不是项目结论。项目结论在
 > `docs/assets/MESH_DENSITY_AND_TEARING_20260825.md` 和记忆文件里。
 > 服务器 `ssh 48g-jump`；主仓 `/data/jzy/code/AVEngine-lead-a`

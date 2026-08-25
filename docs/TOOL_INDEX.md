@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 230 个工具脚本。
+当前共 231 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -50,6 +50,7 @@
 | `tools/assets/probe_heading_axis.py` |  |
 | `tools/assets/promote_canary.py` | Promote one hash-closed M2 research candidate to a new canary package |
 | `tools/assets/publish_animal_assets.py` | Publish accepted generated animals into the shared sound-source asset tree |
+| `tools/assets/publish_static_source_assets.py` | Publish admitted static sound sources into the shared asset tree |
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |

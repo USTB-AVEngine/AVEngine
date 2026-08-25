@@ -263,9 +263,157 @@ tools/blender_measure_generated_static_emitter.py \
 锚点选哪里要按物理来，不是几何中心：微波炉的声音从门缝出来，打印机从出纸口，
 空调从出风口，马桶从水箱与便池之间。这个判断要写进锚点规格的理由字段里。
 
-### 3.6 精确调用：待填
+### 3.6 精确调用（音响参考运行 2026-08-26 实测跑通，可以开始了）
 
-**这一节由音响参考运行填写。填好之前不要开始 §3.2–§3.5。**
+**先看清楚一件事：§3.1–§3.5 那些工具你几乎都不用直接调。**
+仓里有一条现成的、带哈希认证的编排链，水密 / 定型 / 锚点三步是**准入运行器一次跑完**的。
+下面是我真的跑过一遍的全部命令。`WS` 是你自己的工作目录，
+放在 `/data/jzy/code/SPEAR-lead-b/tmp/<你的批次名>/`。
+
+**解释器**：除特别说明外都用
+`/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python`。
+
+```bash
+SPEAR=/data/jzy/code/SPEAR-lead-b
+PY=/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python
+WS=tmp/<你的批次名>
+PD=data/controlled_source_attributes_v1/candidate_profiles/static_object
+
+# 0) token 预算闸门（在 AVEngine 仓，注意是 imagegen 那个 env，不是上面那个）
+cd /data/jzy/code/AVEngine-lead-a
+/data/jzy/miniconda3/envs/avengine-imagegen/bin/python \
+  tools/assets/check_prompt_token_budget.py --profile-dir $SPEAR/$PD
+
+# 1) profile → 不可变请求（每个 profile 出 count-per-profile 个请求）
+cd $SPEAR
+$PY tools/build_controlled_source_asset_inputs.py \
+  --profile $PD/<a>.json --profile $PD/<b>.json \
+  --count-per-profile 3 --seed 20260827 \
+  --plan-id <批次名> --split-salt <批次名> \
+  --output-dir $WS/inputs
+
+# 2) 预检（无模型，只重新认证输入包）
+$PY tools/prepare_controlled_source_asset_execution.py \
+  --input-dir $WS/inputs --output-dir $WS/preflight
+
+# 3) 文生图（GPU；静态走 text-to-image，--route 必须显式给）
+$PY tools/run_controlled_animal_flux2_jobs.py \
+  --preflight $WS/preflight/execution_preflight.json \
+  --output-root $WS/flux --gpu 1 --route flux2_pixal3d_static_v1
+
+# 4) 2D 评审：自己写判决 JSON，然后认证发布
+#    schema: avengine_controlled_static_object_2d_review_decisions_v1
+#    每条要有 4 个 check + 8 个硬闸门 + sampled_attribute_checks + notes
+$PY tools/review_controlled_animal_flux2_candidates.py \
+  --flux-batch $WS/flux/flux2_batch_manifest.json \
+  --decisions $WS/review_inputs/static_2d_decisions.json \
+  --output-root $WS/review_2d
+
+# 5) 抠图 + 编译 Pixal 作业（ISNet，不吃 GPU 也很快）
+$PY tools/prepare_controlled_animal_pixal_inputs.py \
+  --review-batch $WS/review_2d/review_batch_manifest.json \
+  --output-root $WS/pixal_inputs --pixal-output-root $WS/pixal
+
+# 6) 图生 3D（GPU；首次载模型约 5 分钟，之后每个网格 1–6 分钟）
+$PY tools/run_controlled_animal_pixal_jobs.py \
+  --pixal-inputs $WS/pixal_inputs/pixal_inputs_manifest.json \
+  --output-root $WS/pixal --gpu 1
+
+# 7) 多视图评审渲染（每个实例出 front/side/back/top/quarter + 一张 contact_sheet.png）
+$PY tools/run_controlled_static_object_reviews.py \
+  --pixal-batch $WS/pixal/pixal_batch_manifest.json \
+  --output-root $WS/static_review --workers 3
+
+# 8) 3D 判决（schema: avengine_controlled_static_object_review_decisions_v1，
+#    5 个布尔 check + attribute_evidence + caveats + notes）
+$PY tools/review_controlled_static_object_candidates.py \
+  --static-object-review-batch $WS/static_review/static_object_review_batch_manifest.json \
+  --decisions $WS/review_inputs/static_3d_decisions.json \
+  --output-root $WS/static_decision
+
+# 9) 朝向证据 + 锚点授权 + 准入计划（手写 JSON，见下）
+
+# 10) 准入：水密 → 定型 → 发声锚点，一次跑完
+$PY tools/run_controlled_static_object_admission.py \
+  --decision-batch $WS/static_decision/static_object_decision_batch_manifest.json \
+  --plan $WS/admission_authorities/admission_plan.json \
+  --output-root $WS/admission --validate-only     # 先干跑校验
+$PY tools/run_controlled_static_object_admission.py \
+  --decision-batch $WS/static_decision/static_object_decision_batch_manifest.json \
+  --plan $WS/admission_authorities/admission_plan.json \
+  --output-root $WS/admission
+```
+
+#### 第 9 步：三份手写 JSON
+
+生成脚本在 AVEngine 仓
+`examples/assets/source_profiles_mirror/spear_patches/author_admission.py`，
+直接改 `ANCHORS` 表加你的物体就行。它要写的东西：
+
+- **朝向证据**（`avengine_static_heading_review_v1`）：字段集**精确**，
+  必须恰好是 schema / instance_id / request_sha256 / profile_sha256 /
+  input_glb_sha256 / review_artifact / reviewed_source_front_yaw_deg /
+  target_front_axis / decision / formal_dataset_registration_authorized。
+- **锚点授权**（`avengine_static_emitter_anchor_authority_v1`）：
+  `anchor_type` **只能**是 `object_speaker`（契约写死的），`anchor_id` 和
+  `semantic_role` 是小写标识符，`selection.method` 用
+  `reviewed_bbox_fraction_nearest_surface_v1` 给归一化包围盒目标即可。
+- **准入计划**（`avengine_controlled_static_object_admission_plan_v1`）：
+  每个实例一条，带 `watertight_parameters`。
+
+我用的水密参数（刚性物体，和动物那套不一样）：
+
+```json
+{"voxel_resolution": 256, "target_faces": 30000, "smooth_iterations": 1,
+ "shrinkwrap_strength": 1.0, "post_shrinkwrap_smooth_iterations": 0,
+ "torso_fold_repair_iterations": 0, "attribute_transfer_backend": "bake",
+ "bake_resolution": 2048, "base_color_encoding_policy": "preserve-bake",
+ "base_color_gain": [1.0, 1.0, 1.0], "double_sided": false}
+```
+
+理由：刚性物体的原始 I23D 表面就是真值，所以 `shrinkwrap_strength` 拉满、
+两个"平滑修复"关掉——柜体是方的，平滑会把人眼用来认物体的棱角磨圆。
+`torso_fold_repair_iterations` 是动物专用的。
+**`target_faces` 是导出三角化之前的数**：填 30000 实测出 60000 个三角面，
+正好落在 §4 的 2.5 万–8 万预算里；填 60000 会得到 12 万，超预算。
+
+#### 参考运行的实测结论（这些是省你时间的）
+
+1. **水密那一步会把碎片全清干净。** 原始网格连通分量 6–769 个、
+   主壳外面积 0.075%–33.7%；体素重网格之后**全部变成 1 个连通分量、碎片 0%**。
+   所以 §4 里"没有游离部件"这条真正要判的是**大块**的游离物
+   （幻觉出来的瓶子、垂下来的电线），不是细碎点。我用的线是
+   **主壳外面积 > 2% 或者五视图里肉眼能看见** 就拒。
+2. **不要从五视图判饰面。** 那些渲图明显过曝、而且材质是 metallic 的，
+   黑胡桃木的音箱渲出来是银色的。**贴图本身是忠的**——我量了 9 个网格的
+   albedo 均值，黑 (19,18,19) / 胡桃 (94,79,66) / 白 (115,115,114)，
+   区分度很好。判饰面要么量 albedo 图集，要么改渲染曝光。
+3. **五视图判不准朝向。** 视图只有 front/side/back/quarter 四个方位，
+   最多把朝向定到 45° 粒度，而重建出来的偏航是任意角。我按"栅格出现在 back 视图"
+   填了 +90°，结果回音壁真实正面在 −48° 附近，差了约 45°，
+   定型后长条在平面里斜着走、包围盒变成方的（16.7 × 16.7 × 7 cm 而不是长条）。
+   **正确做法是两步，缺一不可**：
+
+   **第一步定轴**：跑 `spear_patches/audit_yaw.py` 量平面主轴。
+   细长物体（平面长宽比 > 3）用"最大竖直面板的方位"很准；
+   近似方形的物体（长宽比 ≈ 1，比如书架箱）这个量**没有意义**——
+   四个侧面面积差不多，"最大"那个是随机的，这时候看渲图反而对。
+
+   **第二步定正负**：主轴只能定到一条直线，正面和背面差 180°，几何量不出来。
+   **必须**把定型产物按 `--front-axis positive-x` 渲一遍，看 `front.png` 里
+   是不是那个出声面。**我这一步错了两次**：三个回音壁第一次按"栅格出现在 back 视图"
+   填了 +90°（差 45°，长条在平面里斜着走，包围盒从长条变成方块），
+   改成量出来的 −48° 之后轴对了、锚点误差从 4.3 cm 降到 0.3–0.8 cm，
+   但正反面反了，栅格朝 −X，最后要再加 180° 才对。
+   经验规律（在这三个回音壁上成立）：**最大竖直面板是背板不是栅格**，
+   所以正面 = 量出来的面板方位 + 180°。但别当定律，渲一张确认。
+4. **定型工具只做偏航，不做俯仰和翻滚。** 而 Pixal 出来的东西**是歪的**：
+   9 个网格的长主轴离理想方向差 5.7°–22.5°（均值约 13°）。
+   后果可量化：一个后仰 11.7° 的书架箱，按包围盒高度缩放到 33 cm，
+   真实柜高只有约 29 cm（**12% 误差**），而且在场景里肉眼可见地歪着。
+   **这条链路目前没有任何一步校平。** 动物那条链有
+   `blender_level_generated_animal_support_plane.py`，但它要骨架和四只脚，
+   刚性物体用不了。**这是已知缺口，不是你做错了**——先照做，把倾角量出来记进产物。
 
 ---
 
