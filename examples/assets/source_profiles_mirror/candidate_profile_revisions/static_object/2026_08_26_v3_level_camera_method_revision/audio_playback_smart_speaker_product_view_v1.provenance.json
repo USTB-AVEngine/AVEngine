@@ -1,0 +1,38 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/audio_playback_smart_speaker_product_view_v1.json",
+  "sha256": "e4e6977c546a7ad3c7bfca1260220ebeb4be915061a6f55e7adfebab0b4288ea",
+  "size_bytes": 5629,
+  "profile_schema_id": "audio_playback_smart_speaker_product_view_v1",
+  "profile_revision": "2026_08_26_v3_level_camera_method_revision",
+  "canonical_sha256": "77db79214a7868bfb4ba17ae5956aee5027177653d592fe46811732271d5d7c9"
+ },
+ "method_revision": {
+  "kind": "level_camera_upright_reconstruction_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_audio_playback_base",
+  "superseded_profile_canonical_sha256": "a4b40a69c63acc035be27cb94d2aca3e2f3812de424cc4483caf4c510ff8dd3d",
+  "reason": "Nine reconstructions from the v1 pose guard arrived 5.3 to 18.7 degrees off upright, measured by tools/assets/measure_static_upright_correction.py with two independent authorities agreeing within 1.3 degrees. The static finalizer applies yaw only, so the tilt survives into the published asset: a bookshelf speaker leaning 13.2 degrees loses 9.6 percent of its height to its own bounding box and a soundbar leaning 14.4 loses 40.2. The pose guard asks for a view from slightly above eye level and Pixal reconstructs in a frame tied to the input view, which makes the camera pitch the likely cause. This revision asks for a level camera at the object's own mid-height instead, so that a fix at the cause can be measured against the same metric before any chain or contract change is considered.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "measured_tilt_under_the_superseded_method_deg": {
+   "audio_playback_smart_speaker_product_view_v1": [
+    16.42,
+    17.1,
+    18.73
+   ],
+   "audio_playback_soundbar_product_view_v1": [
+    14.42,
+    18.1
+   ]
+  }
+ },
+ "triggering_failure": {
+  "measurement_report": "/data/avengine_external/review/static_upright_20260826.json",
+  "reviewer": "first_author_claude_geometric_measurement_under_project_lead_delegation_20260826"
+ }
+}
