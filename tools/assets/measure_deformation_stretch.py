@@ -5,6 +5,13 @@ skinning pulls into long thin slivers, so the texture smears across them. This
 measures that directly by comparing every face area at rest with the same face
 in the posed frame, and reporting the share of posed surface that grew past a
 threshold.
+
+Superseded by measure_walk_deformation.py for anything that decides. This samples
+one pose, and one pose understates the worst frame of a walk cycle by ten to
+thirteen times; it also has no notion of a shard, so a triangle stretched into a
+long thin sliver barely registers against an area total. Kept because the figures
+recorded in docs/assets/MESH_DENSITY_AND_TEARING_20260825.md came from it, and
+because a single-pose check is still the quick way to look at one frame.
 """
 import bpy
 import sys
