@@ -61,21 +61,21 @@ def _load_repository_module(name: str, path: Path) -> Any:
 
 # Blender's embedded Python intentionally has no project dependency install.
 # Load the four pure-Python compiler modules by exact repository path while
-# avoiding ``avengine.m2.__init__`` (which pulls the JSON-schema dependency).
+# avoiding ``avengine.assets.__init__`` (which pulls the JSON-schema dependency).
 _namespace_package("avengine", SOURCE_ROOT / "avengine")
 _namespace_package("avengine.contracts", SOURCE_ROOT / "avengine" / "contracts")
-_namespace_package("avengine.m2", SOURCE_ROOT / "avengine" / "m2")
+_namespace_package("avengine.assets", SOURCE_ROOT / "avengine" / "assets")
 _load_repository_module(
     "avengine.contracts.json_io",
     SOURCE_ROOT / "avengine" / "contracts" / "json_io.py",
 )
-_GLB_MODULE_PATH = SOURCE_ROOT / "avengine" / "m2" / "glb.py"
-_GLB_MODULE = _load_repository_module("avengine.m2.glb", _GLB_MODULE_PATH)
+_GLB_MODULE_PATH = SOURCE_ROOT / "avengine" / "assets" / "glb.py"
+_GLB_MODULE = _load_repository_module("avengine.assets.glb", _GLB_MODULE_PATH)
 _load_repository_module(
-    "avengine.m2.glb_write", SOURCE_ROOT / "avengine" / "m2" / "glb_write.py"
+    "avengine.assets.glb_write", SOURCE_ROOT / "avengine" / "assets" / "glb_write.py"
 )
 _MATERIALS_MODULE = _load_repository_module(
-    "avengine.m2.materials", SOURCE_ROOT / "avengine" / "m2" / "materials.py"
+    "avengine.assets.materials", SOURCE_ROOT / "avengine" / "assets" / "materials.py"
 )
 GlbDocument = _GLB_MODULE.GlbDocument
 extract_actions = _GLB_MODULE.extract_actions

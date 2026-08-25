@@ -16,8 +16,8 @@ from avengine.actor_envelope import (
     materialize_world_aabb,
     union_action_aabb,
 )
-from avengine.m2.skinning import compile_skinning
-from test_m2_skinning import _fixture_payload, make_document
+from avengine.assets.skinning import compile_skinning
+from test_assets_skinning import _fixture_payload, make_document
 
 
 def _compiled(tmp_path: Path):

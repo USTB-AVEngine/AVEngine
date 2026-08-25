@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from avengine.m2.glb import extract_actions, parse_glb
-from avengine.m2.glb_write import build_glb
+from avengine.assets.glb import extract_actions, parse_glb
+from avengine.assets.glb_write import build_glb
 from avengine.m5_1.human_runtime import (
     HumanRuntimeError,
     _retime_walking_loop_to_profile,

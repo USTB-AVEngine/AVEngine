@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from avengine.m2.kinematics import CONTACT_ORDER
+from avengine.assets.kinematics import CONTACT_ORDER
 from tools.motion import derive_contacts as cli
 
 

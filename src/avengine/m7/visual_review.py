@@ -32,8 +32,8 @@ from avengine.m1.habitat_capture import (
     _resolved_assets,
     _state_snapshot,
 )
-from avengine.m2.contracts import FORMAL_MODALITIES, load_and_validate_inputs as load_m2_inputs
-from avengine.m2.habitat_capture import (
+from avengine.assets.contracts import FORMAL_MODALITIES, load_and_validate_inputs as load_m2_inputs
+from avengine.assets.habitat_capture import (
     HabitatCaptureError,
     _apply_root_with_habitat,
     _quaternion_block_error,

@@ -43,12 +43,12 @@ from avengine.m1.habitat_capture import (
     discover_runtime_root,
     prepare_installed_habitat_runtime,
 )
-from avengine.m2.contracts import (
+from avengine.assets.contracts import (
     FORMAL_MODALITIES,
     load_and_validate_inputs as load_m2_inputs,
 )
-from avengine.m2.habitat import HabitatLinkJointBlock
-from avengine.m2.habitat_capture import (
+from avengine.assets.habitat import HabitatLinkJointBlock
+from avengine.assets.habitat_capture import (
     HabitatCaptureError,
     _apply_root_with_habitat,
     _quaternion_block_error,
@@ -59,8 +59,8 @@ from avengine.m2.habitat_capture import (
     load_runtime_asset_bundle,
     quaternion_xyzw_to_matrix,
 )
-from avengine.m2.local_tr_habitat import bind_local_tr_habitat_layout
-from avengine.m2.local_tr_review import (
+from avengine.assets.local_tr_habitat import bind_local_tr_habitat_layout
+from avengine.assets.local_tr_review import (
     _runtime_snapshot as human_runtime_snapshot,
     mixed_joint_readback_errors,
 )

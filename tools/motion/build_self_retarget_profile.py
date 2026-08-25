@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Any, Sequence
 
-from avengine.m2.glb import extract_skins, load_glb
+from avengine.assets.glb import extract_skins, load_glb
 from avengine.motion.profiles import load_motion_retarget_profile
 
 

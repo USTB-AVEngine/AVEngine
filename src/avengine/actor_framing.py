@@ -17,8 +17,8 @@ from typing import Any
 import numpy as np
 
 from avengine.actor_envelope import build_action_envelope, materialize_world_aabb
-from avengine.m2.glb import load_glb
-from avengine.m2.skinning import compile_skinning
+from avengine.assets.glb import load_glb
+from avengine.assets.skinning import compile_skinning
 
 
 ACTOR_FRAMING_INPUT_SCHEMA = "avengine_actor_framing_inputs_v1"

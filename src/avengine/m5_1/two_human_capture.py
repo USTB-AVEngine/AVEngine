@@ -26,13 +26,13 @@ from avengine.m1.habitat_capture import (
     prepare_installed_habitat_runtime,
     resolve_installed_runtime_prefix,
 )
-from avengine.m2.contracts import FORMAL_MODALITIES
-from avengine.m2.habitat_capture import (
+from avengine.assets.contracts import FORMAL_MODALITIES
+from avengine.assets.habitat_capture import (
     _apply_root_with_habitat,
     _validate_observation_arrays,
     quaternion_xyzw_to_matrix,
 )
-from avengine.m2.local_tr_review import mixed_joint_readback_errors
+from avengine.assets.local_tr_review import mixed_joint_readback_errors
 from avengine.m5.visual import _link_id_by_name, _node_world_position
 from avengine.m5_1.human_runtime import (
     HEAD_LINK_NAME,

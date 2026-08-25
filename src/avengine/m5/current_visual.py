@@ -32,13 +32,13 @@ from avengine.m1.habitat_capture import (
     _state_snapshot,
     prepare_installed_habitat_runtime,
 )
-from avengine.m2.contracts import (
+from avengine.assets.contracts import (
     FORMAL_MODALITIES,
     ValidatedM2Inputs,
     load_and_validate_inputs as load_m2_inputs,
 )
-from avengine.m2.habitat import HabitatLinkJointBlock, bind_habitat_link_layout
-from avengine.m2.habitat_capture import (
+from avengine.assets.habitat import HabitatLinkJointBlock, bind_habitat_link_layout
+from avengine.assets.habitat_capture import (
     HabitatCaptureError,
     _apply_root_with_habitat,
     compile_frame_applications,

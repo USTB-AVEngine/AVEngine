@@ -26,7 +26,7 @@ from avengine.contracts.transforms import (
     validate_transform,
 )
 from avengine.m1.contracts import validate_capture_request as validate_m1_capture_request
-from avengine.m2.contracts import (
+from avengine.assets.contracts import (
     compute_pose_hash,
     validate_animal_asset_package,
     validate_capture_request as validate_m2_capture_request,

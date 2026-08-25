@@ -22,13 +22,13 @@ SOURCE_ROOT = REPOSITORY / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from avengine.m2.actions import (  # noqa: E402
+from avengine.assets.actions import (  # noqa: E402
     baked_actions_content_sha256,
     read_baked_actions_npz,
 )
-from avengine.m2.glb import load_glb  # noqa: E402
-from avengine.m2.habitat import build_habitat_asset_mapping  # noqa: E402
-from avengine.m2.kinematics import (  # noqa: E402
+from avengine.assets.glb import load_glb  # noqa: E402
+from avengine.assets.habitat import build_habitat_asset_mapping  # noqa: E402
+from avengine.assets.kinematics import (  # noqa: E402
     CONTACT_ORDER,
     AnchorDefinition,
     RigidTransform,

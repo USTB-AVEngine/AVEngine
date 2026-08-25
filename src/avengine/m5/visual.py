@@ -25,11 +25,11 @@ from avengine.m1.habitat_capture import (
     _state_snapshot,
     prepare_installed_habitat_runtime,
 )
-from avengine.m2.contracts import (
+from avengine.assets.contracts import (
     FORMAL_MODALITIES,
     load_and_validate_inputs as load_m2_inputs,
 )
-from avengine.m2.habitat_capture import (
+from avengine.assets.habitat_capture import (
     HabitatCaptureError,
     _apply_root_with_habitat,
     _quaternion_block_error,
@@ -38,8 +38,8 @@ from avengine.m2.habitat_capture import (
     compile_frame_applications,
     load_runtime_asset_bundle,
 )
-from avengine.m2.habitat import HabitatLinkJointBlock, bind_habitat_link_layout
-from avengine.m2.review_topdown import habitat_xz_to_navmesh_pixel
+from avengine.assets.habitat import HabitatLinkJointBlock, bind_habitat_link_layout
+from avengine.assets.review_topdown import habitat_xz_to_navmesh_pixel
 
 
 @dataclass(frozen=True)

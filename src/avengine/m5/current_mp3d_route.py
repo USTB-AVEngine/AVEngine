@@ -31,19 +31,19 @@ from avengine.m1.contracts import (
     validate_scene_asset_graph,
 )
 from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
-from avengine.m2.contracts import (
+from avengine.assets.contracts import (
     ValidatedM2Inputs,
     compute_applied_state_hash,
     load_and_validate_inputs as load_m2_inputs,
     validate_capture_request,
 )
-from avengine.m2.habitat_capture import (
+from avengine.assets.habitat_capture import (
     _apply_root_with_habitat,
     compile_frame_applications,
     load_runtime_asset_bundle,
     quaternion_xyzw_to_matrix,
 )
-from avengine.m2.timeline import (
+from avengine.assets.timeline import (
     FRAME_COUNT,
     IDLE_LEAD_FRAME_COUNT,
     IDLE_TAIL_FRAME_COUNT,

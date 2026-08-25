@@ -21,7 +21,7 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 
-from avengine.m2.skinning import (
+from avengine.assets.skinning import (
     CompiledSkinning,
     action_time_bounds,
     sample_action_vertices,

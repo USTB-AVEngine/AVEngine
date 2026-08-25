@@ -29,7 +29,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
-from avengine.m2.glb import (
+from avengine.assets.glb import (
     GlbDocument,
     GlbError,
     extract_actions,
@@ -37,9 +37,9 @@ from avengine.m2.glb import (
     load_glb,
     parse_glb,
 )
-from avengine.m2.glb_write import build_glb
-from avengine.m2.habitat import build_habitat_ao_config_data
-from avengine.m2.local_tr_actions import (
+from avengine.assets.glb_write import build_glb
+from avengine.assets.habitat import build_habitat_ao_config_data
+from avengine.assets.local_tr_actions import (
     LocalTRActionSet,
     TICKS_PER_SAMPLE,
     TIME_BASE_HZ,
@@ -47,11 +47,11 @@ from avengine.m2.local_tr_actions import (
     read_local_tr_actions_npz,
     write_local_tr_actions_npz,
 )
-from avengine.m2.local_tr_habitat import (
+from avengine.assets.local_tr_habitat import (
     LocalTRHabitatMapping,
     build_local_tr_habitat_mapping,
 )
-from avengine.m2.rebase import (
+from avengine.assets.rebase import (
     RebaseError,
     _global_matrix,
     _matrix_values,
