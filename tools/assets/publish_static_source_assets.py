@@ -36,12 +36,17 @@ import json
 import shutil
 import struct
 from pathlib import Path
+from typing import Any, Mapping
 
 import numpy as np
 
 ASSET_SCHEMA = "avengine_sound_source_asset_v1"
 INDEX_SCHEMA = "avengine_sound_source_asset_index_v1"
 PIPELINE = "flux2_pixal3d_static_v1"
+RIR_RECOMPUTE_NOTE = (
+    "Inserted geometry changes room acoustics; recompute the room RIR cache "
+    "before using this asset in that room."
+)
 
 
 def digest(path: Path) -> str:
@@ -54,6 +59,157 @@ def digest(path: Path) -> str:
 
 def load(path: Path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def realized_attributes(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    """Return every attribute realized by this particular rigid asset.
+
+    Form factor is the primary static-object axis.  Keeping only sampled
+    colour/finish values (the first reference publisher did that) collapses
+    visibly different forms into the same index axis and publication leaf.
+    """
+
+    result = dict(candidate.get("fixed_attributes") or {})
+    result.update(candidate.get("sampled_attributes") or {})
+    return result
+
+
+def publication_variant(candidate: Mapping[str, Any]) -> str:
+    """Name one form-first publication leaf.
+
+    Material remains recorded in realized_attributes, while the leaf starts
+    with the form factor and then the sampled finish axes.  That gives paths
+    such as ``countertop_black`` and prevents two forms of one product from
+    colliding merely because they share a default colour.
+    """
+
+    fixed = candidate.get("fixed_attributes") or {}
+    form_factor = fixed.get("form_factor")
+    if not isinstance(form_factor, str) or not form_factor:
+        raise ValueError("candidate fixed_attributes.form_factor is required")
+    sampled = candidate.get("sampled_attributes") or {}
+    values = [form_factor]
+    for key in sorted(sampled):
+        value = sampled[key]
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"candidate sampled_attributes.{key} must be a string")
+        values.append(value)
+    return "_".join(values)
+
+
+def profiles_by_id(snapshot: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for entry in snapshot.get("profiles") or []:
+        profile_id = entry.get("profile_schema_id")
+        profile = entry.get("profile")
+        if not isinstance(profile_id, str) or not isinstance(profile, dict):
+            raise ValueError("profile snapshot contains a malformed entry")
+        if profile_id in result:
+            raise ValueError(f"profile snapshot repeats {profile_id}")
+        result[profile_id] = entry
+    return result
+
+
+def profile_for_candidate(
+    candidate: Mapping[str, Any], profiles: Mapping[str, Mapping[str, Any]]
+) -> Mapping[str, Any]:
+    profile_id = candidate.get("profile_schema_id")
+    entry = profiles.get(profile_id)
+    if entry is None:
+        raise ValueError(f"profile snapshot does not contain {profile_id}")
+    if entry.get("profile_sha256") != candidate.get("profile_sha256"):
+        raise ValueError(f"profile snapshot hash does not match candidate {profile_id}")
+    return entry["profile"]
+
+
+def token_budget_by_id(report: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    result: dict[str, Mapping[str, Any]] = {}
+    for entry in report.get("profiles") or []:
+        profile_id = entry.get("profile_schema_id")
+        if not isinstance(profile_id, str):
+            raise ValueError("prompt token budget report contains a malformed entry")
+        if profile_id in result:
+            raise ValueError(f"prompt token budget report repeats {profile_id}")
+        if not entry.get("fits"):
+            raise ValueError(f"prompt token budget does not fit for {profile_id}")
+        result[profile_id] = entry
+    return result
+
+
+def prompt_budget_for_candidate(
+    candidate: Mapping[str, Any],
+    report: Mapping[str, Any],
+    measurements: Mapping[str, Mapping[str, Any]],
+    profile_revision: str,
+) -> dict[str, Any]:
+    profile_id = candidate.get("profile_schema_id")
+    measurement = measurements.get(profile_id)
+    if measurement is None:
+        raise ValueError(f"prompt token budget report does not contain {profile_id}")
+    if measurement.get("profile_revision") != profile_revision:
+        raise ValueError(
+            f"prompt token budget profile revision does not match candidate {profile_id}"
+        )
+    sampled = candidate.get("sampled_attributes") or {}
+    combinations = [
+        item
+        for item in measurement.get("combinations") or []
+        if item.get("sampled_values") == sampled
+    ]
+    if len(combinations) != 1:
+        raise ValueError(
+            f"prompt token budget has {len(combinations)} matches for {profile_id} {sampled}"
+        )
+    return {
+        "max_sequence_length": report.get("max_sequence_length"),
+        "tokenizer_root": report.get("tokenizer_root"),
+        "effective_prompt_format": report.get("effective_prompt_format"),
+        "profile_revision": measurement.get("profile_revision"),
+        "measurement": combinations[0],
+    }
+
+
+def placement_record(
+    authority: Mapping[str, Any], geometry: Mapping[str, Any]
+) -> dict[str, Any]:
+    surface = authority.get("attachment_surface")
+    facing = authority.get("facing")
+    if surface not in {"floor", "wall", "ceiling"}:
+        raise ValueError("placement attachment_surface must be floor, wall, or ceiling")
+    if not isinstance(facing, str) or not facing.strip():
+        raise ValueError("placement facing must be a non-empty description")
+    return {
+        "attachment_surface": surface,
+        "facing": facing,
+        "footprint_bbox": {
+            "coordinate_system": "+X front / +Y up / +Z right",
+            "minimum_xyz_m": geometry["bbox_minimum_xyz_m"],
+            "maximum_xyz_m": geometry["bbox_maximum_xyz_m"],
+        },
+        "rir_cache_recompute_required": True,
+        "rir_cache_note": RIR_RECOMPUTE_NOTE,
+    }
+
+
+def merge_assets_and_axes(
+    index: dict[str, Any], records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    known = {record["asset_id"] for record in records}
+    index["assets"] = sorted(
+        records + [item for item in index.get("assets", []) if item["asset_id"] not in known],
+        key=lambda item: item["asset_id"],
+    )
+    axes = dict(index.get("instance_axes") or {})
+    axes["rigid_static_object"] = sorted(
+        {
+            key
+            for record in index["assets"]
+            if record.get("entity_class") == "rigid_static_object"
+            for key in (record.get("realized_attributes") or {})
+        }
+    )
+    index["instance_axes"] = axes
+    return index
 
 
 def mesh_extent_and_tilt(glb: Path) -> dict:
@@ -122,7 +278,9 @@ def mesh_extent_and_tilt(glb: Path) -> dict:
         walk(root, np.eye(4))
     vertices = np.concatenate(points)
     faces = np.concatenate(triangles)
-    extent = vertices.max(0) - vertices.min(0)
+    minimum = vertices.min(0)
+    maximum = vertices.max(0)
+    extent = maximum - minimum
 
     a, b, c = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     cross = np.cross(b - a, c - a)
@@ -138,6 +296,8 @@ def mesh_extent_and_tilt(glb: Path) -> dict:
         "depth_forward_m": round(float(extent[0]), 4),
         "height_up_m": round(float(extent[1]), 4),
         "width_right_m": round(float(extent[2]), 4),
+        "bbox_minimum_xyz_m": [round(float(value), 4) for value in minimum],
+        "bbox_maximum_xyz_m": [round(float(value), 4) for value in maximum],
         "faces": int(len(faces)),
         "long_axis_elevation_deg": round(
             float(np.degrees(np.arcsin(min(1.0, abs(long_axis[1]))))), 1
@@ -152,17 +312,56 @@ def main() -> int:
     parser.add_argument("--admission-root", required=True, type=Path)
     parser.add_argument("--flux-root", required=True, type=Path)
     parser.add_argument("--review-root", required=True, type=Path)
+    parser.add_argument("--profile-snapshot", required=True, type=Path)
+    parser.add_argument("--token-budget-report", required=True, type=Path)
+    parser.add_argument(
+        "--placement-plan",
+        type=Path,
+        help=(
+            "optional JSON object with an instances mapping; fixed or attached "
+            "objects listed there receive attachment, facing, measured footprint, "
+            "and mandatory RIR-recompute declarations"
+        ),
+    )
+    parser.add_argument(
+        "--instance",
+        action="append",
+        default=[],
+        help=(
+            "publish only these instances; repeat. A batch can hold two "
+            "reconstructions of the same attribute value - a spare, or a second "
+            "try - and only one of them can own the leaf."
+        ),
+    )
     parser.add_argument("--admission-state", default="research")
     parser.add_argument("--revision", default="v1")
     args = parser.parse_args()
 
     batch = load(args.admission_batch)
+    profile_snapshot = load(args.profile_snapshot)
+    profiles = profiles_by_id(profile_snapshot)
+    token_budget_report = load(args.token_budget_report)
+    token_measurements = token_budget_by_id(token_budget_report)
+    placement_plan = load(args.placement_plan) if args.placement_plan else {}
+    placement_by_instance = placement_plan.get("instances") or {}
+    if not isinstance(placement_by_instance, dict):
+        raise SystemExit("placement plan instances must be an object")
+    batch_instance_ids = {entry["instance_id"] for entry in batch["jobs"]}
+    unknown_placements = sorted(set(placement_by_instance) - batch_instance_ids)
+    if unknown_placements:
+        raise SystemExit(f"placement plan has unknown instances: {unknown_placements}")
     root = args.root
     root.mkdir(parents=True, exist_ok=True)
 
     records = []
+    wanted = set(args.instance)
+    unknown = wanted - batch_instance_ids
+    if unknown:
+        raise SystemExit(f"not in this admission batch: {sorted(unknown)}")
     for entry in batch["jobs"]:
         instance_id = entry["instance_id"]
+        if wanted and instance_id not in wanted:
+            continue
         instance_root = args.admission_root / "instances" / instance_id
         finalization = load(instance_root / "02_finalization/finalization_manifest.json")
         emitter = load(instance_root / "03_emitter/emitter_measurement.json")
@@ -179,10 +378,17 @@ def main() -> int:
         taxonomy = candidate["taxonomy"]
         category = taxonomy["category"]
         object_type = taxonomy["object_type"]
-        variant = "_".join(
-            candidate["sampled_attributes"][key]
-            for key in sorted(candidate["sampled_attributes"])
-        )
+        try:
+            profile = profile_for_candidate(candidate, profiles)
+            prompt_budget = prompt_budget_for_candidate(
+                candidate,
+                token_budget_report,
+                token_measurements,
+                profile["profile_revision"],
+            )
+            variant = publication_variant(candidate)
+        except ValueError as error:
+            raise SystemExit(f"{instance_id}: {error}") from error
         asset_id = (
             f"generated_{object_type}_{variant}_"
             f"{args.admission_state}_{args.revision}"
@@ -233,7 +439,8 @@ def main() -> int:
                 "request_sha256": candidate["request_sha256"],
                 "instance_id": instance_id,
             },
-            "realized_attributes": candidate["sampled_attributes"],
+            "realized_attributes": realized_attributes(candidate),
+            "acoustic_profile": profile.get("acoustic_profile"),
             "generation": {
                 "effective_prompt": candidate["generation"].get("effective_prompt"),
                 "generation": {
@@ -244,6 +451,12 @@ def main() -> int:
                 "one_shot_execution": candidate["one_shot_execution"],
                 "candidate_image": candidate["output"],
                 "lineage_group_id": candidate["lineage_group_id"],
+                "prompt_token_budget": prompt_budget,
+                "reference_image": {
+                    "applicable": False,
+                    "sha256": None,
+                    "reason": "base_template.kind is text_prompt_only",
+                },
             },
             "geometry": {
                 "finalized_glb": "finalized.glb",
@@ -257,6 +470,7 @@ def main() -> int:
                     "provisional typical retail dimension; the measured extent "
                     "above is the mesh as published"
                 ),
+                "profile_physical_authority": profile.get("target_physical_profiles"),
             },
             "emitter": {
                 "anchor_id": anchor_record["anchor_id"],
@@ -289,6 +503,13 @@ def main() -> int:
             "admission_state": args.admission_state,
             "formal_dataset_registration_authorized": False,
         }
+        if instance_id in placement_by_instance:
+            try:
+                record["placement"] = placement_record(
+                    placement_by_instance[instance_id], geometry
+                )
+            except ValueError as error:
+                raise SystemExit(f"{instance_id}: {error}") from error
         (destination / "asset.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8"
         )
@@ -300,11 +521,7 @@ def main() -> int:
         "formal_dataset_registration_authorized": False,
         "assets": [],
     }
-    known = {record["asset_id"] for record in records}
-    index["assets"] = sorted(
-        records + [item for item in index.get("assets", []) if item["asset_id"] not in known],
-        key=lambda item: item["asset_id"],
-    )
+    index = merge_assets_and_axes(index, records)
     gates = dict(index.get("acceptance_gates") or {})
     gates[PIPELINE] = {
         "note": (
@@ -344,11 +561,6 @@ def main() -> int:
         ),
     }
     index["acceptance_gates"] = gates
-    axes = dict(index.get("instance_axes") or {})
-    axes["rigid_static_object"] = sorted(
-        {key for record in records for key in record["realized_attributes"]}
-    )
-    index["instance_axes"] = axes
     index_path.write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
     print(
         "PUBLISHED "
