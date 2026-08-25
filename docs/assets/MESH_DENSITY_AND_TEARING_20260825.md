@@ -186,79 +186,61 @@ at 80k, while the standard Burmese has the dirtiest (7,082) and the best. Once
 the remesh has removed topology as a variable, what is left ranking these assets
 is something else entirely.
 
-## Surface relief is a separate axis from topology
+## Surface area is a separate axis from topology
 
-The Siamese was the one asset the remesh alone did not fix, and the reason is
-neither topology nor the bake. Its raw surface carries fur-scale relief: at
-diagonal/700 it remeshes into 690,890 faces where the other three land at
-383k-426k for the same bounding box, so nearly twice the surface area is
-micro-structure. That relief is sub-pixel at a million faces and reads as fur.
-At the rigging budget it survives as irregular faceting, which on a pale coat
-reads as dark stipple over the whole body.
+The Siamese is the one asset the remesh does not fix, and none of the three
+obvious explanations survived measurement. It is not the reconstruction: its raw
+mesh is the *second smoothest* of the four, 12.1 percent of edges past thirty
+degrees against the standard Burmese's 33.6, and rendering it untouched shows a
+clean cat. It is not the generated reference image, which is the smoothest and
+palest of the four with less visible fur striping than either Burmese. It is not
+the bake: rendering the retopologised mesh untextured shows the pitted surface
+directly, and tightening the bake ray from 5 to 2 percent of the diagonal
+changed nothing.
 
-Both other explanations were tested and ruled out. Rendering the retopologised
-Siamese untextured shows the pitted surface directly, so it is geometry rather
-than colour. Tightening the bake ray length from 5 to 2 percent of the diagonal
-changed nothing, so it is not a ray punching through a thin wall either.
+What is different is surface area. At diagonal/700 the Siamese remeshes into
+690,890 faces where the other three land at 383k-426k for the same bounding box,
+so nearly twice the area is gentle undulation. Its undulations are shallow —
+that is why the raw mesh reads smooth — but there are a great many of them, and
+a fixed triangle budget spread over twice the area gives each triangle twice the
+curvature to cross. That is the faceting. The two Burmese, whose raw surfaces are
+much rougher, come out *smoother* through this pipeline (33.6 to 23.3 percent,
+21.4 to 10.6) while the Siamese goes the other way (12.1 to 38.3).
 
-Smoothing the remesh before the reduction removes it: 24 passes at factor 0.5
-takes the Siamese from heavy stipple to faint traces on the flank, at a small
-fidelity cost (p99 0.0017 to 0.0023). The tool derives the pass count from the
-measured relief ratio — remeshed faces over the face target — and reports both,
-so the decision is visible in the report rather than buried in a flag. Note the
-ratio moves with the budget as well as the resolution, so a smaller budget asks
-for more smoothing: the Siamese derives 8 passes at 120k and 52 at 50k.
+Both remedies work, and the derived pass count made them cancel. More faces
+raises head survival; more smoothing lowers faceting. But the pass count is
+derived from remeshed faces over the budget, so raising the budget lowers the
+smoothing by about the same factor:
 
-The relief ratio drives that derived pass count, but it is the wrong shape for a
-threshold: it moves with the remesh resolution and the face budget, so the same
-mesh reads 5.2 at diagonal/700 and 13.4 at diagonal/800 for reasons that have
-nothing to do with how the surface looks. Measuring the faceting directly does
-not have that problem, and it ranks assets the way the eye does:
-
-| asset | relief passes | mean dihedral | edges past 30 degrees | reads as |
-| --- | --- | --- | --- | --- |
-| Jack Russell | 0 | 8.6 | 4.3% | clean |
-| dark Burmese | 29 | 13.5 | 10.6% | clean |
-| standard Burmese | 29 | 27.9 | 23.3% | clean |
-| Siamese at diagonal/800 | 24 | 45.5 | 38.3% | faint speckle |
-| Siamese at diagonal/700 | 0 | 56.9 | 48.5% | heavy speckle |
-
-Everything that reads clean sits under 23 percent and everything speckled over
-38, so the gate takes 0.30 and the remedy it names is more relief smoothing. The
-ratio stays in the report because it drives the pass count; the faceting share
-is what decides.
-
-For the Siamese, though, no setting in the space we searched satisfies both
-criteria at once, and the two remedies pull against each other:
-
-| Siamese attempt | faceting | head third | non-manifold |
+| Siamese, diagonal/800 | derived passes | faceting | head third |
 | --- | --- | --- | --- |
-| 80k, 24 relief passes | 0.383 | 0.658 | 2 |
-| 80k, 48 passes | 0.318 | 0.651 | 0 |
-| 80k, 96 passes | 0.265 | 0.639 | 56 |
-| 80k, 160 passes | 0.245 | 0.622 | 147 |
-| 120k, 8 passes | 0.373 | 0.705 | - |
-| 120k at diagonal/700, 0 passes | 0.481 | 0.844 | - |
+| 80k | 24 | 0.383 | 0.658 |
+| 120k | 8 | 0.373 | 0.705 |
 
-Smoothing buys a smoother coat by starving the head and reintroducing
-non-manifold edges; more faces save the head and make the faceting worse. A
-volume-preserving laplacian smooth is the principled way out of that trade and
-is a silent no-op at this mesh size — 24, 60 and 120 iterations returned
-byte-identical readings — so the option was removed rather than shipped as a
-setting that does nothing.
+Given both at once, the two readings pass: 120k faces at diagonal/700 with 48
+passes forced reads faceting 0.286 and head survival 0.823. It fails anyway, on
+topology, and that is where this stops. Enough smoothing to bring the faceting
+down squeezes the two walls of a thin tail or ear into each other, and the
+self-intersection count tracks the total displacement rather than the step size:
 
-That puts the Siamese where the evidence actually points: its fur-scale relief is
-a property of the reconstruction, and the fix belongs upstream in generation
-rather than in the reduction. It stays a documented reject, which is the honest
-state for it.
+| Siamese, 120k at diagonal/700 | faceting | head third | non-manifold |
+| --- | --- | --- | --- |
+| 48 passes at factor 0.5 | 0.286 | 0.823 | 348 |
+| 96 passes at factor 0.25 | 0.285 | 0.821 | 313 |
+| 160 passes at factor 0.15 | 0.285 | 0.822 | 311 |
+| 320 passes at factor 0.15 | 0.274 | 0.786 | 1,069 |
 
-Welding before this measurement is not optional either, and this is the third
-place in this pipeline where that mattered. A uv unwrap seams almost every
-triangle and glTF splits a vertex at every seam, so the first version of this
-measurement found five usable edges in 80,000 faces and reported a mean angle of
-0.01 degrees for every asset alike. Any per-edge reading taken on a freshly
-imported file describes the file format.
+Two ways out were tried and both fail. Remeshing again after the smoothing does
+not repair the topology and re-imposes the voxel stair-stepping the smoothing had
+just removed, taking faceting from 0.286 back to 0.434. A volume-preserving
+laplacian smooth is the principled alternative and is a silent no-op at this mesh
+size — 24, 60 and 120 iterations returned byte-identical readings — so that
+option was removed rather than shipped as a setting that does nothing.
 
+So the Siamese stays a documented reject, and the conclusion points upstream: an
+asset that needs this much smoothing needs a reconstruction with less surface
+area, not a better reduction. The remesh face count at a fixed resolution is the
+cheap way to see it coming, well before anything is rigged or rendered.
 ## Where the non-manifold edges come from
 
 Binned along the body axis, 60 percent of the Burmese's non-manifold edges are

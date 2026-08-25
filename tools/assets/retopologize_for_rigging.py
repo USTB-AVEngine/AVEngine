@@ -65,6 +65,12 @@ def parse_argv():
              "surface, which reads as dark speckle over a pale coat")
     parser.add_argument("--dilate-passes", type=int, default=4)
     parser.add_argument(
+        "--relief-smooth-factor", type=float, default=0.5,
+        help="how far each pass moves a vertex toward its neighbours' average. "
+             "Smaller steps do not avoid the self-intersection: 160 passes at "
+             "0.15 leave 311 non-manifold edges where 48 at 0.5 leave 348, so "
+             "it is the total displacement that collapses a thin wall")
+    parser.add_argument(
         "--skip-remesh", action="store_true",
         help="weld and collapse without remeshing: the previous recipe, kept so "
              "the same measurement can produce the control this one is judged "
@@ -382,11 +388,11 @@ def main():
     report["stages"]["remeshed"] = welded_topology(target.data, weld)
 
     # A reconstruction whose surface carries fur-scale relief remeshes into far
-    # more faces than a smooth one of the same size.  That relief is sub-pixel
-    # at a million faces and reads as fur; at the rigging budget it survives as
-    # irregular facets, which on a pale coat reads as dark stipple.  The ratio
-    # says how much of it the target cannot hold, so it also says how much to
-    # smooth away first.
+    # more faces than a smooth one of the same size, because the relief is area.
+    # That area is what makes the reduction facet: the same triangle budget has
+    # to cover more surface, so each triangle spans more curvature and meets its
+    # neighbours at a sharper angle.  The ratio says how much area the target
+    # cannot hold, so it also says how much to smooth away.
     relief_ratio = report["stages"]["remeshed"]["faces"] / max(1, args.target_faces)
     if args.relief_smooth_iterations >= 0:
         smoothing = args.relief_smooth_iterations
@@ -396,16 +402,20 @@ def main():
         smoothing = 0
     report["relief_ratio"] = round(relief_ratio, 3)
     report["relief_smooth_iterations"] = smoothing
-    # A volume-preserving laplacian smooth would be the principled way to shed
-    # relief without shrinking thin features, and it is a silent no-op at this
-    # mesh size: 24, 60 and 120 iterations returned byte-identical readings.
+    report["relief_smooth_factor"] = args.relief_smooth_factor
     if smoothing:
+        # Enough smoothing to bring the faceting down also squeezes the two
+        # walls of a thin tail or ear into each other, which is a
+        # self-intersection: on one asset it went from zero non-manifold edges
+        # to 348. Smaller steps do not avoid it and remeshing again does not
+        # repair it - the second remesh re-imposes the voxel stair-stepping the
+        # smoothing had just removed, taking faceting from 0.29 back to 0.43.
+        # An asset that needs that much smoothing needs a better reconstruction.
         modifier = target.modifiers.new("relief_smooth", "SMOOTH")
-        modifier.factor = 0.5
+        modifier.factor = args.relief_smooth_factor
         modifier.iterations = smoothing
         bpy.ops.object.modifier_apply(modifier=modifier.name)
         report["stages"]["relief_smoothed"] = welded_topology(target.data, weld)
-
     for _ in range(6):
         current = len(target.data.polygons)
         if current <= args.target_faces * 1.05:
