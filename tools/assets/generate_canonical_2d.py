@@ -21,11 +21,15 @@ from pathlib import Path
 import sys
 from typing import Any, Mapping, Sequence
 
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from model_roots import resolve as resolve_model_root  # noqa: E402
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUDGET_SPEC = REPOSITORY_ROOT / "examples/assets/prompt_budget_v1.json"
-DEFAULT_MODEL_ROOT = Path(
-    "/data/models/hub/models--black-forest-labs--FLUX.2-klein-base-4B"
-)
+MODEL_ENTRY = "flux2_klein_base"
 EFFECTIVE_PROMPT_FORMAT = "{prompt} Avoid: {negative}."
 CANVAS = 1024
 
@@ -106,7 +110,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--clay-guide", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--budget-spec", type=Path, default=DEFAULT_BUDGET_SPEC)
-    parser.add_argument("--model-root", type=Path, default=DEFAULT_MODEL_ROOT)
+    parser.add_argument("--model-root", type=Path, default=None)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--steps", type=int, default=28)
     parser.add_argument("--guidance-scale", type=float, default=4.0)
@@ -120,6 +124,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    # Resolved after parsing: an explicit path must not require the
+    # registry to exist.
+    args.model_root = resolve_model_root(MODEL_ENTRY, override=args.model_root)
     try:
         if args.output_dir.exists():
             raise GenerationError(f"{args.output_dir} exists; choose a fresh path")

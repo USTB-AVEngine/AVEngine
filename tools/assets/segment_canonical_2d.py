@@ -15,7 +15,13 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-DEFAULT_MODEL = Path("/data/models/rembg/isnet-general-use/isnet-general-use.onnx")
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from model_roots import resolve as resolve_model_root  # noqa: E402
+
+MODEL_ENTRY = "isnet_general_use"
 INPUT_SIZE = 1024
 MEAN = 0.5
 STD = 1.0
@@ -37,7 +43,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="fresh RGBA png path")
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
+    parser.add_argument("--model", type=Path, default=None)
     parser.add_argument("--alpha-floor", type=float, default=0.5,
                         help="matte values below this fraction are forced transparent")
     return parser
@@ -45,6 +51,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    # Resolved after parsing: an explicit path must not require the
+    # registry to exist.
+    args.model = resolve_model_root(MODEL_ENTRY, override=args.model)
     try:
         if args.output.exists():
             raise SegmentationError(f"{args.output} exists; choose a fresh path")

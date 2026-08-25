@@ -28,10 +28,13 @@ import string
 import sys
 from typing import Any, Mapping, Sequence
 
-DEFAULT_TOKENIZER_ROOT = Path(
-    "/data/models/hub/models--black-forest-labs--FLUX.2-klein-4B/snapshots"
-    "/e7b7dc27f91deacad38e78976d1f2b499d76a294/tokenizer"
-)
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from model_roots import resolve as resolve_model_root  # noqa: E402
+
+MODEL_ENTRY = "flux2_klein_tokenizer"
 DEFAULT_MAX_SEQUENCE_LENGTH = 512
 # The worker's own joiner.  Kept here verbatim so the budget is measured on the
 # string the pipeline actually receives.
@@ -163,7 +166,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", action="append", dest="profiles", type=Path)
     parser.add_argument("--profile-dir", action="append", dest="profile_dirs", type=Path)
-    parser.add_argument("--tokenizer-root", type=Path, default=DEFAULT_TOKENIZER_ROOT)
+    parser.add_argument("--tokenizer-root", type=Path, default=None)
     parser.add_argument(
         "--max-sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH
     )
@@ -173,6 +176,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    # Resolved after parsing: an explicit path must not require the
+    # registry to exist.
+    args.tokenizer_root = resolve_model_root(MODEL_ENTRY, override=args.tokenizer_root)
     try:
         paths = _profile_paths(args)
         tokenizer = _load_tokenizer(args.tokenizer_root)
