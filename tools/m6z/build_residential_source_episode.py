@@ -31,7 +31,7 @@ from avengine.acoustics.rir_cache import (  # noqa: E402
     load_semantic_acoustic_scene,
     render_semantic_rir_cache,
 )
-from avengine.m6x.room_feasibility import (  # noqa: E402
+from avengine.routes.room_feasibility import (  # noqa: E402
     TrajectoryBank,
     TrajectoryEpisode,
     build_rir_job_plan,

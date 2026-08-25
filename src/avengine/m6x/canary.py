@@ -75,7 +75,7 @@ from avengine.m6x.contracts import (
     validate_trajectory_template_set,
 )
 from avengine.m6x.input_snapshot import write_canary_input_snapshot
-from avengine.m6x.topdown import render_runtime_topdown_frames
+from avengine.routes.topdown import render_runtime_topdown_frames
 from avengine.m6x.visual_profile import (
     M6XVisualProfileError,
     ReviewVisualProfile,

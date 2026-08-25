@@ -43,7 +43,7 @@ from avengine.m6.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     TrajectoryBank,
     TrajectoryEpisode,
     build_rir_job_plan,

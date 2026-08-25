@@ -35,7 +35,7 @@ from avengine.capture.acoustics import (
 )
 from avengine.timeline.audio_program import materialize_audio_program_variant
 from avengine.m6x.apartment import listener_orientation_wxyz, qualify_fixed_apartment
-from avengine.m6x.articulated_anchor_profile import (
+from avengine.routes.articulated_anchor_profile import (
     AnchorProfileSpec,
     compile_articulated_anchor_profile,
     materialize_articulated_anchor_paths,
@@ -53,12 +53,12 @@ from avengine.m6x.canary import (
     _write_scenario_rir_evidence,
 )
 from avengine.m6x.capture_adapter import HUMAN_BEAGLE_CAPTURE_ADAPTER
-from avengine.m6x.motion_matrix import (
+from avengine.routes.motion_matrix import (
     EPISODE_FRAME_COUNT,
     build_four_motion_master,
     motion_matrix_record,
 )
-from avengine.m6x.topdown import render_runtime_topdown_frames
+from avengine.routes.topdown import render_runtime_topdown_frames
 from avengine.m6x.visual_profile import (
     load_review_visual_profile,
     validate_profile_capture_request,

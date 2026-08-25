@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from avengine.m6x.geometry import point_to_world_obb_clearance
+from avengine.routes.geometry import point_to_world_obb_clearance
 from avengine.studio.scenes import DraftObstacleGrid
 
 DRAFT_CLAIM = (

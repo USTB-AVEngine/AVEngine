@@ -28,9 +28,9 @@ from avengine.capture.mixed_capture import trajectory_world_matrices
 from avengine.capture.orientation import habitat_basis_from_yaw_degrees
 from avengine.capture.review import encode_annotated_review
 from avengine.m6x.capture_adapter import _matrix_quaternion_xyzw
-from avengine.m6x.geometry import RuntimeObstacleMap
+from avengine.routes.geometry import RuntimeObstacleMap
 from avengine.acoustics.rir_cache import load_cached_rir_episode
-from avengine.m6x.topdown import render_runtime_topdown_frames
+from avengine.routes.topdown import render_runtime_topdown_frames
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]

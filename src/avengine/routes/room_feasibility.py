@@ -19,12 +19,12 @@ from typing import Any, Callable, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m6x.geometry import (
+from avengine.routes.geometry import (
     RuntimeObstacleMap,
     evaluate_source_center_gate,
     point_to_world_obb_clearance,
 )
-from avengine.m6x.trajectory import (
+from avengine.routes.trajectory import (
     M6XTrajectoryError,
     resample_polyline_by_arc_length,
 )

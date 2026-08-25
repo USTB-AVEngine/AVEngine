@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from PIL import ImageDraw
 
-from avengine.m6x.geometry import RuntimeObstacleMap
-from avengine.m6x.topdown import (
+from avengine.routes.geometry import RuntimeObstacleMap
+from avengine.routes.topdown import (
     M6XTopdownError,
     _interior_navmesh_exclusions,
     render_runtime_topdown_frame,

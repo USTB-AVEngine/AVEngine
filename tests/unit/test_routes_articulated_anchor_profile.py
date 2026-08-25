@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from avengine.capture.mixed_capture import trajectory_world_matrices
-from avengine.m6x.articulated_anchor_profile import (
+from avengine.routes.articulated_anchor_profile import (
     AnchorProfileSpec,
     ArticulatedAnchorProfileError,
     compile_articulated_anchor_profile,

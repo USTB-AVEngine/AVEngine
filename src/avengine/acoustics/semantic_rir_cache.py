@@ -25,7 +25,7 @@ from avengine.current_installed_runtime import (
 from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.timeline.audio import M5_AUDIO_SAMPLE_RATE_HZ
 from avengine.acoustics.rir_cache import RIRCacheError, validate_semantic_rir_job_plan
-from avengine.m6x.room_feasibility import SOURCE_SLOTS
+from avengine.routes.room_feasibility import SOURCE_SLOTS
 
 _SEMANTIC_NATIVE_CLAIM = (
     "native CPU RIR samples with structural pose/use, native source/listener "

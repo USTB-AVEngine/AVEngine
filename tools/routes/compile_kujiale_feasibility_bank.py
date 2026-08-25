@@ -22,18 +22,18 @@ from PIL import Image
 
 from avengine.contracts.json_io import load_json, write_json
 from avengine.m6x.apartment import listener_orientation_wxyz
-from avengine.m6x.feasibility_topdown import render_feasibility_topdown
-from avengine.m6x.geometry import (
+from avengine.routes.feasibility_topdown import render_feasibility_topdown
+from avengine.routes.geometry import (
     ELEVATED_OBJECT,
     GROUND_BLOCKER,
     UNKNOWN_OBSTACLE_ROLE,
     WALKABLE_FLOOR_COVERING,
 )
-from avengine.m6x.raster_pathfinder import (
+from avengine.routes.raster_pathfinder import (
     RasterShortestPath,
     build_polygon_raster_obstacle_map,
 )
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     RoomFeasibilityCompiler,
     TrajectoryBankBuilder,
     build_rir_job_plan,

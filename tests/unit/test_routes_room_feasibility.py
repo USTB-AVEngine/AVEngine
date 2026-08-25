@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m6x.feasibility_topdown import render_feasibility_topdown
-from avengine.m6x.geometry import RuntimeObstacleMap
-from avengine.m6x.raster_pathfinder import (
+from avengine.routes.feasibility_topdown import render_feasibility_topdown
+from avengine.routes.geometry import RuntimeObstacleMap
+from avengine.routes.raster_pathfinder import (
     RasterShortestPath,
     build_polygon_raster_obstacle_map,
 )
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     MOTION_CASES,
     RIR_ACOUSTIC_STATE_SCHEMA,
     RoomFeasibilityCompiler,

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from avengine.m6x.asset_emitter import ASSET_EMITTER_BINDING_SET_SCHEMA
-from avengine.m6x.room_feasibility import MOTION_CASES, TrajectoryBank, TrajectoryEpisode
+from avengine.routes.asset_emitter import ASSET_EMITTER_BINDING_SET_SCHEMA
+from avengine.routes.room_feasibility import MOTION_CASES, TrajectoryBank, TrajectoryEpisode
 from avengine.runtime_profiles import load_default_source_asset_runtime_registry
-from tools.m6x import select_asset_bound_trajectories as selection
+from tools.routes import select_asset_bound_trajectories as selection
 
 
 def _binding(asset_id: str) -> dict:

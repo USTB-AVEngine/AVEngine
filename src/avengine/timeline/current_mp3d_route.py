@@ -61,13 +61,13 @@ from avengine.timeline.current_visual import (
     _resolve_external_scene,
 )
 from avengine.capture.mp3d_capture import MP3DCaptureError, _pathfinder_path_record
-from avengine.m6x.geometry import (
+from avengine.routes.geometry import (
     M6XGeometryError,
     build_runtime_obstacle_map,
     evaluate_source_center_gate,
 )
-from avengine.m6x.room_feasibility import RoomFeasibilityCompiler, RoomFeasibilityError
-from avengine.m6x.trajectory import M6XTrajectoryError, resample_polyline_by_arc_length
+from avengine.routes.room_feasibility import RoomFeasibilityCompiler, RoomFeasibilityError
+from avengine.routes.trajectory import M6XTrajectoryError, resample_polyline_by_arc_length
 
 
 EXTERNAL_REVIEW_ROOT = Path("/data/avengine_external/review")

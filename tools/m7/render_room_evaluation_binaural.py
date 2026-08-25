@@ -31,7 +31,7 @@ from avengine.acoustics.rir_cache import (
     RIRCacheSession,
     validate_rir_job_plan,
 )
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     RIR_JOB_PLAN_SCHEMA,
     TRAJECTORY_BANK_SCHEMA,
 )

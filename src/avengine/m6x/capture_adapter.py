@@ -29,7 +29,7 @@ from avengine.capture.orientation import (
     M51OrientationError,
     habitat_basis_from_yaw_degrees,
 )
-from avengine.m6x.trajectory import (
+from avengine.routes.trajectory import (
     M6XTrajectoryError,
     materialize_template_route,
     template_route_first_anchor_yaw_degrees,

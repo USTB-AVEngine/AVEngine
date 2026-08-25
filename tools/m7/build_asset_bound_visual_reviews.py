@@ -32,8 +32,8 @@ from avengine.capture.review import (
     compose_annotated_frames,
     encode_annotated_review,
 )
-from avengine.m6x.geometry import RuntimeObstacleMap
-from avengine.m6x.topdown import render_runtime_topdown_frames
+from avengine.routes.geometry import RuntimeObstacleMap
+from avengine.routes.topdown import render_runtime_topdown_frames
 from avengine.m7.sensor_rig import (
     M7SensorRigError,
     m7_sensor_rig_binding,

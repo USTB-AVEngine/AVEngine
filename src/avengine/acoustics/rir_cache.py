@@ -46,7 +46,7 @@ from avengine.spatial_audio.runtime import (
     _native_layout,
     simulation_with_layout,
 )
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     RIR_JOB_PLAN_SCHEMA,
     SOURCE_SLOTS,
     rir_acoustic_state_sha256,

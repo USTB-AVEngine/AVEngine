@@ -13,7 +13,7 @@ import numpy as np
 
 from avengine.contracts.json_io import load_json, write_json
 from avengine.assets.habitat_capture import quaternion_xyzw_to_matrix
-from avengine.m6x.articulated_anchor_profile import (
+from avengine.routes.articulated_anchor_profile import (
     AnchorProfileSpec,
     compile_articulated_anchor_profile,
     materialize_articulated_anchor_paths,

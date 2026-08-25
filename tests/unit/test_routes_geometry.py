@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from avengine.m6x.geometry import (
+from avengine.routes.geometry import (
     ELEVATED_OBJECT,
     GROUND_BLOCKER,
     M6XGeometryError,

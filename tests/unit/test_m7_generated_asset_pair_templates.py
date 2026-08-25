@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from avengine.contracts.json_io import load_json
-from avengine.m6x.asset_emitter import validate_asset_emitter_binding_set
+from avengine.routes.asset_emitter import validate_asset_emitter_binding_set
 from avengine.runtime_profiles import load_default_source_asset_runtime_registry
-from tools.m6x.select_asset_bound_trajectories import _pair_templates
+from tools.routes.select_asset_bound_trajectories import _pair_templates
 
 
 ROOT = Path(__file__).resolve().parents[2]

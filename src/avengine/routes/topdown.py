@@ -1,6 +1,6 @@
 """Generic diagnostic Topdown panels for the fixed-room M6.x canary.
 
-The renderer consumes :class:`~avengine.m6x.geometry.RuntimeObstacleMap`
+The renderer consumes :class:`~avengine.routes.geometry.RuntimeObstacleMap`
 directly.  Consequently, the floor map used by placement QA and the map
 shown to a reviewer have one authority: the live Habitat navmesh plus every
 retained rigid collision OBB.  Source paths and dots represent source-center
@@ -21,7 +21,7 @@ from avengine.capture.orientation import (
     M51OrientationError,
     habitat_basis_from_yaw_degrees,
 )
-from avengine.m6x.geometry import (
+from avengine.routes.geometry import (
     ELEVATED_OBJECT,
     GROUND_BLOCKER,
     UNKNOWN_OBSTACLE_ROLE,

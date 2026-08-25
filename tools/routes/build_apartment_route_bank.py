@@ -12,7 +12,7 @@ on which camera a point uses, and the camera is a separate axis; joining the
 two belongs in batch design, not here.  Everything stored is a property of the
 route alone.
 
-    python tools/m6x/build_apartment_route_bank.py \
+    python tools/routes/build_apartment_route_bank.py \
         --spear-executable .../SpearSim.sh --samples 4000 --output bank.json
 
 SPEAR call conventions this tool encodes (each one cost a wedged run to find):

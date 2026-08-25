@@ -7,14 +7,14 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m6x.asset_emitter import (
+from avengine.routes.asset_emitter import (
     ASSET_EMITTER_BINDING_SET_SCHEMA,
     AssetEmitterBindingError,
     bind_asset_emitters_to_bank,
     materialize_asset_emitter_paths,
     validate_asset_emitter_binding_set,
 )
-from avengine.m6x.room_feasibility import TrajectoryBank, TrajectoryEpisode
+from avengine.routes.room_feasibility import TrajectoryBank, TrajectoryEpisode
 from tools.acoustics.build_asset_bound_rir_plan import build
 
 

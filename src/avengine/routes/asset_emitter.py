@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.capture.mixed_capture import MixedCaptureError, trajectory_world_matrices
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     SOURCE_SLOTS,
     TrajectoryBank,
     TrajectoryEpisode,

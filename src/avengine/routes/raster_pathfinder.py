@@ -1,7 +1,7 @@
 """Pure-raster source-center navigation for rooms without Habitat navmeshes.
 
 The adapter intentionally exposes only the small PathFinder surface consumed
-by :mod:`avengine.m6x.room_feasibility`.  Its authority is an explicit room
+by :mod:`avengine.routes.room_feasibility`.  Its authority is an explicit room
 polygon and explicit blocking footprints; it must never be described as a
 Habitat-native navigation result.
 """
@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from avengine.m6x.geometry import RuntimeObstacleMap
+from avengine.routes.geometry import RuntimeObstacleMap
 
 
 class RasterPathfinderError(ValueError):

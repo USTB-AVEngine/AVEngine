@@ -13,7 +13,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m6x.room_feasibility import TrajectoryBank, TrajectoryEpisode
+from avengine.routes.room_feasibility import TrajectoryBank, TrajectoryEpisode
 from avengine.m7.trajectory_recombination import recombine_source_paths
 
 

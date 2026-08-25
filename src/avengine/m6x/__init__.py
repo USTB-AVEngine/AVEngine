@@ -1,6 +1,6 @@
 """Fixed-room M6.x contracts and executable canary support."""
 
-from avengine.m6x.asset_emitter import (
+from avengine.routes.asset_emitter import (
     ASSET_EMITTER_BINDING_REPORT_SCHEMA,
     ASSET_EMITTER_BINDING_SET_SCHEMA,
     AssetEmitterBinding,
@@ -32,7 +32,7 @@ from avengine.m6x.contracts import (
     validate_scenario_suite,
     validate_trajectory_template_set,
 )
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     FeasibleRegionIndex,
     RoomFeasibilityCompiler,
     RoomFeasibilityError,
@@ -44,7 +44,7 @@ from avengine.m6x.room_feasibility import (
     evaluate_trajectory_coverage,
     evaluate_trajectory_diversity,
 )
-from avengine.m6x.raster_pathfinder import (
+from avengine.routes.raster_pathfinder import (
     RasterPathfinder,
     RasterPathfinderError,
     RasterShortestPath,

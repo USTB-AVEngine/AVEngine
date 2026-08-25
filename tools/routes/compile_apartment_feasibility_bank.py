@@ -26,13 +26,13 @@ from avengine.m6x.apartment import (
     listener_orientation_wxyz,
     listener_yaw_degrees_from_request,
 )
-from avengine.m6x.articulated_anchor_profile import (
+from avengine.routes.articulated_anchor_profile import (
     materialize_articulated_anchor_paths,
 )
 from avengine.m6x.capture_adapter import HUMAN_BEAGLE_CAPTURE_ADAPTER
-from avengine.m6x.feasibility_topdown import render_feasibility_topdown
-from avengine.m6x.geometry import build_runtime_obstacle_map
-from avengine.m6x.room_feasibility import (
+from avengine.routes.feasibility_topdown import render_feasibility_topdown
+from avengine.routes.geometry import build_runtime_obstacle_map
+from avengine.routes.room_feasibility import (
     RoomFeasibilityCompiler,
     TrajectoryBankBuilder,
     build_rir_job_plan,

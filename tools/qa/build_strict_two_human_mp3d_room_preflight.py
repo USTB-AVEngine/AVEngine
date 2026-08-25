@@ -32,7 +32,7 @@ from avengine.capture.camera_candidate_gate import (
     evaluate_camera_candidates,
 )
 from avengine.m1.contracts import validate_capture_request
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     TrajectoryBank,
     TrajectoryEpisode,
     build_rir_job_plan,
@@ -144,7 +144,7 @@ def _authoritative_rir_acoustic_state_sha256(
     """Use A's runtime authority; keep staging self-contained for local QA."""
 
     try:
-        from avengine.m6x.room_feasibility import (
+        from avengine.routes.room_feasibility import (
             rir_acoustic_state_sha256,
         )
     except ModuleNotFoundError:

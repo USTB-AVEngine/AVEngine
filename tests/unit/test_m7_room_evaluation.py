@@ -12,7 +12,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m6x.room_feasibility import TrajectoryBank, TrajectoryEpisode
+from avengine.routes.room_feasibility import TrajectoryBank, TrajectoryEpisode
 from avengine.m7.room_evaluation import (
     AZIMUTH_REGIONS,
     RoomEvaluationError,

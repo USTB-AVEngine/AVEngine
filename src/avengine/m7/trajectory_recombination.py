@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     MOTION_CASES,
     TrajectoryBank,
     TrajectoryEpisode,

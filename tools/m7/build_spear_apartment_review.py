@@ -38,12 +38,12 @@ from avengine.optional_backends.spear_visual import (
     camera_ue_yaw_degrees,
     habitat_point_to_apartment_ue_cm,
 )
-from avengine.m6x.geometry import (
+from avengine.routes.geometry import (
     RuntimeObstacleMap,
     evaluate_source_center_gate,
 )
-from avengine.m6x.raster_pathfinder import RasterPathfinder
-from avengine.m6x.topdown import TOPDOWN_SCHEMA, render_runtime_topdown_frames
+from avengine.routes.raster_pathfinder import RasterPathfinder
+from avengine.routes.topdown import TOPDOWN_SCHEMA, render_runtime_topdown_frames
 
 
 SCHEMA = "avengine_spear_apartment_habitat_topdown_review_v1"

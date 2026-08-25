@@ -10,13 +10,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from avengine.capture.orientation import habitat_basis_from_yaw_degrees
-from avengine.m6x.geometry import (
+from avengine.routes.geometry import (
     ELEVATED_OBJECT,
     GROUND_BLOCKER,
     UNKNOWN_OBSTACLE_ROLE,
     WALKABLE_FLOOR_COVERING,
 )
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     MOTION_CASES,
     SOURCE_SLOTS,
     FeasibleRegionIndex,

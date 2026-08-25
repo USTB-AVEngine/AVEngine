@@ -13,7 +13,7 @@ from avengine.m6x.capture_adapter import (
     CaptureData,
     HUMAN_BEAGLE_CAPTURE_ADAPTER,
 )
-from avengine.m6x.motion_matrix import (
+from avengine.routes.motion_matrix import (
     EPISODE_FRAME_COUNT,
     build_four_motion_master,
     motion_matrix_record,

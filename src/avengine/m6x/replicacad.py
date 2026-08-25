@@ -37,12 +37,12 @@ from avengine.capture.review import (
     compose_annotated_frames,
     encode_annotated_review,
 )
-from avengine.m6x.geometry import (
+from avengine.routes.geometry import (
     RuntimeObstacleMap,
     build_runtime_obstacle_map,
     evaluate_source_center_gate,
 )
-from avengine.m6x.topdown import render_runtime_topdown_frames
+from avengine.routes.topdown import render_runtime_topdown_frames
 
 
 REPLICACAD_REVIEW_SCHEMA = "avengine_m6x_replicacad_obstacle_review_v1"

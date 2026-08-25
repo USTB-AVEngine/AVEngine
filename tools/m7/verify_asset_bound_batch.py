@@ -31,7 +31,7 @@ from avengine.timeline.audio_program import (
     materialize_audio_program_variant,
     validate_audio_program,
 )
-from avengine.m6x.room_feasibility import rir_acoustic_state_sha256
+from avengine.routes.room_feasibility import rir_acoustic_state_sha256
 from avengine.m7.sensor_rig import (
     M7SensorRigError,
     m7_sensor_rig_binding,

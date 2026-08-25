@@ -23,11 +23,11 @@ from typing import Any, Mapping
 import numpy as np
 
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m6x.asset_emitter import (
+from avengine.routes.asset_emitter import (
     bind_asset_emitters_to_bank,
     validate_asset_emitter_binding_set,
 )
-from avengine.m6x.room_feasibility import MOTION_CASES, TrajectoryBank, TrajectoryEpisode
+from avengine.routes.room_feasibility import MOTION_CASES, TrajectoryBank, TrajectoryEpisode
 from avengine.runtime_profiles import (
     build_asset_emitter_binding,
     default_source_asset_runtime_registry_path,

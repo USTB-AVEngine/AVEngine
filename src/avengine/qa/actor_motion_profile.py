@@ -18,7 +18,7 @@ import numpy as np
 
 from avengine.camera_pose import yaw_rotation_xyzw
 from avengine.contracts.json_io import canonical_json_sha256, load_json
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     TrajectoryBank,
     TrajectoryEpisode,
     build_rir_job_plan,

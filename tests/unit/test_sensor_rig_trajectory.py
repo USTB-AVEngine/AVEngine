@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
-from avengine.m6x.trajectory import resample_polyline_by_arc_length
+from avengine.routes.trajectory import resample_polyline_by_arc_length
 from avengine.sensor_rig_trajectory import (
     DURATION_TICKS,
     FRAME_COUNT,

@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m6x.room_feasibility import (
+from avengine.routes.room_feasibility import (
     RIR_JOB_PLAN_SCHEMA,
     SOURCE_SLOTS,
     TRAJECTORY_BANK_SCHEMA,

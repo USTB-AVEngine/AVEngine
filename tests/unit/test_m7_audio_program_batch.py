@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, write_json
-from avengine.m6x.room_feasibility import rir_acoustic_state_sha256
+from avengine.routes.room_feasibility import rir_acoustic_state_sha256
 from avengine.m7.asset_bound_audio import AssetBoundAudioError
 from avengine.m7.sensor_rig import m7_sensor_rig_pose_series
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
