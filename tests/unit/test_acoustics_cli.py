@@ -24,7 +24,7 @@ def test_m3_compile_validate_and_verify_cli(tmp_path: Path, capsys) -> None:
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "compile-canary",
                 "--request",
                 str(REQUEST),
@@ -37,14 +37,14 @@ def test_m3_compile_validate_and_verify_cli(tmp_path: Path, capsys) -> None:
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "validate-package",
                 str(output / "low_absorption/manifest.json"),
             ]
         )
         == 0
     )
-    assert main(["m3", "verify-compile", str(output / "compile_evidence.json")]) == 0
+    assert main(["acoustics", "verify-compile", str(output / "compile_evidence.json")]) == 0
     rendered = capsys.readouterr().out
     assert '"status": "pass"' in rendered
 
@@ -53,7 +53,7 @@ def test_m3_current_installed_help_requires_explicit_runtime_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exit_info:
-        build_parser().parse_args(["m3", "run-canary", "--help"])
+        build_parser().parse_args(["acoustics", "run-canary", "--help"])
     assert exit_info.value.code == 0
     rendered = " ".join(capsys.readouterr().out.split())
     assert (
@@ -73,7 +73,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
 
     proposed = parser.parse_args(
         [
-            "m3",
+            "acoustics",
             "propose-visual-slots",
             "--room",
             "room.json",
@@ -85,7 +85,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     )
     compiled = parser.parse_args(
         [
-            "m3",
+            "acoustics",
             "compile-explicit-research",
             "--room",
             "room.json",
@@ -99,7 +99,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     )
     semantic = parser.parse_args(
         [
-            "m3",
+            "acoustics",
             "compile-mp3d-semantic",
             "--room",
             "room.json",
@@ -111,7 +111,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     )
     soundspaces = parser.parse_args(
         [
-            "m3",
+            "acoustics",
             "compile-mp3d-rlr-materials",
             "--room",
             "room.json",
@@ -127,7 +127,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     )
     usd_semantic = parser.parse_args(
         [
-            "m3",
+            "acoustics",
             "compile-usd-snapshot-semantic",
             "--room",
             "room.json",
@@ -139,7 +139,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     )
     leakage = parser.parse_args(
         [
-            "m3",
+            "acoustics",
             "inspect-mesh-leakage",
             "--package",
             "manifest.json",
@@ -153,7 +153,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     )
     canary = parser.parse_args(
         [
-            "m3",
+            "acoustics",
             "run-canary",
             "--request",
             "request.json",
@@ -164,7 +164,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
         ]
     )
     verified = parser.parse_args(
-        ["m3", "verify-canary", "/tmp/canary/canary_evidence.json"]
+        ["acoustics", "verify-canary", "/tmp/canary/canary_evidence.json"]
     )
 
     assert proposed.m3_command == "propose-visual-slots"
@@ -198,7 +198,7 @@ def test_m3_static_writers_use_explicit_non_git_mp3d_and_reject_legacy_root(
     monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_ROOT", "/old/habitat-checkout")
     monkeypatch.setenv("AVENGINE_MP3D_ROOT", "/old/mp3d-checkout")
     arguments = [
-        "m3",
+        "acoustics",
         "propose-visual-slots",
         "--room",
         "room.json",
@@ -238,7 +238,7 @@ def test_m3_static_writers_do_not_inherit_mp3d_root_fallback(
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "propose-visual-slots",
                 "--room",
                 "relative-glb-room.json",
@@ -333,7 +333,7 @@ def test_m3_all_legacy_root_writers_expose_explicit_mp3d_option() -> None:
         ),
     )
     for command, arguments in commands:
-        parsed = parser.parse_args(["m3", command, *arguments])
+        parsed = parser.parse_args(["acoustics", command, *arguments])
         assert hasattr(parsed, "mp3d_root")
         assert hasattr(parsed, "runtime_root")
         assert parsed.mp3d_root is None
@@ -350,7 +350,7 @@ def test_m3_static_writers_reject_git_backed_mp3d_root(
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "propose-visual-slots",
                 "--room",
                 "room.json",
@@ -371,7 +371,7 @@ def test_m3_native_runtime_unavailable_is_blocked_and_flags_are_scoped(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
     arguments = [
-        "m3",
+        "acoustics",
         "run-canary",
         "--request",
         "request.json",
@@ -412,7 +412,7 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "resolve-materials",
                 "--mapping",
                 str(M3_EXAMPLE / "mapping.json"),
@@ -458,7 +458,7 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "resolve-materials",
                 "--mapping",
                 str(copied_inputs / "mapping.json"),
@@ -479,7 +479,7 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "compile-custom",
                 "--room",
                 str(
@@ -496,12 +496,12 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
         )
         == 0
     )
-    assert main(["m3", "validate-package", str(package / "manifest.json")]) == 0
+    assert main(["acoustics", "validate-package", str(package / "manifest.json")]) == 0
     leakage = tmp_path / "leakage.json"
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "inspect-mesh-leakage",
                 "--package",
                 str(package / "manifest.json"),
@@ -536,7 +536,7 @@ def test_m3_material_profile_cli_refuses_unknown_selector(
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "resolve-materials",
                 "--mapping",
                 str(M3_EXAMPLE / "mapping.json"),
@@ -557,7 +557,7 @@ def test_m3_current_installed_cli_requires_and_forwards_all_runtime_inputs(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
     arguments = [
-        "m3",
+        "acoustics",
         "run-canary",
         "--request",
         "request.json",
@@ -603,7 +603,7 @@ def test_m3_current_installed_cli_requires_and_forwards_all_runtime_inputs(
     assert (
         main(
             [
-                "m3",
+                "acoustics",
                 "run-canary",
                 "--request",
                 "request.json",

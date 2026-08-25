@@ -183,7 +183,7 @@ def test_m1_parser_requires_runtime_prefix_and_rejects_legacy_runtime_root() -> 
 
     capture = parser.parse_args(
         [
-            "m1",
+            "rooms",
             "capture",
             "--room",
             "room.json",
@@ -197,7 +197,7 @@ def test_m1_parser_requires_runtime_prefix_and_rejects_legacy_runtime_root() -> 
     )
     navmesh = parser.parse_args(
         [
-            "m1",
+            "rooms",
             "build-navmesh",
             "--room",
             "room.json",
@@ -213,7 +213,7 @@ def test_m1_parser_requires_runtime_prefix_and_rejects_legacy_runtime_root() -> 
     with pytest.raises(SystemExit):
         parser.parse_args(
             [
-                "m1",
+                "rooms",
                 "capture",
                 "--room",
                 "room.json",

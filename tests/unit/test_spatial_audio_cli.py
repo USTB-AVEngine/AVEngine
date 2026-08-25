@@ -24,10 +24,10 @@ def _output(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
 def test_m4_parser_exposes_commands_and_pins_default_runtime_lock() -> None:
     parser = build_parser()
 
-    validate = parser.parse_args(["m4", "validate-request", "request.json"])
+    validate = parser.parse_args(["spatial-audio", "validate-request", "request.json"])
     run = parser.parse_args(
         [
-            "m4",
+            "spatial-audio",
             "run-canary",
             "--request",
             "request.json",
@@ -37,8 +37,8 @@ def test_m4_parser_exposes_commands_and_pins_default_runtime_lock() -> None:
             "/tmp/m4-canary",
         ]
     )
-    verify = parser.parse_args(["m4", "verify-canary", "evidence.json"])
-    bundle = parser.parse_args(["m4", "verify-bundle", "bundle.json"])
+    verify = parser.parse_args(["spatial-audio", "verify-canary", "evidence.json"])
+    bundle = parser.parse_args(["spatial-audio", "verify-bundle", "bundle.json"])
 
     assert validate.m4_command == "validate-request"
     assert run.m4_command == "run-canary"
@@ -52,7 +52,7 @@ def test_m4_current_installed_help_requires_explicit_runtime_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exit_info:
-        build_parser().parse_args(["m4", "run-canary", "--help"])
+        build_parser().parse_args(["spatial-audio", "run-canary", "--help"])
     assert exit_info.value.code == 0
     rendered = " ".join(capsys.readouterr().out.split())
     assert (
@@ -70,7 +70,7 @@ def test_m4_current_installed_help_requires_explicit_runtime_paths(
 def test_m4_validate_request_passes_for_checked_in_request(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["m4", "validate-request", str(REQUEST)]) == 0
+    assert main(["spatial-audio", "validate-request", str(REQUEST)]) == 0
 
     rendered = _output(capsys)
     assert rendered == {
@@ -94,7 +94,7 @@ def test_m4_run_canary_blocks_before_native_when_hrtf_is_missing(
 
     exit_code = main(
         [
-            "m4",
+            "spatial-audio",
             "run-canary",
             "--request",
             "unused-request.json",
@@ -164,7 +164,7 @@ def test_m4_run_canary_mocked_pass_does_not_invoke_native(
     output = tmp_path / "canary"
     exit_code = main(
         [
-            "m4",
+            "spatial-audio",
             "run-canary",
             "--request",
             "request.json",
@@ -222,7 +222,7 @@ def test_m4_verify_canary_maps_verifier_status_to_stable_exit(
         lambda _path: (status, checks),
     )
 
-    assert main(["m4", "verify-canary", "evidence.json"]) == expected_exit
+    assert main(["spatial-audio", "verify-canary", "evidence.json"]) == expected_exit
     assert _output(capsys) == {"checks": list(checks), "status": status}
 
 
@@ -233,7 +233,7 @@ def test_m4_verify_canary_malformed_json_is_a_stable_failure(
     evidence = tmp_path / "malformed.json"
     evidence.write_text("{not-json", encoding="utf-8")
 
-    assert main(["m4", "verify-canary", str(evidence)]) == 1
+    assert main(["spatial-audio", "verify-canary", str(evidence)]) == 1
     rendered = _output(capsys)
     assert rendered["status"] == "fail"
     assert rendered["checks"][0]["check_id"] == "evidence_json"
@@ -262,7 +262,7 @@ def test_m4_verify_bundle_maps_contract_result_to_stable_exit(
 
     monkeypatch.setattr("avengine.cli.validate_audio_bundle", fake_validate)
 
-    assert main(["m4", "verify-bundle", "bundle.json"]) == expected_exit
+    assert main(["spatial-audio", "verify-bundle", "bundle.json"]) == expected_exit
     assert calls["validation"] == (bundle, "bundle.json")
     assert _output(capsys) == {"errors": errors, "status": expected_status}
 
@@ -312,7 +312,7 @@ def test_m4_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
 
     output = tmp_path / "canary"
     command = [
-        "m4",
+        "spatial-audio",
         "run-canary",
         "--request",
         "request.json",
@@ -369,7 +369,7 @@ def test_m4_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
     }
 
     incomplete = [
-        "m4",
+        "spatial-audio",
         "run-canary",
         "--request",
         "request.json",
@@ -391,7 +391,7 @@ def test_m4_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
 
 def test_m4_current_foa_parser_requires_only_current_runtime_inputs() -> None:
     command = [
-        "m4",
+        "spatial-audio",
         "run-current-foa",
         "--request",
         "request.json",
@@ -462,7 +462,7 @@ def test_m4_current_foa_cli_forwards_explicit_inputs_without_hrtf(
 
     assert main(
         [
-            "m4",
+            "spatial-audio",
             "run-current-foa",
             "--request",
             "request.json",

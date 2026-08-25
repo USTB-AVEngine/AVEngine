@@ -1674,7 +1674,7 @@ def _m6_verify_controlled(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
-    m1 = commands.add_parser("m1", help="M1 visual/room canary commands")
+    m1 = commands.add_parser("rooms", aliases=["m1"], help="Room visual canary commands (alias: m1)")
     m1_commands = m1.add_subparsers(dest="m1_command", required=True)
 
     validate_room = m1_commands.add_parser("validate-room")
@@ -1714,7 +1714,7 @@ def build_parser() -> argparse.ArgumentParser:
     aggregate.add_argument("--output")
     aggregate.set_defaults(handler=_aggregate)
 
-    m3 = commands.add_parser("m3", help="M3 explicit acoustic-scene commands")
+    m3 = commands.add_parser("acoustics", aliases=["m3"], help="Explicit acoustic-scene commands (alias: m3)")
     m3_commands = m3.add_subparsers(dest="m3_command", required=True)
 
     m3_validate = m3_commands.add_parser("validate-package")
@@ -2070,7 +2070,7 @@ def build_parser() -> argparse.ArgumentParser:
     m3_import_rlr.add_argument("--output", required=True)
     m3_import_rlr.set_defaults(handler=_m3_import_rlr_materials)
 
-    m4 = commands.add_parser("m4", help="M4 named multi-source spatial-audio commands")
+    m4 = commands.add_parser("spatial-audio", aliases=["m4"], help="Named multi-source spatial-audio commands (alias: m4)")
     m4_commands = m4.add_subparsers(dest="m4_command", required=True)
 
     m4_validate = m4_commands.add_parser("validate-request")
