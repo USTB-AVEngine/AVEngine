@@ -6,9 +6,17 @@ The three readings that decide whether a reduction kept the animal:
                          where the skin opens during a walk; the allowance is
                          for the stray edge that welding leaves behind, not for
                          a real hole, which arrives in the hundreds
-  octant survival span   how unevenly the reduction fell across the body; a
-                         starved octant is the head paying for the rest
-  fidelity p99           how far the original surface had to move
+  head-end survival      how much of the front third's triangle share survived.
+                         This is the reading that separates a ruined asset from
+                         a fine one, and it only works because the reviewed
+                         forward direction says which third is the head: a
+                         face collapsed into flat facets scores 0.51, and so
+                         does a tail that merely thinned, which is why the
+                         axis-blind octant span is reported and not judged
+  fidelity p99           how far the original surface had to move. Reported, and
+                         gated only against catastrophe: two assets that both
+                         look right differ fivefold here (0.0019 and 0.0104),
+                         so it cannot carry an accept decision
 
 Thresholds are arguments rather than constants because they were measured on
 four animals, which is enough to set a default and not enough to freeze one.
@@ -29,16 +37,16 @@ def main():
         help="not zero: welding the measurement copy leaves an occasional stray "
              "edge, while a genuine hole shows up in the hundreds")
     parser.add_argument("--max-nonmanifold", type=int, default=16)
-    parser.add_argument("--min-octant-survival", type=float, default=0.7)
-    parser.add_argument("--max-octant-survival", type=float, default=1.5)
-    parser.add_argument("--max-fidelity-p99", type=float, default=0.0025)
+    parser.add_argument("--min-head-survival", type=float, default=0.7)
+    parser.add_argument("--max-fidelity-p99", type=float, default=0.02)
     parser.add_argument("--face-tolerance", type=float, default=0.05)
     args = parser.parse_args()
 
     with open(args.report, encoding="utf-8") as handle:
         report = json.load(handle)
     final = report["stages"]["decimated"]
-    low, high = report["octant_survival_span"]
+    span = report["octant_survival_span"]
+    bands = report.get("band_survival")
     p99 = report["fidelity_over_diagonal"]["p99"]
     target = report["target_faces"]
 
@@ -48,12 +56,14 @@ def main():
     if final["nonmanifold"] > args.max_nonmanifold:
         failures.append(
             f"non-manifold edges {final['nonmanifold']} > {args.max_nonmanifold}")
-    if low < args.min_octant_survival:
+    if bands is None:
         failures.append(
-            f"octant survival {low} < {args.min_octant_survival}: one part of the "
-            "body paid for the rest")
-    if high > args.max_octant_survival:
-        failures.append(f"octant survival {high} > {args.max_octant_survival}")
+            "no band survival in the report: rerun the retopology with "
+            "--front-yaw-deg so the head can be told from the tail")
+    elif bands["front"] < args.min_head_survival:
+        failures.append(
+            f"head-end survival {bands['front']} < {args.min_head_survival}: the "
+            "front third paid for the rest of the body")
     if p99 > args.max_fidelity_p99:
         failures.append(f"fidelity p99 {p99} > {args.max_fidelity_p99}")
     if abs(final["faces"] - target) > target * args.face_tolerance:
@@ -64,7 +74,8 @@ def main():
         "faces": final["faces"],
         "boundary": final["boundary"],
         "nonmanifold": final["nonmanifold"],
-        "octant_survival_span": [low, high],
+        "octant_survival_span": span,
+        "band_survival": bands,
         "fidelity_p99": p99,
         "relief_ratio": report.get("relief_ratio"),
         "relief_smooth_iterations": report.get("relief_smooth_iterations"),

@@ -65,6 +65,18 @@ def parse_argv():
              "surface, which reads as dark speckle over a pale coat")
     parser.add_argument("--dilate-passes", type=int, default=4)
     parser.add_argument(
+        "--skip-remesh", action="store_true",
+        help="weld and collapse without remeshing: the previous recipe, kept so "
+             "the same measurement can produce the control this one is judged "
+             "against")
+    parser.add_argument(
+        "--front-yaw-deg", type=float, default=None,
+        help="the reviewed forward direction of this mesh, in the world xy "
+             "plane. Without it the survival census is blind to which end of "
+             "the animal is the head, and a starved head reads the same as a "
+             "starved tail - 0.51 on a mesh whose face collapsed, 0.507 on one "
+             "that only thinned its tail")
+    parser.add_argument(
         "--relief-ratio-limit", type=float, default=6.0,
         help="remeshed faces over target faces above which the surface carries "
              "more micro-relief than the target budget can hold; the excess "
@@ -111,20 +123,88 @@ def welded_topology(mesh, weld):
     return stat
 
 
-def octant_census(mesh, centre):
-    """Face counts per bounding-box octant.
+def main_island_coords(mesh, weld):
+    """Vertex positions belonging to the source's largest connected component.
 
-    A reduction that treats the animal evenly loses about the same share
-    everywhere.  When one octant falls well below the rest, that part of the
-    body paid for the others - this is the check that catches a lost head
-    without waiting for a render.
+    A reconstruction ships with detached debris - the Jack Russell has 74
+    islands holding 1.3 percent of its vertices.  The remesh drops that debris,
+    which is correct, but a fidelity percentile computed over every original
+    vertex reads the dropped debris as surface error and crosses into it exactly
+    when the debris share exceeds one percent.  Measuring the body against the
+    body keeps the number about the surface.
     """
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=weld)
+    seen = set()
+    islands = []
+    for vert in bm.verts:
+        if vert in seen:
+            continue
+        stack = [vert]
+        seen.add(vert)
+        group = []
+        while stack:
+            current = stack.pop()
+            group.append(current)
+            for edge in current.link_edges:
+                other = edge.other_vert(current)
+                if other not in seen:
+                    seen.add(other)
+                    stack.append(other)
+        islands.append(group)
+    islands.sort(key=len, reverse=True)
+    total = sum(len(group) for group in islands)
+    coords = [vert.co.copy() for vert in islands[0]] if islands else []
+    debris = 1.0 - (len(coords) / max(1, total))
+    bm.free()
+    return coords, round(debris, 5)
+
+
+def octant_census(mesh, centre):
+    """Face counts per bounding-box octant, as an axis-free fallback."""
     counts = {}
     for poly in mesh.polygons:
         mid = poly.center
         key = "".join("+" if mid[i] >= centre[i] else "-" for i in range(3))
         counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+def band_census(mesh, forward, low, high):
+    """Face counts in the front, middle and rear thirds along the body axis.
+
+    A reduction that treats the animal evenly loses about the same share
+    everywhere.  Which end lost it is the whole question: a head reduced to flat
+    facets is a ruined asset, a tail carrying fewer triangles is not.  Splitting
+    along the reviewed forward direction is what tells those apart, and an
+    axis-free census cannot.
+    """
+    span_low = min(forward.dot(low), forward.dot(high))
+    span_high = max(forward.dot(low), forward.dot(high))
+    for corner in ((low.x, high.y, low.z), (low.x, low.y, high.z),
+                   (high.x, low.y, low.z), (high.x, high.y, low.z),
+                   (high.x, low.y, high.z), (low.x, high.y, high.z)):
+        value = forward.dot(Vector(corner))
+        span_low = min(span_low, value)
+        span_high = max(span_high, value)
+    extent = max(1e-9, span_high - span_low)
+    counts = {"front": 0, "middle": 0, "rear": 0}
+    for poly in mesh.polygons:
+        position = (forward.dot(poly.center) - span_low) / extent
+        if position >= 2.0 / 3.0:
+            counts["front"] += 1
+        elif position >= 1.0 / 3.0:
+            counts["middle"] += 1
+        else:
+            counts["rear"] += 1
+    return counts
+
+
+def survival(before, after):
+    overall = sum(after.values()) / max(1, sum(before.values()))
+    return {key: round((after.get(key, 0) / value) / max(1e-9, overall), 3)
+            for key, value in sorted(before.items())}
 
 
 def load_single_mesh(path):
@@ -220,7 +300,7 @@ def main():
     diagonal = (high - low).length
     centre = (low + high) / 2.0
     weld = diagonal * 1e-4
-    coords = [vert.co.copy() for vert in source.data.vertices]
+    coords, debris_share = main_island_coords(source.data, weld)
 
     report = {
         "schema": SCHEMA,
@@ -231,9 +311,15 @@ def main():
         "voxel_size": round(diagonal / args.voxel_divisor, 6),
         "bake_ray_fraction": args.bake_ray_fraction,
         "stages": {"source": welded_topology(source.data, weld)},
+        "source_debris_share": debris_share,
         "formal_dataset_registration_authorized": False,
     }
     octants_before = octant_census(source.data, centre)
+    forward = None
+    if args.front_yaw_deg is not None:
+        yaw = math.radians(args.front_yaw_deg)
+        forward = Vector((math.cos(yaw), math.sin(yaw), 0.0))
+        bands_before = band_census(source.data, forward, low, high)
 
     bpy.context.view_layer.objects.active = source
     bpy.ops.object.select_all(action="DESELECT")
@@ -248,11 +334,14 @@ def main():
     bpy.ops.mesh.delete_loose(use_verts=True, use_edges=True, use_faces=False)
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    modifier = target.modifiers.new("remesh", "REMESH")
-    modifier.mode = "VOXEL"
-    modifier.voxel_size = diagonal / args.voxel_divisor
-    modifier.adaptivity = 0.0
-    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    if args.skip_remesh:
+        report["remeshed_skipped"] = True
+    else:
+        modifier = target.modifiers.new("remesh", "REMESH")
+        modifier.mode = "VOXEL"
+        modifier.voxel_size = diagonal / args.voxel_divisor
+        modifier.adaptivity = 0.0
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
     report["stages"]["remeshed"] = welded_topology(target.data, weld)
 
     # A reconstruction whose surface carries fur-scale relief remeshes into far
@@ -290,17 +379,23 @@ def main():
             break
     report["stages"]["decimated"] = welded_topology(target.data, weld)
 
-    octants_after = octant_census(target.data, centre)
-    overall = sum(octants_after.values()) / max(1, sum(octants_before.values()))
-    survival = {
-        key: round((octants_after.get(key, 0) / value) / max(1e-9, overall), 3)
-        for key, value in sorted(octants_before.items())
-    }
-    report["octant_survival"] = survival
+    octant_survival = survival(octants_before, octant_census(target.data, centre))
+    report["octant_survival"] = octant_survival
     report["octant_survival_note"] = (
-        "1.0 means the octant lost the same share as the mesh overall")
-    report["octant_survival_span"] = [min(survival.values()), max(survival.values())]
+        "1.0 means the octant lost the same share as the mesh overall; blind to "
+        "which end of the animal it is, so it informs rather than decides")
+    report["octant_survival_span"] = [min(octant_survival.values()),
+                                      max(octant_survival.values())]
+    if forward is not None:
+        report["band_survival"] = survival(
+            bands_before, band_census(target.data, forward, low, high))
+        report["band_survival_note"] = (
+            "thirds along the reviewed forward direction; the front third holds "
+            "the head, and it is the one that must not starve")
     report["fidelity_over_diagonal"] = deviation_from(coords, target, diagonal)
+    report["fidelity_note"] = (
+        "sampled from the source's largest island only; detached debris the "
+        "remesh drops is reported as source_debris_share instead")
 
     target.data.materials.clear()
     material = bpy.data.materials.new("retopologized_albedo")

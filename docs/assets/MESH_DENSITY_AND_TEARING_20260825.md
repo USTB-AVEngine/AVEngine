@@ -36,26 +36,34 @@ whether to fix the generator or the pipeline.
 
 A collapse decimator cannot touch a non-manifold edge. With seven thousand of
 them the whole budget is spent on the regions that *are* collapsible, which are
-the clean detail-dense ones. Counting faces per bounding-box octant before and
-after, normalised so 1.0 means "lost the same share as the mesh overall", shows
-exactly which end of the animal paid:
+the clean detail-dense ones. Counting faces in thirds along the reviewed forward
+direction, normalised so 1.0 means "lost the same share as the mesh overall",
+shows exactly which end of the animal paid:
 
-| preparation, standard Burmese to 50k | faces reached | boundary | non-manifold | head-end survival | tail-end survival | fidelity p99 |
-| --- | --- | --- | --- | --- | --- | --- |
-| weld, then collapse | 111,937 | 2,132 | 7,082 | 0.51 | 1.64 | 0.0058 |
-| weld, delete interior flaps, collapse | 99,609 | 15 | 4,534 | 0.46 | 1.71 | 0.0071 |
-| weld, collapse with a curvature vertex group | 114,507 | 2,198 | 7,082 | 0.52 | 1.63 | 0.0058 |
-| voxel remesh at diagonal/400, collapse | 50,000 | 0 | 0 | 1.34 | 0.68 | 0.0217 |
-| **voxel remesh at diagonal/800, collapse** | **80,000** | **0** | **2** | **1.38** | **0.79** | **0.0017** |
+| preparation, standard Burmese | faces reached | boundary | non-manifold | head third | rear third |
+| --- | --- | --- | --- | --- | --- |
+| weld, then collapse | 116,478 | 2,275 | 7,102 | **0.53** | 1.36 |
+| weld, delete interior flaps, collapse | 99,609 | 15 | 4,534 | 0.46* | 1.71* |
+| weld, collapse with a curvature vertex group | 114,507 | 2,198 | 7,082 | 0.52* | 1.63* |
+| **voxel remesh at diagonal/800, collapse** | **79,925** | **1** | **6** | **1.18** | **0.81** |
 
-Fidelity is the distance from the original vertices to the reduced surface, as a
-fraction of the bounding diagonal.
+Rows marked * were measured before the census learned the forward direction, so
+their figures are the worst and best octant rather than the head and rear thirds;
+the ordering they establish holds either way.
 
 Two things this settles. Deleting interior flaps helps the surface (2,247
 boundary edges down to 15, so the real holes close) but not the reduction: the
 head still starves and the target is still unreachable. And curvature-weighted
 collapse does nothing at all here (0.52 against 0.51) — the blocker is topology,
 not detail, so protecting detail protects nothing.
+
+The census has to know which end is the head, and this is not a refinement. An
+axis-blind version scored 0.51 on the mesh whose face collapsed into flat facets
+and 0.507 on a Jack Russell that had merely thinned its tail — the same number
+for a ruined asset and a fine one. Split along the reviewed forward direction,
+the ruined mesh reads 0.53 at the head where the three good ones read 1.18, 1.23
+and 1.39, and the threshold has somewhere to sit. The tool takes
+`--front-yaw-deg`, which the chain already carries for the heading step.
 
 ## What generalizes: remesh first, then reduce
 
@@ -85,14 +93,27 @@ off a freshly imported file measures the file format instead of the surface.
 
 `tools/assets/gate_retopology.py` reads that report and decides, so a mesh that
 lost its head is rejected before it consumes a rigging slot rather than after.
-It checks octant survival inside 0.7-1.5, fidelity p99 under 0.0025, boundary
-edges in single figures, and the face target actually reached. The boundary
+It gates on head-third survival at 0.7, on boundary and non-manifold edges in
+single figures, and on the face target actually being reached. The boundary
 allowance is not zero because welding the measurement copy leaves the occasional
 stray edge; a genuine hole arrives in the hundreds.
 
+Fidelity is reported and gated only against catastrophe, because it turned out
+not to carry an accept decision: among three assets that all look right it spans
+0.0019 to 0.0108. Two things were wrong with it before that was clear. It
+sampled every source vertex including detached debris the remesh correctly drops,
+so it read 0.0119 on a Jack Russell whose debris share is 1.31 percent and 0.0017
+on a Burmese whose share is 0.92 percent — the percentile crossed into the debris
+exactly when the debris passed one percent. Sampling the source's largest island
+only fixes the measurement, and it still spans fivefold, which is what demoted
+it.
+
 `tools/assets/run_generated_animal_chain.sh` is the whole chain with that gate in
 place: prepare, gate, rig, orient, level, transfer the donor walk, measure and
-render. It refuses to write into an existing workdir.
+render. It refuses to write into an existing workdir, and it sweeps the remesh
+resolution rather than fixing one, because diagonal/800 was settled on a single
+cat and one asset is not a population. The constant in this pipeline is the gate,
+not the resolution.
 
 ## Measured across four breeds
 
@@ -128,9 +149,7 @@ Jack Russell and Siamese were already reducible, and pushing them from 25k to
 
 So the budget is a judgement, not a constant: 80k buys detail the reviewer can
 see and costs tearing the reviewer can also see. On a mesh whose topology is
-already clean, prefer the lower end. The gate agrees: the Siamese is the one of
-the four it rejects at 80k, and that rejection is correct rather than a
-threshold to loosen.
+already clean, prefer the lower end.
 
 Note which animal is which in the table above. The Siamese has the *second
 cleanest* topology of the four (1,986 non-manifold edges) and the worst tearing

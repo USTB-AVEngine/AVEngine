@@ -19,12 +19,19 @@
 #     --raw /path/raw.glb --workdir /path/out --front-yaw-deg -179.706 \
 #     --donor-rig /path/donor_walk_idle.glb --spear-root /path/SPEAR \
 #     --rigger-root /path/SkinTokens [--gpu 0] [--port-base 59875] \
-#     [--target-faces 80000] [--voxel-divisor 800] [--relief-smooth -1]
+#     [--target-faces 80000] [--voxel-divisors 800,700,600,500] [--relief-smooth -1]
+#
+# The remesh resolution is swept rather than fixed. A finer grid resolves more
+# of the surface, which is what a dense cat wants, and it also resolves the gap
+# between a thin-legged dog's limbs into separate thin walls that then collapse
+# badly - measured, the same divisor that gives a Burmese p99 0.0017 gives a
+# Jack Russell 0.0119. So the constant in this pipeline is the gate, not the
+# resolution: try resolutions until one passes.
 
 set -euo pipefail
 
 RAW="" WORKDIR="" YAW="" DONOR="" SPEAR_ROOT="" RIGGER_ROOT=""
-GPU=0 PORT_BASE=59875 TARGET_FACES=80000 VOXEL_DIVISOR=800 RELIEF_SMOOTH=-1
+GPU=0 PORT_BASE=59875 TARGET_FACES=80000 VOXEL_DIVISORS="800,700,600,500" RELIEF_SMOOTH=-1
 BLENDER="${BLENDER:-blender}"
 
 while [ $# -gt 0 ]; do
@@ -38,7 +45,7 @@ while [ $# -gt 0 ]; do
     --gpu) GPU="$2"; shift 2 ;;
     --port-base) PORT_BASE="$2"; shift 2 ;;
     --target-faces) TARGET_FACES="$2"; shift 2 ;;
-    --voxel-divisor) VOXEL_DIVISOR="$2"; shift 2 ;;
+    --voxel-divisors) VOXEL_DIVISORS="$2"; shift 2 ;;
     --relief-smooth) RELIEF_SMOOTH="$2"; shift 2 ;;
     --blender) BLENDER="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
@@ -66,22 +73,46 @@ export PYTHONUNBUFFERED=1
 
 step() { echo "=== [$(date +%H:%M:%S)] $* ==="; }
 
-step "1/6 retopologize to $TARGET_FACES faces at diagonal/$VOXEL_DIVISOR"
-"$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/retopologize_for_rigging.py" -- \
-  --input "$RAW" --output "$WORKDIR/prepared.glb" --report "$WORKDIR/prepared.json" \
-  --target-faces "$TARGET_FACES" --voxel-divisor "$VOXEL_DIVISOR" \
-  --relief-smooth-iterations "$RELIEF_SMOOTH" 2>&1 | grep -E "^RETOPOLOGY_OK"
+step "1/6 retopologize to $TARGET_FACES faces, sweeping resolutions $VOXEL_DIVISORS"
+ACCEPTED_DIVISOR=""
+IFS=',' read -r -a DIVISORS <<< "$VOXEL_DIVISORS"
+for divisor in "${DIVISORS[@]}"; do
+  attempt="$WORKDIR/prepare_d${divisor}"
+  echo "--- diagonal/${divisor}"
+  "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/retopologize_for_rigging.py" -- \
+    --input "$RAW" --output "${attempt}.glb" --report "${attempt}.json" \
+    --target-faces "$TARGET_FACES" --voxel-divisor "$divisor" \
+    --relief-smooth-iterations "$RELIEF_SMOOTH" 2>&1 | grep -E "^RETOPOLOGY_OK" > /dev/null
+  if python3 "$AVENGINE_ROOT/tools/assets/gate_retopology.py" "${attempt}.json"; then
+    cp "${attempt}.glb" "$WORKDIR/prepared.glb"
+    cp "${attempt}.json" "$WORKDIR/prepared.json"
+    ACCEPTED_DIVISOR="$divisor"
+    break
+  fi
+done
 
-step "2/6 gate the preparation before spending a rigging slot"
-python3 "$AVENGINE_ROOT/tools/assets/gate_retopology.py" "$WORKDIR/prepared.json"
+step "2/6 confirm a resolution was accepted"
+if [ -z "$ACCEPTED_DIVISOR" ]; then
+  echo "no resolution in $VOXEL_DIVISORS passed the gate; the rejections above" >&2
+  echo "say which reading failed. Reducing --target-faces is usually the fix." >&2
+  exit 66
+fi
+echo "accepted diagonal/$ACCEPTED_DIVISOR"
 
 step "3/6 rig"
 mkdir -p "$WORKDIR/rig_patch"
 # The rigger binds its tornado helper on every interface, so two runs on one
 # host collide on the port rather than queueing. Each run gets its own copy of
 # the source tree with its own ports.
+# Two patches the vendored rigger needs, applied per run rather than in place.
+# The wait is 30 seconds against a mesh that takes minutes, and the helper asks
+# bottle for 0.0.0.0 on a dual-stack host, where tornado binds :: first and then
+# fails on 0.0.0.0 inside the server thread - it prints "Listening" and serves
+# nothing.
 sed "s/def wait_for_bpy_server(timeout=30)/def wait_for_bpy_server(timeout=1200)/" \
   "$RIGGER_ROOT/demo.py" > "$WORKDIR/rig_patch/demo_longwait.py"
+cp "$AVENGINE_ROOT/tools/assets/rigger_loopback_bpy_server.py" \
+  "$WORKDIR/rig_patch/bpy_server.py"
 for shared in experiments assets configs models; do
   ln -sfn "$RIGGER_ROOT/$shared" "$WORKDIR/rig_patch/$shared"
 done
