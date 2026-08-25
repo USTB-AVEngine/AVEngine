@@ -1,32 +1,40 @@
 #!/usr/bin/env python3
-"""Publish accepted generated animals into a tree a program can consume.
+"""Publish accepted generated animals into the shared sound-source asset tree.
 
-Layout mirrors the lineage the assets actually have, coarse to fine:
-
-    <root>/index.json                        the only file a consumer must read
-    <root>/<body_plan_id>/                   which animations can bind at all
-              <breed>/                       the source asset the breed came from
-                  <size>_<coat_value>/       one realized attribute combination
-                      asset.json             the same record, kept beside the mesh
+    <root>/index.json                      the only file a consumer must read
+    <root>/<category>/                     what kind of thing this is
+              <type>/                      the breed, model or product
+                  <variant>/               one realized attribute combination
+                      asset.json           the same record, kept beside the mesh
                       animated.glb
                       prepared.glb
-                      walk/  turntable/      review renders
-                      evidence/              gate reports and stage manifests
+                      walk/  turntable/    review renders
+                      evidence/            gate reports and stage manifests
 
-The top level is the body plan rather than the species because it records which
-donor gait was retargeted into the asset, which is the thing a consumer must not
-get wrong. It is not a structural claim: the felid and canid donors are the same
-rig - 34 bones, identical names, identical hierarchy depth, identical 41-frame
-action range - differing only in their rotation curves. Nothing in the engine
-branches on which body plan an asset has either; the id is checked for equality
-against the template and the actor, and that is all. So a cat asset can be
-re-animated with the canid gait and the reverse, and the folder says which one it
-currently carries rather than which one it could accept.
+The tree holds every kind of sound source, not only animals: humans, the
+universal speaker, the static appliances, the building fixtures. So the top level
+is the category an engine asks for first - cat, dog, human, speaker, appliance -
+and everything about how the asset is driven is a field inside its record, read
+after the category has already narrowed the choice.
 
-Species and breed are in the index and in every asset record, so nothing is lost
-by not foldering on them. The leaf is size and coat value only: body build and
-life stage were dropped as instance axes by owner decision, being visually
-indistinguishable.
+An earlier version of this layout put the body plan on top. That was wrong twice
+over. It cannot hold a speaker or a human at all, and between the two animal body
+plans it does not even distinguish anything: the felid and canid donors are the
+same rig, 34 bones with identical names, hierarchy depth and action range,
+differing only in their rotation curves, and nothing in the engine branches on
+the id - it is checked for equality between template and actor and never read
+otherwise. body_plan_id and motion_family_id stay in every record, which is where
+a caller wants them, and an asset under one can be re-animated from another's
+donor without rig work.
+
+The variant is size and coat value for animals; body build and life stage were
+dropped as instance axes by owner decision, being visually indistinguishable.
+
+Several publishers write into one tree - this one handles generated animals, and
+humans and static sources need their own - so the root may already exist and the
+index is merged rather than rewritten. A leaf that already exists is still an
+error: republishing a combination is a new version, not a silent replacement for
+a reviewed asset.
 
 index.json carries the gate criterion and its calibration alongside the assets,
 so a consumer reading one file knows both what it has and on what basis it was
@@ -45,7 +53,7 @@ needs a new version, not a silent replacement for a reviewed one.
 Example::
 
   python tools/assets/publish_animal_assets.py \\
-    --root /data/avengine_external/assets/generated_animals_v1 \\
+    --root /data/avengine_external/assets/sound_source_assets_v1 \\
     --asset LADDER_WORKDIR=GENERATION_MANIFEST_JSON
 """
 
@@ -58,8 +66,9 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA = "avengine_generated_animal_asset_index_v1"
-ASSET_SCHEMA = "avengine_generated_animal_asset_v1"
+SCHEMA = "avengine_sound_source_asset_index_v1"
+ASSET_SCHEMA = "avengine_sound_source_asset_v1"
+PIPELINE = "generated_animal_ladder_v1"
 EVIDENCE = (
     "prepared.json", "walk_deformation.json", "ladder.json", "heading.json",
     "level.json", "retarget.json", "heading_probe.png",
@@ -103,11 +112,14 @@ def main():
                         metavar="LADDER_WORKDIR=GENERATION_MANIFEST_JSON")
     parser.add_argument("--admission-state", default="research")
     parser.add_argument("--revision", default="v1")
+    parser.add_argument(
+        "--category", default=None,
+        help="top-level category; defaults to the species, which is what an "
+             "engine asks for first")
     args = parser.parse_args()
 
     root = Path(args.root)
-    if root.exists():
-        raise SystemExit(f"root exists, refusing to overwrite: {root}")
+    root.mkdir(parents=True, exist_ok=True)
 
     records = []
     for spec in args.asset:
@@ -125,9 +137,10 @@ def main():
         walk = json.loads((src / "walk_deformation.json").read_text(encoding="utf-8"))
         prepared = json.loads((src / "prepared.json").read_text(encoding="utf-8"))
 
+        category = args.category or identity["species"]
         asset_id = (f"generated_{breed}_{coat_value}_{size}_"
                     f"{args.admission_state}_{args.revision}")
-        relative = Path(body_plan) / breed / f"{size}_{coat_value}"
+        relative = Path(category) / breed / f"{size}_{coat_value}"
         dest = root / relative
         if dest.exists():
             raise SystemExit(f"{relative} already published; bump --revision")
@@ -147,7 +160,9 @@ def main():
             "schema": ASSET_SCHEMA,
             "asset_id": asset_id,
             "path": str(relative),
+            "category": category,
             "entity_class": "articulated_animal",
+            "pipeline": PIPELINE,
             "identity": {
                 "species": identity["species"],
                 "breed": breed,
@@ -190,21 +205,24 @@ def main():
     index = {
         "schema": SCHEMA,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "revision": args.revision,
-        "layout": "<body_plan_id>/<breed>/<size>_<coat_value>",
+        "layout": "<category>/<type>/<variant>",
         "layout_note": (
-            "the top level records which donor gait is baked into the asset, not "
-            "a skeletal difference: the felid and canid donors are the same rig "
-            "down to bone names, hierarchy depth and action length, and differ "
-            "only in their rotation curves. No engine code branches on the body "
-            "plan; it is checked for equality between template and actor. Assets "
-            "under one body plan can therefore be re-animated from another's "
-            "donor without rig work"),
-        "instance_axes": ["size", "coat_profile"],
+            "the top level is the category an engine asks for first, so the tree "
+            "holds humans, the universal speaker and the static appliances "
+            "alongside animals. How an asset is driven - body_plan_id, "
+            "motion_family_id - is a field in its record, read after the "
+            "category has narrowed the choice. Those two ids do not partition "
+            "anything structural among the animals here: the felid and canid "
+            "donors are the same rig down to bone names, hierarchy depth and "
+            "action length, so an asset under one can be re-animated from the "
+            "other's donor without rig work"),
+        "instance_axes": {
+            "articulated_animal": ["size", "coat_profile"],
+        },
         "instance_axes_note": (
-            "body_build and life_stage were dropped as axes by owner decision, "
-            "being visually indistinguishable in a rendered frame"),
-        "acceptance_gate": {
+            "body_build and life_stage were dropped as animal axes by owner "
+            "decision, being visually indistinguishable in a rendered frame"),
+        "acceptance_gates": {PIPELINE: {
             "pre_rig": {
                 "tool": "tools/assets/gate_retopology.py",
                 "criteria": ["head-third survival >= 0.7", "face target reached"],
@@ -223,11 +241,26 @@ def main():
                                    "about 17 percent of the threshold is inside "
                                    "the noise"),
             },
-        },
+        }},
         "formal_dataset_registration_authorized": False,
         "assets": records,
     }
-    (root / "index.json").write_text(
+
+    index_path = root / "index.json"
+    if index_path.is_file():
+        existing = json.loads(index_path.read_text(encoding="utf-8"))
+        known = {entry["asset_id"] for entry in index["assets"]}
+        index["assets"] = sorted(
+            index["assets"] + [entry for entry in existing.get("assets", [])
+                               if entry["asset_id"] not in known],
+            key=lambda entry: entry["asset_id"])
+        merged_gates = dict(existing.get("acceptance_gates") or {})
+        merged_gates.update(index["acceptance_gates"])
+        index["acceptance_gates"] = merged_gates
+        merged_axes = dict(existing.get("instance_axes") or {})
+        merged_axes.update(index["instance_axes"])
+        index["instance_axes"] = merged_axes
+    index_path.write_text(
         json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
     print("PUBLISHED " + json.dumps(
         {"root": str(root), "assets": [r["asset_id"] for r in records]},
