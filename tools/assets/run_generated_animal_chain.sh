@@ -34,12 +34,12 @@
 #     --donor-rig /path/donor_walk_idle.glb --spear-root /path/SPEAR \
 #     --rigger-root /path/SkinTokens [--gpu 0] [--port-base 59875] \
 #     [--ladder plain:25000:0,plain:80000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800]
-#     [--pick first|best]
+#     [--pick first|best] [--retry-band 0.8] [--rig-retries 1]
 
 set -uo pipefail
 
 RAW="" WORKDIR="" YAW="" DONOR="" SPEAR_ROOT="" RIGGER_ROOT=""
-GPU=0 PORT_BASE=59875 RELIEF_SMOOTH=-1
+GPU=0 PORT_BASE=59875 RELIEF_SMOOTH=-1 RETRY_BAND=0.8 RIG_RETRIES=1
 LADDER="plain:25000:0,plain:80000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800"
 PICK=first
 BLENDER="${BLENDER:-blender}"
@@ -56,6 +56,8 @@ while [ $# -gt 0 ]; do
     --port-base) PORT_BASE="$2"; shift 2 ;;
     --ladder) LADDER="$2"; shift 2 ;;
     --pick) PICK="$2"; shift 2 ;;
+    --retry-band) RETRY_BAND="$2"; shift 2 ;;
+    --rig-retries) RIG_RETRIES="$2"; shift 2 ;;
     --relief-smooth) RELIEF_SMOOTH="$2"; shift 2 ;;
     --blender) BLENDER="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
@@ -181,6 +183,36 @@ for rung in "${RUNGS[@]}"; do
 
   shards=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['worst_share_area_shards'])" \
            "$dir/walk_deformation.json")
+  # The rigger is stochastic: the same rung of the same ladder has measured 0.0187
+  # to 0.0263 across six attempts. A reading that only just cleared the threshold
+  # cleared it on the draw, so re-rig that one and keep the better result. Rungs
+  # with real margin never enter this branch, which is why retries are not paid
+  # for on every asset.
+  marginal=$(python3 -c "print(1 if float('$shards') > $RETRY_BAND * 0.025 else 0)")
+  if [ "$marginal" = "1" ] && [ "$RIG_RETRIES" -gt 0 ]; then
+    echo "--- $shards is inside the noise band, re-rigging up to $RIG_RETRIES time(s)"
+    for attempt in $(seq 1 "$RIG_RETRIES"); do
+      retry="$dir/retry$attempt"
+      mkdir -p "$retry"
+      cp "$dir/prepared.glb" "$retry/prepared.glb"
+      cp "$dir/prepared.json" "$retry/prepared.json"
+      rig_and_animate "$retry" > /dev/null 2>&1 || continue
+      again=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['worst_share_area_shards'])" \
+              "$retry/walk_deformation.json")
+      echo "--- retry $attempt: $again"
+      if [ "$(python3 -c "print(1 if float('$again') < float('$shards') else 0)")" = "1" ]; then
+        shards="$again"
+        for name in animated.glb walk_deformation.json heading.json level.json \
+                    retarget.json heading_probe.png; do
+          [ -f "$retry/$name" ] && cp "$retry/$name" "$dir/$name"
+        done
+      fi
+    done
+    if ! python3 "$AVENGINE_ROOT/tools/assets/gate_rigged_asset.py" \
+         "$dir/walk_deformation.json" > /dev/null; then
+      continue
+    fi
+  fi
   if [ -z "$ACCEPTED" ] || \
      [ "$(python3 -c "print(1 if float('$shards') < float('$BEST_SHARDS') else 0)")" = "1" ]; then
     ACCEPTED="$rung"
