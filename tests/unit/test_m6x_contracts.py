@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from avengine.contracts.json_io import load_json
-from avengine.m6.audio_program import bind_audio_program_hash
+from avengine.timeline.audio_program import bind_audio_program_hash
 from avengine.m6x.contracts import (
     SCENARIO_CONTRACT,
     validate_anchor_library,

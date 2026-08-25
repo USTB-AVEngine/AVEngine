@@ -36,12 +36,12 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
-from avengine.m5.audio import (
+from avengine.timeline.audio import (
     M5_AUDIO_SAMPLE_COUNT,
     M5_AUDIO_SAMPLE_RATE_HZ,
     raised_cosine_partition,
 )
-from avengine.m6.audio_render import (
+from avengine.timeline.audio_render import (
     assemble_audio_program_dry_buses,
     assemble_semantic_audio_program_dry_buses,
 )

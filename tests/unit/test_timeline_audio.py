@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from avengine.spatial_audio.audio import AudioContractError
-from avengine.m5.audio import (
+from avengine.timeline.audio import (
     extract_faded_clip,
     place_simultaneous_events,
     raised_cosine_partition,

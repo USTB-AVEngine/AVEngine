@@ -32,8 +32,8 @@ from avengine.acoustics.runtime import (
 )
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.spatial_audio.runtime import M4SimulationConfig
-from avengine.m5.acoustics import DynamicRIRSequence
-from avengine.m5.timeline import json_schema_errors as m5_json_schema_errors
+from avengine.timeline.acoustics import DynamicRIRSequence
+from avengine.timeline.timeline import json_schema_errors as m5_json_schema_errors
 from avengine.m5_1.acoustics import (
     ResearchReviewKeyframeGrid,
     build_strided_review_keyframes,
@@ -46,11 +46,11 @@ from avengine.m5_1.review import (
     SourceOverlayTrack,
     encode_annotated_review,
 )
-from avengine.m6.audio_program import (
+from avengine.timeline.audio_program import (
     compile_audio_program,
     validate_audio_program,
 )
-from avengine.m6.audio_render import assemble_audio_program_dry_buses
+from avengine.timeline.audio_render import assemble_audio_program_dry_buses
 from avengine.m6.flags import evaluate_legacy_flags
 from avengine.m6.entities import validate_entity_asset_registry
 from avengine.m6.sources import (

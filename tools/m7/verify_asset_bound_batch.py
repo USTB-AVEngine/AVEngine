@@ -26,7 +26,7 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.spatial_audio.audio import read_float32_wav
-from avengine.m6.audio_program import (
+from avengine.timeline.audio_program import (
     AudioProgramError,
     materialize_audio_program_variant,
     validate_audio_program,

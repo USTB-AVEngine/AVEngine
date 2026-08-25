@@ -10,14 +10,14 @@ import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file, write_json
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
-from avengine.m5.audio import (
+from avengine.timeline.audio import (
     M5_AUDIO_SAMPLE_RATE_HZ,
     extract_faded_clip,
     place_simultaneous_events,
     read_pcm16_mono_wav,
     render_dynamic_stems_and_mix,
 )
-import avengine.m5.canary as canary
+import avengine.timeline.canary as canary
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 

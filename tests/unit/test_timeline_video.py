@@ -8,9 +8,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-import avengine.m5.video as video
+import avengine.timeline.video as video
 from avengine.spatial_audio.audio import write_float32_wav
-from avengine.m5.video import (
+from avengine.timeline.video import (
     AUDIO_SAMPLE_COUNT,
     FRAME_COUNT,
     M5VideoError,

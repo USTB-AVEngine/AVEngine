@@ -64,7 +64,7 @@ from avengine.assets.local_tr_review import (
     _runtime_snapshot as human_runtime_snapshot,
     mixed_joint_readback_errors,
 )
-from avengine.m5.visual import (
+from avengine.timeline.visual import (
     _instantiate_actor_with_semantic_template,
     _link_id_by_name,
     _node_world_position,

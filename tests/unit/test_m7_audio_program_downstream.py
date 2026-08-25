@@ -13,7 +13,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m6.audio_program import (
+from avengine.timeline.audio_program import (
     bind_audio_program_hash,
     materialize_audio_program_variant,
 )

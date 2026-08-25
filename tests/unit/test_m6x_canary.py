@@ -8,12 +8,12 @@ import pytest
 import avengine.m6x.canary as canary_module
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.spatial_audio.runtime import M4SimulationConfig
-from avengine.m5.acoustics import DynamicRIRSequence
+from avengine.timeline.acoustics import DynamicRIRSequence
 from avengine.m5_1.acoustics import (
     build_strided_review_keyframes,
     research_review_trajectory_record,
 )
-from avengine.m6.audio_program import materialize_audio_program_variant
+from avengine.timeline.audio_program import materialize_audio_program_variant
 from avengine.m6x.canary import (
     M6XCanaryError,
     _asset_bindings,

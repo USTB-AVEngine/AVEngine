@@ -9,8 +9,8 @@ import pytest
 
 from avengine.contracts.json_io import load_json, sha256_file
 from avengine.spatial_audio.audio import AudioContractError
-from avengine.m6.audio_program import AudioProgramError, bind_audio_program_hash
-from avengine.m6.audio_render import (
+from avengine.timeline.audio_program import AudioProgramError, bind_audio_program_hash
+from avengine.timeline.audio_render import (
     assemble_audio_program_dry_buses,
     assemble_semantic_audio_program_dry_buses,
 )

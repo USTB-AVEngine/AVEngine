@@ -49,7 +49,7 @@ from avengine.assets.timeline import (
     IDLE_TAIL_FRAME_COUNT,
     WALK_FRAME_COUNT,
 )
-from avengine.m5.current_visual import (
+from avengine.timeline.current_visual import (
     CurrentVisualError,
     CURRENT_ACTOR_IDS,
     CURRENT_ACTOR_OFFSETS_M,

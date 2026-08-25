@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from avengine.m5.current_apartment_visual import (
+from avengine.timeline.current_apartment_visual import (
     CurrentApartmentVisualError,
     FRAME_COUNT,
     _finite_waypoints,

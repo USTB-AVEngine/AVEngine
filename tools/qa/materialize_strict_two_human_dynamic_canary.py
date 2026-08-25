@@ -33,8 +33,8 @@ import numpy as np
 from avengine.camera_pose import yaw_rotation_xyzw
 from avengine.contracts.json_io import canonical_json_sha256, write_json
 from avengine.m5_1.source_contracts import sample_boundary
-from avengine.m6.audio_program import bind_audio_program_hash, validate_audio_program
-from avengine.m6.audio_render import (
+from avengine.timeline.audio_program import bind_audio_program_hash, validate_audio_program
+from avengine.timeline.audio_render import (
     assemble_audio_program_dry_buses,
     assemble_semantic_audio_program_dry_buses,
 )

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
-from avengine.m6.audio_program import (
+from avengine.timeline.audio_program import (
     bind_audio_program_hash,
     materialize_audio_program_variant,
 )

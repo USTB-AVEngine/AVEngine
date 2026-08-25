@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 import avengine.cli as cli
-from avengine.m5.current_visual_review import (
+from avengine.timeline.current_visual_review import (
     CurrentVisualReviewError,
     generate_current_visual_review,
 )

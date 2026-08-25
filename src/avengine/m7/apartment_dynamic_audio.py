@@ -16,7 +16,7 @@ from typing import Mapping
 
 import numpy as np
 
-from avengine.m5.current_mp3d_dynamic_audio import (
+from avengine.timeline.current_mp3d_dynamic_audio import (
     CurrentMP3DDynamicAudioError,
     EPISODE_FRAME_COUNT,
 )

@@ -21,7 +21,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from avengine.m6.audio_program import bind_audio_program_hash
+from avengine.timeline.audio_program import bind_audio_program_hash
 from avengine.acoustics.rir_cache import validate_semantic_rir_job_plan
 from avengine.m7.sensor_rig import validate_m7_rir_listener_alignment
 from avengine.sensor_rig_trajectory import (

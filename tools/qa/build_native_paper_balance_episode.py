@@ -30,7 +30,7 @@ from avengine.contracts.json_io import (
     canonical_json_sha256,
     write_json,
 )
-from avengine.m6.audio_program import (
+from avengine.timeline.audio_program import (
     bind_audio_program_hash,
     validate_audio_program,
 )

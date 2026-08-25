@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from avengine.m5.current_mp3d_dynamic_audio import CurrentMP3DDynamicAudioError
+from avengine.timeline.current_mp3d_dynamic_audio import CurrentMP3DDynamicAudioError
 from avengine.m7.apartment_dynamic_audio import derive_slot_bindings
 
 

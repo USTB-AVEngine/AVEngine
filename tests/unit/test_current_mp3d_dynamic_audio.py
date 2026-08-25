@@ -6,12 +6,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from avengine.m5.current_mp3d_dynamic_audio import (
+from avengine.timeline.current_mp3d_dynamic_audio import (
     CurrentMP3DDynamicAudioError,
     listener_pose_from_m1_request,
     load_captured_source_paths,
 )
-from avengine.m6.audio_program import validate_audio_program
+from avengine.timeline.audio_program import validate_audio_program
 from avengine.m6.sources import (
     load_sound_asset_registry,
     load_source_endpoint_registry,

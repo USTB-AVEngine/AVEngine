@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from avengine.contracts.json_io import load_json, sha256_file, write_json
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
-from avengine.m5.audio import M5_AUDIO_SAMPLE_COUNT, render_dynamic_stems_and_mix
+from avengine.timeline.audio import M5_AUDIO_SAMPLE_COUNT, render_dynamic_stems_and_mix
 from avengine.m5_1.mixed_capture import trajectory_world_matrices
 from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
 from avengine.m5_1.review import encode_annotated_review

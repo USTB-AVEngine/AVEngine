@@ -23,7 +23,7 @@ import wave
 import numpy as np
 
 from avengine.spatial_audio.audio import AudioContractError, canonical_source_ids
-from avengine.m5.audio import (
+from avengine.timeline.audio import (
     M5_AUDIO_SAMPLE_COUNT,
     M5_AUDIO_SAMPLE_RATE_HZ,
     DynamicStemResult,

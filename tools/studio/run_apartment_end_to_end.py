@@ -161,7 +161,7 @@ def main() -> int:
         "review_clip",
         [
             python,
-            str(REPOSITORY / "tools/m5/build_current_mp3d_dynamic_review_clip.py"),
+            str(REPOSITORY / "tools/review/build_current_mp3d_dynamic_review_clip.py"),
             "--visual-capture-dir", capture_dir,
             "--mixture-wav", audio_dir / "audio" / "binaural" / "mixture.wav",
             "--channel-order", "bgr",

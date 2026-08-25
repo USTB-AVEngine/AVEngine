@@ -40,7 +40,7 @@ from avengine.acoustics.contracts import (
 )
 from avengine.acoustics.gltf import extract_triangle_scene
 from avengine.acoustics.qa import geometry_report
-from avengine.m5.canary import verify_m5_canary_evidence
+from avengine.timeline.canary import verify_m5_canary_evidence
 from avengine.m6.qualification import (
     build_qualification_report,
     qualify_corrupted_acoustic_fixture,

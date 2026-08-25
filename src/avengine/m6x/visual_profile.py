@@ -20,7 +20,7 @@ import numpy as np
 from PIL import Image
 
 from avengine.contracts.json_io import load_json, sha256_file
-from avengine.m5.video import (
+from avengine.timeline.video import (
     _encode_h264_video_profile,
     _mux_binaural_wav_profile,
 )

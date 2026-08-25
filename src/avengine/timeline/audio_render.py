@@ -22,7 +22,7 @@ from avengine.m5_1.dry_audio import (
     assemble_dry_audio_buses,
     assemble_semantic_dry_audio_buses,
 )
-from avengine.m6.audio_program import (
+from avengine.timeline.audio_program import (
     AudioProgramError,
     CompiledAudioEvent,
     CompiledAudioProgram,

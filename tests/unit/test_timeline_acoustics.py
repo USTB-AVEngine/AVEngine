@@ -13,8 +13,8 @@ from avengine.contracts.json_io import canonical_json_sha256
 from avengine.acoustics.runtime import CompiledAcousticScene
 from avengine.acoustics.runtime import RuntimeContractError
 from avengine.spatial_audio.runtime import M4SimulationConfig
-from avengine.m5 import acoustics
-from avengine.m5.acoustics import (
+from avengine.timeline import acoustics
+from avengine.timeline.acoustics import (
     AcousticKeyframe,
     trajectory_record,
     validate_acoustic_keyframes,

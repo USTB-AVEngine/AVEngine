@@ -16,7 +16,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from jsonschema import Draft202012Validator
 
 from avengine.contracts.json_io import load_json
-from avengine.m6.audio_program import compile_audio_program, validate_audio_program
+from avengine.timeline.audio_program import compile_audio_program, validate_audio_program
 from avengine.m6.rooms import validate_room_registry
 
 

@@ -29,7 +29,7 @@ from avengine.contracts.json_io import (  # noqa: E402
     load_json,
     write_json,
 )
-from avengine.m5.audio import (  # noqa: E402
+from avengine.timeline.audio import (  # noqa: E402
     M5_AUDIO_SAMPLE_COUNT,
     M5_AUDIO_SAMPLE_RATE_HZ,
     raised_cosine_partition,

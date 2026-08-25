@@ -16,7 +16,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
 from avengine.contracts.json_io import write_json  # noqa: E402
-from avengine.m6.audio_program import (  # noqa: E402
+from avengine.timeline.audio_program import (  # noqa: E402
     bind_audio_program_hash,
     validate_audio_program,
 )

@@ -33,7 +33,7 @@ from avengine.m5_1.acoustics import (
     render_research_review_binaural_rir_sequence,
     research_review_trajectory_record,
 )
-from avengine.m6.audio_program import materialize_audio_program_variant
+from avengine.timeline.audio_program import materialize_audio_program_variant
 from avengine.m6x.apartment import listener_orientation_wxyz, qualify_fixed_apartment
 from avengine.m6x.articulated_anchor_profile import (
     AnchorProfileSpec,

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 import avengine.cli as cli
-import avengine.m5.current_visual as current_visual
+import avengine.timeline.current_visual as current_visual
 
 
 def _mp3d_room_inputs(tmp_path: Path) -> SimpleNamespace:

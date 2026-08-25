@@ -13,7 +13,7 @@ from avengine.m7.asset_bound_audio import (
     prepare_dry_audio,
     render_asset_bound_binaural,
 )
-from avengine.m5.audio import raised_cosine_partition
+from avengine.timeline.audio import raised_cosine_partition
 from tools.m7.render_asset_bound_binaural_batch import variant_start_samples
 
 

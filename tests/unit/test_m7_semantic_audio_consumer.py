@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import write_json
-from avengine.m6.audio_program import AudioProgramError, bind_audio_program_hash
+from avengine.timeline.audio_program import AudioProgramError, bind_audio_program_hash
 from avengine.acoustics.semantic_rir_cache import SemanticRIRCacheSession
 from avengine.m7.asset_bound_audio import (
     AssetBoundAudioError,

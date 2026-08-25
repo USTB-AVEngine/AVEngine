@@ -496,7 +496,7 @@ def capture_two_actor_fixed_states(
     mn = installed_runtime.magnum
     quat_to_coeffs = installed_runtime.quat_to_coeffs
     if room_inputs.room.get("room_kind") == "habitat_native":
-        from avengine.m5.current_visual import (
+        from avengine.timeline.current_visual import (
             _make_current_configuration,
             _resolve_external_scene,
         )

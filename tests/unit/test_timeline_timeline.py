@@ -6,7 +6,7 @@ import hashlib
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m5.timeline import (
+from avengine.timeline.timeline import (
     ALLOWED_COUNTERFACTUAL_FIELDS,
     AUDIO_SAMPLE_COUNT,
     DERIVED_COUNTERFACTUAL_FIELDS,

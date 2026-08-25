@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from avengine.m5.visual import _topdown_panels
+from avengine.timeline.visual import _topdown_panels
 
 
 def test_topdown_panel_tracks_both_actors_and_sources() -> None:

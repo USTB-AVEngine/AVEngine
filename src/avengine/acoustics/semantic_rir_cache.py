@@ -23,7 +23,7 @@ from avengine.current_installed_runtime import (
     is_current_installed_runtime_identity,
 )
 from avengine.spatial_audio.runtime import M4SimulationConfig
-from avengine.m5.audio import M5_AUDIO_SAMPLE_RATE_HZ
+from avengine.timeline.audio import M5_AUDIO_SAMPLE_RATE_HZ
 from avengine.acoustics.rir_cache import RIRCacheError, validate_semantic_rir_job_plan
 from avengine.m6x.room_feasibility import SOURCE_SLOTS
 

@@ -42,7 +42,7 @@ from avengine.assets.habitat_capture import (
     load_research_review_inputs,
     load_runtime_asset_bundle,
 )
-from avengine.m5.visual import _instantiate_actor_with_semantic_template
+from avengine.timeline.visual import _instantiate_actor_with_semantic_template
 from avengine.m5_1.mixed_capture import (
     LOCOMOTION_POLICY_ID,
     locomotion_schedule_from_root_trajectory,

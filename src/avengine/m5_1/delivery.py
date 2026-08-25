@@ -12,7 +12,7 @@ import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256, load_json, sha256_file
 from avengine.spatial_audio.audio import AudioContractError
-from avengine.m5.acoustics import DynamicRIRSequence
+from avengine.timeline.acoustics import DynamicRIRSequence
 from avengine.m5_1.acoustics import ResearchReviewKeyframeGrid
 from avengine.m5_1.dry_audio import DryAudioClipSpec
 from avengine.m5_1.review import SourceOverlayTrack

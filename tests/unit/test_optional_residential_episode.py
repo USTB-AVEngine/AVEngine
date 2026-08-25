@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from avengine.m5.timeline import TIMELINE_SCHEMA, json_schema_errors
+from avengine.timeline.timeline import TIMELINE_SCHEMA, json_schema_errors
 from avengine.optional_backends.residential_episode import (
     DOG_SOURCE_ID,
     EPISODE_SCHEMA,

@@ -1,8 +1,8 @@
 """M5 exact-timeline dynamic audiovisual counterfactuals."""
 
-from avengine.m5.audio import M5_AUDIO_SAMPLE_COUNT, M5_AUDIO_SAMPLE_RATE_HZ
-from avengine.m5.canary import run_m5_canary, verify_m5_canary_evidence
-from avengine.m5.timeline import (
+from avengine.timeline.audio import M5_AUDIO_SAMPLE_COUNT, M5_AUDIO_SAMPLE_RATE_HZ
+from avengine.timeline.canary import run_m5_canary, verify_m5_canary_evidence
+from avengine.timeline.timeline import (
     build_counterfactual_pair,
     build_timeline,
     validate_episode_request,

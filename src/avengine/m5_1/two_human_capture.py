@@ -33,7 +33,7 @@ from avengine.assets.habitat_capture import (
     quaternion_xyzw_to_matrix,
 )
 from avengine.assets.local_tr_review import mixed_joint_readback_errors
-from avengine.m5.visual import _link_id_by_name, _node_world_position
+from avengine.timeline.visual import _link_id_by_name, _node_world_position
 from avengine.m5_1.human_runtime import (
     HEAD_LINK_NAME,
     MOUTH_LINK_NAME,

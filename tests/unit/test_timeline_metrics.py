@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from avengine.m5.metrics import (
+from avengine.timeline.metrics import (
     M5MetricsError,
     estimate_itd_gcc_phat,
     listener_local_azimuth_deg,

@@ -86,30 +86,30 @@ from avengine.spatial_audio.contracts import (
     validate_audio_bundle,
 )
 from avengine.spatial_audio.evidence import M4EvidenceError, verify_m4_canary_evidence
-from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
-from avengine.m5.current_visual import CurrentVisualError, capture_current_visual
-from avengine.m5.current_apartment_visual import (
+from avengine.timeline.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
+from avengine.timeline.current_visual import CurrentVisualError, capture_current_visual
+from avengine.timeline.current_apartment_visual import (
     CurrentApartmentVisualError,
     author_current_apartment_visual_timeline,
     capture_current_apartment_visual,
 )
-from avengine.m5.current_mp3d_route import (
+from avengine.timeline.current_mp3d_route import (
     CurrentMP3DRouteError,
     author_current_mp3d_two_beagle_route,
 )
-from avengine.m5.current_m1_research_audio import (
+from avengine.timeline.current_m1_research_audio import (
     CurrentM1ResearchAudioError,
     render_current_m1_research_audio,
 )
-from avengine.m5.current_mp3d_dynamic_audio import (
+from avengine.timeline.current_mp3d_dynamic_audio import (
     CurrentMP3DDynamicAudioError,
     render_current_mp3d_dynamic_audio,
 )
-from avengine.m5.current_visual_review import (
+from avengine.timeline.current_visual_review import (
     CurrentVisualReviewError,
     generate_current_visual_review,
 )
-from avengine.m5.timeline import validate_episode_request
+from avengine.timeline.timeline import validate_episode_request
 from avengine.m6.rooms import load_room_registry
 from avengine.m6.canary import (
     M6CanaryError,

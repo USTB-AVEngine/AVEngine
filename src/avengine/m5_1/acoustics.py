@@ -1,13 +1,13 @@
 """Variable-duration dynamic binaural acoustics for M5.1 research review.
 
-This module is intentionally separate from :mod:`avengine.m5.acoustics`'s
+This module is intentionally separate from :mod:`avengine.timeline.acoustics`'s
 formal 75-keyframe validator.  M5.1 review clips may have any positive visual
 frame count and any explicit positive RIR stride.  They retain the exact
 visual-frame sample indices used to derive the acoustic keyframes, while the
 native render still uses one persistent named-source RLR context.
 
 The renderer is research-review infrastructure, not a dataset qualification
-claim.  It returns M5's existing :class:`~avengine.m5.acoustics.DynamicRIRSequence`
+claim.  It returns M5's existing :class:`~avengine.timeline.acoustics.DynamicRIRSequence`
 so the same deterministic raised-cosine convolution path can be reused without
 loosening the M5 formal contract.
 """
@@ -45,13 +45,13 @@ from avengine.spatial_audio.runtime import (
     canonical_source_order,
     simulation_with_layout,
 )
-from avengine.m5.acoustics import (
+from avengine.timeline.acoustics import (
     AcousticKeyframe,
     DynamicRIRSequence,
     _owned_ir,
     _portable_hrtf_references,
 )
-from avengine.m5.audio import DynamicStemResult, render_dynamic_stems_and_mix
+from avengine.timeline.audio import DynamicStemResult, render_dynamic_stems_and_mix
 
 
 RESEARCH_REVIEW_PROFILE = "m5_1_dynamic_binaural_research_review_v1"

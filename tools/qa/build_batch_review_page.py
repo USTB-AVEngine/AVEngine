@@ -71,7 +71,7 @@ def mux_clip(captures_root: Path, audio_root: Path, pid: str, out_path: Path) ->
         return True
     if not mixture.is_file():
         return False
-    tool = REPOSITORY / "tools/m5/build_current_mp3d_dynamic_review_clip.py"
+    tool = REPOSITORY / "tools/review/build_current_mp3d_dynamic_review_clip.py"
     proc = subprocess.run(
         [sys.executable, str(tool),
          "--visual-capture-dir", str(captures_root / pid),

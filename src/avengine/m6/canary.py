@@ -39,8 +39,8 @@ from avengine.contracts.json_io import (
 )
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.spatial_audio.spatial import rlr_foa_contract
-from avengine.m5.canary import verify_m5_canary_evidence
-from avengine.m5.video import (
+from avengine.timeline.canary import verify_m5_canary_evidence
+from avengine.timeline.video import (
     aac_decode_diagnostics,
     mux_binaural_wav,
     mux_qa_binaural_wav,
@@ -49,7 +49,7 @@ from avengine.m5.video import (
     video_packet_sha256,
 )
 from avengine.m5_1.mp3d_delivery import listener_yaw_degrees
-from avengine.m6.audio_program import compile_audio_program, load_audio_program
+from avengine.timeline.audio_program import compile_audio_program, load_audio_program
 from avengine.m6.entities import (
     load_animal_template_registry,
     load_entity_asset_registry,

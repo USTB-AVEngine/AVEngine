@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from avengine.m5.visual import _instantiate_actor_with_semantic_template
+from avengine.timeline.visual import _instantiate_actor_with_semantic_template
 from avengine.m5_1.mixed_capture import (
     M5_1_ACTOR_SHADER_TYPE,
     M5_1_LIGHT_SETUP_KEY,
@@ -172,7 +172,7 @@ def test_common_m5_actor_helper_preserves_default_instantiation_call(
     simulator = _Simulator()
     binding = object()
     monkeypatch.setattr(
-        "avengine.m5.visual.bind_habitat_link_layout",
+        "avengine.timeline.visual.bind_habitat_link_layout",
         lambda *args, **kwargs: binding,
     )
     bundle = SimpleNamespace(
@@ -198,7 +198,7 @@ def test_common_m5_actor_helper_binds_explicit_light_key_and_pbr(
 ) -> None:
     simulator = _Simulator()
     monkeypatch.setattr(
-        "avengine.m5.visual.bind_habitat_link_layout",
+        "avengine.timeline.visual.bind_habitat_link_layout",
         lambda *args, **kwargs: object(),
     )
     bundle = SimpleNamespace(

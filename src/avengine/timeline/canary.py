@@ -34,13 +34,13 @@ from avengine.acoustics.runtime import (
 )
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.spatial_audio.runtime import M4SimulationConfig
-from avengine.m5.acoustics import (
+from avengine.timeline.acoustics import (
     AcousticKeyframe,
     DynamicRIRSequence,
     render_dynamic_rir_sequence,
     trajectory_record,
 )
-from avengine.m5.audio import (
+from avengine.timeline.audio import (
     M5_AUDIO_SAMPLE_COUNT,
     M5_AUDIO_SAMPLE_RATE_HZ,
     extract_faded_clip,
@@ -48,19 +48,19 @@ from avengine.m5.audio import (
     read_pcm16_mono_wav,
     render_dynamic_stems_and_mix,
 )
-from avengine.m5.metrics import (
+from avengine.timeline.metrics import (
     listener_local_source_geometry,
     measure_binaural_mixture_diagnostic,
     measure_binaural_rir_sequence_cues,
     measure_binaural_wet_stem_cues,
     summarize_lateral_cue_consistency,
 )
-from avengine.m5.timeline import (
+from avengine.timeline.timeline import (
     build_counterfactual_pair,
     compare_counterfactual_pair,
     validate_episode_request,
 )
-from avengine.m5.video import (
+from avengine.timeline.video import (
     aac_decode_diagnostics,
     compose_main_topdown_frames,
     encode_h264_base_video,
@@ -71,7 +71,7 @@ from avengine.m5.video import (
     probe_qa_review_video,
     video_packet_sha256,
 )
-from avengine.m5.visual import TwoActorVisualResult, capture_two_actor_fixed_states
+from avengine.timeline.visual import TwoActorVisualResult, capture_two_actor_fixed_states
 
 
 M5_EVIDENCE_SCHEMA = "avengine_m5_canary_evidence_v1"

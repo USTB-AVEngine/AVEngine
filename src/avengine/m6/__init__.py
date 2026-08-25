@@ -1,6 +1,6 @@
 """M6 extensibility interfaces; not a final dataset or QA contract."""
 
-from avengine.m6.audio_program import (
+from avengine.timeline.audio_program import (
     AudioProgramError,
     CompiledAudioProgram,
     bind_audio_program_hash,
@@ -10,7 +10,7 @@ from avengine.m6.audio_program import (
     materialize_audio_program_variant,
     validate_audio_program,
 )
-from avengine.m6.audio_render import (
+from avengine.timeline.audio_render import (
     AudioProgramDryAssembly,
     assemble_audio_program_dry_buses,
 )

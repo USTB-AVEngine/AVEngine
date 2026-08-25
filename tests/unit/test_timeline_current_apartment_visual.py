@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import avengine.cli as cli
-import avengine.m5.current_apartment_visual as apartment_visual
+import avengine.timeline.current_apartment_visual as apartment_visual
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]

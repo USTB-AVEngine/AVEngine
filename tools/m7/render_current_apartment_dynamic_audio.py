@@ -72,7 +72,7 @@ def main() -> int:
         )
 
     from avengine.contracts.json_io import sha256_file  # noqa: E402
-    from avengine.m5.current_mp3d_dynamic_audio import (  # noqa: E402
+    from avengine.timeline.current_mp3d_dynamic_audio import (  # noqa: E402
         CurrentMP3DDynamicAudioError,
         listener_pose_from_m1_request,
         render_dynamic_research_audio,

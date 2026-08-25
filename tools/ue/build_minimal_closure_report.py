@@ -7,7 +7,7 @@ map + camera blueprint + selected source-asset actors), then map every
 reachable content package to exactly one authorized external input file.
 
 The output matches the report shape consumed by
-``avengine.m5.current_apartment_visual._closure_mappings``: a ``variants``
+``avengine.timeline.current_apartment_visual._closure_mappings``: a ``variants``
 mapping whose complete variant carries ``physical_mappings`` entries with
 ``status == "unique_authorized_external_input"``. The tool is fail-closed: an
 unresolvable or ambiguous package aborts without writing output, and the
