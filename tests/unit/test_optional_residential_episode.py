@@ -162,6 +162,101 @@ def test_polyline_route_accumulates_distance_and_updates_heading() -> None:
     assert len(yaws) >= 3
 
 
+def test_exchange_keeps_identity_and_sub_60cm_as_raw_clues() -> None:
+    profile = _profile()
+    waypoints = [
+        [-0.4, 2.0, 0.0],
+        [-0.4, -1.5, 0.0],
+        [0.4, -1.5, 0.0],
+    ]
+    profile["routes"] = {
+        "dog0": {
+            "route_geometry": "polyline",
+            "waypoints_xyz_m": waypoints,
+        },
+        "human0": {
+            "route_geometry": "polyline",
+            "waypoints_xyz_m": [
+                [point[0], point[1], 0.064] for point in reversed(waypoints)
+            ],
+        },
+    }
+    result = build_residential_source_episode(
+        scene_metadata=_metadata(), profile=profile
+    )
+    clues = result["source_pair_descriptors"]
+    assert clues["endpoint_exchange"]["exact_endpoint_exchange"] is True
+    assert clues["proximity_reference"]["below_reference_frame_indices"]
+    assert clues["identity_continuity"][
+        "endpoint_exchange_does_not_swap_source_or_actor_ids"
+    ] is True
+    assert clues["source1"]["actor_id"] == "human0"
+    assert clues["source2"]["actor_id"] == "dog0"
+
+
+def test_explicit_static_routes_use_hold_and_idle_animation() -> None:
+    profile = _profile()
+    profile["routes"] = {
+        "dog0": {
+            "route_geometry": "hold",
+            "hold_xyz_m": [-0.4, 2.0, 0.0],
+            "heading_yaw_ue_deg": -90.0,
+        },
+        "human0": {
+            "route_geometry": "hold",
+            "hold_xyz_m": [0.4, -1.5, 0.064],
+            "heading_yaw_ue_deg": 90.0,
+        },
+    }
+    result = build_residential_source_episode(
+        scene_metadata=_metadata(), profile=profile
+    )
+    assert result["source_pair_descriptors"]["motion_case"] == "static_static"
+    assert {
+        state["action_id"]
+        for frame in result["timeline"]["frames"]
+        for state in frame["actor_states"]
+    } == {"idle"}
+    assert all(
+        value["route_geometry"] == "hold"
+        for value in result["route_materialization"].values()
+    )
+
+
+def test_hold_route_requires_an_explicit_heading() -> None:
+    profile = _profile()
+    profile["routes"]["dog0"] = {
+        "route_geometry": "hold",
+        "hold_xyz_m": [-0.4, 2.0, 0.0],
+    }
+    with pytest.raises(ResidentialEpisodeError, match="requires heading"):
+        build_residential_source_episode(
+            scene_metadata=_metadata(), profile=profile
+        )
+
+
+def test_motion_profile_uses_74_over_15_replay_span_not_five_seconds() -> None:
+    profile = _profile()
+    profile["routes"]["dog0"] = {
+        "route_geometry": "straight",
+        "start_xyz_m": [-0.4, 2.0, 0.0],
+        "end_xyz_m": [-0.4, -1.9, 0.0],
+        "motion_profile": {
+            "species_id": "dog",
+            "walk_speed_mps_min": 0.60,
+            "walk_speed_mps_max": 0.78,
+            "clip_seconds": 5.0,
+            "movement_span_seconds": 74 / 15,
+        },
+    }
+    # 3.9/5.0 == 0.78 would pass the old check, but the actual frame-0 to
+    # frame-74 replay speed is 3.9/(74/15) > 0.78 and must fail.
+    with pytest.raises(ResidentialEpisodeError, match="outside its motion profile"):
+        build_residential_source_episode(
+            scene_metadata=_metadata(), profile=profile
+        )
+
+
 def test_center_gate_rejects_obstacle_but_ignores_rug_and_chandelier() -> None:
     profile = _profile()
     profile["routes"]["human0"] = {

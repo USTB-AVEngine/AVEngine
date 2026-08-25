@@ -25,6 +25,11 @@ option(
   "Build the optional native RLR acoustic-context adapter regression test"
   OFF
 )
+option(
+  AVENGINE_HABITAT_BUILD_SENSOR_ROUTING_TESTS
+  "Build the native CameraSensor semantic-target routing regression test"
+  OFF
+)
 if(
   AVENGINE_HABITAT_BUILD_RLR_ADAPTER_TESTS
   AND NOT AVENGINE_HABITAT_BUILD_RLR_ADAPTER
@@ -746,6 +751,43 @@ if(AVENGINE_HABITAT_BUILD_PYTHON_BINDINGS)
       DESTINATION "${_avengine_habitat_runtime_prefix}/config"
     )
   endif()
+endif()
+
+
+if(AVENGINE_HABITAT_BUILD_SENSOR_ROUTING_TESTS)
+  find_package(Corrade REQUIRED TestSuite)
+  enable_testing()
+  add_executable(
+    avengine_habitat_camera_sensor_target_routing_test
+    tests/CameraSensorTargetRoutingTest.cpp
+  )
+  set_target_properties(
+    avengine_habitat_camera_sensor_target_routing_test
+    PROPERTIES
+      CXX_STANDARD 17
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+  )
+  target_include_directories(
+    avengine_habitat_camera_sensor_target_routing_test
+    PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}"
+      "${CMAKE_CURRENT_BINARY_DIR}"
+  )
+  target_link_libraries(
+    avengine_habitat_camera_sensor_target_routing_test
+    PRIVATE
+      Corrade::TestSuite
+      Magnum::Magnum
+  )
+  add_dependencies(
+    avengine_habitat_camera_sensor_target_routing_test
+    avengine_habitat_core
+  )
+  add_test(
+    NAME avengine_habitat_camera_sensor_target_routing_test
+    COMMAND avengine_habitat_camera_sensor_target_routing_test
+  )
 endif()
 
 

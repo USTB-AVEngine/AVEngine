@@ -12,6 +12,7 @@ Magnum inputs.  There is no checkout-oriented compatibility branch.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -29,6 +30,7 @@ from avengine.m1.contracts import (
 from avengine.m1.habitat_capture import (
     InstalledHabitatRuntime,
     VISUAL_SENSOR_TYPES,
+    _logical_listener_pose,
     _state_snapshot,
     prepare_installed_habitat_runtime,
 )
@@ -50,14 +52,113 @@ from avengine.m2.habitat_capture import (
 CURRENT_ACTOR_IDS = ("actor0", "actor1")
 CURRENT_SOURCE_IDS = ("source0", "source1")
 CURRENT_SEMANTIC_IDS = (210, 211)
+CURRENT_OBJECT_ID_MODALITY = "object_id"
+CURRENT_OBJECT_ID_SENSOR_UUID = "rig_object_id"
 CURRENT_ACTOR_OFFSETS_M = ((0.0, 0.0, 0.7), (0.25, 0.0, -0.7))
 CURRENT_EMITTER_LINK_NAMES = ("beagle Xtra Mouth", "beagle Xtra Mouth")
+CURRENT_POSE_COMPONENT_ORDER = (
+    "translation_x_m",
+    "translation_y_m",
+    "translation_z_m",
+    "quaternion_x",
+    "quaternion_y",
+    "quaternion_z",
+    "quaternion_w",
+)
 _ROOT_READBACK_ATOL = 2.0e-6
 _JOINT_READBACK_ATOL = 2.0e-6
+_WORLD_TIME_READBACK_ATOL = 1.0e-12
 
 
 class CurrentVisualError(RuntimeError):
     """The current visual-only M5 route cannot safely run."""
+
+
+def _pose_vector(pose: Mapping[str, Any], *, owner: str) -> np.ndarray:
+    """Pack one already-read pose without replacing it with a planned pose."""
+
+    if not isinstance(pose, Mapping):
+        raise CurrentVisualError(f"{owner} must be a pose object")
+    translation = np.asarray(pose.get("translation_m"), dtype=np.float64)
+    quaternion = np.asarray(pose.get("rotation_xyzw"), dtype=np.float64)
+    if translation.shape != (3,) or quaternion.shape != (4,):
+        raise CurrentVisualError(
+            f"{owner} must contain translation[3] and quaternion_xyzw[4]"
+        )
+    value = np.concatenate((translation, quaternion))
+    if not np.all(np.isfinite(value)):
+        raise CurrentVisualError(f"{owner} is not finite")
+    return value
+
+
+def _m1_capture_identity(room_inputs: ValidatedM1Inputs) -> dict[str, Any]:
+    """Snapshot value authority that must survive later M1 path rewrites."""
+
+    request = room_inputs.request
+    source_axis_order = [source["source_id"] for source in request["sources"]]
+    if source_axis_order != list(CURRENT_SOURCE_IDS):
+        raise CurrentVisualError(
+            "current visual source axes differ from the validated M1 request"
+        )
+    return deepcopy(
+        {
+            "request_id": request["request_id"],
+            "room_id": request["room_id"],
+            "primary_camera_rig": request["primary_camera_rig"],
+            "listener": request["listener"],
+            "source_axis_order": source_axis_order,
+            "qa_views": request.get("qa_views", []),
+        }
+    )
+
+
+def _snapshot_world_time(snapshot: Mapping[str, Any], *, owner: str) -> float:
+    if not isinstance(snapshot, Mapping):
+        raise CurrentVisualError(f"{owner} must be a state snapshot")
+    try:
+        value = float(snapshot["world_time_seconds"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise CurrentVisualError(f"{owner} has no numeric world time") from error
+    if not np.isfinite(value):
+        raise CurrentVisualError(f"{owner} world time is not finite")
+    return value
+
+
+def _require_render_snapshot_unchanged(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    *,
+    sensor_order: Sequence[str],
+    frame_index: int,
+) -> tuple[float, float]:
+    """Prove that a visual render did not move the camera rig or its sensors."""
+
+    before_time = _snapshot_world_time(
+        before, owner=f"frame {frame_index} pre-render snapshot"
+    )
+    after_time = _snapshot_world_time(
+        after, owner=f"frame {frame_index} post-render snapshot"
+    )
+    if abs(after_time - before_time) > _WORLD_TIME_READBACK_ATOL:
+        raise CurrentVisualError(
+            f"frame {frame_index} render changed Habitat world time"
+        )
+    if transform_error(before["agent"], after["agent"]) > _ROOT_READBACK_ATOL:
+        raise CurrentVisualError(
+            f"frame {frame_index} render changed actual agent/camera pose"
+        )
+    for sensor_uuid in sensor_order:
+        if (
+            transform_error(
+                before["sensors"][sensor_uuid],
+                after["sensors"][sensor_uuid],
+            )
+            > _ROOT_READBACK_ATOL
+        ):
+            raise CurrentVisualError(
+                f"frame {frame_index} render changed actual sensor {sensor_uuid!r} pose"
+            )
+    return before_time, after_time
 
 
 def _require_explicit_runtime_inputs(
@@ -231,12 +332,17 @@ def _resolve_external_scene(
     return resolved
 
 
-def _semantic_sensor_target() -> Any:
+def _semantic_sensor_target(name: str) -> Any:
     """Import the binding only after the installed-prefix import has succeeded."""
 
     from habitat_sim._ext import habitat_sim_bindings
 
-    return habitat_sim_bindings.SemanticSensorTarget.SEMANTIC_ID
+    try:
+        return getattr(habitat_sim_bindings.SemanticSensorTarget, name)
+    except AttributeError as exc:
+        raise CurrentVisualError(
+            f"installed Habitat runtime lacks SemanticSensorTarget.{name}"
+        ) from exc
 
 
 def _make_current_configuration(
@@ -245,13 +351,18 @@ def _make_current_configuration(
     installed_runtime: InstalledHabitatRuntime,
     scene: Mapping[str, Any],
     include_audio_sensor: bool = False,
+    gpu_device_id: int = 0,
 ) -> tuple[Any, dict[str, str]]:
     """Build only the co-located visual sensors for the installed runtime."""
 
     if include_audio_sensor:
-        raise CurrentVisualError(
-            "current visual capture never enables an audio sensor"
-        )
+        raise CurrentVisualError("current visual capture never enables an audio sensor")
+    if (
+        isinstance(gpu_device_id, bool)
+        or not isinstance(gpu_device_id, int)
+        or gpu_device_id < 0
+    ):
+        raise CurrentVisualError("gpu_device_id must be a nonnegative integer")
     habitat_sim = installed_runtime.habitat_sim
     mn = installed_runtime.magnum
     rig = room_inputs.request["primary_camera_rig"]
@@ -262,7 +373,9 @@ def _make_current_configuration(
         item["modality"]: item["sensor_uuid"] for item in rig["modalities"]
     }
     if list(modality_to_uuid) != list(FORMAL_MODALITIES):
-        raise CurrentVisualError("M1 visual modality order changed from rgb/depth/semantic")
+        raise CurrentVisualError(
+            "M1 visual modality order changed from rgb/depth/semantic"
+        )
 
     sensor_specs: list[Any] = []
     local_position = mn.Vector3(local["translation_m"])
@@ -285,8 +398,29 @@ def _make_current_configuration(
         if modality != "rgb":
             spec.channels = 1
         if modality == "semantic" and hasattr(spec, "semantic_target"):
-            spec.semantic_target = _semantic_sensor_target()
+            spec.semantic_target = _semantic_sensor_target("SEMANTIC_ID")
         sensor_specs.append(spec)
+
+    object_id_spec = habitat_sim.CameraSensorSpec()
+    object_id_spec.uuid = CURRENT_OBJECT_ID_SENSOR_UUID
+    object_id_spec.sensor_type = habitat_sim.SensorType.SEMANTIC
+    object_id_spec.sensor_subtype = habitat_sim.SensorSubType.PINHOLE
+    object_id_spec.resolution = mn.Vector2i([height, width])
+    object_id_spec.position = local_position
+    object_id_spec.orientation = local_orientation
+    object_id_spec.hfov = float(calibration["hfov_degrees"])
+    object_id_spec.near = float(calibration["near_m"])
+    object_id_spec.far = float(calibration["far_m"])
+    object_id_spec.gpu2gpu_transfer = False
+    object_id_spec.noise_model = "None"
+    object_id_spec.channels = 1
+    if not hasattr(object_id_spec, "semantic_target"):
+        raise CurrentVisualError(
+            "installed Habitat CameraSensorSpec lacks semantic_target"
+        )
+    object_id_spec.semantic_target = _semantic_sensor_target("OBJECT_ID")
+    sensor_specs.append(object_id_spec)
+    modality_to_uuid[CURRENT_OBJECT_ID_MODALITY] = CURRENT_OBJECT_ID_SENSOR_UUID
 
     sim_cfg = habitat_sim.SimulatorConfiguration()
     sim_cfg.scene_id = str(scene["scene_id"])
@@ -296,7 +430,7 @@ def _make_current_configuration(
     sim_cfg.enable_physics = True
     sim_cfg.physics_config_file = str(installed_runtime.physics_config_path)
     sim_cfg.random_seed = int(room_inputs.request["seed"])
-    sim_cfg.gpu_device_id = 0
+    sim_cfg.gpu_device_id = gpu_device_id
 
     agent_cfg = habitat_sim.AgentConfiguration()
     navigation = room_inputs.room.get("navigation", {})
@@ -333,10 +467,8 @@ def _instantiate_semantic_actor(
     handle = f"{base_handle}.m5_current_actor{actor_index}_semantic{semantic_id}"
     if int(manager.register_template(attributes, handle)) < 0:
         raise CurrentVisualError("failed to register a current visual actor template")
-    articulated_object = (
-        simulator.get_articulated_object_manager().add_articulated_object_by_template_handle(
-            handle
-        )
+    articulated_object = simulator.get_articulated_object_manager().add_articulated_object_by_template_handle(
+        handle
     )
     if articulated_object is None:
         raise CurrentVisualError("Habitat failed to instantiate a current visual actor")
@@ -442,7 +574,7 @@ def _observation_arrays(
     observation: Mapping[str, Any], modality_to_uuid: Mapping[str, str]
 ) -> dict[str, np.ndarray]:
     arrays: dict[str, np.ndarray] = {}
-    for modality in FORMAL_MODALITIES:
+    for modality in (*FORMAL_MODALITIES, CURRENT_OBJECT_ID_MODALITY):
         uuid = modality_to_uuid[modality]
         if uuid not in observation:
             raise CurrentVisualError(f"Habitat observation lacks {modality} sensor")
@@ -450,13 +582,49 @@ def _observation_arrays(
     rgb = arrays["rgb"]
     depth = arrays["depth"]
     semantic = arrays["semantic"]
+    object_id = arrays[CURRENT_OBJECT_ID_MODALITY]
     if rgb.ndim != 3 or rgb.shape[-1] not in {3, 4}:
         raise CurrentVisualError(f"RGB frame must be HxWx3/4, got {rgb.shape}")
-    if depth.ndim != 2 or semantic.ndim != 2:
-        raise CurrentVisualError("depth and semantic frames must be HxW")
-    if rgb.shape[:2] != depth.shape or depth.shape != semantic.shape:
-        raise CurrentVisualError("RGB, depth, and semantic frames are not co-registered")
+    if depth.ndim != 2 or semantic.ndim != 2 or object_id.ndim != 2:
+        raise CurrentVisualError("depth, semantic and object-ID frames must be HxW")
+    if (
+        rgb.shape[:2] != depth.shape
+        or depth.shape != semantic.shape
+        or semantic.shape != object_id.shape
+    ):
+        raise CurrentVisualError(
+            "RGB, depth, semantic and object-ID frames are not co-registered"
+        )
+    if not np.issubdtype(object_id.dtype, np.integer):
+        raise CurrentVisualError("object-ID frame must use an integer dtype")
     return arrays
+
+
+def _object_id_pixel_record(image: Any, runtime_object_id: int) -> dict[str, Any]:
+    array = np.asarray(image)
+    if array.ndim != 2 or not np.issubdtype(array.dtype, np.integer):
+        raise CurrentVisualError("object-ID observation must be an integer HxW array")
+    rows, columns = np.nonzero(array == runtime_object_id)
+    count = int(rows.size)
+    bbox = None
+    if count:
+        x_min = int(columns.min())
+        x_max = int(columns.max())
+        y_min = int(rows.min())
+        y_max = int(rows.max())
+        bbox = {
+            "x_min": x_min,
+            "y_min": y_min,
+            "x_max": x_max,
+            "y_max": y_max,
+            "width_pixels": x_max - x_min + 1,
+            "height_pixels": y_max - y_min + 1,
+        }
+    return {
+        "runtime_object_id": runtime_object_id,
+        "pixel_count": count,
+        "bbox_xyxy": bbox,
+    }
 
 
 def _require_no_actor_semantic_collision(semantic: Any) -> None:
@@ -494,6 +662,7 @@ def _capture_current_visual(
     bundle: Any,
     frames: Sequence[Any],
 ) -> dict[str, Any]:
+    m1_capture_identity = _m1_capture_identity(room_inputs)
     scene = _resolve_external_scene(room_inputs, installed_runtime)
     configuration, modality_to_uuid = _make_current_configuration(
         room_inputs=room_inputs,
@@ -513,9 +682,16 @@ def _capture_current_visual(
     rgb_frames: list[np.ndarray] = []
     depth_frames: list[np.ndarray] = []
     semantic_frames: list[np.ndarray] = []
+    object_id_frames: list[np.ndarray] = []
     actor_matrices: list[np.ndarray] = []
+    planned_skin_root_matrices: list[np.ndarray] = []
+    actual_skin_root_matrices: list[np.ndarray] = []
+    actual_agent_camera_poses: list[np.ndarray] = []
+    actual_sensor_poses: list[np.ndarray] = []
+    actual_logical_listener_poses: list[np.ndarray] = []
     source_positions: list[np.ndarray] = []
     visibility_records: list[tuple[int, int]] = []
+    object_id_records: list[list[dict[str, Any]]] = []
     frame_records: list[dict[str, Any]] = []
 
     with habitat_sim.Simulator(configuration) as simulator:
@@ -545,17 +721,25 @@ def _capture_current_visual(
         camera_state.rotation = qt.quaternion(qw, qx, qy, qz)
         agent = simulator.initialize_agent(0, camera_state)
 
+        captured_modalities = (*FORMAL_MODALITIES, CURRENT_OBJECT_ID_MODALITY)
         sensors = [
             simulator.sensors[modality_to_uuid[modality]]
-            for modality in FORMAL_MODALITIES
+            for modality in captured_modalities
         ]
         initial_world_time = float(simulator.get_world_time())
-        sensor_uuids = [modality_to_uuid[modality] for modality in FORMAL_MODALITIES]
+        sensor_uuids = [modality_to_uuid[modality] for modality in captured_modalities]
+        sensor_order = sorted(sensor_uuids)
+        modality_by_sensor_uuid = {
+            sensor_uuid: modality for modality, sensor_uuid in modality_to_uuid.items()
+        }
+        listener = room_inputs.request["listener"]
         preflight_observation = simulator.render_sensors(sensors)
         preflight_arrays = _observation_arrays(preflight_observation, modality_to_uuid)
         _require_no_actor_semantic_collision(preflight_arrays["semantic"])
         if float(simulator.get_world_time()) != initial_world_time:
-            raise CurrentVisualError("no-actor semantic preflight advanced Habitat world time")
+            raise CurrentVisualError(
+                "no-actor semantic preflight advanced Habitat world time"
+            )
 
         template_manager = simulator.metadata_mediator.ao_template_manager
         config_path = bundle.paths_by_role["habitat_ao_config"]
@@ -563,10 +747,13 @@ def _capture_current_visual(
         handle_prefix = config_path.stem.removesuffix(".ao_config")
         base_handles = template_manager.get_template_handles(handle_prefix)
         if len(loaded_ids) != 1 or len(base_handles) != 1:
-            raise CurrentVisualError("current visual capture expected one source AO template")
+            raise CurrentVisualError(
+                "current visual capture expected one source AO template"
+            )
         actors: list[Any] = []
         bindings: list[Any] = []
         emitter_link_ids: list[int] = []
+        runtime_object_ids: list[int] = []
         for actor_index, semantic_id in enumerate(CURRENT_SEMANTIC_IDS):
             actor, binding = _instantiate_semantic_actor(
                 simulator,
@@ -578,6 +765,17 @@ def _capture_current_visual(
             )
             actors.append(actor)
             bindings.append(binding)
+            runtime_object_id = getattr(actor, "object_id", None)
+            if (
+                isinstance(runtime_object_id, bool)
+                or not isinstance(runtime_object_id, int)
+                or runtime_object_id < 0
+                or runtime_object_id in runtime_object_ids
+            ):
+                raise CurrentVisualError(
+                    "Habitat actor runtime object IDs must be unique nonnegative integers"
+                )
+            runtime_object_ids.append(runtime_object_id)
             emitter_link_ids.append(
                 _link_id_by_name(actor, CURRENT_EMITTER_LINK_NAMES[actor_index])
             )
@@ -586,14 +784,14 @@ def _capture_current_visual(
             frame_camera.position = camera_position
             frame_camera.rotation = qt.quaternion(qw, qx, qy, qz)
             agent.set_state(frame_camera, reset_sensors=False, infer_sensor_states=True)
-            snapshot = _state_snapshot(
+            pre_render_snapshot = _state_snapshot(
                 simulator, agent, sensor_uuids, installed_runtime.quat_to_coeffs
             )
             pose_errors = [
-                transform_error(rig_transform, snapshot["agent"]),
+                transform_error(rig_transform, pre_render_snapshot["agent"]),
                 *[
                     transform_error(rig_transform, sensor_pose)
-                    for sensor_pose in snapshot["sensors"].values()
+                    for sensor_pose in pre_render_snapshot["sensors"].values()
                 ],
             ]
             if max(pose_errors) > _ROOT_READBACK_ATOL:
@@ -602,6 +800,7 @@ def _capture_current_visual(
                 )
 
             actor_world: list[np.ndarray] = []
+            planned_skin_roots: list[np.ndarray] = []
             before_states: list[tuple[np.ndarray, np.ndarray]] = []
             for actor_index, (actor, binding) in enumerate(
                 zip(actors, bindings, strict=True)
@@ -618,10 +817,14 @@ def _capture_current_visual(
                 root_readback, joint_readback = _read_actor_state(actor)
                 root_error = float(np.max(np.abs(root_readback - skin_root)))
                 joint_error = _quaternion_block_error(joint_readback, joints)
-                if root_error > _ROOT_READBACK_ATOL or joint_error > _JOINT_READBACK_ATOL:
+                if (
+                    root_error > _ROOT_READBACK_ATOL
+                    or joint_error > _JOINT_READBACK_ATOL
+                ):
                     raise CurrentVisualError(
                         f"frame {frame.frame_index} actor {actor_index} readback failed"
                     )
+                planned_skin_roots.append(skin_root)
                 before_states.append((root_readback, joint_readback))
                 matrix = np.asarray(frame.world_from_actor, dtype=np.float64).copy()
                 matrix[:3, 3] += offsets[actor_index]
@@ -633,23 +836,57 @@ def _capture_current_visual(
                 int(np.count_nonzero(arrays["semantic"] == semantic_id))
                 for semantic_id in CURRENT_SEMANTIC_IDS
             )
-            if any(count == 0 for count in frame_visibility):
-                raise CurrentVisualError(
-                    f"frame {frame.frame_index} lost an actor semantic ID: "
-                    f"{list(frame_visibility)}"
-                )
+            frame_object_ids = [
+                _object_id_pixel_record(arrays[CURRENT_OBJECT_ID_MODALITY], object_id)
+                for object_id in runtime_object_ids
+            ]
             after_states = [_read_actor_state(actor) for actor in actors]
             for before, after in zip(before_states, after_states, strict=True):
-                if not np.allclose(before[0], after[0], rtol=0.0, atol=1.0e-12) or not np.allclose(
-                    before[1], after[1], rtol=0.0, atol=1.0e-12
-                ):
+                if not np.allclose(
+                    before[0], after[0], rtol=0.0, atol=1.0e-12
+                ) or not np.allclose(before[1], after[1], rtol=0.0, atol=1.0e-12):
                     raise CurrentVisualError(
                         f"frame {frame.frame_index} render changed an articulated state"
                     )
-            if float(simulator.get_world_time()) != initial_world_time:
+            post_render_snapshot = _state_snapshot(
+                simulator, agent, sensor_uuids, installed_runtime.quat_to_coeffs
+            )
+            pre_render_world_time, post_render_world_time = (
+                _require_render_snapshot_unchanged(
+                    pre_render_snapshot,
+                    post_render_snapshot,
+                    sensor_order=sensor_order,
+                    frame_index=int(frame.frame_index),
+                )
+            )
+            if (
+                abs(post_render_world_time - initial_world_time)
+                > _WORLD_TIME_READBACK_ATOL
+            ):
                 raise CurrentVisualError(
                     f"frame {frame.frame_index} advanced Habitat world time"
                 )
+            frame_agent_camera_pose = _pose_vector(
+                post_render_snapshot["agent"],
+                owner=f"frame {frame.frame_index} post-render agent/camera readback",
+            )
+            frame_sensor_poses = np.stack(
+                [
+                    _pose_vector(
+                        post_render_snapshot["sensors"][sensor_uuid],
+                        owner=(
+                            f"frame {frame.frame_index} post-render sensor "
+                            f"{sensor_uuid!r} readback"
+                        ),
+                    )
+                    for sensor_uuid in sensor_order
+                ],
+                axis=0,
+            )
+            frame_listener_pose = _pose_vector(
+                _logical_listener_pose(post_render_snapshot, listener),
+                owner=f"frame {frame.frame_index} post-render logical listener pose",
+            )
 
             frame_sources = np.stack(
                 [
@@ -663,9 +900,20 @@ def _capture_current_visual(
             )
             depth_frames.append(np.asarray(arrays["depth"]).copy())
             semantic_frames.append(np.asarray(arrays["semantic"]).copy())
+            object_id_frames.append(
+                np.asarray(arrays[CURRENT_OBJECT_ID_MODALITY]).copy()
+            )
             actor_matrices.append(np.stack(actor_world, axis=0))
+            planned_skin_root_matrices.append(np.stack(planned_skin_roots, axis=0))
+            actual_skin_root_matrices.append(
+                np.stack([state[0] for state in after_states], axis=0)
+            )
+            actual_agent_camera_poses.append(frame_agent_camera_pose)
+            actual_sensor_poses.append(frame_sensor_poses)
+            actual_logical_listener_poses.append(frame_listener_pose)
             source_positions.append(frame_sources)
             visibility_records.append(frame_visibility)
+            object_id_records.append(frame_object_ids)
             frame_records.append(
                 {
                     "frame_index": int(frame.frame_index),
@@ -677,11 +925,27 @@ def _capture_current_visual(
                     ],
                     "source_positions_m": frame_sources.tolist(),
                     "semantic_visibility_pixels": list(frame_visibility),
+                    "object_id_pixel_counts": [
+                        record["pixel_count"] for record in frame_object_ids
+                    ],
+                    "object_id_bboxes_xyxy": [
+                        record["bbox_xyxy"] for record in frame_object_ids
+                    ],
+                    "snapshot_world_time_seconds": post_render_world_time,
+                    "pre_render_snapshot_world_time_seconds": pre_render_world_time,
+                    "post_render_snapshot_world_time_seconds": post_render_world_time,
+                    "pose_alignment": {
+                        "array_frame_index": int(frame.frame_index),
+                        "actor_axis_order": list(CURRENT_ACTOR_IDS),
+                        "source_axis_order": list(CURRENT_SOURCE_IDS),
+                        "sensor_axis_order": list(sensor_order),
+                        "pose_component_order": list(CURRENT_POSE_COMPONENT_ORDER),
+                    },
                     "observation_calls": 1,
                 }
             )
 
-    if len(rgb_frames) != 75:
+    if len(rgb_frames) != 75 or len(object_id_frames) != 75:
         raise CurrentVisualError("current visual capture must retain exactly 75 frames")
     arrays_root = output / "arrays"
     arrays_root.mkdir()
@@ -689,7 +953,21 @@ def _capture_current_visual(
         "rgb": "arrays/rgb.npy",
         "depth": "arrays/depth.npy",
         "semantic": "arrays/semantic.npy",
+        "object_id": "arrays/object_id.npy",
         "actor_world_matrices": "arrays/actor_world_matrices.npy",
+        "planned_applied_skin_root_matrices": (
+            "arrays/planned_applied_skin_root_matrices.npy"
+        ),
+        "actual_skin_root_readback_matrices": (
+            "arrays/actual_skin_root_readback_matrices.npy"
+        ),
+        "actual_agent_camera_poses": (
+            "arrays/actual_agent_camera_poses_txyz_qxyzw.npy"
+        ),
+        "actual_sensor_poses": "arrays/actual_sensor_poses_txyz_qxyzw.npy",
+        "actual_logical_listener_poses": (
+            "arrays/actual_logical_listener_poses_txyz_qxyzw.npy"
+        ),
         "source_positions_m": "arrays/source_positions_m.npy",
         "semantic_visibility_pixels": "arrays/semantic_visibility_pixels.npy",
         "frame_records": "frame_records.json",
@@ -700,18 +978,67 @@ def _capture_current_visual(
         arrays_root / "semantic.npy", np.ascontiguousarray(np.stack(semantic_frames))
     )
     np.save(
+        arrays_root / "object_id.npy",
+        np.ascontiguousarray(np.stack(object_id_frames)),
+    )
+    np.save(
         arrays_root / "actor_world_matrices.npy",
         np.ascontiguousarray(np.stack(actor_matrices)),
+    )
+    np.save(
+        arrays_root / "planned_applied_skin_root_matrices.npy",
+        np.ascontiguousarray(np.stack(planned_skin_root_matrices)),
+    )
+    np.save(
+        arrays_root / "actual_skin_root_readback_matrices.npy",
+        np.ascontiguousarray(np.stack(actual_skin_root_matrices)),
+    )
+    np.save(
+        arrays_root / "actual_agent_camera_poses_txyz_qxyzw.npy",
+        np.ascontiguousarray(np.stack(actual_agent_camera_poses)),
+    )
+    np.save(
+        arrays_root / "actual_sensor_poses_txyz_qxyzw.npy",
+        np.ascontiguousarray(np.stack(actual_sensor_poses)),
+    )
+    np.save(
+        arrays_root / "actual_logical_listener_poses_txyz_qxyzw.npy",
+        np.ascontiguousarray(np.stack(actual_logical_listener_poses)),
     )
     np.save(
         arrays_root / "source_positions_m.npy",
         np.ascontiguousarray(np.stack(source_positions)),
     )
+    visibility_array = np.asarray(visibility_records, dtype=np.int64)
     np.save(
         arrays_root / "semantic_visibility_pixels.npy",
-        np.asarray(visibility_records, dtype=np.int64),
+        visibility_array,
     )
     write_json(output / "frame_records.json", {"frames": frame_records})
+    visibility_by_actor = {}
+    for actor_index, actor_id in enumerate(CURRENT_ACTOR_IDS):
+        pixels = visibility_array[:, actor_index]
+        visible = pixels > 0
+        visibility_by_actor[actor_id] = {
+            "visible_frame_count": int(np.count_nonzero(visible)),
+            "zero_visible_frame_indices": np.flatnonzero(~visible).astype(int).tolist(),
+            "minimum_visible_pixels": int(np.min(pixels)),
+            "maximum_visible_pixels": int(np.max(pixels)),
+            "per_frame_visible_pixels": pixels.tolist(),
+        }
+    object_id_by_actor = {}
+    for actor_index, actor_id in enumerate(CURRENT_ACTOR_IDS):
+        records = [frame[actor_index] for frame in object_id_records]
+        counts = [int(record["pixel_count"]) for record in records]
+        object_id_by_actor[actor_id] = {
+            "runtime_object_id": runtime_object_ids[actor_index],
+            "pixel_counts_by_frame": counts,
+            "bboxes_xyxy_by_frame": [record["bbox_xyxy"] for record in records],
+            "positive_pixel_frame_count": int(np.count_nonzero(counts)),
+            "zero_pixel_frame_indices": [
+                index for index, count in enumerate(counts) if count == 0
+            ],
+        }
     habitat_module = getattr(installed_runtime.habitat_sim, "__file__", None)
     if not isinstance(habitat_module, str) or not habitat_module:
         raise CurrentVisualError("installed Habitat runtime has no module path")
@@ -731,11 +1058,16 @@ def _capture_current_visual(
             "room_id": room_inputs.room["room_id"],
             "room_kind": room_inputs.room["room_kind"],
         },
+        "m1_capture_identity": m1_capture_identity,
         "capture": {
             "native_habitat_started": True,
+            "m1_request_id": m1_capture_identity["request_id"],
+            "room_id": m1_capture_identity["room_id"],
             "frame_count": len(frame_records),
-            "modalities": list(FORMAL_MODALITIES),
+            "modalities": [*FORMAL_MODALITIES, CURRENT_OBJECT_ID_MODALITY],
             "observation_calls_per_frame": 1,
+            "state_snapshot_calls_per_frame": 2,
+            "persisted_pose_snapshot_phase": "post_render",
             "physics_steps": 0,
             "audio_sensor_included": False,
         },
@@ -743,13 +1075,114 @@ def _capture_current_visual(
             "actor_ids": list(CURRENT_ACTOR_IDS),
             "source_ids": list(CURRENT_SOURCE_IDS),
             "semantic_ids": list(CURRENT_SEMANTIC_IDS),
+            "runtime_object_ids": list(runtime_object_ids),
             "instance_offsets_m": offsets.tolist(),
             "emitter_link_names": list(CURRENT_EMITTER_LINK_NAMES),
+            "axis_bindings": [
+                {
+                    "axis_index": axis_index,
+                    "actor_id": CURRENT_ACTOR_IDS[axis_index],
+                    "source_id": CURRENT_SOURCE_IDS[axis_index],
+                    "semantic_id": CURRENT_SEMANTIC_IDS[axis_index],
+                    "runtime_object_id": runtime_object_ids[axis_index],
+                    "emitter_link_name": CURRENT_EMITTER_LINK_NAMES[axis_index],
+                    "runtime_emitter_link_id": emitter_link_ids[axis_index],
+                    "audio_endpoint_status": "pending",
+                    "audio_endpoint_id": None,
+                }
+                for axis_index in range(len(CURRENT_ACTOR_IDS))
+            ],
+        },
+        "pose_readback": {
+            "status": "native_habitat_pose_readback_recorded",
+            "frame_count": len(frame_records),
+            "pose_component_order": list(CURRENT_POSE_COMPONENT_ORDER),
+            "coordinate_convention": {
+                "frame": "habitat_world",
+                "axis_order": ["X", "Y", "Z"],
+                "up_axis": "+Y",
+            },
+            "matrix_convention": {
+                "transform_direction": "world_from_local",
+                "translation_location": "last_column",
+                "homogeneous_last_row": [0.0, 0.0, 0.0, 1.0],
+            },
+            "actor_axis_order": list(CURRENT_ACTOR_IDS),
+            "source_axis_order": list(CURRENT_SOURCE_IDS),
+            "sensor_order": [
+                {
+                    "axis_index": axis_index,
+                    "sensor_uuid": sensor_uuid,
+                    "modality": modality_by_sensor_uuid[sensor_uuid],
+                }
+                for axis_index, sensor_uuid in enumerate(sensor_order)
+            ],
+            "planned_actor_world_matrices": {
+                "artifact_key": "actor_world_matrices",
+                "pose_kind": "planned_actor_transform_with_instance_offset",
+                "actual_readback": False,
+            },
+            "planned_applied_skin_root_matrices": {
+                "artifact_key": "planned_applied_skin_root_matrices",
+                "pose_kind": "planned_transform_applied_to_skin_root",
+                "actual_readback": False,
+            },
+            "actual_skin_root_readback_matrices": {
+                "artifact_key": "actual_skin_root_readback_matrices",
+                "pose_kind": "articulated_root_scene_node_after_render",
+                "actual_readback": True,
+            },
+            "actual_agent_camera_poses": {
+                "artifact_key": "actual_agent_camera_poses",
+                "pose_kind": "post_render_agent_camera_from_state_snapshot",
+                "actual_readback": True,
+            },
+            "actual_sensor_poses": {
+                "artifact_key": "actual_sensor_poses",
+                "pose_kind": "post_render_sensor_states_from_state_snapshot",
+                "actual_readback": True,
+            },
+            "actual_logical_listener_poses": {
+                "artifact_key": "actual_logical_listener_poses",
+                "pose_kind": (
+                    "logical_listener_composed_from_post_render_agent_readback"
+                ),
+                "actual_readback": False,
+                "derived_from_actual_agent_readback": True,
+                "native_listener_sensor_readback": False,
+            },
+        },
+        "visibility": {
+            "status": "native_semantic_id_raster_recorded_coverage_incomplete",
+            "authority": "same_habitat_renderer_semantic_id_raster_only",
+            "semantic_id_coverage_completeness_status": "not_certified",
+            "frame_count": len(frame_records),
+            "all_frames_visibility_required": False,
+            "candidate_filtering": "disabled",
+            "candidate_legality_effect": "descriptor_only",
+            "per_actor": visibility_by_actor,
+        },
+        "object_id_visibility": {
+            "status": "native_object_id_raster_recorded",
+            "sensor_uuid": CURRENT_OBJECT_ID_SENSOR_UUID,
+            "semantic_sensor_target": "OBJECT_ID",
+            "frame_count": len(frame_records),
+            "runtime_id_scope": ("one_simulator_invocation_not_stable_across_runs"),
+            "runtime_id_mapping_authority": "articulated_object.object_id_readback",
+            "candidate_filtering": "disabled",
+            "candidate_legality_effect": "descriptor_only",
+            "zero_pixels_affect_legality": False,
+            "actor_modal_visibility_authority_status": (
+                "pending_fresh_runtime_a_b_and_visual_review"
+            ),
+            "per_actor": object_id_by_actor,
         },
         "artifacts": artifacts,
         "claim_boundary": (
-            "visual-only research capture; it does not count an episode or establish "
-            "an audio, room, asset, or dataset claim"
+            "visual-only research capture; OBJECT_ID is retained as a candidate modal "
+            "raster but needs fresh-runtime A/B and visual review before visibility "
+            "authority. It does not count an episode or establish an audio, room, "
+            "asset, P1/amodal, occlusion, off-screen, or dataset claim"
         ),
     }
     write_json(output / "research_receipt.json", receipt)
@@ -800,8 +1233,7 @@ def capture_current_visual(
     context_errors = validate_capture_context(m2_inputs, room_inputs)
     if context_errors:
         raise CurrentVisualError(
-            "current MP3D visual input context is invalid: "
-            + "; ".join(context_errors)
+            "current MP3D visual input context is invalid: " + "; ".join(context_errors)
         )
     try:
         static_scene_errors = validate_scene_asset_graph(
@@ -824,7 +1256,9 @@ def capture_current_visual(
     except (HabitatCaptureError, OSError, ValueError) as error:
         raise CurrentVisualError(str(error)) from error
     if len(frames) != 75:
-        raise CurrentVisualError("current visual capture requires a 75-state M2 request")
+        raise CurrentVisualError(
+            "current visual capture requires a 75-state M2 request"
+        )
     try:
         installed_runtime = prepare_installed_habitat_runtime(
             runtime_prefix=runtime_prefix,

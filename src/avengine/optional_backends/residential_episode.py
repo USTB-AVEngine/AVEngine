@@ -13,11 +13,20 @@ navigation or audio authority.
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import hashlib
 import json
 import math
 from typing import Any, Mapping, Sequence
 
+import numpy as np
+
+from avengine.m6x.route_descriptors import (
+    MaterializedRoute,
+    RouteDescriptorError,
+    describe_route_pair,
+    materialize_route,
+)
 from avengine.optional_backends.spear_apartment import (
     BEAGLE_ASSET_ID,
     DEFAULT_ACTOR_BINDINGS,
@@ -161,50 +170,48 @@ def _sample_boundary(frame_boundary: int) -> int:
     return quotient + int(remainder * 2 >= FPS)
 
 
-def _linear_route(start: Sequence[float], end: Sequence[float]) -> list[list[float]]:
-    a = _vector(start, 3, owner="route start")
-    b = _vector(end, 3, owner="route end")
-    return [
-        [a[axis] + (b[axis] - a[axis]) * index / (FRAME_COUNT - 1) for axis in range(3)]
-        for index in range(FRAME_COUNT)
-    ]
-
-
-def _polyline_route(waypoints: Sequence[Sequence[float]]) -> list[list[float]]:
-    if (
-        isinstance(waypoints, (str, bytes))
-        or not isinstance(waypoints, Sequence)
-        or len(waypoints) < 2
-    ):
-        raise ResidentialEpisodeError("route waypoints require at least two points")
-    points = [
-        _vector(value, 3, owner=f"route waypoint {index}")
-        for index, value in enumerate(waypoints)
-    ]
-    lengths = [
-        math.sqrt(sum((b[axis] - a[axis]) ** 2 for axis in range(3)))
-        for a, b in zip(points, points[1:])
-    ]
-    if any(length <= 1.0e-9 for length in lengths):
-        raise ResidentialEpisodeError("consecutive route waypoints must differ")
-    total = sum(lengths)
-    route = []
-    segment = 0
-    elapsed_before = 0.0
-    for frame_index in range(FRAME_COUNT):
-        target = total * frame_index / (FRAME_COUNT - 1)
-        while segment < len(lengths) - 1 and target > elapsed_before + lengths[segment]:
-            elapsed_before += lengths[segment]
-            segment += 1
-        fraction = (target - elapsed_before) / lengths[segment]
-        route.append(
-            [
-                points[segment][axis]
-                + (points[segment + 1][axis] - points[segment][axis]) * fraction
-                for axis in range(3)
-            ]
+def _materialize_profile_route(
+    route: Mapping[str, Any], *, actor_id: str
+) -> MaterializedRoute:
+    forms = {
+        "hold": "hold_xyz_m" in route,
+        "polyline": "waypoints_xyz_m" in route,
+        "straight": "start_xyz_m" in route or "end_xyz_m" in route,
+    }
+    selected = [name for name, present in forms.items() if present]
+    if len(selected) != 1:
+        raise ResidentialEpisodeError(
+            f"route {actor_id} must select exactly one of hold, waypoints, or start/end"
         )
-    return route
+    geometry = route.get("route_geometry", selected[0])
+    if geometry != selected[0]:
+        raise ResidentialEpisodeError(
+            f"route {actor_id} route_geometry conflicts with its coordinates"
+        )
+    if geometry == "hold":
+        if "heading_yaw_ue_deg" not in route:
+            raise ResidentialEpisodeError(
+                f"hold route {actor_id} requires heading_yaw_ue_deg"
+            )
+        waypoints = [route.get("hold_xyz_m")]
+    elif geometry == "polyline":
+        waypoints = route.get("waypoints_xyz_m")
+    else:
+        if "start_xyz_m" not in route or "end_xyz_m" not in route:
+            raise ResidentialEpisodeError(
+                f"straight route {actor_id} requires start_xyz_m and end_xyz_m"
+            )
+        waypoints = [route.get("start_xyz_m"), route.get("end_xyz_m")]
+    try:
+        return materialize_route(
+            waypoints,
+            FRAME_COUNT,
+            geometry=geometry,
+            heading_yaw_degrees=route.get("heading_yaw_ue_deg"),
+            owner=f"route {actor_id}",
+        )
+    except RouteDescriptorError as error:
+        raise ResidentialEpisodeError(str(error)) from error
 
 
 def _point_on_segment(
@@ -483,21 +490,62 @@ def build_residential_source_episode(
         owner="lighting_claim_boundary",
     )
 
-    actor_routes_xyz: dict[str, list[list[float]]] = {}
+    route_inputs: dict[str, Mapping[str, Any]] = {}
+    actor_route_materializations: dict[str, MaterializedRoute] = {}
     for actor_id in ("dog0", "human0"):
         route = routes.get(actor_id)
         if not isinstance(route, Mapping):
             raise ResidentialEpisodeError(f"route {actor_id} is missing")
-        if "waypoints_xyz_m" in route:
-            if "start_xyz_m" in route or "end_xyz_m" in route:
-                raise ResidentialEpisodeError(
-                    f"route {actor_id} cannot mix waypoints with start/end"
-                )
-            actor_routes_xyz[actor_id] = _polyline_route(route["waypoints_xyz_m"])
-        else:
-            actor_routes_xyz[actor_id] = _linear_route(
-                route.get("start_xyz_m"), route.get("end_xyz_m")
+        route_inputs[actor_id] = route
+        actor_route_materializations[actor_id] = _materialize_profile_route(
+            route, actor_id=actor_id
+        )
+    actor_routes_xyz = {
+        actor_id: value.positions_m.tolist()
+        for actor_id, value in actor_route_materializations.items()
+    }
+
+    for actor_id, materialized in actor_route_materializations.items():
+        motion_profile = route_inputs[actor_id].get("motion_profile")
+        if motion_profile is None:
+            continue
+        if not isinstance(motion_profile, Mapping):
+            raise ResidentialEpisodeError(
+                f"route {actor_id} motion_profile must be an object"
             )
+        clip_seconds = _finite(
+            motion_profile.get("clip_seconds"), owner=f"{actor_id} clip_seconds"
+        )
+        movement_span = _finite(
+            motion_profile.get(
+                "movement_span_seconds", (FRAME_COUNT - 1) / FPS
+            ),
+            owner=f"{actor_id} movement_span_seconds",
+        )
+        minimum_speed = _finite(
+            motion_profile.get("walk_speed_mps_min"),
+            owner=f"{actor_id} walk_speed_mps_min",
+        )
+        maximum_speed = _finite(
+            motion_profile.get("walk_speed_mps_max"),
+            owner=f"{actor_id} walk_speed_mps_max",
+        )
+        if clip_seconds <= 0.0 or minimum_speed <= 0.0 or maximum_speed < minimum_speed:
+            raise ResidentialEpisodeError(
+                f"route {actor_id} motion_profile has an invalid walking range"
+            )
+        if not math.isclose(
+            movement_span, (FRAME_COUNT - 1) / FPS, abs_tol=1.0e-12
+        ):
+            raise ResidentialEpisodeError(
+                f"route {actor_id} movement span differs from 75-frame replay"
+            )
+        if materialized.moving:
+            replay_speed = materialized.path_length_m / movement_span
+            if not minimum_speed - 1.0e-9 <= replay_speed <= maximum_speed + 1.0e-9:
+                raise ResidentialEpisodeError(
+                    f"route {actor_id} length/speed lies outside its motion profile"
+                )
 
     margin = _finite(profile.get("source_center_margin_m", 0.03), owner="margin")
     gates = {
@@ -519,23 +567,22 @@ def build_residential_source_episode(
         for actor_id, route in actor_routes_xyz.items()
     }
     local_forward = {"dog0": "+X", "human0": "+Z"}
-    rotations = {
-        actor_id: [
-            _yaw_quaternion_for_route(
-                route_h[frame_index],
-                route_h[frame_index + 1]
-                if frame_index + 1 < FRAME_COUNT
-                else route_h[frame_index - 1],
-                local_forward=local_forward[actor_id],
+    rotations: dict[str, list[list[float]]] = {}
+    for actor_id, materialized in actor_route_materializations.items():
+        actor_rotations = []
+        for tangent in materialized.tangent_xy_by_frame:
+            if tangent is None:
+                raise ResidentialEpisodeError(
+                    f"route {actor_id} has no explicit tangent or hold heading"
+                )
+            actor_rotations.append(
+                _yaw_quaternion_for_route(
+                    [0.0, 0.0, 0.0],
+                    [tangent[0], 0.0, tangent[1]],
+                    local_forward=local_forward[actor_id],
+                )
             )
-            for frame_index in range(FRAME_COUNT)
-        ]
-        for actor_id, route_h in actor_routes_h.items()
-    }
-    # The last frame uses the preceding segment but must retain its direction,
-    # not face backwards from the final point toward the previous point.
-    for actor_id in rotations:
-        rotations[actor_id][-1] = rotations[actor_id][-2]
+        rotations[actor_id] = actor_rotations
     cycles_per_second = {"dog0": 1.5, "human0": 1.0}
     actors = [
         {
@@ -569,9 +616,15 @@ def build_residential_source_episode(
                     "rotation_xyzw": rotations[actor_id][frame_index],
                     "scale": [1.0, 1.0, 1.0],
                 },
-                "action_id": "walk",
+                "action_id": (
+                    "walk"
+                    if actor_route_materializations[actor_id].moving
+                    else "idle"
+                ),
                 "action_time_ticks": frame_index * TICKS_PER_FRAME,
-                "action_phase": phase,
+                "action_phase": (
+                    phase if actor_route_materializations[actor_id].moving else 0.0
+                ),
                 "contacts": {},
                 "mouth_state": {
                     "open_ratio": 1.0 if _vocalizing(actor_id, sample_start, sample_end) else 0.0,
@@ -618,13 +671,24 @@ def build_residential_source_episode(
         (HUMAN_SOURCE_ID, "human0", "mouth", "human_speech"),
     )
     source_positions_h: dict[str, list[list[float]]] = {}
+    source_route_materializations: dict[str, MaterializedRoute] = {}
     sources = []
     for source_id, actor_id, anchor_id, sound_class in source_specs:
         height = _finite(emitter_heights.get(actor_id), owner=f"{actor_id} emitter height")
-        positions = []
-        for point in actor_routes_xyz[actor_id]:
-            emitter_xyz = [point[0], point[1], point[2] + height]
-            positions.append(dataset_z_up_to_habitat(emitter_xyz))
+        actor_materialized = actor_route_materializations[actor_id]
+        emitter_waypoints = np.asarray(actor_materialized.waypoints_m).copy()
+        emitter_positions = np.asarray(actor_materialized.positions_m).copy()
+        emitter_waypoints[:, 2] += height
+        emitter_positions[:, 2] += height
+        emitter_materialized = replace(
+            actor_materialized,
+            waypoints_m=np.ascontiguousarray(emitter_waypoints),
+            positions_m=np.ascontiguousarray(emitter_positions),
+        )
+        source_route_materializations[source_id] = emitter_materialized
+        positions = [
+            dataset_z_up_to_habitat(point) for point in emitter_positions.tolist()
+        ]
         source_positions_h[source_id] = positions
         actor = next(item for item in actors if item["actor_id"] == actor_id)
         sources.append(
@@ -707,12 +771,46 @@ def build_residential_source_episode(
             "sources": gate_sources,
         },
     }
+    moving_actor_ids = [
+        actor_id
+        for actor_id, value in actor_route_materializations.items()
+        if value.moving
+    ]
+    if not moving_actor_ids:
+        motion_case = "static_static"
+    elif moving_actor_ids == ["dog0"]:
+        motion_case = "source1_static_source2_moving"
+    elif moving_actor_ids == ["human0"]:
+        motion_case = "source1_moving_source2_static"
+    else:
+        motion_case = "both_moving"
+    pair_descriptors = describe_route_pair(
+        source_route_materializations[HUMAN_SOURCE_ID],
+        source_route_materializations[DOG_SOURCE_ID],
+        fps=FPS,
+        listener_position_xy_m=camera_xyz[:2],
+        listener_yaw_degrees=camera_yaw_ue,
+    )
+    pair_descriptors["source1"] = {
+        "source_endpoint_id": HUMAN_SOURCE_ID,
+        "actor_id": "human0",
+    }
+    pair_descriptors["source2"] = {
+        "source_endpoint_id": DOG_SOURCE_ID,
+        "actor_id": "dog0",
+    }
+    pair_descriptors["motion_case"] = motion_case
     flags = {
         "schema": "avengine_optional_residential_flag_report_v1",
         "source_flags": {source_id: {} for source_id, *_ in source_specs},
         "clip_flags": {
             "simultaneous_sources": {"status": "present", "value": True},
-            "moving_sources": {"status": "present", "value": True},
+            "moving_sources": {
+                "status": "present" if moving_actor_ids else "absent",
+                "value": bool(moving_actor_ids),
+                "actor_ids": moving_actor_ids,
+                "motion_case": motion_case,
+            },
             "camera_fov_audio_cutoff": {"status": "absent", "value": False},
         },
     }
@@ -764,7 +862,12 @@ def build_residential_source_episode(
         },
         "routes_xyz_m": actor_routes_xyz,
         "routes_habitat_m": actor_routes_h,
+        "route_materialization": {
+            actor_id: value.summary()
+            for actor_id, value in actor_route_materializations.items()
+        },
         "source_trajectories_habitat_m": source_positions_h,
+        "source_pair_descriptors": pair_descriptors,
         "source_activity_by_frame": {
             source_id: [
                 _vocalizing(actor_id, frame["sample_start"], frame["sample_end"])
@@ -773,7 +876,14 @@ def build_residential_source_episode(
             for source_id, actor_id, *_ in source_specs
         },
         "route_metrics": {
-            actor_id: {"mean_speed_mps": _actor_speed(route), "gate": gates[actor_id]}
+            actor_id: {
+                "route_geometry": actor_route_materializations[actor_id].geometry,
+                "path_length_m": actor_route_materializations[actor_id].path_length_m,
+                "mean_speed_mps": _actor_speed(route),
+                "movement_span_seconds": (FRAME_COUNT - 1) / FPS,
+                "replay_speed_mps": _actor_speed(route),
+                "gate": gates[actor_id],
+            }
             for actor_id, route in actor_routes_xyz.items()
         },
         "room_polygon_xy_m": deepcopy(list(polygon)),
@@ -798,6 +908,12 @@ def build_residential_source_episode(
             "backend_may_replan": False,
             "source_center_gate": "center_only_not_body_volume",
             "audio_camera_fov_cutoff": False,
+            "route_materialization": (
+                "shared_exact_arc_length_or_explicit_hold; UE runner replays only"
+            ),
+            "pair_proximity_crossing_exchange_and_right_order": (
+                "raw_descriptors_only_not_legality_gates"
+            ),
         },
     }
 

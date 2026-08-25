@@ -14,6 +14,7 @@ record, not a new gate or contract.
 
 | Prefix | Source | Role |
 | --- | --- | --- |
+| avengine-habitat-object-id-732f264-20260824T1041Z | `native/habitat` @ `732f264e33f25d9aba56de9889871dbeeb70445d` | fresh research runtime with target-routed OBJECT_ID/DRAWABLE_ID active-scene rendering; pending native visual A/B and not yet production-selected |
 | avengine-habitat-pbr-ibl-c78db29-20260821T0111Z | `native/habitat` @ `c78db295c680107a014c4896170ca451fb1756da` (this repository) | production visual + physics + RLR-adapter runtime for the installed M1/M5/M5.1/M6x/M7 chain |
 | avengine-habitat-rlr-adapter-bfeacb8-r1-20260820T1950Z | `native/habitat` @ `bfeacb8644a9b111e95fce69b20701a3bcc4af44` | acoustic authority runtime (M4 current); its own PROVENANCE.json sits in the prefix |
 | avengine-habitat-rlr-adapter-ec209a6-20260820T1615Z | `native/habitat` @ `ec209a6e61a154910fe25df1af74ad8921e8debc` | superseded by bfeacb8-r1; retained for record |
@@ -89,6 +90,42 @@ Recorded configure, from the retained build cache
 `habitat_sim/` runtime tree and `config/`; the runtime is then activated by
 `prepare_installed_habitat_runtime` through `AVENGINE_HABITAT_RUNTIME_PREFIX`,
 never by importing from a Git checkout.
+
+### 2a. Fresh OBJECT_ID research prefix
+
+The OBJECT_ID target-routing slice was built from clean commit `732f264` in
+fresh build directory:
+
+`/data/jzy/tmp/avengine-habitat-object-id-732f264-20260824T1041Z-build`
+
+and installed without replacing any prior prefix at:
+
+`/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z`
+
+It uses the same recipe above with `MAGNUM_TARGET_EGL=ON`, Bullet, Python
+bindings and the RLR adapter enabled. Sensor-routing tests stay disabled in the
+installing production-shaped build; they were independently enabled and run in
+fresh clean-commit test build
+`/data/jzy/tmp/habitat-object-id-native-test-732f264-r1`.
+
+Evidence:
+
+- build/cache and installed-file summary:
+  `/data/jzy/tmp/habitat_object_id_prefix_732f264_build_evidence_r1.log`;
+- installed-prefix import/Bullet/OBJECT_ID smoke:
+  `/data/jzy/tmp/habitat_object_id_prefix_732f264_smoke_r1.log`;
+- ELF NEEDED and no-RPATH/RUNPATH check:
+  `/data/jzy/tmp/habitat_object_id_prefix_732f264_readelf_r1.log`; and
+- full HabitatCore compile plus native target-routing CTest:
+  `/data/jzy/tmp/habitat_object_id_native_test_732f264_r1.log`.
+
+This prefix is a research A/B input, not a production replacement. The owner
+later completed one clean isolated 06598 run whose OBJECT_ID union exactly
+matched the depth actor silhouette while RGB/depth/SEMANTIC_ID stayed bit-equal
+to the old prefix. Two additional 11523/00141 runs started despite a preflight
+GPU0 conflict and are diagnostic only; see
+`docs/roadmap/HABITAT_OBJECT_ID_VISIBILITY_20260824.md`. They must be rerun with
+the fail-closed compute-process guard recorded there.
 
 ### 3. magnum-python site
 

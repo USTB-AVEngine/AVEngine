@@ -17,6 +17,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from avengine.qa.pixel_visibility import (
+    PixelVisibilityError,
+    bind_pixel_visibility_truth,
+)
+
 
 QUESTION_SPEC_SCHEMA = "avengine_qa_question_spec_v1"
 QUESTION_SPEC_EVALUATION_SCHEMA = "avengine_qa_question_spec_evaluation_v1"
@@ -710,6 +715,155 @@ def _pixel_frames(context: Mapping[str, Any], instance_id: str) -> list[Mapping[
     return list(frames)
 
 
+def evaluate_offscreen_entry_truth(
+    pixel_truth: Mapping[str, Any],
+    *,
+    target_instance_id: str,
+) -> dict[str, Any]:
+    """Evaluate one left/right entry answer from bound same-renderer truth."""
+
+    def rejected(
+        code: str,
+        detail: str,
+        check: str,
+        evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "status": "rejected",
+            "question_type": "offscreen_to_onscreen",
+            "target_instance_id": target_instance_id,
+            "answer": None,
+            "evidence": dict(evidence or {}),
+            "reason": {"code": code, "detail": detail, "check": check},
+        }
+
+    if not isinstance(target_instance_id, str) or not target_instance_id:
+        return rejected(
+            "facts_not_observable",
+            "target_instance_id must be non-empty text",
+            "observable",
+        )
+    if not isinstance(pixel_truth, Mapping):
+        return rejected(
+            "facts_not_observable",
+            "pixel truth is unavailable",
+            "observable",
+        )
+    per_instance = pixel_truth.get("per_instance")
+    track = (
+        per_instance.get(target_instance_id)
+        if isinstance(per_instance, Mapping)
+        else None
+    )
+    frames = track.get("frames") if isinstance(track, Mapping) else None
+    resolution = pixel_truth.get("resolution_hw")
+    if not _is_sequence(frames) or not frames:
+        return rejected(
+            "facts_not_observable",
+            f"pixel truth is unavailable for {target_instance_id!r}",
+            "observable",
+        )
+    if (
+        not _is_sequence(resolution)
+        or len(resolution) != 2
+        or not isinstance(resolution[1], int)
+        or resolution[1] <= 0
+    ):
+        return rejected(
+            "facts_not_observable",
+            "pixel-truth image width is unavailable",
+            "observable",
+        )
+    try:
+        bound = bind_pixel_visibility_truth(
+            pixel_truth,
+            expected_instance_ids=sorted(per_instance),
+            expected_frame_count=len(frames),
+            expected_resolution_hw=resolution,
+            expected_camera_pose_ids=pixel_truth.get("camera_pose_ids"),
+        )
+    except (PixelVisibilityError, TypeError, ValueError) as exc:
+        return rejected(
+            "facts_not_observable",
+            f"same-renderer pixel truth is invalid: {exc}",
+            "observable",
+        )
+    frames = bound["per_instance"][target_instance_id]["frames"]
+    image_center_x = (resolution[1] - 1) / 2.0
+    dead_zone_px = max(1.0, resolution[1] * _ENTRY_SIDE_DEAD_ZONE_FRACTION)
+    transitions: list[dict[str, Any]] = []
+    previous_state = None
+    for frame in frames:
+        state = frame.get("state")
+        if previous_state == "out_of_view" and state in _VISIBLE_STATES:
+            centroid = frame.get("target_centroid_xy_px")
+            if (
+                not _is_sequence(centroid)
+                or len(centroid) != 2
+                or not isinstance(centroid[0], (int, float))
+            ):
+                return rejected(
+                    "facts_not_observable",
+                    "entry frame lacks target-only footprint centroid",
+                    "observable",
+                    {"frame_index": frame.get("frame_index")},
+                )
+            offset_px = float(centroid[0]) - image_center_x
+            if abs(offset_px) <= dead_zone_px:
+                return rejected(
+                    "answer_not_unique",
+                    "entry footprint is too close to image centre to assign a side",
+                    "answer_unique",
+                    {
+                        "frame_index": frame.get("frame_index"),
+                        "target_centroid_x_px": float(centroid[0]),
+                        "image_center_x_px": image_center_x,
+                        "dead_zone_px": dead_zone_px,
+                    },
+                )
+            transitions.append(
+                {
+                    "frame_index": frame["frame_index"],
+                    "side": "right" if offset_px > 0.0 else "left",
+                    "target_centroid_xy_px": [
+                        float(centroid[0]),
+                        float(centroid[1]),
+                    ],
+                }
+            )
+        previous_state = state
+    if not transitions:
+        return rejected(
+            "facts_not_observable",
+            "the target has no pixel-observed out-of-view to visible transition",
+            "observable",
+        )
+    sides = {transition["side"] for transition in transitions}
+    if len(sides) != 1:
+        return rejected(
+            "answer_not_unique",
+            "the target enters from different sides in this Episode",
+            "answer_unique",
+            {"entry_transitions": transitions},
+        )
+    side = next(iter(sides))
+    return {
+        "status": "pass",
+        "question_type": "offscreen_to_onscreen",
+        "target_instance_id": target_instance_id,
+        "answer": {
+            "value": side,
+            "label_zh": "右侧" if side == "right" else "左侧",
+        },
+        "evidence": {
+            "entry_frame_indices": [item["frame_index"] for item in transitions],
+            "entry_transitions": transitions,
+            "image_center_x_px": image_center_x,
+        },
+        "reason": None,
+    }
+
+
 def _active_events(events: Sequence[Mapping[str, Any]], frame: int) -> list[Mapping[str, Any]]:
     return [
         event
@@ -962,89 +1116,25 @@ def _question_and_answer(
 
     if question_type == "offscreen_to_onscreen":
         instance_id = selectors["target_instance_id"]
-        frames = _pixel_frames(context, instance_id)
+        _pixel_frames(context, instance_id)
         visibility = context["facts"].get("visibility")
         truth = visibility.get("pixel_truth") if isinstance(visibility, Mapping) else None
-        resolution = truth.get("resolution_hw") if isinstance(truth, Mapping) else None
-        if (
-            not _is_sequence(resolution)
-            or len(resolution) != 2
-            or not isinstance(resolution[1], int)
-            or resolution[1] <= 0
-        ):
+        evaluation = evaluate_offscreen_entry_truth(
+            truth, target_instance_id=instance_id
+        )
+        if evaluation["status"] != "pass":
+            reason = evaluation["reason"]
             raise _StopEvaluation(
                 "rejected",
-                "facts_not_observable",
-                "pixel-truth image width is unavailable",
-                "observable",
+                reason["code"],
+                reason["detail"],
+                reason["check"],
+                evaluation["evidence"],
             )
-        image_center_x = (resolution[1] - 1) / 2.0
-        dead_zone_px = max(1.0, resolution[1] * _ENTRY_SIDE_DEAD_ZONE_FRACTION)
-        transitions: list[dict[str, Any]] = []
-        previous_state = None
-        for frame in frames:
-            state = frame.get("state")
-            if previous_state == "out_of_view" and state in _VISIBLE_STATES:
-                centroid = frame.get("target_centroid_xy_px")
-                if (
-                    not _is_sequence(centroid)
-                    or len(centroid) != 2
-                    or not isinstance(centroid[0], (int, float))
-                ):
-                    raise _StopEvaluation(
-                        "rejected",
-                        "facts_not_observable",
-                        "entry frame lacks target-only footprint centroid",
-                        "observable",
-                        {"frame_index": frame.get("frame_index")},
-                    )
-                offset_px = float(centroid[0]) - image_center_x
-                if abs(offset_px) <= dead_zone_px:
-                    raise _StopEvaluation(
-                        "rejected",
-                        "answer_not_unique",
-                        "entry footprint is too close to image centre to assign a side",
-                        "answer_unique",
-                        {
-                            "frame_index": frame.get("frame_index"),
-                            "target_centroid_x_px": float(centroid[0]),
-                            "image_center_x_px": image_center_x,
-                            "dead_zone_px": dead_zone_px,
-                        },
-                    )
-                transitions.append(
-                    {
-                        "frame_index": frame["frame_index"],
-                        "side": "right" if offset_px > 0.0 else "left",
-                        "target_centroid_xy_px": [float(centroid[0]), float(centroid[1])],
-                    }
-                )
-            previous_state = state
-        if not transitions:
-            raise _StopEvaluation(
-                "rejected",
-                "facts_not_observable",
-                "the target has no pixel-observed out-of-view to visible transition",
-                "observable",
-            )
-        sides = {transition["side"] for transition in transitions}
-        if len(sides) != 1:
-            raise _StopEvaluation(
-                "rejected",
-                "answer_not_unique",
-                "the target enters from different sides in this Episode",
-                "answer_unique",
-                {"entry_transitions": transitions},
-            )
-        side = next(iter(sides))
         return (
             f"受控实例“{instance_id}”从画面左侧还是右侧进入？",
-            {"value": side, "label_zh": "右侧" if side == "right" else "左侧"},
-            {
-                "entry_frame_indices": [item["frame_index"] for item in transitions],
-                "entry_transitions": transitions,
-                "image_center_x_px": image_center_x,
-            },
+            evaluation["answer"],
+            evaluation["evidence"],
         )
 
     if question_type == "occlusion_while_speaking":

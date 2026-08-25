@@ -18,9 +18,31 @@ from typing import Any, Mapping
 import numpy as np
 from PIL import Image
 
+from avengine.contracts.transforms import compose_transforms, transform_error
+
 
 TIMELINE_TICKS_PER_SECOND = 48_000
 _REQUIRED_ARTIFACTS = ("rgb", "depth", "semantic", "frame_records")
+_POSE_COMPONENT_ORDER = (
+    "translation_x_m",
+    "translation_y_m",
+    "translation_z_m",
+    "quaternion_x",
+    "quaternion_y",
+    "quaternion_z",
+    "quaternion_w",
+)
+_NEW_POSE_ARTIFACTS = (
+    "planned_applied_skin_root_matrices",
+    "actual_skin_root_readback_matrices",
+    "actual_agent_camera_poses",
+    "actual_sensor_poses",
+    "actual_logical_listener_poses",
+)
+_POSE_QUATERNION_NORM_ATOL = 2.0e-6
+_RIGID_MATRIX_ATOL = 2.0e-6
+_POSE_READBACK_ATOL = 2.0e-6
+_OBJECT_ID_ARTIFACT = "object_id"
 
 
 class CurrentVisualReviewError(ValueError):
@@ -34,6 +56,32 @@ class CurrentVisualReview:
     html_path: Path
     review_directory: Path
     frame_count: int
+
+
+@dataclass(frozen=True)
+class _PoseReadbackEvidence:
+    planned_actor_matrices: np.ndarray
+    planned_skin_root_matrices: np.ndarray
+    actual_skin_root_matrices: np.ndarray
+    actual_agent_camera_poses: np.ndarray
+    actual_sensor_poses: np.ndarray
+    actual_logical_listener_poses: np.ndarray
+    actor_axis_order: tuple[str, ...]
+    source_axis_order: tuple[str, ...]
+    sensor_axis_order: tuple[str, ...]
+    axis_bindings: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class _ObjectIDReadbackEvidence:
+    raster: np.ndarray
+    sensor_uuid: str
+    runtime_object_ids: tuple[int, int]
+    actor_ids: tuple[str, str]
+    source_ids: tuple[str, str]
+    emitter_link_names: tuple[str, str]
+    per_frame_records: tuple[tuple[dict[str, Any], dict[str, Any]], ...]
+    authority_status: str
 
 
 def _load_json_object(path: Path, *, owner: str) -> dict[str, Any]:
@@ -198,6 +246,55 @@ def _optional_frame_array(
     return value
 
 
+def _require_unit_pose_quaternions(value: np.ndarray, *, owner: str) -> np.ndarray:
+    quaternions = np.asarray(value[..., 3:7], dtype=np.float64)
+    norms = np.linalg.norm(quaternions, axis=-1)
+    if not np.all(np.isfinite(norms)) or not np.allclose(
+        norms,
+        1.0,
+        rtol=0.0,
+        atol=_POSE_QUATERNION_NORM_ATOL,
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} must contain finite unit quaternions in XYZW order"
+        )
+    return value
+
+
+def _require_rigid_matrices(value: np.ndarray, *, owner: str) -> np.ndarray:
+    matrices = np.asarray(value, dtype=np.float64)
+    expected_last_row = np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+    if not np.allclose(
+        matrices[..., 3, :],
+        expected_last_row,
+        rtol=0.0,
+        atol=_RIGID_MATRIX_ATOL,
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} must use homogeneous last row [0,0,0,1]"
+        )
+    rotations = matrices[..., :3, :3]
+    gram = np.swapaxes(rotations, -1, -2) @ rotations
+    if not np.allclose(
+        gram,
+        np.eye(3, dtype=np.float64),
+        rtol=0.0,
+        atol=_RIGID_MATRIX_ATOL,
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} 3x3 rotation blocks must be orthogonal"
+        )
+    determinants = np.linalg.det(rotations)
+    if not np.allclose(
+        determinants,
+        1.0,
+        rtol=0.0,
+        atol=_RIGID_MATRIX_ATOL,
+    ):
+        raise CurrentVisualReviewError(f"{owner} 3x3 rotation determinants must be +1")
+    return value
+
+
 def _frame_records(path: Path, *, frame_count: int) -> list[dict[str, Any]]:
     document = _load_json_object(path, owner="frame_records artifact")
     frames = document.get("frames")
@@ -228,6 +325,795 @@ def _frame_records(path: Path, *, frame_count: int) -> list[dict[str, Any]]:
             )
         values.append(frame)
     return values
+
+
+def _string_axis(value: Any, *, owner: str, length: int) -> tuple[str, ...]:
+    if (
+        not isinstance(value, list)
+        or len(value) != length
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(set(value)) != length
+    ):
+        raise CurrentVisualReviewError(
+            f"{owner} must contain {length} unique nonempty string identities"
+        )
+    return tuple(value)
+
+
+def _require_pose_descriptor(
+    metadata: Mapping[str, Any],
+    *,
+    name: str,
+    artifact_key: str,
+    actual_readback: bool,
+) -> None:
+    value = metadata.get(name)
+    if (
+        not isinstance(value, Mapping)
+        or value.get("artifact_key") != artifact_key
+        or value.get("actual_readback") is not actual_readback
+        or not isinstance(value.get("pose_kind"), str)
+        or not value["pose_kind"]
+    ):
+        raise CurrentVisualReviewError(
+            f"pose_readback {name!r} does not describe its planned/actual authority"
+        )
+
+
+def _finite_record_array(
+    value: Any, *, owner: str, shape: tuple[int, ...]
+) -> np.ndarray:
+    try:
+        array = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise CurrentVisualReviewError(f"{owner} is not numeric: {exc}") from exc
+    if array.shape != shape or not np.all(np.isfinite(array)):
+        raise CurrentVisualReviewError(
+            f"{owner} must contain finite values with shape {shape}"
+        )
+    return array
+
+
+def _pose_mapping(value: Any, *, owner: str) -> dict[str, list[float]]:
+    if not isinstance(value, Mapping):
+        raise CurrentVisualReviewError(f"{owner} must be a pose object")
+    translation = _finite_record_array(
+        value.get("translation_m"), owner=f"{owner} translation", shape=(3,)
+    )
+    quaternion = _finite_record_array(
+        value.get("rotation_xyzw"), owner=f"{owner} quaternion", shape=(4,)
+    )
+    _require_unit_pose_quaternions(
+        np.concatenate((translation, quaternion)), owner=owner
+    )
+    return {
+        "translation_m": translation.tolist(),
+        "rotation_xyzw": quaternion.tolist(),
+    }
+
+
+def _capture_time_m1_identity(
+    receipt: Mapping[str, Any],
+    *,
+    source_axis_order: tuple[str, ...],
+    sensor_axis_order: tuple[str, ...],
+    sensor_modalities: tuple[str, ...],
+    derived_sensor_modalities: Mapping[str, str] | None = None,
+) -> tuple[
+    dict[str, list[float]],
+    dict[str, list[float]],
+    dict[str, list[float]],
+]:
+    identity = receipt.get("m1_capture_identity")
+    capture = receipt.get("capture")
+    selected_room = receipt.get("selected_room")
+    if (
+        not isinstance(identity, Mapping)
+        or not isinstance(capture, Mapping)
+        or not isinstance(selected_room, Mapping)
+    ):
+        raise CurrentVisualReviewError(
+            "new pose readback receipt requires capture-time M1 identity"
+        )
+    request_id = identity.get("request_id")
+    room_id = identity.get("room_id")
+    if (
+        not isinstance(request_id, str)
+        or not request_id
+        or not isinstance(room_id, str)
+        or not room_id
+        or capture.get("m1_request_id") != request_id
+        or capture.get("room_id") != room_id
+        or selected_room.get("room_id") != room_id
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 request or room identity is damaged"
+        )
+    if identity.get("source_axis_order") != list(source_axis_order):
+        raise CurrentVisualReviewError(
+            "capture-time M1 source identities do not match the source axes"
+        )
+    qa_views = identity.get("qa_views")
+    if not isinstance(qa_views, list):
+        raise CurrentVisualReviewError(
+            "capture-time M1 qa_views must retain its request-time list"
+        )
+
+    rig = identity.get("primary_camera_rig")
+    listener = identity.get("listener")
+    if not isinstance(rig, Mapping) or not isinstance(listener, Mapping):
+        raise CurrentVisualReviewError(
+            "capture-time M1 rig and listener must be complete objects"
+        )
+    rig_id = rig.get("rig_id")
+    view_id = rig.get("view_id")
+    calibration = rig.get("shared_calibration")
+    modalities = rig.get("modalities")
+    if (
+        not isinstance(rig_id, str)
+        or not rig_id
+        or not isinstance(view_id, str)
+        or not view_id
+        or not isinstance(calibration, Mapping)
+        or not isinstance(modalities, list)
+        or not modalities
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 primary_camera_rig is incomplete"
+        )
+    modality_by_uuid: dict[str, str] = {}
+    modality_order: list[str] = []
+    for index, item in enumerate(modalities):
+        if (
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("sensor_uuid"), str)
+            or not item["sensor_uuid"]
+            or not isinstance(item.get("modality"), str)
+            or not item["modality"]
+            or item["sensor_uuid"] in modality_by_uuid
+        ):
+            raise CurrentVisualReviewError(
+                f"capture-time M1 modality entry {index} is invalid"
+            )
+        modality_by_uuid[item["sensor_uuid"]] = item["modality"]
+        modality_order.append(item["modality"])
+    derived = dict(derived_sensor_modalities or {})
+    if (
+        any(not isinstance(key, str) or not key for key in derived)
+        or any(not isinstance(value, str) or not value for value in derived.values())
+        or set(derived).intersection(modality_by_uuid)
+    ):
+        raise CurrentVisualReviewError(
+            "derived sensor identities must be unique nonempty UUID/modality pairs"
+        )
+    modality_by_uuid.update(derived)
+    modality_order.extend(derived.values())
+    if (
+        tuple(sorted(modality_by_uuid)) != sensor_axis_order
+        or tuple(modality_by_uuid[sensor_uuid] for sensor_uuid in sensor_axis_order)
+        != sensor_modalities
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 sensor identities do not match pose sensor axes"
+        )
+    if capture.get("modalities") != modality_order:
+        raise CurrentVisualReviewError(
+            "capture modalities do not match the capture-time M1 rig"
+        )
+    if (
+        not isinstance(listener.get("listener_id"), str)
+        or not listener["listener_id"]
+        or listener.get("attached_to") != rig_id
+    ):
+        raise CurrentVisualReviewError(
+            "capture-time M1 listener identity is not attached to the captured rig"
+        )
+
+    world_from_rig = _pose_mapping(
+        rig.get("world_from_rig"), owner="capture-time M1 world_from_rig"
+    )
+    rig_from_sensor = _pose_mapping(
+        calibration.get("rig_from_sensor"),
+        owner="capture-time M1 rig_from_sensor",
+    )
+    rig_from_listener = _pose_mapping(
+        listener.get("rig_from_listener"),
+        owner="capture-time M1 rig_from_listener",
+    )
+    world_from_sensor = compose_transforms(world_from_rig, rig_from_sensor)
+    return world_from_rig, world_from_sensor, rig_from_listener
+
+
+def _pose_readback_evidence(
+    output_root: Path,
+    receipt: Mapping[str, Any],
+    artifacts: Mapping[str, Any],
+    *,
+    frame_count: int,
+    records: list[dict[str, Any]],
+    actor_matrices: np.ndarray | None,
+    source_positions: np.ndarray | None,
+    visibility: np.ndarray | None,
+) -> _PoseReadbackEvidence | None:
+    metadata = receipt.get("pose_readback")
+    present = [name for name in _NEW_POSE_ARTIFACTS if name in artifacts]
+    if metadata is None and not present:
+        return None
+    if not isinstance(metadata, Mapping) or len(present) != len(_NEW_POSE_ARTIFACTS):
+        raise CurrentVisualReviewError(
+            "new pose readback evidence is partial; legacy captures must not be "
+            "upgraded without the complete native artifact set"
+        )
+    if frame_count != 75 or metadata.get("frame_count") != frame_count:
+        raise CurrentVisualReviewError(
+            "new pose readback evidence must align to exactly 75 captured frames"
+        )
+    if metadata.get("status") != "native_habitat_pose_readback_recorded":
+        raise CurrentVisualReviewError(
+            "pose_readback status does not claim completed native Habitat readback"
+        )
+    if metadata.get("pose_component_order") != list(_POSE_COMPONENT_ORDER):
+        raise CurrentVisualReviewError(
+            "pose_readback pose_component_order must be translation xyz then quaternion xyzw"
+        )
+    if metadata.get("coordinate_convention") != {
+        "frame": "habitat_world",
+        "axis_order": ["X", "Y", "Z"],
+        "up_axis": "+Y",
+    }:
+        raise CurrentVisualReviewError(
+            "pose_readback must declare Habitat world XYZ with +Y up"
+        )
+    if metadata.get("matrix_convention") != {
+        "transform_direction": "world_from_local",
+        "translation_location": "last_column",
+        "homogeneous_last_row": [0.0, 0.0, 0.0, 1.0],
+    }:
+        raise CurrentVisualReviewError(
+            "pose_readback must declare world_from_local matrices with translation "
+            "in the last column"
+        )
+
+    actor_axis_order = _string_axis(
+        metadata.get("actor_axis_order"), owner="actor axis order", length=2
+    )
+    source_axis_order = _string_axis(
+        metadata.get("source_axis_order"), owner="source axis order", length=2
+    )
+    sensor_order = metadata.get("sensor_order")
+    if not isinstance(sensor_order, list) or not sensor_order:
+        raise CurrentVisualReviewError(
+            "pose_readback sensor_order must contain every sensor axis"
+        )
+    sensor_axis_order: list[str] = []
+    sensor_modalities: list[str] = []
+    for index, value in enumerate(sensor_order):
+        if (
+            not isinstance(value, Mapping)
+            or value.get("axis_index") != index
+            or not isinstance(value.get("sensor_uuid"), str)
+            or not value["sensor_uuid"]
+            or not isinstance(value.get("modality"), str)
+            or not value["modality"]
+        ):
+            raise CurrentVisualReviewError(
+                f"pose_readback sensor_order entry {index} is invalid"
+            )
+        sensor_axis_order.append(value["sensor_uuid"])
+        sensor_modalities.append(value["modality"])
+    if len(set(sensor_axis_order)) != len(sensor_axis_order) or len(
+        set(sensor_modalities)
+    ) != len(sensor_modalities):
+        raise CurrentVisualReviewError(
+            "pose_readback sensor UUIDs and modalities must be unique"
+        )
+
+    actors = receipt.get("actors")
+    if not isinstance(actors, Mapping):
+        raise CurrentVisualReviewError(
+            "new pose readback receipt must contain actor/source identity metadata"
+        )
+    if actors.get("actor_ids") != list(actor_axis_order):
+        raise CurrentVisualReviewError(
+            "actor identity list does not match the declared actor axis order"
+        )
+    if actors.get("source_ids") != list(source_axis_order):
+        raise CurrentVisualReviewError(
+            "source identity list does not match the declared source axis order"
+        )
+    semantic_ids = actors.get("semantic_ids")
+    emitter_names = actors.get("emitter_link_names")
+    bindings = actors.get("axis_bindings")
+    if (
+        not isinstance(semantic_ids, list)
+        or len(semantic_ids) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in semantic_ids
+        )
+        or len(set(semantic_ids)) != 2
+        or not isinstance(emitter_names, list)
+        or len(emitter_names) != 2
+        or any(not isinstance(value, str) or not value for value in emitter_names)
+        or not isinstance(bindings, list)
+        or len(bindings) != 2
+    ):
+        raise CurrentVisualReviewError(
+            "actor/source semantic and emitter axis metadata is invalid"
+        )
+    checked_bindings: list[dict[str, Any]] = []
+    for index, value in enumerate(bindings):
+        if not isinstance(value, dict):
+            raise CurrentVisualReviewError(
+                f"actor axis binding {index} must be an object"
+            )
+        runtime_link_id = value.get("runtime_emitter_link_id")
+        if (
+            value.get("axis_index") != index
+            or value.get("actor_id") != actor_axis_order[index]
+            or value.get("source_id") != source_axis_order[index]
+            or value.get("semantic_id") != semantic_ids[index]
+            or value.get("emitter_link_name") != emitter_names[index]
+            or isinstance(runtime_link_id, bool)
+            or not isinstance(runtime_link_id, int)
+            or value.get("audio_endpoint_status") != "pending"
+            or value.get("audio_endpoint_id") is not None
+        ):
+            raise CurrentVisualReviewError(
+                f"actor/source identity mapping is damaged at axis {index}"
+            )
+        checked_bindings.append(dict(value))
+
+    object_id_metadata = receipt.get("object_id_visibility")
+    derived_sensor_modalities = None
+    if isinstance(object_id_metadata, Mapping):
+        object_sensor_uuid = object_id_metadata.get("sensor_uuid")
+        if not isinstance(object_sensor_uuid, str) or not object_sensor_uuid:
+            raise CurrentVisualReviewError(
+                "object-ID visibility metadata lacks its sensor UUID"
+            )
+        derived_sensor_modalities = {object_sensor_uuid: "object_id"}
+    world_from_rig, world_from_sensor, rig_from_listener = _capture_time_m1_identity(
+        receipt,
+        source_axis_order=source_axis_order,
+        sensor_axis_order=tuple(sensor_axis_order),
+        sensor_modalities=tuple(sensor_modalities),
+        derived_sensor_modalities=derived_sensor_modalities,
+    )
+
+    for name, artifact_key, actual in (
+        ("planned_actor_world_matrices", "actor_world_matrices", False),
+        (
+            "planned_applied_skin_root_matrices",
+            "planned_applied_skin_root_matrices",
+            False,
+        ),
+        (
+            "actual_skin_root_readback_matrices",
+            "actual_skin_root_readback_matrices",
+            True,
+        ),
+        ("actual_agent_camera_poses", "actual_agent_camera_poses", True),
+        ("actual_sensor_poses", "actual_sensor_poses", True),
+        (
+            "actual_logical_listener_poses",
+            "actual_logical_listener_poses",
+            False,
+        ),
+    ):
+        _require_pose_descriptor(
+            metadata,
+            name=name,
+            artifact_key=artifact_key,
+            actual_readback=actual,
+        )
+    listener_descriptor = metadata["actual_logical_listener_poses"]
+    if (
+        listener_descriptor.get("derived_from_actual_agent_readback") is not True
+        or listener_descriptor.get("native_listener_sensor_readback") is not False
+    ):
+        raise CurrentVisualReviewError(
+            "logical listener pose must be marked as derived from actual agent "
+            "readback, not native listener sensor readback"
+        )
+
+    if actor_matrices is None or source_positions is None or visibility is None:
+        raise CurrentVisualReviewError(
+            "new pose readback evidence requires planned actor, source, and visibility arrays"
+        )
+    pose_paths: dict[str, Path] = {}
+    for name in _NEW_POSE_ARTIFACTS:
+        path = _artifact_path(output_root, artifacts, name=name, required=True)
+        assert path is not None
+        pose_paths[name] = path
+    actor_path = _artifact_path(
+        output_root, artifacts, name="actor_world_matrices", required=True
+    )
+    assert actor_path is not None
+    if len(set([actor_path, *pose_paths.values()])) != len(pose_paths) + 1:
+        raise CurrentVisualReviewError(
+            "planned and actual pose artifacts must be distinct files"
+        )
+
+    planned_skin_roots = _optional_frame_array(
+        pose_paths["planned_applied_skin_root_matrices"],
+        owner="planned applied skin-root matrices artifact",
+        frame_count=frame_count,
+        suffix_shape=(2, 4, 4),
+        dtype_kind="finite",
+    )
+    actual_skin_roots = _optional_frame_array(
+        pose_paths["actual_skin_root_readback_matrices"],
+        owner="actual skin-root readback matrices artifact",
+        frame_count=frame_count,
+        suffix_shape=(2, 4, 4),
+        dtype_kind="finite",
+    )
+    actual_agent_poses = _optional_frame_array(
+        pose_paths["actual_agent_camera_poses"],
+        owner="actual agent/camera poses artifact",
+        frame_count=frame_count,
+        suffix_shape=(7,),
+        dtype_kind="finite",
+    )
+    actual_sensor_pose_array = _optional_frame_array(
+        pose_paths["actual_sensor_poses"],
+        owner="actual sensor poses artifact",
+        frame_count=frame_count,
+        suffix_shape=(len(sensor_axis_order), 7),
+        dtype_kind="finite",
+    )
+    actual_listener_poses = _optional_frame_array(
+        pose_paths["actual_logical_listener_poses"],
+        owner="actual logical listener poses artifact",
+        frame_count=frame_count,
+        suffix_shape=(7,),
+        dtype_kind="finite",
+    )
+    assert planned_skin_roots is not None
+    assert actual_skin_roots is not None
+    assert actual_agent_poses is not None
+    assert actual_sensor_pose_array is not None
+    assert actual_listener_poses is not None
+    _require_rigid_matrices(
+        actor_matrices, owner="planned actor world matrices artifact"
+    )
+    _require_rigid_matrices(
+        planned_skin_roots, owner="planned applied skin-root matrices artifact"
+    )
+    _require_rigid_matrices(
+        actual_skin_roots, owner="actual skin-root readback matrices artifact"
+    )
+    _require_unit_pose_quaternions(
+        actual_agent_poses, owner="actual agent/camera poses artifact"
+    )
+    _require_unit_pose_quaternions(
+        actual_sensor_pose_array, owner="actual sensor poses artifact"
+    )
+    _require_unit_pose_quaternions(
+        actual_listener_poses, owner="actual logical listener poses artifact"
+    )
+
+    for index, record in enumerate(records):
+        actual_agent_pose = {
+            "translation_m": actual_agent_poses[index, :3].tolist(),
+            "rotation_xyzw": actual_agent_poses[index, 3:7].tolist(),
+        }
+        if transform_error(world_from_rig, actual_agent_pose) > _POSE_READBACK_ATOL:
+            raise CurrentVisualReviewError(
+                f"frame {index} actual agent/camera differs from capture-time M1 rig"
+            )
+        for sensor_index, sensor_uuid in enumerate(sensor_axis_order):
+            actual_sensor_pose = {
+                "translation_m": actual_sensor_pose_array[
+                    index, sensor_index, :3
+                ].tolist(),
+                "rotation_xyzw": actual_sensor_pose_array[
+                    index, sensor_index, 3:7
+                ].tolist(),
+            }
+            if (
+                transform_error(world_from_sensor, actual_sensor_pose)
+                > _POSE_READBACK_ATOL
+            ):
+                raise CurrentVisualReviewError(
+                    f"frame {index} actual sensor {sensor_uuid!r} differs from "
+                    "capture-time M1 calibration"
+                )
+        expected_listener_pose = compose_transforms(
+            actual_agent_pose, rig_from_listener
+        )
+        actual_listener_pose = {
+            "translation_m": actual_listener_poses[index, :3].tolist(),
+            "rotation_xyzw": actual_listener_poses[index, 3:7].tolist(),
+        }
+        if (
+            transform_error(expected_listener_pose, actual_listener_pose)
+            > _POSE_READBACK_ATOL
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} logical listener does not match actual agent plus "
+                "capture-time rig_from_listener"
+            )
+        if record["pts_ticks"] != index * 3_200:
+            raise CurrentVisualReviewError(
+                f"frame {index} pts_ticks does not align with the 15 fps timeline"
+            )
+        world_time = record.get("snapshot_world_time_seconds")
+        if (
+            isinstance(world_time, bool)
+            or not isinstance(world_time, (int, float))
+            or not math.isfinite(float(world_time))
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} snapshot world time is missing or non-finite"
+            )
+        pre_render_world_time = record.get("pre_render_snapshot_world_time_seconds")
+        post_render_world_time = record.get("post_render_snapshot_world_time_seconds")
+        if (
+            isinstance(pre_render_world_time, bool)
+            or not isinstance(pre_render_world_time, (int, float))
+            or not math.isfinite(float(pre_render_world_time))
+            or isinstance(post_render_world_time, bool)
+            or not isinstance(post_render_world_time, (int, float))
+            or not math.isfinite(float(post_render_world_time))
+            or abs(float(post_render_world_time) - float(pre_render_world_time))
+            > 1.0e-12
+            or float(world_time) != float(post_render_world_time)
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} pre/post-render snapshot times are misaligned"
+            )
+        alignment = record.get("pose_alignment")
+        if (
+            not isinstance(alignment, Mapping)
+            or alignment.get("array_frame_index") != index
+            or alignment.get("actor_axis_order") != list(actor_axis_order)
+            or alignment.get("source_axis_order") != list(source_axis_order)
+            or alignment.get("sensor_axis_order") != sensor_axis_order
+            or alignment.get("pose_component_order") != list(_POSE_COMPONENT_ORDER)
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} pose alignment or identity axes are damaged"
+            )
+        planned_positions = _finite_record_array(
+            record.get("actor_world_positions_m"),
+            owner=f"frame {index} planned actor positions",
+            shape=(2, 3),
+        )
+        if not np.allclose(
+            planned_positions,
+            actor_matrices[index, :, :3, 3],
+            rtol=0.0,
+            atol=1.0e-12,
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} planned actor positions do not align with their array"
+            )
+        observed_sources = _finite_record_array(
+            record.get("source_positions_m"),
+            owner=f"frame {index} source readback positions",
+            shape=(2, 3),
+        )
+        if not np.allclose(
+            observed_sources,
+            source_positions[index],
+            rtol=0.0,
+            atol=1.0e-12,
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} source readback positions do not align with their array"
+            )
+        record_visibility = record.get("semantic_visibility_pixels")
+        if (
+            not isinstance(record_visibility, list)
+            or len(record_visibility) != 2
+            or any(
+                isinstance(value, bool) or not isinstance(value, int)
+                for value in record_visibility
+            )
+            or record_visibility != visibility[index].tolist()
+        ):
+            raise CurrentVisualReviewError(
+                f"frame {index} semantic visibility does not align with actor axes"
+            )
+
+    return _PoseReadbackEvidence(
+        planned_actor_matrices=actor_matrices,
+        planned_skin_root_matrices=planned_skin_roots,
+        actual_skin_root_matrices=actual_skin_roots,
+        actual_agent_camera_poses=actual_agent_poses,
+        actual_sensor_poses=actual_sensor_pose_array,
+        actual_logical_listener_poses=actual_listener_poses,
+        actor_axis_order=actor_axis_order,
+        source_axis_order=source_axis_order,
+        sensor_axis_order=tuple(sensor_axis_order),
+        axis_bindings=tuple(checked_bindings),
+    )
+
+
+def _object_id_pixel_record(
+    image: np.ndarray, runtime_object_id: int
+) -> dict[str, Any]:
+    rows, columns = np.nonzero(image == runtime_object_id)
+    count = int(rows.size)
+    bbox = None
+    if count:
+        x_min = int(columns.min())
+        x_max = int(columns.max())
+        y_min = int(rows.min())
+        y_max = int(rows.max())
+        bbox = {
+            "x_min": x_min,
+            "y_min": y_min,
+            "x_max": x_max,
+            "y_max": y_max,
+            "width_pixels": x_max - x_min + 1,
+            "height_pixels": y_max - y_min + 1,
+        }
+    return {
+        "runtime_object_id": runtime_object_id,
+        "pixel_count": count,
+        "bbox_xyxy": bbox,
+    }
+
+
+def _object_id_readback_evidence(
+    output_root: Path,
+    receipt: Mapping[str, Any],
+    artifacts: Mapping[str, Any],
+    *,
+    rgb: np.ndarray,
+    records: list[dict[str, Any]],
+    pose_readback: _PoseReadbackEvidence | None,
+) -> _ObjectIDReadbackEvidence | None:
+    metadata = receipt.get("object_id_visibility")
+    artifact_present = _OBJECT_ID_ARTIFACT in artifacts
+    if metadata is None and not artifact_present:
+        return None
+    if not isinstance(metadata, Mapping) or not artifact_present:
+        raise CurrentVisualReviewError(
+            "object-ID evidence is partial; legacy captures must remain pending"
+        )
+    if pose_readback is None:
+        raise CurrentVisualReviewError(
+            "object-ID evidence requires current pose/sensor readback"
+        )
+    frame_count = int(rgb.shape[0])
+    sensor_uuid = metadata.get("sensor_uuid")
+    if (
+        metadata.get("status") != "native_object_id_raster_recorded"
+        or metadata.get("semantic_sensor_target") != "OBJECT_ID"
+        or metadata.get("frame_count") != frame_count
+        or metadata.get("runtime_id_scope")
+        != "one_simulator_invocation_not_stable_across_runs"
+        or metadata.get("runtime_id_mapping_authority")
+        != "articulated_object.object_id_readback"
+        or metadata.get("candidate_filtering") != "disabled"
+        or metadata.get("candidate_legality_effect") != "descriptor_only"
+        or metadata.get("zero_pixels_affect_legality") is not False
+        or not isinstance(sensor_uuid, str)
+        or not sensor_uuid
+    ):
+        raise CurrentVisualReviewError("object-ID visibility metadata is invalid")
+    if sensor_uuid not in pose_readback.sensor_axis_order:
+        raise CurrentVisualReviewError(
+            "object-ID sensor is absent from actual sensor pose order"
+        )
+    actors = receipt.get("actors")
+    if not isinstance(actors, Mapping):
+        raise CurrentVisualReviewError("object-ID evidence lacks actor identities")
+    actor_ids = _string_axis(actors.get("actor_ids"), owner="actor IDs", length=2)
+    source_ids = _string_axis(actors.get("source_ids"), owner="source IDs", length=2)
+    raw_emitter_names = actors.get("emitter_link_names")
+    if (
+        not isinstance(raw_emitter_names, list)
+        or len(raw_emitter_names) != 2
+        or any(not isinstance(value, str) or not value for value in raw_emitter_names)
+    ):
+        raise CurrentVisualReviewError(
+            "emitter link names must contain two nonempty strings"
+        )
+    emitter_names = (str(raw_emitter_names[0]), str(raw_emitter_names[1]))
+    raw_runtime_ids = actors.get("runtime_object_ids")
+    if (
+        not isinstance(raw_runtime_ids, list)
+        or len(raw_runtime_ids) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in raw_runtime_ids
+        )
+        or len(set(raw_runtime_ids)) != 2
+    ):
+        raise CurrentVisualReviewError(
+            "actor runtime object IDs must be two unique nonnegative integers"
+        )
+    runtime_object_ids = (int(raw_runtime_ids[0]), int(raw_runtime_ids[1]))
+    bindings = actors.get("axis_bindings")
+    if not isinstance(bindings, list) or len(bindings) != 2:
+        raise CurrentVisualReviewError(
+            "object-ID evidence requires two actor/source axis bindings"
+        )
+    for axis, binding in enumerate(bindings):
+        if (
+            not isinstance(binding, Mapping)
+            or binding.get("axis_index") != axis
+            or binding.get("actor_id") != actor_ids[axis]
+            or binding.get("source_id") != source_ids[axis]
+            or binding.get("emitter_link_name") != emitter_names[axis]
+            or binding.get("runtime_object_id") != runtime_object_ids[axis]
+        ):
+            raise CurrentVisualReviewError(
+                f"object-ID actor/source mapping is damaged at axis {axis}"
+            )
+    path = _artifact_path(
+        output_root, artifacts, name=_OBJECT_ID_ARTIFACT, required=True
+    )
+    assert path is not None
+    raster = _optional_frame_array(
+        path,
+        owner="object-ID raster artifact",
+        frame_count=frame_count,
+        suffix_shape=(rgb.shape[1], rgb.shape[2]),
+        dtype_kind="integer",
+    )
+    assert raster is not None
+    per_actor = metadata.get("per_actor")
+    if not isinstance(per_actor, Mapping) or set(per_actor) != set(actor_ids):
+        raise CurrentVisualReviewError(
+            "object-ID metadata must contain exactly the two actor records"
+        )
+    per_frame: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for frame_index in range(frame_count):
+        computed = tuple(
+            _object_id_pixel_record(raster[frame_index], runtime_object_id)
+            for runtime_object_id in runtime_object_ids
+        )
+        record = records[frame_index]
+        if record.get("object_id_pixel_counts") != [
+            item["pixel_count"] for item in computed
+        ] or record.get("object_id_bboxes_xyxy") != [
+            item["bbox_xyxy"] for item in computed
+        ]:
+            raise CurrentVisualReviewError(
+                f"frame {frame_index} object-ID counts/bboxes differ from raster"
+            )
+        per_frame.append((computed[0], computed[1]))
+    for axis, actor_id in enumerate(actor_ids):
+        actor_record = per_actor.get(actor_id)
+        if not isinstance(actor_record, Mapping):
+            raise CurrentVisualReviewError(
+                f"object-ID metadata actor {actor_id!r} is invalid"
+            )
+        counts = [frame[axis]["pixel_count"] for frame in per_frame]
+        bboxes = [frame[axis]["bbox_xyxy"] for frame in per_frame]
+        if (
+            actor_record.get("runtime_object_id") != runtime_object_ids[axis]
+            or actor_record.get("pixel_counts_by_frame") != counts
+            or actor_record.get("bboxes_xyxy_by_frame") != bboxes
+            or actor_record.get("positive_pixel_frame_count")
+            != int(np.count_nonzero(counts))
+            or actor_record.get("zero_pixel_frame_indices")
+            != [index for index, count in enumerate(counts) if count == 0]
+        ):
+            raise CurrentVisualReviewError(
+                f"object-ID metadata differs from raster for actor {actor_id!r}"
+            )
+    authority_status = metadata.get("actor_modal_visibility_authority_status")
+    if authority_status != "pending_fresh_runtime_a_b_and_visual_review":
+        raise CurrentVisualReviewError(
+            "object-ID modal authority must remain pending fresh-runtime A/B"
+        )
+    return _ObjectIDReadbackEvidence(
+        raster=raster,
+        sensor_uuid=sensor_uuid,
+        runtime_object_ids=runtime_object_ids,
+        actor_ids=(actor_ids[0], actor_ids[1]),
+        source_ids=(source_ids[0], source_ids[1]),
+        emitter_link_names=(emitter_names[0], emitter_names[1]),
+        per_frame_records=tuple(per_frame),
+        authority_status=authority_status,
+    )
 
 
 def _depth_range(depth: np.ndarray) -> tuple[float, float]:
@@ -283,6 +1169,8 @@ def _frame_metadata(
     actor_matrices: np.ndarray | None,
     source_positions: np.ndarray | None,
     visibility: np.ndarray | None,
+    pose_readback: _PoseReadbackEvidence | None,
+    object_id_readback: _ObjectIDReadbackEvidence | None,
 ) -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
     for index, record in enumerate(records):
@@ -315,6 +1203,49 @@ def _frame_metadata(
             entry["semantic_visibility_pixels"] = pixels
         elif visibility is not None:
             entry["semantic_visibility_pixels"] = visibility[index].tolist()
+        if pose_readback is not None:
+            entry["pose_component_order"] = list(_POSE_COMPONENT_ORDER)
+            entry["actor_source_axis_bindings"] = list(pose_readback.axis_bindings)
+            entry["planned_applied_skin_root_positions_m"] = (
+                pose_readback.planned_skin_root_matrices[index, :, :3, 3].tolist()
+            )
+            entry["actual_skin_root_readback_positions_m"] = (
+                pose_readback.actual_skin_root_matrices[index, :, :3, 3].tolist()
+            )
+            entry["actual_agent_camera_pose_txyz_qxyzw"] = (
+                pose_readback.actual_agent_camera_poses[index].tolist()
+            )
+            entry["actual_sensor_poses_txyz_qxyzw"] = {
+                sensor_uuid: pose_readback.actual_sensor_poses[
+                    index, sensor_index
+                ].tolist()
+                for sensor_index, sensor_uuid in enumerate(
+                    pose_readback.sensor_axis_order
+                )
+            }
+            entry["actual_logical_listener_pose_txyz_qxyzw"] = (
+                pose_readback.actual_logical_listener_poses[index].tolist()
+            )
+        if object_id_readback is None:
+            entry["object_id_visibility"] = {
+                "status": "pending_legacy_capture_without_object_id_raster",
+                "actor_modal_visibility_authority": None,
+            }
+        else:
+            entry["object_id_visibility"] = {
+                "status": "object_id_raster_recorded_authority_pending_a_b",
+                "sensor_uuid": object_id_readback.sensor_uuid,
+                "runtime_object_ids": list(object_id_readback.runtime_object_ids),
+                "actor_ids": list(object_id_readback.actor_ids),
+                "source_ids": list(object_id_readback.source_ids),
+                "emitter_link_names": list(object_id_readback.emitter_link_names),
+                "per_actor": [
+                    dict(value) for value in object_id_readback.per_frame_records[index]
+                ],
+                "actor_modal_visibility_authority_status": (
+                    object_id_readback.authority_status
+                ),
+            }
         values.append(entry)
     return values
 
@@ -338,6 +1269,22 @@ def _review_html(
     *, title: str, images: Mapping[str, list[str]], frames: list[dict[str, Any]]
 ) -> str:
     payload = _json_for_script({"images": images, "frames": frames})
+    object_id_figure = (
+        "<figure><figcaption>OBJECT_ID (false color; per-run IDs)</figcaption>"
+        '<img id="object-id-panel" alt="OBJECT_ID frame"></figure>'
+        if "object_id" in images
+        else ""
+    )
+    object_id_declaration = (
+        'const objectId = document.getElementById("object-id-panel");'
+        if "object_id" in images
+        else ""
+    )
+    object_id_render = (
+        "objectId.src = review.images.object_id[index];"
+        if "object_id" in images
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -366,7 +1313,7 @@ textarea {{ width: 100%; box-sizing: border-box; min-height: 150px; resize: vert
 <body>
 <main>
   <h1>{escape(title)}</h1>
-  <p class="small">Offline synchronized RGB / depth / semantic inspection.</p>
+  <p class="small">Offline synchronized RGB / depth / semantic / optional OBJECT_ID inspection.</p>
   <section class="warning"><strong>Research-only visual review.</strong> This page does not alter the capture receipt, create a verdict, count an episode, or establish formal/admission evidence.</section>
   <section class="controls" aria-label="Synchronized frame selector">
     <button id="previous" type="button">Previous frame</button>
@@ -378,6 +1325,7 @@ textarea {{ width: 100%; box-sizing: border-box; min-height: 150px; resize: vert
     <figure><figcaption>RGB</figcaption><img id="rgb-panel" alt="RGB frame"></figure>
     <figure><figcaption>Depth (global grayscale preview)</figcaption><img id="depth-panel" alt="Depth frame"></figure>
     <figure><figcaption>Semantic (false color; actor 210 yellow, 211 pink)</figcaption><img id="semantic-panel" alt="Semantic frame"></figure>
+    {object_id_figure}
   </section>
   <h2>Frame state</h2>
   <pre id="frame-details"></pre>
@@ -392,6 +1340,7 @@ const slider = document.getElementById("frame-slider");
 const rgb = document.getElementById("rgb-panel");
 const depth = document.getElementById("depth-panel");
 const semantic = document.getElementById("semantic-panel");
+{object_id_declaration}
 const label = document.getElementById("frame-label");
 const details = document.getElementById("frame-details");
 const notes = document.getElementById("reviewer-notes");
@@ -405,6 +1354,7 @@ function render(value) {{
   rgb.src = review.images.rgb[index];
   depth.src = review.images.depth[index];
   semantic.src = review.images.semantic[index];
+  {object_id_render}
   label.textContent = `frame ${{frame.frame_index}} · ${{frame.time_seconds.toFixed(6)}} s · ${{frame.pts_ticks}} ticks`;
   details.textContent = JSON.stringify(frame, null, 2);
 }}
@@ -538,16 +1488,38 @@ def generate_current_visual_review(
         suffix_shape=(2,),
         dtype_kind="integer",
     )
+    pose_readback = _pose_readback_evidence(
+        output_root,
+        receipt,
+        artifacts,
+        frame_count=frame_count,
+        records=records,
+        actor_matrices=actor_matrices,
+        source_positions=source_positions,
+        visibility=visibility,
+    )
+    object_id_readback = _object_id_readback_evidence(
+        output_root,
+        receipt,
+        artifacts,
+        rgb=rgb,
+        records=records,
+        pose_readback=pose_readback,
+    )
     depth_minimum, depth_maximum = _depth_range(depth)
     metadata = _frame_metadata(
         records,
         actor_matrices=actor_matrices,
         source_positions=source_positions,
         visibility=visibility,
+        pose_readback=pose_readback,
+        object_id_readback=object_id_readback,
     )
     review_root = _review_directory(output_root, review_directory)
     frames_root = review_root / "frames"
     images = {"rgb": [], "depth": [], "semantic": []}
+    if object_id_readback is not None:
+        images["object_id"] = []
     for modality in images:
         (frames_root / modality).mkdir(parents=True)
     for index in range(frame_count):
@@ -555,6 +1527,7 @@ def generate_current_visual_review(
         rgb_relative = Path("frames") / "rgb" / filename
         depth_relative = Path("frames") / "depth" / filename
         semantic_relative = Path("frames") / "semantic" / filename
+        object_id_relative = Path("frames") / "object_id" / filename
         _save_png(review_root / rgb_relative, rgb[index], owner="RGB preview")
         _save_png(
             review_root / depth_relative,
@@ -569,6 +1542,13 @@ def generate_current_visual_review(
         images["rgb"].append(rgb_relative.as_posix())
         images["depth"].append(depth_relative.as_posix())
         images["semantic"].append(semantic_relative.as_posix())
+        if object_id_readback is not None:
+            _save_png(
+                review_root / object_id_relative,
+                _semantic_preview(object_id_readback.raster[index]),
+                owner="object-ID preview",
+            )
+            images["object_id"].append(object_id_relative.as_posix())
     html_path = review_root / "index.html"
     html_path.write_text(
         _review_html(

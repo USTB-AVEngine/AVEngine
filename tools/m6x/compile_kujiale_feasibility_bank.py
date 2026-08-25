@@ -102,7 +102,10 @@ def _rectangle_footprint(
 
 
 def _runtime_obstacles(
-    metadata: Mapping[str, Any], emitter_heights_m: Mapping[str, float]
+    metadata: Mapping[str, Any],
+    emitter_heights_m: Mapping[str, float],
+    *,
+    block_all_ground_objects: bool = False,
 ) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
     raw_objects = metadata.get("objects")
     if not isinstance(raw_objects, list):
@@ -134,7 +137,9 @@ def _runtime_obstacles(
             bounds[0, 2] - 1.0e-9 <= height <= bounds[1, 2] + 1.0e-9
             for height in emitter_heights_m.values()
         )
-        blocks = role == GROUND_BLOCKER and intersects_emitter_height
+        blocks = role == GROUND_BLOCKER and (
+            block_all_ground_objects or intersects_emitter_height
+        )
         if blocks:
             blocking_object_ids.add(object_id)
         elif role == GROUND_BLOCKER:
@@ -198,11 +203,32 @@ def _runtime_obstacles(
         "metadata_object_count": len(raw_objects),
         "runtime_footprint_part_count": len(records),
         "blocking_object_count": len(blocking_object_ids),
+        "blocking_policy": (
+            "all_declared_ground_blocker_footprints"
+            if block_all_ground_objects
+            else "declared_ground_blockers_intersecting_emitter_heights"
+        ),
         "blocking_object_ids": sorted(blocking_object_ids),
         "ground_objects_clear_of_both_emitter_heights": sorted(
             nonblocking_height_object_ids
         ),
     }
+
+
+def build_kujiale_runtime_obstacles(
+    metadata: Mapping[str, Any], emitter_heights_m: Mapping[str, float]
+) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
+    """Public CPU adapter shared by Kujiale feasibility/viewpoint tools."""
+
+    return _runtime_obstacles(metadata, emitter_heights_m)
+
+
+def build_kujiale_camera_obstacles(
+    metadata: Mapping[str, Any],
+) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
+    """Return every declared ground footprint as CPU camera floor blockage."""
+
+    return _runtime_obstacles(metadata, {}, block_all_ground_objects=True)
 
 
 def _save_region_npz(path: Path, region: Any) -> None:
@@ -340,7 +366,10 @@ def run(args: argparse.Namespace) -> Path:
             listener_position_m=listener,
             listener_yaw_deg=listener_yaw,
             camera_hfov_degrees=hfov,
-            room_label="Kujiale 0020 / livingroom 491",
+            room_label=(
+                f"{metadata.get('room_id', 'Kujiale')} / "
+                f"{metadata.get('room_type', 'room')}"
+            ),
             navigation_authority_label="Kujiale polygon + USD furniture footprints",
         )
         Image.fromarray(overview, mode="RGB").save(
