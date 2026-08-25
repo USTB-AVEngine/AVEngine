@@ -43,8 +43,8 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.contracts.transforms import normalized_quaternion_xyzw
-from avengine.m1.contracts import ValidatedM1Inputs
-from avengine.m1.evidence import array_sha256
+from avengine.rooms.contracts import ValidatedM1Inputs
+from avengine.rooms.evidence import array_sha256
 from avengine.assets.actions import BakedActionSet, read_baked_actions_npz
 from avengine.assets.contracts import (
     FORMAL_MODALITIES,
@@ -410,7 +410,7 @@ def _reload_validated_context(
     # A dataclass can be constructed directly and its dictionaries are mutable.
     # Reloading both sources proves that the capture consumes the exact current
     # bytes accepted by the contract entrypoints, not a caller-mutated snapshot.
-    from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+    from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
     from avengine.assets.contracts import load_and_validate_inputs as load_m2_inputs
 
     reloaded_m2 = load_m2_inputs(inputs.asset_path, inputs.request_path)
@@ -436,7 +436,7 @@ def _reload_research_review_context(
     errors = validate_research_review_context(inputs, room_inputs)
     if errors:
         raise HabitatCaptureError("; ".join(errors))
-    from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+    from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
 
     reloaded_m2 = load_research_review_inputs(inputs.asset_path, inputs.request_path)
     reloaded_m1 = load_m1_inputs(room_inputs.room_path, room_inputs.request_path)
@@ -1355,11 +1355,11 @@ def _capture_m2_states(
 
     # M1 owns room resolution and the one formal camera calibration.  Import
     # lazily so unit tests for the fixed-state core never import Habitat.
-    from avengine.m1.contracts import (
+    from avengine.rooms.contracts import (
         validate_loaded_scene_asset_graph,
         validate_scene_asset_graph,
     )
-    from avengine.m1.habitat_capture import (
+    from avengine.rooms.habitat_capture import (
         _make_configuration,
         _resolved_assets,
         discover_runtime_root,
@@ -1716,7 +1716,7 @@ def capture_m2_installed_research_review(
         raise HabitatCaptureError(
             "installed-prefix M2 research currently supports only blender_custom rooms"
         )
-    from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
+    from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 
     try:
         installed_runtime = prepare_installed_habitat_runtime(

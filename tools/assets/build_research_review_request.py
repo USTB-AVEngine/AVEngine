@@ -14,7 +14,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.assets.actions import read_baked_actions_npz
 from avengine.assets.contracts import validate_animal_asset_package
 from avengine.assets.habitat_capture import load_research_review_inputs

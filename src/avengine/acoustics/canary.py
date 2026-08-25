@@ -31,7 +31,7 @@ from avengine.contracts.json_io import (
     resolve_declared_path,
     write_json,
 )
-from avengine.m1.contracts import validate_room_manifest
+from avengine.rooms.contracts import validate_room_manifest
 from avengine.acoustics.contracts import (
     ImmutableFileSnapshot,
     read_immutable_file_snapshot,

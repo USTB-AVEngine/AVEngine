@@ -9,7 +9,7 @@ from avengine.capture.mixed_capture import (
     locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
 )
-from avengine.m6x.capture_adapter import (
+from avengine.rooms.capture_adapter import (
     CaptureData,
     HUMAN_BEAGLE_CAPTURE_ADAPTER,
 )

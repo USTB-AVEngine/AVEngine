@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
+from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 from avengine.capture.mixed_capture import MixedCaptureError
 from avengine.capture.replicacad_capture import (
     ReplicaCADCaptureError,

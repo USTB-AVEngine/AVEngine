@@ -22,7 +22,7 @@ from avengine.backends.rlr.sdk import ExternalRlrSdkError, require_outside_git_c
 from avengine.contracts.json_io import load_json, write_json
 from avengine.contracts.transforms import compose_transforms
 from avengine.current_installed_runtime import is_current_installed_runtime_identity
-from avengine.m1.contracts import (
+from avengine.rooms.contracts import (
     CAPTURE_SCHEMA,
     ContractError,
     validate_capture_request,

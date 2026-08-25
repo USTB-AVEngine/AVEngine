@@ -10,7 +10,7 @@ import pytest
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-TOOL_PATH = REPOSITORY / "tools/m6z/author_current_residential_visual_episode.py"
+TOOL_PATH = REPOSITORY / "tools/rooms/author_current_residential_visual_episode.py"
 SPEC = importlib.util.spec_from_file_location(
     "current_residential_visual_author", TOOL_PATH
 )

@@ -319,7 +319,7 @@ def _mock_installed_runtime(
     quaternion.__file__ = str(tmp_path / "quaternion.py")
 
     monkeypatch.setattr(
-        "avengine.m1.habitat_capture.discover_runtime_prefix",
+        "avengine.rooms.habitat_capture.discover_runtime_prefix",
         lambda _explicit=None: prefix,
     )
     monkeypatch.setattr(
@@ -405,7 +405,7 @@ def test_current_runtime_uses_explicit_inputs_and_records_identity_without_hashe
     magnum_site = tmp_path / "external-magnum"
     magnum_site.mkdir()
     monkeypatch.setattr(
-        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        "avengine.rooms.habitat_capture.discover_magnum_python_site",
         lambda explicit: magnum_site,
     )
 
@@ -1052,7 +1052,7 @@ def test_current_runtime_prepares_then_preloads_then_imports_binding(
         if module_name == binding_name or module_name.startswith(binding_name + "."):
             monkeypatch.delitem(sys.modules, module_name, raising=False)
     monkeypatch.setattr(
-        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        "avengine.rooms.habitat_capture.discover_magnum_python_site",
         lambda explicit: magnum_site,
     )
     events: list[tuple[str, object]] = []
@@ -1141,7 +1141,7 @@ def test_current_runtime_reuses_binding_only_after_exact_mapping_precheck(
     magnum_site = tmp_path / "external-magnum"
     magnum_site.mkdir()
     monkeypatch.setattr(
-        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        "avengine.rooms.habitat_capture.discover_magnum_python_site",
         lambda explicit: magnum_site,
     )
     binding_name = "habitat_sim._ext.habitat_sim_bindings"
@@ -1189,7 +1189,7 @@ def test_current_runtime_rejects_loaded_binding_mismatch_before_sdk_cdll(
     magnum_site = tmp_path / "external-magnum"
     magnum_site.mkdir()
     monkeypatch.setattr(
-        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        "avengine.rooms.habitat_capture.discover_magnum_python_site",
         lambda explicit: magnum_site,
     )
     binding_name = "habitat_sim._ext.habitat_sim_bindings"
@@ -1233,7 +1233,7 @@ def test_current_runtime_rejects_external_preloaded_habitat_before_sdk_cdll(
     monkeypatch.setitem(sys.modules, "habitat_sim", habitat)
     monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
     monkeypatch.setattr(
-        "avengine.m1.habitat_capture.discover_magnum_python_site",
+        "avengine.rooms.habitat_capture.discover_magnum_python_site",
         lambda explicit: magnum_site,
     )
     monkeypatch.setattr(

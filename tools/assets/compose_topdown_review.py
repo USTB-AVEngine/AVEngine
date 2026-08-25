@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import load_json, sha256_file
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
-from avengine.m1.habitat_capture import (
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.habitat_capture import (
     _resolved_assets,
     _resolved_scene,
     discover_runtime_root,

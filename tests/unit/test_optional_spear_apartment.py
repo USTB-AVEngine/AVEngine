@@ -19,7 +19,7 @@ from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 _RUNNER_SPEC = importlib.util.spec_from_file_location(
     "run_spear_apartment_canary",
-    Path(__file__).resolve().parents[2] / "tools/m6y/run_spear_apartment_canary.py",
+    Path(__file__).resolve().parents[2] / "tools/rooms/run_spear_apartment_canary.py",
 )
 assert _RUNNER_SPEC is not None and _RUNNER_SPEC.loader is not None
 _RUNNER = importlib.util.module_from_spec(_RUNNER_SPEC)

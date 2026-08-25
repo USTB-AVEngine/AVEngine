@@ -33,11 +33,11 @@ def _stub_heavy_m6_verifiers(monkeypatch: pytest.MonkeyPatch) -> None:
     """The builder integration fixture exercises Git/release mechanics only."""
 
     monkeypatch.setattr(
-        "avengine.m6.canary.verify_controlled_canary_evidence",
+        "avengine.rooms.feasibility_canary.verify_controlled_canary_evidence",
         lambda path: ("pass", [{"check_id": "fixture", "status": "pass"}]),
     )
     monkeypatch.setattr(
-        "avengine.m6.room_attempts.verify_room_qualification_attempt",
+        "avengine.rooms.room_attempts.verify_room_qualification_attempt",
         lambda path: ("pass", [{"check_id": "fixture", "status": "pass"}]),
     )
 
@@ -640,7 +640,7 @@ def test_prepare_refuses_failed_authoritative_canary_verifier(
 ) -> None:
     avengine, habitat, request, _, _ = _build_request_fixture(tmp_path)
     monkeypatch.setattr(
-        "avengine.m6.canary.verify_controlled_canary_evidence",
+        "avengine.rooms.feasibility_canary.verify_controlled_canary_evidence",
         lambda path: (
             "fail",
             [{"check_id": "artifact_closure", "status": "fail"}],

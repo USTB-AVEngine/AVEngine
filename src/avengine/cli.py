@@ -23,7 +23,7 @@ from avengine.acoustic_profiles import (
     load_default_acoustic_profile_registry,
 )
 from avengine.contracts.json_io import file_record, load_json, sha256_file, write_json
-from avengine.m1.contracts import (
+from avengine.rooms.contracts import (
     ContractError,
     EVIDENCE_SCHEMA_V2,
     ValidatedM1Inputs,
@@ -32,12 +32,12 @@ from avengine.m1.contracts import (
     validate_capture_request,
     validate_room_manifest,
 )
-from avengine.m1.evidence import (
+from avengine.rooms.evidence import (
     finalize_evidence,
     make_check,
     verify_evidence_artifacts,
 )
-from avengine.m1.habitat_capture import build_navmesh, capture_m1
+from avengine.rooms.habitat_capture import build_navmesh, capture_m1
 from avengine.acoustics.canary import (
     load_and_verify_canary_evidence,
     run_material_activation_canary,
@@ -110,8 +110,8 @@ from avengine.timeline.current_visual_review import (
     generate_current_visual_review,
 )
 from avengine.timeline.timeline import validate_episode_request
-from avengine.m6.rooms import load_room_registry
-from avengine.m6.canary import (
+from avengine.rooms.rooms import load_room_registry
+from avengine.rooms.feasibility_canary import (
     M6CanaryError,
     load_controlled_canary_request,
     run_controlled_canary,

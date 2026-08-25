@@ -32,8 +32,8 @@ from avengine.contracts.json_io import (  # noqa: E402
     sha256_file,
     write_json,
 )
-from avengine.m1.contracts import validate_room_manifest  # noqa: E402
-from avengine.m6.rooms import load_room_registry  # noqa: E402
+from avengine.rooms.contracts import validate_room_manifest  # noqa: E402
+from avengine.rooms.rooms import load_room_registry  # noqa: E402
 from avengine.runtime_profiles import (  # noqa: E402
     load_room_runtime_profile_registry,
 )
@@ -111,7 +111,7 @@ def _resolve_acoustic_selection_binding(
         load_default_acoustic_profile_registry,
         resolve_acoustic_profile,
     )
-    from avengine.m6.rooms import load_room_registry  # noqa: PLC0415
+    from avengine.rooms.rooms import load_room_registry  # noqa: PLC0415
 
     acoustic_registry = (
         load_acoustic_profile_registry(acoustic_profile_registry_path)
@@ -535,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
     # Imported lazily so --help and sharding dry checks stay usable without
     # the native Habitat runtime installed. Root validation is file-only and
     # does not prepare or import the native binding on resume.
-    from avengine.m1.habitat_capture import (  # noqa: PLC0415
+    from avengine.rooms.habitat_capture import (  # noqa: PLC0415
         discover_pbr_asset_root,
         prepare_installed_habitat_runtime,
     )

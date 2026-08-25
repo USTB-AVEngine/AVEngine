@@ -447,7 +447,7 @@ def main() -> int:
             os.environ["AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"] = str(
                 args.magnum_python_site.resolve()
             )
-        from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
+        from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 
         prepare_installed_habitat_runtime(
             rlr_sdk_root=(

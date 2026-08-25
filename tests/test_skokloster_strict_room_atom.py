@@ -41,12 +41,12 @@ ADAPTER = (
 PREPARER = (
     ROOT / "tools/prepare_skokloster_interchange_glb.py"
     if IS_STAGING_LAYOUT
-    else ROOT / "tools/m6y/prepare_skokloster_interchange_glb.py"
+    else ROOT / "tools/rooms/prepare_skokloster_interchange_glb.py"
 )
 IMPORTER = (
     ROOT / "tools/editor/import_spear_skokloster_editor.py"
     if IS_STAGING_LAYOUT
-    else ROOT / "tools/m6y/import_spear_skokloster_editor.py"
+    else ROOT / "tools/ue/import_spear_skokloster_editor.py"
 )
 
 

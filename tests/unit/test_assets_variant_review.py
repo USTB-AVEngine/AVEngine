@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
-from avengine.m1.contracts import ValidatedM1Inputs
+from avengine.rooms.contracts import ValidatedM1Inputs
 from avengine.assets.contracts import ValidatedM2Inputs
 from avengine.assets.timeline import M2CanaryTrajectory
 from avengine.assets import variant_review

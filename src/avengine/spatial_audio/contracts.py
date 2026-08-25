@@ -25,7 +25,7 @@ from avengine.contracts.transforms import (
     normalized_quaternion_xyzw,
     validate_transform,
 )
-from avengine.m1.contracts import validate_capture_request as validate_m1_capture_request
+from avengine.rooms.contracts import validate_capture_request as validate_m1_capture_request
 from avengine.assets.contracts import (
     compute_pose_hash,
     validate_animal_asset_package,

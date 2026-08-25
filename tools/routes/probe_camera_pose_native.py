@@ -21,9 +21,9 @@ import numpy as np
 from PIL import Image
 
 from avengine.contracts.json_io import file_record, write_json
-from avengine.m1.contracts import load_and_validate_inputs
-from avengine.m1.evidence import array_sha256
-from avengine.m1.habitat_capture import (
+from avengine.rooms.contracts import load_and_validate_inputs
+from avengine.rooms.evidence import array_sha256
+from avengine.rooms.habitat_capture import (
     _import_installed_habitat,
     _installed_runtime_paths,
     _make_configuration,

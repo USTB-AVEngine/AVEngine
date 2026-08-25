@@ -370,7 +370,7 @@ def _prepare_installed_habitat_runtime_import(
 ) -> Any:
     """Activate M1 isolation without importing the native Habitat binding."""
 
-    from avengine.m1.habitat_capture import _prepare_installed_habitat_import
+    from avengine.rooms.habitat_capture import _prepare_installed_habitat_import
 
     return _prepare_installed_habitat_import(
         prefix,
@@ -381,7 +381,7 @@ def _prepare_installed_habitat_runtime_import(
 def _prepare_installed_habitat_runtime_dependencies(prepared: Any) -> None:
     """Initialize quaternion/Magnum before process-global RLR symbols."""
 
-    from avengine.m1.habitat_capture import (
+    from avengine.rooms.habitat_capture import (
         _import_prepared_installed_habitat_dependencies,
     )
 
@@ -393,7 +393,7 @@ def _import_prepared_installed_habitat_runtime(
 ) -> tuple[ModuleType, ModuleType, Path, Path, Any]:
     """Import a prepared M1 runtime after shared explicit RLR selection."""
 
-    from avengine.m1.habitat_capture import (
+    from avengine.rooms.habitat_capture import (
         _HABITAT_BINDING_MODULE_NAME,
         _import_prepared_installed_habitat_with_rlr,
         _installed_runtime_paths,
@@ -419,7 +419,7 @@ def _load_installed_habitat_runtime(
     # M1 owns the common installed-prefix/Magnum activation sequence.  It
     # imports quaternion before habitat_sim, validates the external Magnum
     # Python site, and rejects modules or the physics config outside *prefix*.
-    from avengine.m1.habitat_capture import (
+    from avengine.rooms.habitat_capture import (
         _import_installed_habitat,
         _installed_runtime_paths,
     )
@@ -468,14 +468,14 @@ def load_habitat_runtime(
                 + ", ".join(missing)
             )
     try:
-        from avengine.m1.habitat_capture import discover_runtime_prefix
+        from avengine.rooms.habitat_capture import discover_runtime_prefix
 
         prefix = discover_runtime_prefix(runtime_prefix)
         prefix = require_outside_git_checkout(
             prefix, owner="AVENGINE_HABITAT_RUNTIME_PREFIX"
         )
         if runtime_mode == RUNTIME_MODE_CURRENT_INSTALLED:
-            from avengine.m1.habitat_capture import discover_magnum_python_site
+            from avengine.rooms.habitat_capture import discover_magnum_python_site
 
             # M1 owns isolation plus explicit SDK selection before import.
             magnum_site = require_outside_git_checkout(

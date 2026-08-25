@@ -24,7 +24,7 @@ from avengine.contracts.transforms import (
 from avengine.current_installed_runtime import (
     is_current_installed_runtime_identity as _is_current_installed_runtime_identity,
 )
-from avengine.m1.contracts import (
+from avengine.rooms.contracts import (
     validate_capture_request as validate_m1_capture_request,
 )
 from avengine.acoustics.contracts import validate_canary_request as validate_m3_canary_request

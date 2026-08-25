@@ -19,7 +19,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m1.contracts import validate_room_manifest
+from avengine.rooms.contracts import validate_room_manifest
 from avengine.acoustics.contracts import (
     AcousticSceneContractError,
     load_and_validate_package,

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from avengine.contracts.json_io import sha256_file
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.assets.variant_review import (
     ROOM_PRESETS,
     VARIANT_REVIEW_EVIDENCE_FILENAME,

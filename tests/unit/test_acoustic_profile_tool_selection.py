@@ -12,7 +12,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m6 import rooms
+from avengine.rooms import rooms
 from tools.acoustics import render_rir_cache as rir_tool
 from tools.m7 import run_habitat_room_batch as habitat_batch
 
@@ -1032,7 +1032,7 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     )
     capture_module = ModuleType("avengine.capture.mp3d_capture")
     capture_module.capture_mp3d_route = lambda **_kwargs: None
-    habitat_module = ModuleType("avengine.m1.habitat_capture")
+    habitat_module = ModuleType("avengine.rooms.habitat_capture")
 
     def fail_if_resume_prepares_runtime(**_kwargs):
         raise AssertionError("resume-only batch must not prepare native runtime")
@@ -1041,7 +1041,7 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     habitat_module.discover_pbr_asset_root = (
         lambda explicit: Path(explicit).resolve()
     )
-    monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
+    monkeypatch.setitem(sys.modules, "avengine.rooms.habitat_capture", habitat_module)
     monkeypatch.setitem(
         sys.modules,
         "avengine.capture.mp3d_capture",
@@ -1150,14 +1150,14 @@ def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
             route_id=Path(kwargs["route_manifest_path"]).stem,
         )
 
-    habitat_module = ModuleType("avengine.m1.habitat_capture")
+    habitat_module = ModuleType("avengine.rooms.habitat_capture")
     habitat_module.prepare_installed_habitat_runtime = fake_prepare
     habitat_module.discover_pbr_asset_root = (
         lambda explicit: Path(explicit).resolve()
     )
     capture_module = ModuleType("avengine.capture.mp3d_capture")
     capture_module.capture_mp3d_route = fake_capture
-    monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
+    monkeypatch.setitem(sys.modules, "avengine.rooms.habitat_capture", habitat_module)
     monkeypatch.setitem(sys.modules, "avengine.capture.mp3d_capture", capture_module)
 
     result = habitat_batch.main(

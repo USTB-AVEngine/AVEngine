@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPOSITORY / "tools/m6z"))
+sys.path.insert(0, str(REPOSITORY / "tools/rooms"))
 sys.modules.setdefault("cv2", types.ModuleType("cv2"))
-TOOL_PATH = REPOSITORY / "tools/m6z/run_spear_residential_episode.py"
+TOOL_PATH = REPOSITORY / "tools/rooms/run_spear_residential_episode.py"
 SPEC = importlib.util.spec_from_file_location("residential_pixels", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)

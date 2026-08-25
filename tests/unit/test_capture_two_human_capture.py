@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from avengine.m1.habitat_capture import (
+from avengine.rooms.habitat_capture import (
     discover_mp3d_root,
     resolve_installed_runtime_prefix,
 )

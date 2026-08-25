@@ -29,7 +29,7 @@ from avengine.qa.pixel_visibility import (  # noqa: E402
 )
 
 
-RUNNER_PATH = REPOSITORY / "tools/m6y/run_spear_apartment_canary.py"
+RUNNER_PATH = REPOSITORY / "tools/rooms/run_spear_apartment_canary.py"
 RUNNER_SPEC = importlib.util.spec_from_file_location(
     "lead_a_spear_apartment_runner", RUNNER_PATH
 )

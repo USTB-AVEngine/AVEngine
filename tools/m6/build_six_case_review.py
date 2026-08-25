@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from avengine.m6.review import (
+from avengine.rooms.review import (
     build_six_case_review,
     load_six_case_review_request,
     plan_six_case_review,

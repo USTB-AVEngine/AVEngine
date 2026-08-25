@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 
-from avengine.m1.contracts import ContractError, validate_capture_request
+from avengine.rooms.contracts import ContractError, validate_capture_request
 
 
 class CameraPoseError(ValueError):

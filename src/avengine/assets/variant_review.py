@@ -25,7 +25,7 @@ from avengine.contracts.json_io import (
     resolve_declared_path,
     sha256_file,
 )
-from avengine.m1.contracts import ValidatedM1Inputs
+from avengine.rooms.contracts import ValidatedM1Inputs
 from avengine.assets.actions import BakedActionSet, read_baked_actions_npz
 from avengine.assets.contracts import (
     FORMAL_MODALITIES,
@@ -456,7 +456,7 @@ def _reload_variant_context(
     errors = validator(inputs, room_inputs)
     if errors:
         raise VariantReviewError("; ".join(errors))
-    from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+    from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
 
     reloaded_m2 = load_variant_review_inputs(inputs.asset_path, inputs.request_path)
     reloaded_m1 = load_m1_inputs(room_inputs.room_path, room_inputs.request_path)

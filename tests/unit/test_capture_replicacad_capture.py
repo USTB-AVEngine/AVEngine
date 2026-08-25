@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 import avengine.capture.replicacad_capture as replicacad_capture_module
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.capture.replicacad_capture import (
     ReplicaCADCaptureError,
     _assert_selected_closure,

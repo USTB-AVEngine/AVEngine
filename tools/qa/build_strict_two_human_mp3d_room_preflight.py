@@ -31,7 +31,7 @@ from avengine.capture.camera_candidate_gate import (
     HabitatRuntimeCameraProvider,
     evaluate_camera_candidates,
 )
-from avengine.m1.contracts import validate_capture_request
+from avengine.rooms.contracts import validate_capture_request
 from avengine.routes.room_feasibility import (
     TrajectoryBank,
     TrajectoryEpisode,

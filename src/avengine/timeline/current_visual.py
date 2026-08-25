@@ -20,13 +20,13 @@ import numpy as np
 
 from avengine.contracts.json_io import resolve_declared_path, write_json
 from avengine.contracts.transforms import normalized_quaternion_xyzw, transform_error
-from avengine.m1.contracts import (
+from avengine.rooms.contracts import (
     ValidatedM1Inputs,
     load_and_validate_inputs as load_m1_inputs,
     validate_loaded_scene_asset_graph,
     validate_scene_asset_graph,
 )
-from avengine.m1.habitat_capture import (
+from avengine.rooms.habitat_capture import (
     InstalledHabitatRuntime,
     VISUAL_SENSOR_TYPES,
     _state_snapshot,

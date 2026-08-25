@@ -29,7 +29,7 @@ from avengine.contracts.json_io import (
     load_json,
     sha256_file,
 )
-from avengine.m1.contracts import validate_room_manifest
+from avengine.rooms.contracts import validate_room_manifest
 from avengine.acoustics.compiler import (
     AcousticSceneCompileError,
     compile_mp3d_soundspaces_research_scene,

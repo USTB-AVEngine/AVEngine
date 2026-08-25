@@ -810,7 +810,7 @@ def test_replicacad_runner_dry_run_compiles_without_unreal(tmp_path: Path) -> No
     output = tmp_path / "dry_run"
     command = [
         sys.executable,
-        str(REPOSITORY / "tools/m6y/run_spear_replicacad_canary.py"),
+        str(REPOSITORY / "tools/rooms/run_spear_replicacad_canary.py"),
         "--spear-root",
         str(tmp_path / "spear-root-not-needed-for-dry-run"),
         "--unreal-editor",
@@ -838,7 +838,7 @@ def test_environment_probe_has_no_private_data_engine_fallback(
     monkeypatch.delenv("UNREAL_ENGINE_DIR", raising=False)
     monkeypatch.delenv("UE_ENGINE_DIR", raising=False)
     namespace = runpy.run_path(
-        str(REPOSITORY / "tools/m6y/probe_spear_replicacad_environment.py")
+        str(REPOSITORY / "tools/ue/probe_spear_replicacad_environment.py")
     )
 
     candidates = namespace["_engine_candidates"](None)

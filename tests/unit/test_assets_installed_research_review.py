@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-import avengine.m1.contracts as m1_contracts
-import avengine.m1.habitat_capture as m1_habitat_capture
+import avengine.rooms.contracts as m1_contracts
+import avengine.rooms.habitat_capture as m1_habitat_capture
 import avengine.assets.habitat_capture as habitat_capture
 from avengine.assets.habitat_capture import HabitatCaptureError
 from tools.assets import capture_installed_research_review as installed_cli

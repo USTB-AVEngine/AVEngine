@@ -9,7 +9,7 @@ from typing import Sequence
 
 from avengine.camera_pose import apply_camera_listener_pose
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m1.contracts import validate_capture_request, validate_room_manifest
+from avengine.rooms.contracts import validate_capture_request, validate_room_manifest
 
 
 def build_request(args: argparse.Namespace) -> Path:

@@ -1470,8 +1470,8 @@ def _require_current_m6_evidence_verifiers(
 
     # Lazy imports keep the general release-manifest reader lightweight and
     # avoid making non-M6 callers import media/room implementation modules.
-    from avengine.m6.canary import verify_controlled_canary_evidence
-    from avengine.m6.room_attempts import verify_room_qualification_attempt
+    from avengine.rooms.feasibility_canary import verify_controlled_canary_evidence
+    from avengine.rooms.room_attempts import verify_room_qualification_attempt
 
     try:
         controlled_status, controlled_checks = verify_controlled_canary_evidence(

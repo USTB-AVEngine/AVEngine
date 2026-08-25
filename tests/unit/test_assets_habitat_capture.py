@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import sha256_file, write_json
-from avengine.m1.contracts import ValidatedM1Inputs
+from avengine.rooms.contracts import ValidatedM1Inputs
 from avengine.assets.actions import (
     BakedActionClip,
     BakedActionSet,

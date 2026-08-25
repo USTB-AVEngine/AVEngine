@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.assets.contracts import load_and_validate_inputs as load_m2_inputs
 from avengine.assets.habitat_capture import capture_m2_habitat
 

@@ -18,7 +18,7 @@ import numpy as np
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
-from avengine.m6x.visual_profile import (  # noqa: E402
+from avengine.rooms.visual_profile import (  # noqa: E402
     ReviewVisualProfile,
     encode_profiled_h264_base_video,
     mux_profiled_binaural_wav,

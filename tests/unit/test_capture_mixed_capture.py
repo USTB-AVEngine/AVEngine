@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
-from avengine.m1.habitat_capture import resolve_installed_runtime_prefix
+from avengine.rooms.habitat_capture import resolve_installed_runtime_prefix
 from avengine.assets.glb import extract_actions, extract_skins, parse_glb
 from avengine.assets.glb_write import build_glb
 from avengine.capture.human_runtime import (

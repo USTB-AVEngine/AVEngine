@@ -11,8 +11,8 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
-from avengine.m1.habitat_capture import resolve_installed_runtime_prefix
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.habitat_capture import resolve_installed_runtime_prefix
 from avengine.assets.habitat_capture import (
     capture_m2_installed_research_review,
     load_research_review_inputs,

@@ -31,9 +31,9 @@ from avengine.contracts.json_io import (
     sha256_file,
 )
 from avengine.contracts.transforms import normalized_quaternion_xyzw
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
-from avengine.m1.evidence import array_sha256
-from avengine.m1.habitat_capture import (
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.evidence import array_sha256
+from avengine.rooms.habitat_capture import (
     InstalledHabitatRuntime,
     PBR_BRDF_LUT_RELATIVE_PATH,
     PBR_CONFIG_FILENAME,

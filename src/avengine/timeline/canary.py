@@ -23,7 +23,7 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.contracts.transforms import normalized_quaternion_xyzw
-from avengine.m1.habitat_capture import (
+from avengine.rooms.habitat_capture import (
     InstalledHabitatRuntime,
     prepare_installed_habitat_runtime,
 )

@@ -135,7 +135,7 @@ def resolve_effective_acoustic_inputs(
         load_default_acoustic_profile_registry,
         resolve_acoustic_profile,
     )
-    from avengine.m6.rooms import load_room_registry  # noqa: PLC0415
+    from avengine.rooms.rooms import load_room_registry  # noqa: PLC0415
 
     acoustic_registry = (
         load_acoustic_profile_registry(args.acoustic_profile_registry)

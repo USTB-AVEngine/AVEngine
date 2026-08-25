@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m6x.apartment import listener_orientation_wxyz
+from avengine.rooms.apartment import listener_orientation_wxyz
 from avengine.routes.feasibility_topdown import render_feasibility_topdown
 from avengine.routes.geometry import (
     ELEVATED_OBJECT,

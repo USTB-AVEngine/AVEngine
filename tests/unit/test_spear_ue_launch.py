@@ -18,7 +18,7 @@ from avengine.backends.spear_ue.launch import parallel_instance_settings
 REPOSITORY = Path(__file__).resolve().parents[2]
 _RUNNER_SPEC = importlib.util.spec_from_file_location(
     "spear_apartment_s1_runner",
-    REPOSITORY / "tools/m6y/run_spear_apartment_canary.py",
+    REPOSITORY / "tools/rooms/run_spear_apartment_canary.py",
 )
 assert _RUNNER_SPEC is not None and _RUNNER_SPEC.loader is not None
 _RUNNER = importlib.util.module_from_spec(_RUNNER_SPEC)
@@ -183,10 +183,10 @@ def test_apartment_runner_cli_requires_explicit_spear_executable(
 
 
 _DIRECT_HOST_GAME_RUNNERS = (
-    "tools/m6y/run_spear_apartment_canary.py",
-    "tools/m6y/run_spear_mp3d_canary.py",
-    "tools/m6y/run_spear_replicacad_canary.py",
-    "tools/m6z/run_spear_kujiale_canary.py",
+    "tools/rooms/run_spear_apartment_canary.py",
+    "tools/rooms/run_spear_mp3d_canary.py",
+    "tools/rooms/run_spear_replicacad_canary.py",
+    "tools/rooms/run_spear_kujiale_canary.py",
     "tools/qa/capture_skokloster_strict_two_human_episode.py",
     "tools/qa/probe_packaged_imported_glb_room.py",
     "tools/qa/probe_packaged_skokloster_room.py",
@@ -231,9 +231,9 @@ def test_direct_host_game_runners_use_the_namespaced_client() -> None:
         assert "avengine.backends.spear_ue" in source.read_text(encoding="utf-8")
 
     for relative_path in (
-        "tools/m6y/run_spear_mp3d_canary.py",
-        "tools/m6y/run_spear_replicacad_canary.py",
-        "tools/m6z/run_spear_kujiale_canary.py",
+        "tools/rooms/run_spear_mp3d_canary.py",
+        "tools/rooms/run_spear_replicacad_canary.py",
+        "tools/rooms/run_spear_kujiale_canary.py",
         "tools/qa/capture_skokloster_strict_two_human_episode.py",
     ):
         source = (REPOSITORY / relative_path).read_text(encoding="utf-8")
@@ -291,8 +291,8 @@ def _write_executable(path: Path) -> Path:
 @pytest.mark.parametrize(
     ("module_name", "relative_path"),
     [
-        ("s3c_mp3d_runner", "tools/m6y/run_spear_mp3d_canary.py"),
-        ("s3c_replicacad_runner", "tools/m6y/run_spear_replicacad_canary.py"),
+        ("s3c_mp3d_runner", "tools/rooms/run_spear_mp3d_canary.py"),
+        ("s3c_replicacad_runner", "tools/rooms/run_spear_replicacad_canary.py"),
     ],
 )
 def test_editor_runners_use_namespaced_client_without_examples_directory(
@@ -354,7 +354,7 @@ def test_kujiale_runner_needs_no_spear_root_and_cli_drops_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = _load_s3c_runner(
-        "s3c_kujiale_runner", "tools/m6z/run_spear_kujiale_canary.py"
+        "s3c_kujiale_runner", "tools/rooms/run_spear_kujiale_canary.py"
     )
     editor = _write_executable(tmp_path / "UnrealEditor")
     project = tmp_path / "external" / "Kujiale.uproject"
@@ -392,7 +392,7 @@ def test_kujiale_runner_needs_no_spear_root_and_cli_drops_it(
         sys,
         "argv",
         [
-            str(REPOSITORY / "tools/m6z/run_spear_kujiale_canary.py"),
+            str(REPOSITORY / "tools/rooms/run_spear_kujiale_canary.py"),
             "--uproject",
             str(project),
             "--unreal-editor",

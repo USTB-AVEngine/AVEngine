@@ -20,16 +20,16 @@ import numpy as np
 from PIL import Image
 
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
-from avengine.m1.habitat_capture import _make_configuration, discover_runtime_root
-from avengine.m6x.apartment import (
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.habitat_capture import _make_configuration, discover_runtime_root
+from avengine.rooms.apartment import (
     listener_orientation_wxyz,
     listener_yaw_degrees_from_request,
 )
 from avengine.routes.articulated_anchor_profile import (
     materialize_articulated_anchor_paths,
 )
-from avengine.m6x.capture_adapter import HUMAN_BEAGLE_CAPTURE_ADAPTER
+from avengine.rooms.capture_adapter import HUMAN_BEAGLE_CAPTURE_ADAPTER
 from avengine.routes.feasibility_topdown import render_feasibility_topdown
 from avengine.routes.geometry import build_runtime_obstacle_map
 from avengine.routes.room_feasibility import (

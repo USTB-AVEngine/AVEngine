@@ -29,7 +29,7 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.contracts.transforms import normalized_quaternion_xyzw
-from avengine.m1.evidence import array_sha256
+from avengine.rooms.evidence import array_sha256
 
 
 # Keep the schema and all negative claims distinct from formal M2 v1 evidence.
@@ -595,12 +595,12 @@ def capture_local_tr_habitat_review(
         "m1_camera_request": _input_record(room_request_path),
     }
 
-    from avengine.m1.contracts import (
+    from avengine.rooms.contracts import (
         load_and_validate_inputs as load_m1_inputs,
         validate_loaded_scene_asset_graph,
         validate_scene_asset_graph,
     )
-    from avengine.m1.habitat_capture import (
+    from avengine.rooms.habitat_capture import (
         _make_configuration,
         _resolved_assets,
         discover_runtime_root,

@@ -8,7 +8,7 @@ import numpy as np
 
 _TOOL_PATH = (
     Path(__file__).resolve().parents[2]
-    / "tools/m6x/build_cached_apartment_dataset_examples.py"
+    / "tools/dataset/build_cached_apartment_dataset_examples.py"
 )
 _SPEC = importlib.util.spec_from_file_location(
     "build_cached_apartment_dataset_examples", _TOOL_PATH

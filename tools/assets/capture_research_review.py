@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
+from avengine.rooms.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.assets.habitat_capture import (
     capture_m2_research_review,
     load_research_review_inputs,

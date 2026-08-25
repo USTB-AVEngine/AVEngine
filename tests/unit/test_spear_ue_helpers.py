@@ -233,7 +233,7 @@ def test_beagle_profile_selects_explicit_world_z_anatomical_basis() -> None:
         "ue_anatomical_basis_bones"
     ]
     runner = _load_tool(
-        "s3e_beagle_basis_runner", "tools/m6y/run_spear_apartment_canary.py"
+        "s3e_beagle_basis_runner", "tools/rooms/run_spear_apartment_canary.py"
     )
     game = _FakeGame(
         _FakeUnrealService(
@@ -298,15 +298,15 @@ def test_runners_need_no_external_examples_or_rig_tools(tmp_path: Path) -> None:
     original_sys_path = list(sys.path)
 
     apartment = _load_tool(
-        "s3d_apartment_runner", "tools/m6y/run_spear_apartment_canary.py"
+        "s3d_apartment_runner", "tools/rooms/run_spear_apartment_canary.py"
     )
-    mp3d = _load_tool("s3d_mp3d_runner", "tools/m6y/run_spear_mp3d_canary.py")
+    mp3d = _load_tool("s3d_mp3d_runner", "tools/rooms/run_spear_mp3d_canary.py")
     adapter = _load_tool(
         "s3d_glb_adapter", "tools/qa/spear_imported_glb_room_adapter.py"
     )
     for relative_path in (
-        "tools/m6y/run_spear_apartment_canary.py",
-        "tools/m6y/run_spear_mp3d_canary.py",
+        "tools/rooms/run_spear_apartment_canary.py",
+        "tools/rooms/run_spear_mp3d_canary.py",
         "tools/qa/spear_imported_glb_room_adapter.py",
     ):
         source = (REPOSITORY / relative_path).read_text(encoding="utf-8")

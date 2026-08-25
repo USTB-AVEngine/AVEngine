@@ -358,7 +358,7 @@ from pathlib import Path
 import os
 import sys
 
-from avengine.m1.habitat_capture import discover_runtime_root
+from avengine.rooms.habitat_capture import discover_runtime_root
 
 failures = [
     name for name in {sorted(LEGACY_CHILD_ENVIRONMENT_VARIABLES)!r}
@@ -368,7 +368,7 @@ failures = [
 expected_pythonpath = os.pathsep.join((str(Path.cwd() / "src"), str(Path.cwd())))
 if os.environ.get("PYTHONPATH") != expected_pythonpath:
     failures.append("PYTHONPATH did not name only the isolated child source root")
-module_path = Path(sys.modules["avengine.m1.habitat_capture"].__file__).resolve()
+module_path = Path(sys.modules["avengine.rooms.habitat_capture"].__file__).resolve()
 if not module_path.is_relative_to(Path.cwd()):
     failures.append("legacy Habitat module was not imported from the isolated root")
 try:
@@ -416,7 +416,7 @@ def test_current_receipt_isolates_child_from_inherited_and_sibling_legacy_checko
             sys.executable,
             "-c",
             (
-                "from avengine.m1.habitat_capture import discover_runtime_root; "
+                "from avengine.rooms.habitat_capture import discover_runtime_root; "
                 "print(discover_runtime_root())"
             ),
         ],

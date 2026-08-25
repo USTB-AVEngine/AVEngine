@@ -8,7 +8,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m1.contracts import validate_room_manifest
+from avengine.rooms.contracts import validate_room_manifest
 from avengine.acoustics.compiler import _apply_source_to_canonical
 from avengine.acoustics.contracts import (
     COMPILE_EVIDENCE_SCHEMA,

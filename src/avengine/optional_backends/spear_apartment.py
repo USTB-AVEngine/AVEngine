@@ -7,7 +7,7 @@ SPEAR Apartment map and its UE visual assets.
 
 Everything in this module is pure Python.  Importing it never imports SPEAR,
 starts Unreal, or mutates either repository.  The actual optional runtime is
-the small script in ``tools/m6y/run_spear_apartment_canary.py``.
+the small script in ``tools/rooms/run_spear_apartment_canary.py``.
 """
 
 from __future__ import annotations

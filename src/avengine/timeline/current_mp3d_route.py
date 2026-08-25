@@ -24,13 +24,13 @@ from avengine.backends.rlr.sdk import ExternalRlrSdkError, require_outside_git_c
 from avengine.camera_pose import CameraPoseError, apply_camera_listener_pose
 from avengine.contracts.json_io import sha256_file, write_json
 from avengine.contracts.transforms import normalized_quaternion_xyzw
-from avengine.m1.contracts import (
+from avengine.rooms.contracts import (
     ValidatedM1Inputs,
     load_and_validate_inputs as load_m1_inputs,
     validate_loaded_scene_asset_graph,
     validate_scene_asset_graph,
 )
-from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
+from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 from avengine.assets.contracts import (
     ValidatedM2Inputs,
     compute_applied_state_hash,

@@ -12,8 +12,8 @@ from avengine.camera_pose import (
     yaw_rotation_xyzw,
 )
 from avengine.contracts.json_io import load_json
-from avengine.m1.contracts import validate_capture_request
-from avengine.m6x.apartment import listener_yaw_degrees_from_request
+from avengine.rooms.contracts import validate_capture_request
+from avengine.rooms.apartment import listener_yaw_degrees_from_request
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE_REQUEST = ROOT / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
