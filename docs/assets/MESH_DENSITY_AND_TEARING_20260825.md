@@ -148,25 +148,45 @@ fans open at an armpit or a hip and carries almost no area at all. Shards are no
 found by longest-edge growth, over every sampled frame, and the worst frame
 decides.
 
-Calibrated against owner judgement on fifteen rigged versions at ordinary viewing
+Calibrated against owner judgement on rigged versions at ordinary viewing
 distance:
 
-| version | shards at worst frame | area past 10x | owner |
-| --- | --- | --- | --- |
-| Siamese, plain 25k | 0.24% | 0.11% | good |
-| Jack Russell, plain 80k | 0.47% | 0.16% | - |
-| standard Burmese, remesh 80k | 0.66% | 0.18% | - |
-| Jack Russell, plain 25k | 1.27% | 0.27% | acceptable |
-| dark Burmese, remesh 80k | 1.52% | 0.50% | acceptable |
-| Siamese, remesh 80k | 2.85% | 1.09% | - |
-| Siamese, remesh 80k swept | 3.71% | 1.59% | rejected |
-| dark Burmese, plain 100k | 3.89% | 0.86% | - |
+| version | shards at worst frame | owner |
+| --- | --- | --- |
+| Siamese, plain 25k | 0.24% | good |
+| Jack Russell, plain 80k | 0.47% | - |
+| standard Burmese, remesh 80k/700 | 0.72% | - |
+| Jack Russell, plain 25k | 1.27% | acceptable |
+| dark Burmese, remesh 80k/700 | 1.92% | acceptable |
+| dark Burmese, remesh 80k/800 | 2.25% | - |
+| dark Burmese, remesh 120k | 2.60% | - |
+| dark Burmese, plain 80k | 3.15% | - |
+| Siamese, remesh 80k | 3.71% | rejected |
+| dark Burmese, plain 100k | 3.89% | - |
 
-The accepted versions top out at 1.52 percent and the rejected one sits at 3.71,
-so the shard threshold is 2.0 - about 1.3x clear on either side. The ten-times
-area share draws the same line independently, 0.52 against 0.86, so both are
-gated: two unrelated readings agreeing across all fifteen versions is a stronger
-gate than either alone.
+Any threshold between 1.92 and 3.71 fits those labels, so the rig's own variance
+decides where inside that band to sit. Rigging the *same* prepared mesh four
+times moves this reading about ten percent (2.16 to 2.63 on one preparation), and
+the same rung of the same ladder measured 1.92 and 2.27 on two runs. The
+threshold is 2.5: thirty percent of clearance above the highest accepted version,
+thirty-three below the rejected one, which is more than the noise.
+
+Two readings that looked like they belonged in the gate do not.
+
+The **ten-times area share** drew the same line across fifteen versions and
+looked like independent confirmation, until the variance test moved it from 0.54
+to 0.97 percent on identical input - a 1.8x spread against the shard share's
+1.2x. It was measuring the draw, and it had already produced one false reject on
+a route the owner accepted. Worst edge growth is worse still, 11.5 to 25.6 on the
+same input.
+
+**Where the shards sit** should matter and does not help. Owner judgement is
+explicit that tearing under the belly "is not a big problem" while the same
+amount on a flank gets an asset rejected, so the measurement separates
+downward-facing low faces from the rest. But on these labels the visible-only
+reading separates *worse* than the total: 1.56x between accepted and rejected
+against 1.94x. Both numbers are reported and the total decides. This was a
+hypothesis with a good reason behind it that the measurement did not support.
 
 The scale matters and is part of the calibration. Magnified four times, *every*
 version in this batch shows tearing somewhere, usually at an armpit or a hip. A
