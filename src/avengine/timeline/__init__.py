@@ -1,4 +1,4 @@
-"""M5 exact-timeline dynamic audiovisual counterfactuals."""
+"""Exact-timeline dynamic audiovisual episodes and audio programs (formerly M5 + m6 programs)."""
 
 from avengine.timeline.audio import M5_AUDIO_SAMPLE_COUNT, M5_AUDIO_SAMPLE_RATE_HZ
 from avengine.timeline.canary import run_m5_canary, verify_m5_canary_evidence

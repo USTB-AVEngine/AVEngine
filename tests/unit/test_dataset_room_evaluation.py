@@ -318,7 +318,7 @@ def test_static_source_bank_rejects_invalid_contract(
         )
 
 
-def test_m7_public_exports_keep_audio_and_room_interfaces():
+def test_dataset_public_exports_keep_audio_and_room_interfaces():
     import avengine.dataset as m7
 
     assert {

@@ -21,7 +21,7 @@ def _output(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
     return value
 
 
-def test_m4_parser_exposes_commands_and_pins_default_runtime_lock() -> None:
+def test_spatial_audio_parser_exposes_commands_and_pins_default_runtime_lock() -> None:
     parser = build_parser()
 
     validate = parser.parse_args(["spatial-audio", "validate-request", "request.json"])
@@ -48,7 +48,7 @@ def test_m4_parser_exposes_commands_and_pins_default_runtime_lock() -> None:
     assert bundle.m4_command == "verify-bundle"
 
 
-def test_m4_current_installed_help_requires_explicit_runtime_paths(
+def test_spatial_audio_current_installed_help_requires_explicit_runtime_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exit_info:
@@ -67,7 +67,7 @@ def test_m4_current_installed_help_requires_explicit_runtime_paths(
     assert "AVENGINE_RLR_SDK_ROOT" not in rendered
 
 
-def test_m4_validate_request_passes_for_checked_in_request(
+def test_spatial_audio_validate_request_passes_for_checked_in_request(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main(["spatial-audio", "validate-request", str(REQUEST)]) == 0
@@ -84,7 +84,7 @@ def test_m4_validate_request_passes_for_checked_in_request(
     }
 
 
-def test_m4_run_canary_blocks_before_native_when_hrtf_is_missing(
+def test_spatial_audio_run_canary_blocks_before_native_when_hrtf_is_missing(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -117,7 +117,7 @@ def test_m4_run_canary_blocks_before_native_when_hrtf_is_missing(
     }
 
 
-def test_m4_run_canary_mocked_pass_does_not_invoke_native(
+def test_spatial_audio_run_canary_mocked_pass_does_not_invoke_native(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -210,7 +210,7 @@ def test_m4_run_canary_mocked_pass_does_not_invoke_native(
     ("status", "expected_exit"),
     [("pass", 0), ("fail", 1)],
 )
-def test_m4_verify_canary_maps_verifier_status_to_stable_exit(
+def test_spatial_audio_verify_canary_maps_verifier_status_to_stable_exit(
     status: str,
     expected_exit: int,
     capsys: pytest.CaptureFixture[str],
@@ -226,7 +226,7 @@ def test_m4_verify_canary_maps_verifier_status_to_stable_exit(
     assert _output(capsys) == {"checks": list(checks), "status": status}
 
 
-def test_m4_verify_canary_malformed_json_is_a_stable_failure(
+def test_spatial_audio_verify_canary_malformed_json_is_a_stable_failure(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -244,7 +244,7 @@ def test_m4_verify_canary_malformed_json_is_a_stable_failure(
     ("errors", "expected_status", "expected_exit"),
     [([], "pass", 0), (["pair closure failed"], "fail", 1)],
 )
-def test_m4_verify_bundle_maps_contract_result_to_stable_exit(
+def test_spatial_audio_verify_bundle_maps_contract_result_to_stable_exit(
     errors: list[str],
     expected_status: str,
     expected_exit: int,
@@ -266,7 +266,7 @@ def test_m4_verify_bundle_maps_contract_result_to_stable_exit(
     assert calls["validation"] == (bundle, "bundle.json")
     assert _output(capsys) == {"errors": errors, "status": expected_status}
 
-def test_m4_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
+def test_spatial_audio_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -389,7 +389,7 @@ def test_m4_current_installed_cli_requires_and_forwards_explicit_runtime_inputs(
     assert rendered["status"] == "fail"
     assert "--runtime-prefix" in rendered["error"]
 
-def test_m4_current_foa_parser_requires_only_current_runtime_inputs() -> None:
+def test_spatial_audio_current_foa_parser_requires_only_current_runtime_inputs() -> None:
     command = [
         "spatial-audio",
         "run-current-foa",
@@ -417,7 +417,7 @@ def test_m4_current_foa_parser_requires_only_current_runtime_inputs() -> None:
     assert exit_info.value.code == 2
 
 
-def test_m4_current_foa_cli_forwards_explicit_inputs_without_hrtf(
+def test_spatial_audio_current_foa_cli_forwards_explicit_inputs_without_hrtf(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,

@@ -1,4 +1,4 @@
-"""M2 canonical animal and deterministic articulated-capture contracts."""
+"""Canonical animal assets: deterministic articulated-capture contracts (formerly M2)."""
 
 from avengine.assets.contracts import (
     ANIMAL_SCHEMA,

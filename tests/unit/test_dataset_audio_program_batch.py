@@ -187,7 +187,7 @@ def test_program_specs_default_to_a_and_require_aligned_variants() -> None:
         audio_program_specs(paths, ("A",))
 
 
-def test_m7_prepares_sequential_m6_program_as_exact_slot_buses() -> None:
+def test_dataset_prepares_sequential_m6_program_as_exact_slot_buses() -> None:
     prepared, library = _prepare_audio_program_variants(
         specs=(
             AudioProgramSpec(
@@ -245,7 +245,7 @@ def test_m7_prepares_sequential_m6_program_as_exact_slot_buses() -> None:
     assert library["schema"] == "avengine_m7_m6_audio_program_dry_bus_library_v1"
 
 
-def test_m7_prepares_counterfactual_b_as_exact_endpoint_and_slot_bus_swap() -> None:
+def test_dataset_prepares_counterfactual_b_as_exact_endpoint_and_slot_bus_swap() -> None:
     prepared, _library = _prepare_audio_program_variants(
         specs=(
             AudioProgramSpec(
@@ -288,7 +288,7 @@ def test_m7_prepares_counterfactual_b_as_exact_endpoint_and_slot_bus_swap() -> N
     )
 
 
-def test_m7_prepares_silent_negative_as_two_exact_zero_slot_buses() -> None:
+def test_dataset_prepares_silent_negative_as_two_exact_zero_slot_buses() -> None:
     prepared, _library = _prepare_audio_program_variants(
         specs=(
             AudioProgramSpec(

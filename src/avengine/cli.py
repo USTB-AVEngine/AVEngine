@@ -97,7 +97,7 @@ from avengine.timeline.current_mp3d_route import (
     CurrentMP3DRouteError,
     author_current_mp3d_two_beagle_route,
 )
-from avengine.timeline.current_m1_research_audio import (
+from avengine.timeline.current_request_research_audio import (
     CurrentM1ResearchAudioError,
     render_current_m1_research_audio,
 )

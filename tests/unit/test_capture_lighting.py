@@ -224,7 +224,7 @@ def test_common_m5_actor_helper_binds_explicit_light_key_and_pbr(
 
 
 @pytest.mark.parametrize("current_light_count", [0, 3])
-def test_m5_1_scene_lighting_copies_zero_or_populated_setup_and_reads_hbao(
+def test_capture_scene_lighting_copies_zero_or_populated_setup_and_reads_hbao(
     current_light_count: int,
 ) -> None:
     current = [object() for _ in range(current_light_count)]
@@ -283,7 +283,7 @@ def test_installed_m5_1_scene_lighting_requires_zero_direct_lights() -> None:
     assert evidence["scene_lighting"]["required_zero_direct_lights"] is True
 
 
-def test_m5_1_scene_lighting_fails_closed_when_hbao_did_not_read_back() -> None:
+def test_capture_scene_lighting_fails_closed_when_hbao_did_not_read_back() -> None:
     simulator = SimpleNamespace(
         config=SimpleNamespace(sim_cfg=SimpleNamespace(enable_hbao=False))
     )

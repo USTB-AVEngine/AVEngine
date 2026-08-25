@@ -22,7 +22,7 @@ def _output(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
     return value
 
 
-def test_m5_parser_exposes_validate_run_and_verify() -> None:
+def test_timeline_parser_exposes_validate_run_and_verify() -> None:
     parser = build_parser()
     validate = parser.parse_args(["m5", "validate-request", "request.json"])
     run = parser.parse_args(
@@ -66,7 +66,7 @@ def test_m5_parser_exposes_validate_run_and_verify() -> None:
     assert verify.m5_command == "verify-canary"
 
 
-def test_m5_checked_in_request_validates(
+def test_timeline_checked_in_request_validates(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main(["m5", "validate-request", str(REQUEST)]) == 0
@@ -77,7 +77,7 @@ def test_m5_checked_in_request_validates(
     assert rendered["errors"] == []
 
 
-def test_m5_run_canary_mock_forwards_explicit_inputs(
+def test_timeline_run_canary_mock_forwards_explicit_inputs(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -152,7 +152,7 @@ def test_m5_run_canary_mock_forwards_explicit_inputs(
 
 
 @pytest.mark.parametrize(("status", "exit_code"), [("pass", 0), ("fail", 1)])
-def test_m5_verify_status_mapping(
+def test_timeline_verify_status_mapping(
     status: str,
     exit_code: int,
     capsys: pytest.CaptureFixture[str],

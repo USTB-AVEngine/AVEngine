@@ -1,4 +1,4 @@
-"""M3 explicit acoustic-scene packages, compiler QA, and evidence."""
+"""Acoustic-scene packages, compiler QA, RIR caches and metrics (formerly M3 + the m6x caches)."""
 
 from avengine.acoustics.calibration import (
     BroadbandEDTCalibrationError,

@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRIES = ROOT / "examples" / "m6" / "registries"
 
 
-def test_m6_registry_schemas_are_valid_draft_2020_12() -> None:
+def test_registry_registry_schemas_are_valid_draft_2020_12() -> None:
     for schema_name in (
         "avengine_m6_entity_asset_registry_v1",
         "avengine_m6_static_object_marker_visual_approval_v1",

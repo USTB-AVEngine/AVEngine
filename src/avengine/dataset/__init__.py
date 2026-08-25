@@ -1,4 +1,4 @@
-"""M7 research-scale dataset assembly helpers.
+"""Research-scale dataset assembly and throughput helpers (formerly M7).
 
 These helpers deliberately consume an already-qualified source-route/RIR
 closure.  They do not replan geometry or run native propagation.

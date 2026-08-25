@@ -92,7 +92,7 @@ def test_provider_missing_fact_becomes_not_evaluated_never_absent() -> None:
     assert assessment["value"] is None
 
 
-def test_m6_evaluator_matches_checked_in_m5_1_source_pair_and_clip_statuses() -> None:
+def test_registry_evaluator_matches_checked_in_m5_1_source_pair_and_clip_statuses() -> None:
     manifest = load_json(LEGACY_SOURCE_MANIFEST)
     positions = {
         source["source_id"]: [

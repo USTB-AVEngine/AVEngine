@@ -484,7 +484,7 @@ def test_rir_tool_run_passes_registry_selected_inputs_to_existing_renderer(
     )
 
 
-def test_m7_uses_room_profile_ref_for_the_same_acoustic_selection(
+def test_dataset_uses_room_profile_ref_for_the_same_acoustic_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -546,7 +546,7 @@ def test_m7_uses_room_profile_ref_for_the_same_acoustic_selection(
     assert receipt_modes == ["reference"]
 
 
-def test_m7_real_default_mp3d_profile_binds_without_requiring_audio_files(
+def test_dataset_real_default_mp3d_profile_binds_without_requiring_audio_files(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("AVENGINE_SOUNDSPACES_ROOT", raising=False)
@@ -581,7 +581,7 @@ def test_m7_real_default_mp3d_profile_binds_without_requiring_audio_files(
     assert binding["selected_simulation_request"]["sha256"]
 
 
-def test_m7_room_manifest_binding_verifies_exact_registry_room() -> None:
+def test_dataset_room_manifest_binding_verifies_exact_registry_room() -> None:
     runtime_profiles = load_json(
         habitat_batch.REPOSITORY
         / "examples/runtime/room_runtime_profiles.json"
@@ -613,7 +613,7 @@ def test_m7_room_manifest_binding_verifies_exact_registry_room() -> None:
     assert hash_check["declared_sha256"] == binding["room_manifest"]["sha256"]
 
 
-def test_m7_room_manifest_binding_rejects_wrong_room_id(tmp_path: Path) -> None:
+def test_dataset_room_manifest_binding_rejects_wrong_room_id(tmp_path: Path) -> None:
     runtime_profiles = load_json(
         habitat_batch.REPOSITORY
         / "examples/runtime/room_runtime_profiles.json"
@@ -642,7 +642,7 @@ def test_m7_room_manifest_binding_rejects_wrong_room_id(tmp_path: Path) -> None:
         )
 
 
-def test_m7_room_manifest_binding_rejects_wrong_declared_hash(
+def test_dataset_room_manifest_binding_rejects_wrong_declared_hash(
     tmp_path: Path,
 ) -> None:
     runtime_profiles = load_json(
@@ -672,7 +672,7 @@ def test_m7_room_manifest_binding_rejects_wrong_declared_hash(
         )
 
 
-def test_m7_room_manifest_binding_rejects_ambiguous_registry_resource(
+def test_dataset_room_manifest_binding_rejects_ambiguous_registry_resource(
     tmp_path: Path,
 ) -> None:
     runtime_profiles = load_json(
@@ -719,7 +719,7 @@ def test_m7_room_manifest_binding_rejects_ambiguous_registry_resource(
         )
 
 
-def test_m7_room_manifest_binding_rejects_missing_registry_resource(
+def test_dataset_room_manifest_binding_rejects_missing_registry_resource(
     tmp_path: Path,
 ) -> None:
     runtime_profiles = load_json(
@@ -760,7 +760,7 @@ def test_m7_room_manifest_binding_rejects_missing_registry_resource(
         )
 
 
-def test_m7_room_manifest_binding_rejects_invalid_manifest(
+def test_dataset_room_manifest_binding_rejects_invalid_manifest(
     tmp_path: Path,
 ) -> None:
     runtime_profiles = load_json(
@@ -786,7 +786,7 @@ def test_m7_room_manifest_binding_rejects_invalid_manifest(
         )
 
 
-def test_m7_current_room_manifest_and_mp3d_templates_match_registry() -> None:
+def test_dataset_current_room_manifest_and_mp3d_templates_match_registry() -> None:
     runtime_profiles = load_json(
         habitat_batch.REPOSITORY / "examples/runtime/room_runtime_profiles.json"
     )
@@ -923,7 +923,7 @@ def _write_current_m7_episode_evidence(
     return gate_path, capture_path
 
 
-def test_m7_episode_readback_rejects_pre_pbr_evidence_without_output(
+def test_dataset_episode_readback_rejects_pre_pbr_evidence_without_output(
     tmp_path: Path,
 ) -> None:
     pbr_root = _m7_pbr_asset_root(tmp_path)
@@ -948,7 +948,7 @@ def test_m7_episode_readback_rejects_pre_pbr_evidence_without_output(
     "mutation",
     ("wrong_root", "wrong_path", "wrong_handle", "direct_lights"),
 )
-def test_m7_episode_readback_rejects_wrong_pbr_semantics(
+def test_dataset_episode_readback_rejects_wrong_pbr_semantics(
     tmp_path: Path,
     mutation: str,
 ) -> None:
@@ -979,7 +979,7 @@ def test_m7_episode_readback_rejects_wrong_pbr_semantics(
         habitat_batch._episode_readback(episode, pbr_asset_root=pbr_root)
 
 
-def test_m7_batch_manifest_binds_resolved_acoustic_selection(
+def test_dataset_batch_manifest_binds_resolved_acoustic_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1091,7 +1091,7 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     assert pbr_readback["actual_direct_light_count"] == 0
 
 
-def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
+def test_dataset_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

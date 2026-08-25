@@ -1,4 +1,4 @@
-"""M4 deterministic multi-source audio and spatial-output contracts."""
+"""Deterministic multi-source audio and spatial-output contracts (formerly M4)."""
 
 from avengine.spatial_audio.audio import (
     AudioContractError,

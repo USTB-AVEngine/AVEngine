@@ -211,7 +211,7 @@ def test_ue_project_asset_package_closure_rejects_existing_untracked_package(
     ]
 
 
-def test_m1_audio_off_configuration_never_constructs_audio_sensor(
+def test_rooms_audio_off_configuration_never_constructs_audio_sensor(
     tmp_path: Path, monkeypatch
 ) -> None:
     class CameraSensorSpec:

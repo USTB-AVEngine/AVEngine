@@ -235,7 +235,7 @@ def test_fixed_listener_fallback_materializes_a_complete_hold() -> None:
     assert len({frame["pose_hash"] for frame in trajectory["frames"]}) == 1
 
 
-def test_m7_rejects_a_tampered_sensor_rig_sidecar() -> None:
+def test_dataset_rejects_a_tampered_sensor_rig_sidecar() -> None:
     trajectory = resolve_m7_sensor_rig_trajectory(
         sensor_rig_trajectory=None,
         listener_position_m=(-0.7, 1.47, 0.65),

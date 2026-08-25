@@ -30,7 +30,7 @@ def _lock(path: Path) -> Path:
     return path
 
 
-def test_m4_preflight_stops_before_any_rir_job_on_historical_lock_mismatch(
+def test_spatial_audio_preflight_stops_before_any_rir_job_on_historical_lock_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lock = _lock(tmp_path / "historical-lock.json")
@@ -83,7 +83,7 @@ def test_m4_preflight_stops_before_any_rir_job_on_historical_lock_mismatch(
     assert not output.exists()
 
 
-def test_m4_preflight_accepts_the_existing_lock_binary_shape(
+def test_spatial_audio_preflight_accepts_the_existing_lock_binary_shape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lock = json.loads(_lock(tmp_path / "historical-lock.json").read_text())
@@ -183,7 +183,7 @@ def test_current_m4_never_parses_historical_lock(
     assert lock_calls == []
 
 
-def test_m4_current_v2_reader_dispatch_skips_historical_reader(
+def test_spatial_audio_current_v2_reader_dispatch_skips_historical_reader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     evidence_path = tmp_path / "m4-v2.json"
@@ -273,7 +273,7 @@ def _reader_evidence(
     return evidence
 
 
-def test_m4_current_reader_rejects_identity_only_receipt(tmp_path: Path) -> None:
+def test_spatial_audio_current_reader_rejects_identity_only_receipt(tmp_path: Path) -> None:
     identity = _current_identity(tmp_path / "identity")
     evidence = _reader_evidence(
         [dict(identity) for _ in range(9)], identity_passed=True

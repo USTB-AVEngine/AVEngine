@@ -764,7 +764,7 @@ def _m5_1_runtime_inputs() -> dict[str, object]:
     }
 
 
-def test_m5_1_runtime_plan_closes_authority_clock_source_gate_and_editor_result() -> (
+def test_capture_runtime_plan_closes_authority_clock_source_gate_and_editor_result() -> (
     None
 ):
     plan = build_m5_1_replicacad_runtime_plan(**_m5_1_runtime_inputs())
@@ -786,7 +786,7 @@ def test_m5_1_runtime_plan_closes_authority_clock_source_gate_and_editor_result(
     assert plan["route_characterization"]["normal_speed_issue_resolved"] is False
 
 
-def test_m5_1_runtime_plan_rejects_broken_editor_and_source_center_closure() -> None:
+def test_capture_runtime_plan_rejects_broken_editor_and_source_center_closure() -> None:
     inputs = _m5_1_runtime_inputs()
     inputs["editor_reload_result"]["counts"]["spawned_static_mesh_actor_count"] = 170
     with pytest.raises(

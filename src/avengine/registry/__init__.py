@@ -1,4 +1,4 @@
-"""M6 extensibility interfaces; not a final dataset or QA contract."""
+"""Entity, source and static-object registries plus exporter interfaces (formerly M6 core)."""
 
 from avengine.registry.entities import (
     AnimalTemplateSelection,

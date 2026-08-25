@@ -18,7 +18,7 @@ REQUEST = REPOSITORY_ROOT / "examples/m3/blender_custom/canary_request.json"
 M3_EXAMPLE = REPOSITORY_ROOT / "examples/m3/blender_custom"
 
 
-def test_m3_compile_validate_and_verify_cli(tmp_path: Path, capsys) -> None:
+def test_acoustics_compile_validate_and_verify_cli(tmp_path: Path, capsys) -> None:
     output = tmp_path / "canary"
 
     assert (
@@ -49,7 +49,7 @@ def test_m3_compile_validate_and_verify_cli(tmp_path: Path, capsys) -> None:
     assert '"status": "pass"' in rendered
 
 
-def test_m3_current_installed_help_requires_explicit_runtime_paths(
+def test_acoustics_current_installed_help_requires_explicit_runtime_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exit_info:
@@ -68,7 +68,7 @@ def test_m3_current_installed_help_requires_explicit_runtime_paths(
     assert "AVENGINE_RLR_SDK_ROOT" not in rendered
 
 
-def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
+def test_acoustics_research_commands_are_exposed_as_separate_cli_paths() -> None:
     parser = build_parser()
 
     proposed = parser.parse_args(
@@ -177,7 +177,7 @@ def test_m3_research_commands_are_exposed_as_separate_cli_paths() -> None:
     assert verified.m3_command == "verify-canary"
 
 
-def test_m3_static_writers_use_explicit_non_git_mp3d_and_reject_legacy_root(
+def test_acoustics_static_writers_use_explicit_non_git_mp3d_and_reject_legacy_root(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -219,7 +219,7 @@ def test_m3_static_writers_use_explicit_non_git_mp3d_and_reject_legacy_root(
     assert "--runtime-root is retired" in capsys.readouterr().out
 
 
-def test_m3_static_writers_do_not_inherit_mp3d_root_fallback(
+def test_acoustics_static_writers_do_not_inherit_mp3d_root_fallback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -255,7 +255,7 @@ def test_m3_static_writers_do_not_inherit_mp3d_root_fallback(
     assert "AVENGINE_MP3D_ROOT" not in environment
 
 
-def test_m3_all_legacy_root_writers_expose_explicit_mp3d_option() -> None:
+def test_acoustics_all_legacy_root_writers_expose_explicit_mp3d_option() -> None:
     parser = build_parser()
     commands = (
         (
@@ -340,7 +340,7 @@ def test_m3_all_legacy_root_writers_expose_explicit_mp3d_option() -> None:
         assert parsed.runtime_root is None
 
 
-def test_m3_static_writers_reject_git_backed_mp3d_root(
+def test_acoustics_static_writers_reject_git_backed_mp3d_root(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -367,7 +367,7 @@ def test_m3_static_writers_reject_git_backed_mp3d_root(
     assert "must resolve outside a Git checkout" in capsys.readouterr().out
 
 
-def test_m3_native_runtime_unavailable_is_blocked_and_flags_are_scoped(
+def test_acoustics_native_runtime_unavailable_is_blocked_and_flags_are_scoped(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
     arguments = [
@@ -406,7 +406,7 @@ def test_m3_native_runtime_unavailable_is_blocked_and_flags_are_scoped(
     }
 
 
-def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -> None:
+def test_acoustics_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -> None:
     resolved = tmp_path / "resolved"
 
     assert (
@@ -524,7 +524,7 @@ def test_m3_material_profile_cli_resolves_and_compiles(tmp_path: Path, capsys) -
     assert '"status": "pass"' in capsys.readouterr().out
 
 
-def test_m3_material_profile_cli_refuses_unknown_selector(
+def test_acoustics_material_profile_cli_refuses_unknown_selector(
     tmp_path: Path, capsys
 ) -> None:
     profile = load_json(M3_EXAMPLE / "material_profile_example.json")
@@ -553,7 +553,7 @@ def test_m3_material_profile_cli_refuses_unknown_selector(
     assert "unknown source_material_name" in capsys.readouterr().out
 
 
-def test_m3_current_installed_cli_requires_and_forwards_all_runtime_inputs(
+def test_acoustics_current_installed_cli_requires_and_forwards_all_runtime_inputs(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
     arguments = [

@@ -292,3 +292,12 @@ which tests actually ran. Do not push, tag, merge or publish external state
 unless the user has authorized that action. Release claims must reference the
 single current `release/avengine_release_manifest_v1.json`; older runtime locks
 are historical evidence only.
+
+## 目录与命名（20260825 起）
+
+- 顶层目录即能力分组：`src/avengine/{assets,rooms,acoustics,routes,capture,timeline,spatial_audio,registry,dataset,qa,…}`，`tools/` 同理。
+- 新工具/新模块一律放进能力目录；阶段式命名（m1…m7、m6x/m6y/m6z）已移除，禁止新建。
+- 找工具先看 `docs/TOOL_INDEX.md`（自动生成；`python tools/build_tool_index.py --check` 已入单测回归）。
+- 序列化标识是冻结的数据契约，重构不得改动：注册表 schema id、receipt/manifest 字段、
+  产物内的 generator/producer/builder 字符串、`tests/fixtures/m6`、`examples/m*` 路径、
+  CLI 旧别名（m1/m3/m4）背后的历史脚本。

@@ -70,14 +70,14 @@ def _valid_three(tmp_path: Path) -> list[Path]:
     ]
 
 
-def test_m1_aggregate_accepts_exactly_one_verified_entry_per_room_kind(
+def test_rooms_aggregate_accepts_exactly_one_verified_entry_per_room_kind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert _run_aggregate(_valid_three(tmp_path), monkeypatch) == 0
 
 
 @pytest.mark.parametrize("entry_count", [2, 4])
-def test_m1_aggregate_rejects_wrong_entry_count(
+def test_rooms_aggregate_rejects_wrong_entry_count(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     entry_count: int,
@@ -99,7 +99,7 @@ def test_m1_aggregate_rejects_wrong_entry_count(
 
 
 @pytest.mark.parametrize("duplicated_field", ["room_kind", "room_id", "request_id"])
-def test_m1_aggregate_rejects_duplicate_identity_fields(
+def test_rooms_aggregate_rejects_duplicate_identity_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     duplicated_field: str,
@@ -113,7 +113,7 @@ def test_m1_aggregate_rejects_duplicate_identity_fields(
     assert _run_aggregate(paths, monkeypatch) == 1
 
 
-def test_m1_aggregate_rejects_one_failed_room_verification(
+def test_rooms_aggregate_rejects_one_failed_room_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     paths = _valid_three(tmp_path)
@@ -121,7 +121,7 @@ def test_m1_aggregate_rejects_one_failed_room_verification(
     assert _run_aggregate(paths, monkeypatch, failed_path=paths[1]) == 1
 
 
-def test_m1_capture_uses_runtime_prefix_and_writes_v2_blocked_evidence(
+def test_rooms_capture_uses_runtime_prefix_and_writes_v2_blocked_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     room_path = tmp_path / "room.json"
@@ -178,7 +178,7 @@ def test_m1_capture_uses_runtime_prefix_and_writes_v2_blocked_evidence(
     assert _checks_by_id(checks)["evidence_json_schema"]["status"] == "pass"
 
 
-def test_m1_parser_requires_runtime_prefix_and_rejects_legacy_runtime_root() -> None:
+def test_rooms_parser_requires_runtime_prefix_and_rejects_legacy_runtime_root() -> None:
     parser = build_parser()
 
     capture = parser.parse_args(

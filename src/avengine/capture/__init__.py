@@ -1,4 +1,4 @@
-"""M5.1 research source, event, and legacy-flag contracts."""
+"""Habitat-native actor runtime and episode captures (formerly M5.1)."""
 
 from .source_contracts import (
     ALL_FLAG_IDS,

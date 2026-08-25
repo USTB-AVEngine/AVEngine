@@ -430,7 +430,7 @@ def test_render_color_fidelity_qa_rejects_desaturated_ue_and_accepts_retention()
     assert passed["mean_chroma_ratio_ue_to_habitat"] == pytest.approx(1.0)
 
 
-def test_m5_1_reader_preserves_v1_capture_schema() -> None:
+def test_capture_reader_preserves_v1_capture_schema() -> None:
     plan = build_m5_1_mp3d_execution_plan(**_m5_1_inputs())
 
     assert plan["schema"] == M5_1_EXECUTION_SCHEMA
@@ -477,7 +477,7 @@ def test_m5_1_reader_preserves_v1_capture_schema() -> None:
     assert plan["qualification"]["dataset_admission"] is False
 
 
-def test_m5_1_reader_accepts_installed_prefix_v2_shared_projection() -> None:
+def test_capture_reader_accepts_installed_prefix_v2_shared_projection() -> None:
     v1_inputs = _m5_1_inputs()
     v1_plan = build_m5_1_mp3d_execution_plan(**v1_inputs)
 
@@ -508,7 +508,7 @@ def test_m5_1_reader_accepts_installed_prefix_v2_shared_projection() -> None:
         ("dog_wrap", "dog0 action sample differs"),
     ],
 )
-def test_m5_1_compatibility_plan_fails_closed_on_authority_drift(
+def test_capture_compatibility_plan_fails_closed_on_authority_drift(
     mutation: str, message: str
 ) -> None:
     inputs = _m5_1_inputs()
