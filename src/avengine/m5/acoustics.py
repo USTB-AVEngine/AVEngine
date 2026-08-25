@@ -26,7 +26,7 @@ from avengine.m3.runtime import (
     load_habitat_runtime,
     require_runtime_mode,
 )
-from avengine.m4.runtime import (
+from avengine.spatial_audio.runtime import (
     M4SimulationConfig,
     _layout_contract,
     _native_layout,

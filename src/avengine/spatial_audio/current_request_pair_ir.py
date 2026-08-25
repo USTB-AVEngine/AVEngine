@@ -35,8 +35,8 @@ from avengine.m3.runtime import (
     RuntimeUnavailableError,
     load_compiled_acoustic_scene,
 )
-from avengine.m4.audio import AudioContractError, write_float32_wav
-from avengine.m4.binaural import (
+from avengine.spatial_audio.audio import AudioContractError, write_float32_wav
+from avengine.spatial_audio.binaural import (
     BINAURAL_CHANNEL_ORDER,
     STRICT_SAMPLE_RATE_POLICY,
     BinauralContractError,
@@ -44,14 +44,14 @@ from avengine.m4.binaural import (
     rlr_native_binaural_contract,
     validate_binaural_samples,
 )
-from avengine.m4.runtime import (
+from avengine.spatial_audio.runtime import (
     BINAURAL_LAYOUT_ID,
     FOA_LAYOUT_ID,
     M4SimulationConfig,
     MultiSourceRenderResult,
     render_named_sources,
 )
-from avengine.m4.spatial import (
+from avengine.spatial_audio.spatial import (
     RLR_FOA_CHANNEL_COUNT,
     RLR_FOA_CHANNEL_ORDER,
     RLR_FOA_COORDINATE_FRAME,

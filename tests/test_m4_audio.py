@@ -6,7 +6,7 @@ import struct
 import numpy as np
 import pytest
 
-from avengine.m4.audio import (
+from avengine.spatial_audio.audio import (
     AudioContractError,
     canonical_source_ids,
     generate_sine_wave,

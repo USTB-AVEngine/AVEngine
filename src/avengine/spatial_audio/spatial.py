@@ -82,7 +82,7 @@ def rlr_foa_contract() -> dict[str, Any]:
 
 
 def rlr_foa_wav_metadata() -> dict[str, Any]:
-    """Metadata suitable for :func:`avengine.m4.audio.write_float32_wav`."""
+    """Metadata suitable for :func:`avengine.spatial_audio.audio.write_float32_wav`."""
 
     return {"spatial_format": rlr_foa_contract()}
 

@@ -34,19 +34,19 @@ from avengine.m3.runtime import (
     _verify_upload_report,
     load_compiled_acoustic_scene,
 )
-from avengine.m4.audio import (
+from avengine.spatial_audio.audio import (
     AudioContractError,
     generate_sine_wave,
     read_float32_wav,
     render_stems_and_mix,
 )
-from avengine.m4.binaural import (
+from avengine.spatial_audio.binaural import (
     BinauralContractError,
     build_rlr_native_binaural_metadata,
     rlr_native_binaural_contract,
     validate_binaural_cardinals,
 )
-from avengine.m4.contracts import (
+from avengine.spatial_audio.contracts import (
     CURRENT_INSTALLED_EVIDENCE_SCHEMA,
     EVIDENCE_SCHEMA,
     IDENTITY_SCHEMA,
@@ -56,8 +56,8 @@ from avengine.m4.contracts import (
     validate_current_installed_multi_source_canary_evidence,
     validate_multi_source_canary_evidence,
 )
-from avengine.m4.runtime import LIFECYCLE_MOVED_DISTANCE_M
-from avengine.m4.spatial import (
+from avengine.spatial_audio.runtime import LIFECYCLE_MOVED_DISTANCE_M
+from avengine.spatial_audio.spatial import (
     SpatialContractError,
     rlr_foa_contract,
     rlr_foa_wav_metadata,

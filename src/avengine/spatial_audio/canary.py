@@ -18,24 +18,24 @@ from avengine.current_installed_runtime import (
     is_current_installed_runtime_identity as _is_current_installed_runtime_identity,
 )
 from avengine.m3.metrics import analyze_ir
-from avengine.m4.audio import (
+from avengine.spatial_audio.audio import (
     generate_sine_wave,
     read_float32_wav,
     render_stems_and_mix,
     write_float32_wav,
 )
-from avengine.m4.binaural import (
+from avengine.spatial_audio.binaural import (
     build_rlr_native_binaural_metadata,
     rlr_native_binaural_contract,
     validate_binaural_cardinals,
 )
-from avengine.m4.contracts import (
+from avengine.spatial_audio.contracts import (
     CURRENT_INSTALLED_EVIDENCE_SCHEMA,
     EVIDENCE_SCHEMA,
     M4ContractError,
     load_and_validate_multi_source_canary_request,
 )
-from avengine.m4.evidence import (
+from avengine.spatial_audio.evidence import (
     M4EvidenceError,
     artifact_record,
     finalize_evidence,
@@ -51,14 +51,14 @@ from avengine.m3.runtime import (
     load_habitat_runtime,
     require_runtime_mode,
 )
-from avengine.m4.runtime import (
+from avengine.spatial_audio.runtime import (
     M4SimulationConfig,
     benchmark_source_scaling,
     direct_only_simulation,
     exercise_endpoint_lifecycle,
     render_named_sources,
 )
-from avengine.m4.spatial import (
+from avengine.spatial_audio.spatial import (
     rlr_foa_contract,
     rlr_foa_wav_metadata,
     validate_cardinal_foa,

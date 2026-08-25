@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import write_json
-from avengine.m4.runtime import M4SimulationConfig
+from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m6x import rir_cache
 from tools.m6x import render_rir_cache as rir_tool
 

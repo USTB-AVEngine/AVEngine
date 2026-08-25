@@ -22,7 +22,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m4.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.m5.audio import M5_AUDIO_SAMPLE_COUNT, M5_AUDIO_SAMPLE_RATE_HZ, raised_cosine_partition
 from avengine.m6x.rir_cache import (
     RIR_CACHE_INDEX_SCHEMA,
@@ -83,7 +83,7 @@ RESULT_CHANGING_CODE_FILES = (
     "src/avengine/m7/asset_bound_audio.py",
     "src/avengine/m5_1/dry_audio.py",
     "src/avengine/m5/audio.py",
-    "src/avengine/m4/audio.py",
+    "src/avengine/spatial_audio/audio.py",
     "src/avengine/m6x/rir_cache.py",
     "src/avengine/contracts/json_io.py",
 )

@@ -19,8 +19,8 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
 from avengine.m3.runtime import load_compiled_acoustic_scene  # noqa: E402
-from avengine.m4.audio import read_float32_wav, write_float32_wav  # noqa: E402
-from avengine.m4.runtime import M4SimulationConfig  # noqa: E402
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav  # noqa: E402
+from avengine.spatial_audio.runtime import M4SimulationConfig  # noqa: E402
 from avengine.m5_1.acoustics import (  # noqa: E402
     build_strided_review_keyframes,
     render_research_review_binaural_audio,

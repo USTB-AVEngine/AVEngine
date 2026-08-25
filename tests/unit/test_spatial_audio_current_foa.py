@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 
 from avengine.m3.runtime import RUNTIME_MODE_CURRENT_INSTALLED
-from avengine.m4 import current_foa
-from avengine.m4.audio import read_float32_wav
-from avengine.m4.runtime import FOA_LAYOUT_ID, MultiSourceRenderResult, NamedPairIR
-from avengine.m4.spatial import rlr_foa_contract
+from avengine.spatial_audio import current_foa
+from avengine.spatial_audio.audio import read_float32_wav
+from avengine.spatial_audio.runtime import FOA_LAYOUT_ID, MultiSourceRenderResult, NamedPairIR
+from avengine.spatial_audio.spatial import rlr_foa_contract
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]

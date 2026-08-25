@@ -10,17 +10,17 @@ from types import SimpleNamespace
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m4 import evidence as evidence_module
-from avengine.m4.audio import (
+from avengine.spatial_audio import evidence as evidence_module
+from avengine.spatial_audio.audio import (
     generate_sine_wave,
     read_float32_wav,
     write_float32_wav,
 )
-from avengine.m4.binaural import (
+from avengine.spatial_audio.binaural import (
     build_rlr_native_binaural_metadata,
     rlr_native_binaural_contract,
 )
-from avengine.m4.evidence import (
+from avengine.spatial_audio.evidence import (
     _binaural_lock_errors,
     _direct_arrival_errors,
     _dry_recipe_errors,

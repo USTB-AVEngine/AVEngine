@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from avengine.cli import build_parser, main
-from avengine.m4.current_m1_pair_ir import CurrentM1PairIRBlockedError
+from avengine.spatial_audio.current_request_pair_ir import CurrentM1PairIRBlockedError
 
 
 def _output(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:

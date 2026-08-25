@@ -30,8 +30,8 @@ from avengine.m3.runtime import (
     _verify_upload_report,
     load_compiled_acoustic_scene,
 )
-from avengine.m4.audio import read_float32_wav, write_float32_wav
-from avengine.m4.runtime import M4SimulationConfig
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m5.acoustics import DynamicRIRSequence
 from avengine.m5.timeline import json_schema_errors as m5_json_schema_errors
 from avengine.m5_1.acoustics import (

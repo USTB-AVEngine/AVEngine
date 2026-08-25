@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from avengine.m4.spatial import (
+from avengine.spatial_audio.spatial import (
     RLR_FOA_CHANNEL_ORDER,
     RLR_FOA_FORMAT_ID,
     SpatialContractError,

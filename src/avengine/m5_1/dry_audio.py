@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
-from avengine.m4.audio import AudioContractError, canonical_source_ids
+from avengine.spatial_audio.audio import AudioContractError, canonical_source_ids
 
 DRY_AUDIO_ASSEMBLY_SCHEMA = "avengine_m5_1_dry_audio_assembly_v1"
 SEMANTIC_DRY_AUDIO_ASSEMBLY_SCHEMA = "avengine_m5_1_semantic_dry_audio_assembly_v1"

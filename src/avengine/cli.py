@@ -72,20 +72,20 @@ from avengine.m3.rlr_material_import import (
     import_rlr_material_database,
 )
 from avengine.m3.runtime import RuntimeUnavailableError
-from avengine.m4.canary import M4CanaryError, run_m4_canary
-from avengine.m4.current_foa import CurrentFOAError, run_current_foa
-from avengine.m4.current_m1_pair_ir import (
+from avengine.spatial_audio.canary import M4CanaryError, run_m4_canary
+from avengine.spatial_audio.current_foa import CurrentFOAError, run_current_foa
+from avengine.spatial_audio.current_request_pair_ir import (
     CurrentM1PairIRBlockedError,
     CurrentM1PairIRError,
     run_current_m1_binaural,
     run_current_m1_foa,
 )
-from avengine.m4.contracts import (
+from avengine.spatial_audio.contracts import (
     M4ContractError,
     load_and_validate_multi_source_canary_request,
     validate_audio_bundle,
 )
-from avengine.m4.evidence import M4EvidenceError, verify_m4_canary_evidence
+from avengine.spatial_audio.evidence import M4EvidenceError, verify_m4_canary_evidence
 from avengine.m5.canary import M5CanaryError, run_m5_canary, verify_m5_canary_evidence
 from avengine.m5.current_visual import CurrentVisualError, capture_current_visual
 from avengine.m5.current_apartment_visual import (

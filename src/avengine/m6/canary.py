@@ -37,8 +37,8 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m4.audio import read_float32_wav, write_float32_wav
-from avengine.m4.spatial import rlr_foa_contract
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.spatial import rlr_foa_contract
 from avengine.m5.canary import verify_m5_canary_evidence
 from avengine.m5.video import (
     aac_decode_diagnostics,

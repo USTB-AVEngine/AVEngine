@@ -20,7 +20,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m4.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.m5_1.acoustics import (
     build_strided_review_keyframes,
     render_research_review_binaural_audio,

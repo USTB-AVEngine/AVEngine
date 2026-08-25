@@ -32,8 +32,8 @@ from avengine.m3.runtime import (
     RuntimeUnavailableError,
     load_compiled_acoustic_scene,
 )
-from avengine.m4.audio import read_float32_wav, write_float32_wav
-from avengine.m4.runtime import M4SimulationConfig
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m5.acoustics import (
     AcousticKeyframe,
     DynamicRIRSequence,

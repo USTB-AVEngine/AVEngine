@@ -1,6 +1,6 @@
 """M4 deterministic multi-source audio and spatial-output contracts."""
 
-from avengine.m4.audio import (
+from avengine.spatial_audio.audio import (
     AudioContractError,
     FLOAT32_WAV_SIDECAR_SCHEMA,
     Float32Wav,
@@ -14,7 +14,7 @@ from avengine.m4.audio import (
     sum_stems_canonical,
     write_float32_wav,
 )
-from avengine.m4.binaural import (
+from avengine.spatial_audio.binaural import (
     BINAURAL_CHANNEL_ORDER,
     RLR_BOUND_SAMPLE_RATE_POLICY,
     RLR_NATIVE_BINAURAL_METHOD,
@@ -26,7 +26,7 @@ from avengine.m4.binaural import (
     validate_binaural_cardinals,
     validate_binaural_samples,
 )
-from avengine.m4.spatial import (
+from avengine.spatial_audio.spatial import (
     RLR_FOA_CHANNEL_COUNT,
     RLR_FOA_CHANNEL_ORDER,
     RLR_FOA_COORDINATE_FRAME,

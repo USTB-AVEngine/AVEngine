@@ -13,9 +13,9 @@ import pytest
 
 from avengine.contracts.transforms import compose_transforms
 from avengine.m3.runtime import RUNTIME_MODE_CURRENT_INSTALLED
-from avengine.m4 import current_m1_pair_ir
-from avengine.m4.audio import read_float32_wav
-from avengine.m4.runtime import (
+from avengine.spatial_audio import current_request_pair_ir
+from avengine.spatial_audio.audio import read_float32_wav
+from avengine.spatial_audio.runtime import (
     BINAURAL_LAYOUT_ID,
     FOA_LAYOUT_ID,
     MultiSourceRenderResult,
@@ -191,10 +191,10 @@ def _install_fakes(
             layout_type=kwargs["layout_type"],
         )
 
-    monkeypatch.setattr(current_m1_pair_ir, "load_compiled_acoustic_scene", load_scene)
-    monkeypatch.setattr(current_m1_pair_ir, "render_named_sources", render)
+    monkeypatch.setattr(current_request_pair_ir, "load_compiled_acoustic_scene", load_scene)
+    monkeypatch.setattr(current_request_pair_ir, "render_named_sources", render)
     monkeypatch.setattr(
-        current_m1_pair_ir,
+        current_request_pair_ir,
         "_validate_sofa_native_input",
         lambda _path, *, expected_sample_rate_hz: {
             "status": "pass",
@@ -220,10 +220,10 @@ def test_sofa_native_validation_rejects_structurally_invalid_file(
     monkeypatch.setitem(sys.modules, "sofar", fake_sofar)
 
     with pytest.raises(
-        current_m1_pair_ir.CurrentM1PairIRError,
+        current_request_pair_ir.CurrentM1PairIRError,
         match="not a valid verified SOFA",
     ):
-        current_m1_pair_ir._validate_sofa_native_input(
+        current_request_pair_ir._validate_sofa_native_input(
             path, expected_sample_rate_hz=16_000
         )
 
@@ -245,7 +245,7 @@ def test_sofa_native_validation_records_verified_binaural_shape(
     )
     monkeypatch.setitem(sys.modules, "sofar", fake_sofar)
 
-    assert current_m1_pair_ir._validate_sofa_native_input(
+    assert current_request_pair_ir._validate_sofa_native_input(
         path, expected_sample_rate_hz=16_000
     ) == {
         "status": "pass",
@@ -278,8 +278,8 @@ def test_shared_loader_composes_static_m1_endpoints_and_allows_research_package(
         calls["package"] = (Path(path).resolve(), allow_nonpassing_research_qa)
         return _scene(package)
 
-    monkeypatch.setattr(current_m1_pair_ir, "load_compiled_acoustic_scene", load_scene)
-    loaded = current_m1_pair_ir.load_current_m1_pair_ir_inputs(m1, simulation, package)
+    monkeypatch.setattr(current_request_pair_ir, "load_compiled_acoustic_scene", load_scene)
+    loaded = current_request_pair_ir.load_current_m1_pair_ir_inputs(m1, simulation, package)
 
     expected_listener = compose_transforms(
         loaded.m1_request["primary_camera_rig"]["world_from_rig"],
@@ -316,12 +316,12 @@ def test_shared_loader_rejects_malformed_m1_before_package_load(
         called = True
         return _scene(tmp_path / "package.json")
 
-    monkeypatch.setattr(current_m1_pair_ir, "load_compiled_acoustic_scene", load_scene)
+    monkeypatch.setattr(current_request_pair_ir, "load_compiled_acoustic_scene", load_scene)
     with pytest.raises(
-        current_m1_pair_ir.CurrentM1PairIRError,
+        current_request_pair_ir.CurrentM1PairIRError,
         match="before package load",
     ):
-        current_m1_pair_ir.load_current_m1_pair_ir_inputs(
+        current_request_pair_ir.load_current_m1_pair_ir_inputs(
             m1, simulation, tmp_path / "package.json"
         )
     assert called is False
@@ -333,15 +333,15 @@ def test_shared_loader_rejects_package_room_mismatch(
 ) -> None:
     m1, simulation, package = _inputs(tmp_path)
     monkeypatch.setattr(
-        current_m1_pair_ir,
+        current_request_pair_ir,
         "load_compiled_acoustic_scene",
         lambda *_args, **_kwargs: _scene(package, room_id="different_room"),
     )
     with pytest.raises(
-        current_m1_pair_ir.CurrentM1PairIRError,
+        current_request_pair_ir.CurrentM1PairIRError,
         match="source_room.room_id",
     ):
-        current_m1_pair_ir.load_current_m1_pair_ir_inputs(m1, simulation, package)
+        current_request_pair_ir.load_current_m1_pair_ir_inputs(m1, simulation, package)
 
 
 @pytest.mark.parametrize(
@@ -369,12 +369,12 @@ def test_shared_loader_rejects_wrong_simulation_request(
     mutation(value)
     simulation = _write_json(tmp_path / "simulation.json", value)
     monkeypatch.setattr(
-        current_m1_pair_ir,
+        current_request_pair_ir,
         "load_compiled_acoustic_scene",
         lambda *_args, **_kwargs: _scene(tmp_path / "package.json"),
     )
-    with pytest.raises(current_m1_pair_ir.CurrentM1PairIRError, match=message):
-        current_m1_pair_ir.load_current_m1_pair_ir_inputs(
+    with pytest.raises(current_request_pair_ir.CurrentM1PairIRError, match=message):
+        current_request_pair_ir.load_current_m1_pair_ir_inputs(
             m1, simulation, tmp_path / "package.json"
         )
 
@@ -392,7 +392,7 @@ def test_current_m1_foa_writes_two_raw_pairs_without_hrtf(
     )
     output = tmp_path / "foa-output"
 
-    receipt = current_m1_pair_ir.run_current_m1_foa(
+    receipt = current_request_pair_ir.run_current_m1_foa(
         m1,
         simulation,
         package,
@@ -434,10 +434,10 @@ def test_current_m1_foa_writes_two_raw_pairs_without_hrtf(
         assert wav.sidecar["metadata"]["hrtf_used"] is False
 
     with pytest.raises(
-        current_m1_pair_ir.CurrentM1PairIRError,
+        current_request_pair_ir.CurrentM1PairIRError,
         match="refusing to replace",
     ):
-        current_m1_pair_ir.run_current_m1_foa(
+        current_request_pair_ir.run_current_m1_foa(
             m1,
             simulation,
             package,
@@ -465,7 +465,7 @@ def test_current_m1_binaural_preflights_and_writes_two_lr_pairs(
     license_path.write_bytes(b"fixture license")
     output = tmp_path / "binaural-output"
 
-    receipt = current_m1_pair_ir.run_current_m1_binaural(
+    receipt = current_request_pair_ir.run_current_m1_binaural(
         m1,
         simulation,
         package,
@@ -526,10 +526,10 @@ def test_current_m1_binaural_stops_on_strict_rate_mismatch_before_render(
     output = tmp_path / "blocked-output"
 
     with pytest.raises(
-        current_m1_pair_ir.CurrentM1PairIRBlockedError,
+        current_request_pair_ir.CurrentM1PairIRBlockedError,
         match="does not equal render sample rate",
     ):
-        current_m1_pair_ir.run_current_m1_binaural(
+        current_request_pair_ir.run_current_m1_binaural(
             m1,
             simulation,
             package,
@@ -565,10 +565,10 @@ def test_current_m1_binaural_rejects_invalid_sofa_before_package_or_render(
     hrtf.write_bytes(b"invalid SOFA fixture")
     license_path.write_bytes(b"fixture license")
     monkeypatch.setattr(
-        current_m1_pair_ir,
+        current_request_pair_ir,
         "_validate_sofa_native_input",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            current_m1_pair_ir.CurrentM1PairIRError(
+            current_request_pair_ir.CurrentM1PairIRError(
                 "declared HRTF is not a valid verified SOFA file"
             )
         ),
@@ -576,10 +576,10 @@ def test_current_m1_binaural_rejects_invalid_sofa_before_package_or_render(
     output = tmp_path / "invalid-sofa-output"
 
     with pytest.raises(
-        current_m1_pair_ir.CurrentM1PairIRError,
+        current_request_pair_ir.CurrentM1PairIRError,
         match="not a valid verified SOFA",
     ):
-        current_m1_pair_ir.run_current_m1_binaural(
+        current_request_pair_ir.run_current_m1_binaural(
             m1,
             simulation,
             package,

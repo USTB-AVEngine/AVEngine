@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file, write_json
-from avengine.m4.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.m5.audio import (
     M5_AUDIO_SAMPLE_RATE_HZ,
     extract_faded_clip,

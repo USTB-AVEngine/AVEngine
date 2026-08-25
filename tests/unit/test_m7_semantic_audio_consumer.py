@@ -592,7 +592,7 @@ def test_semantic_render_batch_is_digest_free_structural_cpu_e2e(
         slot: output / f"audio/binaural/stems/{slot}/episode__v00.wav"
         for slot in ("source1", "source2")
     }
-    from avengine.m4.audio import read_float32_wav
+    from avengine.spatial_audio.audio import read_float32_wav
 
     decoded_mix = read_float32_wav(mixture, verify_sidecar=False).samples
     decoded_stems = {

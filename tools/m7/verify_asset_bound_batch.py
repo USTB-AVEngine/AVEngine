@@ -25,7 +25,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m4.audio import read_float32_wav
+from avengine.spatial_audio.audio import read_float32_wav
 from avengine.m6.audio_program import (
     AudioProgramError,
     materialize_audio_program_variant,

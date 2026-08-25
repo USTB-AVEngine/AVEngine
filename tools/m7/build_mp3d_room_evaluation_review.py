@@ -25,7 +25,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m4.audio import read_float32_wav
+from avengine.spatial_audio.audio import read_float32_wav
 from avengine.m5.metrics import listener_local_source_geometry
 from avengine.m5_1.review import (
     SourceOverlayTrack,

@@ -14,10 +14,10 @@ from avengine.contracts.json_io import canonical_json_sha256
 from avengine.m3.canary import _expected_configuration_readback
 from avengine.m3.compiler import compile_canary_request
 from avengine.m3.runtime import _expected_upload_report
-from avengine.m4 import canary
-from avengine.m4.audio import read_float32_wav, write_float32_wav
-from avengine.m4.evidence import artifact_record, verify_m4_canary_evidence
-from avengine.m4.runtime import (
+from avengine.spatial_audio import canary
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.evidence import artifact_record, verify_m4_canary_evidence
+from avengine.spatial_audio.runtime import (
     BINAURAL_LAYOUT_ID,
     FOA_LAYOUT_ID,
     LIFECYCLE_MOVED_DISTANCE_M,

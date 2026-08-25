@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m4.contracts import (
+from avengine.spatial_audio.contracts import (
     AUDIO_BUNDLE_SCHEMA,
     CURRENT_INSTALLED_EVIDENCE_SCHEMA,
     EVIDENCE_SCHEMA,

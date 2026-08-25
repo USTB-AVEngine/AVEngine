@@ -16,7 +16,7 @@ from avengine.contracts.json_io import (
     sha256_file,
 )
 from avengine.m3.runtime import load_compiled_acoustic_scene
-from avengine.m4.runtime import M4SimulationConfig
+from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m6x.rir_cache import (
     RIR_CACHE_ACOUSTIC_SELECTION_NAME,
     load_semantic_acoustic_scene,

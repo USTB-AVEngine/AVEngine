@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from avengine.m3.runtime import CompiledAcousticScene, RuntimeAnchor, RuntimeContractError
-from avengine.m4 import runtime
+from avengine.spatial_audio import runtime
 
 
 def _scene() -> CompiledAcousticScene:

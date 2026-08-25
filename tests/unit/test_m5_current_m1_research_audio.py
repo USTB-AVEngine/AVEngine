@@ -11,7 +11,7 @@ import pytest
 
 from avengine.cli import build_parser
 from avengine.contracts.json_io import write_json
-from avengine.m4.audio import generate_sine_wave, read_float32_wav, write_float32_wav
+from avengine.spatial_audio.audio import generate_sine_wave, read_float32_wav, write_float32_wav
 from avengine.m5.current_m1_research_audio import (
     CurrentM1ResearchAudioError,
     load_current_m1_research_audio_inputs,

@@ -27,7 +27,7 @@ from PIL import Image
 
 from avengine.contracts.json_io import load_json, write_json
 from avengine.m3.runtime import load_compiled_acoustic_scene
-from avengine.m4.runtime import M4SimulationConfig
+from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m5_1.acoustics import (
     build_strided_review_keyframes,
     render_research_review_binaural_rir_sequence,

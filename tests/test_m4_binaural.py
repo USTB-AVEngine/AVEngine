@@ -5,7 +5,7 @@ import hashlib
 import numpy as np
 import pytest
 
-from avengine.m4.binaural import (
+from avengine.spatial_audio.binaural import (
     BINAURAL_CHANNEL_ORDER,
     BinauralContractError,
     build_rlr_native_binaural_metadata,

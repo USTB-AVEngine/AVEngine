@@ -39,7 +39,7 @@ from avengine.m3.runtime import (
     load_habitat_runtime,
 )
 from avengine.m3.rlr_material_import import _validate_rlr_document
-from avengine.m4.runtime import (
+from avengine.spatial_audio.runtime import (
     BINAURAL_LAYOUT_ID,
     FOA_LAYOUT_ID,
     M4SimulationConfig,

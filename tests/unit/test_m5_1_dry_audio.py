@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
-from avengine.m4.audio import AudioContractError
+from avengine.spatial_audio.audio import AudioContractError
 from avengine.m5_1.dry_audio import (
     RESAMPLING_ALGORITHM,
     DryAudioClipSpec,

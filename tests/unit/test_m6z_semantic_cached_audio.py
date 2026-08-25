@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from avengine.m4.audio import read_float32_wav, write_float32_wav
+from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.m6x import rir_cache
 from avengine.m6x.rir_cache import validate_semantic_rir_job_plan
 from avengine.m6x.semantic_rir_cache import SemanticRIRCacheSession

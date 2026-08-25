@@ -19,7 +19,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from avengine.contracts.json_io import load_json, write_json
-from avengine.m4.audio import (
+from avengine.spatial_audio.audio import (
     AudioContractError,
     Float32WavArtifact,
     generate_sine_wave,

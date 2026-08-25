@@ -8,9 +8,9 @@ import pytest
 
 from avengine.m3.runtime import RuntimeUnavailableError
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m4 import canary
-from avengine.m4 import evidence as m4_evidence
-from avengine.m4.contracts import CURRENT_INSTALLED_EVIDENCE_SCHEMA
+from avengine.spatial_audio import canary
+from avengine.spatial_audio import evidence as m4_evidence
+from avengine.spatial_audio.contracts import CURRENT_INSTALLED_EVIDENCE_SCHEMA
 
 
 def _lock(path: Path) -> Path:

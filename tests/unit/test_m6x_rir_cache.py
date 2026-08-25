@@ -9,7 +9,7 @@ import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.m3.runtime import CompiledAcousticScene
-from avengine.m4.runtime import M4SimulationConfig
+from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m6x.rir_cache import (
     RIRBatchResult,
     RIRCacheError,

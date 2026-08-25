@@ -12,7 +12,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m4.audio import write_float32_wav
+from avengine.spatial_audio.audio import write_float32_wav
 from avengine.m7.room_evaluation import (
     build_room_evaluation_plan,
     build_static_source_trajectory_bank,

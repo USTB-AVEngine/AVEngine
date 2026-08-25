@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from avengine.m4.audio import AudioContractError
+from avengine.spatial_audio.audio import AudioContractError
 from avengine.m5.audio import (
     extract_faded_clip,
     place_simultaneous_events,

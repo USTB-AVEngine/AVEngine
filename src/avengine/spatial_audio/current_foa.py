@@ -27,18 +27,18 @@ from avengine.m3.runtime import (
     RuntimeUnavailableError,
     load_compiled_acoustic_scene,
 )
-from avengine.m4.audio import AudioContractError, write_float32_wav
-from avengine.m4.contracts import (
+from avengine.spatial_audio.audio import AudioContractError, write_float32_wav
+from avengine.spatial_audio.contracts import (
     M4ContractError,
     load_and_validate_multi_source_canary_request,
 )
-from avengine.m4.runtime import (
+from avengine.spatial_audio.runtime import (
     FOA_LAYOUT_ID,
     M4SimulationConfig,
     MultiSourceRenderResult,
     render_named_sources,
 )
-from avengine.m4.spatial import (
+from avengine.spatial_audio.spatial import (
     RLR_FOA_CHANNEL_COUNT,
     RLR_FOA_CHANNEL_ORDER,
     RLR_FOA_COORDINATE_FRAME,

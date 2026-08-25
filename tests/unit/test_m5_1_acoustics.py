@@ -16,7 +16,7 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.m3.runtime import CompiledAcousticScene, RuntimeContractError
-from avengine.m4.runtime import M4SimulationConfig
+from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m5.acoustics import DynamicRIRSequence, validate_acoustic_keyframes
 from avengine.m5_1 import acoustics
 import tools.m5_1.render_review_acoustics as review_acoustics
