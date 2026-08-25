@@ -13,11 +13,20 @@ Layout mirrors the lineage the assets actually have, coarse to fine:
                       walk/  turntable/      review renders
                       evidence/              gate reports and stage manifests
 
-The top level is the body plan rather than the species because that is what
-decides which retargeted animation binds; species and breed are in the index and
-in every asset record, so nothing is lost by not foldering on them. The leaf is
-size and coat value only: body build and life stage were dropped as instance axes
-by owner decision, being visually indistinguishable.
+The top level is the body plan rather than the species because it records which
+donor gait was retargeted into the asset, which is the thing a consumer must not
+get wrong. It is not a structural claim: the felid and canid donors are the same
+rig - 34 bones, identical names, identical hierarchy depth, identical 41-frame
+action range - differing only in their rotation curves. Nothing in the engine
+branches on which body plan an asset has either; the id is checked for equality
+against the template and the actor, and that is all. So a cat asset can be
+re-animated with the canid gait and the reverse, and the folder says which one it
+currently carries rather than which one it could accept.
+
+Species and breed are in the index and in every asset record, so nothing is lost
+by not foldering on them. The leaf is size and coat value only: body build and
+life stage were dropped as instance axes by owner decision, being visually
+indistinguishable.
 
 index.json carries the gate criterion and its calibration alongside the assets,
 so a consumer reading one file knows both what it has and on what basis it was
@@ -183,6 +192,14 @@ def main():
         "created_at": datetime.now(timezone.utc).isoformat(),
         "revision": args.revision,
         "layout": "<body_plan_id>/<breed>/<size>_<coat_value>",
+        "layout_note": (
+            "the top level records which donor gait is baked into the asset, not "
+            "a skeletal difference: the felid and canid donors are the same rig "
+            "down to bone names, hierarchy depth and action length, and differ "
+            "only in their rotation curves. No engine code branches on the body "
+            "plan; it is checked for equality between template and actor. Assets "
+            "under one body plan can therefore be re-animated from another's "
+            "donor without rig work"),
         "instance_axes": ["size", "coat_profile"],
         "instance_axes_note": (
             "body_build and life_stage were dropped as axes by owner decision, "
