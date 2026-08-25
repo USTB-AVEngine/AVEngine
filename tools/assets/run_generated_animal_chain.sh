@@ -19,19 +19,20 @@
 #     --raw /path/raw.glb --workdir /path/out --front-yaw-deg -179.706 \
 #     --donor-rig /path/donor_walk_idle.glb --spear-root /path/SPEAR \
 #     --rigger-root /path/SkinTokens [--gpu 0] [--port-base 59875] \
-#     [--target-faces 80000] [--voxel-divisors 800,700,600,500] [--relief-smooth -1]
+#     [--target-faces 80000,120000] [--voxel-divisors 800,700] [--relief-smooth -1]
 #
-# The remesh resolution is swept rather than fixed. A finer grid resolves more
-# of the surface, which is what a dense cat wants, and it also resolves the gap
-# between a thin-legged dog's limbs into separate thin walls that then collapse
-# badly - measured, the same divisor that gives a Burmese p99 0.0017 gives a
-# Jack Russell 0.0119. So the constant in this pipeline is the gate, not the
-# resolution: try resolutions until one passes.
+# Both the face budget and the remesh resolution are swept rather than fixed,
+# because neither generalized from the animal it was chosen on. The budget is
+# squeezed from both sides: too few faces and the head starves, because a head
+# needs an absolute triangle count and a large flank will take the budget first
+# - the Siamese reads 0.59 head survival at 50k, 0.66 at 80k and passes at 120k
+# - while too many and the skinning folds. So the constant in this pipeline is
+# the gate, not the settings: try combinations until one passes.
 
 set -euo pipefail
 
 RAW="" WORKDIR="" YAW="" DONOR="" SPEAR_ROOT="" RIGGER_ROOT=""
-GPU=0 PORT_BASE=59875 TARGET_FACES=80000 VOXEL_DIVISORS="800,700,600,500" RELIEF_SMOOTH=-1
+GPU=0 PORT_BASE=59875 TARGET_FACES="80000,120000" VOXEL_DIVISORS="800,700" RELIEF_SMOOTH=-1
 BLENDER="${BLENDER:-blender}"
 
 while [ $# -gt 0 ]; do
@@ -73,31 +74,36 @@ export PYTHONUNBUFFERED=1
 
 step() { echo "=== [$(date +%H:%M:%S)] $* ==="; }
 
-step "1/6 retopologize to $TARGET_FACES faces, sweeping resolutions $VOXEL_DIVISORS"
-ACCEPTED_DIVISOR=""
+step "1/6 retopologize, sweeping budgets $TARGET_FACES and resolutions $VOXEL_DIVISORS"
+ACCEPTED=""
+IFS=',' read -r -a BUDGETS <<< "$TARGET_FACES"
 IFS=',' read -r -a DIVISORS <<< "$VOXEL_DIVISORS"
-for divisor in "${DIVISORS[@]}"; do
-  attempt="$WORKDIR/prepare_d${divisor}"
-  echo "--- diagonal/${divisor}"
-  "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/retopologize_for_rigging.py" -- \
-    --input "$RAW" --output "${attempt}.glb" --report "${attempt}.json" \
-    --target-faces "$TARGET_FACES" --voxel-divisor "$divisor" \
-    --relief-smooth-iterations "$RELIEF_SMOOTH" 2>&1 | grep -E "^RETOPOLOGY_OK" > /dev/null
-  if python3 "$AVENGINE_ROOT/tools/assets/gate_retopology.py" "${attempt}.json"; then
-    cp "${attempt}.glb" "$WORKDIR/prepared.glb"
-    cp "${attempt}.json" "$WORKDIR/prepared.json"
-    ACCEPTED_DIVISOR="$divisor"
-    break
-  fi
+for budget in "${BUDGETS[@]}"; do
+  for divisor in "${DIVISORS[@]}"; do
+    attempt="$WORKDIR/prepare_f${budget}_d${divisor}"
+    echo "--- ${budget} faces at diagonal/${divisor}"
+    "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/retopologize_for_rigging.py" -- \
+      --input "$RAW" --output "${attempt}.glb" --report "${attempt}.json" \
+      --target-faces "$budget" --voxel-divisor "$divisor" \
+      --front-yaw-deg "$YAW" --relief-smooth-iterations "$RELIEF_SMOOTH" \
+      2>&1 | grep -E "^RETOPOLOGY_OK" > /dev/null
+    if python3 "$AVENGINE_ROOT/tools/assets/gate_retopology.py" "${attempt}.json"; then
+      cp "${attempt}.glb" "$WORKDIR/prepared.glb"
+      cp "${attempt}.json" "$WORKDIR/prepared.json"
+      ACCEPTED="${budget} faces at diagonal/${divisor}"
+      break 2
+    fi
+  done
 done
 
-step "2/6 confirm a resolution was accepted"
-if [ -z "$ACCEPTED_DIVISOR" ]; then
-  echo "no resolution in $VOXEL_DIVISORS passed the gate; the rejections above" >&2
-  echo "say which reading failed. Reducing --target-faces is usually the fix." >&2
+step "2/6 confirm a preparation was accepted"
+if [ -z "$ACCEPTED" ]; then
+  echo "nothing in budgets [$TARGET_FACES] x resolutions [$VOXEL_DIVISORS] passed" >&2
+  echo "the gate. The rejections above name the reading that failed; a starved" >&2
+  echo "head calls for a larger budget, not a smaller one." >&2
   exit 66
 fi
-echo "accepted diagonal/$ACCEPTED_DIVISOR"
+echo "accepted $ACCEPTED"
 
 step "3/6 rig"
 mkdir -p "$WORKDIR/rig_patch"

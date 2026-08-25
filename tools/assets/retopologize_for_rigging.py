@@ -161,6 +161,43 @@ def main_island_coords(mesh, weld):
     return coords, round(debris, 5)
 
 
+def faceting(mesh, weld):
+    """How sharply adjacent triangles meet: the stipple, measured directly.
+
+    Faceting on a pale coat is what a reviewer sees as dark speckle.  The share
+    of edges bending past thirty degrees tracks that judgement across assets
+    where the relief ratio does not, because the ratio moves with both the
+    remesh resolution and the face budget while this does not.
+
+    Welding first is not optional.  A uv unwrap seams almost every triangle and
+    glTF splits a vertex at every seam, so on unwelded geometry hardly any edge
+    has two faces at all - 80,000 faces once yielded five usable edges.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    coords = [vert.co for vert in bm.verts]
+    low = [min(point[i] for point in coords) for i in range(3)]
+    high = [max(point[i] for point in coords) for i in range(3)]
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=math.dist(low, high) * weld)
+    bm.normal_update()
+    angles = []
+    for edge in bm.edges:
+        if len(edge.link_faces) == 2:
+            first, second = edge.link_faces
+            angles.append(math.degrees(math.acos(
+                max(-1.0, min(1.0, first.normal.dot(second.normal))))))
+    bm.free()
+    if not angles:
+        return {"edges": 0}
+    values = np.array(angles)
+    return {
+        "edges": len(angles),
+        "mean_deg": round(float(values.mean()), 2),
+        "p95_deg": round(float(np.percentile(values, 95)), 2),
+        "share_over_30deg": round(float((values > 30.0).mean()), 4),
+    }
+
+
 def octant_census(mesh, centre):
     """Face counts per bounding-box octant, as an axis-free fallback."""
     counts = {}
@@ -393,6 +430,7 @@ def main():
             "thirds along the reviewed forward direction; the front third holds "
             "the head, and it is the one that must not starve")
     report["fidelity_over_diagonal"] = deviation_from(coords, target, diagonal)
+    report["faceting"] = faceting(target.data, 1e-4)
     report["fidelity_note"] = (
         "sampled from the source's largest island only; detached debris the "
         "remesh drops is reported as source_debris_share instead")

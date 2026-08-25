@@ -93,8 +93,9 @@ off a freshly imported file measures the file format instead of the surface.
 
 `tools/assets/gate_retopology.py` reads that report and decides, so a mesh that
 lost its head is rejected before it consumes a rigging slot rather than after.
-It gates on head-third survival at 0.7, on boundary and non-manifold edges in
-single figures, and on the face target actually being reached. The boundary
+It gates on head-third survival at 0.7, on faceting at 0.30, on boundary and
+non-manifold edges in single figures, and on the face target actually being
+reached. The boundary
 allowance is not zero because welding the measurement copy leaves the occasional
 stray edge; a genuine hole arrives in the hundreds.
 
@@ -134,11 +135,10 @@ improves fourfold (1.355% to 0.333% of area stretched past 2x) and the dark
 Burmese too (1.616% to 0.416%), and both now look like the animal instead of
 crumpled paper.
 
-## Density still costs, even on clean topology
+## The budget is squeezed from both sides
 
-The recipe removes the topology blocker; it does not make density free. The
-Jack Russell and Siamese were already reducible, and pushing them from 25k to
-80k costs tearing:
+The recipe removes the topology blocker; it does not make the face budget free
+to pick. Pushing an already-reducible mesh from 25k to 80k costs tearing:
 
 | asset | 25k decimate-only | 80k retopologised |
 | --- | --- | --- |
@@ -147,9 +147,25 @@ Jack Russell and Siamese were already reducible, and pushing them from 25k to
 | Siamese, >2x | 0.937% | 1.038% |
 | Siamese, >10x | 0.011% | 0.070% |
 
-So the budget is a judgement, not a constant: 80k buys detail the reviewer can
-see and costs tearing the reviewer can also see. On a mesh whose topology is
-already clean, prefer the lower end.
+And cutting it too far starves the head, which is the opposite pressure and the
+more surprising one. A head needs an absolute triangle count, not a share, and a
+large smooth flank will take the budget first. The Siamese at diagonal/800:
+
+| Siamese budget | faces reached | head third | verdict |
+| --- | --- | --- | --- |
+| 50k | 65,902 | 0.593 | reject |
+| 80k | 79,983 | 0.658 | reject |
+| 120k | 119,983 | 0.705 | accept |
+
+Smoothing is not what moved it: at 80k the head reads 0.68, 0.67 and 0.66 for 6,
+12 and 24 relief passes. And the budget is not the only knob either — the same
+Siamese passes at 80k once the resolution drops to diagonal/700, which the sweep
+found on its second attempt.
+
+That is the whole argument for sweeping. Neither knob generalized from the animal
+it was chosen on: 80k at diagonal/800 suits three of these four breeds and fails
+the fourth, which passes at 80k/700. Two settings, one gate, and the gate is what
+travels between animals.
 
 Note which animal is which in the table above. The Siamese has the *second
 cleanest* topology of the four (1,986 non-manifold edges) and the worst tearing
@@ -174,15 +190,37 @@ changed nothing, so it is not a ray punching through a thin wall either.
 
 Smoothing the remesh before the reduction removes it: 24 passes at factor 0.5
 takes the Siamese from heavy stipple to faint traces on the flank, at a small
-fidelity cost (p99 0.0017 to 0.0023) and a wider octant spread (0.79-1.38 to
-0.73-2.04). The tool derives the pass count from the measured relief ratio —
-remeshed faces over the face target — and reports both, so the decision is
-visible in the report rather than buried in a flag.
+fidelity cost (p99 0.0017 to 0.0023). The tool derives the pass count from the
+measured relief ratio — remeshed faces over the face target — and reports both,
+so the decision is visible in the report rather than buried in a flag. Note the
+ratio moves with the budget as well as the resolution, so a smaller budget asks
+for more smoothing: the Siamese derives 8 passes at 120k and 52 at 50k.
 
-The ratio is resolution-dependent: the same mesh reads 5.2 at diagonal/700 and
-13.4 at diagonal/800, because a finer grid keeps finding more relief to resolve.
-Compare ratios only within one resolution, and re-tune the threshold if the
-resolution changes.
+The relief ratio drives that derived pass count, but it is the wrong shape for a
+threshold: it moves with the remesh resolution and the face budget, so the same
+mesh reads 5.2 at diagonal/700 and 13.4 at diagonal/800 for reasons that have
+nothing to do with how the surface looks. Measuring the faceting directly does
+not have that problem, and it ranks assets the way the eye does:
+
+| asset | relief passes | mean dihedral | edges past 30 degrees | reads as |
+| --- | --- | --- | --- | --- |
+| Jack Russell | 0 | 8.6 | 4.3% | clean |
+| dark Burmese | 29 | 13.5 | 10.6% | clean |
+| standard Burmese | 29 | 27.9 | 23.3% | clean |
+| Siamese at diagonal/800 | 24 | 45.5 | 38.3% | faint speckle |
+| Siamese at diagonal/700 | 0 | 56.9 | 48.5% | heavy speckle |
+
+Everything that reads clean sits under 23 percent and everything speckled over
+38, so the gate takes 0.30 and the remedy it names is more relief smoothing. The
+ratio stays in the report because it drives the pass count; the faceting share
+is what decides.
+
+Welding before this measurement is not optional either, and this is the third
+place in this pipeline where that mattered. A uv unwrap seams almost every
+triangle and glTF splits a vertex at every seam, so the first version of this
+measurement found five usable edges in 80,000 faces and reported a mean angle of
+0.01 degrees for every asset alike. Any per-edge reading taken on a freshly
+imported file describes the file format.
 
 ## Where the non-manifold edges come from
 
