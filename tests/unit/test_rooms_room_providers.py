@@ -15,7 +15,7 @@ from avengine.rooms.rooms import find_room_record
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-REGISTRY = load_json(REPOSITORY_ROOT / "examples/m6/rooms/room_registry.json")
+REGISTRY = load_json(REPOSITORY_ROOT / "examples/registry/rooms/room_registry.json")
 
 
 def test_provider_registry_exposes_all_four_adapters() -> None:

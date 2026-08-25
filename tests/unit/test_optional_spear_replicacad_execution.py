@@ -318,7 +318,7 @@ def test_fixed_exposure_keeps_dataset_light_claim_explicit() -> None:
 
 def test_room_local_profile_excludes_only_positive_lights_outside_stage_shell() -> None:
     document = load_replicacad_lighting_profiles(
-        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+        REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json"
     )
     request = {"lighting": {"lights": _apt0_signed_light_records()}}
 
@@ -362,7 +362,7 @@ def test_room_local_profile_updates_runtime_counts_without_changing_authority() 
     inputs = _m5_1_runtime_inputs()
     base = build_m5_1_replicacad_runtime_plan(**inputs)
     document = load_replicacad_lighting_profiles(
-        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+        REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json"
     )
     profile = compile_replicacad_lighting_profile(
         execution_request=inputs["execution_request"],
@@ -403,7 +403,7 @@ def _route_manifest_for_generated_fill() -> dict[str, object]:
 
 def test_route_center_fill_resolves_from_actor_routes_inside_stage_shell() -> None:
     document = load_replicacad_lighting_profiles(
-        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+        REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json"
     )
     profile = compile_replicacad_lighting_profile(
         execution_request={"lighting": {"lights": _apt0_signed_light_records()}},
@@ -432,7 +432,7 @@ def test_route_center_fill_updates_runtime_counts_without_changing_authority() -
     inputs = _m5_1_runtime_inputs()
     base = build_m5_1_replicacad_runtime_plan(**inputs)
     document = load_replicacad_lighting_profiles(
-        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+        REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json"
     )
     profile = compile_replicacad_lighting_profile(
         execution_request=inputs["execution_request"],
@@ -483,7 +483,7 @@ class _FakeHabitatSimulator:
 
 def test_habitat_room_local_profile_scales_same_three_source_lights() -> None:
     document = load_replicacad_lighting_profiles(
-        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+        REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json"
     )
     profile = compile_replicacad_lighting_profile(
         execution_request={"lighting": {"lights": _apt0_signed_light_records()}},
@@ -537,7 +537,7 @@ def test_habitat_room_local_profile_scales_same_three_source_lights() -> None:
 
 def test_habitat_route_center_profile_adds_one_explicit_fill() -> None:
     document = load_replicacad_lighting_profiles(
-        REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+        REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json"
     )
     profile = compile_replicacad_lighting_profile(
         execution_request={"lighting": {"lights": _apt0_signed_light_records()}},

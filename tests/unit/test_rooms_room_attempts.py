@@ -55,20 +55,20 @@ def _init_git_repository(path: Path) -> tuple[str, bytes]:
     _git(path, "config", "user.email", "m6-room-tests@example.invalid")
     _git(path, "config", "user.name", "M6 Room Tests")
     registry_bytes = (
-        REPOSITORY_ROOT / "examples/m6/rooms/room_registry.json"
+        REPOSITORY_ROOT / "examples/registry/rooms/room_registry.json"
     ).read_bytes()
-    registry = path / "examples/m6/rooms/room_registry.json"
+    registry = path / "examples/registry/rooms/room_registry.json"
     registry.parent.mkdir(parents=True)
     registry.write_bytes(registry_bytes)
     (path / ".gitignore").write_text("tmp/\n", encoding="utf-8")
-    _git(path, "add", ".gitignore", "examples/m6/rooms/room_registry.json")
+    _git(path, "add", ".gitignore", "examples/registry/rooms/room_registry.json")
     _git(path, "commit", "-q", "-m", "canonical room registry")
     return _git(path, "rev-parse", "HEAD"), registry_bytes
 
 
 def _run_minimal(tmp_path: Path) -> Path:
     return run_room_qualification_attempt(
-        registry_path="examples/m6/rooms/room_registry.json",
+        registry_path="examples/registry/rooms/room_registry.json",
         corrupted_fixture_path=(
             "tests/fixtures/rooms/corrupted_acoustic_package/fixture.json"
         ),
@@ -226,7 +226,7 @@ def test_formal_registry_binding_uses_exact_canonical_git_blob(
         "code_provenance": {"commit": commit, "worktree_clean": True},
         "registry": {
             "kind": "repository_relative",
-            "path": "examples/m6/rooms/room_registry.json",
+            "path": "examples/registry/rooms/room_registry.json",
             "byte_size": len(registry_bytes),
             "sha256": hashlib.sha256(registry_bytes).hexdigest(),
         },
@@ -241,11 +241,11 @@ def test_formal_registry_binding_uses_exact_canonical_git_blob(
     assert measured["git_blob_available"] is True
     assert measured["fixed_repository_locator"] is True
 
-    manifest["registry"]["path"] = "examples/m6/rooms/rebound.json"
+    manifest["registry"]["path"] = "examples/registry/rooms/rebound.json"
     assert _formal_registry_git_binding(
         manifest, git_observation=observation
     )[0] is False
-    manifest["registry"]["path"] = "examples/m6/rooms/room_registry.json"
+    manifest["registry"]["path"] = "examples/registry/rooms/room_registry.json"
     manifest["registry"]["sha256"] = "0" * 64
     assert _formal_registry_git_binding(
         manifest, git_observation=observation

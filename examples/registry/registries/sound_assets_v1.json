@@ -1,0 +1,83 @@
+{
+  "schema": "avengine_m6_sound_asset_registry_v1",
+  "registry_id": "m6_sound_assets_canary_v1",
+  "revision": "v1",
+  "sound_assets": [
+    {
+      "sound_asset_id": "directional_chime_v1",
+      "revision": "v1",
+      "semantic_sound_class": "test_signal",
+      "taxonomy_path": ["synthetic", "directional", "chime"],
+      "instance_lineage_id": "m6x_directional_chime_v1",
+      "dry_audio": {
+        "uri": "repo://examples/routes/assets/directional_chime_16k.wav",
+        "sha256": "a3447420c2ba761af94f945f69fe09ab4bb8060d56c57d7fbb7d6202c852fc27",
+        "sample_rate_hz": 16000,
+        "channel_count": 1,
+        "sample_count": 32000
+      },
+      "normalization_policy": {"mode": "preserve", "target_dbfs": null},
+      "allowed_transforms": ["crop", "gain", "zero_pad"],
+      "permitted_event_usage": ["counterfactual_route_swap", "intermittent_events", "one_active_of_n", "sequential_sources", "simultaneous_subset"],
+      "tags": ["canary", "directional", "synthetic"],
+      "provenance": {
+        "origin": "AVEngine deterministic sine-chime generator",
+        "license": "AVEngine-project-generated",
+        "rights_status": "licensed",
+        "rights_evidence_sha256": "a3447420c2ba761af94f945f69fe09ab4bb8060d56c57d7fbb7d6202c852fc27"
+      },
+      "admissibility": "research"
+    },
+    {
+      "sound_asset_id": "dog_beagle_v2_scheduled_dry",
+      "revision": "legacy_m5_1_v1",
+      "semantic_sound_class": "animal_vocalization",
+      "taxonomy_path": ["animal", "canine", "bark"],
+      "instance_lineage_id": "legacy_beagle_call_v2",
+      "dry_audio": {
+        "uri": "artifact://legacy-m5-1/audio/dog_beagle_v2_scheduled_dry.wav",
+        "sha256": "12d9b3a2c9cd81852ddeb76d1abeef41ef623868b6731ff91ed511d474d2c634",
+        "sample_rate_hz": 16000,
+        "channel_count": 1,
+        "sample_count": 240000
+      },
+      "normalization_policy": {"mode": "preserve", "target_dbfs": null},
+      "allowed_transforms": ["crop", "deterministic_resample", "gain", "zero_pad"],
+      "permitted_event_usage": ["counterfactual_route_swap", "intermittent_events", "one_active_of_n", "sequential_sources", "simultaneous_subset"],
+      "tags": ["bark", "canine", "legacy_m5_1"],
+      "provenance": {
+        "origin": "research_recording",
+        "license": null,
+        "rights_status": "unresolved",
+        "rights_evidence_sha256": "7b7d2455073d73e02ab055fc4399befc1b6a615b451166568a377287cc05a27b"
+      },
+      "admissibility": "research"
+    },
+    {
+      "sound_asset_id": "human_speech_libritts_1594_16k_v1",
+      "revision": "v1",
+      "semantic_sound_class": "human_speech",
+      "taxonomy_path": ["human", "voice", "speech"],
+      "instance_lineage_id": "libritts_1594_135914_000038_000001",
+      "dry_audio": {
+        "uri": "repo://examples/routes/assets/human_speech_16k.wav",
+        "sha256": "e59d81b94066c9f15ef6ad61121d8aec0b10b3d5fbb1035f546c02d96bd11bda",
+        "sample_rate_hz": 16000,
+        "channel_count": 1,
+        "sample_count": 101437
+      },
+      "normalization_policy": {"mode": "preserve", "target_dbfs": null},
+      "allowed_transforms": ["crop", "gain", "zero_pad"],
+      "permitted_event_usage": ["counterfactual_route_swap", "intermittent_events", "one_active_of_n", "sequential_sources", "simultaneous_subset"],
+      "tags": ["human", "legacy_m5_1", "speech"],
+      "provenance": {
+        "origin": "LibriTTS deterministic 16 kHz AVEngine derivative",
+        "license": "CC-BY-4.0",
+        "rights_status": "licensed",
+        "rights_evidence_sha256": "70279f4c750c20909fd1e2ba9cdc8ab379b7229aa47ed25ead16aa15af21c385"
+      },
+      "admissibility": "research"
+    }
+  ],
+  "registry_content_sha256": "02c7808abcc2d3665c677f9bbf6ceb33ff2d84a92a4de1874c17d2ebc6e520ec"
+}

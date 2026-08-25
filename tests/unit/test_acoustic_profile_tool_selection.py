@@ -593,7 +593,7 @@ def test_dataset_room_manifest_binding_verifies_exact_registry_room() -> None:
     )
     room_manifest = (
         habitat_batch.REPOSITORY
-        / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+        / "examples/rooms/habitat_mp3d_example/room_manifest.json"
     )
 
     binding = habitat_batch._verify_room_manifest_binding(
@@ -625,7 +625,7 @@ def test_dataset_room_manifest_binding_rejects_wrong_room_id(tmp_path: Path) -> 
     )
     manifest = load_json(
         habitat_batch.REPOSITORY
-        / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+        / "examples/rooms/habitat_mp3d_example/room_manifest.json"
     )
     manifest["room_id"] = "wrong_visual_room"
     room_manifest = tmp_path / "wrong_room.json"
@@ -656,7 +656,7 @@ def test_dataset_room_manifest_binding_rejects_wrong_declared_hash(
     )
     manifest = load_json(
         habitat_batch.REPOSITORY
-        / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+        / "examples/rooms/habitat_mp3d_example/room_manifest.json"
     )
     room_manifest = tmp_path / "same_room_different_bytes.json"
     write_json(room_manifest, manifest)
@@ -714,7 +714,7 @@ def test_dataset_room_manifest_binding_rejects_ambiguous_registry_resource(
             room_registry_path=room_registry,
             room_manifest_path=(
                 habitat_batch.REPOSITORY
-                / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+                / "examples/rooms/habitat_mp3d_example/room_manifest.json"
             ),
         )
 
@@ -755,7 +755,7 @@ def test_dataset_room_manifest_binding_rejects_missing_registry_resource(
             room_registry_path=room_registry,
             room_manifest_path=(
                 habitat_batch.REPOSITORY
-                / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+                / "examples/rooms/habitat_mp3d_example/room_manifest.json"
             ),
         )
 
@@ -800,7 +800,7 @@ def test_dataset_current_room_manifest_and_mp3d_templates_match_registry() -> No
         room_registry_path=habitat_batch.DEFAULT_ROOM_REGISTRY,
         room_manifest_path=(
             habitat_batch.REPOSITORY
-            / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+            / "examples/rooms/habitat_mp3d_example/room_manifest.json"
         ),
     )
     assert binding["status"] == "pass"

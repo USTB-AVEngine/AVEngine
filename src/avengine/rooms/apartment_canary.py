@@ -1564,7 +1564,7 @@ def run_fixed_apartment_canary(
                     route_provenance={
                         "route_family": "m6x_fixed_apartment_master_270",
                         "source": (
-                            "examples/m6x/fixed_apartment/trajectory_templates.json"
+                            "examples/routes/fixed_apartment/trajectory_templates.json"
                         ),
                         "placement_semantics": "source_center_only",
                         "actor_first_anchor_forward_xz": {

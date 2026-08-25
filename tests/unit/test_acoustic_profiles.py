@@ -24,9 +24,9 @@ from avengine.acoustics.compiler import compile_custom_acoustic_scene
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ROOM_REGISTRY_PATH = ROOT / "examples/m6/rooms/room_registry.json"
-CUSTOM_ROOM_PATH = ROOT / "examples/m1/rooms/blender_custom/room_manifest.json"
-CUSTOM_MATERIALS = ROOT / "examples/m3/blender_custom"
+ROOM_REGISTRY_PATH = ROOT / "examples/registry/rooms/room_registry.json"
+CUSTOM_ROOM_PATH = ROOT / "examples/rooms/blender_custom/room_manifest.json"
+CUSTOM_MATERIALS = ROOT / "examples/acoustics/blender_custom"
 
 
 def _default_inputs() -> tuple[dict, dict]:

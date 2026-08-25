@@ -76,10 +76,10 @@ def _array_record(path: Path, *, root: Path, array: np.ndarray) -> dict[str, Any
 def _compiled_package(tmp_path: Path) -> Path:
     return compile_custom_acoustic_scene(
         room_manifest=REPOSITORY
-        / "examples/m1/rooms/blender_custom/room_manifest.json",
-        material_mapping=REPOSITORY / "examples/m3/blender_custom/mapping.json",
+        / "examples/rooms/blender_custom/room_manifest.json",
+        material_mapping=REPOSITORY / "examples/acoustics/blender_custom/mapping.json",
         material_database=REPOSITORY
-        / "examples/m3/blender_custom/materials_low.json",
+        / "examples/acoustics/blender_custom/materials_low.json",
         output=tmp_path / "package",
         package_id="runtime-unit-package",
         environment={"AVENGINE_REPOSITORY_ROOT": str(REPOSITORY)},
@@ -815,7 +815,7 @@ def test_modern_runtime_result_is_an_independent_ir_copy(
     readback = tmp_path / "readback.obj"
     declared_rays = tuple(
         load_json(
-            REPOSITORY / "examples/m1/rooms/blender_custom/room_manifest.json"
+            REPOSITORY / "examples/rooms/blender_custom/room_manifest.json"
         )["ray_checks"]
     )
 
@@ -985,7 +985,7 @@ def test_historical_m3_lock_mismatch_stops_before_any_rir_job(
         encoding="utf-8",
     )
     request = load_json(
-        REPOSITORY / "examples/m3/blender_custom/canary_request.json"
+        REPOSITORY / "examples/acoustics/blender_custom/canary_request.json"
     )
     calls: list[str] = []
     monkeypatch.setattr(

@@ -267,9 +267,9 @@ def _artifact_paths(atom_root: Path) -> dict[str, Path]:
         "binaural_source1": audio_root / "stems/source1" / f"{sample_id}.wav",
         "binaural_source2": audio_root / "stems/source2" / f"{sample_id}.wav",
         "runtime_profile": REPOSITORY
-        / "examples/m3/skokloster_castle/skokloster_room_runtime_profile.json",
+        / "examples/acoustics/skokloster_castle/skokloster_room_runtime_profile.json",
         "editor_cook_plan": REPOSITORY
-        / "examples/m3/skokloster_castle/editor_import_cook_plan.json",
+        / "examples/acoustics/skokloster_castle/editor_import_cook_plan.json",
     }
 
 

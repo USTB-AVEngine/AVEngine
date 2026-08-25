@@ -21,8 +21,8 @@ from avengine.registry.sources import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRIES = ROOT / "examples/m6/registries"
-PROGRAMS = ROOT / "examples/m6x/fixed_apartment/audio_programs"
+REGISTRIES = ROOT / "examples/registry/registries"
+PROGRAMS = ROOT / "examples/routes/fixed_apartment/audio_programs"
 
 
 def _semantic_fixture(tmp_path: Path) -> tuple[dict, dict, dict, dict]:

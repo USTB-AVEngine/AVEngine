@@ -17,7 +17,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--config-root",
         type=Path,
-        default=REPOSITORY / "examples/m6x/fixed_apartment",
+        default=REPOSITORY / "examples/routes/fixed_apartment",
     )
     parser.add_argument(
         "--runtime-root",
@@ -31,7 +31,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=(
             REPOSITORY
-            / "examples/m6x/fixed_apartment/review_visual_profile.json"
+            / "examples/routes/fixed_apartment/review_visual_profile.json"
         ),
     )
     parser.add_argument(
@@ -77,17 +77,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
         m1_request_path=(
             REPOSITORY
-            / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
+            / "examples/routes/fixed_apartment/m1_capture_request_review_720p.json"
         ),
-        room_registry_path=REPOSITORY / "examples/m6/rooms/room_registry.json",
+        room_registry_path=REPOSITORY / "examples/registry/rooms/room_registry.json",
         entity_registry_path=(
-            REPOSITORY / "examples/m6/registries/entity_assets_v1.json"
+            REPOSITORY / "examples/registry/registries/entity_assets_v1.json"
         ),
         endpoint_registry_path=(
-            REPOSITORY / "examples/m6/registries/source_endpoints_v1.json"
+            REPOSITORY / "examples/registry/registries/source_endpoints_v1.json"
         ),
         sound_registry_path=(
-            REPOSITORY / "examples/m6/registries/sound_assets_v1.json"
+            REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
         ),
         capture_provider_assets={
             "human_runtime_glb_path": args.human_runtime_glb,
@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         acoustic_package_manifest_path=args.acoustic_package_manifest,
         m4_request_path=(
-            REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
+            REPOSITORY / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
         ),
         hrtf_file_path=args.hrtf,
         review_visual_profile_path=args.review_visual_profile,

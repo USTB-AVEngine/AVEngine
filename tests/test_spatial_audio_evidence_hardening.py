@@ -186,14 +186,14 @@ def test_authenticated_sidecar_must_match_full_binaural_semantics(tmp_path) -> N
 
 def _retained_authority_fixture(tmp_path, monkeypatch):
     repository_root = Path(__file__).resolve().parents[1]
-    source_root = repository_root / "examples/m4/blender_custom"
+    source_root = repository_root / "examples/spatial_audio/blender_custom"
     source_files = {
         "input_request": source_root / "multi_source_canary_request.json",
         "input_m1_capture_request": (
-            repository_root / "examples/m1/requests/blender_custom.json"
+            repository_root / "examples/rooms/requests/blender_custom.json"
         ),
         "input_m3_acoustic_canary_request": (
-            repository_root / "examples/m3/blender_custom/canary_request.json"
+            repository_root / "examples/acoustics/blender_custom/canary_request.json"
         ),
         "input_source_identity_manifest": source_root / "source_identity_manifest.json",
     }
@@ -321,7 +321,7 @@ def test_dry_recipe_is_regenerated_from_retained_identity(tmp_path) -> None:
     repository_root = Path(__file__).resolve().parents[1]
     identity = json.loads(
         (
-            repository_root / "examples/m4/blender_custom/source_identity_manifest.json"
+            repository_root / "examples/spatial_audio/blender_custom/source_identity_manifest.json"
         ).read_text(encoding="utf-8")
     )["sources"][0]
     signal = identity["deterministic_signal"]
@@ -364,7 +364,7 @@ def test_direct_arrival_expected_sample_is_rebuilt_from_geometry(monkeypatch) ->
     request = json.loads(
         (
             repository_root
-            / "examples/m4/blender_custom/multi_source_canary_request.json"
+            / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
         ).read_text(encoding="utf-8")
     )
     source = request["sources"][0]

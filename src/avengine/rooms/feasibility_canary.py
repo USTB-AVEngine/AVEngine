@@ -104,13 +104,13 @@ _REGISTRY_FILES: Mapping[str, str] = {
     "flags": "legacy_m5_1_flags_v1.json",
 }
 _CANONICAL_REQUEST_PATH = (
-    "examples/m6/canary/controlled_one_active_of_two_request.json"
+    "examples/registry/canary/controlled_one_active_of_two_request.json"
 )
-_CANONICAL_PROGRAM_PATH = "examples/m6/registries/one_active_of_n_program_v1.json"
-_CANONICAL_REGISTRY_ROOT = "examples/m6/registries"
-_CANONICAL_ROOM_REGISTRY_PATH = "examples/m6/rooms/room_registry.json"
+_CANONICAL_PROGRAM_PATH = "examples/registry/registries/one_active_of_n_program_v1.json"
+_CANONICAL_REGISTRY_ROOT = "examples/registry/registries"
+_CANONICAL_ROOM_REGISTRY_PATH = "examples/registry/rooms/room_registry.json"
 _CANONICAL_ROOM_QUALIFICATION_PATH = (
-    "examples/m6/rooms/qualification/blender_custom_two_zone.json"
+    "examples/registry/rooms/qualification/blender_custom_two_zone.json"
 )
 _RIR_PROJECTION_FIELDS = (
     "layout_id",
@@ -1120,7 +1120,7 @@ def _retained_materialization_room_report(
         acoustic_diagnostics=historical_report["acoustic_diagnostics"],
         provenance={
             "source_records": [
-                "examples/m6/rooms/qualification/blender_custom_two_zone.json",
+                "examples/registry/rooms/qualification/blender_custom_two_zone.json",
                 "upstream://m5/evidence.json",
             ],
             "notes": (
@@ -1405,17 +1405,17 @@ def run_controlled_canary(
         output_directory, owner="M6 controlled canary bundle", create_parent=True
     )
     registry_dir = policy.resolve_input(
-        registry_directory or repository / "examples" / "m6" / "registries",
+        registry_directory or repository / "examples" / "registry" / "registries",
         owner="M6 registry directory",
         kind="directory",
     )
     room_registry_file = policy.resolve_input(
-        room_registry_path or repository / "examples" / "m6" / "rooms" / "room_registry.json",
+        room_registry_path or repository / "examples" / "registry" / "rooms" / "room_registry.json",
         owner="M6 room registry",
     )
     room_qualification_file = policy.resolve_input(
         room_qualification_path
-        or repository / "examples" / "m6" / "rooms" / "qualification" / "blender_custom_two_zone.json",
+        or repository / "examples" / "registry" / "rooms" / "qualification" / "blender_custom_two_zone.json",
         owner="M6 controlled room qualification",
     )
     selected_program_file = policy.resolve_input(

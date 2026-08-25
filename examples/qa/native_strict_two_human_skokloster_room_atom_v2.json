@@ -78,15 +78,15 @@
   "request_id": "skokloster_castle_strict_two_human_static_semantic_v2",
   "room": {
     "acoustic_package_manifest": "/tmp/skokloster_strict_room_atom_run/clean_package/manifest.json",
-    "acoustic_profile": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_acoustic_profile.json",
+    "acoustic_profile": "examples/acoustics/skokloster_castle/skokloster_acoustic_profile.json",
     "listener_search_evidence": "/data/jzy/code/AVEngine-lead-a/examples/qa/native_strict_two_human_skokloster_listener_search_v1.json",
     "near_listener_rejection_evidence": "/data/jzy/code/AVEngine-lead-a/examples/qa/native_strict_two_human_skokloster_near_listener_rejected_v1.json",
     "packaged_executable": "/data/jzy/code/AVEngine/external/SPEAR/cpp/unreal_projects/SpearSim/Standalone-Skokloster-Development/Linux/SpearSim.sh",
     "packaged_map": "/Game/MyAssets/Audioset/Scenes/skokloster_castle/Maps/skokloster_castle_strict",
     "room_id": "habitat_test_skokloster_castle",
-    "runtime_profile": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_room_runtime_profile.json",
+    "runtime_profile": "examples/acoustics/skokloster_castle/skokloster_room_runtime_profile.json",
     "scene_id": "skokloster-castle",
-    "simulation_request": "/data/jzy/code/AVEngine-lead-a/examples/m3/skokloster_castle/skokloster_semantic_binaural_rir_request_v1.json"
+    "simulation_request": "examples/acoustics/skokloster_castle/skokloster_semantic_binaural_rir_request_v1.json"
   },
   "schema": "avengine_native_strict_two_human_skokloster_room_atom_request_v2",
   "strict_pixel_gates": {

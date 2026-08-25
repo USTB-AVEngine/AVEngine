@@ -124,7 +124,7 @@ def test_replica_audio_records_replace_private_paths_with_root_locators() -> Non
 
 def test_replicacad_gate_is_exact_18_or_route_required_19() -> None:
     route = load_json(
-        REPOSITORY / "examples/m5_1/replicacad_articulated_review/route_manifest.json"
+        REPOSITORY / "examples/capture/replicacad_articulated_review/route_manifest.json"
     )
     required = set(REPLICACAD_REQUIRED_GATE_IDS)
     required.add("actor_rigid_object_center_clearance")

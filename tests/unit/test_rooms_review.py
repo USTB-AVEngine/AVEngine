@@ -21,7 +21,7 @@ from avengine.rooms.review import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REQUEST = ROOT / "examples" / "m6" / "review" / "six_case_review_request.json"
+REQUEST = ROOT / "examples" / "registry" / "review" / "six_case_review_request.json"
 
 
 def _request() -> dict:

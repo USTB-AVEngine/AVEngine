@@ -409,12 +409,12 @@ def _program_bound_sample(
 ) -> dict:
     base_program = load_json(
         _ROOT
-        / "examples/m6x/fixed_apartment/audio_programs"
+        / "examples/routes/fixed_apartment/audio_programs"
         / program_filename
     )
     program = materialize_audio_program_variant(base_program, variant_id)
     sound_registry = load_json(
-        _ROOT / "examples/m6/registries/sound_assets_v1.json"
+        _ROOT / "examples/registry/registries/sound_assets_v1.json"
     )
     sound_classes = {
         item["sound_asset_id"]: item["semantic_sound_class"]

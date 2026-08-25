@@ -30,7 +30,7 @@ def _status(state: str = "run") -> dict:
 
 
 def _room_registry() -> dict:
-    return load_json(ROOT / "examples/m6/rooms/room_registry.json")
+    return load_json(ROOT / "examples/registry/rooms/room_registry.json")
 
 
 def _room_capsule() -> dict:

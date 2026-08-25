@@ -92,7 +92,7 @@ ACOUSTIC_PACKAGE = Path(
     "tmp/m3/root_ue_package_current_20260718_02/manifest.json"
 )
 SIMULATION_REQUEST = (
-    REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
+    REPOSITORY / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
 )
 HABITAT_PYTHON = Path("/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python")
 CONTROLLED_SOUND_CONTENT_REGISTRY = Path(

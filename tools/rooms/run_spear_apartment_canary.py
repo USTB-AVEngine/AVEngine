@@ -81,7 +81,7 @@ from avengine.runtime_profiles import (
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE = REPOSITORY / "tmp/m6x/fixed_apartment_canary_20260720_02"
 DEFAULT_LIGHTING_PROFILES = (
-    REPOSITORY / "examples/m6y/spear_apartment_lighting_profiles.json"
+    REPOSITORY / "examples/rooms/spear_apartment_lighting_profiles.json"
 )
 DEFAULT_SOURCE_ASSET_RUNTIME_PROFILES = (
     default_source_asset_runtime_registry_path()

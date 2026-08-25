@@ -3,7 +3,7 @@
 Run with Blender, not the system Python:
 
     blender --background --python tools/blender/build_custom_room.py -- \
-      --output-dir examples/m1/rooms/blender_custom/visual
+      --output-dir examples/rooms/blender_custom/visual
 
 The helper accepts coordinates in the Habitat convention (+Y up, -Z camera
 forward) and maps them to Blender before glTF export.

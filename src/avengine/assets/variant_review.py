@@ -78,9 +78,9 @@ class VariantReviewRoomPreset:
 ROOM_PRESETS: Mapping[str, VariantReviewRoomPreset] = {
     "blender_custom": VariantReviewRoomPreset(
         preset_id="blender_custom",
-        room_manifest_relative=("examples/m1/rooms/blender_custom/room_manifest.json"),
+        room_manifest_relative=("examples/rooms/blender_custom/room_manifest.json"),
         room_request_relative=(
-            "examples/m2/rooms/blender_custom_articulated_review/capture_request.json"
+            "examples/assets/rooms/blender_custom_articulated_review/capture_request.json"
         ),
         # This review-only camera is 0.18 m below the formal M1 viewpoint so
         # the full animated paws remain in frame without lifting the actor off
@@ -99,10 +99,10 @@ ROOM_PRESETS: Mapping[str, VariantReviewRoomPreset] = {
     "habitat_mp3d_example": VariantReviewRoomPreset(
         preset_id="habitat_mp3d_example",
         room_manifest_relative=(
-            "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json"
+            "examples/assets/rooms/habitat_mp3d_articulated_review/room_manifest.json"
         ),
         room_request_relative=(
-            "examples/m2/rooms/habitat_mp3d_articulated_review/capture_request.json"
+            "examples/assets/rooms/habitat_mp3d_articulated_review/capture_request.json"
         ),
         # The MP3D camera looks along world -Z.  The fixed -3.56 m depth keeps
         # the complete animal (including paws) away from the image boundary,

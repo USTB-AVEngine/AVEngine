@@ -47,7 +47,7 @@ from avengine.acoustics.runtime import (
 )
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-REQUEST = REPOSITORY / "examples/m3/blender_custom/canary_request.json"
+REQUEST = REPOSITORY / "examples/acoustics/blender_custom/canary_request.json"
 _FAKE_BINDING_BYTES = b"binding-fixture-v1"
 _FAKE_RLR_BYTES = b"rlr-fixture-v1"
 _FAKE_BINDING_SHA256 = hashlib.sha256(_FAKE_BINDING_BYTES).hexdigest()

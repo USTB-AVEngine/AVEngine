@@ -596,7 +596,7 @@ class PreflightTests(unittest.TestCase):
             ).read_text()
         )
         template = json.loads(
-            (ROOT / "examples/m1/requests/habitat_mp3d_example.json").read_text()
+            (ROOT / "examples/rooms/requests/habitat_mp3d_example.json").read_text()
         )
         original_template = deepcopy(template)
         pose = {

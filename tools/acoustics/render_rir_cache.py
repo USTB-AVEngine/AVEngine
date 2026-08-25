@@ -27,9 +27,9 @@ from avengine.acoustics.rir_cache import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 LEGACY_SIMULATION_REQUEST = (
-    REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
+    REPOSITORY / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
 )
-DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/m6/rooms/room_registry.json"
+DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/registry/rooms/room_registry.json"
 ACOUSTIC_SELECTION_NAME = RIR_CACHE_ACOUSTIC_SELECTION_NAME
 
 

@@ -16,7 +16,7 @@ from avengine.registry.sources import load_sound_asset_registry, load_source_end
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRIES = ROOT / "examples" / "m6" / "registries"
+REGISTRIES = ROOT / "examples" / "registry" / "registries"
 
 
 def _inputs() -> tuple[dict, dict, dict]:
@@ -72,7 +72,7 @@ def test_program_reuses_all_six_authoritative_m5_source0_sample_windows() -> Non
     upstream = load_json(
         ROOT
         / "examples"
-        / "m5"
+        / "timeline"
         / "blender_custom"
         / "two_dog_simultaneous_counterfactual_request.json"
     )

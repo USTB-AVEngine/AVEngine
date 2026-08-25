@@ -7,7 +7,7 @@ from avengine.cli import main
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REQUEST = ROOT / "examples" / "m6" / "canary" / "controlled_one_active_of_two_request.json"
+REQUEST = ROOT / "examples" / "registry" / "canary" / "controlled_one_active_of_two_request.json"
 
 
 def test_registry_cli_validates_controlled_request(capsys) -> None:

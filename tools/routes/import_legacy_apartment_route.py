@@ -22,7 +22,7 @@ DEFAULT_SHELL_RELATIVE = Path("external/SPEAR/data/apartment_shell_map.json")
 DEFAULT_CATEGORIES_RELATIVE = Path(
     "external/SPEAR/tools/spike_rlr/apartment_furniture_categories.json"
 )
-DEFAULT_OUTPUT = REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/route_manifest.json"
+DEFAULT_OUTPUT = REPOSITORY_ROOT / "examples/capture/legacy_apartment/route_manifest.json"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

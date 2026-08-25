@@ -22,7 +22,7 @@ from avengine.capture.replicacad_capture import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE_ROOT = REPOSITORY_ROOT / "examples/m5_1/replicacad_articulated_review"
+EXAMPLE_ROOT = REPOSITORY_ROOT / "examples/capture/replicacad_articulated_review"
 ROUTE_PATH = EXAMPLE_ROOT / "route_manifest.json"
 ROOM_PATH = EXAMPLE_ROOT / "room_manifest.json"
 REQUEST_PATH = EXAMPLE_ROOT / "capture_request.json"

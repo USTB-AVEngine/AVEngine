@@ -11,7 +11,7 @@ from avengine.cli import build_parser, main
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-REQUEST = REPOSITORY_ROOT / "examples/m4/blender_custom/multi_source_canary_request.json"
+REQUEST = REPOSITORY_ROOT / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
 DEFAULT_RUNTIME_LOCK = REPOSITORY_ROOT / "locks/m4_runtime_v1.json"
 
 

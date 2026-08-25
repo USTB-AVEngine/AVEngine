@@ -17,7 +17,7 @@ from avengine.spatial_audio.spatial import rlr_foa_contract
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-REQUEST_PATH = REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
+REQUEST_PATH = REPOSITORY / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
 
 
 def _request(*, sample_rate_hz: int = 16_000) -> dict[str, Any]:

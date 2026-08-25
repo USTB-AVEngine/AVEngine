@@ -320,7 +320,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=(
             REPOSITORY
-            / "examples/m6z/interioragent_kujiale_0020_visual_profile.json"
+            / "examples/rooms/interioragent_kujiale_0020_visual_profile.json"
         ),
     )
     parser.add_argument("--result", type=Path)

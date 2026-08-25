@@ -19,7 +19,7 @@ from avengine.capture.legacy_route import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE_PATH = REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/route_manifest.json"
+EXAMPLE_PATH = REPOSITORY_ROOT / "examples/capture/legacy_apartment/route_manifest.json"
 LEGACY_SPEC_SHA256 = "7934a2eb57b838b176b5151baa2b88e43c8c69cfe377ca3fa8a8edc12e85d909"
 LEGACY_270_POINT_SHA256 = (
     "8138e5494c63eb8352b73752f13b443d456fc623432c8c7f1f4591d35e249f67"

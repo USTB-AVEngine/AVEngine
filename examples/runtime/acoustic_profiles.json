@@ -72,7 +72,7 @@
             "role": "habitat_visual_material_rules",
             "path": {
               "kind": "repository_relative",
-              "path": "examples/m3/semantic_materials/residential_material_rules.json",
+              "path": "examples/acoustics/semantic_materials/residential_material_rules.json",
               "sha256": "bf37a39d69aa8888c95cd0cc6ab963b4735f11a4d820079204575ba03212f953"
             }
           }
@@ -110,7 +110,7 @@
             "role": "spear_ue_authored_material_rules",
             "path": {
               "kind": "repository_relative",
-              "path": "examples/m3/semantic_materials/residential_material_rules.json",
+              "path": "examples/acoustics/semantic_materials/residential_material_rules.json",
               "sha256": "bf37a39d69aa8888c95cd0cc6ab963b4735f11a4d820079204575ba03212f953"
             }
           }

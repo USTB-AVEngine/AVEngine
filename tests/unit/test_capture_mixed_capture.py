@@ -441,7 +441,7 @@ def test_beagle_selection_accepts_only_one_continuous_45_state_walk_block() -> N
 def test_legacy_wrapper_consumes_manifest_habitat_paths_verbatim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    route_path = REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/route_manifest.json"
+    route_path = REPOSITORY_ROOT / "examples/capture/legacy_apartment/route_manifest.json"
     route = json.loads(route_path.read_text(encoding="utf-8"))
     sentinel = object()
     retained: dict[str, object] = {}

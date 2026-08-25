@@ -7,7 +7,7 @@ from tools.routes.select_asset_bound_trajectories import _pair_templates
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES = ROOT / "examples/m7/apartment_generated_asset_pair_templates.json"
+TEMPLATES = ROOT / "examples/dataset/apartment_generated_asset_pair_templates.json"
 CURRENT_DOG = (
     "generated_pembroke_welsh_corgi_red_white_medium_standard_adult_research_v1"
 )

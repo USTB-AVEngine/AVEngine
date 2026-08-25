@@ -13,7 +13,7 @@ from avengine.rooms.rooms import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-ROOM_EXAMPLES = REPOSITORY_ROOT / "examples/m6/rooms"
+ROOM_EXAMPLES = REPOSITORY_ROOT / "examples/registry/rooms"
 REGISTRY_PATH = ROOM_EXAMPLES / "room_registry.json"
 
 

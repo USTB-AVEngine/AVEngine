@@ -16,7 +16,7 @@
   "acoustics": {
     "package_manifest": "/data/datasets/avengine_workspaces/AVEngine-soundspaces-frl/tmp/m3/mp3d_17DRP5sb8fy_soundspaces2_public_20260730_03/manifest.json",
     "package_root": "/data/datasets/avengine_workspaces/AVEngine-soundspaces-frl/tmp/m3/mp3d_17DRP5sb8fy_soundspaces2_public_20260730_03",
-    "room_registry": "/data/jzy/code/AVEngine-lead-a/examples/m6/rooms/room_registry.json",
+    "room_registry": "/data/jzy/code/AVEngine-lead-a/examples/registry/rooms/room_registry.json",
     "acoustic_profile_registry": "/data/jzy/code/AVEngine-lead-a/examples/runtime/acoustic_profiles.json",
     "simulation_profile": "production",
     "rir_stride_frames": 3,

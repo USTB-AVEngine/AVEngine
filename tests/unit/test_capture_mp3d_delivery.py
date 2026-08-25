@@ -19,8 +19,8 @@ from avengine.capture.source_contracts import load_source_manifest
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-SOURCE_MANIFEST = REPOSITORY / "examples/m5_1/legacy_apartment/source_manifest.json"
-ROUTE_MANIFEST = REPOSITORY / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
+SOURCE_MANIFEST = REPOSITORY / "examples/capture/legacy_apartment/source_manifest.json"
+ROUTE_MANIFEST = REPOSITORY / "examples/capture/mp3d_articulated_review/route_manifest.json"
 
 
 def _mp3d_bindings(

@@ -23,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--registry",
         type=Path,
-        default=Path("examples/m6/rooms/room_registry.json"),
+        default=Path("examples/registry/rooms/room_registry.json"),
     )
     run.add_argument(
         "--corrupted-fixture",

@@ -45,7 +45,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lighting-profiles",
         type=Path,
-        default=REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json",
+        default=REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json",
     )
     parser.add_argument(
         "--lighting-profile",

@@ -67,7 +67,7 @@ from run_spear_mp3d_canary import (  # noqa: E402
 
 
 DEFAULT_ROUTE = (
-    REPOSITORY / "examples/m5_1/replicacad_articulated_review/route_manifest.json"
+    REPOSITORY / "examples/capture/replicacad_articulated_review/route_manifest.json"
 )
 DEFAULT_CAPTURE = REPOSITORY / "tmp/m5_1/replicacad_mixed_20260719_04/evidence.json"
 DEFAULT_FRAME_READBACK = (
@@ -84,7 +84,7 @@ DEFAULT_HABITAT_REVIEW = (
 )
 DEFAULT_REQUEST_ROOT = REPOSITORY / "tmp/m6y/replicacad_apt0_spear_request_20260720_02"
 DEFAULT_LIGHTING_PROFILES = (
-    REPOSITORY / "examples/m6y/replicacad_apt0_lighting_profiles.json"
+    REPOSITORY / "examples/rooms/replicacad_apt0_lighting_profiles.json"
 )
 EVIDENCE_SCHEMA = "avengine_optional_spear_replicacad_runtime_evidence_v1"
 SMOKE_SCHEMA = "avengine_optional_spear_replicacad_runtime_smoke_v1"

@@ -25,7 +25,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ROUTE_PATH = (
     REPOSITORY_ROOT
     / "examples"
-    / "m5_1"
+    / "capture"
     / "mp3d_articulated_review"
     / "route_manifest.json"
 )

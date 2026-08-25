@@ -19,10 +19,10 @@ from tools.assets import assemble_variant_package as cli
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_SPEC = (
     REPOSITORY_ROOT
-    / "examples/m2/variant_packages/rocketbox_beagle_review_spec_v1.json"
+    / "examples/assets/variant_packages/rocketbox_beagle_review_spec_v1.json"
 )
 EXAMPLE_APPEARANCE_REQUEST = (
-    REPOSITORY_ROOT / "examples/m2/appearance/beagle_l9_request_v1.json"
+    REPOSITORY_ROOT / "examples/assets/appearance/beagle_l9_request_v1.json"
 )
 _REAL_L9_PRODUCER_VALIDATOR = variant_package._validate_l9_producer_contract
 

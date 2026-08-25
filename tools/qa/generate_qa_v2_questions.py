@@ -35,7 +35,7 @@ _ap = argparse.ArgumentParser()
 _ap.add_argument("--inputs-root", required=True)
 _ap.add_argument("--output", required=True)
 _ap.add_argument("--programs-dir",
-                 default=str(REPOSITORY / "examples/m7/current_apartment/audio_programs/qa_v2"))
+                 default=str(REPOSITORY / "examples/dataset/current_apartment/audio_programs/qa_v2"))
 _ap.add_argument("--registry",
                  default=str(REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
 _args = _ap.parse_args()

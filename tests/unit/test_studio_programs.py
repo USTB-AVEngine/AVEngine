@@ -14,8 +14,8 @@ from avengine.studio.programs import (
 )
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-ENDPOINTS = REPOSITORY / "examples/m6/registries/source_endpoints_v1.json"
-SOUNDS = REPOSITORY / "examples/m6/registries/sound_assets_v1.json"
+ENDPOINTS = REPOSITORY / "examples/registry/registries/source_endpoints_v1.json"
+SOUNDS = REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
 
 
 def test_pick_energetic_slice_finds_the_burst() -> None:

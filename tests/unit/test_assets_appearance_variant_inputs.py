@@ -23,9 +23,9 @@ from tools.assets import build_appearance_variant_inputs as builder
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-REQUEST = REPOSITORY / "examples/m2/appearance/beagle_l9_request_v1.json"
+REQUEST = REPOSITORY / "examples/assets/appearance/beagle_l9_request_v1.json"
 TEMPLATE = (
-    REPOSITORY / "examples/m2/variant_packages/rocketbox_beagle_review_spec_v1.json"
+    REPOSITORY / "examples/assets/variant_packages/rocketbox_beagle_review_spec_v1.json"
 )
 REALIZER = REPOSITORY / "tools/blender/realize_animal_appearance.py"
 MATERIAL_NORMALIZER = REPOSITORY / "src/avengine/assets/materials.py"

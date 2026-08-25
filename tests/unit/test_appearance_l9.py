@@ -23,7 +23,7 @@ from avengine.contracts.json_io import sha256_file
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-EXAMPLE = REPOSITORY / "examples/m2/appearance/beagle_l9_request_v1.json"
+EXAMPLE = REPOSITORY / "examples/assets/appearance/beagle_l9_request_v1.json"
 REQUEST_SCHEMA = REPOSITORY / "schemas/animal_appearance_request_v1.schema.json"
 BATCH_SCHEMA = REPOSITORY / "schemas/animal_appearance_batch_v1.schema.json"
 

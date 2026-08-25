@@ -702,7 +702,7 @@ def parse_args() -> argparse.Namespace:
         "--simulation-request",
         type=Path,
         default=REPOSITORY
-        / "examples/m4/blender_custom/multi_source_canary_request.json",
+        / "examples/spatial_audio/blender_custom/multi_source_canary_request.json",
     )
     parser.add_argument(
         "--hrtf",

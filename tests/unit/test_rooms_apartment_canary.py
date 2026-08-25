@@ -179,11 +179,11 @@ def _capture_reuse_fixture(
 
 def _inputs() -> dict:
     return _validated_inputs(
-        config_root=ROOT / "examples/m6x/fixed_apartment",
-        room_registry_path=ROOT / "examples/m6/rooms/room_registry.json",
-        entity_registry_path=ROOT / "examples/m6/registries/entity_assets_v1.json",
-        endpoint_registry_path=ROOT / "examples/m6/registries/source_endpoints_v1.json",
-        sound_registry_path=ROOT / "examples/m6/registries/sound_assets_v1.json",
+        config_root=ROOT / "examples/routes/fixed_apartment",
+        room_registry_path=ROOT / "examples/registry/rooms/room_registry.json",
+        entity_registry_path=ROOT / "examples/registry/registries/entity_assets_v1.json",
+        endpoint_registry_path=ROOT / "examples/registry/registries/source_endpoints_v1.json",
+        sound_registry_path=ROOT / "examples/registry/registries/sound_assets_v1.json",
     )
 
 
@@ -205,7 +205,7 @@ def _acoustic_test_values(tmp_path: Path) -> tuple[SimpleNamespace, object, Path
     simulation = M4SimulationConfig.from_mapping(
         json.loads(
             (
-                ROOT / "examples/m4/blender_custom/multi_source_canary_request.json"
+                ROOT / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
             ).read_text(encoding="utf-8")
         )["simulation"]
     )

@@ -26,8 +26,8 @@ from avengine.registry.registry import bind_content_hash
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FLAG_REGISTRY = ROOT / "examples" / "m6" / "registries" / "legacy_m5_1_flags_v1.json"
-LEGACY_SOURCE_MANIFEST = ROOT / "examples" / "m5_1" / "legacy_apartment" / "source_manifest.json"
+FLAG_REGISTRY = ROOT / "examples" / "registry" / "registries" / "legacy_m5_1_flags_v1.json"
+LEGACY_SOURCE_MANIFEST = ROOT / "examples" / "capture" / "legacy_apartment" / "source_manifest.json"
 
 
 def test_flag_registry_is_an_exact_public_view_of_m5_1_v1() -> None:

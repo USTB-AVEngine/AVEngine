@@ -20,7 +20,7 @@ from avengine.optional_backends.spear_apartment import contiguous_episode_shard
 def _load_runner() -> Any:
     runner_path = (
         Path(__file__).resolve().parents[1]
-        / "m6y/run_spear_apartment_canary.py"
+        / "rooms/run_spear_apartment_canary.py"
     )
     spec = importlib.util.spec_from_file_location(
         "run_spear_apartment_canary_for_shard_merge", runner_path

@@ -54,13 +54,13 @@ def fixtures() -> tuple[dict, dict, dict]:
         runtime_profile=load(
             layout_path(
                 "config/runtime/skokloster_room_runtime_profile.json",
-                "examples/m3/skokloster_castle/skokloster_room_runtime_profile.json",
+                "examples/acoustics/skokloster_castle/skokloster_room_runtime_profile.json",
             )
         ),
         acoustic_profile=load(
             layout_path(
                 "config/acoustics/skokloster_acoustic_profile.json",
-                "examples/m3/skokloster_castle/skokloster_acoustic_profile.json",
+                "examples/acoustics/skokloster_castle/skokloster_acoustic_profile.json",
             )
         ),
         package={
@@ -72,7 +72,7 @@ def fixtures() -> tuple[dict, dict, dict]:
         simulation=load(
             layout_path(
                 "config/acoustics/skokloster_native_rlr_load_test_request.json",
-                "examples/m3/skokloster_castle/skokloster_native_rlr_load_test_request.json",
+                "examples/acoustics/skokloster_castle/skokloster_native_rlr_load_test_request.json",
             )
         ),
         audio_program={
@@ -301,13 +301,13 @@ def test_rejects_decoupled_camera_listener() -> None:
             runtime_profile=load(
                 layout_path(
                     "config/runtime/skokloster_room_runtime_profile.json",
-                    "examples/m3/skokloster_castle/skokloster_room_runtime_profile.json",
+                    "examples/acoustics/skokloster_castle/skokloster_room_runtime_profile.json",
                 )
             ),
             acoustic_profile=load(
                 layout_path(
                     "config/acoustics/skokloster_acoustic_profile.json",
-                    "examples/m3/skokloster_castle/skokloster_acoustic_profile.json",
+                    "examples/acoustics/skokloster_castle/skokloster_acoustic_profile.json",
                 )
             ),
             package={
@@ -319,7 +319,7 @@ def test_rejects_decoupled_camera_listener() -> None:
             simulation=load(
                 layout_path(
                     "config/acoustics/skokloster_native_rlr_load_test_request.json",
-                    "examples/m3/skokloster_castle/skokloster_native_rlr_load_test_request.json",
+                    "examples/acoustics/skokloster_castle/skokloster_native_rlr_load_test_request.json",
                 )
             ),
             audio_program={
@@ -600,7 +600,7 @@ def test_semantic_binaural_simulation_request_is_explicit() -> None:
     simulation = load(
         layout_path(
             "config/acoustics/skokloster_semantic_binaural_rir_request_v1.json",
-            "examples/m3/skokloster_castle/skokloster_semantic_binaural_rir_request_v1.json",
+            "examples/acoustics/skokloster_castle/skokloster_semantic_binaural_rir_request_v1.json",
         )
     )["simulation"]
     assert simulation["channel_layout"] == {"type": "binaural", "channel_count": 2}

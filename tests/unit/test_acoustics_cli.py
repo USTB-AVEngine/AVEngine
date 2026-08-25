@@ -14,8 +14,8 @@ from avengine.acoustics.runtime import RuntimeUnavailableError
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-REQUEST = REPOSITORY_ROOT / "examples/m3/blender_custom/canary_request.json"
-M3_EXAMPLE = REPOSITORY_ROOT / "examples/m3/blender_custom"
+REQUEST = REPOSITORY_ROOT / "examples/acoustics/blender_custom/canary_request.json"
+M3_EXAMPLE = REPOSITORY_ROOT / "examples/acoustics/blender_custom"
 
 
 def test_acoustics_compile_validate_and_verify_cli(tmp_path: Path, capsys) -> None:
@@ -484,7 +484,7 @@ def test_acoustics_material_profile_cli_resolves_and_compiles(tmp_path: Path, ca
                 "--room",
                 str(
                     REPOSITORY_ROOT
-                    / "examples/m1/rooms/blender_custom/room_manifest.json"
+                    / "examples/rooms/blender_custom/room_manifest.json"
                 ),
                 "--mapping",
                 str(resolved / "mapping.json"),

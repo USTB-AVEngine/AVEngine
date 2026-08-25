@@ -1518,7 +1518,7 @@ def _schema_errors(value: Any) -> list[str]:
     schema_path = (
         Path(__file__).resolve().parents[3]
         / "schemas"
-        / "m3_acoustic_canary_evidence_v1.schema.json"
+        / "acoustic_canary_evidence_v1.schema.json"
     )
     schema = load_json(schema_path)
     validator = Draft202012Validator(schema)
@@ -1537,7 +1537,7 @@ def _current_installed_schema_errors(value: Any) -> list[str]:
     schema_path = (
         Path(__file__).resolve().parents[3]
         / "schemas"
-        / "m3_acoustic_canary_evidence_v2.schema.json"
+        / "acoustic_canary_evidence_v2.schema.json"
     )
     schema = load_json(schema_path)
     validator = Draft202012Validator(schema)

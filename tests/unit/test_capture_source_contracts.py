@@ -24,7 +24,7 @@ SCHEMA = ROOT / "schemas" / "m5_1_source_manifest_v1.schema.json"
 EXAMPLE = (
     ROOT
     / "examples"
-    / "m5_1"
+    / "capture"
     / "legacy_apartment"
     / "source_manifest.json"
 )

@@ -21,7 +21,7 @@ from avengine.acoustics.materials import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE_ROOT = REPOSITORY_ROOT / "examples/m3/blender_custom"
+EXAMPLE_ROOT = REPOSITORY_ROOT / "examples/acoustics/blender_custom"
 ROOM_ID = "blender_custom_two_zone_v1"
 
 

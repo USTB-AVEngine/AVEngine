@@ -45,7 +45,7 @@ SOURCE_IDS = (
 )
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_MANIFEST = (
-    REPOSITORY / "examples/m5_1/legacy_apartment/source_manifest.json"
+    REPOSITORY / "examples/capture/legacy_apartment/source_manifest.json"
 )
 
 

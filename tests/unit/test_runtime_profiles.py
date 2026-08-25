@@ -125,7 +125,7 @@ def test_default_room_and_source_runtime_registries_are_independent_and_valid():
     assert validate_source_asset_runtime_registry(sources) == []
     assert validate_room_runtime_profile_registry(rooms) == []
     assert validate_room_runtime_links(
-        rooms, load_json(ROOT / "examples/m6/rooms/room_registry.json")
+        rooms, load_json(ROOT / "examples/registry/rooms/room_registry.json")
     ) == []
     assert "sounds" not in sources
     assert "assets" not in rooms

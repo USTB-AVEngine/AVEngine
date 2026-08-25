@@ -16,7 +16,7 @@ IS_STAGING_LAYOUT = (ROOT / "config/rooms/skokloster_castle").is_dir()
 ROOM = (
     ROOT / "config/rooms/skokloster_castle"
     if IS_STAGING_LAYOUT
-    else ROOT / "examples/m3/skokloster_castle"
+    else ROOT / "examples/acoustics/skokloster_castle"
 )
 ACOUSTIC_PROFILE = (
     ROOT / "config/acoustics/skokloster_acoustic_profile.json"

@@ -19,7 +19,7 @@ from avengine.optional_backends.interioragent_kujiale import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PROFILE = (
-    REPOSITORY / "examples/m6z/interioragent_kujiale_0020_visual_profile.json"
+    REPOSITORY / "examples/rooms/interioragent_kujiale_0020_visual_profile.json"
 )
 
 

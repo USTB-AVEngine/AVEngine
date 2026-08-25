@@ -380,7 +380,6 @@ def tracked_marker_directory(repository_root: Path) -> Path:
     return (
         repository_root
         / "examples"
-        / "m1"
         / "rooms"
         / "blender_custom"
         / "visual"

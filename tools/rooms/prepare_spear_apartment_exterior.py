@@ -41,7 +41,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=(
             REPOSITORY
-            / "examples/m6x/fixed_apartment/review_visual_profile.json"
+            / "examples/routes/fixed_apartment/review_visual_profile.json"
         ),
     )
     parser.add_argument(

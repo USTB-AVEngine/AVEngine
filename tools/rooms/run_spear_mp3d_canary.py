@@ -49,7 +49,7 @@ from avengine.optional_backends.spear_apartment import (
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DEFAULT_ROUTE = REPOSITORY / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
+DEFAULT_ROUTE = REPOSITORY / "examples/capture/mp3d_articulated_review/route_manifest.json"
 DEFAULT_CAPTURE = (
     REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/evidence.json"
 )
@@ -66,9 +66,9 @@ DEFAULT_EMITTERS = DEFAULT_DELIVERY / "actual_emitter_trajectories.json"
 DEFAULT_HABITAT_REVIEW = (
     DEFAULT_DELIVERY / "videos/mp3d_human_beagle_annotated_binaural.mp4"
 )
-DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/m6/rooms/room_registry.json"
+DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/registry/rooms/room_registry.json"
 DEFAULT_ROOM_QUALIFICATION = (
-    REPOSITORY / "examples/m6/rooms/qualification/mp3d_17DRP5sb8fy_raw.json"
+    REPOSITORY / "examples/registry/rooms/qualification/mp3d_17DRP5sb8fy_raw.json"
 )
 DEFAULT_HABITAT_RGB = (
     REPOSITORY / "tmp/m5_1/mp3d_mixed_heading_lighting_20260718_01/arrays/rgb.npy"

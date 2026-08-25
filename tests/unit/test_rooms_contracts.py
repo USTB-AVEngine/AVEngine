@@ -18,13 +18,13 @@ from avengine.rooms.contracts import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CUSTOM_ROOM_PATH = (
-    REPOSITORY_ROOT / "examples/m1/rooms/blender_custom/room_manifest.json"
+    REPOSITORY_ROOT / "examples/rooms/blender_custom/room_manifest.json"
 )
-CUSTOM_REQUEST_PATH = REPOSITORY_ROOT / "examples/m1/requests/blender_custom.json"
+CUSTOM_REQUEST_PATH = REPOSITORY_ROOT / "examples/rooms/requests/blender_custom.json"
 NATIVE_ROOM_PATH = (
-    REPOSITORY_ROOT / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+    REPOSITORY_ROOT / "examples/rooms/habitat_mp3d_example/room_manifest.json"
 )
-NATIVE_REQUEST_PATH = REPOSITORY_ROOT / "examples/m1/requests/habitat_mp3d_example.json"
+NATIVE_REQUEST_PATH = REPOSITORY_ROOT / "examples/rooms/requests/habitat_mp3d_example.json"
 
 
 def _load(path: Path) -> dict:

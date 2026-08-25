@@ -16,7 +16,7 @@ from avengine.rooms.contracts import validate_capture_request
 from avengine.rooms.apartment import listener_yaw_degrees_from_request
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE_REQUEST = ROOT / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
+BASE_REQUEST = ROOT / "examples/routes/fixed_apartment/m1_capture_request_review_720p.json"
 
 
 def test_yaw_quaternion_uses_one_canonical_hemisphere() -> None:

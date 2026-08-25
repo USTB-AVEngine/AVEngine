@@ -19,13 +19,13 @@ from avengine.acoustics.profiled_compiler import compile_profiled_acoustic_scene
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ROOM_MANIFEST = ROOT / "examples/m1/rooms/blender_custom/room_manifest.json"
+ROOM_MANIFEST = ROOT / "examples/rooms/blender_custom/room_manifest.json"
 ROOM_GEOMETRY = (
     ROOT
-    / "examples/m1/rooms/blender_custom/visual/stages/m1_custom_room.glb"
+    / "examples/rooms/blender_custom/visual/stages/m1_custom_room.glb"
 )
 MATERIAL_RULES = (
-    ROOT / "examples/m3/semantic_materials/residential_material_rules.json"
+    ROOT / "examples/acoustics/semantic_materials/residential_material_rules.json"
 )
 SIMULATION_REQUEST = (
     ROOT / "examples/runtime/rir_cache_simulation_request_v2.json"

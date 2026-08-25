@@ -20,7 +20,7 @@ from avengine.acoustics.semantic_materials import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TRACKED_RULES = (
     REPOSITORY_ROOT
-    / "examples/m3/semantic_materials/residential_material_rules.json"
+    / "examples/acoustics/semantic_materials/residential_material_rules.json"
 )
 
 

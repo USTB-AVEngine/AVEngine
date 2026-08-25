@@ -26,8 +26,8 @@ from avengine.acoustics.rlr_material_import import import_rlr_material_database
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-ROOM = REPOSITORY_ROOT / "examples/m1/rooms/blender_custom/room_manifest.json"
-EXAMPLES = REPOSITORY_ROOT / "examples/m3/blender_custom"
+ROOM = REPOSITORY_ROOT / "examples/rooms/blender_custom/room_manifest.json"
+EXAMPLES = REPOSITORY_ROOT / "examples/acoustics/blender_custom"
 MAPPING = EXAMPLES / "mapping.json"
 LOW = EXAMPLES / "materials_low.json"
 REQUEST = EXAMPLES / "canary_request.json"
@@ -444,7 +444,7 @@ def test_visual_slot_semantic_compile_is_deterministic_research_candidate(
 ) -> None:
     rules = (
         REPOSITORY_ROOT
-        / "examples/m3/semantic_materials/residential_material_rules.json"
+        / "examples/acoustics/semantic_materials/residential_material_rules.json"
     )
     manifest_path, coverage_path = compile_visual_slot_semantic_research_scene(
         room_manifest=ROOM,

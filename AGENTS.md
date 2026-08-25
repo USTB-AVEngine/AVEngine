@@ -299,6 +299,8 @@ are historical evidence only.
 - 新工具/新模块一律放进能力目录；阶段式命名（m1…m7、m6x/m6y/m6z）已移除，禁止新建。
 - 找工具先看 `docs/TOOL_INDEX.md`（自动生成；`python tools/build_tool_index.py --check` 已入单测回归）。
 - 仍然冻结的数据契约：注册表 schema id（`avengine_*_v1`）、receipt/manifest 字段名、
-  `examples/m*` 目录布局（第二批迁移）。产物内的 generator/producer/builder 身份字符串
+  运行时锁分区与文件名（`m1_runtime_v1` 等，下次锁定换代时铸新名）。
+  examples/ 已迁至能力目录；封印记录的合法演化用
+  `tools/registry/reseal_examples.py`（改内容 → 重封印 → 重钉扎，不动历史 receipt）。产物内的 generator/producer/builder 身份字符串
   已随本次重命名切换到新路径；acoustic 包 schema 对 `name` 同时接受
   `avengine.acoustics.compiler` 与历史值 `avengine.m3.compiler`，既有包无需重建。

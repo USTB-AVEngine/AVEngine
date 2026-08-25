@@ -14,8 +14,8 @@ from avengine.acoustics.materials import MATERIAL_PROFILE_SCHEMA
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES = REPOSITORY_ROOT / "examples/m3/blender_custom"
-ROOM = REPOSITORY_ROOT / "examples/m1/rooms/blender_custom/room_manifest.json"
+EXAMPLES = REPOSITORY_ROOT / "examples/acoustics/blender_custom"
+ROOM = REPOSITORY_ROOT / "examples/rooms/blender_custom/room_manifest.json"
 
 
 def _compiled_manifest(tmp_path: Path) -> Path:

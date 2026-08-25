@@ -41,7 +41,7 @@ from avengine.runtime_profiles import (  # noqa: E402
 BATCH_SCHEMA = "avengine_m7_habitat_room_batch_v1"
 SUPPORTED_LAYOUT = "m5_1-mixed-route"
 GATE_EVIDENCE_NAME = "mp3d_gate_evidence.json"
-DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/m6/rooms/room_registry.json"
+DEFAULT_ROOM_REGISTRY = REPOSITORY / "examples/registry/rooms/room_registry.json"
 PBR_CONFIG_HANDLE = "avengine_m5_1_external_brown_photostudio_v1"
 PBR_LUT_RELATIVE_PATH = Path("bluts/brdflut_ldr_512x512.png")
 PBR_ENVIRONMENT_RELATIVE_PATH = Path(

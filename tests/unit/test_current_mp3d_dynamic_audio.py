@@ -20,7 +20,7 @@ from avengine.registry.sources import (
 REPOSITORY = Path(__file__).resolve().parents[2]
 PROGRAM_PATH = (
     REPOSITORY
-    / "examples/m5/current_mp3d/audio_programs"
+    / "examples/timeline/current_mp3d/audio_programs"
     / "current_mp3d_two_beagle_turn_taking_v1.json"
 )
 
@@ -28,10 +28,10 @@ PROGRAM_PATH = (
 def test_turn_taking_program_validates_against_repository_registries() -> None:
     program = json.loads(PROGRAM_PATH.read_text(encoding="utf-8"))
     endpoints = load_source_endpoint_registry(
-        REPOSITORY / "examples/m6/registries/source_endpoints_v1.json"
+        REPOSITORY / "examples/registry/registries/source_endpoints_v1.json"
     )
     sounds = load_sound_asset_registry(
-        REPOSITORY / "examples/m6/registries/sound_assets_v1.json"
+        REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
     )
     errors = validate_audio_program(
         program,
@@ -95,7 +95,7 @@ def test_load_captured_source_paths_rejects_short_captures(tmp_path: Path) -> No
 
 def test_listener_pose_composes_camera_colocated_listener() -> None:
     request = json.loads(
-        (REPOSITORY / "examples/m1/requests/habitat_mp3d_example.json").read_text(
+        (REPOSITORY / "examples/rooms/requests/habitat_mp3d_example.json").read_text(
             encoding="utf-8"
         )
     )

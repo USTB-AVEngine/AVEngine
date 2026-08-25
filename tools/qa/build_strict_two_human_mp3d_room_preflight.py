@@ -69,11 +69,11 @@ HABITAT_EDITABLE_BUILD = (
 )
 HABITAT_NATIVE_PRODUCTION_MODE = "habitat_native_production"
 HABITAT_M1_REQUEST_TEMPLATE = (
-    REMOTE_REPOSITORY / "examples/m1/requests/habitat_mp3d_example.json"
+    REMOTE_REPOSITORY / "examples/rooms/requests/habitat_mp3d_example.json"
 )
 HABITAT_M1_ROOM_MANIFEST = (
     REMOTE_REPOSITORY
-    / "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json"
+    / "examples/assets/rooms/habitat_mp3d_articulated_review/room_manifest.json"
 )
 HABITAT_TWO_HUMAN_CAPTURE = REMOTE_REPOSITORY / "tools/capture/capture_two_human_mp3d.py"
 MP3D_SCENE = Path(
@@ -1843,7 +1843,7 @@ def _execution_plan(
         "m3",
         "compile-mp3d-rlr-materials",
         "--room",
-        str(remote_root / "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"),
+        str(remote_root / "examples/rooms/habitat_mp3d_example/room_manifest.json"),
         "--materials",
         "/data/jzy/code/sound-spaces/data/mp3d_material_config.json",
         "--database-id",

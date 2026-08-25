@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 229 个工具脚本。
+当前共 230 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -270,6 +270,7 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/registry/publish_static_object_registry.py` | Publish or verify one fail-closed M6 static-object research registration |
+| `tools/registry/reseal_examples.py` | Reseal and re-pin example evidence bindings after a legitimate content change |
 
 ## 发布（`tools/release/`）
 

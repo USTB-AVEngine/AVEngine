@@ -24,7 +24,7 @@ from avengine.spatial_audio.runtime import (
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-M1_TEMPLATE = REPOSITORY / "examples/m5_1/legacy_apartment/m1_capture_request.json"
+M1_TEMPLATE = REPOSITORY / "examples/capture/legacy_apartment/m1_capture_request.json"
 SIMULATION_TEMPLATE = (
     REPOSITORY / "examples/runtime/rir_cache_simulation_request_v2.json"
 )

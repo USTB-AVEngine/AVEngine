@@ -24,9 +24,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_adapter_bindings_cover_fixed_suite_endpoints_and_registry() -> None:
     endpoint_registry = load_json(
-        ROOT / "examples/m6/registries/source_endpoints_v1.json"
+        ROOT / "examples/registry/registries/source_endpoints_v1.json"
     )
-    suite = load_json(ROOT / "examples/m6x/fixed_apartment/scenario_suite.json")
+    suite = load_json(ROOT / "examples/routes/fixed_apartment/scenario_suite.json")
     scenario_endpoints = {
         item["source_endpoint_id"]
         for scenario in suite["scenarios"]
@@ -50,7 +50,7 @@ def test_adapter_bindings_cover_fixed_suite_endpoints_and_registry() -> None:
 
 
 def test_registry_actor_mismatch_fails_at_adapter_boundary() -> None:
-    registry = load_json(ROOT / "examples/m6/registries/source_endpoints_v1.json")
+    registry = load_json(ROOT / "examples/registry/registries/source_endpoints_v1.json")
     endpoint = next(
         item
         for item in registry["source_endpoints"]
@@ -124,9 +124,9 @@ def test_timeline_state_uses_actor_binding_instead_of_actor_id_branch() -> None:
 
 def test_adapter_materializes_first_anchor_yaw_as_fallback_forward() -> None:
     trajectories = load_json(
-        ROOT / "examples/m6x/fixed_apartment/trajectory_templates.json"
+        ROOT / "examples/routes/fixed_apartment/trajectory_templates.json"
     )
-    anchors = load_json(ROOT / "examples/m6x/fixed_apartment/anchor_library.json")
+    anchors = load_json(ROOT / "examples/routes/fixed_apartment/anchor_library.json")
 
     forwards = HUMAN_BEAGLE_CAPTURE_ADAPTER.materialize_actor_fallback_forwards_xz(
         trajectories, anchors
@@ -157,9 +157,9 @@ def test_adapter_materializes_first_anchor_yaw_as_fallback_forward() -> None:
 
 def _locomotion_closure_capture() -> CaptureData:
     trajectories = load_json(
-        ROOT / "examples/m6x/fixed_apartment/trajectory_templates.json"
+        ROOT / "examples/routes/fixed_apartment/trajectory_templates.json"
     )
-    anchors = load_json(ROOT / "examples/m6x/fixed_apartment/anchor_library.json")
+    anchors = load_json(ROOT / "examples/routes/fixed_apartment/anchor_library.json")
     roots = HUMAN_BEAGLE_CAPTURE_ADAPTER.materialize_actor_root_paths(
         trajectories, anchors
     )
@@ -226,9 +226,9 @@ def _authoritative_heading_inputs() -> tuple[
     dict[str, np.ndarray], dict[str, np.ndarray]
 ]:
     trajectories = load_json(
-        ROOT / "examples/m6x/fixed_apartment/trajectory_templates.json"
+        ROOT / "examples/routes/fixed_apartment/trajectory_templates.json"
     )
-    anchors = load_json(ROOT / "examples/m6x/fixed_apartment/anchor_library.json")
+    anchors = load_json(ROOT / "examples/routes/fixed_apartment/anchor_library.json")
     return (
         HUMAN_BEAGLE_CAPTURE_ADAPTER.materialize_actor_root_paths(
             trajectories, anchors

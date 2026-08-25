@@ -24,16 +24,16 @@ import tools.review.render_review_acoustics as review_acoustics
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LEGACY_ROUTE_PATH = (
-    REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/route_manifest.json"
+    REPOSITORY_ROOT / "examples/capture/legacy_apartment/route_manifest.json"
 )
 LEGACY_REQUEST_PATH = (
-    REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/m1_capture_request.json"
+    REPOSITORY_ROOT / "examples/capture/legacy_apartment/m1_capture_request.json"
 )
 LEGACY_SOURCE_PATH = (
-    REPOSITORY_ROOT / "examples/m5_1/legacy_apartment/source_manifest.json"
+    REPOSITORY_ROOT / "examples/capture/legacy_apartment/source_manifest.json"
 )
 MP3D_ROUTE_PATH = (
-    REPOSITORY_ROOT / "examples/m5_1/mp3d_articulated_review/route_manifest.json"
+    REPOSITORY_ROOT / "examples/capture/mp3d_articulated_review/route_manifest.json"
 )
 
 

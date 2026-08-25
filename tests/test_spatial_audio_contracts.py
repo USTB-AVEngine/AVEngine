@@ -29,7 +29,7 @@ from avengine.spatial_audio.contracts import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE_ROOT = REPOSITORY_ROOT / "examples/m4/blender_custom"
+EXAMPLE_ROOT = REPOSITORY_ROOT / "examples/spatial_audio/blender_custom"
 REQUEST_PATH = EXAMPLE_ROOT / "multi_source_canary_request.json"
 IDENTITY_PATH = EXAMPLE_ROOT / "source_identity_manifest.json"
 

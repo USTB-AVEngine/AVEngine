@@ -54,14 +54,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--room-manifest",
         type=Path,
         default=_default(
-            "examples/m5_1/replicacad_articulated_review/room_manifest.json"
+            "examples/capture/replicacad_articulated_review/room_manifest.json"
         ),
     )
     parser.add_argument(
         "--m1-request",
         type=Path,
         default=_default(
-            "examples/m5_1/replicacad_articulated_review/capture_request.json"
+            "examples/capture/replicacad_articulated_review/capture_request.json"
         ),
     )
     parser.add_argument(

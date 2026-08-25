@@ -202,6 +202,8 @@ def _add(first: Sequence[float], second: Sequence[float]) -> list[float]:
 
 def _semantic_regular_file(value: Any, *, owner: str) -> Path:
     raw = Path(str(value))
+    if not raw.is_absolute():
+        raw = Path(__file__).resolve().parents[2] / raw
     _require(raw.is_absolute() and ".." not in raw.parts, f"{owner} path is invalid")
     _require(
         not any(candidate.is_symlink() for candidate in (raw, *raw.parents))

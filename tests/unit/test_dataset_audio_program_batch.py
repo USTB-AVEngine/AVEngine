@@ -20,8 +20,8 @@ from tools.dataset.render_asset_bound_binaural_batch import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PROGRAMS = ROOT / "examples/m6x/fixed_apartment/audio_programs"
-REGISTRIES = ROOT / "examples/m6/registries"
+PROGRAMS = ROOT / "examples/routes/fixed_apartment/audio_programs"
+REGISTRIES = ROOT / "examples/registry/registries"
 
 
 def test_audio_batch_authenticates_binding_and_keeps_legacy_unbound_explicit() -> None:
@@ -202,7 +202,7 @@ def test_dataset_prepares_sequential_m6_program_as_exact_slot_buses() -> None:
         },
         sound_audio={
             "directional_chime_v1": str(
-                ROOT / "examples/m6x/assets/directional_chime_16k.wav"
+                ROOT / "examples/routes/assets/directional_chime_16k.wav"
             ),
             "unused_library_entry": "/not-read.wav",
         },
@@ -265,7 +265,7 @@ def test_dataset_prepares_counterfactual_b_as_exact_endpoint_and_slot_bus_swap()
         },
         sound_audio={
             "directional_chime_v1": str(
-                ROOT / "examples/m6x/assets/directional_chime_16k.wav"
+                ROOT / "examples/routes/assets/directional_chime_16k.wav"
             )
         },
     )

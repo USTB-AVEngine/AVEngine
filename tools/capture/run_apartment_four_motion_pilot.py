@@ -674,7 +674,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--config-root",
         type=Path,
-        default=REPOSITORY / "examples/m6x/fixed_apartment",
+        default=REPOSITORY / "examples/routes/fixed_apartment",
     )
     parser.add_argument(
         "--runtime-root",
@@ -690,27 +690,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--m1-request",
         type=Path,
         default=REPOSITORY
-        / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json",
+        / "examples/routes/fixed_apartment/m1_capture_request_review_720p.json",
     )
     parser.add_argument(
         "--room-registry",
         type=Path,
-        default=REPOSITORY / "examples/m6/rooms/room_registry.json",
+        default=REPOSITORY / "examples/registry/rooms/room_registry.json",
     )
     parser.add_argument(
         "--entity-registry",
         type=Path,
-        default=REPOSITORY / "examples/m6/registries/entity_assets_v1.json",
+        default=REPOSITORY / "examples/registry/registries/entity_assets_v1.json",
     )
     parser.add_argument(
         "--endpoint-registry",
         type=Path,
-        default=REPOSITORY / "examples/m6/registries/source_endpoints_v1.json",
+        default=REPOSITORY / "examples/registry/registries/source_endpoints_v1.json",
     )
     parser.add_argument(
         "--sound-registry",
         type=Path,
-        default=REPOSITORY / "examples/m6/registries/sound_assets_v1.json",
+        default=REPOSITORY / "examples/registry/registries/sound_assets_v1.json",
     )
     parser.add_argument(
         "--human-runtime-glb",
@@ -745,7 +745,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--m4-request",
         type=Path,
         default=REPOSITORY
-        / "examples/m4/blender_custom/multi_source_canary_request.json",
+        / "examples/spatial_audio/blender_custom/multi_source_canary_request.json",
     )
     parser.add_argument(
         "--hrtf",
@@ -755,7 +755,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--review-visual-profile",
         type=Path,
-        default=REPOSITORY / "examples/m6x/fixed_apartment/review_visual_profile.json",
+        default=REPOSITORY / "examples/routes/fixed_apartment/review_visual_profile.json",
     )
     parser.add_argument(
         "--exterior-proxy-glb",

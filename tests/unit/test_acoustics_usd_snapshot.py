@@ -18,7 +18,7 @@ from avengine.acoustics.usd_snapshot import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RULES = (
     REPOSITORY_ROOT
-    / "examples/m3/semantic_materials/residential_material_rules.json"
+    / "examples/acoustics/semantic_materials/residential_material_rules.json"
 )
 
 

@@ -23,7 +23,7 @@ from avengine.registry.sources import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRIES = ROOT / "examples" / "m6" / "registries"
+REGISTRIES = ROOT / "examples" / "registry" / "registries"
 
 
 def test_registry_registry_schemas_are_valid_draft_2020_12() -> None:

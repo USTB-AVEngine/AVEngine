@@ -25,7 +25,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 
 def _anchors() -> dict:
     return json.loads(
-        (REPOSITORY / "examples/m6x/fixed_apartment/anchor_library.json").read_text(
+        (REPOSITORY / "examples/routes/fixed_apartment/anchor_library.json").read_text(
             encoding="utf-8"
         )
     )
@@ -77,7 +77,7 @@ def test_motion_matrix_record_stays_compact() -> None:
 def test_capture_adapter_closes_a_300_frame_motion_master() -> None:
     anchors = _anchors()
     trajectories = json.loads(
-        (REPOSITORY / "examples/m6x/fixed_apartment/trajectory_templates.json").read_text(
+        (REPOSITORY / "examples/routes/fixed_apartment/trajectory_templates.json").read_text(
             encoding="utf-8"
         )
     )

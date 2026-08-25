@@ -668,7 +668,7 @@ def test_scenario_execution_keeps_native_map_and_habitat_authority(
 def test_apartment_lighting_profiles_keep_native_map_and_validate_photometry() -> None:
     path = (
         Path(__file__).resolve().parents[2]
-        / "examples/m6y/spear_apartment_lighting_profiles.json"
+        / "examples/rooms/spear_apartment_lighting_profiles.json"
     )
     profile = apartment.load_apartment_lighting_profile(path, "warm_indoor_fill")
     assert profile["profile_id"] == "warm_indoor_fill"

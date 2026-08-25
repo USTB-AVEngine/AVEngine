@@ -20,7 +20,7 @@ from avengine.dataset.apartment_dynamic_audio import (
 REPOSITORY = Path(__file__).resolve().parents[2]
 PROGRAM_PATH = (
     REPOSITORY
-    / "examples/m7/current_apartment/audio_programs"
+    / "examples/dataset/current_apartment/audio_programs"
     / "current_apartment_human_beagle_turn_taking_v1.json"
 )
 
@@ -28,10 +28,10 @@ PROGRAM_PATH = (
 def test_apartment_program_validates_against_repository_registries() -> None:
     program = json.loads(PROGRAM_PATH.read_text(encoding="utf-8"))
     endpoints = load_source_endpoint_registry(
-        REPOSITORY / "examples/m6/registries/source_endpoints_v1.json"
+        REPOSITORY / "examples/registry/registries/source_endpoints_v1.json"
     )
     sounds = load_sound_asset_registry(
-        REPOSITORY / "examples/m6/registries/sound_assets_v1.json"
+        REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
     )
     errors = validate_audio_program(
         program,

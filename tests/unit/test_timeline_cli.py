@@ -12,7 +12,7 @@ from avengine.cli import build_parser, main
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 REQUEST = (
     REPOSITORY_ROOT
-    / "examples/m5/blender_custom/two_dog_simultaneous_counterfactual_request.json"
+    / "examples/timeline/blender_custom/two_dog_simultaneous_counterfactual_request.json"
 )
 
 

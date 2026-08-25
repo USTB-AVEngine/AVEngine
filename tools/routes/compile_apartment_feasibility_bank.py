@@ -408,7 +408,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--m1-request",
         type=Path,
         default=REPOSITORY
-        / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json",
+        / "examples/routes/fixed_apartment/m1_capture_request_review_720p.json",
     )
     parser.add_argument(
         "--runtime-root",
@@ -418,12 +418,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--anchor-library",
         type=Path,
-        default=REPOSITORY / "examples/m6x/fixed_apartment/anchor_library.json",
+        default=REPOSITORY / "examples/routes/fixed_apartment/anchor_library.json",
     )
     parser.add_argument(
         "--trajectory-templates",
         type=Path,
-        default=REPOSITORY / "examples/m6x/fixed_apartment/trajectory_templates.json",
+        default=REPOSITORY / "examples/routes/fixed_apartment/trajectory_templates.json",
     )
     parser.add_argument(
         "--anchor-profile",

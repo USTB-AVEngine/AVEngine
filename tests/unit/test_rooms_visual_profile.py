@@ -21,8 +21,8 @@ from avengine.rooms.visual_profile import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PROFILE_PATH = ROOT / "examples/m6x/fixed_apartment/review_visual_profile.json"
-REQUEST_PATH = ROOT / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json"
+PROFILE_PATH = ROOT / "examples/routes/fixed_apartment/review_visual_profile.json"
+REQUEST_PATH = ROOT / "examples/routes/fixed_apartment/m1_capture_request_review_720p.json"
 
 
 def test_review_profile_freezes_native_720p_and_non_upscaling_diagnostic() -> None:

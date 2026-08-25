@@ -1986,7 +1986,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--room-registry",
         type=Path,
         default=(
-            Path(__file__).resolve().parents[2] / "examples/m6/rooms/room_registry.json"
+            Path(__file__).resolve().parents[2] / "examples/registry/rooms/room_registry.json"
         ),
     )
     m3_registered.add_argument(

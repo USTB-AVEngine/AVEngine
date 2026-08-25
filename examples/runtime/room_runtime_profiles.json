@@ -48,7 +48,7 @@
       "adapter_id": "habitat_mp3d_mixed_route_v1",
       "scene": {
         "scene_id": "habitat_mp3d_17DRP5sb8fy",
-        "map_path": "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json",
+        "map_path": "examples/assets/rooms/habitat_mp3d_articulated_review/room_manifest.json",
         "layout_policy": "native_scan_unchanged",
         "outdoor_view_policy": "scan_baked_lighting_no_proxy"
       },

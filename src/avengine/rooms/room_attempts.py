@@ -63,7 +63,7 @@ from avengine.security.path_policy import (
 ATTEMPT_MANIFEST_SCHEMA = "avengine_m6_room_qualification_attempt_v1"
 OBSERVATION_SCHEMA = "avengine_m6_room_qualification_observation_v1"
 DERIVED_PROXY_SCHEMA = "avengine_m6_derived_acoustic_proxy_v1"
-CANONICAL_ROOM_REGISTRY_PATH = "examples/m6/rooms/room_registry.json"
+CANONICAL_ROOM_REGISTRY_PATH = "examples/registry/rooms/room_registry.json"
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 ATTEMPT_CASE_IDS = (
     "blender_custom_two_zone",
@@ -165,7 +165,7 @@ def _proxy_descriptor_assessment(
         schema = load_json(
             Path(__file__).resolve().parents[3]
             / "schemas"
-            / "m6_derived_acoustic_proxy_v1.schema.json"
+            / "derived_acoustic_proxy_v1.schema.json"
         )
         errors.extend(
             f"descriptor schema {'.'.join(str(part) for part in error.path) or '$'}: "
@@ -1133,7 +1133,7 @@ def run_room_qualification_attempt(
                 ),
             },
             source_records=[
-                "examples/m6/rooms/room_registry.json",
+                "examples/registry/rooms/room_registry.json",
                 "current_observation",
             ],
             notes="Read-only current attempt. Native Habitat/RLR/Blender was not re-executed.",
@@ -1261,7 +1261,7 @@ def run_room_qualification_attempt(
                 ),
             },
             source_records=[
-                "examples/m6/rooms/room_registry.json",
+                "examples/registry/rooms/room_registry.json",
                 "current_observation",
             ],
             notes="Current read-only resource/hash/topology attempt; no native runtime claim.",
@@ -1425,7 +1425,7 @@ def run_room_qualification_attempt(
                 ),
             },
             source_records=[
-                "examples/m6/rooms/room_registry.json",
+                "examples/registry/rooms/room_registry.json",
                 "current_observation",
             ],
             notes=(
@@ -1584,7 +1584,7 @@ def run_room_qualification_attempt(
                 ),
             },
             source_records=[
-                "examples/m6/rooms/room_registry.json",
+                "examples/registry/rooms/room_registry.json",
                 "current_observation",
             ],
             notes="Raw scan identity remains immutable; the report does not modify MP3D.",
@@ -1791,8 +1791,8 @@ def run_room_qualification_attempt(
                 ),
             },
             source_records=[
-                "examples/m6/rooms/room_registry.json",
-                "examples/m6/rooms/proxies/mp3d_17DRP5sb8fy_acoustic_proxy_v2.json",
+                "examples/registry/rooms/room_registry.json",
+                "examples/registry/rooms/proxies/mp3d_17DRP5sb8fy_acoustic_proxy_v2.json",
                 "current_observation",
             ],
             notes=(

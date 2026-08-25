@@ -72,10 +72,10 @@ from avengine.routes.trajectory import M6XTrajectoryError, resample_polyline_by_
 
 EXTERNAL_REVIEW_ROOT = Path("/data/avengine_external/review")
 CURRENT_MP3D_ROOM_MANIFEST_RELATIVE = Path(
-    "examples/m1/rooms/habitat_mp3d_example/room_manifest.json"
+    "examples/rooms/habitat_mp3d_example/room_manifest.json"
 )
 CURRENT_MP3D_M1_REQUEST_RELATIVE = Path(
-    "examples/m1/requests/habitat_mp3d_example.json"
+    "examples/rooms/requests/habitat_mp3d_example.json"
 )
 _CURRENT_VISUAL_OFFSETS = np.asarray(CURRENT_ACTOR_OFFSETS_M, dtype=np.float64)
 _MAXIMUM_PATH_ATTEMPTS = 4096

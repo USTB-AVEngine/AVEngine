@@ -9,7 +9,7 @@ from avengine.capture.topdown import render_legacy_topdown_frame
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ROUTE = ROOT / "examples" / "m5_1" / "legacy_apartment" / "route_manifest.json"
+ROUTE = ROOT / "examples" / "capture" / "legacy_apartment" / "route_manifest.json"
 
 
 def test_legacy_topdown_frame_is_deterministic_and_draws_routes() -> None:

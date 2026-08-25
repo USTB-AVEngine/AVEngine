@@ -524,7 +524,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--profile",
         type=Path,
         default=REPOSITORY
-        / "examples/m6z/interioragent_kujiale_0020_source_episode.json",
+        / "examples/rooms/interioragent_kujiale_0020_source_episode.json",
     )
     parser.add_argument("--output", type=Path, required=True)
     # InteriorAgent mesh footprints are extracted on a 0.05 m grid.  A finer

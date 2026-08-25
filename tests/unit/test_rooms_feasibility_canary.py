@@ -29,7 +29,7 @@ from avengine.rooms.feasibility_canary import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REQUEST = ROOT / "examples" / "m6" / "canary" / "controlled_one_active_of_two_request.json"
+REQUEST = ROOT / "examples" / "registry" / "canary" / "controlled_one_active_of_two_request.json"
 
 
 def test_controlled_request_is_hash_bound_and_research_only() -> None:
@@ -103,7 +103,7 @@ def test_retained_materialization_pass_never_promotes_native_episode(
     historical = load_json(
         ROOT
         / "examples"
-        / "m6"
+        / "registry"
         / "rooms"
         / "qualification"
         / "blender_custom_two_zone.json"
@@ -269,11 +269,11 @@ def test_artifact_closure_does_not_ignore_nested_entry_filename(
 
 def test_entity_registry_visual_is_the_mesh_rendered_by_retained_m5() -> None:
     request = load_controlled_canary_request(REQUEST)
-    registries = _load_registries(ROOT / "examples" / "m6" / "registries")
+    registries = _load_registries(ROOT / "examples" / "registry" / "registries")
     upstream = load_json(
         ROOT
         / "examples"
-        / "m5"
+        / "timeline"
         / "blender_custom"
         / "two_dog_simultaneous_counterfactual_request.json"
     )

@@ -25,7 +25,7 @@ from tools.assets import force_matte_materials
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_SPEC = (
     REPOSITORY_ROOT
-    / "examples/m2/variant_packages/rocketbox_beagle_review_spec_v1.json"
+    / "examples/assets/variant_packages/rocketbox_beagle_review_spec_v1.json"
 )
 SCHEMA = REPOSITORY_ROOT / "schemas/m2_cross_species_appearance_lineage_v1.schema.json"
 

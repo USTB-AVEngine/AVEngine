@@ -248,18 +248,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--anchor-library",
         type=Path,
-        default=REPOSITORY / "examples/m6x/fixed_apartment/anchor_library.json",
+        default=REPOSITORY / "examples/routes/fixed_apartment/anchor_library.json",
     )
     parser.add_argument(
         "--room-capsule",
         type=Path,
-        default=REPOSITORY / "examples/m6x/fixed_apartment/room_capsule.json",
+        default=REPOSITORY / "examples/routes/fixed_apartment/room_capsule.json",
     )
     parser.add_argument(
         "--m1-request",
         type=Path,
         default=REPOSITORY
-        / "examples/m6x/fixed_apartment/m1_capture_request_review_720p.json",
+        / "examples/routes/fixed_apartment/m1_capture_request_review_720p.json",
         help="Camera calibration authority; must agree with the RIR plan listener",
     )
     parser.add_argument(

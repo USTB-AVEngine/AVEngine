@@ -26,8 +26,8 @@ from avengine.spatial_audio.runtime import (
 )
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-M3_REQUEST = REPOSITORY / "examples/m3/blender_custom/canary_request.json"
-M4_REQUEST = REPOSITORY / "examples/m4/blender_custom/multi_source_canary_request.json"
+M3_REQUEST = REPOSITORY / "examples/acoustics/blender_custom/canary_request.json"
+M4_REQUEST = REPOSITORY / "examples/spatial_audio/blender_custom/multi_source_canary_request.json"
 
 
 def _identity(

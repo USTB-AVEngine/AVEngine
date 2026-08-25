@@ -268,6 +268,6 @@ def test_checked_in_profiles_declare_room_specific_visual_roles() -> None:
 
     for name, backend_role in expected.items():
         profile = json.loads(
-            (repository / "examples/m6z" / name).read_text(encoding="utf-8")
+            (repository / "examples/rooms" / name).read_text(encoding="utf-8")
         )
         assert profile["backend_role"] == backend_role

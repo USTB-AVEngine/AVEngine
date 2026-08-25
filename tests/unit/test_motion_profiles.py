@@ -14,7 +14,7 @@ from avengine.motion.profiles import (
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PROFILE = (
-    REPOSITORY / "examples/m2/motion_profiles/quadruped_dog_to_rocketbox_beagle_v1.json"
+    REPOSITORY / "examples/assets/motion_profiles/quadruped_dog_to_rocketbox_beagle_v1.json"
 )
 SCHEMA = REPOSITORY / "schemas/motion_retarget_profile_v1.schema.json"
 

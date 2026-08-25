@@ -309,7 +309,7 @@ class Layout:
 
         _write_json(
             self.repo
-            / "examples/m3/skokloster_castle/skokloster_room_runtime_profile.json",
+            / "examples/acoustics/skokloster_castle/skokloster_room_runtime_profile.json",
             {
                 "schema": "avengine_skokloster_imported_room_runtime_profile_v1",
                 "scene_id": LAUNCHER.SCENE_ID,
@@ -332,7 +332,7 @@ class Layout:
             },
         )
         _write_json(
-            self.repo / "examples/m3/skokloster_castle/editor_import_cook_plan.json",
+            self.repo / "examples/acoustics/skokloster_castle/editor_import_cook_plan.json",
             {
                 "schema": "avengine_skokloster_editor_import_cook_plan_v1",
                 "execution_history": {

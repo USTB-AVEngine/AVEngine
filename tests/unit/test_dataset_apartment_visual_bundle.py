@@ -421,7 +421,7 @@ def test_counterfactual_b_variant_is_preserved_in_source_manifest() -> None:
     base_program = json.loads(
         (
             repository
-            / "examples/m6x/fixed_apartment/audio_programs"
+            / "examples/routes/fixed_apartment/audio_programs"
             / "m6x_s1_front_rear_route_swap_v1.json"
         ).read_text(encoding="utf-8")
     )
