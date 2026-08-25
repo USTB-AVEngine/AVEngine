@@ -37,7 +37,7 @@ from avengine.routes.room_feasibility import (  # noqa: E402
     build_rir_job_plan,
 )
 from avengine.acoustics.semantic_rir_cache import SemanticRIRCacheSession  # noqa: E402
-from avengine.m7.asset_bound_audio import (  # noqa: E402
+from avengine.dataset.asset_bound_audio import (  # noqa: E402
     float32_stems_and_exact_mix,
     render_asset_bound_binaural,
 )

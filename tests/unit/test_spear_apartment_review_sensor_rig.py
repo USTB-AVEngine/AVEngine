@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
-from tools.m7 import build_spear_apartment_review as review
+from tools.dataset import build_spear_apartment_review as review
 
 
 class _ObstacleMap:

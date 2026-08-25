@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from avengine.m7.sensor_rig import m7_sensor_rig_pose_series
+from avengine.dataset.sensor_rig import m7_sensor_rig_pose_series
 from avengine.sensor_rig_trajectory import materialize_sensor_rig_trajectory
 
 

@@ -134,7 +134,7 @@ def main() -> int:
     audio_dir = output / "audio"
     audio_argv = [
         python,
-        str(REPOSITORY / "tools/m7/render_current_apartment_dynamic_audio.py"),
+        str(REPOSITORY / "tools/dataset/render_current_apartment_dynamic_audio.py"),
         "--visual-capture-dir", capture_dir,
         "--m1-request", args.m1_request,
         "--simulation-request", args.simulation_request,

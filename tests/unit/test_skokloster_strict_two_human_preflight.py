@@ -248,7 +248,7 @@ def test_rejects_wrong_rir_interpreter_even_with_valid_environment() -> None:
 
 def test_canonical_sensor_rig_validates_and_aligns_all_rir_uses() -> None:
     sensor_rig = pytest.importorskip("avengine.sensor_rig_trajectory")
-    m7_sensor_rig = pytest.importorskip("avengine.m7.sensor_rig")
+    m7_sensor_rig = pytest.importorskip("avengine.dataset.sensor_rig")
     request, _, evidence = fixtures()
     documents = MODULE._build_documents(request, evidence)
     rig = documents["sensor_rig_trajectory.json"]
@@ -485,7 +485,7 @@ def test_semantic_v2_plan_and_execution_are_path_only_and_fresh(
 def test_generated_semantic_audio_documents_use_the_m7_semantic_preparer(
     tmp_path: Path,
 ) -> None:
-    m7 = pytest.importorskip("tools.m7.render_asset_bound_binaural_batch")
+    m7 = pytest.importorskip("tools.dataset.render_asset_bound_binaural_batch")
     _, _, evidence = fixtures()
     request = load(
         layout_path(

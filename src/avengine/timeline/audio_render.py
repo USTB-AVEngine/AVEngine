@@ -29,7 +29,7 @@ from avengine.timeline.audio_program import (
     compile_audio_program,
     materialize_audio_program_variant,
 )
-from avengine.m6.sources import sound_index
+from avengine.registry.sources import sound_index
 
 
 @dataclass(frozen=True)

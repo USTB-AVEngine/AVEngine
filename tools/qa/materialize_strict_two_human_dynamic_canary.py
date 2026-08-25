@@ -38,8 +38,8 @@ from avengine.timeline.audio_render import (
     assemble_audio_program_dry_buses,
     assemble_semantic_audio_program_dry_buses,
 )
-from avengine.m6.registry import bind_content_hash
-from avengine.m6.sources import (
+from avengine.registry.registry import bind_content_hash
+from avengine.registry.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )
@@ -48,7 +48,7 @@ from avengine.routes.room_feasibility import (
     TrajectoryEpisode,
     build_rir_job_plan,
 )
-from avengine.m7.asset_bound_audio import bind_endpoint_buses_to_source_slots
+from avengine.dataset.asset_bound_audio import bind_endpoint_buses_to_source_slots
 from avengine.optional_backends.spear_visual import (
     actor_ue_yaw_degrees,
     camera_ue_yaw_degrees,
@@ -1658,7 +1658,7 @@ def _acoustic_execution_request(
         "env",
         f"PYTHONPATH={REPOSITORY / 'src'}",
         str(HABITAT_PYTHON),
-        "tools/m7/render_asset_bound_binaural_batch.py",
+        "tools/dataset/render_asset_bound_binaural_batch.py",
         "--plan-root",
         str(output.resolve()),
         "--rir-cache",

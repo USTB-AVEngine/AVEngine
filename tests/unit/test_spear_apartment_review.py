@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from tools.m7.build_spear_apartment_review import (
+from tools.dataset.build_spear_apartment_review import (
     SpearApartmentReviewError,
     _validate_visual_binding,
     source_center_paths_from_spec,

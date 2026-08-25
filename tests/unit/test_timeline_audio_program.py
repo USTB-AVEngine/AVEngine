@@ -12,7 +12,7 @@ from avengine.timeline.audio_program import (
     materialize_audio_program_variant,
     validate_audio_program,
 )
-from avengine.m6.sources import load_sound_asset_registry, load_source_endpoint_registry
+from avengine.registry.sources import load_sound_asset_registry, load_source_endpoint_registry
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -155,7 +155,7 @@ def test_audio_program_rejects_sound_class_not_supported_by_endpoint() -> None:
         if item["sound_asset_id"] == "dog_beagle_v2_scheduled_dry"
     )
     dog_sound["semantic_sound_class"] = "speech"
-    from avengine.m6.registry import bind_content_hash
+    from avengine.registry.registry import bind_content_hash
 
     sounds = bind_content_hash(sounds)
     errors = validate_audio_program(
@@ -175,7 +175,7 @@ def test_audio_program_rejects_sound_event_usage_not_permitted_by_asset() -> Non
         if item["sound_asset_id"] == "dog_beagle_v2_scheduled_dry"
     )
     dog_sound["permitted_event_usage"] = ["simultaneous_subset"]
-    from avengine.m6.registry import bind_content_hash
+    from avengine.registry.registry import bind_content_hash
 
     sounds = bind_content_hash(sounds)
     errors = validate_audio_program(

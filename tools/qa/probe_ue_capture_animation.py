@@ -16,7 +16,7 @@ from pathlib import Path
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
-from avengine.m7.animation_probe import (  # noqa: E402
+from avengine.dataset.animation_probe import (  # noqa: E402
     AnimationProbeError,
     probe_capture_animation_playback,
 )

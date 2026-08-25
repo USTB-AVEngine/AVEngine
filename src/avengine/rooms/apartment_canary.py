@@ -51,9 +51,9 @@ from avengine.timeline.audio_program import (
     validate_audio_program,
 )
 from avengine.timeline.audio_render import assemble_audio_program_dry_buses
-from avengine.m6.flags import evaluate_legacy_flags
-from avengine.m6.entities import validate_entity_asset_registry
-from avengine.m6.sources import (
+from avengine.registry.flags import evaluate_legacy_flags
+from avengine.registry.entities import validate_entity_asset_registry
+from avengine.registry.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )

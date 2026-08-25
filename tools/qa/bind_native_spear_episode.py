@@ -25,7 +25,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
 from avengine.contracts.json_io import canonical_json_sha256, write_json  # noqa: E402
-from avengine.m7.sensor_rig import (  # noqa: E402
+from avengine.dataset.sensor_rig import (  # noqa: E402
     m7_sensor_rig_binding,
     m7_sensor_rig_pose_series,
 )

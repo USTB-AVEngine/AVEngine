@@ -14,7 +14,7 @@ from avengine.contracts.json_io import (
 )
 from avengine.rooms import rooms
 from tools.acoustics import render_rir_cache as rir_tool
-from tools.m7 import run_habitat_room_batch as habitat_batch
+from tools.dataset import run_habitat_room_batch as habitat_batch
 
 
 def _arguments(**overrides):

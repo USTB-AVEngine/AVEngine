@@ -19,12 +19,12 @@ sys.path.insert(0, str(REPOSITORY / "src"))
 
 from avengine.contracts.json_io import canonical_json_sha256, write_json
 from avengine.timeline.audio_program import bind_audio_program_hash, validate_audio_program
-from avengine.m6.registry import bind_content_hash
-from avengine.m6.sources import (
+from avengine.registry.registry import bind_content_hash
+from avengine.registry.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )
-from avengine.m7.sensor_rig import m7_sensor_rig_binding
+from avengine.dataset.sensor_rig import m7_sensor_rig_binding
 from avengine.optional_backends.spear_visual import (
     actor_ue_yaw_degrees,
     camera_ue_yaw_degrees,

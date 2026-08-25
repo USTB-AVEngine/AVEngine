@@ -50,12 +50,12 @@ from avengine.timeline.video import (
 )
 from avengine.capture.mp3d_delivery import listener_yaw_degrees
 from avengine.timeline.audio_program import compile_audio_program, load_audio_program
-from avengine.m6.entities import (
+from avengine.registry.entities import (
     load_animal_template_registry,
     load_entity_asset_registry,
     resolve_entity_asset,
 )
-from avengine.m6.flags import evaluate_legacy_flags, load_legacy_flag_registry
+from avengine.registry.flags import evaluate_legacy_flags, load_legacy_flag_registry
 from avengine.rooms.qualification import (
     build_qualification_report,
     load_qualification_report,
@@ -66,7 +66,7 @@ from avengine.rooms.rooms import (
     load_room_registry,
     validate_room_registry,
 )
-from avengine.m6.sources import (
+from avengine.registry.sources import (
     endpoint_index,
     load_sound_asset_registry,
     load_source_endpoint_registry,

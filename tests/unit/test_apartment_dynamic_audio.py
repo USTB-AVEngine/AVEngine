@@ -7,11 +7,11 @@ import pytest
 
 from avengine.timeline.current_mp3d_dynamic_audio import CurrentMP3DDynamicAudioError
 from avengine.timeline.audio_program import validate_audio_program
-from avengine.m6.sources import (
+from avengine.registry.sources import (
     load_sound_asset_registry,
     load_source_endpoint_registry,
 )
-from avengine.m7.apartment_dynamic_audio import (
+from avengine.dataset.apartment_dynamic_audio import (
     apartment_ue_point_to_world_m,
     captured_static_camera_world_m,
     load_ue_anchor_trajectories,

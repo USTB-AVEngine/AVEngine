@@ -9,13 +9,13 @@ from typing import Any, Mapping
 
 from avengine.contracts.json_io import canonical_json_sha256, load_json
 from avengine.capture.source_contracts import sample_boundary
-from avengine.m6.registry import (
+from avengine.registry.registry import (
     AUDIO_PROGRAM_SCHEMA,
     M6RegistryError,
     all_numbers_finite,
     json_schema_errors,
 )
-from avengine.m6.sources import (
+from avengine.registry.sources import (
     endpoint_index,
     sound_index,
     source_sound_compatibility_errors,

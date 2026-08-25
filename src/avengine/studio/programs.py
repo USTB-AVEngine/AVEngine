@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from avengine.timeline.audio_program import bind_audio_program_hash, validate_audio_program
-from avengine.m6.sources import (
+from avengine.registry.sources import (
     load_sound_asset_registry,
     load_source_endpoint_registry,
 )

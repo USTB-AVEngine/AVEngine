@@ -20,8 +20,8 @@ from avengine.timeline.audio_program import (  # noqa: E402
     bind_audio_program_hash,
     validate_audio_program,
 )
-from avengine.m6.registry import bind_content_hash  # noqa: E402
-from avengine.m6.sources import (  # noqa: E402
+from avengine.registry.registry import bind_content_hash  # noqa: E402
+from avengine.registry.sources import (  # noqa: E402
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )

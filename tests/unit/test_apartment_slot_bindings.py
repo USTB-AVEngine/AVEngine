@@ -1,11 +1,11 @@
-"""Unit tests for avengine.m7.apartment_dynamic_audio.derive_slot_bindings."""
+"""Unit tests for avengine.dataset.apartment_dynamic_audio.derive_slot_bindings."""
 
 from __future__ import annotations
 
 import pytest
 
 from avengine.timeline.current_mp3d_dynamic_audio import CurrentMP3DDynamicAudioError
-from avengine.m7.apartment_dynamic_audio import derive_slot_bindings
+from avengine.dataset.apartment_dynamic_audio import derive_slot_bindings
 
 
 def _selection():

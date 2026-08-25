@@ -887,7 +887,7 @@ function setupAuthoring(bundle) {
     }
     state.listener = {
       position: ueCmToWorld(authoring.defaults_ue_cm.camera),
-      // UE camera yaw → habitat yaw (see avengine.m7.apartment_dynamic_audio)
+      // UE camera yaw → habitat yaw (see avengine.dataset.apartment_dynamic_audio)
       yawDeg: -90 - authoring.camera_yaw_deg,
     };
     drawCameraFrustum();

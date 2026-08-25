@@ -22,8 +22,8 @@ from avengine.timeline.audio_program import (
     bind_audio_program_hash,
     validate_audio_program,
 )
-from avengine.m6.registry import bind_content_hash
-from avengine.m6.sources import (
+from avengine.registry.registry import bind_content_hash
+from avengine.registry.sources import (
     validate_sound_asset_registry,
     validate_source_endpoint_registry,
 )

@@ -3252,7 +3252,7 @@ def _validate_v8_execution_plan_evidence(
     )
     if str(REPOSITORY) not in sys.path:
         sys.path.insert(0, str(REPOSITORY))
-    from tools.m7.render_asset_bound_binaural_batch import _SemanticRIRCacheSession
+    from tools.dataset.render_asset_bound_binaural_batch import _SemanticRIRCacheSession
 
     cache_root = paths["rir_cache_receipt"].parent
     session = _SemanticRIRCacheSession(

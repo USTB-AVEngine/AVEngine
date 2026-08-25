@@ -14,8 +14,8 @@ from avengine.timeline.audio_render import (
     assemble_audio_program_dry_buses,
     assemble_semantic_audio_program_dry_buses,
 )
-from avengine.m6.registry import bind_content_hash
-from avengine.m6.sources import (
+from avengine.registry.registry import bind_content_hash
+from avengine.registry.sources import (
     load_sound_asset_registry,
     load_source_endpoint_registry,
 )

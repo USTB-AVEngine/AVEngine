@@ -39,7 +39,7 @@ from avengine.timeline.audio import (  # noqa: E402
     raised_cosine_partition,
 )
 from avengine.acoustics.rir_cache import RIRCacheSession  # noqa: E402
-from avengine.m7.asset_bound_audio import (  # noqa: E402
+from avengine.dataset.asset_bound_audio import (  # noqa: E402
     AssetBoundAudioError,
     float32_stems_and_exact_mix,
     render_asset_bound_binaural,
@@ -55,7 +55,7 @@ class TwinAudioError(RuntimeError):
 
 
 def _load_batch_module():
-    path = REPOSITORY / "tools/m7/render_asset_bound_binaural_batch.py"
+    path = REPOSITORY / "tools/dataset/render_asset_bound_binaural_batch.py"
     spec = importlib.util.spec_from_file_location("m7_binaural_batch", path)
     if spec is None or spec.loader is None:
         raise TwinAudioError(f"cannot load {path}")

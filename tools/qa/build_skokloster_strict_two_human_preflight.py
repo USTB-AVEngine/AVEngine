@@ -23,7 +23,7 @@ from typing import Any
 
 from avengine.timeline.audio_program import bind_audio_program_hash
 from avengine.acoustics.rir_cache import validate_semantic_rir_job_plan
-from avengine.m7.sensor_rig import validate_m7_rir_listener_alignment
+from avengine.dataset.sensor_rig import validate_m7_rir_listener_alignment
 from avengine.sensor_rig_trajectory import (
     materialize_sensor_rig_trajectory,
     validate_sensor_rig_trajectory,
@@ -1160,7 +1160,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     if semantic_rir:
         m7_argv = [
             execution["python"],
-            str(repository / "tools/m7/render_asset_bound_binaural_batch.py"),
+            str(repository / "tools/dataset/render_asset_bound_binaural_batch.py"),
             "--plan-root",
             str(output),
             "--rir-cache",
@@ -1184,7 +1184,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     else:
         m7_argv = [
             execution["python"],
-            str(repository / "tools/m7/render_asset_bound_binaural_batch.py"),
+            str(repository / "tools/dataset/render_asset_bound_binaural_batch.py"),
             "--plan-root",
             str(output),
             "--rir-cache",

@@ -12,7 +12,7 @@ from avengine.timeline.current_mp3d_dynamic_audio import (
     load_captured_source_paths,
 )
 from avengine.timeline.audio_program import validate_audio_program
-from avengine.m6.sources import (
+from avengine.registry.sources import (
     load_sound_asset_registry,
     load_source_endpoint_registry,
 )

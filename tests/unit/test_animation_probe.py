@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from avengine.m7.animation_probe import (
+from avengine.dataset.animation_probe import (
     AnimationProbeError,
     cyclic_phase_distance,
     probe_capture_animation_playback,
