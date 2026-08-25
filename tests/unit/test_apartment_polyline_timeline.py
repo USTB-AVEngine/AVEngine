@@ -15,10 +15,9 @@ from avengine.m5.current_apartment_visual import (
     CurrentApartmentVisualError,
     FRAME_COUNT,
     _finite_waypoints,
-    _planar_cumulative,
-    _sample_polyline,
     _timeline_state,
 )
+from avengine.route_sampling import planar_cumulative, sample_polyline
 
 BINDING = {
     "actor_id": "source1_actor",
@@ -65,7 +64,7 @@ def _travelled(state: dict, cumulative: list[float]) -> float:
 
 def test_polyline_holds_constant_speed_along_the_route() -> None:
     states = _states(L_ROUTE)
-    cumulative = _planar_cumulative(L_ROUTE)
+    cumulative = planar_cumulative(L_ROUTE)
     covered = [_travelled(state, cumulative) for state in states]
     steps = [covered[index + 1] - covered[index] for index in range(FRAME_COUNT - 1)]
     expected = 500.0 / (FRAME_COUNT - 1)
@@ -148,10 +147,10 @@ def test_waypoint_validation_rejects_short_or_invalid_routes() -> None:
 
 
 def test_sample_polyline_clamps_outside_the_route() -> None:
-    cumulative = _planar_cumulative(L_ROUTE)
+    cumulative = planar_cumulative(L_ROUTE)
     assert cumulative == [0.0, 300.0, 500.0]
-    assert _sample_polyline(L_ROUTE, cumulative, -5.0)[0] == L_ROUTE[0]
-    assert _sample_polyline(L_ROUTE, cumulative, 999.0)[0] == L_ROUTE[-1]
-    midpoint, segment = _sample_polyline(L_ROUTE, cumulative, 400.0)
+    assert sample_polyline(L_ROUTE, cumulative, -5.0)[0] == L_ROUTE[0]
+    assert sample_polyline(L_ROUTE, cumulative, 999.0)[0] == L_ROUTE[-1]
+    midpoint, segment = sample_polyline(L_ROUTE, cumulative, 400.0)
     assert segment == 1
     assert midpoint == pytest.approx([300.0, 100.0, 0.0])

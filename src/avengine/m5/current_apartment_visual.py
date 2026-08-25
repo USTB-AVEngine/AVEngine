@@ -26,6 +26,7 @@ from avengine.backends.spear_ue.research_runtime import (
     spawn_scene_capture,
     warm_scene_capture_until_stable,
 )
+from avengine.route_sampling import planar_cumulative, sample_polyline
 from avengine.backends.spear_ue.launch import (
     validate_current_production_spear_executable,
 )
@@ -360,39 +361,6 @@ def _finite_waypoints(
     return points
 
 
-def _planar_cumulative(points: Sequence[Sequence[float]]) -> list[float]:
-    """Cumulative planar (UE X/Y) distance along a waypoint polyline."""
-    cumulative = [0.0]
-    for first, second in zip(points[:-1], points[1:]):
-        cumulative.append(
-            cumulative[-1]
-            + math.hypot(
-                float(second[0]) - float(first[0]),
-                float(second[1]) - float(first[1]),
-            )
-        )
-    return cumulative
-
-
-def _sample_polyline(
-    points: Sequence[Sequence[float]],
-    cumulative: Sequence[float],
-    distance: float,
-) -> tuple[list[float], int]:
-    """Position at ``distance`` along the polyline, plus the segment it sits on."""
-    last_segment = len(points) - 2
-    if distance <= 0.0:
-        return [float(value) for value in points[0]], 0
-    if distance >= cumulative[-1]:
-        return [float(value) for value in points[-1]], last_segment
-    for index in range(last_segment + 1):
-        if distance <= cumulative[index + 1]:
-            span = cumulative[index + 1] - cumulative[index]
-            fraction = 0.0 if span <= 0.0 else (distance - cumulative[index]) / span
-            return _interpolate(points[index], points[index + 1], fraction), index
-    return [float(value) for value in points[-1]], last_segment
-
-
 def _timeline_state(
     *,
     binding: Mapping[str, Any],
@@ -462,7 +430,7 @@ def _polyline_timeline_state(
     the actor keeps a constant speed regardless of how the polyline splits
     into segments, and yaw follows the tangent of the segment it is on.
     """
-    cumulative = _planar_cumulative(route)
+    cumulative = planar_cumulative(route)
     total = cumulative[-1]
     moving = total > 1.0e-9
     walk_start = walk_start_frame
@@ -478,7 +446,7 @@ def _polyline_timeline_state(
         travelled = total * float(frame_index - walk_start) / float(
             walk_end - walk_start
         )
-        translation, segment = _sample_polyline(route, cumulative, travelled)
+        translation, segment = sample_polyline(route, cumulative, travelled)
     else:
         translation, segment = [float(value) for value in route[0]], 0
     return {

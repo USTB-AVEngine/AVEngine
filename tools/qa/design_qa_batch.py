@@ -135,6 +135,12 @@ HUMAN_COMBOS = [("blue", "green"), ("blue", "burgundy"), ("green", "burgundy")]
 # endpoints. Bank: examples/qa_v2/straight_corridor_bank_v1.json.
 OFF_CORNER = (-152.0, 38.0)
 CAM2 = (-70.0, 65.0)
+from avengine.route_sampling import (  # shared with the renderer and bank
+    arc_length_cm,
+    planar_cumulative,
+    sample_polyline,
+)
+
 _BANK = json.load(open(REPO + "/examples/qa_v2/straight_corridor_bank_v1.json"))["segments"]
 _DIRECTED = []
 for _seg in _BANK:
@@ -156,6 +162,40 @@ def _lerp(a, b, t):
     return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
 
 
+def _route_points(route):
+    """A route is (start, end) for a chord or a waypoint list for a polyline."""
+    if len(route) == 2 and all(
+        isinstance(value, (int, float)) for value in route[0]
+    ):
+        return [list(route[0]), list(route[1])]
+    return [list(point) for point in route]
+
+
+def _at(route, t):
+    """Planar position a fraction t along a route, by arc length.
+
+    Chords keep the old straight-line interpolation exactly; polylines are
+    resampled so the actor holds one speed across segments of unequal length.
+    """
+    points = _route_points(route)
+    if len(points) == 2:
+        first, second = points
+        if first == second:
+            return tuple(first[:2])
+        return _lerp(tuple(first[:2]), tuple(second[:2]), t)
+    padded = [list(point) + [0.0] * (3 - len(point)) for point in points]
+    cumulative = planar_cumulative(padded)
+    position, _ = sample_polyline(padded, cumulative, cumulative[-1] * t)
+    return (position[0], position[1])
+
+
+def route_speed_mps(route, clip_seconds=5.0):
+    """The speed the route implies: arc length over the clip duration."""
+    padded = [list(point) + [0.0] * (3 - len(point))
+              for point in _route_points(route)]
+    return arc_length_cm(padded) / 100.0 / clip_seconds
+
+
 def walk_from_bank(i):
     return _DIRECTED[i % len(_DIRECTED)]
 
@@ -169,8 +209,7 @@ def min_separation_cm(p1, p2):
     import math as _m
     worst = 1e9
     for t in (0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0):
-        a = _lerp(*p1, t) if p1[0] != p1[1] else p1[0]
-        b = _lerp(*p2, t) if p2[0] != p2[1] else p2[0]
+        a, b = _at(p1, t), _at(p2, t)
         worst = min(worst, _m.hypot(a[0] - b[0], a[1] - b[1]))
     return worst
 
@@ -199,11 +238,9 @@ E1_T, E2_T = 4.0 / 75.0, 22.5 / 75.0
 
 
 def _gates_ok(p1, p2, offscreen=False):
-    q1 = _lerp(*p1, E1_T) if p1[0] != p1[1] else p1[0]
-    q2 = _lerp(*p2, E1_T) if p2[0] != p2[1] else p2[0]
+    q1, q2 = _at(p1, E1_T), _at(p2, E1_T)
     (sa, ma), (sb, mb) = _side(q1), _side(q2)
-    r1 = _lerp(*p1, E2_T) if p1[0] != p1[1] else p1[0]
-    r2 = _lerp(*p2, E2_T) if p2[0] != p2[1] else p2[0]
+    r1, r2 = _at(p1, E2_T), _at(p2, E2_T)
     (_, m2a), (_, m2b) = _side(r1), _side(r2)
     side_ok = (sa != sb and ma >= 0.12 and mb >= 0.12 and m2a >= 0.06 and m2b >= 0.06)
     return (side_ok or offscreen) and min_separation_cm(p1, p2) >= 60.0
