@@ -29,7 +29,7 @@ from avengine.timeline.audio import (
     DynamicStemResult,
     render_dynamic_stems_and_mix,
 )
-from avengine.m5_1.dry_audio import deterministic_resample_mono
+from avengine.capture.dry_audio import deterministic_resample_mono
 
 
 ASSET_BOUND_AUDIO_SCHEMA = "avengine_m7_asset_bound_binaural_audio_v1"

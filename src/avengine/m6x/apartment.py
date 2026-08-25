@@ -22,7 +22,7 @@ from avengine.m1.habitat_capture import (
     _make_configuration,
     discover_runtime_root,
 )
-from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
+from avengine.capture.orientation import habitat_basis_from_yaw_degrees
 from avengine.m6x.geometry import (
     RuntimeObstacleMap,
     build_runtime_obstacle_map,

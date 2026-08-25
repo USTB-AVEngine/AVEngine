@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from avengine.m5_1.mixed_capture import (
+from avengine.capture.mixed_capture import (
     locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
 )

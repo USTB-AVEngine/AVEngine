@@ -7,11 +7,11 @@ import pytest
 
 import avengine.m6x.capture_adapter as capture_adapter_module
 from avengine.contracts.json_io import load_json
-from avengine.m5_1.mixed_capture import (
+from avengine.capture.mixed_capture import (
     locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
 )
-from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
+from avengine.capture.orientation import habitat_basis_from_yaw_degrees
 from avengine.m6x.capture_adapter import (
     CaptureAdapterError,
     CaptureData,

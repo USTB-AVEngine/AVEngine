@@ -18,14 +18,14 @@ from typing import Any, Mapping, Protocol, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256, load_json, sha256_file
-from avengine.m5_1.mixed_capture import (
+from avengine.capture.mixed_capture import (
     LOCOMOTION_POLICY_ID,
     MixedCaptureError,
     capture_human_beagle_paths,
     locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
 )
-from avengine.m5_1.orientation import (
+from avengine.capture.orientation import (
     M51OrientationError,
     habitat_basis_from_yaw_degrees,
 )

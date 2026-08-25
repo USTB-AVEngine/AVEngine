@@ -26,8 +26,8 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.contracts.transforms import transform_error
-from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
-from avengine.m5_1.review import (
+from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.capture.review import (
     SourceOverlayTrack,
     compose_annotated_frames,
     encode_annotated_review,

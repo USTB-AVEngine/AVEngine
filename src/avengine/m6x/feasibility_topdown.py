@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
+from avengine.capture.orientation import habitat_basis_from_yaw_degrees
 from avengine.m6x.geometry import (
     ELEVATED_OBJECT,
     GROUND_BLOCKER,

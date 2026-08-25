@@ -28,7 +28,7 @@ from avengine.optional_backends.spear_visual import (
     camera_ue_yaw_degrees,
     habitat_point_to_apartment_ue_cm,
 )
-from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
 from avengine.runtime_profiles import (
     load_default_room_runtime_profile_registry,
     load_default_source_asset_runtime_registry,

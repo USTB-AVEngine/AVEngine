@@ -25,7 +25,7 @@ from avengine.m1.contracts import validate_capture_request
 from avengine.acoustics.runtime import load_compiled_acoustic_scene
 from avengine.spatial_audio.audio import write_float32_wav
 from avengine.spatial_audio.current_request_pair_ir import _load_simulation_request
-from avengine.m5_1.acoustics import (
+from avengine.capture.acoustics import (
     build_strided_review_keyframes,
     render_research_review_binaural_audio,
     render_research_review_binaural_rir_sequence,

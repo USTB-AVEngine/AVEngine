@@ -10,8 +10,8 @@ from typing import Any, Mapping, Sequence
 
 from PIL import Image
 
-from avengine.m5_1.mixed_capture import M5_1_LIGHT_SETUP_KEY, MixedCaptureError
-from avengine.m5_1.replicacad_capture import (
+from avengine.capture.mixed_capture import M5_1_LIGHT_SETUP_KEY, MixedCaptureError
+from avengine.capture.replicacad_capture import (
     ReplicaCADCaptureError,
     capture_replicacad_route,
 )

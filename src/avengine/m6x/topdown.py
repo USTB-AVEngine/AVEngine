@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from avengine.m5_1.orientation import (
+from avengine.capture.orientation import (
     M51OrientationError,
     habitat_basis_from_yaw_degrees,
 )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from avengine.m5_1.mixed_capture import (
+from avengine.capture.mixed_capture import (
     MixedCaptureError,
     capture_human_beagle_paths,
 )

@@ -8,7 +8,7 @@ import pytest
 
 from avengine import cli
 from avengine.timeline import current_mp3d_route as current_route
-from avengine.m5_1.mp3d_capture import _pathfinder_path_record
+from avengine.capture.mp3d_capture import _pathfinder_path_record
 
 
 class _ShortestPath:

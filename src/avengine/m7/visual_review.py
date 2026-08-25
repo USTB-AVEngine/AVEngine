@@ -43,12 +43,12 @@ from avengine.assets.habitat_capture import (
     load_runtime_asset_bundle,
 )
 from avengine.timeline.visual import _instantiate_actor_with_semantic_template
-from avengine.m5_1.mixed_capture import (
+from avengine.capture.mixed_capture import (
     LOCOMOTION_POLICY_ID,
     locomotion_schedule_from_root_trajectory,
     trajectory_world_matrices,
 )
-from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
 from avengine.m7.sensor_rig import (
     resolve_m7_sensor_rig_trajectory,
 )

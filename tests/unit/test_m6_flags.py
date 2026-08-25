@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from avengine.contracts.json_io import load_json
-from avengine.m5_1.source_contracts import (
+from avengine.capture.source_contracts import (
     ALL_FLAG_IDS,
     AND_AGGREGATED_FLAGS,
     OR_AGGREGATED_FLAGS,

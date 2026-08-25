@@ -25,14 +25,14 @@ from PIL import Image
 from avengine.contracts.json_io import load_json, write_json
 from avengine.m1.contracts import load_and_validate_inputs as load_m1_inputs
 from avengine.m1.habitat_capture import _make_configuration, discover_runtime_root
-from avengine.m5_1.delivery import event_overlay_state, semantic_centroid_track
-from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
-from avengine.m5_1.replicacad_capture import (
+from avengine.capture.delivery import event_overlay_state, semantic_centroid_track
+from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.capture.replicacad_capture import (
     REPLICACAD_SCENE_ID,
     _assert_selected_closure,
     _replicacad_root_environment,
 )
-from avengine.m5_1.review import (
+from avengine.capture.review import (
     SourceOverlayTrack,
     compose_annotated_frames,
     encode_annotated_review,

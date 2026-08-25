@@ -27,7 +27,7 @@ from avengine.contracts.json_io import (
 )
 from avengine.spatial_audio.audio import read_float32_wav
 from avengine.timeline.metrics import listener_local_source_geometry
-from avengine.m5_1.review import (
+from avengine.capture.review import (
     SourceOverlayTrack,
     compose_annotated_frames,
     encode_annotated_review,

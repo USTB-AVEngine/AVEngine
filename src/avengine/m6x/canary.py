@@ -34,15 +34,15 @@ from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.timeline.acoustics import DynamicRIRSequence
 from avengine.timeline.timeline import json_schema_errors as m5_json_schema_errors
-from avengine.m5_1.acoustics import (
+from avengine.capture.acoustics import (
     ResearchReviewKeyframeGrid,
     build_strided_review_keyframes,
     render_research_review_binaural_audio,
     render_research_review_binaural_rir_sequence,
     research_review_trajectory_record,
 )
-from avengine.m5_1.delivery import binaural_frame_diagnostics
-from avengine.m5_1.review import (
+from avengine.capture.delivery import binaural_frame_diagnostics
+from avengine.capture.review import (
     SourceOverlayTrack,
     encode_annotated_review,
 )

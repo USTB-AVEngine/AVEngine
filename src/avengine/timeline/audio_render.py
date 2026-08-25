@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m5_1.dry_audio import (
+from avengine.capture.dry_audio import (
     DryAudioAssembly,
     DryAudioClipSpec,
     SemanticDryAudioAssembly,

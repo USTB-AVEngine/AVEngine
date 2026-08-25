@@ -60,7 +60,7 @@ from avengine.timeline.current_visual import (
     _require_no_actor_semantic_collision,
     _resolve_external_scene,
 )
-from avengine.m5_1.mp3d_capture import MP3DCaptureError, _pathfinder_path_record
+from avengine.capture.mp3d_capture import MP3DCaptureError, _pathfinder_path_record
 from avengine.m6x.geometry import (
     M6XGeometryError,
     build_runtime_obstacle_map,

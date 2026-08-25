@@ -21,7 +21,7 @@ import numpy as np
 from avengine.camera_pose import normalized_yaw_degrees, yaw_rotation_xyzw
 from avengine.contracts.json_io import canonical_json_sha256, load_json
 from avengine.contracts.transforms import normalized_quaternion_xyzw
-from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
 from avengine.m6x.trajectory import (
     M6XTrajectoryError,
     materialize_route,

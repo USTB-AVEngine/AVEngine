@@ -81,7 +81,7 @@ RESULT_CHANGING_CODE_FILES = (
     "src/avengine/m7/room_evaluation.py",
     "src/avengine/m7/sensor_rig.py",
     "src/avengine/m7/asset_bound_audio.py",
-    "src/avengine/m5_1/dry_audio.py",
+    "src/avengine/capture/dry_audio.py",
     "src/avengine/timeline/audio.py",
     "src/avengine/spatial_audio/audio.py",
     "src/avengine/acoustics/rir_cache.py",

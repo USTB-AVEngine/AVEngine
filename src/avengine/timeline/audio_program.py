@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from avengine.contracts.json_io import canonical_json_sha256, load_json
-from avengine.m5_1.source_contracts import sample_boundary
+from avengine.capture.source_contracts import sample_boundary
 from avengine.m6.registry import (
     AUDIO_PROGRAM_SCHEMA,
     M6RegistryError,

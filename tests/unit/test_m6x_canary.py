@@ -9,7 +9,7 @@ import avengine.m6x.canary as canary_module
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.timeline.acoustics import DynamicRIRSequence
-from avengine.m5_1.acoustics import (
+from avengine.capture.acoustics import (
     build_strided_review_keyframes,
     research_review_trajectory_record,
 )

@@ -48,7 +48,7 @@ from avengine.timeline.video import (
     probe_qa_review_video,
     video_packet_sha256,
 )
-from avengine.m5_1.mp3d_delivery import listener_yaw_degrees
+from avengine.capture.mp3d_delivery import listener_yaw_degrees
 from avengine.timeline.audio_program import compile_audio_program, load_audio_program
 from avengine.m6.entities import (
     load_animal_template_registry,

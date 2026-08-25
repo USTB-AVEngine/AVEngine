@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m5_1.mixed_capture import trajectory_world_matrices
+from avengine.capture.mixed_capture import trajectory_world_matrices
 from avengine.timeline.audio_program import (
     AudioProgramError,
     CompiledAudioProgram,

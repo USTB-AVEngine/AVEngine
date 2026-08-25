@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
 from avengine.sensor_rig_trajectory import (
     SensorRigTrajectoryError,
     materialize_sensor_rig_trajectory,

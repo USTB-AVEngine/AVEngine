@@ -24,7 +24,7 @@ from avengine.timeline.video import (
     _encode_h264_video_profile,
     _mux_binaural_wav_profile,
 )
-from avengine.m5_1.review import SourceOverlayTrack, compose_annotated_frames
+from avengine.capture.review import SourceOverlayTrack, compose_annotated_frames
 
 
 VISUAL_PROFILE_SCHEMA = "avengine_m6x_review_visual_profile_v1"

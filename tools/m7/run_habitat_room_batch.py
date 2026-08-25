@@ -539,7 +539,7 @@ def main(argv: list[str] | None = None) -> int:
         discover_pbr_asset_root,
         prepare_installed_habitat_runtime,
     )
-    from avengine.m5_1.mp3d_capture import capture_mp3d_route  # noqa: PLC0415
+    from avengine.capture.mp3d_capture import capture_mp3d_route  # noqa: PLC0415
 
     try:
         selected_pbr_asset_root = discover_pbr_asset_root(args.pbr_asset_root)

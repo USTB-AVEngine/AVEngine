@@ -27,7 +27,7 @@ import numpy as np
 
 from avengine.actor_framing import build_actor_framing_frames
 from avengine.camera_framing import solve_static_camera_candidates
-from avengine.m5_1.camera_candidate_gate import (
+from avengine.capture.camera_candidate_gate import (
     HabitatRuntimeCameraProvider,
     evaluate_camera_candidates,
 )
@@ -75,7 +75,7 @@ HABITAT_M1_ROOM_MANIFEST = (
     REMOTE_REPOSITORY
     / "examples/m2/rooms/habitat_mp3d_articulated_review/room_manifest.json"
 )
-HABITAT_TWO_HUMAN_CAPTURE = REMOTE_REPOSITORY / "tools/m5_1/capture_two_human_mp3d.py"
+HABITAT_TWO_HUMAN_CAPTURE = REMOTE_REPOSITORY / "tools/capture/capture_two_human_mp3d.py"
 MP3D_SCENE = Path(
     "/data/jzy/code/habitat-sim-AVEngine/data/versioned_data/"
     "mp3d_example_scene_1.1/17DRP5sb8fy/17DRP5sb8fy.glb"

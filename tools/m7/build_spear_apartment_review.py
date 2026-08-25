@@ -19,7 +19,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from avengine.contracts.json_io import load_json, sha256_file, write_json
-from avengine.m5_1.review import (
+from avengine.capture.review import (
     SourceOverlayTrack,
     compose_annotated_frames,
     encode_annotated_review,

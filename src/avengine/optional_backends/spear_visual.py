@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m5_1.orientation import habitat_yaw_degrees_from_xyzw
+from avengine.capture.orientation import habitat_yaw_degrees_from_xyzw
 
 
 PLAN_SCHEMA = "avengine_optional_spear_visual_plan_v1"

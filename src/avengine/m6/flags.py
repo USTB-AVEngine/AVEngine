@@ -10,14 +10,14 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m5_1.source_contracts import (
+from avengine.capture.source_contracts import (
     ALL_FLAG_IDS,
     AND_AGGREGATED_FLAGS,
     OR_AGGREGATED_FLAGS,
     PAIR_FLAG_IDS,
     SOURCE_FLAG_IDS,
 )
-from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
+from avengine.capture.orientation import habitat_basis_from_yaw_degrees
 from avengine.m6.registry import (
     FLAG_DEFINITION_REGISTRY_SCHEMA,
     M6RegistryError,

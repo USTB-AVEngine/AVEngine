@@ -1030,7 +1030,7 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
         "_resolve_acoustic_selection_binding",
         lambda **_kwargs: acoustic_binding,
     )
-    capture_module = ModuleType("avengine.m5_1.mp3d_capture")
+    capture_module = ModuleType("avengine.capture.mp3d_capture")
     capture_module.capture_mp3d_route = lambda **_kwargs: None
     habitat_module = ModuleType("avengine.m1.habitat_capture")
 
@@ -1044,7 +1044,7 @@ def test_m7_batch_manifest_binds_resolved_acoustic_selection(
     monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
     monkeypatch.setitem(
         sys.modules,
-        "avengine.m5_1.mp3d_capture",
+        "avengine.capture.mp3d_capture",
         capture_module,
     )
 
@@ -1155,10 +1155,10 @@ def test_m7_batch_prepares_one_explicit_runtime_for_all_rendered_episodes(
     habitat_module.discover_pbr_asset_root = (
         lambda explicit: Path(explicit).resolve()
     )
-    capture_module = ModuleType("avengine.m5_1.mp3d_capture")
+    capture_module = ModuleType("avengine.capture.mp3d_capture")
     capture_module.capture_mp3d_route = fake_capture
     monkeypatch.setitem(sys.modules, "avengine.m1.habitat_capture", habitat_module)
-    monkeypatch.setitem(sys.modules, "avengine.m5_1.mp3d_capture", capture_module)
+    monkeypatch.setitem(sys.modules, "avengine.capture.mp3d_capture", capture_module)
 
     result = habitat_batch.main(
         [
