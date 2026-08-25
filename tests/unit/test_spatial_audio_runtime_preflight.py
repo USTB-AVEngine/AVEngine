@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from avengine.m3.runtime import RuntimeUnavailableError
+from avengine.acoustics.runtime import RuntimeUnavailableError
 from avengine.contracts.json_io import canonical_json_sha256
 from avengine.spatial_audio import canary
 from avengine.spatial_audio import evidence as m4_evidence

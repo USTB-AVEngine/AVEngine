@@ -3094,7 +3094,7 @@ def _validate_v8_execution_plan_evidence(
         "v8 semantic package and selected room identity differ",
     )
 
-    from avengine.m6x.rir_cache import (
+    from avengine.acoustics.rir_cache import (
         load_semantic_acoustic_scene,
         validate_semantic_rir_job_plan,
     )

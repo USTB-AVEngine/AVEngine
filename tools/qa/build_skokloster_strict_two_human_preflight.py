@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from avengine.m6.audio_program import bind_audio_program_hash
-from avengine.m6x.rir_cache import validate_semantic_rir_job_plan
+from avengine.acoustics.rir_cache import validate_semantic_rir_job_plan
 from avengine.m7.sensor_rig import validate_m7_rir_listener_alignment
 from avengine.sensor_rig_trajectory import (
     materialize_sensor_rig_trajectory,
@@ -1062,7 +1062,7 @@ def _execution_plan(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     validate_rir_runtime_binding(HABITAT_PYTHON, rir_environment)
     rir_argv = [
         str(HABITAT_PYTHON),
-        str(repository / "tools/m6x/render_rir_cache.py"),
+        str(repository / "tools/acoustics/render_rir_cache.py"),
         "--rir-job-plan",
         str(output / "rir_job_plan.json"),
     ]

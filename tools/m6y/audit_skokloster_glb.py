@@ -12,8 +12,8 @@ from typing import Any
 
 import numpy as np
 
-from avengine.m3.gltf import extract_triangle_scene, load_glb
-from avengine.m3.qa import geometry_report, triangle_areas
+from avengine.acoustics.gltf import extract_triangle_scene, load_glb
+from avengine.acoustics.qa import geometry_report, triangle_areas
 
 
 def _require(condition: bool, message: str) -> None:

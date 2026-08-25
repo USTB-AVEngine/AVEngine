@@ -1870,7 +1870,7 @@ def _execution_plan(
     )
     rir_argv = [
         str(HABITAT_PYTHON),
-        str(remote_root / "tools/m6x/render_rir_cache.py"),
+        str(remote_root / "tools/acoustics/render_rir_cache.py"),
         "--rir-job-plan",
         str(rir_plan),
     ]

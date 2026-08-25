@@ -29,7 +29,7 @@ from avengine.m5_1.orientation import habitat_basis_from_yaw_degrees
 from avengine.m5_1.review import encode_annotated_review
 from avengine.m6x.capture_adapter import _matrix_quaternion_xyzw
 from avengine.m6x.geometry import RuntimeObstacleMap
-from avengine.m6x.rir_cache import load_cached_rir_episode
+from avengine.acoustics.rir_cache import load_cached_rir_episode
 from avengine.m6x.topdown import render_runtime_topdown_frames
 
 

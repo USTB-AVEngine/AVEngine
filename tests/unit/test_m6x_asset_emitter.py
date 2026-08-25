@@ -15,7 +15,7 @@ from avengine.m6x.asset_emitter import (
     validate_asset_emitter_binding_set,
 )
 from avengine.m6x.room_feasibility import TrajectoryBank, TrajectoryEpisode
-from tools.m6x.build_asset_bound_rir_plan import build
+from tools.acoustics.build_asset_bound_rir_plan import build
 
 
 def _config() -> dict:

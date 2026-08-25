@@ -21,7 +21,7 @@ import numpy as np
 from avengine.contracts.json_io import load_json, write_json
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.m5.audio import M5_AUDIO_SAMPLE_COUNT, M5_AUDIO_SAMPLE_RATE_HZ
-from avengine.m6x.rir_cache import load_cached_rir_episode
+from avengine.acoustics.rir_cache import load_cached_rir_episode
 from avengine.m7.asset_bound_audio import (
     AssetBoundAudioError,
     float32_stems_and_exact_mix,

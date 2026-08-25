@@ -9,7 +9,7 @@ import pytest
 
 from avengine.contracts.json_io import write_json
 from avengine.m6.audio_program import AudioProgramError, bind_audio_program_hash
-from avengine.m6x.semantic_rir_cache import SemanticRIRCacheSession
+from avengine.acoustics.semantic_rir_cache import SemanticRIRCacheSession
 from avengine.m7.asset_bound_audio import (
     AssetBoundAudioError,
     float32_stems_and_exact_mix,

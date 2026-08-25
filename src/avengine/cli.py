@@ -38,11 +38,11 @@ from avengine.m1.evidence import (
     verify_evidence_artifacts,
 )
 from avengine.m1.habitat_capture import build_navmesh, capture_m1
-from avengine.m3.canary import (
+from avengine.acoustics.canary import (
     load_and_verify_canary_evidence,
     run_material_activation_canary,
 )
-from avengine.m3.compiler import (
+from avengine.acoustics.compiler import (
     AcousticSceneCompileError,
     compile_canary_request,
     compile_custom_acoustic_scene,
@@ -53,25 +53,25 @@ from avengine.m3.compiler import (
     compile_visual_slot_semantic_research_scene,
     propose_visual_slot_research_materials,
 )
-from avengine.m3.contracts import (
+from avengine.acoustics.contracts import (
     load_and_validate_acoustic_scene_package,
     read_immutable_file_snapshot,
     validate_package,
 )
-from avengine.m3.evidence import verify_compile_evidence
-from avengine.m3.materials import MaterialContractError, resolve_material_profile
-from avengine.m3.profiled_compiler import compile_registered_acoustic_scene
-from avengine.m3.qa import automatic_mesh_leakage_report
-from avengine.m3.real_rir_reference import (
+from avengine.acoustics.evidence import verify_compile_evidence
+from avengine.acoustics.materials import MaterialContractError, resolve_material_profile
+from avengine.acoustics.profiled_compiler import compile_registered_acoustic_scene
+from avengine.acoustics.qa import automatic_mesh_leakage_report
+from avengine.acoustics.real_rir_reference import (
     RealRIRReferenceError,
     verify_soundspaces2_real_rir_reference,
 )
-from avengine.m3.rlr_material_import import (
+from avengine.acoustics.rlr_material_import import (
     RLRMaterialImportError,
     build_rlr_material_import_report,
     import_rlr_material_database,
 )
-from avengine.m3.runtime import RuntimeUnavailableError
+from avengine.acoustics.runtime import RuntimeUnavailableError
 from avengine.spatial_audio.canary import M4CanaryError, run_m4_canary
 from avengine.spatial_audio.current_foa import CurrentFOAError, run_current_foa
 from avengine.spatial_audio.current_request_pair_ir import (

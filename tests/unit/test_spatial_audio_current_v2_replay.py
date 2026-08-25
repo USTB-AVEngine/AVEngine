@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m3.canary import _expected_configuration_readback
-from avengine.m3.compiler import compile_canary_request
-from avengine.m3.runtime import _expected_upload_report
+from avengine.acoustics.canary import _expected_configuration_readback
+from avengine.acoustics.compiler import compile_canary_request
+from avengine.acoustics.runtime import _expected_upload_report
 from avengine.spatial_audio import canary
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
 from avengine.spatial_audio.evidence import artifact_record, verify_m4_canary_evidence

@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
-from avengine.m3.runtime import load_compiled_acoustic_scene  # noqa: E402
+from avengine.acoustics.runtime import load_compiled_acoustic_scene  # noqa: E402
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav  # noqa: E402
 from avengine.spatial_audio.runtime import M4SimulationConfig  # noqa: E402
 from avengine.m5_1.acoustics import (  # noqa: E402
@@ -27,7 +27,7 @@ from avengine.m5_1.acoustics import (  # noqa: E402
     render_research_review_binaural_rir_sequence,
 )
 from avengine.m6x.apartment import listener_orientation_wxyz  # noqa: E402
-from avengine.m6x.rir_cache import (  # noqa: E402
+from avengine.acoustics.rir_cache import (  # noqa: E402
     load_semantic_acoustic_scene,
     render_semantic_rir_cache,
 )
@@ -36,7 +36,7 @@ from avengine.m6x.room_feasibility import (  # noqa: E402
     TrajectoryEpisode,
     build_rir_job_plan,
 )
-from avengine.m6x.semantic_rir_cache import SemanticRIRCacheSession  # noqa: E402
+from avengine.acoustics.semantic_rir_cache import SemanticRIRCacheSession  # noqa: E402
 from avengine.m7.asset_bound_audio import (  # noqa: E402
     float32_stems_and_exact_mix,
     render_asset_bound_binaural,

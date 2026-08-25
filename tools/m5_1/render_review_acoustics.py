@@ -20,7 +20,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m3.runtime import load_compiled_acoustic_scene
+from avengine.acoustics.runtime import load_compiled_acoustic_scene
 from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m5_1.acoustics import (
     build_strided_review_keyframes,

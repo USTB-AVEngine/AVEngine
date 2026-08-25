@@ -25,7 +25,7 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.m1.habitat_capture import prepare_installed_habitat_runtime
-from avengine.m3.runtime import (
+from avengine.acoustics.runtime import (
     CompiledAcousticScene,
     _verify_upload_report,
     load_compiled_acoustic_scene,

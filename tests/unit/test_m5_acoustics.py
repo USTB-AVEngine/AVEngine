@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from avengine.contracts.json_io import canonical_json_sha256
-from avengine.m3.runtime import CompiledAcousticScene
-from avengine.m3.runtime import RuntimeContractError
+from avengine.acoustics.runtime import CompiledAcousticScene
+from avengine.acoustics.runtime import RuntimeContractError
 from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.m5 import acoustics
 from avengine.m5.acoustics import (

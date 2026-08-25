@@ -38,7 +38,7 @@ from avengine.m5.audio import (  # noqa: E402
     M5_AUDIO_SAMPLE_RATE_HZ,
     raised_cosine_partition,
 )
-from avengine.m6x.rir_cache import RIRCacheSession  # noqa: E402
+from avengine.acoustics.rir_cache import RIRCacheSession  # noqa: E402
 from avengine.m7.asset_bound_audio import (  # noqa: E402
     AssetBoundAudioError,
     float32_stems_and_exact_mix,

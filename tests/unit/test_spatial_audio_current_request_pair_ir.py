@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from avengine.contracts.transforms import compose_transforms
-from avengine.m3.runtime import RUNTIME_MODE_CURRENT_INSTALLED
+from avengine.acoustics.runtime import RUNTIME_MODE_CURRENT_INSTALLED
 from avengine.spatial_audio import current_request_pair_ir
 from avengine.spatial_audio.audio import read_float32_wav
 from avengine.spatial_audio.runtime import (

@@ -27,9 +27,9 @@ from avengine.current_installed_runtime import (
 from avengine.m1.contracts import (
     validate_capture_request as validate_m1_capture_request,
 )
-from avengine.m3.contracts import validate_canary_request as validate_m3_canary_request
-from avengine.m3.metrics import AcousticMetricError, analyze_ir
-from avengine.m3.runtime import (
+from avengine.acoustics.contracts import validate_canary_request as validate_m3_canary_request
+from avengine.acoustics.metrics import AcousticMetricError, analyze_ir
+from avengine.acoustics.runtime import (
     RuntimeContractError,
     _verify_upload_report,
     load_compiled_acoustic_scene,

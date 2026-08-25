@@ -33,7 +33,7 @@ from avengine.runtime_profiles import (
     default_source_asset_runtime_registry_path,
     load_source_asset_runtime_registry,
 )
-from tools.m6x.build_asset_bound_rir_plan import (
+from tools.acoustics.build_asset_bound_rir_plan import (
     SCENARIO_SET_SCHEMA,
     _evaluate_navmesh_center_gate,
     _load_bank,

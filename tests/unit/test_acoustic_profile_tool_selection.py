@@ -13,7 +13,7 @@ from avengine.contracts.json_io import (
     write_json,
 )
 from avengine.m6 import rooms
-from tools.m6x import render_rir_cache as rir_tool
+from tools.acoustics import render_rir_cache as rir_tool
 from tools.m7 import run_habitat_room_batch as habitat_batch
 
 

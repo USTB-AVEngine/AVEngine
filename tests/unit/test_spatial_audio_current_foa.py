@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from avengine.m3.runtime import RUNTIME_MODE_CURRENT_INSTALLED
+from avengine.acoustics.runtime import RUNTIME_MODE_CURRENT_INSTALLED
 from avengine.spatial_audio import current_foa
 from avengine.spatial_audio.audio import read_float32_wav
 from avengine.spatial_audio.runtime import FOA_LAYOUT_ID, MultiSourceRenderResult, NamedPairIR

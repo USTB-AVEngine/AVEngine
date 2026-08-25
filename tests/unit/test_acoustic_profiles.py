@@ -20,7 +20,7 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m3.compiler import compile_custom_acoustic_scene
+from avengine.acoustics.compiler import compile_custom_acoustic_scene
 
 
 ROOT = Path(__file__).resolve().parents[2]

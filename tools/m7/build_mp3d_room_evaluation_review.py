@@ -32,7 +32,7 @@ from avengine.m5_1.review import (
     compose_annotated_frames,
     encode_annotated_review,
 )
-from avengine.m6x.rir_cache import validate_rir_job_plan
+from avengine.acoustics.rir_cache import validate_rir_job_plan
 from avengine.m6x.room_feasibility import (
     RIR_JOB_PLAN_SCHEMA,
     TRAJECTORY_BANK_SCHEMA,

@@ -33,13 +33,13 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.m3.contracts import (
+from avengine.acoustics.contracts import (
     AcousticSceneContractError,
     ValidatedAcousticScenePackage,
     load_and_validate_acoustic_scene_package,
 )
-from avengine.m3.gltf import extract_triangle_scene
-from avengine.m3.qa import geometry_report
+from avengine.acoustics.gltf import extract_triangle_scene
+from avengine.acoustics.qa import geometry_report
 from avengine.m5.canary import verify_m5_canary_evidence
 from avengine.m6.qualification import (
     build_qualification_report,

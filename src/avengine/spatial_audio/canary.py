@@ -17,7 +17,7 @@ from avengine.contracts.json_io import load_json, write_json
 from avengine.current_installed_runtime import (
     is_current_installed_runtime_identity as _is_current_installed_runtime_identity,
 )
-from avengine.m3.metrics import analyze_ir
+from avengine.acoustics.metrics import analyze_ir
 from avengine.spatial_audio.audio import (
     generate_sine_wave,
     read_float32_wav,
@@ -42,7 +42,7 @@ from avengine.spatial_audio.evidence import (
     make_check,
     verify_m4_canary_evidence,
 )
-from avengine.m3.runtime import (
+from avengine.acoustics.runtime import (
     RUNTIME_MODE_CURRENT_INSTALLED,
     RUNTIME_MODE_HISTORICAL,
     RuntimeAnchor,

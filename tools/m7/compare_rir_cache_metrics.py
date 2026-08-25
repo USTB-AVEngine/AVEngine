@@ -21,7 +21,7 @@ import numpy as np
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
-from avengine.m3.metrics import AcousticMetricError, analyze_ir  # noqa: E402
+from avengine.acoustics.metrics import AcousticMetricError, analyze_ir  # noqa: E402
 
 
 def _load_cache_index(cache: Path) -> tuple[dict[str, tuple[Path, int]], float]:

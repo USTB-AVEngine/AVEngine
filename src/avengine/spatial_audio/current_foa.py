@@ -20,7 +20,7 @@ from typing import Any, Mapping
 from avengine.backends.rlr.sdk import ExternalRlrSdkError, require_outside_git_checkout
 from avengine.contracts.json_io import write_json
 from avengine.current_installed_runtime import is_current_installed_runtime_identity
-from avengine.m3.runtime import (
+from avengine.acoustics.runtime import (
     RUNTIME_MODE_CURRENT_INSTALLED,
     RuntimeAnchor,
     RuntimeContractError,

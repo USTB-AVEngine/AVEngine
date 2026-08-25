@@ -24,7 +24,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from avengine.contracts.json_io import sha256_file
-from avengine.m3.runtime import (
+from avengine.acoustics.runtime import (
     RUNTIME_MODE_CURRENT_INSTALLED,
     RUNTIME_MODE_HISTORICAL,
     CompiledAcousticScene,

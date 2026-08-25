@@ -31,7 +31,7 @@ from avengine.m2.contracts import (
     validate_animal_asset_package,
     validate_capture_request as validate_m2_capture_request,
 )
-from avengine.m3.contracts import validate_canary_request as validate_m3_canary_request
+from avengine.acoustics.contracts import validate_canary_request as validate_m3_canary_request
 
 
 REQUEST_SCHEMA = "avengine_m4_multi_source_canary_request_v1"

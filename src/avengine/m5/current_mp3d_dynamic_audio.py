@@ -22,7 +22,7 @@ import numpy as np
 from avengine.contracts.json_io import sha256_file
 from avengine.contracts.transforms import compose_transforms
 from avengine.m1.contracts import validate_capture_request
-from avengine.m3.runtime import load_compiled_acoustic_scene
+from avengine.acoustics.runtime import load_compiled_acoustic_scene
 from avengine.spatial_audio.audio import write_float32_wav
 from avengine.spatial_audio.current_request_pair_ir import _load_simulation_request
 from avengine.m5_1.acoustics import (

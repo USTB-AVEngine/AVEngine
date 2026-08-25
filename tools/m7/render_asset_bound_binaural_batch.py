@@ -50,8 +50,8 @@ from avengine.m6.sources import (
     load_source_endpoint_registry,
     sound_index,
 )
-from avengine.m6x.rir_cache import RIRCacheError, RIRCacheSession
-from avengine.m6x.semantic_rir_cache import (
+from avengine.acoustics.rir_cache import RIRCacheError, RIRCacheSession
+from avengine.acoustics.semantic_rir_cache import (
     SemanticRIRCacheSession,
     SemanticRIREpisode,
 )

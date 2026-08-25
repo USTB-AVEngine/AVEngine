@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 
 from avengine.spatial_audio.audio import read_float32_wav, write_float32_wav
-from avengine.m6x import rir_cache
-from avengine.m6x.rir_cache import validate_semantic_rir_job_plan
-from avengine.m6x.semantic_rir_cache import SemanticRIRCacheSession
+from avengine.acoustics import rir_cache
+from avengine.acoustics.rir_cache import validate_semantic_rir_job_plan
+from avengine.acoustics.semantic_rir_cache import SemanticRIRCacheSession
 from avengine.optional_backends.residential_episode import (
     DOG_SOURCE_ID,
     HUMAN_SOURCE_ID,

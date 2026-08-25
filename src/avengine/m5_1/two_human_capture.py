@@ -52,7 +52,7 @@ from avengine.m5_1.mixed_capture import (
     _human_skin_link_readback_error,
     _instantiate_human,
 )
-from avengine.m6x.rir_cache import RIRCacheError, validate_semantic_rir_job_plan
+from avengine.acoustics.rir_cache import RIRCacheError, validate_semantic_rir_job_plan
 from avengine.runtime_profiles import (
     RuntimeProfileError,
     load_source_asset_runtime_registry,

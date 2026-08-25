@@ -342,7 +342,7 @@ def search(
     sys.path.insert(0, str(repository / "src"))
     import habitat_sim
 
-    from avengine.m3.qa import _trace_first_hit, automatic_mesh_leakage_report
+    from avengine.acoustics.qa import _trace_first_hit, automatic_mesh_leakage_report
 
     pathfinder = habitat_sim.PathFinder()
     _require(pathfinder.load_nav_mesh(str(navmesh)), f"cannot load navmesh: {navmesh}")

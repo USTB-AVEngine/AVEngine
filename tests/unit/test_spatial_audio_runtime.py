@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from avengine.m3.runtime import CompiledAcousticScene, RuntimeAnchor, RuntimeContractError
+from avengine.acoustics.runtime import CompiledAcousticScene, RuntimeAnchor, RuntimeContractError
 from avengine.spatial_audio import runtime
 
 

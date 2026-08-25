@@ -22,7 +22,7 @@ from avengine.contracts.json_io import (
     load_json,
     sha256_file,
 )
-from avengine.m3.contracts import validate_package_manifest
+from avengine.acoustics.contracts import validate_package_manifest
 
 
 ACOUSTIC_PROFILE_REGISTRY_SCHEMA = "avengine_acoustic_profile_registry_v1"

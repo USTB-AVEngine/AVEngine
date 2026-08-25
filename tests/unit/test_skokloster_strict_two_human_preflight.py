@@ -164,7 +164,7 @@ def test_spear_capture_steps_use_origin_main_environment_contract() -> None:
 
 
 def test_real_rir_validator_accepts_legacy_fixed_listener_plan() -> None:
-    rir_cache = pytest.importorskip("avengine.m6x.rir_cache")
+    rir_cache = pytest.importorskip("avengine.acoustics.rir_cache")
     request, _, evidence = fixtures()
     documents = MODULE._build_documents(request, evidence)
     normalized = rir_cache.validate_rir_job_plan(documents["rir_job_plan.json"])
@@ -209,7 +209,7 @@ def test_rir_execution_uses_authoritative_runtime_and_path_closed_v3_cache() -> 
     assert rir_step["supersedes_failed_attempts"] == ["exact_rir_cache_v1"]
     assert rir_step["argv"][:2] == [
         habitat_python,
-        "/data/jzy/code/AVEngine-lead-a/tools/m6x/render_rir_cache.py",
+        "/data/jzy/code/AVEngine-lead-a/tools/acoustics/render_rir_cache.py",
     ]
     assert rir_step["environment"] == expected_environment
     assert rir_step["argv"][rir_step["argv"].index("--output") + 1].endswith(
@@ -363,7 +363,7 @@ def test_semantic_v2_plan_and_execution_are_path_only_and_fresh(
     request["room"]["acoustic_package_manifest"] = str(manifest)
     MODULE._validate_request(request)
     documents = MODULE._build_documents(request, evidence)
-    rir_cache = pytest.importorskip("avengine.m6x.rir_cache")
+    rir_cache = pytest.importorskip("avengine.acoustics.rir_cache")
     jobs = rir_cache.validate_semantic_rir_job_plan(documents["rir_job_plan.json"])
     assert len(jobs) == 2
     assert [len(job["uses"]) for job in jobs] == [75, 75]
