@@ -70,7 +70,7 @@ def _run_minimal(tmp_path: Path) -> Path:
     return run_room_qualification_attempt(
         registry_path="examples/m6/rooms/room_registry.json",
         corrupted_fixture_path=(
-            "tests/fixtures/m6/corrupted_acoustic_package/fixture.json"
+            "tests/fixtures/rooms/corrupted_acoustic_package/fixture.json"
         ),
         output_directory=tmp_path / "attempt",
         repository_root=REPOSITORY_ROOT,

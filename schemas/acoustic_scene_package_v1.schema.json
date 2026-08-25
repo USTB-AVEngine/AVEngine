@@ -208,7 +208,7 @@
       "additionalProperties": false,
       "required": ["name", "version", "implementation_sha256", "components"],
       "properties": {
-        "name": {"const": "avengine.m3.compiler"},
+        "name": {"enum": ["avengine.acoustics.compiler", "avengine.m3.compiler"]},
         "version": {"const": "1"},
         "implementation_sha256": {"$ref": "#/$defs/sha256"},
         "components": {

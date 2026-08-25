@@ -28,7 +28,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--corrupted-fixture",
         type=Path,
-        default=Path("tests/fixtures/m6/corrupted_acoustic_package/fixture.json"),
+        default=Path("tests/fixtures/rooms/corrupted_acoustic_package/fixture.json"),
     )
     run.add_argument("--output", type=Path, required=True)
     run.add_argument(

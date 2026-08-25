@@ -1519,7 +1519,7 @@ def _rir_expectation(profile: Mapping[str, Any]) -> dict[str, Any]:
         stride_frames=1,
     )
     return {
-        "builder": "avengine.m6x.room_feasibility.build_rir_job_plan",
+        "builder": "avengine.routes.room_feasibility.build_rir_job_plan",
         "stride_frames": plan["stride_frames"],
         "requested_pair_state_count": plan["requested_pair_state_count"],
         "unique_rir_job_count": plan["unique_rir_job_count"],

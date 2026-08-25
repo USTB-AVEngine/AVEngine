@@ -247,7 +247,7 @@ def _compiled_package(tmp_path: Path) -> Path:
             "format": "obj",
         },
         "compiler": {
-            "name": "avengine.m3.compiler",
+            "name": "avengine.acoustics.compiler",
             "version": "1",
             "implementation_sha256": "55" * 32,
         },

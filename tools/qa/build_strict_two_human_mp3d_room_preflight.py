@@ -1704,7 +1704,7 @@ def _build_rir_plan(
         "unique_listener_pose_count": 1,
         "unique_rir_job_count": len(jobs),
         "acoustic_state_sha256_authority": (
-            "avengine.m6x.room_feasibility.rir_acoustic_state_sha256"
+            "avengine.routes.room_feasibility.rir_acoustic_state_sha256"
         ),
         "cache_reuse_count": requested_states - len(jobs),
         "claim_boundary": (

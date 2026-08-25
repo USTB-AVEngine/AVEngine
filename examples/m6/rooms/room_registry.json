@@ -59,7 +59,7 @@
           "resource_type": "acoustic_package",
           "location": {
             "kind": "generated",
-            "producer": "avengine.m3.compiler:compile_custom_acoustic_scene"
+            "producer": "avengine.acoustics.compiler:compile_custom_acoustic_scene"
           },
           "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
           "redistribution": "generated_local",
@@ -73,7 +73,7 @@
           "geometry_kind": "real_surface_mesh",
           "resource_id": "custom_acoustic_package",
           "build_mode": "compile",
-          "producer": "avengine.m3.compiler:compile_custom_acoustic_scene",
+          "producer": "avengine.acoustics.compiler:compile_custom_acoustic_scene",
           "input_resource_ids": ["custom_room_manifest", "custom_visual_surface"],
           "immutable": false,
           "derived_from": null,
@@ -195,7 +195,7 @@
           "resource_type": "acoustic_package",
           "location": {
             "kind": "generated",
-            "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene"
+            "producer": "avengine.acoustics.compiler:compile_explicit_glb_research_scene"
           },
           "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
           "redistribution": "generated_local"
@@ -220,7 +220,7 @@
           "geometry_kind": "declared_derived_surface",
           "resource_id": "replicacad_acoustic_proxy",
           "build_mode": "derive",
-          "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene",
+          "producer": "avengine.acoustics.compiler:compile_explicit_glb_research_scene",
           "input_resource_ids": ["replicacad_stage_surface"],
           "immutable": false,
           "derived_from": "replicacad_stage_raw_v1_5",
@@ -352,7 +352,7 @@
           "resource_type": "acoustic_package",
           "location": {
             "kind": "generated",
-            "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene"
+            "producer": "avengine.acoustics.compiler:compile_explicit_glb_research_scene"
           },
           "required_for": ["acoustic_geometry", "material_binding", "ray_leakage"],
           "redistribution": "generated_local"
@@ -365,7 +365,7 @@
           "geometry_kind": "real_surface_mesh",
           "resource_id": "legacy_real_surface_acoustic_package",
           "build_mode": "compile",
-          "producer": "avengine.m3.compiler:compile_explicit_glb_research_scene",
+          "producer": "avengine.acoustics.compiler:compile_explicit_glb_research_scene",
           "input_resource_ids": ["legacy_real_surface"],
           "immutable": false,
           "derived_from": null,
@@ -561,7 +561,7 @@
           "geometry_kind": "declared_derived_surface",
           "resource_id": "mp3d_declared_proxy_v2",
           "build_mode": "derive",
-          "producer": "avengine.m3.research_cleanup:derive_research_package",
+          "producer": "avengine.acoustics.research_cleanup:derive_research_package",
           "input_resource_ids": [
             "mp3d_raw_visual_surface",
             "mp3d_proxy_v2_descriptor"
@@ -577,7 +577,7 @@
           "geometry_kind": "declared_derived_surface",
           "resource_id": "mp3d_soundspaces2_acoustic_package_v1",
           "build_mode": "compile",
-          "producer": "avengine.m3.compiler:compile_mp3d_soundspaces_research_scene",
+          "producer": "avengine.acoustics.compiler:compile_mp3d_soundspaces_research_scene",
           "input_resource_ids": [
             "mp3d_raw_visual_surface",
             "mp3d_semantic_mesh",

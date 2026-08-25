@@ -19,7 +19,7 @@ from avengine.rooms.qualification import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ROOM_EXAMPLES = REPOSITORY_ROOT / "examples/m6/rooms/qualification"
 BAD_FIXTURE = (
-    REPOSITORY_ROOT / "tests/fixtures/m6/corrupted_acoustic_package/fixture.json"
+    REPOSITORY_ROOT / "tests/fixtures/rooms/corrupted_acoustic_package/fixture.json"
 )
 
 

@@ -298,6 +298,7 @@ are historical evidence only.
 - 顶层目录即能力分组：`src/avengine/{assets,rooms,acoustics,routes,capture,timeline,spatial_audio,registry,dataset,qa,…}`，`tools/` 同理。
 - 新工具/新模块一律放进能力目录；阶段式命名（m1…m7、m6x/m6y/m6z）已移除，禁止新建。
 - 找工具先看 `docs/TOOL_INDEX.md`（自动生成；`python tools/build_tool_index.py --check` 已入单测回归）。
-- 序列化标识是冻结的数据契约，重构不得改动：注册表 schema id、receipt/manifest 字段、
-  产物内的 generator/producer/builder 字符串、`tests/fixtures/m6`、`examples/m*` 路径、
-  CLI 旧别名（m1/m3/m4）背后的历史脚本。
+- 仍然冻结的数据契约：注册表 schema id（`avengine_*_v1`）、receipt/manifest 字段名、
+  `examples/m*` 目录布局（第二批迁移）。产物内的 generator/producer/builder 身份字符串
+  已随本次重命名切换到新路径；acoustic 包 schema 对 `name` 同时接受
+  `avengine.acoustics.compiler` 与历史值 `avengine.m3.compiler`，既有包无需重建。

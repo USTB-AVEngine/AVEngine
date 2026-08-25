@@ -47,7 +47,7 @@ def test_custom_provider_resolves_checked_in_inputs_but_not_generated_audio() ->
     assert resolution.resources["custom_navmesh"].status == "pass"
     assert resolution.resources["custom_acoustic_package"].status == "not_run"
     assert acoustic.status == "not_run"
-    assert acoustic.producer == "avengine.m3.compiler:compile_custom_acoustic_scene"
+    assert acoustic.producer == "avengine.acoustics.compiler:compile_custom_acoustic_scene"
 
 
 def test_compiled_representation_preserves_output_hash_failure() -> None:

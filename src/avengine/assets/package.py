@@ -1836,7 +1836,7 @@ def _collision_proxy_glb(
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "avengine.m2.package collision proxy v1",
+            "generator": "avengine.assets.package collision proxy v1",
             "extras": extras,
         },
         "scene": 0,

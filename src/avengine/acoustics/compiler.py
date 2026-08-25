@@ -451,7 +451,7 @@ def _build_explicit_glb_package(
         },
         "debug_mesh": _obj_record(debug_path, relative_to=output),
         "compiler": {
-            "name": "avengine.m3.compiler",
+            "name": "avengine.acoustics.compiler",
             "version": COMPILER_VERSION,
             "implementation_sha256": compiler_sha256,
             "components": compiler_components,
