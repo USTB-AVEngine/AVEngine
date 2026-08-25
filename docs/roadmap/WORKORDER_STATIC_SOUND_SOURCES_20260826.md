@@ -128,6 +128,47 @@ owner 在 2026-08-24 修正过一次：**固定件不能依赖房间语义**（�
 
 ---
 
+## 2.5 先看：已经写好的 profile 不要重造
+
+`/data/jzy/code/SPEAR-lead-b/data/controlled_source_attributes_v1/candidate_profiles/static_object/`
+下**已经有 5 个 `static_object` profile**，写好但从没跑过：
+
+| profile | 对应本工单的网格 |
+|---|---|
+| `kitchen_appliance_microwave_oven_product_view_v1.json` | 微波炉 ✅ |
+| `household_clock_alarm_clock_product_view_v1.json` | 闹钟 ✅ |
+| `door_hardware_doorbell_chime_unit_product_view_v1.json` | 门铃 ✅ |
+| `communication_device_desk_telephone_product_view_v1.json` | 座机 ✅ |
+| `kitchen_appliance_stovetop_kettle_product_view_v1.json` | ❌ 水壶属于被 owner 砍掉的厨房四类，**不要做** |
+
+**14 个网格里有 4 个的 profile 是现成的。** 剩下 10 个照着这个格式写，不要另起炉灶。
+一个 profile 里已经有的东西：
+
+- `taxonomy` = `{category, object_type}`（静态物用这两个字段，不是动物的 species/breed）
+- `base_template.kind = "text_prompt_only"`（静态物是**文生图**，没有粘土引导图；
+  动物才是图生图）
+- `fixed_attributes` = 形态 + 材质，`sampled_attribute_domains` = `body_color`
+- `generation_contract.route = "flux2_pixal3d_static_v1"`
+- `positive_template` / `pose_guard_prompt` / `negative_prompt` 三段
+  （pose_guard 那段很关键：三四分之一产品视角、纯净浅灰无缝背景、
+  单一物体居中、四周留边、只有物体正下方的柔和阴影、明确写了"这是给图生 3D 的
+  中性重建参考，不是广告图"）
+- `value_labels`：把枚举值翻成自然语言（`black` → `black stainless`）
+- `model_revisions`：flux2 / pixal3d / dino 三个版本号**钉死**
+- `target_physical_profiles`：真实世界高度，例如微波炉 `28 cm ± 5`。
+  **这就是 §3.4 定型工具说的"目标高度取自经认证的 profile 请求"。**
+
+**注意 profile 里那句 provenance 备注**：`"Provisional typical retail dimension;
+measure the approved mesh before formal registration."` ——
+这些高度是暂定的零售典型值，正式注册前要量实际网格。这句话要一路带到产物里。
+
+**还要注意 `sampled_domains_must_be_singleton` 在静态物 profile 里是 `false`**
+（动物那边是 `true`）。也就是说静态物允许一个 profile 一次产出多个颜色请求，
+策略是 `static_object_per_request_one_shot_v1`：**每个请求一次成型、不抽 seed**。
+但按 §2.3 的广度优先，第一遍每个形态只取一个颜色。
+
+---
+
 ## 3. 流水线
 
 ### 3.1 生成（和动物共用，在 AVEngine 仓）
