@@ -1,38 +1,36 @@
 #!/usr/bin/env bash
 # Take one generated animal from a raw reconstruction to a reviewable rigged
-# asset: prepare the mesh, rig it, orient it, transfer the donor walk, and
-# render the reviews.
+# asset, trying the cheapest preparation that works rather than one fixed
+# recipe.
 #
-# The preparation step is a voxel retopology rather than a plain decimation.
-# A collapse decimator cannot touch a non-manifold edge, and a reconstruction
-# carrying thousands of them spends the whole reduction budget on whichever end
-# of the animal happens to be clean - measured, the head kept half the share the
-# tail kept, which is what a destroyed face looks like as a number. Remeshing
-# first removes that failure for every breed. See
-# docs/assets/MESH_DENSITY_AND_TEARING_20260825.md for the evidence.
+# Neither the recipe nor its settings generalised from the animal they were
+# chosen on. A plain weld-and-collapse to 25k is enough for some breeds and
+# produces a better-looking asset than a voxel retopology does - measured, one
+# cat reads 0.011 percent of area stretched past ten times during the walk at
+# 25k against 0.123 at 80k retopologised. For others the same plain route
+# starves the head to 0.54 of its share or cannot reach the target at all,
+# because collapse decimation cannot touch a non-manifold edge and a
+# reconstruction carrying thousands of them spends the whole budget elsewhere.
 #
-# The gate between preparation and rigging is there because rigging is the
-# expensive step: a mesh that lost its head is cheaper to reject than to rig.
+# So this walks a ladder. Each rung is prepared, gated before rigging, rigged,
+# animated, and gated again on how the surface deforms. The first rung that
+# passes both wins and the rest are not attempted. Evidence from the rungs that
+# failed is kept.
+#
+# See docs/assets/MESH_DENSITY_AND_TEARING_20260825.md for the measurements.
 #
 # Usage:
 #   tools/assets/run_generated_animal_chain.sh \
 #     --raw /path/raw.glb --workdir /path/out --front-yaw-deg -179.706 \
 #     --donor-rig /path/donor_walk_idle.glb --spear-root /path/SPEAR \
 #     --rigger-root /path/SkinTokens [--gpu 0] [--port-base 59875] \
-#     [--target-faces 80000,120000] [--voxel-divisors 800,700] [--relief-smooth -1]
-#
-# Both the face budget and the remesh resolution are swept rather than fixed,
-# because neither generalized from the animal it was chosen on. The budget is
-# squeezed from both sides: too few faces and the head starves, because a head
-# needs an absolute triangle count and a large flank will take the budget first
-# - the Siamese reads 0.59 head survival at 50k, 0.66 at 80k and passes at 120k
-# - while too many and the skinning folds. So the constant in this pipeline is
-# the gate, not the settings: try combinations until one passes.
+#     [--ladder plain:25000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800]
 
-set -euo pipefail
+set -uo pipefail
 
 RAW="" WORKDIR="" YAW="" DONOR="" SPEAR_ROOT="" RIGGER_ROOT=""
-GPU=0 PORT_BASE=59875 TARGET_FACES="80000,120000" VOXEL_DIVISORS="800,700" RELIEF_SMOOTH=-1
+GPU=0 PORT_BASE=59875 RELIEF_SMOOTH=-1
+LADDER="plain:25000:0,remesh:80000:800,remesh:80000:700,remesh:120000:800"
 BLENDER="${BLENDER:-blender}"
 
 while [ $# -gt 0 ]; do
@@ -45,8 +43,7 @@ while [ $# -gt 0 ]; do
     --rigger-root) RIGGER_ROOT="$2"; shift 2 ;;
     --gpu) GPU="$2"; shift 2 ;;
     --port-base) PORT_BASE="$2"; shift 2 ;;
-    --target-faces) TARGET_FACES="$2"; shift 2 ;;
-    --voxel-divisors) VOXEL_DIVISORS="$2"; shift 2 ;;
+    --ladder) LADDER="$2"; shift 2 ;;
     --relief-smooth) RELIEF_SMOOTH="$2"; shift 2 ;;
     --blender) BLENDER="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
@@ -74,94 +71,120 @@ export PYTHONUNBUFFERED=1
 
 step() { echo "=== [$(date +%H:%M:%S)] $* ==="; }
 
-step "1/6 retopologize, sweeping budgets $TARGET_FACES and resolutions $VOXEL_DIVISORS"
-ACCEPTED=""
-IFS=',' read -r -a BUDGETS <<< "$TARGET_FACES"
-IFS=',' read -r -a DIVISORS <<< "$VOXEL_DIVISORS"
-for budget in "${BUDGETS[@]}"; do
-  for divisor in "${DIVISORS[@]}"; do
-    attempt="$WORKDIR/prepare_f${budget}_d${divisor}"
-    echo "--- ${budget} faces at diagonal/${divisor}"
-    "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/retopologize_for_rigging.py" -- \
-      --input "$RAW" --output "${attempt}.glb" --report "${attempt}.json" \
-      --target-faces "$budget" --voxel-divisor "$divisor" \
-      --front-yaw-deg "$YAW" --relief-smooth-iterations "$RELIEF_SMOOTH" \
-      2>&1 | grep -E "^RETOPOLOGY_OK" > /dev/null
-    if python3 "$AVENGINE_ROOT/tools/assets/gate_retopology.py" "${attempt}.json"; then
-      cp "${attempt}.glb" "$WORKDIR/prepared.glb"
-      cp "${attempt}.json" "$WORKDIR/prepared.json"
-      ACCEPTED="${budget} faces at diagonal/${divisor}"
-      break 2
-    fi
+prepare() {  # rung_dir mode budget divisor
+  local dir="$1" mode="$2" budget="$3" divisor="$4"
+  local extra=()
+  [ "$mode" = "plain" ] && extra=(--skip-remesh --relief-smooth-iterations 0)
+  [ "$mode" = "remesh" ] && extra=(--voxel-divisor "$divisor"
+                                   --relief-smooth-iterations "$RELIEF_SMOOTH")
+  "$BLENDER" --background --python \
+    "$AVENGINE_ROOT/tools/assets/retopologize_for_rigging.py" -- \
+    --input "$RAW" --output "$dir/prepared.glb" --report "$dir/prepared.json" \
+    --target-faces "$budget" --front-yaw-deg "$YAW" "${extra[@]}" \
+    > "$dir/prepare.log" 2>&1
+}
+
+rig_and_animate() {  # rung_dir
+  local dir="$1"
+  mkdir -p "$dir/rig_patch"
+  # Two patches the vendored rigger needs, applied per run rather than in place.
+  # Its wait is 30 seconds against a mesh that takes minutes, and its helper asks
+  # bottle for 0.0.0.0 on a dual-stack host, where tornado binds :: first and
+  # then fails on 0.0.0.0 inside the server thread - it prints "Listening" and
+  # serves nothing.
+  sed "s/def wait_for_bpy_server(timeout=30)/def wait_for_bpy_server(timeout=1200)/" \
+    "$RIGGER_ROOT/demo.py" > "$dir/rig_patch/demo_longwait.py"
+  cp "$AVENGINE_ROOT/tools/assets/rigger_loopback_bpy_server.py" \
+    "$dir/rig_patch/bpy_server.py"
+  for shared in experiments assets configs models; do
+    ln -sfn "$RIGGER_ROOT/$shared" "$dir/rig_patch/$shared"
   done
+  cp -r "$RIGGER_ROOT/src" "$dir/rig_patch/src"
+  sed -i "s/^PORT = .*/PORT = $PORT_BASE/; s/^BPY_PORT = .*/BPY_PORT = $BPY_PORT/" \
+    "$dir/rig_patch/src/server/spec.py"
+  fuser -k "${PORT_BASE}/tcp" "${BPY_PORT}/tcp" 2>/dev/null || true
+  sleep 2
+  ( cd "$dir/rig_patch" && "$RIGGER_ROOT/.venv/bin/python" demo_longwait.py \
+      --input "$dir/prepared.glb" --output "$dir/rig" \
+      --model_ckpt experiments/articulation_xl_quantization_256_token_4/grpo_1400.ckpt \
+      --use_skeleton --use_transfer --use_postprocess > "$dir/rig.log" 2>&1 ) || return 1
+  local rigged="$dir/rig.glb"
+  [ -f "$rigged" ] || rigged="$dir/rig"
+
+  # Log first, then look for the success marker in the log. Piping Blender into
+  # `grep -q` makes grep close the pipe on its first match, which sends Blender
+  # SIGPIPE and turns a completed step into a failed one under pipefail.
+  ( cd "$SPEAR_ROOT" && \
+    "$BLENDER" --background --python tools/blender_normalize_generated_animal_heading.py -- \
+      --input "$rigged" --output "$dir/normalized.glb" --manifest "$dir/heading.json" \
+      --reviewed-source-front-yaw-deg "$YAW" --target-front-axis positive-x \
+      --review-evidence "$dir/prepared.json" ) > "$dir/heading.log" 2>&1
+  grep -q "NORMALIZATION_OK" "$dir/heading.log" || return 1
+  # The forward estimator has been wrong with high confidence; look at the probe.
+  "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/probe_heading_axis.py" -- \
+    "$dir/normalized.glb" "$dir/heading_probe.png" > "$dir/probe.log" 2>&1
+  ( cd "$SPEAR_ROOT" && \
+    "$BLENDER" --background --python tools/blender_level_generated_animal_support_plane.py -- \
+      --input "$dir/normalized.glb" --output "$dir/leveled.glb" \
+      --manifest "$dir/level.json" --front-axis positive-x \
+      --review-evidence "$dir/heading.json" ) > "$dir/level.log" 2>&1
+  grep -q "LEVELING_OK" "$dir/level.log" || return 1
+  ( cd "$SPEAR_ROOT" && \
+    "$BLENDER" --background --python tools/blender_retarget_quaternius_to_generated_quadruped.py -- \
+      --target-glb "$dir/leveled.glb" --source-rig-glb "$DONOR" \
+      --output-glb "$dir/animated.glb" --manifest "$dir/retarget.json" \
+      --target-front-axis positive-x --technical-spike-only \
+      --motion-basis-yaw-deg 0 --side-chain-mode matched ) > "$dir/retarget.log" 2>&1
+  grep -q "RETARGET_OK" "$dir/retarget.log" || return 1
+  "$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/measure_deformation_stretch.py" -- \
+    "$dir/animated.glb" "$dir/stretch.json" Walking 0.35 > "$dir/stretch.log" 2>&1
+  grep -E "^STRETCH" "$dir/stretch.log" || return 1
+}
+
+ACCEPTED=""
+IFS=',' read -r -a RUNGS <<< "$LADDER"
+for rung in "${RUNGS[@]}"; do
+  IFS=':' read -r mode budget divisor <<< "$rung"
+  dir="$WORKDIR/rung_${mode}_${budget}_${divisor}"
+  mkdir -p "$dir"
+  step "rung ${mode} ${budget} faces divisor ${divisor:-n/a}"
+
+  if ! prepare "$dir" "$mode" "$budget" "$divisor"; then
+    echo "preparation failed, see $dir/prepare.log" >&2
+    continue
+  fi
+  if ! python3 "$AVENGINE_ROOT/tools/assets/gate_retopology.py" "$dir/prepared.json"; then
+    continue
+  fi
+  if ! rig_and_animate "$dir"; then
+    echo "rig or animation failed, see the logs under $dir" >&2
+    continue
+  fi
+  if ! python3 "$AVENGINE_ROOT/tools/assets/gate_rigged_asset.py" "$dir/stretch.json" \
+       --heading-manifest "$dir/heading.json"; then
+    continue
+  fi
+  ACCEPTED="$rung"
+  for name in prepared.glb prepared.json animated.glb stretch.json heading.json \
+              level.json retarget.json heading_probe.png; do
+    [ -f "$dir/$name" ] && cp "$dir/$name" "$WORKDIR/$name"
+  done
+  break
 done
 
-step "2/6 confirm a preparation was accepted"
 if [ -z "$ACCEPTED" ]; then
-  echo "nothing in budgets [$TARGET_FACES] x resolutions [$VOXEL_DIVISORS] passed" >&2
-  echo "the gate. The rejections above name the reading that failed; a starved" >&2
-  echo "head calls for a larger budget, not a smaller one." >&2
+  echo "no rung in [$LADDER] passed both gates; the rejections above name the" >&2
+  echo "reading that failed. A starved head calls for a larger budget or the" >&2
+  echo "remesh route; a surface that keeps folding calls for fewer faces." >&2
   exit 66
 fi
-echo "accepted $ACCEPTED"
 
-step "3/6 rig"
-mkdir -p "$WORKDIR/rig_patch"
-# The rigger binds its tornado helper on every interface, so two runs on one
-# host collide on the port rather than queueing. Each run gets its own copy of
-# the source tree with its own ports.
-# Two patches the vendored rigger needs, applied per run rather than in place.
-# The wait is 30 seconds against a mesh that takes minutes, and the helper asks
-# bottle for 0.0.0.0 on a dual-stack host, where tornado binds :: first and then
-# fails on 0.0.0.0 inside the server thread - it prints "Listening" and serves
-# nothing.
-sed "s/def wait_for_bpy_server(timeout=30)/def wait_for_bpy_server(timeout=1200)/" \
-  "$RIGGER_ROOT/demo.py" > "$WORKDIR/rig_patch/demo_longwait.py"
-cp "$AVENGINE_ROOT/tools/assets/rigger_loopback_bpy_server.py" \
-  "$WORKDIR/rig_patch/bpy_server.py"
-for shared in experiments assets configs models; do
-  ln -sfn "$RIGGER_ROOT/$shared" "$WORKDIR/rig_patch/$shared"
-done
-cp -r "$RIGGER_ROOT/src" "$WORKDIR/rig_patch/src"
-sed -i "s/^PORT = .*/PORT = $PORT_BASE/; s/^BPY_PORT = .*/BPY_PORT = $BPY_PORT/" \
-  "$WORKDIR/rig_patch/src/server/spec.py"
-fuser -k "${PORT_BASE}/tcp" "${BPY_PORT}/tcp" 2>/dev/null || true
-sleep 2
-( cd "$WORKDIR/rig_patch" && "$RIGGER_ROOT/.venv/bin/python" demo_longwait.py \
-    --input "$WORKDIR/prepared.glb" --output "$WORKDIR/rig" \
-    --model_ckpt experiments/articulation_xl_quantization_256_token_4/grpo_1400.ckpt \
-    --use_skeleton --use_transfer --use_postprocess > "$WORKDIR/rig.log" 2>&1 )
-RIGGED="$WORKDIR/rig.glb"
-[ -f "$RIGGED" ] || RIGGED="$WORKDIR/rig"
-
-step "4/6 orient and level"
-cd "$SPEAR_ROOT"
-"$BLENDER" --background --python tools/blender_normalize_generated_animal_heading.py -- \
-  --input "$RIGGED" --output "$WORKDIR/normalized.glb" --manifest "$WORKDIR/heading.json" \
-  --reviewed-source-front-yaw-deg "$YAW" --target-front-axis positive-x \
-  --review-evidence "$WORKDIR/prepared.json" 2>&1 | grep -E "NORMALIZATION_OK"
-# The forward estimator has been wrong with high confidence; look at the probe.
-"$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/probe_heading_axis.py" -- \
-  "$WORKDIR/normalized.glb" "$WORKDIR/heading_probe.png" 2>&1 | grep -E "PROBE_OK"
-"$BLENDER" --background --python tools/blender_level_generated_animal_support_plane.py -- \
-  --input "$WORKDIR/normalized.glb" --output "$WORKDIR/leveled.glb" \
-  --manifest "$WORKDIR/level.json" --front-axis positive-x \
-  --review-evidence "$WORKDIR/heading.json" 2>&1 | grep -E "LEVELING_OK"
-
-step "5/6 transfer the donor walk"
-"$BLENDER" --background --python tools/blender_retarget_quaternius_to_generated_quadruped.py -- \
-  --target-glb "$WORKDIR/leveled.glb" --source-rig-glb "$DONOR" \
-  --output-glb "$WORKDIR/animated.glb" --manifest "$WORKDIR/retarget.json" \
-  --target-front-axis positive-x --technical-spike-only \
-  --motion-basis-yaw-deg 0 --side-chain-mode matched 2>&1 | grep -E "RETARGET_OK"
-
-step "6/6 measure and review"
-cd "$AVENGINE_ROOT"
-"$BLENDER" --background --python tools/assets/measure_deformation_stretch.py -- \
-  "$WORKDIR/animated.glb" "$WORKDIR/stretch.json" Walking 0.35 2>&1 | grep -E "STRETCH"
-"$BLENDER" --background --python tools/assets/render_walk_review.py -- \
-  "$WORKDIR/animated.glb" "$WORKDIR/walk" Walking 16 1.15 2>&1 | grep -E "CLEANWALK_OK"
-"$BLENDER" --background --python tools/assets/render_turntable_review.py -- \
-  "$WORKDIR/animated.glb" "$WORKDIR/turntable" Walking 36 0.0 2>&1 | grep -E "TURNTABLE_OK"
-
-echo "=== CHAIN_DONE $WORKDIR ==="
+step "accepted rung $ACCEPTED, rendering reviews"
+"$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/render_walk_review.py" -- \
+  "$WORKDIR/animated.glb" "$WORKDIR/walk" Walking 16 1.15 > "$WORKDIR/walk.log" 2>&1
+grep -E "CLEANWALK_OK" "$WORKDIR/walk.log"
+"$BLENDER" --background --python "$AVENGINE_ROOT/tools/assets/render_turntable_review.py" -- \
+  "$WORKDIR/animated.glb" "$WORKDIR/turntable" Walking 36 0.0 > "$WORKDIR/turntable.log" 2>&1
+grep -E "TURNTABLE_OK" "$WORKDIR/turntable.log"
+echo "{\"accepted_rung\": \"$ACCEPTED\", \"ladder\": \"$LADDER\"}" > "$WORKDIR/ladder.json"
+echo "=== CHAIN_DONE $WORKDIR rung=$ACCEPTED ==="

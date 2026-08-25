@@ -1,30 +1,36 @@
-"""Accept or reject a retopology report before spending a rigging slot on it.
+"""Reject a mesh preparation that damaged the animal, before it is rigged.
 
-The three readings that decide whether a reduction kept the animal:
+Only two readings here are route-independent enough to decide on, and both
+describe damage the reduction itself did:
 
-  boundary edges         a remeshed surface has effectively none, and a hole is
-                         where the skin opens during a walk; the allowance is
-                         for the stray edge that welding leaves behind, not for
-                         a real hole, which arrives in the hundreds
-  head-end survival      how much of the front third's triangle share survived.
-                         This is the reading that separates a ruined asset from
-                         a fine one, and it only works because the reviewed
-                         forward direction says which third is the head: a
-                         face collapsed into flat facets scores 0.51, and so
-                         does a tail that merely thinned, which is why the
-                         axis-blind octant span is reported and not judged
-  faceting               the share of edges bending past thirty degrees. This is
-                         the stipple a reviewer sees on a pale coat, and it
-                         ranks assets the way the eye does: 4 percent on the
-                         cleanest of these four, 23 on the roughest that still
-                         reads well, 48 on the one that reads as speckled
-  fidelity p99           how far the original surface had to move. Reported, and
-                         gated only against catastrophe: two assets that both
-                         look right differ fivefold here (0.0019 and 0.0104),
-                         so it cannot carry an accept decision
+  head-end survival      how much of the front third's triangle share survived,
+                         normalised so 1.0 is "lost the same share as the mesh
+                         overall". A face collapsed into flat facets reads 0.53
+                         where three good assets read 1.18, 1.23 and 1.39. It
+                         only works because the reviewed forward direction says
+                         which third is the head - an axis-blind version scored
+                         0.51 on the ruined mesh and 0.507 on one that had
+                         merely thinned its tail.
+  face target reached    a mesh whose non-manifold edges block collapse never
+                         gets there, and that is worth knowing before rigging.
 
-Thresholds are arguments rather than constants because they were measured on
-four animals, which is enough to set a default and not enough to freeze one.
+Everything else is reported and not judged, because it turned out to depend on
+which route produced the mesh rather than on whether the result is good:
+
+  faceting               punishes a low face count. The coarsest asset in this
+                         batch scored worst on it (0.657) and looked best; a
+                         denser one scored 0.383 and looked speckled. Face count
+                         and dihedral angle are not independent.
+  boundary, non-manifold a remesh drives both to zero, so there is nothing to
+                         check; a plain weld-and-collapse inherits whatever the
+                         reconstruction had, which is a property of the source
+                         and not a defect this step introduced. Two assets that
+                         look right carry 1,052 and 1,986 non-manifold edges.
+  fidelity               spans fivefold across assets that all look right.
+
+Whether the result actually looks right is decided after rigging, from how the
+surface deforms - see gate_rigged_asset.py. That is what lets a pipeline try the
+cheap reduction first and stop when it is already good enough.
 """
 
 from __future__ import annotations
@@ -37,32 +43,17 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report")
-    parser.add_argument(
-        "--max-boundary", type=int, default=8,
-        help="not zero: welding the measurement copy leaves an occasional stray "
-             "edge, while a genuine hole shows up in the hundreds")
-    parser.add_argument("--max-nonmanifold", type=int, default=16)
     parser.add_argument("--min-head-survival", type=float, default=0.7)
-    parser.add_argument("--max-faceting-share", type=float, default=0.30)
-    parser.add_argument("--max-fidelity-p99", type=float, default=0.02)
     parser.add_argument("--face-tolerance", type=float, default=0.05)
     args = parser.parse_args()
 
     with open(args.report, encoding="utf-8") as handle:
         report = json.load(handle)
     final = report["stages"]["decimated"]
-    span = report["octant_survival_span"]
     bands = report.get("band_survival")
-    p99 = report["fidelity_over_diagonal"]["p99"]
-    facets = report.get("faceting", {}).get("share_over_30deg")
     target = report["target_faces"]
 
     failures = []
-    if final["boundary"] > args.max_boundary:
-        failures.append(f"boundary edges {final['boundary']} > {args.max_boundary}")
-    if final["nonmanifold"] > args.max_nonmanifold:
-        failures.append(
-            f"non-manifold edges {final['nonmanifold']} > {args.max_nonmanifold}")
     if bands is None:
         failures.append(
             "no band survival in the report: rerun the retopology with "
@@ -71,26 +62,25 @@ def main():
         failures.append(
             f"head-end survival {bands['front']} < {args.min_head_survival}: the "
             "front third paid for the rest of the body")
-    if facets is not None and facets > args.max_faceting_share:
-        failures.append(
-            f"faceting {facets} > {args.max_faceting_share}: the surface will "
-            "read as speckle, which more relief smoothing removes")
-    if p99 > args.max_fidelity_p99:
-        failures.append(f"fidelity p99 {p99} > {args.max_fidelity_p99}")
     if abs(final["faces"] - target) > target * args.face_tolerance:
-        failures.append(f"faces {final['faces']} missed target {target}")
+        failures.append(
+            f"faces {final['faces']} missed target {target}: the reduction was "
+            "blocked, most likely by non-manifold edges collapse cannot touch")
 
     verdict = {
         "report": args.report,
         "faces": final["faces"],
-        "boundary": final["boundary"],
-        "nonmanifold": final["nonmanifold"],
-        "octant_survival_span": span,
         "band_survival": bands,
-        "fidelity_p99": p99,
-        "faceting_share_over_30deg": facets,
-        "relief_ratio": report.get("relief_ratio"),
-        "relief_smooth_iterations": report.get("relief_smooth_iterations"),
+        "advisory": {
+            "faceting_share_over_30deg": report.get("faceting", {}).get(
+                "share_over_30deg"),
+            "boundary": final["boundary"],
+            "nonmanifold": final["nonmanifold"],
+            "fidelity_p99": report["fidelity_over_diagonal"]["p99"],
+            "source_debris_share": report.get("source_debris_share"),
+            "relief_ratio": report.get("relief_ratio"),
+            "relief_smooth_iterations": report.get("relief_smooth_iterations"),
+        },
         "failures": failures,
     }
     if failures:

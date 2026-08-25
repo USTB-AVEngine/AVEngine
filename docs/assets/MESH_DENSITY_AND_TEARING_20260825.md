@@ -65,88 +65,109 @@ the ruined mesh reads 0.53 at the head where the three good ones read 1.18, 1.23
 and 1.39, and the threshold has somewhere to sit. The tool takes
 `--front-yaw-deg`, which the chain already carries for the heading step.
 
-## What generalizes: remesh first, then reduce
+## What generalizes: a ladder, not a recipe
 
 Voxel remeshing replaces the surface with one that has no non-manifold edges and
 no boundary edges, after which the face target is reachable exactly and the loss
-spreads evenly. Resolution is not a detail — it dominates fidelity, and coarse
-remeshing is worse than not remeshing at all (0.0217 against 0.0058). At
-diagonal/800 it is better than every alternative on every axis at once.
+spreads evenly. That is what rescues a mesh the plain route ruins. But it is not
+the right treatment for every animal, and applying it unconditionally makes some
+assets worse: on one cat the plain weld-and-collapse to 25k reads 0.011 percent
+of area stretched past ten times during the walk where the same source
+retopologised to 80k reads 0.123, and rendered from the same camera under the
+same light the 25k version is visibly the cleaner of the two.
 
-The remesh discards the uv layout, so the original colour is baked back onto a
-fresh unwrap. That is the whole cost, and it is about a minute per asset.
+So the pipeline tries the cheapest preparation first and escalates only when a
+measurement says to. `tools/assets/run_generated_animal_chain.sh` walks a ladder,
+preparing, gating, rigging, animating and gating again at each rung, and stops at
+the first that passes both:
 
-`tools/assets/retopologize_for_rigging.py` does all of it in one Blender session
-and reports the numbers above, so each asset certifies itself:
+| rung | preparation |
+| --- | --- |
+| 1 | plain weld and collapse to 25k |
+| 2 | voxel remesh at diagonal/800, collapse to 80k |
+| 3 | voxel remesh at diagonal/700, collapse to 80k |
+| 4 | voxel remesh at diagonal/800, collapse to 120k |
 
-```
-blender -b --python tools/assets/retopologize_for_rigging.py -- \
-  --input raw.glb --output retopo.glb --report retopo.json \
-  --target-faces 80000 --voxel-divisor 800
-```
+On these four breeds two stop at rung 1 and two need rung 2. Evidence from the
+rungs that failed is kept rather than deleted.
 
-Both meshes have to stay in one session — the bake needs the dense original as
-its source, and reloading it from a file that no longer carries the texture is
-the failure this avoids. Every count is taken after welding, because a glTF file
-splits vertices at each uv and normal seam and a boundary or island count read
-off a freshly imported file measures the file format instead of the surface.
+`tools/assets/retopologize_for_rigging.py` performs a rung and reports what it
+did, with `--skip-remesh` selecting the plain route. Both meshes stay in one
+Blender session, because the colour bake needs the dense original as its source
+and reloading it from a file that no longer carries the texture is the failure
+this avoids. Every count is taken after welding, because a glTF file splits
+vertices at each uv and normal seam and a boundary or island count read off a
+freshly imported file measures the file format instead of the surface.
 
-`tools/assets/gate_retopology.py` reads that report and decides, so a mesh that
-lost its head is rejected before it consumes a rigging slot rather than after.
-It gates on head-third survival at 0.7, on faceting at 0.30, on boundary and
-non-manifold edges in single figures, and on the face target actually being
-reached. The boundary
-allowance is not zero because welding the measurement copy leaves the occasional
-stray edge; a genuine hole arrives in the hundreds.
+## The two gates, and why they gate what they do
 
-Fidelity is reported and gated only against catastrophe, because it turned out
-not to carry an accept decision: among three assets that all look right it spans
-0.0019 to 0.0108. Two things were wrong with it before that was clear. It
-sampled every source vertex including detached debris the remesh correctly drops,
-so it read 0.0119 on a Jack Russell whose debris share is 1.31 percent and 0.0017
-on a Burmese whose share is 0.92 percent — the percentile crossed into the debris
-exactly when the debris passed one percent. Sampling the source's largest island
-only fixes the measurement, and it still spans fivefold, which is what demoted
-it.
+**Before rigging**, `tools/assets/gate_retopology.py` judges only damage the
+reduction itself did, because that is all it can judge route-independently:
+head-third survival at 0.7, and whether the face target was reached at all. Both
+readings work across routes and both catch a real failure - a starved head, or a
+reduction blocked by non-manifold edges collapse cannot touch.
 
-`tools/assets/run_generated_animal_chain.sh` is the whole chain with that gate in
-place: prepare, gate, rig, orient, level, transfer the donor walk, measure and
-render. It refuses to write into an existing workdir, and it sweeps the remesh
-resolution rather than fixing one, because diagonal/800 was settled on a single
-cat and one asset is not a population. The constant in this pipeline is the gate,
-not the resolution.
+Three readings that look like criteria are reported and *not* judged, each for a
+measured reason:
+
+- **Faceting** punishes a low face count. The coarsest asset here scored worst on
+  it, 0.657, and looked best; a denser one scored 0.383 and looked speckled.
+  Face count and dihedral angle are not independent, so the share of edges past a
+  fixed angle cannot say "good enough".
+- **Boundary and non-manifold edges** are driven to zero by a remesh, so there is
+  nothing to check, and inherited untouched by the plain route, where they
+  describe the reconstruction rather than a defect this step introduced. Two
+  assets that look right carry 1,052 and 1,986 non-manifold edges.
+- **Fidelity** spans fivefold across assets that all look right.
+
+**After rigging**, `tools/assets/gate_rigged_asset.py` decides whether the result
+is good, from how the surface deforms during the walk. The share of area whose
+faces grow past ten times separates every asset measured so far, across both
+failure modes:
+
+| asset | share past 10x | verdict | how it looked |
+| --- | --- | --- | --- |
+| Siamese, plain 25k | 0.011% | accept | clean |
+| Jack Russell, plain 25k | 0.011% | accept | clean |
+| standard Burmese, remesh 80k | 0.012% | accept | clean |
+| Jack Russell, remesh 80k | 0.013% | accept | clean |
+| dark Burmese, remesh 80k | 0.024% | accept | clean |
+| standard Burmese, plain 113k | 0.070% | reject | head destroyed |
+| Siamese, remesh 80k | 0.123% | reject | speckled coat |
+
+Threshold 0.03 percent sits in that gap. Worst-face growth is reported and never
+gated: it is one outlier triangle and it ranks assets wrongly, scoring 162 on an
+asset that looks better than one scoring 24.
+
+Rigging is what makes this reading available, and it costs about eighty seconds -
+cheap enough to spend on a rung that might be the answer, which is what makes the
+ladder practical.
 
 ## Measured across four breeds
 
-Reproduced with the landed tool at the default 80k and diagonal/800:
+Each breed at the rung the ladder settles on, with the readings both gates use:
 
-| breed | verdict | faceting | head third | relief passes | fidelity p99 |
+| breed | rung | faces | head third | share past 10x | verdict |
 | --- | --- | --- | --- | --- | --- |
-| Jack Russell | accept | 4.3% | 1.23 | 1 | 0.0104 |
-| dark Burmese | accept | 10.6% | 1.39 | 4 | 0.0108 |
-| standard Burmese | accept | 23.3% | 1.18 | 29 | 0.0019 |
-| Siamese | reject | 38.3% | 0.66 | 24 | 0.0021 |
+| Jack Russell | plain 25k | 25,000 | 1.46 | 0.011% | accept |
+| Siamese | plain 25k | 25,000 | 1.28 | 0.011% | accept |
+| standard Burmese | remesh 80k | 79,925 | 1.18 | 0.012% | accept |
+| dark Burmese | remesh 80k | 79,976 | 1.39 | 0.024% | accept |
 
-Three of four pass at the default and the fourth is the relief case above. The
-rigged results below were produced earlier at diagonal/700, before the gate
-existed:
+And why each one rejects the rung it does not use:
 
-Same recipe, four different animals, all reaching exactly the requested budget
-with a manifold surface, then rigged and walked through the same chain. This
-batch ran at diagonal/700, before diagonal/800 was settled as the better
-resolution; source counts are welded, sorted by how dirty the input was:
+| breed | rejected rung | reading that failed |
+| --- | --- | --- |
+| standard Burmese | plain 25k | head third 0.54, and the collapse stalled at 111,937 faces |
+| dark Burmese | plain 25k | collapse stalled at 61,147 faces |
+| Siamese | remesh 80k | head third 0.66, and 0.123% of area folds past 10x |
+| Jack Russell | remesh 80k | nothing - it also passes, at 0.013%; rung 1 simply comes first |
 
-| asset | source non-manifold | remesh faces | final faces | boundary | area stretched >2x | >4x | >10x |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| standard Burmese | 7,082 | 418,774 | 80,000 | 0 | 0.333% | 0.089% | 0.012% |
-| dark Burmese | 4,171 | 425,790 | 80,000 | 0 | 0.416% | 0.117% | 0.024% |
-| Siamese | 1,986 | 690,890 | 80,000 | 0 | 1.038% | 0.339% | 0.070% |
-| Jack Russell | 1,052 | 383,184 | 80,000 | 0 | 0.391% | 0.136% | 0.013% |
-
-Against the decimate-only chain on the same animals, the standard Burmese
-improves fourfold (1.355% to 0.333% of area stretched past 2x) and the dark
-Burmese too (1.616% to 0.416%), and both now look like the animal instead of
-crumpled paper.
+The two Burmese are the meshes carrying 7,082 and 4,171 non-manifold edges, and
+they are exactly the two that need the remesh. The two the plain route handles
+carry 1,052 and 1,986. Against the plain route at the density it could actually
+reach, the standard Burmese improves fourfold on area stretched past 2x (1.355%
+to 0.333%) and stops looking like crumpled paper.
 
 ## The budget is squeezed from both sides
 
