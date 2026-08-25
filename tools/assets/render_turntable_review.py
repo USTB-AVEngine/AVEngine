@@ -1,5 +1,8 @@
 """Orbit the camera once around a posed asset, with soft shadow-free lighting."""
-import bpy, sys, math, os
+import bpy
+import sys
+import math
+import os
 
 argv = sys.argv[sys.argv.index("--")+1:]
 src, out_dir, action_name, frames, pose_ratio = argv[0], argv[1], argv[2], int(argv[3]), float(argv[4])

@@ -4,7 +4,11 @@ Exporting to glTF splits vertices at every uv and normal seam, so counting
 islands or boundary edges on a re-imported file measures the file format, not
 the surface. Welding inside one session and counting there measures the surface.
 """
-import bpy, sys, json, bmesh, math
+import bpy
+import sys
+import json
+import bmesh
+import math
 
 argv = sys.argv[sys.argv.index("--")+1:]
 src, out_json = argv[0], argv[1]

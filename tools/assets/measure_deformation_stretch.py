@@ -6,7 +6,9 @@ measures that directly by comparing every face area at rest with the same face
 in the posed frame, and reporting the share of posed surface that grew past a
 threshold.
 """
-import bpy, sys, json
+import bpy
+import sys
+import json
 
 argv = sys.argv[sys.argv.index("--")+1:]
 src, out_json, action_name, ratio = argv[0], argv[1], argv[2], float(argv[3])

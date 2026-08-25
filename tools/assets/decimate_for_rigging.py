@@ -6,7 +6,10 @@ over itself during a walk. Collapsing to a normal skeletal-mesh budget makes
 each bone cover a broad, smooth region, and it is the density the engine wants
 anyway. UVs ride along with the collapse.
 """
-import bpy, sys, json, bmesh
+import bpy
+import sys
+import json
+import bmesh
 
 argv = sys.argv[sys.argv.index("--")+1:]
 src, out, report, target_faces = argv[0], argv[1], argv[2], int(argv[3])
@@ -15,10 +18,13 @@ bpy.ops.import_scene.gltf(filepath=src)
 
 info = {"input": src, "target_faces": target_faces, "meshes": []}
 for o in [x for x in bpy.data.objects if x.type == "MESH"]:
-    bm = bmesh.new(); bm.from_mesh(o.data)
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
     before_v, before_f = len(bm.verts), len(bm.faces)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
-    bm.to_mesh(o.data); o.data.update(); bm.free()
+    bm.to_mesh(o.data)
+    o.data.update()
+    bm.free()
 
     # A collapse ratio is applied to triangles, and triangulating an ngon mesh
     # yields more faces than the polygon count predicts, so aim, measure, repeat.
@@ -35,7 +41,8 @@ for o in [x for x in bpy.data.objects if x.type == "MESH"]:
         mod.use_collapse_triangulate = True
         bpy.ops.object.modifier_apply(modifier=mod.name)
 
-    bm = bmesh.new(); bm.from_mesh(o.data)
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
     after_v, after_f = len(bm.verts), len(bm.faces)
     boundary = sum(1 for e in bm.edges if len(e.link_faces) == 1)
     bm.free()
