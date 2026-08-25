@@ -118,6 +118,19 @@ not the resolution.
 
 ## Measured across four breeds
 
+Reproduced with the landed tool at the default 80k and diagonal/800:
+
+| breed | verdict | faceting | head third | relief passes | fidelity p99 |
+| --- | --- | --- | --- | --- | --- |
+| Jack Russell | accept | 4.3% | 1.23 | 1 | 0.0104 |
+| dark Burmese | accept | 10.6% | 1.39 | 4 | 0.0108 |
+| standard Burmese | accept | 23.3% | 1.18 | 29 | 0.0019 |
+| Siamese | reject | 38.3% | 0.66 | 24 | 0.0021 |
+
+Three of four pass at the default and the fourth is the relief case above. The
+rigged results below were produced earlier at diagonal/700, before the gate
+existed:
+
 Same recipe, four different animals, all reaching exactly the requested budget
 with a manifold surface, then rigged and walked through the same chain. This
 batch ran at diagonal/700, before diagonal/800 was settled as the better
@@ -214,6 +227,30 @@ Everything that reads clean sits under 23 percent and everything speckled over
 38, so the gate takes 0.30 and the remedy it names is more relief smoothing. The
 ratio stays in the report because it drives the pass count; the faceting share
 is what decides.
+
+For the Siamese, though, no setting in the space we searched satisfies both
+criteria at once, and the two remedies pull against each other:
+
+| Siamese attempt | faceting | head third | non-manifold |
+| --- | --- | --- | --- |
+| 80k, 24 relief passes | 0.383 | 0.658 | 2 |
+| 80k, 48 passes | 0.318 | 0.651 | 0 |
+| 80k, 96 passes | 0.265 | 0.639 | 56 |
+| 80k, 160 passes | 0.245 | 0.622 | 147 |
+| 120k, 8 passes | 0.373 | 0.705 | - |
+| 120k at diagonal/700, 0 passes | 0.481 | 0.844 | - |
+
+Smoothing buys a smoother coat by starving the head and reintroducing
+non-manifold edges; more faces save the head and make the faceting worse. A
+volume-preserving laplacian smooth is the principled way out of that trade and
+is a silent no-op at this mesh size — 24, 60 and 120 iterations returned
+byte-identical readings — so the option was removed rather than shipped as a
+setting that does nothing.
+
+That puts the Siamese where the evidence actually points: its fur-scale relief is
+a property of the reconstruction, and the fix belongs upstream in generation
+rather than in the reduction. It stays a documented reject, which is the honest
+state for it.
 
 Welding before this measurement is not optional either, and this is the third
 place in this pipeline where that mattered. A uv unwrap seams almost every

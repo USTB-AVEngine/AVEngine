@@ -396,6 +396,9 @@ def main():
         smoothing = 0
     report["relief_ratio"] = round(relief_ratio, 3)
     report["relief_smooth_iterations"] = smoothing
+    # A volume-preserving laplacian smooth would be the principled way to shed
+    # relief without shrinking thin features, and it is a silent no-op at this
+    # mesh size: 24, 60 and 120 iterations returned byte-identical readings.
     if smoothing:
         modifier = target.modifiers.new("relief_smooth", "SMOOTH")
         modifier.factor = 0.5
