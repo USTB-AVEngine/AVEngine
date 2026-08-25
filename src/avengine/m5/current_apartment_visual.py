@@ -343,6 +343,56 @@ def _interpolate(
     ]
 
 
+def _finite_waypoints(
+    value: Any, *, owner: str
+) -> list[list[float]] | None:
+    """Validate an optional UE-cm waypoint polyline (at least two points)."""
+    if value is None:
+        return None
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise CurrentApartmentVisualError(f"{owner} must be a sequence of points")
+    points = [
+        _finite_triplet(item, owner=f"{owner}[{index}]")
+        for index, item in enumerate(value)
+    ]
+    if len(points) < 2:
+        raise CurrentApartmentVisualError(f"{owner} needs at least two waypoints")
+    return points
+
+
+def _planar_cumulative(points: Sequence[Sequence[float]]) -> list[float]:
+    """Cumulative planar (UE X/Y) distance along a waypoint polyline."""
+    cumulative = [0.0]
+    for first, second in zip(points[:-1], points[1:]):
+        cumulative.append(
+            cumulative[-1]
+            + math.hypot(
+                float(second[0]) - float(first[0]),
+                float(second[1]) - float(first[1]),
+            )
+        )
+    return cumulative
+
+
+def _sample_polyline(
+    points: Sequence[Sequence[float]],
+    cumulative: Sequence[float],
+    distance: float,
+) -> tuple[list[float], int]:
+    """Position at ``distance`` along the polyline, plus the segment it sits on."""
+    last_segment = len(points) - 2
+    if distance <= 0.0:
+        return [float(value) for value in points[0]], 0
+    if distance >= cumulative[-1]:
+        return [float(value) for value in points[-1]], last_segment
+    for index in range(last_segment + 1):
+        if distance <= cumulative[index + 1]:
+            span = cumulative[index + 1] - cumulative[index]
+            fraction = 0.0 if span <= 0.0 else (distance - cumulative[index]) / span
+            return _interpolate(points[index], points[index + 1], fraction), index
+    return [float(value) for value in points[-1]], last_segment
+
+
 def _timeline_state(
     *,
     binding: Mapping[str, Any],
@@ -350,7 +400,16 @@ def _timeline_state(
     end: Sequence[float],
     frame_index: int,
     walk_start_frame: int = 0,
+    waypoints: Sequence[Sequence[float]] | None = None,
 ) -> dict[str, Any]:
+    route = list(waypoints) if waypoints is not None and len(waypoints) > 2 else None
+    if route is not None:
+        return _polyline_timeline_state(
+            binding=binding,
+            route=route,
+            frame_index=frame_index,
+            walk_start_frame=walk_start_frame,
+        )
     moving = any(
         abs(float(end[index]) - float(start[index])) > 1.0e-9 for index in range(3)
     )
@@ -390,6 +449,59 @@ def _timeline_state(
     }
 
 
+def _polyline_timeline_state(
+    *,
+    binding: Mapping[str, Any],
+    route: Sequence[Sequence[float]],
+    frame_index: int,
+    walk_start_frame: int,
+) -> dict[str, Any]:
+    """Per-frame state for a multi-waypoint route.
+
+    The route is resampled by planar arc length across the moving frames, so
+    the actor keeps a constant speed regardless of how the polyline splits
+    into segments, and yaw follows the tangent of the segment it is on.
+    """
+    cumulative = _planar_cumulative(route)
+    total = cumulative[-1]
+    moving = total > 1.0e-9
+    walk_start = walk_start_frame
+    walk_end = FRAME_COUNT - 1
+    action_id = "walk" if moving and frame_index >= walk_start else "idle"
+    period = int(binding["walk_phase_period_frames"])
+    phase = (
+        float((frame_index - walk_start) % period) / float(period)
+        if action_id == "walk"
+        else 0.0
+    )
+    if moving and frame_index >= walk_start:
+        travelled = total * float(frame_index - walk_start) / float(
+            walk_end - walk_start
+        )
+        translation, segment = _sample_polyline(route, cumulative, travelled)
+    else:
+        translation, segment = [float(value) for value in route[0]], 0
+    return {
+        "actor_id": binding["actor_id"],
+        "source_slot_id": binding["source_slot_id"],
+        "asset_id": binding["asset_id"],
+        "revision": binding["revision"],
+        "walk_phase_period_frames": binding["walk_phase_period_frames"],
+        "translation_ue_cm": translation,
+        "yaw_ue_deg": _actor_yaw(
+            route[segment],
+            route[segment + 1],
+            anatomical_forward_yaw_deg=float(binding["ue_anatomical_forward_yaw_deg"]),
+        ),
+        "action_id": action_id,
+        "action_phase": phase,
+        "route_geometry": "polyline",
+        "route_waypoint_count": len(route),
+        "route_arc_length_ue_cm": total,
+        "route_segment_index": segment,
+    }
+
+
 def author_current_apartment_visual_timeline(
     *,
     actor_selection_path: str | Path,
@@ -401,6 +513,8 @@ def author_current_apartment_visual_timeline(
     human_end_ue_cm: Sequence[float],
     beagle_start_ue_cm: Sequence[float],
     beagle_end_ue_cm: Sequence[float],
+    human_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
+    beagle_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
     width: int = 1280,
     height: int = 720,
     hfov_degrees: float = 105.0,
@@ -444,6 +558,21 @@ def author_current_apartment_visual_timeline(
         "source1": _finite_triplet(human_end_ue_cm, owner="human_end_ue_cm"),
         "source2": _finite_triplet(beagle_end_ue_cm, owner="beagle_end_ue_cm"),
     }
+    routes = {
+        "source1": _finite_waypoints(
+            human_waypoints_ue_cm, owner="human_waypoints_ue_cm"
+        ),
+        "source2": _finite_waypoints(
+            beagle_waypoints_ue_cm, owner="beagle_waypoints_ue_cm"
+        ),
+    }
+    for slot, route in routes.items():
+        if route is None:
+            continue
+        if route[0] != starts[slot] or route[-1] != ends[slot]:
+            raise CurrentApartmentVisualError(
+                f"{slot} waypoints must start at its start point and end at its end point"
+            )
     frames = []
     for frame_index in range(FRAME_COUNT):
         frames.append(
@@ -461,6 +590,7 @@ def author_current_apartment_visual_timeline(
                         end=ends[slot],
                         frame_index=frame_index,
                         walk_start_frame=walk_start_frame,
+                        waypoints=routes[slot],
                     )
                     for slot in ("source1", "source2")
                 ],
