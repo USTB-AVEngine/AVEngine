@@ -30,13 +30,27 @@ ID=$(sed -n '1p' "$TOKEN_FILE")
 SECRET=$(sed -n '2p' "$TOKEN_FILE")
 [ -n "$ID" ] && [ -n "$SECRET" ] || { echo "$TOKEN_FILE needs id then secret" >&2; exit 2; }
 
-WORK=$(mktemp -d "$DEST/.hm3ddl.XXXXXX")
-CONF=$WORK/curl.conf
+# A 78 GB transfer outlives the shell that starts it more often than not, so the
+# partial file has to be reusable. HM3D_WORK_DIR names a directory to resume
+# into; curl then continues where the last run stopped. Without it every
+# interruption costs the whole archive again. On resume the directory is kept
+# and only the credential file is destroyed, since that is the part that must
+# not outlive the transfer.
 umask 077
-printf 'user = "%s:%s"\nlocation\nfail\nshow-error\n' "$ID" "$SECRET" > "$CONF"
+if [ -n "${HM3D_WORK_DIR:-}" ]; then
+  WORK=$HM3D_WORK_DIR
+  mkdir -p "$WORK"
+  chmod 700 "$WORK"
+  KEEP_WORK=1
+else
+  WORK=$(mktemp -d "$DEST/.hm3ddl.XXXXXX")
+  KEEP_WORK=0
+fi
+CONF=$WORK/curl.conf
+printf 'user = "%s:%s"\nlocation\nfail\nshow-error\ncontinue-at = -\n' "$ID" "$SECRET" > "$CONF"
 chmod 600 "$CONF"
 unset ID SECRET
-trap 'shred -u "$CONF" 2>/dev/null || rm -f "$CONF"; rm -rf "$WORK"' EXIT
+trap 'shred -u "$CONF" 2>/dev/null || rm -f "$CONF"; [ "$KEEP_WORK" = 1 ] || rm -rf "$WORK"' EXIT
 
 mkdir -p "$HM3D/$SPLIT"
 base=https://api.matterport.com/resources/habitat
@@ -47,8 +61,13 @@ for piece in "$@"; do
   url="$base/hm3d-$SPLIT-$piece$ext"
   out="$WORK/hm3d-$SPLIT-$piece$ext"
   echo "=== $SPLIT $piece  $(date +%H:%M:%S)"
-  if ! curl -K "$CONF" --progress-bar -o "$out" "$url"; then
-    echo "--- failed: $url" >&2
+  # exit 33 or 36 means the server refused the resume range, which for a file
+  # already fully fetched is success rather than failure. Anything else is real
+  # and the archive readability check below is what decides.
+  curl -K "$CONF" --progress-bar -o "$out" "$url"
+  rc=$?
+  if [ $rc -ne 0 ] && [ $rc -ne 33 ] && [ $rc -ne 36 ]; then
+    echo "--- failed (curl $rc): $url" >&2
     continue
   fi
   ls -l "$out"

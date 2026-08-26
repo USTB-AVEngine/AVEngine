@@ -183,6 +183,7 @@ def _decode_accessor(
     *,
     expected_type: str,
     allowed_component_types: set[int],
+    allow_normalized: bool = False,
 ) -> np.ndarray:
     document = glb.document
     accessors = _required_array(document, "accessors")
@@ -191,7 +192,7 @@ def _decode_accessor(
     accessor = _object(accessors[index], f"accessors[{index}]")
     if "sparse" in accessor:
         raise GltfError(f"accessors[{index}] uses unsupported sparse storage")
-    if accessor.get("normalized", False) is not False:
+    if accessor.get("normalized", False) is not False and not allow_normalized:
         raise GltfError(f"accessors[{index}] uses unsupported normalization")
     if accessor.get("type") != expected_type:
         raise GltfError(f"accessors[{index}].type must be {expected_type}")
@@ -500,3 +501,107 @@ def extract_triangle_scene_bytes(
 
 def extract_triangle_scene(path: str | Path) -> ExpandedGltfScene:
     return _extract_triangle_scene_from_document(load_glb(path))
+
+
+def extract_triangle_scene_document(glb: GlbDocument) -> ExpandedGltfScene:
+    """Expand an already-parsed document, for callers that need both."""
+
+    return _extract_triangle_scene_from_document(glb)
+
+
+def triangle_vertex_colours(
+    glb: GlbDocument, scene: ExpandedGltfScene
+) -> tuple[np.ndarray, int]:
+    """Read one linear RGB colour per triangle of ``scene`` from COLOR_0.
+
+    Datasets that carry semantics as painted vertex colour - HM3D is the one
+    this exists for - put the only machine-readable instance identity in
+    COLOR_0, so the acoustic compiler has to see it. Two things about this are
+    load-bearing.
+
+    Alignment is derived, not assumed. Each triangle range is taken from the
+    object record that names its node, mesh and primitive index, so this cannot
+    silently drift out of step with the extraction that produced ``scene`` -
+    which is exactly the failure that would misassign every material in a room
+    while looking perfectly healthy.
+
+    The values stay linear. glTF defines COLOR_0 as linear, and whether a
+    consumer needs sRGB is a fact about that consumer's annotation file, not
+    about the mesh; converting here would bury a dataset quirk in a format
+    reader. The second return value counts triangles whose three vertices did
+    not agree on a colour, which is the honest measure of how much of the
+    result rests on the majority rule below.
+    """
+
+    document = glb.document
+    meshes = _required_array(document, "meshes")
+    triangle_count = len(scene.triangles)
+    colours = np.zeros((triangle_count, 3), dtype=np.float64)
+    mixed = 0
+    for record in scene.objects:
+        count = int(record["triangle_count"])
+        if not count:
+            continue
+        offset = int(record["triangle_offset"])
+        mesh = _object(
+            meshes[int(record["source_mesh_index"])],
+            f"meshes[{record['source_mesh_index']}]",
+        )
+        primitive = _object(
+            mesh["primitives"][int(record["source_primitive_index"])],
+            "primitive",
+        )
+        attributes = _object(primitive.get("attributes"), "primitive.attributes")
+        if "COLOR_0" not in attributes:
+            raise GltfError(
+                f"{record['object_id']} has no COLOR_0 accessor; this mesh "
+                "carries no vertex-painted semantics"
+            )
+        accessor_index = _integer(
+            attributes["COLOR_0"], "primitive.attributes.COLOR_0"
+        )
+        accessor = _object(
+            _required_array(document, "accessors")[accessor_index],
+            f"accessors[{accessor_index}]",
+        )
+        component_type = _integer(
+            accessor.get("componentType"), f"accessors[{accessor_index}].componentType"
+        )
+        # A normalized integer colour is a fraction of its own full scale; a
+        # float colour is already the fraction. Dividing a float attribute by
+        # 255 would darken the whole room by that factor and match nothing.
+        scale = {5121: 255.0, 5123: 65535.0, 5126: 1.0}.get(component_type)
+        if scale is None:
+            raise GltfError(
+                f"accessors[{accessor_index}] COLOR_0 componentType "
+                f"{component_type} is unsupported"
+            )
+        raw = _decode_accessor(
+            glb,
+            accessor_index,
+            expected_type=accessor.get("type", "VEC4"),
+            allowed_component_types={5121, 5123, 5126},
+            allow_normalized=True,
+        )
+        vertex_colours = np.asarray(raw, dtype=np.float64)[:, :3] / scale
+        local = (
+            scene.triangles[offset : offset + count].astype(np.int64, copy=False)
+            - int(record["vertex_offset"])
+        )
+        if local.size and (local.min() < 0 or local.max() >= len(vertex_colours)):
+            raise GltfError(
+                f"{record['object_id']} triangle range falls outside its COLOR_0 accessor"
+            )
+        face = vertex_colours[local]
+        first = face[:, 0, :]
+        second = face[:, 1, :]
+        third = face[:, 2, :]
+        agree_all = np.all(first == second, axis=1) & np.all(second == third, axis=1)
+        # Majority rule: two vertices agreeing decides the triangle. When all
+        # three differ the first vertex decides, which is arbitrary but counted.
+        chosen = first.copy()
+        pick_second = ~agree_all & np.all(second == third, axis=1)
+        chosen[pick_second] = second[pick_second]
+        colours[offset : offset + count] = chosen
+        mixed += int(np.count_nonzero(~agree_all))
+    return colours, mixed

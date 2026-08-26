@@ -46,7 +46,11 @@ from avengine.acoustics.rlr_material_import import (
     RLRMaterialImportError,
     compile_rlr_semantic_material_documents,
 )
-from avengine.acoustics.semantic import ExpandedSemanticScene, load_mp3d_semantic_scene
+from avengine.acoustics.semantic import (
+    ExpandedSemanticScene,
+    load_hm3d_semantic_scene,
+    load_mp3d_semantic_scene,
+)
 from avengine.acoustics.semantic_materials import (
     SemanticMaterialRuleError,
     SemanticSurfaceIdentity,
@@ -985,6 +989,131 @@ def _default_semantic_probe_origins(
     return origins
 
 
+def _finish_semantic_research_scene(
+    *,
+    room: Mapping[str, Any],
+    room_path: Path,
+    room_bytes: bytes,
+    room_sha256: str,
+    rules_path: Path,
+    rules_sha256: str,
+    compiled: Any,
+    scene: Any,
+    semantic_path: Path,
+    descriptor_path: Path,
+    output: str | Path,
+    package_id: str | None,
+    seed: int,
+    probe_origins: Sequence[Sequence[float]] | None,
+    probe_direction_count: int,
+    effective_environment: Mapping[str, str],
+    source_kind: str,
+) -> tuple[Path, Path]:
+    """Package an already-loaded semantic scene into the M3/RLR layout.
+
+    Everything below the semantic loader is dataset-independent, and it is
+    the delicate half: staging, hash pinning, leakage probes, and the
+    input-changed-during-compilation check that makes the package's claims
+    about its own inputs true. Two copies of it would be two chances for a
+    dataset to end up with a differently-sealed package for no stated
+    reason, so MP3D and HM3D share this exactly and differ only in how
+    their per-face identity was read.
+    """
+
+    mapping_errors = validate_mapping_document(
+        compiled.mapping, room_id=room["room_id"]
+    )
+    database_errors = validate_material_database_document(compiled.database)
+    if mapping_errors or database_errors:
+        raise AcousticSceneCompileError(
+            "generated semantic material documents are invalid: "
+            + "; ".join([*mapping_errors, *database_errors])
+        )
+    effective_probe_origins = (
+        [list(map(float, origin)) for origin in probe_origins]
+        if probe_origins is not None
+        else _default_semantic_probe_origins(room)
+    )
+
+    destination = Path(output).resolve()
+    staging = _staging_directory(destination)
+    package_directory = staging / "package"
+    generated_inputs = staging / "generated_inputs"
+    generated_inputs.mkdir()
+    mapping_path = generated_inputs / "mapping.json"
+    database_path = generated_inputs / "materials_research.json"
+    write_json(mapping_path, compiled.mapping)
+    write_json(database_path, compiled.database)
+    mapping_bytes = mapping_path.read_bytes()
+    database_bytes = database_path.read_bytes()
+    mapping_sha256 = sha256_file(mapping_path)
+    database_sha256 = sha256_file(database_path)
+    descriptor_sha256 = sha256_file(descriptor_path)
+    try:
+        manifest_path = _build_explicit_glb_package(
+            room_path=room_path,
+            room_bytes=room_bytes,
+            room=room,
+            room_sha256=room_sha256,
+            mapping_path=mapping_path,
+            mapping_bytes=mapping_bytes,
+            mapping=compiled.mapping,
+            mapping_sha256=mapping_sha256,
+            database_path=database_path,
+            database_bytes=database_bytes,
+            database=compiled.database,
+            database_sha256=database_sha256,
+            output=package_directory,
+            package_id=package_id
+            or f"{room['room_id']}_semantic_seed{seed}_research_v1",
+            environment=effective_environment,
+            expected_room_kind=None,
+            package_mode="research_candidate",
+            source_scene=scene,
+            source_geometry_path=semantic_path,
+            automatic_leakage_origins=effective_probe_origins,
+            automatic_leakage_direction_count=probe_direction_count,
+        )
+        report = copy.deepcopy(compiled.report)
+        report.update(
+            {
+                "source_kind": source_kind,
+                "semantic_mesh_path": str(semantic_path),
+                "semantic_mesh_sha256": scene.source_sha256,
+                "semantic_descriptor_path": str(descriptor_path),
+                "semantic_descriptor_sha256": scene.descriptor_sha256,
+                "source_vertex_count": scene.source_vertex_count,
+                "source_triangle_count": scene.source_triangle_count,
+                "compiled_vertex_count": int(len(scene.vertices)),
+                "compiled_triangle_count": int(len(scene.triangles)),
+                "category_triangle_counts": scene.category_triangle_counts,
+                "semantic_source_defects": list(
+                    getattr(scene, "source_defects", ()) or ()
+                ),
+                "automatic_leakage_probe_origins_m": effective_probe_origins,
+                "automatic_leakage_direction_count": probe_direction_count,
+            }
+        )
+        report_path = package_directory / "semantic_material_coverage.json"
+        write_json(report_path, report)
+        changed = []
+        if sha256_file(rules_path) != rules_sha256:
+            changed.append(str(rules_path))
+        if sha256_file(descriptor_path) != descriptor_sha256:
+            changed.append(str(descriptor_path))
+        if changed:
+            raise AcousticSceneCompileError(
+                "semantic compiler input changed during compilation: "
+                + ", ".join(changed)
+            )
+        os.rename(package_directory, destination)
+        shutil.rmtree(staging)
+        return destination / manifest_path.name, destination / report_path.name
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def compile_mp3d_semantic_research_scene(
     *,
     room_manifest: str | Path,
@@ -1056,97 +1185,25 @@ def compile_mp3d_semantic_research_scene(
         raise AcousticSceneCompileError(
             f"unable to compile MP3D semantic materials: {exc}"
         ) from exc
-    mapping_errors = validate_mapping_document(
-        compiled.mapping, room_id=room["room_id"]
+    return _finish_semantic_research_scene(
+        room=room,
+        room_path=room_path,
+        room_bytes=room_bytes,
+        room_sha256=room_sha256,
+        rules_path=rules_path,
+        rules_sha256=rules_sha256,
+        compiled=compiled,
+        scene=scene,
+        semantic_path=semantic_path,
+        descriptor_path=descriptor_path,
+        output=output,
+        package_id=package_id,
+        seed=seed,
+        probe_origins=probe_origins,
+        probe_direction_count=probe_direction_count,
+        effective_environment=effective_environment,
+        source_kind="mp3d_semantic_ply_house",
     )
-    database_errors = validate_material_database_document(compiled.database)
-    if mapping_errors or database_errors:
-        raise AcousticSceneCompileError(
-            "generated semantic material documents are invalid: "
-            + "; ".join([*mapping_errors, *database_errors])
-        )
-    effective_probe_origins = (
-        [list(map(float, origin)) for origin in probe_origins]
-        if probe_origins is not None
-        else _default_semantic_probe_origins(room)
-    )
-
-    destination = Path(output).resolve()
-    staging = _staging_directory(destination)
-    package_directory = staging / "package"
-    generated_inputs = staging / "generated_inputs"
-    generated_inputs.mkdir()
-    mapping_path = generated_inputs / "mapping.json"
-    database_path = generated_inputs / "materials_research.json"
-    write_json(mapping_path, compiled.mapping)
-    write_json(database_path, compiled.database)
-    mapping_bytes = mapping_path.read_bytes()
-    database_bytes = database_path.read_bytes()
-    mapping_sha256 = sha256_file(mapping_path)
-    database_sha256 = sha256_file(database_path)
-    descriptor_sha256 = sha256_file(descriptor_path)
-    try:
-        manifest_path = _build_explicit_glb_package(
-            room_path=room_path,
-            room_bytes=room_bytes,
-            room=room,
-            room_sha256=room_sha256,
-            mapping_path=mapping_path,
-            mapping_bytes=mapping_bytes,
-            mapping=compiled.mapping,
-            mapping_sha256=mapping_sha256,
-            database_path=database_path,
-            database_bytes=database_bytes,
-            database=compiled.database,
-            database_sha256=database_sha256,
-            output=package_directory,
-            package_id=package_id
-            or f"{room['room_id']}_semantic_seed{seed}_research_v1",
-            environment=effective_environment,
-            expected_room_kind=None,
-            package_mode="research_candidate",
-            source_scene=scene,
-            source_geometry_path=semantic_path,
-            automatic_leakage_origins=effective_probe_origins,
-            automatic_leakage_direction_count=probe_direction_count,
-        )
-        report = copy.deepcopy(compiled.report)
-        report.update(
-            {
-                "source_kind": "mp3d_semantic_ply_house",
-                "semantic_mesh_path": str(semantic_path),
-                "semantic_mesh_sha256": scene.source_sha256,
-                "semantic_descriptor_path": str(descriptor_path),
-                "semantic_descriptor_sha256": scene.descriptor_sha256,
-                "source_vertex_count": scene.source_vertex_count,
-                "source_triangle_count": scene.source_triangle_count,
-                "compiled_vertex_count": int(len(scene.vertices)),
-                "compiled_triangle_count": int(len(scene.triangles)),
-                "category_triangle_counts": scene.category_triangle_counts,
-                "automatic_leakage_probe_origins_m": effective_probe_origins,
-                "automatic_leakage_direction_count": probe_direction_count,
-            }
-        )
-        report_path = package_directory / "semantic_material_coverage.json"
-        write_json(report_path, report)
-        changed = []
-        if sha256_file(rules_path) != rules_sha256:
-            changed.append(str(rules_path))
-        if sha256_file(descriptor_path) != descriptor_sha256:
-            changed.append(str(descriptor_path))
-        if changed:
-            raise AcousticSceneCompileError(
-                "semantic compiler input changed during compilation: "
-                + ", ".join(changed)
-            )
-        os.rename(package_directory, destination)
-        shutil.rmtree(staging)
-        return destination / manifest_path.name, destination / report_path.name
-    except Exception:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
-
-
 def compile_mp3d_soundspaces_research_scene(
     *,
     room_manifest: str | Path,
@@ -1703,3 +1760,99 @@ def compile_visual_slot_semantic_research_scene(
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+
+
+def compile_hm3d_semantic_research_scene(
+    *,
+    room_manifest: str | Path,
+    material_rules: str | Path,
+    output: str | Path,
+    seed: int,
+    package_id: str | None = None,
+    probe_origins: Sequence[Sequence[float]] | None = None,
+    probe_direction_count: int = 32,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[Path, Path]:
+    """Compile HM3D vertex-painted semantics into the existing M3/RLR package.
+
+    No source-to-canonical rotation is applied, and that is a measurement
+    rather than an assumption: HM3D's semantic GLB is the render GLB repainted,
+    and on 00800-TEEsavR23oF the two agree to the last digit on all six
+    bounding-box coordinates and carry the same 395018 triangles. Rotating it
+    the way MP3D's Z-up PLY needs would lay the whole house on its side.
+
+    Candidate material selection is deterministic for ``seed`` and remains a
+    research proposal until a separate physical calibration reviews the room.
+    """
+
+    room_path, room_bytes, room, room_sha256 = _snapshot_json(room_manifest)
+    rules_path, _rules_bytes, rules, rules_sha256 = _snapshot_json(material_rules)
+    room_errors = validate_room_manifest(room)
+    if room_errors:
+        raise AcousticSceneCompileError("invalid source room: " + "; ".join(room_errors))
+    if room.get("room_kind") != "habitat_native":
+        raise AcousticSceneCompileError(
+            "HM3D semantic compilation requires room_kind='habitat_native'"
+        )
+    effective_environment = dict(os.environ if environment is None else environment)
+    effective_environment.setdefault(
+        "AVENGINE_REPOSITORY_ROOT", str(Path(__file__).resolve().parents[3])
+    )
+    semantic_path = _source_asset_path(
+        room_path,
+        room,
+        role="semantic_surface_mesh",
+        environment=effective_environment,
+    )
+    descriptor_path = _source_asset_path(
+        room_path,
+        room,
+        role="semantic_descriptor",
+        environment=effective_environment,
+    )
+    try:
+        scene = load_hm3d_semantic_scene(semantic_path, descriptor_path)
+        matrix, transform_source = _KNOWN_SOURCE_TRANSFORMS["identity_y_up"]
+        surfaces = [
+            SemanticSurfaceIdentity(
+                source_material_name=category,
+                semantic_category=category,
+                identity_key=f"{room['room_id']}/{category}",
+                object_name=category,
+            )
+            for category in scene.semantic_categories
+        ]
+        compiled = compile_semantic_material_documents(
+            room_id=room["room_id"],
+            surfaces=surfaces,
+            rules=rules,
+            seed=seed,
+            source_to_canonical={
+                "matrix_row_major": matrix,
+                "source": transform_source,
+                "reviewed": True,
+            },
+        )
+    except (OSError, SemanticMaterialRuleError, ValueError) as exc:
+        raise AcousticSceneCompileError(
+            f"unable to compile HM3D semantic materials: {exc}"
+        ) from exc
+    return _finish_semantic_research_scene(
+        room=room,
+        room_path=room_path,
+        room_bytes=room_bytes,
+        room_sha256=room_sha256,
+        rules_path=rules_path,
+        rules_sha256=rules_sha256,
+        compiled=compiled,
+        scene=scene,
+        semantic_path=semantic_path,
+        descriptor_path=descriptor_path,
+        output=output,
+        package_id=package_id,
+        seed=seed,
+        probe_origins=probe_origins,
+        probe_direction_count=probe_direction_count,
+        effective_environment=effective_environment,
+        source_kind="hm3d_semantic_glb_annotations",
+    )

@@ -108,14 +108,30 @@ def linear_to_srgb(x):
 
 
 def category_by_colour(semantic_txt: Path):
+    """Read the colour-to-category listing, skipping lines HM3D got wrong.
+
+    One line in the released train split - 474,c,"radiator",11 in
+    00546-nS8T59Aw3sf - carries a one-character colour, and int(h, 16) on it
+    took this tool down 105 scenes into a 145 scene sweep. A malformed line
+    costs one instance; refusing the file costs the scene.
+    """
+
     mapping = {}
+    skipped = 0
     for line in semantic_txt.read_text(encoding="utf-8", errors="replace").splitlines():
         parts = line.split(",", 3)
         if len(parts) < 3 or not parts[0].strip().isdigit():
             continue
         colour = parts[1].strip().upper()
         name = parts[2].strip().strip('"')
+        if len(colour) != 6 or any(
+            character not in "0123456789ABCDEF" for character in colour
+        ):
+            skipped += 1
+            continue
         mapping[colour] = name
+    if skipped:
+        print(f"    skipped {skipped} malformed annotation line(s) in {semantic_txt.name}")
     return mapping
 
 
