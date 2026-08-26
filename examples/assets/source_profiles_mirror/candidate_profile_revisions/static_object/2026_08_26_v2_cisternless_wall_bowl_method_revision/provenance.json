@@ -1,0 +1,53 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/plumbing_fixture_toilet_wall_hung_product_view_v1.json",
+  "sha256": "8e662597e6d9f71d3cbd14c291f2bc124382b86dae0939963415ebbd10302124",
+  "size_bytes": 5444,
+  "profile_schema_id": "plumbing_fixture_toilet_wall_hung_product_view_v1",
+  "profile_revision": "2026_08_26_v2_cisternless_wall_bowl_method_revision",
+  "canonical_sha256": "244b0fd39b7c0645d4c45025b2b88aeed5d3731623411af12c4ede30a5c21dd5"
+ },
+ "method_revision": {
+  "kind": "wall_hung_form_and_visible_flush_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_static_sound_forms",
+  "superseded_profile_canonical_sha256": "62d28fdf1222e91aceb58a458aa19ae7373baf8e293ea86cb9a29c7e3331de94",
+  "reason": "Two v1 seeds both collapsed the wall-hung form into a floor-standing close-coupled toilet with a large cistern, and neither exposed a flush outlet. The shared rest-on-floor pose guard reinforced the wrong form. The v2 method uses an installed wall-mount presentation, bans every floor support and cistern, and exposes the rear-rim jets for emitter review.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "dc3d760ab8b86df1f1ce91d0a7c4a987aa98aac89188d0eb56d8669f9fac9217",
+   "7b43d6aabbc5716b5d2046313dafa42e4cd98a4360ca10b6bef1327868200bcb"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "edb827d84a0f82c07e4943425920361af945fa761df606b08947ec7976b102a6",
+   "2aaed794742ccc9278300972f4ab86ea521b4fcbcba15c73676278a530dc7be8"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_sources_retry_20260826_r2/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_visual_review_under_owner_instruction_20260826",
+  "instances": [
+   {
+    "instance_id": "plumbing_fixture_toilet_wall_hung_product_view_dc3d760ab8b8",
+    "request_sha256": "dc3d760ab8b86df1f1ce91d0a7c4a987aa98aac89188d0eb56d8669f9fac9217",
+    "candidate_sha256": "edb827d84a0f82c07e4943425920361af945fa761df606b08947ec7976b102a6",
+    "sampled_attributes": {
+     "body_color": "white"
+    }
+   },
+   {
+    "instance_id": "plumbing_fixture_toilet_wall_hung_product_view_7b43d6aabbc5",
+    "request_sha256": "7b43d6aabbc5716b5d2046313dafa42e4cd98a4360ca10b6bef1327868200bcb",
+    "candidate_sha256": "2aaed794742ccc9278300972f4ab86ea521b4fcbcba15c73676278a530dc7be8",
+    "sampled_attributes": {
+     "body_color": "white"
+    }
+   }
+  ]
+ }
+}

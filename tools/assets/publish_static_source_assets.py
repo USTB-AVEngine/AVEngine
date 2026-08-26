@@ -325,6 +325,8 @@ def main() -> int:
     parser.add_argument("--review-root", required=True, type=Path)
     parser.add_argument("--profile-snapshot", required=True, type=Path)
     parser.add_argument("--token-budget-report", required=True, type=Path)
+    parser.add_argument("--marker-review-root", required=True, type=Path)
+    parser.add_argument("--anchor-rationale-root", required=True, type=Path)
     parser.add_argument(
         "--placement-plan",
         type=Path,
@@ -400,6 +402,25 @@ def main() -> int:
             variant = publication_variant(candidate)
         except ValueError as error:
             raise SystemExit(f"{instance_id}: {error}") from error
+        marker_review = args.marker_review_root / instance_id
+        marker_files = {
+            name: marker_review / name
+            for name in ("front.png", "side.png", "top.png", "render_manifest.json")
+        }
+        missing_marker = [name for name, path in marker_files.items() if not path.is_file()]
+        if missing_marker:
+            raise SystemExit(f"{instance_id}: marker review is incomplete: {missing_marker}")
+        rationale_path = args.anchor_rationale_root / instance_id / "anchor_rationale.json"
+        if not rationale_path.is_file():
+            raise SystemExit(f"{instance_id}: anchor rationale is missing")
+        rationale = load(rationale_path)
+        if (
+            rationale.get("instance_id") != instance_id
+            or rationale.get("anchor_id") != anchor["anchor_id"]
+            or not isinstance(rationale.get("physical_rationale"), str)
+            or not rationale["physical_rationale"].strip()
+        ):
+            raise SystemExit(f"{instance_id}: anchor rationale does not match authority")
         asset_id = (
             f"generated_{object_type}_{variant}_"
             f"{args.admission_state}_{args.revision}"
@@ -429,6 +450,10 @@ def main() -> int:
         sheet = args.review_root / instance_id / "contact_sheet.png"
         if sheet.is_file():
             shutil.copy2(sheet, destination / "evidence" / "review_contact_sheet.png")
+        shutil.copy2(rationale_path, destination / "evidence" / "anchor_rationale.json")
+        for name, source in marker_files.items():
+            published_name = "emitter_marker_" + name
+            shutil.copy2(source, destination / "evidence" / published_name)
 
         geometry = mesh_extent_and_tilt(destination / "finalized.glb")
         physical = finalization["physical_scale"]
@@ -493,6 +518,16 @@ def main() -> int:
                 "reviewed_target_fraction_xyz": sample["target_fraction_xyz"],
                 "target_to_surface_distance_m": sample["target_to_surface_distance_m"],
                 "authority_sha256": anchor["review_evidence"]["sha256"],
+                "physical_rationale": rationale["physical_rationale"],
+                "marker_review": {
+                    "decision": "approved_after_full_resolution_review",
+                    "front_sha256": digest(destination / "evidence/emitter_marker_front.png"),
+                    "side_sha256": digest(destination / "evidence/emitter_marker_side.png"),
+                    "top_sha256": digest(destination / "evidence/emitter_marker_top.png"),
+                    "render_manifest_sha256": digest(
+                        destination / "evidence/emitter_marker_render_manifest.json"
+                    ),
+                },
             },
             "acceptance": {
                 "watertight": True,

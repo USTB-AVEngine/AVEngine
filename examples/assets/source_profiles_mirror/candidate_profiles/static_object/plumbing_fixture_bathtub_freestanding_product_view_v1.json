@@ -1,7 +1,7 @@
 {
  "schema": "avengine_attribute_profile_v1",
  "profile_schema_id": "plumbing_fixture_bathtub_freestanding_product_view_v1",
- "profile_revision": "2026_08_26_v1_static_sound_forms",
+ "profile_revision": "2026_08_26_v2_integrated_filler_no_external_plumbing_method_revision",
  "asset_class": "static_object",
  "lineage_group_id": "static_product_view_t2i_flux2_v1",
  "state_classification": "research_candidate",
@@ -28,7 +28,7 @@
  "forbidden_combinations": [],
  "generation_contract": {
   "route": "flux2_pixal3d_static_v1",
-  "prompt_template_id": "static_product_view_t2i_v1_bathtub_freestanding",
+  "prompt_template_id": "static_product_view_t2i_v2_freestanding_tub_integrated_filler",
   "base_acquisition_policy": {
    "policy_id": "static_object_per_request_one_shot_v1",
    "acquisition_unit": "one_frozen_asset_per_request",
@@ -36,9 +36,9 @@
    "downstream_instance_route": "flux2_pixal3d_static_v1",
    "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
   },
-  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: a deep oval freestanding tub with a broad rim and one integrated deck-mounted filler spout at an end; the spout opening is clearly visible over the empty interior of the tub.",
+  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: one deep oval freestanding tub with a broad continuous rim and a plain fully enclosed outer shell. At one end, one short arched deck-mounted filler spout is physically fused into the tub rim; its single circular water outlet is clearly visible over the empty tub. The underside and exterior are smooth and contain no visible pipes, hoses, traps, valves or plumbing connectors.",
   "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
-  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, short cabinet, tabletop speaker, single driver, two drivers, horizontal orientation, lying down, bathroom scene, wall surround, shower curtain, person, water, separate floor faucet, accessories",
+  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, short cabinet, tabletop speaker, single driver, two drivers, horizontal orientation, lying down, bathroom scene, wall surround, shower curtain, person, water, separate floor faucet, accessories, missing faucet, tub without filler, faucet not attached to rim, separate floor faucet, freestanding floor tap, external pipe, exposed plumbing, pipe under tub, hanging drain pipe, bulbous connector, hose",
   "value_labels": {
    "category": {
     "plumbing_fixture": "plumbing fixture"

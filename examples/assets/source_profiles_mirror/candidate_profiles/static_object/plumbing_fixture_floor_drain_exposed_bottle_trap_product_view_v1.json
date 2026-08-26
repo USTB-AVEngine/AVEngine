@@ -1,13 +1,13 @@
 {
  "schema": "avengine_attribute_profile_v1",
- "profile_schema_id": "plumbing_fixture_toilet_floor_close_coupled_product_view_v1",
- "profile_revision": "2026_08_26_v3_large_rear_flush_outlet_method_revision",
+ "profile_schema_id": "plumbing_fixture_floor_drain_exposed_bottle_trap_product_view_v1",
+ "profile_revision": "2026_08_26_v1_bottle_trap_form_adjustment",
  "asset_class": "static_object",
  "lineage_group_id": "static_product_view_t2i_flux2_v1",
  "state_classification": "research_candidate",
  "taxonomy": {
   "category": "plumbing_fixture",
-  "object_type": "toilet"
+  "object_type": "floor_drain"
  },
  "base_template": {
   "template_id": "static_object_text_prompt_only_v1",
@@ -17,18 +17,18 @@
   "usage_scope": "research_candidate"
  },
  "fixed_attributes": {
-  "form_factor": "floor_close_coupled",
-  "material": "ceramic"
+  "form_factor": "exposed_bottle_trap",
+  "material": "brass"
  },
  "sampled_attribute_domains": {
   "body_color": [
-   "white"
+   "silver"
   ]
  },
  "forbidden_combinations": [],
  "generation_contract": {
   "route": "flux2_pixal3d_static_v1",
-  "prompt_template_id": "static_product_view_t2i_v3_close_coupled_large_rear_flush_outlet",
+  "prompt_template_id": "static_product_view_t2i_v1_exposed_bottle_trap",
   "base_acquisition_policy": {
    "policy_id": "static_object_per_request_one_shot_v1",
    "acquisition_unit": "one_frozen_asset_per_request",
@@ -36,24 +36,24 @@
    "downstream_instance_route": "flux2_pixal3d_static_v1",
    "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
   },
-  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: one floor-standing close-coupled toilet with one integrated rear cistern. The seat and lid are raised. Use a high three-quarter view into the empty bowl. On the vertical inner rear wall above the water line, one large dark horizontal flush-water outlet slot is plainly visible, at least one quarter of the bowl width and tall enough to remain obvious.",
+  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: one exposed chrome bottle-trap assembly with a short vertical inlet entering the centre of one sealed cylindrical bottle chamber and one single horizontal wall outlet leaving the upper side. The cylinder has a flat removable bottom cap and exactly two pipe ends. The circular top inlet is clearly visible.",
   "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
-  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, short cabinet, tabletop speaker, single driver, two drivers, horizontal orientation, lying down, bathroom scene, wall-hung bowl, detached tank, bidet, closed lid, water splash, toilet paper, smooth featureless inner rim, hidden flush outlet, concealed rim, rimless bowl without visible jets, water obscuring rim, closed lid, lowered seat, wall-hung bowl, detached cistern, small invisible rim holes, smooth rear bowl wall, hidden flush outlet, flush outlet under an overhang, water covering outlet, closed lid",
+  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, short cabinet, tabletop speaker, single driver, two drivers, horizontal orientation, lying down, sink, basin, wall, bathroom scene, disconnected pipes, multiple traps, water leak, floor drain grate, straight vertical pipe, straight-through pipe, tee fitting, T junction, Y junction, perpendicular side branch, three openings, cross fitting, missing U bend, shallow elbow, disconnected pipe, P trap, U bend, tee fitting, T junction, three openings, straight-through pipe, multiple cylinders, disconnected pipes, sink, wall, room scene",
   "value_labels": {
    "category": {
     "plumbing_fixture": "plumbing fixture"
    },
    "object_type": {
-    "toilet": "toilet"
+    "floor_drain": "exposed drain trap"
    },
    "form_factor": {
-    "floor_close_coupled": "floor close-coupled toilet"
+    "exposed_bottle_trap": "exposed cylindrical bottle trap"
    },
    "material": {
-    "ceramic": "glazed ceramic"
+    "brass": "chrome-plated brass"
    },
    "body_color": {
-    "white": "gloss white"
+    "silver": "polished silver"
    }
   },
   "model_revisions": {
@@ -63,30 +63,31 @@
   }
  },
  "target_physical_profiles": {
-  "profile_id": "plumbing_fixture_toilet_floor_close_coupled_product_view_v1_physical_candidate_v1",
+  "profile_id": "plumbing_fixture_floor_drain_exposed_bottle_trap_product_view_v1_physical_candidate_v1",
   "control_attribute": null,
   "measurement": "height_cm",
   "mode": "absolute_measurement",
-  "reference_value_cm": 78,
+  "reference_value_cm": 25,
   "reference_provenance": {
    "status": "provisional",
-   "source_id": "toilet_floor_close_coupled_typical_retail_dimension_v1",
+   "source_id": "exposed_bottle_trap_typical_retail_dimension_v1",
    "artifact": null,
    "notes": "Provisional typical retail dimension; measure the approved mesh before formal registration. Uniform height scaling amplifies any aspect error from reconstruction, so check the width and depth of the finalized mesh as well."
   },
   "values": {
    "fixed": {
-    "target_value_cm": 78,
-    "tolerance_cm": 10
+    "target_value_cm": 25,
+    "tolerance_cm": 5
    }
   }
  },
  "rig_profile": null,
  "acoustic_profile": {
-  "profile_id": "toilet_v1",
-  "default_event_class": "toilet_flush",
+  "profile_id": "floor_drain_v1",
+  "default_event_class": "gurgling",
   "allowed_event_classes": [
-   "toilet_flush",
+   "drip",
+   "gurgling",
    "silent"
   ],
   "selection_attributes": [
@@ -101,13 +102,13 @@
   "material"
  ],
  "qa_contract": {
-  "subject_label": "toilet",
+  "subject_label": "exposed bottle trap",
   "attributes": {
    "body_color": {
     "kind": "categorical",
     "label": "body color or finish",
     "value_labels": {
-     "white": "gloss white"
+     "silver": "polished silver"
     },
     "identification_question": "What is the body color or finish of {instance_label}?"
    }
