@@ -176,3 +176,23 @@ def test_complete_acceptance_fields_do_not_depend_on_publication_path(tmp_path):
     assert fields["mounting_plane_normal_tilt_deg"] is None
     assert fields["resting_pose_attachment_surface_assumed"] is True
     assert fields["secondary_long_axis_elevation_deg"] == 1.25
+
+
+def test_apply_merge_updates_matching_index_records_and_preserves_animals():
+    animal = {"asset_id": "animal", "entity_class": "articulated_animal"}
+    old = {"asset_id": "static", "acceptance": {"resting_pose_verdict": "leaning"}}
+    updated = {
+        "asset_id": "static",
+        "acceptance": {
+            "resting_pose_verdict": "level",
+            "base_normal_tilt_deg": 1.25,
+        },
+    }
+
+    merged = resting.merge_updated_assets_into_index(
+        {"formal_dataset_registration_authorized": False, "assets": [animal, old]},
+        [updated],
+    )
+
+    assert merged["assets"] == [animal, updated]
+    assert merged["formal_dataset_registration_authorized"] is False

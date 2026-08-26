@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -362,6 +363,46 @@ def _reported_tilt(pose: dict[str, Any]) -> float | None:
     return pose.get("mounting_plane_normal_tilt_deg")
 
 
+def merge_updated_assets_into_index(
+    index: dict[str, Any], updated_records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Replace matching embedded index records and preserve unrelated assets."""
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for record in updated_records:
+        asset_id = record.get("asset_id")
+        if not isinstance(asset_id, str) or not asset_id:
+            raise ValueError("an applied asset.json is missing asset_id")
+        if asset_id in by_id:
+            raise ValueError(f"applied asset.json repeats asset_id {asset_id}")
+        by_id[asset_id] = record
+
+    existing = index.get("assets")
+    if not isinstance(existing, list):
+        raise ValueError("asset index assets must be a list")
+    existing_ids = {item.get("asset_id") for item in existing if isinstance(item, dict)}
+    missing = sorted(set(by_id) - existing_ids)
+    if missing:
+        raise ValueError(f"applied assets are missing from index: {missing}")
+
+    result = dict(index)
+    result["assets"] = [
+        by_id.get(item.get("asset_id"), item) if isinstance(item, dict) else item
+        for item in existing
+    ]
+    return result
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.resting-pose-{os.getpid()}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, indent=1) + "\n")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asset-root", required=True, type=Path)
@@ -377,6 +418,7 @@ def main() -> int:
     args = parser.parse_args()
 
     records = []
+    applied_records = []
     for asset_json in sorted(args.asset_root.rglob("asset.json")):
         directory = asset_json.parent
         glb = directory / "finalized.glb"
@@ -410,10 +452,8 @@ def main() -> int:
             record.setdefault("acceptance", {}).update(
                 acceptance_fields(pose, geometry.get("long_axis_elevation_deg"))
             )
-            asset_json.write_text(
-                json.dumps(record, ensure_ascii=False, indent=1) + "\n",
-                encoding="utf-8",
-            )
+            _write_json_atomic(asset_json, record)
+            applied_records.append(record)
 
     leaning = [item for item in records if item["verdict"] == "leaning"]
     no_base = [item for item in records if item["verdict"] == "no_base_found"]
@@ -450,7 +490,14 @@ def main() -> int:
         )
         print(f"wrote {args.report}")
     if args.apply:
-        print("applied geometry.resting_pose and complete acceptance fields")
+        index_path = args.asset_root / "index.json"
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        merged = merge_updated_assets_into_index(index, applied_records)
+        _write_json_atomic(index_path, merged)
+        print(
+            "applied geometry.resting_pose and complete acceptance fields "
+            f"to {len(applied_records)} leaves and index.json"
+        )
     return 1 if leaning else 0
 
 
