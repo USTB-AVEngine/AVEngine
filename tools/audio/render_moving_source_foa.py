@@ -484,6 +484,36 @@ def main() -> int:
                 f"{int((values <= args.tolerance_deg).sum())}/{len(table)}"
             )
 
+    # What reverberation these routes are actually rendered into, which is the
+    # number the material switch moves.
+    def t20(w):
+        peak = int(np.argmax(np.abs(w)))
+        tail = w[peak:].astype(float)
+        if tail.size < 16:
+            return float("nan")
+        energy = np.cumsum(tail[::-1] ** 2)[::-1]
+        curve = 10.0 * np.log10(np.maximum(energy / energy[0], 1e-20))
+        a = np.flatnonzero(curve <= -5.0)
+        b = np.flatnonzero(curve <= -25.0)
+        return float("nan") if not a.size or not b.size else float(
+            (b[0] - a[0]) / SR * 1000.0
+        )
+
+    decays = np.array([t20(ir[0]) for ir in responses], dtype=float)
+    decays = decays[np.isfinite(decays)]
+    reverberation = {"t20_ms_median": None}
+    if decays.size:
+        reverberation = {
+            "t20_ms_median": round(float(np.median(decays)), 2),
+            "t20_ms_minimum": round(float(decays.min()), 2),
+            "t20_ms_maximum": round(float(decays.max()), 2),
+            "materials": materials_on,
+        }
+        print(
+            f"T20 along the route  median {np.median(decays):.1f} ms  "
+            f"({decays.min():.1f}-{decays.max():.1f})"
+        )
+
     report = {
         "schema": "avengine_moving_source_foa_v1",
         "scene": bank["scene"],
@@ -510,10 +540,7 @@ def main() -> int:
             "maximum": round(float(errors.max()), 3),
         },
         "acoustic_materials": materials_on,
-        "reverberation": {
-            "t20_ms_median": None,
-            "note": "measured per frame from the rendered responses below",
-        },
+        "reverberation": reverberation,
         "frames_within_tolerance": within,
         "frames_measured": int(errors.size),
         "range_m": {
@@ -527,35 +554,6 @@ def main() -> int:
     (args.output_dir / "moving_source_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
     )
-
-    # What reverberation these routes are actually rendered into, which is the
-    # number the material switch moves.
-    def t20(w):
-        peak = int(np.argmax(np.abs(w)))
-        tail = w[peak:].astype(float)
-        if tail.size < 16:
-            return float("nan")
-        energy = np.cumsum(tail[::-1] ** 2)[::-1]
-        curve = 10.0 * np.log10(np.maximum(energy / energy[0], 1e-20))
-        a = np.flatnonzero(curve <= -5.0)
-        b = np.flatnonzero(curve <= -25.0)
-        return float("nan") if not a.size or not b.size else float(
-            (b[0] - a[0]) / SR * 1000.0
-        )
-
-    decays = np.array([t20(ir[0]) for ir in responses], dtype=float)
-    decays = decays[np.isfinite(decays)]
-    if decays.size:
-        report["reverberation"] = {
-            "t20_ms_median": round(float(np.median(decays)), 2),
-            "t20_ms_minimum": round(float(decays.min()), 2),
-            "t20_ms_maximum": round(float(decays.max()), 2),
-            "materials": materials_on,
-        }
-        print(
-            f"T20 along the route  median {np.median(decays):.1f} ms  "
-            f"({decays.min():.1f}-{decays.max():.1f})"
-        )
 
     print(f"episode {episode['episode_id']}  slot {args.slot}")
     print(f"listener {np.round(listener, 3).tolist()}")
