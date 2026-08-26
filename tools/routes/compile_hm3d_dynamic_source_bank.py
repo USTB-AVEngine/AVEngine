@@ -110,6 +110,11 @@ def main() -> int:
     parser.add_argument("--scene", required=True, action="append")
     parser.add_argument("--navmesh", action="append", default=[])
     parser.add_argument("--report", type=Path)
+    parser.add_argument(
+        "--topdown-dir",
+        type=Path,
+        help="write the repository's own feasibility/trajectory diagnostic per floor",
+    )
     parser.add_argument("--source1-height-m", type=float, default=1.2)
     parser.add_argument("--source2-height-m", type=float, default=0.35)
     parser.add_argument("--episodes-per-motion-case", type=int, default=8)
@@ -128,6 +133,15 @@ def main() -> int:
         ),
     )
     parser.add_argument("--source-body-height-m", type=float, default=1.5)
+    parser.add_argument(
+        "--no-reground",
+        action="store_true",
+        help=(
+            "keep every path sample pinned to one floor height, as the library "
+            "does for a flat authored room. Left on for HM3D it puts most "
+            "samples off the navmesh vertically; the flag exists to measure that"
+        ),
+    )
     parser.add_argument(
         "--shipped-navmesh-inset-m",
         type=float,
@@ -204,6 +218,7 @@ def main() -> int:
             args.minimum_route_distance_m,
             args.maximum_route_distance_m,
         ],
+        "regrounded_per_sample": not args.no_reground,
         "scenes": [],
     }
 
@@ -332,11 +347,41 @@ def main() -> int:
                 for slot, index in regions.items()
             }
 
+            def reground(roots, _pathfinder=pathfinder):
+                """Put every sample on the floor that is actually under it.
+
+                The library pins a whole path to one declared floor height,
+                which is right for an authored room with a flat floor and wrong
+                for a scanned storey. On these scenes a single storey's navmesh
+                spans about half a metre, so pinning leaves the source hanging
+                in the air or sunk into the floor - measured against a 0.05 m
+                vertical tolerance, up to 93 percent of samples on some floors
+                were off the navmesh, while the default 0.5 m tolerance hid all
+                of it behind a clean zero.
+
+                Only the height is taken from the snap. The horizontal position
+                has already been through the feasible-region sampling and must
+                not be moved by a grounding step.
+                """
+
+                grounded = {}
+                for slot, path in roots.items():
+                    samples = np.array(path, dtype=np.float64)
+                    for index, sample in enumerate(samples):
+                        snapped = np.asarray(
+                            _pathfinder.snap_point(sample), dtype=np.float64
+                        )
+                        if np.all(np.isfinite(snapped)):
+                            samples[index, 1] = snapped[1]
+                    grounded[slot] = samples
+                return grounded
+
             builder = TrajectoryBankBuilder(
                 pathfinder=pathfinder,
                 obstacle_map=obstacle_map,
                 region_by_source=regions,
                 shortest_path_factory=shortest_path_class,
+                source_path_materializer=None if args.no_reground else reground,
             )
             try:
                 bank = builder.build(
@@ -363,6 +408,12 @@ def main() -> int:
             worst_clearance = float("inf")
             clearances = []
             checked = 0
+            off_raster = 0
+            off_raster_runs = []
+            mask = regions["source1"].feasible_mask
+            map_bounds = np.asarray(obstacle_map.bounds_m, dtype=float)
+            cell_x = (map_bounds[1][0] - map_bounds[0][0]) / mask.shape[1]
+            cell_z = (map_bounds[1][2] - map_bounds[0][2]) / mask.shape[0]
             for episode in bank.episodes:
                 for slot, path in episode.source_center_paths_m.items():
                     points = np.asarray(path)
@@ -378,10 +429,39 @@ def main() -> int:
                     # Independent re-check. The builder already gates on this,
                     # so agreement is the point: a route is being called legal
                     # by something other than the code that produced it.
-                    root = np.asarray(episode.source_root_paths_m[slot])
+                    # source_center_paths_m, not source_root_paths_m. The
+                    # roots keep whatever the sampler produced; the centres are
+                    # what the materializer returned and what the gate ran on,
+                    # so the roots are the wrong thing to verify. With no
+                    # materializer the two are equal, which is exactly why
+                    # reading the wrong one looked harmless.
+                    root = np.asarray(episode.source_center_paths_m[slot])
+                    run = 0
                     for sample in root:
                         checked += 1
-                        if not pathfinder.is_navigable(sample):
+                        # Against the raster the feasibility map is drawn from,
+                        # not only against the navmesh. The two can disagree,
+                        # and a route that leaves the raster is a route the map
+                        # says is impossible, whatever the navmesh thinks.
+                        row = int((sample[2] - map_bounds[0][2]) / cell_z)
+                        col = int((sample[0] - map_bounds[0][0]) / cell_x)
+                        inside_raster = (
+                            0 <= row < mask.shape[0]
+                            and 0 <= col < mask.shape[1]
+                            and bool(mask[row, col])
+                        )
+                        if inside_raster:
+                            if run:
+                                off_raster_runs.append(run)
+                                run = 0
+                        else:
+                            off_raster += 1
+                            run += 1
+                        # A 0.5 m vertical slack is the default and it is too
+                        # loose here: in a house it can match a polygon on the
+                        # storey above or below, so every sample passes and the
+                        # check means nothing.
+                        if not pathfinder.is_navigable(sample, 0.05):
                             offmesh += 1
                             continue
                         if reference is None:
@@ -407,6 +487,20 @@ def main() -> int:
                 "median_navmesh_clearance_m": (
                     round(float(np.median(clearances)), 4) if clearances else None
                 ),
+                "samples_off_feasible_raster": off_raster,
+                "off_raster_longest_run": (
+                    max(off_raster_runs) if off_raster_runs else 0
+                ),
+                "raster_disagreement_note": (
+                    "unresolved. Samples outside the raster snap onto the "
+                    "navmesh at zero horizontal distance and identical height, "
+                    "so the navmesh calls them legal while the feasibility map "
+                    "does not. Runs are far longer than one boundary cell, so "
+                    "this is not rasterisation rounding. One of the two "
+                    "authorities is wrong and this records which samples "
+                    "disagree rather than picking a winner"
+                ),
+                "navigable_vertical_slack_m": 0.05,
                 "clearance_note": (
                     "measured against the shipped navmesh. The worst value sits "
                     "a little under the inset because resampling a geodesic by "
@@ -431,6 +525,41 @@ def main() -> int:
             if bank.episodes:
                 floors_with_routes += 1
             scene_record["floors"].append(entry)
+            if args.topdown_dir and bank.episodes:
+                from avengine.routes.feasibility_topdown import (
+                    render_feasibility_topdown,
+                )
+                from PIL import Image
+
+                args.topdown_dir.mkdir(parents=True, exist_ok=True)
+                listener = np.asarray(
+                    regions["source1"].pixel_to_world(
+                        regions["source1"].sample_pixels_rc[
+                            len(regions["source1"].sample_pixels_rc) // 2
+                        ],
+                        height_m=floor["height_m"],
+                    ),
+                    dtype=np.float64,
+                )
+                panel = render_feasibility_topdown(
+                    regions,
+                    bank,
+                    listener_position_m=listener,
+                    listener_yaw_deg=0.0,
+                    camera_hfov_degrees=70.0,
+                    room_label=f"{name} floor y={floor['height_m']:+.3f}",
+                    navigation_authority_label=(
+                        "HM3D shipped navmesh, recomputed at agent radius "
+                        f"{args.source_body_radius_m:.2f} m"
+                    ),
+                )
+                out = (
+                    args.topdown_dir
+                    / f"{name}_y{floor['height_m']:+.3f}.topdown.png"
+                )
+                Image.fromarray(np.asarray(panel, dtype=np.uint8)).save(out)
+                entry["topdown"] = str(out)
+
             band = entry.get("route_length_m", {})
             print(
                 f"   y={floor['height_m']:+7.3f}  "
@@ -445,7 +574,9 @@ def main() -> int:
                 f"clear {entry['recheck']['median_navmesh_clearance_m']}"
                 f"/{entry['recheck']['worst_navmesh_clearance_m']}  "
                 f"off-navmesh {entry['recheck']['samples_off_navmesh']}"
-                f"/{entry['recheck']['samples_checked']}"
+                f"/{entry['recheck']['samples_checked']}  "
+                f"off-raster {entry['recheck']['samples_off_feasible_raster']}"
+                f"(run {entry['recheck']['off_raster_longest_run']})"
             )
 
         scene_record["verdict"] = (
