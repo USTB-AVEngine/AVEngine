@@ -374,6 +374,13 @@ def main() -> int:
         "emitter_height_used_m": report["source_center_height_m"],
         "frames": len(frames),
         "frame_rate_hz": bank["frame_rate_hz"] / max(report["frame_stride"], 1),
+        "camera_aim_world": [round(float(x), 6) for x in aim],
+        "camera_hfov_deg": round(hfov, 3),
+        "camera_aim_note": (
+            "pass this vector, not an angle, to any binaural render of the same "
+            "clip. Yaw means different things in different places here and the "
+            "vector does not"
+        ),
         "binding": (
             "the loudspeaker's own emitter anchor sits at the point the "
             "acoustic pass rendered the source from; the camera does not track"

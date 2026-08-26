@@ -166,7 +166,7 @@
 | `tools/audio/hm3d_download.sh` | Download the HM3D val split into the shared dataset root. |
 | `tools/audio/insert_speakers_and_render_foa.py` | Put our published speakers into a Habitat scene and render RGB plus FOA |
 | `tools/audio/plan_from_navmesh.py` | Build a speaker placement from the scene's navmesh |
-| `tools/audio/render_moving_source_foa.py` | Render a moving sound source along a route the navmesh already approved |
+| `tools/audio/render_moving_source.py` | Render a moving sound source in one of the renderer's two output layouts |
 
 ## 出题与认证（`tools/qa/`）
 

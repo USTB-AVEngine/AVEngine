@@ -42,7 +42,7 @@ skokloster-castle 是一座空旷的石头大厅，0.5–2 ms 都测出 0.0°，
 而且 2 ms 的污染**随距离增长**：4.6 m 处读 4.8°，1.1 m 处读 0.0°。直达波随距离变弱，
 反射不变弱。所以"远处的声源测不准"看起来像遮挡，实际是窗太长。
 
-`tools/audio/render_moving_source_foa.py --window-sweep` 可以在任意路线上复现这张表 ——
+`tools/audio/render_moving_source.py --window-sweep` 可以在任意路线上复现这张表 ——
 **不要信这个数字，在你自己的场景上扫一遍**，因为它显然依赖房间。
 **这条要同步给 binding_data 的 owner** —— Phase 1 那 2790 个 IR 是用 `audio_utils.py`
 （STFT 域、另一条路径）验的，不一定受影响，但 `render_real.py` 这条肯定受。
@@ -406,10 +406,44 @@ DoA 两边都是 0.00°，方向不受影响。
 （注意上面那些 `within 5 deg` 的计数 8/15、10/15、13/15：那是**路线级遮挡**，不是窗的
 问题 —— 听者试听只检查了路线中点，路线其余部分可能被墙挡住。中位数看窗，最大值看遮挡。）
 
+## 5.11 一个渲染器，两种输出布局（2026-08-26）
+
+**FOA 和 HRTF 不是两个任务，是同一次渲染的两种输出布局。** 我一度写成了两个脚本，
+结果树里有两份时变卷积循环，而且**已经开始各自漂移** —— FOA 那份长出了扫窗，
+双耳那份长出了左右符号检查，互相都没有。现在合成一个
+`tools/audio/render_moving_source.py --layout {ambisonics,binaural}`，
+凡是与布局无关的部分只写一遍。
+
+| 布局 | 通道 | 用途 |
+|---|---|---|
+| `ambisonics` | 4，世界坐标轴 ACN `[W,Y,Z,X]` | 携带完整场；逐帧方向校验必须用它（声强矢量要方向通道） |
+| `binaural` | 2，`[left, right]`，经显式 HRTF | 耳机可直听，前后不塌 |
+
+各自的校验也各归各位:ambisonics 扫分析窗;binaural 在**开阔处**证明左右符号。
+
+**串起来的链条**(每一环把下一环需要的东西写进报告，不靠人记):
+
+```
+轨迹库 → ambisonics 渲染（定听者、验 DoA、写 render_report.json）
+       → 视频（选朝向，把 camera_aim_world 向量写进 video_manifest.json）
+       → binaural（--from-report 复用听者，--video-manifest 读朝向）
+```
+
+**双耳的朝向必须传向量，不能传角度。** 传角度试过一次，正好撞出这个检查存在的意义:
+视频挑朝向的循环里 yaw 参数化的是 `(sin, 0, -cos)`，而消费它的 look-at 内部算的是
+`atan2(-x, -z)` —— **同一个数字命名了相差 60° 的两个朝向**。向量不会被误读，
+而且头部自身的轴是从旋转矩阵里读出来的，不再由角度反推。
+
+**泛化上清掉的东西:** 材质库路径不再有机器专用默认值（配 `--dataset-config` 时必须显式给
+`--materials-json`，因为 `enableMaterials` 只是叫传感器"去找一个"）；采样率成为参数；
+资产目录、HRTF、场景、朝向全部由参数进来。三个工具里已无 `/data/jzy` 之类的硬编码。
+
+`--direct-only` 一并留在这个工具里 —— 那是复现 JAEGER 发布 RIR 的开关（见 §5.7）。
+
 ## 6. 移动声源（2026-08-26 追加）
 
 `tools/routes/compile_hm3d_dynamic_source_bank.py` 找路线，
-`tools/audio/render_moving_source_foa.py` 渲声音。逐帧一个 FOA 冲激响应，干声跟逐帧响应
+`tools/audio/render_moving_source.py` 渲声音。逐帧一个冲激响应，干声跟逐帧响应
 做时变卷积 + 重叠相加，所以混响不会每帧重启。
 
 **听者必须靠渲染来选，不能靠距离。** 在距离带里随机取 navmesh 点，约一半时候取到被墙
