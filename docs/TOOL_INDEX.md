@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 237 个工具脚本。
+当前共 242 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -41,6 +41,7 @@
 | `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
 | `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
+| `tools/assets/measure_static_resting_pose.py` | Measure how a published static asset sits on a floor, and record it in the asset |
 | `tools/assets/measure_static_upright_correction.py` | Measure how far a rigid reconstruction is from standing straight |
 | `tools/assets/measure_walk_deformation.py` | How badly a rigged animal's surface tears, over the whole walk cycle |
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
@@ -95,6 +96,14 @@
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential human+Beagle episode through SPEAR/UE |
 
+## 场景放置（`tools/scene/`）
+
+*基于真实场景表面规划并核验实体放置*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/scene/plan_supported_placement.py` | Place speakers on surfaces that exist, and check the sightline against geometry |
+
 ## 声学（`tools/acoustics/`）
 
 *声学场景包、材质、RIR 缓存与计划、声学核验*
@@ -120,6 +129,7 @@
 | `tools/routes/build_camera_pose_request.py` | Build one camera/listener-coherent M1 request at an arbitrary room pose |
 | `tools/routes/build_four_motion_anchor_profile.py` | Build and benchmark the reusable emitter-anchor profile from a pilot |
 | `tools/routes/compile_apartment_feasibility_bank.py` | Compile Apartment feasibility, a four-case trajectory bank, and Topdown QA |
+| `tools/routes/compile_hm3d_dynamic_source_bank.py` | Ask whether a moving sound source can find legal routes in an HM3D scene |
 | `tools/routes/compile_kujiale_feasibility_bank.py` | Compile a Kujiale room polygon into reusable source-center trajectories |
 | `tools/routes/import_legacy_apartment_route.py` | Import the legacy 18 s apartment route into the M5.1 route manifest |
 | `tools/routes/plot_route_bank.py` | Render the apartment route bank as a top-down map: engine navigation vs the hand-mined corridors |
@@ -138,6 +148,14 @@
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
 
+## 视觉回放（`tools/visual/`）
+
+*在 AVEngine 原生视觉路径中回放、渲染与核验放置结果*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/visual/replay_placement_in_avengine.py` | Render the same speaker placement the acoustic chain used, in AVEngine's own runtime |
+
 ## 空间音频（`tools/audio/`）
 
 *双耳/FOA 渲染与混音（src/avengine/spatial_audio，工具暂无）*
@@ -148,6 +166,7 @@
 | `tools/audio/hm3d_download.sh` | Download the HM3D val split into the shared dataset root. |
 | `tools/audio/insert_speakers_and_render_foa.py` | Put our published speakers into a Habitat scene and render RGB plus FOA |
 | `tools/audio/plan_from_navmesh.py` | Build a speaker placement from the scene's navmesh |
+| `tools/audio/render_moving_source_foa.py` | Render a moving sound source along a route the navmesh already approved |
 
 ## 出题与认证（`tools/qa/`）
 
