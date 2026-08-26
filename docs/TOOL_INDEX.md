@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 232 个工具脚本。
+当前共 233 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -323,6 +323,7 @@
 | `tools/blender/build_custom_room.py` | Build the controlled two-zone Blender room used by the M1 canary |
 | `tools/blender/normalize_asset_skinned_glb.py` | Bake an armature object transform into a Habitat-oriented GLB candidate |
 | `tools/blender/realize_animal_appearance.py` | Realize one hash-bound animal appearance request without changing its rig |
+| `tools/blender/render_instance_diversity_check.py` | Render several finished assets in one frame at room distance |
 | `tools/blender/verify_asset_rebased_glb.py` | Verify sampled deformation equivalence across the M2 GLB root rebase |
 | `tools/blender/verify_motion_projection.py` | Measure sampled deformation drift from a source to a rotation-only GLB |
 
