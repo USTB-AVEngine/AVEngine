@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>声源资产台 · AVEngine Studio</title>
+<style>
+:root{--bg:#fbfaf7;--card:#fff;--ink:#2c2c2a;--mut:#8a877d;--line:#e2dfd6;
+--ok:#1f6b4a;--okbg:#e1f5ee;--warn:#9a6b12;--warnbg:#fdf3d8;--bad:#a33;--badbg:#fae7e7}
+*{box-sizing:border-box}
+body{font-family:system-ui,'PingFang SC',sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);
+padding:.7rem 1.2rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+header h1{font-size:1.05rem;margin:0 1rem 0 0}
+header a{color:#534ab7;text-decoration:none;font-size:.85rem}
+select,input[type=search]{font:inherit;font-size:.85rem;padding:.25rem .45rem;border:1px solid var(--line);
+border-radius:5px;background:#fff}
+#count{font-size:.8rem;color:var(--mut);margin-left:auto}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px;padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+display:flex;flex-direction:column}
+.view{position:relative;height:210px;background:linear-gradient(#f4f2ec,#e9e6dd);cursor:grab}
+.view .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+color:var(--mut);font-size:.78rem}
+.meta{padding:.55rem .7rem .7rem;font-size:.78rem;display:flex;flex-direction:column;gap:.28rem}
+.meta .name{font-weight:600;font-size:.83rem;word-break:break-all}
+.row{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center}
+.chip{padding:.05rem .4rem;border-radius:3px;font-size:.72rem;background:#efede6}
+.chip.level{background:var(--okbg);color:var(--ok)}
+.chip.acceptable{background:var(--warnbg);color:var(--warn)}
+.chip.leaning,.chip.no_base_found{background:var(--badbg);color:var(--bad)}
+.chip.no_mounting_plane_found{background:var(--badbg);color:var(--bad)}
+.dims{color:var(--mut);font-variant-numeric:tabular-nums}
+canvas#gl{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:5}
+</style></head><body>
+<header>
+  <h1>声源资产台</h1>
+  <a href="/">← 首页</a>
+  <select id="fCat"><option value="">全部类别</option></select>
+  <select id="fVerdict"><option value="">全部姿态判定</option></select>
+  <select id="fSurface"><option value="">全部安装面</option></select>
+  <input type="search" id="fText" placeholder="搜 asset_id / 类型">
+  <span id="count"></span>
+</header>
+<div id="grid"></div>
+<canvas id="gl"></canvas>
+<script src="/studio/static/three.min.js"></script>
+<script src="/studio/static/OrbitControls.js"></script>
+<script src="/studio/static/GLTFLoader.js"></script>
+<script>
+// 平铺免点击 + 严格懒加载：所有资产的数字与判定一屏平铺、无需点击；
+// 5–7 MB 的 glb 只在卡片滚进视口时才取，滚远即卸载，同时最多驻留 MAX_LIVE 个。
+// 单一 WebGL 上下文 + scissor 多视口：浏览器 8–16 个上下文的上限碰不到。
+const MAX_LIVE = 10;
+const grid = document.getElementById('grid');
+const glCanvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({canvas: glCanvas, antialias: true, alpha: true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+const loader = new THREE.GLTFLoader();
+const live = new Map();   // path -> {scene,camera,controls,el,lastSeen}
+const visible = new Set();
+let assets = [];
+
+function chip(text, cls){ return text == null ? '' : `<span class="chip ${cls||''}">${text}</span>`; }
+function fmt(v){ return v == null ? '?' : (Math.round(v*100)/100); }
+
+function card(a){
+  const el = document.createElement('div'); el.className = 'card';
+  const tilt = a.base_normal_tilt_deg ?? a.mounting_plane_normal_tilt_deg;
+  const surface = a.attachment_surface ? a.attachment_surface + (a.attachment_surface_assumed ? '（假定）' : '') : '未声明';
+  el.innerHTML = `
+    <div class="view" data-path="${a.files['finalized.glb'] ? a.files['finalized.glb'].path : ''}">
+      <div class="hint">滚动到此处自动加载 3D</div></div>
+    <div class="meta">
+      <div class="name">${a.asset_id || a.path}</div>
+      <div class="row">${chip(a.category)}${chip(a.object_type)}
+        ${chip(a.resting_pose_verdict, a.resting_pose_verdict)}
+        ${tilt != null ? chip(fmt(tilt) + '°') : ''}</div>
+      <div class="row"><span class="dims">宽 ${fmt(a.size_m.width)} × 深 ${fmt(a.size_m.depth)} × 高 ${fmt(a.size_m.height)} m</span></div>
+      <div class="row">${chip('安装面: ' + surface)}${chip(a.admission_state)}
+        ${a.has_emitter ? chip('发声锚点 ✓') : chip('无发声锚点', 'leaning')}</div>
+    </div>`;
+  return el;
+}
+
+function disposeEntry(entry){
+  entry.scene.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(m => { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); });
+    }
+  });
+  entry.controls.dispose();
+  entry.el.querySelector('.hint').textContent = '滚动到此处自动加载 3D';
+  entry.el.querySelector('.hint').style.display = 'flex';
+}
+
+function evictIfNeeded(){
+  while (live.size > MAX_LIVE) {
+    let oldest = null;
+    for (const [path, entry] of live) {
+      if (visible.has(path)) continue;
+      if (!oldest || entry.lastSeen < oldest[1].lastSeen) oldest = [path, entry];
+    }
+    if (!oldest) break;
+    disposeEntry(oldest[1]); live.delete(oldest[0]);
+  }
+}
+
+function mount(el){
+  const path = el.dataset.path;
+  if (!path || live.has(path)) return;
+  const entry = {el, lastSeen: performance.now(), scene: new THREE.Scene(), camera: null, controls: null, ready: false};
+  live.set(path, entry);
+  evictIfNeeded();
+  loader.load('/api/sound-assets/file?path=' + encodeURIComponent(path), gltf => {
+    if (!live.has(path)) return;
+    const model = gltf.scene;
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3()); const center = box.getCenter(new THREE.Vector3());
+    model.position.sub(center);
+    const radius = Math.max(size.x, size.y, size.z) || 1;
+    entry.camera = new THREE.PerspectiveCamera(40, el.clientWidth / el.clientHeight, radius/100, radius*20);
+    entry.camera.position.set(radius*1.6, radius*0.9, radius*1.6);
+    entry.controls = new THREE.OrbitControls(entry.camera, el);
+    entry.controls.autoRotate = true; entry.controls.autoRotateSpeed = 1.6;
+    entry.controls.enablePan = false;
+    entry.scene.add(model);
+    entry.scene.add(new THREE.HemisphereLight(0xffffff, 0x777766, 1.05));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.9); sun.position.set(2, 4, 3);
+    entry.scene.add(sun);
+    const ground = new THREE.GridHelper(radius*2.4, 12, 0xcccccc, 0xe4e1d8);
+    ground.position.y = -size.y/2; entry.scene.add(ground);
+    entry.ready = true;
+    el.querySelector('.hint').style.display = 'none';
+  }, undefined, () => { el.querySelector('.hint').textContent = '加载失败'; });
+}
+
+const observer = new IntersectionObserver(entries => {
+  for (const {target, isIntersecting} of entries) {
+    const path = target.dataset.path; if (!path) continue;
+    if (isIntersecting) { visible.add(path); mount(target); const e = live.get(path); if (e) e.lastSeen = performance.now(); }
+    else visible.delete(path);
+  }
+}, {rootMargin: '120px'});
+
+function renderLoop(){
+  requestAnimationFrame(renderLoop);
+  const w = glCanvas.clientWidth, h = glCanvas.clientHeight;
+  if (glCanvas.width !== w * renderer.getPixelRatio()) renderer.setSize(w, h, false);
+  renderer.setScissorTest(true);
+  renderer.clear();
+  for (const [path, entry] of live) {
+    if (!entry.ready || !visible.has(path)) continue;
+    const rect = entry.el.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > innerHeight) continue;
+    const bottom = h - rect.bottom;
+    renderer.setViewport(rect.left, bottom, rect.width, rect.height);
+    renderer.setScissor(rect.left, bottom, rect.width, rect.height);
+    entry.camera.aspect = rect.width / rect.height; entry.camera.updateProjectionMatrix();
+    entry.controls.update();
+    renderer.render(entry.scene, entry.camera);
+    entry.lastSeen = performance.now();
+  }
+}
+
+function applyFilters(){
+  const cat = fCat.value, verdict = fVerdict.value, surface = fSurface.value,
+        text = fText.value.trim().toLowerCase();
+  let shown = 0;
+  grid.replaceChildren();
+  for (const [path] of live) { const e = live.get(path); disposeEntry(e); }
+  live.clear(); visible.clear();
+  for (const a of assets) {
+    if (cat && a.category !== cat) continue;
+    if (verdict && a.resting_pose_verdict !== verdict) continue;
+    if (surface && (a.attachment_surface || '未声明') !== surface) continue;
+    if (text && !(`${a.asset_id} ${a.object_type} ${a.path}`.toLowerCase().includes(text))) continue;
+    const el = card(a); grid.appendChild(el);
+    observer.observe(el.querySelector('.view'));
+    shown++;
+  }
+  count.textContent = `${shown} / ${assets.length} 个资产 · 实时读取，发布即现`;
+}
+
+async function boot(){
+  const payload = await (await fetch('/api/sound-assets')).json();
+  if (payload.error) { grid.textContent = payload.error; return; }
+  assets = payload.assets;
+  const fill = (select, values) => { for (const v of [...new Set(values)].sort())
+    if (v != null) select.insertAdjacentHTML('beforeend', `<option>${v}</option>`); };
+  fill(fCat, assets.map(a => a.category));
+  fill(fVerdict, assets.map(a => a.resting_pose_verdict));
+  fill(fSurface, assets.map(a => a.attachment_surface || '未声明'));
+  for (const el of ['fCat','fVerdict','fSurface'].map(id => document.getElementById(id)))
+    el.addEventListener('change', applyFilters);
+  fText.addEventListener('input', applyFilters);
+  applyFilters();
+  renderLoop();
+}
+boot();
+</script></body></html>

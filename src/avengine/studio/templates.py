@@ -25,6 +25,7 @@ HM3D_ROUTE_BANK_TEMPLATE = "hm3d_route_bank"
 HM3D_EPISODE_TEMPLATE = "hm3d_episode"
 KUJIALE_ROUTE_BANK_TEMPLATE = "kujiale_route_bank"
 KUJIALE_VISUAL_EPISODE_TEMPLATE = "kujiale_visual_episode"
+KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE = "kujiale_acoustic_package"
 
 # The Habitat runtime activation triplet every headless HM3D tool needs.
 _HM3D_RUNTIME_KEYS = ("runtime_prefix", "magnum_site", "rlr_sdk_root")
@@ -185,6 +186,16 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
     ),
     KUJIALE_VISUAL_EPISODE_TEMPLATE: frozenset(
         {"episode_root", "rpc_port", "graphics_adapter"}
+    ),
+    KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE: frozenset(
+        {
+            "source_usd",
+            "room_id",
+            "transform_profile",
+            "interior_origins",
+            "source_revision",
+            "seed",
+        }
     ),
     APARTMENT_AUTHOR_TEMPLATE: frozenset(
         {*_APARTMENT_AUTHOR_POINT_KEYS, "camera_yaw_deg"}
@@ -528,6 +539,43 @@ def build_template_argv(
                 "--minimum-clearance-m",
                 str(float(merged["minimum_clearance_m"])),
             ]
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE:
+        argv = [python, str(repo / "tools/studio/run_kujiale_acoustic_package.py")]
+        _append_paths(
+            argv, merged, template_name, ("source_usd", "material_rules"), repo
+        )
+        argv += ["--room-id", str(_required(merged, template_name, "room_id"))]
+        argv += [
+            "--transform-profile",
+            str(_required(merged, template_name, "transform_profile")),
+        ]
+        origins = _required(merged, template_name, "interior_origins")
+        if (
+            not isinstance(origins, (list, tuple))
+            or len(origins) < 2
+            or not all(
+                isinstance(origin, (list, tuple)) and len(origin) == 3
+                for origin in origins
+            )
+        ):
+            raise StudioTemplateError(
+                "interior_origins must be a list of at least two [x, y, z] "
+                "points reviewed to lie inside the room"
+            )
+        for origin in origins:
+            argv += ["--interior-origin", *[str(float(v)) for v in origin]]
+        argv += [
+            "--source-revision",
+            str(_required(merged, template_name, "source_revision")),
+            "--dataset-id",
+            str(_required(merged, template_name, "dataset_id")),
+            "--source-license",
+            str(_required(merged, template_name, "source_license")),
+        ]
+        argv += ["--seed", str(int(merged.get("seed", 20260827)))]
         argv += ["--output", _fresh_output(output_path)]
         return argv
 

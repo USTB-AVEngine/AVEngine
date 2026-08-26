@@ -159,6 +159,29 @@
       "episode_root": "/data/avengine_external/review/kujiale_kitchen_current_visual_episode_d702c47_20260821T0230Z",
       "uproject": "/data/avengine_external/ue-stages/kujiale_0020_full_home_editor_d702c47_20260821T0140Z/SpearSim/SpearSim.uproject",
       "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor"
+    },
+    "kujiale_acoustic_package": {
+      "source_usd": "/data/avengine_external/datasets/interioragent_kujiale_0020/kujiale_0020.usda",
+      "material_rules": "examples/acoustics/semantic_materials/residential_material_rules.json",
+      "room_id": "interioragent_kujiale_0020",
+      "transform_profile": "kujiale_z_up_y_back_to_habitat",
+      "interior_origins": [
+        [
+          -3.031,
+          4.799,
+          0.6
+        ],
+        [
+          -3.031,
+          4.799,
+          1.5
+        ]
+      ],
+      "source_revision": "interioragent_kujiale_0020 usda, staged 20260720, HF spatialverse/InteriorAgent",
+      "dataset_id": "spatialverse/InteriorAgent",
+      "source_license": "https://kloudsim-usa-cos.kujiale.com/InteriorAgent/InteriorAgent_Terms_of_Use.pdf",
+      "seed": 20260827
     }
-  }
+  },
+  "sound_asset_index": "/data/avengine_external/assets/sound_source_assets_v1/index.json"
 }

@@ -46,6 +46,9 @@ class StudioConfig:
     main_branch: str = "main"
     scenes_root: Path | None = None
     external_sound_assets: dict[str, str] | None = None
+    # index.json of the published sound-source asset tree; its parent
+    # directory is the root the asset deck reads and serves files from
+    sound_asset_index: Path | None = None
 
 
 def _resolved_path(value: object, repository_root: Path) -> Path:
@@ -146,9 +149,20 @@ def load_studio_config(config_path: str | Path) -> StudioConfig:
             str(k): str(v) for k, v in payload["external_sound_assets"].items()
         }
 
+    sound_asset_index: Path | None = None
+    if payload.get("sound_asset_index") is not None:
+        sound_asset_index = _resolved_path(
+            payload["sound_asset_index"], repository_root
+        )
+        if not sound_asset_index.is_file():
+            raise StudioConfigError(
+                f"sound_asset_index not found: {sound_asset_index}"
+            )
+
     return StudioConfig(
         scenes_root=scenes_root,
         external_sound_assets=external_sound_assets,
+        sound_asset_index=sound_asset_index,
         repository_root=repository_root,
         python_executable=python_executable,
         review_root=review_root,

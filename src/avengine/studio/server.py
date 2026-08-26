@@ -44,6 +44,14 @@ from avengine.studio.scenes import (
     scene_dataset_file_path,
     scene_file_path,
 )
+from avengine.studio.production import (
+    ProductionError,
+    board_rows,
+    load_sound_asset_catalog,
+    review_queue,
+    sound_asset_file,
+    write_human_verdict,
+)
 from avengine.studio.tasks import StudioTaskError, StudioTaskQueue
 from avengine.studio.templates import (
     TEMPLATE_OVERRIDABLE_KEYS,
@@ -85,7 +93,12 @@ a.big{display:inline-block;margin:.6rem 0;padding:.5rem 1rem;background:#534ab7;
 .pass{background:#e1f5ee}.fail{background:#fae7e7}.running{background:#fdf3d8}.queued{background:#eeedfe}
 </style></head><body>
 <h1>AVEngine Studio</h1>
-<p><a class="big" href="/studio">打开 3D 场景编辑器 →</a></p>
+<p>
+<a class="big" href="/studio">3D 场景编辑器</a>
+<a class="big" href="/studio/assets">声源资产台</a>
+<a class="big" href="/studio/board">进度看板</a>
+<a class="big" href="/studio/review">音视频验收台</a>
+</p>
 <h2>任务</h2><div id="tasks">加载中…</div>
 <script>
 async function refresh(){
@@ -201,6 +214,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 )
             elif method == "GET" and path == "/studio":
                 self._handle_static("studio.html")
+            elif method == "GET" and path == "/studio/assets":
+                self._handle_static("assets.html")
+            elif method == "GET" and path == "/studio/board":
+                self._handle_static("board.html")
+            elif method == "GET" and path == "/studio/review":
+                self._handle_static("review.html")
             elif method == "GET" and path.startswith("/studio/static/"):
                 self._handle_static(path.removeprefix("/studio/static/"))
             elif method == "GET" and path == "/api/health":
@@ -228,6 +247,14 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_program_author()
             elif method == "GET" and path == "/api/templates":
                 self._handle_templates()
+            elif method == "GET" and path == "/api/sound-assets":
+                self._handle_sound_asset_catalog()
+            elif method == "GET" and path == "/api/sound-assets/file":
+                self._handle_sound_asset_file(query)
+            elif method == "GET" and path == "/api/board":
+                self._handle_board()
+            elif method == "GET" and path == "/api/review-queue":
+                self._handle_review_queue()
             elif method == "POST" and path == "/api/sweeps":
                 self._handle_sweep_submit()
             elif method == "GET" and path == "/api/sweeps":
@@ -239,6 +266,15 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             elif method == "GET" and path.startswith("/api/tasks/") and path.endswith("/log"):
                 task_id = path.removeprefix("/api/tasks/").removesuffix("/log").strip("/")
                 self._handle_task_log(task_id, query)
+            elif (
+                method == "POST"
+                and path.startswith("/api/tasks/")
+                and path.endswith("/verdict")
+            ):
+                task_id = (
+                    path.removeprefix("/api/tasks/").removesuffix("/verdict").strip("/")
+                )
+                self._handle_task_verdict(task_id)
             elif (
                 method == "GET"
                 and path.startswith("/api/tasks/")
@@ -254,7 +290,13 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._send_error_json(f"no route for {method} {path}", status=404)
         except (StudioTaskError, StudioSceneError) as exc:
             self._send_error_json(str(exc), status=404)
-        except (StudioTemplateError, StudioConfigError, json.JSONDecodeError, ValueError) as exc:
+        except (
+            StudioTemplateError,
+            StudioConfigError,
+            ProductionError,
+            json.JSONDecodeError,
+            ValueError,
+        ) as exc:
             self._send_error_json(str(exc), status=400)
         except BrokenPipeError:
             pass
@@ -564,6 +606,41 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if target.suffix not in _ARTIFACT_SUFFIXES or not target.is_file():
             raise StudioTaskError(f"no such artifact: {relative}")
         self._send_file(target)
+
+    def _sound_asset_index(self) -> Path:
+        index = self._server().studio_config.sound_asset_index
+        if index is None:
+            raise ProductionError(
+                "this deployment declares no sound_asset_index; add it to the "
+                "studio config to enable the asset deck"
+            )
+        return index
+
+    def _handle_sound_asset_catalog(self) -> None:
+        self._send_json(load_sound_asset_catalog(self._sound_asset_index()))
+
+    def _handle_sound_asset_file(self, query: dict[str, list[str]]) -> None:
+        relative = (query.get("path") or [""])[0]
+        if not relative:
+            raise ProductionError("asset file requires ?path=<relative file>")
+        self._send_file(sound_asset_file(self._sound_asset_index(), relative))
+
+    def _handle_board(self) -> None:
+        self._send_json(board_rows(self._server().task_queue.list_tasks()))
+
+    def _handle_review_queue(self) -> None:
+        self._send_json(review_queue(self._server().task_queue.list_tasks()))
+
+    def _handle_task_verdict(self, task_id: str) -> None:
+        record = self._server().task_queue.get(task_id)
+        body = self._read_json_body()
+        written = write_human_verdict(
+            Path(record["task_dir"]),
+            verdict=str(body.get("verdict") or ""),
+            note=str(body.get("note") or ""),
+            author=str(body.get("author") or "studio"),
+        )
+        self._send_json({"task_id": task_id, "verdict": written})
 
     def _handle_sweep_submit(self) -> None:
         """Cartesian-product batch submission: one task per sweep point."""

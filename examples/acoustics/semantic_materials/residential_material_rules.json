@@ -1,20 +1,64 @@
 {
   "schema": "avengine_m3_semantic_material_rules_v1",
-  "ruleset_id": "soundspaces_style_residential_v2",
-  "bands_hz": [125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0],
+  "ruleset_id": "soundspaces_style_residential_v3_hm3d_vocabulary",
+  "bands_hz": [
+    125.0,
+    250.0,
+    500.0,
+    1000.0,
+    2000.0,
+    4000.0
+  ],
   "coefficient_jitter_std": 0.03,
-  "coefficient_jitter_fields": ["absorption", "scattering"],
+  "coefficient_jitter_fields": [
+    "absorption",
+    "scattering"
+  ],
   "default_candidates": [
-    {"material": "generic_hard_surface", "weight": 0.6},
-    {"material": "generic_furniture", "weight": 0.4}
+    {
+      "material": "generic_hard_surface",
+      "weight": 0.6
+    },
+    {
+      "material": "generic_furniture",
+      "weight": 0.4
+    }
   ],
   "materials": {
     "carpet": {
       "name": "Residential carpet",
-      "absorption": [0.02, 0.06, 0.14, 0.37, 0.6, 0.65],
-      "scattering": [0.1, 0.12, 0.16, 0.22, 0.3, 0.34],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.02,
+        0.06,
+        0.14,
+        0.37,
+        0.6,
+        0.65
+      ],
+      "scattering": [
+        0.1,
+        0.12,
+        0.16,
+        0.22,
+        0.3,
+        0.34
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative tabulated residential carpet range; requires room calibration",
@@ -22,10 +66,38 @@
     },
     "carpet_heavy": {
       "name": "Heavy carpet",
-      "absorption": [0.08, 0.24, 0.57, 0.69, 0.71, 0.73],
-      "scattering": [0.12, 0.16, 0.22, 0.3, 0.36, 0.4],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.08,
+        0.24,
+        0.57,
+        0.69,
+        0.71,
+        0.73
+      ],
+      "scattering": [
+        0.12,
+        0.16,
+        0.22,
+        0.3,
+        0.36,
+        0.4
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative tabulated heavy-carpet range; requires room calibration",
@@ -33,10 +105,38 @@
     },
     "wood_floor": {
       "name": "Finished wood floor",
-      "absorption": [0.15, 0.11, 0.1, 0.07, 0.06, 0.07],
-      "scattering": [0.05, 0.06, 0.08, 0.1, 0.12, 0.14],
-      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.15,
+        0.11,
+        0.1,
+        0.07,
+        0.06,
+        0.07
+      ],
+      "scattering": [
+        0.05,
+        0.06,
+        0.08,
+        0.1,
+        0.12,
+        0.14
+      ],
+      "transmission": [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative finished-wood absorption range; requires room calibration",
@@ -44,10 +144,38 @@
     },
     "wood_thin": {
       "name": "Thin wood panel",
-      "absorption": [0.28, 0.22, 0.17, 0.09, 0.1, 0.11],
-      "scattering": [0.06, 0.08, 0.1, 0.12, 0.15, 0.18],
-      "transmission": [0.08, 0.06, 0.04, 0.03, 0.02, 0.02],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.28,
+        0.22,
+        0.17,
+        0.09,
+        0.1,
+        0.11
+      ],
+      "scattering": [
+        0.06,
+        0.08,
+        0.1,
+        0.12,
+        0.15,
+        0.18
+      ],
+      "transmission": [
+        0.08,
+        0.06,
+        0.04,
+        0.03,
+        0.02,
+        0.02
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative lightweight wood-panel range; requires room calibration",
@@ -55,10 +183,38 @@
     },
     "wood_thick": {
       "name": "Thick wood",
-      "absorption": [0.14, 0.1, 0.08, 0.07, 0.07, 0.08],
-      "scattering": [0.08, 0.1, 0.13, 0.16, 0.2, 0.24],
-      "transmission": [0.02, 0.02, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.14,
+        0.1,
+        0.08,
+        0.07,
+        0.07,
+        0.08
+      ],
+      "scattering": [
+        0.08,
+        0.1,
+        0.13,
+        0.16,
+        0.2,
+        0.24
+      ],
+      "transmission": [
+        0.02,
+        0.02,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative dense-wood range; requires room calibration",
@@ -66,10 +222,38 @@
     },
     "ceramic_tile": {
       "name": "Ceramic tile",
-      "absorption": [0.01, 0.01, 0.01, 0.02, 0.02, 0.02],
-      "scattering": [0.02, 0.03, 0.04, 0.05, 0.06, 0.07],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.01,
+        0.01,
+        0.01,
+        0.02,
+        0.02,
+        0.02
+      ],
+      "scattering": [
+        0.02,
+        0.03,
+        0.04,
+        0.05,
+        0.06,
+        0.07
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative hard ceramic-tile range; requires room calibration",
@@ -77,10 +261,38 @@
     },
     "concrete": {
       "name": "Smooth concrete",
-      "absorption": [0.01, 0.01, 0.02, 0.02, 0.02, 0.03],
-      "scattering": [0.04, 0.05, 0.07, 0.09, 0.12, 0.15],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.01,
+        0.01,
+        0.02,
+        0.02,
+        0.02,
+        0.03
+      ],
+      "scattering": [
+        0.04,
+        0.05,
+        0.07,
+        0.09,
+        0.12,
+        0.15
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative smooth-concrete range; requires room calibration",
@@ -88,10 +300,38 @@
     },
     "gypsum_board": {
       "name": "Gypsum board",
-      "absorption": [0.29, 0.1, 0.05, 0.04, 0.07, 0.09],
-      "scattering": [0.04, 0.05, 0.06, 0.08, 0.1, 0.12],
-      "transmission": [0.02, 0.02, 0.02, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.29,
+        0.1,
+        0.05,
+        0.04,
+        0.07,
+        0.09
+      ],
+      "scattering": [
+        0.04,
+        0.05,
+        0.06,
+        0.08,
+        0.1,
+        0.12
+      ],
+      "transmission": [
+        0.02,
+        0.02,
+        0.02,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative gypsum-board range; requires room calibration",
@@ -99,10 +339,38 @@
     },
     "plaster": {
       "name": "Plaster",
-      "absorption": [0.14, 0.1, 0.06, 0.05, 0.04, 0.03],
-      "scattering": [0.04, 0.05, 0.07, 0.08, 0.1, 0.12],
-      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.14,
+        0.1,
+        0.06,
+        0.05,
+        0.04,
+        0.03
+      ],
+      "scattering": [
+        0.04,
+        0.05,
+        0.07,
+        0.08,
+        0.1,
+        0.12
+      ],
+      "transmission": [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative plaster range; requires room calibration",
@@ -110,10 +378,38 @@
     },
     "painted_brick": {
       "name": "Painted brick",
-      "absorption": [0.01, 0.01, 0.02, 0.02, 0.02, 0.03],
-      "scattering": [0.08, 0.1, 0.13, 0.16, 0.2, 0.24],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.01,
+        0.01,
+        0.02,
+        0.02,
+        0.02,
+        0.03
+      ],
+      "scattering": [
+        0.08,
+        0.1,
+        0.13,
+        0.16,
+        0.2,
+        0.24
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative painted masonry range; requires room calibration",
@@ -121,10 +417,38 @@
     },
     "glass": {
       "name": "Window glass",
-      "absorption": [0.18, 0.06, 0.04, 0.03, 0.02, 0.02],
-      "scattering": [0.01, 0.01, 0.02, 0.02, 0.03, 0.03],
-      "transmission": [0.1, 0.08, 0.06, 0.04, 0.03, 0.03],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.18,
+        0.06,
+        0.04,
+        0.03,
+        0.02,
+        0.02
+      ],
+      "scattering": [
+        0.01,
+        0.01,
+        0.02,
+        0.02,
+        0.03,
+        0.03
+      ],
+      "transmission": [
+        0.1,
+        0.08,
+        0.06,
+        0.04,
+        0.03,
+        0.03
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative residential glazing range; requires room calibration",
@@ -132,10 +456,38 @@
     },
     "fabric": {
       "name": "Heavy fabric",
-      "absorption": [0.07, 0.31, 0.49, 0.75, 0.7, 0.6],
-      "scattering": [0.1, 0.14, 0.2, 0.26, 0.32, 0.36],
-      "transmission": [0.02, 0.02, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.07,
+        0.31,
+        0.49,
+        0.75,
+        0.7,
+        0.6
+      ],
+      "scattering": [
+        0.1,
+        0.14,
+        0.2,
+        0.26,
+        0.32,
+        0.36
+      ],
+      "transmission": [
+        0.02,
+        0.02,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative heavy-fabric range; requires room calibration",
@@ -143,10 +495,38 @@
     },
     "upholstered": {
       "name": "Upholstered furniture",
-      "absorption": [0.12, 0.24, 0.48, 0.69, 0.74, 0.78],
-      "scattering": [0.14, 0.18, 0.24, 0.3, 0.36, 0.4],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.12,
+        0.24,
+        0.48,
+        0.69,
+        0.74,
+        0.78
+      ],
+      "scattering": [
+        0.14,
+        0.18,
+        0.24,
+        0.3,
+        0.36,
+        0.4
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative upholstered-furniture range; requires room calibration",
@@ -154,10 +534,38 @@
     },
     "steel": {
       "name": "Steel",
-      "absorption": [0.1, 0.05, 0.04, 0.04, 0.04, 0.05],
-      "scattering": [0.03, 0.04, 0.05, 0.06, 0.08, 0.1],
-      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.1,
+        0.05,
+        0.04,
+        0.04,
+        0.04,
+        0.05
+      ],
+      "scattering": [
+        0.03,
+        0.04,
+        0.05,
+        0.06,
+        0.08,
+        0.1
+      ],
+      "transmission": [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative rigid-metal range; requires room calibration",
@@ -165,10 +573,38 @@
     },
     "ceramic": {
       "name": "Sanitary ceramic",
-      "absorption": [0.01, 0.01, 0.02, 0.02, 0.02, 0.03],
-      "scattering": [0.04, 0.05, 0.07, 0.09, 0.12, 0.14],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.01,
+        0.01,
+        0.02,
+        0.02,
+        0.02,
+        0.03
+      ],
+      "scattering": [
+        0.04,
+        0.05,
+        0.07,
+        0.09,
+        0.12,
+        0.14
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative sanitary-ceramic range; requires room calibration",
@@ -176,10 +612,38 @@
     },
     "ceiling_tile": {
       "name": "Acoustic ceiling tile",
-      "absorption": [0.15, 0.35, 0.55, 0.7, 0.75, 0.75],
-      "scattering": [0.08, 0.1, 0.14, 0.18, 0.22, 0.25],
-      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.15,
+        0.35,
+        0.55,
+        0.7,
+        0.75,
+        0.75
+      ],
+      "scattering": [
+        0.08,
+        0.1,
+        0.14,
+        0.18,
+        0.22,
+        0.25
+      ],
+      "transmission": [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative acoustic ceiling-tile range; requires room calibration",
@@ -187,10 +651,38 @@
     },
     "generic_hard_surface": {
       "name": "Unknown hard residential surface",
-      "absorption": [0.08, 0.07, 0.07, 0.06, 0.07, 0.08],
-      "scattering": [0.06, 0.08, 0.1, 0.13, 0.16, 0.2],
-      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.08,
+        0.07,
+        0.07,
+        0.06,
+        0.07,
+        0.08
+      ],
+      "scattering": [
+        0.06,
+        0.08,
+        0.1,
+        0.13,
+        0.16,
+        0.2
+      ],
+      "transmission": [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Conservative unknown hard-surface research prior",
@@ -198,10 +690,38 @@
     },
     "generic_furniture": {
       "name": "Unknown residential furniture",
-      "absorption": [0.1, 0.16, 0.24, 0.32, 0.38, 0.42],
-      "scattering": [0.14, 0.18, 0.24, 0.3, 0.36, 0.4],
-      "transmission": [0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.1,
+        0.16,
+        0.24,
+        0.32,
+        0.38,
+        0.42
+      ],
+      "scattering": [
+        0.14,
+        0.18,
+        0.24,
+        0.3,
+        0.36,
+        0.4
+      ],
+      "transmission": [
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01,
+        0.01
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Conservative unknown furniture research prior",
@@ -209,10 +729,38 @@
     },
     "foliage": {
       "name": "Indoor foliage",
-      "absorption": [0.03, 0.06, 0.11, 0.17, 0.27, 0.31],
-      "scattering": [0.2, 0.26, 0.32, 0.38, 0.44, 0.5],
-      "transmission": [0.1, 0.08, 0.06, 0.05, 0.04, 0.03],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.03,
+        0.06,
+        0.11,
+        0.17,
+        0.27,
+        0.31
+      ],
+      "scattering": [
+        0.2,
+        0.26,
+        0.32,
+        0.38,
+        0.44,
+        0.5
+      ],
+      "transmission": [
+        0.1,
+        0.08,
+        0.06,
+        0.05,
+        0.04,
+        0.03
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative indoor-foliage octave-band range; requires room calibration",
@@ -220,10 +768,38 @@
     },
     "paper_stack": {
       "name": "Books and stacked paper",
-      "absorption": [0.2, 0.28, 0.35, 0.38, 0.38, 0.35],
-      "scattering": [0.2, 0.24, 0.3, 0.34, 0.38, 0.4],
-      "transmission": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-      "damping": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "absorption": [
+        0.2,
+        0.28,
+        0.35,
+        0.38,
+        0.38,
+        0.35
+      ],
+      "scattering": [
+        0.2,
+        0.24,
+        0.3,
+        0.34,
+        0.38,
+        0.4
+      ],
+      "transmission": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "damping": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
       "density": 1.225,
       "speed": 343.0,
       "source": "Representative filled-bookshelf and paper octave-band range; requires room calibration",
@@ -233,548 +809,1735 @@
   "categories": {
     "floor": {
       "candidates": [
-        {"material": "wood_floor", "weight": 0.4},
-        {"material": "carpet", "weight": 0.3},
-        {"material": "ceramic_tile", "weight": 0.2},
-        {"material": "concrete", "weight": 0.1}
+        {
+          "material": "wood_floor",
+          "weight": 0.4
+        },
+        {
+          "material": "carpet",
+          "weight": 0.3
+        },
+        {
+          "material": "ceramic_tile",
+          "weight": 0.2
+        },
+        {
+          "material": "concrete",
+          "weight": 0.1
+        }
       ]
     },
     "wall": {
       "candidates": [
-        {"material": "gypsum_board", "weight": 0.45},
-        {"material": "plaster", "weight": 0.35},
-        {"material": "painted_brick", "weight": 0.2}
+        {
+          "material": "gypsum_board",
+          "weight": 0.45
+        },
+        {
+          "material": "plaster",
+          "weight": 0.35
+        },
+        {
+          "material": "painted_brick",
+          "weight": 0.2
+        }
       ]
     },
     "ceiling": {
       "candidates": [
-        {"material": "gypsum_board", "weight": 0.55},
-        {"material": "plaster", "weight": 0.3},
-        {"material": "ceiling_tile", "weight": 0.15}
+        {
+          "material": "gypsum_board",
+          "weight": 0.55
+        },
+        {
+          "material": "plaster",
+          "weight": 0.3
+        },
+        {
+          "material": "ceiling_tile",
+          "weight": 0.15
+        }
       ]
     },
     "window": {
       "candidates": [
-        {"material": "glass", "weight": 1.0}
+        {
+          "material": "glass",
+          "weight": 1.0
+        }
       ]
     },
     "mirror": {
       "candidates": [
-        {"material": "glass", "weight": 1.0}
+        {
+          "material": "glass",
+          "weight": 1.0
+        }
       ]
     },
     "door": {
       "candidates": [
-        {"material": "wood_thin", "weight": 0.55},
-        {"material": "wood_thick", "weight": 0.35},
-        {"material": "glass", "weight": 0.1}
+        {
+          "material": "wood_thin",
+          "weight": 0.55
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.35
+        },
+        {
+          "material": "glass",
+          "weight": 0.1
+        }
       ]
     },
     "curtain": {
       "candidates": [
-        {"material": "fabric", "weight": 1.0}
+        {
+          "material": "fabric",
+          "weight": 1.0
+        }
       ]
     },
     "blinds": {
       "candidates": [
-        {"material": "fabric", "weight": 0.55},
-        {"material": "wood_thin", "weight": 0.3},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "fabric",
+          "weight": 0.55
+        },
+        {
+          "material": "wood_thin",
+          "weight": 0.3
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     "sofa": {
       "candidates": [
-        {"material": "upholstered", "weight": 1.0}
+        {
+          "material": "upholstered",
+          "weight": 1.0
+        }
       ]
     },
     "seating": {
       "candidates": [
-        {"material": "upholstered", "weight": 0.65},
-        {"material": "wood_thick", "weight": 0.35}
+        {
+          "material": "upholstered",
+          "weight": 0.65
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.35
+        }
       ]
     },
     "cushion": {
       "candidates": [
-        {"material": "upholstered", "weight": 1.0}
+        {
+          "material": "upholstered",
+          "weight": 1.0
+        }
       ]
     },
     "bed": {
       "candidates": [
-        {"material": "upholstered", "weight": 1.0}
+        {
+          "material": "upholstered",
+          "weight": 1.0
+        }
       ]
     },
     "towel": {
       "candidates": [
-        {"material": "fabric", "weight": 1.0}
+        {
+          "material": "fabric",
+          "weight": 1.0
+        }
       ]
     },
     "clothes": {
       "candidates": [
-        {"material": "fabric", "weight": 1.0}
+        {
+          "material": "fabric",
+          "weight": 1.0
+        }
       ]
     },
     "chair": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.55},
-        {"material": "upholstered", "weight": 0.3},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "wood_thick",
+          "weight": 0.55
+        },
+        {
+          "material": "upholstered",
+          "weight": 0.3
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     "stool": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.6},
-        {"material": "steel", "weight": 0.25},
-        {"material": "upholstered", "weight": 0.15}
+        {
+          "material": "wood_thick",
+          "weight": 0.6
+        },
+        {
+          "material": "steel",
+          "weight": 0.25
+        },
+        {
+          "material": "upholstered",
+          "weight": 0.15
+        }
       ]
     },
     "table": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.65},
-        {"material": "glass", "weight": 0.2},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "wood_thick",
+          "weight": 0.65
+        },
+        {
+          "material": "glass",
+          "weight": 0.2
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     "cabinet": {
       "candidates": [
-        {"material": "wood_thick", "weight": 1.0}
+        {
+          "material": "wood_thick",
+          "weight": 1.0
+        }
       ]
     },
     "shelving": {
       "candidates": [
-        {"material": "wood_thick", "weight": 1.0}
+        {
+          "material": "wood_thick",
+          "weight": 1.0
+        }
       ]
     },
     "chest_of_drawers": {
       "candidates": [
-        {"material": "wood_thick", "weight": 1.0}
+        {
+          "material": "wood_thick",
+          "weight": 1.0
+        }
       ]
     },
     "counter": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.45},
-        {"material": "ceramic_tile", "weight": 0.35},
-        {"material": "concrete", "weight": 0.2}
+        {
+          "material": "wood_thick",
+          "weight": 0.45
+        },
+        {
+          "material": "ceramic_tile",
+          "weight": 0.35
+        },
+        {
+          "material": "concrete",
+          "weight": 0.2
+        }
       ]
     },
     "sink": {
       "candidates": [
-        {"material": "steel", "weight": 0.6},
-        {"material": "ceramic", "weight": 0.4}
+        {
+          "material": "steel",
+          "weight": 0.6
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.4
+        }
       ]
     },
     "bathtub": {
       "candidates": [
-        {"material": "ceramic", "weight": 1.0}
+        {
+          "material": "ceramic",
+          "weight": 1.0
+        }
       ]
     },
     "toilet": {
       "candidates": [
-        {"material": "ceramic", "weight": 1.0}
+        {
+          "material": "ceramic",
+          "weight": 1.0
+        }
       ]
     },
     "shower": {
       "candidates": [
-        {"material": "glass", "weight": 0.55},
-        {"material": "ceramic_tile", "weight": 0.45}
+        {
+          "material": "glass",
+          "weight": 0.55
+        },
+        {
+          "material": "ceramic_tile",
+          "weight": 0.45
+        }
       ]
     },
     "appliances": {
       "candidates": [
-        {"material": "steel", "weight": 0.7},
-        {"material": "generic_hard_surface", "weight": 0.3}
+        {
+          "material": "steel",
+          "weight": 0.7
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.3
+        }
       ]
     },
     "tv_monitor": {
       "candidates": [
-        {"material": "glass", "weight": 0.6},
-        {"material": "generic_hard_surface", "weight": 0.4}
+        {
+          "material": "glass",
+          "weight": 0.6
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.4
+        }
       ]
     },
     "picture": {
       "candidates": [
-        {"material": "glass", "weight": 0.45},
-        {"material": "wood_thin", "weight": 0.35},
-        {"material": "fabric", "weight": 0.2}
+        {
+          "material": "glass",
+          "weight": 0.45
+        },
+        {
+          "material": "wood_thin",
+          "weight": 0.35
+        },
+        {
+          "material": "fabric",
+          "weight": 0.2
+        }
       ]
     },
     "board_panel": {
       "candidates": [
-        {"material": "wood_thin", "weight": 1.0}
+        {
+          "material": "wood_thin",
+          "weight": 1.0
+        }
       ]
     },
     "beam": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.55},
-        {"material": "concrete", "weight": 0.45}
+        {
+          "material": "wood_thick",
+          "weight": 0.55
+        },
+        {
+          "material": "concrete",
+          "weight": 0.45
+        }
       ]
     },
     "column": {
       "candidates": [
-        {"material": "concrete", "weight": 0.7},
-        {"material": "plaster", "weight": 0.3}
+        {
+          "material": "concrete",
+          "weight": 0.7
+        },
+        {
+          "material": "plaster",
+          "weight": 0.3
+        }
       ]
     },
     "railing": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.5},
-        {"material": "steel", "weight": 0.5}
+        {
+          "material": "wood_thick",
+          "weight": 0.5
+        },
+        {
+          "material": "steel",
+          "weight": 0.5
+        }
       ]
     },
     "stairs": {
       "candidates": [
-        {"material": "wood_floor", "weight": 0.45},
-        {"material": "concrete", "weight": 0.35},
-        {"material": "carpet", "weight": 0.2}
+        {
+          "material": "wood_floor",
+          "weight": 0.45
+        },
+        {
+          "material": "concrete",
+          "weight": 0.35
+        },
+        {
+          "material": "carpet",
+          "weight": 0.2
+        }
       ]
     },
     "fireplace": {
       "candidates": [
-        {"material": "painted_brick", "weight": 0.65},
-        {"material": "concrete", "weight": 0.35}
+        {
+          "material": "painted_brick",
+          "weight": 0.65
+        },
+        {
+          "material": "concrete",
+          "weight": 0.35
+        }
       ]
     },
     "furniture": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.5},
-        {"material": "upholstered", "weight": 0.35},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "wood_thick",
+          "weight": 0.5
+        },
+        {
+          "material": "upholstered",
+          "weight": 0.35
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     "gym_equipment": {
       "candidates": [
-        {"material": "steel", "weight": 0.55},
-        {"material": "upholstered", "weight": 0.45}
+        {
+          "material": "steel",
+          "weight": 0.55
+        },
+        {
+          "material": "upholstered",
+          "weight": 0.45
+        }
       ]
     },
     "lighting": {
       "candidates": [
-        {"material": "glass", "weight": 0.55},
-        {"material": "steel", "weight": 0.45}
+        {
+          "material": "glass",
+          "weight": 0.55
+        },
+        {
+          "material": "steel",
+          "weight": 0.45
+        }
       ]
     },
     "plant": {
       "candidates": [
-        {"material": "foliage", "weight": 0.6},
-        {"material": "ceramic", "weight": 0.4}
+        {
+          "material": "foliage",
+          "weight": 0.6
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.4
+        }
       ]
     },
     "void": {
       "candidates": [
-        {"material": "generic_hard_surface", "weight": 1.0}
+        {
+          "material": "generic_hard_surface",
+          "weight": 1.0
+        }
       ]
     },
     "misc": {
       "candidates": [
-        {"material": "generic_hard_surface", "weight": 0.5},
-        {"material": "generic_furniture", "weight": 0.5}
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.5
+        },
+        {
+          "material": "generic_furniture",
+          "weight": 0.5
+        }
       ]
     },
     "objects": {
       "candidates": [
-        {"material": "generic_hard_surface", "weight": 0.45},
-        {"material": "generic_furniture", "weight": 0.55}
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.45
+        },
+        {
+          "material": "generic_furniture",
+          "weight": 0.55
+        }
       ]
     },
     "basin": {
       "candidates": [
-        {"material": "ceramic", "weight": 0.7},
-        {"material": "steel", "weight": 0.3}
+        {
+          "material": "ceramic",
+          "weight": 0.7
+        },
+        {
+          "material": "steel",
+          "weight": 0.3
+        }
       ]
     },
     "bathroom_product": {
       "candidates": [
-        {"material": "generic_hard_surface", "weight": 0.6},
-        {"material": "ceramic", "weight": 0.4}
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.6
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.4
+        }
       ]
     },
     "bedding": {
       "candidates": [
-        {"material": "fabric", "weight": 0.6},
-        {"material": "upholstered", "weight": 0.4}
+        {
+          "material": "fabric",
+          "weight": 0.6
+        },
+        {
+          "material": "upholstered",
+          "weight": 0.4
+        }
       ]
     },
     "book": {
       "candidates": [
-        {"material": "paper_stack", "weight": 1.0}
+        {
+          "material": "paper_stack",
+          "weight": 1.0
+        }
       ]
     },
     "bowl": {
       "candidates": [
-        {"material": "ceramic", "weight": 0.7},
-        {"material": "glass", "weight": 0.15},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "ceramic",
+          "weight": 0.7
+        },
+        {
+          "material": "glass",
+          "weight": 0.15
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     "ceiling_light": {
       "candidates": [
-        {"material": "glass", "weight": 0.55},
-        {"material": "steel", "weight": 0.45}
+        {
+          "material": "glass",
+          "weight": 0.55
+        },
+        {
+          "material": "steel",
+          "weight": 0.45
+        }
       ]
     },
     "chandelier": {
       "candidates": [
-        {"material": "glass", "weight": 0.6},
-        {"material": "steel", "weight": 0.4}
+        {
+          "material": "glass",
+          "weight": 0.6
+        },
+        {
+          "material": "steel",
+          "weight": 0.4
+        }
       ]
     },
     "closestool": {
       "candidates": [
-        {"material": "ceramic", "weight": 1.0}
+        {
+          "material": "ceramic",
+          "weight": 1.0
+        }
       ]
     },
     "cosmetic": {
       "candidates": [
-        {"material": "generic_hard_surface", "weight": 0.7},
-        {"material": "glass", "weight": 0.3}
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.7
+        },
+        {
+          "material": "glass",
+          "weight": 0.3
+        }
       ]
     },
     "cup": {
       "candidates": [
-        {"material": "ceramic", "weight": 0.7},
-        {"material": "glass", "weight": 0.3}
+        {
+          "material": "ceramic",
+          "weight": 0.7
+        },
+        {
+          "material": "glass",
+          "weight": 0.3
+        }
       ]
     },
     "daily_equipment": {
       "candidates": [
-        {"material": "generic_hard_surface", "weight": 0.6},
-        {"material": "steel", "weight": 0.4}
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.6
+        },
+        {
+          "material": "steel",
+          "weight": 0.4
+        }
       ]
     },
     "doorsill": {
       "candidates": [
-        {"material": "wood_thick", "weight": 0.6},
-        {"material": "ceramic_tile", "weight": 0.25},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "wood_thick",
+          "weight": 0.6
+        },
+        {
+          "material": "ceramic_tile",
+          "weight": 0.25
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     "electric_appliance": {
       "candidates": [
-        {"material": "steel", "weight": 0.7},
-        {"material": "generic_hard_surface", "weight": 0.3}
+        {
+          "material": "steel",
+          "weight": 0.7
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.3
+        }
       ]
     },
     "flower": {
       "candidates": [
-        {"material": "foliage", "weight": 0.8},
-        {"material": "ceramic", "weight": 0.2}
+        {
+          "material": "foliage",
+          "weight": 0.8
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.2
+        }
       ]
     },
     "kettle": {
       "candidates": [
-        {"material": "steel", "weight": 0.8},
-        {"material": "generic_hard_surface", "weight": 0.2}
+        {
+          "material": "steel",
+          "weight": 0.8
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.2
+        }
       ]
     },
     "kitchenware": {
       "candidates": [
-        {"material": "steel", "weight": 0.6},
-        {"material": "ceramic", "weight": 0.4}
+        {
+          "material": "steel",
+          "weight": 0.6
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.4
+        }
       ]
     },
     "ornament": {
       "candidates": [
-        {"material": "generic_hard_surface", "weight": 0.5},
-        {"material": "ceramic", "weight": 0.3},
-        {"material": "wood_thick", "weight": 0.2}
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.5
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.3
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.2
+        }
       ]
     },
     "painting": {
       "candidates": [
-        {"material": "wood_thin", "weight": 0.45},
-        {"material": "glass", "weight": 0.35},
-        {"material": "fabric", "weight": 0.2}
+        {
+          "material": "wood_thin",
+          "weight": 0.45
+        },
+        {
+          "material": "glass",
+          "weight": 0.35
+        },
+        {
+          "material": "fabric",
+          "weight": 0.2
+        }
       ]
     },
     "pillow": {
       "candidates": [
-        {"material": "upholstered", "weight": 1.0}
+        {
+          "material": "upholstered",
+          "weight": 1.0
+        }
       ]
     },
     "plate": {
       "candidates": [
-        {"material": "ceramic", "weight": 1.0}
+        {
+          "material": "ceramic",
+          "weight": 1.0
+        }
       ]
     },
     "range_hood": {
       "candidates": [
-        {"material": "steel", "weight": 1.0}
+        {
+          "material": "steel",
+          "weight": 1.0
+        }
       ]
     },
     "shelf": {
       "candidates": [
-        {"material": "wood_thick", "weight": 1.0}
+        {
+          "material": "wood_thick",
+          "weight": 1.0
+        }
       ]
     },
     "spot_light": {
       "candidates": [
-        {"material": "steel", "weight": 0.55},
-        {"material": "glass", "weight": 0.45}
+        {
+          "material": "steel",
+          "weight": 0.55
+        },
+        {
+          "material": "glass",
+          "weight": 0.45
+        }
       ]
     },
     "table_lamp": {
       "candidates": [
-        {"material": "glass", "weight": 0.45},
-        {"material": "steel", "weight": 0.35},
-        {"material": "fabric", "weight": 0.2}
+        {
+          "material": "glass",
+          "weight": 0.45
+        },
+        {
+          "material": "steel",
+          "weight": 0.35
+        },
+        {
+          "material": "fabric",
+          "weight": 0.2
+        }
       ]
     },
     "tea_set": {
       "candidates": [
-        {"material": "ceramic", "weight": 1.0}
+        {
+          "material": "ceramic",
+          "weight": 1.0
+        }
       ]
     },
     "television": {
       "candidates": [
-        {"material": "glass", "weight": 0.6},
-        {"material": "generic_hard_surface", "weight": 0.4}
+        {
+          "material": "glass",
+          "weight": 0.6
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.4
+        }
       ]
     },
     "tray": {
       "candidates": [
-        {"material": "wood_thin", "weight": 0.5},
-        {"material": "steel", "weight": 0.3},
-        {"material": "ceramic", "weight": 0.2}
+        {
+          "material": "wood_thin",
+          "weight": 0.5
+        },
+        {
+          "material": "steel",
+          "weight": 0.3
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.2
+        }
       ]
     },
     "vase": {
       "candidates": [
-        {"material": "ceramic", "weight": 0.6},
-        {"material": "glass", "weight": 0.4}
+        {
+          "material": "ceramic",
+          "weight": 0.6
+        },
+        {
+          "material": "glass",
+          "weight": 0.4
+        }
       ]
     },
     "wine_set": {
       "candidates": [
-        {"material": "glass", "weight": 0.8},
-        {"material": "wood_thick", "weight": 0.2}
+        {
+          "material": "glass",
+          "weight": 0.8
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.2
+        }
       ]
     }
   },
   "name_hints": [
     {
-      "contains": ["brickwall", "brick_wall", "brick"],
+      "contains": [
+        "brickwall",
+        "brick_wall",
+        "brick"
+      ],
       "candidates": [
-        {"material": "painted_brick", "weight": 1.0}
+        {
+          "material": "painted_brick",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["glass", "glazing"],
+      "contains": [
+        "glass",
+        "glazing"
+      ],
       "candidates": [
-        {"material": "glass", "weight": 1.0}
+        {
+          "material": "glass",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["curtain", "drape"],
+      "contains": [
+        "curtain",
+        "drape"
+      ],
       "candidates": [
-        {"material": "fabric", "weight": 1.0}
+        {
+          "material": "fabric",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["sofa", "couch", "cushion", "pillow"],
+      "contains": [
+        "sofa",
+        "couch",
+        "cushion",
+        "pillow"
+      ],
       "candidates": [
-        {"material": "upholstered", "weight": 1.0}
+        {
+          "material": "upholstered",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["rug", "doormat", "floor_mat"],
+      "contains": [
+        "rug",
+        "doormat",
+        "floor_mat"
+      ],
       "candidates": [
-        {"material": "carpet_heavy", "weight": 1.0}
+        {
+          "material": "carpet_heavy",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["carpet"],
+      "contains": [
+        "carpet"
+      ],
       "candidates": [
-        {"material": "carpet", "weight": 1.0}
+        {
+          "material": "carpet",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["lamp", "light", "emissive", "chandelier"],
+      "contains": [
+        "lamp",
+        "light",
+        "emissive",
+        "chandelier"
+      ],
       "candidates": [
-        {"material": "glass", "weight": 0.55},
-        {"material": "steel", "weight": 0.45}
+        {
+          "material": "glass",
+          "weight": 0.55
+        },
+        {
+          "material": "steel",
+          "weight": 0.45
+        }
       ]
     },
     {
-      "contains": ["sink_base", "sink_drawer"],
+      "contains": [
+        "sink_base",
+        "sink_drawer"
+      ],
       "candidates": [
-        {"material": "wood_thick", "weight": 1.0}
+        {
+          "material": "wood_thick",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["oven", "extractor", "hood", "appliance", "fridge", "refrigerator", "dishwasher", "stove", "cooker", "kettle", "microwave"],
+      "contains": [
+        "oven",
+        "extractor",
+        "hood",
+        "appliance",
+        "fridge",
+        "refrigerator",
+        "dishwasher",
+        "stove",
+        "cooker",
+        "kettle",
+        "microwave"
+      ],
       "candidates": [
-        {"material": "steel", "weight": 0.7},
-        {"material": "generic_hard_surface", "weight": 0.3}
+        {
+          "material": "steel",
+          "weight": 0.7
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.3
+        }
       ]
     },
     {
-      "contains": ["chair", "stool", "bench"],
+      "contains": [
+        "chair",
+        "stool",
+        "bench"
+      ],
       "candidates": [
-        {"material": "wood_thick", "weight": 0.55},
-        {"material": "upholstered", "weight": 0.3},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "wood_thick",
+          "weight": 0.55
+        },
+        {
+          "material": "upholstered",
+          "weight": 0.3
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     {
-      "contains": ["table"],
+      "contains": [
+        "table"
+      ],
       "candidates": [
-        {"material": "wood_thick", "weight": 0.65},
-        {"material": "glass", "weight": 0.2},
-        {"material": "steel", "weight": 0.15}
+        {
+          "material": "wood_thick",
+          "weight": 0.65
+        },
+        {
+          "material": "glass",
+          "weight": 0.2
+        },
+        {
+          "material": "steel",
+          "weight": 0.15
+        }
       ]
     },
     {
-      "contains": ["cabinet", "drawer", "shelf", "shelving", "wardrobe", "closet", "dresser"],
+      "contains": [
+        "cabinet",
+        "drawer",
+        "shelf",
+        "shelving",
+        "wardrobe",
+        "closet",
+        "dresser"
+      ],
       "candidates": [
-        {"material": "wood_thick", "weight": 1.0}
+        {
+          "material": "wood_thick",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["door", "casement", "doorsill", "frame", "vinyl"],
+      "contains": [
+        "door",
+        "casement",
+        "doorsill",
+        "frame",
+        "vinyl"
+      ],
       "candidates": [
-        {"material": "wood_thin", "weight": 0.55},
-        {"material": "wood_thick", "weight": 0.35},
-        {"material": "glass", "weight": 0.1}
+        {
+          "material": "wood_thin",
+          "weight": 0.55
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.35
+        },
+        {
+          "material": "glass",
+          "weight": 0.1
+        }
       ]
     },
     {
-      "contains": ["picture", "painting", "poster", "artwork"],
+      "contains": [
+        "picture",
+        "painting",
+        "poster",
+        "artwork"
+      ],
       "candidates": [
-        {"material": "wood_thin", "weight": 0.4},
-        {"material": "glass", "weight": 0.4},
-        {"material": "fabric", "weight": 0.2}
+        {
+          "material": "wood_thin",
+          "weight": 0.4
+        },
+        {
+          "material": "glass",
+          "weight": 0.4
+        },
+        {
+          "material": "fabric",
+          "weight": 0.2
+        }
       ]
     },
     {
-      "contains": ["vase", "porcelain", "pottery"],
+      "contains": [
+        "vase",
+        "porcelain",
+        "pottery"
+      ],
       "candidates": [
-        {"material": "ceramic", "weight": 0.6},
-        {"material": "glass", "weight": 0.4}
+        {
+          "material": "ceramic",
+          "weight": 0.6
+        },
+        {
+          "material": "glass",
+          "weight": 0.4
+        }
       ]
     },
     {
-      "contains": ["fireplace"],
+      "contains": [
+        "fireplace"
+      ],
       "candidates": [
-        {"material": "painted_brick", "weight": 0.65},
-        {"material": "concrete", "weight": 0.35}
+        {
+          "material": "painted_brick",
+          "weight": 0.65
+        },
+        {
+          "material": "concrete",
+          "weight": 0.35
+        }
       ]
     },
     {
-      "contains": ["steel", "metal", "chrome", "stainless"],
+      "contains": [
+        "steel",
+        "metal",
+        "chrome",
+        "stainless"
+      ],
       "candidates": [
-        {"material": "steel", "weight": 1.0}
+        {
+          "material": "steel",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["fabric", "cloth", "textile", "linen", "towel"],
+      "contains": [
+        "fabric",
+        "cloth",
+        "textile",
+        "linen",
+        "towel"
+      ],
       "candidates": [
-        {"material": "fabric", "weight": 1.0}
+        {
+          "material": "fabric",
+          "weight": 1.0
+        }
       ]
     },
     {
-      "contains": ["bed", "mattress"],
+      "contains": [
+        "bed",
+        "mattress"
+      ],
       "candidates": [
-        {"material": "upholstered", "weight": 0.6},
-        {"material": "fabric", "weight": 0.4}
+        {
+          "material": "upholstered",
+          "weight": 0.6
+        },
+        {
+          "material": "fabric",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "unannotated"
+      ],
+      "candidates": [
+        {
+          "material": "gypsum_board",
+          "weight": 0.5
+        },
+        {
+          "material": "plaster",
+          "weight": 0.3
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.2
+        }
+      ]
+    },
+    {
+      "contains": [
+        "wallpaper"
+      ],
+      "candidates": [
+        {
+          "material": "gypsum_board",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "toilet_paper",
+        "tissue"
+      ],
+      "candidates": [
+        {
+          "material": "paper_stack",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "bath_mat"
+      ],
+      "candidates": [
+        {
+          "material": "carpet",
+          "weight": 0.6
+        },
+        {
+          "material": "carpet_heavy",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "balustrade",
+        "railing",
+        "banister",
+        "handrail"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thick",
+          "weight": 0.5
+        },
+        {
+          "material": "steel",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "contains": [
+        "stair",
+        "staircase"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thick",
+          "weight": 0.7
+        },
+        {
+          "material": "concrete",
+          "weight": 0.3
+        }
+      ]
+    },
+    {
+      "contains": [
+        "beam",
+        "rafter",
+        "joist",
+        "column",
+        "pillar",
+        "lintel"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thick",
+          "weight": 0.6
+        },
+        {
+          "material": "concrete",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "roof"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thick",
+          "weight": 0.5
+        },
+        {
+          "material": "concrete",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "contains": [
+        "desk",
+        "nightstand",
+        "stand",
+        "sideboard",
+        "cupboard",
+        "bookcase",
+        "bookshelf",
+        "headboard"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thin",
+          "weight": 0.6
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "counter",
+        "countertop",
+        "worktop"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thick",
+          "weight": 0.5
+        },
+        {
+          "material": "ceramic_tile",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "contains": [
+        "bath",
+        "bathtub",
+        "toilet",
+        "basin",
+        "washbasin",
+        "urinal",
+        "bidet"
+      ],
+      "candidates": [
+        {
+          "material": "ceramic",
+          "weight": 0.7
+        },
+        {
+          "material": "ceramic_tile",
+          "weight": 0.3
+        }
+      ]
+    },
+    {
+      "contains": [
+        "shower"
+      ],
+      "candidates": [
+        {
+          "material": "ceramic_tile",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "seat",
+        "seating"
+      ],
+      "candidates": [
+        {
+          "material": "upholstered",
+          "weight": 0.6
+        },
+        {
+          "material": "wood_thin",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "machine",
+        "toaster",
+        "blender",
+        "mixer"
+      ],
+      "candidates": [
+        {
+          "material": "steel",
+          "weight": 0.8
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.2
+        }
+      ]
+    },
+    {
+      "contains": [
+        "iron_board",
+        "ironing"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thin",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "iron"
+      ],
+      "candidates": [
+        {
+          "material": "steel",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "tv",
+        "television",
+        "monitor",
+        "display",
+        "screen",
+        "led"
+      ],
+      "candidates": [
+        {
+          "material": "glass",
+          "weight": 0.5
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "contains": [
+        "electric",
+        "alarm",
+        "detector",
+        "thermostat",
+        "switch",
+        "socket",
+        "outlet",
+        "router",
+        "printer",
+        "computer",
+        "laptop",
+        "pc",
+        "speaker",
+        "telephone",
+        "clock",
+        "console",
+        "device",
+        "remote"
+      ],
+      "candidates": [
+        {
+          "material": "generic_hard_surface",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "blanket",
+        "duvet",
+        "quilt",
+        "comforter",
+        "bedding",
+        "shoe",
+        "scarf",
+        "pad"
+      ],
+      "candidates": [
+        {
+          "material": "fabric",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "bag",
+        "handbag",
+        "backpack",
+        "briefcase",
+        "suitcase",
+        "luggage",
+        "case"
+      ],
+      "candidates": [
+        {
+          "material": "fabric",
+          "weight": 0.7
+        },
+        {
+          "material": "upholstered",
+          "weight": 0.3
+        }
+      ]
+    },
+    {
+      "contains": [
+        "basket",
+        "wicker",
+        "laundry"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thin",
+          "weight": 0.6
+        },
+        {
+          "material": "fabric",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "toy",
+        "plush",
+        "doll",
+        "teddy"
+      ],
+      "candidates": [
+        {
+          "material": "fabric",
+          "weight": 0.6
+        },
+        {
+          "material": "wood_thin",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "book",
+        "magazine",
+        "newspaper",
+        "papers",
+        "paper",
+        "folder",
+        "notebook",
+        "document"
+      ],
+      "candidates": [
+        {
+          "material": "paper_stack",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "trashcan",
+        "trash",
+        "bin",
+        "bucket"
+      ],
+      "candidates": [
+        {
+          "material": "steel",
+          "weight": 0.6
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.4
+        }
+      ]
+    },
+    {
+      "contains": [
+        "box",
+        "carton",
+        "cardboard",
+        "crate"
+      ],
+      "candidates": [
+        {
+          "material": "paper_stack",
+          "weight": 0.5
+        },
+        {
+          "material": "wood_thin",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "contains": [
+        "knife",
+        "holder",
+        "utensil",
+        "cutlery"
+      ],
+      "candidates": [
+        {
+          "material": "steel",
+          "weight": 0.5
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "contains": [
+        "bowl",
+        "plate",
+        "dish",
+        "cup",
+        "mug",
+        "jar",
+        "bottle",
+        "pot",
+        "tray"
+      ],
+      "candidates": [
+        {
+          "material": "ceramic",
+          "weight": 0.6
+        },
+        {
+          "material": "glass",
+          "weight": 0.2
+        },
+        {
+          "material": "steel",
+          "weight": 0.2
+        }
+      ]
+    },
+    {
+      "contains": [
+        "soap",
+        "shampoo",
+        "lotion",
+        "toiletry",
+        "accessory"
+      ],
+      "candidates": [
+        {
+          "material": "glass",
+          "weight": 0.4
+        },
+        {
+          "material": "ceramic",
+          "weight": 0.3
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.3
+        }
+      ]
+    },
+    {
+      "contains": [
+        "plant",
+        "flower",
+        "tree",
+        "bush",
+        "foliage"
+      ],
+      "candidates": [
+        {
+          "material": "foliage",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "statue",
+        "sculpture",
+        "figurine",
+        "ornament",
+        "decoration",
+        "decor",
+        "trophy",
+        "candle"
+      ],
+      "candidates": [
+        {
+          "material": "ceramic",
+          "weight": 0.4
+        },
+        {
+          "material": "wood_thick",
+          "weight": 0.3
+        },
+        {
+          "material": "generic_hard_surface",
+          "weight": 0.3
+        }
+      ]
+    },
+    {
+      "contains": [
+        "shutter"
+      ],
+      "candidates": [
+        {
+          "material": "wood_thin",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "heater",
+        "radiator",
+        "boiler",
+        "furnace",
+        "air_condition",
+        "vent",
+        "duct",
+        "pipe",
+        "grille",
+        "tap",
+        "faucet",
+        "hinge",
+        "handle",
+        "knob",
+        "hook",
+        "rod",
+        "rail",
+        "bicycle",
+        "bike",
+        "fan",
+        "hanger"
+      ],
+      "candidates": [
+        {
+          "material": "steel",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "contains": [
+        "storage",
+        "clutter",
+        "miscellaneous"
+      ],
+      "candidates": [
+        {
+          "material": "generic_furniture",
+          "weight": 1.0
+        }
       ]
     }
   ],

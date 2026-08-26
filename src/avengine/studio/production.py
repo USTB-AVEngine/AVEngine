@@ -1,0 +1,412 @@
+"""Production surfaces: the sound-asset deck, the stage board, human verdicts.
+
+Three rules shape everything here.
+
+The asset catalog is read from the published tree on every request, not from a
+cache and not from the index alone. Each asset's ``asset.json`` is the
+authority for its own acceptance record - the index is rebuilt less often than
+assets are re-measured, and a deck that shows last week's verdict next to this
+week's mesh is worse than a slower page.
+
+The board reads each stage's own verifier artifact and never a task's exit
+code. Every product in this repository carries its own acceptance evidence -
+a room manifest that validates, a package that hashes, a route report that
+counts, an episode receipt whose per-frame errors are enumerated - and exit
+code zero only says a process ended. A board painted from exit codes shows the
+first silent failure as green.
+
+Human verdicts are files inside the task directory they judge, one file per
+task, written whole. No database: the queue directory already survives server
+restarts, and a verdict that lives next to the artifacts it judges cannot
+dangle.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+
+class ProductionError(ValueError):
+    pass
+
+
+_ASSET_FILE_SUFFIXES = frozenset({".glb", ".json", ".png"})
+_VERDICT_VALUES = frozenset({"pass", "fail", "unsure"})
+_VERDICT_FILE = "human_verdict.json"
+
+# One join key across every stage's artifacts. Stage outputs name the scene
+# three different ways - room_id hm3d_val_00800_TEEsavR23oF, bank directory
+# 00800-TEEsavR23oF, receipt scene_id TEEsavR23oF - and the 11-character
+# Matterport hash is the part they all carry.
+_SCENE_HASH = re.compile(r"([A-Za-z0-9]{11})(?:\.|$|_)")
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+# --------------------------------------------------------------------------
+# sound-asset deck
+
+
+def load_sound_asset_catalog(index_path: Path) -> dict[str, Any]:
+    root = index_path.parent
+    index = _read_json(index_path) or {}
+    entries: list[dict[str, Any]] = []
+    for asset_json in sorted(root.glob("*/*/*/asset.json")):
+        record = _read_json(asset_json)
+        if record is None:
+            continue
+        relative = asset_json.parent.relative_to(root).as_posix()
+        geometry = record.get("geometry") or {}
+        acceptance = record.get("acceptance") or {}
+        placement = record.get("placement") or {}
+        resting = (geometry.get("resting_pose") or {}) if isinstance(
+            geometry.get("resting_pose"), Mapping
+        ) else {}
+        files = {}
+        for name in ("finalized.glb", "emitter_marker.glb"):
+            candidate = asset_json.parent / name
+            if candidate.is_file():
+                files[name] = {
+                    "path": f"{relative}/{name}",
+                    "byte_size": candidate.stat().st_size,
+                }
+        entries.append(
+            {
+                "asset_id": record.get("asset_id"),
+                "path": relative,
+                "category": record.get("category"),
+                "object_type": (record.get("identity") or {}).get("object_type"),
+                "entity_class": record.get("entity_class"),
+                "admission_state": record.get("admission_state"),
+                "registration_authorized": record.get(
+                    "formal_dataset_registration_authorized"
+                ),
+                "size_m": {
+                    "width": geometry.get("width_right_m"),
+                    "depth": geometry.get("depth_forward_m"),
+                    "height": geometry.get("height_up_m"),
+                },
+                "resting_pose_verdict": acceptance.get("resting_pose_verdict"),
+                "base_normal_tilt_deg": acceptance.get("base_normal_tilt_deg"),
+                "mounting_plane_normal_tilt_deg": acceptance.get(
+                    "mounting_plane_normal_tilt_deg"
+                ),
+                "attachment_surface": placement.get("attachment_surface")
+                or resting.get("attachment_surface"),
+                "attachment_surface_assumed": resting.get(
+                    "attachment_surface_assumed"
+                ),
+                "has_emitter": isinstance(record.get("emitter"), Mapping),
+                "files": files,
+            }
+        )
+    return {
+        "root": str(root),
+        "index_created_at": index.get("created_at"),
+        "asset_count": len(entries),
+        "assets": entries,
+    }
+
+
+def sound_asset_file(index_path: Path, relative: str) -> Path:
+    root = index_path.parent.resolve()
+    target = (root / relative).resolve()
+    if not str(target).startswith(str(root) + "/"):
+        raise ProductionError("asset path escapes the asset root")
+    if target.suffix not in _ASSET_FILE_SUFFIXES:
+        raise ProductionError(f"not a servable asset file: {relative}")
+    if not target.is_file():
+        raise ProductionError(f"no such asset file: {relative}")
+    return target
+
+
+# --------------------------------------------------------------------------
+# human verdicts
+
+
+def write_human_verdict(
+    task_dir: Path, *, verdict: str, note: str = "", author: str = "studio"
+) -> dict[str, Any]:
+    if verdict not in _VERDICT_VALUES:
+        raise ProductionError(
+            f"verdict must be one of {sorted(_VERDICT_VALUES)}, got {verdict!r}"
+        )
+    if not task_dir.is_dir():
+        raise ProductionError(f"task directory does not exist: {task_dir}")
+    record = {
+        "schema": "avengine_studio_human_verdict_v1",
+        "verdict": verdict,
+        "note": str(note or "")[:2000],
+        "author": str(author or "studio")[:200],
+        "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    (task_dir / _VERDICT_FILE).write_text(
+        json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return record
+
+
+def read_human_verdict(task_dir: Path) -> dict[str, Any] | None:
+    return _read_json(task_dir / _VERDICT_FILE)
+
+
+# --------------------------------------------------------------------------
+# the stage board
+
+
+def _scene_key(text: str | None) -> str | None:
+    if not text:
+        return None
+    kujiale = re.search(r"(kujiale_\d+)", str(text))
+    if kujiale:
+        return kujiale.group(1)
+    match = _SCENE_HASH.search(str(text))
+    return match.group(1) if match else None
+
+
+def _verify_room_prepare(output_dir: Path) -> dict[str, Any] | None:
+    for manifest_path in sorted(output_dir.glob("*/room_manifest.json")):
+        manifest = _read_json(manifest_path)
+        if manifest is None:
+            continue
+        pairs = manifest.get("connectivity_pairs") or []
+        sidecar = _read_json(manifest_path.parent / "connectivity_measurement.json")
+        return {
+            "scene": _scene_key(manifest.get("room_id")),
+            "ok": bool(pairs),
+            "summary": (
+                f"连通对 {len(pairs)}"
+                + (
+                    f" · 测地 {sidecar['measured_geodesic_distance_m']:.1f} m"
+                    if sidecar and "measured_geodesic_distance_m" in sidecar
+                    else ""
+                )
+            ),
+        }
+    return None
+
+
+def _verify_package(output_dir: Path) -> dict[str, Any] | None:
+    manifest = _read_json(output_dir / "manifest.json")
+    coverage = _read_json(output_dir / "semantic_material_coverage.json")
+    if manifest is None and coverage is None:
+        return None
+    counts = (coverage or {}).get("category_triangle_counts") or {}
+    total = sum(counts.values()) or 1
+    sealed = bool((manifest or {}).get("package_content_sha256"))
+    return {
+        "scene": _scene_key((coverage or {}).get("room_id")),
+        "ok": sealed and coverage is not None,
+        "summary": (
+            f"{(coverage or {}).get('surface_count', '?')} 类 · 默认材质 "
+            f"{(coverage or {}).get('unknown_semantic_category_count', '?')} 类 · "
+            f"未标注 {100.0 * counts.get('unannotated', 0) / total:.1f}%"
+            if coverage
+            else "封印在但覆盖率报告缺失"
+        ),
+    }
+
+
+def _verify_route_bank(output_dir: Path) -> dict[str, Any] | None:
+    report = _read_json(output_dir / "route_report.json")
+    if report is None:
+        return None
+    scenes = report.get("scenes") or []
+    first = scenes[0] if scenes and isinstance(scenes[0], Mapping) else {}
+    return {
+        "scene": _scene_key(str(first.get("scene", ""))),
+        "ok": int(report.get("floors_with_routes", 0)) > 0,
+        "summary": (
+            f"楼层 {report.get('floors_with_routes', 0)}/"
+            f"{report.get('floors_examined', 0)} 有路线"
+        ),
+    }
+
+
+def _verify_episode(output_dir: Path) -> dict[str, Any] | None:
+    receipt = _read_json(output_dir / "receipt.json")
+    if receipt is None:
+        return None
+    report = _read_json(output_dir / "audio_foa" / "render_report.json") or {}
+    rendered = report.get("frames_rendered")
+    within = report.get("frames_within_tolerance")
+    error = report.get("direction_error_deg") or {}
+    return {
+        "scene": _scene_key(receipt.get("scene_id")),
+        "ok": (output_dir / "episode_binaural.mp4").is_file(),
+        "summary": (
+            f"帧 {within}/{rendered} 达容差 · 误差中位 "
+            f"{error.get('median', '?')}°"
+            if rendered is not None
+            else "回执在但逐帧报告缺失"
+        ),
+    }
+
+
+def _verify_kujiale_package(output_dir: Path) -> dict[str, Any] | None:
+    receipt = _read_json(output_dir / "receipt.json")
+    if receipt is None:
+        return None
+    rlr_manifest = receipt.get("rlr_manifest")
+    loadable = bool(rlr_manifest) and Path(str(rlr_manifest)).is_file()
+    return {
+        "scene": _scene_key(receipt.get("room_id")),
+        "ok": loadable,
+        "summary": (
+            f"RLR 可加载 · 去退化面 {receipt.get('removed_degenerate_triangles')}"
+            f" · {receipt.get('derived_triangle_count')} 三角面"
+            if loadable
+            else "回执在但 RLR 包缺失"
+        ),
+    }
+
+
+_STAGE_VERIFIERS = {
+    "hm3d_room_prepare": ("room", _verify_room_prepare),
+    "semantic_acoustic_package": ("package", _verify_package),
+    "hm3d_route_bank": ("routes", _verify_route_bank),
+    "hm3d_episode": ("episode", _verify_episode),
+    "kujiale_route_bank": ("routes", _verify_route_bank),
+    "kujiale_acoustic_package": ("package", _verify_kujiale_package),
+}
+
+BOARD_STAGES = ("room", "package", "routes", "episode", "verdict")
+
+
+def board_rows(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """One row per scene, one cell per stage, painted from verifier artifacts.
+
+    Newest task wins a cell: a re-run that fixed a scene should replace the
+    failure it fixed, and the loser is still reachable through the task list.
+    """
+
+    cells: dict[str, dict[str, dict[str, Any]]] = {}
+    for record in task_records:
+        template = str(record.get("template") or "")
+        entry = _STAGE_VERIFIERS.get(template)
+        if entry is None:
+            continue
+        stage, verifier = entry
+        output_dir = Path(str(record.get("output_dir") or ""))
+        verified = verifier(output_dir) if output_dir.is_dir() else None
+        if verified is None:
+            # A task still running has not failed its verification - it has
+            # not reached it. Say which, or a slow stage reads as a broken one.
+            still_working = str(record.get("status")) in ("queued", "running")
+            verified = {
+                "scene": None,
+                "ok": False,
+                "summary": "任务尚在运行" if still_working else "无验收产物",
+            }
+        scene = verified.pop("scene", None) or (
+            "kujiale_0020" if template.startswith("kujiale") else "unknown"
+        )
+        cell = {
+            "task_id": record.get("task_id"),
+            "created_at": record.get("created_at"),
+            "task_status": record.get("status"),
+            **verified,
+        }
+        row = cells.setdefault(scene, {})
+        current = row.get(stage)
+        if current is None or str(cell.get("created_at") or "") > str(
+            current.get("created_at") or ""
+        ):
+            row[stage] = cell
+
+        if template == "hm3d_episode":
+            verdict = read_human_verdict(Path(str(record.get("task_dir") or "")))
+            if verdict is not None:
+                verdict_cell = {
+                    "task_id": record.get("task_id"),
+                    "created_at": verdict.get("written_at"),
+                    "task_status": record.get("status"),
+                    "ok": verdict.get("verdict") == "pass",
+                    "summary": (
+                        f"{verdict.get('verdict')}"
+                        + (f" · {verdict.get('note')}" if verdict.get("note") else "")
+                    ),
+                }
+                current_verdict = row.get("verdict")
+                if current_verdict is None or str(
+                    verdict_cell.get("created_at") or ""
+                ) > str(current_verdict.get("created_at") or ""):
+                    row["verdict"] = verdict_cell
+
+    rows = [
+        {"scene": scene, "cells": stage_cells}
+        for scene, stage_cells in sorted(cells.items())
+    ]
+    return {
+        "schema": "avengine_studio_board_v1",
+        "stages": list(BOARD_STAGES),
+        "note": (
+            "格子的颜色来自各工序自己的验收产物，不来自任务退出码；"
+            "同一格多次运行以最新为准，旧任务仍在任务列表里"
+        ),
+        "rows": rows,
+    }
+
+
+# --------------------------------------------------------------------------
+# the review queue
+
+
+def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
+    episodes: list[dict[str, Any]] = []
+    for record in task_records:
+        if str(record.get("template") or "") != "hm3d_episode":
+            continue
+        output_dir = Path(str(record.get("output_dir") or ""))
+        receipt = _read_json(output_dir / "receipt.json")
+        if receipt is None:
+            continue
+        report = _read_json(output_dir / "audio_foa" / "render_report.json") or {}
+        per_frame = report.get("per_frame") or []
+        artifacts = {
+            "mp4": "episode_binaural.mp4",
+            "foa_stereo_fold": "audio_foa/moving_source.stereo_fold.wav",
+            "first_frame": "video/frame_0000.png",
+            "foa_report": "audio_foa/render_report.json",
+            "receipt": "receipt.json",
+        }
+        available = {
+            name: relative
+            for name, relative in artifacts.items()
+            if (output_dir / relative).is_file()
+        }
+        episodes.append(
+            {
+                "task_id": record.get("task_id"),
+                "created_at": record.get("created_at"),
+                "scene_id": receipt.get("scene_id"),
+                "motion_case": receipt.get("motion_case"),
+                "episode_index": receipt.get("episode_index"),
+                "episode_id": receipt.get("episode_id"),
+                "frames_rendered": report.get("frames_rendered"),
+                "frames_within_tolerance": report.get("frames_within_tolerance"),
+                "direction_error_deg": report.get("direction_error_deg"),
+                "reverberation": report.get("reverberation"),
+                "error_deg_per_frame": [
+                    frame.get("error_deg")
+                    for frame in per_frame
+                    if isinstance(frame, Mapping)
+                ],
+                "artifacts": available,
+                "verdict": read_human_verdict(
+                    Path(str(record.get("task_dir") or ""))
+                ),
+            }
+        )
+    episodes.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return {"schema": "avengine_studio_review_queue_v1", "episodes": episodes}
