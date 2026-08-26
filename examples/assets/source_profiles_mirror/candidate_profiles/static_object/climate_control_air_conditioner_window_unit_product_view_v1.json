@@ -1,7 +1,7 @@
 {
  "schema": "avengine_attribute_profile_v1",
  "profile_schema_id": "climate_control_air_conditioner_window_unit_product_view_v1",
- "profile_revision": "2026_08_27_v2_flat_rear_mounting_plane_method_revision",
+ "profile_revision": "2026_08_27_v3_squat_window_chassis_method_revision",
  "asset_class": "static_object",
  "lineage_group_id": "static_product_view_t2i_flux2_v1",
  "state_classification": "research_candidate",
@@ -28,7 +28,7 @@
  "forbidden_combinations": [],
  "generation_contract": {
   "route": "flux2_pixal3d_static_v1",
-  "prompt_template_id": "static_product_view_t2i_v2_flat_rear_mounting_plane",
+  "prompt_template_id": "static_product_view_t2i_v3_squat_window_chassis",
   "base_acquisition_policy": {
    "policy_id": "static_object_per_request_one_shot_v1",
    "acquisition_unit": "one_frozen_asset_per_request",
@@ -36,9 +36,9 @@
    "downstream_instance_route": "flux2_pixal3d_static_v1",
    "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
   },
-  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: a compact rectangular through-window box with straight orthogonal sides, a flat top, and one broad continuous flat rear steel mounting panel. The front has one large intake grille, a separate row of directional outlet louvers across the upper front, and one small control cluster confined to the side. The rear panel is planar and unobstructed, with no external cage, feet, pipes, bulges, or protruding machinery.",
+  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: a squat horizontal through-window chassis, clearly wider than tall, with width about 1.4 to 1.8 times height. It is one compact orthogonal box with a flat top and one broad continuous flat rear steel mounting panel. The front has one large intake grille, a separate row of directional outlet louvers across the upper front, and one small control cluster confined to the side. The rear is planar and unobstructed, with no cage, feet, pipes, bulges, or protruding machinery.",
   "pose_guard_prompt": "Render one object, centered and stable on a flat neutral surface against a seamless light-gray background. Level product view only 20 degrees to one side and 5 degrees above: show the full front and one straight side edge so the rectangular depth and flat rear direction are unambiguous. The complete object fits with a clear margin. Even studio light and one soft shadow beneath. Neutral reconstruction reference, not an advertisement.",
-  "negative_prompt": "human, hand, text, logo, watermark, multiple objects, cropped object, extreme perspective, fisheye, tilted camera, floating object, cluttered background, room scene, packaging, advertisement, collage, speakers, wall bracket, cables, removed panel, exploded view, cutaway, split unit, outdoor condenser, portable floor unit, window frame, wall, rounded rear, bowed rear panel, uneven back, rear protrusion, external fan cage, exposed propeller housing, support feet, pipes, bulky machinery",
+  "negative_prompt": "human, hand, text, logo, watermark, multiple objects, cropped object, extreme perspective, fisheye, tilted camera, floating object, cluttered background, room scene, packaging, advertisement, collage, speakers, wall bracket, cables, removed panel, exploded view, cutaway, split unit, outdoor condenser, portable floor unit, window frame, wall, tall tower, vertical cabinet, floor-standing cabinet, narrow upright appliance, rounded rear, bowed rear panel, uneven back, rear protrusion, external fan cage, exposed propeller housing, support feet, wheels, casters, pipes, bulky machinery",
   "value_labels": {
    "category": {
     "climate_control": "climate-control appliance"
