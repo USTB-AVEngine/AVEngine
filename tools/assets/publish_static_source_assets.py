@@ -40,6 +40,11 @@ from typing import Any, Mapping
 
 import numpy as np
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from measure_static_resting_pose import measure as measure_resting_pose
+
 ASSET_SCHEMA = "avengine_sound_source_asset_v1"
 INDEX_SCHEMA = "avengine_sound_source_asset_index_v1"
 PIPELINE = "flux2_pixal3d_static_v1"
@@ -299,9 +304,15 @@ def mesh_extent_and_tilt(glb: Path) -> dict:
         "bbox_minimum_xyz_m": [round(float(value), 4) for value in minimum],
         "bbox_maximum_xyz_m": [round(float(value), 4) for value in maximum],
         "faces": int(len(faces)),
+        # Kept for continuity, but it is not the levelling gate and never was
+        # a good one: this is the elevation of the area-weighted principal
+        # axis, which for a 16:9 flat panel is the horizontal width. A
+        # television on its back scores near zero here. resting_pose below is
+        # the gate, because the base is what meets the floor.
         "long_axis_elevation_deg": round(
             float(np.degrees(np.arcsin(min(1.0, abs(long_axis[1]))))), 1
         ),
+        "resting_pose": measure_resting_pose(glb),
     }
 
 
@@ -494,10 +505,18 @@ def main() -> int:
                     "minimum_up_after_export_readback_m"
                 ],
                 "height_absolute_error_m": physical["absolute_error_m"],
-                "known_defect_tilt": (
-                    "the static chain applies yaw only; long-axis elevation is "
-                    f"{geometry['long_axis_elevation_deg']} degrees where an "
-                    "upright object wants 90 and a bar wants 0"
+                "resting_pose_verdict": geometry["resting_pose"]["verdict"],
+                "base_normal_tilt_deg": geometry["resting_pose"][
+                    "base_normal_tilt_deg"
+                ],
+                "secondary_long_axis_elevation_deg": geometry[
+                    "long_axis_elevation_deg"
+                ],
+                "secondary_note": (
+                    "long_axis_elevation_deg is reported for continuity only. "
+                    "It cannot see a backward lean, because for a flat panel or "
+                    "a bar the long axis is the one the lean rotates about. "
+                    "Read resting_pose_verdict instead"
                 ),
             },
             "admission_state": args.admission_state,
@@ -554,10 +573,16 @@ def main() -> int:
                 "what is left"
             ),
         },
-        "known_gap_no_levelling": (
-            "nothing in the static chain corrects pitch or roll, and measured "
-            "reconstructions arrive 5.7 to 22.5 degrees off upright, so every "
-            "asset carries its long_axis_elevation_deg"
+        "levelling": (
+            "every asset carries geometry.resting_pose, measured from the base "
+            "faces of the finalized mesh: the tilt of the base normal away from "
+            "up, and the offset from the asset origin down to that base. A room "
+            "places the asset by putting its origin at floor height and "
+            "applying yaw, and never re-derives either number. The bands are "
+            "loose on purpose - level within 3 degrees, acceptable to 8, "
+            "leaning beyond - because reconstructed geometry is noisy and a "
+            "degree or two of lean, or a few millimetres of float, looks and "
+            "behaves correctly"
         ),
     }
     index["acceptance_gates"] = gates
