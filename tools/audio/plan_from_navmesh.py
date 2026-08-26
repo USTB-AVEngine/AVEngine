@@ -9,6 +9,10 @@ Navigable points are floor the agent can stand on, so a receiver placed there is
 in the room rather than in the geometry, and a speaker raised above one is on
 something rather than inside it. Every pair is then checked for a clear line of
 sight before it is written out.
+
+Superseded by tools/scene/plan_supported_placement.py. Both placement rules
+here are wrong in a furnished scene and were only ever exercised in an empty
+one; see that file for what replaced them and why.
 """
 
 import argparse
@@ -27,6 +31,10 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--seed", type=int, default=20260826)
     parser.add_argument("--receiver-height", type=float, default=1.5)
+    # 0.75 m above the navmesh holds nothing up. Rendered into a furnished
+    # HM3D scene every speaker placed this way hangs in mid-air - over a
+    # stairwell, inside a door. Use tools/scene/plan_supported_placement.py,
+    # which drops a ray onto whatever surface is actually there.
     parser.add_argument("--speaker-height", type=float, default=0.75)
     parser.add_argument("--minimum-range-m", type=float, default=1.6)
     parser.add_argument("--maximum-range-m", type=float, default=5.0)
@@ -57,6 +65,12 @@ def main() -> int:
 
     def clear_line(a, b) -> bool:
         """Same open space, so the first arrival is the direct one.
+
+        Superseded. cast_ray does hit the static stage, but only when the
+        simulator is built with enable_physics=True, which this tool leaves
+        off; every probe that concluded otherwise ran with physics disabled.
+        tools/scene/plan_supported_placement.py does the real cast and rejects
+        pairs this ratio lets through. Kept below as written for the record:
 
         Not a ray cast: cast_ray in this build only hits rigid objects, never
         the static stage, so it reports a clear line through solid walls and

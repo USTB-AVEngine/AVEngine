@@ -9,13 +9,18 @@ It runs on the open scenes that are already downloaded, so it does not wait on
 the licence-gated HM3D meshes. Pointing --scene at an HM3D glb is the only
 change needed once those arrive.
 
-This renders the audio half. The visual half is Blender, driven by the same
-placement file, because the habitat-sim build on this machine cannot bring up a
-GL context - camera sensors abort with GL::Renderer::Error::InvalidValue under
-every EGL configuration tried, while the audio path measures a perfect 0.00
-degrees. Splitting them is also what the geometry actually calls for: a speaker
-mesh is a visual proxy and the sound is rendered from a point source at its
-emitter, which is how JAEGER does it too.
+This renders the audio half. The visual half is
+tools/visual/replay_placement_in_avengine.py, which reads this same placement
+file and renders in AVEngine's own installed habitat prefix. An earlier version
+of this comment claimed habitat could not bring up a GL context here and that
+the visual half had to be Blender. That was wrong: the failure was a Basis
+compressed scene mesh with no BasisImporter plugin, which segfaults rather than
+raising, and the uncompressed sibling glb renders cleanly.
+
+Splitting the two halves is still what the geometry calls for: a speaker mesh
+is a visual proxy and the sound is rendered from a point source at its emitter,
+which is how JAEGER does it too. The visual tool is what checks that the point
+and the proxy agree.
 
 Two things here are not obvious and both are load-bearing:
 
@@ -207,6 +212,9 @@ def main() -> int:
         failures += error > args.tolerance_deg
         entry["direction_error_deg"] = round(error, 3)
         entry["geometric_direction"] = [round(float(v), 4) for v in geometric]
+        # Recorded so the visual replay can compare what was heard against what
+        # is rendered, rather than only against the geometry both were given.
+        entry["measured_direction"] = [round(float(v), 4) for v in measured]
         report["sources"].append(entry)
         print(
             f"{entry['object_type']:<22} {str(entry['realized_attributes'])[:44]:<46} "
@@ -215,8 +223,8 @@ def main() -> int:
 
     report["placement"] = plan
     report["visual_renderer"] = (
-        "blender, driven from the same placement file; the habitat-sim build "
-        "here cannot create a GL context for camera sensors"
+        "tools/visual/replay_placement_in_avengine.py, driven from the same "
+        "placement file, in the AVEngine installed habitat prefix"
     )
     report["foa_channel_order"] = "soundspaces ACN [W, Y, Z, X]"
     report["direct_window_ms"] = args.direct_window_ms
