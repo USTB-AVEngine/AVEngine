@@ -60,6 +60,28 @@ def main() -> int:
         help="fixed field of view; omit to fit it to the route's angular span",
     )
     parser.add_argument("--margin-deg", type=float, default=12.0)
+    parser.add_argument(
+        "--overhead-m",
+        type=float,
+        help=(
+            "look down from this height above the listener instead of out from "
+            "it. A fixed forward camera cannot show an orbit: the source spans "
+            "the full 360 and only a third of that fits in any field of view, "
+            "so two thirds of the clip has nothing on screen. Hearing it behind "
+            "you is correct; seeing nothing is not informative"
+        ),
+    )
+    parser.add_argument(
+        "--place-at-emitter",
+        action="store_true",
+        help=(
+            "put the mesh where its own emitter anchor lands on the acoustic "
+            "source point, instead of standing it on the floor. Needed whenever "
+            "the source is not at floor level - an orbit at ear height, for "
+            "instance - because otherwise the mesh and the sound are 1.5 m "
+            "apart and the picture stops meaning anything"
+        ),
+    )
     args = parser.parse_args()
 
     report = json.loads(args.acoustic_report.read_text(encoding="utf-8"))
@@ -106,11 +128,37 @@ def main() -> int:
     spread = float(
         np.degrees(np.arccos(np.clip(directions @ aim, -1.0, 1.0))).max()
     )
-    hfov = (
-        float(args.hfov_deg)
-        if args.hfov_deg
-        else float(np.clip(2.0 * (spread + args.margin_deg), 50.0, 120.0))
-    )
+    if args.overhead_m:
+        # Cover the orbit radius plus margin from the chosen height.
+        reach = float(np.linalg.norm(emitters[frames][:, (0, 2)] - listener[[0, 2]],
+                                    axis=1).max())
+        hfov = (
+            float(args.hfov_deg)
+            if args.hfov_deg
+            else float(
+                np.clip(
+                    2.0 * math.degrees(math.atan2(reach * 1.25, args.overhead_m)),
+                    50.0,
+                    130.0,
+                )
+            )
+        )
+        # A 16:9 frame covers less vertically than horizontally, so a circular
+        # orbit leaves the top and bottom of the picture while still inside the
+        # horizontal field. Overhead framing wants a square.
+        if args.width != args.height:
+            print(
+                f"overhead view: squaring the frame to {args.height}x{args.height} "
+                "so the orbit does not leave the top and bottom"
+            )
+            args.width = args.height
+        print(f"overhead {args.overhead_m:.2f} m, reach {reach:.2f} m, hfov {hfov:.1f}")
+    else:
+        hfov = (
+            float(args.hfov_deg)
+            if args.hfov_deg
+            else float(np.clip(2.0 * (spread + args.margin_deg), 50.0, 120.0))
+        )
     print(f"route spans {2 * spread:.1f} deg from the listener; hfov {hfov:.1f} deg")
 
     backend = hs.SimulatorConfiguration()
@@ -151,25 +199,55 @@ def main() -> int:
     # listener is the thing that should set both.
     agent = sim.get_agent(0)
     state = agent.get_state()
-    state.position = listener.astype(np.float32)
-    state.rotation = look_at(aim, np_quaternion)
+    if args.overhead_m:
+        eye = listener.copy()
+        eye[1] += float(args.overhead_m)
+        state.position = eye.astype(np.float32)
+        state.rotation = look_at(np.array([1e-6, -1.0, 0.0]), np_quaternion)
+    else:
+        state.position = listener.astype(np.float32)
+        state.rotation = look_at(aim, np_quaternion)
     state.sensor_states = {}
     agent.set_state(state, True)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     from PIL import Image, ImageDraw
 
+    height = float(report["source_center_height_m"])
     for index, frame in enumerate(frames):
         ground = floor_path[frame]
         # Face the listener, so the front baffle is what radiates.
         towards = listener - ground
         yaw = math.degrees(math.atan2(-towards[2], towards[0]))
-        obj.translation = mn.Vector3(*[float(v) for v in ground])
+        if args.place_at_emitter:
+            emitter = ground.copy()
+            emitter[1] += height
+            angle = math.radians(yaw)
+            rotated = np.array(
+                [
+                    offset[0] * math.cos(angle) + offset[2] * math.sin(angle),
+                    offset[1],
+                    -offset[0] * math.sin(angle) + offset[2] * math.cos(angle),
+                ]
+            )
+            placed = emitter - rotated
+        else:
+            placed = ground
+        obj.translation = mn.Vector3(*[float(v) for v in placed])
         obj.rotation = mn.Quaternion.rotation(mn.Deg(yaw), mn.Vector3.y_axis())
 
         rgb = np.asarray(sim.get_sensor_observations()["colour"])[..., :3]
         image = Image.fromarray(rgb)
         draw = ImageDraw.Draw(image)
+        if args.overhead_m:
+            # The listener is directly under the camera, so it is the centre of
+            # the frame. Marking it is what makes an overhead orbit readable.
+            cx, cy = args.width / 2.0, args.height / 2.0
+            draw.line([cx - 14, cy, cx + 14, cy], fill=(255, 225, 90), width=2)
+            draw.line([cx, cy - 14, cx, cy + 14], fill=(255, 225, 90), width=2)
+            draw.ellipse([cx - 7, cy - 7, cx + 7, cy + 7], outline=(255, 225, 90),
+                         width=2)
+            draw.text((cx + 18, cy - 7), "listener", fill=(255, 225, 90))
         error = errors.get(frame)
         verdict = "occluded" if (error or 0) > 5 else "verified"
         colour_rgb = (255, 90, 90) if verdict == "occluded" else (150, 255, 150)
