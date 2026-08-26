@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 242 个工具脚本。
+当前共 252 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -102,6 +102,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/scene/choose_listener_pose.py` | Choose listener poses for a route, so nothing downstream has to invent one |
 | `tools/scene/plan_supported_placement.py` | Place speakers on surfaces that exist, and check the sightline against geometry |
 
 ## 声学（`tools/acoustics/`）
@@ -135,6 +136,7 @@
 | `tools/routes/plot_route_bank.py` | Render the apartment route bank as a top-down map: engine navigation vs the hand-mined corridors |
 | `tools/routes/probe_camera_pose_native.py` | Render one lightweight native Habitat camera-pose probe |
 | `tools/routes/select_asset_bound_trajectories.py` | Select asset-bound source-slot routes that pass the real center-point gate |
+| `tools/routes/verify_route_legality.py` | Is the path itself legal? Occlusion is not the question here |
 
 ## episode 捕获（`tools/capture/`）
 
@@ -154,6 +156,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/visual/render_moving_source_video.py` | Render the route the acoustic pass rendered, as frames that can carry that audio |
 | `tools/visual/replay_placement_in_avengine.py` | Render the same speaker placement the acoustic chain used, in AVEngine's own runtime |
 
 ## 空间音频（`tools/audio/`）
@@ -162,9 +165,16 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/audio/build_hm3d_material_map.py` | Extend the acoustic material database to HM3D's category vocabulary |
+| `tools/audio/calibrate_surface_materials.py` | Ask which material the room's dominant surfaces should point at |
+| `tools/audio/compare_material_acoustics.py` | Does turning HM3D semantics into acoustic materials change the sound? |
 | `tools/audio/fit_foa_axes.py` | Fit the map from SoundSpaces FOA channels to Habitat world axes |
 | `tools/audio/hm3d_download.sh` | Download the HM3D val split into the shared dataset root. |
+| `tools/audio/hm3d_download_pieces.sh` | Fetch HM3D pieces for one split. |
+| `tools/audio/hm3d_semantic_download.sh` | Fetch the HM3D semantic annotations for the val split. |
 | `tools/audio/insert_speakers_and_render_foa.py` | Put our published speakers into a Habitat scene and render RGB plus FOA |
+| `tools/audio/make_source_orbit_bank.py` | Write a bank whose source circles the listener, for hearing the surround field |
+| `tools/audio/measure_semantic_surface_area.py` | Rank HM3D semantic categories by surface area, which is what acoustics sees |
 | `tools/audio/plan_from_navmesh.py` | Build a speaker placement from the scene's navmesh |
 | `tools/audio/render_moving_source.py` | Render a moving sound source in one of the renderer's two output layouts |
 
