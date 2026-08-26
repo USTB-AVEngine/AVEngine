@@ -1,7 +1,7 @@
 {
  "schema": "avengine_attribute_profile_v1",
  "profile_schema_id": "household_clock_alarm_clock_digital_cube_product_view_v1",
- "profile_revision": "2026_08_26_v1_static_sound_forms",
+ "profile_revision": "2026_08_26_v2_digital_clock_identity_method_revision",
  "asset_class": "static_object",
  "lineage_group_id": "static_product_view_t2i_flux2_v1",
  "state_classification": "research_candidate",
@@ -28,7 +28,7 @@
  "forbidden_combinations": [],
  "generation_contract": {
   "route": "flux2_pixal3d_static_v1",
-  "prompt_template_id": "static_product_view_t2i_v1_alarm_clock_digital_cube",
+  "prompt_template_id": "static_product_view_t2i_v2_digital_clock_segments_snooze",
   "base_acquisition_policy": {
    "policy_id": "static_object_per_request_one_shot_v1",
    "acquisition_unit": "one_frozen_asset_per_request",
@@ -36,9 +36,9 @@
    "downstream_instance_route": "flux2_pixal3d_static_v1",
    "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
   },
-  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: a small rectangular bedside clock with a blank dark front display, two low feet, and a clearly visible perforated buzzer grille on the upper rear-facing bevel while the grille remains in view.",
-  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
-  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, short cabinet, tabletop speaker, single driver, two drivers, horizontal orientation, lying down, analog clock face, twin bells, wall clock, digits, glowing text, phone, radio antenna",
+  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: a compact rectangular bedside digital alarm clock standing on two low feet. Its front has one wide smoked display window with four large unlit seven-segment numeral outlines reading 12:00 and one colon, so it unmistakably reads as a clock rather than a television. One long rectangular snooze bar sits on top. A separate field of small perforated buzzer holes is clearly visible on the upper front bezel beside the display.",
+  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no letters, no words, no logos, no labels, no screen imagery beyond the specified unlit clock digits, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
+  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, short cabinet, tabletop speaker, single driver, two drivers, horizontal orientation, lying down, analog clock face, twin bells, wall clock, digits, glowing text, phone, radio antenna, television, miniature television, monitor, computer screen, smart speaker, generic speaker box, blank featureless front, completely blank display, side-only grille, missing snooze bar, radio antenna, camera lens",
   "value_labels": {
    "category": {
     "household_clock": "household clock"

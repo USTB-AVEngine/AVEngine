@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 233 个工具脚本。
+当前共 237 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -137,6 +137,17 @@
 | `tools/capture/capture_human_beagle_replicacad.py` | Run the real ReplicaCAD apt_0 human + Beagle visual/placement review |
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
+
+## 空间音频（`tools/audio/`）
+
+*双耳/FOA 渲染与混音（src/avengine/spatial_audio，工具暂无）*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/audio/fit_foa_axes.py` | Fit the map from SoundSpaces FOA channels to Habitat world axes |
+| `tools/audio/hm3d_download.sh` | Download the HM3D val split into the shared dataset root. |
+| `tools/audio/insert_speakers_and_render_foa.py` | Put our published speakers into a Habitat scene and render RGB plus FOA |
+| `tools/audio/plan_from_navmesh.py` | Build a speaker placement from the scene's navmesh |
 
 ## 出题与认证（`tools/qa/`）
 
