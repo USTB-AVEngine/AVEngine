@@ -61,6 +61,26 @@ def main() -> int:
     )
     parser.add_argument("--margin-deg", type=float, default=12.0)
     parser.add_argument(
+        "--aim-open",
+        action="store_true",
+        help=(
+            "point the camera at the most open direction rather than at the "
+            "source. Aiming at a source sample is what the first pass did, and "
+            "on an orbit that sample is often inside a wall, so the whole clip "
+            "faced plaster from 30 cm away. Chosen by depth: candidate yaws are "
+            "rendered and the one with the greatest median depth wins"
+        ),
+    )
+    parser.add_argument(
+        "--aim-frame",
+        type=int,
+        help=(
+            "aim the fixed camera at the source's position in this frame. For a "
+            "full orbit the mean direction is degenerate - a circle averages to "
+            "its centre - so the aim has to be named rather than fitted"
+        ),
+    )
+    parser.add_argument(
         "--overhead-m",
         type=float,
         help=(
@@ -123,8 +143,17 @@ def main() -> int:
     emitters[:, 1] += float(report["source_center_height_m"])
     directions = emitters[frames] - listener
     directions = directions / np.linalg.norm(directions, axis=1, keepdims=True)
-    aim = directions.sum(axis=0)
-    aim = aim / np.linalg.norm(aim)
+    if args.aim_frame is not None:
+        aim = emitters[args.aim_frame] - listener
+    else:
+        aim = directions.sum(axis=0)
+    norm = float(np.linalg.norm(aim))
+    if norm < 1.0e-6:
+        # A full orbit sums to nothing. Fall back to the first sample rather
+        # than dividing by zero and aiming at nowhere.
+        aim = emitters[frames[0]] - listener
+        norm = float(np.linalg.norm(aim))
+    aim = aim / norm
     spread = float(
         np.degrees(np.arccos(np.clip(directions @ aim, -1.0, 1.0))).max()
     )
@@ -173,8 +202,14 @@ def main() -> int:
     colour.resolution = [args.height, args.width]
     colour.hfov = hfov
     colour.position = [0.0, 0.0, 0.0]
+    depth = hs.CameraSensorSpec()
+    depth.uuid = "depth"
+    depth.sensor_type = hs.SensorType.DEPTH
+    depth.resolution = [args.height, args.width]
+    depth.hfov = hfov
+    depth.position = [0.0, 0.0, 0.0]
     agent_cfg = hs.agent.AgentConfiguration()
-    agent_cfg.sensor_specifications = [colour]
+    agent_cfg.sensor_specifications = [colour, depth]
     sim = hs.Simulator(hs.Configuration(backend, [agent_cfg]))
 
     templates = sim.get_object_template_manager()
@@ -198,6 +233,40 @@ def main() -> int:
     # third of the picture was blank wall. The route's own angular span from the
     # listener is the thing that should set both.
     agent = sim.get_agent(0)
+    def rotation_matrix(quat):
+        w, x, y, z = quat.w, quat.x, quat.y, quat.z
+        return np.array(
+            [
+                [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+            ]
+        )
+
+    def median_depth(direction):
+        probe = agent.get_state()
+        probe.position = listener.astype(np.float32)
+        probe.rotation = look_at(direction, np_quaternion)
+        probe.sensor_states = {}
+        agent.set_state(probe, True)
+        d = np.asarray(sim.get_sensor_observations()["depth"], dtype=float)
+        d = d[np.isfinite(d) & (d > 0)]
+        return float(np.median(d)) if d.size else 0.0
+
+    if args.aim_open and not args.overhead_m:
+        best = None
+        for degrees in range(0, 360, 30):
+            radians = math.radians(degrees)
+            candidate = np.array([math.sin(radians), 0.0, -math.cos(radians)])
+            score = median_depth(candidate)
+            if best is None or score > best[0]:
+                best = (score, candidate, degrees)
+        aim = best[1]
+        print(
+            f"aiming at the most open direction: yaw {best[2]} deg, "
+            f"median depth {best[0]:.2f} m"
+        )
+
     state = agent.get_state()
     if args.overhead_m:
         eye = listener.copy()
@@ -210,10 +279,36 @@ def main() -> int:
     state.sensor_states = {}
     agent.set_state(state, True)
 
+    height = float(report["source_center_height_m"])
+    basis = rotation_matrix(state.rotation)
+    half_h = hfov / 2.0
+    half_v = math.degrees(
+        math.atan(math.tan(math.radians(half_h)) * args.height / args.width)
+    )
+
+    def framing(emitter):
+        """Where the source sits relative to the frame, in degrees.
+
+        Reported rather than left implicit: a clip where the source is off
+        screen is a case we want, and without saying so it reads as a bug.
+        """
+
+        local = basis.T @ (emitter - listener)
+        forward = -local[2]
+        if forward <= 1.0e-6:
+            return "behind the camera", 180.0
+        azimuth = math.degrees(math.atan2(local[0], forward))
+        elevation = math.degrees(math.atan2(local[1], math.hypot(local[0], forward)))
+        if abs(azimuth) <= half_h and abs(elevation) <= half_v:
+            return "in frame", azimuth
+        side = "right" if azimuth > 0 else "left"
+        if abs(elevation) > half_v and abs(azimuth) <= half_h:
+            return ("above" if elevation > 0 else "below") + " the frame", azimuth
+        return f"{abs(azimuth) - half_h:.0f} deg off {side}", azimuth
+
     args.output_dir.mkdir(parents=True, exist_ok=True)
     from PIL import Image, ImageDraw
 
-    height = float(report["source_center_height_m"])
     for index, frame in enumerate(frames):
         ground = floor_path[frame]
         # Face the listener, so the front baffle is what radiates.
@@ -251,13 +346,19 @@ def main() -> int:
         error = errors.get(frame)
         verdict = "occluded" if (error or 0) > 5 else "verified"
         colour_rgb = (255, 90, 90) if verdict == "occluded" else (150, 255, 150)
-        draw.rectangle([0, 0, 330, 54], fill=(0, 0, 0))
+        emitter_world = floor_path[frame].copy()
+        emitter_world[1] += height
+        where, azimuth = framing(emitter_world)
+        draw.rectangle([0, 0, 396, 70], fill=(0, 0, 0))
         draw.text((8, 4), f"frame {frame:>3}   range {ranges.get(frame, 0):.2f} m",
                   fill=(235, 235, 235))
         draw.text((8, 20),
                   f"DoA error {('n/a' if error is None else f'{error:5.1f}')} deg  "
                   f"{verdict}", fill=colour_rgb)
         draw.text((8, 36),
+                  f"source {where}   azimuth {azimuth:+.0f} deg",
+                  fill=(150, 220, 255) if where == "in frame" else (255, 200, 120))
+        draw.text((8, 52),
                   f"T20 {report['reverberation'].get('t20_ms_median')} ms  "
                   f"materials {report.get('acoustic_materials')}",
                   fill=(190, 190, 190))
