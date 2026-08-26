@@ -1,7 +1,7 @@
 {
  "schema": "avengine_attribute_profile_v1",
  "profile_schema_id": "audio_playback_bookshelf_speaker_product_view_v1",
- "profile_revision": "2026_08_26_v2_two_way_driver_count_method_revision",
+ "profile_revision": "2026_08_26_v4_form_not_crossover_and_level_camera",
  "asset_class": "static_object",
  "lineage_group_id": "static_product_view_t2i_flux2_v1",
  "state_classification": "research_candidate",
@@ -17,7 +17,7 @@
   "usage_scope": "research_candidate"
  },
  "fixed_attributes": {
-  "form_factor": "sealed_two_way_cabinet",
+  "form_factor": "compact_shelf_cabinet",
   "material": "wood"
  },
  "sampled_attribute_domains": {
@@ -30,7 +30,7 @@
  "forbidden_combinations": [],
  "generation_contract": {
   "route": "flux2_pixal3d_static_v1",
-  "prompt_template_id": "static_product_view_t2i_v2_two_way_driver_count",
+  "prompt_template_id": "static_product_view_t2i_v4_compact_shelf_cabinet",
   "base_acquisition_policy": {
    "policy_id": "static_object_per_request_one_shot_v1",
    "acquisition_unit": "one_frozen_asset_per_request",
@@ -38,9 +38,9 @@
    "downstream_instance_route": "flux2_pixal3d_static_v1",
    "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
   },
-  "positive_template": "One {finish} {material} {form_factor} {object_type}, a household {category}: a compact upright rectangular loudspeaker box, clearly taller than it is wide, standing on its own flat plinth. Its front baffle carries exactly two round drivers and nothing else: one large woofer cone in the lower half, and one small dome tweeter above it. There is no third driver, no midrange cone and no opening between them. A single circular port sits below the woofer. The side, top and back panels are plain and flat with no controls and no cloth.",
-  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
-  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, bookshelf, books, shelf, single driver, three or more drivers, horizontal orientation, lying down, three drivers, third driver, midrange driver, midrange cone, three-way speaker, four drivers, driver array, stacked drivers",
+  "positive_template": "One {finish} {material} {form_factor} {object_type}, a household {category}: a compact upright rectangular loudspeaker box, clearly taller than it is wide, standing on its own flat plinth. Its front baffle carries round drivers on the vertical centerline - a large woofer cone low down and a small dome tweeter at the top - with a circular port opening below the woofer. The side, top and back panels are plain and flat with no controls and no cloth.",
+  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view with the camera exactly level at the object's own mid-height, looking straight ahead and never downward, so the front and one side are both visible while the object's vertical edges stay parallel to the sides of the frame and its base line stays horizontal. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
+  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, bookshelf, books, shelf, single driver, three or more drivers, horizontal orientation, lying down, three drivers, third driver, midrange driver, midrange cone, three-way speaker, four drivers, driver array, stacked drivers, high angle, looking down at the object, elevated viewpoint, top-down view, bird eye view, tilted camera, dutch angle, leaning object",
   "value_labels": {
    "category": {
     "audio_playback": "audio playback device"
@@ -49,7 +49,7 @@
     "bookshelf_speaker": "bookshelf loudspeaker"
    },
    "form_factor": {
-    "sealed_two_way_cabinet": "two-way cabinet"
+    "compact_shelf_cabinet": "compact shelf-standing cabinet"
    },
    "material": {
     "wood": "wood-veneer"

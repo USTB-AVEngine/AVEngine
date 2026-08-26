@@ -1,0 +1,37 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/audio_playback_bookshelf_speaker_product_view_v1.json",
+  "sha256": "047782ae235e008874eef8697c59861e00703f4cd7a38503c71be5d316596451",
+  "size_bytes": 5833,
+  "profile_schema_id": "audio_playback_bookshelf_speaker_product_view_v1",
+  "profile_revision": "2026_08_26_v4_form_not_crossover_and_level_camera",
+  "canonical_sha256": "1df2b1f238fd2bfc231d2aea11dfb8f7671fc6adc7b787dead51c74a47a747e4"
+ },
+ "method_revision": {
+  "kind": "declared_attribute_correction_and_level_camera",
+  "supersedes_profile_revision": "2026_08_26_v2_two_way_driver_count_method_revision",
+  "superseded_profile_canonical_sha256": "7fd58e76d09cf9662ce1fa1cff7e8f9ef2cb3d05481823d67408b1d1b8d997c9",
+  "reason": "Six candidates across two prompt methods produced one two-way cabinet each time, so the generator cannot hold the declared fixed attribute form_factor=sealed_two_way_cabinet and a third prompt attempt would repeat the same bet. The declaration is what is wrong: form_factor is meant to be constant across every instance, and that value names the crossover topology rather than the form. What is constant is a compact cabinet standing on a shelf with its drivers on the front baffle, which three-way cabinets satisfy too. This revision also carries the level camera, measured to reduce reconstruction tilt on flat-sided objects, because the batch has to be regenerated either way.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "yield_under_the_superseded_methods": {
+   "2026_08_26_v1_audio_playback_base": "1 of 3",
+   "2026_08_26_v2_two_way_driver_count_method_revision": "1 of 3"
+  },
+  "published_asset_under_the_superseded_declaration": "audio_playback/bookshelf_speaker/sealed_two_way_cabinet_walnut_veneer is genuinely two-way, so its record stays true; the new declaration is also true of it and it can be republished under the new leaf"
+ },
+ "triggering_failure": {
+  "reviewer": "first_author_claude_visual_review_under_project_lead_delegation_20260826",
+  "rejected_instances": [
+   "audio_playback_bookshelf_speaker_product_view_ae7e486cdf1d",
+   "audio_playback_bookshelf_speaker_product_view_842baebdba9a",
+   "audio_playback_bookshelf_speaker_product_view_e287f2bf53e0",
+   "audio_playback_bookshelf_speaker_product_view_f21ee2f6cc8b"
+  ]
+ }
+}
