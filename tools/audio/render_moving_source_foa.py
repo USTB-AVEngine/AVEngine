@@ -198,6 +198,17 @@ def main() -> int:
     parser.add_argument("--slot", default="source1")
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument("--frame-stride", type=int, default=1)
+    parser.add_argument(
+        "--emitter-height-m",
+        type=float,
+        help=(
+            "override the bank's declared source centre height. Set it to a "
+            "visual asset's own emitter offset so the point the audio comes "
+            "from and the point the mesh radiates from are the same point - "
+            "otherwise a video of the route is a soundtrack rather than a "
+            "binding"
+        ),
+    )
     parser.add_argument("--listener-height-m", type=float, default=1.5)
     parser.add_argument("--listener-minimum-range-m", type=float, default=2.0)
     parser.add_argument("--listener-maximum-range-m", type=float, default=6.0)
@@ -270,7 +281,11 @@ def main() -> int:
     episode = episodes[args.episode_index]
 
     floor_path = np.asarray(episode["source_center_paths_m"][args.slot], dtype=float)
-    centre_height = float(bank["source_center_heights_m"][args.slot])
+    centre_height = (
+        float(args.emitter_height_m)
+        if args.emitter_height_m is not None
+        else float(bank["source_center_heights_m"][args.slot])
+    )
     emitters = floor_path.copy()
     emitters[:, 1] += centre_height
 
