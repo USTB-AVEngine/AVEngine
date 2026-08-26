@@ -62,8 +62,28 @@ Habitat 是 **y-up**。它自己的输出把一个水平方向标成"俯仰 +90�
 那种情况下多个排列并列、拟合返回碰巧先看到的那个（`render_test.py` 的输出里
 同一次运行对不同声源给出了 `chs(1,3,2)` 和 `chs(3,1,2)` 两种答案，就是简并的证据）。
 
-**SoundSpaces 渲染 = ACN `[W,Y,Z,X]`；JAEGER 发布数据 = `[W,Z,X,Y]`，两者不同。**
-后者的方向恢复还要 `(-Ix,-Iy,+Iz)` 符号翻转（见 `audio_utils.py` 第 35 行）。
+**修正（2026-08-26）：两者其实是同一个排列，不存在通道顺序差异。**
+
+本文档原来写"SoundSpaces = `[W,Y,Z,X]`，JAEGER 发布数据 = `[W,Z,X,Y]`，两者不同"，
+依据是 `binding_data/audio_utils.py` 第 35 行。那是**记法冲突，不是数据差异**：
+
+- `audio_utils.py` 按 **front/left/up** 给通道命名（`CH_Z,CH_X,CH_Y = 1,2,3`），
+  然后 `front=-Ix, left=-Iy, up=+Iz`。那个"符号翻转"是 x/y/z → front/left/up 的换算，
+  不是换轴。
+- 换算回 habitat 的 x/y/z：`x=ch3, y=ch1, z=ch2`，**三个符号全正**。
+
+拿 JAEGER 自己发布的数据实测过了(`simulation_ds/test` 的 400 个 task1，
+用 `position_local` 当真值，1 ms 窗)：`order (3,1,2) signs (+,+,+)`
+**中位 0.00°、p90 0.00°、400/400 在 5° 内**；次优的排列中位 27.8°，毫无歧义。
+
+**所以读 JAEGER 的 FOA 不需要任何转换**，和我们渲染出来的用同一组常量。
+反过来说，照原来那句话去加一层转换，会把方向搞错。
+
+JAEGER 的角度标签约定（同一批数据实测，中位和最大误差都是 0.000°）：
+`azimuth = atan2(-x, -z)`、`elevation = asin(y)`，x/y/z 是听者局部 habitat 坐标。
+即**前方 -Z、上方 +Y 都和 habitat 一致，但方位角朝 habitat 的左手方向为正** ——
+听者右侧的声源在它的标签里是**负**方位角（`source_label=Right` 的 132 个样本方位角
+中位 -20.11°，`Left` 的 104 个中位 +19.83°）。按 +X=右 去读会每个角都反号。
 
 ### 1.4 `cast_ray` 在这个构建里不测静态场景
 
@@ -125,6 +145,40 @@ owner 说过可以全权代做，但这条我保留 —— 凭证不从对话里
 3. **在 HM3D 场景上跑通同一条链**，逐摆位 DoA 校验。
 4. **视觉**：要么装 AVEngine 的 habitat 运行时，要么用 Blender + 同一份 placement 文件。
 5. **把 §1 的四条发现同步给 binding_data 的 owner**（12 ms 窗那条尤其）。
+
+## 5.5 JAEGER 的声学到底怎么做的（2026-08-26 读码+读数据）
+
+**它不发布渲染器。** 整个公开仓库里没有一个文件引用 habitat_sim / soundspaces /
+AudioSensor（我们的 `binding_data/` 不算）。`data/data_tools/` 下只有一个
+`conv_ir_speaker_foa.py`，做的事就是把**已经渲好的 RIR** 和 LibriSpeech 干声做
+`fftconvolve`。README 也只说"下载 RIR，然后卷积"，完全没描述仿真方法。
+所以"JAEGER 怎么渲的"这个问题，**从公开材料无法回答**；能拿到的是它的产物。
+
+产物形态（`SpatialSceneQA/hm3d_foa_av_v2`，test split 实测）：
+
+| | |
+|---|---|
+| 每个 task | `rgb.png` + `depth.png` + `metadata.json` + IR，**单帧，不是视频** |
+| task1 `single_source` | 1000 个，一个 `ir.npy`，形状 `(4, 2129)` float64 |
+| task2 `dual_source` | 895 个，`ir_male.npy` + `ir_female.npy`，卷积后**直接相加**，不做电平配比 |
+| 场景内人数 | 1–3 个（`num_speakers`），其中一个/两个是发声源 |
+| 标注 | `visual_objects` 用 **HM3D 语义实例**（`instance_id` + `category`，如 wall/picture），每个都带 DoA |
+
+**全部是静态的。没有移动声源的任务类型。** 一个 task = 一个静止听者 + 一个静止声源
++ 一帧图。
+
+**覆盖范围很窄**（1000 个 single_source 全量统计）：
+
+- 方位角 **严格在 ±40° 内**（min -39.97、max +39.92，100%）
+- 俯仰角 ±25° 内
+- 距离 **0.86–4.12 m，中位 1.85 m**
+
+也就是说**声源永远在相机视野里、永远很近**。它从不问"身后的声音"、"隔着墙的声音"、
+"房间对面的声音"。
+
+顺带一个有意思的对照：我们移动声源那批 episode 里，验证干净的距离是 1.1–4.6 m，
+全军覆没的是 4.2–7.2 m —— **验证得干净的那一段基本就是 JAEGER 的距离带**。
+在有家具的住宅里超过约 4 m，直达波定位本来就难。
 
 ## 6. 移动声源（2026-08-26 追加）
 
