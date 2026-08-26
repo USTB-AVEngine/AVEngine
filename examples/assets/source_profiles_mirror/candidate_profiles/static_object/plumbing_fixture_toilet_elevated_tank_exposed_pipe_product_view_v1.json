@@ -1,7 +1,7 @@
 {
  "schema": "avengine_attribute_profile_v1",
  "profile_schema_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_v1",
- "profile_revision": "2026_08_27_v2_single_chrome_downpipe_clear_gap_method_revision",
+ "profile_revision": "2026_08_27_v3_top_button_no_small_protrusions_method_revision",
  "asset_class": "static_object",
  "lineage_group_id": "static_product_view_t2i_flux2_v1",
  "state_classification": "research_candidate",
@@ -28,7 +28,7 @@
  "forbidden_combinations": [],
  "generation_contract": {
   "route": "flux2_pixal3d_static_v1",
-  "prompt_template_id": "static_product_view_t2i_v2_single_chrome_downpipe_clear_gap",
+  "prompt_template_id": "static_product_view_t2i_v3_top_button_no_small_protrusions",
   "base_acquisition_policy": {
    "policy_id": "static_object_per_request_one_shot_v1",
    "acquisition_unit": "one_frozen_asset_per_request",
@@ -36,9 +36,9 @@
    "downstream_instance_route": "flux2_pixal3d_static_v1",
    "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
   },
-  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: one complete toilet assembly with a rectangular cistern suspended high above the floor-standing bowl. The only object bridging the open air gap is one narrow shiny chrome flush pipe: it exits the centre of the tank bottom, descends visibly through empty air, bends once, and enters a visible rear-side bowl inlet. Plain background remains visible on both sides of the pipe and behind it. There is no ceramic support, white column, second pipe, hidden flush channel, or other connector between tank and bowl. The tank and bowl do not touch. The seat and lid are raised; the separated tank, single pipe and bowl all fit in frame.",
+  "positive_template": "One {body_color} {material} {form_factor} {object_type}, a household {category}: one complete toilet assembly with a rectangular cistern suspended high above the floor-standing bowl. The only object bridging the open air gap is one narrow shiny chrome flush pipe: it exits the centre of the tank bottom, descends visibly through empty air, bends once, and enters a visible rear-side bowl inlet. Plain background remains visible on both sides of the pipe and behind it. There is no ceramic support, white column, second pipe, hidden flush channel, or other connector between tank and bowl. One flush button is centred on top of the cistern lid; every tank side is plain and featureless, with no lever, handle, fitting, knob, or small protrusion. The tank and bowl do not touch. The seat and lid are raised; the separated tank, single pipe and bowl all fit in frame.",
   "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
-  "negative_prompt": "human, hand, text, logo, watermark, multiple objects, cropped object, floating object, cluttered background, bathroom scene, low tank, tank touching bowl, hidden pipe, missing downpipe, disconnected pipe, closed lid, lowered seat, ceramic support, white support column, central pedestal between tank and bowl, ceramic bridge, second connector, second pipe, duplicate downpipe, concealed flush channel, broad white pipe, tank support",
+  "negative_prompt": "human, hand, text, logo, watermark, multiple objects, cropped object, floating object, cluttered background, bathroom scene, low tank, tank touching bowl, hidden pipe, missing downpipe, disconnected pipe, closed lid, lowered seat, ceramic support, white support column, central pedestal between tank and bowl, ceramic bridge, second connector, second pipe, duplicate downpipe, concealed flush channel, broad white pipe, tank support, side lever, side handle, wall handle, protruding control, loose knob, side fitting, floating cube, floating speck, detached fitting",
   "value_labels": {
    "category": {
     "plumbing_fixture": "plumbing fixture"
