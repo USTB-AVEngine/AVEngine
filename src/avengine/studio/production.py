@@ -253,6 +253,45 @@ def _verify_episode(output_dir: Path) -> dict[str, Any] | None:
     }
 
 
+def _verify_kujiale_routes(output_dir: Path) -> dict[str, Any] | None:
+    """The kujiale bank speaks its own artifact dialect, not route_report.json.
+
+    Its acceptance evidence is the pair of gate documents the tool itself
+    refuses to pass without: trajectory_coverage.json and
+    trajectory_diversity.json, plus the bank whose episode_count they judged.
+    """
+
+    bank = _read_json(output_dir / "trajectory_bank.json")
+    if bank is None:
+        return None
+    coverage = _read_json(output_dir / "trajectory_coverage.json") or {}
+    diversity = _read_json(output_dir / "trajectory_diversity.json") or {}
+    delivery = _read_json(output_dir / "delivery.json") or {}
+    # The coverage record carries the gate thresholds beside the observed
+    # numbers rather than a verdict string, so the verdict is recomputed here
+    # from the same pair the tool gated on.
+    gate = coverage.get("gate") or {}
+    try:
+        coverage_ok = float(
+            coverage.get("coverage_fraction_by_threshold", {}).get("0.50")
+            or gate.get("observed_fraction_within_0.50m", 0.0)
+        ) >= float(gate.get("minimum_fraction_within_0.50m", 1.0)) and float(
+            gate.get("observed_maximum_gap_m", float("inf"))
+        ) <= float(gate.get("maximum_gap_m", 0.0))
+    except (TypeError, ValueError):
+        coverage_ok = False
+    diversity_ok = str(diversity.get("status") or "") == "pass"
+    return {
+        "scene": _scene_key(delivery.get("room_id") or bank.get("schema")),
+        "ok": bool(bank.get("episode_count")) and coverage_ok and diversity_ok,
+        "summary": (
+            f"{bank.get('episode_count', 0)} 条轨迹 · 覆盖 "
+            f"{'过' if coverage_ok else '未过'} · 槽位多样性 "
+            f"{'过' if diversity_ok else '未过'}"
+        ),
+    }
+
+
 def _verify_kujiale_package(output_dir: Path) -> dict[str, Any] | None:
     receipt = _read_json(output_dir / "receipt.json")
     if receipt is None:
@@ -276,7 +315,7 @@ _STAGE_VERIFIERS = {
     "semantic_acoustic_package": ("package", _verify_package),
     "hm3d_route_bank": ("routes", _verify_route_bank),
     "hm3d_episode": ("episode", _verify_episode),
-    "kujiale_route_bank": ("routes", _verify_route_bank),
+    "kujiale_route_bank": ("routes", _verify_kujiale_routes),
     "kujiale_acoustic_package": ("package", _verify_kujiale_package),
 }
 
