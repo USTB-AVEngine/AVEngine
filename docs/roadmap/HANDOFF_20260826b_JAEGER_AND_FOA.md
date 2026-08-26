@@ -148,11 +148,76 @@ owner 说过可以全权代做，但这条我保留 —— 凭证不从对话里
 
 ## 5.5 JAEGER 的声学到底怎么做的（2026-08-26 读码+读数据）
 
-**它不发布渲染器。** 整个公开仓库里没有一个文件引用 habitat_sim / soundspaces /
-AudioSensor（我们的 `binding_data/` 不算）。`data/data_tools/` 下只有一个
-`conv_ir_speaker_foa.py`，做的事就是把**已经渲好的 RIR** 和 LibriSpeech 干声做
-`fftconvolve`。README 也只说"下载 RIR，然后卷积"，完全没描述仿真方法。
-所以"JAEGER 怎么渲的"这个问题，**从公开材料无法回答**；能拿到的是它的产物。
+**代码不发布渲染器，但论文写了方法。** 公开仓库里没有一个文件引用 habitat_sim /
+soundspaces / AudioSensor（我们的 `binding_data/` 不算），`data/data_tools/` 下只有一个
+`conv_ir_speaker_foa.py` 做 `fftconvolve`。方法在论文 §3.1（arXiv 2602.18527）：
+
+> *SoundSpaces 2.0* renders multi-channel spatial audio by simulating room impulse
+> responses (RIRs) over realistic 3D meshes with material-dependent acoustics. It
+> employs bidirectional path tracing (Cao et al., 2016) to model direct sound and
+> higher-order effects, including reflections, transmission, diffraction, and air
+> absorption.
+
+形式上就是 `A_c^(r)(t) = (R_c(·; s, r, θ) * A^(s))(t)`，`c ∈ {0,1,2,3}`。
+所以它不"拟合"任何东西 —— 是在 HM3D 的三角网上做几何声学仿真，房间的声音特征来自
+**网格几何 + 由 HM3D 语义类别决定的材质**。视觉用 Habitat-Sim，场景取自
+**HM3D 有语义标注的子集**，按场景划分 **130/15/36**（train/val/test）。
+
+它的采样规则（论文原文，值得对齐）：
+- 声源和接收器**必须在同一个房间**，"to reduce degenerate cases caused by fully occluded direct paths"
+- 先采一个可通行的接收器位姿，再在 **1–4 m** 内采声源，**离障碍物留 0.5 m**
+- 只保留 **测地距离 < 2 × 欧氏距离** 的配对
+- 插入的音箱要在 1920×1080 的语义帧里占 **≥500 px**，否则丢弃
+
+## 5.6 但发布出来的 IR 里没有混响（全量实测）
+
+**这是这一串里最要紧的发现，而且和论文文字对不上。**
+
+拿 `simulation_ds/test` 全部 **2790 个 IR、36 个场景**统计"起始后 5 ms 之外的能量占比"：
+
+| | |
+|---|---|
+| 中位 | **4.97e-13** |
+| p99 | 1.48e-12 |
+| 最大 | 1.78e-12 |
+| 超过 1% 的 IR | **0 / 2790** |
+| W 通道非零样点数 | 中位 281（IR 长度约 2100） |
+
+单条细看（`00800-TEEsavR23oF/task1_00003`，距离 1.84 m）：直达波在样点 81，峰值 0.1614，
+**紧邻下一个样点是 1.0e-3 —— 一个样点跌 44 dB**；能量的 **100.000%** 在起始后 1 ms 内。
+
+**发布的 RIR 实际上只有直达波。** 不管他们渲的时候用了什么配置，产物里没有反射。
+
+同几何对撞（用我们的 ss2 音频传感器，在它 metadata 给的 `agent_pos` / `position_world` 上渲）：
+
+| | 它的 | 我们的 |
+|---|---|---|
+| 起始样点 | 54 / 169 / 74 / 81 / 48 / 99 | **6 个全部完全相同** |
+| 反推采样率 | ≈16 kHz | 16 kHz |
+| IR 长度 | ~2100 样点（131 ms） | ~26300（1.65 s） |
+| Schroeder T20 | **0.0 ms** | 160–214 ms |
+| 直达/混响能量比 | **+111 ~ +118 dB** | −9 ~ −13 dB |
+| DoA 恢复 | 0.00° | 0.00–0.27° |
+
+起始样点六个全中，说明**引擎、采样率、坐标约定都和我们一致**；差别全在混响上。
+
+**三个后果，直接影响我们怎么用它：**
+
+1. **§1.1 那个 12 ms 窗的坑，根源在这里。** `binding_data/audio_utils.py` 写着
+   "VERIFIED == metadata.DoA to 0.0000 deg" —— 那是拿**无混响**的 IR 验的，任何窗长都会
+   给 0.00°。所以 12 ms 在 JAEGER 数据上看着完美，一到真实渲染就偏 18°。
+   **不要再用 JAEGER 的数据去校准任何窗长。**
+2. 论文把 Neural IV 的动机写成"robust directional cues even under reverberation"，
+   但我们手上这个 test split 里**没有混响**。（只有 test，train 未验证。）
+3. **我们的数字和它的不可直接比较。** 我们渲的是带 160–214 ms 衰减的 IR，
+   定位本来就更难。要比就得在同一条件下比。
+
+**我们自己也有一个反向的缺口：** 它用 HM3D 语义子集 + 材质相关声学；我们盘上
+**没有 HM3D 语义数据**（只有 `.glb` / `.basis.glb` / `.basis.navmesh`），而且
+`tools/audio/` 三个工具全都 `enableMaterials = False`。要做材质相关声学，
+得先拿到 HM3D 的语义版本。
+
+
 
 产物形态（`SpatialSceneQA/hm3d_foa_av_v2`，test split 实测）：
 
@@ -166,6 +231,15 @@ AudioSensor（我们的 `binding_data/` 不算）。`data/data_tools/` 下只有
 
 **全部是静态的。没有移动声源的任务类型。** 一个 task = 一个静止听者 + 一个静止声源
 + 一帧图。
+
+**修正一条我说错的话：** 我曾说"我们比它多了视觉上可区分的多个声源"，**这是错的**。
+论文 §3.1 写明它用 **Hunyuan3D-1.0 生成了 120 个落地音箱模型**（96/12/12 分给
+train/val/test）插进场景，Task C 就是回归插入音箱的 3D 框，Task D/E 就是把一段人声
+匹配到画面里的某一个音箱。那正是"多个外观不同的音箱"这个配置。
+
+我们真正多的是两样：**移动声源**（它一个都没有），以及**多种形态**的声源资产 ——
+它 120 个全是落地塔，我们是书架箱 / 智能音箱 / 回音壁 / 落地塔 / 电视，
+每个带受控属性（form factor × material × finish）、发声锚点和 provenance。
 
 **覆盖范围很窄**（1000 个 single_source 全量统计）：
 
