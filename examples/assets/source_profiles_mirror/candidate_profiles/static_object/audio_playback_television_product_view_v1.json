@@ -1,7 +1,7 @@
 {
  "schema": "avengine_attribute_profile_v1",
  "profile_schema_id": "audio_playback_television_product_view_v1",
- "profile_revision": "2026_08_26_v2_visible_bottom_grille_method_revision",
+ "profile_revision": "2026_08_27_v3_thin_featureless_back_level_camera_method_revision",
  "asset_class": "static_object",
  "lineage_group_id": "static_product_view_t2i_flux2_v1",
  "state_classification": "research_candidate",
@@ -29,7 +29,7 @@
  "forbidden_combinations": [],
  "generation_contract": {
   "route": "flux2_pixal3d_static_v1",
-  "prompt_template_id": "static_product_view_t2i_v2_visible_bottom_grille",
+  "prompt_template_id": "static_product_view_t2i_v3_thin_featureless_back_level_camera",
   "base_acquisition_policy": {
    "policy_id": "static_object_per_request_one_shot_v1",
    "acquisition_unit": "one_frozen_asset_per_request",
@@ -37,9 +37,9 @@
    "downstream_instance_route": "flux2_pixal3d_static_v1",
    "profile_validation": "all_predeclared_requests_count_zero_hidden_failures"
   },
-  "positive_template": "One {material} {form_factor} {object_type} standing on a {stand_type}, a household {category}: one large living-room flat-screen television far wider than it is tall, with a completely blank matte dark screen showing nothing at all. Across the full width of the bottom bezel, directly under the screen, runs one narrow horizontal perforated speaker grille strip, clearly visible from the front. The bezel is otherwise plain and the back is flat. It rests on a table, not on a wall.",
-  "pose_guard_prompt": "Render exactly one object, centered, resting stably on a flat neutral surface against a plain seamless light-gray background. Three-quarter product view from slightly above eye level so the front and one side are both visible. The entire object fits in frame with a clear margin on every side. Physically plausible real-world proportions and construction. Even studio lighting, soft shadow directly beneath the object only. No humans, no hands, no text, no logos, no labels, no screens showing content, no cables trailing out of frame, no reflections of surroundings, no additional objects, no cropping. This is a neutral reconstruction reference for image-to-3D, not an advertisement scene.",
-  "negative_prompt": "human, hand, fingers, text, logo, watermark, label, sticker, multiple objects, duplicated object, cropped object, cut off, close-up detail shot, extreme perspective, fisheye, tilted camera, floating object, reflection of photographer, cluttered background, background furniture, scene environment, packaging box, advertisement layout, collage, split image, wall mounted, wall bracket, soundbar, remote control, screen content, picture on screen, image on screen, bright screen, glowing screen, curved screen, computer monitor, keyboard, reflection on screen, media console, shelf unit, pair of speakers, stereo pair, two speakers, stacked speakers, speaker stand, tripod stand, wall bracket, subwoofer box, amplifier, receiver, turntable, cables, grille cloth over the drivers, removed front panel, exploded view, cutaway, computer monitor, desktop monitor, thin column stand, office desk, keyboard, mouse, bezel with no grille, hidden speakers, small screen",
+  "positive_template": "One {material} {form_factor} {object_type} standing on a {stand_type}, a household {category}: one large 16:9 flat-screen television, far wider than tall, with a blank matte dark screen. One narrow perforated speaker grille spans the full lower bezel. Excluding the feet, the display is a uniformly thin slab less than one twelfth of the screen width. Its rear is one plain shallow panel without cables, ports, brackets, vents, recesses, protrusions, or boxes. It rests on a table, not a wall.",
+  "pose_guard_prompt": "Render one object, centered and stable on a flat neutral surface against a seamless light-gray background. Near-frontal view at screen-centre height, only 15 degrees to one side and 5 degrees above: show the blank screen, full grille, and one narrow side edge. The complete object fits with a clear margin. Even studio lighting and one soft shadow beneath. Neutral reconstruction reference, not an advertisement.",
+  "negative_prompt": "human, hand, text, logo, watermark, multiple objects, cropped object, extreme perspective, fisheye, tilted camera, floating object, cluttered background, room scene, packaging, advertisement, collage, wall mounted, wall bracket, soundbar, remote control, screen content, bright screen, curved screen, computer monitor, keyboard, media console, shelf, speakers, speaker stand, subwoofer, amplifier, receiver, turntable, cables, removed panel, exploded view, cutaway, bezel with no grille, hidden speakers, small screen, thick cabinet, bulky rear, rear electronics, rear ports, mounting arms, back vents, rear relief, cable bundle, detached cable, floating disc, rear box, deep three-quarter view",
   "value_labels": {
    "category": {
     "audio_playback": "audio playback device"
