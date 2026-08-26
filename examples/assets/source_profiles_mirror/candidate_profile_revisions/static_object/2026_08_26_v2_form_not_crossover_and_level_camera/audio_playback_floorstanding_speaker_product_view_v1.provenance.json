@@ -1,0 +1,31 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/audio_playback_floorstanding_speaker_product_view_v1.json",
+  "sha256": "a4b2e561c8593a617d3e3bff54aaa2d48685817211db9fcb138c118cf552535b",
+  "size_bytes": 5902,
+  "profile_schema_id": "audio_playback_floorstanding_speaker_product_view_v1",
+  "profile_revision": "2026_08_26_v2_form_not_crossover_and_level_camera",
+  "canonical_sha256": "03853d23f4f097efad4cbb8df1090a33fb1a36509e34c58cfe18362689b8714d"
+ },
+ "method_revision": {
+  "kind": "declared_attribute_correction_and_level_camera",
+  "supersedes_profile_revision": "2026_08_26_v1_audio_playback_base",
+  "superseded_profile_canonical_sha256": "3efd3a91782dfe04ce7bb7e5e5961ee24096c638ddac1dfcd5bfc8276e9ea1fe",
+  "reason": "Three faults in one revision. The declared fixed attribute form_factor=three_way_floor_tower names a crossover topology rather than a form, the same mis-specification that held the bookshelf profile to a one in three yield across two prompt methods; the positive template pinned four drivers by name and position, which is the count constraint that generator could not keep; and all three v1 towers failed the 3D gate outright, so the batch has to be regenerated in any case. The level camera is carried in because it measurably reduces reconstruction tilt on flat-sided objects. The negative prompt now also guards the three specific 3D failures seen: an object fused to the plinth, hanging wire geometry, and a cabinet reconstructed split open.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true
+ },
+ "triggering_failure": {
+  "reviewer": "first_author_claude_visual_review_under_project_lead_delegation_20260826",
+  "rejected_instances": {
+   "audio_playback_floorstanding_speaker_product_view_0dcc002103d7": "5.88 percent debris including a hallucinated bottle on an extended base slab; 22.5 degrees off upright",
+   "audio_playback_floorstanding_speaker_product_view_995cd26ea881": "3.03 percent debris as dangling wire and rod geometry at the base",
+   "audio_playback_floorstanding_speaker_product_view_e78b6e647ac6": "cabinet reconstructed split open, baffle detached, 10013 non-manifold edges"
+  }
+ }
+}
