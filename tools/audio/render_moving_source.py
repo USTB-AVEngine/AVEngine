@@ -243,6 +243,18 @@ def main() -> int:
     parser.add_argument("--frame-stride", type=int, default=1)
     parser.add_argument("--sample-rate", type=int, default=16000)
     parser.add_argument("--emitter-height-m", type=float)
+    parser.add_argument(
+        "--listener-pose",
+        type=Path,
+        help=(
+            "pose file from tools/scene/choose_listener_pose.py. The preferred "
+            "route: it carries both position and orientation, this pass "
+            "auditions its candidates in order and writes accepted_index back, "
+            "and the video pass then reads the same entry. Without it the two "
+            "halves each decide half of one thing and the caller has to carry "
+            "a bare vector between them"
+        ),
+    )
     parser.add_argument("--listener", nargs=3, type=float, metavar=("X", "Y", "Z"))
     parser.add_argument("--listener-height-m", type=float, default=1.5)
     parser.add_argument("--listener-minimum-range-m", type=float, default=2.0)
@@ -315,9 +327,25 @@ def main() -> int:
     print(f"layout {args.layout}   materials {'on' if materials_on else 'off'}"
           f"   indirect {'off' if args.direct_only else 'on'}")
 
+    pose = (
+        json.loads(args.listener_pose.read_text(encoding="utf-8"))
+        if args.listener_pose
+        else None
+    )
+
     aim = None
     if args.layout == "binaural":
-        if args.video_manifest:
+        if pose is not None:
+            index = pose.get("accepted_index")
+            if index is None:
+                index = 0
+                print(
+                    "the pose file has no accepted_index yet, so candidate 0 is "
+                    "used. Run the ambisonic pass first and this follows its "
+                    "acoustic audition instead of guessing"
+                )
+            aim = np.asarray(pose["candidates"][index]["aim_world"], dtype=float)
+        elif args.video_manifest:
             aim = np.asarray(
                 json.loads(args.video_manifest.read_text(encoding="utf-8"))[
                     "camera_aim_world"
@@ -356,14 +384,67 @@ def main() -> int:
     # --- the listener -----------------------------------------------------
     auditions = []
     listener = None
-    if earlier:
+    accepted_index = None
+    if pose is not None and args.layout == "binaural":
+        index = pose.get("accepted_index") or 0
+        listener = np.asarray(pose["candidates"][index]["position_m"], dtype=float)
+        accepted_index = index
+        print(f"listener from pose candidate {index}: "
+              f"{np.round(listener, 3).tolist()}")
+    elif pose is not None:
+        # Try the ranked candidates in order and keep the first the sound agrees
+        # with. Ranking is by openness and by how much of the route is in frame,
+        # neither of which knows whether a wall stands between the two.
+        for index, candidate in enumerate(pose["candidates"]):
+            position = np.asarray(candidate["position_m"], dtype=float)
+            place(position)
+            measured, _ = direct_direction(
+                render(midpoint), args.direct_window_ms, sample_rate
+            )
+            geometric = midpoint - position
+            geometric = geometric / np.linalg.norm(geometric)
+            error = (
+                None if measured is None
+                else float(
+                    np.degrees(
+                        np.arccos(np.clip(float(np.dot(measured, geometric)), -1, 1))
+                    )
+                )
+            )
+            auditions.append(
+                {
+                    "candidate_index": index,
+                    "position_m": candidate["position_m"],
+                    "midpoint_error_deg": None if error is None else round(error, 3),
+                }
+            )
+            print(f"  pose candidate {index}  route in frame "
+                  f"{100 * candidate['route_share_in_frame']:5.1f}%  "
+                  f"midpoint error "
+                  f"{'none' if error is None else f'{error:6.2f}'} deg", flush=True)
+            if error is not None and error <= args.tolerance_deg:
+                listener = position
+                accepted_index = index
+                break
+        if listener is None:
+            raise SystemExit(
+                "no pose candidate could hear the route; widen the range band "
+                "or ask choose_listener_pose.py for more candidates"
+            )
+        pose["accepted_index"] = accepted_index
+        args.listener_pose.write_text(
+            json.dumps(pose, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
+        print(f"accepted candidate {accepted_index}; written back to "
+              f"{args.listener_pose.name}")
+    elif earlier:
         listener = np.asarray(earlier["listener_m"], dtype=float)
         print(f"listener from {args.from_report.name}: "
               f"{np.round(listener, 3).tolist()}")
     elif args.listener:
         listener = np.asarray(args.listener, dtype=float)
         print(f"listener pinned to {np.round(listener, 3).tolist()}")
-    elif args.layout == "binaural":
+    elif args.layout == "binaural" and pose is None:
         raise SystemExit(
             "binaural cannot audition a listener: the audition scores candidates "
             "by the intensity vector, which needs the directional channels. "
@@ -585,6 +666,8 @@ def main() -> int:
         "motion_case": episode["motion_case"],
         "slot": slot,
         "listener_m": [round(float(v), 4) for v in listener],
+        "listener_pose": str(args.listener_pose) if args.listener_pose else None,
+        "listener_pose_candidate": accepted_index,
         "listener_auditions": auditions,
         "source_center_height_m": height,
         "frames_rendered": len(frames),

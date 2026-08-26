@@ -50,6 +50,15 @@ def main() -> int:
     parser.add_argument("--rlr-sdk-root", required=True)
     parser.add_argument("--bank", required=True, type=Path)
     parser.add_argument("--acoustic-report", required=True, type=Path)
+    parser.add_argument(
+        "--listener-pose",
+        type=Path,
+        help=(
+            "pose file from tools/scene/choose_listener_pose.py. Uses the entry "
+            "the acoustic pass accepted, so the picture and the sound share one "
+            "decision instead of this tool choosing an aim of its own"
+        ),
+    )
     parser.add_argument("--asset-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--width", type=int, default=960)
@@ -253,7 +262,22 @@ def main() -> int:
         d = d[np.isfinite(d) & (d > 0)]
         return float(np.median(d)) if d.size else 0.0
 
-    if args.aim_open and not args.overhead_m:
+    pose = (
+        json.loads(args.listener_pose.read_text(encoding="utf-8"))
+        if args.listener_pose
+        else None
+    )
+    if pose is not None and not args.overhead_m:
+        index = pose.get("accepted_index")
+        if index is None:
+            raise SystemExit(
+                "the pose file has no accepted_index; run the acoustic pass "
+                "first so the picture follows the listener the sound accepted"
+            )
+        aim = np.asarray(pose["candidates"][index]["aim_world"], dtype=float)
+        aim = aim / np.linalg.norm(aim)
+        print(f"aim from pose candidate {index}: {np.round(aim, 3).tolist()}")
+    elif args.aim_open and not args.overhead_m:
         best = None
         for degrees in range(0, 360, 30):
             radians = math.radians(degrees)
