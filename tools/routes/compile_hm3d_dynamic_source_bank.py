@@ -143,6 +143,32 @@ def main() -> int:
     )
     parser.add_argument("--source-body-height-m", type=float, default=1.5)
     parser.add_argument(
+        "--planning-margin-m",
+        type=float,
+        default=0.0,
+        help=(
+            "plan on a navmesh inset by the body radius plus this. Zero by "
+            "choice: a route that brushes a corner by a few centimetres is "
+            "acceptable here, and margin is paid for in walkable area and in "
+            "connectivity. 0.03 was measured to take clearance from 0.170 to "
+            "0.197 m against a 0.190 target while walkable area fell from 40.2 "
+            "to 36.7 m2 and the region broke into more components. Raise it "
+            "when a route has to be strictly clear rather than merely plausible"
+        ),
+    )
+    parser.add_argument(
+        "--navmesh-cell-size-m",
+        type=float,
+        default=0.02,
+        help=(
+            "voxel size the navmesh is built at. Recast erodes by whole cells, "
+            "so habitat's default 0.05 realises as little as 0.10 m of inset "
+            "from a 0.20 m request; measured minima are 0.102 at 0.05, 0.158 at "
+            "0.02 and 0.182 at 0.01. 0.02 is the middle: most of the inset back "
+            "without the 25-fold voxel count of 0.01"
+        ),
+    )
+    parser.add_argument(
         "--no-reground",
         action="store_true",
         help=(
@@ -167,6 +193,16 @@ def main() -> int:
     )
     parser.add_argument("--floor-minimum-share", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260826)
+    parser.add_argument(
+        "--horizontal-snap-limit-m",
+        type=float,
+        default=0.25,
+        help=(
+            "how far a sample may be pulled back onto the walkable surface. "
+            "Corner-cutting needs centimetres; anything larger means the sample "
+            "was somewhere a snap cannot rescue, so it is left and counted"
+        ),
+    )
     args = parser.parse_args()
 
     for scene in args.scene:
@@ -263,8 +299,9 @@ def main() -> int:
 
         settings = hs.NavMeshSettings()
         settings.set_defaults()
-        settings.agent_radius = args.source_body_radius_m
+        settings.agent_radius = args.source_body_radius_m + args.planning_margin_m
         settings.agent_height = args.source_body_height_m
+        settings.cell_size = args.navmesh_cell_size_m
         inset_ok = bool(simulator.recompute_navmesh(pathfinder, settings))
 
         scene_record = {
@@ -272,6 +309,11 @@ def main() -> int:
             "navmesh_loaded": bool(pathfinder.is_loaded),
             "navmesh_recomputed_at_radius_m": (
                 args.source_body_radius_m if inset_ok else None
+            ),
+            "navmesh_cell_size_m": args.navmesh_cell_size_m,
+            "planning_margin_m": args.planning_margin_m,
+            "planned_at_radius_m": round(
+                args.source_body_radius_m + args.planning_margin_m, 4
             ),
             "clearance_reference_available": reference is not None,
             "expected_clearance_m": round(
@@ -357,7 +399,7 @@ def main() -> int:
             }
 
             def reground(roots, _pathfinder=pathfinder):
-                """Put every sample on the floor that is actually under it.
+                """Put every sample back on the walkable surface, in all three axes.
 
                 The library pins a whole path to one declared floor height,
                 which is right for an authored room with a flat floor and wrong
@@ -368,9 +410,22 @@ def main() -> int:
                 were off the navmesh, while the default 0.5 m tolerance hid all
                 of it behind a clean zero.
 
-                Only the height is taken from the snap. The horizontal position
-                has already been through the feasible-region sampling and must
-                not be moved by a grounding step.
+                The horizontal position is corrected too, for samples that
+                genuinely left the walkable surface. snap_point returns a point
+                already on the navmesh unchanged, so this touches only those,
+                and moves beyond the limit are left alone and counted rather
+                than silently dragged across the room.
+
+                It does not explain the clearance shortfall, and claiming it did
+                would have been wrong. Every route kept all 75 samples on the
+                navmesh while 1 to 42 of them sat within 0.125 to 0.172 m of real
+                geometry where the body wanted 0.20, which looked like corner
+                cutting; adding this correction changed not one of those numbers,
+                because the samples were never off the navmesh. The cause is the
+                voxel size the navmesh is built at - Recast erodes by whole
+                cells, so a 0.19 m request realises a minimum of 0.10 m at the
+                default 0.05 m cell and 0.18 m at 0.01 - and the fix is
+                --navmesh-cell-size-m.
                 """
 
                 grounded = {}
@@ -380,10 +435,21 @@ def main() -> int:
                         snapped = np.asarray(
                             _pathfinder.snap_point(sample), dtype=np.float64
                         )
-                        if np.all(np.isfinite(snapped)):
+                        if not np.all(np.isfinite(snapped)):
+                            continue
+                        shift = float(
+                            np.linalg.norm(snapped[[0, 2]] - sample[[0, 2]])
+                        )
+                        if shift <= _horizontal_snap_limit:
+                            samples[index] = snapped
+                        else:
                             samples[index, 1] = snapped[1]
+                            _snap_refused.append(round(shift, 4))
                     grounded[slot] = samples
                 return grounded
+
+            _horizontal_snap_limit = args.horizontal_snap_limit_m
+            _snap_refused = []
 
             builder = TrajectoryBankBuilder(
                 pathfinder=pathfinder,
@@ -483,6 +549,8 @@ def main() -> int:
                         )
                         clearances.append(clearance)
                         worst_clearance = min(worst_clearance, clearance)
+            entry["horizontal_snaps_refused"] = len(_snap_refused)
+            entry["horizontal_snap_limit_m"] = _horizontal_snap_limit
             entry["episodes"] = len(bank.episodes)
             entry["motion_cases"] = dict(sorted(cases.items()))
             entry["moving_paths"] = len(moving_lengths)
