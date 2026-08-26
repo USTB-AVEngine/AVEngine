@@ -43,6 +43,7 @@ import numpy as np
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from measure_static_resting_pose import acceptance_fields as resting_acceptance_fields
 from measure_static_resting_pose import measure as measure_resting_pose
 
 ASSET_SCHEMA = "avengine_sound_source_asset_v1"
@@ -217,7 +218,11 @@ def merge_assets_and_axes(
     return index
 
 
-def mesh_extent_and_tilt(glb: Path) -> dict:
+def mesh_extent_and_tilt(
+    glb: Path,
+    attachment_surface: str | None = None,
+    front_axis: str = "positive-x",
+) -> dict:
     """Extent in metres and how far the shell is from standing straight.
 
     Node transforms carry the finalizer's rotation and scale, so they have to
@@ -312,7 +317,11 @@ def mesh_extent_and_tilt(glb: Path) -> dict:
         "long_axis_elevation_deg": round(
             float(np.degrees(np.arcsin(min(1.0, abs(long_axis[1]))))), 1
         ),
-        "resting_pose": measure_resting_pose(glb),
+        "resting_pose": measure_resting_pose(
+            glb,
+            attachment_surface=attachment_surface,
+            front_axis=front_axis,
+        ),
     }
 
 
@@ -455,7 +464,16 @@ def main() -> int:
             published_name = "emitter_marker_" + name
             shutil.copy2(source, destination / "evidence" / published_name)
 
-        geometry = mesh_extent_and_tilt(destination / "finalized.glb")
+        placement_authority = placement_by_instance.get(instance_id)
+        geometry = mesh_extent_and_tilt(
+            destination / "finalized.glb",
+            attachment_surface=(
+                placement_authority.get("attachment_surface")
+                if placement_authority is not None
+                else None
+            ),
+            front_axis=finalization["heading"]["target_front_axis"],
+        )
         physical = finalization["physical_scale"]
         anchor_record = emitter["emitter_anchor"]
         sample = anchor_record["resolved_surface_samples"][0]
@@ -540,27 +558,17 @@ def main() -> int:
                     "minimum_up_after_export_readback_m"
                 ],
                 "height_absolute_error_m": physical["absolute_error_m"],
-                "resting_pose_verdict": geometry["resting_pose"]["verdict"],
-                "base_normal_tilt_deg": geometry["resting_pose"][
-                    "base_normal_tilt_deg"
-                ],
-                "secondary_long_axis_elevation_deg": geometry[
-                    "long_axis_elevation_deg"
-                ],
-                "secondary_note": (
-                    "long_axis_elevation_deg is reported for continuity only. "
-                    "It cannot see a backward lean, because for a flat panel or "
-                    "a bar the long axis is the one the lean rotates about. "
-                    "Read resting_pose_verdict instead"
+                **resting_acceptance_fields(
+                    geometry["resting_pose"], geometry["long_axis_elevation_deg"]
                 ),
             },
             "admission_state": args.admission_state,
             "formal_dataset_registration_authorized": False,
         }
-        if instance_id in placement_by_instance:
+        if placement_authority is not None:
             try:
                 record["placement"] = placement_record(
-                    placement_by_instance[instance_id], geometry
+                    placement_authority, geometry
                 )
             except ValueError as error:
                 raise SystemExit(f"{instance_id}: {error}") from error
@@ -609,15 +617,12 @@ def main() -> int:
             ),
         },
         "levelling": (
-            "every asset carries geometry.resting_pose, measured from the base "
-            "faces of the finalized mesh: the tilt of the base normal away from "
-            "up, and the offset from the asset origin down to that base. A room "
-            "places the asset by putting its origin at floor height and "
-            "applying yaw, and never re-derives either number. The bands are "
-            "loose on purpose - level within 3 degrees, acceptable to 8, "
-            "leaning beyond - because reconstructed geometry is noisy and a "
-            "degree or two of lean, or a few millimetres of float, looks and "
-            "behaves correctly"
+            "every asset carries geometry.resting_pose, measured from the "
+            "declared floor base, wall back, or ceiling top. Missing placement "
+            "metadata is recorded as an assumed floor measurement. A wall "
+            "connection without a recoverable plane is reported explicitly, "
+            "not assigned a fabricated angle. The pose bands remain loose on "
+            "purpose - level within 3 degrees, acceptable to 8, leaning beyond"
         ),
     }
     index["acceptance_gates"] = gates

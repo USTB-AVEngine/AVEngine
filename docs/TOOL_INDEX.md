@@ -41,7 +41,7 @@
 | `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
 | `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
-| `tools/assets/measure_static_resting_pose.py` | Measure how a published static asset sits on a floor, and record it in the asset |
+| `tools/assets/measure_static_resting_pose.py` | Measure the resting or mounting pose of a published rigid static asset |
 | `tools/assets/measure_static_upright_correction.py` | Measure how far a rigid reconstruction is from standing straight |
 | `tools/assets/measure_walk_deformation.py` | How badly a rigged animal's surface tears, over the whole walk cycle |
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |

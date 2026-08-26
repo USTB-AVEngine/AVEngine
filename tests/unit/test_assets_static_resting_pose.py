@@ -35,6 +35,17 @@ def _write(path: Path, size, degrees: float = 0.0, axis: str = "x") -> Path:
     return path
 
 
+def _write_without_back(path: Path, size) -> Path:
+    points, faces = _box(*size)
+    minimum_x = points[:, 0].min()
+    keep = np.array(
+        [not np.allclose(points[face, 0], minimum_x) for face in faces],
+        dtype=bool,
+    )
+    _write_glb(path, points, faces[keep])
+    return path
+
+
 CABINET = (0.2, 0.33, 0.25)
 # Thin, tall, wide: the long axis is the horizontal width, which is exactly the
 # axis a backward lean turns about.
@@ -90,3 +101,78 @@ def test_it_catches_the_lean_the_long_axis_metric_reports_as_upright(tmp_path):
     assert old["long_axis_elevation_deg"] == pytest.approx(0.0, abs=0.2)
     assert old["resting_pose"]["base_normal_tilt_deg"] == pytest.approx(26.0, abs=0.2)
     assert old["resting_pose"]["verdict"] == "leaning"
+
+
+@pytest.mark.parametrize(
+    "degrees,verdict",
+    [(0.0, "level"), (2.9, "level"), (5.0, "acceptable"), (10.0, "leaning")],
+)
+def test_wall_pose_is_measured_from_the_back_plane(tmp_path, degrees, verdict):
+    pose = resting.measure(
+        _write(tmp_path / f"wall-{degrees}.glb", CABINET, degrees, "z"),
+        attachment_surface="wall",
+        front_axis="positive-x",
+    )
+
+    assert pose["mounting_plane_normal_tilt_deg"] == pytest.approx(degrees, abs=0.2)
+    assert pose["base_normal_tilt_deg"] is None
+    assert pose["verdict"] == verdict
+
+
+@pytest.mark.parametrize(
+    "degrees,verdict",
+    [(0.0, "level"), (5.0, "acceptable"), (10.0, "leaning")],
+)
+def test_ceiling_pose_is_measured_from_the_top_plane(tmp_path, degrees, verdict):
+    pose = resting.measure(
+        _write(tmp_path / f"ceiling-{degrees}.glb", CABINET, degrees, "x"),
+        attachment_surface="ceiling",
+    )
+
+    assert pose["mounting_plane_normal_tilt_deg"] == pytest.approx(degrees, abs=0.2)
+    assert pose["verdict"] == verdict
+
+
+def test_the_same_mesh_has_different_floor_and_wall_verdicts(tmp_path):
+    path = _write(tmp_path / "same.glb", CABINET, 12.0, "x")
+
+    floor = resting.measure(path, attachment_surface="floor")
+    wall = resting.measure(
+        path, attachment_surface="wall", front_axis="positive-x"
+    )
+
+    assert floor["verdict"] == "leaning"
+    assert wall["verdict"] == "level"
+
+
+def test_a_wall_connection_without_a_back_plane_has_no_fake_angle(tmp_path):
+    pose = resting.measure(
+        _write_without_back(tmp_path / "connection.glb", CABINET),
+        attachment_surface="wall",
+        front_axis="positive-x",
+    )
+
+    assert pose["verdict"] == "no_mounting_plane_found"
+    assert pose["mounting_plane_normal_tilt_deg"] is None
+    assert pose["mounting_plane_candidate_faces"] == 0
+
+
+def test_missing_attachment_surface_is_an_explicit_floor_assumption(tmp_path):
+    pose = resting.measure(_write(tmp_path / "portable.glb", CABINET))
+
+    assert pose["attachment_surface"] == "floor"
+    assert pose["attachment_surface_assumed"] is True
+    assert "not declared" in pose["attachment_surface_note"]
+    assert pose["verdict"] == "level"
+
+
+def test_complete_acceptance_fields_do_not_depend_on_publication_path(tmp_path):
+    pose = resting.measure(_write(tmp_path / "flat.glb", CABINET))
+
+    fields = resting.acceptance_fields(pose, long_axis_elevation_deg=1.25)
+
+    assert fields["resting_pose_verdict"] == "level"
+    assert fields["base_normal_tilt_deg"] == pytest.approx(0.0, abs=0.05)
+    assert fields["mounting_plane_normal_tilt_deg"] is None
+    assert fields["resting_pose_attachment_surface_assumed"] is True
+    assert fields["secondary_long_axis_elevation_deg"] == 1.25
