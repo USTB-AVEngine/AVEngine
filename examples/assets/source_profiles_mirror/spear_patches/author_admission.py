@@ -19,11 +19,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 SPEAR = Path("/data/jzy/code/SPEAR-lead-b")
 ANCHOR_AUTHORITY_SCHEMA = "avengine_static_emitter_anchor_authority_v1"
 HEADING_SCHEMA = "avengine_static_heading_review_v1"
+HEADING_SCHEMA_V2 = "avengine_static_heading_review_v2"
+UPRIGHT_TOOL = (
+    "/data/jzy/code/AVEngine-lead-a/tools/assets/measure_static_upright_correction.py"
+)
 PLAN_SCHEMA = "avengine_controlled_static_object_admission_plan_v1"
 
 # Rigid manufactured objects: the raw I23D surface is the truth, so shrinkwrap
@@ -76,6 +83,44 @@ ANCHORS = {
 }
 
 
+def upright_correction(pixal: Path) -> dict | None:
+    """Measure the object's own up on the raw reconstruction.
+
+    Returns None when the measurement refuses - two authorities that disagree,
+    or a tilt past what a resting object can be. A refusal means the asset is
+    finalized the old way, leaning, with that fact on its record; it does not
+    mean guessing.
+    """
+
+    with tempfile.TemporaryDirectory() as scratch:
+        report = Path(scratch) / "upright.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                UPRIGHT_TOOL,
+                "--input",
+                str(pixal),
+                "--report",
+                str(report),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0 or not report.is_file():
+            return None
+        payload = json.loads(report.read_text(encoding="utf-8"))["reports"][0]
+    if not payload.get("agreed"):
+        return None
+    return {
+        "measured_up_gltf": payload["measured_up_gltf"],
+        "tilt_from_upright_deg": payload["tilt_from_upright_deg"],
+        "authority_disagreement_deg": payload["authority_disagreement_deg"],
+        "measurement_tool": "tools/assets/measure_static_upright_correction.py",
+        "decision": "approved_for_upright_normalization",
+    }
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -118,6 +163,19 @@ def main() -> int:
         required=True,
         metavar="INSTANCE_SUFFIX=DEGREES",
         help="reviewed source front yaw per instance, read off the five views",
+    )
+    parser.add_argument(
+        "--measure-upright-from",
+        type=Path,
+        help=(
+            "an earlier admission output root. The upright correction is "
+            "measured far more reliably on the watertight proxy than on the raw "
+            "reconstruction - the proxy is one clean shell, while the raw mesh "
+            "carries inner shells that pull the panel extraction around - so a "
+            "batch is normally admitted once to produce proxies, measured from "
+            "them, and admitted again with the correction. Without this the "
+            "measurement falls back to the raw mesh and refuses more often."
+        ),
     )
     args = parser.parse_args()
 
@@ -162,8 +220,19 @@ def main() -> int:
             raise SystemExit(f"{instance_id}: no contact sheet at {sheet}")
         evidence = file_record(sheet)
 
+        measure_from = pixal
+        if args.measure_upright_from is not None:
+            proxy = (
+                args.measure_upright_from
+                / "instances"
+                / instance_id
+                / "01_watertight/watertight.glb"
+            )
+            if proxy.is_file():
+                measure_from = proxy
+        correction = upright_correction(measure_from)
         heading = {
-            "schema": HEADING_SCHEMA,
+            "schema": HEADING_SCHEMA_V2 if correction else HEADING_SCHEMA,
             "instance_id": instance_id,
             "request_sha256": decision["request_sha256"],
             "profile_sha256": decision["profile_sha256"],
@@ -174,6 +243,8 @@ def main() -> int:
             "decision": "approved_for_positive_x_normalization",
             "formal_dataset_registration_authorized": False,
         }
+        if correction:
+            heading["reviewed_upright_correction"] = correction
         heading_path = out / instance_id / "heading.json"
         heading_path.parent.mkdir(parents=True, exist_ok=True)
         heading_path.write_text(
@@ -206,12 +277,18 @@ def main() -> int:
         instances.append(
             {
                 "instance_id": instance_id,
+                "upright_note": (
+                    f"  upright {correction['tilt_from_upright_deg']}deg"
+                    if correction
+                    else "  upright NOT MEASURED - stays leaning"
+                ),
                 "heading_evidence_path": str(heading_path.resolve()),
                 "anchor_spec_path": str(anchor_path.resolve()),
                 "watertight_parameters": dict(WATERTIGHT_PARAMETERS),
             }
         )
 
+    notes = {item["instance_id"]: item.pop("upright_note") for item in instances}
     plan = {
         "schema": PLAN_SCHEMA,
         "decision_batch_sha256": batch["decision_batch_sha256"],
@@ -225,7 +302,7 @@ def main() -> int:
     )
     print(f"authored {len(instances)} instances -> {plan_path}")
     for item in instances:
-        print(f"  {item['instance_id']}")
+        print(f"  {item['instance_id']}{notes[item['instance_id']]}")
     return 0
 
 
