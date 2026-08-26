@@ -27,16 +27,27 @@ before committing to the full per-frame pass.
 
 Two decisions worth stating rather than leaving in the code:
 
-  * the analysis window is 1 ms. This corrects an earlier calibration. Swept
-    on skokloster-castle, a large stone hall, every source read 0.0 degrees
-    anywhere from 0.5 to 2 ms, so 2 ms was recorded as safe. In a furnished
-    house it is not: swept over these 25 responses, 2 ms gives a median of 0.12
-    and a maximum of 6.16 degrees with 21 of 25 frames inside 5, while 1 ms
-    gives a maximum of 0.81 with all 25 inside, and 0.5 ms an exact zero
-    everywhere. The contamination grows with range - at 4.6 m the 2 ms window
-    reads 4.8 degrees and at 1.1 m it reads 0.0 - because the direct arrival
-    weakens while the reflections do not. Pass --window-sweep to reproduce the
-    table on any route rather than trusting this number.
+  * the analysis window defaults to 0.25 ms, and that number has now been
+    revised three times, each time because the test conditions got more honest.
+    12 ms looked perfect on JAEGER's released responses, which carry no
+    reverberation at all, so any window returned zero. 2 ms looked safe on
+    skokloster-castle, a large stone hall. 1 ms held in a furnished house
+    rendered with the default acoustic material. With HM3D semantics supplying
+    real materials it fails too: swept over four routes, medians at 1 ms come
+    out 0.38, 7.25, 0.31 and 6.06 degrees, while 0.25 ms gives 0.00, 0.01, 0.05
+    and 0.00.
+
+    Note the direction, because it is not the obvious one. Materials *reduce*
+    reverberation - T20 on the same route and listener falls from 171.6 ms to
+    81.0 - and the safe window still gets *shorter*. Late energy is not what
+    contaminates a 1 ms window; the early reflections are, and assigning real
+    materials changes which of them land inside it.
+
+    So do not trust this constant either. Pass --window-sweep, which costs
+    nothing because the responses are already rendered, and read the table for
+    the room you are actually in. And note what 0.25 ms means at 16 kHz: four
+    samples. It works because the direct arrival is nearly impulsive, and it
+    will not survive a source whose onset is soft.
   * the route's own samples sit on the floor. The emitter is the source centre,
     so its height is added on top; the bank records that height, and using the
     floor points directly would put a walking source's mouth on the carpet.
@@ -70,10 +81,34 @@ SPEED_OF_SOUND = 343.0
 CH_X, CH_Y, CH_Z = 3, 1, 2
 
 
-def make_sim(scene: str, navmesh: str | None):
+def make_sim(
+    scene: str,
+    navmesh: str | None,
+    dataset_config: str | None = None,
+    scene_id: str | None = None,
+    materials_json: str | None = None,
+):
+    """Build the simulator, with acoustic materials when a dataset config is given.
+
+    Materials need three things at once and each one fails quietly on its own:
+    the scene opened through a semantic scene dataset config rather than as a
+    bare glb path, load_semantic_mesh on, and the material database handed to
+    the sensor explicitly - enableMaterials only says "look for one".
+
+    The config has to be the vertex-colour variant. HM3D-Semantics v0.2 ships
+    has_semantic_textures true, and this habitat build understands only
+    vertex-coloured semantics, so it reports "Mesh vertices were NULL", uploads
+    no geometry, and silently returns a direct-path-only response. The v0.2
+    .semantic.glb does carry COLOR_0 alongside its textures, so flipping that
+    flag to false in a copy of the config is all it takes.
+    """
+
+    use_materials = bool(dataset_config and scene_id)
     backend = habitat_sim.SimulatorConfiguration()
-    backend.scene_id = scene
-    backend.load_semantic_mesh = False
+    backend.scene_id = scene_id if use_materials else scene
+    if use_materials:
+        backend.scene_dataset_config_file = str(dataset_config)
+    backend.load_semantic_mesh = use_materials
     backend.enable_physics = False
     sim = habitat_sim.Simulator(
         habitat_sim.Configuration(backend, [habitat_sim.agent.AgentConfiguration()])
@@ -83,7 +118,7 @@ def make_sim(scene: str, navmesh: str | None):
         sim.pathfinder.load_nav_mesh(navmesh)
     audio = AudioSensorSpec()
     audio.uuid = "audio_sensor"
-    audio.enableMaterials = False
+    audio.enableMaterials = use_materials
     audio.channelLayout.type = RLRAudioPropagationChannelLayoutType.Ambisonics
     audio.channelLayout.channelCount = 4
     audio.position = [0.0, 0.0, 0.0]
@@ -92,6 +127,10 @@ def make_sim(scene: str, navmesh: str | None):
     audio.acousticsConfig.indirectSHOrder = 1
     audio.acousticsConfig.indirect = True
     sim.add_sensor(audio)
+    if use_materials and materials_json:
+        sim.get_agent(0)._sensors["audio_sensor"].setAudioMaterialsJSON(
+            str(materials_json)
+        )
     return sim
 
 
@@ -177,12 +216,26 @@ def main() -> int:
         help="take the first candidate in the range band, occluded or not",
     )
     parser.add_argument(
+        "--listener",
+        nargs=3,
+        type=float,
+        metavar=("X", "Y", "Z"),
+        help=(
+            "pin the listener to this world position instead of auditioning "
+            "for one. Required for any A/B over rendering settings: the "
+            "audition renders, so changing the acoustics changes which "
+            "candidate passes, and the two runs then differ in listener as "
+            "well as in the thing under test"
+        ),
+    )
+    parser.add_argument(
         "--direct-window-ms",
         type=float,
-        default=1.0,
+        default=0.25,
         help=(
-            "analysis window after the onset. 1 ms, not the 2 that a stone hall "
-            "made look safe and not the 12 the older scripts use"
+            "analysis window after the onset. 0.25 ms is the only length that "
+            "held across four routes once real materials were in play; sweep it "
+            "rather than trusting the default"
         ),
     )
     parser.add_argument(
@@ -195,6 +248,19 @@ def main() -> int:
     )
     parser.add_argument("--tolerance-deg", type=float, default=5.0)
     parser.add_argument("--seed", type=int, default=20260826)
+    parser.add_argument(
+        "--dataset-config",
+        help=(
+            "vertex-colour semantic scene dataset config; giving it turns on "
+            "acoustic materials. Without it every surface is the default "
+            "material, which over-estimates reverberation about 2.5x"
+        ),
+    )
+    parser.add_argument("--scene-id", help="e.g. 00800-TEEsavR23oF, with --dataset-config")
+    parser.add_argument(
+        "--materials-json",
+        default="/data/jzy/code/sound-spaces/data/mp3d_material_config.json",
+    )
     args = parser.parse_args()
 
     bank = json.loads(args.bank.read_text(encoding="utf-8"))
@@ -209,7 +275,15 @@ def main() -> int:
     emitters[:, 1] += centre_height
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    sim = make_sim(bank["scene"], bank.get("navmesh"))
+    sim = make_sim(
+        bank["scene"],
+        bank.get("navmesh"),
+        dataset_config=args.dataset_config,
+        scene_id=args.scene_id,
+        materials_json=args.materials_json,
+    )
+    materials_on = bool(args.dataset_config and args.scene_id)
+    print(f"acoustic materials: {'on' if materials_on else 'off (default material)'}")
 
     midpoint = emitters[len(emitters) // 2]
     rng = np.random.default_rng(args.seed)
@@ -245,7 +319,25 @@ def main() -> int:
 
     listener = None
     auditions = []
-    for _ in range(4000):
+    if args.listener:
+        listener = np.asarray(args.listener, dtype=np.float64)
+        print(f"listener pinned to {np.round(listener, 3).tolist()}")
+        error = audition(listener)
+        auditions.append(
+            {
+                "position_m": [round(float(v), 4) for v in listener],
+                "range_to_midpoint_m": round(
+                    float(np.linalg.norm(listener - midpoint)), 3
+                ),
+                "midpoint_error_deg": None if error is None else round(error, 3),
+                "pinned": True,
+            }
+        )
+        print(
+            f"  pinned listener midpoint error "
+            f"{'none' if error is None else f'{error:.2f}'} deg"
+        )
+    for _ in range(0 if listener is not None else 4000):
         candidate = np.asarray(
             sim.pathfinder.get_random_navigable_point(), dtype=np.float64
         )
@@ -417,6 +509,11 @@ def main() -> int:
             "p90": round(float(np.percentile(errors, 90)), 3),
             "maximum": round(float(errors.max()), 3),
         },
+        "acoustic_materials": materials_on,
+        "reverberation": {
+            "t20_ms_median": None,
+            "note": "measured per frame from the rendered responses below",
+        },
         "frames_within_tolerance": within,
         "frames_measured": int(errors.size),
         "range_m": {
@@ -430,6 +527,35 @@ def main() -> int:
     (args.output_dir / "moving_source_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
     )
+
+    # What reverberation these routes are actually rendered into, which is the
+    # number the material switch moves.
+    def t20(w):
+        peak = int(np.argmax(np.abs(w)))
+        tail = w[peak:].astype(float)
+        if tail.size < 16:
+            return float("nan")
+        energy = np.cumsum(tail[::-1] ** 2)[::-1]
+        curve = 10.0 * np.log10(np.maximum(energy / energy[0], 1e-20))
+        a = np.flatnonzero(curve <= -5.0)
+        b = np.flatnonzero(curve <= -25.0)
+        return float("nan") if not a.size or not b.size else float(
+            (b[0] - a[0]) / SR * 1000.0
+        )
+
+    decays = np.array([t20(ir[0]) for ir in responses], dtype=float)
+    decays = decays[np.isfinite(decays)]
+    if decays.size:
+        report["reverberation"] = {
+            "t20_ms_median": round(float(np.median(decays)), 2),
+            "t20_ms_minimum": round(float(decays.min()), 2),
+            "t20_ms_maximum": round(float(decays.max()), 2),
+            "materials": materials_on,
+        }
+        print(
+            f"T20 along the route  median {np.median(decays):.1f} ms  "
+            f"({decays.min():.1f}-{decays.max():.1f})"
+        )
 
     print(f"episode {episode['episode_id']}  slot {args.slot}")
     print(f"listener {np.round(listener, 3).tolist()}")
