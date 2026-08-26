@@ -115,6 +115,15 @@ def main() -> int:
         type=Path,
         help="write the repository's own feasibility/trajectory diagnostic per floor",
     )
+    parser.add_argument(
+        "--bank-dir",
+        type=Path,
+        help=(
+            "write each floor's full trajectory bank, paths included, so an "
+            "audio or visual pass can replay exactly these routes instead of "
+            "regenerating them and hoping the seed still lines up"
+        ),
+    )
     parser.add_argument("--source1-height-m", type=float, default=1.2)
     parser.add_argument("--source2-height-m", type=float, default=0.35)
     parser.add_argument("--episodes-per-motion-case", type=int, default=8)
@@ -562,6 +571,23 @@ def main() -> int:
                 )
                 Image.fromarray(np.asarray(panel, dtype=np.uint8)).save(out)
                 entry["topdown"] = str(out)
+
+            if args.bank_dir:
+                args.bank_dir.mkdir(parents=True, exist_ok=True)
+                out = args.bank_dir / f"{name}_y{floor['height_m']:+.3f}.bank.json"
+                payload = bank.record(include_paths=True)
+                payload["scene"] = scene
+                payload["navmesh"] = navmesh_path
+                payload["floor_height_m"] = floor["height_m"]
+                payload["source_body_radius_m"] = args.source_body_radius_m
+                payload["source_center_heights_m"] = {
+                    "source1": args.source1_height_m,
+                    "source2": args.source2_height_m,
+                }
+                out.write_text(
+                    json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8"
+                )
+                entry["bank"] = str(out)
 
             band = entry.get("route_length_m", {})
             print(
