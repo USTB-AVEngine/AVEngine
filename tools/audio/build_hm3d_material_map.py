@@ -30,10 +30,23 @@ unreachable rather than merely untidy:
     most absorptive of them, Carpet Heavy Padded at 0.08, carries no labels and
     is unreachable. Given a label.
 
-One thing is deliberately reported and not changed: "floor" maps to a material
-named Carpet whose absorption at 1 kHz is 0.010, which is a hard reflective
-surface. Whether that is right for a carpeted house is a question about the
-material data, not about naming, so it is raised rather than quietly rewritten.
+One label is re-pointed rather than merely extended, and it is the single
+largest acoustic change in this file. "ceiling" pointed at Acoustic Tile, a
+suspended commercial absorber whose mid-band coefficient is 0.667. Ceilings are
+17 percent of HM3D's annotated area, and calibrated with
+calibrate_surface_materials.py the scenes came out at 0.237 s of mid-band T60
+against the 0.3 to 0.6 s a furnished domestic room occupies - too dead for a
+house by half. A house ceiling is painted plasterboard, the same material as its
+walls, and pointing the label at Gypsum Board puts the same scenes at 0.518 s.
+The decay is straight to 0.996 either way, so those extrapolations mean something.
+
+A correction to an earlier version of this note, which said "floor" pointed at a
+material whose absorption was 0.010 and called it a hard reflector. That misread
+the data: absorption is a flat [frequency, alpha, ...] list, so absorption[1] is
+the coefficient at the lowest frequency in the table, usually 125 Hz. The floor's
+Carpet is 0.25 across the mid band and Gypsum Board is 0.053, not 0.29. Both are
+sensible for a house and neither needed changing; the ceiling was the outlier all
+along.
 """
 
 from __future__ import annotations
@@ -44,9 +57,11 @@ from pathlib import Path
 
 # category -> (existing material, the label it follows)
 MAPPING = {
-    # ceiling surfaces follow the ceiling
-    "ceiling lower": ("Acoustic Tile", "ceiling"),
-    "ceiling under stairs": ("Acoustic Tile", "ceiling"),
+    # ceiling surfaces follow the ceiling, which REPOINT moves to Gypsum Board.
+    # Naming Acoustic Tile here would leave a plasterboard ceiling with
+    # commercial acoustic tile in its recesses.
+    "ceiling lower": ("Gypsum Board", "ceiling"),
+    "ceiling under stairs": ("Gypsum Board", "ceiling"),
     # wall-like structure in a house is drywall
     "wall panel": ("Gypsum Board", "wall"),
     "partition": ("Gypsum Board", "wall"),
@@ -120,6 +135,18 @@ LEFT_TO_DEFAULT = (
 
 SPLIT_LABELS = {"piperefrigerator": ("pipe", "refrigerator")}
 
+# label -> (material it should point at, material it pointed at, why)
+REPOINT = {
+    "ceiling": (
+        "Gypsum Board",
+        "Acoustic Tile",
+        "a house ceiling is painted plasterboard, not a suspended commercial "
+        "absorber. Acoustic Tile is 0.667 across the mid band and put these "
+        "scenes at 0.237 s of T60 against a residential 0.3 to 0.6; Gypsum "
+        "Board is 0.053 and puts them at 0.518 s",
+    ),
+}
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -134,6 +161,13 @@ def main() -> int:
     share = {c["category"]: c["share"] for c in area["categories"]}
 
     by_name = {m["name"]: m for m in base["materials"]}
+
+    def mid_band_alpha(material):
+        flat = material["absorption"]
+        pairs = [(flat[i], flat[i + 1]) for i in range(0, len(flat), 2)]
+        mid = [a for f, a in pairs if 400.0 <= f <= 2000.0]
+        return sum(mid) / len(mid) if mid else float("nan")
+
     unknown_targets = sorted(
         {target for target, _ in MAPPING.values() if target not in by_name}
     )
@@ -157,6 +191,35 @@ def main() -> int:
             f"these categories are already mapped; adding them again would "
             f"move them silently: {clashes}"
         )
+
+    repointed = []
+    for label, (target, expected, reason) in REPOINT.items():
+        if target not in by_name:
+            raise SystemExit(f"repoint names a material that does not exist: {target}")
+        held = [m["name"] for m in base["materials"] if label in m.get("labels", [])]
+        if held != [expected]:
+            raise SystemExit(
+                f"{label!r} was expected to point at {expected!r} but points at "
+                f"{held}; the base file has changed and this repoint needs "
+                "re-deciding rather than applying blind"
+            )
+        for material in base["materials"]:
+            material["labels"] = [
+                l for l in material.get("labels", []) if l != label
+            ]
+        by_name[target].setdefault("labels", []).append(label)
+        repointed.append(
+            {
+                "label": label,
+                "from": expected,
+                "to": target,
+                "from_mid_band_alpha": round(mid_band_alpha(by_name[expected]), 3),
+                "to_mid_band_alpha": round(mid_band_alpha(by_name[target]), 3),
+                "area_share": round(share.get(label, 0.0), 6),
+                "reason": reason,
+            }
+        )
+        print(f"repointed {label!r}: {expected} -> {target}")
 
     repairs = []
     for material in base["materials"]:
@@ -212,17 +275,19 @@ def main() -> int:
         "labels_after": len(after),
         "area_share_covered_before": round(covered_before, 5),
         "area_share_covered_after": round(covered_after, 5),
+        "repointed": repointed,
         "repairs": repairs,
         "added_by_material": added,
         "left_to_default": [
             {"category": c, "area_share": round(share.get(c, 0.0), 6)}
             for c in LEFT_TO_DEFAULT
         ],
-        "raised_not_changed": (
-            "the label 'floor' points at a material named Carpet whose "
-            "absorption at 1 kHz is 0.010, a hard reflective surface. Whether "
-            "that suits a carpeted house is a question about the material data, "
-            "not about naming"
+        "how_to_read_absorption": (
+            "absorption is a flat [frequency, alpha, ...] list, so absorption[1] "
+            "is the coefficient at the lowest frequency in the table, usually "
+            "125 Hz, not the mid band. Misreading it made Gypsum Board look like "
+            "0.29 when its mid band is 0.053, and the floor's Carpet look like "
+            "0.010 when its mid band is 0.25"
         ),
     }
     args.output.write_text(
