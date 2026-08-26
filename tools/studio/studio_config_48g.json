@@ -109,6 +109,56 @@
       "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
       "rir_stride_frames": 3,
       "variant": "A"
+    },
+    "hm3d_room_prepare": {
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "magnum_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "hm3d_root": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d",
+      "scene_dir": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF",
+      "split": "val",
+      "connectivity_samples": 64,
+      "connectivity_seed": 20260826
+    },
+    "semantic_acoustic_package": {
+      "room_manifest": "/data/avengine_external/review/hm3d_acoustic_rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+      "material_rules": "examples/acoustics/semantic_materials/residential_material_rules.json",
+      "hm3d_root": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d",
+      "mp3d_root": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+      "seed": 20260826
+    },
+    "hm3d_route_bank": {
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "magnum_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "scene": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb",
+      "navmesh": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
+      "seed": 20260826,
+      "episodes_per_motion_case": 8
+    },
+    "hm3d_episode": {
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "magnum_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "bank": "/data/avengine_external/review/hm3d_route_banks/val_00800_TEEsavR23oF/bank/00800-TEEsavR23oF_y+0.163.bank.json",
+      "scene_id": "TEEsavR23oF",
+      "asset_dir": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/bookshelf_speaker/compact_shelf_cabinet_black_ash",
+      "dataset_config": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/val/hm3d_vertexcolour_val_basis.scene_dataset_config.json",
+      "materials_json": "/data/avengine_external/assets/hm3d_material_config.json",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "aim_open": true,
+      "place_at_emitter": true,
+      "audio_python": "/data/jzy/miniconda3/envs/ss2/bin/python"
+    },
+    "kujiale_route_bank": {
+      "scene_metadata": "/data/avengine_external/ue-assets/kujiale_0020_full_home_current_d702c47_20260821T0130Z/scene_metadata_kitchen.json",
+      "seed": 20260721,
+      "episodes_per_motion_case": 50
+    },
+    "kujiale_visual_episode": {
+      "episode_root": "/data/avengine_external/review/kujiale_kitchen_current_visual_episode_d702c47_20260821T0230Z",
+      "uproject": "/data/avengine_external/ue-stages/kujiale_0020_full_home_editor_d702c47_20260821T0140Z/SpearSim/SpearSim.uproject",
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor"
     }
   }
 }

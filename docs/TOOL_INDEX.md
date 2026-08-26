@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 253 个工具脚本。
+当前共 255 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -114,6 +114,7 @@
 |---|---|
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
+| `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
 | `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
 | `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
@@ -332,6 +333,7 @@
 | `tools/studio/build_studio_scene_bundle.py` | Build a Studio scene bundle: preview mesh plus draft obstacle snapshot |
 | `tools/studio/make_paired_ablation.py` | Paired ablation variants for a rendered dynamic-audio bundle |
 | `tools/studio/run_apartment_end_to_end.py` | Studio end-to-end Apartment chain: author timeline → UE capture → audio → clip |
+| `tools/studio/run_hm3d_episode.py` | Render one HM3D moving-source episode: pose, FOA, first-person video, binaural |
 | `tools/studio/run_mp3d_end_to_end.py` | Studio end-to-end MP3D chain: author route → capture → dynamic audio → clip |
 | `tools/studio/run_studio_server.py` | Launch the AVEngine Studio backend server (loopback only) |
 | `tools/studio/ue_export_apartment_gltf.py` | Headless UE editor export: apartment_0000 level -> textured glb |

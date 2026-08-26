@@ -19,6 +19,25 @@ MP3D_ROUTE_AUTHOR_TEMPLATE = "mp3d_route_author"
 APARTMENT_AUTHOR_TEMPLATE = "apartment_author"
 APARTMENT_END_TO_END_TEMPLATE = "apartment_end_to_end"
 PAIRED_ABLATION_TEMPLATE = "paired_ablation"
+HM3D_ROOM_PREPARE_TEMPLATE = "hm3d_room_prepare"
+SEMANTIC_PACKAGE_TEMPLATE = "semantic_acoustic_package"
+HM3D_ROUTE_BANK_TEMPLATE = "hm3d_route_bank"
+HM3D_EPISODE_TEMPLATE = "hm3d_episode"
+KUJIALE_ROUTE_BANK_TEMPLATE = "kujiale_route_bank"
+KUJIALE_VISUAL_EPISODE_TEMPLATE = "kujiale_visual_episode"
+
+# The Habitat runtime activation triplet every headless HM3D tool needs.
+_HM3D_RUNTIME_KEYS = ("runtime_prefix", "magnum_site", "rlr_sdk_root")
+_HM3D_EPISODE_PATH_KEYS = (
+    *_HM3D_RUNTIME_KEYS,
+    "audio_python",
+    "bank",
+    "asset_dir",
+    "dataset_config",
+    "materials_json",
+    "hrtf",
+)
+_HM3D_SPLITS = frozenset({"train", "val", "minival", "test"})
 
 _MP3D_AUDIO_PATH_KEYS = (
     "visual_capture_dir",
@@ -80,13 +99,93 @@ _APARTMENT_E2E_PATH_KEYS = (
 )
 
 TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
+    # The MP3D templates accept the room-identity paths as overrides so a
+    # submission can target any MP3D room on disk, not only the configured
+    # default. Identity travels together: a room manifest from one room with
+    # the acoustic package of another is exactly the mismatch the compiled
+    # package's own hash checks exist to reject downstream.
     MP3D_DYNAMIC_AUDIO_TEMPLATE: frozenset(
-        {"visual_capture_dir", "audio_program", "variant", "rir_stride_frames"}
+        {
+            "visual_capture_dir",
+            "audio_program",
+            "variant",
+            "rir_stride_frames",
+            "m1_request",
+            "package_manifest",
+        }
     ),
     MP3D_END_TO_END_TEMPLATE: frozenset(
-        {"seed", "camera_selection", "audio_program", "variant", "rir_stride_frames"}
+        {
+            "seed",
+            "camera_selection",
+            "audio_program",
+            "variant",
+            "rir_stride_frames",
+            "room_manifest",
+            "package_manifest",
+            "mp3d_root",
+            "source_m2_request",
+            "source_animal_manifest",
+        }
     ),
-    MP3D_ROUTE_AUTHOR_TEMPLATE: frozenset({"seed", "camera_selection"}),
+    MP3D_ROUTE_AUTHOR_TEMPLATE: frozenset(
+        {
+            "seed",
+            "camera_selection",
+            "room_manifest",
+            "package_manifest",
+            "mp3d_root",
+            "source_m2_request",
+            "source_animal_manifest",
+        }
+    ),
+    HM3D_ROOM_PREPARE_TEMPLATE: frozenset(
+        {"scene_dir", "split", "connectivity_samples", "connectivity_seed"}
+    ),
+    SEMANTIC_PACKAGE_TEMPLATE: frozenset({"room_manifest", "seed", "package_id"}),
+    HM3D_ROUTE_BANK_TEMPLATE: frozenset(
+        {
+            "scene",
+            "navmesh",
+            "seed",
+            "episodes_per_motion_case",
+            "minimum_route_distance_m",
+            "maximum_route_distance_m",
+            "source1_height_m",
+            "source2_height_m",
+        }
+    ),
+    HM3D_EPISODE_TEMPLATE: frozenset(
+        {
+            "bank",
+            "scene_id",
+            "asset_dir",
+            "episode_index",
+            "episode_id",
+            "motion_case",
+            "slot",
+            "seed",
+            "frame_stride",
+            "aim_open",
+            "overhead_m",
+            "place_at_emitter",
+            "width",
+            "height",
+        }
+    ),
+    KUJIALE_ROUTE_BANK_TEMPLATE: frozenset(
+        {
+            "scene_metadata",
+            "seed",
+            "episodes_per_motion_case",
+            "minimum_route_distance_m",
+            "maximum_route_distance_m",
+            "minimum_clearance_m",
+        }
+    ),
+    KUJIALE_VISUAL_EPISODE_TEMPLATE: frozenset(
+        {"episode_root", "rpc_port", "graphics_adapter"}
+    ),
     APARTMENT_AUTHOR_TEMPLATE: frozenset(
         {*_APARTMENT_AUTHOR_POINT_KEYS, "camera_yaw_deg"}
     ),
@@ -298,6 +397,153 @@ def build_template_argv(
             raise StudioTemplateError("mute_stems must be a list of stem names")
         for stem in mute_stems:
             argv += ["--mute-stem", str(stem)]
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == HM3D_ROOM_PREPARE_TEMPLATE:
+        split = str(merged.get("split", "val"))
+        if split not in _HM3D_SPLITS:
+            raise StudioTemplateError(
+                f"split must be one of {sorted(_HM3D_SPLITS)}, got {split!r}"
+            )
+        argv = [python, str(repo / "tools/rooms/emit_hm3d_room_manifest.py")]
+        _append_paths(
+            argv,
+            merged,
+            template_name,
+            ("scene_dir", "hm3d_root", *_HM3D_RUNTIME_KEYS),
+            repo,
+        )
+        argv += ["--split", split]
+        argv += [
+            "--connectivity-samples",
+            str(int(merged.get("connectivity_samples", 64))),
+            "--connectivity-seed",
+            str(int(merged.get("connectivity_seed", 20260826))),
+        ]
+        argv += ["--output-dir", _fresh_output(output_path)]
+        return argv
+
+    if template_name == SEMANTIC_PACKAGE_TEMPLATE:
+        argv = [
+            python,
+            str(repo / "tools/acoustics/compile_semantic_research_package.py"),
+        ]
+        _append_paths(
+            argv,
+            merged,
+            template_name,
+            ("room_manifest", "material_rules"),
+            repo,
+            optional=("hm3d_root", "mp3d_root"),
+        )
+        argv += ["--seed", str(int(merged.get("seed", 20260826)))]
+        if merged.get("package_id") is not None:
+            argv += ["--package-id", str(merged["package_id"])]
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == HM3D_ROUTE_BANK_TEMPLATE:
+        argv = [
+            python,
+            str(repo / "tools/routes/compile_hm3d_dynamic_source_bank.py"),
+        ]
+        _append_paths(
+            argv,
+            merged,
+            template_name,
+            (*_HM3D_RUNTIME_KEYS, "scene", "navmesh"),
+            repo,
+        )
+        for key, fallback in (
+            ("seed", 20260826),
+            ("episodes_per_motion_case", 8),
+        ):
+            argv += [f"--{key.replace('_', '-')}", str(int(merged.get(key, fallback)))]
+        for key, fallback in (
+            ("minimum_route_distance_m", 3.5),
+            ("maximum_route_distance_m", 5.5),
+            ("source1_height_m", 1.2),
+            ("source2_height_m", 0.35),
+        ):
+            argv += [
+                f"--{key.replace('_', '-')}",
+                str(float(merged.get(key, fallback))),
+            ]
+        # All three outputs live under one fresh directory; the tool creates
+        # them itself with parents=True, so the directory need not pre-exist.
+        out = Path(_fresh_output(output_path))
+        argv += ["--bank-dir", str(out / "bank")]
+        argv += ["--topdown-dir", str(out / "topdown")]
+        argv += ["--report", str(out / "route_report.json")]
+        return argv
+
+    if template_name == HM3D_EPISODE_TEMPLATE:
+        argv = [python, str(repo / "tools/studio/run_hm3d_episode.py")]
+        _append_paths(argv, merged, template_name, _HM3D_EPISODE_PATH_KEYS, repo)
+        argv += ["--scene-id", str(_required(merged, template_name, "scene_id"))]
+        if merged.get("episode_id") is not None:
+            argv += ["--episode-id", str(merged["episode_id"])]
+        else:
+            argv += ["--episode-index", str(int(merged.get("episode_index", 0)))]
+        argv += ["--motion-case", str(merged.get("motion_case", "source1_moving_source2_static"))]
+        argv += ["--slot", str(merged.get("slot", "source1"))]
+        for key, fallback in (
+            ("seed", 20260826),
+            ("frame_stride", 1),
+            ("width", 960),
+            ("height", 540),
+        ):
+            argv += [f"--{key.replace('_', '-')}", str(int(merged.get(key, fallback)))]
+        if merged.get("aim_open"):
+            argv.append("--aim-open")
+        if merged.get("overhead_m") is not None:
+            argv += ["--overhead-m", str(float(merged["overhead_m"]))]
+        if merged.get("place_at_emitter"):
+            argv.append("--place-at-emitter")
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == KUJIALE_ROUTE_BANK_TEMPLATE:
+        argv = [
+            python,
+            str(repo / "tools/routes/compile_kujiale_feasibility_bank.py"),
+        ]
+        _append_paths(argv, merged, template_name, ("scene_metadata",), repo)
+        argv += ["--seed", str(int(merged.get("seed", 20260721)))]
+        argv += [
+            "--episodes-per-motion-case",
+            str(int(merged.get("episodes_per_motion_case", 50))),
+        ]
+        for key, fallback in (
+            ("minimum_route_distance_m", 3.5),
+            ("maximum_route_distance_m", 5.5),
+        ):
+            argv += [
+                f"--{key.replace('_', '-')}",
+                str(float(merged.get(key, fallback))),
+            ]
+        if merged.get("minimum_clearance_m") is not None:
+            argv += [
+                "--minimum-clearance-m",
+                str(float(merged["minimum_clearance_m"])),
+            ]
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == KUJIALE_VISUAL_EPISODE_TEMPLATE:
+        argv = [python, str(repo / "tools/rooms/run_spear_residential_episode.py")]
+        _append_paths(
+            argv,
+            merged,
+            template_name,
+            ("episode_root", "uproject", "unreal_editor"),
+            repo,
+        )
+        if merged.get("rpc_port") is not None:
+            argv += ["--rpc-port", str(int(merged["rpc_port"]))]
+        if merged.get("graphics_adapter") is not None:
+            argv += ["--graphics-adapter", str(int(merged["graphics_adapter"]))]
         argv += ["--output", _fresh_output(output_path)]
         return argv
 
