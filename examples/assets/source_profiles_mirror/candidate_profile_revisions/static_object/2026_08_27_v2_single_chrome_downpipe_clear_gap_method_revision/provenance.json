@@ -1,0 +1,49 @@
+{
+ "schema": "avengine_controlled_profile_method_revision_provenance_v1",
+ "profile": {
+  "path": "data/controlled_source_attributes_v1/candidate_profiles/static_object/plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_v1.json",
+  "sha256": "41832419de099bcc703e6b6f63bbff3bd5616b0675b935c84754a9e95e9cce7c",
+  "size_bytes": 5216,
+  "profile_schema_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_v1",
+  "profile_revision": "2026_08_27_v2_single_chrome_downpipe_clear_gap_method_revision",
+  "canonical_sha256": "80de1e9c53a24f966012a549bf0deb4908d5f6a126659adfa6ff689b8094d594"
+ },
+ "method_revision": {
+  "kind": "single_chrome_downpipe_clear_gap_method_revision",
+  "supersedes_profile_revision": "2026_08_26_v1_elevated_tank_exposed_pipe_form",
+  "superseded_profile_canonical_sha256": "392cc61050ab69873244283146bfa1b012cd888f19ef7f8e23238aa11d8f38f6",
+  "reason": "Two direct reruns with different immutable requests and batch seeds both produced a chrome pipe plus a second broad white or ceramic column between the elevated tank and bowl. The fixed elevated_tank_exposed_pipe form requires a clear air gap bridged only by one visible chrome tank-to-bowl downpipe. The v2 method makes empty background around the pipe explicit and excludes any second support, column, connector or concealed flush channel; another blind seed retry is not enough.",
+  "this_is_not_a_seed_retry": true,
+  "same_candidate_retry_allowed": false,
+  "same_generation_seed_retry_allowed": false,
+  "candidate_ranking_allowed": false,
+  "next_execution_requires_new_profile_bound_request": true,
+  "next_execution_requires_new_batch_seed": true,
+  "forbidden_replay_request_sha256": [
+   "a0c81a31fec27d75d72add74c2ac9ae208b4dd2000a0b155e101b48e54c95438",
+   "e028ac874308f0d48fe92c5356ba36fb11686a00e5aacaf81eb0b68edb962152"
+  ],
+  "forbidden_replay_candidate_sha256": [
+   "113cdf055e2ee75cd89554552322f6e736416a622f442185c32514fcee12e75d",
+   "cb9977a9da7e1a45ecb944802afaf41527ca14e95192f8eceba68426f8701db0"
+  ]
+ },
+ "triggering_failure": {
+  "review_batch": "tmp/static_sound_resting_pose_redo_20260827_r2/review_2d/review_batch_manifest.json",
+  "reviewer": "codex_full_resolution_resting_pose_redo_20260827_r2",
+  "instances": [
+   {
+    "instance_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_a0c81a31fec2",
+    "request_sha256": "a0c81a31fec27d75d72add74c2ac9ae208b4dd2000a0b155e101b48e54c95438",
+    "candidate_sha256": "113cdf055e2ee75cd89554552322f6e736416a622f442185c32514fcee12e75d",
+    "sampled_attributes": {"body_color": "white"}
+   },
+   {
+    "instance_id": "plumbing_fixture_toilet_elevated_tank_exposed_pipe_product_view_e028ac874308",
+    "request_sha256": "e028ac874308f0d48fe92c5356ba36fb11686a00e5aacaf81eb0b68edb962152",
+    "candidate_sha256": "cb9977a9da7e1a45ecb944802afaf41527ca14e95192f8eceba68426f8701db0",
+    "sampled_attributes": {"body_color": "white"}
+   }
+  ]
+ }
+}
