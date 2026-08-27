@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务提交台 · AVEngine Studio</title>
+<style>
+:root{--bg:#fbfaf7;--card:#fff;--ink:#2c2c2a;--mut:#8a877d;--line:#e2dfd6;
+--acc:#534ab7;--ok:#1f6b4a;--okbg:#e1f5ee;--bad:#a33;--badbg:#fae7e7;--runbg:#fdf3d8}
+*{box-sizing:border-box}
+body{font-family:system-ui,'PingFang SC',sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
+padding:.7rem 1.2rem;display:flex;gap:.9rem;align-items:center;flex-wrap:wrap}
+header h1{font-size:1.05rem;margin:0 1rem 0 0}
+header a{color:var(--acc);text-decoration:none;font-size:.85rem}
+main{display:grid;grid-template-columns:minmax(24rem,34rem) 1fr;gap:16px;padding:16px;align-items:start}
+@media (max-width:60rem){main{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem}
+.panel h2{font-size:.95rem;margin:0 0 .7rem}
+label{display:block;font-size:.76rem;color:var(--mut);margin:.6rem 0 .2rem;font-family:ui-monospace,monospace}
+select,input[type=text],input[type=number],textarea{width:100%;font:inherit;font-size:.82rem;
+padding:.35rem .5rem;border:1px solid var(--line);border-radius:5px;background:#fff}
+textarea{font-family:ui-monospace,monospace;min-height:3.2rem}
+.hint{font-size:.74rem;color:var(--mut);margin-top:.2rem}
+.checkrow{display:flex;align-items:center;gap:.4rem;margin-top:.55rem;font-size:.82rem}
+button.go{margin-top:1rem;width:100%;font:inherit;font-size:.9rem;padding:.5rem;border:0;
+border-radius:6px;background:var(--acc);color:#fff;cursor:pointer}
+button.go:disabled{opacity:.5}
+#result{margin-top:.8rem;font-size:.8rem;word-break:break-all}
+#result .ok{color:var(--ok)} #result .err{color:var(--bad)}
+table{border-collapse:collapse;width:100%;font-size:.78rem}
+td,th{border-bottom:1px solid var(--line);padding:.35rem .45rem;text-align:left;vertical-align:top}
+th{font-size:.7rem;color:var(--mut);text-transform:none}
+.badge{padding:.05rem .4rem;border-radius:3px;font-size:.72rem}
+.badge.pass{background:var(--okbg);color:var(--ok)}
+.badge.fail{background:var(--badbg);color:var(--bad)}
+.badge.running,.badge.queued{background:var(--runbg)}
+tr.task{cursor:pointer} tr.task:hover td{background:#f6f4ee}
+#detail{margin-top: .9rem;border-top:1px dashed var(--line);padding-top:.7rem;font-size:.78rem}
+.art{display:flex;gap:.4rem;align-items:center;margin:.2rem 0;font-family:ui-monospace,monospace;font-size:.72rem}
+.art button{font-size:.68rem;padding:.1rem .45rem;border:1px solid var(--line);border-radius:4px;
+background:#fff;cursor:pointer;white-space:nowrap}
+.art span{word-break:break-all}
+.note{font-size:.76rem;color:var(--mut);margin-top:.6rem;line-height:1.5}
+</style></head><body>
+<header>
+  <h1>任务提交台</h1>
+  <a href="/">← 首页</a>
+  <a href="/studio/board">进度看板</a>
+  <a href="/studio/review">验收台</a>
+  <a href="/studio/assets">资产台</a>
+</header>
+<main>
+  <div class="panel">
+    <h2>提交一个任务</h2>
+    <label for="tpl">模板（= 流水线的一个工位）</label>
+    <select id="tpl"></select>
+    <div id="fields"></div>
+    <button class="go" id="go">提交</button>
+    <div id="result"></div>
+    <div class="note">留空 = 用默认值。路径类参数在提交那一刻就会被检查存在与否，
+    错的路径直接被拒绝，不会排进队列。产出永远写进任务自己的新目录，不会覆盖任何东西。</div>
+  </div>
+  <div class="panel">
+    <h2>最近任务（点一行看产物路径，可复制去填下一步）</h2>
+    <table><thead><tr><th>任务</th><th>模板</th><th>状态</th></tr></thead>
+    <tbody id="tasks"></tbody></table>
+    <div id="detail">尚未选择任务。</div>
+  </div>
+</main>
+<script>
+let templates = {};
+
+function fieldHTML(key, fallback){
+  const id = 'f_' + key;
+  if (typeof fallback === 'boolean')
+    return `<div class="checkrow"><input type="checkbox" id="${id}" ${fallback ? 'checked' : ''}>
+      <label for="${id}" style="margin:0">${key}</label></div>`;
+  if (typeof fallback === 'number')
+    return `<label for="${id}">${key}</label><input type="number" step="any" id="${id}" value="${fallback}">`;
+  if (Array.isArray(fallback) || (fallback && typeof fallback === 'object'))
+    return `<label for="${id}">${key}（JSON）</label><textarea id="${id}">${JSON.stringify(fallback)}</textarea>`;
+  const value = fallback == null ? '' : String(fallback).replace(/"/g,'&quot;');
+  return `<label for="${id}">${key}</label><input type="text" id="${id}" value="${value}">`;
+}
+
+function renderFields(){
+  const name = tpl.value;
+  const template = templates[name] || {};
+  const defaults = template.defaults || {};
+  const keys = (template.overridable_keys || []).slice().sort();
+  fields.innerHTML = keys.map(key => fieldHTML(key, defaults[key])).join('') ||
+    '<div class="hint">这个模板没有可改的参数，直接提交即用默认配置。</div>';
+}
+
+function collectOverrides(){
+  const name = tpl.value;
+  const template = templates[name] || {};
+  const defaults = template.defaults || {};
+  const overrides = {};
+  for (const key of template.overridable_keys || []) {
+    const el = document.getElementById('f_' + key);
+    if (!el) continue;
+    const fallback = defaults[key];
+    let value;
+    if (el.type === 'checkbox') value = el.checked;
+    else if (el.tagName === 'TEXTAREA') {
+      if (!el.value.trim()) continue;
+      try { value = JSON.parse(el.value); }
+      catch { throw new Error(key + ' 不是合法 JSON'); }
+    }
+    else if (el.type === 'number') {
+      if (el.value === '') continue;
+      value = Number(el.value);
+    }
+    else {
+      if (!el.value.trim()) continue;
+      value = el.value.trim();
+    }
+    if (JSON.stringify(value) !== JSON.stringify(fallback)) overrides[key] = value;
+  }
+  return overrides;
+}
+
+async function submit(){
+  go.disabled = true;
+  result.innerHTML = '提交中…';
+  try {
+    const overrides = collectOverrides();
+    const response = await fetch('/api/tasks', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({template: tpl.value, overrides}),
+    });
+    const payload = await response.json();
+    if (payload.error) result.innerHTML = `<span class="err">被拒绝：${payload.error}</span>`;
+    else result.innerHTML = `<span class="ok">已排队：${payload.task.task_id}</span>` +
+      `（右边表格里会自己变色，pass 了点进去拿产物路径）`;
+  } catch (error) { result.innerHTML = `<span class="err">${error.message}</span>`; }
+  go.disabled = false;
+  refreshTasks();
+}
+
+let selectedTask = null;
+async function showDetail(taskId){
+  selectedTask = taskId;
+  const payload = await (await fetch('/api/tasks/' + taskId)).json();
+  const task = payload.task;
+  const artifacts = (task.artifacts || []).map(rel => {
+    const full = task.output_dir + '/' + rel;
+    return `<div class="art"><button onclick="navigator.clipboard.writeText('${full}')">复制</button><span>${full}</span></div>`;
+  }).join('');
+  detail.innerHTML = `<b>${task.task_id}</b> · <span class="badge ${task.status}">${task.status}</span>
+    · <a href="/api/tasks/${taskId}/log?tail=120" target="_blank">看日志</a>
+    <div class="hint" style="margin:.4rem 0">产物（复制路径填进下一个工位的参数框）：</div>
+    ${artifacts || '<div class="hint">还没有产物。</div>'}`;
+}
+
+async function refreshTasks(){
+  const payload = await (await fetch('/api/tasks')).json();
+  document.getElementById('tasks').innerHTML = payload.tasks.slice(0, 14).map(task =>
+    `<tr class="task" onclick="showDetail('${task.task_id}')">
+     <td style="font-family:ui-monospace,monospace;font-size:.7rem">${task.task_id}</td>
+     <td>${task.template}</td>
+     <td><span class="badge ${task.status}">${task.status}</span></td></tr>`).join('');
+  if (selectedTask) showDetail(selectedTask);
+}
+
+async function boot(){
+  const payload = await (await fetch('/api/templates')).json();
+  templates = payload.templates || {};
+  tpl.innerHTML = Object.keys(templates).sort().map(name => `<option>${name}</option>`).join('');
+  tpl.addEventListener('change', renderFields);
+  go.addEventListener('click', submit);
+  renderFields();
+  refreshTasks();
+  setInterval(refreshTasks, 8000);
+}
+boot();
+</script></body></html>

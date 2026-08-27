@@ -94,6 +94,7 @@ a.big{display:inline-block;margin:.6rem 0;padding:.5rem 1rem;background:#534ab7;
 </style></head><body>
 <h1>AVEngine Studio</h1>
 <p>
+<a class="big" href="/studio/submit">提交任务</a>
 <a class="big" href="/studio">3D 场景编辑器</a>
 <a class="big" href="/studio/assets">声源资产台</a>
 <a class="big" href="/studio/board">进度看板</a>
@@ -216,6 +217,8 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_static("studio.html")
             elif method == "GET" and path == "/studio/assets":
                 self._handle_static("assets.html")
+            elif method == "GET" and path == "/studio/submit":
+                self._handle_static("submit.html")
             elif method == "GET" and path == "/studio/board":
                 self._handle_static("board.html")
             elif method == "GET" and path == "/studio/review":
