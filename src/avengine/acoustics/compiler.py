@@ -1775,11 +1775,17 @@ def compile_hm3d_semantic_research_scene(
 ) -> tuple[Path, Path]:
     """Compile HM3D vertex-painted semantics into the existing M3/RLR package.
 
-    No source-to-canonical rotation is applied, and that is a measurement
-    rather than an assumption: HM3D's semantic GLB is the render GLB repainted,
-    and on 00800-TEEsavR23oF the two agree to the last digit on all six
-    bounding-box coordinates and carry the same 395018 triangles. Rotating it
-    the way MP3D's Z-up PLY needs would lay the whole house on its side.
+    The raw GLB frame is Z-up and the same rotation as MP3D's PLY applies.
+    An earlier revision applied no rotation on the argument that the semantic
+    GLB matches the render GLB to the last bounding-box digit - true, but it
+    compared two raw files with each other instead of either against the
+    engine: Habitat rotates the stage into +Y-up on load, and the shipped
+    navmesh proves it - its bounds on 00800 are exactly the raw bounds with
+    y and z exchanged and one sign flipped (z_habitat = -y_raw). Identity
+    here laid the house on its side while every listener and source anchor
+    arrived in upright navmesh coordinates. Room-level judgment of the room
+    inventory is what exposed it: a "floor" 0.45 m thick and 7.8 m tall is a
+    wall wearing the wrong axes.
 
     Candidate material selection is deterministic for ``seed`` and remains a
     research proposal until a separate physical calibration reviews the room.
@@ -1812,7 +1818,9 @@ def compile_hm3d_semantic_research_scene(
     )
     try:
         scene = load_hm3d_semantic_scene(semantic_path, descriptor_path)
-        matrix, transform_source = _KNOWN_SOURCE_TRANSFORMS["identity_y_up"]
+        matrix, transform_source = _KNOWN_SOURCE_TRANSFORMS[
+            "mp3d_z_up_y_front_to_habitat"
+        ]
         surfaces = [
             SemanticSurfaceIdentity(
                 source_material_name=category,

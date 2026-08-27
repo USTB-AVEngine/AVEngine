@@ -45,11 +45,26 @@ separately.
 """
 
 import argparse
+from dataclasses import replace
 import json
 from collections import Counter
 from pathlib import Path
 
 import numpy as np
+
+
+def _route_outside_room(paths_by_slot, bounds) -> bool:
+    x0, z0, x1, z1 = (float(v) for v in bounds)
+    for path in paths_by_slot.values():
+        arr = np.asarray(path, dtype=float)
+        if (
+            (arr[:, 0] < x0).any()
+            or (arr[:, 0] > x1).any()
+            or (arr[:, 2] < z0).any()
+            or (arr[:, 2] > z1).any()
+        ):
+            return True
+    return False
 
 
 def find_floors(pathfinder, samples: int, bin_m: float, minimum_share: float):
@@ -184,6 +199,19 @@ def main() -> int:
         help="HM3D builds its navmesh at this agent radius; the expected "
         "clearance against it is the source radius minus this",
     )
+    parser.add_argument(
+        "--room-bounds",
+        nargs=4,
+        type=float,
+        metavar=("X0", "Z0", "X1", "Z1"),
+        help=(
+            "confine the bank to one room: the feasible region is clipped to "
+            "this XZ box before routes are searched, and any route with a "
+            "sample outside it is dropped and counted. Rooms come from the "
+            "rooms.json the room-prepare stage writes"
+        ),
+    )
+    parser.add_argument("--room-label", help="recorded beside --room-bounds")
     parser.add_argument("--floor-samples", type=int, default=600)
     parser.add_argument(
         "--floor-bin-m",
@@ -264,6 +292,8 @@ def main() -> int:
             args.maximum_route_distance_m,
         ],
         "regrounded_per_sample": not args.no_reground,
+        "room_bounds_m": list(args.room_bounds) if args.room_bounds else None,
+        "room_label": args.room_label,
         "scenes": [],
     }
 
@@ -368,6 +398,9 @@ def main() -> int:
                     slot: compiler.compile(
                         source_center_height_m=height,
                         minimum_navmesh_clearance_m=0.0,
+                        placement_bounds_xz_m=(
+                            tuple(args.room_bounds) if args.room_bounds else None
+                        ),
                     )
                     for slot, height in (
                         ("source1", args.source1_height_m),
@@ -471,6 +504,30 @@ def main() -> int:
                 scene_record["floors"].append(entry)
                 print(f"   y={floor['height_m']:+7.3f}  no routes: {error}")
                 continue
+
+            if args.room_bounds:
+                # The raster was clipped before routing, but routes travel the
+                # navmesh, which was not: a geodesic between two in-room points
+                # may legally detour through a doorway and back. Those leave
+                # the room the caller asked for, so they are dropped and the
+                # drop is counted rather than silently kept.
+                kept = [
+                    episode
+                    for episode in bank.episodes
+                    if not _route_outside_room(
+                        episode.source_center_paths_m, args.room_bounds
+                    )
+                ]
+                entry["episodes_dropped_outside_room"] = len(bank.episodes) - len(kept)
+                if not kept:
+                    entry["verdict"] = "no_routes_inside_room"
+                    scene_record["floors"].append(entry)
+                    print(
+                        f"   y={floor['height_m']:+7.3f}  all "
+                        f"{len(bank.episodes)} routes left the room bounds"
+                    )
+                    continue
+                bank = replace(bank, episodes=tuple(kept))
 
             cases = Counter(episode.motion_case for episode in bank.episodes)
             # Static slots have to be excluded from the length statistics. Half
@@ -693,6 +750,7 @@ def main() -> int:
         f"{floors_with_routes}/{total_floors} floors did"
     )
     if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(
             json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )

@@ -68,6 +68,7 @@ def derive_connectivity_pair(
     rlr_sdk_root: str,
     samples: int = 64,
     seed: int = 20260826,
+    rooms: list | None = None,
 ) -> dict:
     """Measure one reachable pair across the scene with the shipped navmesh.
 
@@ -137,7 +138,7 @@ def derive_connectivity_pair(
         pathfinder.find_path(path)
         waypoints = [list(map(float, point)) for point in path.points]
         legality = _waypoint_legality(pathfinder, waypoints)
-        topdowns = _connectivity_topdowns(pathfinder, waypoints, legality)
+        topdowns = _connectivity_topdowns(pathfinder, waypoints, legality, rooms=rooms)
         return {
             "topdowns": topdowns,
             "pair": {
@@ -196,7 +197,129 @@ def _waypoint_legality(pathfinder, waypoints):
     }
 
 
-def _connectivity_topdowns(pathfinder, path_points, legality):
+def inventory_rooms(scene_dir: Path, scene_id: str) -> dict:
+    """List the scene's rooms from the annotation's own region column.
+
+    HM3D tags every annotated instance with a region index - the fourth
+    column this tool previously threw away - and a region is a room. The
+    footprint here is the axis-aligned XZ box over the region's member faces
+    and the floor height is the median of its floor-category faces, which is
+    exactly enough to scope route banks and listeners to one room. Rooms are
+    the benchmark's working unit; the acoustic package deliberately stays
+    whole-house, because reverberation and sound leaking through doorways
+    are properties of the building, not of the room.
+    """
+
+    import numpy as np
+    from avengine.acoustics.gltf import (
+        extract_triangle_scene_document,
+        load_glb_bytes,
+        triangle_vertex_colours,
+    )
+    from avengine.acoustics.semantic import _linear_to_srgb_bytes
+
+    text_path = scene_dir / f"{scene_id}.semantic.txt"
+    glb_path = scene_dir / f"{scene_id}.semantic.glb"
+    colour_to_instance: dict[tuple[int, int, int], tuple[int, str, int]] = {}
+    for line in text_path.read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
+        parts = line.split(",")
+        if len(parts) < 4 or not parts[0].strip().isdigit():
+            continue
+        colour = parts[1].strip().upper()
+        if len(colour) != 6 or any(c not in "0123456789ABCDEF" for c in colour):
+            continue
+        key = (int(colour[0:2], 16), int(colour[2:4], 16), int(colour[4:6], 16))
+        region_text = parts[3].strip()
+        region = int(region_text) if region_text.lstrip("-").isdigit() else -1
+        colour_to_instance[key] = (
+            int(parts[0]),
+            parts[2].strip().strip('"').lower(),
+            region,
+        )
+
+    document = load_glb_bytes(glb_path.read_bytes(), source_path=str(glb_path))
+    scene = extract_triangle_scene_document(document)
+    linear, _mixed = triangle_vertex_colours(document, scene)
+    face_colours = _linear_to_srgb_bytes(linear)
+    corners = scene.vertices[scene.triangles.astype(np.int64)].astype(np.float64)
+    # The raw semantic GLB is Z-up; everything downstream of this tool -
+    # navmesh, route banks, listener poses - lives in Habitat's +Y-up frame.
+    # Same rotation the acoustic compiler applies: x, y, z -> x, z, -y.
+    # Getting this wrong produced a "floor" 0.45 m thick and 7.8 m tall.
+    corners = np.stack(
+        (corners[..., 0], corners[..., 2], -corners[..., 1]), axis=-1
+    )
+    areas = (
+        np.linalg.norm(
+            np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]),
+            axis=1,
+        )
+        / 2.0
+    )
+
+    rooms: dict[int, dict] = {}
+    for index, colour in enumerate(map(tuple, face_colours)):
+        entry = colour_to_instance.get(colour)
+        if entry is None:
+            continue
+        _instance, category, region = entry
+        room = rooms.setdefault(
+            region,
+            {
+                "min_x": np.inf, "max_x": -np.inf,
+                "min_z": np.inf, "max_z": -np.inf,
+                "floor_ys": [], "floor_area": 0.0,
+                "categories": {}, "instances": set(),
+            },
+        )
+        face = corners[index]
+        room["min_x"] = min(room["min_x"], float(face[:, 0].min()))
+        room["max_x"] = max(room["max_x"], float(face[:, 0].max()))
+        room["min_z"] = min(room["min_z"], float(face[:, 2].min()))
+        room["max_z"] = max(room["max_z"], float(face[:, 2].max()))
+        room["instances"].add(entry[0])
+        room["categories"][category] = room["categories"].get(category, 0) + 1
+        if category in ("floor", "carpet", "rug", "flooring"):
+            room["floor_ys"].append(float(face[:, 1].mean()))
+            room["floor_area"] += float(areas[index])
+
+    records = []
+    for region, room in sorted(rooms.items()):
+        if region < 0 or not np.isfinite(room["min_x"]):
+            continue
+        floor_y = float(np.median(room["floor_ys"])) if room["floor_ys"] else None
+        top = sorted(room["categories"].items(), key=lambda kv: -kv[1])[:6]
+        records.append(
+            {
+                "region_id": region,
+                "instance_count": len(room["instances"]),
+                "bbox_xz_m": [
+                    [round(room["min_x"], 3), round(room["min_z"], 3)],
+                    [round(room["max_x"], 3), round(room["max_z"], 3)],
+                ],
+                "extent_m": [
+                    round(room["max_x"] - room["min_x"], 2),
+                    round(room["max_z"] - room["min_z"], 2),
+                ],
+                "floor_y_m": None if floor_y is None else round(floor_y, 3),
+                "floor_area_m2": round(room["floor_area"], 2),
+                "top_categories": [name for name, _count in top],
+            }
+        )
+    return {
+        "schema": "avengine_hm3d_room_inventory_v1",
+        "scene_id": scene_id,
+        "authority": (
+            "region column of the HM3D semantic annotations; footprints are "
+            "axis-aligned boxes over member faces, floor heights the median "
+            "of floor-category faces"
+        ),
+        "room_count": len(records),
+        "rooms": records,
+    }
+
+
+def _connectivity_topdowns(pathfinder, path_points, legality, rooms=None):
     """Slice the route by floor, and never draw a segment where it is not.
 
     The first version projected the whole polyline onto the endpoint floors,
@@ -294,6 +417,18 @@ def _connectivity_topdowns(pathfinder, path_points, legality):
                 [pixel(first), pixel(second)],
                 fill=(83, 74, 183) if on_floor else (190, 188, 214),
                 width=4 if on_floor else 1,
+            )
+        for room in rooms or []:
+            if room.get("floor_y_m") is None or abs(room["floor_y_m"] - height) > 1.0:
+                continue
+            (x0, z0), (x1, z1) = room["bbox_xz_m"]
+            left, top_edge = pixel((x0, 0, z0))
+            right, bottom_edge = pixel((x1, 0, z1))
+            draw.rectangle(
+                (left, top_edge, right, bottom_edge), outline=(180, 120, 40), width=2
+            )
+            draw.text(
+                (left + 3, top_edge + 2), f"R{room['region_id']}", fill=(150, 95, 20)
             )
         radius = 6
         for point, colour in (
@@ -414,9 +549,11 @@ def main() -> int:
     written = []
     for scene_dir in args.scene_dir:
         scene_id, files = scene_files(scene_dir)
+        inventory = inventory_rooms(scene_dir, scene_id)
         measured = derive_connectivity_pair(
             files["render"],
             files["navmesh"],
+            rooms=inventory["rooms"],
             runtime_prefix=args.runtime_prefix,
             magnum_site=args.magnum_site,
             rlr_sdk_root=args.rlr_sdk_root,
@@ -441,6 +578,10 @@ def main() -> int:
                 destination.parent
                 / f"connectivity_topdown_y{sign}{abs(height):.2f}.png"
             )
+        (destination.parent / "rooms.json").write_text(
+            json.dumps(inventory, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         (destination.parent / "connectivity_measurement.json").write_text(
             json.dumps(
                 {

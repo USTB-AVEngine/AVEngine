@@ -286,6 +286,7 @@ class RoomFeasibilityCompiler:
         minimum_navmesh_clearance_m: float = 0.02,
         minimum_rigid_clearance_m: float = 0.0,
         sample_spacing_m: float = 0.25,
+        placement_bounds_xz_m: tuple[float, float, float, float] | None = None,
     ) -> FeasibleRegionIndex:
         height_m = _finite_number(source_center_height_m, owner="source center height")
         nav_clearance = _finite_number(
@@ -311,6 +312,42 @@ class RoomFeasibilityCompiler:
             pixel_size_x_m=pixel_x,
             pixel_size_z_m=pixel_z,
         )
+
+        if placement_bounds_xz_m is not None:
+            # A placement constraint, not a navmesh edit: the obstacle map
+            # stays exactly what the navmesh says (its tamper guard depends on
+            # that), and the room bound is applied to the derived feasibility
+            # instead. Cells are kept by their centres, the same convention
+            # the rigid-obstacle pass below uses for its sample points.
+            try:
+                x_low, z_low, x_high, z_high = (
+                    float(value) for value in placement_bounds_xz_m
+                )
+            except (TypeError, ValueError) as exc:
+                raise RoomFeasibilityError(
+                    "placement_bounds_xz_m must be four finite numbers"
+                ) from exc
+            if not (
+                np.isfinite([x_low, z_low, x_high, z_high]).all()
+                and x_low < x_high
+                and z_low < z_high
+            ):
+                raise RoomFeasibilityError(
+                    "placement_bounds_xz_m must be (x_low, z_low, x_high, "
+                    "z_high) with low strictly below high"
+                )
+            centre_x = bounds[0, 0] + (
+                np.arange(navmesh.shape[1], dtype=np.float64) + 0.5
+            ) * pixel_x
+            centre_z = bounds[0, 2] + (
+                np.arange(navmesh.shape[0], dtype=np.float64) + 0.5
+            ) * pixel_z
+            feasible &= (
+                (centre_x >= x_low) & (centre_x <= x_high)
+            )[np.newaxis, :]
+            feasible &= (
+                (centre_z >= z_low) & (centre_z <= z_high)
+            )[:, np.newaxis]
 
         rows, cols = np.nonzero(feasible)
         if len(rows) and not self.obstacle_map.rigid_obstacles_baked_into_navmesh:

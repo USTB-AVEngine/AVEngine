@@ -148,6 +148,8 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
         {
             "scene",
             "navmesh",
+            "room_bounds",
+            "room_label",
             "seed",
             "episodes_per_motion_case",
             "minimum_route_distance_m",
@@ -481,6 +483,16 @@ def build_template_argv(
                 f"--{key.replace('_', '-')}",
                 str(float(merged.get(key, fallback))),
             ]
+        bounds = merged.get("room_bounds")
+        if bounds is not None:
+            if not isinstance(bounds, (list, tuple)) or len(bounds) != 4:
+                raise StudioTemplateError(
+                    "room_bounds must be [x0, z0, x1, z1] from the room-prepare "
+                    "stage's rooms.json"
+                )
+            argv += ["--room-bounds", *[str(float(value)) for value in bounds]]
+            if merged.get("room_label") is not None:
+                argv += ["--room-label", str(merged["room_label"])]
         # All three outputs live under one fresh directory; the tool creates
         # them itself with parents=True, so the directory need not pre-exist.
         out = Path(_fresh_output(output_path))

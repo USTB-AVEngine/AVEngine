@@ -482,3 +482,44 @@ def test_raster_snap_preserves_continuous_position_inside_navigable_cell() -> No
     point = np.asarray([0.033, 1.7, 0.041], dtype=np.float64)
     snapped = pathfinder.snap_point(point)
     assert np.allclose(snapped, [point[0], 0.2, point[2]])
+
+
+def test_placement_bounds_confine_the_region_without_touching_the_map() -> None:
+    """Room bounds are a placement constraint, never a navmesh edit.
+
+    The obstacle map carries a tamper guard that recomputes the topdown from
+    the live PathFinder and requires equality, so clipping must happen on the
+    derived feasibility. The 6x6 fixture room bounded to its west half must
+    yield cells only there, keep the underlying map byte-identical, and reject
+    inverted bounds loudly.
+    """
+
+    pathfinder = _PathFinder()
+    obstacle_map = _obstacle_map(pathfinder, with_blocker=False)
+    before = obstacle_map.binary_navmesh.copy()
+    compiler = RoomFeasibilityCompiler(obstacle_map)
+    bounded = compiler.compile(
+        source_center_height_m=0.7,
+        minimum_navmesh_clearance_m=0.0,
+        sample_spacing_m=0.5,
+        placement_bounds_xz_m=(0.0, 0.0, 3.0, 6.0),
+    )
+    rows, cols = np.nonzero(bounded.feasible_mask)
+    assert len(cols)
+    centre_x = (cols + 0.5) * bounded.pixel_size_x_m
+    assert centre_x.max() <= 3.0
+    assert np.array_equal(obstacle_map.binary_navmesh, before)
+
+    unbounded = compiler.compile(
+        source_center_height_m=0.7,
+        minimum_navmesh_clearance_m=0.0,
+        sample_spacing_m=0.5,
+    )
+    assert unbounded.feasible_mask.sum() > bounded.feasible_mask.sum()
+
+    with pytest.raises(RoomFeasibilityError, match="placement_bounds_xz_m"):
+        compiler.compile(
+            source_center_height_m=0.7,
+            minimum_navmesh_clearance_m=0.0,
+            placement_bounds_xz_m=(3.0, 0.0, 1.0, 6.0),
+        )
