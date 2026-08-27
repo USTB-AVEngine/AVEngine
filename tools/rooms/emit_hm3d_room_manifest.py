@@ -131,7 +131,15 @@ def derive_connectivity_pair(
                 "samples, so this scene cannot make an M1 connectivity claim"
             )
         distance, start, end = best
+        path = shortest_path_class()
+        path.requested_start = start
+        path.requested_end = end
+        pathfinder.find_path(path)
+        topdowns = _connectivity_topdowns(
+            pathfinder, [list(map(float, point)) for point in path.points]
+        )
         return {
+            "topdowns": topdowns,
             "pair": {
                 "pair_id": "navmesh_widest_reachable_pair",
                 "start_m": [float(value) for value in start],
@@ -147,6 +155,65 @@ def derive_connectivity_pair(
         }
     finally:
         simulator.close()
+
+
+def _connectivity_topdowns(pathfinder, path_points):
+    """Render the navigable area with the measured pair's route drawn on it.
+
+    The registration stage otherwise produces only JSON, which is correct for
+    machines and useless for a person deciding whether the claim looks sane.
+    One image per distinct endpoint floor height: a cross-storey pair exists
+    on two floors and a single slice would show one end standing in a void.
+    """
+
+    from PIL import Image, ImageDraw
+
+    if not path_points:
+        return []
+    meters_per_pixel = 0.05
+    lower, _upper = pathfinder.get_bounds()
+
+    def to_pixel(point):
+        return (
+            (point[0] - float(lower[0])) / meters_per_pixel,
+            (point[2] - float(lower[2])) / meters_per_pixel,
+        )
+
+    heights = []
+    for endpoint in (path_points[0], path_points[-1]):
+        if all(abs(endpoint[1] - seen) > 0.5 for seen in heights):
+            heights.append(endpoint[1])
+
+    images = []
+    for height in heights:
+        import numpy as np
+
+        navigable = np.asarray(
+            pathfinder.get_topdown_view(meters_per_pixel, float(height))
+        )
+        canvas = np.full((*navigable.shape, 3), 245, dtype=np.uint8)
+        canvas[navigable] = (203, 213, 225)
+        image = Image.fromarray(canvas)
+        draw = ImageDraw.Draw(image)
+        pixels = [to_pixel(point) for point in path_points]
+        if len(pixels) >= 2:
+            draw.line(pixels, fill=(83, 74, 183), width=3)
+        radius = 6
+        for point, colour in (
+            (path_points[0], (31, 107, 74)),
+            (path_points[-1], (163, 51, 51)),
+        ):
+            x, z = to_pixel(point)
+            on_this_floor = abs(point[1] - height) <= 0.5
+            outline = colour if on_this_floor else (150, 150, 150)
+            draw.ellipse(
+                (x - radius, z - radius, x + radius, z + radius),
+                fill=colour if on_this_floor else None,
+                outline=outline,
+                width=2,
+            )
+        images.append((float(height), image))
+    return images
 
 
 def build_manifest(
@@ -272,6 +339,12 @@ def main() -> int:
         destination.write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
+        for height, image in measured.pop("topdowns", []):
+            sign = "+" if height >= 0 else "-"
+            image.save(
+                destination.parent
+                / f"connectivity_topdown_y{sign}{abs(height):.2f}.png"
+            )
         (destination.parent / "connectivity_measurement.json").write_text(
             json.dumps(
                 {

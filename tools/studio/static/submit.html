@@ -35,6 +35,15 @@ th{font-size:.7rem;color:var(--mut);text-transform:none}
 .badge.running,.badge.queued{background:var(--runbg)}
 tr.task{cursor:pointer} tr.task:hover td{background:#f6f4ee}
 #detail{margin-top: .9rem;border-top:1px dashed var(--line);padding-top:.7rem;font-size:.78rem}
+.artcard{margin:.6rem 0}
+.artcard .cap{font-family:ui-monospace,monospace;font-size:.68rem;color:var(--mut);margin-bottom:.25rem}
+.artcard img{max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}
+.artcard video{width:100%;border-radius:6px;background:#000}
+.matbar{display:flex;height:26px;border-radius:5px;overflow:hidden;border:1px solid var(--line)}
+.matbar div{height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:.3rem .8rem;margin-top:.35rem;font-size:.7rem}
+.legend i{display:inline-block;width:.7em;height:.7em;border-radius:2px;margin-right:.25em}
+details.paths{margin-top:.6rem} details.paths summary{cursor:pointer;font-size:.74rem;color:var(--mut)}
 .art{display:flex;gap:.4rem;align-items:center;margin:.2rem 0;font-family:ui-monospace,monospace;font-size:.72rem}
 .art button{font-size:.68rem;padding:.1rem .45rem;border:1px solid var(--line);border-radius:4px;
 background:#fff;cursor:pointer;white-space:nowrap}
@@ -139,18 +148,82 @@ async function submit(){
 }
 
 let selectedTask = null;
+let selectedStatus = null;
+
+function materialColour(name){
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return `hsl(${hash % 360} 45% 62%)`;
+}
+
+async function materialBar(url){
+  // 声学装修的可看形态：这栋房子被指派成了哪些材质、各占多大面积。
+  const coverage = await (await fetch(url)).json();
+  const counts = coverage.category_triangle_counts || {};
+  const byMaterial = {};
+  for (const decision of coverage.decisions || []) {
+    const triangles = counts[decision.semantic_category] || 0;
+    const material = decision.selected_material || '?';
+    byMaterial[material] = (byMaterial[material] || 0) + triangles;
+  }
+  const total = Object.values(byMaterial).reduce((a, b) => a + b, 0) || 1;
+  const rows = Object.entries(byMaterial).sort((a, b) => b[1] - a[1]);
+  const bar = rows.map(([material, n]) =>
+    `<div title="${material} ${(100*n/total).toFixed(1)}%" style="width:${100*n/total}%;background:${materialColour(material)}"></div>`).join('');
+  const legend = rows.slice(0, 9).map(([material, n]) =>
+    `<span><i style="background:${materialColour(material)}"></i>${material} ${(100*n/total).toFixed(1)}%</span>`).join('');
+  return `<div class="artcard"><div class="cap">这间房的声学材质构成（按三角面面数）</div>
+    <div class="matbar">${bar}</div><div class="legend">${legend}</div>
+    <div class="hint" style="margin-top:.3rem">${coverage.surface_count} 个语义类别 ·
+    落默认材质 ${coverage.unknown_semantic_category_count} 类</div></div>`;
+}
+
+function errorStrip(perFrame){
+  const bars = perFrame.map(frame => {
+    const err = Math.abs(frame.error_deg ?? 99);
+    const colour = err <= 5 ? '#59b389' : err <= 15 ? '#e3c15e' : '#d97b70';
+    return `<div style="flex:1;background:${colour}"></div>`;
+  }).join('');
+  return `<div class="artcard"><div class="cap">逐帧声音方向误差（绿 ≤5° 黄 ≤15° 红更大）</div>
+    <div style="display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--line)">${bars}</div></div>`;
+}
+
 async function showDetail(taskId){
   selectedTask = taskId;
   const payload = await (await fetch('/api/tasks/' + taskId)).json();
   const task = payload.task;
-  const artifacts = (task.artifacts || []).map(rel => {
-    const full = task.output_dir + '/' + rel;
-    return `<div class="art"><button onclick="navigator.clipboard.writeText('${full}')">复制</button><span>${full}</span></div>`;
-  }).join('');
+  selectedStatus = task.status;
+  const relatives = task.artifacts || [];
+  const previews = [];
+  const frames = relatives.filter(rel => /video\/frame_\d+\.png$/.test(rel));
+  for (const rel of relatives) {
+    const url = `/api/tasks/${taskId}/artifact?path=${encodeURIComponent(rel)}`;
+    if (rel.endsWith('.mp4'))
+      previews.push(`<div class="artcard"><div class="cap">${rel}</div><video controls preload="metadata" src="${url}"></video></div>`);
+    else if (rel.endsWith('.png') && (!frames.includes(rel) || rel.endsWith('frame_0000.png')))
+      previews.push(`<div class="artcard"><div class="cap">${rel}</div><img loading="lazy" src="${url}"></div>`);
+  }
+  const coverageRel = relatives.find(rel => rel.endsWith('semantic_material_coverage.json'));
+  if (coverageRel) {
+    try { previews.unshift(await materialBar(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(coverageRel)}`)); }
+    catch {}
+  }
+  const reportRel = relatives.find(rel => rel.endsWith('audio_foa/render_report.json'));
+  if (reportRel) {
+    try {
+      const report = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(reportRel)}`)).json();
+      if (report.per_frame) previews.push(errorStrip(report.per_frame));
+    } catch {}
+  }
+  const pathRows = relatives.filter(rel => !frames.includes(rel) || rel.endsWith('frame_0000.png'))
+    .map(rel => {
+      const full = task.output_dir + '/' + rel;
+      return `<div class="art"><button onclick="navigator.clipboard.writeText('${full}')">复制</button><span>${full}</span></div>`;
+    }).join('');
   detail.innerHTML = `<b>${task.task_id}</b> · <span class="badge ${task.status}">${task.status}</span>
     · <a href="/api/tasks/${taskId}/log?tail=120" target="_blank">看日志</a>
-    <div class="hint" style="margin:.4rem 0">产物（复制路径填进下一个工位的参数框）：</div>
-    ${artifacts || '<div class="hint">还没有产物。</div>'}`;
+    ${previews.join('') || '<div class="hint" style="margin-top:.5rem">这个任务没有可预览的图（还在跑，或它只产 JSON）。</div>'}
+    <details class="paths"><summary>产物路径（复制去填下一个工位）</summary>${pathRows || '无'}</details>`;
 }
 
 async function refreshTasks(){
@@ -160,7 +233,12 @@ async function refreshTasks(){
      <td style="font-family:ui-monospace,monospace;font-size:.7rem">${task.task_id}</td>
      <td>${task.template}</td>
      <td><span class="badge ${task.status}">${task.status}</span></td></tr>`).join('');
-  if (selectedTask) showDetail(selectedTask);
+  if (selectedTask) {
+    const row = payload.tasks.find(task => task.task_id === selectedTask);
+    // re-render on any status change (including the final flip to pass, once);
+    // a steady terminal state is left alone so a playing video is not restarted
+    if (row && row.status !== selectedStatus) showDetail(selectedTask);
+  }
 }
 
 async function boot(){
