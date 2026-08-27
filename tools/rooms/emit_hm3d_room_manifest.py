@@ -135,9 +135,9 @@ def derive_connectivity_pair(
         path.requested_start = start
         path.requested_end = end
         pathfinder.find_path(path)
-        topdowns = _connectivity_topdowns(
-            pathfinder, [list(map(float, point)) for point in path.points]
-        )
+        waypoints = [list(map(float, point)) for point in path.points]
+        legality = _waypoint_legality(pathfinder, waypoints)
+        topdowns = _connectivity_topdowns(pathfinder, waypoints, legality)
         return {
             "topdowns": topdowns,
             "pair": {
@@ -146,6 +146,7 @@ def derive_connectivity_pair(
                 "end_m": [float(value) for value in end],
             },
             "evidence": {
+                **legality,
                 "measured_geodesic_distance_m": round(distance, 6),
                 "navmesh": navmesh.name,
                 "navigable_samples": samples,
@@ -157,13 +158,55 @@ def derive_connectivity_pair(
         simulator.close()
 
 
-def _connectivity_topdowns(pathfinder, path_points):
-    """Render the navigable area with the measured pair's route drawn on it.
+def _waypoint_legality(pathfinder, waypoints):
+    """The machine's own reasons, stated as numbers a reader can dispute.
 
-    The registration stage otherwise produces only JSON, which is correct for
-    machines and useless for a person deciding whether the claim looks sane.
-    One image per distinct endpoint floor height: a cross-storey pair exists
-    on two floors and a single slice would show one end standing in a void.
+    A claim of connectivity is only as good as the route backing it, so every
+    waypoint is asked two questions of the navmesh itself: are you navigable,
+    and how far would snapping move you. These land in the evidence sidecar
+    and on the drawing, because a picture that asks to be trusted should carry
+    the argument for itself.
+    """
+
+    import numpy as np
+
+    if not waypoints:
+        return {
+            "waypoint_count": 0,
+            "waypoints_on_navmesh": 0,
+            "worst_snap_distance_m": None,
+            "waypoint_height_range_m": None,
+        }
+    on_mesh = sum(bool(pathfinder.is_navigable(point)) for point in waypoints)
+    snaps = [
+        float(
+            np.linalg.norm(
+                np.asarray(pathfinder.snap_point(point), dtype=float)
+                - np.asarray(point, dtype=float)
+            )
+        )
+        for point in waypoints
+    ]
+    heights = [point[1] for point in waypoints]
+    return {
+        "waypoint_count": len(waypoints),
+        "waypoints_on_navmesh": on_mesh,
+        "worst_snap_distance_m": round(max(snaps), 4),
+        "waypoint_height_range_m": [round(min(heights), 2), round(max(heights), 2)],
+    }
+
+
+def _connectivity_topdowns(pathfinder, path_points, legality):
+    """Slice the route by floor, and never draw a segment where it is not.
+
+    The first version projected the whole polyline onto the endpoint floors,
+    and on a route that crosses twenty metres of stairwell that painted most
+    of the line outside the very region it was supposed to be judged against -
+    a reader correctly called it broken. Now each slice draws solid only the
+    segments whose both ends live on that floor; the rest appears as a thin
+    trace so the eye can follow where the route leaves for another storey,
+    and the caption on the image says which is which and what the navmesh
+    itself measured.
     """
 
     from PIL import Image, ImageDraw
@@ -171,6 +214,7 @@ def _connectivity_topdowns(pathfinder, path_points):
     if not path_points:
         return []
     meters_per_pixel = 0.05
+    floor_band = 0.75
     lower, _upper = pathfinder.get_bounds()
 
     def to_pixel(point):
@@ -179,10 +223,29 @@ def _connectivity_topdowns(pathfinder, path_points):
             (point[2] - float(lower[2])) / meters_per_pixel,
         )
 
+    # endpoint floors first, then any floor holding a quarter of the route
     heights = []
-    for endpoint in (path_points[0], path_points[-1]):
-        if all(abs(endpoint[1] - seen) > 0.5 for seen in heights):
-            heights.append(endpoint[1])
+
+    def add_height(value):
+        if all(abs(value - seen) > floor_band for seen in heights):
+            heights.append(value)
+
+    add_height(path_points[0][1])
+    add_height(path_points[-1][1])
+    for candidate in sorted({round(point[1] * 2) / 2 for point in path_points}):
+        share = sum(
+            1 for point in path_points if abs(point[1] - candidate) <= floor_band
+        ) / len(path_points)
+        if share >= 0.25 and len(heights) < 4:
+            add_height(candidate)
+
+    caption = (
+        f"waypoints on navmesh {legality['waypoints_on_navmesh']}"
+        f"/{legality['waypoint_count']} · worst snap "
+        f"{legality['worst_snap_distance_m']} m · heights "
+        f"{legality['waypoint_height_range_m'][0]} to "
+        f"{legality['waypoint_height_range_m'][1]} m"
+    )
 
     images = []
     for height in heights:
@@ -193,23 +256,44 @@ def _connectivity_topdowns(pathfinder, path_points):
         )
         canvas = np.full((*navigable.shape, 3), 245, dtype=np.uint8)
         canvas[navigable] = (203, 213, 225)
-        image = Image.fromarray(canvas)
+        pad = 34
+        image = Image.new(
+            "RGB", (canvas.shape[1], canvas.shape[0] + pad), (245, 245, 245)
+        )
+        image.paste(Image.fromarray(canvas), (0, pad))
         draw = ImageDraw.Draw(image)
-        pixels = [to_pixel(point) for point in path_points]
-        if len(pixels) >= 2:
-            draw.line(pixels, fill=(83, 74, 183), width=3)
+        draw.text(
+            (6, 4),
+            f"floor y={height:+.2f}  solid=this floor, thin=other floors",
+            fill=(60, 60, 60),
+        )
+        draw.text((6, 17), caption, fill=(120, 120, 120))
+
+        def pixel(point):
+            x, z = to_pixel(point)
+            return (x, z + pad)
+
+        for first, second in zip(path_points, path_points[1:]):
+            on_floor = (
+                abs(first[1] - height) <= floor_band
+                and abs(second[1] - height) <= floor_band
+            )
+            draw.line(
+                [pixel(first), pixel(second)],
+                fill=(83, 74, 183) if on_floor else (190, 188, 214),
+                width=4 if on_floor else 1,
+            )
         radius = 6
         for point, colour in (
             (path_points[0], (31, 107, 74)),
             (path_points[-1], (163, 51, 51)),
         ):
-            x, z = to_pixel(point)
-            on_this_floor = abs(point[1] - height) <= 0.5
-            outline = colour if on_this_floor else (150, 150, 150)
+            x, z = pixel(point)
+            on_this_floor = abs(point[1] - height) <= floor_band
             draw.ellipse(
                 (x - radius, z - radius, x + radius, z + radius),
                 fill=colour if on_this_floor else None,
-                outline=outline,
+                outline=colour if on_this_floor else (150, 150, 150),
                 width=2,
             )
         images.append((float(height), image))
