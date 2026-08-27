@@ -2,10 +2,9 @@
 
 Date: 2026-08-27. Branch: `cc-static-sound-sources`.
 
-This record closes Tasks A and C and records the complete Task B evidence up to
-the final shared-tree switch.  The switch itself remains pending explicit owner
-approval because it changes the path consumed by downstream jobs; no switch had
-occurred when this record was written.
+This record closes Tasks A, B and C, including the owner-approved final
+shared-tree switch.  The former shared tree is retained intact under the backup
+path recorded in Section 5.
 
 ## 1. Task A: attachment-aware measurement
 
@@ -139,7 +138,7 @@ directory no longer exists.  Runtime profile copies were therefore changed
 only after the byte-identical tracked AVEngine mirror and provenance were
 validated and committed.  AVEngine remains the source authority.
 
-## 5. Promotion staging and pending shared-tree switch
+## 5. Promotion staging and completed shared-tree switch
 
 The fully assembled promotion tree is:
 
@@ -158,16 +157,26 @@ Direct measurement of all 40 GLBs produced:
   window unit whose fitted tilt is level but whose rear roughness remains just
   above the mounting-plane existence threshold
 
-The intended reversible switch is:
+The owner explicitly approved the reversible switch.  It completed successfully:
 
 - current tree ->
   `/data/avengine_external/assets/sound_source_assets_v1_before_resting_pose_20260827_v1`
 - audited staging ->
   `/data/avengine_external/assets/sound_source_assets_v1`
 
-Both directories are on filesystem device 2065.  The operation must roll back
-the first rename if the second rename fails.  It was not executed because the
-high-impact publication approval requires explicit owner confirmation.
+Both directories are on filesystem device 2065.  The implementation would have
+rolled back the first rename if the second rename failed; both renames succeeded.
+The former tree now exists at the backup path and contains zero v2 replacements.
+The formal path contains all eight v2 replacements.
+
+Post-swap audit:
+
+`POST_SWAP_AUDIT_OK assets=44 static=40 animals=4 v2=8 formal=0 backup_v2=0 tv_exemption=accepted bottle=no_mounting window=no_mounting`
+
+The final direct measurement from the formal path is stored at
+`tmp/resting_pose_task_a_20260826_v1/post_swap_raw_measurement.json` and reports
+24 level, 13 acceptable, one raw television-foot lean covered by the explicit
+design exemption, and the two documented unknown mounting planes.
 
 All staged and current records remain `formal_dataset_registration_authorized=false`;
 formal episode count remains zero.  No kettle or animal deformation gate was
