@@ -196,6 +196,24 @@ def _verify_room_prepare(output_dir: Path) -> dict[str, Any] | None:
     return None
 
 
+def _worst_escape_fraction(leakage: Any) -> float | None:
+    fractions: list[float] = []
+
+    def collect(node: Any) -> None:
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                if key == "escape_fraction" and isinstance(value, (int, float)):
+                    fractions.append(float(value))
+                else:
+                    collect(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect(item)
+
+    collect(leakage)
+    return max(fractions) if fractions else None
+
+
 def _verify_package(output_dir: Path) -> dict[str, Any] | None:
     manifest = _read_json(output_dir / "manifest.json")
     coverage = _read_json(output_dir / "semantic_material_coverage.json")
@@ -204,13 +222,29 @@ def _verify_package(output_dir: Path) -> dict[str, Any] | None:
     counts = (coverage or {}).get("category_triangle_counts") or {}
     total = sum(counts.values()) or 1
     sealed = bool((manifest or {}).get("package_content_sha256"))
+    # The leakage probes are the one QA a frame bug cannot survive: probes
+    # planted in room coordinates escape a mis-framed mesh wholesale. The
+    # sideways incident sat at 0.87-0.94 while the board painted this cell
+    # green from the coverage report alone. Never again: a package whose
+    # probes mostly miss its own geometry is red no matter what else passed.
+    worst_escape = _worst_escape_fraction(
+        _read_json(output_dir / "qa" / "ray_leakage.json") or {}
+    )
+    frame_suspect = worst_escape is not None and worst_escape > 0.5
+    escape_text = (
+        "" if worst_escape is None else f" · 探针逃逸最坏 {100 * worst_escape:.0f}%"
+    )
     return {
         "scene": _scene_key((coverage or {}).get("room_id")),
-        "ok": sealed and coverage is not None,
+        "ok": sealed and coverage is not None and not frame_suspect,
         "summary": (
-            f"{(coverage or {}).get('surface_count', '?')} 类 · 默认材质 "
-            f"{(coverage or {}).get('unknown_semantic_category_count', '?')} 类 · "
-            f"未标注 {100.0 * counts.get('unannotated', 0) / total:.1f}%"
+            (
+                f"{(coverage or {}).get('surface_count', '?')} 类 · 默认材质 "
+                f"{(coverage or {}).get('unknown_semantic_category_count', '?')} 类 · "
+                f"未标注 {100.0 * counts.get('unannotated', 0) / total:.1f}%"
+                + escape_text
+                + ("（疑似坐标系错误：探针大量在几何体外）" if frame_suspect else "")
+            )
             if coverage
             else "封印在但覆盖率报告缺失"
         ),

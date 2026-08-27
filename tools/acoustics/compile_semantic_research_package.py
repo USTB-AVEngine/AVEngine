@@ -98,10 +98,51 @@ def main() -> int:
     counts = report.get("category_triangle_counts", {})
     total = sum(counts.values()) or 1
     unannotated = counts.get("unannotated", 0)
+
+    # The sideways-package incident in one lesson: the QA that would have
+    # caught it was written into the package and never read, because the
+    # research escape hatch silences geometry failures wholesale. So the
+    # verdicts are surfaced here, in the one place the operator always looks.
+    # geometry_status=fail is EXPECTED for scan meshes (open seams fail the
+    # production watertight bar); the discriminating number is the leakage
+    # escape fraction - probes outside the geometry push it toward one.
+    qa_dir = manifest_path.parent / "qa"
+    geometry_status = None
+    worst_escape = None
+    geometry_qa = qa_dir / "geometry_report.json"
+    if geometry_qa.is_file():
+        geometry_status = json.loads(geometry_qa.read_text(encoding="utf-8")).get(
+            "status"
+        )
+    leakage_qa = qa_dir / "ray_leakage.json"
+    if leakage_qa.is_file():
+        fractions: list[float] = []
+
+        def _collect(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "escape_fraction" and isinstance(value, (int, float)):
+                        fractions.append(float(value))
+                    else:
+                        _collect(value)
+            elif isinstance(node, list):
+                for item in node:
+                    _collect(item)
+
+        _collect(json.loads(leakage_qa.read_text(encoding="utf-8")))
+        worst_escape = max(fractions) if fractions else None
+
     print(
         json.dumps(
             {
                 "manifest": str(manifest_path),
+                "qa_geometry_status": geometry_status,
+                "qa_worst_probe_escape_fraction": worst_escape,
+                "qa_note": (
+                    "scan meshes fail the watertight bar by design; an escape "
+                    "fraction near 1 means the leakage probes are outside the "
+                    "geometry - check the frame before anything else"
+                ),
                 "coverage_report": str(report_path),
                 "source_kind": source_kind,
                 "room_id": report.get("room_id"),

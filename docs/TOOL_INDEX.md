@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 256 个工具脚本。
+当前共 257 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -121,6 +121,7 @@
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
+| `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
 
 ## 相机与路径（`tools/routes/`）
 
