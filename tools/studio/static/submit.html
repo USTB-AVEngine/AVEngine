@@ -184,7 +184,7 @@ function errorStrip(perFrame){
     const colour = err <= 5 ? '#59b389' : err <= 15 ? '#e3c15e' : '#d97b70';
     return `<div style="flex:1;background:${colour}"></div>`;
   }).join('');
-  return `<div class="artcard"><div class="cap">逐帧声音方向误差（绿 ≤5° 黄 ≤15° 红更大）</div>
+  return `<div class="artcard"><div class="cap">逐帧声音方向误差（绿 ≤5° 黄 ≤15° 红更大；被遮挡的帧误差大是正常样本，不是缺陷）</div>
     <div style="display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--line)">${bars}</div></div>`;
 }
 
@@ -196,6 +196,20 @@ async function showDetail(taskId){
   const relatives = task.artifacts || [];
   const previews = [];
   const frames = relatives.filter(rel => /video\/frame_\d+\.png$/.test(rel));
+  // 每张图配一句"这图的权威是什么、该怎么判" —— 图必须自带论据，
+  // 否则它只会诱导错误判决（连通图整条投影、轨迹图的栅格底色都发生过）。
+  const stageNote = {
+    'hm3d_room_prepare':
+      '判法：实线路段应贴在灰色区内（细线是其他楼层的投影，不构成本层判断）。' +
+      '机器已声明每个路点都在导航网格上，见图内标注。',
+    'hm3d_route_bank':
+      '判法：绿色是"声源体积在其自身高度上"的可行域（诊断用，含家具）；' +
+      '轨迹合法性的权威是 navmesh（逐帧 0 出界）。轨迹穿过暗区 = 从家具下/缝隙穿过，' +
+      '按既定决定允许穿模——这不是缺陷，别按绿区判轨迹。',
+    'hm3d_episode':
+      '判法：听方位是否随画面走、有无破音；色带红段若对应声源被挡属正常（遮挡保留不筛）。',
+  }[task.template];
+  if (stageNote) previews.push(`<div class="hint" style="margin:.4rem 0">${stageNote}</div>`);
   for (const rel of relatives) {
     const url = `/api/tasks/${taskId}/artifact?path=${encodeURIComponent(rel)}`;
     if (rel.endsWith('.mp4'))

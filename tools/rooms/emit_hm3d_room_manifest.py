@@ -223,7 +223,11 @@ def _connectivity_topdowns(pathfinder, path_points, legality):
             (point[2] - float(lower[2])) / meters_per_pixel,
         )
 
-    # endpoint floors first, then any floor holding a quarter of the route
+    # Endpoint floors first, then greedily the floor covering the most
+    # not-yet-covered waypoints, until at least nine in ten waypoints appear
+    # solid on some slice. A fixed share threshold left the stairwell middle
+    # of a 28-level route invisible on every image - drawn, but never
+    # judgeable, which a reviewer rightly refused to accept.
     heights = []
 
     def add_height(value):
@@ -232,12 +236,20 @@ def _connectivity_topdowns(pathfinder, path_points, legality):
 
     add_height(path_points[0][1])
     add_height(path_points[-1][1])
-    for candidate in sorted({round(point[1] * 2) / 2 for point in path_points}):
-        share = sum(
-            1 for point in path_points if abs(point[1] - candidate) <= floor_band
-        ) / len(path_points)
-        if share >= 0.25 and len(heights) < 4:
-            add_height(candidate)
+
+    def covered(point):
+        return any(abs(point[1] - height) <= floor_band for height in heights)
+
+    while len(heights) < 6:
+        uncovered = [point for point in path_points if not covered(point)]
+        if len(uncovered) <= 0.1 * len(path_points):
+            break
+        candidates = sorted({round(point[1] * 4) / 4 for point in uncovered})
+        best = max(
+            candidates,
+            key=lambda h: sum(1 for point in uncovered if abs(point[1] - h) <= floor_band),
+        )
+        add_height(best)
 
     caption = (
         f"waypoints on navmesh {legality['waypoints_on_navmesh']}"
