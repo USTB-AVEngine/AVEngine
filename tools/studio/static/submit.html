@@ -35,6 +35,8 @@ th{font-size:.7rem;color:var(--mut);text-transform:none}
 .badge.running,.badge.queued{background:var(--runbg)}
 tr.task{cursor:pointer} tr.task:hover td{background:#f6f4ee}
 #detail{margin-top: .9rem;border-top:1px dashed var(--line);padding-top:.7rem;font-size:.78rem}
+#detail td, #detail th{border-bottom:1px solid var(--line);padding:.25rem .4rem}
+#detail td.n{text-align:right;font-variant-numeric:tabular-nums}
 .artcard{margin:.6rem 0}
 .artcard .cap{font-family:ui-monospace,monospace;font-size:.68rem;color:var(--mut);margin-bottom:.25rem}
 .artcard img{max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}
@@ -216,6 +218,39 @@ async function showDetail(taskId){
       previews.push(`<div class="artcard"><div class="cap">${rel}</div><video controls preload="metadata" src="${url}"></video></div>`);
     else if (rel.endsWith('.png') && (!frames.includes(rel) || rel.endsWith('frame_0000.png')))
       previews.push(`<div class="artcard"><div class="cap">${rel}</div><img loading="lazy" src="${url}"></div>`);
+  }
+  // 房间登记任务：把 rooms.json 直接渲成表，每行一个"复制 room_bounds"，
+  // 让"选哪间房"从翻 JSON 变成点一下 —— 下一工位照粘即可。
+  const roomsRel = relatives.find(rel => rel.endsWith('rooms.json'));
+  if (roomsRel) {
+    try {
+      const inventory = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(roomsRel)}`)).json();
+      const rows = (inventory.rooms || []).slice().sort((a, b) => b.floor_area_m2 - a.floor_area_m2)
+        .map(room => {
+          const [[x0, z0], [x1, z1]] = room.bbox_xz_m;
+          const bounds = JSON.stringify([x0, z0, x1, z1]);
+          const shorter = Math.min(room.extent_m[0], room.extent_m[1]);
+          const band = shorter >= 6 ? '3.5–5.5（默认即可）'
+            : `1.5–${Math.max(2.0, (shorter - 0.5).toFixed(1))}（房间短边 ${shorter.toFixed(1)} m，距离带别超过它）`;
+          return `<tr>
+            <td style="font-family:ui-monospace,monospace">R${room.region_id}</td>
+            <td class="n">${room.extent_m[0]} × ${room.extent_m[1]} m</td>
+            <td class="n">${room.floor_y_m}</td>
+            <td class="n">${room.floor_area_m2}</td>
+            <td>${(room.top_categories || []).slice(0, 3).join('、')}</td>
+            <td style="font-size:.7rem">${band}</td>
+            <td><button onclick='navigator.clipboard.writeText(${JSON.stringify(bounds)})'
+              style="font-size:.68rem;padding:.1rem .45rem;border:1px solid var(--line);border-radius:4px;background:#fff;cursor:pointer">复制 room_bounds</button></td>
+          </tr>`;
+        }).join('');
+      previews.push(`<div class="artcard"><div class="cap">这栋房子的房间（${inventory.room_count} 间，按地板面积排序）——
+        选一间，点"复制 room_bounds"，去 hm3d_route_bank 粘贴</div>
+        <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:.74rem">
+        <thead><tr><th style="text-align:left;color:var(--mut)">房间</th><th style="text-align:right;color:var(--mut)">尺寸</th>
+        <th style="text-align:right;color:var(--mut)">楼层 y</th><th style="text-align:right;color:var(--mut)">地板 m²</th>
+        <th style="text-align:left;color:var(--mut)">里面有什么</th><th style="text-align:left;color:var(--mut)">建议距离带 (m)</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div></div>`);
+    } catch {}
   }
   const coverageRel = relatives.find(rel => rel.endsWith('semantic_material_coverage.json'));
   if (coverageRel) {
