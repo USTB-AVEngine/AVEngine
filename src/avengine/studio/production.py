@@ -589,6 +589,9 @@ def board_rows(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
 
 def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
     episodes: list[dict[str, Any]] = []
+    records_by_id = {
+        str(record.get("task_id")): record for record in task_records
+    }
     for record in task_records:
         if str(record.get("template") or "") != "hm3d_episode":
             continue
@@ -596,6 +599,24 @@ def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
         receipt = _read_json(output_dir / "receipt.json")
         if receipt is None:
             continue
+        # The owner reviews pictures. The trajectory map for the exact floor
+        # this episode rendered lives in the bank task's own output (same
+        # file stem, topdown/ instead of bank/), so the queue points at it
+        # rather than asking anyone to cross-reference two task pages.
+        route_map = None
+        bank = str(receipt.get("bank") or "")
+        bank_task = re.search(r"/tasks/([^/]+)/output/", bank)
+        if bank_task is not None and bank.endswith(".bank.json"):
+            bank_record = records_by_id.get(bank_task.group(1))
+            bank_output = Path(str((bank_record or {}).get("output_dir") or ""))
+            stem = Path(bank).name[: -len(".bank.json")]
+            if bank_output.is_dir():
+                candidates = sorted(bank_output.glob(f"**/{stem}.topdown.png"))
+                if candidates:
+                    route_map = {
+                        "task_id": (bank_record or {}).get("task_id"),
+                        "path": candidates[0].relative_to(bank_output).as_posix(),
+                    }
         report = _read_json(output_dir / "audio_foa" / "render_report.json") or {}
         per_frame = report.get("per_frame") or []
         artifacts = {
@@ -616,6 +637,7 @@ def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
             {
                 "task_id": record.get("task_id"),
                 "created_at": record.get("created_at"),
+                "route_map": route_map,
                 "machine_audition": (
                     {
                         "verdict": audition.get("verdict"),

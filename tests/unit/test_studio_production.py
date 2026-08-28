@@ -206,6 +206,39 @@ def test_review_queue_carries_the_audition_reasons(tmp_path: Path) -> None:
     assert entry["machine_audition"]["checks"][0]["reason_zh"] == "方向对"
 
 
+def test_review_queue_points_at_the_floor_trajectory_map(tmp_path: Path) -> None:
+    """The owner reviews pictures: the queue must resolve the bank task's
+    topdown for the same floor stem the episode rendered from."""
+
+    bank_dir = tmp_path / "tasks" / "task_bank" / "output" / "render"
+    (bank_dir / "bank").mkdir(parents=True)
+    (bank_dir / "topdown").mkdir()
+    bank_file = bank_dir / "bank" / "00808-y9hTuugGdiq_y+0.061.bank.json"
+    bank_file.write_text("{}")
+    (bank_dir / "topdown" / "00808-y9hTuugGdiq_y+0.061.topdown.png").write_bytes(
+        b"png"
+    )
+    bank_record = {
+        "task_id": "task_bank",
+        "template": "hm3d_route_bank",
+        "status": "pass",
+        "task_dir": str(tmp_path / "tasks" / "task_bank"),
+        "output_dir": str(bank_dir),
+    }
+    episode = _episode_task(tmp_path, "task1", with_mp4=True)
+    Path(episode["output_dir"], "receipt.json").write_text(
+        json.dumps({"scene_id": "TEEsavR23oF", "bank": str(bank_file)})
+    )
+    entry = review_queue([bank_record, episode])["episodes"][0]
+    assert entry["route_map"] == {
+        "task_id": "task_bank",
+        "path": "topdown/00808-y9hTuugGdiq_y+0.061.topdown.png",
+    }
+    # an episode whose bank has no such map degrades to None, not an error
+    lone = _episode_task(tmp_path, "task2", with_mp4=True)
+    assert review_queue([lone])["episodes"][0]["route_map"] is None
+
+
 def test_review_queue_lists_only_episodes_with_receipts(tmp_path: Path) -> None:
     episode = _episode_task(tmp_path, "task1", with_mp4=True)
     other = {

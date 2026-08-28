@@ -38,15 +38,17 @@ td.scene{font-family:ui-monospace,monospace;font-size:.78rem;white-space:nowrap}
 <div class="wrap"><table id="board"><thead></thead><tbody></tbody></table></div>
 <script>
 const STAGE_LABELS = {room: '① 房间清单', package: '② 声学包', routes: '③ 轨迹库',
-                      episode: '④ 成品 episode', verdict: '⑤ 人工验收'};
+                      episode: '④ 成品 episode', verdict: '⑤ 判定（机器为主）'};
 let data = null;
 
+// 格子只给 ✓/✗ —— owner 扫颜色就够；具体数字悬停可见（title），
+// 点进去是任务日志，都是同学排查用的。
 function cellHTML(cell){
   if (!cell) return '<div class="empty">—</div>';
   const cls = cell.ok ? 'ok' : 'bad';
-  return `<div class="cell ${cls}">
+  return `<div class="cell ${cls}" title="${(cell.summary || '').replace(/"/g,'&quot;')}">
     <a href="/api/tasks/${cell.task_id}/log?tail=200" target="_blank" rel="noopener">
-      <div class="sum">${cell.ok ? '✓' : '✗'} ${cell.summary || ''}</div>
+      <div class="sum">${cell.ok ? '✓' : '✗'}</div>
       <div class="who">${cell.task_id || ''}</div>
     </a></div>`;
 }
