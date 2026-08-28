@@ -79,6 +79,31 @@ background:#fff;cursor:pointer;white-space:nowrap}
 </main>
 <script>
 let templates = {};
+let hm3dScenes = null;
+
+// 整条链零手填：①场景用下拉选，②③④的按钮长在上一步的任务面板里，
+// 参数（清单路径、房间框、距离带、银行文件、scene_id）全部由系统推导。
+async function loadScenes(){
+  if (hm3dScenes !== null) return hm3dScenes;
+  try {
+    const payload = await (await fetch('/api/hm3d-scenes')).json();
+    hm3dScenes = payload.scenes || [];
+  } catch { hm3dScenes = []; }
+  return hm3dScenes;
+}
+
+async function submitChained(template, overrides, button){
+  button.disabled = true;
+  button.textContent = '排队中…';
+  const response = await fetch('/api/tasks', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({template, overrides}),
+  });
+  const payload = await response.json();
+  if (payload.error) { button.textContent = '被拒: ' + payload.error.slice(0, 60); return; }
+  button.textContent = '已排队 ✓ ' + payload.task.task_id;
+  refreshTasks();
+}
 
 function fieldHTML(key, fallback){
   const id = 'f_' + key;
@@ -93,13 +118,33 @@ function fieldHTML(key, fallback){
   return `<label for="${id}">${key}</label><input type="text" id="${id}" value="${value}">`;
 }
 
-function renderFields(){
+async function renderFields(){
   const name = tpl.value;
   const template = templates[name] || {};
   const defaults = template.defaults || {};
   const keys = (template.overridable_keys || []).slice().sort();
   fields.innerHTML = keys.map(key => fieldHTML(key, defaults[key])).join('') ||
     '<div class="hint">这个模板没有可改的参数，直接提交即用默认配置。</div>';
+  if (name === 'hm3d_room_prepare') {
+    const scenes = await loadScenes();
+    if (scenes.length) {
+      const options = scenes.map(scene =>
+        `<option value="${scene.scene_dir}" data-split="${scene.split}">${scene.split} · ${scene.name}</option>`
+      ).join('');
+      const holder = document.getElementById('f_scene_dir');
+      if (holder) {
+        holder.outerHTML = `<select id="f_scene_dir">${options}</select>`;
+        const current = defaults['scene_dir'];
+        const select = document.getElementById('f_scene_dir');
+        if (current) select.value = current;
+        select.addEventListener('change', () => {
+          const split = select.selectedOptions[0]?.dataset.split;
+          const splitField = document.getElementById('f_split');
+          if (split && splitField) splitField.value = split;
+        });
+      }
+    }
+  }
 }
 
 function collectOverrides(){
@@ -224,23 +269,38 @@ async function showDetail(taskId){
   const roomsRel = relatives.find(rel => rel.endsWith('rooms.json'));
   if (roomsRel) {
     try {
+      await loadScenes();
+      const hm3dRootForRooms = (await (await fetch('/api/hm3d-scenes')).json()).hm3d_root;
       const inventory = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(roomsRel)}`)).json();
       const rows = (inventory.rooms || []).slice().sort((a, b) => b.floor_area_m2 - a.floor_area_m2)
         .map(room => {
           const [[x0, z0], [x1, z1]] = room.bbox_xz_m;
           const bounds = JSON.stringify([x0, z0, x1, z1]);
           const shorter = Math.min(room.extent_m[0], room.extent_m[1]);
-          const band = shorter >= 6 ? '3.5–5.5（默认即可）'
-            : `1.5–${Math.max(2.0, (shorter - 0.5).toFixed(1))}（房间短边 ${shorter.toFixed(1)} m，距离带别超过它）`;
+          const bandMax = shorter >= 6 ? 5.5 : Math.max(2.0, Number((shorter - 0.5).toFixed(1)));
+          const bandMin = shorter >= 6 ? 3.5 : 1.5;
+          // scene 与 navmesh 由清单路径反推：hm3d_<split>_<index>_<id>
+          const marker = roomsRel.split('/')[0];
+          const parts = marker.split('_');
+          const sceneDirName = parts[2] + '-' + parts.slice(3).join('_');
+          const sceneRoot = `${hm3dRootForRooms}/${parts[1]}/${sceneDirName}`;
+          const overrides = {
+            scene: `${sceneRoot}/${parts.slice(3).join('_')}.glb`,
+            navmesh: `${sceneRoot}/${parts.slice(3).join('_')}.basis.navmesh`,
+            room_bounds: [x0, z0, x1, z1],
+            room_label: `R${room.region_id}`,
+            minimum_route_distance_m: bandMin,
+            maximum_route_distance_m: bandMax,
+          };
           return `<tr>
             <td style="font-family:ui-monospace,monospace">R${room.region_id}</td>
             <td class="n">${room.extent_m[0]} × ${room.extent_m[1]} m</td>
             <td class="n">${room.floor_y_m}</td>
             <td class="n">${room.floor_area_m2}</td>
             <td>${(room.top_categories || []).slice(0, 3).join('、')}</td>
-            <td style="font-size:.7rem">${band}</td>
-            <td><button onclick='navigator.clipboard.writeText(${JSON.stringify(bounds)})'
-              style="font-size:.68rem;padding:.1rem .45rem;border:1px solid var(--line);border-radius:4px;background:#fff;cursor:pointer">复制 room_bounds</button></td>
+            <td style="font-size:.7rem">${bandMin}–${bandMax} m（自动）</td>
+            <td><button onclick='submitChained("hm3d_route_bank", ${JSON.stringify(overrides)}, this)'
+              style="font-size:.68rem;padding:.1rem .45rem;border:0;border-radius:4px;background:var(--acc);color:#fff;cursor:pointer">▶ 第③步：给这间房规划路线</button></td>
           </tr>`;
         }).join('');
       previews.push(`<div class="artcard"><div class="cap">这栋房子的房间（${inventory.room_count} 间，按地板面积排序）——
@@ -263,6 +323,36 @@ async function showDetail(taskId){
       const report = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(reportRel)}`)).json();
       if (report.per_frame) previews.push(errorStrip(report.per_frame));
     } catch {}
+  }
+  // 链式按钮：下一工位一键提交，所有参数自动推导
+  if (task.status === 'pass' && task.template === 'hm3d_room_prepare') {
+    const manifestRel = relatives.find(rel => rel.endsWith('room_manifest.json'));
+    if (manifestRel) {
+      const manifestPath = task.output_dir + '/' + manifestRel;
+      previews.push(`<div class="artcard">
+        <button class="copy" style="font-size:.8rem;padding:.35rem .8rem;background:var(--acc);color:#fff;border:0"
+          onclick='submitChained("semantic_acoustic_package", {room_manifest: ${JSON.stringify(manifestPath)}}, this)'>
+          ▶ 第②步：编这栋房子的声学包（一键，无需填写）</button></div>`);
+    }
+  }
+  if (task.status === 'pass' && task.template === 'hm3d_route_bank') {
+    const banks = relatives.filter(rel => /bank\/.+\.bank\.json$/.test(rel));
+    if (banks.length) {
+      const buttons = banks.map(rel => {
+        const full = task.output_dir + '/' + rel;
+        const file = rel.split('/').pop();
+        const sceneId = file.includes('-') ? file.split('-')[1].split('_y')[0] : '';
+        const floor = (file.match(/_y([+-][0-9.]+)/) || [])[1] || '?';
+        return `<button class="copy" style="font-size:.78rem;padding:.3rem .7rem;background:var(--acc);color:#fff;border:0;margin:.15rem .3rem .15rem 0"
+          onclick='submitChained("hm3d_episode", {bank: ${JSON.stringify(full)}, scene_id: ${JSON.stringify(sceneId)}}, this)'>
+          ▶ 第④步：出成品（楼层 y=${floor}）</button>`;
+      }).join('');
+      previews.push(`<div class="artcard"><div class="cap">一键出成品：挑你规划的那个楼层</div>${buttons}</div>`);
+    }
+  }
+  if (task.status === 'pass' && task.template === 'hm3d_episode') {
+    previews.push(`<div class="artcard"><a href="/studio/review" style="font-size:.85rem">
+      ▶ 第⑤步：去验收台听审打分 →</a></div>`);
   }
   const pathRows = relatives.filter(rel => !frames.includes(rel) || rel.endsWith('frame_0000.png'))
     .map(rel => {
@@ -294,6 +384,7 @@ async function boot(){
   const payload = await (await fetch('/api/templates')).json();
   templates = payload.templates || {};
   tpl.innerHTML = Object.keys(templates).sort().map(name => `<option>${name}</option>`).join('');
+  if (templates['hm3d_room_prepare']) tpl.value = 'hm3d_room_prepare';
   tpl.addEventListener('change', renderFields);
   go.addEventListener('click', submit);
   renderFields();

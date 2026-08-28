@@ -113,9 +113,10 @@ def derive_connectivity_pair(
             raise SystemExit(f"{navmesh} did not load; no reachability to claim")
         pathfinder.seed(seed)
         points = [pathfinder.get_random_navigable_point() for _ in range(samples)]
-        best = None
-        for index, start in enumerate(points):
-            for end in points[index + 1 :]:
+
+        def farthest_from(start):
+            found = None
+            for end in points:
                 path = shortest_path_class()
                 path.requested_start = start
                 path.requested_end = end
@@ -124,8 +125,27 @@ def derive_connectivity_pair(
                 distance = float(path.geodesic_distance)
                 if distance != distance or distance == float("inf"):
                     continue
-                if best is None or distance > best[0]:
-                    best = (distance, start, end)
+                if found is None or distance > found[0]:
+                    found = (distance, end)
+            return found
+
+        # Double sweep instead of all pairs. All pairs is samples-squared
+        # find_path calls, which on a large scanned building measured out at
+        # twenty-five CPU-minutes for one registration; two sweeps cost two
+        # times samples calls and land on a pair at least half the true
+        # diameter, which is far more than a connectivity claim needs.
+        best = None
+        for start in points[:4]:
+            first = farthest_from(start)
+            if first is None:
+                continue
+            second = farthest_from(first[1])
+            candidate = (
+                (second[0], first[1], second[1]) if second else (first[0], start, first[1])
+            )
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+            break
         if best is None:
             raise SystemExit(
                 f"{scene_glb.name}: no reachable pair among {samples} navigable "
@@ -152,7 +172,10 @@ def derive_connectivity_pair(
                 "navmesh": navmesh.name,
                 "navigable_samples": samples,
                 "sample_seed": seed,
-                "selection": "largest finite geodesic distance among sampled pairs",
+                "selection": (
+                    "double-sweep diameter approximation over the samples "
+                    "(farthest point from a start, then farthest from that)"
+                ),
             },
         }
     finally:

@@ -259,6 +259,8 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_sound_asset_catalog()
             elif method == "GET" and path == "/api/sound-assets/file":
                 self._handle_sound_asset_file(query)
+            elif method == "GET" and path == "/api/hm3d-scenes":
+                self._handle_hm3d_scenes()
             elif method == "GET" and path == "/api/sound-library":
                 self._handle_sound_library()
             elif method == "GET" and path == "/api/sound-library/file":
@@ -636,6 +638,45 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if not relative:
             raise ProductionError("asset file requires ?path=<relative file>")
         self._send_file(sound_asset_file(self._sound_asset_index(), relative))
+
+    def _handle_hm3d_scenes(self) -> None:
+        """Annotated HM3D scenes, so picking one is a dropdown, not a path.
+
+        The root comes from the room-prepare template's own default - the
+        same value the submitted task will resolve against - and a scene
+        qualifies only when its semantic annotations are on disk, because a
+        scene without them cannot pass the acoustic stage anyway.
+        """
+
+        config = self._server().studio_config
+        root_value = (config.task_templates.get("hm3d_room_prepare") or {}).get(
+            "hm3d_root"
+        )
+        if not root_value:
+            raise ProductionError(
+                "the hm3d_room_prepare template declares no hm3d_root default"
+            )
+        root = Path(str(root_value))
+        scenes = []
+        for split in ("val", "train", "minival"):
+            split_dir = root / split
+            if not split_dir.is_dir():
+                continue
+            for scene_dir in sorted(split_dir.iterdir()):
+                if not scene_dir.is_dir() or "-" not in scene_dir.name:
+                    continue
+                scene_id = scene_dir.name.split("-", 1)[1]
+                if not (scene_dir / f"{scene_id}.semantic.txt").is_file():
+                    continue
+                scenes.append(
+                    {
+                        "name": scene_dir.name,
+                        "split": split,
+                        "scene_dir": str(scene_dir),
+                        "scene_id": scene_id,
+                    }
+                )
+        self._send_json({"hm3d_root": str(root), "scenes": scenes})
 
     def _sound_library_root(self) -> Path:
         root = self._server().studio_config.sound_library_root
