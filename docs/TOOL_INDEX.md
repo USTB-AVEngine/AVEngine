@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 257 个工具脚本。
+当前共 258 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -132,6 +132,7 @@
 | `tools/routes/build_apartment_route_bank.py` | Precompute an apartment route bank from UE's own navigation system |
 | `tools/routes/build_camera_pose_request.py` | Build one camera/listener-coherent M1 request at an arbitrary room pose |
 | `tools/routes/build_four_motion_anchor_profile.py` | Build and benchmark the reusable emitter-anchor profile from a pilot |
+| `tools/routes/build_hm3d_rir_plan.py` | Turn an HM3D floor bank and an accepted listener pose into a QA plan-dir |
 | `tools/routes/compile_apartment_feasibility_bank.py` | Compile Apartment feasibility, a four-case trajectory bank, and Topdown QA |
 | `tools/routes/compile_hm3d_dynamic_source_bank.py` | Ask whether a moving sound source can find legal routes in an HM3D scene |
 | `tools/routes/compile_kujiale_feasibility_bank.py` | Compile a Kujiale room polygon into reusable source-center trajectories |

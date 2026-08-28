@@ -71,3 +71,28 @@ trajectory_bank/rir_job_plan 格式。工作量更大,但每一环都是我们�
 - 同学 B 的干声库(/studio/sounds)按资产档案词表补类;audio program
   出题侧从注册表选声,**库→注册表的晋升脚本**在 P3 前补上。
 - 同学 C 的量产在 P5 后自然扩展:看板从五列变七列。
+
+---
+
+## 5. P0/P1 实测追记(同日)
+
+**P0 跑完,路线 A 的待验证 1 被产物否决**:mp3d_end_to_end 通过队列全链通过
+(路线→采集→双耳→成片),但其规划产物是 route_explanation + m1/m2 请求,
+**不是** fact-table 的 plan-dir 格式。路线 A 原始形态出局。
+
+**但对照产物时发现路线 B 远比预估小**:HM3D 路由银行与认证链的
+trajectory_bank.json **本就是同一 schema**——两者都由 TrajectoryBankBuilder
+生成,逐键一致。缺口只剩 rir_job_plan.json,而它的构造器
+`build_rir_job_plan` 是库函数。
+
+**P1 规划侧已通**:新工具 `tools/routes/build_hm3d_rir_plan.py` 把
+"一层楼的银行 + 试听接受的听者位姿"合成 plan-dir;听者朝向从 aim 向量派生
+四元数并**旋转 −Z 自检**(此仓库曾因两处 yaw 定义相差 60° 付过学费)。
+实测:R3 客厅银行 29 条轨迹 → **817 个去重 RIR 作业**,由
+`avengine.acoustics.rir_cache.validate_rir_job_plan`(链自己的验证器)通过。
+
+**边界声明**:本次冒烟的听者位姿取自另一银行的试听(格式验证有效,身份
+不纯);量产时位姿必须对同一银行选取——P5 模板化时把两步锁进一个任务。
+
+下一步 = P2:对着帧验证过的原生包执行该 plan(资产绑定双耳批),
+验收器是批渲染自己的 delivery 校验。
