@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>声音素材库 · AVEngine Studio</title>
+<style>
+:root{--bg:#fbfaf7;--card:#fff;--ink:#2c2c2a;--mut:#8a877d;--line:#e2dfd6;
+--acc:#534ab7;--ok:#1f6b4a;--okbg:#e1f5ee;--bad:#a33;--badbg:#fae7e7;--warnbg:#fdf3d8}
+*{box-sizing:border-box}
+body{font-family:system-ui,'PingFang SC',sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
+padding:.7rem 1.2rem;display:flex;gap:.9rem;align-items:center;flex-wrap:wrap}
+header h1{font-size:1.05rem;margin:0 1rem 0 0}
+header a{color:var(--acc);text-decoration:none;font-size:.85rem}
+#req{font-size:.78rem;color:var(--mut);padding:.6rem 1.2rem 0;max-width:64rem;line-height:1.6}
+main{display:grid;grid-template-columns:minmax(22rem,30rem) 1fr;gap:16px;padding:16px;align-items:start}
+@media (max-width:62rem){main{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem}
+.panel h2{font-size:.95rem;margin:0 0 .6rem}
+table{border-collapse:collapse;width:100%;font-size:.78rem}
+td,th{border-bottom:1px solid var(--line);padding:.3rem .45rem;text-align:left}
+th{font-size:.7rem;color:var(--mut)}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.gap td{background:var(--badbg)}
+tr.ok td:last-child{background:var(--okbg)}
+.clip{border:1px solid var(--line);border-radius:8px;padding:.6rem .8rem;margin-bottom:.7rem;
+display:flex;flex-direction:column;gap:.35rem;background:var(--card)}
+.clip .name{font-family:ui-monospace,monospace;font-size:.74rem;word-break:break-all;font-weight:600}
+.chip{display:inline-block;padding:.04rem .4rem;border-radius:3px;font-size:.7rem;background:#efede6;margin-right:.3rem}
+.chip.bad{background:var(--badbg);color:var(--bad)}
+.facts{font-size:.74rem;color:var(--mut)}
+audio{width:100%;height:30px}
+#empty{font-size:.85rem;color:var(--mut);padding:1rem}
+.copy{font-size:.68rem;padding:.08rem .45rem;border:1px solid var(--line);border-radius:4px;
+background:#fff;cursor:pointer;align-self:flex-start}
+</style></head><body>
+<header>
+  <h1>声音素材库</h1>
+  <a href="/">← 首页</a>
+  <a href="/studio/assets">资产台</a>
+  <a href="/studio/board">看板</a>
+  <span id="count" style="font-size:.8rem;color:var(--mut)"></span>
+</header>
+<div id="req"></div>
+<main>
+  <div class="panel">
+    <h2>缺口表：资产要什么声音 vs 库里有什么</h2>
+    <table><thead><tr><th>事件类（资产档案原词）</th><th>要它的资产数</th><th>库内条数</th></tr></thead>
+    <tbody id="coverage"></tbody></table>
+    <div class="facts" style="margin-top:.5rem" id="unclaimed"></div>
+  </div>
+  <div class="panel">
+    <h2>库内素材（放文件进库目录，刷新即现）</h2>
+    <div id="clips"></div>
+    <div id="empty" hidden>库还是空的。往库目录丢 wav（可配同名 .json 旁车），这页就会长出来。</div>
+  </div>
+</main>
+<script>
+async function boot(){
+  const payload = await (await fetch('/api/sound-library')).json();
+  if (payload.error) { document.getElementById('req').textContent = payload.error; return; }
+  document.getElementById('req').textContent = '库目录：' + payload.root + ' —— ' + payload.requirements;
+  document.getElementById('count').textContent = payload.clip_count + ' 条素材';
+
+  const coverage = document.getElementById('coverage');
+  coverage.innerHTML = (payload.coverage || []).map(row => {
+    const gap = row.library_clips === 0;
+    return `<tr class="${gap ? 'gap' : 'ok'}"><td style="font-family:ui-monospace,monospace">${row.event_class}</td>
+      <td class="n">${row.demanding_assets}</td><td class="n">${row.library_clips}</td></tr>`;
+  }).join('');
+  const unclaimed = payload.supply_without_demand || [];
+  document.getElementById('unclaimed').textContent = unclaimed.length
+    ? '库里有、但没有资产声明需要的事件类（检查旁车拼写）：' + unclaimed.join('、')
+    : '';
+
+  const clips = document.getElementById('clips');
+  const items = payload.clips || [];
+  document.getElementById('empty').hidden = items.length > 0;
+  clips.innerHTML = items.map(clip => {
+    const url = '/api/sound-library/file?path=' + encodeURIComponent(clip.path);
+    const facts = clip.readable
+      ? `${clip.sample_rate_hz} Hz · ${clip.channel_count} 声道 · ${clip.duration_s}s · ${(clip.byte_size/1024).toFixed(0)} KB`
+      : `无法解析 wav 头：${clip.error}`;
+    const classes = (clip.event_classes || []).map(name => `<span class="chip">${name}</span>`).join('')
+      || '<span class="chip bad">旁车未声明 event_classes</span>';
+    const provenance = [clip.source, clip.license].filter(Boolean).join(' · ');
+    return `<div class="clip">
+      <div class="name">${clip.path}</div>
+      <div>${classes}${clip.dry === true ? '<span class="chip">干声 ✓</span>' : '<span class="chip bad">未声明干声</span>'}</div>
+      <div class="facts">${facts}${provenance ? ' · ' + provenance : ''}</div>
+      <audio controls preload="none" src="${url}"></audio>
+      <button class="copy" onclick="navigator.clipboard.writeText('${payload.root}/${clip.path}')">复制服务器路径</button>
+    </div>`;
+  }).join('');
+}
+boot();
+</script></body></html>

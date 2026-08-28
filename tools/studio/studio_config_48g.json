@@ -189,5 +189,6 @@
       "seed": 20260827
     }
   },
-  "sound_asset_index": "/data/avengine_external/assets/sound_source_assets_v1/index.json"
+  "sound_asset_index": "/data/avengine_external/assets/sound_source_assets_v1/index.json",
+  "sound_library_root": "/data/avengine_external/assets/sound_library_v1"
 }

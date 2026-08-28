@@ -49,6 +49,8 @@ class StudioConfig:
     # index.json of the published sound-source asset tree; its parent
     # directory is the root the asset deck reads and serves files from
     sound_asset_index: Path | None = None
+    # root directory of the dry-audio clip library the sounds page reads
+    sound_library_root: Path | None = None
 
 
 def _resolved_path(value: object, repository_root: Path) -> Path:
@@ -159,10 +161,21 @@ def load_studio_config(config_path: str | Path) -> StudioConfig:
                 f"sound_asset_index not found: {sound_asset_index}"
             )
 
+    sound_library_root: Path | None = None
+    if payload.get("sound_library_root") is not None:
+        sound_library_root = _resolved_path(
+            payload["sound_library_root"], repository_root
+        )
+        if not sound_library_root.is_dir():
+            raise StudioConfigError(
+                f"sound_library_root is not a directory: {sound_library_root}"
+            )
+
     return StudioConfig(
         scenes_root=scenes_root,
         external_sound_assets=external_sound_assets,
         sound_asset_index=sound_asset_index,
+        sound_library_root=sound_library_root,
         repository_root=repository_root,
         python_executable=python_executable,
         review_root=review_root,

@@ -131,6 +131,126 @@ def sound_asset_file(index_path: Path, relative: str) -> Path:
 
 
 # --------------------------------------------------------------------------
+# the dry-sound library
+
+_SOUND_FILE_SUFFIXES = frozenset({".wav", ".json"})
+
+
+def _wav_facts(path: Path) -> dict[str, Any]:
+    """Header facts a curator needs before auditioning anything.
+
+    wave covers the PCM files this pipeline consumes; a file it cannot parse
+    is reported as such rather than hidden, because a clip that cannot even
+    state its sample rate is itself a finding.
+    """
+
+    import contextlib
+    import wave
+
+    try:
+        with contextlib.closing(wave.open(str(path), "rb")) as handle:
+            frames = handle.getnframes()
+            rate = handle.getframerate()
+            return {
+                "sample_rate_hz": rate,
+                "channel_count": handle.getnchannels(),
+                "sample_count": frames,
+                "duration_s": round(frames / rate, 3) if rate else None,
+                "readable": True,
+            }
+    except (wave.Error, EOFError, OSError) as error:
+        return {"readable": False, "error": f"{type(error).__name__}: {error}"}
+
+
+def load_sound_library(
+    library_root: Path, asset_index_path: Path | None
+) -> dict[str, Any]:
+    """Dry-clip supply against the asset tree's own demand, read live.
+
+    Demand is not invented here: it is the union of every published asset's
+    allowed_event_classes and default_event_class - the vocabulary the audio
+    programs actually select by. Supply is whatever wav files sit under the
+    library root, each with an optional sidecar json declaring which event
+    classes it claims to serve, its source and its licence. The page exists
+    to make the gap between the two columns impossible to miss.
+    """
+
+    demand: dict[str, int] = {}
+    if asset_index_path is not None:
+        for asset_json in sorted(asset_index_path.parent.glob("*/*/*/asset.json")):
+            record = _read_json(asset_json) or {}
+            profile = record.get("acoustic_profile") or {}
+            names = set(profile.get("allowed_event_classes") or [])
+            default = profile.get("default_event_class")
+            if default:
+                names.add(str(default))
+            for name in names:
+                demand[str(name)] = demand.get(str(name), 0) + 1
+
+    clips: list[dict[str, Any]] = []
+    supply: dict[str, int] = {}
+    if library_root.is_dir():
+        for wav_path in sorted(library_root.rglob("*.wav")):
+            relative = wav_path.relative_to(library_root).as_posix()
+            sidecar = _read_json(wav_path.with_suffix(".json")) or _read_json(
+                wav_path.parent / "clip.json"
+            ) or {}
+            event_classes = [
+                str(name) for name in sidecar.get("event_classes") or []
+            ]
+            for name in event_classes:
+                supply[name] = supply.get(name, 0) + 1
+            clips.append(
+                {
+                    "path": relative,
+                    "byte_size": wav_path.stat().st_size,
+                    "event_classes": event_classes,
+                    "source": sidecar.get("source"),
+                    "license": sidecar.get("license"),
+                    "dry": sidecar.get("dry"),
+                    "notes": sidecar.get("notes"),
+                    **_wav_facts(wav_path),
+                }
+            )
+
+    coverage = [
+        {
+            "event_class": name,
+            "demanding_assets": count,
+            "library_clips": supply.get(name, 0),
+        }
+        for name, count in sorted(demand.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    unclaimed = sorted(set(supply) - set(demand))
+    return {
+        "schema": "avengine_studio_sound_library_v1",
+        "root": str(library_root),
+        "requirements": (
+            "干声（无混响、无背景底噪）；混响由房间声学添加，素材自带混响会叠加。"
+            "管线消费 16 kHz 单声道 PCM wav；其他采样率可以先入库，登记进正式"
+            "registry 时再重采样。旁车 json 声明 event_classes（用资产档案里的"
+            "词表）、source、license、dry: true"
+        ),
+        "coverage": coverage,
+        "clips": clips,
+        "clip_count": len(clips),
+        "supply_without_demand": unclaimed,
+    }
+
+
+def sound_library_file(library_root: Path, relative: str) -> Path:
+    root = library_root.resolve()
+    target = (root / relative).resolve()
+    if not str(target).startswith(str(root) + "/"):
+        raise ProductionError("sound library path escapes the library root")
+    if target.suffix not in _SOUND_FILE_SUFFIXES:
+        raise ProductionError(f"not a servable sound-library file: {relative}")
+    if not target.is_file():
+        raise ProductionError(f"no such sound-library file: {relative}")
+    return target
+
+
+# --------------------------------------------------------------------------
 # human verdicts
 
 

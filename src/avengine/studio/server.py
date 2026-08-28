@@ -48,8 +48,10 @@ from avengine.studio.production import (
     ProductionError,
     board_rows,
     load_sound_asset_catalog,
+    load_sound_library,
     review_queue,
     sound_asset_file,
+    sound_library_file,
     write_human_verdict,
 )
 from avengine.studio.tasks import StudioTaskError, StudioTaskQueue
@@ -97,6 +99,7 @@ a.big{display:inline-block;margin:.6rem 0;padding:.5rem 1rem;background:#534ab7;
 <a class="big" href="/studio/submit">提交任务</a>
 <a class="big" href="/studio">3D 场景编辑器</a>
 <a class="big" href="/studio/assets">声源资产台</a>
+<a class="big" href="/studio/sounds">声音素材库</a>
 <a class="big" href="/studio/board">进度看板</a>
 <a class="big" href="/studio/review">音视频验收台</a>
 </p>
@@ -219,6 +222,8 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_static("assets.html")
             elif method == "GET" and path == "/studio/submit":
                 self._handle_static("submit.html")
+            elif method == "GET" and path == "/studio/sounds":
+                self._handle_static("sounds.html")
             elif method == "GET" and path == "/studio/board":
                 self._handle_static("board.html")
             elif method == "GET" and path == "/studio/review":
@@ -254,6 +259,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_sound_asset_catalog()
             elif method == "GET" and path == "/api/sound-assets/file":
                 self._handle_sound_asset_file(query)
+            elif method == "GET" and path == "/api/sound-library":
+                self._handle_sound_library()
+            elif method == "GET" and path == "/api/sound-library/file":
+                self._handle_sound_library_file(query)
             elif method == "GET" and path == "/api/board":
                 self._handle_board()
             elif method == "GET" and path == "/api/review-queue":
@@ -627,6 +636,29 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if not relative:
             raise ProductionError("asset file requires ?path=<relative file>")
         self._send_file(sound_asset_file(self._sound_asset_index(), relative))
+
+    def _sound_library_root(self) -> Path:
+        root = self._server().studio_config.sound_library_root
+        if root is None:
+            raise ProductionError(
+                "this deployment declares no sound_library_root; add it to "
+                "the studio config to enable the sound library"
+            )
+        return root
+
+    def _handle_sound_library(self) -> None:
+        config = self._server().studio_config
+        self._send_json(
+            load_sound_library(
+                self._sound_library_root(), config.sound_asset_index
+            )
+        )
+
+    def _handle_sound_library_file(self, query: dict[str, list[str]]) -> None:
+        relative = (query.get("path") or [""])[0]
+        if not relative:
+            raise ProductionError("sound-library file requires ?path=<relative>")
+        self._send_file(sound_library_file(self._sound_library_root(), relative))
 
     def _handle_board(self) -> None:
         self._send_json(board_rows(self._server().task_queue.list_tasks()))
