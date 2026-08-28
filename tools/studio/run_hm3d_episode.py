@@ -20,8 +20,11 @@ look broken once before.
 
 Every step's artifacts stay in its own subdirectory, and the receipt names the
 exact files downstream review should read. The final deliverable is a muxed
-first-person mp4 with binaural audio - the thing a human auditions - alongside
-the FOA wav that training consumes.
+first-person mp4 with binaural audio alongside the FOA wav that training
+consumes - and the last step is the machine audition, which judges the
+deliverables against the chain's own measurements and fails the task when
+they disagree. Nobody has to watch or listen to accept an episode; a human
+verdict stays available as an override.
 """
 
 from __future__ import annotations
@@ -262,13 +265,28 @@ def main() -> int:
         "deliverable_mp4": str(deliverable),
         "frame_rate_hz": frame_rate,
         "acceptance_note": (
-            "acceptance is the per-frame error_deg records inside foa_report "
-            "and the human verdict on deliverable_mp4, never this chain's "
-            "exit code"
+            "acceptance is machine_audition.json beside this receipt - the "
+            "machine audition aggregating the chain's own measurements plus "
+            "file-level facts - never this chain's exit code alone; a human "
+            "verdict is an optional override, not a required step"
         ),
     }
     (output / "receipt.json").write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    # The audition is the acceptance: it re-reads everything through the
+    # receipt just written and fails this task when the deliverable is bad,
+    # even though every render step above exited zero. Humans stop being a
+    # required instrument here; the verdict file carries the reasons.
+    run(
+        "machine_audition",
+        [
+            python,
+            str(REPOSITORY / "tools/review/machine_audition_hm3d_episode.py"),
+            "--episode-dir", str(output),
+        ],
+        logs,
     )
     print(json.dumps({"receipt": str(output / "receipt.json")}, indent=2))
     return 0

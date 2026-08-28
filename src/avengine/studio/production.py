@@ -391,6 +391,19 @@ def _verify_episode(output_dir: Path) -> dict[str, Any] | None:
     receipt = _read_json(output_dir / "receipt.json")
     if receipt is None:
         return None
+    # The machine audition is the acceptance document when it exists: it
+    # already judged direction, channels, levels, frames, mux and the pose
+    # identity chain, and wrote its reasons. Episodes rendered before the
+    # audition existed fall back to the raw direction numbers, labelled so.
+    audition = _read_json(output_dir / "machine_audition.json")
+    if audition is not None:
+        passed = audition.get("verdict") == "pass"
+        return {
+            "scene": _scene_key(receipt.get("scene_id")),
+            "ok": passed and (output_dir / "episode_binaural.mp4").is_file(),
+            "summary": f"机器听审{'过' if passed else '不过'} · "
+            + str(audition.get("summary_zh") or "")[:160],
+        }
     report = _read_json(output_dir / "audio_foa" / "render_report.json") or {}
     rendered = report.get("frames_rendered")
     within = report.get("frames_within_tolerance")
@@ -400,7 +413,7 @@ def _verify_episode(output_dir: Path) -> dict[str, Any] | None:
         "ok": (output_dir / "episode_binaural.mp4").is_file(),
         "summary": (
             f"帧 {within}/{rendered} 达容差 · 误差中位 "
-            f"{error.get('median', '?')}°"
+            f"{error.get('median', '?')}°（旧任务：无机器听审档）"
             if rendered is not None
             else "回执在但逐帧报告缺失"
         ),
@@ -518,18 +531,37 @@ def board_rows(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
             row[stage] = cell
 
         if template == "hm3d_episode":
+            # The verdict column is machine-first: the audition the episode
+            # chain writes is the acceptance, and a human verdict - when one
+            # was recorded at all - overrides it for the same task. Ordering
+            # across tasks follows the task's own created_at, like every
+            # other cell, so a re-run replaces the episode it replaced.
+            verdict_cell = None
+            audition = _read_json(output_dir / "machine_audition.json")
+            if audition is not None:
+                verdict_cell = {
+                    "task_id": record.get("task_id"),
+                    "created_at": record.get("created_at"),
+                    "task_status": record.get("status"),
+                    "ok": audition.get("verdict") == "pass",
+                    "summary": "机器 "
+                    + str(audition.get("verdict"))
+                    + " · "
+                    + str(audition.get("summary_zh") or "")[:120],
+                }
             verdict = read_human_verdict(Path(str(record.get("task_dir") or "")))
             if verdict is not None:
                 verdict_cell = {
                     "task_id": record.get("task_id"),
-                    "created_at": verdict.get("written_at"),
+                    "created_at": record.get("created_at"),
                     "task_status": record.get("status"),
                     "ok": verdict.get("verdict") == "pass",
                     "summary": (
-                        f"{verdict.get('verdict')}"
+                        f"人工覆核 {verdict.get('verdict')}"
                         + (f" · {verdict.get('note')}" if verdict.get("note") else "")
                     ),
                 }
+            if verdict_cell is not None:
                 current_verdict = row.get("verdict")
                 if current_verdict is None or str(
                     verdict_cell.get("created_at") or ""
@@ -571,6 +603,7 @@ def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
             "foa_stereo_fold": "audio_foa/moving_source.stereo_fold.wav",
             "first_frame": "video/frame_0000.png",
             "foa_report": "audio_foa/render_report.json",
+            "machine_audition": "machine_audition.json",
             "receipt": "receipt.json",
         }
         available = {
@@ -578,10 +611,29 @@ def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
             for name, relative in artifacts.items()
             if (output_dir / relative).is_file()
         }
+        audition = _read_json(output_dir / "machine_audition.json")
         episodes.append(
             {
                 "task_id": record.get("task_id"),
                 "created_at": record.get("created_at"),
+                "machine_audition": (
+                    {
+                        "verdict": audition.get("verdict"),
+                        "summary_zh": audition.get("summary_zh"),
+                        "scope_note_zh": audition.get("scope_note_zh"),
+                        "checks": [
+                            {
+                                "name": check.get("name"),
+                                "status": check.get("status"),
+                                "reason_zh": check.get("reason_zh"),
+                            }
+                            for check in audition.get("checks") or []
+                            if isinstance(check, Mapping)
+                        ],
+                    }
+                    if audition is not None
+                    else None
+                ),
                 "scene_id": receipt.get("scene_id"),
                 "motion_case": receipt.get("motion_case"),
                 "episode_index": receipt.get("episode_index"),

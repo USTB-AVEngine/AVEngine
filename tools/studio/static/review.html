@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>音视频验收台 · AVEngine Studio</title>
+<title>验收台 · AVEngine Studio</title>
 <style>
 :root{--bg:#fbfaf7;--card:#fff;--ink:#2c2c2a;--mut:#8a877d;--line:#e2dfd6;
 --ok:#1f6b4a;--okbg:#e1f5ee;--warn:#9a6b12;--warnbg:#fdf3d8;--bad:#a33;--badbg:#fae7e7}
@@ -12,17 +12,33 @@ padding:.7rem 1.2rem;display:flex;gap:.9rem;align-items:center;flex-wrap:wrap}
 header h1{font-size:1.05rem;margin:0 1rem 0 0}
 header a{color:#534ab7;text-decoration:none;font-size:.85rem}
 #hint{font-size:.76rem;color:var(--mut);padding:.5rem 1.2rem 0;max-width:60rem}
-#list{display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:16px;padding:16px}
+#list{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px;padding:16px}
 .ep{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .ep video{width:100%;display:block;background:#000;aspect-ratio:16/9}
 .body{padding:.6rem .8rem .8rem;display:flex;flex-direction:column;gap:.45rem;font-size:.8rem}
 .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .name{font-weight:600;font-family:ui-monospace,monospace;font-size:.76rem;word-break:break-all}
 .chip{padding:.06rem .4rem;border-radius:3px;font-size:.72rem;background:#efede6}
-.strip{width:100%;height:34px;display:block;background:#f4f2ec;border-radius:4px}
+.verdict{padding:.1rem .55rem;border-radius:4px;font-size:.78rem;font-weight:600}
+.verdict.pass{background:var(--okbg);color:var(--ok)}
+.verdict.fail{background:var(--badbg);color:var(--bad)}
+.verdict.none{background:var(--warnbg);color:var(--warn)}
+.head{display:flex;gap:.7rem;align-items:flex-start}
+.head img{width:150px;aspect-ratio:16/9;object-fit:cover;border-radius:5px;border:1px solid var(--line);background:#000;flex:none}
+ul.checks{margin:.1rem 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:.22rem}
+ul.checks li{font-size:.76rem;line-height:1.45;display:flex;gap:.4rem}
+ul.checks .mark{flex:none;width:1.05rem;text-align:center;font-weight:700}
+ul.checks li.pass .mark{color:var(--ok)}
+ul.checks li.fail .mark{color:var(--bad)}
+ul.checks li.info .mark{color:var(--mut)}
+ul.checks li.fail{background:var(--badbg);border-radius:4px;padding:.15rem .3rem}
+.strip{width:100%;height:26px;display:block;background:#f4f2ec;border-radius:4px}
 audio{width:100%;height:30px}
+details{border:1px solid var(--line);border-radius:6px;padding:.35rem .55rem;background:#faf9f5}
+details summary{cursor:pointer;font-size:.76rem;color:var(--mut)}
+details[open] summary{margin-bottom:.4rem}
 .buttons{display:flex;gap:.5rem;align-items:center}
-button{font:inherit;font-size:.82rem;padding:.32rem .8rem;border-radius:6px;border:1px solid var(--line);
+button{font:inherit;font-size:.8rem;padding:.3rem .75rem;border-radius:6px;border:1px solid var(--line);
 background:#fff;cursor:pointer}
 button.pass{border-color:var(--ok)} button.pass.on{background:var(--okbg)}
 button.fail{border-color:var(--bad)} button.fail.on{background:var(--badbg)}
@@ -32,14 +48,16 @@ input.note{flex:1;font:inherit;font-size:.78rem;padding:.28rem .5rem;border:1px 
 .mutlabel{font-size:.7rem;color:var(--mut)}
 </style></head><body>
 <header>
-  <h1>音视频验收台</h1>
+  <h1>验收台</h1>
   <a href="/">← 首页</a>
   <a href="/studio/board">看板 →</a>
   <span id="count" style="font-size:.8rem;color:var(--mut)"></span>
 </header>
-<div id="hint">遮挡不是缺陷：声源允许出画、允许被挡，那正是要保留的样本。要判的是常识层面的对错 ——
-声音方位跟画面/轨迹对不对、有没有破音卡顿、混响像不像这间屋。判定写回该任务目录，看板第 ⑤ 列即时更新。
-时间轴色带是逐帧方向误差（绿 ≤5°，黄 ≤15°，红更大）。</div>
+<div id="hint">每条 episode 由机器验收：方向（音频实测方向 vs 几何真方向，逐帧）、左右声道实证、
+成品声画与报告的一致性、静音/削波/黑帧/时长/封装、以及位姿身份链。结论和理由都写成字，
+<b>不需要任何人看视频或听声音</b>。播放器收在"抽查"折叠里，想亲自核对才点开。
+机器不评价"好不好听"；若你不同意机器结论，人工覆核按钮可以覆盖它（覆盖会连同理由记入看板）。
+时间轴色带是逐帧方向误差（绿 ≤5°，黄 ≤15°，红更大）。遮挡与出画不是缺陷，是要保留的样本。</div>
 <div id="list"></div>
 <script>
 function art(taskId, rel){ return `/api/tasks/${taskId}/artifact?path=${encodeURIComponent(rel)}`; }
@@ -57,15 +75,28 @@ function strip(canvas, errors){
 }
 
 function chipRow(ep){
-  const err = ep.direction_error_deg || {};
   const reverb = ep.reverberation || {};
   return [
     `<span class="chip">${ep.scene_id || '?'}</span>`,
     `<span class="chip">${ep.motion_case || ''}</span>`,
-    `<span class="chip">帧 ${ep.frames_within_tolerance ?? '?'} / ${ep.frames_rendered ?? '?'} 达容差</span>`,
-    err.median != null ? `<span class="chip">误差中位 ${err.median}° · p90 ${err.p90}°</span>` : '',
     reverb.t20_ms_median != null ? `<span class="chip">T20 中位 ${Math.round(reverb.t20_ms_median)} ms</span>` : '',
   ].join('');
+}
+
+function auditionBlock(ep){
+  const audition = ep.machine_audition;
+  if (!audition) {
+    return `<div class="row"><span class="verdict none">旧任务 · 无机器听审档</span></div>
+      <div class="mutlabel">这条 episode 渲染于机器听审上线之前；重跑一次第④步即可得到带理由的机器结论。</div>`;
+  }
+  const marks = {pass: '✓', fail: '✗', info: '·'};
+  const items = (audition.checks || []).map(check =>
+    `<li class="${check.status}"><span class="mark">${marks[check.status] || '?'}</span><span>${check.reason_zh || check.name}</span></li>`
+  ).join('');
+  return `<div class="row">
+      <span class="verdict ${audition.verdict === 'pass' ? 'pass' : 'fail'}">机器判定：${audition.verdict === 'pass' ? '通过' : '不过'}</span>
+    </div>
+    <ul class="checks">${items}</ul>`;
 }
 
 async function submitVerdict(ep, verdict, note, el){
@@ -76,31 +107,39 @@ async function submitVerdict(ep, verdict, note, el){
   const payload = await response.json();
   const saved = el.querySelector('.saved');
   if (payload.error) { saved.textContent = '写入失败: ' + payload.error; return; }
-  for (const b of el.querySelectorAll('button')) b.classList.remove('on');
+  for (const b of el.querySelectorAll('.buttons button')) b.classList.remove('on');
   el.querySelector('button.' + verdict).classList.add('on');
-  saved.textContent = `已记录 ${payload.verdict.verdict} @ ${payload.verdict.written_at}`;
+  saved.textContent = `已记录人工覆核 ${payload.verdict.verdict} @ ${payload.verdict.written_at}`;
 }
 
 function episodeCard(ep){
   const el = document.createElement('div'); el.className = 'ep';
   const a = ep.artifacts || {};
-  const poster = a.first_frame ? `poster="${art(ep.task_id, a.first_frame)}"` : '';
   const existing = ep.verdict;
   el.innerHTML = `
-    ${a.mp4 ? `<video controls preload="none" ${poster} src="${art(ep.task_id, a.mp4)}"></video>` : ''}
     <div class="body">
-      <div class="name">${ep.task_id}</div>
-      <div class="row">${chipRow(ep)}</div>
-      <canvas class="strip" title="逐帧方向误差"></canvas>
-      ${a.foa_stereo_fold ? `<div class="mutlabel">FOA 简易立体声折叠（训练格式的试听替身；上面视频里的是 HRTF 双耳）</div>
-        <audio controls preload="none" src="${art(ep.task_id, a.foa_stereo_fold)}"></audio>` : ''}
-      <div class="buttons">
-        <button class="pass ${existing && existing.verdict==='pass' ? 'on':''}">✓ 看着对</button>
-        <button class="fail ${existing && existing.verdict==='fail' ? 'on':''}">✗ 不对</button>
-        <button class="unsure ${existing && existing.verdict==='unsure' ? 'on':''}">? 说不清</button>
-        <input class="note" placeholder="一句备注（可选）" value="${existing && existing.note ? existing.note.replace(/"/g,'&quot;') : ''}">
+      <div class="head">
+        ${a.first_frame ? `<img loading="lazy" src="${art(ep.task_id, a.first_frame)}" alt="首帧">` : ''}
+        <div style="flex:1;min-width:0">
+          <div class="name">${ep.task_id}</div>
+          <div class="row" style="margin-top:.25rem">${chipRow(ep)}</div>
+        </div>
       </div>
-      <div class="saved">${existing ? `已记录 ${existing.verdict} @ ${existing.written_at}` : '未验收'}</div>
+      ${auditionBlock(ep)}
+      <canvas class="strip" title="逐帧方向误差"></canvas>
+      ${a.mp4 || a.foa_stereo_fold ? `<details><summary>抽查：亲自看/听（可选，机器已判）</summary>
+        ${a.mp4 ? `<video controls preload="none" ${a.first_frame ? `poster="${art(ep.task_id, a.first_frame)}"` : ''} src="${art(ep.task_id, a.mp4)}"></video>` : ''}
+        ${a.foa_stereo_fold ? `<div class="mutlabel" style="margin-top:.3rem">FOA 简易立体声折叠（训练格式的试听替身；上面视频里的是 HRTF 双耳）</div>
+          <audio controls preload="none" src="${art(ep.task_id, a.foa_stereo_fold)}"></audio>` : ''}
+      </details>` : ''}
+      <div class="mutlabel">人工覆核（可选）：只在不同意机器结论、或想留一句现场备注时使用。</div>
+      <div class="buttons">
+        <button class="pass ${existing && existing.verdict==='pass' ? 'on':''}">✓ 判通过</button>
+        <button class="fail ${existing && existing.verdict==='fail' ? 'on':''}">✗ 判不过</button>
+        <button class="unsure ${existing && existing.verdict==='unsure' ? 'on':''}">? 存疑</button>
+        <input class="note" placeholder="一句理由（覆核时建议写）" value="${existing && existing.note ? existing.note.replace(/"/g,'&quot;') : ''}">
+      </div>
+      <div class="saved">${existing ? `已记录人工覆核 ${existing.verdict} @ ${existing.written_at}` : '无人工覆核（机器结论即最终结论）'}</div>
     </div>`;
   const note = () => el.querySelector('input.note').value;
   el.querySelector('button.pass').onclick = () => submitVerdict(ep, 'pass', note(), el);
@@ -115,8 +154,9 @@ async function boot(){
   const list = document.getElementById('list');
   if (payload.error) { list.textContent = payload.error; return; }
   const episodes = payload.episodes || [];
+  const judged = episodes.filter(e => e.machine_audition).length;
   document.getElementById('count').textContent =
-    `${episodes.length} 条 episode · ${episodes.filter(e => e.verdict).length} 条已验收`;
+    `${episodes.length} 条 episode · ${judged} 条已机器验收 · ${episodes.filter(e => e.verdict).length} 条有人工覆核`;
   for (const ep of episodes) list.appendChild(episodeCard(ep));
   if (!episodes.length) list.textContent = '队列为空：跑一个 hm3d_episode 任务它就会出现在这里。';
 }

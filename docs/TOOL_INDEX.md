@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 258 个工具脚本。
+当前共 259 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -307,6 +307,7 @@
 | `tools/review/build_mp3d_delivery.py` | Build an 18-second Habitat-native human/Beagle annotated binaural review |
 | `tools/review/build_review_index.py` | Build a small local review page for optional SPEAR/UE room renders |
 | `tools/review/build_six_case_review.py` | Validate, plan, or build the immutable M6 six-case human-review package |
+| `tools/review/machine_audition_hm3d_episode.py` | Machine-audit one rendered HM3D episode and write the verdict beside it |
 | `tools/review/render_review_acoustics.py` | Render and retain variable-duration M5.1 binaural RIR evidence |
 
 ## 注册表与发布（`tools/registry/`）

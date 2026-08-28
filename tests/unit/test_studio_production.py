@@ -149,6 +149,63 @@ def test_board_newest_task_wins_and_verdict_column_appears(tmp_path: Path) -> No
     assert "sounds right" in row["cells"]["verdict"]["summary"]
 
 
+def _machine_audition(task: dict, verdict: str) -> None:
+    Path(task["output_dir"], "machine_audition.json").write_text(
+        json.dumps(
+            {
+                "schema": "avengine_machine_audition_v1",
+                "verdict": verdict,
+                "summary_zh": "方向 8/8 帧达标 · 左右声道有实证"
+                if verdict == "pass"
+                else "不过：画面全黑",
+                "checks": [
+                    {"name": "foa_direction", "status": "pass", "reason_zh": "方向对"}
+                ],
+            }
+        )
+    )
+
+
+def test_machine_audition_is_the_episode_acceptance(tmp_path: Path) -> None:
+    """A green mp4 with a failing audition must paint red, and vice versa
+    the audition's own words are what the cell says."""
+
+    episode = _episode_task(tmp_path, "task1", with_mp4=True)
+    _machine_audition(episode, "fail")
+    board = board_rows([episode])
+    cell = board["rows"][0]["cells"]["episode"]
+    assert cell["ok"] is False
+    assert "机器听审不过" in cell["summary"]
+
+    passing = _episode_task(tmp_path, "task2", with_mp4=True)
+    _machine_audition(passing, "pass")
+    cell = board_rows([passing])["rows"][0]["cells"]["episode"]
+    assert cell["ok"] is True
+    assert "机器听审过" in cell["summary"]
+
+
+def test_verdict_column_is_machine_first_with_human_override(tmp_path: Path) -> None:
+    episode = _episode_task(tmp_path, "task1", with_mp4=True)
+    _machine_audition(episode, "pass")
+    row = board_rows([episode])["rows"][0]
+    assert row["cells"]["verdict"]["ok"] is True
+    assert row["cells"]["verdict"]["summary"].startswith("机器 pass")
+
+    # a recorded human verdict overrides the machine for the same task
+    write_human_verdict(Path(episode["task_dir"]), verdict="fail", note="房间不对")
+    row = board_rows([episode])["rows"][0]
+    assert row["cells"]["verdict"]["ok"] is False
+    assert "人工覆核 fail" in row["cells"]["verdict"]["summary"]
+
+
+def test_review_queue_carries_the_audition_reasons(tmp_path: Path) -> None:
+    episode = _episode_task(tmp_path, "task1", with_mp4=True)
+    _machine_audition(episode, "pass")
+    entry = review_queue([episode])["episodes"][0]
+    assert entry["machine_audition"]["verdict"] == "pass"
+    assert entry["machine_audition"]["checks"][0]["reason_zh"] == "方向对"
+
+
 def test_review_queue_lists_only_episodes_with_receipts(tmp_path: Path) -> None:
     episode = _episode_task(tmp_path, "task1", with_mp4=True)
     other = {

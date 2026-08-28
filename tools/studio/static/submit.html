@@ -254,7 +254,8 @@ async function showDetail(taskId){
       '轨迹合法性的权威是 navmesh（逐帧 0 出界）。轨迹穿过暗区 = 从家具下/缝隙穿过，' +
       '按既定决定允许穿模——这不是缺陷，别按绿区判轨迹。',
     'hm3d_episode':
-      '判法：听方位是否随画面走、有无破音；色带红段若对应声源被挡属正常（遮挡保留不筛）。',
+      '判法：机器听审是验收（方向逐帧、声道实证、声画一致、无静音削波黑帧、封装、身份链），' +
+      '结论和理由见下方卡片——不需要任何人看视频或听声音。色带红段若对应声源被挡属正常（遮挡保留不筛）。',
   }[task.template];
   if (stageNote) previews.push(`<div class="hint" style="margin:.4rem 0">${stageNote}</div>`);
   for (const rel of relatives) {
@@ -264,8 +265,8 @@ async function showDetail(taskId){
     else if (rel.endsWith('.png') && (!frames.includes(rel) || rel.endsWith('frame_0000.png')))
       previews.push(`<div class="artcard"><div class="cap">${rel}</div><img loading="lazy" src="${url}"></div>`);
   }
-  // 房间登记任务：把 rooms.json 直接渲成表，每行一个"复制 room_bounds"，
-  // 让"选哪间房"从翻 JSON 变成点一下 —— 下一工位照粘即可。
+  // 房间登记任务：把 rooms.json 直接渲成表，每行一个"▶ 第③步"按钮，
+  // 让"选哪间房"从翻 JSON 变成点一下 —— 参数全部由行内数据推导。
   const roomsRel = relatives.find(rel => rel.endsWith('rooms.json'));
   if (roomsRel) {
     try {
@@ -304,7 +305,7 @@ async function showDetail(taskId){
           </tr>`;
         }).join('');
       previews.push(`<div class="artcard"><div class="cap">这栋房子的房间（${inventory.room_count} 间，按地板面积排序）——
-        选一间，点"复制 room_bounds"，去 hm3d_route_bank 粘贴</div>
+        选一间，点它那行的"▶ 第③步"，参数全部自动</div>
         <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:.74rem">
         <thead><tr><th style="text-align:left;color:var(--mut)">房间</th><th style="text-align:right;color:var(--mut)">尺寸</th>
         <th style="text-align:right;color:var(--mut)">楼层 y</th><th style="text-align:right;color:var(--mut)">地板 m²</th>
@@ -350,9 +351,26 @@ async function showDetail(taskId){
       previews.push(`<div class="artcard"><div class="cap">一键出成品：挑你规划的那个楼层</div>${buttons}</div>`);
     }
   }
+  // episode 任务：机器听审的结论与理由就地渲染，成功失败都渲染——
+  // 失败时理由才是最要紧的内容。人不需要看视频或听声音。
+  const auditionRel = relatives.find(rel => rel.endsWith('machine_audition.json'));
+  if (auditionRel) {
+    try {
+      const audition = await (await fetch(`/api/tasks/${taskId}/artifact?path=${encodeURIComponent(auditionRel)}`)).json();
+      const marks = {pass: '✓', fail: '✗', info: '·'};
+      const colors = {pass: 'var(--ok, #1f6b4a)', fail: '#a33', info: 'var(--mut)'};
+      const items = (audition.checks || []).map(check =>
+        `<div style="display:flex;gap:.4rem;font-size:.76rem;line-height:1.5${check.status === 'fail' ? ';background:#fae7e7;border-radius:4px;padding:.1rem .3rem' : ''}">
+          <b style="flex:none;width:1rem;text-align:center;color:${colors[check.status] || 'inherit'}">${marks[check.status] || '?'}</b>
+          <span>${check.reason_zh || check.name}</span></div>`
+      ).join('');
+      previews.unshift(`<div class="artcard"><div class="cap">机器听审：<b style="color:${audition.verdict === 'pass' ? '#1f6b4a' : '#a33'}">${audition.verdict === 'pass' ? '通过' : '不过'}</b>
+        （结论由机器给出并给理由，无需人看片听声）</div>${items}</div>`);
+    } catch {}
+  }
   if (task.status === 'pass' && task.template === 'hm3d_episode') {
     previews.push(`<div class="artcard"><a href="/studio/review" style="font-size:.85rem">
-      ▶ 第⑤步：去验收台听审打分 →</a></div>`);
+      ▶ 第⑤步：验收台上看所有 episode 的机器结论（想覆核或抽查再去）→</a></div>`);
   }
   const pathRows = relatives.filter(rel => !frames.includes(rel) || rel.endsWith('frame_0000.png'))
     .map(rel => {
