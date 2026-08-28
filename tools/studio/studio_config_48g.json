@@ -187,6 +187,20 @@
       "dataset_id": "spatialverse/InteriorAgent",
       "source_license": "https://kloudsim-usa-cos.kujiale.com/InteriorAgent/InteriorAgent_Terms_of_Use.pdf",
       "seed": 20260827
+    },
+    "hm3d_end_to_end": {
+      "scene_dir": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF",
+      "split": "val",
+      "hm3d_root": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "magnum_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "material_rules": "examples/acoustics/semantic_materials/residential_material_rules.json",
+      "audio_python": "/data/jzy/miniconda3/envs/ss2/bin/python",
+      "asset_dir": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/bookshelf_speaker/compact_shelf_cabinet_black_ash",
+      "dataset_config": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/val/hm3d_vertexcolour_val_basis.scene_dataset_config.json",
+      "materials_json": "/data/avengine_external/assets/hm3d_material_config.json",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa"
     }
   },
   "sound_asset_index": "/data/avengine_external/assets/sound_source_assets_v1/index.json",

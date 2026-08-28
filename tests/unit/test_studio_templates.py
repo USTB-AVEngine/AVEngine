@@ -228,3 +228,33 @@ def test_mp3d_room_identity_is_overridable_for_other_rooms(tmp_path: Path) -> No
     assert {"m1_request", "package_manifest"} <= TEMPLATE_OVERRIDABLE_KEYS[
         "mp3d_dynamic_audio"
     ]
+
+
+def test_hm3d_end_to_end_leaves_only_the_house_to_choose(tmp_path: Path) -> None:
+    """The one-click chain: paths validated, output fresh, and the room
+    decision closed off - the chain itself picks the room."""
+
+    values = _hm3d_inputs(tmp_path)
+    defaults = {
+        key: values[key]
+        for key in (
+            "scene_dir", "hm3d_root", "runtime_prefix", "magnum_site",
+            "rlr_sdk_root", "material_rules", "audio_python", "asset_dir",
+            "dataset_config", "materials_json", "hrtf",
+        )
+    }
+    defaults["split"] = "val"
+    config = _config(tmp_path, {"hm3d_end_to_end": defaults})
+    argv = build_template_argv(config, "hm3d_end_to_end", {}, tmp_path / "out")
+    assert argv[1].endswith("tools/studio/run_hm3d_end_to_end.py")
+    assert "--split" in argv and "val" in argv
+    assert str((tmp_path / "out").resolve()) in argv
+    with pytest.raises(StudioTemplateError, match="overrides not allowed"):
+        build_template_argv(
+            config, "hm3d_end_to_end", {"room_bounds": [0, 0, 1, 1]},
+            tmp_path / "out2",
+        )
+    with pytest.raises(StudioTemplateError, match="split must be one of"):
+        build_template_argv(
+            config, "hm3d_end_to_end", {"split": "vale"}, tmp_path / "out3"
+        )

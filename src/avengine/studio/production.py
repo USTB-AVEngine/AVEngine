@@ -486,6 +486,44 @@ _STAGE_VERIFIERS = {
     "kujiale_acoustic_package": ("package", _verify_kujiale_package),
 }
 
+
+def _verify_end_to_end(output_dir: Path) -> list[tuple[str, dict[str, Any] | None]]:
+    """The one-click chain reports into every stage column it reached.
+
+    Each stage subdirectory is judged by the same verifier the standalone
+    template uses, so a house done in one click and a house done in four
+    are held to identical evidence. Stages the chain has not reached yet
+    are simply absent - a running chain paints the board progressively -
+    except that a chain with nothing on disk yet still claims one cell so
+    the board can say "running" rather than showing nothing at all.
+    """
+
+    results: list[tuple[str, dict[str, Any] | None]] = []
+    if (output_dir / "rooms").is_dir():
+        results.append(("room", _verify_room_prepare(output_dir / "rooms")))
+    if (output_dir / "package").is_dir():
+        results.append(("package", _verify_package(output_dir / "package")))
+    routes: dict[str, Any] | None = None
+    for directory in sorted(output_dir.glob("routes_*")):
+        candidate = _verify_route_bank(directory)
+        if candidate is not None and (routes is None or candidate.get("ok")):
+            routes = candidate
+    if routes is not None:
+        results.append(("routes", routes))
+    if (output_dir / "episode").is_dir():
+        results.append(("episode", _verify_episode(output_dir / "episode")))
+    results = [(stage, verified) for stage, verified in results if verified]
+    if not results:
+        return [("episode", None)]
+    receipt = _read_json(output_dir / "end_to_end_receipt.json") or {}
+    fallback = _scene_key(str(receipt.get("scene_id") or "")) or next(
+        (v["scene"] for _, v in results if v and v.get("scene")), None
+    )
+    for _, verified in results:
+        if verified is not None and not verified.get("scene"):
+            verified["scene"] = fallback
+    return results
+
 BOARD_STAGES = ("room", "package", "routes", "episode", "verdict")
 
 
@@ -499,38 +537,52 @@ def board_rows(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
     cells: dict[str, dict[str, dict[str, Any]]] = {}
     for record in task_records:
         template = str(record.get("template") or "")
-        entry = _STAGE_VERIFIERS.get(template)
-        if entry is None:
-            continue
-        stage, verifier = entry
         output_dir = Path(str(record.get("output_dir") or ""))
-        verified = verifier(output_dir) if output_dir.is_dir() else None
-        if verified is None:
-            # A task still running has not failed its verification - it has
-            # not reached it. Say which, or a slow stage reads as a broken one.
-            still_working = str(record.get("status")) in ("queued", "running")
-            verified = {
-                "scene": None,
-                "ok": False,
-                "summary": "任务尚在运行" if still_working else "无验收产物",
+        if template == "hm3d_end_to_end":
+            stage_results = (
+                _verify_end_to_end(output_dir)
+                if output_dir.is_dir()
+                else [("episode", None)]
+            )
+        elif template in _STAGE_VERIFIERS:
+            stage, verifier = _STAGE_VERIFIERS[template]
+            stage_results = [
+                (stage, verifier(output_dir) if output_dir.is_dir() else None)
+            ]
+        else:
+            continue
+        row: dict[str, dict[str, Any]] = {}
+        for stage, verified in stage_results:
+            if verified is None:
+                # A task still running has not failed its verification - it
+                # has not reached it. Say which, or a slow stage reads as a
+                # broken one.
+                still_working = str(record.get("status")) in ("queued", "running")
+                verified = {
+                    "scene": None,
+                    "ok": False,
+                    "summary": "任务尚在运行" if still_working else "无验收产物",
+                }
+            scene = verified.pop("scene", None) or (
+                "kujiale_0020" if template.startswith("kujiale") else "unknown"
+            )
+            cell = {
+                "task_id": record.get("task_id"),
+                "created_at": record.get("created_at"),
+                "task_status": record.get("status"),
+                **verified,
             }
-        scene = verified.pop("scene", None) or (
-            "kujiale_0020" if template.startswith("kujiale") else "unknown"
-        )
-        cell = {
-            "task_id": record.get("task_id"),
-            "created_at": record.get("created_at"),
-            "task_status": record.get("status"),
-            **verified,
-        }
-        row = cells.setdefault(scene, {})
-        current = row.get(stage)
-        if current is None or str(cell.get("created_at") or "") > str(
-            current.get("created_at") or ""
-        ):
-            row[stage] = cell
+            row = cells.setdefault(scene, {})
+            current = row.get(stage)
+            if current is None or str(cell.get("created_at") or "") > str(
+                current.get("created_at") or ""
+            ):
+                row[stage] = cell
 
-        if template == "hm3d_episode":
+        if template in ("hm3d_episode", "hm3d_end_to_end"):
+            output_dir = (
+                output_dir if template == "hm3d_episode" else output_dir / "episode"
+            )
             # The verdict column is machine-first: the audition the episode
             # chain writes is the acceptance, and a human verdict - when one
             # was recorded at all - overrides it for the same task. Ordering
@@ -593,10 +645,16 @@ def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
         str(record.get("task_id")): record for record in task_records
     }
     for record in task_records:
-        if str(record.get("template") or "") != "hm3d_episode":
+        template = str(record.get("template") or "")
+        if template not in ("hm3d_episode", "hm3d_end_to_end"):
             continue
         output_dir = Path(str(record.get("output_dir") or ""))
-        receipt = _read_json(output_dir / "receipt.json")
+        # A one-click chain carries its episode one directory down; artifact
+        # paths stay relative to the task's own output root because that is
+        # what the artifact endpoint serves.
+        prefix = "" if template == "hm3d_episode" else "episode/"
+        episode_dir = output_dir / prefix if prefix else output_dir
+        receipt = _read_json(episode_dir / "receipt.json")
         if receipt is None:
             continue
         # The owner reviews pictures. The trajectory map for the exact floor
@@ -617,7 +675,7 @@ def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
                         "task_id": (bank_record or {}).get("task_id"),
                         "path": candidates[0].relative_to(bank_output).as_posix(),
                     }
-        report = _read_json(output_dir / "audio_foa" / "render_report.json") or {}
+        report = _read_json(episode_dir / "audio_foa" / "render_report.json") or {}
         per_frame = report.get("per_frame") or []
         artifacts = {
             "mp4": "episode_binaural.mp4",
@@ -628,11 +686,11 @@ def review_queue(task_records: list[Mapping[str, Any]]) -> dict[str, Any]:
             "receipt": "receipt.json",
         }
         available = {
-            name: relative
+            name: prefix + relative
             for name, relative in artifacts.items()
-            if (output_dir / relative).is_file()
+            if (episode_dir / relative).is_file()
         }
-        audition = _read_json(output_dir / "machine_audition.json")
+        audition = _read_json(episode_dir / "machine_audition.json")
         episodes.append(
             {
                 "task_id": record.get("task_id"),

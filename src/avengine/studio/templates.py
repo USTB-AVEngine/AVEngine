@@ -23,6 +23,7 @@ HM3D_ROOM_PREPARE_TEMPLATE = "hm3d_room_prepare"
 SEMANTIC_PACKAGE_TEMPLATE = "semantic_acoustic_package"
 HM3D_ROUTE_BANK_TEMPLATE = "hm3d_route_bank"
 HM3D_EPISODE_TEMPLATE = "hm3d_episode"
+HM3D_END_TO_END_TEMPLATE = "hm3d_end_to_end"
 KUJIALE_ROUTE_BANK_TEMPLATE = "kujiale_route_bank"
 KUJIALE_VISUAL_EPISODE_TEMPLATE = "kujiale_visual_episode"
 KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE = "kujiale_acoustic_package"
@@ -39,6 +40,20 @@ _HM3D_EPISODE_PATH_KEYS = (
     "hrtf",
 )
 _HM3D_SPLITS = frozenset({"train", "val", "minival", "test"})
+
+# The one-click chain takes the union of the four stages' inputs; the only
+# authoring-facing choice left is which house (the chain picks the room).
+_HM3D_E2E_PATH_KEYS = (
+    "scene_dir",
+    "hm3d_root",
+    *_HM3D_RUNTIME_KEYS,
+    "material_rules",
+    "audio_python",
+    "asset_dir",
+    "dataset_config",
+    "materials_json",
+    "hrtf",
+)
 
 _MP3D_AUDIO_PATH_KEYS = (
     "visual_capture_dir",
@@ -178,6 +193,7 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
             "height",
         }
     ),
+    HM3D_END_TO_END_TEMPLATE: frozenset({"scene_dir", "split", "seed"}),
     KUJIALE_ROUTE_BANK_TEMPLATE: frozenset(
         {
             "scene_metadata",
@@ -535,6 +551,25 @@ def build_template_argv(
             argv += ["--overhead-m", str(float(merged["overhead_m"]))]
         if merged.get("place_at_emitter"):
             argv.append("--place-at-emitter")
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == HM3D_END_TO_END_TEMPLATE:
+        split = str(merged.get("split", "val"))
+        if split not in _HM3D_SPLITS:
+            raise StudioTemplateError(
+                f"split must be one of {sorted(_HM3D_SPLITS)}, got {split!r}"
+            )
+        argv = [python, str(repo / "tools/studio/run_hm3d_end_to_end.py")]
+        _append_paths(argv, merged, template_name, _HM3D_E2E_PATH_KEYS, repo)
+        argv += ["--split", split]
+        argv += ["--seed", str(int(merged.get("seed", 20260826)))]
+        argv += [
+            "--connectivity-samples",
+            str(int(merged.get("connectivity_samples", 64))),
+            "--episodes-per-motion-case",
+            str(int(merged.get("episodes_per_motion_case", 8))),
+        ]
         argv += ["--output", _fresh_output(output_path)]
         return argv
 

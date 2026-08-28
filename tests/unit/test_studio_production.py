@@ -255,3 +255,96 @@ def test_review_queue_lists_only_episodes_with_receipts(tmp_path: Path) -> None:
     assert entry["artifacts"]["mp4"] == "episode_binaural.mp4"
     assert entry["error_deg_per_frame"] == [0.0, 7.5]
     assert entry["verdict"] is None
+
+
+def _end_to_end_task(tmp_path: Path, name: str) -> dict:
+    """A finished one-click chain: every stage left its own evidence."""
+
+    task_dir = tmp_path / name
+    output = task_dir / "output" / "render"
+    rooms = output / "rooms" / "hm3d_val_00808_TEEsavR23oF"
+    rooms.mkdir(parents=True)
+    (rooms / "room_manifest.json").write_text(
+        json.dumps(
+            {"room_id": "hm3d_val_00808_TEEsavR23oF", "connectivity_pairs": [[0, 1]]}
+        )
+    )
+    (rooms / "connectivity_measurement.json").write_text(
+        json.dumps({"measured_geodesic_distance_m": 12.0})
+    )
+    package = output / "package"
+    package.mkdir()
+    (package / "manifest.json").write_text(
+        json.dumps({"package_content_sha256": "x"})
+    )
+    (package / "semantic_material_coverage.json").write_text(
+        json.dumps(
+            {
+                "room_id": "hm3d_val_00808_TEEsavR23oF",
+                "surface_count": 5,
+                "unknown_semantic_category_count": 1,
+                "category_triangle_counts": {"wall": 10},
+            }
+        )
+    )
+    routes = output / "routes_R3"
+    routes.mkdir()
+    (routes / "route_report.json").write_text(
+        json.dumps(
+            {
+                "floors_with_routes": 1,
+                "floors_examined": 1,
+                "scenes": [{"scene": "/x/TEEsavR23oF.glb"}],
+            }
+        )
+    )
+    episode = output / "episode" / "audio_foa"
+    episode.mkdir(parents=True)
+    (output / "episode" / "receipt.json").write_text(
+        json.dumps({"scene_id": "TEEsavR23oF", "bank": "b"})
+    )
+    (episode / "render_report.json").write_text(
+        json.dumps(
+            {
+                "frames_rendered": 8,
+                "frames_within_tolerance": 8,
+                "direction_error_deg": {"median": 0.0},
+                "per_frame": [],
+            }
+        )
+    )
+    (output / "episode" / "episode_binaural.mp4").write_bytes(b"mp4")
+    (output / "episode" / "machine_audition.json").write_text(
+        json.dumps({"verdict": "pass", "summary_zh": "全过", "checks": []})
+    )
+    (output / "end_to_end_receipt.json").write_text(
+        json.dumps({"scene_id": "TEEsavR23oF"})
+    )
+    return {
+        "task_id": name,
+        "template": "hm3d_end_to_end",
+        "status": "pass",
+        "created_at": "2026-08-29T01:00:00Z",
+        "task_dir": str(task_dir),
+        "output_dir": str(output),
+    }
+
+
+def test_one_click_task_lights_every_stage_column(tmp_path: Path) -> None:
+    """One task, one house: the board row shows all five cells from it,
+    judged by the same verifiers the standalone templates use."""
+
+    board = board_rows([_end_to_end_task(tmp_path, "task_e2e")])
+    row = board["rows"][0]
+    assert row["scene"] == "TEEsavR23oF"
+    for stage in ("room", "package", "routes", "episode", "verdict"):
+        assert row["cells"][stage]["ok"] is True, stage
+    assert row["cells"]["verdict"]["summary"].startswith("机器 pass")
+
+
+def test_one_click_episode_reaches_the_review_wall(tmp_path: Path) -> None:
+    entry = review_queue([_end_to_end_task(tmp_path, "task_e2e")])["episodes"][0]
+    assert entry["scene_id"] == "TEEsavR23oF"
+    assert entry["artifacts"]["mp4"] == "episode/episode_binaural.mp4"
+    assert "first_frame" not in entry["artifacts"]  # the fixture wrote no frames
+    assert entry["machine_audition"]["verdict"] == "pass"

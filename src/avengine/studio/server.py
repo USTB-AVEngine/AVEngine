@@ -213,6 +213,11 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if method == "GET" and path == "/":
+                # The owner's whole interface: one page, one click per house.
+                # The navigation hub with every workstation lives on at
+                # /studio/hub for the classmates who operate the stages.
+                self._handle_static("home.html")
+            elif method == "GET" and path == "/studio/hub":
                 self._send_payload(
                     _STATUS_PAGE.encode("utf-8"), "text/html; charset=utf-8", 200
                 )

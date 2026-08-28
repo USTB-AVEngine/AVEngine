@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVEngine · 一键出片</title>
+<style>
+:root{--bg:#fbfaf7;--card:#fff;--ink:#2c2c2a;--mut:#8a877d;--line:#e2dfd6;--acc:#534ab7;
+--ok:#1f6b4a;--okbg:#e1f5ee;--warn:#9a6b12;--warnbg:#fdf3d8;--bad:#a33;--badbg:#fae7e7}
+*{box-sizing:border-box}
+body{font-family:system-ui,'PingFang SC',sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
+padding:.8rem 1.2rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+header h1{font-size:1.1rem;margin:0 .6rem 0 0}
+select{font:inherit;font-size:.85rem;padding:.35rem .5rem;border:1px solid var(--line);border-radius:6px;
+background:#fff;max-width:20rem}
+#go{font:inherit;font-size:.9rem;padding:.4rem 1rem;border:0;border-radius:6px;background:var(--acc);
+color:#fff;cursor:pointer}
+#go:disabled{opacity:.55;cursor:default}
+#count{font-size:.78rem;color:var(--mut);margin-left:auto}
+#hint{font-size:.76rem;color:var(--mut);padding:.5rem 1.2rem 0;max-width:62rem}
+#running{padding:.4rem 1.2rem 0;display:flex;flex-direction:column;gap:.3rem}
+.run{background:var(--warnbg);border:1px solid #eadfba;border-radius:6px;padding:.35rem .7rem;
+font-size:.78rem;display:flex;gap:.7rem;align-items:center;flex-wrap:wrap}
+.run .id{font-family:ui-monospace,monospace;font-size:.72rem;color:var(--mut)}
+#list{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:16px;padding:16px}
+.ep{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.ep video{width:100%;display:block;background:#000;aspect-ratio:16/9}
+.media{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--line)}
+.media .pane{background:var(--card);display:flex;flex-direction:column}
+.media .pane .lab{font-size:.68rem;color:var(--mut);padding:.2rem .45rem}
+.media img{width:100%;display:block;background:#f4f2ec;aspect-ratio:16/9;object-fit:contain}
+.body{padding:.6rem .8rem .8rem;display:flex;flex-direction:column;gap:.45rem;font-size:.8rem}
+.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.name{font-weight:600;font-family:ui-monospace,monospace;font-size:.72rem;word-break:break-all;color:var(--mut)}
+.chip{padding:.06rem .4rem;border-radius:3px;font-size:.72rem;background:#efede6}
+.verdict{padding:.12rem .6rem;border-radius:4px;font-size:.82rem;font-weight:600}
+.verdict.pass{background:var(--okbg);color:var(--ok)}
+.verdict.fail{background:var(--badbg);color:var(--bad)}
+.verdict.none{background:var(--warnbg);color:var(--warn)}
+.failwhy{background:var(--badbg);border-radius:4px;padding:.3rem .5rem;font-size:.76rem;line-height:1.5}
+ul.checks{margin:.1rem 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:.22rem}
+ul.checks li{font-size:.74rem;line-height:1.45;display:flex;gap:.4rem}
+ul.checks .mark{flex:none;width:1.05rem;text-align:center;font-weight:700}
+ul.checks li.pass .mark{color:var(--ok)}
+ul.checks li.fail .mark{color:var(--bad)}
+ul.checks li.info .mark{color:var(--mut)}
+details{border:1px solid var(--line);border-radius:6px;padding:.35rem .55rem;background:#faf9f5}
+details summary{cursor:pointer;font-size:.74rem;color:var(--mut)}
+details[open] summary{margin-bottom:.4rem}
+audio{width:100%;height:30px}
+footer{padding:1rem 1.2rem 2rem;font-size:.74rem;color:var(--mut)}
+footer a{color:#534ab7;text-decoration:none;margin-right:.8rem}
+</style></head><body>
+<header>
+  <h1>AVEngine</h1>
+  <select id="scene"><option>载入房子清单…</option></select>
+  <button id="go">▶ 一键跑完这栋房子</button>
+  <span id="count"></span>
+</header>
+<div id="hint">选一栋房子，点一次。机器自己完成登记房间、装声学、挑一间有家具的房、排路线、出片、
+验收——约十分钟后成片带着轨迹图和绿/红章出现在下面。红章会写一句为什么红；其余细节都折起来了，不用看。</div>
+<div id="running"></div>
+<div id="list"></div>
+<footer>
+  同学工位入口：
+  <a href="/studio/submit">分步提交台</a>
+  <a href="/studio/board">进度看板</a>
+  <a href="/studio/review">验收台</a>
+  <a href="/studio/assets">声源资产台</a>
+  <a href="/studio/sounds">声音素材库</a>
+  <a href="/studio/hub">任务枢纽</a>
+</footer>
+<script>
+function art(taskId, rel){ return `/api/tasks/${taskId}/artifact?path=${encodeURIComponent(rel)}`; }
+
+function strip(canvas, errors){
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.clientWidth * devicePixelRatio;
+  const h = canvas.height = canvas.clientHeight * devicePixelRatio;
+  if (!errors || !errors.length) return;
+  const bar = w / errors.length;
+  errors.forEach((e, i) => {
+    ctx.fillStyle = e == null ? '#ddd' : Math.abs(e) <= 5 ? '#59b389' : Math.abs(e) <= 15 ? '#e3c15e' : '#d97b70';
+    ctx.fillRect(i * bar, 0, Math.ceil(bar), h);
+  });
+}
+
+function verdictChip(ep){
+  const audition = ep.machine_audition;
+  if (!audition) return '<span class="verdict none">旧任务 · 未经机器听审</span>';
+  return audition.verdict === 'pass'
+    ? '<span class="verdict pass">机器判定 ✓ 通过</span>'
+    : '<span class="verdict fail">机器判定 ✗ 不过</span>';
+}
+
+function episodeCard(ep){
+  const el = document.createElement('div'); el.className = 'ep';
+  const a = ep.artifacts || {};
+  const audition = ep.machine_audition;
+  const marks = {pass: '✓', fail: '✗', info: '·'};
+  const failReasons = audition && audition.verdict !== 'pass'
+    ? (audition.checks || []).filter(c => c.status === 'fail')
+        .map(c => `<div class="failwhy">✗ ${c.reason_zh || c.name}</div>`).join('')
+    : '';
+  const allChecks = audition
+    ? `<ul class="checks">${(audition.checks || []).map(c =>
+        `<li class="${c.status}"><span class="mark">${marks[c.status] || '?'}</span><span>${c.reason_zh || c.name}</span></li>`
+      ).join('')}</ul>`
+    : '';
+  el.innerHTML = `
+    ${a.mp4 ? `<video controls preload="none" ${a.first_frame ? `poster="${art(ep.task_id, a.first_frame)}"` : ''} src="${art(ep.task_id, a.mp4)}"></video>` : ''}
+    ${ep.route_map ? `<div class="media"><div class="pane"><div class="lab">它走的轨迹（同楼层俯视图）</div>
+      <img loading="lazy" src="${art(ep.route_map.task_id, ep.route_map.path)}" alt="轨迹图"></div>
+      <div class="pane"><div class="lab">第一帧</div>
+      ${a.first_frame ? `<img loading="lazy" src="${art(ep.task_id, a.first_frame)}" alt="首帧">` : ''}</div></div>` : ''}
+    <div class="body">
+      <div class="row">${verdictChip(ep)}<span class="chip">${ep.scene_id || '?'}</span></div>
+      ${failReasons}
+      <div class="name">${ep.task_id}</div>
+      ${audition ? `<details><summary>细节（同学/排查用）</summary>${allChecks}
+        <canvas style="width:100%;height:22px;display:block;background:#f4f2ec;border-radius:4px;margin-top:.4rem"></canvas>
+        ${a.foa_stereo_fold ? `<audio controls preload="none" src="${art(ep.task_id, a.foa_stereo_fold)}" style="margin-top:.3rem"></audio>` : ''}
+      </details>` : ''}
+    </div>`;
+  const canvas = el.querySelector('canvas');
+  const fold = el.querySelector('details');
+  if (fold && canvas) fold.addEventListener('toggle', function(){
+    if (this.open) strip(canvas, ep.error_deg_per_frame);
+  });
+  return el;
+}
+
+let scenes = [];
+async function loadScenes(){
+  try {
+    const payload = await (await fetch('/api/hm3d-scenes')).json();
+    scenes = payload.scenes || [];
+  } catch { scenes = []; }
+  const select = document.getElementById('scene');
+  select.innerHTML = scenes.map(s =>
+    `<option value="${s.scene_dir}" data-split="${s.split}">${s.split} · ${s.name}</option>`).join('')
+    || '<option>没有找到房子</option>';
+}
+
+document.getElementById('go').onclick = async function(){
+  const select = document.getElementById('scene');
+  const option = select.selectedOptions[0];
+  if (!option || !option.value) return;
+  this.disabled = true;
+  const before = this.textContent;
+  this.textContent = '排队中…';
+  const response = await fetch('/api/tasks', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({template: 'hm3d_end_to_end',
+      overrides: {scene_dir: option.value, split: option.dataset.split}}),
+  });
+  const payload = await response.json();
+  this.textContent = payload.error ? ('被拒: ' + payload.error.slice(0, 60)) : '已开跑 ✓';
+  setTimeout(() => { this.textContent = before; this.disabled = false; }, 4000);
+  refreshRunning();
+};
+
+let lastStatuses = '';
+async function refreshRunning(){
+  const payload = await (await fetch('/api/tasks')).json();
+  const mine = (payload.tasks || []).filter(t =>
+    (t.template === 'hm3d_end_to_end' || t.template === 'hm3d_episode'));
+  const active = mine.filter(t => t.status === 'queued' || t.status === 'running');
+  const houseOf = t => {
+    const argv = t.argv || [];
+    const at = argv.indexOf('--scene-dir');
+    return at >= 0 && argv[at + 1] ? argv[at + 1].split('/').pop() : t.template;
+  };
+  document.getElementById('running').innerHTML = active.map(t =>
+    `<div class="run"><b>${t.status === 'queued' ? '排队中' : '正在跑（全程约十分钟）'}</b>
+     <span>${houseOf(t)}</span>
+     <span class="id">${t.task_id}</span></div>`).join('');
+  // 只有状态真的变了才重拉成片墙，别让轮询吃掉带宽
+  const signature = mine.map(t => t.task_id + ':' + t.status).join(',');
+  if (signature !== lastStatuses) {
+    lastStatuses = signature;
+    refreshWall();
+  }
+}
+
+async function refreshWall(){
+  const payload = await (await fetch('/api/review-queue')).json();
+  const list = document.getElementById('list');
+  if (payload.error) { list.textContent = payload.error; return; }
+  const episodes = payload.episodes || [];
+  const pass = episodes.filter(e => e.machine_audition && e.machine_audition.verdict === 'pass').length;
+  const fail = episodes.filter(e => e.machine_audition && e.machine_audition.verdict !== 'pass').length;
+  document.getElementById('count').textContent = `${episodes.length} 条成片 · ✓ ${pass} · ✗ ${fail}`;
+  list.replaceChildren(...episodes.map(episodeCard));
+  if (!episodes.length) list.textContent = '还没有成片：上面选一栋房子，点一次即可。';
+}
+
+loadScenes();
+refreshWall();
+refreshRunning();
+setInterval(refreshRunning, 12000);
+</script></body></html>
