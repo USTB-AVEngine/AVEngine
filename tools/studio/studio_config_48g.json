@@ -125,7 +125,11 @@
       "material_rules": "examples/acoustics/semantic_materials/residential_material_rules.json",
       "hm3d_root": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d",
       "mp3d_root": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
-      "seed": 20260826
+      "seed": 20260826,
+      "verify_frame_parity": true,
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "magnum_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg"
     },
     "hm3d_route_bank": {
       "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
@@ -158,7 +162,9 @@
     "kujiale_visual_episode": {
       "episode_root": "/data/avengine_external/review/kujiale_kitchen_current_visual_episode_d702c47_20260821T0230Z",
       "uproject": "/data/avengine_external/ue-stages/kujiale_0020_full_home_editor_d702c47_20260821T0140Z/SpearSim/SpearSim.uproject",
-      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor"
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "visual_only_research": true
     },
     "kujiale_acoustic_package": {
       "source_usd": "/data/avengine_external/datasets/interioragent_kujiale_0020/kujiale_0020.usda",

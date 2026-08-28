@@ -70,7 +70,28 @@ def main() -> int:
     parser.add_argument(
         "--mp3d-root", type=Path, help="defines ${AVENGINE_MP3D_ROOT} for this run"
     )
+    parser.add_argument(
+        "--verify-frame-parity",
+        action="store_true",
+        help=(
+            "after compiling, replay rays from the room's connectivity pair "
+            "in Habitat and inside the package; refuse the package if the "
+            "distances disagree. This is the admission check the sideways "
+            "package would have failed on day one. Requires the three "
+            "runtime paths below"
+        ),
+    )
+    parser.add_argument("--runtime-prefix")
+    parser.add_argument("--magnum-site")
+    parser.add_argument("--rlr-sdk-root")
     args = parser.parse_args()
+    if args.verify_frame_parity and not (
+        args.runtime_prefix and args.magnum_site and args.rlr_sdk_root
+    ):
+        raise SystemExit(
+            "--verify-frame-parity needs --runtime-prefix, --magnum-site "
+            "and --rlr-sdk-root"
+        )
 
     if args.hm3d_root is not None:
         os.environ["AVENGINE_HM3D_ROOT"] = str(args.hm3d_root.resolve())
@@ -93,6 +114,51 @@ def main() -> int:
         )
     except AcousticSceneCompileError as error:
         raise SystemExit(f"compilation failed: {error}") from error
+
+    parity_summary = None
+    if args.verify_frame_parity:
+        # The render mesh comes from the same manifest the compile consumed,
+        # so the parity interrogates exactly the pairing this package claims.
+        room = json.loads(args.room_manifest.read_text(encoding="utf-8"))
+        render_declared = next(
+            asset["path"]
+            for asset in room.get("assets", [])
+            if asset.get("role") == "render_surface_mesh"
+        )
+        render_path = Path(
+            render_declared.replace(
+                "${AVENGINE_HM3D_ROOT}", os.environ.get("AVENGINE_HM3D_ROOT", "")
+            ).replace(
+                "${AVENGINE_MP3D_ROOT}", os.environ.get("AVENGINE_MP3D_ROOT", "")
+            )
+        )
+        parity_report = manifest_path.parent / "frame_parity.json"
+        import subprocess
+        import sys as _sys
+
+        completed = subprocess.run(
+            [
+                _sys.executable,
+                str(REPOSITORY / "tools/acoustics/verify_package_frame_parity.py"),
+                "--runtime-prefix", args.runtime_prefix,
+                "--magnum-site", args.magnum_site,
+                "--rlr-sdk-root", args.rlr_sdk_root,
+                "--scene", str(render_path),
+                "--package-manifest", str(manifest_path),
+                "--room-manifest", str(args.room_manifest),
+                "--report", str(parity_report),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        _sys.stdout.write(completed.stdout[-2000:])
+        if completed.returncode != 0:
+            raise SystemExit(
+                "frame parity FAILED: the compiled package disagrees with "
+                "Habitat about where its own walls are. The package directory "
+                f"is left in place for inspection: {manifest_path.parent}"
+            )
+        parity_summary = json.loads(parity_report.read_text(encoding="utf-8"))
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     counts = report.get("category_triangle_counts", {})
@@ -136,6 +202,11 @@ def main() -> int:
         json.dumps(
             {
                 "manifest": str(manifest_path),
+                "frame_parity": (
+                    None
+                    if parity_summary is None
+                    else f"{parity_summary['agree']}/{parity_summary['total']} rays agree"
+                ),
                 "qa_geometry_status": geometry_status,
                 "qa_worst_probe_escape_fraction": worst_escape,
                 "qa_note": (

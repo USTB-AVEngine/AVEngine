@@ -18,6 +18,14 @@ import numpy as np
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 sys.path.insert(0, str(REPOSITORY / "tools/rooms"))
+
+# The SPEAR client probes for its native extension at import time and freezes
+# the answer in a module-level flag, so the extension directory has to be on
+# sys.path before any avengine import below - argparse in main() is too late.
+# This pre-scan mirrors the --spear-ext-dir argument argparse also declares.
+if "--spear-ext-dir" in sys.argv:
+    _spear_ext_dir = sys.argv[sys.argv.index("--spear-ext-dir") + 1]
+    sys.path.insert(0, _spear_ext_dir)
 from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth  # noqa: E402
 from avengine.optional_backends.residential_episode import TICKS_PER_FRAME  # noqa: E402
 
@@ -986,6 +994,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episode-root", type=Path, required=True)
+    parser.add_argument(
+        "--spear-ext-dir",
+        type=Path,
+        help=(
+            "directory holding AVEngine's compiled avengine_spear_ext; the "
+            "SPEAR client refuses to start without it, so a Studio task must "
+            "be able to name it explicitly instead of inheriting a shell"
+        ),
+    )
     parser.add_argument("--uproject", type=Path, required=True)
     parser.add_argument("--unreal-editor", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -1008,7 +1025,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    run(parse_args())
+    args = parse_args()
+    if args.spear_ext_dir is not None and not args.spear_ext_dir.is_dir():
+        raise SystemExit(f"--spear-ext-dir is not a directory: {args.spear_ext_dir}")
+    run(args)
     return 0
 
 

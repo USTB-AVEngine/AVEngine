@@ -143,7 +143,9 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
     HM3D_ROOM_PREPARE_TEMPLATE: frozenset(
         {"scene_dir", "split", "connectivity_samples", "connectivity_seed"}
     ),
-    SEMANTIC_PACKAGE_TEMPLATE: frozenset({"room_manifest", "seed", "package_id"}),
+    SEMANTIC_PACKAGE_TEMPLATE: frozenset(
+        {"room_manifest", "seed", "package_id", "verify_frame_parity"}
+    ),
     HM3D_ROUTE_BANK_TEMPLATE: frozenset(
         {
             "scene",
@@ -187,7 +189,7 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
         }
     ),
     KUJIALE_VISUAL_EPISODE_TEMPLATE: frozenset(
-        {"episode_root", "rpc_port", "graphics_adapter"}
+        {"episode_root", "rpc_port", "graphics_adapter", "visual_only_research"}
     ),
     KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE: frozenset(
         {
@@ -450,6 +452,15 @@ def build_template_argv(
             repo,
             optional=("hm3d_root", "mp3d_root"),
         )
+        if merged.get("verify_frame_parity"):
+            _append_paths(
+                argv,
+                merged,
+                template_name,
+                ("runtime_prefix", "magnum_site", "rlr_sdk_root"),
+                repo,
+            )
+            argv.append("--verify-frame-parity")
         argv += ["--seed", str(int(merged.get("seed", 20260826)))]
         if merged.get("package_id") is not None:
             argv += ["--package-id", str(merged["package_id"])]
@@ -599,11 +610,17 @@ def build_template_argv(
             template_name,
             ("episode_root", "uproject", "unreal_editor"),
             repo,
+            optional=("spear_ext_dir",),
         )
         if merged.get("rpc_port") is not None:
             argv += ["--rpc-port", str(int(merged["rpc_port"]))]
         if merged.get("graphics_adapter") is not None:
             argv += ["--graphics-adapter", str(int(merged["graphics_adapter"]))]
+        # An episode root without an audio/ directory can only be replayed as
+        # visual-only research; muxing against the absent mixture is how the
+        # first live run of this template died at its final step.
+        if merged.get("visual_only_research"):
+            argv.append("--visual-only-research")
         argv += ["--output", _fresh_output(output_path)]
         return argv
 
