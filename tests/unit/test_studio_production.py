@@ -239,6 +239,66 @@ def test_review_queue_points_at_the_floor_trajectory_map(tmp_path: Path) -> None
     assert review_queue([lone])["episodes"][0]["route_map"] is None
 
 
+def test_room_curation_filters_by_range_and_keeps_verdicts(tmp_path: Path) -> None:
+    """The machine pre-filter (size range) plus the human stamp per room."""
+
+    from avengine.studio.production import (
+        load_room_curation,
+        write_room_verdict,
+    )
+
+    task_dir = tmp_path / "task1"
+    marker = task_dir / "output" / "render" / "hm3d_val_00800_TEEsavR23oF"
+    marker.mkdir(parents=True)
+    (marker / "rooms.json").write_text(
+        json.dumps(
+            {
+                "room_id": "hm3d_val_00800_TEEsavR23oF",
+                "rooms": [
+                    {"region_id": 3, "floor_area_m2": 23.2, "extent_m": [4.7, 8.0],
+                     "floor_y_m": 0.1, "top_categories": ["couch", "wardrobe"]},
+                    {"region_id": 8, "floor_area_m2": 81.0, "extent_m": [16.6, 9.8],
+                     "floor_y_m": 0.1, "top_categories": ["stairs"]},
+                    {"region_id": 7, "floor_area_m2": 1.9, "extent_m": [1.8, 1.5],
+                     "floor_y_m": 0.1, "top_categories": ["toilet seat"]},
+                ],
+            }
+        )
+    )
+    (marker / "floor0.png").write_bytes(b"png")
+    record = {
+        "task_id": "task1",
+        "template": "hm3d_room_prepare",
+        "status": "pass",
+        "created_at": "2026-08-30T01:00:00Z",
+        "task_dir": str(task_dir),
+        "output_dir": str(task_dir / "output" / "render"),
+    }
+    curation_dir = tmp_path / "room_curation"
+    payload = load_room_curation([record], curation_dir)
+    house = payload["houses"][0]
+    # 81 m2 hall out (too large), 1.9 m2 toilet out (too small), R3 in
+    assert [room["label"] for room in house["rooms"]] == ["R3"]
+    assert house["rooms"][0]["room_type"] == "卧室"
+    assert house["topdowns"] == ["hm3d_val_00800_TEEsavR23oF/floor0.png"]
+    assert payload["room_count"] == 1 and payload["reviewed_count"] == 0
+
+    write_room_verdict(
+        curation_dir, house="hm3d_val_00800_TEEsavR23oF", room_label="R3",
+        verdict="use", note="像样的卧室",
+    )
+    payload = load_room_curation([record], curation_dir)
+    assert payload["reviewed_count"] == 1
+    assert payload["houses"][0]["rooms"][0]["verdict"]["verdict"] == "use"
+
+    with pytest.raises(ProductionError, match="room verdict must be"):
+        write_room_verdict(curation_dir, house="hm3d_val_x", room_label="R1",
+                           verdict="maybe")
+    with pytest.raises(ProductionError, match="unsafe curation key"):
+        write_room_verdict(curation_dir, house="../escape", room_label="R1",
+                           verdict="use")
+
+
 def test_review_queue_lists_only_episodes_with_receipts(tmp_path: Path) -> None:
     episode = _episode_task(tmp_path, "task1", with_mp4=True)
     other = {

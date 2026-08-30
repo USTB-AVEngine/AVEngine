@@ -47,12 +47,14 @@ from avengine.studio.scenes import (
 from avengine.studio.production import (
     ProductionError,
     board_rows,
+    load_room_curation,
     load_sound_asset_catalog,
     load_sound_library,
     review_queue,
     sound_asset_file,
     sound_library_file,
     write_human_verdict,
+    write_room_verdict,
 )
 from avengine.studio.tasks import StudioTaskError, StudioTaskQueue
 from avengine.studio.templates import (
@@ -102,6 +104,7 @@ a.big{display:inline-block;margin:.6rem 0;padding:.5rem 1rem;background:#534ab7;
 <a class="big" href="/studio/sounds">声音素材库</a>
 <a class="big" href="/studio/board">进度看板</a>
 <a class="big" href="/studio/review">音视频验收台</a>
+<a class="big" href="/studio/rooms">房间初筛台</a>
 </p>
 <h2>任务</h2><div id="tasks">加载中…</div>
 <script>
@@ -233,6 +236,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._handle_static("board.html")
             elif method == "GET" and path == "/studio/review":
                 self._handle_static("review.html")
+            elif method == "GET" and path == "/studio/rooms":
+                self._handle_static("rooms.html")
+            elif method == "GET" and path == "/api/room-curation":
+                self._handle_room_curation()
+            elif method == "POST" and path == "/api/room-curation/verdict":
+                self._handle_room_curation_verdict()
             elif method == "GET" and path.startswith("/studio/static/"):
                 self._handle_static(path.removeprefix("/studio/static/"))
             elif method == "GET" and path == "/api/health":
@@ -705,6 +714,30 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if not relative:
             raise ProductionError("sound-library file requires ?path=<relative>")
         self._send_file(sound_library_file(self._sound_library_root(), relative))
+
+    def _curation_dir(self) -> Path:
+        # Beside the tasks root, like the queue itself: survives restarts,
+        # needs no schema, and a verdict is one file a person can read.
+        return self._server().studio_config.tasks_root.parent / "room_curation"
+
+    def _handle_room_curation(self) -> None:
+        self._send_json(
+            load_room_curation(
+                self._server().task_queue.list_tasks(), self._curation_dir()
+            )
+        )
+
+    def _handle_room_curation_verdict(self) -> None:
+        body = self._read_json_body()
+        written = write_room_verdict(
+            self._curation_dir(),
+            house=str(body.get("house") or ""),
+            room_label=str(body.get("room_label") or ""),
+            verdict=str(body.get("verdict") or ""),
+            note=str(body.get("note") or ""),
+            author=str(body.get("author") or "studio"),
+        )
+        self._send_json({"verdict": written})
 
     def _handle_board(self) -> None:
         self._send_json(board_rows(self._server().task_queue.list_tasks()))

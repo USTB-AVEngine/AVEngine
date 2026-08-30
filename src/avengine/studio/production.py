@@ -251,6 +251,193 @@ def sound_library_file(library_root: Path, relative: str) -> Path:
 
 
 # --------------------------------------------------------------------------
+# room curation: machine pre-filter by size, then one human pass over
+# every remaining room of every inventoried house
+
+_ROOM_TYPE_RULES: tuple[tuple[str, frozenset[str]], ...] = (
+    ("卧室", frozenset({"bed", "nightstand", "wardrobe", "dresser"})),
+    ("卫生间", frozenset({"toilet", "shower", "bathtub", "washbasin"})),
+    ("厨房", frozenset({"refrigerator", "oven", "stove", "microwave", "kitchen"})),
+    ("客厅", frozenset({"couch", "sofa", "tv", "armchair", "fireplace"})),
+    ("餐厅", frozenset({"dining table"})),
+    ("书房/办公", frozenset({"desk", "office chair", "computer"})),
+    ("洗衣房", frozenset({"washing machine", "washer-dryer", "dryer"})),
+    ("车库", frozenset({"car", "garage door"})),
+    ("楼梯间", frozenset({"stairs", "staircase", "banister"})),
+)
+
+# Defaults anchored on proved-out reference rooms: the kujiale living room
+# that hosted 200 routes measures 49.5 m2, so 50 keeps it in; 6 excludes
+# closets the 1.5 m route band cannot use anyway.
+ROOM_RANGE_DEFAULTS = {
+    "minimum_area_m2": 6.0,
+    "maximum_area_m2": 50.0,
+    "minimum_shorter_m": 2.2,
+}
+
+_ROOM_VERDICT_VALUES = frozenset({"use", "skip", "unsure"})
+_SAFE_HOUSE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SAFE_ROOM = re.compile(r"^R\d+$")
+
+
+def _infer_room_type(categories: Any) -> str:
+    lowered = [str(c).lower() for c in categories or []]
+    for name, keys in _ROOM_TYPE_RULES:
+        for key in keys:
+            if any(key == c or key in c for c in lowered):
+                return name
+    return "未识别" if lowered else "空/未标注"
+
+
+def write_room_verdict(
+    curation_dir: Path,
+    *,
+    house: str,
+    room_label: str,
+    verdict: str,
+    note: str = "",
+    author: str = "studio",
+) -> dict[str, Any]:
+    if verdict not in _ROOM_VERDICT_VALUES:
+        raise ProductionError(
+            f"room verdict must be one of {sorted(_ROOM_VERDICT_VALUES)}, "
+            f"got {verdict!r}"
+        )
+    if not _SAFE_HOUSE.match(house or "") or not _SAFE_ROOM.match(room_label or ""):
+        raise ProductionError(
+            f"unsafe curation key: house={house!r} room={room_label!r}"
+        )
+    curation_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema": "avengine_room_curation_verdict_v1",
+        "house": house,
+        "room_label": room_label,
+        "verdict": verdict,
+        "note": str(note or "")[:2000],
+        "author": str(author or "studio")[:200],
+        "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    (curation_dir / f"{house}__{room_label}.json").write_text(
+        json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return record
+
+
+def read_room_verdicts(curation_dir: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    verdicts: dict[tuple[str, str], dict[str, Any]] = {}
+    if curation_dir.is_dir():
+        for path in sorted(curation_dir.glob("*__R*.json")):
+            record = _read_json(path)
+            if record:
+                verdicts[(str(record.get("house")), str(record.get("room_label")))] = record
+    return verdicts
+
+
+def load_room_curation(
+    task_records: list[Mapping[str, Any]],
+    curation_dir: Path,
+    *,
+    minimum_area_m2: float = ROOM_RANGE_DEFAULTS["minimum_area_m2"],
+    maximum_area_m2: float = ROOM_RANGE_DEFAULTS["maximum_area_m2"],
+    minimum_shorter_m: float = ROOM_RANGE_DEFAULTS["minimum_shorter_m"],
+) -> dict[str, Any]:
+    """Every inventoried house's rooms inside the size range, with verdicts.
+
+    The size range is the machine's pre-filter; the human pass records
+    use/skip/unsure per room, and those verdicts are what the fleet's
+    room picker will trust over its own furniture heuristic once they
+    exist. Inventories come from the room-prepare and one-click tasks'
+    own rooms.json; the newest task wins a house, like on the board.
+    """
+
+    inventories: dict[str, dict[str, Any]] = {}
+    for record in task_records:
+        template = str(record.get("template") or "")
+        if template not in ("hm3d_room_prepare", "hm3d_end_to_end"):
+            continue
+        output_dir = Path(str(record.get("output_dir") or ""))
+        if not output_dir.is_dir():
+            continue
+        root = output_dir if template == "hm3d_room_prepare" else output_dir / "rooms"
+        for inventory_path in sorted(root.glob("*/rooms.json")):
+            inventory = _read_json(inventory_path)
+            if inventory is None:
+                continue
+            house = str(
+                inventory.get("room_id") or inventory_path.parent.name
+            )
+            created = str(record.get("created_at") or "")
+            current = inventories.get(house)
+            if current is not None and current["created_at"] >= created:
+                continue
+            topdowns = [
+                path.relative_to(output_dir).as_posix()
+                for path in sorted(inventory_path.parent.glob("*.png"))
+            ]
+            inventories[house] = {
+                "created_at": created,
+                "task_id": record.get("task_id"),
+                "rooms": inventory.get("rooms") or [],
+                "topdowns": topdowns,
+            }
+
+    verdicts = read_room_verdicts(curation_dir)
+    houses: list[dict[str, Any]] = []
+    total_rooms = 0
+    total_reviewed = 0
+    for house, entry in sorted(inventories.items()):
+        rows = []
+        for room in sorted(
+            entry["rooms"], key=lambda r: -(r.get("floor_area_m2") or 0.0)
+        ):
+            extent = room.get("extent_m") or [0.0, 0.0]
+            shorter = min(float(extent[0]), float(extent[1]))
+            area = float(room.get("floor_area_m2") or 0.0)
+            if not (minimum_area_m2 <= area <= maximum_area_m2):
+                continue
+            if shorter < minimum_shorter_m:
+                continue
+            label = f"R{room.get('region_id')}"
+            verdict = verdicts.get((house, label))
+            rows.append(
+                {
+                    "label": label,
+                    "room_type": _infer_room_type(room.get("top_categories")),
+                    "floor_area_m2": area,
+                    "extent_m": extent,
+                    "floor_y_m": room.get("floor_y_m"),
+                    "top_categories": [
+                        str(c) for c in room.get("top_categories") or []
+                    ][:5],
+                    "verdict": verdict,
+                }
+            )
+        if not rows:
+            continue
+        total_rooms += len(rows)
+        total_reviewed += sum(1 for row in rows if row["verdict"])
+        houses.append(
+            {
+                "house": house,
+                "task_id": entry["task_id"],
+                "topdowns": entry["topdowns"],
+                "rooms": rows,
+            }
+        )
+    return {
+        "schema": "avengine_studio_room_curation_v1",
+        "range": {
+            "minimum_area_m2": minimum_area_m2,
+            "maximum_area_m2": maximum_area_m2,
+            "minimum_shorter_m": minimum_shorter_m,
+        },
+        "houses": houses,
+        "room_count": total_rooms,
+        "reviewed_count": total_reviewed,
+    }
+
+
+# --------------------------------------------------------------------------
 # human verdicts
 
 

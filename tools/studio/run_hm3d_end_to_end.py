@@ -39,7 +39,13 @@ _FURNISHED = {
     "couch", "sofa", "bed", "chair", "table", "tv", "cabinet", "desk",
     "refrigerator", "shelf", "bookshelf", "armchair", "nightstand",
 }
-_MINIMUM_AREA_M2 = 4.0
+# The owner's sizing rule: a room must be neither too small nor too large,
+# anchored on the rooms the chain already proved out - the kujiale living
+# room that hosted 200 routes measures 49.5 m2 (6 x 12), so 50 keeps it in,
+# while the 81 m2 stairwell hall in 00803 stays out. Both bounds are argv
+# knobs; these are the defaults.
+_MINIMUM_AREA_M2 = 6.0
+_MAXIMUM_AREA_M2 = 50.0
 _MINIMUM_SHORTER_M = 2.2
 _ROOM_ATTEMPTS = 3
 _FLOOR_PATTERN = re.compile(r"_y([+-]?\d+(?:\.\d+)?)")
@@ -82,12 +88,19 @@ def the_only(pattern: str, directory: Path) -> Path:
     return matches[0]
 
 
-def rank_rooms(rooms: list[dict]) -> list[dict]:
-    """Furnished rooms first, larger first; rooms too small are out.
+def rank_rooms(
+    rooms: list[dict],
+    *,
+    minimum_area_m2: float = _MINIMUM_AREA_M2,
+    maximum_area_m2: float = _MAXIMUM_AREA_M2,
+) -> list[dict]:
+    """Furnished rooms first, larger first, inside the owner's size range.
 
-    The shortest route band the bank accepts is 1.5 m, so a room whose
-    shorter side cannot contain it plus wall clearance is excluded up
-    front rather than burned as a failed attempt.
+    Too small is a physics bound - the shortest route band is 1.5 m, so a
+    room whose shorter side cannot contain it plus wall clearance would
+    only burn a failed attempt. Too large is a data-quality bound - an
+    81 m2 stairwell hall is not the residential room this benchmark is
+    about, however navigable it is.
     """
 
     candidates = []
@@ -95,7 +108,9 @@ def rank_rooms(rooms: list[dict]) -> list[dict]:
         extent = room.get("extent_m") or [0.0, 0.0]
         shorter = min(float(extent[0]), float(extent[1]))
         area = float(room.get("floor_area_m2") or 0.0)
-        if area < _MINIMUM_AREA_M2 or shorter < _MINIMUM_SHORTER_M:
+        if not (minimum_area_m2 <= area <= maximum_area_m2):
+            continue
+        if shorter < _MINIMUM_SHORTER_M:
             continue
         furnished = sorted(
             set(str(c) for c in room.get("top_categories") or []) & _FURNISHED
@@ -130,6 +145,10 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260826)
     parser.add_argument("--connectivity-samples", type=int, default=64)
     parser.add_argument("--episodes-per-motion-case", type=int, default=8)
+    parser.add_argument("--minimum-room-area-m2", type=float,
+                        default=_MINIMUM_AREA_M2)
+    parser.add_argument("--maximum-room-area-m2", type=float,
+                        default=_MAXIMUM_AREA_M2)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -197,12 +216,16 @@ def main() -> int:
     )
 
     # --- stage 3: pick a room, plan routes in it ----------------------------
-    candidates = rank_rooms(list(inventory.get("rooms") or []))
+    candidates = rank_rooms(
+        list(inventory.get("rooms") or []),
+        minimum_area_m2=args.minimum_room_area_m2,
+        maximum_area_m2=args.maximum_room_area_m2,
+    )
     if not candidates:
         raise SystemExit(
-            f"no room in {scene_dir.name} is large enough for a route band "
-            f"(need area >= {_MINIMUM_AREA_M2} m2 and shorter side >= "
-            f"{_MINIMUM_SHORTER_M} m)"
+            f"no room in {scene_dir.name} sits in the size range "
+            f"[{args.minimum_room_area_m2}, {args.maximum_room_area_m2}] m2 "
+            f"with shorter side >= {_MINIMUM_SHORTER_M} m"
         )
     attempts: list[dict] = []
     chosen = None

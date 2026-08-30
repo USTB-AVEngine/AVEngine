@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>房间初筛台 · AVEngine Studio</title>
+<style>
+:root{--bg:#fbfaf7;--card:#fff;--ink:#2c2c2a;--mut:#8a877d;--line:#e2dfd6;--acc:#534ab7;
+--ok:#1f6b4a;--okbg:#e1f5ee;--warn:#9a6b12;--warnbg:#fdf3d8;--bad:#a33;--badbg:#fae7e7}
+*{box-sizing:border-box}
+body{font-family:system-ui,'PingFang SC',sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
+padding:.7rem 1.2rem;display:flex;gap:.9rem;align-items:center;flex-wrap:wrap}
+header h1{font-size:1.05rem;margin:0 1rem 0 0}
+header a{color:#534ab7;text-decoration:none;font-size:.85rem}
+#stats{font-size:.8rem;color:var(--mut)}
+label.toggle{font-size:.78rem;color:var(--mut);display:flex;gap:.3rem;align-items:center;cursor:pointer}
+#hint{font-size:.76rem;color:var(--mut);padding:.5rem 1.2rem 0;max-width:62rem}
+#list{padding:14px;display:flex;flex-direction:column;gap:16px}
+.house{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem}
+.house h2{font-size:.95rem;margin:.1rem 0 .5rem;font-family:ui-monospace,monospace}
+.maps{display:flex;gap:8px;overflow-x:auto;padding-bottom:.4rem}
+.maps img{height:170px;border:1px solid var(--line);border-radius:5px;background:#111;flex:none}
+table{border-collapse:collapse;width:100%;font-size:.78rem}
+th,td{border-bottom:1px solid var(--line);padding:.3rem .45rem;text-align:left;vertical-align:middle}
+th{color:var(--mut);font-size:.72rem;font-weight:500}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.use{background:var(--okbg)} tr.skip{background:var(--badbg);opacity:.75} tr.unsure{background:var(--warnbg)}
+.btns{display:flex;gap:.3rem;align-items:center}
+.btns button{font:inherit;font-size:.72rem;padding:.15rem .5rem;border-radius:5px;border:1px solid var(--line);
+background:#fff;cursor:pointer}
+.btns button.use.on{background:var(--ok);color:#fff;border-color:var(--ok)}
+.btns button.skip.on{background:var(--bad);color:#fff;border-color:var(--bad)}
+.btns button.unsure.on{background:var(--warn);color:#fff;border-color:var(--warn)}
+input.note{width:11rem;font:inherit;font-size:.72rem;padding:.15rem .4rem;border:1px solid var(--line);border-radius:4px}
+.mut{color:var(--mut)}
+</style></head><body>
+<header>
+  <h1>房间初筛台</h1>
+  <a href="/">← 首页</a>
+  <a href="/studio/board">看板 →</a>
+  <span id="stats"></span>
+  <label class="toggle"><input type="checkbox" id="onlyPending">只看未筛</label>
+</header>
+<div id="hint">机器已按尺寸初筛（<span id="rangeText"></span>），这页列出<b>每栋房子剩下的每一间</b>。
+你的活：对着俯视图（房间框上标着 R 编号）和"里面有什么"，给每间房盖一个章——
+<b>✓ 用</b>（适合当出题房间）· <b>✗ 不用</b>（大厅/走廊/怪空间）· <b>? 存疑</b>。
+章直接落盘，量产挑房会优先信你的章。房子会随车队跑批越来越多，回来接着筛就行。</div>
+<div id="list"></div>
+<script>
+function art(taskId, rel){ return `/api/tasks/${taskId}/artifact?path=${encodeURIComponent(rel)}`; }
+let data = null;
+
+async function stamp(house, label, verdict, note, row){
+  const response = await fetch('/api/room-curation/verdict', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({house, room_label: label, verdict, note}),
+  });
+  const payload = await response.json();
+  if (payload.error) { alert('写入失败: ' + payload.error); return; }
+  row.className = verdict;
+  for (const b of row.querySelectorAll('.btns button')) b.classList.remove('on');
+  row.querySelector('.btns button.' + verdict).classList.add('on');
+  refreshStats();
+}
+
+function refreshStats(){
+  const rows = [...document.querySelectorAll('tbody tr')];
+  const done = rows.filter(r => r.className).length;
+  document.getElementById('stats').textContent =
+    `${rows.length} 间待筛房间 · 已筛 ${done} · 剩 ${rows.length - done}`;
+}
+
+function houseCard(house){
+  const el = document.createElement('div'); el.className = 'house';
+  const maps = (house.topdowns || []).map(rel =>
+    `<img loading="lazy" src="${art(house.task_id, rel)}" title="${rel}">`).join('');
+  const rows = house.rooms.map(room => {
+    const v = room.verdict ? room.verdict.verdict : '';
+    const note = room.verdict && room.verdict.note ? room.verdict.note.replace(/"/g, '&quot;') : '';
+    return `<tr class="${v}" data-house="${house.house}" data-label="${room.label}">
+      <td style="font-family:ui-monospace,monospace">${room.label}</td>
+      <td>${room.room_type}</td>
+      <td class="n">${room.floor_area_m2.toFixed(1)} m²</td>
+      <td class="n mut">${room.extent_m[0].toFixed(1)}×${room.extent_m[1].toFixed(1)}</td>
+      <td class="mut">${(room.top_categories || []).join('、')}</td>
+      <td><div class="btns">
+        <button class="use ${v === 'use' ? 'on' : ''}">✓ 用</button>
+        <button class="skip ${v === 'skip' ? 'on' : ''}">✗ 不用</button>
+        <button class="unsure ${v === 'unsure' ? 'on' : ''}">?</button>
+        <input class="note" placeholder="一句备注（可选）" value="${note}">
+      </div></td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<h2>${house.house}（${house.rooms.length} 间入围）</h2>
+    <div class="maps">${maps}</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>房间</th><th>推断房型</th><th>面积</th><th>尺寸</th><th>里面有什么</th><th>盖章</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  for (const row of el.querySelectorAll('tbody tr')) {
+    const note = () => row.querySelector('input.note').value;
+    row.querySelector('button.use').onclick = () => stamp(row.dataset.house, row.dataset.label, 'use', note(), row);
+    row.querySelector('button.skip').onclick = () => stamp(row.dataset.house, row.dataset.label, 'skip', note(), row);
+    row.querySelector('button.unsure').onclick = () => stamp(row.dataset.house, row.dataset.label, 'unsure', note(), row);
+  }
+  return el;
+}
+
+function paint(){
+  const list = document.getElementById('list');
+  const onlyPending = document.getElementById('onlyPending').checked;
+  list.replaceChildren();
+  for (const house of data.houses || []) {
+    const filtered = onlyPending
+      ? {...house, rooms: house.rooms.filter(r => !r.verdict)}
+      : house;
+    if (filtered.rooms.length) list.appendChild(houseCard(filtered));
+  }
+  refreshStats();
+}
+
+async function boot(){
+  data = await (await fetch('/api/room-curation')).json();
+  const range = data.range || {};
+  document.getElementById('rangeText').textContent =
+    `面积 ${range.minimum_area_m2}–${range.maximum_area_m2} m²，短边 ≥${range.minimum_shorter_m} m`;
+  document.getElementById('onlyPending').addEventListener('change', paint);
+  paint();
+  if (!(data.houses || []).length)
+    document.getElementById('list').textContent = '还没有已登记房间的房子；车队跑批中，稍后刷新。';
+}
+boot();
+</script></body></html>
