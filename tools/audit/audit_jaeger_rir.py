@@ -27,8 +27,11 @@
                 区间为空或非降(本批普遍如此)记 NaN——"T20 不可计算"
                 本身即"无衰减坡"的证据。
   峰后间距    : d60 - 峰位,单位采样;衡量响应在直达之后延续多久。
-  异常处理    : 无法加载/空数组/全零 → 记入 errors 列表并在汇总中报数,
-                不静默跳过。
+  shape 检查  : 严格要求二维且含 4 通道轴((4,N) 或 (N,4)),否则记错误;
+                不接受一维或其他形状。
+  异常处理    : 无法加载/空数组/全零/形状不符 → 记入 errors 列表并写进
+                汇总,**且脚本以非零退出码结束**(失败即停,不静默)。
+  输出保护    : 输出文件已存在即拒绝执行(no-clobber)。
 """
 
 import argparse
@@ -49,10 +52,14 @@ EPS = 1e-300
 
 def analyze_one(path):
     arr = np.load(path)
-    if arr.ndim == 1:
-        arr = arr[None, :]
-    if arr.shape[0] > arr.shape[1]:
+    if arr.ndim != 2:
+        raise ValueError(f"expected 2-D array, got ndim={arr.ndim} shape={arr.shape}")
+    if arr.shape[0] == 4:
+        pass
+    elif arr.shape[1] == 4:
         arr = arr.T
+    else:
+        raise ValueError(f"no 4-channel axis in shape {arr.shape}")
     energy = (arr.astype(np.float64) ** 2).sum(axis=0)
     total = float(energy.sum())
     n = int(energy.size)
@@ -108,6 +115,10 @@ def main():
     ap.add_argument("--out-summary", required=True)
     args = ap.parse_args()
 
+    for p in (args.out_csv, args.out_summary):
+        if os.path.exists(p):
+            raise SystemExit(f"refusing to overwrite existing output: {p}")
+
     files = sorted(glob.glob(os.path.join(args.input, "**", "ir*.npy"), recursive=True))
     rows, errors = [], []
     for f in files:
@@ -158,8 +169,12 @@ def main():
         lines += ["", "## 加载失败清单"] + [f"- {e['file']}: {e['error']}" for e in errors]
     with open(args.out_summary, "w") as fp:
         fp.write("\n".join(lines) + "\n")
-    print(f"OK rows={len(rows)} scenes={len(scenes)} errors={len(errors)}")
+    print(f"rows={len(rows)} scenes={len(scenes)} errors={len(errors)}")
     print(f"csv={args.out_csv} summary={args.out_summary}")
+    if errors:
+        print(f"FAIL: {len(errors)} file(s) failed analysis; see summary for the list")
+        raise SystemExit(1)
+    print("OK")
 
 
 if __name__ == "__main__":
