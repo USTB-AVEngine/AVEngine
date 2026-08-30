@@ -1,87 +1,86 @@
-# 交接 · 同学 C:房间初筛(现在)+ 评测基线(排队)(20260830)
+# 给同学 C 的说明:筛房间(现在做) + 跑模型评测(以后做)(2026-08-30)
 
-> 任务一现在就能干:对每栋房子的候选房间做人工初筛。owner 指定这是你的练手任务:
-> **自己看俯视图,自己写一个 360° 环绕渲染工具**去看拿不准的房间,判定盖章落盘。
-> 你的章会直接改变量产系统挑房的行为。
+你现在的活,一句话:**看房间的图,判断这间房适不适合拿来出题,给它盖个章。**
 
-## 访问
+## 背景(一分钟看懂)
+
+我们有 181 栋扫描出来的真实房子。系统正在自动把每栋房子的房间登记出来,
+并且已经把太小(小于 6 平米,声源走不开)和太大(大于 50 平米,那种大厅
+不是我们要的居家房间)的剔掉了。剩下大约 1,400 间,需要一个人逐间看一眼:
+
+- 正常的卧室、客厅、厨房 → 点"**✓ 用**"
+- 走廊、楼梯间、车库、扫描烂掉的怪空间 → 点"**✗ 不用**"
+- 拿不准 → 点"**? 存疑**",写一句为什么
+
+你盖的章会存成文件,系统以后**只在你点了"用"的房间里出题**。所以这一遍很重要。
+
+## 第一步:打开页面
+
+在你自己电脑的终端里跑(尖括号换成你自己的服务器别名):
 
 ```
 ssh -L 8765:127.0.0.1:8765 <你的服务器别名>
 ```
 
-浏览器 http://localhost:8765(首页是全量跑批的成片墙)→ 页脚"房间初筛台"(/studio/rooms)。
-仓库 `/data/jzy/code/AVEngine-lead-a`(main)。
+浏览器打开 http://localhost:8765 ,点页面最底下的"房间初筛台"。
 
-## 任务一:房间初筛
+页面上每栋房子一块:上面是几张**俯视图**(房间框上标着 R3、R11 这样的编号),
+下面一张表,每行一个房间,写着猜测的房型、面积、里面有什么家具。
+对着俯视图逐行点按钮就行。房子会随着系统跑批越来越多,回来接着筛就是。
 
-### 背景一句话
+大部分房间看俯视图就能判断。判断不了的(怀疑扫描有洞、家具悬空、其实是个露台),
+用下面的办法亲眼进去看。
 
-车队在自动跑全部 181 栋 HM3D 房子(约 30 机器小时),每栋登记出十几个房间;机器已按
-**面积 [6, 50] m²、短边 ≥2.2 m** 初筛(上限锚定 kujiale 参照房 49.5 m²,下限是 1.5 m
-路线带的物理需要),剩约 1,400 间等你逐间判:**✓ 用 / ✗ 不用 / ? 存疑**。
-"不用"的典型:大厅、走廊、楼梯间、扫描破洞严重的怪空间。
+## 第二步(练手任务):自己写一个"绕房间转一圈"的渲染脚本
 
-### 数据在哪(全部路径)
+这是 owner 点名给你的练手件:写一个小脚本,把相机放进指定房间,绕着房间中心
+转一圈拍下来,拼成一段视频,你看视频决定这间房用不用。
 
-- **聚合入口(建议从这看)**:`GET http://localhost:8765/api/room-curation`
-  ——所有入围房间:面积/尺寸/推断房型/里面有什么/俯视图引用/已有的章。
-  页面 /studio/rooms 就是它的可视化,盖章按钮就在每行。
-- **每栋的登记文件**:`/data/avengine_external/studio/tasks/<任务id>/output/render/rooms/<house>/`
-  - `rooms.json`:每间房 `region_id`、`bbox_xz_m`(habitat 坐标,直接用)、
-    `floor_area_m2`、`extent_m`、`floor_y_m`、`top_categories`
-  - `connectivity_topdown_y*.png`:分楼层俯视图,房间框上标着 R 编号
-- **场景本体**:`/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/<split>/<编号>-<id>/`
-  - `<id>.glb` —— **渲染用这个**
-  - `<id>.basis.navmesh`、`<id>.semantic.glb`、`<id>.semantic.txt`(初筛用不到)
-- **章落盘**:`/data/avengine_external/studio/room_curation/<house>__R<编号>.json`。
-  页面点按钮即写;脚本批量盖章用:
+**思路**:相机放在房间中心上方约 1.5 米,绕着中心转一圈,每转 5~10 度拍一帧,
+最后用 ffmpeg 把帧拼成 mp4:
 
-```bash
-curl -X POST http://localhost:8765/api/room-curation/verdict \
-  -H 'Content-Type: application/json' \
-  -d '{"house":"hm3d_val_00800_TEEsavR23oF","room_label":"R3","verdict":"use","note":"标准卧室"}'
+```
+ffmpeg -framerate 12 -i frame_%04d.png -c:v libx264 -pix_fmt yuv420p out.mp4
 ```
 
-`verdict` 取 `use` / `skip` / `unsure`。章齐一栋,量产挑房就优先信你的章。
+**数据都在哪**:
 
-### 自写 360° 环绕渲染(owner 指定的练手件)
+- 每栋房子的房间清单:去 `/data/avengine_external/studio/tasks/` 下找对应任务,
+  里面的 `rooms.json` 写着每间房的编号、中心位置、面积、地板高度。
+  也可以直接请求 `http://localhost:8765/api/room-curation` ,所有房间一次全给你。
+- 房子的 3D 场景文件:
+  `/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/<split>/<编号>-<id>/<id>.glb`
+- 怎么在代码里加载场景、启动渲染环境:**照抄现成文件的开头**
+  `tools/visual/render_moving_source_video.py`(它需要的三个环境路径参数,
+  在 `tools/studio/studio_config_48g.json` 里搜 hm3d_episode 就能找到现成的值;
+  Python 用 `/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python`)。
 
-目的:俯视图定不了的房间(破洞?家具悬空?其实是露台?),渲一段绕房一周的视频亲眼看。
+**五个坑,先读一遍,每个都害过人**:
 
-**起步配方**:
+1. 加载场景用 `<id>.glb` 这个文件。**同目录还有个 `<id>.basis.glb`,长得很像,
+   千万别加载它**——那是压缩纹理版,会直接把程序崩掉(段错误)。
+2. 相机的朝向,传"看向哪个点"的**方向向量**(目标点坐标减相机坐标),
+   不要传旋转角度——这个仓库历史上两处"角度"的定义差了 60 度,向量没有歧义。
+3. 所有坐标都从 `rooms.json` 里拿或者在程序里问引擎,**不要自己去解析 3D 文件算**
+   ——原始文件和引擎里的坐标系不一样,自己算必错。
+4. 渲染要跑一阵子,挂在 nohup 或 tmux 里跑,别在登录窗口里裸跑,断线就白干。
+5. 机器是大家共用的,一次渲一间就好,别开并行。
 
-1. 环境激活**照抄现成工具**:看 `tools/visual/render_moving_source_video.py` 文件开头
-   的 runtime 激活段(它接 `--runtime-prefix / --magnum-site / --rlr-sdk-root` 三个参数;
-   三个参数的值在 `tools/studio/studio_config_48g.json` 的 `hm3d_episode` 模板默认值里,
-   解释器用 `/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python`)。
-2. 相机轨道:圆心 = `bbox_xz_m` 中心、高度 = `floor_y_m + 1.5`;半径 = 短边 × 0.4;
-   绕一圈 36–72 帧,每帧相机看向圆心。
-3. 帧转视频:`ffmpeg -framerate 12 -i frame_%04d.png -c:v libx264 -pix_fmt yuv420p out.mp4`。
+**建议的干法**:俯视图能定的直接盖章(大多数都能);拿不准的才渲视频
+(1,400 间全渲不划算)。脚本写好后发给 Claude 看一眼,好用的话就收进系统
+当正式功能,算你在这个仓库的第一个署名贡献。
 
-**坑清单(每条都有人流过血)**:
+## 以后的活(现在不用动,知道有这回事就行)
 
-1. 渲染加载 `<id>.glb`,**绝对不要碰 `<id>.basis.glb`**(压缩纹理版,部分加载路径直接段错误)。
-2. 相机朝向一律传 **aim 向量**(看向点 − 相机位),不要传 yaw 角——本仓库历史上两处 yaw
-   定义相差 60°,向量没有歧义。
-3. 原始 glb 文件是 Z-up,habitat 加载后是 Y-up:**所有坐标都在 habitat 里取**,
-   不要自己解析文件算;`rooms.json` 里的数已经是 habitat 坐标。
-4. 长渲染挂 `nohup`/tmux,别在登录 shell 裸跑。
-5. 显存/CPU 和车队共享:一次渲一间,别开并行。
+房间筛完之后,你接手**模型评测**:定期拿最新出的题去考 Qwen 这些模型,记分数。
+其中第一件事是修一个已知 bug:现在喂给模型的立体声在预处理时被压成了单声道,
+左右耳的差别直接没了,"声音在左边还是右边"这种题模型根本没机会答对。
+背景材料(现在不用读,接手时再看):
 
-**建议工作流**:俯视图能定的直接盖章(多数);拿不准的才渲 360°(1,400 间全渲不划算)。
-工具写好后发我 review——好用的话晋升成 studio 正式模板,算你在仓库的第一个署名贡献。
-
-## 任务二(排队):评测基线
-
-等题型全案定稿 + 出题基建(P2–P5)通了以后接手。预读两份文档即可,不用现在动手:
-
-1. **双声道管线修复**:现在 Qwen2.5-Omni 评测管线把双耳声折成单声道
-   (`preprocessed_audio_shapes=[[76800]]`),左右耳线索进模型前就被抹掉——修这个是
-   论文核心主张的前置。背景见 `docs/roadmap/DATA_EVAL_20260823_UNIQUE1000_QA.md` §4。
-2. **基线复现配方**:`docs/roadmap/SO7B_TRAIN_ABLATION_20260824.md`
-   (现最好成绩 SO-7B legacy-e3 70.9% vs Qwen 零样本 54.5%,pilot48 189 题)。
+- `docs/roadmap/DATA_EVAL_20260823_UNIQUE1000_QA.md` 的第 4 节(那个 bug 的来龙去脉)
+- `docs/roadmap/SO7B_TRAIN_ABLATION_20260824.md`(目前的模型分数都在这)
 
 ## 遇到问题
 
-段错误/黑图/坐标不对,先对照上面坑清单;仍不解就把命令和报错贴群里喊 owner 或 Claude。
+程序崩了、渲出来是黑的、坐标不对——先对照上面五个坑;还不行就把命令和报错
+贴到群里,喊 owner 或 Claude。
