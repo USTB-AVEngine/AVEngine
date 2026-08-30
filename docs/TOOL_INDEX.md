@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 260 个工具脚本。
+当前共 261 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -334,6 +334,7 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/studio/build_studio_scene_bundle.py` | Build a Studio scene bundle: preview mesh plus draft obstacle snapshot |
+| `tools/studio/feed_hm3d_fleet.py` | Keep the studio queue fed with the next un-attempted HM3D houses |
 | `tools/studio/make_paired_ablation.py` | Paired ablation variants for a rendered dynamic-audio bundle |
 | `tools/studio/run_apartment_end_to_end.py` | Studio end-to-end Apartment chain: author timeline → UE capture → audio → clip |
 | `tools/studio/run_hm3d_end_to_end.py` | One HM3D house, start to finish, in a single task |

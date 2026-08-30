@@ -56,8 +56,11 @@ footer a{color:#534ab7;text-decoration:none;margin-right:.8rem}
   <button id="go">▶ 一键跑完这栋房子</button>
   <span id="count"></span>
 </header>
-<div id="hint">选一栋房子，点一次。机器自己完成登记房间、装声学、挑一间有家具的房、排路线、出片、
-验收——约十分钟后成片带着轨迹图和绿/红章出现在下面。红章会写一句为什么红；其余细节都折起来了，不用看。</div>
+<div id="hint"><b>全量在后台自动跑批，不需要任何人点。</b>机器自己按 val→train 的顺序把每栋房子
+登记房间、装声学、挑房、排路线、出片、验收，成片带着轨迹图和绿/红章出现在下面。
+上面那颗按钮只有两个用途：插队先看某一栋，或者对红了的房子人工决定重跑一次。
+红章会写一句为什么红；其余细节都折起来了，不用看。</div>
+<div id="fleet" style="padding:.4rem 1.2rem 0;font-size:.78rem;color:var(--mut)"></div>
 <div id="running"></div>
 <div id="list"></div>
 <footer>
@@ -159,9 +162,29 @@ document.getElementById('go').onclick = async function(){
   refreshRunning();
 };
 
+// 与服务端 avengine.studio.fleet 同一套判定：一栋房子的状态取最好一次
+// （pass > 在跑 > fail），从任务自己的 argv 读它跑的是哪栋。
+function fleetLine(tasks){
+  const rank = {pass: 3, running: 2, queued: 2, fail: 1};
+  const byDir = {};
+  for (const t of tasks.filter(t => t.template === 'hm3d_end_to_end')) {
+    const argv = t.argv || [];
+    const at = argv.indexOf('--scene-dir');
+    if (at < 0 || !argv[at + 1]) continue;
+    const dir = argv[at + 1];
+    if (!byDir[dir] || (rank[t.status] || 0) > (rank[byDir[dir]] || 0)) byDir[dir] = t.status;
+  }
+  const done = Object.values(byDir).filter(s => s === 'pass').length;
+  const red = Object.values(byDir).filter(s => s === 'fail').length;
+  const total = (scenes || []).length || '?';
+  document.getElementById('fleet').textContent =
+    `全量自动跑批：${done}/${total} 栋已过` + (red ? ` · ${red} 栋红着等人工决定（在下拉里选它重跑一次即可）` : '');
+}
+
 let lastStatuses = '';
 async function refreshRunning(){
   const payload = await (await fetch('/api/tasks')).json();
+  fleetLine(payload.tasks || []);
   const mine = (payload.tasks || []).filter(t =>
     (t.template === 'hm3d_end_to_end' || t.template === 'hm3d_episode'));
   const active = mine.filter(t => t.status === 'queued' || t.status === 'running');
