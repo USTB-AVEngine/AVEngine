@@ -87,6 +87,10 @@ class Route:
         return Route(f"{self.route_id}+idle{idle_frames}", shifted,
                      self.implied_speed_mps)
 
+    @property
+    def displacement_cm(self) -> float:
+        return math.dist(self.samples_xy[0], self.samples_xy[-1])
+
 
 @dataclass
 class SceneInputs:
@@ -249,7 +253,7 @@ class PointPlan:
     camera_ue_yaw_deg: float
     target_route: Route          # 已套用静→走平移的路线(求解器视角)
     base_route: Route            # 未平移的原路线(创作时间线用)
-    other_point: tuple[float, float]
+    other_route: Route
     idle_frames: int
     anchor_frame: int
     query_frame: int
@@ -295,6 +299,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                              answer_bands: Sequence[tuple[float, float]],
                              anchor_frame: int, idle_choices: Iterable[int],
                              rng, ledger: RejectionLedger,
+                             target_moves_more: bool | None = None,
                              max_attempts: int = 4000) -> PointPlan | Rejection:
     """①F 正向错时:音频锚在前,视觉查询在后(查询帧=片尾)。
 
@@ -344,12 +349,16 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                                  f"{circular_gap_deg(az_anchor, az_end):.1f} "
                                  f"<= THETA_FULL {theta_full}"))
             continue
-        other = _pick_other_point(
-            scene, camera, yaw, az_anchor, az_end, band_lo, band_hi,
-            answer_bands, min_sep, half_fov, theta_half, params, rng, ledger)
-        if other is None:
+        other_route = _pick_other_route(
+            scene, moved, camera, yaw, az_anchor, az_end, band_lo, band_hi,
+            answer_bands, min_sep, half_fov, theta_half, params,
+            anchor_frame, FRAME_COUNT - 1, rng, ledger,
+            target_moves_more=target_moves_more)
+        if other_route is None:
             continue
-        other_answer_az = relative_azimuth_deg(camera, yaw, other)
+        other_anchor_xy = other_route.at(anchor_frame)
+        other_answer_xy = other_route.at(FRAME_COUNT - 1)
+        other_answer_az = relative_azimuth_deg(camera, yaw, other_answer_xy)
         if scene.line_of_sight is not None:
             if not scene.line_of_sight(camera, anchor_xy):
                 ledger.add(Rejection("target_occluded_at_anchor_frame"))
@@ -357,20 +366,22 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             if not scene.line_of_sight(camera, end_xy):
                 ledger.add(Rejection("target_occluded_at_query_frame"))
                 continue
-            if not scene.line_of_sight(camera, other):
+            if not scene.line_of_sight(camera, other_anchor_xy) or not \
+                    scene.line_of_sight(camera, other_answer_xy):
                 ledger.add(Rejection("other_actor_occluded"))
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id="card1F", camera_xy=camera,
             camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
-            other_point=other, idle_frames=idle, anchor_frame=anchor_frame,
+            other_route=other_route, idle_frames=idle, anchor_frame=anchor_frame,
             query_frame=FRAME_COUNT - 1,
             answer_cell={"kind": "azimuth_band", "band": [band_lo, band_hi],
                          "value_deg": az_end},
             checks={"az_anchor_deg": az_anchor, "az_end_deg": az_end,
                     "azimuth_travel_deg": circular_gap_deg(az_anchor, az_end),
                     "anchor_separation_deg": circular_gap_deg(
-                        az_anchor, relative_azimuth_deg(camera, yaw, other)),
+                        az_anchor, relative_azimuth_deg(
+                            camera, yaw, other_anchor_xy)),
                     "gatea_answer_azimuth_deg": other_answer_az,
                     "gatea_open_gold_separation_deg": circular_gap_deg(
                         az_end, other_answer_az),
@@ -389,6 +400,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                               anchor_frame: int, query_frame: int,
                               idle_choices: Iterable[int], rng,
                               ledger: RejectionLedger,
+                              target_moves_more: bool | None = None,
                               max_attempts: int = 4000) -> PointPlan | Rejection:
     """①B 反向错时:视觉查询在前,音频锚在后(末段发声确定身份)。
 
@@ -429,12 +441,16 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("insufficient_azimuth_travel_between_frames",
                                  f"{circular_gap_deg(az_anchor, az_query):.1f}"))
             continue
-        other = _pick_other_point(
-            scene, camera, yaw, az_anchor, az_query, band_lo, band_hi,
-            answer_bands, min_sep, half_fov, theta_half, params, rng, ledger)
-        if other is None:
+        other_route = _pick_other_route(
+            scene, moved, camera, yaw, az_anchor, az_query, band_lo, band_hi,
+            answer_bands, min_sep, half_fov, theta_half, params,
+            anchor_frame, query_frame, rng, ledger,
+            target_moves_more=target_moves_more)
+        if other_route is None:
             continue
-        other_answer_az = relative_azimuth_deg(camera, yaw, other)
+        other_anchor_xy = other_route.at(anchor_frame)
+        other_answer_xy = other_route.at(query_frame)
+        other_answer_az = relative_azimuth_deg(camera, yaw, other_answer_xy)
         if scene.line_of_sight is not None:
             if not scene.line_of_sight(camera, anchor_xy):
                 ledger.add(Rejection("target_occluded_at_anchor_frame"))
@@ -442,13 +458,14 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             if not scene.line_of_sight(camera, query_xy):
                 ledger.add(Rejection("target_occluded_at_query_frame"))
                 continue
-            if not scene.line_of_sight(camera, other):
+            if not scene.line_of_sight(camera, other_anchor_xy) or not \
+                    scene.line_of_sight(camera, other_answer_xy):
                 ledger.add(Rejection("other_actor_occluded"))
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id="card1B", camera_xy=camera,
             camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
-            other_point=other, idle_frames=idle, anchor_frame=anchor_frame,
+            other_route=other_route, idle_frames=idle, anchor_frame=anchor_frame,
             query_frame=query_frame,
             answer_cell={"kind": "azimuth_band", "band": [band_lo, band_hi],
                          "value_deg": az_query},
@@ -472,33 +489,55 @@ def _too_close(camera, point, params) -> bool:
     return math.hypot(point[0] - camera[0], point[1] - camera[1]) < min_cm
 
 
-def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
-                      band_hi, answer_bands, min_sep, half_fov, theta_half,
-                      params, rng, ledger):
-    """Pick the Gate-A actor for both MCQ and Open card1 forms."""
-    order = rng.permutation(len(scene.stand_points))
+def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
+                      band_lo, band_hi, answer_bands, min_sep, half_fov,
+                      theta_half, params, anchor_frame, query_frame, rng,
+                      ledger, target_moves_more=None):
+    """Pick a moving Gate-A actor for both MCQ and Open card1 forms."""
+    order = rng.permutation(len(scene.routes))
     saw_open_overlap = False
     saw_outside_answer_space = False
+    saw_motion_rank_mismatch = False
     for index in order[:64]:
         ledger.stand_points_evaluated += 1
-        candidate = scene.stand_points[int(index)]
-        az = relative_azimuth_deg(camera, yaw, candidate)
-        if abs(az) > half_fov:
+        route = scene.routes[int(index)]
+        if route.route_id == target_route.route_id:
             continue
-        if circular_gap_deg(az, az_anchor) < min_sep:
+        if target_moves_more is not None:
+            observed = target_route.displacement_cm > route.displacement_cm
+            if math.isclose(target_route.displacement_cm,
+                            route.displacement_cm, abs_tol=1e-6) or \
+                    observed != target_moves_more:
+                saw_motion_rank_mismatch = True
+                continue
+        anchor_xy = route.at(anchor_frame)
+        answer_xy = route.at(query_frame)
+        az_other_anchor = relative_azimuth_deg(camera, yaw, anchor_xy)
+        az_other_answer = relative_azimuth_deg(camera, yaw, answer_xy)
+        if abs(az_other_anchor) > half_fov or abs(az_other_answer) > half_fov:
             continue
-        if not any(lo <= az < hi for lo, hi in answer_bands):
+        if circular_gap_deg(az_other_anchor, az_anchor) < min_sep:
+            continue
+        if not any(lo <= az_other_answer < hi for lo, hi in answer_bands):
             saw_outside_answer_space = True
             continue
-        if band_lo <= az < band_hi:
+        if band_lo <= az_other_answer < band_hi:
             continue
-        if not open_angle_gold_regions_disjoint(az_answer, az, theta_half):
+        if not open_angle_gold_regions_disjoint(
+                az_answer, az_other_answer, theta_half):
             saw_open_overlap = True
             continue
-        if _too_close(camera, candidate, params):
+        if _too_close(camera, anchor_xy, params) or \
+                _too_close(camera, answer_xy, params):
             continue
-        return candidate
-    if saw_outside_answer_space:
+        return route
+    if saw_motion_rank_mismatch:
+        ledger.add(Rejection(
+            "no_second_route_for_allocated_motion_rank",
+            "moving secondary routes existed, but none satisfied the "
+            "allocated target_moves_more relation together with the spatial "
+            "question constraints"))
+    elif saw_outside_answer_space:
         ledger.add(Rejection(
             "no_second_actor_in_declared_mcq_space",
             "candidate actors were visible and separated, but at least one "
@@ -522,6 +561,7 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
                           instants: Sequence[int], profile_id: str,
                           idle_choices: Iterable[int], rng,
                           ledger: RejectionLedger,
+                          target_moves_more: bool | None = None,
                           max_attempts: int = 4000):
     """⑦/⑨ 这类**即时绑定**题的布局:不要求错时,只要求在关键时刻可绑定。
 
@@ -549,16 +589,27 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("target_outside_fov_at_binding_instant"))
             continue
         other = None
-        order = rng.permutation(len(scene.stand_points))
+        order = rng.permutation(len(scene.routes))
         for index in order[:64]:
             ledger.stand_points_evaluated += 1
-            candidate = scene.stand_points[int(index)]
-            az_other = relative_azimuth_deg(camera, yaw, candidate)
-            if abs(az_other) > half_fov:
+            candidate = scene.routes[int(index)]
+            if candidate.route_id == route.route_id:
                 continue
-            if any(circular_gap_deg(az_other, a) < min_sep for a in azimuths):
+            if target_moves_more is not None:
+                observed = moved.displacement_cm > candidate.displacement_cm
+                if math.isclose(moved.displacement_cm,
+                                candidate.displacement_cm, abs_tol=1e-6) or \
+                        observed != target_moves_more:
+                    continue
+            other_azimuths = [relative_azimuth_deg(
+                camera, yaw, candidate.at(frame)) for frame in instants]
+            if any(abs(value) > half_fov for value in other_azimuths):
                 continue
-            if _too_close(camera, candidate, params):
+            if any(circular_gap_deg(other, target) < min_sep
+                   for other, target in zip(other_azimuths, azimuths)):
+                continue
+            if any(_too_close(camera, candidate.at(frame), params)
+                   for frame in instants):
                 continue
             other = candidate
             break
@@ -572,21 +623,22 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
                        for f in instants):
                 ledger.add(Rejection("target_occluded_at_binding_instant"))
                 continue
-            if not scene.line_of_sight(camera, other):
+            if not all(scene.line_of_sight(camera, other.at(frame))
+                       for frame in instants):
                 ledger.add(Rejection("other_actor_occluded"))
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id, camera_xy=camera,
             camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
-            other_point=other, idle_frames=idle,
+            other_route=other, idle_frames=idle,
             anchor_frame=int(instants[-1]), query_frame=int(instants[0]),
             answer_cell={"kind": "binding_instants",
                          "instants": [int(f) for f in instants]},
             checks={"binding_azimuths_deg": [round(a, 2) for a in azimuths],
                     "min_separation_deg": round(
-                        min(circular_gap_deg(
-                            relative_azimuth_deg(camera, yaw, other), a)
-                            for a in azimuths), 2),
+                        min(circular_gap_deg(other_az, target_az)
+                            for other_az, target_az in zip(
+                                other_azimuths, azimuths)), 2),
                     "line_of_sight_screened": scene.line_of_sight_screened,
                     "search_attempts": attempt},
         )

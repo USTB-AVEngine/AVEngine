@@ -29,8 +29,9 @@ from scene_sampler import (  # noqa: E402
     relative_azimuth_deg,
     solve_backward_cross_time,
     solve_forward_cross_time,
+    solve_instant_binding,
     yaw_interval_for_band,
-    _pick_other_point,
+    _pick_other_route,
 )
 
 PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0,
@@ -50,12 +51,17 @@ def straight_route(route_id, start, end, speed=0.7):
 
 def synthetic_scene(scene_id="synth_a", spread=600.0, n=12, hfov=105.0):
     """一圈可站点 + 一束穿过中心的直线路线;与任何真实房间无关。"""
-    points = [(spread * math.cos(2 * math.pi * k / n),
-               spread * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    count = max(n, 24)
+    points = [(spread * math.cos(2 * math.pi * k / count),
+               spread * math.sin(2 * math.pi * k / count))
+              for k in range(count)]
     routes = []
-    for k in range(n):
+    for k in range(count):
         a = points[k]
-        b = points[(k + n // 2) % n]
+        # Neighbouring paths can remain jointly visible.  Diameter-only paths
+        # force every pair to opposite sides and are not a valid dual-motion
+        # positive fixture.
+        b = points[(k + 4) % count]
         routes.append(straight_route(f"{scene_id}_r{k}", a, b))
     return SceneInputs(scene_id=scene_id, backend="synthetic", routes=routes,
                        stand_points=points, camera_points=points,
@@ -88,6 +94,9 @@ def test_every_declared_band_is_constructible(band):
     assert plan.checks["anchor_separation_deg"] >= PARAMS["MIN_AZIMUTH_SEP"]
     assert plan.checks["gatea_open_gold_separation_deg"] > \
         2 * PARAMS["THETA_HALF"]
+    assert plan.target_route.displacement_cm > 0
+    assert plan.other_route.displacement_cm > 0
+    assert plan.target_route.route_id != plan.other_route.route_id
 
 
 def test_open_gold_separation_is_strict_at_double_half_width():
@@ -102,12 +111,19 @@ def test_open_gold_separation_is_strict_at_double_half_width():
 
 def test_gatea_actor_outside_declared_mcq_space_is_rejected():
     scene = synthetic_scene(hfov=180.0)
-    scene.stand_points = [(300.0, 0.0)]  # az=0, in the deliberate band gap
+    def polar(degrees, radius):
+        angle = math.radians(degrees)
+        return (radius * math.cos(angle), radius * math.sin(angle))
+    target = straight_route("target", polar(-40.0, 300.0),
+                            polar(-40.0, 350.0))
+    candidate = straight_route("candidate", polar(25.0, 300.0),
+                               polar(25.0, 350.0))
+    scene.routes = [candidate]  # +25deg is in the deliberate MCQ band gap
     ledger = RejectionLedger()
-    result = _pick_other_point(
-        scene, (0.0, 0.0), 0.0, -40.0, -40.0, -50.0, -30.0,
+    result = _pick_other_route(
+        scene, target, (0.0, 0.0), 0.0, -40.0, -40.0, -50.0, -30.0,
         [(-50.0, -30.0), (30.0, 50.0)], 25.0, 90.0, 30.0,
-        PARAMS, np.random.default_rng(1), ledger)
+        PARAMS, 0, 74, np.random.default_rng(1), ledger)
     assert result is None
     assert "no_second_actor_in_declared_mcq_space" in \
         ledger.summary()["by_reason"]
@@ -115,13 +131,13 @@ def test_gatea_actor_outside_declared_mcq_space_is_rejected():
 
 def test_same_code_runs_on_a_second_scene_without_changes():
     """场景无关的最小证据:换一个几何完全不同的场景,同一调用直接跑。"""
-    rng = np.random.default_rng(3)
     for scene in (synthetic_scene("synth_a", spread=600.0, n=12),
                   synthetic_scene("synth_b", spread=250.0, n=8)):
+        rng = np.random.default_rng(7)
         ledger = RejectionLedger()
         plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
                                         answer_bands=BANDS,
-                                        anchor_frame=45, idle_choices=(0, 8),
+                                        anchor_frame=45, idle_choices=(0, 8, 16),
                                         rng=rng, ledger=ledger)
         assert not isinstance(plan, Rejection), (scene.scene_id,
                                                  ledger.summary())
@@ -175,8 +191,8 @@ def test_occlusion_screen_is_used_when_provided_and_reported_when_not():
     ledger = RejectionLedger()
     plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
                                     answer_bands=BANDS,
-                                    anchor_frame=45, idle_choices=(0, 8),
-                                    rng=np.random.default_rng(11),
+                                    anchor_frame=45, idle_choices=(0, 8, 16),
+                                    rng=np.random.default_rng(7),
                                     ledger=ledger)
     assert not isinstance(plan, Rejection)
     assert plan.checks["line_of_sight_screened"] is False   # 未筛须如实标注
@@ -186,8 +202,8 @@ def test_occlusion_screen_is_used_when_provided_and_reported_when_not():
     ledger2 = RejectionLedger()
     plan2 = solve_forward_cross_time(blind, PARAMS, answer_band=BANDS[1],
                                      answer_bands=BANDS,
-                                     anchor_frame=45, idle_choices=(0, 8),
-                                     rng=np.random.default_rng(11),
+                                     anchor_frame=45, idle_choices=(0, 8, 16),
+                                     rng=np.random.default_rng(7),
                                      ledger=ledger2, max_attempts=300)
     assert isinstance(plan2, Rejection)
     assert "target_occluded_at_anchor_frame" in ledger2.summary()["by_reason"]
@@ -208,6 +224,18 @@ def test_backward_cross_time_queries_an_earlier_frame():
     assert plan.checks["requires_silence_near_query"] is True
     lo, hi = BANDS[0]
     assert lo <= plan.answer_cell["value_deg"] < hi
+    assert plan.other_route.displacement_cm > 0
+
+
+def test_instant_binding_uses_two_moving_routes():
+    scene = synthetic_scene()
+    ledger = RejectionLedger()
+    plan = solve_instant_binding(
+        scene, PARAMS, instants=[12, 40], profile_id="card9",
+        idle_choices=(0, 8), rng=np.random.default_rng(22), ledger=ledger)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    assert plan.target_route.route_id != plan.other_route.route_id
+    assert plan.other_route.displacement_cm > 0
 
 
 def test_idle_shift_preserves_speed_and_endpoint_order():

@@ -323,6 +323,7 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             answer_bands=[tuple(b) for b in profile["answer_bands_deg"]],
             anchor_frame=profile["anchor_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            target_moves_more=cell["target_moves_more"],
             max_attempts=profile.get("max_attempts", 3000))
     if temporal == "backward":
         return SS.solve_backward_cross_time(
@@ -331,12 +332,14 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             anchor_frame=profile["anchor_frame"],
             query_frame=profile["query_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            target_moves_more=cell["target_moves_more"],
             max_attempts=profile.get("max_attempts", 3000))
     if temporal == "instant":
         return SS.solve_instant_binding(
             scene, params, instants=profile["binding_frames"],
             profile_id=profile["id"], idle_choices=profile["idle_choices"],
             rng=rng, ledger=ledger,
+            target_moves_more=cell["target_moves_more"],
             max_attempts=profile.get("max_attempts", 3000))
     raise ValueError(f"unknown temporal relation {temporal!r}")
 
@@ -457,6 +460,8 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
             "answer_coat": answer_coats,
             "target_coat": target_coats,
             "target_slot": target_slots,
+            "target_moves_more": balanced(
+                [True, False], n, seed, profile["id"], "motion-rank"),
         }
     for profile in profiles:
         alloc = per_profile[profile["id"]]
@@ -469,6 +474,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                 "target_first": bool(alloc["target_first"][index]),
                 "answer_coat": alloc["answer_coat"][index],
                 "target_slot": alloc["target_slot"][index],
+                "target_moves_more": alloc["target_moves_more"][index],
             }
             target_coat = alloc["target_coat"][index]
             entry["target_coat"] = target_coat
@@ -642,9 +648,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
 
     # 时间线:相机与折线都来自求解结果
     base_route = plan.base_route.samples_xy      # 未平移:创作用原路线
+    other_route = plan.other_route.samples_xy
     z = render_context["ground_z_ue_cm"]
     routes = {target_slot: (base_route[0], base_route[-1], base_route),
-              other_slot: (plan.other_point, plan.other_point, None)}
+              other_slot: (other_route[0], other_route[-1], other_route)}
     s1, s2 = routes["source1"], routes["source2"]
     timeline = author_current_apartment_visual_timeline(
         actor_selection_path=pdir / "actor_selection.json",
@@ -681,6 +688,39 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                           slot_events, target_slot, other_slot, slot_coat,
                           truth_deg, query_frame, params)
 
+    def displacement_cm(slot):
+        states = []
+        for frame in timeline["frames"]:
+            states.append(next(state for state in frame["actor_states"]
+                               if state["source_slot_id"] == slot))
+        start, end = states[0]["translation_ue_cm"], states[-1]["translation_ue_cm"]
+        return float(np.linalg.norm(np.asarray(end) - np.asarray(start)))
+
+    motion = {
+        "source1_route_id": (plan.target_route.route_id
+                             if target_slot == "source1"
+                             else plan.other_route.route_id),
+        "source2_route_id": (plan.target_route.route_id
+                             if target_slot == "source2"
+                             else plan.other_route.route_id),
+        "source1_displacement_cm": displacement_cm("source1"),
+        "source2_displacement_cm": displacement_cm("source2"),
+    }
+    motion["both_roles_move"] = (
+        motion["source1_displacement_cm"] > 0.0
+        and motion["source2_displacement_cm"] > 0.0)
+    observed_target_moves_more = (
+        motion[f"{target_slot}_displacement_cm"]
+        > motion[f"{other_slot}_displacement_cm"])
+    motion["target_moves_more"] = observed_target_moves_more
+    motion["allocated_target_moves_more"] = bool(cell["target_moves_more"])
+    if not motion["both_roles_move"]:
+        raise GenerationConstraintError(
+            f"{pid}: dual-motion profile produced a static role: {motion}")
+    if observed_target_moves_more != bool(cell["target_moves_more"]):
+        raise GenerationConstraintError(
+            f"{pid}: realised motion rank disagrees with allocation: {motion}")
+
     fact = {
         "schema": "qa_v3_fact_record_v2",
         "variant": "main",
@@ -702,6 +742,7 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             "world_transform": render_context["world_transform_id"],
             "ground_z_ue_cm": render_context["ground_z_ue_cm"],
         },
+        "motion": motion,
         "answer_kind": answer_kind,
         "truth": dict(answer["truth"],
                       query_azimuth_deg=round(truth_deg, 3),
@@ -975,6 +1016,11 @@ def conditional_balance(records):
             bump("target_first_caller", record["target_first"])
         if record.get("first_caller_slot"):
             bump("first_caller_slot", record["first_caller_slot"])
+        motion = record.get("motion") or {}
+        if "target_moves_more" in motion:
+            bump("target_moves_more", motion["target_moves_more"])
+        if motion.get("both_roles_move") is not None:
+            bump("both_roles_move", motion["both_roles_move"])
     return out
 
 
