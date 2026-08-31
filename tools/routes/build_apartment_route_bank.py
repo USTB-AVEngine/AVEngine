@@ -56,6 +56,22 @@ FRAME_COUNT = 75
 CLIP_SECONDS = 5.0
 
 
+def summarize_navigation_ground(sampled: np.ndarray) -> dict[str, float]:
+    """Ground-height evidence from UE navigation points, in UE centimetres."""
+    points = np.asarray(sampled, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 3 or points.shape[0] == 0:
+        raise ValueError("navigation samples must be a non-empty Nx3 array")
+    z = points[:, 2]
+    if not np.isfinite(z).all():
+        raise ValueError("navigation sample z values must be finite")
+    return {
+        "sampled_ground_z_min_ue_cm": round(float(z.min()), 4),
+        "sampled_ground_z_median_ue_cm": round(float(np.median(z)), 4),
+        "sampled_ground_z_max_ue_cm": round(float(z.max()), 4),
+        "sampled_ground_z_span_ue_cm": round(float(z.max() - z.min()), 4),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spear-executable", required=True, type=Path)
@@ -180,6 +196,7 @@ def _query_routes(args, executable: Path):
         "navigation_data_actor": data_name,
         "sampled_points": int(sampled.shape[0]),
         "requested_pairs": int(starts.shape[0]),
+        **summarize_navigation_ground(sampled),
     }
 
 

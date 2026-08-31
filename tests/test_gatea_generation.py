@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -21,6 +22,7 @@ from design_qa_v3_scene_batch import (  # noqa: E402
     resolve_scene_render_context,
     validate_anchor_binding,
     validate_profiles,
+    main as design_main,
 )
 
 
@@ -210,3 +212,45 @@ def test_profile_typo_is_a_preflight_error():
     }
     with pytest.raises(ValueError, match="invalid anchor_binding"):
         validate_profiles([profile])
+
+
+def test_missing_ground_fails_before_output_directory_is_created(tmp_path):
+    route_bank = tmp_path / "routes.json"
+    route_bank.write_text(json.dumps({
+        "schema": "avengine_apartment_route_bank_v1",
+        "routes": [{"route_id": "r1", "implied_speed_mps": 0.5,
+                    "samples_ue_cm": [[float(i), 0.0] for i in range(75)]}],
+    }))
+    camera = tmp_path / "camera.json"
+    camera.write_text(json.dumps({
+        "primary_camera_rig": {
+            "world_from_rig": {"translation_m": [0.0, 1.471, 0.0]},
+            "shared_calibration": {"hfov_degrees": 105.0},
+        },
+        "listener": {"rig_from_listener": {"translation_m": [0.0, 0.0, 0.0]}},
+    }))
+    scene = tmp_path / "scene.json"
+    scene.write_text(json.dumps({
+        "scene_id": "missing-ground", "backend": "ue_spear",
+        "route_bank": str(route_bank), "camera_base_request": str(camera),
+        "render": {"native_map": "/Game/Test/Map",
+                   "room_profile_id": "test-room",
+                   "world_transform": "ue_xyz_cm_to_xzy_m_v1"},
+    }))
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(json.dumps([{
+        "id": "card1F", "temporal": "forward",
+        "answer_kind": "azimuth_band", "anchor_binding": "target",
+        "anchor_frame": 40, "idle_choices": [0],
+        "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]],
+    }]))
+    params = tmp_path / "params.json"
+    params.write_text("{}")
+    output = tmp_path / "must-not-exist"
+    with pytest.raises(ValueError, match="ground_z_ue_cm"):
+        design_main([
+            "--scene-config", str(scene), "--profiles", str(profiles),
+            "--params", str(params), "--out-root", str(output),
+            "--seed", "test",
+        ])
+    assert not output.exists()

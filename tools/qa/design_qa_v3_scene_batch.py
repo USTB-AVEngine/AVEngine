@@ -128,6 +128,14 @@ def git_worktree_state(repo=REPO):
     return {"revision": revision, "dirty": bool(status), "status": status}
 
 
+def content_sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 WORLD_TRANSFORMS = {
     "ue_xyz_cm_to_xzy_m_v1": apartment_ue_point_to_world_m,
 }
@@ -357,6 +365,16 @@ def validate_profiles(profiles):
         if profile.get("answer_kind", "azimuth_band") not in valid_answer:
             raise ValueError(
                 f"{pid}: invalid answer_kind {profile.get('answer_kind')!r}")
+        required = {"idle_choices"}
+        if profile["temporal"] == "forward":
+            required |= {"anchor_frame", "answer_bands_deg"}
+        elif profile["temporal"] == "backward":
+            required |= {"anchor_frame", "query_frame", "answer_bands_deg"}
+        else:
+            required |= {"binding_frames"}
+        missing = sorted(key for key in required if key not in profile)
+        if missing:
+            raise ValueError(f"{pid}: missing required profile fields {missing}")
 
 
 def build_cell_plan(cells, profiles, pair_assets, params, seed):
@@ -485,6 +503,10 @@ def main(argv=None) -> int:
     params = json.loads(args.params.read_text())
     validate_profiles(profiles)
     scene = SS.load_scene(scene_cfg)
+    # Validate all render facts before creating the fresh output directory.
+    # Missing ground/map/transform is configuration failure, not a partially
+    # realised candidate that should poison the no-clobber path.
+    resolve_scene_render_context(scene)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())
@@ -870,13 +892,15 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
         truth = slot_coat[calling[0]]
         options = ["black-and-white", "yellow", "both", "neither"]
         seconds = query_frame / 15.0
+        moment = (f"At zero-based video frame index {query_frame} "
+                  f"({query_frame}/15 seconds)")
         return {"truth": {"calling_at_query": truth,
+                          "query_frame": query_frame,
                           "query_second": round(seconds, 4)},
-                "mcq": {"stem": (f"At {seconds:.1f} seconds on the video "
-                                 "clock, which dog is barking?"),
+                "mcq": {"stem": f"{moment}, which dog is barking?",
                         "options_space": options, "truth_option": truth},
-                "open": {"stem": (f"Which dog, if any, is barking at "
-                                  f"{seconds:.1f} seconds?"),
+                "open": {"stem": (f"{moment}, which dog, if any, is "
+                                  "barking?"),
                          "truth_value": truth, "scoring": "closed_set"}}
     if kind == "time_band":
         edges = AP.card8_band_edges(params)
@@ -1011,6 +1035,10 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
         "inputs": {
             "scene_config": str(args.scene_config.resolve()),
             "scene_config_content": scene_cfg,
+            "route_bank_content_sha256": content_sha256(
+                scene_cfg["route_bank"]),
+            "camera_base_request_content_sha256": content_sha256(
+                scene_cfg["camera_base_request"]),
             "profiles": str(args.profiles.resolve()),
             "profiles_content": profiles,
             "params": str(args.params.resolve()),
