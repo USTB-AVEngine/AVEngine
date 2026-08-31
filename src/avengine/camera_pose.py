@@ -132,3 +132,37 @@ __all__ = [
     "normalized_yaw_degrees",
     "yaw_rotation_xyzw",
 ]
+
+
+def ue_yaw_to_pose_yaw_degrees(ue_yaw_degrees: float) -> float:
+    """Convert a UE actor yaw into this module's ``yaw_deg`` convention.
+
+    The two conventions differ by a quarter turn and a sign: the UE timeline
+    yaw measures the camera's facing in the UE ``(x, y)`` plane, while the pose
+    helpers here rotate the habitat rig whose forward is ``-Z``. Writing the
+    relation once, here, keeps callers from re-deriving it — an off-by-90
+    degree guess produces a request whose listener faces elsewhere than the
+    rendered picture, which is exactly the silent audio/video mismatch that
+    ``assert_listener_matches_capture_yaw`` now refuses at render time.
+    """
+
+    return normalized_yaw_degrees(-(float(ue_yaw_degrees) + 90.0))
+
+
+def apply_camera_listener_pose_ue(
+    request,
+    *,
+    request_id: str,
+    position_m,
+    ue_yaw_degrees: float,
+    horizontal_fov_deg: float | None = None,
+):
+    """``apply_camera_listener_pose`` addressed by UE yaw instead of pose yaw."""
+
+    return apply_camera_listener_pose(
+        request,
+        request_id=request_id,
+        position_m=position_m,
+        yaw_deg=ue_yaw_to_pose_yaw_degrees(ue_yaw_degrees),
+        horizontal_fov_deg=horizontal_fov_deg,
+    )
