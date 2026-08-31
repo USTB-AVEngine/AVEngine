@@ -10,6 +10,7 @@ and saves the resulting actors into a new level.
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -45,6 +46,52 @@ require(
     not unreal.EditorAssetLibrary.does_directory_exist(destination_path),
     f"destination already exists: {destination_path}",
 )
+raw_lights = request.get("visual_lights", [])
+require(isinstance(raw_lights, list), "visual_lights must be a list")
+visual_lights = []
+light_ids = set()
+for index, raw in enumerate(raw_lights):
+    require(isinstance(raw, dict), f"visual_lights[{index}] must be an object")
+    light_id = raw.get("light_id")
+    require(
+        isinstance(light_id, str) and light_id and light_id not in light_ids,
+        f"visual_lights[{index}].light_id must be unique and nonempty",
+    )
+    light_ids.add(light_id)
+    position = raw.get("position_ue_cm")
+    require(
+        isinstance(position, list)
+        and len(position) == 3
+        and all(
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            for value in position
+        ),
+        f"visual_lights[{index}].position_ue_cm is invalid",
+    )
+    record = {
+        "light_id": light_id,
+        "position_ue_cm": [float(value) for value in position],
+    }
+    for name in (
+        "intensity_lumens",
+        "attenuation_radius_cm",
+        "temperature_kelvin",
+        "source_radius_cm",
+        "soft_source_radius_cm",
+    ):
+        value = raw.get(name)
+        require(
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            and float(value) >= 0.0
+            and (name in {"source_radius_cm", "soft_source_radius_cm"} or float(value) > 0.0),
+            f"visual_lights[{index}].{name} is invalid",
+        )
+        record[name] = float(value)
+    visual_lights.append(record)
 
 level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 require(level_subsystem.new_level(map_path), f"could not create level: {map_path}")
@@ -91,6 +138,32 @@ asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
 asset_tools.import_asset_tasks([task])
 imported_paths = [str(value) for value in task.get_editor_property("imported_object_paths")]
 require(imported_paths, "USD stage import created no object paths")
+light_readbacks = []
+for light in visual_lights:
+    position = light["position_ue_cm"]
+    actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
+        unreal.PointLight,
+        unreal.Vector(position[0], position[1], position[2]),
+        unreal.Rotator(0.0, 0.0, 0.0),
+    )
+    require(actor is not None, f"could not spawn visual light {light['light_id']}")
+    actor.set_actor_label(f"AVEngine_{light['light_id']}")
+    actor.tags = ["avengine_visual_only_light"]
+    component = actor.get_component_by_class(unreal.PointLightComponent)
+    require(component is not None, f"visual light {light['light_id']} lacks component")
+    component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+    component.set_editor_property("intensity", light["intensity_lumens"])
+    component.set_editor_property("attenuation_radius", light["attenuation_radius_cm"])
+    component.set_editor_property("cast_shadows", True)
+    component.set_editor_property("source_radius", light["source_radius_cm"])
+    component.set_editor_property("soft_source_radius", light["soft_source_radius_cm"])
+    component.set_editor_property("use_temperature", True)
+    component.set_editor_property("temperature", light["temperature_kelvin"])
+    light_readbacks.append({
+        **light,
+        "intensity_readback": float(component.get_editor_property("intensity")),
+        "temperature_readback": float(component.get_editor_property("temperature")),
+    })
 require(level_subsystem.save_current_level(), f"could not save level: {map_path}")
 unreal.EditorAssetLibrary.save_directory(destination_path, only_if_is_dirty=False)
 
@@ -133,6 +206,7 @@ result = {
     "destination_asset_classes": dict(sorted(asset_classes.items())),
     "static_mesh_count": static_mesh_count,
     "usd_stage_actor_count": usd_stage_actor_count,
+    "visual_lights": light_readbacks,
     "applied_options": applied_options,
     "claim_boundary": (
         "editor-materialized Unreal assets for internal research packaging; "
