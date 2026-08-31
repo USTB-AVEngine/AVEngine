@@ -43,6 +43,7 @@ import numpy as np
 
 from avengine.backends.spear_ue.research_runtime import (
     launch_external_game_instance,
+    read_actor_pose,
     run_frame_transaction,
 )
 from avengine.route_sampling import (
@@ -145,6 +146,29 @@ def _navigation_handles(instance, game) -> tuple[object, int, str]:
     return navigation_actors[data_name], system, data_name
 
 
+def _runtime_scene_inventory(instance, game) -> dict:
+    """Persist runtime map evidence needed to interpret navigation heights."""
+    unreal = game.unreal_service
+    actors = run_frame_transaction(
+        instance, apply=lambda: None,
+        readback=lambda: unreal.find_actors_as_dict(
+            as_unreal_object=True, with_sp_funcs=True),
+    )
+    floor_poses = {}
+    navigation_names = []
+    for name, actor in actors.items():
+        lowered = str(name).lower()
+        if "nav" in lowered:
+            navigation_names.append(str(name))
+        if "floor" in lowered:
+            floor_poses[str(name)] = read_actor_pose(actor)
+    return {
+        "runtime_actor_count": len(actors),
+        "runtime_navigation_actor_names": sorted(navigation_names),
+        "runtime_floor_actor_poses": floor_poses,
+    }
+
+
 def _query_routes(args, executable: Path):
     """Launch SpearSim once and pull raw paths out of UE's navigation system."""
     with _scratch_working_directory():
@@ -161,6 +185,7 @@ def _query_routes(args, executable: Path):
             navigation_data, navigation_system, data_name = _navigation_handles(
                 instance, game
             )
+            runtime_scene = _runtime_scene_inventory(instance, game)
 
             points = run_frame_transaction(
                 instance,
@@ -197,6 +222,7 @@ def _query_routes(args, executable: Path):
         "sampled_points": int(sampled.shape[0]),
         "requested_pairs": int(starts.shape[0]),
         **summarize_navigation_ground(sampled),
+        **runtime_scene,
     }
 
 
