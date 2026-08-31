@@ -47,6 +47,18 @@ def circular_gap_deg(a: float, b: float) -> float:
     return abs((a - b + 180.0) % 360.0 - 180.0)
 
 
+def open_angle_gold_regions_disjoint(
+        main_deg: float, gatea_deg: float, theta_half: float) -> bool:
+    """Whether two angular golds have disjoint wide-credit regions.
+
+    Card1 Open uses a wide half-credit radius of ``THETA_HALF`` around each
+    gold. Merely changing the numeric truth is insufficient: the two regions
+    are disjoint only when their circular distance is strictly greater than
+    twice that radius.
+    """
+    return circular_gap_deg(main_deg, gatea_deg) > 2.0 * float(theta_half)
+
+
 def yaw_interval_for_band(camera_xy, point_xy, band_lo: float,
                           band_hi: float) -> tuple[float, float]:
     """解出使 point 的相对方位落进 [band_lo, band_hi) 的 yaw 区间。
@@ -290,6 +302,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
     """
     half_fov = scene.hfov_deg / 2.0
     theta_full = float(params["THETA_FULL"])
+    theta_half = float(params["THETA_HALF"])
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
     n_routes, n_cams = len(scene.routes), len(scene.camera_points)
@@ -325,11 +338,12 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                                  f"{circular_gap_deg(az_anchor, az_end):.1f} "
                                  f"<= THETA_FULL {theta_full}"))
             continue
-        other = _pick_other_point(scene, camera, yaw, az_anchor, az_end,
-                                  band_lo, band_hi, min_sep, half_fov, rng,
-                                  ledger)
+        other = _pick_other_point(
+            scene, camera, yaw, az_anchor, az_end, band_lo, band_hi,
+            min_sep, half_fov, theta_half, rng, ledger)
         if other is None:
             continue
+        other_answer_az = relative_azimuth_deg(camera, yaw, other)
         if scene.line_of_sight is not None:
             if not scene.line_of_sight(camera, end_xy):
                 ledger.add(Rejection("target_occluded_at_query_frame"))
@@ -348,6 +362,10 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                     "azimuth_travel_deg": circular_gap_deg(az_anchor, az_end),
                     "anchor_separation_deg": circular_gap_deg(
                         az_anchor, relative_azimuth_deg(camera, yaw, other)),
+                    "gatea_answer_azimuth_deg": other_answer_az,
+                    "gatea_open_gold_separation_deg": circular_gap_deg(
+                        az_end, other_answer_az),
+                    "gatea_open_min_separation_deg": 2.0 * theta_half,
                     "line_of_sight_screened": scene.line_of_sight_screened,
                     "search_attempts": attempt},
         )
@@ -370,6 +388,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     """
     half_fov = scene.hfov_deg / 2.0
     theta_full = float(params["THETA_FULL"])
+    theta_half = float(params["THETA_HALF"])
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
     n_routes, n_cams = len(scene.routes), len(scene.camera_points)
@@ -400,11 +419,12 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("insufficient_azimuth_travel_between_frames",
                                  f"{circular_gap_deg(az_anchor, az_query):.1f}"))
             continue
-        other = _pick_other_point(scene, camera, yaw, az_anchor, az_query,
-                                  band_lo, band_hi, min_sep, half_fov, rng,
-                                  ledger)
+        other = _pick_other_point(
+            scene, camera, yaw, az_anchor, az_query, band_lo, band_hi,
+            min_sep, half_fov, theta_half, rng, ledger)
         if other is None:
             continue
+        other_answer_az = relative_azimuth_deg(camera, yaw, other)
         if scene.line_of_sight is not None and not scene.line_of_sight(
                 camera, query_xy):
             ledger.add(Rejection("target_occluded_at_query_frame"))
@@ -418,6 +438,10 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                          "value_deg": az_query},
             checks={"az_anchor_deg": az_anchor, "az_query_deg": az_query,
                     "azimuth_travel_deg": circular_gap_deg(az_anchor, az_query),
+                    "gatea_answer_azimuth_deg": other_answer_az,
+                    "gatea_open_gold_separation_deg": circular_gap_deg(
+                        az_query, other_answer_az),
+                    "gatea_open_min_separation_deg": 2.0 * theta_half,
                     "line_of_sight_screened": scene.line_of_sight_screened,
                     "requires_silence_near_query": True,
                     "search_attempts": attempt},
@@ -433,9 +457,11 @@ def _too_close(camera, point, params) -> bool:
 
 
 def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
-                      band_hi, min_sep, half_fov, rng, ledger):
-    """另一角色:锚定时刻方位分离达标、在视锥内、且不与答案同带。"""
+                      band_hi, min_sep, half_fov, theta_half, rng,
+                      ledger):
+    """Pick the Gate-A actor for both MCQ and Open card1 forms."""
     order = rng.permutation(len(scene.stand_points))
+    saw_open_overlap = False
     for index in order[:64]:
         ledger.stand_points_evaluated += 1
         candidate = scene.stand_points[int(index)]
@@ -446,13 +472,24 @@ def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
             continue
         if band_lo <= az < band_hi:
             continue
+        if not open_angle_gold_regions_disjoint(az_answer, az, theta_half):
+            saw_open_overlap = True
+            continue
         if _too_close(camera, candidate, {"MIN_CAMERA_DISTANCE_CM": 100.0}):
             continue
         return candidate
-    ledger.add(Rejection("no_separable_second_actor",
-                         "no navigable stand point clears the anchor-instant "
-                         "azimuth separation while staying out of the answer "
-                         "band and inside the field of view"))
+    if saw_open_overlap:
+        ledger.add(Rejection(
+            "no_second_actor_with_disjoint_open_gold",
+            "candidate actors existed outside the main MCQ band, but none "
+            f"was more than {2.0 * theta_half:.1f} degrees from the main Open "
+            "gold"))
+    else:
+        ledger.add(Rejection(
+            "no_separable_second_actor",
+            "no navigable stand point clears the anchor-instant azimuth "
+            "separation while staying out of the answer band and inside "
+            "the field of view"))
     return None
 
 def solve_instant_binding(scene: SceneInputs, params: dict, *,

@@ -25,13 +25,15 @@ from scene_sampler import (  # noqa: E402
     SceneInputs,
     circular_gap_deg,
     load_scene,
+    open_angle_gold_regions_disjoint,
     relative_azimuth_deg,
     solve_backward_cross_time,
     solve_forward_cross_time,
     yaw_interval_for_band,
 )
 
-PARAMS = {"THETA_FULL": 15.0, "MIN_AZIMUTH_SEP": 25.0,
+PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0,
+          "MIN_AZIMUTH_SEP": 25.0,
           "MIN_CAMERA_DISTANCE_CM": 100.0}
 BANDS = [(-52.5, -17.5), (-17.5, 17.5), (17.5, 52.5)]
 
@@ -82,6 +84,16 @@ def test_every_declared_band_is_constructible(band):
     assert lo <= plan.answer_cell["value_deg"] < hi
     assert plan.checks["azimuth_travel_deg"] > PARAMS["THETA_FULL"]
     assert plan.checks["anchor_separation_deg"] >= PARAMS["MIN_AZIMUTH_SEP"]
+    assert plan.checks["gatea_open_gold_separation_deg"] > \
+        2 * PARAMS["THETA_HALF"]
+
+
+def test_open_gold_separation_is_strict_at_double_half_width():
+    """A changed number is not enough when the two credit bands overlap."""
+    assert not open_angle_gold_regions_disjoint(0.0, 59.999, 30.0)
+    assert not open_angle_gold_regions_disjoint(0.0, 60.0, 30.0)
+    assert open_angle_gold_regions_disjoint(0.0, 60.001, 30.0)
+    assert open_angle_gold_regions_disjoint(179.0, -119.0, 30.0)
 
 
 def test_same_code_runs_on_a_second_scene_without_changes():

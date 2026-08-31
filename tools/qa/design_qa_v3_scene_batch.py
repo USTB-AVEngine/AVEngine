@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import sys
@@ -101,6 +102,84 @@ def band_of(value, edges):
         if edges[i] <= value < edges[i + 1]:
             return i
     return None
+
+
+def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
+                     gatea_answer, params):
+    """Verify a profile-specific Gate A under both answer forms.
+
+    A waveform difference is not enough.  The intervention must preserve
+    event timing and all non-slot audio fields, change the slot sequence,
+    flip the MCQ gold, and separate the Open golds under that form's actual
+    scorer.
+    """
+    main_events = main_program["events"]
+    gatea_events = gatea_program["events"]
+
+    def without_slot(event):
+        return {k: v for k, v in event.items()
+                if k not in ("event_id", "source_endpoint_id")}
+
+    structure = {
+        "event_count_same": len(main_events) == len(gatea_events),
+        "candidate_endpoints_same": (
+            main_program["candidate_source_endpoint_ids"]
+            == gatea_program["candidate_source_endpoint_ids"]),
+        "non_slot_event_fields_same": (
+            [without_slot(e) for e in main_events]
+            == [without_slot(e) for e in gatea_events]),
+        "slot_sequence_changed": (
+            [e["source_endpoint_id"] for e in main_events]
+            != [e["source_endpoint_id"] for e in gatea_events]),
+    }
+    mcq_flipped = (main_answer["mcq"]["truth_option"]
+                   != gatea_answer["mcq"]["truth_option"])
+    main_open = main_answer["open"]
+    gatea_open = gatea_answer["open"]
+    scoring = main_open["scoring"]
+    if scoring != gatea_open["scoring"]:
+        raise ValueError("Gate A changed the Open scoring protocol")
+    if scoring == "circular_deg":
+        separation = SS.circular_gap_deg(
+            float(main_open["truth_value"]),
+            float(gatea_open["truth_value"]))
+        threshold = 2.0 * float(params["THETA_HALF"])
+        open_separated = separation > threshold
+        open_rule = "circular_distance > 2*THETA_HALF"
+    elif scoring == "absolute_time":
+        separation = abs(float(main_open["truth_value"])
+                         - float(gatea_open["truth_value"]))
+        threshold = float(params["T_HALF"])
+        open_separated = separation > threshold
+        open_rule = "absolute_time_difference > T_HALF"
+    elif scoring == "closed_set":
+        separation = None
+        threshold = None
+        open_separated = (main_open["truth_value"]
+                          != gatea_open["truth_value"])
+        open_rule = "closed_set_gold_changed"
+    else:
+        raise ValueError(f"no Gate A Open audit for scoring {scoring!r}")
+
+    checks = {
+        **structure,
+        "mcq_gold_flipped": mcq_flipped,
+        "open_gold_separated": open_separated,
+        "open_separation": separation,
+        "open_min_separation": threshold,
+        "open_rule": open_rule,
+        "profile_id": profile["id"],
+    }
+    failed = [k for k, value in structure.items() if not value]
+    if not mcq_flipped:
+        failed.append("mcq_gold_flipped")
+    if not open_separated:
+        failed.append("open_gold_separated")
+    if failed:
+        raise ValueError(
+            f"{profile['id']} Gate A failed generation checks: {failed}; "
+            f"open separation={separation}, threshold={threshold}")
+    return checks
 
 
 def solve_for_profile(profile, cell, scene, params, rng, ledger):
@@ -338,15 +417,22 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     else:
         schedule = AP.schedule_exactly_one_calling(
             rng, params=params, query_frame=plan.query_frame)
-    slot_events = schedule.bind({AP.TARGET: target_slot, AP.OTHER: other_slot})
+    main_role_to_slot = {AP.TARGET: target_slot, AP.OTHER: other_slot}
+    gatea_role_to_slot = {AP.TARGET: other_slot, AP.OTHER: target_slot}
+    slot_events = schedule.bind(main_role_to_slot)
+    gatea_slot_events = schedule.bind(gatea_role_to_slot)
 
     request = {"pair_kind": "dog", "point_id": pid,
                "endpoint_1": EP_MAP[assets[0]][0],
                "endpoint_2": EP_MAP[assets[1]][1],
                "sound_asset_id": params["SOUND_ASSET"]}
     program = build_program(request, slot_events)
+    gatea_program = build_program(
+        request, gatea_slot_events, revision="gateA_v1")
     (programs_dir / f"{program['program_id']}.json").write_text(
         json.dumps(program, ensure_ascii=False, indent=1))
+    (programs_dir / f"{gatea_program['program_id']}.json").write_text(
+        json.dumps(gatea_program, ensure_ascii=False, indent=1))
 
     # 时间线:相机与折线都来自求解结果
     base_route = plan.base_route.samples_xy      # 未平移:创作用原路线
@@ -389,6 +475,7 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
 
     fact = {
         "schema": "qa_v3_fact_record_v2",
+        "variant": "main",
         "point_id": pid, "scene_id": scene.scene_id,
         "profile_id": profile["id"],
         "evidence_class": "geometry_candidate",
@@ -410,11 +497,13 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "open": answer["open"],
         "audio": {"program_id": program["program_id"],
                   "anchor_role": schedule.anchor.role,
-                  "anchor_slot": target_slot,
+                  "anchor_slot": main_role_to_slot[schedule.anchor.role],
                   "declared": schedule.declared,
-                  "events": [{"role": e.role, "purpose": e.purpose,
+                  "events": [{"role": e.role, "slot": slot,
+                              "purpose": e.purpose,
                               "start_sample": e.start_sample}
-                             for e in schedule.events]},
+                             for e, (slot, _) in zip(
+                                 schedule.events, slot_events)]},
         "target_first": cell.get("target_first"),
         "first_caller_slot": answer.get("first_caller_slot"),
         "search_attempts": plan.checks.get("search_attempts"),
@@ -443,9 +532,109 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         if calling != [target_slot]:
             raise ValueError("the query-instant caller is not the question "
                              f"target (span {span})")
+    gatea_target_slot, gatea_other_slot, gatea_answer, gatea_truth_deg, \
+        gatea_other_deg = build_gatea_answer(
+            answer_kind, profile, cell, timeline, schedule,
+            gatea_slot_events, target_slot, other_slot, slot_coat,
+            query_frame, params)
+    gatea_checks = audit_gatea_pair(
+        profile, program, gatea_program, answer, gatea_answer, params)
+    gatea_fact = copy.deepcopy(fact)
+    gatea_fact.update({
+        "variant": "gateA",
+        "gatea_of": pid,
+        "target_slot": gatea_target_slot,
+        "target_coat": slot_coat[gatea_target_slot],
+        "truth": dict(
+            gatea_answer["truth"],
+            query_azimuth_deg=round(gatea_truth_deg, 3),
+            other_slot_azimuth_deg=round(gatea_other_deg, 3),
+            recomputed_after_camera_pose=True),
+        "mcq": gatea_answer["mcq"],
+        "open": gatea_answer["open"],
+        "target_first": (
+            not bool(cell["target_first"])
+            if answer_kind in ("time_band", "first_caller_coat")
+            else cell.get("target_first")),
+        "first_caller_slot": gatea_answer.get("first_caller_slot"),
+        "audio": {
+            "program_id": gatea_program["program_id"],
+            "anchor_role": schedule.anchor.role,
+            "anchor_slot": gatea_role_to_slot[schedule.anchor.role],
+            "declared": schedule.declared,
+            "events": [
+                {"role": e.role, "slot": slot, "purpose": e.purpose,
+                 "start_sample": e.start_sample}
+                for e, (slot, _) in zip(schedule.events, gatea_slot_events)],
+        },
+        "gatea_checks": gatea_checks,
+    })
+    fact["gatea"] = {
+        "program_id": gatea_program["program_id"],
+        "fact_record": "fact_record_gateA.json",
+        "checks": gatea_checks,
+    }
+    (pdir / "fact_record_gateA.json").write_text(
+        json.dumps(gatea_fact, ensure_ascii=False, indent=2))
     (pdir / "fact_record.json").write_text(
         json.dumps(fact, ensure_ascii=False, indent=2))
     return fact
+
+
+def build_gatea_answer(kind, profile, cell, timeline, schedule,
+                       gatea_slot_events, target_slot, other_slot, slot_coat,
+                       query_frame, params):
+    """Derive Gate A gold from the unchanged visual timeline.
+
+    Cross-time and query-caller cards select a different visual actor after
+    the audio slot swap.  Card8 keeps the text-selected visual actor but
+    inherits the other role's onset.  Card9 has no fixed visual target; the
+    first-caller relation simply reverses.
+    """
+    gatea_cell = dict(cell)
+    if kind == "azimuth_band":
+        gatea_target_slot, gatea_other_slot = other_slot, target_slot
+        gatea_truth_deg = recompute_azimuth(
+            timeline, gatea_target_slot, query_frame)
+        bands = [tuple(b) for b in profile["answer_bands_deg"]]
+        gatea_band = next((band for band in bands
+                           if band[0] <= gatea_truth_deg < band[1]), None)
+        if gatea_band is None:
+            raise ValueError(
+                f"Gate A angular truth {gatea_truth_deg:.2f} is outside all "
+                "declared MCQ bands")
+        gatea_cell["answer_band"] = gatea_band
+    elif kind == "coat_at_query":
+        gatea_target_slot, gatea_other_slot = other_slot, target_slot
+        gatea_truth_deg = recompute_azimuth(
+            timeline, gatea_target_slot, query_frame)
+    elif kind == "time_band":
+        gatea_target_slot, gatea_other_slot = target_slot, other_slot
+        gatea_truth_deg = recompute_azimuth(
+            timeline, gatea_target_slot, query_frame)
+        firsts = {}
+        for slot, start in gatea_slot_events:
+            firsts.setdefault(slot, start / AP.SAMPLE_RATE)
+        gatea_band = band_of(firsts[gatea_target_slot],
+                             AP.card8_band_edges(params))
+        if gatea_band is None:
+            raise ValueError("Gate A card8 onset is outside the declared bands")
+        gatea_cell["target_band"] = gatea_band
+    elif kind == "first_caller_coat":
+        gatea_target_slot, gatea_other_slot = target_slot, other_slot
+        gatea_truth_deg = recompute_azimuth(
+            timeline, gatea_target_slot, query_frame)
+        gatea_cell["target_first"] = not bool(cell["target_first"])
+    else:
+        raise ValueError(f"no Gate A answer derivation for {kind!r}")
+    gatea_other_deg = recompute_azimuth(
+        timeline, gatea_other_slot, query_frame)
+    gatea_answer = build_answer(
+        kind, profile, gatea_cell, timeline, schedule, gatea_slot_events,
+        gatea_target_slot, gatea_other_slot, slot_coat, gatea_truth_deg,
+        query_frame, params)
+    return (gatea_target_slot, gatea_other_slot, gatea_answer,
+            gatea_truth_deg, gatea_other_deg)
 
 
 def build_answer(kind, profile, cell, timeline, schedule, slot_events,
@@ -615,6 +804,9 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
         return f"{record['profile_id']}:unknown"
 
     bands = Counter(answer_key(r) for r in records)
+    gatea_pairs = [r.get("gatea") for r in records if r.get("gatea")]
+    gatea_by_profile = Counter(r["profile_id"] for r in records
+                               if r.get("gatea"))
     manifest = {
         "schema": "qa_v3_scene_batch_manifest_v1",
         "scene": {"scene_id": scene.scene_id, "backend": scene.backend,
@@ -645,6 +837,23 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
             pid: {k: v for k, v in led.summary().items()
                   if k != "first_example"}
             for pid, led in (per_profile_ledger or {}).items()},
+        "gatea": {
+            "pairs": len(gatea_pairs),
+            "by_profile": dict(gatea_by_profile),
+            "mcq_gold_flipped": sum(
+                bool(g["checks"]["mcq_gold_flipped"])
+                for g in gatea_pairs),
+            "open_gold_separated": sum(
+                bool(g["checks"]["open_gold_separated"])
+                for g in gatea_pairs),
+            "structure_preserved": sum(
+                all(g["checks"][key] for key in (
+                    "event_count_same", "candidate_endpoints_same",
+                    "non_slot_event_fields_same", "slot_sequence_changed"))
+                for g in gatea_pairs),
+            "boundary": ("generation-time structural audit; rendered waveform "
+                         "and pixel evidence are not established here"),
+        },
         "card8_time_domain": card8_diagnostics(params, records),
         "rejections": rejected,
         "params": params,
