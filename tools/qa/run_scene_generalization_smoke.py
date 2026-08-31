@@ -58,13 +58,13 @@ def run_profile(scene, params, profile, per_profile, seed_base, ledger):
         per_band[band]["requested"] += 1
         if profile["temporal"] == "forward":
             outcome = solve_forward_cross_time(
-                scene, params, answer_band=band,
+                scene, params, answer_band=band, answer_bands=bands,
                 anchor_frame=profile["anchor_frame"],
                 idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
                 max_attempts=profile.get("max_attempts", 3000))
         else:
             outcome = solve_backward_cross_time(
-                scene, params, answer_band=band,
+                scene, params, answer_band=band, answer_bands=bands,
                 anchor_frame=profile["anchor_frame"],
                 query_frame=profile["query_frame"],
                 idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,

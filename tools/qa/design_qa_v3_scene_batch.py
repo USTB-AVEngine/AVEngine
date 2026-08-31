@@ -81,6 +81,8 @@ def sha_rng(*parts) -> np.random.Generator:
 
 
 def balanced(values, n, *seed_parts):
+    offset = int(sha_rng(*seed_parts, "value-offset").integers(len(values)))
+    values = list(values[offset:]) + list(values[:offset])
     reps = -(-n // len(values))
     pool = (list(values) * reps)[:n]
     order = sha_rng(*seed_parts).permutation(n)
@@ -96,12 +98,21 @@ def balanced_binary_joint(left_values, right_values, n, *seed_parts):
     """
     if len(left_values) != 2 or len(right_values) != 2:
         raise ValueError("balanced_binary_joint requires two values per axis")
-    cycle = [
-        (left_values[0], right_values[0]),
-        (left_values[1], right_values[1]),
-        (left_values[0], right_values[1]),
-        (left_values[1], right_values[0]),
-    ]
+    diagonal = int(sha_rng(*seed_parts, "joint-diagonal").integers(2))
+    if diagonal == 0:
+        cycle = [
+            (left_values[0], right_values[0]),
+            (left_values[1], right_values[1]),
+            (left_values[0], right_values[1]),
+            (left_values[1], right_values[0]),
+        ]
+    else:
+        cycle = [
+            (left_values[0], right_values[1]),
+            (left_values[1], right_values[0]),
+            (left_values[0], right_values[0]),
+            (left_values[1], right_values[1]),
+        ]
     pool = (cycle * -(-n // len(cycle)))[:n]
     order = sha_rng(*seed_parts).permutation(n)
     return [pool[int(i)] for i in order]
@@ -125,8 +136,10 @@ WORLD_TRANSFORMS = {
 def resolve_scene_render_context(scene):
     """Resolve render facts from the scene input; never fall back apartment."""
     render = scene.render_config
-    required = ("native_map", "room_profile_id", "world_transform")
-    missing = [key for key in required if not render.get(key)]
+    required = ("native_map", "room_profile_id", "world_transform",
+                "ground_z_ue_cm")
+    missing = [key for key in required
+               if key not in render or render[key] is None]
     if missing:
         raise ValueError(
             f"{scene.scene_id}: integration rendering requires scene.render "
@@ -140,11 +153,15 @@ def resolve_scene_render_context(scene):
     if transform is None:
         raise ValueError(
             f"{scene.scene_id}: unsupported world_transform {transform_id!r}")
+    ground_z = float(render["ground_z_ue_cm"])
+    if not np.isfinite(ground_z):
+        raise ValueError(f"{scene.scene_id}: ground_z_ue_cm must be finite")
     return {
         "native_map": native_map,
         "room_profile_id": str(render["room_profile_id"]),
         "world_transform": transform,
         "world_transform_id": transform_id,
+        "ground_z_ue_cm": ground_z,
     }
 
 
@@ -295,12 +312,14 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
     if temporal == "forward":
         return SS.solve_forward_cross_time(
             scene, params, answer_band=cell["answer_band"],
+            answer_bands=[tuple(b) for b in profile["answer_bands_deg"]],
             anchor_frame=profile["anchor_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
             max_attempts=profile.get("max_attempts", 3000))
     if temporal == "backward":
         return SS.solve_backward_cross_time(
             scene, params, answer_band=cell["answer_band"],
+            answer_bands=[tuple(b) for b in profile["answer_bands_deg"]],
             anchor_frame=profile["anchor_frame"],
             query_frame=profile["query_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
@@ -312,6 +331,32 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             rng=rng, ledger=ledger,
             max_attempts=profile.get("max_attempts", 3000))
     raise ValueError(f"unknown temporal relation {temporal!r}")
+
+
+def validate_profiles(profiles):
+    """Reject configuration mistakes before creating any batch output."""
+    if not isinstance(profiles, list) or not profiles:
+        raise ValueError("profiles must be a non-empty list")
+    ids = [profile.get("id") for profile in profiles]
+    if any(not value for value in ids) or len(set(ids)) != len(ids):
+        raise ValueError(f"profile ids must be non-empty and unique: {ids}")
+    valid_temporal = {"forward", "backward", "instant"}
+    valid_binding = {"target", "query_caller", "first_caller"}
+    valid_answer = {
+        "azimuth_band", "coat_at_query", "time_band", "first_caller_coat",
+    }
+    for profile in profiles:
+        pid = profile["id"]
+        if profile.get("temporal") not in valid_temporal:
+            raise ValueError(
+                f"{pid}: invalid temporal relation {profile.get('temporal')!r}")
+        if profile.get("anchor_binding") not in valid_binding:
+            raise ValueError(
+                f"{pid}: invalid anchor_binding "
+                f"{profile.get('anchor_binding')!r}")
+        if profile.get("answer_kind", "azimuth_band") not in valid_answer:
+            raise ValueError(
+                f"{pid}: invalid answer_kind {profile.get('answer_kind')!r}")
 
 
 def build_cell_plan(cells, profiles, pair_assets, params, seed):
@@ -438,6 +483,7 @@ def main(argv=None) -> int:
     scene_cfg = json.loads(args.scene_config.read_text())
     profiles = json.loads(args.profiles.read_text())
     params = json.loads(args.params.read_text())
+    validate_profiles(profiles)
     scene = SS.load_scene(scene_cfg)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
@@ -512,7 +558,8 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     # 相机与听者:同一份姿态结果
     render_context = resolve_scene_render_context(scene)
     camera_ue_cm = [plan.camera_xy[0], plan.camera_xy[1],
-                    scene.camera_height_m * 100.0]
+                    render_context["ground_z_ue_cm"]
+                    + scene.camera_height_m * 100.0]
     camera_world_m = render_context["world_transform"](camera_ue_cm)
     m1_request = apply_camera_listener_pose_ue(
         base_request, request_id=f"qa_v3_{pid}", position_m=camera_world_m,
@@ -573,7 +620,7 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
 
     # 时间线:相机与折线都来自求解结果
     base_route = plan.base_route.samples_xy      # 未平移:创作用原路线
-    z = 0.0
+    z = render_context["ground_z_ue_cm"]
     routes = {target_slot: (base_route[0], base_route[-1], base_route),
               other_slot: (plan.other_point, plan.other_point, None)}
     s1, s2 = routes["source1"], routes["source2"]
@@ -631,6 +678,7 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             "native_map": timeline["room"]["map_path"],
             "room_profile_id": timeline["room"]["room_profile_id"],
             "world_transform": render_context["world_transform_id"],
+            "ground_z_ue_cm": render_context["ground_z_ue_cm"],
         },
         "answer_kind": answer_kind,
         "truth": dict(answer["truth"],
@@ -798,8 +846,8 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
         if profile["temporal"] == "forward":
             moment = "At the end of the video"
         elif profile["temporal"] == "backward":
-            moment = (f"At {query_frame / 15.0:.1f} seconds on the video "
-                      "clock")
+            moment = (f"At zero-based video frame index {query_frame} "
+                      f"({query_frame}/15 seconds)")
         else:
             raise ValueError("azimuth-band profile must declare a time direction")
         referent = "the dog that barked last"
@@ -967,6 +1015,8 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
             "profiles_content": profiles,
             "params": str(args.params.resolve()),
             "profile_ids": [profile["id"] for profile in profiles],
+            "seed": args.seed,
+            "cells_per_profile": args.cells,
         },
         "scene": {"scene_id": scene.scene_id, "backend": scene.backend,
                   "scene_asset_id": scene_cfg.get("scene_asset_id",

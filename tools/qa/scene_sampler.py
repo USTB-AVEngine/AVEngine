@@ -292,6 +292,7 @@ class RejectionLedger:
 
 def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                              answer_band: tuple[float, float],
+                             answer_bands: Sequence[tuple[float, float]],
                              anchor_frame: int, idle_choices: Iterable[int],
                              rng, ledger: RejectionLedger,
                              max_attempts: int = 4000) -> PointPlan | Rejection:
@@ -345,7 +346,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             continue
         other = _pick_other_point(
             scene, camera, yaw, az_anchor, az_end, band_lo, band_hi,
-            min_sep, half_fov, theta_half, params, rng, ledger)
+            answer_bands, min_sep, half_fov, theta_half, params, rng, ledger)
         if other is None:
             continue
         other_answer_az = relative_azimuth_deg(camera, yaw, other)
@@ -384,6 +385,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
 
 def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                               answer_band: tuple[float, float],
+                              answer_bands: Sequence[tuple[float, float]],
                               anchor_frame: int, query_frame: int,
                               idle_choices: Iterable[int], rng,
                               ledger: RejectionLedger,
@@ -429,7 +431,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             continue
         other = _pick_other_point(
             scene, camera, yaw, az_anchor, az_query, band_lo, band_hi,
-            min_sep, half_fov, theta_half, params, rng, ledger)
+            answer_bands, min_sep, half_fov, theta_half, params, rng, ledger)
         if other is None:
             continue
         other_answer_az = relative_azimuth_deg(camera, yaw, other)
@@ -471,11 +473,12 @@ def _too_close(camera, point, params) -> bool:
 
 
 def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
-                      band_hi, min_sep, half_fov, theta_half, params, rng,
-                      ledger):
+                      band_hi, answer_bands, min_sep, half_fov, theta_half,
+                      params, rng, ledger):
     """Pick the Gate-A actor for both MCQ and Open card1 forms."""
     order = rng.permutation(len(scene.stand_points))
     saw_open_overlap = False
+    saw_outside_answer_space = False
     for index in order[:64]:
         ledger.stand_points_evaluated += 1
         candidate = scene.stand_points[int(index)]
@@ -483,6 +486,9 @@ def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
         if abs(az) > half_fov:
             continue
         if circular_gap_deg(az, az_anchor) < min_sep:
+            continue
+        if not any(lo <= az < hi for lo, hi in answer_bands):
+            saw_outside_answer_space = True
             continue
         if band_lo <= az < band_hi:
             continue
@@ -492,7 +498,13 @@ def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
         if _too_close(camera, candidate, params):
             continue
         return candidate
-    if saw_open_overlap:
+    if saw_outside_answer_space:
+        ledger.add(Rejection(
+            "no_second_actor_in_declared_mcq_space",
+            "candidate actors were visible and separated, but at least one "
+            "fell outside every declared MCQ answer band and no valid Gate A "
+            "actor remained"))
+    elif saw_open_overlap:
         ledger.add(Rejection(
             "no_second_actor_with_disjoint_open_gold",
             "candidate actors existed outside the main MCQ band, but none "

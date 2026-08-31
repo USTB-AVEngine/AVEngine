@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import sys
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ from design_qa_v3_scene_batch import (  # noqa: E402
     build_answer,
     resolve_scene_render_context,
     validate_anchor_binding,
+    validate_profiles,
 )
 
 
@@ -127,7 +129,8 @@ def test_card1_stems_keep_the_audio_referent_and_time_explicit():
     bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
     for temporal, query_frame, phrase in (
             ("forward", 74, "At the end of the video"),
-            ("backward", 22, "At 1.5 seconds on the video clock")):
+            ("backward", 22,
+             "At zero-based video frame index 22 (22/15 seconds)")):
         profile = {"id": f"card1-{temporal}", "temporal": temporal,
                    "answer_bands_deg": bands}
         main = build_answer(
@@ -164,6 +167,18 @@ def test_joint_allocator_covers_all_slot_coat_cells_for_six():
     }
 
 
+def test_joint_allocator_rotates_which_diagonal_receives_remainders():
+    doubled = set()
+    for seed in range(20):
+        rows = balanced_binary_joint(
+            ["source1", "source2"], ["black-and-white", "yellow"], 6,
+            seed)
+        counts = Counter(rows)
+        doubled.add(tuple(sorted(cell for cell, count in counts.items()
+                                 if count == 2)))
+    assert len(doubled) == 2
+
+
 def test_unknown_anchor_binding_fails_instead_of_falling_through():
     with pytest.raises(GenerationConstraintError, match="unknown anchor_binding"):
         validate_anchor_binding(
@@ -180,7 +195,18 @@ def test_render_context_requires_explicit_scene_map_and_transform():
         "native_map": "/Game/SPEAR/Scenes/debug_0000/Maps/debug_0000",
         "room_profile_id": "spear_debug_0000",
         "world_transform": "ue_xyz_cm_to_xzy_m_v1",
+        "ground_z_ue_cm": 0.0,
     }
     resolved = resolve_scene_render_context(scene)
     assert resolved["native_map"].endswith("/debug_0000")
     assert resolved["world_transform"]([100, 200, 300]) == [1.0, 3.0, 2.0]
+    assert resolved["ground_z_ue_cm"] == 0.0
+
+
+def test_profile_typo_is_a_preflight_error():
+    profile = {
+        "id": "bad", "temporal": "instant", "answer_kind": "time_band",
+        "anchor_binding": "first_callerr",
+    }
+    with pytest.raises(ValueError, match="invalid anchor_binding"):
+        validate_profiles([profile])

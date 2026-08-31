@@ -30,6 +30,7 @@ from scene_sampler import (  # noqa: E402
     solve_backward_cross_time,
     solve_forward_cross_time,
     yaw_interval_for_band,
+    _pick_other_point,
 )
 
 PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0,
@@ -77,6 +78,7 @@ def test_every_declared_band_is_constructible(band):
     rng = np.random.default_rng(7)
     ledger = RejectionLedger()
     plan = solve_forward_cross_time(scene, PARAMS, answer_band=band,
+                                    answer_bands=BANDS,
                                     anchor_frame=45, idle_choices=(0, 8, 16),
                                     rng=rng, ledger=ledger)
     assert not isinstance(plan, Rejection), (band, ledger.summary())
@@ -98,6 +100,19 @@ def test_open_gold_separation_is_strict_at_double_half_width():
     assert not open_angle_gold_regions_disjoint(170.0, -170.0, 30.0)
 
 
+def test_gatea_actor_outside_declared_mcq_space_is_rejected():
+    scene = synthetic_scene(hfov=180.0)
+    scene.stand_points = [(300.0, 0.0)]  # az=0, in the deliberate band gap
+    ledger = RejectionLedger()
+    result = _pick_other_point(
+        scene, (0.0, 0.0), 0.0, -40.0, -40.0, -50.0, -30.0,
+        [(-50.0, -30.0), (30.0, 50.0)], 25.0, 90.0, 30.0,
+        PARAMS, np.random.default_rng(1), ledger)
+    assert result is None
+    assert "no_second_actor_in_declared_mcq_space" in \
+        ledger.summary()["by_reason"]
+
+
 def test_same_code_runs_on_a_second_scene_without_changes():
     """场景无关的最小证据:换一个几何完全不同的场景,同一调用直接跑。"""
     rng = np.random.default_rng(3)
@@ -105,6 +120,7 @@ def test_same_code_runs_on_a_second_scene_without_changes():
                   synthetic_scene("synth_b", spread=250.0, n=8)):
         ledger = RejectionLedger()
         plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
+                                        answer_bands=BANDS,
                                         anchor_frame=45, idle_choices=(0, 8),
                                         rng=rng, ledger=ledger)
         assert not isinstance(plan, Rejection), (scene.scene_id,
@@ -117,6 +133,7 @@ def test_narrow_fov_rejects_outer_band_with_named_reason():
     scene = synthetic_scene(hfov=40.0)          # 半视锥 20°
     ledger = RejectionLedger()
     plan = solve_forward_cross_time(scene, PARAMS, answer_band=(17.5, 52.5),
+                                    answer_bands=BANDS,
                                     anchor_frame=45, idle_choices=(0,),
                                     rng=np.random.default_rng(1),
                                     ledger=ledger, max_attempts=200)
@@ -130,6 +147,7 @@ def test_static_target_rejected_for_insufficient_travel():
     scene.routes = [Route("static", [(300.0, 40.0)] * FRAME_COUNT, 0.0)]
     ledger = RejectionLedger()
     plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
+                                    answer_bands=BANDS,
                                     anchor_frame=45, idle_choices=(0,),
                                     rng=np.random.default_rng(2),
                                     ledger=ledger, max_attempts=200)
@@ -144,6 +162,7 @@ def test_single_stand_point_rejects_for_no_separable_second_actor():
     scene.stand_points = [scene.routes[0].at(45)]
     ledger = RejectionLedger()
     plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
+                                    answer_bands=BANDS,
                                     anchor_frame=45, idle_choices=(0,),
                                     rng=np.random.default_rng(5),
                                     ledger=ledger, max_attempts=200)
@@ -155,6 +174,7 @@ def test_occlusion_screen_is_used_when_provided_and_reported_when_not():
     scene = synthetic_scene()
     ledger = RejectionLedger()
     plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
+                                    answer_bands=BANDS,
                                     anchor_frame=45, idle_choices=(0, 8),
                                     rng=np.random.default_rng(11),
                                     ledger=ledger)
@@ -165,6 +185,7 @@ def test_occlusion_screen_is_used_when_provided_and_reported_when_not():
     blind.line_of_sight = lambda a, b: False                # 全遮挡
     ledger2 = RejectionLedger()
     plan2 = solve_forward_cross_time(blind, PARAMS, answer_band=BANDS[1],
+                                     answer_bands=BANDS,
                                      anchor_frame=45, idle_choices=(0, 8),
                                      rng=np.random.default_rng(11),
                                      ledger=ledger2, max_attempts=300)
@@ -176,6 +197,7 @@ def test_backward_cross_time_queries_an_earlier_frame():
     scene = synthetic_scene()
     ledger = RejectionLedger()
     plan = solve_backward_cross_time(scene, PARAMS, answer_band=BANDS[0],
+                                     answer_bands=BANDS,
                                      anchor_frame=68, query_frame=30,
                                      idle_choices=(0, 8),
                                      rng=np.random.default_rng(13),
