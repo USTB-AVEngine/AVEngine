@@ -48,6 +48,38 @@ TICKS_PER_FRAME = 3_200
 CAMERA_BLUEPRINT = "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C"
 CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
 NATIVE_APARTMENT_MAP = "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000"
+APARTMENT_ROOM_PROFILE_ID = "spear_apartment_0000"
+
+
+def resolve_native_map(timeline, requested_map=None):
+    """Which UE map does this capture launch, and does the timeline agree?
+
+    The map used to be a module constant, which made the renderer room-specific
+    and — worse — let a timeline authored for one room be captured in another
+    without complaint. The timeline now carries its own ``room.map_path``; an
+    explicit argument may override it only when the two agree. Same failure
+    shape as the camera-yaw mismatch: a declared fact and an executed fact that
+    silently diverge.
+    """
+
+    room = (timeline or {}).get("room") or {}
+    declared = room.get("map_path")
+    if "map_path" in room and not declared:
+        raise CurrentApartmentVisualError(
+            "the timeline declares an empty room.map_path; a declared-but-blank "
+            "map must fail rather than fall back to a default room"
+        )
+    if requested_map and declared and requested_map != declared:
+        raise CurrentApartmentVisualError(
+            "the timeline was authored for map "
+            f"{declared!r} but the capture was asked for {requested_map!r}"
+        )
+    resolved = requested_map or declared or NATIVE_APARTMENT_MAP
+    if not str(resolved).startswith("/Game/"):
+        raise CurrentApartmentVisualError(
+            f"native map must be a /Game package path, got {resolved!r}"
+        )
+    return str(resolved)
 
 
 class CurrentApartmentVisualError(RuntimeError):
@@ -483,6 +515,8 @@ def author_current_apartment_visual_timeline(
     beagle_end_ue_cm: Sequence[float],
     human_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
     beagle_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
+    native_map: str = NATIVE_APARTMENT_MAP,
+    room_profile_id: str = APARTMENT_ROOM_PROFILE_ID,
     width: int = 1280,
     height: int = 720,
     hfov_degrees: float = 105.0,
@@ -576,8 +610,8 @@ def author_current_apartment_visual_timeline(
         ),
         "actor_selection": str(selection_file),
         "room": {
-            "map_path": NATIVE_APARTMENT_MAP,
-            "room_profile_id": "spear_apartment_0000",
+            "map_path": native_map,
+            "room_profile_id": room_profile_id,
         },
         "render": {
             "frame_count": FRAME_COUNT,
@@ -1171,6 +1205,7 @@ def capture_current_apartment_visual(
     output_directory: str | Path,
     rpc_port: int = 39511,
     graphics_adapter: int | None = None,
+    native_map: str | None = None,
 ) -> dict[str, Any]:
     """Run a preflighted native SPEAR RGB-only research capture."""
 
@@ -1238,9 +1273,10 @@ def capture_current_apartment_visual(
     run_traceback = None
     cleanup_error: BaseException | None = None
     try:
+        resolved_map = resolve_native_map(timeline, native_map)
         instance = launch_external_game_instance(
             spear_executable=executable,
-            native_map=NATIVE_APARTMENT_MAP,
+            native_map=resolved_map,
             frame_rate_hz=FRAME_RATE_HZ,
             rpc_port=rpc_port,
             graphics_adapter=graphics_adapter,

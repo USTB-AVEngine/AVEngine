@@ -25,6 +25,40 @@ from pathlib import Path
 LABEL_MAP = {"black-and-white": "black_white", "yellow": "yellow",
              "both": "both_calling", "neither": "none_calling"}
 
+CARD_FILES = ("card1", "card7_main", "card7_control_neither", "card8",
+              "card9")
+CARD_OF_VIEW = {"card7_main": "card7", "card7_control_neither": "card7"}
+
+
+def _band_label(deg, edges):
+    """另一只片尾方位所属的声明带标签;落在带域外返回 None(不同带即可)。"""
+    for i in range(len(edges) - 1):
+        if edges[i] <= deg < edges[i + 1]:
+            return f"[{edges[i]:g}, {edges[i + 1]:g})"
+    return None
+
+
+def stratified_balanced(items, key_fields, truth_of, seed):
+    """在 split × motion_class × truth 分层里等量选取(codex 审阅裁定)。
+
+    全局 50:50 不够:run01 的全局均衡子集内,只按运动类猜多数类仍有
+    60.6%。分层后每个 (split, motion_class) 单元内两类等量,单元内的
+    多数类先验因此消失。少数类整组保留,多数类按确定性哈希序截齐。
+    """
+    cells: dict[tuple, dict[str, list]] = {}
+    for item in items:
+        cell = tuple(item.get(f) for f in key_fields)
+        cells.setdefault(cell, {}).setdefault(truth_of(item), []).append(item)
+    chosen = set()
+    for cell, by_truth in cells.items():
+        n = min(len(v) for v in by_truth.values()) if len(by_truth) > 1 else 0
+        for truth, group in by_truth.items():
+            keep = sorted(group, key=lambda it: hashlib.sha256(
+                f"{seed}|bal|{it['question_id']}".encode()).hexdigest())[:n]
+            chosen.update(id(it) for it in keep)
+    for item in items:
+        item["balanced_subset"] = id(item) in chosen
+
 
 def route_sha(route) -> str:
     return hashlib.sha256(json.dumps(route).encode()).hexdigest()[:16]
@@ -42,7 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--questions-root", required=True, type=Path)
     parser.add_argument("--ratios", default="train=0.5,eval=0.5",
                         help="split 比例,显式参数")
-    parser.add_argument("--mcq-cards", default="card1,card7,card8,card9",
+    parser.add_argument("--mcq-cards",
+                        default="card1,card7_main,card7_control_neither,"
+                                "card8,card9",
                         help="进 MCQ 编排的卡(split 点位文件仍含全部卡的点)")
     parser.add_argument("--seed", required=True)
     parser.add_argument("--python", default=sys.executable)
@@ -55,8 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     repo = Path(__file__).resolve().parents[2]
     args.out_root.mkdir(parents=True)
 
-    facts = {c: load_facts(args.questions_root, c)
-             for c in ("card1", "card7", "card8", "card9")}
+    facts = {c: load_facts(args.questions_root, c) for c in CARD_FILES}
     point_ids = sorted({r["point_id"] for recs in facts.values()
                         for r in recs})
 
@@ -107,15 +142,25 @@ def main(argv: list[str] | None = None) -> int:
             if split is None:
                 print(f"point {pid} missing from split plan", file=sys.stderr)
                 return 1
-            item = {"card": card, "point_id": pid, "split": split,
+            item = {"card": CARD_OF_VIEW.get(card, card), "view": card,
+                    "point_id": pid, "split": split,
+                    "motion_class": rec.get("motion_class"),
                     "question_id": f"{card}|{pid}" + (
-                        f"|{rec['target_slot']}" if card == "card8" else ""),
-                    "balanced_subset": rec.get("balanced_subset")}
+                        f"|{rec['target_slot']}" if card == "card8" else "")}
             if card == "card1":
+                blk = rec.get("azimuth_band") or {}
+                if not blk.get("options_space"):
+                    continue          # 越出声明带域的点不出 MCQ,开放版仍在
+                item["card"] = "card1_az_band"
+                item["band_labels"] = blk["options_space"]
+                item["truth_band_label"] = blk["truth_option"]
+                other = _band_label(rec["truth"]["other_slot_final_azimuth_deg"],
+                                    blk["edges"])
+                item["other_band_label"] = other
                 item["truth_deg"] = rec["truth"]["final_azimuth_deg"]
                 item["other_ending_deg"] = rec["truth"][
                     "other_slot_final_azimuth_deg"]
-            elif card == "card7":
+            elif card.startswith("card7"):
                 item["truth_label"] = LABEL_MAP[rec["truth"]["calling_at_t"]]
                 if rec["negative_sample"]:
                     item["negative_control"] = True
@@ -130,6 +175,16 @@ def main(argv: list[str] | None = None) -> int:
                 item["truth_label"] = LABEL_MAP[rec["truth"]["first_to_bark"]]
             items.append(item)
 
+    # 分层均衡子集标记(切分之后才做得了)
+    stratified_balanced([i for i in items if i["view"] == "card7_main"],
+                        ("split", "motion_class"),
+                        lambda i: i["truth_label"], args.seed)
+    stratified_balanced([i for i in items if i["card"] == "card9"],
+                        ("split", "motion_class"),
+                        lambda i: i["truth_label"], args.seed)
+    for item in items:
+        item.setdefault("balanced_subset", None)
+
     items_path = args.out_root / "mcq_items.jsonl"
     with open(items_path, "w") as fh:
         for item in items:
@@ -143,8 +198,12 @@ def main(argv: list[str] | None = None) -> int:
         "questions_root": str(args.questions_root),
         "ratios": args.ratios,
         "seed": args.seed,
-        "counts": {c: sum(1 for i in items if i["card"] == c)
-                   for c in ("card1", "card7", "card8", "card9")},
+        "counts": {c: sum(1 for i in items if i["view"] == c)
+                   for c in CARD_FILES},
+        "balanced_subset_counts": {
+            v: sum(1 for i in items
+                   if i["view"] == v and i.get("balanced_subset"))
+            for v in ("card7_main", "card9")},
         "split_sizes": {s: sum(1 for v in assign.values() if v == s)
                         for s in sorted(set(assign.values()))},
         "unisolated_dimensions": plan.get("unisolated"),

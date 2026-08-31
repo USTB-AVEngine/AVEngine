@@ -17,6 +17,8 @@
 
 首轮五卡的选项规则(全部是固定闭集枚举,无自由干扰项抽取;内容题的
 "候选须在片段内齐备"规则属多源族,留接口不在本轮):
+  card1_az_band  预先声明的视锥内方位带(run02 起;run01 的四扇区形态
+         已被证伪并降为诊断)。
   card1  四扇区:前 [−45°,45°) / 右 [45°,135°) / 后 [135°,180°]∪(−180°,−135°) /
          左 [−135°,−45°);正确项 = 真值角所在扇区(角度先归一到 (−180°,180])。
   card7  黑白毛 / 黄毛 / 都在叫 / 都没叫(负样本仅进对照桶)。
@@ -87,6 +89,16 @@ def _labels_and_truth(item: dict, bands: list[float]):
         if truth == other:
             return None, None, "both endings in the same sector"
         return list(SECTORS), truth, None
+    if card == "card1_az_band":
+        # run02 起的 card1 答案空间:预先声明的方位带(四扇区已被 run01
+        # 证伪——片尾必须可见 ⇒ 方位恒在视锥内 ⇒ 只有"前"扇区可达)。
+        labels = list(item["band_labels"])
+        truth = item["truth_band_label"]
+        if truth not in labels:
+            return None, None, f"truth band {truth!r} not in the declared bands"
+        if truth == item.get("other_band_label"):
+            return None, None, "both endings in the same azimuth band"
+        return labels, truth, None
     if card == "card7":
         truth = item["truth_label"]
         if truth not in CARD7_LABELS:

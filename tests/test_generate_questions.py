@@ -28,26 +28,26 @@ PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0, "T_HALF": 1.0,
           "TAIL_MIN_S": 1.5, "MIN_AZIMUTH_SEP": 25.0,
           "MIN_DIST_CHANGE_CM": 50.0, "MIN_CARD7_FRAMES": 8,
           "BANDS": [0.0, 1.25, 2.5, 3.75, 5.0],
-          "AZ_BANDS_CARD1": [-52.5, -26.25, 0.0, 26.25, 52.5]}
+          "AZ_BANDS_CARD1": [-52.5, -29.17, -5.83, 17.5]}
 
 
 def _lerp(a, b, t):
     return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
 
 
-def make_timeline():
-    """s1 静止近前方;s2 从右前走到正右(片尾方位 +90°)。"""
+def make_timeline(s2_end=(0.0, 300.0), s1_pos=(300.0, 20.0)):
+    """s1 静止近前方;s2 走到 s2_end(缺省片尾方位 +90°,落在声明带外)。"""
     frames = []
     for i in range(75):
         t = i / 74.0
-        p2 = _lerp((300.0, -100.0), (0.0, 300.0), t)
+        p2 = _lerp((300.0, -100.0), s2_end, t)
         frames.append({
             "frame_index": i,
             "camera": {"translation_ue_cm": [0.0, 0.0, 147.0],
                        "yaw_ue_deg": 0.0},
             "actor_states": [
                 {"source_slot_id": "source1", "action_id": "idle",
-                 "translation_ue_cm": [300.0, 20.0, 27.0]},
+                 "translation_ue_cm": [s1_pos[0], s1_pos[1], 27.0]},
                 {"source_slot_id": "source2", "action_id": "walk",
                  "translation_ue_cm": [p2[0], p2[1], 27.0]},
             ],
@@ -67,7 +67,7 @@ EVENTS = [
 ]
 
 
-def build_design_root(tmp_path, admit=True):
+def build_design_root(tmp_path, admit=True, timeline=None):
     root = tmp_path / "design"
     programs = root / "programs"
     programs.mkdir(parents=True)
@@ -75,7 +75,8 @@ def build_design_root(tmp_path, admit=True):
     pdir.mkdir()
     (pdir / "spec.json").write_text(json.dumps(
         {"point_id": "v3a1_001", "motion_class": "A1"}))
-    (pdir / "timeline.json").write_text(json.dumps(make_timeline()))
+    (pdir / "timeline.json").write_text(
+        json.dumps(timeline if timeline is not None else make_timeline()))
     (pdir / "actor_selection.json").write_text(json.dumps({"actors": [
         {"source_slot_id": "source1", "asset_id": COLLIE,
          "legacy_timeline_actor_id": "dog_1"},
@@ -113,7 +114,8 @@ def run_gen(tmp_path, root, share=0.0, out_name="out"):
     assert rc == 0
     return {c: [json.loads(line) for line in
                 (out / f"facts_{c}.jsonl").read_text().splitlines()]
-            for c in ("card1", "card7", "card8", "card9")}, out
+            for c in ("card1", "card7_main", "card7_control_neither",
+                      "card8", "card9")}, out
 
 
 def test_card1_truth_matches_hand_geometry(tmp_path):
@@ -121,7 +123,9 @@ def test_card1_truth_matches_hand_geometry(tmp_path):
     (rec,) = facts["card1"]
     # 锚定者 s2 片尾在 (0,300):相机朝 +x,右手侧 → +90°
     assert abs(rec["truth"]["final_azimuth_deg"] - 90.0) < 1e-6
-    assert rec["mcq"]["truth_option"] == "right"
+    # +90° 在声明带域之外 → 选择题形态缺席,四扇区块只作诊断保留
+    assert rec["mcq"] is None
+    assert rec["mcq_four_sector_deprecated"]["truth_option"] == "right"
     assert rec["anchor"]["slot"] == "source2"
     assert rec["anchor"]["anchor_frame"] == 45
     assert rec["open"]["truth_value"] == rec["truth"]["final_azimuth_deg"]
@@ -140,7 +144,7 @@ def test_sector_boundaries_half_open():
 
 def test_card7_positive_picks_exactly_one_calling_frame(tmp_path):
     facts, _ = run_gen(tmp_path, build_design_root(tmp_path))
-    (rec,) = facts["card7"]
+    (rec,) = facts["card7_main"]
     assert rec["negative_sample"] is False
     f = rec["query_time"]["frame"]
     assert f % 3 == 0
@@ -156,7 +160,8 @@ def test_card7_positive_picks_exactly_one_calling_frame(tmp_path):
 
 def test_card7_negative_avoids_anchor_tail(tmp_path):
     facts, _ = run_gen(tmp_path, build_design_root(tmp_path), share=1.0)
-    (rec,) = facts["card7"]
+    assert facts["card7_main"] == []
+    (rec,) = facts["card7_control_neither"]
     assert rec["negative_sample"] is True
     assert rec["truth"]["calling_at_t"] == "neither"
     assert rec["mcq"]["truth_option"] == "neither"
@@ -191,7 +196,7 @@ def test_no_questions_when_not_admitted(tmp_path):
     facts, out = run_gen(tmp_path, build_design_root(tmp_path, admit=False))
     assert all(not v for v in facts.values())
     mani = json.loads((out / "generation_manifest.json").read_text())
-    assert mani["counts"] == {"card1": 0, "card7": 0, "card8": 0, "card9": 0}
+    assert set(mani["counts"].values()) == {0}
 
 
 def test_card8_uses_feasible_bands_and_tolerates_outlier(tmp_path):
@@ -221,13 +226,25 @@ def test_card8_uses_feasible_bands_and_tolerates_outlier(tmp_path):
     assert recs2["source2"]["open"]["truth_value"] == 1.5
 
 
-def test_card1_records_degeneracy_and_azimuth_band(tmp_path):
+def test_card1_out_of_band_target_is_flagged(tmp_path):
     # 手工几何里目标片尾 +90°,落在视锥声明带之外 → 越界须如实标注
     facts, _ = run_gen(tmp_path, build_design_root(tmp_path))
     (rec,) = facts["card1"]
-    assert "degeneracy_note" in rec["mcq"]
     assert rec["azimuth_band"]["truth_option"] is None
     assert "outside declared bands" in rec["azimuth_band"]["note"]
+    assert "why_deprecated" in rec["mcq_four_sector_deprecated"]
+
+
+def test_card1_in_band_target_gets_band_mcq(tmp_path):
+    # 目标片尾方位 -30°(带0 [-52.5,-29.17)),静立者 +10°(带2)
+    tl = make_timeline(s2_end=(346.0, -200.0), s1_pos=(300.0, 53.0))
+    facts, _ = run_gen(tmp_path, build_design_root(tmp_path, timeline=tl))
+    (rec,) = facts["card1"]
+    assert -30.1 < rec["truth"]["final_azimuth_deg"] < -29.9
+    assert rec["mcq"]["truth_option"] == "[-52.5, -29.17)"
+    assert rec["mcq"]["band_index"] == 0
+    assert len(rec["mcq"]["options_space"]) == 3
+    assert "azimuth band" in rec["mcq"]["stem"]
 
 
 def test_card1_azimuth_band_picks_declared_bin(tmp_path):
@@ -235,18 +252,20 @@ def test_card1_azimuth_band_picks_declared_bin(tmp_path):
     (rec,) = facts["card1"]
     from generate_qa_v3_questions import _azimuth_band_block
     blk = _azimuth_band_block(-30.0, PARAMS)
-    assert blk["band_index"] == 0 and blk["truth_option"] == "[-52.5, -26.25)"
+    assert blk["band_index"] == 0 and blk["truth_option"] == "[-52.5, -29.17)"
+    assert _azimuth_band_block(-29.17, PARAMS)["band_index"] == 1  # 半开左闭
     assert _azimuth_band_block(0.0, PARAMS)["band_index"] == 2
-    assert _azimuth_band_block(52.5, PARAMS)["band_index"] == 3   # 末带右闭
+    assert _azimuth_band_block(17.5, PARAMS)["band_index"] == 2    # 末带右闭
+    assert _azimuth_band_block(20.0, PARAMS)["truth_option"] is None
 
 
-def test_balanced_subset_marks(tmp_path):
-    facts, _ = run_gen(tmp_path, build_design_root(tmp_path))
-    # 单点批:card9 只有一条(单类),两外观组不齐 → 不标 True;字段必须存在
-    (r9,) = facts["card9"]
-    assert r9["balanced_subset"] is False
-    (r7,) = facts["card7"]
-    assert isinstance(r7["balanced_subset"], bool)
+def test_balanced_marking_is_not_done_here(tmp_path):
+    # 均衡子集标记移交切分后的胶水:生成器不得留第二个真相源
+    facts, out = run_gen(tmp_path, build_design_root(tmp_path))
+    assert "balanced_subset" not in facts["card9"][0]
+    import json as _json
+    mani = _json.loads((out / "generation_manifest.json").read_text())
+    assert "control_both" in mani["card7_views"]
 
 
 def test_no_clobber_and_stable_pick(tmp_path):

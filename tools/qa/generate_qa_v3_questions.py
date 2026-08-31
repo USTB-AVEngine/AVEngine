@@ -190,17 +190,14 @@ def gen_card1(bundle: PointBundle, fe: dict, params: dict) -> dict | None:
                   "convention": "right_positive_deg",
                   "other_slot_final_azimuth_deg": round(
                       bundle.azimuth(FRAME_COUNT - 1, other), 2)},
-        "mcq": {"stem": ("At the end of the video, in which direction from "
-                         "you is the dog that barked LAST? Front is "
-                         "[-45°,45°), right is [45°,135°), back and left are "
-                         "the mirror sectors."),
-                "options_space": ["front", "right", "back", "left"],
-                "truth_option": sector_name(truth_deg),
-                "degeneracy_note": (
-                    "pilot01: 固定审阅相机(hfov 105°)+片尾须可见 ⇒ 真值方位"
-                    "可行域实测 [-31°,+8°],四扇区退化(全 front);三带备选"
-                    "见 three_band_visible;选项空间定版是 owner 决策项")},
+        "mcq": _card1_band_mcq(truth_deg, params),
         "azimuth_band": _azimuth_band_block(truth_deg, params),
+        "mcq_four_sector_deprecated": {
+            "options_space": ["front", "right", "back", "left"],
+            "truth_option": sector_name(truth_deg),
+            "why_deprecated": (
+                "run01 证伪:目标片尾必须可见 ⇒ 方位恒在相机视锥内 ⇒ 只有"
+                "'前'扇区可达,40/40 被编排器上游复检拒出。保留仅作诊断。")},
         "open": {"stem": ("Roughly how many degrees from your facing "
                           "direction is the dog that barked last, at the end "
                           "of the video? Right side is positive."),
@@ -209,6 +206,24 @@ def gen_card1(bundle: PointBundle, fe: dict, params: dict) -> dict | None:
         "referral_coat_note": coat,
     })
     return rec
+
+
+def _card1_band_mcq(truth_deg: float, params: dict) -> dict | None:
+    """card1 的选择题形态(run02 起):预先声明的视锥内方位带。"""
+    blk = _azimuth_band_block(truth_deg, params)
+    if not blk or not blk.get("options_space"):
+        return None
+    return {"stem": ("At the end of the video, which azimuth band relative to "
+                     "your facing direction is the dog that barked LAST in? "
+                     "Right side is positive; the bands are given in degrees."),
+            "options_space": blk["options_space"],
+            "truth_option": blk["truth_option"],
+            "band_index": blk["band_index"],
+            "answer_space_note": (
+                "bands are equal-width bins of the reachable azimuth window; "
+                "the window's right edge is set by the joint requirement that "
+                "the target stay visible at the end while still moving in "
+                "azimuth after the anchor")}
 
 
 def _azimuth_band_block(truth_deg: float, params: dict) -> dict | None:
@@ -385,8 +400,13 @@ def main(argv: list[str] | None = None) -> int:
     programs_dir = args.design_root / "programs"
 
     args.out_root.mkdir(parents=True)
-    facts: dict[str, list[dict]] = {"card1": [], "card7": [], "card8": [],
-                                    "card9": []}
+    # 卡⑦按工单拆批(codex 审阅裁定):主集只出"恰好一只在叫",
+    # "都没叫"是音频充分对照,单独成批、单独统计,不混进一个分布。
+    # "都在叫"对照需要事件重叠(schema 的 simultaneous_subset 模式),
+    # 本生成器的 sequential_sources program 造不出,不在本批。
+    facts: dict[str, list[dict]] = {"card1": [], "card7_main": [],
+                                    "card7_control_neither": [],
+                                    "card8": [], "card9": []}
     skipped: list[str] = []
     # 主点(排除孪生:孪生用于 Gate B 对照,不进主题池)
     points = sorted(p for p in args.design_root.iterdir()
@@ -413,7 +433,9 @@ def main(argv: list[str] | None = None) -> int:
         if r7 is None and want_negative:
             r7 = gen_card7(bundle, fe, params, negative=False)
         if r7:
-            facts["card7"].append(r7)
+            key = ("card7_control_neither" if r7["negative_sample"]
+                   else "card7_main")
+            facts[key].append(r7)
             if r7["negative_sample"]:
                 neg_used += 1
         facts["card8"].extend(gen_card8(bundle, fe, params))
@@ -421,30 +443,10 @@ def main(argv: list[str] | None = None) -> int:
         if r9:
             facts["card9"].append(r9)
 
-    # 外观均衡子集标记(card7 正样本 / card9):少数类全保,多数类 sha 序
-    # 等量抽取;认证时可并行跑全量与 balanced 两个视图(先验偏斜的对照)。
-    def mark_balanced(records: list[dict], truth_key) -> None:
-        groups: dict[str, list[dict]] = {}
-        for rec in records:
-            rec["balanced_subset"] = False
-            groups.setdefault(truth_key(rec), []).append(rec)
-        coats = [g for k, g in groups.items()
-                 if k in ("black-and-white", "yellow")]
-        if len(coats) == 2:
-            n = min(len(g) for g in coats)
-            for g in coats:
-                keep = sorted(g, key=lambda r: hashlib.sha256(
-                    f"bal|{r['point_id']}|{r['card']}".encode()).hexdigest())[:n]
-                for rec in keep:
-                    rec["balanced_subset"] = True
-        for k, g in groups.items():
-            if k not in ("black-and-white", "yellow"):
-                for rec in g:      # 负样本(neither)整组保留
-                    rec["balanced_subset"] = True
-
-    mark_balanced(facts["card7"], lambda r: r["truth"]["calling_at_t"])
-    mark_balanced(facts["card9"], lambda r: r["truth"]["first_to_bark"])
-
+    # 均衡子集的标记不在这里做:codex 审阅指出全局 50:50 不够 ——
+    # run01 的均衡子集内按运动类猜多数类仍有 60.6%。分层至少要到
+    # split × motion_class × truth,而 split 在下游才分配,故标记
+    # 移交 prepare_qa_v3_mcq.py(切分之后),这里不留第二个真相源。
     for card, records in facts.items():
         with open(args.out_root / f"facts_{card}.jsonl", "w") as fh:
             for rec in records:
@@ -458,6 +460,13 @@ def main(argv: list[str] | None = None) -> int:
         "card7_negative_share": args.card7_negative_share,
         "counts": {card: len(records) for card, records in facts.items()},
         "card7_negatives": neg_used,
+        "card7_views": {
+            "main": "exactly one dog calling (main set)",
+            "control_neither": "no dog calling (audio-sufficient control, "
+                               "counted and reported separately)",
+            "control_both": "not built in this batch: overlapping events need "
+                            "the simultaneous_subset program mode",
+        },
         "card16_note": ("card16 (two-hop occlusion) requires the pixel mask "
                         "channel (work-order item 1.8); not generated in "
                         "this batch"),
