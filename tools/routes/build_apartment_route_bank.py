@@ -149,24 +149,26 @@ def _navigation_handles(instance, game) -> tuple[object, int, str]:
 def _runtime_scene_inventory(instance, game) -> dict:
     """Persist runtime map evidence needed to interpret navigation heights."""
     unreal = game.unreal_service
-    actors = run_frame_transaction(
-        instance, apply=lambda: None,
-        readback=lambda: unreal.find_actors_as_dict(
-            as_unreal_object=True, with_sp_funcs=True),
-    )
-    floor_poses = {}
-    navigation_names = []
-    for name, actor in actors.items():
-        lowered = str(name).lower()
-        if "nav" in lowered:
-            navigation_names.append(str(name))
-        if "floor" in lowered:
-            floor_poses[str(name)] = read_actor_pose(actor)
-    return {
-        "runtime_actor_count": len(actors),
-        "runtime_navigation_actor_names": sorted(navigation_names),
-        "runtime_floor_actor_poses": floor_poses,
-    }
+
+    def _readback():
+        actors = unreal.find_actors_as_dict(
+            as_unreal_object=True, with_sp_funcs=True)
+        floor_poses = {}
+        navigation_names = []
+        for name, actor in actors.items():
+            lowered = str(name).lower()
+            if "nav" in lowered:
+                navigation_names.append(str(name))
+            if "floor" in lowered:
+                floor_poses[str(name)] = read_actor_pose(actor)
+        return {
+            "runtime_actor_count": len(actors),
+            "runtime_navigation_actor_names": sorted(navigation_names),
+            "runtime_floor_actor_poses": floor_poses,
+        }
+
+    return run_frame_transaction(
+        instance, apply=lambda: None, readback=_readback)
 
 
 def _query_routes(args, executable: Path):
