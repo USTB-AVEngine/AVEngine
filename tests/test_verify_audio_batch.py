@@ -83,7 +83,9 @@ def test_clean_batch_passes(tmp_path):
     design, audio = build_batch(tmp_path, w, wav_gatea=good_wav(seed=7))
     rc, rep = run(tmp_path, design, audio)
     assert rc == 0 and rep["failures"] == []
-    assert rep["gatea_pairs_compared"] == 1
+    assert rep["audio_variant_waveform_nonidentity_pairs"] == 1
+    # 这一层只说明音频变体非同一;Gate A 语义要另行逐题核验
+    assert "not established by this tool" in rep["gatea_semantic_flip"]
 
 
 def test_mono_fold_caught(tmp_path):
