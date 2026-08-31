@@ -1167,6 +1167,7 @@ def capture_human_beagle_paths(
     secondary_emitter_link_name: str = BEAGLE_MOUTH_LINK_NAME,
     secondary_research_candidate: bool = False,
     research_capture_schema: str = MIXED_CAPTURE_SCHEMA,
+    require_human_visibility: bool = True,
     review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
@@ -1207,6 +1208,7 @@ def capture_human_beagle_paths(
         or not isinstance(secondary_research_candidate, bool)
         or not isinstance(research_capture_schema, str)
         or not research_capture_schema
+        or not isinstance(require_human_visibility, bool)
     ):
         raise MixedCaptureError(
             "human/secondary actor identity fields and research capture schema must be valid"
@@ -1846,9 +1848,13 @@ def capture_human_beagle_paths(
                 schedule=schedule,
                 pose_hashes_by_action=pose_hashes,
             )
-        if np.max(visibility_array, axis=0).min() <= 0:
+        required_visibility_columns = (0, 1) if require_human_visibility else (1,)
+        if any(
+            int(np.max(visibility_array[:, column])) <= 0
+            for column in required_visibility_columns
+        ):
             raise MixedCaptureError(
-                "the fixed legacy camera never observed one of the two semantic IDs"
+                "the fixed legacy camera never observed one of the required semantic IDs"
             )
         if not np.array_equal(actor_array[:, 0, :3, 3], human_points) or not np.array_equal(
             actor_array[:, 1, :3, 3], beagle_points
@@ -1883,6 +1889,15 @@ def capture_human_beagle_paths(
             "frame_rate_hz": FRAME_RATE_HZ,
             "time_base_hz": TIME_BASE_HZ,
             "physics_steps": 0,
+            "visibility_contract": {
+                "require_human_visibility": require_human_visibility,
+                "required_actor_ids": (
+                    ["human0", secondary_actor_id]
+                    if require_human_visibility
+                    else [secondary_actor_id]
+                ),
+                "human0_is_visual_evidence": require_human_visibility,
+            },
             "physics_configuration": {
                 "room_declared_enable_physics": room_declared_physics,
                 "enabled_for_articulated_object_creation": (
