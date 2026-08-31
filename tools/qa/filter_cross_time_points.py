@@ -157,11 +157,13 @@ def evaluate_point(view: PointView, params: dict) -> dict:
         reasons = list(common) + reasons_extra
         return {"admit": not reasons, "reasons": reasons}
 
-    # card1
+    # card1(END_GAP_MIN 可覆盖:开放版口径=2×THETA_HALF;MCQ 口径可放宽
+    # ——占位带宽下开放版口径在本房间几何近乎不可产,见设计批 manifest 标注)
     r = []
     end_gap = circ_diff(view.az["source1"][last], view.az["source2"][last])
-    if end_gap <= 2 * params["THETA_HALF"]:
-        r.append(f"card1: ending angular gap {end_gap:.1f} <= 2*THETA_HALF")
+    end_gap_min = params.get("END_GAP_MIN", 2 * params["THETA_HALF"])
+    if end_gap <= end_gap_min:
+        r.append(f"card1: ending angular gap {end_gap:.1f} <= {end_gap_min}")
     move = circ_diff(view.az[anchor_slot][anchor_frame], view.az[anchor_slot][last])
     if move <= params["THETA_FULL"]:
         r.append(f"card1: target angular travel {move:.1f} <= THETA_FULL")

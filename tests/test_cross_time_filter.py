@@ -186,3 +186,17 @@ def test_cli_end_to_end_and_no_clobber(tmp_path):
     bad.write_text(json.dumps({"THETA_FULL": 10}))
     assert main(["--inputs-root", str(inputs), "--programs-dir", str(programs),
                  "--params", str(bad), "--out", str(tmp_path / "o2.json")]) == 2
+
+
+def test_card1_end_gap_threshold_is_overridable():
+    # END_GAP_MIN 覆盖:MCQ 口径(25°)下中等角距应过,开放版口径(60°)拒
+    tl = make_timeline(s1_pos=(300.0, 150.0), s2_end=(240.0, -20.0))
+    res_open = _eval(timeline=tl)
+    res_mcq = _eval(timeline=tl, params={**PARAMS, "THETA_HALF": 30.0,
+                                         "END_GAP_MIN": 25.0})
+    gap = res_open["card1"]["ending_gap_deg"]
+    assert 25.0 < gap <= 60.0, gap
+    assert not _eval(timeline=tl, params={**PARAMS, "THETA_HALF": 30.0})["card1"]["admit"]
+    assert res_mcq["card1"]["admit"] or any(
+        not r.startswith("card1: ending angular gap")
+        for r in res_mcq["card1"]["reasons"])

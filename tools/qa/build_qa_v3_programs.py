@@ -64,8 +64,15 @@ def _rng(seed: str, *parts: str):
 
 
 def plan_events(seed: str, point_id: str, first_slot: str, *,
-                first_min_s: float, gap_min_s: float, tail_silence_s: float):
-    """返回 (事件列表[(slot, start_sample)], 锚元数据);均匀拒绝采样。"""
+                first_min_s: float, gap_min_s: float, tail_silence_s: float,
+                first_call_bands: list[float] | None = None,
+                min_first_call_gap_s: float | None = None):
+    """返回 (事件列表[(slot, start_sample)], 锚元数据)。
+
+    可选的 card8 约束(设计冒烟的教训:这两条必须在 program 规划层满足,
+    换路线的重试对它们无能为力):两个槽位的**首叫**须落在
+    first_call_bands 的不同带,且相隔超过 min_first_call_gap_s。
+    """
     rng = _rng(seed, point_id, "events")
     n_events = int(rng.integers(3, 5))  # 3 或 4
     other = "source2" if first_slot == "source1" else "source1"
@@ -77,17 +84,41 @@ def plan_events(seed: str, point_id: str, first_slot: str, *,
     if hi - lo < (n_events - 1) * step:
         raise ValueError(f"{point_id}: infeasible constraints "
                          f"(window {hi - lo} < needed {(n_events - 1) * step})")
+
+    def _band(t_s: float):
+        b = first_call_bands
+        if t_s < b[0] or t_s > b[-1]:
+            return None
+        for i in range(len(b) - 1):
+            if b[i] <= t_s < b[i + 1]:
+                return i
+        return len(b) - 2
+
     # 顺序条件采样:每一步在当前可行区间内均匀取。教训(自检抓到的
     # 设计缺陷):"采 n 个均匀样本再排序"会让首声=n 个样本的最小值,
     # 分布挤向低端,批内首声全落前几十帧——"首声可预测"换形式复活。
     # 条件采样让首声的边际分布在 [lo, hi-(n-1)step] 上真均匀。
     starts: list[int] = []
-    cursor = lo
-    for i in range(n_events):
-        remaining = n_events - 1 - i
-        hi_i = hi - remaining * step
-        starts.append(int(rng.integers(cursor, hi_i + 1)))
-        cursor = starts[-1] + step
+    for _attempt in range(300):
+        starts = []
+        cursor = lo
+        for i in range(n_events):
+            remaining = n_events - 1 - i
+            hi_i = hi - remaining * step
+            starts.append(int(rng.integers(cursor, hi_i + 1)))
+            cursor = starts[-1] + step
+        if first_call_bands is None and min_first_call_gap_s is None:
+            break
+        # 首叫 = 交替序列的前两个事件(各槽位第一次)
+        t1, t2 = starts[0] / SAMPLE_RATE, starts[1] / SAMPLE_RATE
+        gap_ok = (min_first_call_gap_s is None
+                  or abs(t2 - t1) > min_first_call_gap_s)
+        band_ok = (first_call_bands is None or _band(t1) != _band(t2))
+        if gap_ok and band_ok:
+            break
+    else:
+        raise RuntimeError(f"{point_id}: no onset layout satisfying first-call "
+                           f"band/gap constraints in 300 attempts")
     events = list(zip(slots, starts))
     anchor_slot, anchor_start = events[-1]
     anchor = {"anchor_event_index": n_events - 1,
