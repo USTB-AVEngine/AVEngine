@@ -215,9 +215,9 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
         t1 = int(rng.integers(lo1, min(hi1, limit)))
         t2_lo = max(t1 + event_len + gap, lo2, t1 + min_first_gap + 1)
         t2_hi = min(hi2, limit)
-        if t2_lo > t2_hi:
+        if t2_lo >= t2_hi:
             continue
-        t2 = int(rng.integers(t2_lo, t2_hi + 1))
+        t2 = int(rng.integers(t2_lo, t2_hi))
         events = [
             ScheduledEvent(first_caller_role, t1, t1 + event_len,
                            "answer_evidence"),

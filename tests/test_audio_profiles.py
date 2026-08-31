@@ -109,6 +109,25 @@ def test_every_reachable_band_pair_schedules(pair):
     assert schedule.declared["target_bands"] == list(pair)
 
 
+def test_second_first_call_cannot_land_on_half_open_band_upper_edge():
+    class BoundaryRng:
+        calls = 0
+
+        def integers(self, low, high):
+            self.calls += 1
+            if self.calls == 1:
+                return low
+            return high - 1
+
+    edges = [0.35, 1.2875, 2.225, 3.1625, 4.1]
+    schedule = schedule_first_call_bands(
+        BoundaryRng(), params=PARAMS, target_bands=(0, 1), band_edges=edges
+    )
+    _self_check_first_call_bands(
+        schedule, PARAMS, (0, 1), band_edges=edges
+    )
+
+
 def test_card8_refuses_unordered_band_pair():
     with pytest.raises(AudioProfileError) as exc:
         schedule_first_call_bands(rng(6), params=PARAMS, target_bands=(3, 1))
