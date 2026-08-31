@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
+import numpy as np
+
 FRAME_COUNT = 75
 
 
@@ -167,6 +169,64 @@ def routes_from_bank(bank: dict, limit: int | None = None) -> list[Route]:
     return _routes_from_habitat_trajectory_bank(bank, limit)
 
 
+def line_of_sight_from_feasible_grid(config: dict):
+    """Build a conservative 2D LOS proxy from a declared feasible raster.
+
+    The sampler's normalized horizontal plane is UE ``(x,y)`` centimetres.
+    The supported grid contract was authored in Habitat ``(x,z)`` metres;
+    route-bank adaptation already maps those axes to the normalized plane.
+    This is a pre-render obstacle screen only.  It cannot see height-dependent
+    occlusion and never replaces native pixel truth.
+    """
+
+    required = ("metadata", "metadata_key", "arrays", "mask_key", "coordinate_contract")
+    missing = [key for key in required if key not in config]
+    if missing:
+        raise ValueError(f"line_of_sight_grid missing keys: {missing}")
+    if config["coordinate_contract"] != "habitat_xz_m_to_ue_xy_cm_v1":
+        raise ValueError("unsupported line_of_sight_grid coordinate contract")
+    metadata_doc = json.loads(Path(config["metadata"]).read_text())
+    metadata = metadata_doc.get(config["metadata_key"])
+    if not isinstance(metadata, dict) or metadata.get("schema") != "avengine_room_feasible_region_v1":
+        raise ValueError("line_of_sight_grid metadata has the wrong schema")
+    with np.load(Path(config["arrays"])) as arrays:
+        if config["mask_key"] not in arrays.files:
+            raise ValueError("line_of_sight_grid mask key is absent")
+        mask = np.asarray(arrays[config["mask_key"]], dtype=bool).copy()
+    expected_shape = tuple(int(value) for value in metadata["mask_shape_hw"])
+    if mask.shape != expected_shape or mask.ndim != 2:
+        raise ValueError("line_of_sight_grid mask shape differs from metadata")
+    bounds = metadata["bounds_m"]
+    minimum_x_m = float(bounds[0][0])
+    minimum_z_m = float(bounds[0][2])
+    pixel_x_m = float(metadata["pixel_size_x_m"])
+    pixel_z_m = float(metadata["pixel_size_z_m"])
+    if pixel_x_m <= 0.0 or pixel_z_m <= 0.0:
+        raise ValueError("line_of_sight_grid pixel sizes must be positive")
+
+    def grid_coordinates(point):
+        column = (float(point[0]) / 100.0 - minimum_x_m) / pixel_x_m
+        row = (float(point[1]) / 100.0 - minimum_z_m) / pixel_z_m
+        return row, column
+
+    def line_of_sight(origin, target):
+        row0, column0 = grid_coordinates(origin)
+        row1, column1 = grid_coordinates(target)
+        span = max(abs(row1 - row0), abs(column1 - column0))
+        # Quarter-pixel sampling is conservative around diagonal obstacle
+        # corners without inventing a room-specific dilation radius.
+        sample_count = max(2, int(math.ceil(span * 4.0)) + 1)
+        rows = np.floor(np.linspace(row0, row1, sample_count)).astype(np.int64)
+        columns = np.floor(np.linspace(column0, column1, sample_count)).astype(np.int64)
+        inside = (
+            (rows >= 0) & (rows < mask.shape[0])
+            & (columns >= 0) & (columns < mask.shape[1])
+        )
+        return bool(np.all(inside) and np.all(mask[rows, columns]))
+
+    return line_of_sight
+
+
 def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
     """从场景配置载入场景无关输入。
 
@@ -199,16 +259,20 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
     render_config = config.get("render") or {}
     if not isinstance(render_config, dict):
         raise ValueError(f"{config['scene_id']}: render must be an object")
+    los_config = config.get("line_of_sight_grid")
+    line_of_sight = None if los_config is None else line_of_sight_from_feasible_grid(los_config)
     return SceneInputs(
         scene_id=str(config["scene_id"]), backend=str(config["backend"]),
         routes=routes, stand_points=ordered, camera_points=ordered,
         camera_height_m=height, hfov_deg=hfov,
+        line_of_sight=line_of_sight,
         provenance={"route_bank": config["route_bank"],
                     "route_bank_schema": bank.get("schema"),
                     "route_bank_source": bank.get("source"),
                     "bank_adapter": BANK_ADAPTERS.get(str(bank.get("schema"))),
                     "camera_base_request": config["camera_base_request"],
                     "routes_loaded": len(routes),
+                    "line_of_sight_grid": los_config,
                     "navigable_points": len(ordered)},
         render_config=dict(render_config),
     )

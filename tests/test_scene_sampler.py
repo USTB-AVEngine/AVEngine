@@ -24,6 +24,7 @@ from scene_sampler import (  # noqa: E402
     Route,
     SceneInputs,
     circular_gap_deg,
+    line_of_sight_from_feasible_grid,
     load_scene,
     open_angle_gold_regions_disjoint,
     relative_azimuth_deg,
@@ -320,3 +321,46 @@ def test_habitat_bank_adapter_normalises_metres_and_plane(tmp_path):
     assert routes[0].route_id == "e1:source1"
     assert routes[0].at(0) == (0.0, 0.0)
     assert routes[0].at(74) == (200.0, -300.0)      # 米→厘米,(x,z) 平面
+
+
+def test_feasible_grid_los_blocks_obstacles_without_room_specific_code(tmp_path):
+    metadata = tmp_path / "feasible.json"
+    metadata.write_text(json.dumps({
+        "source1": {
+            "schema": "avengine_room_feasible_region_v1",
+            "mask_shape_hw": [5, 6],
+            "bounds_m": [[-0.05, 0.0, -0.05], [0.25, 2.0, 0.20]],
+            "pixel_size_x_m": 0.05,
+            "pixel_size_z_m": 0.05,
+        }
+    }))
+    mask = np.ones((5, 6), dtype=np.uint8)
+    mask[2, 3] = 0
+    arrays = tmp_path / "feasible.npz"
+    np.savez_compressed(arrays, feasible_mask=mask)
+    config = {
+        "metadata": str(metadata),
+        "metadata_key": "source1",
+        "arrays": str(arrays),
+        "mask_key": "feasible_mask",
+        "coordinate_contract": "habitat_xz_m_to_ue_xy_cm_v1",
+    }
+    los = line_of_sight_from_feasible_grid(config)
+    assert los((0.0, 0.0), (20.0, 0.0)) is True
+    assert los((0.0, 0.0), (20.0, 20.0)) is False
+    assert los((0.0, 0.0), (1000.0, 1000.0)) is False
+
+
+def test_feasible_grid_los_rejects_wrong_coordinate_contract(tmp_path):
+    metadata = tmp_path / "feasible.json"
+    metadata.write_text(json.dumps({"source1": {}}))
+    arrays = tmp_path / "feasible.npz"
+    np.savez_compressed(arrays, feasible_mask=np.ones((1, 1), dtype=np.uint8))
+    with pytest.raises(ValueError, match="coordinate contract"):
+        line_of_sight_from_feasible_grid({
+            "metadata": str(metadata),
+            "metadata_key": "source1",
+            "arrays": str(arrays),
+            "mask_key": "feasible_mask",
+            "coordinate_contract": "room_specific_guess",
+        })
