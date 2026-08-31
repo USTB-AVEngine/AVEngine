@@ -173,7 +173,7 @@ def base_record(bundle: PointBundle, card: str, filter_entry: dict) -> dict:
     }
 
 
-def gen_card1(bundle: PointBundle, fe: dict) -> dict | None:
+def gen_card1(bundle: PointBundle, fe: dict, params: dict) -> dict | None:
     if not fe.get("card1", {}).get("admit"):
         return None
     slot = bundle.plan["anchor_slot"]
@@ -200,11 +200,7 @@ def gen_card1(bundle: PointBundle, fe: dict) -> dict | None:
                     "pilot01: 固定审阅相机(hfov 105°)+片尾须可见 ⇒ 真值方位"
                     "可行域实测 [-31°,+8°],四扇区退化(全 front);三带备选"
                     "见 three_band_visible;选项空间定版是 owner 决策项")},
-        "three_band_visible": {
-            "options_space": ["left_of_-15", "within_±15", "right_of_+15"],
-            "truth_option": ("within_±15" if -15.0 <= truth_deg < 15.0
-                             else ("right_of_+15" if truth_deg >= 15.0
-                                   else "left_of_-15"))},
+        "azimuth_band": _azimuth_band_block(truth_deg, params),
         "open": {"stem": ("Roughly how many degrees from your facing "
                           "direction is the dog that barked last, at the end "
                           "of the video? Right side is positive."),
@@ -213,6 +209,32 @@ def gen_card1(bundle: PointBundle, fe: dict) -> dict | None:
         "referral_coat_note": coat,
     })
     return rec
+
+
+def _azimuth_band_block(truth_deg: float, params: dict) -> dict | None:
+    """预先声明的视锥等分方位带(run02 起的 card1 MCQ 答案空间)。
+
+    四扇区(前/右/后/左)被 run01 证伪:目标片尾必须可见 ⇒ 方位恒在
+    视锥内 ⇒ 只有"前"扇区可达,40/40 被编排器上游复检拒出。视锥等分带
+    的答案空间是相机视野的属性,与走廊弦库无关。
+    """
+    edges = params.get("AZ_BANDS_CARD1")
+    if not edges:
+        return None
+    idx = None
+    for i in range(len(edges) - 1):
+        if edges[i] <= truth_deg < edges[i + 1]:
+            idx = i
+            break
+    if idx is None and abs(truth_deg - edges[-1]) < 1e-9:
+        idx = len(edges) - 2
+    if idx is None:
+        return {"options_space": None, "truth_option": None,
+                "note": f"final azimuth {truth_deg:.2f} outside declared bands"}
+    labels = [f"[{edges[i]:g}, {edges[i + 1]:g})"
+              for i in range(len(edges) - 1)]
+    return {"options_space": labels, "truth_option": labels[idx],
+            "band_index": idx, "edges": list(edges)}
 
 
 def sector_name(deg: float) -> str:
@@ -276,9 +298,9 @@ def gen_card7(bundle: PointBundle, fe: dict, params: dict,
 def gen_card8(bundle: PointBundle, fe: dict, params: dict) -> list[dict]:
     if not fe.get("card8", {}).get("admit"):
         return []
-    # MCQ 带优先用实测可行域带(BANDS_CARD8_MCQ,pilot01 发现:锚尾静默把
-    # 首叫压到 ≤2.6s,原全域四带后两带结构性空);缺省回退 BANDS。
-    bands_key = "BANDS_CARD8_MCQ" if "BANDS_CARD8_MCQ" in params else "BANDS"
+    # MCQ 带用**预先声明**的 BANDS_CARD8(run02 起由装配器带优先调度
+    # 填满,答案带按构造均匀);缺省回退 BANDS。
+    bands_key = "BANDS_CARD8" if "BANDS_CARD8" in params else "BANDS"
     bands = [float(b) for b in params[bands_key]]
     out = []
     for slot, onset in sorted(bundle.first_onsets().items()):
@@ -383,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             skipped.append(f"{pdir.name}: {exc}")
             continue
         fe = freport[pdir.name]
-        r1 = gen_card1(bundle, fe)
+        r1 = gen_card1(bundle, fe, params)
         if r1:
             facts["card1"].append(r1)
         want_negative = pdir.name in negative_points

@@ -217,14 +217,30 @@ def _walk_pos(walk, k_idle, frame):
             walk[0][1] + (walk[1][1] - walk[0][1]) * t)
 
 
+def az_band_of(deg: float, edges) -> int | None:
+    """片尾方位所属的**预先声明**方位带(视锥等分;界外 None)。"""
+    if deg < edges[0] or deg > edges[-1]:
+        return None
+    for i in range(len(edges) - 1):
+        if edges[i] <= deg < edges[i + 1]:
+            return i
+    return len(edges) - 2
+
+
 def _prescreen(sub_class, walk, stand, k_idle, anchor_frame,
-               first_frames, params):
+               first_frames, params, target_az_band=None):
     """纯几何预筛(闭式解,不调 CLI);终审仍走 evaluate_point。
 
     sub_class:B(锚定者站立)只查通用绑定;A1(供 card1)查片尾角距
     (END_GAP_MIN 参数——占位带宽下开放版口径在本房间几何中近乎不可产,
     冒烟按 MCQ 口径传值并在 manifest 标注)与锚后角位移;A5(供 card5R)
     查距离变化。卡间解耦:不再要求单点全能。
+
+    `target_az_band`(codex 审阅裁定的 card1 重构):片尾方位必须落进
+    这一点**预先分配**的方位带,且静立者不得同带。run01 的教训是不加
+    这条约束时片尾角只覆盖 [-31°,+8°](38/40 为负角),恒答 −15.86°
+    在占位容差下就能拿 96.25% —— 开放版退化成常量猜测题。弦库实测
+    可达 [-41°,+35°],所以这是选择偏差而非几何天花板。
     """
     import math
     cam, yaw = (CAMERA_POS[0], CAMERA_POS[1]), CAMERA_YAW
@@ -252,20 +268,83 @@ def _prescreen(sub_class, walk, stand, k_idle, anchor_frame,
             return False
         if circ_diff(az_mover(anchor_frame), az_mover(74)) <= params["THETA_FULL"]:
             return False
+        if target_az_band is not None:
+            edges = params["AZ_BANDS_CARD1"]
+            if az_band_of(az_mover(74), edges) != target_az_band:
+                return False
+            if az_band_of(az_stand, edges) == target_az_band:
+                return False
     if sub_class == "A5":
         if abs(dist_mover(74) - dist_mover(anchor_frame)) < params["MIN_DIST_CHANGE_CM"]:
             return False
     return True
 
 
+def _balanced_list(values, n, seed, tag):
+    """长度 n 的均衡列表:各值等量(除不尽的余数按洗牌顺序落),再用
+    独立种子洗牌。各因子分别这样生成再 zip,marginal 配额精确而因子间
+    不带系统相关 —— 轮转法(k%4 与 k%6 之类)会让因子周期互相锁定,
+    例如"毛色绑定"整除地预测"方位带",在同一集内多张卡共享 episode 时
+    这就是一条跨卡泄漏。
+    """
+    reps = -(-n // len(values))
+    pool = (list(values) * reps)[:n]
+    rng = _rng(seed, tag, "balance")
+    return [pool[i] for i in rng.permutation(n)]
+
+
+def _balanced_assignments(plan_list, pair_assets, params, seed):
+    """按批**先分配后采样**的配平表(codex 审阅裁定的三处失衡的修法)。
+
+    每个运动类内独立配额,四个因子各自均衡:
+    - 槽位↔毛色绑定 (a1,a2)/(a2,a1) 各半 —— run01 全部 120 点固定同一
+      绑定,任何能识别 source slot 的线索(方位、槽位模板、时序)都能
+      反推外观答案;孪生对照只能诊断这件事,不能替代设计上的反平衡;
+    - `first_slot` 两值各半;与毛色绑定独立洗牌,于是"先叫的是哪种
+      毛色"按构造 50:50,不靠事后标签抽样(run01 是 73:47,且均衡
+      子集内按运动类猜多数类仍有 60.6%);
+    - card8 的有序答案带对在 6 个可达对上均衡:带对 (b1,b2) 等量出现
+      ⇒ 每个带既当 b1 也当 b2,两槽位答案带的并集分布自动配平;
+    - card1 的片尾方位带在预先声明的视锥等分带上均衡(仅 A1 类)。
+    """
+    a1, a2 = pair_assets
+    az_band_count = len(params["AZ_BANDS_CARD1"]) - 1
+    band_count = len(params["BANDS_CARD8"]) - 1
+    ordered_pairs = [(b1, b2) for b1 in range(band_count)
+                     for b2 in range(b1 + 1, band_count)]
+    by_class: dict[str, list] = {}
+    for cls, i in plan_list:
+        by_class.setdefault(cls, []).append(i)
+    out = {}
+    for cls, idxs in by_class.items():
+        n = len(idxs)
+        pairs = _balanced_list([(a1, a2), (a2, a1)], n, seed, f"{cls}|coat")
+        firsts = _balanced_list(["source1", "source2"], n, seed, f"{cls}|first")
+        calls = _balanced_list(ordered_pairs, n, seed, f"{cls}|call")
+        azs = (_balanced_list(list(range(az_band_count)), n, seed, f"{cls}|az")
+               if cls == "A1" else [None] * n)
+        for k, i in enumerate(idxs):
+            out[(cls, i)] = {"pair_assets": pairs[k], "first_slot": firsts[k],
+                             "call_bands": calls[k], "az_band": azs[k]}
+    return out
+
+
 def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
-                directed, stands, out_root, programs_dir, validator, max_retries):
+                directed, stands, out_root, programs_dir, validator, max_retries,
+                *, first_slot, target_call_bands=None, target_az_band=None):
     """组装一个主点;返回 (spec, filter_result) 或抛错。
 
     结构(首次冒烟的教训):card8 的首叫约束在 program 规划层满足(换
     路线救不了它);路线×站点×转折帧先过**解析几何预筛**,只有预筛通过
     的组合才花一次 CLI 调用,evaluate_point 终审兜底。program 本身也纳入
     重采(不同派生种子最多 3 版)。
+
+    配平参数由调用方按批分配(codex 审阅裁定,run01 三处失衡的修法):
+    `pair_assets` 的顺序 = 该点的槽位↔毛色绑定(run01 全部 120 点固定
+    source1=黑白/source2=黄毛,任何能识别槽位的线索都能反推外观答案);
+    `first_slot` 不再逐次随机(run01 卡⑨ 73:47,且均衡子集内按运动类
+    猜多数类仍达 60.6%);`target_call_bands` 是 card8 的有序答案带对;
+    `target_az_band` 是 card1 的片尾方位带。
     """
     a1, a2 = pair_assets
     pdir = Path(out_root) / pid
@@ -288,14 +367,13 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
     cli_budget = max_retries
     for prog_try in range(3):
         sub_pid = f"{pid}#p{prog_try}"
-        first_slot = ("source1" if int(_rng(seed, sub_pid, "first").integers(0, 2))
-                      else "source2")
         events, anchor = plan_events(seed, sub_pid, first_slot,
                                      first_min_s=params["FIRST_MIN_S"],
                                      gap_min_s=params["GAP_MIN_S"],
                                      tail_silence_s=params["TAIL_MIN_S"],
-                                     first_call_bands=params["BANDS"],
-                                     min_first_call_gap_s=params["T_HALF"])
+                                     first_call_bands=params["BANDS_CARD8"],
+                                     min_first_call_gap_s=params["T_HALF"],
+                                     target_first_bands=target_call_bands)
         anchor_slot = anchor["anchor_slot"]
         other_slot = "source2" if anchor_slot == "source1" else "source1"
         is_a = sub_class.startswith("A")
@@ -315,9 +393,11 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
 
         rng = _rng(seed, sub_pid, "route")
         if is_a:
-            k_options = sorted({int(v) for v in
-                                rng.integers(8, max(9, anchor_frame - 4) + 1,
-                                             size=3)})
+            # 转折帧密集枚举而非随机抽 3 个:预筛是闭式解、便宜,真正稀缺
+            # 的是通过预筛的组合。run02 冒烟的教训——视锥最右方位带全数
+            # 失败,卡的是"锚后角位移 > THETA_FULL":锚点落在片子后段,
+            # 目标只剩两秒多行程,能否扫出足够角度对 k_idle 极其敏感。
+            k_options = list(range(8, max(9, anchor_frame - 4) + 1, 3))[:12]
         else:
             k_options = [0]
         walks = []
@@ -327,7 +407,8 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
         order = rng.permutation(len(combos))
         candidates = [combos[i] for i in order
                       if _prescreen(sub_class, combos[i][0], combos[i][1],
-                                    combos[i][2], anchor_frame, first_frames, params)]
+                                    combos[i][2], anchor_frame, first_frames,
+                                    params, target_az_band=target_az_band)]
         if not candidates:
             last_reason = f"prog_try {prog_try}: prescreen found no candidate"
             continue
@@ -364,6 +445,9 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
                 spec = {"point_id": pid, "pair_kind": request["pair_kind"],
                         "source1_asset": a1, "source2_asset": a2,
                         "motion_class": sub_class, "mover_slot": mover,
+                        "target_call_bands": (list(target_call_bands)
+                                              if target_call_bands else None),
+                        "target_az_band": target_az_band,
                         "idle_frames": idle_frames, "first_slot": first_slot,
                         "anchor_slot": anchor_slot, "anchor_frame": anchor_frame,
                         "s1_route": [list(s1r[0]), list(s1r[1])],
@@ -420,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     params = json.load(open(args.params))
     needed = ("THETA_FULL", "THETA_HALF", "T_HALF", "TAIL_MIN_S", "MIN_AZIMUTH_SEP",
               "MIN_DIST_CHANGE_CM", "MIN_CARD7_FRAMES", "BANDS",
+              "BANDS_CARD8", "AZ_BANDS_CARD1",
               "FIRST_MIN_S", "GAP_MIN_S", "SOUND_ASSET")
     missing = [k for k in needed if k not in params]
     if missing:
@@ -443,13 +528,20 @@ def main(argv: list[str] | None = None) -> int:
     plan_list = [("A1", i) for i in range(n_a1)] + \
                 [("A5", i) for i in range(args.class_a - n_a1)] + \
                 [("B", i) for i in range(args.class_b)]
+    assignments = _balanced_assignments(plan_list, pair_assets, params,
+                                        args.seed)
     for cls, i in plan_list:
         pid = f"v3{cls.lower()}_{i + 1:03d}"
+        plan = assignments[(cls, i)]
         try:
-            spec, result = build_point(pid, pair_assets, cls, args.seed, params,
+            spec, result = build_point(pid, plan["pair_assets"], cls, args.seed,
+                                       params,
                                        args.python, by_id, args.snapshot_content,
                                        directed, stands, args.output_root,
-                                       programs_dir, validator, args.max_retries)
+                                       programs_dir, validator, args.max_retries,
+                                       first_slot=plan["first_slot"],
+                                       target_call_bands=plan["call_bands"],
+                                       target_az_band=plan["az_band"])
             specs.append(spec)
             filter_results[pid] = {k: v for k, v in result.items()
                                    if k.startswith("card") or k.startswith("anchor")}

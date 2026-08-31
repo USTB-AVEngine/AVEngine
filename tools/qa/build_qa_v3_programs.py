@@ -66,21 +66,42 @@ def _rng(seed: str, *parts: str):
 def plan_events(seed: str, point_id: str, first_slot: str, *,
                 first_min_s: float, gap_min_s: float, tail_silence_s: float,
                 first_call_bands: list[float] | None = None,
-                min_first_call_gap_s: float | None = None):
+                min_first_call_gap_s: float | None = None,
+                target_first_bands: tuple[int, int] | None = None):
     """返回 (事件列表[(slot, start_sample)], 锚元数据)。
 
     可选的 card8 约束(设计冒烟的教训:这两条必须在 program 规划层满足,
     换路线的重试对它们无能为力):两个槽位的**首叫**须落在
     first_call_bands 的不同带,且相隔超过 min_first_call_gap_s。
+
+    `target_first_bands=(b1, b2)` 是**带优先调度**(codex 审阅裁定):先
+    给这一点分配答案带,再在带内采样,而不是先采样再看落在哪带——后者
+    让答案带的分布由可行域形状决定(run01 实测 54/60/73/53,按外观拆开
+    后黑白狗 22/21/48/29,只看外观猜第三带即得 40%)。因为事件按槽位
+    交替、时间递增,首叫必然 t1 < t2,故只有 b1 < b2 的有序带对可达;
+    调用方按有序带对均匀配额分配,两个槽位的答案带边际分布即自动配平。
     """
     rng = _rng(seed, point_id, "events")
-    n_events = int(rng.integers(3, 5))  # 3 或 4
     other = "source2" if first_slot == "source1" else "source1"
-    slots = [first_slot if i % 2 == 0 else other for i in range(n_events)]
     lo = int(first_min_s * SAMPLE_RATE)
     gap = int(gap_min_s * SAMPLE_RATE)
     hi = SAMPLE_COUNT - int(tail_silence_s * SAMPLE_RATE) - EVENT_LEN
     step = EVENT_LEN + gap
+    if target_first_bands is not None:
+        if first_call_bands is None:
+            raise ValueError("target_first_bands requires first_call_bands")
+        b1, b2 = target_first_bands
+        if not 0 <= b1 < b2 <= len(first_call_bands) - 2:
+            raise ValueError(f"{point_id}: unreachable band pair {b1},{b2} "
+                             "(events alternate in time, so b1 < b2)")
+        starts, n_events = _plan_banded_starts(
+            rng, point_id, first_call_bands, (b1, b2), lo, hi, step,
+            min_first_call_gap_s)
+        slots = [first_slot if i % 2 == 0 else other
+                 for i in range(n_events)]
+        return _finish_plan(slots, starts, n_events)
+    n_events = int(rng.integers(3, 5))  # 3 或 4
+    slots = [first_slot if i % 2 == 0 else other for i in range(n_events)]
     if hi - lo < (n_events - 1) * step:
         raise ValueError(f"{point_id}: infeasible constraints "
                          f"(window {hi - lo} < needed {(n_events - 1) * step})")
@@ -119,6 +140,49 @@ def plan_events(seed: str, point_id: str, first_slot: str, *,
     else:
         raise RuntimeError(f"{point_id}: no onset layout satisfying first-call "
                            f"band/gap constraints in 300 attempts")
+    return _finish_plan(slots, starts, n_events)
+
+
+def _plan_banded_starts(rng, point_id, bands, target, lo, hi, step,
+                        min_first_call_gap_s):
+    """带优先:两个首叫先各自锁进目标带,其余事件再条件采样。
+
+    带内仍是条件均匀采样(保住"首叫时刻在带内不可预测");事件数 3/4
+    的选择随目标带对的可行性走——晚带对需要更短的事件序列才塞得下。
+    """
+    b1, b2 = target
+    lo1, hi1 = bands[b1] * SAMPLE_RATE, bands[b1 + 1] * SAMPLE_RATE
+    lo2, hi2 = bands[b2] * SAMPLE_RATE, bands[b2 + 1] * SAMPLE_RATE
+    gap_samples = (0 if min_first_call_gap_s is None
+                   else int(min_first_call_gap_s * SAMPLE_RATE))
+    for n_events in [int(v) for v in rng.permutation([3, 4])]:
+        t1_lo = max(lo, int(lo1))
+        t1_hi = min(hi - (n_events - 1) * step, int(hi1) - 1)
+        if t1_lo > t1_hi:
+            continue
+        for _attempt in range(200):
+            t1 = int(rng.integers(t1_lo, t1_hi + 1))
+            t2_lo = max(t1 + step, int(lo2), t1 + gap_samples + 1)
+            t2_hi = min(hi - (n_events - 2) * step, int(hi2) - 1)
+            if t2_lo > t2_hi:
+                continue
+            starts = [t1, int(rng.integers(t2_lo, t2_hi + 1))]
+            cursor = starts[-1] + step
+            ok = True
+            for i in range(2, n_events):
+                hi_i = hi - (n_events - 1 - i) * step
+                if cursor > hi_i:
+                    ok = False
+                    break
+                starts.append(int(rng.integers(cursor, hi_i + 1)))
+                cursor = starts[-1] + step
+            if ok:
+                return starts, n_events
+    raise RuntimeError(f"{point_id}: no onset layout lands the first calls in "
+                       f"bands {target} (tried 3 and 4 events)")
+
+
+def _finish_plan(slots, starts, n_events):
     events = list(zip(slots, starts))
     anchor_slot, anchor_start = events[-1]
     anchor = {"anchor_event_index": n_events - 1,

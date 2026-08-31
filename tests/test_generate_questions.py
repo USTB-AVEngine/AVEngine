@@ -27,7 +27,8 @@ EP1, EP2 = "qa_v2_dog_1_collie_muzzle", "qa_v2_dog_2_labrador_muzzle"
 PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0, "T_HALF": 1.0,
           "TAIL_MIN_S": 1.5, "MIN_AZIMUTH_SEP": 25.0,
           "MIN_DIST_CHANGE_CM": 50.0, "MIN_CARD7_FRAMES": 8,
-          "BANDS": [0.0, 1.25, 2.5, 3.75, 5.0]}
+          "BANDS": [0.0, 1.25, 2.5, 3.75, 5.0],
+          "AZ_BANDS_CARD1": [-52.5, -26.25, 0.0, 26.25, 52.5]}
 
 
 def _lerp(a, b, t):
@@ -195,7 +196,7 @@ def test_no_questions_when_not_admitted(tmp_path):
 
 def test_card8_uses_feasible_bands_and_tolerates_outlier(tmp_path):
     root = build_design_root(tmp_path)
-    params = dict(PARAMS, BANDS_CARD8_MCQ=[0.0, 0.65, 1.3, 1.95, 2.6])
+    params = dict(PARAMS, BANDS_CARD8=[0.0, 0.65, 1.3, 1.95, 2.6])
     params_p = tmp_path / "p2.json"
     params_p.write_text(json.dumps(params))
     out = tmp_path / "out_bands"
@@ -205,11 +206,11 @@ def test_card8_uses_feasible_bands_and_tolerates_outlier(tmp_path):
             for l in (out / "facts_card8.jsonl").read_text().splitlines()}
     # s1 首叫 0.5 → 带0 [0,0.65);s2 首叫 1.5 → 带2 [1.3,1.95)
     assert recs["source1"]["mcq"]["truth_option"] == "[0, 0.65)"
-    assert recs["source1"]["mcq"]["bands_key"] == "BANDS_CARD8_MCQ"
+    assert recs["source1"]["mcq"]["bands_key"] == "BANDS_CARD8"
     assert recs["source2"]["truth"]["band_index"] == 2
     # 越带(带域缩到 [0,1.0)):s2 的 MCQ 缺席但开放版仍在
     params_p.write_text(json.dumps(dict(PARAMS,
-                                        BANDS_CARD8_MCQ=[0.0, 0.5, 1.0])))
+                                        BANDS_CARD8=[0.0, 0.5, 1.0])))
     out2 = tmp_path / "out_bands2"
     assert main(["--design-root", str(root), "--params", str(params_p),
                  "--out-root", str(out2), "--card7-negative-share", "0"]) == 0
@@ -220,11 +221,23 @@ def test_card8_uses_feasible_bands_and_tolerates_outlier(tmp_path):
     assert recs2["source2"]["open"]["truth_value"] == 1.5
 
 
-def test_card1_records_degeneracy_and_three_band(tmp_path):
+def test_card1_records_degeneracy_and_azimuth_band(tmp_path):
+    # 手工几何里目标片尾 +90°,落在视锥声明带之外 → 越界须如实标注
     facts, _ = run_gen(tmp_path, build_design_root(tmp_path))
     (rec,) = facts["card1"]
     assert "degeneracy_note" in rec["mcq"]
-    assert rec["three_band_visible"]["truth_option"] == "right_of_+15"  # +90°
+    assert rec["azimuth_band"]["truth_option"] is None
+    assert "outside declared bands" in rec["azimuth_band"]["note"]
+
+
+def test_card1_azimuth_band_picks_declared_bin(tmp_path):
+    facts, _ = run_gen(tmp_path, build_design_root(tmp_path))
+    (rec,) = facts["card1"]
+    from generate_qa_v3_questions import _azimuth_band_block
+    blk = _azimuth_band_block(-30.0, PARAMS)
+    assert blk["band_index"] == 0 and blk["truth_option"] == "[-52.5, -26.25)"
+    assert _azimuth_band_block(0.0, PARAMS)["band_index"] == 2
+    assert _azimuth_band_block(52.5, PARAMS)["band_index"] == 3   # 末带右闭
 
 
 def test_balanced_subset_marks(tmp_path):
