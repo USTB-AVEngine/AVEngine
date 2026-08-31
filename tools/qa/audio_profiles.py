@@ -190,13 +190,15 @@ def schedule_backward_anchor(rng, *, params, anchor_frame: int,
 
 
 def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
+                              band_edges: list[float] | None = None,
                               first_caller_role: str = TARGET) -> Schedule:
     """⑧ 首叫时间带:两个角色的首叫落进**预先声明**的不同带。
 
     不继承 card1 的片尾静默 —— 那正是 run01 把首叫压进前 2.6 秒、后两带
     结构性为空的原因。带边由题型配置声明,窗内时刻随机。
     """
-    bands = [float(b) for b in params["BANDS_CARD8"]]
+    bands = ([float(b) for b in band_edges] if band_edges
+             else [float(b) for b in params["BANDS_CARD8"]])
     b1, b2 = target_bands
     if not 0 <= b1 < b2 <= len(bands) - 2:
         raise AudioProfileError(
@@ -231,7 +233,8 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
                             {"target_bands": [b1, b2],
                              "band_edges_seconds": bands,
                              "first_caller_role": first_caller_role})
-        _self_check_first_call_bands(schedule, params, target_bands)
+        _self_check_first_call_bands(schedule, params, target_bands,
+                                     band_edges=bands)
         return schedule
     raise AudioProfileError(
         f"no onset layout lands the first calls in bands {target_bands}")
@@ -297,8 +300,10 @@ def _self_check_backward(schedule: Schedule, params, window) -> None:
     _assert_no_overlap(schedule)
 
 
-def _self_check_first_call_bands(schedule: Schedule, params, target_bands) -> None:
-    bands = [float(b) for b in params["BANDS_CARD8"]]
+def _self_check_first_call_bands(schedule: Schedule, params, target_bands,
+                                 band_edges=None) -> None:
+    bands = ([float(b) for b in band_edges] if band_edges
+             else [float(b) for b in params["BANDS_CARD8"]])
     firsts: dict[str, float] = {}
     for event in sorted(schedule.events, key=lambda e: e.start_sample):
         firsts.setdefault(event.role, event.start_seconds)
@@ -338,3 +343,49 @@ def _band_index(value: float, bands: list[float]) -> int | None:
     if math.isclose(value, bands[-1]):
         return len(bands) - 2
     return None
+
+def card8_feasible_interval(params, *, min_events: int = 3) -> tuple[float, float]:
+    """⑧ 的首叫可行域,由片长与事件约束**推**出来,不读任何批次的答案分布。
+
+    推导(全部是声明量,与房间无关):
+      末事件必须在片内放完      t_last <= clip - event
+      每个事件之后要留间隔      t_k    <= t_{k+1} - (event + gap)
+      两只的首叫要可分辨        t2     >  t1 + T_HALF
+      每集至少 min_events 声
+    于是 ⑧ 的**目标首叫**(可能是第一声也可能是第二声)落在
+      [first_min, clip - event - (min_events - 2) * (event + gap)]
+
+    关键:这里**不含**任何片尾静默 —— ①F 需要片尾静默,⑧ 不需要。
+    run01 把 ⑧ 的带按 ①F 的 1.5 秒片尾静默切出来,首叫因此被压进前
+    2.6 秒、后段结构性为空;那条边界不能带进新方案。
+    """
+    clip = float(params.get("CLIP_SECONDS", CLIP_SECONDS))
+    event = float(params.get("EVENT_SECONDS", EVENT_SECONDS))
+    gap = float(params["GAP_MIN_S"])
+    first_min = float(params["FIRST_MIN_S"])
+    last_start = clip - event
+    latest_second_call = last_start - max(0, min_events - 2) * (event + gap)
+    if latest_second_call <= first_min:
+        raise AudioProfileError(
+            "no feasible first-call interval: the clip cannot hold "
+            f"{min_events} spaced events")
+    return (first_min, latest_second_call)
+
+
+def card8_band_edges(params, *, n_bands: int = 4,
+                     min_events: int = 3) -> list[float]:
+    """可行域内**等宽半开**的 MCQ 时间带;边界在生成数据前锁定。"""
+    lo, hi = card8_feasible_interval(params, min_events=min_events)
+    width = (hi - lo) / n_bands
+    t_half = float(params["T_HALF"])
+    if width <= 0:
+        raise AudioProfileError("degenerate band width")
+    edges = [round(lo + width * i, 6) for i in range(n_bands + 1)]
+    # 相邻带对必须仍能满足"两只首叫相隔超过 T_HALF",否则带对退化成
+    # 确定性模板(听到第一声就知道第二只在哪带)。
+    if hi - lo <= t_half:
+        raise AudioProfileError(
+            f"feasible interval {hi - lo:.2f}s cannot host two first calls "
+            f"separated by more than T_HALF={t_half}s")
+    return edges
+

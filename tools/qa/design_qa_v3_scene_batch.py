@@ -57,6 +57,9 @@ COAT_WORDS = {
         "black-and-white",
     "generated_labrador_yellow_medium_standard_adult_research_v1": "yellow",
 }
+COAT_OF = dict(COAT_WORDS)
+ASSET_OF = {coat: asset for asset, coat in COAT_WORDS.items()}
+OTHER_COAT = {"black-and-white": "yellow", "yellow": "black-and-white"}
 EP_MAP = {
     "generated_border_collie_black_white_medium_standard_adult_research_v1":
         ("qa_v2_dog_1_collie_muzzle", "qa_v2_dog_2_collie_muzzle"),
@@ -137,34 +140,66 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
         if kind == "azimuth_band":
             cellsets = [tuple(b) for b in profile["answer_bands_deg"]]
         elif kind in ("time_band", "first_caller_coat"):
-            cellsets = [tuple(p) for p in profile["answer_band_pairs"]]
+            # 直接分配**目标的答案带**(而不是带对):带对的第一分量
+            # 决定目标答案带时,分布会被带对结构绑死。伙伴带随后选一个
+            # 不同的带,谁先叫由 target_first 决定。
+            n_bands = len(AP.card8_band_edges(params)) - 1
+            cellsets = list(range(n_bands))
         else:
             cellsets = list(profile.get("answer_labels",
                                         ["black-and-white", "yellow"]))
         n = cells
+        band_alloc = balanced(cellsets, n, seed, profile["id"], "band")
+        first_alloc = balanced([True, False], n, seed, profile["id"], "first")
+        if kind in ("time_band", "first_caller_coat"):
+            # 结构耦合(不是可选设计):事件按时间先后,**最早的带只能
+            # 属于先叫者、最晚的带只能属于后叫者** —— 否则另一只要更早
+            # 却又落在更早的带里,自相矛盾。两个因子独立抽样会造出不可能
+            # 的组合(冒烟里正是它让 4 个单元失败)。所以极端带上的
+            # target_first 由结构定死,只有中间带还能自由均衡。
+            n_bands = len(cellsets)
+            first_alloc = [
+                True if band == 0 else False if band == n_bands - 1 else flag
+                for band, flag in zip(band_alloc, first_alloc)]
+        # 毛色**不**独立抽样:目标外观(⑨ 是答案外观)先均衡分配,再反推
+        # 槽位↔资产绑定。独立抽样槽位与绑定时,两者各自 3:3 但乘积会塌
+        # (冒烟里 ①B 目标全黄毛、⑨ 答案全黑白)—— 总表均衡掩盖不了
+        # profile 内部可预测。
         per_profile[profile["id"]] = {
-            "band": balanced(cellsets, n, seed, profile["id"], "band"),
-            # 目标是先叫者还是后叫者:两半均衡 —— 固定当先叫者会让
-            # 目标的答案带被带对的第一个分量决定,分布随之偏斜。
-            "target_first": balanced([True, False], n, seed, profile["id"],
-                                     "first"),
-            "coat": balanced([(a1, a2), (a2, a1)], n, seed, profile["id"],
-                             "coat"),
+            "band": band_alloc,
+            "target_first": first_alloc,
+            "answer_coat": balanced([COAT_OF[a1], COAT_OF[a2]], n, seed,
+                                    profile["id"], "coat"),
             "target_slot": balanced(["source1", "source2"], n, seed,
                                     profile["id"], "slot"),
         }
     for profile in profiles:
         alloc = per_profile[profile["id"]]
         for index in range(cells):
-            plan.append({
+            entry = {
                 "profile": profile,
                 "cell_index": index,
                 "answer_band": alloc["band"][index],
-                "call_bands": alloc["band"][index],
+                "target_band": alloc["band"][index],
                 "target_first": bool(alloc["target_first"][index]),
-                "pair_assets": alloc["coat"][index],
+                "answer_coat": alloc["answer_coat"][index],
                 "target_slot": alloc["target_slot"][index],
-            })
+            }
+            # ⑨ 的答案是**先叫者**的外观;目标是不是先叫者由 target_first
+            # 决定,所以目标外观要按它反推。其余题型的答案外观就是目标的。
+            answer_coat = entry["answer_coat"]
+            if (profile.get("answer_kind") == "first_caller_coat"
+                    and not entry["target_first"]):
+                target_coat = OTHER_COAT[answer_coat]
+            else:
+                target_coat = answer_coat
+            entry["target_coat"] = target_coat
+            target_asset = ASSET_OF[target_coat]
+            other_asset = ASSET_OF[OTHER_COAT[target_coat]]
+            entry["pair_assets"] = ((target_asset, other_asset)
+                                    if entry["target_slot"] == "source1"
+                                    else (other_asset, target_asset))
+            plan.append(entry)
     return plan
 
 
@@ -199,6 +234,8 @@ def main(argv=None) -> int:
     programs_dir = args.out_root / "programs"
     programs_dir.mkdir()
     ledger = SS.RejectionLedger()
+    # 逐 profile 一本台账:总表看不出哪条约束在影响哪个题型
+    per_profile_ledger = {p["id"]: SS.RejectionLedger() for p in profiles}
     cells = build_cell_plan(args.cells, profiles, pair, params, args.seed)
 
     made, rejected, records = [], [], []
@@ -206,7 +243,8 @@ def main(argv=None) -> int:
         profile = cell["profile"]
         pid = f"{profile['id']}_{cell['cell_index'] + 1:03d}"
         rng = sha_rng(args.seed, pid)
-        outcome = solve_for_profile(profile, cell, scene, params, rng, ledger)
+        outcome = solve_for_profile(profile, cell, scene, params, rng,
+                                    per_profile_ledger[profile["id"]])
         if isinstance(outcome, SS.Rejection):
             rejected.append({"point_id": pid, "reason": outcome.reason,
                              "detail": outcome.detail})
@@ -222,8 +260,14 @@ def main(argv=None) -> int:
         made.append(pid)
         records.append(record)
 
+    for sub in per_profile_ledger.values():
+        for reason, count in sub.counts.items():
+            ledger.counts[reason] = ledger.counts.get(reason, 0) + count
+        ledger.combinations_evaluated += sub.combinations_evaluated
+        ledger.stand_points_evaluated += sub.stand_points_evaluated
+        ledger.budget_exhausted += sub.budget_exhausted
     write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records)
+                  rejected, records, per_profile_ledger)
     print(json.dumps({"out": str(args.out_root), "scene": scene.scene_id,
                       "geometry_candidates": len(made),
                       "cells_requested": len(cells),
@@ -270,9 +314,26 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             rng, params=params, anchor_frame=plan.anchor_frame,
             query_frame=plan.query_frame)
     elif profile.get("answer_kind") in ("time_band", "first_caller_coat"):
-        # ⑧⑨ 都要"两只都有首叫、且可分辨";谁先叫由本格分配,不写死。
+        # ⑧⑨ 都要"两只都有首叫、且可分辨";目标的答案带先定,伙伴带
+        # 由 target_first 决定在它之前还是之后,再交给调度器。
+        edges = AP.card8_band_edges(params)
+        n_bands = len(edges) - 1
+        target_band = int(cell["target_band"])
+        if cell["target_first"]:
+            options = [b for b in range(target_band + 1, n_bands)]
+            pair = (target_band, options[int(rng.integers(len(options)))]) \
+                if options else None
+        else:
+            options = [b for b in range(0, target_band)]
+            pair = (options[int(rng.integers(len(options)))], target_band) \
+                if options else None
+        if pair is None:
+            raise ValueError(
+                f"target band {target_band} cannot be "
+                f"{'first' if cell['target_first'] else 'second'} caller: "
+                "no partner band on that side")
         schedule = AP.schedule_first_call_bands(
-            rng, params=params, target_bands=tuple(cell["call_bands"]),
+            rng, params=params, target_bands=pair, band_edges=edges,
             first_caller_role=(AP.TARGET if cell["target_first"] else AP.OTHER))
     else:
         schedule = AP.schedule_exactly_one_calling(
@@ -354,6 +415,8 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                   "events": [{"role": e.role, "purpose": e.purpose,
                               "start_sample": e.start_sample}
                              for e in schedule.events]},
+        "target_first": cell.get("target_first"),
+        "first_caller_slot": answer.get("first_caller_slot"),
         "search_attempts": plan.checks.get("search_attempts"),
         "line_of_sight_screened": plan.checks.get("line_of_sight_screened"),
         "status": "research_candidate", "qualification_claim": False,
@@ -363,6 +426,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     #   错时族的锚就是身份锚,必须绑到目标;
     #   ⑦ 的目标是查询时刻的发声者;⑨ 的目标由"谁先叫"决定。
     # 早先这里把错时族的假设硬套到 ⑦⑨ 上,把合格点全判失败了。
+    if slot_coat[target_slot] != cell["target_coat"]:
+        raise ValueError(
+            f"target coat {slot_coat[target_slot]} does not match the "
+            f"allocated {cell['target_coat']}: the slot-asset binding drifted")
     binding = profile.get("anchor_binding", "target")
     anchor_start = schedule.anchor.start_sample
     anchor_slots = [slot for slot, start in slot_events if start == anchor_start]
@@ -425,20 +492,23 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                                   f"{seconds:.1f} seconds?"),
                          "truth_value": truth, "scoring": "closed_set"}}
     if kind == "time_band":
-        edges = [float(b) for b in params["BANDS_CARD8"]]
+        edges = AP.card8_band_edges(params)
         firsts = {}
         for (slot, start), event in zip(slot_events, schedule.events):
             firsts.setdefault(slot, start / AP.SAMPLE_RATE)
         onset = firsts[target_slot]
         got = next((i for i in range(len(edges) - 1)
                     if edges[i] <= onset < edges[i + 1]), None)
-        pair = tuple(cell["call_bands"])
-        want = pair[0] if cell["target_first"] else pair[1]
+        want = int(cell["target_band"])
         if got != want:
             raise ValueError(f"first call landed in band {got}, assigned {want}")
         labels = [f"[{edges[i]:g}, {edges[i + 1]:g})"
                   for i in range(len(edges) - 1)]
-        return {"truth": {"first_onset_s": round(onset, 4), "band_index": got},
+        other_onset = firsts.get(other_slot)
+        return {"first_caller_slot": min(firsts, key=firsts.get),
+                "truth": {"first_onset_s": round(onset, 4), "band_index": got,
+                          "non_target_first_onset_s": (round(other_onset, 4)
+                                                       if other_onset else None)},
                 "mcq": {"stem": (f"When does the {coat} dog bark for the FIRST "
                                  "time? Pick the time range in seconds."),
                         "options_space": labels, "truth_option": labels[got]},
@@ -457,7 +527,8 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             raise ValueError(
                 f"the first caller is {first_slot}, not the assigned "
                 f"{expect_first}: the schedule disagrees with the cell plan")
-        return {"truth": {"first_to_bark": truth,
+        return {"first_caller_slot": first_slot,
+                "truth": {"first_to_bark": truth,
                           "onset_gap_s": round(
                               abs(firsts[target_slot] - firsts[other_slot])
                               / AP.SAMPLE_RATE, 4)},
@@ -470,8 +541,68 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
     raise ValueError(f"unknown answer kind {kind!r}")
 
 
+def conditional_balance(records):
+    """逐 profile 的条件分布 —— 总表 50:50 掩盖不了 profile 内部可预测。"""
+    out = {}
+    for record in records:
+        pid = record["profile_id"]
+        bucket = out.setdefault(pid, {})
+        truth = record["truth"]
+
+        def bump(field, value):
+            bucket.setdefault(field, {})
+            key = str(value)
+            bucket[field][key] = bucket[field].get(key, 0) + 1
+
+        bump("target_slot", record["target_slot"])
+        bump("target_coat", record["target_coat"])
+        bump("source1_coat", record["slot_coat"]["source1"])
+        for field in ("band_index", "calling_at_query", "first_to_bark"):
+            if field in truth:
+                bump(f"answer_{field}", truth[field])
+        if "target_first" in record:
+            bump("target_first_caller", record["target_first"])
+        if record.get("first_caller_slot"):
+            bump("first_caller_slot", record["first_caller_slot"])
+    return out
+
+
+def card8_diagnostics(params, records):
+    """⑧ 的时间域逐项列明,证明它没有继承 ①F 的片尾静默。"""
+    lo, hi = AP.card8_feasible_interval(params)
+    edges = AP.card8_band_edges(params)
+    rows = [r for r in records if r.get("answer_kind") == "time_band"]
+    target_onsets = [r["truth"]["first_onset_s"] for r in rows
+                     if "first_onset_s" in r["truth"]]
+    other_onsets = [r["truth"].get("non_target_first_onset_s") for r in rows]
+    other_onsets = [o for o in other_onsets if o is not None]
+    counts = {}
+    firsts = {}
+    for record in rows:
+        band = str(record["truth"].get("band_index"))
+        counts[band] = counts.get(band, 0) + 1
+        key = str(record.get("target_first"))
+        firsts[key] = firsts.get(key, 0) + 1
+    return {
+        "clip_duration_s": float(params.get("CLIP_SECONDS", AP.CLIP_SECONDS)),
+        "event_seconds": float(params.get("EVENT_SECONDS", AP.EVENT_SECONDS)),
+        "card8_feasible_interval_s": [lo, hi],
+        "card8_mcq_band_edges_s": edges,
+        "derivation": ("clip - event - (min_events - 2) * (event + gap); "
+                       "no tail silence is applied to card8"),
+        "target_first_onset_min_s": min(target_onsets) if target_onsets else None,
+        "target_first_onset_max_s": max(target_onsets) if target_onsets else None,
+        "non_target_first_onset_min_s": min(other_onsets) if other_onsets else None,
+        "non_target_first_onset_max_s": max(other_onsets) if other_onsets else None,
+        "target_band_counts": counts,
+        "target_first_counts": firsts,
+        "empty_bands": [str(i) for i in range(len(edges) - 1)
+                        if str(i) not in counts],
+    }
+
+
 def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records):
+                  rejected, records, per_profile_ledger=None):
     by_profile = Counter(r["profile_id"] for r in records)
     coat_of_slot1 = Counter(r["slot_coat"]["source1"] for r in records)
     target_slots = Counter(r["target_slot"] for r in records)
@@ -509,6 +640,12 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
         "balance": {"source1_coat": dict(coat_of_slot1),
                     "target_slot": dict(target_slots),
                     "answer_by_profile": dict(sorted(bands.items()))},
+        "per_profile_conditional_balance": conditional_balance(records),
+        "per_profile_rejections": {
+            pid: {k: v for k, v in led.summary().items()
+                  if k != "first_example"}
+            for pid, led in (per_profile_ledger or {}).items()},
+        "card8_time_domain": card8_diagnostics(params, records),
         "rejections": rejected,
         "params": params,
         "status": "research_candidate", "qualification_claim": False,
