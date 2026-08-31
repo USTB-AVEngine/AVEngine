@@ -24,6 +24,7 @@ import argparse
 import copy
 import hashlib
 import json
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -69,6 +70,10 @@ EP_MAP = {
 }
 
 
+class GenerationConstraintError(ValueError):
+    """A candidate is well-formed but fails a declared question constraint."""
+
+
 def sha_rng(*parts) -> np.random.Generator:
     tag = "|".join(str(p) for p in parts).encode()
     return np.random.default_rng(
@@ -80,6 +85,67 @@ def balanced(values, n, *seed_parts):
     pool = (list(values) * reps)[:n]
     order = sha_rng(*seed_parts).permutation(n)
     return [pool[int(i)] for i in order]
+
+
+def balanced_binary_joint(left_values, right_values, n, *seed_parts):
+    """Balance a 2x2 joint assignment, not only its two marginals.
+
+    Repeating all four cells guarantees that each left value occurs with both
+    right values.  A deterministic permutation changes row order without
+    changing the joint counts.
+    """
+    if len(left_values) != 2 or len(right_values) != 2:
+        raise ValueError("balanced_binary_joint requires two values per axis")
+    cycle = [
+        (left_values[0], right_values[0]),
+        (left_values[1], right_values[1]),
+        (left_values[0], right_values[1]),
+        (left_values[1], right_values[0]),
+    ]
+    pool = (cycle * -(-n // len(cycle)))[:n]
+    order = sha_rng(*seed_parts).permutation(n)
+    return [pool[int(i)] for i in order]
+
+
+def git_worktree_state(repo=REPO):
+    revision = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True, text=True, capture_output=True).stdout.strip()
+    status = subprocess.run(
+        ["git", "-C", str(repo), "status", "--short"],
+        check=True, text=True, capture_output=True).stdout.splitlines()
+    return {"revision": revision, "dirty": bool(status), "status": status}
+
+
+WORLD_TRANSFORMS = {
+    "ue_xyz_cm_to_xzy_m_v1": apartment_ue_point_to_world_m,
+}
+
+
+def resolve_scene_render_context(scene):
+    """Resolve render facts from the scene input; never fall back apartment."""
+    render = scene.render_config
+    required = ("native_map", "room_profile_id", "world_transform")
+    missing = [key for key in required if not render.get(key)]
+    if missing:
+        raise ValueError(
+            f"{scene.scene_id}: integration rendering requires scene.render "
+            f"keys {missing}; no apartment fallback is allowed")
+    native_map = str(render["native_map"])
+    if not native_map.startswith("/Game/"):
+        raise ValueError(
+            f"{scene.scene_id}: native_map must be a /Game package path")
+    transform_id = str(render["world_transform"])
+    transform = WORLD_TRANSFORMS.get(transform_id)
+    if transform is None:
+        raise ValueError(
+            f"{scene.scene_id}: unsupported world_transform {transform_id!r}")
+    return {
+        "native_map": native_map,
+        "room_profile_id": str(render["room_profile_id"]),
+        "world_transform": transform,
+        "world_transform_id": transform_id,
+    }
 
 
 def recompute_azimuth(timeline, slot, frame):
@@ -131,6 +197,12 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
         "slot_sequence_changed": (
             [e["source_endpoint_id"] for e in main_events]
             != [e["source_endpoint_id"] for e in gatea_events]),
+        "mcq_stem_same": (main_answer["mcq"]["stem"]
+                           == gatea_answer["mcq"]["stem"]),
+        "mcq_options_same": (main_answer["mcq"]["options_space"]
+                              == gatea_answer["mcq"]["options_space"]),
+        "open_stem_same": (main_answer["open"]["stem"]
+                            == gatea_answer["open"]["stem"]),
     }
     mcq_flipped = (main_answer["mcq"]["truth_option"]
                    != gatea_answer["mcq"]["truth_option"])
@@ -138,7 +210,8 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     gatea_open = gatea_answer["open"]
     scoring = main_open["scoring"]
     if scoring != gatea_open["scoring"]:
-        raise ValueError("Gate A changed the Open scoring protocol")
+        raise GenerationConstraintError(
+            "Gate A changed the Open scoring protocol")
     if scoring == "circular_deg":
         separation = SS.circular_gap_deg(
             float(main_open["truth_value"]),
@@ -159,7 +232,8 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
                           != gatea_open["truth_value"])
         open_rule = "closed_set_gold_changed"
     else:
-        raise ValueError(f"no Gate A Open audit for scoring {scoring!r}")
+        raise GenerationConstraintError(
+            f"no Gate A Open audit for scoring {scoring!r}")
 
     checks = {
         **structure,
@@ -176,10 +250,43 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     if not open_separated:
         failed.append("open_gold_separated")
     if failed:
-        raise ValueError(
+        raise GenerationConstraintError(
             f"{profile['id']} Gate A failed generation checks: {failed}; "
             f"open separation={separation}, threshold={threshold}")
     return checks
+
+
+def validate_anchor_binding(profile, schedule, slot_events, *, target_slot,
+                            query_frame, answer):
+    """Cross-check a profile's declared audio selector against bound events."""
+    binding = profile.get("anchor_binding")
+    if binding == "target":
+        actual = slot_events[schedule.anchor_index][0]
+        if actual != target_slot:
+            raise GenerationConstraintError(
+                f"{profile['id']}: identity anchor bound to {actual}, "
+                f"expected target {target_slot}")
+        return {"binding": binding, "selected_slot": actual}
+    if binding == "query_caller":
+        calling = [
+            slot for (slot, _), event in zip(slot_events, schedule.events)
+            if event.frame_span()[0] <= query_frame < event.frame_span()[1]
+        ]
+        if calling != [target_slot]:
+            raise GenerationConstraintError(
+                f"{profile['id']}: query caller {calling}, expected "
+                f"[{target_slot}]")
+        return {"binding": binding, "selected_slot": calling[0]}
+    if binding == "first_caller":
+        first_slot = min(slot_events, key=lambda item: item[1])[0]
+        expected = answer.get("first_caller_slot")
+        if expected is None or first_slot != expected:
+            raise GenerationConstraintError(
+                f"{profile['id']}: first caller {first_slot}, fact says "
+                f"{expected}")
+        return {"binding": binding, "selected_slot": first_slot}
+    raise GenerationConstraintError(
+        f"{profile['id']}: unknown anchor_binding {binding!r}")
 
 
 def solve_for_profile(profile, cell, scene, params, rng, ledger):
@@ -240,17 +347,53 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
             first_alloc = [
                 True if band == 0 else False if band == n_bands - 1 else flag
                 for band, flag in zip(band_alloc, first_alloc)]
-        # 毛色**不**独立抽样:目标外观(⑨ 是答案外观)先均衡分配,再反推
-        # 槽位↔资产绑定。独立抽样槽位与绑定时,两者各自 3:3 但乘积会塌
-        # (冒烟里 ①B 目标全黄毛、⑨ 答案全黑白)—— 总表均衡掩盖不了
-        # profile 内部可预测。
+        slots = ["source1", "source2"]
+        coats = [COAT_OF[a1], COAT_OF[a2]]
+        if kind == "azimuth_band":
+            # Six cells cover the full slot x answer-band table once.  Coat
+            # is then balanced within each slot so motion/audio slot cannot
+            # deterministically recover appearance.
+            slot_band = balanced(
+                [(slot, band) for slot in slots for band in cellsets], n,
+                seed, profile["id"], "slot-band")
+            target_slots = [item[0] for item in slot_band]
+            band_alloc = [item[1] for item in slot_band]
+            target_coats = [None] * n
+            for slot in slots:
+                indices = [i for i, value in enumerate(target_slots)
+                           if value == slot]
+                allocated = balanced(coats, len(indices), seed,
+                                     profile["id"], "coat-within-slot", slot)
+                for index, coat in zip(indices, allocated):
+                    target_coats[index] = coat
+            answer_coats = list(target_coats)
+        elif kind == "first_caller_coat":
+            # The relevant shortcut table is first_slot x answer_color, not
+            # two independently balanced marginals.
+            first_answer = balanced_binary_joint(
+                slots, coats, n, seed, profile["id"], "first-slot-answer")
+            answer_coats = [item[1] for item in first_answer]
+            target_slots, target_coats = [], []
+            for (first_slot, answer_coat), target_first in zip(
+                    first_answer, first_alloc):
+                target_slot = (first_slot if target_first else
+                               ("source2" if first_slot == "source1"
+                                else "source1"))
+                target_slots.append(target_slot)
+                target_coats.append(
+                    answer_coat if target_first else OTHER_COAT[answer_coat])
+        else:
+            target_joint = balanced_binary_joint(
+                slots, coats, n, seed, profile["id"], "slot-coat")
+            target_slots = [item[0] for item in target_joint]
+            target_coats = [item[1] for item in target_joint]
+            answer_coats = list(target_coats)
         per_profile[profile["id"]] = {
             "band": band_alloc,
             "target_first": first_alloc,
-            "answer_coat": balanced([COAT_OF[a1], COAT_OF[a2]], n, seed,
-                                    profile["id"], "coat"),
-            "target_slot": balanced(["source1", "source2"], n, seed,
-                                    profile["id"], "slot"),
+            "answer_coat": answer_coats,
+            "target_coat": target_coats,
+            "target_slot": target_slots,
         }
     for profile in profiles:
         alloc = per_profile[profile["id"]]
@@ -264,14 +407,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                 "answer_coat": alloc["answer_coat"][index],
                 "target_slot": alloc["target_slot"][index],
             }
-            # ⑨ 的答案是**先叫者**的外观;目标是不是先叫者由 target_first
-            # 决定,所以目标外观要按它反推。其余题型的答案外观就是目标的。
-            answer_coat = entry["answer_coat"]
-            if (profile.get("answer_kind") == "first_caller_coat"
-                    and not entry["target_first"]):
-                target_coat = OTHER_COAT[answer_coat]
-            else:
-                target_coat = answer_coat
+            target_coat = alloc["target_coat"][index]
             entry["target_coat"] = target_coat
             target_asset = ASSET_OF[target_coat]
             other_asset = ASSET_OF[OTHER_COAT[target_coat]]
@@ -331,9 +467,9 @@ def main(argv=None) -> int:
         try:
             record = realise_point(pid, cell, outcome, scene, base_request,
                                    params, by_id, args, programs_dir, rng)
-        except Exception as exc:            # 失败即停的证据,不静默跳过
+        except GenerationConstraintError as exc:
             rejected.append({"point_id": pid,
-                             "reason": f"realisation_failed:{type(exc).__name__}",
+                             "reason": "generation_constraint_failed",
                              "detail": str(exc)[:240]})
             continue
         made.append(pid)
@@ -374,9 +510,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     slot_coat = {s: COAT_WORDS[a] for s, a in slot_asset.items()}
 
     # 相机与听者:同一份姿态结果
+    render_context = resolve_scene_render_context(scene)
     camera_ue_cm = [plan.camera_xy[0], plan.camera_xy[1],
                     scene.camera_height_m * 100.0]
-    camera_world_m = apartment_ue_point_to_world_m(camera_ue_cm)
+    camera_world_m = render_context["world_transform"](camera_ue_cm)
     m1_request = apply_camera_listener_pose_ue(
         base_request, request_id=f"qa_v3_{pid}", position_m=camera_world_m,
         ue_yaw_degrees=plan.camera_ue_yaw_deg,
@@ -455,6 +592,8 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                                if s1[2] else None),
         beagle_waypoints_ue_cm=([[p[0], p[1], z] for p in s2[2]]
                                 if s2[2] else None),
+        native_map=render_context["native_map"],
+        room_profile_id=render_context["room_profile_id"],
         hfov_degrees=scene.hfov_deg,
     )
     if plan.idle_frames:
@@ -488,6 +627,11 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "camera": {"ue_cm": camera_ue_cm,
                    "ue_yaw_deg": plan.camera_ue_yaw_deg,
                    "listener_from_same_pose_result": True},
+        "room": {
+            "native_map": timeline["room"]["map_path"],
+            "room_profile_id": timeline["room"]["room_profile_id"],
+            "world_transform": render_context["world_transform_id"],
+        },
         "answer_kind": answer_kind,
         "truth": dict(answer["truth"],
                       query_azimuth_deg=round(truth_deg, 3),
@@ -504,7 +648,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                               "start_sample": e.start_sample}
                              for e, (slot, _) in zip(
                                  schedule.events, slot_events)]},
-        "target_first": cell.get("target_first"),
+        "target_first": (bool(cell["target_first"])
+                         if answer_kind in ("time_band",
+                                            "first_caller_coat") else None),
         "first_caller_slot": answer.get("first_caller_slot"),
         "search_attempts": plan.checks.get("search_attempts"),
         "line_of_sight_screened": plan.checks.get("line_of_sight_screened"),
@@ -519,19 +665,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         raise ValueError(
             f"target coat {slot_coat[target_slot]} does not match the "
             f"allocated {cell['target_coat']}: the slot-asset binding drifted")
-    binding = profile.get("anchor_binding", "target")
-    anchor_start = schedule.anchor.start_sample
-    anchor_slots = [slot for slot, start in slot_events if start == anchor_start]
-    if binding == "target" and anchor_slots != [target_slot]:
-        raise ValueError("the audio anchor is not bound to the question target")
-    if binding == "query_caller":
-        span = schedule.events[0].frame_span()
-        calling = [slot for (slot, _), event in zip(slot_events, schedule.events)
-                   if event.frame_span()[0] <= plan.query_frame
-                   < event.frame_span()[1]]
-        if calling != [target_slot]:
-            raise ValueError("the query-instant caller is not the question "
-                             f"target (span {span})")
+    main_binding_check = validate_anchor_binding(
+        profile, schedule, slot_events, target_slot=target_slot,
+        query_frame=plan.query_frame, answer=answer)
     gatea_target_slot, gatea_other_slot, gatea_answer, gatea_truth_deg, \
         gatea_other_deg = build_gatea_answer(
             answer_kind, profile, cell, timeline, schedule,
@@ -539,6 +675,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             query_frame, params)
     gatea_checks = audit_gatea_pair(
         profile, program, gatea_program, answer, gatea_answer, params)
+    gatea_binding_check = validate_anchor_binding(
+        profile, schedule, gatea_slot_events,
+        target_slot=gatea_target_slot, query_frame=plan.query_frame,
+        answer=gatea_answer)
     gatea_fact = copy.deepcopy(fact)
     gatea_fact.update({
         "variant": "gateA",
@@ -555,7 +695,7 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "target_first": (
             not bool(cell["target_first"])
             if answer_kind in ("time_band", "first_caller_coat")
-            else cell.get("target_first")),
+            else None),
         "first_caller_slot": gatea_answer.get("first_caller_slot"),
         "audio": {
             "program_id": gatea_program["program_id"],
@@ -568,7 +708,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                 for e, (slot, _) in zip(schedule.events, gatea_slot_events)],
         },
         "gatea_checks": gatea_checks,
+        "anchor_binding_check": gatea_binding_check,
     })
+    fact["anchor_binding_check"] = main_binding_check
     fact["gatea"] = {
         "program_id": gatea_program["program_id"],
         "fact_record": "fact_record_gateA.json",
@@ -653,14 +795,22 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 f"recomputed truth {truth_deg:.2f} deg lands in band {got}, "
                 f"not the assigned {want}: the final camera pose disagrees "
                 "with the solver's geometry")
+        if profile["temporal"] == "forward":
+            moment = "At the end of the video"
+        elif profile["temporal"] == "backward":
+            moment = (f"At {query_frame / 15.0:.1f} seconds on the video "
+                      "clock")
+        else:
+            raise ValueError("azimuth-band profile must declare a time direction")
+        referent = "the dog that barked last"
         return {"truth": {"band_index": got},
-                "mcq": {"stem": ("Which azimuth band relative to your facing "
-                                 f"direction is the {coat} dog in at the "
-                                 "queried moment? Right is positive."),
+                "mcq": {"stem": (f"{moment}, which azimuth band relative to "
+                                 f"your facing direction contains {referent}? "
+                                 "Right is positive."),
                         "options_space": labels, "truth_option": labels[got]},
-                "open": {"stem": ("Roughly how many degrees from your facing "
-                                  "direction is that dog at the queried "
-                                  "moment? Right positive."),
+                "open": {"stem": (f"{moment}, roughly how many degrees from "
+                                  f"your facing direction is {referent}? "
+                                  "Right is positive."),
                          "truth_value": round(truth_deg, 3), "unit": "deg",
                          "scoring": "circular_deg"}}
     if kind == "coat_at_query":
@@ -749,7 +899,7 @@ def conditional_balance(records):
         for field in ("band_index", "calling_at_query", "first_to_bark"):
             if field in truth:
                 bump(f"answer_{field}", truth[field])
-        if "target_first" in record:
+        if record.get("target_first") is not None:
             bump("target_first_caller", record["target_first"])
         if record.get("first_caller_slot"):
             bump("first_caller_slot", record["first_caller_slot"])
@@ -809,6 +959,15 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                                if r.get("gatea"))
     manifest = {
         "schema": "qa_v3_scene_batch_manifest_v1",
+        "code": git_worktree_state(),
+        "inputs": {
+            "scene_config": str(args.scene_config.resolve()),
+            "scene_config_content": scene_cfg,
+            "profiles": str(args.profiles.resolve()),
+            "profiles_content": profiles,
+            "params": str(args.params.resolve()),
+            "profile_ids": [profile["id"] for profile in profiles],
+        },
         "scene": {"scene_id": scene.scene_id, "backend": scene.backend,
                   "scene_asset_id": scene_cfg.get("scene_asset_id",
                                                   scene.scene_id),
@@ -821,6 +980,8 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                      "pre-render candidates, not admitted questions"),
         "counts": {"cells_requested": args.cells * len(profiles),
                    "geometry_candidates": len(made),
+                   "main_facts": len(records),
+                   "gatea_facts": len(gatea_pairs),
                    "rejected": len(rejected),
                    "by_profile": dict(by_profile)},
         "search": {k: v for k, v in ledger.summary().items()
@@ -864,6 +1025,10 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
     with open(args.out_root / "facts.jsonl", "w") as handle:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            gatea_path = (args.out_root / record["point_id"] /
+                          record["gatea"]["fact_record"])
+            gatea_record = json.loads(gatea_path.read_text())
+            handle.write(json.dumps(gatea_record, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":

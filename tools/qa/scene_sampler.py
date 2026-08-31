@@ -99,6 +99,7 @@ class SceneInputs:
     hfov_deg: float
     line_of_sight: Callable[[Sequence[float], Sequence[float]], bool] | None = None
     provenance: dict = field(default_factory=dict)
+    render_config: dict = field(default_factory=dict)
 
     @property
     def line_of_sight_screened(self) -> bool:
@@ -191,6 +192,9 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
     hfov = float(config.get("hfov_deg") or _hfov_deg(base_request))
     if not (0.0 < hfov < 180.0):
         raise ValueError(f"{config['scene_id']}: implausible hfov {hfov}")
+    render_config = config.get("render") or {}
+    if not isinstance(render_config, dict):
+        raise ValueError(f"{config['scene_id']}: render must be an object")
     return SceneInputs(
         scene_id=str(config["scene_id"]), backend=str(config["backend"]),
         routes=routes, stand_points=ordered, camera_points=ordered,
@@ -202,6 +206,7 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
                     "camera_base_request": config["camera_base_request"],
                     "routes_loaded": len(routes),
                     "navigable_points": len(ordered)},
+        render_config=dict(render_config),
     )
 
 
@@ -340,11 +345,14 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             continue
         other = _pick_other_point(
             scene, camera, yaw, az_anchor, az_end, band_lo, band_hi,
-            min_sep, half_fov, theta_half, rng, ledger)
+            min_sep, half_fov, theta_half, params, rng, ledger)
         if other is None:
             continue
         other_answer_az = relative_azimuth_deg(camera, yaw, other)
         if scene.line_of_sight is not None:
+            if not scene.line_of_sight(camera, anchor_xy):
+                ledger.add(Rejection("target_occluded_at_anchor_frame"))
+                continue
             if not scene.line_of_sight(camera, end_xy):
                 ledger.add(Rejection("target_occluded_at_query_frame"))
                 continue
@@ -421,14 +429,20 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             continue
         other = _pick_other_point(
             scene, camera, yaw, az_anchor, az_query, band_lo, band_hi,
-            min_sep, half_fov, theta_half, rng, ledger)
+            min_sep, half_fov, theta_half, params, rng, ledger)
         if other is None:
             continue
         other_answer_az = relative_azimuth_deg(camera, yaw, other)
-        if scene.line_of_sight is not None and not scene.line_of_sight(
-                camera, query_xy):
-            ledger.add(Rejection("target_occluded_at_query_frame"))
-            continue
+        if scene.line_of_sight is not None:
+            if not scene.line_of_sight(camera, anchor_xy):
+                ledger.add(Rejection("target_occluded_at_anchor_frame"))
+                continue
+            if not scene.line_of_sight(camera, query_xy):
+                ledger.add(Rejection("target_occluded_at_query_frame"))
+                continue
+            if not scene.line_of_sight(camera, other):
+                ledger.add(Rejection("other_actor_occluded"))
+                continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id="card1B", camera_xy=camera,
             camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
@@ -457,7 +471,7 @@ def _too_close(camera, point, params) -> bool:
 
 
 def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
-                      band_hi, min_sep, half_fov, theta_half, rng,
+                      band_hi, min_sep, half_fov, theta_half, params, rng,
                       ledger):
     """Pick the Gate-A actor for both MCQ and Open card1 forms."""
     order = rng.permutation(len(scene.stand_points))
@@ -475,7 +489,7 @@ def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
         if not open_angle_gold_regions_disjoint(az_answer, az, theta_half):
             saw_open_overlap = True
             continue
-        if _too_close(camera, candidate, {"MIN_CAMERA_DISTANCE_CM": 100.0}):
+        if _too_close(camera, candidate, params):
             continue
         return candidate
     if saw_open_overlap:
@@ -545,6 +559,9 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
             if not all(scene.line_of_sight(camera, moved.at(f))
                        for f in instants):
                 ledger.add(Rejection("target_occluded_at_binding_instant"))
+                continue
+            if not scene.line_of_sight(camera, other):
+                ledger.add(Rejection("other_actor_occluded"))
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id, camera_xy=camera,

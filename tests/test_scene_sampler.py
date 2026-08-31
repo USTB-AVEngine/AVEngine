@@ -94,6 +94,8 @@ def test_open_gold_separation_is_strict_at_double_half_width():
     assert not open_angle_gold_regions_disjoint(0.0, 60.0, 30.0)
     assert open_angle_gold_regions_disjoint(0.0, 60.001, 30.0)
     assert open_angle_gold_regions_disjoint(179.0, -119.0, 30.0)
+    # A linear abs(a-b) implementation returns 340 and would wrongly pass.
+    assert not open_angle_gold_regions_disjoint(170.0, -170.0, 30.0)
 
 
 def test_same_code_runs_on_a_second_scene_without_changes():
@@ -167,7 +169,7 @@ def test_occlusion_screen_is_used_when_provided_and_reported_when_not():
                                      rng=np.random.default_rng(11),
                                      ledger=ledger2, max_attempts=300)
     assert isinstance(plan2, Rejection)
-    assert "target_occluded_at_query_frame" in ledger2.summary()["by_reason"]
+    assert "target_occluded_at_anchor_frame" in ledger2.summary()["by_reason"]
 
 
 def test_backward_cross_time_queries_an_earlier_frame():
