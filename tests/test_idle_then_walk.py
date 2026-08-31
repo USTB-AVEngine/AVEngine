@@ -41,7 +41,8 @@ def _mini_timeline(n=FRAME_COUNT):
                  "yaw_ue_deg": -30.0, "walk_phase_period_frames": 16},
             ],
         })
-    return {"kind": "test", "frames": frames}
+    return {"kind": "test", "render": {"frame_count": n, "walk_start_frame": 0},
+            "frames": frames}
 
 
 def _pos(doc, slot, i):
@@ -64,6 +65,7 @@ def test_transform_pins_idle_then_walks_at_original_speed():
     p_last, _ = _pos(out, "source1", FRAME_COUNT - 1)
     orig_mid, _ = _pos(doc, "source1", FRAME_COUNT - 1 - k)
     assert p_last == orig_mid                          # 终点=原路径中途点
+    assert out["render"]["walk_start_frame"] == k      # 顶层元数据同步事实
     # 逐帧位移与原速一致
     for i in range(k + 1, FRAME_COUNT):
         a1, _ = _pos(out, "source1", i)

@@ -69,6 +69,14 @@ def transform_idle_then_walk(doc: dict, slot: str, idle_frames: int) -> dict:
                 if key in ref:
                     value = ref[key]
                     dst_states[i][key] = list(value) if isinstance(value, list) else value
+    # 元数据一致性:顶层 render.walk_start_frame 记录 walk 动作起始帧,
+    # 变换后必须与逐帧 action 序列一致(查证:引擎内该键仅由编制器写入、
+    # 无下游消费方,但留 0 就是对读者撒谎)。注意原生编制器的
+    # walk_start_frame 是"压缩式"(仍走到原终点、速度放大),与本工具的
+    # "平移式"(保速度、终点提前)语义不同——本工具只借该键记录事实。
+    render = new_doc.get("render")
+    if isinstance(render, dict) and "walk_start_frame" in render:
+        render["walk_start_frame"] = idle_frames
     _verify(doc, new_doc, slot, idle_frames)
     return new_doc
 
