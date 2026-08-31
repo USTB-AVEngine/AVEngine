@@ -157,9 +157,15 @@ def main(argv: list[str] | None = None) -> int:
                         if attempts else None),
                     "attempts_per_candidate_max": max(attempts) if attempts
                     else None,
-                    "candidate_pass_rate": (
+                    # 这是"按当前候选顺序搜索、拿满配额即停"时观察到的
+                    # 搜索效率,不是场景内全部可行组合的总体通过概率:
+                    # 候选顺序与停止规则都会影响它,不得外推。
+                    "observed_candidate_pass_rate_during_quota_filling": (
                         round(len(plans) / summary["combinations_evaluated"], 5)
                         if summary["combinations_evaluated"] else None),
+                    "evaluated_until_quota_filled": True,
+                    "quota": args.per_profile,
+                    "quota_exhausted": rejects > 0,
                 },
                 "per_band": {str(k): {"requested": v["requested"],
                                       "candidates": v["candidates"],
@@ -205,7 +211,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = {sid: {p: {"candidates": r["geometry_candidates"],
                          "cells": r["requested_cells"],
                          "combos": r["search"]["combinations_evaluated"],
-                         "pass_rate": r["search"]["candidate_pass_rate"]}
+                         "observed_pass_rate_during_quota_filling":
+                             r["search"]["observed_candidate_pass_rate_"
+                                         "during_quota_filling"]}
                      for p, r in per.items()}
                for sid, per in report["results"].items()}
     print(json.dumps({"scene_assets": report["counts"]["scene_assets"],

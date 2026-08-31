@@ -230,7 +230,8 @@ class PointPlan:
     profile_id: str
     camera_xy: tuple[float, float]
     camera_ue_yaw_deg: float
-    target_route: Route
+    target_route: Route          # 已套用静→走平移的路线(求解器视角)
+    base_route: Route            # 未平移的原路线(创作时间线用)
     other_point: tuple[float, float]
     idle_frames: int
     anchor_frame: int
@@ -338,8 +339,8 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id="card1F", camera_xy=camera,
-            camera_ue_yaw_deg=yaw, target_route=moved, other_point=other,
-            idle_frames=idle, anchor_frame=anchor_frame,
+            camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
+            other_point=other, idle_frames=idle, anchor_frame=anchor_frame,
             query_frame=FRAME_COUNT - 1,
             answer_cell={"kind": "azimuth_band", "band": [band_lo, band_hi],
                          "value_deg": az_end},
@@ -410,8 +411,8 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id="card1B", camera_xy=camera,
-            camera_ue_yaw_deg=yaw, target_route=moved, other_point=other,
-            idle_frames=idle, anchor_frame=anchor_frame,
+            camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
+            other_point=other, idle_frames=idle, anchor_frame=anchor_frame,
             query_frame=query_frame,
             answer_cell={"kind": "azimuth_band", "band": [band_lo, band_hi],
                          "value_deg": az_query},
@@ -453,3 +454,76 @@ def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
                          "azimuth separation while staying out of the answer "
                          "band and inside the field of view"))
     return None
+
+def solve_instant_binding(scene: SceneInputs, params: dict, *,
+                          instants: Sequence[int], profile_id: str,
+                          idle_choices: Iterable[int], rng,
+                          ledger: RejectionLedger,
+                          max_attempts: int = 4000):
+    """⑦/⑨ 这类**即时绑定**题的布局:不要求错时,只要求在关键时刻可绑定。
+
+    关键时刻(⑦ 是查询帧,⑨ 是两次首叫所在帧)上,两个角色都必须在
+    视锥内、且方位分离达标 —— 否则"哪一只在叫 / 谁先叫"没法由音频方向
+    绑到画面里的个体。刻意不施加锚后角位移那条约束:那是错时族的题眼,
+    对即时绑定题是多余的限制。
+    """
+    half_fov = scene.hfov_deg / 2.0
+    min_sep = float(params["MIN_AZIMUTH_SEP"])
+    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
+        route = scene.routes[int(rng.integers(n_routes))]
+        idle = int(rng.choice(list(idle_choices)))
+        moved = route.shifted(idle)
+        camera = scene.camera_points[int(rng.integers(n_cams))]
+        if _too_close(camera, moved.at(instants[0]), params):
+            ledger.add(Rejection("camera_too_close_to_target"))
+            continue
+        yaw = float(rng.random() * 360.0 - 180.0)
+        azimuths = [relative_azimuth_deg(camera, yaw, moved.at(f))
+                    for f in instants]
+        if any(abs(a) > half_fov for a in azimuths):
+            ledger.add(Rejection("target_outside_fov_at_binding_instant"))
+            continue
+        other = None
+        order = rng.permutation(len(scene.stand_points))
+        for index in order[:64]:
+            ledger.stand_points_evaluated += 1
+            candidate = scene.stand_points[int(index)]
+            az_other = relative_azimuth_deg(camera, yaw, candidate)
+            if abs(az_other) > half_fov:
+                continue
+            if any(circular_gap_deg(az_other, a) < min_sep for a in azimuths):
+                continue
+            if _too_close(camera, candidate, params):
+                continue
+            other = candidate
+            break
+        if other is None:
+            ledger.add(Rejection("no_separable_second_actor",
+                                 "no stand point stays in view and separated "
+                                 "at every binding instant"))
+            continue
+        if scene.line_of_sight is not None:
+            if not all(scene.line_of_sight(camera, moved.at(f))
+                       for f in instants):
+                ledger.add(Rejection("target_occluded_at_binding_instant"))
+                continue
+        return PointPlan(
+            scene_id=scene.scene_id, profile_id=profile_id, camera_xy=camera,
+            camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
+            other_point=other, idle_frames=idle,
+            anchor_frame=int(instants[-1]), query_frame=int(instants[0]),
+            answer_cell={"kind": "binding_instants",
+                         "instants": [int(f) for f in instants]},
+            checks={"binding_azimuths_deg": [round(a, 2) for a in azimuths],
+                    "min_separation_deg": round(
+                        min(circular_gap_deg(
+                            relative_azimuth_deg(camera, yaw, other), a)
+                            for a in azimuths), 2),
+                    "line_of_sight_screened": scene.line_of_sight_screened,
+                    "search_attempts": attempt},
+        )
+    ledger.budget_exhausted += 1
+    return Rejection("no_candidate_within_attempt_budget",
+                     f"{max_attempts} attempts")
