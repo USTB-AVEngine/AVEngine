@@ -9,8 +9,11 @@
    恒 false;
 3. onset 落位抽验:每点每事件,事件内 RMS 必须显著高于事件前静默段
    (比值下限显式参数);锚事件必须是最后事件且锚后尾静默 ≥ TAIL_MIN_S;
-4. Gate A 有效性:同点 main 与 gateA 的 mixture 波形必须可区分(最大
-   逐样本差超过阈值)——换音频的对照若与主版本相同,Gate A 失效。
+4. **音频变体非同一**:同点 main 与 gateA 的 mixture 波形最大逐样本差
+   必须超过阈值。**这一层只证明音频确实被改了,不证明 Gate A 语义
+   成立** —— 改增益、改噪声、改任意事件都能让波形不同。Gate A 要求的
+   是"只改承载选择事实的音频变量、视觉不变、该题型的金标按预期翻转",
+   那要逐题比对 main/gateA 的事实记录,不能由波形差异代替。
 
 输出批级 manifest(no-clobber)。research_candidate。
 """
@@ -142,7 +145,11 @@ def main(argv: list[str] | None = None) -> int:
         "schema": "qa_v3_audio_batch_verification_v1",
         "audio_root": str(args.audio_root),
         "checked_renders": checked,
-        "gatea_pairs_compared": gatea_pairs,
+        "audio_variant_waveform_nonidentity_pairs": gatea_pairs,
+        "gatea_semantic_flip": ("not established by this tool: waveform "
+                                "non-identity only shows the audio changed; "
+                                "per-card gold flipping must be checked "
+                                "against the fact records"),
         "onset_rms_ratio_min": ONSET_RMS_RATIO_MIN,
         "gatea_max_diff_min": GATEA_MAX_DIFF_MIN,
         "failures": failures,
