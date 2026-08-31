@@ -1171,6 +1171,8 @@ def capture_human_beagle_paths(
     review_configuration_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
     review_scene_readback_hook: Callable[..., Mapping[str, Any]] | None = None,
+    frame_scene_hook: Callable[..., Mapping[str, Any]] | None = None,
+    human_pose_hook: Callable[..., Mapping[str, Any]] | None = None,
 ) -> MixedCaptureResult:
     """Capture a human and one M2 articulated animal on explicit root paths.
 
@@ -1213,6 +1215,15 @@ def capture_human_beagle_paths(
         raise MixedCaptureError(
             "human/secondary actor identity fields and research capture schema must be valid"
         )
+    for owner, hook in (
+        ("review_configuration_hook", review_configuration_hook),
+        ("review_scene_hook", review_scene_hook),
+        ("review_scene_readback_hook", review_scene_readback_hook),
+        ("frame_scene_hook", frame_scene_hook),
+        ("human_pose_hook", human_pose_hook),
+    ):
+        if hook is not None and not callable(hook):
+            raise MixedCaptureError(f"{owner} must be callable when provided")
     human_points = _points(human_root_path_m, owner="human root path")
     beagle_points = _points(beagle_root_path_m, owner="Beagle root path")
     if human_points.shape != beagle_points.shape:
@@ -1430,6 +1441,8 @@ def capture_human_beagle_paths(
         anchors: list[np.ndarray] = []
         visibility: list[tuple[int, int]] = []
         records: list[dict[str, Any]] = []
+        frame_scene_records: list[dict[str, Any]] = []
+        human_pose_hook_records: list[dict[str, Any]] = []
         human_pose_hashes: dict[str, set[str]] = {
             action_id: set() for action_id in human_actions
         }
@@ -1613,6 +1626,46 @@ def capture_human_beagle_paths(
                 human_rotations = np.asarray(
                     human_action.rotations_xyzw[human_sample_index], dtype=np.float64
                 )
+                if human_pose_hook is not None:
+                    pose_override = human_pose_hook(
+                        frame_index=frame_index,
+                        action_id=human_locomotion_state.action_id,
+                        action_sample_index=human_sample_index,
+                        translations_m=human_translations.copy(),
+                        rotations_xyzw=human_rotations.copy(),
+                        runtime_joint_order=tuple(human_binding.runtime_joint_order),
+                    )
+                    if (
+                        not isinstance(pose_override, Mapping)
+                        or pose_override.get("status") != "pass"
+                    ):
+                        raise MixedCaptureError(
+                            f"frame {frame_index} human pose hook did not return pass evidence"
+                        )
+                    human_translations = np.asarray(
+                        pose_override.get("translations_m", human_translations),
+                        dtype=np.float64,
+                    )
+                    human_rotations = np.asarray(
+                        pose_override.get("rotations_xyzw", human_rotations),
+                        dtype=np.float64,
+                    )
+                    if (
+                        human_translations.shape != np.asarray(
+                            human_action.translations_m[human_sample_index]
+                        ).shape
+                        or human_rotations.shape != np.asarray(
+                            human_action.rotations_xyzw[human_sample_index]
+                        ).shape
+                        or not np.all(np.isfinite(human_translations))
+                        or not np.all(np.isfinite(human_rotations))
+                    ):
+                        raise MixedCaptureError(
+                            f"frame {frame_index} human pose hook returned invalid arrays"
+                        )
+                    human_pose_hook_records.append(
+                        dict(pose_override.get("evidence", {}))
+                    )
                 human_skin = human_world[frame_index] @ human_actor_from_skin
                 human_joints = np.asarray(
                     human_binding.map_pose(human_translations, human_rotations),
@@ -1691,6 +1744,31 @@ def capture_human_beagle_paths(
                     raise MixedCaptureError(
                         f"frame {frame_index} articulated readback failed: {frame_errors}"
                     )
+
+                if frame_scene_hook is not None:
+                    frame_scene = frame_scene_hook(
+                        simulator=simulator,
+                        configuration=configuration,
+                        habitat_sim=habitat_sim,
+                        mn=mn,
+                        frame_index=frame_index,
+                        human=human,
+                        secondary=beagle,
+                        human_actor_world_matrix=np.asarray(
+                            human_world[frame_index], dtype=np.float64
+                        ).copy(),
+                        secondary_actor_world_matrix=np.asarray(
+                            beagle_world[frame_index], dtype=np.float64
+                        ).copy(),
+                    )
+                    if (
+                        not isinstance(frame_scene, Mapping)
+                        or frame_scene.get("status") != "pass"
+                    ):
+                        raise MixedCaptureError(
+                            f"frame {frame_index} scene hook did not return pass evidence"
+                        )
+                    frame_scene_records.append(dict(frame_scene))
 
                 observation = simulator.render_sensors(sensors)
                 arrays = _validate_observation_arrays(
@@ -1897,6 +1975,16 @@ def capture_human_beagle_paths(
                     else [secondary_actor_id]
                 ),
                 "human0_is_visual_evidence": require_human_visibility,
+            },
+            "frame_scene_hook": {
+                "enabled": frame_scene_hook is not None,
+                "record_count": len(frame_scene_records),
+                "records": frame_scene_records,
+            },
+            "human_pose_hook": {
+                "enabled": human_pose_hook is not None,
+                "record_count": len(human_pose_hook_records),
+                "records": human_pose_hook_records,
             },
             "physics_configuration": {
                 "room_declared_enable_physics": room_declared_physics,
