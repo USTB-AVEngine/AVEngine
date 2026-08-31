@@ -269,8 +269,16 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
     """
     a1, a2 = pair_assets
     pdir = Path(out_root) / pid
+    # endpoint 沿用注册表 source_endpoints_qa_v2_v1(entity_anchor 绑定):
+    # 渲染管线按注册 id 解析发声锚点,自造 id 不被认(冒烟查证修正)。
+    ep_map = {
+        DOGS["collie"]: ("qa_v2_dog_1_collie_muzzle", "qa_v2_dog_2_collie_muzzle"),
+        DOGS["labrador"]: ("qa_v2_dog_1_labrador_muzzle", "qa_v2_dog_2_labrador_muzzle"),
+        HUMANS["blue"]: ("qa_v2_human_1_blue_mouth", "qa_v2_human_2_blue_mouth"),
+        HUMANS["green"]: ("qa_v2_human_1_green_mouth", "qa_v2_human_2_green_mouth"),
+    }
     request_base = {"pair_kind": "dog" if a1 in DOGS.values() else "human",
-                    "endpoint_1": f"qa_v3_{pid}_s1", "endpoint_2": f"qa_v3_{pid}_s2",
+                    "endpoint_1": ep_map[a1][0], "endpoint_2": ep_map[a2][1],
                     "sound_asset_id": params["SOUND_ASSET"]}
     pdir.mkdir(parents=True)
     (pdir / "actor_selection.json").write_text(
