@@ -158,6 +158,19 @@ def test_narrow_fov_rejects_outer_band_with_named_reason():
     assert "answer_band_outside_fov" in ledger.summary()["by_reason"]
 
 
+def test_visual_fov_margin_reserves_space_for_actor_extent():
+    scene = synthetic_scene(hfov=105.0)
+    params = {**PARAMS, "VISUAL_FOV_MARGIN_DEG": 35.0}
+    ledger = RejectionLedger()
+    plan = solve_forward_cross_time(
+        scene, params, answer_band=(17.5, 52.5), answer_bands=BANDS,
+        anchor_frame=45, idle_choices=(0,), rng=np.random.default_rng(1),
+        ledger=ledger, max_attempts=100,
+    )
+    assert isinstance(plan, Rejection)
+    assert "answer_band_outside_fov" in ledger.summary()["by_reason"]
+
+
 def test_static_target_rejected_for_insufficient_travel():
     """目标不动 → 锚时即可读答案,错时题不成立。"""
     scene = synthetic_scene()

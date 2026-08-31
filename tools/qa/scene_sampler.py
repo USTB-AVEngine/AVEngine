@@ -71,6 +71,14 @@ def yaw_interval_for_band(camera_xy, point_xy, band_lo: float,
     return (bearing - band_hi, bearing - band_lo)
 
 
+def effective_half_fov(scene, params) -> float:
+    margin = float(params.get("VISUAL_FOV_MARGIN_DEG", 0.0))
+    half_fov = float(scene.hfov_deg) / 2.0
+    if not math.isfinite(margin) or margin < 0.0 or margin >= half_fov:
+        raise ValueError("VISUAL_FOV_MARGIN_DEG must lie in [0, half_fov)")
+    return half_fov - margin
+
+
 @dataclass
 class Route:
     route_id: str
@@ -375,7 +383,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
       - 另一角色不得与目标同答案带(否则选项无区分度);
       - 有视线筛查就用,没有就如实记未筛。
     """
-    half_fov = scene.hfov_deg / 2.0
+    half_fov = effective_half_fov(scene, params)
     theta_full = float(params["THETA_FULL"])
     theta_half = float(params["THETA_HALF"])
     min_sep = float(params["MIN_AZIMUTH_SEP"])
@@ -475,7 +483,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     锚定时刻两角色可分辨,且**查询时刻附近不得有直接泄露答案的音频**
     (由 AudioProgram profile 保证,这里只声明并记录该要求)。
     """
-    half_fov = scene.hfov_deg / 2.0
+    half_fov = effective_half_fov(scene, params)
     theta_full = float(params["THETA_FULL"])
     theta_half = float(params["THETA_HALF"])
     min_sep = float(params["MIN_AZIMUTH_SEP"])
@@ -649,7 +657,7 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
     绑到画面里的个体。刻意不施加锚后角位移那条约束:那是错时族的题眼,
     对即时绑定题是多余的限制。
     """
-    half_fov = scene.hfov_deg / 2.0
+    half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     n_routes, n_cams = len(scene.routes), len(scene.camera_points)
     for attempt in range(1, max_attempts + 1):
