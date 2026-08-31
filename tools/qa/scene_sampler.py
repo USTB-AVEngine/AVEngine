@@ -240,19 +240,33 @@ class PointPlan:
 
 
 class RejectionLedger:
-    """按原因计数的拒绝台账 —— 拒绝是正常结果,但必须说得出为什么。"""
+    """拒绝台账 + 搜索成本计数。
+
+    拒绝是正常结果,但必须说得出为什么;而"配额填满了"也不等于"通过率
+    100%" —— 所以这里同时记录评估过多少个候选组合、耗尽预算多少次,
+    让分母可见。
+    """
 
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
         self.first_details: dict[str, str] = {}
+        self.combinations_evaluated = 0     # 抽过多少个 相机×路线×转折帧
+        self.stand_points_evaluated = 0     # 为第二角色查过多少个可站点
+        self.budget_exhausted = 0           # 有多少次求解把尝试预算用光
 
     def add(self, rejection: Rejection) -> None:
         self.counts[rejection.reason] = self.counts.get(rejection.reason, 0) + 1
         self.first_details.setdefault(rejection.reason, rejection.detail)
 
+    def note_combination(self) -> None:
+        self.combinations_evaluated += 1
+
     def summary(self) -> dict:
         total = sum(self.counts.values())
         return {"total": total,
+                "combinations_evaluated": self.combinations_evaluated,
+                "stand_points_evaluated": self.stand_points_evaluated,
+                "budget_exhausted": self.budget_exhausted,
                 "by_reason": dict(sorted(self.counts.items(),
                                          key=lambda kv: -kv[1])),
                 "first_example": self.first_details}
@@ -278,7 +292,8 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
     n_routes, n_cams = len(scene.routes), len(scene.camera_points)
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
         route = scene.routes[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
@@ -332,8 +347,10 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                     "azimuth_travel_deg": circular_gap_deg(az_anchor, az_end),
                     "anchor_separation_deg": circular_gap_deg(
                         az_anchor, relative_azimuth_deg(camera, yaw, other)),
-                    "line_of_sight_screened": scene.line_of_sight_screened},
+                    "line_of_sight_screened": scene.line_of_sight_screened,
+                    "search_attempts": attempt},
         )
+    ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
                      f"{max_attempts} attempts")
 
@@ -355,7 +372,8 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
     n_routes, n_cams = len(scene.routes), len(scene.camera_points)
-    for _ in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
         route = scene.routes[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
@@ -400,8 +418,10 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             checks={"az_anchor_deg": az_anchor, "az_query_deg": az_query,
                     "azimuth_travel_deg": circular_gap_deg(az_anchor, az_query),
                     "line_of_sight_screened": scene.line_of_sight_screened,
-                    "requires_silence_near_query": True},
+                    "requires_silence_near_query": True,
+                    "search_attempts": attempt},
         )
+    ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
                      f"{max_attempts} attempts")
 
@@ -416,6 +436,7 @@ def _pick_other_point(scene, camera, yaw, az_anchor, az_answer, band_lo,
     """另一角色:锚定时刻方位分离达标、在视锥内、且不与答案同带。"""
     order = rng.permutation(len(scene.stand_points))
     for index in order[:64]:
+        ledger.stand_points_evaluated += 1
         candidate = scene.stand_points[int(index)]
         az = relative_azimuth_deg(camera, yaw, candidate)
         if abs(az) > half_fov:
