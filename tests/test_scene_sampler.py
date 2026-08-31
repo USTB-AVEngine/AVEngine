@@ -168,7 +168,7 @@ def test_static_target_rejected_for_insufficient_travel():
                                     rng=np.random.default_rng(2),
                                     ledger=ledger, max_attempts=200)
     assert isinstance(plan, Rejection)
-    assert "insufficient_azimuth_travel_after_anchor" in \
+    assert "target_route_static_for_dual_motion" in \
         ledger.summary()["by_reason"]
 
 
@@ -236,6 +236,24 @@ def test_instant_binding_uses_two_moving_routes():
     assert not isinstance(plan, Rejection), ledger.summary()
     assert plan.target_route.route_id != plan.other_route.route_id
     assert plan.other_route.displacement_cm > 0
+
+
+def test_instant_binding_rejects_static_only_route_bank_for_dual_motion():
+    scene = synthetic_scene()
+    scene.routes = [
+        Route(f"static_{index}", [(200.0 + index, 10.0)] * FRAME_COUNT, 0.0)
+        for index in range(4)
+    ]
+    ledger = RejectionLedger()
+    plan = solve_instant_binding(
+        scene, PARAMS, instants=[12, 40], profile_id="card9",
+        idle_choices=(0,), rng=np.random.default_rng(4), ledger=ledger,
+        max_attempts=20,
+    )
+    assert isinstance(plan, Rejection)
+    assert ledger.summary()["by_reason"] == {
+        "target_route_static_for_dual_motion": 20
+    }
 
 
 def test_idle_shift_preserves_speed_and_endpoint_order():

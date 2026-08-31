@@ -322,6 +322,9 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         route = scene.routes[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
+        if moved.displacement_cm <= 1.0e-6:
+            ledger.add(Rejection("target_route_static_for_dual_motion"))
+            continue
         camera = scene.camera_points[int(rng.integers(n_cams))]
         end_xy = moved.at(FRAME_COUNT - 1)
         if _too_close(camera, end_xy, params):
@@ -419,6 +422,9 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         route = scene.routes[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
+        if moved.displacement_cm <= 1.0e-6:
+            ledger.add(Rejection("target_route_static_for_dual_motion"))
+            continue
         camera = scene.camera_points[int(rng.integers(n_cams))]
         query_xy = moved.at(query_frame)
         if _too_close(camera, query_xy, params):
@@ -498,10 +504,14 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
     saw_open_overlap = False
     saw_outside_answer_space = False
     saw_motion_rank_mismatch = False
+    saw_static_route = False
     for index in order[:64]:
         ledger.stand_points_evaluated += 1
         route = scene.routes[int(index)]
         if route.route_id == target_route.route_id:
+            continue
+        if route.displacement_cm <= 1.0e-6:
+            saw_static_route = True
             continue
         if target_moves_more is not None:
             observed = target_route.displacement_cm > route.displacement_cm
@@ -549,6 +559,11 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
             "candidate actors existed outside the main MCQ band, but none "
             f"was more than {2.0 * theta_half:.1f} degrees from the main Open "
             "gold"))
+    elif saw_static_route:
+        ledger.add(Rejection(
+            "no_moving_second_actor",
+            "secondary routes were available, but only static routes survived "
+            "the other dual-motion constraints"))
     else:
         ledger.add(Rejection(
             "no_separable_second_actor",
@@ -578,6 +593,9 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
         route = scene.routes[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
+        if moved.displacement_cm <= 1.0e-6:
+            ledger.add(Rejection("target_route_static_for_dual_motion"))
+            continue
         camera = scene.camera_points[int(rng.integers(n_cams))]
         if _too_close(camera, moved.at(instants[0]), params):
             ledger.add(Rejection("camera_too_close_to_target"))
@@ -594,6 +612,8 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
             ledger.stand_points_evaluated += 1
             candidate = scene.routes[int(index)]
             if candidate.route_id == route.route_id:
+                continue
+            if candidate.displacement_cm <= 1.0e-6:
                 continue
             if target_moves_more is not None:
                 observed = moved.displacement_cm > candidate.displacement_cm
